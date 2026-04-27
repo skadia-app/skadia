@@ -22,7 +22,7 @@ import {
   needsMigration,
   migrateRoute,
   migrateRouteCached,
-  __resetMigrationCacheForTesting,
+  clearMigrationCache,
 } from '../migrateRoute'
 
 // ─── Mock getElevationAtVerticesChunked ───────────────────────────────────────
@@ -124,7 +124,7 @@ function makeRoute(overrides: Partial<PlannedRoute> & { segments: RouteSegment[]
 // ─── beforeEach: reset cache + mock ──────────────────────────────────────────
 
 beforeEach(() => {
-  __resetMigrationCacheForTesting()
+  clearMigrationCache()
   getElevationAtVerticesChunkedMock.mockReset()
   // Default: DEM returns empty (simulates no coverage)
   getElevationAtVerticesChunkedMock.mockResolvedValue([])
@@ -545,4 +545,34 @@ it('TestMigration_ApproachEndEqualsNextSplineStart_NoDoubleDrop', async () => {
   expect(result[1].elevation_profile!.length).toBe(1)
   expect(result[1].elevation_profile![0].dist_m).toBe(0)
   expect(result[1].elevation_profile![0].ele_m).toBe(520)
+})
+
+// ─── TestSessionMigratedCache_ClearedOnLogout ─────────────────────────────────
+
+describe('clearMigrationCache — logout multi-user safety', () => {
+  it('TestSessionMigratedCache_ClearedOnLogout: cache populated → clearMigrationCache() → cache empty, DEM called again', async () => {
+    const demProfile = [
+      { dist_m: 0, ele_m: 800 },
+      { dist_m: 5000, ele_m: 850 },
+    ]
+    getElevationAtVerticesChunkedMock.mockResolvedValue(demProfile)
+
+    const seg = makeSegment2D('w1', 'w2')
+    const route = makeRoute({
+      id: 'multi-user-route',
+      segments: [seg],
+      updated_at: '2026-01-01T10:00:00Z',
+    })
+
+    // First call — populates cache
+    await migrateRouteCached(route)
+    expect(getElevationAtVerticesChunkedMock).toHaveBeenCalledTimes(1)
+
+    // Simulate logout: clear the cache (production path via BroadcastChannel)
+    clearMigrationCache()
+
+    // Second call with same key — cache was cleared → DEM called again
+    await migrateRouteCached(route)
+    expect(getElevationAtVerticesChunkedMock).toHaveBeenCalledTimes(2)
+  })
 })

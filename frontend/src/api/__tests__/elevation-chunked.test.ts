@@ -36,7 +36,7 @@ import {
   splitLineStringAtVertices,
   concatProfilesWithDedup,
   computeCumulativeDistancesFromCoords,
-  __resetDemCoverageWarnedForTesting,
+  clearDemCoverageWarning,
 } from '@/api/elevation-chunked'
 
 // ---------------------------------------------------------------------------
@@ -216,7 +216,7 @@ describe('concatProfilesWithDedup', () => {
 describe('getElevationAtVerticesChunked', () => {
   beforeEach(() => {
     vi.resetAllMocks()
-    __resetDemCoverageWarnedForTesting()
+    clearDemCoverageWarning()
   })
 
   test('single call below cap', async () => {
@@ -328,5 +328,33 @@ describe('computeCumulativeDistancesFromCoords', () => {
 
   test('empty array returns empty', () => {
     expect(computeCumulativeDistancesFromCoords([])).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// TestDemCoverageWarning_ClearedOnLogout — multi-user safety
+// ---------------------------------------------------------------------------
+
+describe('clearDemCoverageWarning — logout multi-user safety', () => {
+  test('TestDemCoverageWarning_ClearedOnLogout: warning flag set → clearDemCoverageWarning() → toast fires again', async () => {
+    vi.resetAllMocks()
+    clearDemCoverageWarning()
+
+    const line = makeLine(2)
+    const nullProfile = makeProfile(line.coordinates, [null, null])
+    vi.mocked(getElevationProfile).mockResolvedValue({ profile: nullProfile })
+
+    const addToast = vi.fn()
+
+    // First call: sets the warned flag → toast fires
+    await getElevationAtVerticesChunked(line, addToast)
+    expect(addToast).toHaveBeenCalledOnce()
+
+    // Simulate logout: clear the warning flag (production path via BroadcastChannel)
+    clearDemCoverageWarning()
+
+    // Second call: flag was reset → toast fires again (User B deserves their own warning)
+    await getElevationAtVerticesChunked(line, addToast)
+    expect(addToast).toHaveBeenCalledTimes(2)
   })
 })

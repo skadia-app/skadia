@@ -12,12 +12,29 @@ export const MAX_VERTICES_PER_CALL = 50_000
 let demCoverageWarnedThisSession = false
 
 /**
- * Resets the DEM coverage warned flag. Exported for unit-testing only — do
- * not call in application code.
- * @internal
+ * Clears the DEM coverage warning flag.
+ *
+ * Called on logout to prevent cross-user state leakage: if User A triggered
+ * the "no DEM coverage" warning, User B (different area) should still see the
+ * warning for their own session rather than inheriting User A's suppressed flag.
+ *
+ * Also used in unit tests (via beforeEach) — the production logout path and
+ * the test reset path share this function intentionally.
  */
-export function __resetDemCoverageWarnedForTesting(): void {
+export function clearDemCoverageWarning(): void {
   demCoverageWarnedThisSession = false
+}
+
+// ─── Logout-event subscriber ──────────────────────────────────────────────────
+// Multi-user safety (CLAUDE.md): clear module-level state when the user logs
+// out. Without this, User B inherits User A's DEM-coverage-warning suppression.
+if (typeof BroadcastChannel !== 'undefined') {
+  const _authChannel = new BroadcastChannel('skadia-auth')
+  _authChannel.addEventListener('message', (e: MessageEvent) => {
+    if (e.data?.type === 'logout') {
+      clearDemCoverageWarning()
+    }
+  })
 }
 
 /**

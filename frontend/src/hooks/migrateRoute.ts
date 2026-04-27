@@ -253,10 +253,28 @@ export async function migrateRouteCached(route: PlannedRoute): Promise<RouteSegm
 }
 
 /**
- * Resets the session migration cache. Exported for unit-testing only —
- * do not call in application code.
- * @internal
+ * Clears the session migration cache.
+ *
+ * Called on logout to prevent cross-user cache leakage: when User A logs out
+ * and User B logs in within the same tab, the cache must be flushed so User B
+ * never sees results derived from User A's route data.
+ *
+ * Also used in unit tests (via beforeEach) — the production logout path and
+ * the test reset path share this function intentionally.
  */
-export function __resetMigrationCacheForTesting(): void {
+export function clearMigrationCache(): void {
   sessionMigratedCache.clear()
+}
+
+// ─── Logout-event subscriber ──────────────────────────────────────────────────
+// Multi-user safety (CLAUDE.md): clear the module-level cache when the user
+// logs out. Without this, User B inherits User A's cached segment profiles
+// in the same browser tab.
+if (typeof BroadcastChannel !== 'undefined') {
+  const _authChannel = new BroadcastChannel('skadia-auth')
+  _authChannel.addEventListener('message', (e: MessageEvent) => {
+    if (e.data?.type === 'logout') {
+      clearMigrationCache()
+    }
+  })
 }
