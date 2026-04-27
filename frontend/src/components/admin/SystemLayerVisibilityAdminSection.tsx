@@ -81,7 +81,7 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, visibility, onPatch
   }
 
   return (
-    <li className="grid grid-cols-[1fr_4rem_4rem_10rem] gap-3 items-center px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700">
+    <li className="grid grid-cols-[1fr_5rem_8rem_10rem] gap-3 items-center px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700">
       {/* Key / label */}
       <div className="min-w-0">
         <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
@@ -147,7 +147,7 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, visibility, onPatch
 
 function GroupHeader({ isCoverage }: { isCoverage: boolean }) {
   return (
-    <li className="grid grid-cols-[1fr_4rem_4rem_10rem] gap-3 items-end px-3 pb-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+    <li className="grid grid-cols-[1fr_5rem_8rem_10rem] gap-3 items-end px-3 pb-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
       <span></span>
       <span className="text-center">{LABELS.colEnabled}</span>
       <span className="text-center leading-tight">{LABELS.colDefaultNew}</span>
