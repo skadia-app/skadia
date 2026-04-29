@@ -10,7 +10,7 @@ schema_excerpt: |
   osm_pois: name TEXT, category TEXT, elevation REAL, geom GEOMETRY(POINT)
 domain_knowledge: |
   - "Gipfel bestiegen" = activity_geo_tags WHERE category='summit'
-    Relevante Sportarten: hiking, trail_running, mountaineering, walking
+    Relevante Sportarten: hiking, running + sub_type trail, mountaineering, walking
   - "Pass überquert" = category='pass'
     Relevante Sportarten: cycling, hiking, motorcycle, driving
   - "Einkehr/Hütte" = activity_stops WHERE category='gastronomy'

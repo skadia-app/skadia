@@ -9,7 +9,7 @@ from chat.skill_loader import load_skills
 def test_compact_prompt_contains_rules():
     prompt = assemble_system_prompt(DEFAULT_PROFILES["small"], [], today=date(2026, 3, 8))
     assert "08.03.2026" in prompt
-    assert "Trainingsanalyst" in prompt
+    assert "Sport-Datenassistent" in prompt
     assert "Regeln" in prompt
     assert "Referenzwerte" in prompt
 

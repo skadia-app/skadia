@@ -4,7 +4,7 @@ from agent.sql_agent import validate_sql
 
 
 def test_valid_select():
-    ok, err = validate_sql("SELECT COUNT(*) FROM activities WHERE user_id = :user_id")
+    ok, err = validate_sql("SELECT COUNT(*) FROM activities")
     assert ok, err
 
 
@@ -46,13 +46,19 @@ def test_reject_multi_statement():
 
 def test_accept_join():
     ok, err = validate_sql(
-        "SELECT a.title, g.name FROM activities a JOIN gear g ON a.gear_id = g.id WHERE a.user_id = :user_id"
+        "SELECT a.title, g.name FROM activities a JOIN gear g ON a.gear_id = g.id"
     )
     assert ok, err
 
 
 def test_accept_aggregation():
     ok, err = validate_sql(
-        "SELECT sport_type, COUNT(*) FROM activities WHERE user_id = :user_id GROUP BY sport_type"
+        "SELECT sport_type, COUNT(*) FROM activities GROUP BY sport_type"
     )
     assert ok, err
+
+
+def test_reject_user_id_filter():
+    ok, err = validate_sql("SELECT COUNT(*) FROM activities WHERE user_id = :user_id")
+    assert not ok
+    assert "user_id-Filter" in err
