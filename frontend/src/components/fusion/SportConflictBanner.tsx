@@ -1,9 +1,18 @@
-import { sportLabel } from '@/lib/sportTaxonomy'
+import { sportDetailLabel } from '@/lib/sportTaxonomy'
+
+export interface SportConflictChoice {
+  key: string
+  sportType: string
+  subType?: string | null
+  isElectric?: boolean
+  isIndoor?: boolean
+  isVirtual?: boolean
+}
 
 interface SportConflictBannerProps {
-  sportTypes: string[]
-  selectedSportType: string | null
-  onSelect: (sportType: string) => void
+  choices: SportConflictChoice[]
+  selectedKey: string | null
+  onSelect: (choice: SportConflictChoice) => void
   isSaving?: boolean
 }
 
@@ -12,8 +21,8 @@ interface SportConflictBannerProps {
  * Used in both DuplicateReviewPanel and RecordingGroupPage.
  */
 export default function SportConflictBanner({
-  sportTypes,
-  selectedSportType,
+  choices,
+  selectedKey,
   onSelect,
   isSaving = false,
 }: SportConflictBannerProps) {
@@ -23,18 +32,23 @@ export default function SportConflictBanner({
         Unterschiedliche Sportarten erkannt
       </p>
       <div className="flex gap-3">
-        {sportTypes.map(st => (
+        {choices.map(choice => (
           <button
-            key={st}
-            onClick={() => onSelect(st)}
+            key={choice.key}
+            onClick={() => onSelect(choice)}
             disabled={isSaving}
             className={`flex-1 rounded-lg py-2 text-sm text-center transition-colors border-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-              selectedSportType === st
+              selectedKey === choice.key
                 ? 'border-amber-400 bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-300 font-medium'
                 : 'border-transparent bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:border-amber-300'
             }`}
           >
-            {sportLabel(st)}
+            {sportDetailLabel(choice.sportType, choice.subType)}
+            {(choice.isElectric || choice.isIndoor || choice.isVirtual) && (
+              <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">
+                {choice.isElectric ? 'E' : choice.isIndoor ? 'I' : 'V'}
+              </span>
+            )}
           </button>
         ))}
       </div>

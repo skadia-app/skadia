@@ -57,21 +57,27 @@ function DetailPanel({
 
   return (
     <div className="flex flex-wrap gap-1 pl-3">
-      {catSports.map(s => {
-        const isActive = selectedSportTypes?.includes(s.sportType) ?? false
-        const badges = enrichmentSources?.[s.sportType]
+      {catSports.flatMap(s => {
+        const entries = [{ key: s.sportType, label: s.label }]
+        for (const st of s.subTypes) {
+          entries.push({ key: `${s.sportType}:${st.subType}`, label: st.label })
+        }
+        return entries.map(entry => ({ sport: s, entry }))
+      }).map(({ sport, entry }) => {
+        const isActive = selectedSportTypes?.includes(entry.key) ?? false
+        const badges = enrichmentSources?.[sport.sportType]
 
         return (
-          <div key={s.sportType} className="flex items-center gap-0.5">
+          <div key={entry.key} className="flex items-center gap-0.5">
             <Pill
               size="sm"
               role="checkbox"
               ariaChecked={isActive}
               active={isActive}
-              onClick={() => onToggleSportType(s.sportType)}
+              onClick={() => onToggleSportType(entry.key)}
               leftSlot={isActive ? <Check className="h-3 w-3 shrink-0" /> : undefined}
             >
-              {s.label}
+              {entry.label}
             </Pill>
 
             {/* Enrichment source badges — shown only when enrichmentSources provided */}
@@ -81,7 +87,7 @@ function DetailPanel({
                   <button
                     key={i}
                     type="button"
-                    onClick={() => onClearEnrichmentSource(s.sportType, src)}
+                    onClick={() => onClearEnrichmentSource(sport.sportType, src)}
                     title={`${src.label}${src.coverage != null ? ` (${Math.round(src.coverage * 100)}%)` : ''} — klicken zum Entfernen`}
                     className={cn(
                       'inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0 text-[10px] font-medium',

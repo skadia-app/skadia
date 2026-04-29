@@ -22,6 +22,8 @@ export interface Segment {
   climb_type?: string
   /** null/absent = all sport types allowed; [] = none; [...] = specific list */
   allowed_sport_types?: string[] | null
+  /** null/absent/[] = no subtype restriction; [...] = specific canonical subtypes */
+  allowed_sub_types?: string[] | null
   /** true = segment can be ridden in both directions */
   bidirectional: boolean
 }
@@ -72,6 +74,8 @@ export interface CreateSegmentPayload {
   visibility?: 'public' | 'private'
   /** null = all sport types allowed; [] = none; [...] = specific list */
   allowed_sport_types?: string[] | null
+  /** null/[] = no subtype restriction; [...] = specific canonical subtypes */
+  allowed_sub_types?: string[] | null
   /** nil on wire = use sport-group default (true for most groups) */
   bidirectional?: boolean
 }
@@ -133,6 +137,8 @@ export interface UpdateSegmentPayload {
   visibility?: 'public' | 'private'
   /** absent = unchanged; [] = clear filter (all allowed); [...] = restrict to list */
   allowed_sport_types?: string[]
+  /** absent = unchanged; [] = clear subtype filter; [...] = restrict to listed subtypes */
+  allowed_sub_types?: string[]
   /** absent = unchanged */
   bidirectional?: boolean
 }

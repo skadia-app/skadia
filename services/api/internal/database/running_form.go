@@ -35,6 +35,8 @@ func (db *DB) GetRunningFormBaseline(ctx context.Context, userID string) (*Runni
 		FROM activities
 		WHERE user_id = $1
 			AND running_form_tier IS NOT NULL
+			-- Top-level running covers canonical road, trail, indoor, track, and virtual runs.
+			-- trail_running remains for pre-cleanup rows until compatibility aliases are removed.
 			AND sport_type IN ('running', 'trail_running')
 			AND started_at >= NOW() - INTERVAL '90 days'
 	`, userID)
@@ -60,6 +62,8 @@ func (db *DB) GetRunningFormTrend(ctx context.Context, userID string, from, to *
 		FROM activities
 		WHERE user_id = $1
 			AND running_form_tier IS NOT NULL
+			-- Top-level running covers canonical road, trail, indoor, track, and virtual runs.
+			-- trail_running remains for pre-cleanup rows until compatibility aliases are removed.
 			AND sport_type IN ('running', 'trail_running')
 			AND ($2::timestamptz IS NULL OR started_at >= $2)
 			AND ($3::timestamptz IS NULL OR started_at <= $3 + INTERVAL '1 day')

@@ -1112,6 +1112,10 @@ export interface RecordingGroupMember {
   title_auto: string | null
   started_at: string
   sport_type: string
+  sub_type?: string | null
+  is_electric: boolean
+  is_indoor: boolean
+  is_virtual: boolean
   distance_m: number | null
   elapsed_time_s: number | null
   field_richness: number

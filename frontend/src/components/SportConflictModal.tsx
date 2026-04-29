@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Activity } from '@/api/types'
 import { apiFetch } from '@/lib/auth'
-import { resolveSportConflict } from '@/api/sportConflict'
+import { resolveSportConflict, type ResolveSportConflictPayload } from '@/api/sportConflict'
 import { useToast } from '@/lib/toast'
-import { CATEGORIES, SPORT_DEFS, sportLabel } from '@/lib/sportTaxonomy'
+import { CATEGORIES, SPORT_DEFS, normalizeSportTuple, sportDetailLabel } from '@/lib/sportTaxonomy'
 
 interface SportConflictModalProps {
   activity: Activity
@@ -45,23 +45,37 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
   const allSports = useMemo(() => {
     return SPORT_DEFS.map(sd => {
       const cat = CATEGORIES.find(c => c.key === sd.categoryKey)
-      return { key: sd.sportType, label: sd.label, category: cat?.label ?? sd.categoryKey }
-    })
+      const entries = [{ sportType: sd.sportType, subType: '', label: sd.label, category: cat?.label ?? sd.categoryKey }]
+      for (const st of sd.subTypes) {
+        entries.push({ sportType: sd.sportType, subType: st.subType, label: st.label, category: cat?.label ?? sd.categoryKey })
+      }
+      return entries
+    }).flat()
   }, [])
 
   const filtered = useMemo(() => {
     if (!search) return allSports
     const q = search.toLowerCase()
     return allSports.filter(s =>
-      s.label.toLowerCase().includes(q) || s.key.includes(q)
+      s.label.toLowerCase().includes(q) || s.sportType.includes(q) || s.subType.includes(q)
     )
   }, [allSports, search])
 
-  const handleResolve = async (sportType?: string) => {
+  const payloadForSport = (sportType: string, subType = ''): ResolveSportConflictPayload => {
+    const tuple = normalizeSportTuple(sportType, subType)
+    return {
+      sport_type: tuple.sportType,
+      sub_type: tuple.subType || undefined,
+      is_electric: tuple.modifiers.isElectric,
+      is_indoor: tuple.modifiers.isIndoor,
+    }
+  }
+
+  const handleResolve = async (sport?: ResolveSportConflictPayload) => {
     setLoading(true)
     try {
-      await resolveSportConflict(activity.id, sportType)
-      addToast({ type: 'success', title: sportType ? 'Sport-Typ aktualisiert' : 'Sport-Konflikt aufgelöst' })
+      await resolveSportConflict(activity.id, sport)
+      addToast({ type: 'success', title: sport ? 'Sport-Typ aktualisiert' : 'Sport-Konflikt aufgelöst' })
       onResolved()
       onClose()
     } catch {
@@ -103,11 +117,11 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-zinc-800 rounded-lg p-3 text-center">
                 <div className="text-xs text-zinc-500 mb-1">{sourceLabel(conflict.platform_source)}</div>
-                <div className="text-sm font-medium text-zinc-200">{sportLabel(conflict.platform_sport)}</div>
+                <div className="text-sm font-medium text-zinc-200">{sportDetailLabel(conflict.platform_sport)}</div>
               </div>
               <div className="bg-zinc-800 rounded-lg p-3 text-center">
                 <div className="text-xs text-zinc-500 mb-1">{sourceLabel(conflict.file_source)}</div>
-                <div className="text-sm font-medium text-zinc-200">{sportLabel(conflict.file_sport)}</div>
+                <div className="text-sm font-medium text-zinc-200">{sportDetailLabel(conflict.file_sport)}</div>
               </div>
             </div>
           )}
@@ -117,17 +131,17 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
             <div className="flex gap-2">
               <button
                 disabled={loading}
-                onClick={() => handleResolve(conflict.platform_sport)}
+                onClick={() => handleResolve(payloadForSport(conflict.platform_sport))}
                 className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm text-zinc-200 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {sportLabel(conflict.platform_sport)}
+                {sportDetailLabel(conflict.platform_sport)}
               </button>
               <button
                 disabled={loading}
-                onClick={() => handleResolve(conflict.file_sport)}
+                onClick={() => handleResolve(payloadForSport(conflict.file_sport))}
                 className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm text-zinc-200 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {sportLabel(conflict.file_sport)}
+                {sportDetailLabel(conflict.file_sport)}
               </button>
             </div>
           )}
@@ -146,9 +160,9 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {filtered.map(s => (
               <button
-                key={s.key}
+                key={`${s.sportType}:${s.subType}`}
                 disabled={loading}
-                onClick={() => handleResolve(s.key)}
+                onClick={() => handleResolve(payloadForSport(s.sportType, s.subType))}
                 className="w-full text-left px-3 py-1.5 rounded hover:bg-zinc-800 text-sm text-zinc-300 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span>{s.label}</span>

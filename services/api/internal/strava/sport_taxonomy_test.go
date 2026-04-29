@@ -33,6 +33,24 @@ func TestNormalizeStravaSportFields(t *testing.T) {
 			wantIndoor:  true,
 		},
 		{
+			name:        "gravel",
+			input:       "Gravel Ride",
+			wantSport:   "cycling",
+			wantSubType: "gravel_cycling",
+		},
+		{
+			name:        "trail",
+			input:       "Trail Run",
+			wantSport:   "running",
+			wantSubType: "trail",
+		},
+		{
+			name:        "open water swim",
+			input:       "Open Water Swim",
+			wantSport:   "swimming",
+			wantSubType: "open_water",
+		},
+		{
 			name:        "virtual ride",
 			input:       "Virtual Ride",
 			wantSport:   "cycling",

@@ -258,7 +258,7 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 		Source:               ptrString(data.Source),
 		SourceDevice:         ptrString(data.SourceDevice),
 		StartedAt:            data.StartedAt,
-		IsElectric:              isElectric,
+		IsElectric:           isElectric,
 		IsIndoor:             data.IsIndoor,
 		HasGPS:               data.HasGPS,
 		NeedsClassification:  data.SportType == "unknown",
@@ -277,7 +277,7 @@ func (db *DB) GetChildActivities(ctx context.Context, parentID string) ([]model.
 		SELECT id, user_id, sport_type, sub_type, title, title_auto, started_at,
 		       elapsed_time_s, moving_time_s, distance_m, elevation_gain_m,
 		       elevation_loss_m, avg_heart_rate, avg_power_w, parent_id,
-		       is_indoor, has_gps, enrichment_status, visibility,
+		       is_indoor, is_electric, is_virtual, has_gps, enrichment_status, visibility,
 		       COALESCE(tags, '{}'),
 		       file_hash, file_id, original_filename, original_file_format
 		FROM activities
@@ -295,7 +295,7 @@ func (db *DB) GetChildActivities(ctx context.Context, parentID string) ([]model.
 			&a.ID, &a.UserID, &a.SportType, &a.SubType, &a.Title, &a.TitleAuto, &a.StartedAt,
 			&a.ElapsedTimeS, &a.MovingTimeS, &a.DistanceM, &a.ElevationGainM,
 			&a.ElevationLossM, &a.AvgHeartRate, &a.AvgPowerW, &a.ParentID,
-			&a.IsIndoor, &a.HasGPS, &a.EnrichmentStatus, &a.Visibility,
+			&a.IsIndoor, &a.IsElectric, &a.IsVirtual, &a.HasGPS, &a.EnrichmentStatus, &a.Visibility,
 			&a.Tags,
 			&a.FileHash, &a.FileID, &a.OriginalFilename, &a.OriginalFileFormat,
 		); err != nil {

@@ -81,29 +81,17 @@ export const CATEGORY_PREFIXES = {
 export const POOL_BADGE = 'B'
 export const OW_BADGE = 'FW'
 
-/**
- * Mapping from sport_group values (used in BestEffortRanked.sport_group) to
- * sport_type values (used in SegmentEffort.sport_type / sportTaxonomy.ts).
- * Used as the base for matchesSportGroup() below.
- *
- * NOTE: Garmin FIT files encode trail running as sport=running + sub_sport=trail,
- * not as a distinct trail_running sport_type — the FIT enum has no such value.
- * Migration 000037 normalized historical trail_running rows to (running, trail).
- * matchesSportGroup() therefore inspects sub_type to disambiguate running vs.
- * running_trail; the base list keeps trail_running for future Strava/GPX/TCX
- * imports that may still surface that string.
- */
 export const SPORT_GROUP_TO_SPORT_TYPES: Record<string, string[]> = {
   running:          ['running'],
-  running_trail:    ['trail_running'],
-  running_indoor:   ['treadmill_running'],
-  running_virtual:  ['running'],  // virtual running has no distinct sport_type in taxonomy
+  running_trail:    ['running', 'trail_running'],
+  running_indoor:   ['running', 'treadmill_running'],
+  running_virtual:  ['running'],
   cycling:          ['cycling', 'mountain_biking', 'gravel_cycling'],
-  cycling_electric: ['cycling'],  // e-bike has no distinct sport_type in taxonomy
-  cycling_virtual:  ['indoor_cycling'],
+  cycling_electric: ['cycling'],
+  cycling_virtual:  ['cycling', 'indoor_cycling'],
   hiking:           ['hiking', 'mountaineering', 'snowshoeing'],
-  swim_pool:        ['lap_swimming'],
-  swim_ow:          ['open_water_swimming', 'swimming'],
+  swim_pool:        ['swimming', 'lap_swimming'],
+  swim_ow:          ['swimming', 'open_water_swimming'],
 }
 
 /** Predicate for filtering SegmentEffort / similar records by best-efforts sport_group. */
@@ -115,13 +103,22 @@ export function matchesSportGroup(
   const matchesType = types.includes(effort.sport_type)
 
   if (sportGroup === 'running_trail') {
-    // (running, trail) is the Garmin-FIT canonical representation; trail_running
-    // is the legacy Strava/GPX/TCX representation — accept both.
     return matchesType || (effort.sport_type === 'running' && effort.sub_type === 'trail')
   }
+  if (sportGroup === 'running_indoor') {
+    return matchesType && (effort.sport_type === 'treadmill_running' || effort.sub_type === 'indoor_running')
+  }
   if (sportGroup === 'running') {
-    // Plain road running: exclude entries that should belong to running_trail.
-    return matchesType && effort.sub_type !== 'trail'
+    return matchesType && effort.sub_type !== 'trail' && effort.sub_type !== 'indoor_running'
+  }
+  if (sportGroup === 'cycling_virtual') {
+    return matchesType && (effort.sport_type === 'indoor_cycling' || effort.sub_type === 'indoor_cycling')
+  }
+  if (sportGroup === 'swim_pool') {
+    return matchesType && (effort.sport_type === 'lap_swimming' || effort.sub_type === 'lap_swimming')
+  }
+  if (sportGroup === 'swim_ow') {
+    return matchesType && (effort.sport_type === 'open_water_swimming' || effort.sub_type === 'open_water' || !effort.sub_type)
   }
   return matchesType
 }

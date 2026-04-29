@@ -89,22 +89,19 @@ function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
     return ANALYTICS_SPORT_OPTIONS
   }, [hideUnused, existingSportTypes])
 
-  // Analytics uses plain sport type values (not composite sport:subType keys)
-  // because the backend filters on a.sport_type directly.
   const selectedSet = useMemo(() => new Set(selected), [selected])
 
-  function toggleSport(sportType: string) {
-    if (selectedSet.has(sportType)) {
-      onChange(selected.filter(s => s !== sportType))
+  function toggleSport(key: string) {
+    if (selectedSet.has(key)) {
+      onChange(selected.filter(s => s !== key))
     } else {
-      onChange([...selected, sportType])
+      onChange([...selected, key])
     }
   }
 
   function toggleParent(parent: SportOption) {
     if (!parent.children) return
-    const childValues = parent.children.map(c => c.value)
-    const unique = [...new Set(childValues)]
+    const unique = [...new Set(parent.children.map(getOptionKey))]
     const allSelected = unique.every(v => selectedSet.has(v))
     if (allSelected) {
       onChange(selected.filter(s => !unique.includes(s)))
@@ -116,13 +113,13 @@ function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
 
   function isParentChecked(parent: SportOption): boolean {
     if (!parent.children) return false
-    const childValues = [...new Set(parent.children.map(c => c.value))]
+    const childValues = [...new Set(parent.children.map(getOptionKey))]
     return childValues.every(v => selectedSet.has(v))
   }
 
   function isParentIndeterminate(parent: SportOption): boolean {
     if (!parent.children) return false
-    const childValues = [...new Set(parent.children.map(c => c.value))]
+    const childValues = [...new Set(parent.children.map(getOptionKey))]
     const count = childValues.filter(v => selectedSet.has(v)).length
     return count > 0 && count < childValues.length
   }
@@ -156,7 +153,8 @@ function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
               for (const opt of visibleOptions) {
                 if (opt.children) {
                   for (const c of opt.children) {
-                    if (!all.includes(c.value)) all.push(c.value)
+                    const key = getOptionKey(c)
+                    if (!all.includes(key)) all.push(key)
                   }
                 } else {
                   if (!all.includes(opt.value)) all.push(opt.value)
@@ -212,8 +210,8 @@ function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
                         <label key={getOptionKey(child)} className="flex items-center gap-2 cursor-pointer group">
                           <input
                             type="checkbox"
-                            checked={selectedSet.has(child.value)}
-                            onChange={() => toggleSport(child.value)}
+                            checked={selectedSet.has(getOptionKey(child))}
+                            onChange={() => toggleSport(getOptionKey(child))}
                             className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-[var(--color-accent-DEFAULT)] focus:ring-[var(--color-accent-DEFAULT)] focus:ring-1"
                           />
                           <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">

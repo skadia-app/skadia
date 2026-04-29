@@ -8,6 +8,7 @@ import { useToast } from '@/lib/toast'
 import DuplicateReviewPanel from '@/components/DuplicateReviewPanel'
 import FusionGroupContextDialog from '@/components/fusion/FusionGroupContextDialog'
 import { fmtDateCompact } from '@/lib/format'
+import { sportDetailLabel } from '@/lib/sportTaxonomy'
 
 function fmtDist(m: number): string {
   if (m < 1000) return `${Math.round(m)} m`
@@ -28,6 +29,10 @@ function CandidateRow({ c, onDismissed }: { c: FusionQueueEntry; onDismissed: ()
     } catch {
       addToast({ type: 'error', title: 'Dismiss fehlgeschlagen', message: 'Kandidat konnte nicht ignoriert werden.', duration: 0 })
     }
+  }
+
+  function sportMeta(sportType: string, subType: string, isElectric: boolean) {
+    return `${sportDetailLabel(sportType, subType || null)}${isElectric ? ' · E-Bike' : ''}`
   }
 
   function handleFusionClick() {
@@ -52,7 +57,7 @@ function CandidateRow({ c, onDismissed }: { c: FusionQueueEntry; onDismissed: ()
                   </span>
                 )}
               </div>
-              <p className="text-xs text-neutral-400">{fmtDateCompact(c.started_at_a, null)} · {fmtDist(c.distance_m_a)}</p>
+              <p className="text-xs text-neutral-400">{fmtDateCompact(c.started_at_a, null)} · {fmtDist(c.distance_m_a)} · {sportMeta(c.sport_type_a, c.sub_type_a, c.is_electric_a)}</p>
             </div>
             <div className="text-neutral-400 self-center text-xs">↔</div>
             <div className="min-w-0">
@@ -64,7 +69,7 @@ function CandidateRow({ c, onDismissed }: { c: FusionQueueEntry; onDismissed: ()
                   </span>
                 )}
               </div>
-              <p className="text-xs text-neutral-400">{fmtDateCompact(c.started_at_b, null)} · {fmtDist(c.distance_m_b)}</p>
+              <p className="text-xs text-neutral-400">{fmtDateCompact(c.started_at_b, null)} · {fmtDist(c.distance_m_b)} · {sportMeta(c.sport_type_b, c.sub_type_b, c.is_electric_b)}</p>
             </div>
           </div>
           <p className="text-xs text-neutral-400 mt-1">
