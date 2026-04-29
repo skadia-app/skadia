@@ -101,4 +101,5 @@ Sichere Kombination bei Deployment-Rollbacks:
 
 ## Lizenz
 
-TBD
+GNU Affero General Public License v3.0 (AGPL-3.0). Volltext unter [LICENSE](LICENSE).
+Beiträge unterliegen automatisch derselben Lizenz, siehe [CONTRIBUTING.md](CONTRIBUTING.md).
