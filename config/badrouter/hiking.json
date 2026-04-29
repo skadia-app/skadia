@@ -2,6 +2,7 @@
   "profile": "hiking",
   "name": "Wandern",
   "sport_types": ["hiking", "trail_running", "running", "walking", "mountaineering"],
+  "predicates": [{"sport":"hiking"},{"sport":"running","sub_type":"trail"},{"sport":"running"},{"sport":"walking"},{"sport":"mountaineering"}],
   "uphill_cost": 7,
   "downhill_cost": 7,
   "uphill_cutoff_pct": 3,

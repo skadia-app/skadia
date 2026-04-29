@@ -1,4 +1,5 @@
 import { apiClient, apiUpload, API_BASE } from './client'
+import type { ModifierFilters, SportPredicate } from '@/lib/sportPredicates'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -10,6 +11,8 @@ export interface RoutingProfileEntry {
   engine: 'badrouter' | 'brouter'
   base_profile: string
   sport_types: string[]
+  predicates?: SportPredicate[]
+  modifier_filters?: ModifierFilters
   source: ProfileSource
   config: Record<string, unknown> | null
   editable: boolean

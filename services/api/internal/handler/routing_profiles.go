@@ -18,6 +18,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -45,14 +46,80 @@ var brouterSportTypes = map[string][]string{
 
 // profileListItem is one entry in the HandleListProfiles response.
 type profileListItem struct {
-	ID          *string          `json:"id"`
-	Name        string           `json:"name"`
-	Engine      string           `json:"engine"`
-	BaseProfile string           `json:"base_profile"`
-	SportTypes  []string         `json:"sport_types"`
-	Source      string           `json:"source"`
-	Config      *json.RawMessage `json:"config"`
-	Editable    bool             `json:"editable"`
+	ID              *string               `json:"id"`
+	Name            string                `json:"name"`
+	Engine          string                `json:"engine"`
+	BaseProfile     string                `json:"base_profile"`
+	SportTypes      []string              `json:"sport_types"`
+	Predicates      []sport.Predicate     `json:"predicates"`
+	ModifierFilters sport.ModifierFilters `json:"modifier_filters"`
+	Source          string                `json:"source"`
+	Config          *json.RawMessage      `json:"config"`
+	Editable        bool                  `json:"editable"`
+}
+
+func profileListItemFromDBProfile(dp database.RoutingProfile, userID string) profileListItem {
+	id := dp.ID
+	editable := dp.Source == routing.SourceUser && dp.UserID != nil && *dp.UserID == userID
+	var configMsg *json.RawMessage
+	if len(dp.Config) > 0 {
+		msg := json.RawMessage(dp.Config)
+		configMsg = &msg
+	}
+	preds, err := sport.PredicatesFromSportTypes(dp.SportTypes)
+	if err != nil {
+		preds = []sport.Predicate{}
+	}
+	sportTypes := sport.SportTypesFromPredicates(preds)
+	return profileListItem{
+		ID:              &id,
+		Name:            dp.Name,
+		Engine:          "badrouter",
+		BaseProfile:     dp.BaseProfile,
+		SportTypes:      sportTypes,
+		Predicates:      preds,
+		ModifierFilters: sport.ModifierFilters{},
+		Source:          dp.Source,
+		Config:          configMsg,
+		Editable:        editable,
+	}
+}
+
+func profileListItemFromBRouterProfile(name string, sportTypes []string) profileListItem {
+	preds, err := sport.PredicatesFromSportTypes(sportTypes)
+	if err != nil {
+		preds = []sport.Predicate{}
+	}
+	return profileListItem{
+		ID:              nil,
+		Name:            name,
+		Engine:          "brouter",
+		BaseProfile:     name,
+		SportTypes:      sport.SportTypesFromPredicates(preds),
+		Predicates:      preds,
+		ModifierFilters: sport.ModifierFilters{},
+		Source:          routing.SourceFilesystem,
+		Config:          nil,
+		Editable:        false,
+	}
+}
+
+func rejectPredicateStorageFieldsBeforeMigration(predicates *[]sport.Predicate, modifierFilters *sport.ModifierFilters) error {
+	if predicates != nil || modifierFilters != nil {
+		return fmt.Errorf("predicate storage is not available until migration 000339")
+	}
+	return nil
+}
+
+func validateLegacySportTypesForProfile(sportTypes []string) ([]sport.Predicate, error) {
+	preds, err := sport.PredicatesFromSportTypes(sportTypes)
+	if err != nil {
+		return nil, err
+	}
+	if err := sport.ValidatePredicates(preds, false); err != nil {
+		return nil, err
+	}
+	return preds, nil
 }
 
 // HandleListProfiles returns the combined list of system, user/filesystem, and BRouter profiles.
@@ -73,23 +140,7 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, dp := range dbProfiles {
-		id := dp.ID
-		editable := dp.Source == routing.SourceUser && dp.UserID != nil && *dp.UserID == userID
-		var configMsg *json.RawMessage
-		if len(dp.Config) > 0 {
-			msg := json.RawMessage(dp.Config)
-			configMsg = &msg
-		}
-		profiles = append(profiles, profileListItem{
-			ID:          &id,
-			Name:        dp.Name,
-			Engine:      "badrouter",
-			BaseProfile: dp.BaseProfile,
-			SportTypes:  dp.SportTypes,
-			Source:      dp.Source,
-			Config:      configMsg,
-			Editable:    editable,
-		})
+		profiles = append(profiles, profileListItemFromDBProfile(dp, userID))
 	}
 
 	// 2. BRouter profiles from filesystem (cached with TTL to avoid per-request Glob).
@@ -109,16 +160,7 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 			if st == nil {
 				st = []string{}
 			}
-			items = append(items, profileListItem{
-				ID:          nil,
-				Name:        base,
-				Engine:      "brouter",
-				BaseProfile: base,
-				SportTypes:  st,
-				Source:      routing.SourceFilesystem,
-				Config:      nil,
-				Editable:    false,
-			})
+			items = append(items, profileListItemFromBRouterProfile(base, st))
 		}
 		brouterCacheMu.Lock()
 		brouterCacheItems = items
@@ -136,10 +178,12 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 
 // createProfileRequest is the request body for POST /routing/profiles.
 type createProfileRequest struct {
-	Name        string               `json:"name"`
-	BaseProfile string               `json:"base_profile"`
-	SportTypes  []string             `json:"sport_types"`
-	Config      routing.ProfileConfig `json:"config"`
+	Name            string                 `json:"name"`
+	BaseProfile     string                 `json:"base_profile"`
+	SportTypes      []string               `json:"sport_types"`
+	Predicates      *[]sport.Predicate     `json:"predicates,omitempty"`
+	ModifierFilters *sport.ModifierFilters `json:"modifier_filters,omitempty"`
+	Config          routing.ProfileConfig  `json:"config"`
 }
 
 // HandleCreateProfile creates a new user-owned routing profile.
@@ -167,8 +211,19 @@ func (h *Handler) HandleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown base_profile", r.URL.Path)
 		return
 	}
+	if err := rejectPredicateStorageFieldsBeforeMigration(req.Predicates, req.ModifierFilters); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 
-	if err := routing.ValidateFullProfile(req.Config, req.SportTypes); err != nil {
+	preds, err := validateLegacySportTypesForProfile(req.SportTypes)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	canonicalSportTypes := sport.SportTypesFromPredicates(preds)
+
+	if err := routing.ValidateFullProfile(req.Config, canonicalSportTypes); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
@@ -179,7 +234,7 @@ func (h *Handler) HandleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, err := h.DB.CreateRoutingProfile(r.Context(), userID, req.Name, req.BaseProfile, req.SportTypes, configJSON)
+	profile, err := h.DB.CreateRoutingProfile(r.Context(), userID, req.Name, req.BaseProfile, canonicalSportTypes, configJSON)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -191,14 +246,16 @@ func (h *Handler) HandleCreateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusCreated, profile)
+	httputil.WriteJSON(w, http.StatusCreated, profileListItemFromDBProfile(*profile, userID))
 }
 
 // updateProfileRequest is the request body for PUT /routing/profiles/{id}.
 type updateProfileRequest struct {
-	Name       string               `json:"name"`
-	SportTypes []string             `json:"sport_types"`
-	Config     routing.ProfileConfig `json:"config"`
+	Name            string                 `json:"name"`
+	SportTypes      []string               `json:"sport_types"`
+	Predicates      *[]sport.Predicate     `json:"predicates,omitempty"`
+	ModifierFilters *sport.ModifierFilters `json:"modifier_filters,omitempty"`
+	Config          routing.ProfileConfig  `json:"config"`
 }
 
 // HandleUpdateProfile updates an existing user-owned routing profile.
@@ -235,8 +292,19 @@ func (h *Handler) HandleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name is required", r.URL.Path)
 		return
 	}
+	if err := rejectPredicateStorageFieldsBeforeMigration(req.Predicates, req.ModifierFilters); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 
-	if err := routing.ValidateFullProfile(req.Config, req.SportTypes); err != nil {
+	preds, err := validateLegacySportTypesForProfile(req.SportTypes)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	canonicalSportTypes := sport.SportTypesFromPredicates(preds)
+
+	if err := routing.ValidateFullProfile(req.Config, canonicalSportTypes); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
@@ -247,7 +315,7 @@ func (h *Handler) HandleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.DB.UpdateRoutingProfile(r.Context(), id, req.Name, req.SportTypes, configJSON)
+	updated, err := h.DB.UpdateRoutingProfile(r.Context(), id, req.Name, canonicalSportTypes, configJSON)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -259,7 +327,7 @@ func (h *Handler) HandleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, updated)
+	httputil.WriteJSON(w, http.StatusOK, profileListItemFromDBProfile(*updated, userID))
 }
 
 // HandleDeleteProfile deletes a user-owned routing profile.

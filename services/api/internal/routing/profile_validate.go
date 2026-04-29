@@ -26,6 +26,11 @@ func ValidateProfileConfig(p ProfileConfig) error {
 			return fmt.Errorf("profile %q is not valid: must be one of hiking, mtb, gravel, trekking, road", p.Profile)
 		}
 	}
+	if len(p.Predicates) > 0 {
+		if err := sport.ValidatePredicates(p.Predicates, false); err != nil {
+			return err
+		}
+	}
 
 	// Elevation
 	if p.UphillCost != nil {
@@ -195,10 +200,15 @@ func ValidateFullProfile(cfg ProfileConfig, sportTypes []string) error {
 	if err := ValidateBuiltinCompleteness(cfg); err != nil {
 		return fmt.Errorf("profile config incomplete: %w", err)
 	}
-	if err := ValidateSportTypes(sportTypes); err != nil {
-		return err
+	preds := cfg.Predicates
+	if len(preds) == 0 {
+		var err error
+		preds, err = sport.PredicatesFromSportTypes(sportTypes)
+		if err != nil {
+			return err
+		}
 	}
-	return nil
+	return sport.ValidatePredicates(preds, false)
 }
 
 // ValidateSportTypes checks that each entry in types is a known sport type key

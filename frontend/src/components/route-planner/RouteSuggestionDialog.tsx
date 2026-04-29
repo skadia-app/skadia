@@ -7,21 +7,13 @@ import {
 } from '@/api/routes'
 import { fetchAllProfiles, type RoutingProfileEntry } from '@/api/routingProfiles'
 import { useAccentColor } from '@/lib/accentColor'
+import { modifiersMatch, predicatesMatch, type ActivityModifierState, type ModifierFilters } from '@/lib/sportPredicates'
+import { routeSportOptions } from '@/lib/sportTaxonomy'
 import { useToast } from '@/lib/toast'
 import { ModalShell } from '@/components/ui/ModalShell'
 import Toggle from '@/components/Toggle'
 
-// Sport options for route planning (GPS-tracked outdoor sports)
-const ROUTE_SPORT_OPTIONS = [
-  { value: 'cycling', label: 'Radfahren' },
-  { value: 'mountain_biking', label: 'MTB' },
-  { value: 'gravel_cycling', label: 'Gravel' },
-  { value: 'running', label: 'Laufen' },
-  { value: 'trail_running', label: 'Trail Running' },
-  { value: 'hiking', label: 'Wandern' },
-  { value: 'mountaineering', label: 'Bergsteigen' },
-  { value: 'walking', label: 'Gehen' },
-] as const
+const ROUTE_SPORT_OPTIONS = routeSportOptions()
 
 const SURFACE_OPTIONS = [
   { value: 'trails', label: 'Naturwege / Singletrail' },
@@ -52,7 +44,6 @@ const MTB_SCALE_OPTIONS = [
 
 // Profiles that indicate hiking/trekking base for SAC display
 const HIKING_BASE_PROFILES = new Set(['hiking', 'trekking', 'mountaineering', 'walking'])
-const MTB_BASE_PROFILES = new Set(['mtb', 'mountain_biking'])
 
 interface PreferenceSliderProps {
   label: string
@@ -83,6 +74,12 @@ function PreferenceSlider({ label, value, onChange, accentColor }: PreferenceSli
   )
 }
 
+function isMtbProfile(profile: RoutingProfileEntry): boolean {
+  if (profile.base_profile === 'mtb') return true
+  if (profile.predicates?.some(p => p.sport === 'cycling' && p.sub_type === 'mountain')) return true
+  return profile.sport_types.includes('mountain_biking')
+}
+
 export interface RouteSuggestionDialogProps {
   /** Start coordinate as [lng, lat] — either first planner waypoint or current map center */
   start: [number, number]
@@ -108,6 +105,8 @@ export default function RouteSuggestionDialog({
 
   // Sport + Profile selection
   const [sportType, setSportType] = useState('cycling')
+  const [subType, setSubType] = useState<string | undefined>(undefined)
+  const [isElectric, setIsElectric] = useState(false)
   const [selectedProfile, setSelectedProfile] = useState<string>('')
 
   // Round-trip + Terra Incognita toggles
@@ -138,10 +137,18 @@ export default function RouteSuggestionDialog({
     staleTime: 60_000,
   })
 
-  // Filter profiles by selected sport
-  const filteredProfiles: RoutingProfileEntry[] = (profilesData?.profiles ?? []).filter(p =>
-    p.sport_types.includes(sportType)
-  )
+  const modifierState: ActivityModifierState = {
+    is_electric: isElectric,
+  }
+  const requestModifiers: ModifierFilters | undefined = isElectric ? { is_electric: true } : undefined
+
+  // Filter profiles by selected sport tuple.
+  const filteredProfiles: RoutingProfileEntry[] = (profilesData?.profiles ?? []).filter(p => {
+    const predicateMatch = p.predicates
+      ? predicatesMatch(p.predicates, sportType, subType)
+      : p.sport_types.includes(sportType)
+    return predicateMatch && modifiersMatch(p.modifier_filters, modifierState)
+  })
 
   // Auto-select first matching profile when sport changes (or when profiles load)
   const effectiveProfile = (() => {
@@ -154,10 +161,15 @@ export default function RouteSuggestionDialog({
   const selectedProfileEntry = filteredProfiles.find(p => p.name === effectiveProfile)
   const baseProfile = selectedProfileEntry?.base_profile ?? ''
   const showSacScale = HIKING_BASE_PROFILES.has(baseProfile)
-  const showMtbScale = MTB_BASE_PROFILES.has(baseProfile)
+  const showMtbScale = selectedProfileEntry ? isMtbProfile(selectedProfileEntry) : false
 
-  const handleSportChange = (sport: string) => {
+  const selectedSportKey = `${sportType}::${subType ?? ''}`
+
+  const handleSportChange = (key: string) => {
+    const [sport, sub = ''] = key.split('::')
     setSportType(sport)
+    setSubType(sub || undefined)
+    if (sport !== 'cycling') setIsElectric(false)
     setSelectedProfile('') // reset so auto-select kicks in
   }
 
@@ -179,6 +191,8 @@ export default function RouteSuggestionDialog({
         round_trip: roundTrip,
         target_distance_m: distanceKm * 1000,
         sport_type: sportType,
+        sub_type: subType,
+        modifiers: requestModifiers,
         profile: effectiveProfile,
         prefer_unknown: preferUnknown || undefined,
         landscape_prefs: {
@@ -254,16 +268,30 @@ export default function RouteSuggestionDialog({
           </label>
           <select
             id="rsd-sport"
-            value={sportType}
+            value={selectedSportKey}
             onChange={e => handleSportChange(e.target.value)}
             className="w-full px-3 py-2 rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm text-neutral-900 dark:text-neutral-50 focus:outline-none focus:ring-2"
             style={{ '--tw-ring-color': accent.shade400 } as React.CSSProperties}
           >
             {ROUTE_SPORT_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+              <option key={`${opt.sportType}::${opt.subType ?? ''}`} value={`${opt.sportType}::${opt.subType ?? ''}`}>{opt.label}</option>
             ))}
           </select>
         </div>
+
+        {sportType === 'cycling' && (
+          <label className="flex items-center justify-between gap-3 cursor-pointer group">
+            <div>
+              <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block">
+                E-Bike
+              </span>
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                Elektrische Unterstützung berücksichtigen
+              </span>
+            </div>
+            <Toggle checked={isElectric} onChange={setIsElectric} size="sm" aria-label="E-Bike" />
+          </label>
+        )}
 
         {/* Profil */}
         <div>
