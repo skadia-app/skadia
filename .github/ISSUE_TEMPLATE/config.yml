@@ -1,0 +1,17 @@
+# GitHub picks this up automatically and rewrites the "New issue" page.
+#
+# 
+# 
+# 
+# 
+# 
+
+blank_issues_enabled: false
+
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/skadia-app/skadia/security/advisories/new
+    about: For security issues, follow the private-disclosure process in SECURITY.md instead of opening a public issue.
+  - name: Question or discussion
+    url: https://github.com/skadia-app/skadia/discussions
+    about: For open-ended questions or design discussions, GitHub Discussions keeps the issue tracker focused on actionable bugs and features.
