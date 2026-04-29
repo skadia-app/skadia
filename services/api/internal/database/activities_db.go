@@ -18,6 +18,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // devAppDeviceIndex is a sentinel device index for developer apps,
@@ -317,12 +318,12 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex, // $138-$141
 		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng, // $142-$145
 		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe), // $146-$148
-		nilIfEmpty(data.Timezone),                                                          // $149
+		nilIfEmpty(data.Timezone),                                                 // $149
 		nilIfZeroInt(data.MaxCadence), data.MinTemperatureC, data.MaxTemperatureC, // $150-$152
-		nilIfZeroInt(data.NumSessions),                                           // $153
+		nilIfZeroInt(data.NumSessions),                                                         // $153
 		data.Vo2MaxMlKgMin, data.Vo2MaxCalibrated, data.Vo2MaxHrSource, data.Vo2MaxSpeedSource, // $154-$157
-		nilIfZeroInt(data.GpsAccuracyM),                                                        // $158
-		data.SuuntoVO2max, data.SuuntoPeakEPOC, data.SuuntoRecoveryTimeH,                      // $159-$161
+		nilIfZeroInt(data.GpsAccuracyM),                                  // $158
+		data.SuuntoVO2max, data.SuuntoPeakEPOC, data.SuuntoRecoveryTimeH, // $159-$161
 	).Scan(&id, &isElectric, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -336,7 +337,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		Source:               ptrString(data.Source),
 		SourceDevice:         ptrString(data.SourceDevice),
 		StartedAt:            data.StartedAt,
-		IsElectric:              isElectric,
+		IsElectric:           isElectric,
 		IsVirtual:            isVirtual,
 		ExcludeFromHeatmap:   isVirtual,
 		ExcludeFromStats:     false,
@@ -1221,25 +1222,55 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	if update.SportType != nil || update.SubType != nil {
 		// Load parsed values to compare — sport_type_is_manual should only be
 		// true when the manual value differs from the parser-detected value.
-		var parsedSportType, parsedSubType *string
+		var currentSportType string
+		var currentSubType, parsedSportType, parsedSubType *string
 		_ = db.Pool.QueryRow(ctx,
-			`SELECT parsed_sport_type, parsed_sub_type FROM activities WHERE id = $1`, id,
-		).Scan(&parsedSportType, &parsedSubType)
+			`SELECT sport_type, sub_type, parsed_sport_type, parsed_sub_type FROM activities WHERE id = $1 AND user_id = $2`,
+			id, userID,
+		).Scan(&currentSportType, &currentSubType, &parsedSportType, &parsedSubType)
 
+		rawSportType := currentSportType
 		if update.SportType != nil {
-			b.Set("sport_type", *update.SportType)
+			rawSportType = *update.SportType
 		}
+		rawSubType := derefOr(currentSubType, "")
 		if update.SubType != nil {
-			b.Set("sub_type", *update.SubType)
+			rawSubType = *update.SubType
+		}
+		tuple, patch, err := sport.NormalizeSportTuple(rawSportType, rawSubType)
+		if err != nil {
+			return nil, err
+		}
+		b.Set("sport_type", tuple.SportType)
+		if tuple.SubType == "" {
+			b.SetExpr("sub_type = NULL")
+		} else {
+			b.Set("sub_type", tuple.SubType)
+		}
+		if patch.IsElectric != nil {
+			update.IsElectric = patch.IsElectric
+		}
+		if patch.IsIndoor != nil {
+			update.IsIndoor = patch.IsIndoor
+		} else if sport.IsIndoor(tuple.SportType, tuple.SubType) {
+			v := true
+			update.IsIndoor = &v
 		}
 
 		// Determine if the effective values differ from parsed values.
-		newST := derefOr(update.SportType, derefOr(parsedSportType, ""))
-		newSub := derefOr(update.SubType, derefOr(parsedSubType, ""))
 		parsedST := derefOr(parsedSportType, "")
 		parsedSub := derefOr(parsedSubType, "")
-		isManual := newST != parsedST || newSub != parsedSub
+		isManual := tuple.SportType != parsedST || tuple.SubType != parsedSub
 		b.SetExpr(fmt.Sprintf("sport_type_is_manual = %t", isManual))
+	}
+	if update.IsIndoor != nil {
+		b.Set("is_indoor", *update.IsIndoor)
+	}
+	if update.IsElectric != nil {
+		b.Set("is_electric", *update.IsElectric)
+	}
+	if update.IsVirtual != nil {
+		b.Set("is_virtual", *update.IsVirtual)
 	}
 	if update.Tags != nil {
 		b.Set("tags", update.Tags)
@@ -1602,8 +1633,10 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 //
 // NOTE(E-6): The Compute* functions in bestefforts/compute.go currently accept
 // []model.StreamPoint. Using this getter in RecalcAll requires either:
-//   a) Refactoring Compute* signatures to a generic/interface type, or
-//   b) Adapting the service layer to work with StreamPointLight directly.
+//
+//	a) Refactoring Compute* signatures to a generic/interface type, or
+//	b) Adapting the service layer to work with StreamPointLight directly.
+//
 // Until that refactor, RecalcAll uses GetStreamPoints and this getter is
 // available for the future migration.
 func (db *DB) GetStreamPointsLightweight(ctx context.Context, activityID string) ([]model.StreamPointLight, error) {

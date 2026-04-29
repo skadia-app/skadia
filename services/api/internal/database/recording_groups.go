@@ -41,9 +41,9 @@ type RecordingGroup struct {
 type RecordingGroupSportTuple struct {
 	SportType  string
 	SubType    *string
-	IsElectric bool
-	IsIndoor   bool
-	IsVirtual  bool
+	IsElectric *bool
+	IsIndoor   *bool
+	IsVirtual  *bool
 }
 
 // RecordingGroupMember is a single member row from recording_group_members.
@@ -566,11 +566,11 @@ func (db *DB) SetRecordingGroupSportType(ctx context.Context, groupID string, tu
 	}
 	tag, err := db.Pool.Exec(ctx,
 		`UPDATE recording_groups
-		 SET sport_type = $2,
-		     sub_type = $3,
-		     is_electric = $4,
-		     is_indoor = $5,
-		     is_virtual = $6
+		 SET sport_type = COALESCE($2, sport_type),
+		     sub_type = CASE WHEN $2 IS NULL THEN sub_type ELSE $3 END,
+		     is_electric = COALESCE($4, is_electric),
+		     is_indoor = COALESCE($5, is_indoor),
+		     is_virtual = COALESCE($6, is_virtual)
 		 WHERE id = $1`,
 		groupID, sportTypeArg, tuple.SubType, tuple.IsElectric, tuple.IsIndoor, tuple.IsVirtual,
 	)

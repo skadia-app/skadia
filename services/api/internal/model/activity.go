@@ -333,6 +333,9 @@ type ActivityUpdate struct {
 	Description    *string         `json:"description,omitempty"`
 	SportType      *string         `json:"sport_type,omitempty"`
 	SubType        *string         `json:"sub_type,omitempty"`
+	IsIndoor       *bool           `json:"is_indoor,omitempty"`
+	IsElectric     *bool           `json:"is_electric,omitempty"`
+	IsVirtual      *bool           `json:"is_virtual,omitempty"`
 	Tags           []string        `json:"tags,omitempty"`
 	Visibility     *string         `json:"visibility,omitempty"`
 	HideMap        *bool           `json:"hide_map,omitempty"`

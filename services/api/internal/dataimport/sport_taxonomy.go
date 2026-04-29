@@ -69,7 +69,7 @@ func normalizeSportPair(row map[string]any, sportKey, subTypeKey string) (sport.
 	if tuple.SubType != "" {
 		row[subTypeKey] = tuple.SubType
 	} else if _, exists := row[subTypeKey]; exists {
-		row[subTypeKey] = ""
+		row[subTypeKey] = nil
 	}
 	return patch, nil
 }

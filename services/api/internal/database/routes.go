@@ -11,6 +11,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // t0SchemaVersion returns 1 if the route data satisfies T0 form-compliance
@@ -24,8 +25,30 @@ func t0SchemaVersion(segments []model.RouteSegment, elevationProfile json.RawMes
 	return 0
 }
 
+func normalizePlannedRouteSportTuple(sportType string, subType *string) (string, *string, error) {
+	rawSubType := ""
+	if subType != nil {
+		rawSubType = *subType
+	}
+	tuple, _, err := sport.NormalizeSportTuple(sportType, rawSubType)
+	if err != nil {
+		return "", nil, err
+	}
+	if tuple.SubType == "" {
+		return tuple.SportType, nil, nil
+	}
+	return tuple.SportType, &tuple.SubType, nil
+}
+
 // CreateRoute inserts a new planned route and returns its UUID.
 func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (string, error) {
+	sportType, subType, err := normalizePlannedRouteSportTuple(route.SportType, route.SubType)
+	if err != nil {
+		return "", fmt.Errorf("normalize route sport tuple: %w", err)
+	}
+	route.SportType = sportType
+	route.SubType = subType
+
 	waypointsJSON, err := json.Marshal(route.Waypoints)
 	if err != nil {
 		return "", fmt.Errorf("marshal waypoints: %w", err)
@@ -166,6 +189,13 @@ func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int) 
 // UpdateRoute updates all mutable fields of a planned route.
 // Ownership is enforced via WHERE user_id = $2.
 func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error {
+	sportType, subType, err := normalizePlannedRouteSportTuple(route.SportType, route.SubType)
+	if err != nil {
+		return fmt.Errorf("normalize route sport tuple: %w", err)
+	}
+	route.SportType = sportType
+	route.SubType = subType
+
 	waypointsJSON, err := json.Marshal(route.Waypoints)
 	if err != nil {
 		return fmt.Errorf("marshal waypoints: %w", err)
@@ -455,6 +485,13 @@ func (db *DB) FindRouteCandidatesByBBox(ctx context.Context, userID string, geoj
 // Imported routes rarely carry a T0 elevation_profile, so route_schema_version is
 // validated dynamically — importers that do supply a compliant profile get v=1.
 func (db *DB) CreateRouteFromImport(ctx context.Context, userID string, r *model.RouteImportData) (string, error) {
+	sportType, subType, err := normalizePlannedRouteSportTuple(r.SportType, r.SubType)
+	if err != nil {
+		return "", fmt.Errorf("normalize route import sport tuple: %w", err)
+	}
+	r.SportType = sportType
+	r.SubType = subType
+
 	// Decode the segments JSON to count segments for T0 validation.
 	var segs []model.RouteSegment
 	if r.SegmentsJSON != "" && r.SegmentsJSON != "[]" {
@@ -463,7 +500,7 @@ func (db *DB) CreateRouteFromImport(ctx context.Context, userID string, r *model
 	schemaVersion := t0SchemaVersion(segs, r.ElevationProfile)
 
 	var id string
-	err := db.Pool.QueryRow(ctx, `
+	err = db.Pool.QueryRow(ctx, `
 		INSERT INTO planned_routes (
 			user_id, name, description, sport_type, sub_type, profile,
 			geometry, waypoints, segments,

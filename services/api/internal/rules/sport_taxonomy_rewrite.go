@@ -145,9 +145,16 @@ func rewriteActionsRaw(raw json.RawMessage, surface string) (json.RawMessage, er
 
 func rewriteActionMaps(actions []map[string]any, surface string) ([]map[string]any, error) {
 	rewritten := make([]map[string]any, 0, len(actions))
+	modifierWrites := map[string]int{}
 	for i, action := range actions {
 		name := actionName(action)
 		if name != "set_sport_type" {
+			if field := modifierWriteField(action); field != "" {
+				if previous, exists := modifierWrites[field]; exists {
+					return nil, fmt.Errorf("%s[%d]: multiple writes to %s (previous action index %d)", surface, i, field, previous)
+				}
+				modifierWrites[field] = i
+			}
 			rewritten = append(rewritten, action)
 			continue
 		}
@@ -179,12 +186,20 @@ func rewriteActionMaps(actions []map[string]any, surface string) ([]map[string]a
 		newAction["params"] = newParams
 		rewritten = append(rewritten, newAction)
 		if patch.IsElectric != nil {
+			if previous, exists := modifierWrites["is_electric"]; exists {
+				return nil, fmt.Errorf("%s[%d]: multiple writes to is_electric (previous action index %d)", surface, i, previous)
+			}
+			modifierWrites["is_electric"] = i
 			rewritten = append(rewritten, map[string]any{
 				"action": "set_electric",
 				"params": map[string]any{"electric": *patch.IsElectric},
 			})
 		}
 		if patch.IsIndoor != nil {
+			if previous, exists := modifierWrites["is_indoor"]; exists {
+				return nil, fmt.Errorf("%s[%d]: multiple writes to is_indoor (previous action index %d)", surface, i, previous)
+			}
+			modifierWrites["is_indoor"] = i
 			rewritten = append(rewritten, map[string]any{
 				"action": "set_indoor",
 				"params": map[string]any{"indoor": *patch.IsIndoor},
@@ -192,6 +207,23 @@ func rewriteActionMaps(actions []map[string]any, surface string) ([]map[string]a
 		}
 	}
 	return rewritten, nil
+}
+
+func modifierWriteField(action map[string]any) string {
+	switch actionName(action) {
+	case "set_electric":
+		return "is_electric"
+	case "set_indoor":
+		return "is_indoor"
+	case "set_field":
+		params, _ := action["params"].(map[string]any)
+		field, _ := params["field"].(string)
+		switch field {
+		case "is_electric", "is_indoor":
+			return field
+		}
+	}
+	return ""
 }
 
 func rewriteBranchesRaw(raw json.RawMessage) (json.RawMessage, error) {
