@@ -179,6 +179,7 @@ function GroupItem({ group, onDissolved }: GroupItemProps) {
 
   // Editor disabled when sport conflict unresolved
   const editorDisabled = hasSportConflict && !selectedSport
+  const selectedSportChoice = sportChoices.find(choice => choice.key === selectedSport)
 
   async function handleDissolve() {
     setDissolving(true)
@@ -244,7 +245,17 @@ function GroupItem({ group, onDissolved }: GroupItemProps) {
           Gruppe ansehen
         </button>
         <button
-          onClick={() => navigate(`/fusion?group=${group.id}`)}
+          onClick={() => {
+            const params = new URLSearchParams({ group: group.id })
+            if (selectedSportChoice) {
+              params.set('sport_type', selectedSportChoice.sportType)
+              if (selectedSportChoice.subType) params.set('sub_type', selectedSportChoice.subType)
+              params.set('is_electric', String(!!selectedSportChoice.isElectric))
+              params.set('is_indoor', String(!!selectedSportChoice.isIndoor))
+              params.set('is_virtual', String(!!selectedSportChoice.isVirtual))
+            }
+            navigate(`/fusion?${params.toString()}`)
+          }}
           disabled={editorDisabled}
           title={editorDisabled ? 'Sportart muss zuerst gewählt werden' : undefined}
           className="flex-1 bg-accent-DEFAULT hover:bg-accent-600 disabled:bg-neutral-300 dark:disabled:bg-neutral-700 disabled:text-neutral-500 disabled:cursor-not-allowed text-white py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer"

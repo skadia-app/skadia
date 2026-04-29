@@ -17,7 +17,6 @@ func buildEnrichFields(existing *model.Activity, newData *model.ActivityData) ma
 	missingF := func(p *float64) bool { return p == nil || *p == 0 }
 	missingI := func(p *int) bool { return p == nil || *p == 0 }
 
-
 	if newData.AvgHeartRate > 0 && (existing == nil || missingF(existing.AvgHeartRate)) {
 		fields["avg_heart_rate"] = newData.AvgHeartRate
 	}
@@ -57,6 +56,9 @@ func buildEnrichFields(existing *model.Activity, newData *model.ActivityData) ma
 	if newData.DistanceM > 0 && (existing == nil || missingF(existing.DistanceM)) {
 		fields["distance_m"] = newData.DistanceM
 	}
+	for col, val := range duplicateSportUpdateFields(existing, newData) {
+		fields[col] = val
+	}
 	return fields
 }
 
@@ -64,20 +66,69 @@ func buildEnrichFields(existing *model.Activity, newData *model.ActivityData) ma
 // Reine Funktion ohne Seiteneffekte — direkt testbar.
 func buildReplaceFields(newData *model.ActivityData) map[string]any {
 	return map[string]any{
-		"avg_heart_rate":    newData.AvgHeartRate,
-		"max_heart_rate":    newData.MaxHeartRate,
-		"avg_power_w":       newData.AvgPowerW,
-		"max_power_w":       newData.MaxPowerW,
-		"avg_cadence":       newData.AvgCadence,
-		"avg_temperature_c": newData.AvgTemperatureC,
-		"elevation_gain_m":  newData.ElevationGainM,
-		"elevation_loss_m":  newData.ElevationLossM,
-		"max_elevation_m":   newData.MaxElevationM,
-		"min_elevation_m":   newData.MinElevationM,
-		"moving_time_s":     newData.MovingTimeS,
-		"distance_m":        newData.DistanceM,
-		"tss":               newData.TSS,
+		"avg_heart_rate":       newData.AvgHeartRate,
+		"max_heart_rate":       newData.MaxHeartRate,
+		"avg_power_w":          newData.AvgPowerW,
+		"max_power_w":          newData.MaxPowerW,
+		"avg_cadence":          newData.AvgCadence,
+		"avg_temperature_c":    newData.AvgTemperatureC,
+		"elevation_gain_m":     newData.ElevationGainM,
+		"elevation_loss_m":     newData.ElevationLossM,
+		"max_elevation_m":      newData.MaxElevationM,
+		"min_elevation_m":      newData.MinElevationM,
+		"moving_time_s":        newData.MovingTimeS,
+		"distance_m":           newData.DistanceM,
+		"tss":                  newData.TSS,
+		"sport_type":           newData.SportType,
+		"sub_type":             nilIfEmptySportField(newData.SubType),
+		"parsed_sport_type":    newData.SportType,
+		"parsed_sub_type":      nilIfEmptySportField(newData.SubType),
+		"is_indoor":            newData.IsIndoor,
+		"is_electric":          newData.IsElectric,
+		"is_virtual":           newData.IsVirtual,
+		"exclude_from_heatmap": newData.IsVirtual,
 	}
+}
+
+func duplicateSportUpdateFields(existing *model.Activity, newData *model.ActivityData) map[string]any {
+	fields := map[string]any{}
+	if existing == nil || newData == nil || newData.SportType == "" {
+		return fields
+	}
+
+	existingSubType := ""
+	if existing.SubType != nil {
+		existingSubType = *existing.SubType
+	}
+
+	if existing.SportType == "" || existing.SportType == "generic" || existing.SportType == "unknown" {
+		fields["sport_type"] = newData.SportType
+		fields["sub_type"] = nilIfEmptySportField(newData.SubType)
+		fields["parsed_sport_type"] = newData.SportType
+		fields["parsed_sub_type"] = nilIfEmptySportField(newData.SubType)
+	} else if existing.SportType == newData.SportType && (existingSubType == "" || existingSubType == "generic") && newData.SubType != "" && newData.SubType != "generic" {
+		fields["sub_type"] = newData.SubType
+		fields["parsed_sub_type"] = newData.SubType
+	}
+
+	if newData.IsElectric && !existing.IsElectric {
+		fields["is_electric"] = true
+	}
+	if newData.IsIndoor && !existing.IsIndoor {
+		fields["is_indoor"] = true
+	}
+	if newData.IsVirtual && !existing.IsVirtual {
+		fields["is_virtual"] = true
+		fields["exclude_from_heatmap"] = true
+	}
+	return fields
+}
+
+func nilIfEmptySportField(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
 }
 
 // EnrichActivity füllt fehlende Felder einer bestehenden Aktivität aus neuen Daten.
@@ -89,13 +140,23 @@ func EnrichActivity(ctx context.Context, db *database.DB, existingID string, exi
 		return 0, nil
 	}
 	fields := buildEnrichFields(existing, newData)
-	if len(fields) == 0 {
-		return 0, nil
+	directFields := duplicateSportUpdateFields(existing, newData)
+	for col := range directFields {
+		delete(fields, col)
 	}
-	if err := db.UpdateEnrichmentFieldsSafe(ctx, existingID, fields); err != nil {
+	if len(fields) == 0 {
+		if len(directFields) == 0 {
+			return 0, nil
+		}
+	} else if err := db.UpdateEnrichmentFieldsSafe(ctx, existingID, fields); err != nil {
 		return 0, err
 	}
-	return len(fields), nil
+	if len(directFields) > 0 {
+		if err := db.UpdateEnrichmentFields(ctx, existingID, directFields); err != nil {
+			return 0, err
+		}
+	}
+	return len(fields) + len(directFields), nil
 }
 
 // ReplaceActivity überschreibt alle Felder einer Aktivität mit neuen Daten.

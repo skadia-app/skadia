@@ -10,6 +10,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -77,7 +78,7 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 	_ = h.DB.ResolveImportQueueByActivity(r.Context(), userID, activityID)
 
 	// Trigger recompute if sport changed (reuses existing reprocessActivity from recompute.go)
-	if resolution != nil && (resolution.SportType != activity.SportType || derefSubType(activity.SubType) != resolution.SubType) {
+	if sportConflictResolutionChangesActivity(activity, resolution) {
 		// Create background_jobs entry so ActiveJobsIndicator shows progress
 		entityID := activityID
 		activityTitle := activityID
@@ -126,4 +127,23 @@ func derefSubType(v *string) string {
 		return ""
 	}
 	return *v
+}
+
+func sportConflictResolutionChangesActivity(activity *model.Activity, resolution *database.SportConflictResolution) bool {
+	if activity == nil || resolution == nil {
+		return false
+	}
+	if resolution.SportType != activity.SportType || derefSubType(activity.SubType) != resolution.SubType {
+		return true
+	}
+	if resolution.IsElectric != nil && *resolution.IsElectric != activity.IsElectric {
+		return true
+	}
+	if resolution.IsIndoor != nil && *resolution.IsIndoor != activity.IsIndoor {
+		return true
+	}
+	if resolution.IsVirtual != nil && *resolution.IsVirtual != activity.IsVirtual {
+		return true
+	}
+	return false
 }

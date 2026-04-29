@@ -84,3 +84,46 @@ func TestBuildReplaceFields_MaxMinElevation(t *testing.T) {
 		t.Error("min_elevation_m fehlt in buildReplaceFields")
 	}
 }
+
+func TestBuildReplaceFieldsIncludesSportTupleAndModifiers(t *testing.T) {
+	newData := &model.ActivityData{
+		SportType:  "cycling",
+		SubType:    "mountain",
+		IsElectric: true,
+		IsIndoor:   true,
+		IsVirtual:  true,
+	}
+
+	fields := buildReplaceFields(newData)
+
+	for _, key := range []string{"sport_type", "sub_type", "parsed_sport_type", "parsed_sub_type", "is_electric", "is_indoor", "is_virtual", "exclude_from_heatmap"} {
+		if _, ok := fields[key]; !ok {
+			t.Fatalf("%s fehlt in buildReplaceFields", key)
+		}
+	}
+}
+
+func TestDuplicateSportUpdateFieldsRefinesTupleAndAdditiveModifiers(t *testing.T) {
+	existing := &model.Activity{SportType: "cycling"}
+	newData := &model.ActivityData{
+		SportType:  "cycling",
+		SubType:    "mountain",
+		IsElectric: true,
+		IsVirtual:  true,
+	}
+
+	fields := duplicateSportUpdateFields(existing, newData)
+
+	if fields["sub_type"] != "mountain" {
+		t.Fatalf("sub_type update = %#v, want mountain", fields["sub_type"])
+	}
+	if fields["is_electric"] != true {
+		t.Fatalf("is_electric update = %#v, want true", fields["is_electric"])
+	}
+	if fields["is_virtual"] != true {
+		t.Fatalf("is_virtual update = %#v, want true", fields["is_virtual"])
+	}
+	if fields["exclude_from_heatmap"] != true {
+		t.Fatalf("exclude_from_heatmap update = %#v, want true", fields["exclude_from_heatmap"])
+	}
+}

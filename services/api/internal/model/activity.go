@@ -321,10 +321,18 @@ type FusionMembershipResponse struct {
 
 // SportConflictMeta holds conflict metadata embedded from import_queue.
 type SportConflictMeta struct {
-	FileSport      string `json:"file_sport"`
-	FileSource     string `json:"file_source"`
-	PlatformSport  string `json:"platform_sport"`
-	PlatformSource string `json:"platform_source"`
+	FileSport          string `json:"file_sport"`
+	FileSubType        string `json:"file_sub_type,omitempty"`
+	FileIsElectric     bool   `json:"file_is_electric,omitempty"`
+	FileIsIndoor       bool   `json:"file_is_indoor,omitempty"`
+	FileIsVirtual      bool   `json:"file_is_virtual,omitempty"`
+	FileSource         string `json:"file_source"`
+	PlatformSport      string `json:"platform_sport"`
+	PlatformSubType    string `json:"platform_sub_type,omitempty"`
+	PlatformIsElectric bool   `json:"platform_is_electric,omitempty"`
+	PlatformIsIndoor   bool   `json:"platform_is_indoor,omitempty"`
+	PlatformIsVirtual  bool   `json:"platform_is_virtual,omitempty"`
+	PlatformSource     string `json:"platform_source"`
 }
 
 // ActivityUpdate is the PATCH request body for updating an activity.

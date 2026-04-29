@@ -140,33 +140,8 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			data = tourToActivityData(tour)
 		}
 
-		// Sport type resolution: compare file sport vs Komoot API sport using SegmentGroup.
-		// Silent resolution — no queue, no UI. File parser wins except when generic.
 		if mapping, ok := normalizedKomootSportMapping(tour.Sport); ok {
-			fileSportType := data.SportType
-			fileGroup := sport.SegmentGroup(fileSportType)
-			komootGroup := sport.SegmentGroup(mapping.SportType)
-
-			switch {
-			case fileGroup == "generic":
-				// File parser returned generic → Komoot wins
-				data.SportType = mapping.SportType
-				data.SubType = mapping.SubType
-			case komootGroup == "generic":
-				// Komoot returned generic → file wins (already set)
-			case fileGroup == komootGroup:
-				// Same group → file wins (more specific from device)
-				// NOTE: SubType from Komoot is NOT adopted here — SubType and SportType
-				// are a pair and mixing sources can create inconsistent combinations.
-				// The existing mergeActivityData/isSportRefinement handles this correctly.
-			default:
-				// Different specific groups → file wins (device is authoritative)
-			}
-
-			// E-Bike flag is always additive (Komoot knows if tour was e-bike)
-			if mapping.IsElectric {
-				data.IsElectric = true
-			}
+			applyKomootSportMapping(data, mapping)
 		}
 
 		// Map Komoot tour visibility to activity visibility
@@ -307,6 +282,27 @@ func normalizedKomootSportMapping(komootSport string) (SportMapping, bool) {
 		mapping.IsElectric = true
 	}
 	return mapping, true
+}
+
+func applyKomootSportMapping(data *model.ActivityData, mapping SportMapping) {
+	fileGroup := sport.SegmentGroup(data.SportType)
+	komootGroup := sport.SegmentGroup(mapping.SportType)
+
+	switch {
+	case fileGroup == "generic":
+		data.SportType = mapping.SportType
+		data.SubType = mapping.SubType
+	case komootGroup == "generic":
+	case fileGroup == komootGroup:
+		if data.SportType == mapping.SportType && (data.SubType == "" || data.SubType == "generic") && mapping.SubType != "" && mapping.SubType != "generic" {
+			data.SubType = mapping.SubType
+		}
+	default:
+	}
+
+	if mapping.IsElectric {
+		data.IsElectric = true
+	}
 }
 
 // buildKnownKomootIDs fetches all known komoot_tour_ids for a user (for incremental sync).

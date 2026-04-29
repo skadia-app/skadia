@@ -8,6 +8,8 @@ func TestMapTCXSportReturnsCanonicalSportTuple(t *testing.T) {
 		wantSport   string
 		wantSubType string
 	}{
+		{"road_cycling", "cycling", "road"},
+		{"roadcycling", "cycling", "road"},
 		{"trail_running", "running", "trail"},
 		{"mountain_biking", "cycling", "mountain"},
 		{"gravel_ride", "cycling", "gravel_cycling"},
