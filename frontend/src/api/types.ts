@@ -172,8 +172,16 @@ export interface Activity {
   sport_conflict_pending?: boolean
   sport_conflict?: {
     file_sport: string
+    file_sub_type?: string
+    file_is_electric?: boolean
+    file_is_indoor?: boolean
+    file_is_virtual?: boolean
     file_source: string
     platform_sport: string
+    platform_sub_type?: string
+    platform_is_electric?: boolean
+    platform_is_indoor?: boolean
+    platform_is_virtual?: boolean
     platform_source: string
   } | null
   // Recording device (linked to hardware registry)
@@ -1137,6 +1145,13 @@ export interface FusionMergeRequest {
   sources: string[]
   field_map: Record<string, string>
   gps_fusion_config?: { primary_source: string; extend_track: boolean }
+  sport?: {
+    sport_type: string
+    sub_type?: string
+    is_electric?: boolean
+    is_indoor?: boolean
+    is_virtual?: boolean
+  }
   title_source?: string
   tags_merge: boolean
   tags_source?: string  // if set and !tags_merge: take tags from this source only

@@ -423,6 +423,8 @@ func mapTCXSport(sport string) (sportType, subType string) {
 	// Cycling (TCX standard: "Biking")
 	case "biking", "cycling", "ride":
 		return "cycling", ""
+	case "road_cycling", "roadcycling":
+		return "cycling", "road"
 	case "mountainbikeride", "mountain_biking":
 		return "cycling", "mountain"
 	case "ebikeride", "e_bike_ride", "ebike":

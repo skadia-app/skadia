@@ -283,6 +283,8 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		var fileBytes []byte
 		var format string
 		var fileSportType string // set during parse if file has a sport type
+		var conflictPlatformSnapshot sportConflictSnapshot
+		var conflictFileSnapshot sportConflictSnapshot
 
 		// --- Try to load the track file ---
 		if filename != "" {
@@ -378,6 +380,20 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				if fileSportType != "" && fileSportType != "unknown" {
 					csvGroup := sport.SegmentGroup(sportType) // sportType from CSV (post E-Bike normalization)
 					fileGroup := sport.SegmentGroup(fileSportType)
+					platformSnapshot := sportConflictSnapshot{
+						Sport:      sportType,
+						SubType:    subType,
+						IsElectric: isElectric,
+						IsIndoor:   isIndoor,
+						IsVirtual:  isVirtual,
+					}
+					fileSnapshot := sportConflictSnapshot{
+						Sport:      parsedData.SportType,
+						SubType:    parsedData.SubType,
+						IsElectric: parsedData.IsElectric,
+						IsIndoor:   parsedData.IsIndoor,
+						IsVirtual:  parsedData.IsVirtual,
+					}
 
 					conflict := false
 					if csvGroup == "generic" && fileGroup == "generic" {
@@ -392,12 +408,16 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 						if parsedData != nil {
 							data.SubType = parsedData.SubType
 						}
+					} else if sportConflictSnapshotsConflict(platformSnapshot, fileSnapshot) {
+						conflict = true
 					}
 					// csvGroup == "generic" && fileGroup != "generic" → file already wins (from merge)
 					// csvGroup != "generic" && fileGroup == "generic" → CSV already wins (from merge)
 					// Same group → merge result stands
 
 					if conflict {
+						conflictPlatformSnapshot = platformSnapshot
+						conflictFileSnapshot = fileSnapshot
 						data.SportConflictPending = true
 					}
 				}
@@ -545,8 +565,17 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 		// Create sport conflict queue entry if detected
 		if data.SportConflictPending {
+			if conflictPlatformSnapshot.Sport == "" {
+				conflictPlatformSnapshot = sportConflictSnapshot{Sport: sportType, SubType: subType, IsElectric: isElectric, IsIndoor: isIndoor, IsVirtual: isVirtual}
+			}
+			if conflictFileSnapshot.Sport == "" {
+				conflictFileSnapshot = sportConflictSnapshot{Sport: data.SportType, SubType: data.SubType, IsElectric: data.IsElectric, IsIndoor: data.IsIndoor, IsVirtual: data.IsVirtual}
+			}
 			if qErr := createSportConflictQueueEntry(ctx, params.DB, params.UserID,
-				actResult.ActivityID, sportType, fileSportType, format); qErr != nil {
+				actResult.ActivityID,
+				conflictPlatformSnapshot,
+				conflictFileSnapshot,
+				format); qErr != nil {
 				slog.Warn("sport conflict: failed to create queue entry",
 					"activity", actResult.ActivityID, "error", qErr)
 			}
@@ -721,6 +750,12 @@ func mergeActivityData(base, parsed *model.ActivityData) {
 	// IsElectric: device data is authoritative (FIT has sub-sport ID for e-bike detection)
 	if parsed.IsElectric {
 		base.IsElectric = true
+	}
+	if parsed.IsIndoor {
+		base.IsIndoor = true
+	}
+	if parsed.IsVirtual {
+		base.IsVirtual = true
 	}
 
 	// UserProfileImport from FIT
@@ -1061,18 +1096,9 @@ func mapStravaWeatherCondition(code int) string {
 // sportRefinements maps broad Strava CSV sport types to the set of more specific
 // device-recorded types that should take precedence.
 var sportRefinements = map[string]map[string]bool{
-	"cycling": {
-		"mountain_biking": true,
-		"gravel_cycling":  true,
-		"indoor_cycling":  true,
-	},
-	"running": {
-		"trail_running":     true,
-		"treadmill_running": true,
-	},
-	"swimming": {
-		"open_water_swimming": true,
-	},
+	"cycling":  {"cycling": true},
+	"running":  {"running": true},
+	"swimming": {"swimming": true},
 }
 
 // isSportRefinement returns true when 'specific' is a known more-specific variant
@@ -1088,24 +1114,58 @@ func isSportRefinement(broad, specific string) bool {
 	return refinements[specific]
 }
 
+type sportConflictSnapshot struct {
+	Sport      string
+	SubType    string
+	IsElectric bool
+	IsIndoor   bool
+	IsVirtual  bool
+}
+
+func sportConflictSnapshotsConflict(platform, file sportConflictSnapshot) bool {
+	if platform.Sport != file.Sport {
+		return false
+	}
+	if platform.SubType != "" && platform.SubType != "generic" && file.SubType != "" && file.SubType != "generic" && platform.SubType != file.SubType {
+		return true
+	}
+	return platform.IsElectric != file.IsElectric ||
+		platform.IsIndoor != file.IsIndoor ||
+		platform.IsVirtual != file.IsVirtual
+}
+
+func sportConflictMetadata(platform, file sportConflictSnapshot, fileFormat string) map[string]any {
+	return map[string]any{
+		"activity_id":          "",
+		"file_sport":           file.Sport,
+		"file_sub_type":        file.SubType,
+		"file_is_electric":     file.IsElectric,
+		"file_is_indoor":       file.IsIndoor,
+		"file_is_virtual":      file.IsVirtual,
+		"file_source":          fileFormat,
+		"platform_sport":       platform.Sport,
+		"platform_sub_type":    platform.SubType,
+		"platform_is_electric": platform.IsElectric,
+		"platform_is_indoor":   platform.IsIndoor,
+		"platform_is_virtual":  platform.IsVirtual,
+		"platform_source":      "strava",
+	}
+}
+
 // createSportConflictQueueEntry creates a sport_conflict import queue entry.
 // Deduplicates: skips if a pending entry already exists for this activity.
-func createSportConflictQueueEntry(ctx context.Context, db *database.DB, userID, activityID, csvSport, fileSport, fileFormat string) error {
+func createSportConflictQueueEntry(ctx context.Context, db *database.DB, userID, activityID string, platform, file sportConflictSnapshot, fileFormat string) error {
 	exists, err := db.SportConflictQueueExists(ctx, userID, activityID)
 	if err != nil || exists {
 		return err
 	}
+	meta := sportConflictMetadata(platform, file, fileFormat)
+	meta["activity_id"] = activityID
 
 	_, err = db.CreateImportQueueItem(ctx, database.ImportQueueItem{
 		UserID:    userID,
 		QueueType: "sport_conflict",
-		Metadata: map[string]any{
-			"activity_id":     activityID,
-			"file_sport":      fileSport,
-			"file_source":     fileFormat,
-			"platform_sport":  csvSport,
-			"platform_source": "strava",
-		},
+		Metadata:  meta,
 	})
 	return err
 }

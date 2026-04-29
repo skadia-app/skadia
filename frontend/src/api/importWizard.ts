@@ -97,6 +97,10 @@ export interface FusionQueueEntry {
   sub_type_b: string
   is_electric_a: boolean
   is_electric_b: boolean
+  is_indoor_a: boolean
+  is_indoor_b: boolean
+  is_virtual_a: boolean
+  is_virtual_b: boolean
   distance_m_a: number
   distance_m_b: number
   overlap_percent: number

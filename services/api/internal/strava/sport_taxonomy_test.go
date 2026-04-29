@@ -1,6 +1,10 @@
 package strava
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/model"
+)
 
 func TestNormalizeStravaSportFields(t *testing.T) {
 	tests := []struct {
@@ -80,5 +84,34 @@ func TestNormalizeStravaSportFields(t *testing.T) {
 				t.Errorf("IsVirtual: got %v, want %v", got.IsVirtual, tt.wantVirtual)
 			}
 		})
+	}
+}
+
+func TestMergeActivityDataPropagatesParsedModifiers(t *testing.T) {
+	base := &model.ActivityData{
+		SportType: "cycling",
+		SubType:   "",
+	}
+	parsed := &model.ActivityData{
+		SportType:  "cycling",
+		SubType:    "indoor_cycling",
+		IsElectric: true,
+		IsIndoor:   true,
+		IsVirtual:  true,
+	}
+
+	mergeActivityData(base, parsed)
+
+	if base.SubType != "indoor_cycling" {
+		t.Fatalf("SubType = %q, want indoor_cycling", base.SubType)
+	}
+	if !base.IsElectric {
+		t.Error("IsElectric was not propagated")
+	}
+	if !base.IsIndoor {
+		t.Error("IsIndoor was not propagated")
+	}
+	if !base.IsVirtual {
+		t.Error("IsVirtual was not propagated")
 	}
 }

@@ -8,10 +8,11 @@ func TestMapGPXTypeReturnsCanonicalSportTuple(t *testing.T) {
 		wantSport   string
 		wantSubType string
 	}{
-		{"mountain_biking", "cycling", "mountain"},
-		{"paddling", "paddling", ""},
+		{"road_cycling", "cycling", "road"},
+		{"roadcycling", "cycling", "road"},
 		{"trail_running", "running", "trail"},
-		{"lap_swimming", "swimming", "lap_swimming"},
+		{"mountain_biking", "cycling", "mountain"},
+		{"gravel_ride", "cycling", "gravel_cycling"},
 	}
 
 	for _, tt := range tests {

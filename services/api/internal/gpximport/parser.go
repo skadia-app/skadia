@@ -333,8 +333,10 @@ func mapGPXType(gpxType string) (sport, subType string) {
 		return "running", "trail"
 
 	// Cycling
-	case "cycling", "biking", "bike", "ride", "road_cycling", "roadcycling":
+	case "cycling", "biking", "bike", "ride":
 		return "cycling", ""
+	case "road_cycling", "roadcycling":
+		return "cycling", "road"
 	case "mountainbikeride", "mountain_biking", "mountainbiking", "mtb":
 		return "cycling", "mountain"
 	case "ebikeride", "e_bike_ride", "ebike", "e-bike":

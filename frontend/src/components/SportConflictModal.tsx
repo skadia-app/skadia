@@ -70,6 +70,28 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
       is_indoor: tuple.modifiers.isIndoor,
     }
   }
+  const platformPayload = (): ResolveSportConflictPayload => ({
+    sport_type: conflict!.platform_sport,
+    sub_type: conflict!.platform_sub_type || undefined,
+    is_electric: conflict!.platform_is_electric,
+    is_indoor: conflict!.platform_is_indoor,
+    is_virtual: conflict!.platform_is_virtual,
+  })
+  const filePayload = (): ResolveSportConflictPayload => ({
+    sport_type: conflict!.file_sport,
+    sub_type: conflict!.file_sub_type || undefined,
+    is_electric: conflict!.file_is_electric,
+    is_indoor: conflict!.file_is_indoor,
+    is_virtual: conflict!.file_is_virtual,
+  })
+  const conflictLabel = (sportType: string, subType?: string, isElectric?: boolean, isIndoor?: boolean, isVirtual?: boolean) => {
+    const modifiers = [
+      isElectric ? 'E-Bike' : '',
+      isIndoor ? 'Indoor' : '',
+      isVirtual ? 'Virtuell' : '',
+    ].filter(Boolean)
+    return [sportDetailLabel(sportType, subType || null), ...modifiers].join(' · ')
+  }
 
   const handleResolve = async (sport?: ResolveSportConflictPayload) => {
     setLoading(true)
@@ -117,11 +139,11 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-zinc-800 rounded-lg p-3 text-center">
                 <div className="text-xs text-zinc-500 mb-1">{sourceLabel(conflict.platform_source)}</div>
-                <div className="text-sm font-medium text-zinc-200">{sportDetailLabel(conflict.platform_sport)}</div>
+                <div className="text-sm font-medium text-zinc-200">{conflictLabel(conflict.platform_sport, conflict.platform_sub_type, conflict.platform_is_electric, conflict.platform_is_indoor, conflict.platform_is_virtual)}</div>
               </div>
               <div className="bg-zinc-800 rounded-lg p-3 text-center">
                 <div className="text-xs text-zinc-500 mb-1">{sourceLabel(conflict.file_source)}</div>
-                <div className="text-sm font-medium text-zinc-200">{sportDetailLabel(conflict.file_sport)}</div>
+                <div className="text-sm font-medium text-zinc-200">{conflictLabel(conflict.file_sport, conflict.file_sub_type, conflict.file_is_electric, conflict.file_is_indoor, conflict.file_is_virtual)}</div>
               </div>
             </div>
           )}
@@ -131,17 +153,17 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
             <div className="flex gap-2">
               <button
                 disabled={loading}
-                onClick={() => handleResolve(payloadForSport(conflict.platform_sport))}
+                onClick={() => handleResolve(platformPayload())}
                 className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm text-zinc-200 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {sportDetailLabel(conflict.platform_sport)}
+                {conflictLabel(conflict.platform_sport, conflict.platform_sub_type, conflict.platform_is_electric, conflict.platform_is_indoor, conflict.platform_is_virtual)}
               </button>
               <button
                 disabled={loading}
-                onClick={() => handleResolve(payloadForSport(conflict.file_sport))}
+                onClick={() => handleResolve(filePayload())}
                 className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm text-zinc-200 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {sportDetailLabel(conflict.file_sport)}
+                {conflictLabel(conflict.file_sport, conflict.file_sub_type, conflict.file_is_electric, conflict.file_is_indoor, conflict.file_is_virtual)}
               </button>
             </div>
           )}

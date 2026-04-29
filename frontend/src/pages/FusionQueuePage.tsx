@@ -31,8 +31,13 @@ function CandidateRow({ c, onDismissed }: { c: FusionQueueEntry; onDismissed: ()
     }
   }
 
-  function sportMeta(sportType: string, subType: string, isElectric: boolean) {
-    return `${sportDetailLabel(sportType, subType || null)}${isElectric ? ' · E-Bike' : ''}`
+  function sportMeta(sportType: string, subType: string, isElectric: boolean, isIndoor: boolean, isVirtual: boolean) {
+    const modifiers = [
+      isElectric ? 'E-Bike' : '',
+      isIndoor ? 'Indoor' : '',
+      isVirtual ? 'Virtuell' : '',
+    ].filter(Boolean)
+    return [sportDetailLabel(sportType, subType || null), ...modifiers].join(' · ')
   }
 
   function handleFusionClick() {
@@ -57,7 +62,7 @@ function CandidateRow({ c, onDismissed }: { c: FusionQueueEntry; onDismissed: ()
                   </span>
                 )}
               </div>
-              <p className="text-xs text-neutral-400">{fmtDateCompact(c.started_at_a, null)} · {fmtDist(c.distance_m_a)} · {sportMeta(c.sport_type_a, c.sub_type_a, c.is_electric_a)}</p>
+              <p className="text-xs text-neutral-400">{fmtDateCompact(c.started_at_a, null)} · {fmtDist(c.distance_m_a)} · {sportMeta(c.sport_type_a, c.sub_type_a, c.is_electric_a, c.is_indoor_a, c.is_virtual_a)}</p>
             </div>
             <div className="text-neutral-400 self-center text-xs">↔</div>
             <div className="min-w-0">
@@ -69,7 +74,7 @@ function CandidateRow({ c, onDismissed }: { c: FusionQueueEntry; onDismissed: ()
                   </span>
                 )}
               </div>
-              <p className="text-xs text-neutral-400">{fmtDateCompact(c.started_at_b, null)} · {fmtDist(c.distance_m_b)} · {sportMeta(c.sport_type_b, c.sub_type_b, c.is_electric_b)}</p>
+              <p className="text-xs text-neutral-400">{fmtDateCompact(c.started_at_b, null)} · {fmtDist(c.distance_m_b)} · {sportMeta(c.sport_type_b, c.sub_type_b, c.is_electric_b, c.is_indoor_b, c.is_virtual_b)}</p>
             </div>
           </div>
           <p className="text-xs text-neutral-400 mt-1">

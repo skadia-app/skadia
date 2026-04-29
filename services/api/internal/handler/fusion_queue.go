@@ -37,6 +37,10 @@ type FusionQueueEntry struct {
 	SubTypeB            string  `json:"sub_type_b"`
 	IsElectricA         bool    `json:"is_electric_a"`
 	IsElectricB         bool    `json:"is_electric_b"`
+	IsIndoorA           bool    `json:"is_indoor_a"`
+	IsIndoorB           bool    `json:"is_indoor_b"`
+	IsVirtualA          bool    `json:"is_virtual_a"`
+	IsVirtualB          bool    `json:"is_virtual_b"`
 	DistanceMa          float64 `json:"distance_m_a"`
 	DistanceMb          float64 `json:"distance_m_b"`
 	OverlapPercent      float64 `json:"overlap_percent"`
@@ -96,6 +100,10 @@ func fusionRowToEntry(row database.FusionCandidateRow) FusionQueueEntry {
 		SubTypeB:            derefStr(row.SubTypeB),
 		IsElectricA:         row.IsElectricA,
 		IsElectricB:         row.IsElectricB,
+		IsIndoorA:           row.IsIndoorA,
+		IsIndoorB:           row.IsIndoorB,
+		IsVirtualA:          row.IsVirtualA,
+		IsVirtualB:          row.IsVirtualB,
 		DistanceMa:          derefFloat(row.DistanceMA),
 		DistanceMb:          derefFloat(row.DistanceMB),
 		OverlapPercent:      math.Round(row.OverlapPercent*10) / 10,
