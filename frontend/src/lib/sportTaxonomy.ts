@@ -39,6 +39,17 @@ export interface SportLabelOptions {
   mode?: 'compact' | 'withParent'
 }
 
+export interface SportOption {
+  value: string
+  label: string
+}
+
+export interface RouteSportOption {
+  sportType: string
+  subType?: string
+  label: string
+}
+
 // ── Categories ──────────────────────────────────────────────────────────────────
 
 export const CATEGORIES: SportCategory[] = [
@@ -402,4 +413,27 @@ export function categoryForSport(sportType: string): SportCategory {
  */
 export function sportsInCategory(categoryKey: string): SportDef[] {
   return catSportsMap.get(categoryKey) ?? []
+}
+
+export function canonicalSportOptions(): SportOption[] {
+  return SPORT_DEFS.map((s) => ({ value: s.sportType, label: s.label }))
+}
+
+const ROUTE_PROMOTED_SUBTYPES: Record<string, string[]> = {
+  cycling: ['mountain', 'gravel_cycling', 'road'],
+  running: ['trail'],
+}
+
+export function routeSportOptions(): RouteSportOption[] {
+  return SPORT_DEFS
+    .filter((s) => s.typicallyHasGPS && !s.isIndoor)
+    .flatMap((s) => {
+      const options: RouteSportOption[] = [{ sportType: s.sportType, label: s.label }]
+      for (const subType of ROUTE_PROMOTED_SUBTYPES[s.sportType] ?? []) {
+        if (s.subTypes.some((st) => st.subType === subType)) {
+          options.push({ sportType: s.sportType, subType, label: sportLabel(s.sportType, subType) })
+        }
+      }
+      return options
+    })
 }

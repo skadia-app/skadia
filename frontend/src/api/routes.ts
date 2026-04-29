@@ -2,6 +2,7 @@ import { apiClient, apiUpload, apiDownload } from './client'
 import type { Tag } from './tags'
 import type { ProfileConfig } from '@/lib/routingProfiles'
 import type { RouteSubSegment } from '@/lib/routeSurfaceAggregation'
+import type { ModifierFilters } from '@/lib/sportPredicates'
 
 export type { RouteSubSegment }
 
@@ -151,6 +152,8 @@ export interface RouteSuggestionParams {
   direction_point?: [number, number]
   target_distance_m: number
   sport_type: string
+  sub_type?: string
+  modifiers?: ModifierFilters
   profile: string
   prefer_unknown?: boolean  // Terra Incognita bias
   landscape_prefs?: LandscapePreferences

@@ -2,6 +2,7 @@
   "profile": "road",
   "name": "Rennrad",
   "sport_types": ["cycling", "gravel_cycling"],
+  "predicates": [{"sport":"cycling","sub_type":""},{"sport":"cycling","sub_type":"generic"},{"sport":"cycling","sub_type":"road"},{"sport":"cycling","sub_type":"gravel_cycling"}],
   "uphill_cost": 0,
   "downhill_cost": 60,
   "uphill_cutoff_pct": 1.5,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { SPORT_DEFS, normalizeSportTuple, sportLabel } from '../sportTaxonomy'
+import { SPORT_DEFS, normalizeSportTuple, routeSportOptions, sportLabel } from '../sportTaxonomy'
 
 describe('sport taxonomy aliases', () => {
   it('normalizes legacy sport types to canonical tuples', () => {
@@ -47,5 +47,16 @@ describe('sport taxonomy aliases', () => {
     expect(sportLabel('treadmill_running')).toBe('Indoor')
     expect(sportLabel('lap_swimming')).toBe('Hallenbad')
     expect(sportLabel('open_water_swimming')).toBe('Freiwasser')
+  })
+
+  it('builds route sport options from canonical GPS-capable sports and subtypes', () => {
+    const values = routeSportOptions().map(opt => `${opt.sportType}/${opt.subType ?? ''}`)
+
+    expect(values).toContain('cycling/mountain')
+    expect(values).toContain('cycling/gravel_cycling')
+    expect(values).toContain('running/trail')
+    expect(values).toContain('hiking/')
+    expect(values).not.toContain('mountain_biking/')
+    expect(values).not.toContain('trail_running/')
   })
 })

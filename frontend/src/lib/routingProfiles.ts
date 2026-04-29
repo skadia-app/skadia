@@ -1,9 +1,13 @@
 import type { ProfileDefaultsResponse } from '@/api/routes'
+import type { ModifierFilters, SportPredicate } from '@/lib/sportPredicates'
 
 // ─── Profile Config Types ──────────────────────────────────────────────────
 
 export interface ProfileConfig {
   profile: string
+  sport_types?: string[]
+  predicates?: SportPredicate[]
+  modifier_filters?: ModifierFilters
   uphill_cost?: number
   downhill_cost?: number
   uphill_cutoff_pct?: number
