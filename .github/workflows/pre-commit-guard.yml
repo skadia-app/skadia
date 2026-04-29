@@ -38,19 +38,29 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Determine diff range
         id: range
+        # Pass event-payload SHAs through env vars instead of `${{ ... }}`
+        # template interpolation in the run script — eliminates the
+        # template-injection surface that zizmor flags.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          PUSH_AFTER_SHA: ${{ github.event.after }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base="${{ github.event.pull_request.base.sha }}"
-            head="${{ github.event.pull_request.head.sha }}"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
           else
             # On push: compare against the parent commit. New branches whose
             # `before` is the zero SHA, or force-pushes whose `before` is no
             # longer reachable, fall back to `merge-base origin/main HEAD`.
-            before="${{ github.event.before }}"
-            head="${{ github.event.after }}"
+            before="$PUSH_BEFORE_SHA"
+            head="$PUSH_AFTER_SHA"
             if [ -z "$before" ] \
                 || [ "$before" = "0000000000000000000000000000000000000000" ] \
                 || ! git cat-file -e "$before^{commit}" 2>/dev/null; then
@@ -79,17 +89,28 @@ jobs:
           chmod +x /tmp/canonical-pre-commit
 
       - name: Stage diff into index
+        env:
+          BASE_SHA: ${{ steps.range.outputs.base }}
+          HEAD_SHA: ${{ steps.range.outputs.head }}
         run: |
           set -euo pipefail
-          base="${{ steps.range.outputs.base }}"
-          head="${{ steps.range.outputs.head }}"
+          base="$BASE_SHA"
+          head="$HEAD_SHA"
           echo "Comparing $base...$head"
 
           # `...` (three dots) = symmetric diff via merge-base, the correct
           # semantic for "what does this PR add". `AMR` covers Add, Modify,
           # and Rename — renames with content changes can carry secrets.
-          changed=$(git diff --name-only --diff-filter=AMR -z "$base...$head" || true)
-          if [ -z "$changed" ]; then
+          #
+          # NUL-separated diff goes to a TEMP FILE, never to a shell
+          # variable. Bash variable assignment via $(...) strips NUL
+          # bytes, which would concatenate filenames into one corrupt
+          # blob and either stage the wrong path or fail outright on
+          # multi-file PRs.
+          DIFF_FILE=$(mktemp)
+          trap 'rm -f "$DIFF_FILE"' EXIT
+          git diff --name-only --diff-filter=AMR -z "$base...$head" > "$DIFF_FILE" || true
+          if [ ! -s "$DIFF_FILE" ]; then
               echo "No file additions/modifications/renames in this range — skipping check."
               exit 0
           fi
@@ -97,16 +118,17 @@ jobs:
           # Sanity cap: if a single PR/push touches more than 5000 files
           # (force-push of a long-divergent branch, history rewrite, etc.) the
           # subsequent staging loop becomes minutes-long. Bail loudly instead.
-          file_count=$(printf '%s' "$changed" | tr -cd '\0' | wc -c)
+          file_count=$(tr -cd '\0' < "$DIFF_FILE" | wc -c)
           if [ "$file_count" -gt 5000 ]; then
               echo "::error::diff range covers $file_count files — refusing to scan a window this large. Open a smaller PR or force-push to a clean base."
               exit 1
           fi
 
           # Force-add even files that are now in .gitignore — staging is what
-          # the hook scans, not the gitignore. Use NUL-separation so paths
-          # with newlines survive.
-          printf '%s' "$changed" | xargs -0 -r git add -f --
+          # the hook scans, not the gitignore. Read the NUL-separated list
+          # directly from the file via xargs -0 to preserve filenames with
+          # newlines or other special characters.
+          xargs -0 -r git add -f -- < "$DIFF_FILE"
 
       - name: Run canonical pre-commit hook
         run: /tmp/canonical-pre-commit
@@ -116,16 +138,20 @@ jobs:
     # in-house hook. Run in parallel — both must pass.
     runs-on: ubuntu-24.04
     permissions:
-      # gitleaks-action posts annotations to PRs when findings exist; needs
-      # write on pull-requests for that. `contents: read` is the bare minimum.
+      # Read-only is sufficient as a gate. `pull-requests: write` would
+      # let gitleaks-action post inline annotations, but combining write
+      # permissions with a `pull_request` checkout-of-PR-head is the
+      # exact pattern that Scorecard's Dangerous-Workflow check flags.
+      # The job-failure signal already reaches the PR via the required-
+      # status-check column; annotations are a nice-to-have, not a gate.
       contents: read
-      pull-requests: write
     steps:
       - name: Check out repository
         # actions/checkout v4.2.2 — pinned by SHA.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Run gitleaks
         # gitleaks-action v2.3.9 — pinned by SHA against tag-move attacks.
