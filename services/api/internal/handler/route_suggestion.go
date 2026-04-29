@@ -40,7 +40,7 @@ var profileMap = map[string]string{
 }
 
 func routingProfileMatchesSuggestionRequest(profile database.RoutingProfile, req RouteSuggestionRequest) bool {
-	return routingProfileMatchesSuggestionRequestWithFilters(profile, req, sport.ModifierFilters{})
+	return routingProfileMatchesSuggestionRequestWithFilters(profile, req, profile.ModifierFilters)
 }
 
 func routingProfileMatchesSuggestionRequestWithFilters(profile database.RoutingProfile, req RouteSuggestionRequest, filters sport.ModifierFilters) bool {
@@ -57,16 +57,27 @@ func routingProfileMatchesSuggestionRequestWithFilters(profile database.RoutingP
 		return false
 	}
 
-	preds, err := sport.PredicatesFromSportTypes(profile.SportTypes)
-	if err != nil {
-		return false
-	}
-
-	if req.SubType == nil {
-		if !slices.Contains(sport.SportTypesFromPredicates(preds), tuple.SportType) {
+	preds := profile.Predicates
+	if len(preds) == 0 {
+		var err error
+		preds, err = sport.PredicatesFromSportTypes(profile.SportTypes)
+		if err != nil {
 			return false
 		}
-	} else if !sport.PredicatesMatch(preds, tuple.SportType, &tuple.SubType) {
+	}
+
+	matchesPredicate := false
+	if req.SubType == nil {
+		for _, profileSport := range sport.SportTypesFromPredicates(preds) {
+			if profileSport == tuple.SportType {
+				matchesPredicate = true
+				break
+			}
+		}
+	} else {
+		matchesPredicate = sport.PredicatesMatch(preds, tuple.SportType, &tuple.SubType)
+	}
+	if !matchesPredicate {
 		return false
 	}
 

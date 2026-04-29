@@ -12,6 +12,8 @@ import {
   getProfileDefaults as fetchProfileDefaults,
   type ProfileDefaultsResponse,
 } from '@/api/routes'
+import { routeSportOptions } from '@/lib/sportTaxonomy'
+import type { ModifierFilters, SportPredicate } from '@/lib/sportPredicates'
 
 // ─── Highway cost slider definitions ──────────────────────────────────────
 
@@ -69,6 +71,14 @@ const HIGHWAY_GROUP_LABELS: Record<string, string> = {
   trails: 'Trails',
   roads: 'Strassen',
 }
+
+const ROUTE_SPORT_OPTIONS = routeSportOptions()
+const MODIFIER_FILTER_OPTIONS: { key: keyof ModifierFilters; label: string }[] = [
+  { key: 'is_electric', label: 'E-Bike' },
+  { key: 'is_indoor', label: 'Indoor' },
+  { key: 'is_virtual', label: 'Virtuell' },
+  { key: 'is_commute', label: 'Pendeln' },
+]
 
 // ─── Sub-components ────────────────────────────────────────────────────────
 
@@ -503,6 +513,37 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
   }
 
   const sections = ['elevation', 'difficulty', 'environment', 'paths', 'behavior'] as FieldSection[]
+  const firstPredicate = config.predicates?.[0]
+  const selectedRouteSport = firstPredicate
+    ? `${firstPredicate.sport}/${firstPredicate.sub_type ?? ''}`
+    : ''
+
+  function updatePrimaryPredicate(value: string) {
+    if (value === '') {
+      onChange({ ...config, predicates: undefined })
+      return
+    }
+    const [sportType, subType = ''] = value.split('/')
+    const predicate: SportPredicate = { sport: sportType }
+    if (subType !== '') {
+      predicate.sub_type = subType
+    }
+    onChange({
+      ...config,
+      predicates: [predicate],
+      sport_types: undefined,
+    })
+  }
+
+  function updateModifierFilter(key: keyof ModifierFilters, checked: boolean) {
+    const next = { ...(config.modifier_filters ?? {}) }
+    if (checked) {
+      next[key] = true
+    } else {
+      delete next[key]
+    }
+    onChange({ ...config, modifier_filters: next })
+  }
 
   return (
     <div className="flex flex-col">
@@ -529,6 +570,38 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
               </button>
             )
           })}
+        </div>
+      </div>
+
+      <div className="px-3 py-2.5 border-b border-neutral-100 dark:border-neutral-800 space-y-2">
+        <div className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+          Sport-Zuordnung
+        </div>
+        <select
+          value={selectedRouteSport}
+          onChange={e => updatePrimaryPredicate(e.target.value)}
+          className="w-full text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+          aria-label="Sport-Zuordnung"
+        >
+          <option value="">Nicht festgelegt</option>
+          {ROUTE_SPORT_OPTIONS.map(option => (
+            <option key={`${option.sportType}/${option.subType ?? ''}`} value={`${option.sportType}/${option.subType ?? ''}`}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <div className="grid grid-cols-2 gap-1.5">
+          {MODIFIER_FILTER_OPTIONS.map(option => (
+            <label key={option.key} className="flex items-center gap-1.5 text-xs text-neutral-700 dark:text-neutral-300">
+              <input
+                type="checkbox"
+                checked={Boolean(config.modifier_filters?.[option.key])}
+                onChange={e => updateModifierFilter(option.key, e.target.checked)}
+                className="h-3.5 w-3.5 flex-shrink-0 accent-[var(--color-accent-DEFAULT,#F97316)] cursor-pointer"
+              />
+              <span>{option.label}</span>
+            </label>
+          ))}
         </div>
       </div>
 

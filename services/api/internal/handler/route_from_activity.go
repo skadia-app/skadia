@@ -155,7 +155,8 @@ func (h *Handler) RouteFromActivity(w http.ResponseWriter, r *http.Request) {
 		UserID:             userID,
 		Name:               routeName,
 		SportType:          activity.SportType,
-		Profile:            sportTypeToProfile(activity.SportType),
+		SubType:            activity.SubType,
+		Profile:            sportTypeToProfile(activity.SportType, activity.SubType),
 		GeometryGeoJSON:    geojsonStr,
 		Waypoints:          waypoints,
 		Segments:           segments,
@@ -214,12 +215,21 @@ func derefFloat64(f *float64) float64 {
 }
 
 // sportTypeToProfile returns a routing profile name for a given sport type.
-func sportTypeToProfile(sportType string) string {
+func sportTypeToProfile(sportType string, subType *string) string {
+	sub := ""
+	if subType != nil {
+		sub = *subType
+	}
 	switch sportType {
-	case "cycling", "road_cycling", "gravel_cycling":
+	case "cycling":
+		if sub == "mountain" {
+			return "cycling-mountain"
+		}
 		return "cycling-road"
 	case "mountain_biking":
 		return "cycling-mountain"
+	case "road_cycling", "gravel_cycling":
+		return "cycling-road"
 	case "running", "trail_running":
 		return "running"
 	default:

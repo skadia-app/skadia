@@ -10,12 +10,15 @@ import (
 )
 
 func TestRoutingProfileListItemIncludesComputedPredicates(t *testing.T) {
+	trueValue := true
 	profile := database.RoutingProfile{
-		ID:          "profile-1",
-		Name:        "MTB",
-		BaseProfile: "mtb",
-		SportTypes:  []string{"mountain_biking"},
-		Source:      "system",
+		ID:              "profile-1",
+		Name:            "MTB",
+		BaseProfile:     "mtb",
+		SportTypes:      []string{"cycling"},
+		Predicates:      []sport.Predicate{{Sport: "cycling", SubType: strPtr("mountain")}},
+		ModifierFilters: sport.ModifierFilters{IsElectric: &trueValue},
+		Source:          "system",
 	}
 
 	item := profileListItemFromDBProfile(profile, "user-1")
@@ -23,8 +26,8 @@ func TestRoutingProfileListItemIncludesComputedPredicates(t *testing.T) {
 		item.Predicates[0].SubType == nil || *item.Predicates[0].SubType != "mountain" {
 		t.Fatalf("computed predicates = %#v", item.Predicates)
 	}
-	if item.ModifierFilters.IsElectric != nil {
-		t.Fatalf("modifier filters should be empty before DB storage exists: %#v", item.ModifierFilters)
+	if item.ModifierFilters.IsElectric == nil || !*item.ModifierFilters.IsElectric {
+		t.Fatalf("modifier filters = %#v, want stored is_electric=true", item.ModifierFilters)
 	}
 	if len(item.SportTypes) != 1 || item.SportTypes[0] != "cycling" {
 		t.Fatalf("compat sport_types = %#v, want canonical [cycling]", item.SportTypes)
@@ -53,18 +56,22 @@ func TestRoutingProfileListItemJSONIncludesPredicateFields(t *testing.T) {
 	}
 }
 
-func TestRejectsPredicateStorageFieldsBeforeMigration(t *testing.T) {
+func TestProfileStorageFieldsPreferPredicatesOverLegacySportTypes(t *testing.T) {
 	preds := []sport.Predicate{{Sport: "cycling"}}
 	filters := sport.ModifierFilters{IsElectric: boolPtr(true)}
 
-	if err := rejectPredicateStorageFieldsBeforeMigration(&preds, nil); err == nil {
-		t.Fatal("expected predicates field rejection")
+	gotPreds, gotFilters, gotSportTypes, err := normalizeProfileStorageFields(&preds, &filters, []string{"mountain_biking"})
+	if err != nil {
+		t.Fatalf("normalizeProfileStorageFields() error = %v", err)
 	}
-	if err := rejectPredicateStorageFieldsBeforeMigration(nil, &filters); err == nil {
-		t.Fatal("expected modifier_filters field rejection")
+	if len(gotPreds) != 1 || gotPreds[0].Sport != "cycling" || gotPreds[0].SubType != nil {
+		t.Fatalf("predicates = %#v, want explicit cycling wildcard from predicates field", gotPreds)
 	}
-	if err := rejectPredicateStorageFieldsBeforeMigration(nil, nil); err != nil {
-		t.Fatalf("unexpected rejection without predicate storage fields: %v", err)
+	if gotFilters.IsElectric == nil || !*gotFilters.IsElectric {
+		t.Fatalf("modifier filters = %#v, want is_electric=true", gotFilters)
+	}
+	if len(gotSportTypes) != 1 || gotSportTypes[0] != "cycling" {
+		t.Fatalf("sport_types = %#v, want canonical [cycling]", gotSportTypes)
 	}
 }
 

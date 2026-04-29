@@ -40,23 +40,23 @@ func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (strin
 	var id string
 	err = db.Pool.QueryRow(ctx, `
 		INSERT INTO planned_routes (
-			user_id, name, description, sport_type, difficulty, profile,
+			user_id, name, description, sport_type, sub_type, difficulty, profile,
 			geometry, waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
 			elevation_profile, enrichment, routing_engine,
 			route_schema_version
 		) VALUES (
-			$1, $2, $3, $4, $5, $6,
-			ST_Force2D(ST_GeomFromGeoJSON($7)), $8, $9,
-			$10, $11, $12,
-			$13, $14, $15,
-			$16, $17, $18,
-			$19
+			$1, $2, $3, $4, $5, $6, $7,
+			ST_Force2D(ST_GeomFromGeoJSON($8)), $9, $10,
+			$11, $12, $13,
+			$14, $15, $16,
+			$17, $18, $19,
+			$20
 		)
 		RETURNING id
 	`,
-		route.UserID, route.Name, route.Description, route.SportType, route.Difficulty, route.Profile,
+		route.UserID, route.Name, route.Description, route.SportType, route.SubType, route.Difficulty, route.Profile,
 		route.GeometryGeoJSON, waypointsJSON, segmentsJSON,
 		route.TotalDistanceM, route.TotalElevationGain, route.TotalElevationLoss,
 		route.EstimatedTimeMin, route.TimeOverride, route.AutoTag,
@@ -75,7 +75,7 @@ func (db *DB) GetRoute(ctx context.Context, id, userID string) (*model.PlannedRo
 	var waypointsJSON, segmentsJSON []byte
 
 	err := db.Pool.QueryRow(ctx, `
-		SELECT id, user_id, name, description, sport_type, difficulty, profile,
+		SELECT id, user_id, name, description, sport_type, sub_type, difficulty, profile,
 			ST_AsGeoJSON(geometry) AS geometry_geojson,
 			waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
@@ -87,7 +87,7 @@ func (db *DB) GetRoute(ctx context.Context, id, userID string) (*model.PlannedRo
 		WHERE id = $1 AND user_id = $2
 	`, id, userID).Scan(
 		&route.ID, &route.UserID, &route.Name, &route.Description,
-		&route.SportType, &route.Difficulty, &route.Profile,
+		&route.SportType, &route.SubType, &route.Difficulty, &route.Profile,
 		&route.GeometryGeoJSON,
 		&waypointsJSON, &segmentsJSON,
 		&route.TotalDistanceM, &route.TotalElevationGain, &route.TotalElevationLoss,
@@ -120,7 +120,7 @@ func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int) 
 	}
 
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, name, description, sport_type, difficulty, profile,
+		SELECT id, user_id, name, description, sport_type, sub_type, difficulty, profile,
 			ST_AsGeoJSON(ST_Simplify(geometry, 0.001)) AS geometry_simplified,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
@@ -141,7 +141,7 @@ func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int) 
 		var r model.PlannedRoute
 		if err := rows.Scan(
 			&r.ID, &r.UserID, &r.Name, &r.Description,
-			&r.SportType, &r.Difficulty, &r.Profile,
+			&r.SportType, &r.SubType, &r.Difficulty, &r.Profile,
 			&r.GeometryGeoJSON,
 			&r.TotalDistanceM, &r.TotalElevationGain, &r.TotalElevationLoss,
 			&r.EstimatedTimeMin, &r.TimeOverride, &r.AutoTag,
@@ -182,25 +182,26 @@ func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error 
 			name               = $3,
 			description        = $4,
 			sport_type         = $5,
-			difficulty         = $6,
-			profile            = $7,
-			geometry           = ST_Force2D(ST_GeomFromGeoJSON($8)),
-			waypoints          = $9,
-			segments           = $10,
-			total_distance_m   = $11,
-			total_elevation_gain = $12,
-			total_elevation_loss = $13,
-			estimated_time_min = $14,
-			time_override      = $15,
-			auto_tag           = $16,
-			elevation_profile  = $17,
-			enrichment         = $18,
-			routing_engine     = $19,
-			route_schema_version = $20
+			sub_type           = $6,
+			difficulty         = $7,
+			profile            = $8,
+			geometry           = ST_Force2D(ST_GeomFromGeoJSON($9)),
+			waypoints          = $10,
+			segments           = $11,
+			total_distance_m   = $12,
+			total_elevation_gain = $13,
+			total_elevation_loss = $14,
+			estimated_time_min = $15,
+			time_override      = $16,
+			auto_tag           = $17,
+			elevation_profile  = $18,
+			enrichment         = $19,
+			routing_engine     = $20,
+			route_schema_version = $21
 		WHERE id = $1 AND user_id = $2
 	`,
 		route.ID, route.UserID,
-		route.Name, route.Description, route.SportType, route.Difficulty, route.Profile,
+		route.Name, route.Description, route.SportType, route.SubType, route.Difficulty, route.Profile,
 		route.GeometryGeoJSON, waypointsJSON, segmentsJSON,
 		route.TotalDistanceM, route.TotalElevationGain, route.TotalElevationLoss,
 		route.EstimatedTimeMin, route.TimeOverride, route.AutoTag,
@@ -239,7 +240,7 @@ func (db *DB) DuplicateRoute(ctx context.Context, id, userID string) (string, er
 	var newID string
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO planned_routes (
-			user_id, name, description, sport_type, difficulty,
+			user_id, name, description, sport_type, sub_type, difficulty,
 			profile, geometry, waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
@@ -247,7 +248,7 @@ func (db *DB) DuplicateRoute(ctx context.Context, id, userID string) (string, er
 			route_schema_version
 		)
 		SELECT
-			user_id, name || ' (Kopie)', description, sport_type, difficulty,
+			user_id, name || ' (Kopie)', description, sport_type, sub_type, difficulty,
 			profile, geometry, waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
@@ -464,21 +465,21 @@ func (db *DB) CreateRouteFromImport(ctx context.Context, userID string, r *model
 	var id string
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO planned_routes (
-			user_id, name, description, sport_type, profile,
+			user_id, name, description, sport_type, sub_type, profile,
 			geometry, waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			source_platform, source_id, source_url,
 			geometry_hash,
 			route_schema_version
 		) VALUES (
-			$1, $2, $3, $4, $5,
-			ST_Force2D(ST_GeomFromGeoJSON($6)), $7, $8,
-			$9, $10, $11,
-			$12, $13, $14,
-			encode(digest(ST_AsEWKB(ST_SnapToGrid(ST_Force2D(ST_GeomFromGeoJSON($6)), 0.00001)), 'sha256'), 'hex'),
-			$15
+			$1, $2, $3, $4, $5, $6,
+			ST_Force2D(ST_GeomFromGeoJSON($7)), $8, $9,
+			$10, $11, $12,
+			$13, $14, $15,
+			encode(digest(ST_AsEWKB(ST_SnapToGrid(ST_Force2D(ST_GeomFromGeoJSON($7)), 0.00001)), 'sha256'), 'hex'),
+			$16
 		) RETURNING id`,
-		userID, r.Name, r.Description, r.SportType, r.Profile,
+		userID, r.Name, r.Description, r.SportType, r.SubType, r.Profile,
 		r.GeometryGeoJSON, r.WaypointsJSON, r.SegmentsJSON,
 		r.TotalDistanceM, r.TotalElevationGain, r.TotalElevationLoss,
 		r.SourcePlatform, r.SourceID, r.SourceURL,

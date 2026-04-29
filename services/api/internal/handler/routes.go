@@ -103,6 +103,7 @@ var patchableRouteFields = map[string]struct{}{
 	"name":                 {},
 	"description":          {},
 	"sport_type":           {},
+	"sub_type":             {},
 	"difficulty":           {},
 	"profile":              {},
 	"geometry_geojson":     {},
@@ -136,6 +137,8 @@ func applyRoutePatch(route *model.PlannedRoute, fields map[string]json.RawMessag
 			target = &route.Description
 		case "sport_type":
 			target = &route.SportType
+		case "sub_type":
+			target = &route.SubType
 		case "difficulty":
 			target = &route.Difficulty
 		case "profile":
