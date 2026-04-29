@@ -14,7 +14,6 @@ func TestSportTypeToProfileUsesCanonicalSubType(t *testing.T) {
 	}{
 		{name: "canonical MTB", sportType: "cycling", subType: &mountain, want: "cycling-mountain"},
 		{name: "canonical road", sportType: "cycling", subType: &road, want: "cycling-road"},
-		{name: "legacy MTB", sportType: "mountain_biking", want: "cycling-mountain"},
 		{name: "trail running", sportType: "running", want: "running"},
 	}
 

@@ -1,7 +1,7 @@
 {
   "profile": "gravel",
   "name": "Gravel",
-  "sport_types": ["gravel_cycling"],
+  "sport_types": ["cycling"],
   "predicates": [{"sport":"cycling","sub_type":"gravel_cycling"}],
   "uphill_cost": 80,
   "downhill_cost": 40,

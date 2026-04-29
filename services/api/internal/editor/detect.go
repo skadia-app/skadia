@@ -127,7 +127,7 @@ func DetectGPSOutliers(points []StreamPoint, maxSpeedMS float64, stddevFactor fl
 // SportMaxSpeed gibt die sport-spezifische Maximalgeschwindigkeit in m/s zurück.
 func SportMaxSpeed(sportType string) float64 {
 	switch {
-	case strings.HasPrefix(sportType, "running"), sportType == "trail_running":
+	case strings.HasPrefix(sportType, "running"):
 		return 10.0
 	case strings.Contains(sportType, "cycling"), strings.Contains(sportType, "biking"):
 		return 25.0
