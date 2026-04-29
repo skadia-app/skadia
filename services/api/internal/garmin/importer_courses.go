@@ -10,6 +10,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	sporttax "github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // GarminCourse represents a single course from the Garmin Connect export JSON.
@@ -121,7 +122,7 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 				continue
 			}
 
-			sportType := garminCourseTypeToSport(course.CourseType)
+			sportType, subType := garminCourseTypeToSport(course.CourseType)
 			sourcePlatform := platform
 			sid := sourceID
 			elevGain := course.ElevationGain
@@ -131,6 +132,7 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 			_, err = p.DB.CreateRouteFromImport(ctx, p.UserID, &model.RouteImportData{
 				Name:               course.CourseName,
 				SportType:          sportType,
+				SubType:            subType,
 				Profile:            "outdoor",
 				GeometryGeoJSON:    geojson,
 				WaypointsJSON:      "[]",
@@ -158,31 +160,43 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 	return result, nil
 }
 
-// garminCourseTypeToSport maps Garmin courseType strings to Skadia sport_type.
-func garminCourseTypeToSport(courseType string) string {
+// garminCourseTypeToSport maps Garmin courseType strings to Skadia route sport tuples.
+func garminCourseTypeToSport(courseType string) (string, *string) {
+	normalize := func(sportType, subType string) (string, *string) {
+		tuple, _, err := sporttax.NormalizeSportTuple(sportType, subType)
+		if err != nil {
+			return "generic", nil
+		}
+		if tuple.SubType == "" {
+			return tuple.SportType, nil
+		}
+		return tuple.SportType, &tuple.SubType
+	}
 	switch courseType {
-	case "road_cycling", "cycling":
-		return "cycling"
+	case "road_cycling":
+		return normalize("cycling", "road")
+	case "cycling":
+		return normalize("cycling", "")
 	case "mountain_biking":
-		return "mountain_biking"
+		return normalize("cycling", "mountain")
 	case "gravel_cycling":
-		return "gravel_cycling"
+		return normalize("cycling", "gravel_cycling")
 	case "running":
-		return "running"
+		return normalize("running", "")
 	case "trail_running":
-		return "trail_running"
+		return normalize("running", "trail")
 	case "hiking":
-		return "hiking"
+		return normalize("hiking", "")
 	case "walking":
-		return "walking"
+		return normalize("walking", "")
 	case "swimming":
-		return "swimming"
+		return normalize("swimming", "")
 	case "skiing":
-		return "alpine_skiing"
+		return normalize("alpine_skiing", "")
 	case "cross_country_skiing":
-		return "cross_country_skiing"
+		return normalize("cross_country_skiing", "")
 	default:
-		return "generic"
+		return normalize("generic", "")
 	}
 }
 

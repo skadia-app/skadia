@@ -46,3 +46,35 @@ func TestRoutingProfileMatchesSuggestionModifiers(t *testing.T) {
 		t.Fatal("expected nonmatching electric modifier to reject")
 	}
 }
+
+func TestRoutingProfileMatchesStoredPredicatesAndModifierFilters(t *testing.T) {
+	trueValue := true
+	falseValue := false
+	profile := database.RoutingProfile{
+		Name:            "Stored MTB",
+		Predicates:      []sport.Predicate{{Sport: "cycling", SubType: strPtr("mountain")}},
+		ModifierFilters: sport.ModifierFilters{IsElectric: &trueValue},
+	}
+
+	if !routingProfileMatchesSuggestionRequest(profile, RouteSuggestionRequest{
+		SportType: "cycling",
+		SubType:   strPtr("mountain"),
+		Modifiers: &sport.ModifierFilters{IsElectric: &trueValue},
+	}) {
+		t.Fatal("expected stored cycling/mountain + electric filter to match")
+	}
+	if routingProfileMatchesSuggestionRequest(profile, RouteSuggestionRequest{
+		SportType: "cycling",
+		SubType:   strPtr("road"),
+		Modifiers: &sport.ModifierFilters{IsElectric: &trueValue},
+	}) {
+		t.Fatal("expected cycling/road request to reject stored MTB predicate")
+	}
+	if routingProfileMatchesSuggestionRequest(profile, RouteSuggestionRequest{
+		SportType: "cycling",
+		SubType:   strPtr("mountain"),
+		Modifiers: &sport.ModifierFilters{IsElectric: &falseValue},
+	}) {
+		t.Fatal("expected nonmatching stored electric filter to reject")
+	}
+}

@@ -41,7 +41,9 @@ export function fetchAllProfiles(): Promise<RoutingProfilesResponse> {
 export function createProfile(body: {
   name: string
   base_profile: string
-  sport_types: string[]
+  sport_types?: string[]
+  predicates?: SportPredicate[]
+  modifier_filters?: ModifierFilters
   config: Record<string, unknown>
 }): Promise<RoutingProfileEntry> {
   return apiClient('/routing/profiles', { method: 'POST', body })
@@ -51,7 +53,9 @@ export function updateProfile(
   id: string,
   body: {
     name: string
-    sport_types: string[]
+    sport_types?: string[]
+    predicates?: SportPredicate[]
+    modifier_filters?: ModifierFilters
     config: Record<string, unknown>
   },
 ): Promise<void> {

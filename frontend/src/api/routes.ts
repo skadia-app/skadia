@@ -46,6 +46,7 @@ export interface PlannedRoute {
   name: string
   description?: string            // Markdown
   sport_type: string
+  sub_type?: string | null
   difficulty?: string
   profile: string                 // BRouter profile
   waypoints: RouteWaypoint[]
