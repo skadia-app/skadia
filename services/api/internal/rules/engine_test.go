@@ -223,6 +223,68 @@ func TestApply_SetField_UnknownFieldIgnored(t *testing.T) {
 	}
 }
 
+func TestApply_SetElectric(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"true", `{"electric":true}`, true},
+		{"false", `{"electric":false}`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			changes := rules.Apply([]rules.Action{
+				{Action: "set_electric", Params: json.RawMessage(tt.raw)},
+			})
+			if len(changes) != 1 {
+				t.Fatalf("changes len = %d, want 1", len(changes))
+			}
+			if changes[0].Field != "is_electric" {
+				t.Fatalf("field = %q, want is_electric", changes[0].Field)
+			}
+			if changes[0].Value != tt.want {
+				t.Fatalf("value = %#v, want %v", changes[0].Value, tt.want)
+			}
+		})
+	}
+}
+
+func TestApply_SetSportTypeEmitsAtomicTuple(t *testing.T) {
+	changes := rules.Apply([]rules.Action{
+		{Action: "set_sport_type", Params: json.RawMessage(`{"sport_type":"cycling","sub_type":"mountain"}`)},
+	})
+	if len(changes) != 1 {
+		t.Fatalf("changes len = %d, want 1", len(changes))
+	}
+	if changes[0].Field != "sport_tuple" {
+		t.Fatalf("field = %q, want sport_tuple", changes[0].Field)
+	}
+	got, ok := changes[0].Value.(rules.SportTupleChange)
+	if !ok {
+		t.Fatalf("value type = %T, want rules.SportTupleChange", changes[0].Value)
+	}
+	if got.SportType != "cycling" || got.SubType != "mountain" {
+		t.Fatalf("tuple = %#v, want cycling/mountain", got)
+	}
+}
+
+func TestApply_SetSportTypeWithoutSubTypeClearsPreviousSubType(t *testing.T) {
+	changes := rules.Apply([]rules.Action{
+		{Action: "set_sport_type", Params: json.RawMessage(`{"sport_type":"running"}`)},
+	})
+	if len(changes) != 1 {
+		t.Fatalf("changes len = %d, want 1", len(changes))
+	}
+	got, ok := changes[0].Value.(rules.SportTupleChange)
+	if !ok {
+		t.Fatalf("value type = %T, want rules.SportTupleChange", changes[0].Value)
+	}
+	if got.SportType != "running" || got.SubType != "" {
+		t.Fatalf("tuple = %#v, want running with empty subtype", got)
+	}
+}
+
 func TestEvalCondition_Between(t *testing.T) {
 	activity := map[string]any{
 		"distance_m": float64(25000),

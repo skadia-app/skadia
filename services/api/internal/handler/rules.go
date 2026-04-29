@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -174,10 +175,17 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		ctx := context.Background()
 		failed := false
+		pausedCount := 0
 
 		for i, activityID := range activityIDs {
 			if err := h.ApplyRulesToActivity(ctx, activityID, userID, activeRules, ""); err != nil {
-				slog.Warn("apply rules to activity", "activity_id", activityID, "error", err)
+				if errors.Is(err, automation.ErrRulesEnginePaused) {
+					pausedCount++
+					slog.Warn("apply rules skipped because rules engine is paused", "activity_id", activityID, "error", err)
+				} else {
+					failed = true
+					slog.Warn("apply rules to activity", "activity_id", activityID, "error", err)
+				}
 			}
 
 			if jobID != "" && (i%10 == 0 || i == len(activityIDs)-1) {
@@ -187,7 +195,7 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		slog.Info("apply rules: done", "user_id", userID, "total", len(activityIDs))
+		slog.Info("apply rules: done", "user_id", userID, "total", len(activityIDs), "paused_skipped", pausedCount)
 
 		if jobID != "" {
 			if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed, ""); err != nil {
@@ -542,10 +550,16 @@ func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule 
 	}
 	singleRule := []model.AutomationRule{rule}
 	var errorCount int
+	var pausedCount int
 	for i, actID := range actIDs {
 		if err := automation.ApplyRulesToActivity(ctx, h.DB, actID, userID, singleRule, ""); err != nil {
-			errorCount++
-			slog.Warn("apply single rule to activity", "activity_id", actID, "rule_id", rule.ID, "error", err)
+			if errors.Is(err, automation.ErrRulesEnginePaused) {
+				pausedCount++
+				slog.Warn("apply single rule skipped because rules engine is paused", "activity_id", actID, "rule_id", rule.ID, "error", err)
+			} else {
+				errorCount++
+				slog.Warn("apply single rule to activity", "activity_id", actID, "rule_id", rule.ID, "error", err)
+			}
 		}
 		if i%50 == 0 || i == len(actIDs)-1 {
 			if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
@@ -553,7 +567,7 @@ func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule 
 			}
 		}
 	}
-	slog.Info("apply single rule: done", "user_id", userID, "rule_id", rule.ID, "total", len(actIDs), "errors", errorCount)
+	slog.Info("apply single rule: done", "user_id", userID, "rule_id", rule.ID, "total", len(actIDs), "errors", errorCount, "paused_skipped", pausedCount)
 	if errorCount > 0 {
 		return fmt.Errorf("%d errors processing %d activities", errorCount, len(actIDs))
 	}

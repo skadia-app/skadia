@@ -1642,11 +1642,28 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 	case "sub_type":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET sub_type = $1 WHERE id = $2`, value, activityID)
 		return err
+	case "sport_tuple":
+		tuple, ok := value.(rules.SportTupleChange)
+		if !ok {
+			return fmt.Errorf("sport_tuple value must be a SportTupleChange")
+		}
+		var isManual bool
+		_ = db.Pool.QueryRow(ctx, `SELECT sport_type_is_manual FROM activities WHERE id = $1`, activityID).Scan(&isManual)
+		if isManual {
+			return nil
+		}
+		_, err := db.Pool.Exec(ctx,
+			`UPDATE activities SET sport_type = $1, sub_type = NULLIF($2, '') WHERE id = $3`,
+			tuple.SportType, tuple.SubType, activityID)
+		return err
 	case "intensity":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET intensity = $1 WHERE id = $2`, value, activityID)
 		return err
 	case "is_indoor":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET is_indoor = $1 WHERE id = $2`, value, activityID)
+		return err
+	case "is_electric":
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET is_electric = $1 WHERE id = $2`, value, activityID)
 		return err
 	case "is_round_trip":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET is_round_trip = $1 WHERE id = $2`, value, activityID)

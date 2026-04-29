@@ -108,7 +108,13 @@ func (s *Service) PostProcess(
 	enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, true)
 
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
-		_ = automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules, "on_import")
+		if rulesErr := automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules, "on_import"); rulesErr != nil {
+			if errors.Is(rulesErr, automation.ErrRulesEnginePaused) {
+				slog.Warn("postprocess: on_import rules skipped because rules engine is paused", "activity_id", activityID, "error", rulesErr)
+			} else {
+				slog.Warn("postprocess: on_import rules failed", "activity_id", activityID, "error", rulesErr)
+			}
+		}
 	}
 
 	// ── Phase 1 (parallel groups) ─────────────────────────────────────────
@@ -400,7 +406,11 @@ func (s *Service) PostProcess(
 	// Trigger on_enrichment_complete rules after all synchronous enrichment steps finish.
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
 		if rulesErr := automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules, "on_enrichment_complete"); rulesErr != nil {
-			slog.Warn("on_enrichment_complete rules failed", "activity_id", activityID, "error", rulesErr)
+			if errors.Is(rulesErr, automation.ErrRulesEnginePaused) {
+				slog.Warn("on_enrichment_complete rules skipped because rules engine is paused", "activity_id", activityID, "error", rulesErr)
+			} else {
+				slog.Warn("on_enrichment_complete rules failed", "activity_id", activityID, "error", rulesErr)
+			}
 		}
 	}
 
@@ -789,4 +799,3 @@ func (s *Service) compareStreamRichness(ctx context.Context, newData *model.Acti
 
 	return newCount - existingCount
 }
-
