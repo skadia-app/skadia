@@ -1,0 +1,21 @@
+# Large-file size-gate path-prefix allowlist.
+#
+# Source-of-truth shared by .githooks/pre-commit (Check 1) and
+# .github/workflows/repo-hygiene.yml (large-files job).
+#
+# Pure data file — NEVER executed as bash. Each non-empty, non-comment
+# line is a literal path prefix. Trailing slash recommended. Globs and
+# absolute paths are rejected by both consumers; do not put them here.
+#
+# Trust-boundary note: CI loads this file from origin/main, not from PR
+# head, so a malicious PR cannot widen the allowlist for the gate that
+# protects main. Contributor-side hook loads from the local worktree
+# because the contributor controls their own commit anyway.
+#
+# IMPORTANT: node_modules/ is intentionally NOT allowlisted. Force-adding
+# a node_modules tree would otherwise bypass the size gate. .gitignore
+# already keeps it out of normal commits; the gate stays strict for the
+# `git add -f` corner case.
+vendor/
+services/api/vendor/
+frontend/dist/
