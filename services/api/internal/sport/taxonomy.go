@@ -21,16 +21,15 @@ type SubTypeDef struct {
 
 // SportDef holds every piece of metadata for a single sport type.
 type SportDef struct {
-	SportType        string                `json:"sport_type"`
-	CategoryKey      string                `json:"category_key"`
-	LabelDE          string                `json:"label_de"`
-	AutoTitleDE      string                `json:"auto_title_de"`
-	SegmentGroup     string                `json:"segment_group"`
-	TypicallyHasGPS  bool                  `json:"typically_has_gps"`
-	MovingThreshold  float64               `json:"moving_threshold"`
-	IsIndoor         bool                  `json:"is_indoor"`
-	SubTypePromotion bool                  `json:"sub_type_promotion"`
-	SubTypes         map[string]SubTypeDef `json:"sub_types,omitempty"`
+	SportType       string                `json:"sport_type"`
+	CategoryKey     string                `json:"category_key"`
+	LabelDE         string                `json:"label_de"`
+	AutoTitleDE     string                `json:"auto_title_de"`
+	SegmentGroup    string                `json:"segment_group"`
+	TypicallyHasGPS bool                  `json:"typically_has_gps"`
+	MovingThreshold float64               `json:"moving_threshold"`
+	IsIndoor        bool                  `json:"is_indoor"`
+	SubTypes        map[string]SubTypeDef `json:"sub_types,omitempty"`
 }
 
 // ---- Categories ----
@@ -217,7 +216,7 @@ func init() {
 			SegmentGroup: "swim", TypicallyHasGPS: false, MovingThreshold: 0.1, IsIndoor: true,
 		},
 		{
-			SportType: "paddling", CategoryKey: "water", LabelDE: "Wassersport", AutoTitleDE: "Wassersport-Tour",
+			SportType: "paddling", CategoryKey: "water", LabelDE: "Paddeln (Generisch)", AutoTitleDE: "Wassersport-Tour",
 			SegmentGroup: "paddle", TypicallyHasGPS: true, MovingThreshold: 0.1,
 		},
 		{
@@ -310,7 +309,6 @@ func init() {
 		{
 			SportType: "training", CategoryKey: "fitness", LabelDE: "Training", AutoTitleDE: "Training",
 			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-			SubTypePromotion: true,
 			SubTypes: map[string]SubTypeDef{
 				"strength_training":    {SubType: "strength_training", LabelDE: "Krafttraining", DetailDE: "Krafttraining", AutoTitleDE: "Krafttraining"},
 				"flexibility_training": {SubType: "flexibility_training", LabelDE: "Stretching", DetailDE: "Dehnungstraining", AutoTitleDE: "Stretching"},
@@ -323,7 +321,6 @@ func init() {
 		{
 			SportType: "fitness_equipment", CategoryKey: "fitness", LabelDE: "Fitnessgerät", AutoTitleDE: "Fitnessgerät",
 			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-			SubTypePromotion: true,
 			SubTypes: map[string]SubTypeDef{
 				"treadmill":           {SubType: "treadmill", LabelDE: "Laufband", DetailDE: "Laufband", AutoTitleDE: "Laufband"},
 				"indoor_cycling":      {SubType: "indoor_cycling", LabelDE: "Indoor-Rad", DetailDE: "Indoor-Rad", AutoTitleDE: "Indoor-Radfahrt"},
@@ -412,8 +409,7 @@ func init() {
 		},
 		{
 			SportType: "racket", CategoryKey: "game", LabelDE: "Schlägersport", AutoTitleDE: "Schlägersport",
-			SubTypePromotion: true,
-			SegmentGroup:     "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
 			SubTypes: map[string]SubTypeDef{
 				"pickleball":   {SubType: "pickleball", LabelDE: "Pickleball", DetailDE: "Pickleball", AutoTitleDE: "Pickleball"},
 				"padel":        {SubType: "padel", LabelDE: "Padel", DetailDE: "Padel", AutoTitleDE: "Padel"},
@@ -569,20 +565,24 @@ func init() {
 // GetSportDef returns the full definition for a sport type.
 // The second return value is false when the sport type is unknown.
 func GetSportDef(sportType string) (SportDef, bool) {
+	if tuple, ok := normalizeTupleForLookup(sportType, ""); ok {
+		if d, ok := registry[tuple.SportType]; ok {
+			return d, true
+		}
+	}
 	d, ok := registry[sportType]
 	return d, ok
 }
 
-// SportLabel returns the German display label, using sub-type promotion
-// when appropriate. For sports with SubTypePromotion (training, fitness_equipment),
-// the sub-type label is returned directly instead of the parent label.
+// SportLabel returns the compact German display label for a sport tuple.
 func SportLabel(sportType, subType string) string {
-	d, ok := registry[sportType]
+	tuple, _ := normalizeTupleForLookup(sportType, subType)
+	d, ok := registry[tuple.SportType]
 	if !ok {
 		return titleCase(sportType)
 	}
-	if d.SubTypePromotion && subType != "" && subType != "generic" {
-		if st, stOK := d.SubTypes[subType]; stOK {
+	if tuple.SubType != "" && tuple.SubType != "generic" {
+		if st, stOK := d.SubTypes[tuple.SubType]; stOK {
 			return st.LabelDE
 		}
 	}
@@ -592,15 +592,16 @@ func SportLabel(sportType, subType string) string {
 // SportDetailLabel returns a detailed German label including sub-type info.
 // Examples: "Radfahren (MTB)", "Krafttraining", "Kajak (Wildwasser)".
 func SportDetailLabel(sportType, subType string) string {
-	d, ok := registry[sportType]
+	tuple, _ := normalizeTupleForLookup(sportType, subType)
+	d, ok := registry[tuple.SportType]
 	if !ok {
 		return titleCase(sportType)
 	}
-	if subType == "" || subType == "generic" {
+	if tuple.SubType == "" || tuple.SubType == "generic" {
 		return d.LabelDE
 	}
-	if st, stOK := d.SubTypes[subType]; stOK {
-		if d.SubTypePromotion {
+	if st, stOK := d.SubTypes[tuple.SubType]; stOK {
+		if subTypeLabelCanStandAlone(d) {
 			return st.DetailDE
 		}
 		return d.LabelDE + " (" + st.LabelDE + ")"
@@ -611,12 +612,13 @@ func SportDetailLabel(sportType, subType string) string {
 // AutoTitle returns the German auto-title string used for auto-naming activities.
 // Sub-type-promoted sports use the sub-type's title. Fallback is "Training".
 func AutoTitle(sportType, subType string) string {
-	d, ok := registry[sportType]
+	tuple, _ := normalizeTupleForLookup(sportType, subType)
+	d, ok := registry[tuple.SportType]
 	if !ok {
 		return "Training"
 	}
-	if subType != "" && subType != "generic" {
-		if st, stOK := d.SubTypes[subType]; stOK && st.AutoTitleDE != "" {
+	if tuple.SubType != "" && tuple.SubType != "generic" {
+		if st, stOK := d.SubTypes[tuple.SubType]; stOK && st.AutoTitleDE != "" {
 			return st.AutoTitleDE
 		}
 	}
@@ -626,7 +628,8 @@ func AutoTitle(sportType, subType string) string {
 // SegmentGroup returns the segment matching group for a sport type.
 // Possible values: bike, foot, swim, ski, paddle, generic.
 func SegmentGroup(sportType string) string {
-	d, ok := registry[sportType]
+	tuple, _ := normalizeTupleForLookup(sportType, "")
+	d, ok := registry[tuple.SportType]
 	if !ok {
 		return "generic"
 	}
@@ -636,7 +639,8 @@ func SegmentGroup(sportType string) string {
 // MovingThreshold returns the minimum speed (m/s) that counts as "moving"
 // for the given sport type.
 func MovingThreshold(sportType string) float64 {
-	d, ok := registry[sportType]
+	tuple, _ := normalizeTupleForLookup(sportType, "")
+	d, ok := registry[tuple.SportType]
 	if !ok {
 		return 0.0
 	}
@@ -646,7 +650,8 @@ func MovingThreshold(sportType string) float64 {
 // CategoryForSport returns the category for a given sport type.
 // Falls back to the "other" category for unknown sport types.
 func CategoryForSport(sportType string) Category {
-	d, ok := registry[sportType]
+	tuple, _ := normalizeTupleForLookup(sportType, "")
+	d, ok := registry[tuple.SportType]
 	if !ok {
 		return categoryByKey["other"]
 	}
@@ -667,7 +672,10 @@ func AllCategories() []Category {
 // AllSports returns all registered sport definitions, sorted alphabetically by SportType.
 func AllSports() []SportDef {
 	result := make([]SportDef, 0, len(registry))
-	for _, d := range registry {
+	for sportType, d := range registry {
+		if isLegacySportAlias(sportType) {
+			continue
+		}
 		result = append(result, d)
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -680,7 +688,10 @@ func AllSports() []SportDef {
 // sorted alphabetically by SportType.
 func SportsInCategory(categoryKey string) []SportDef {
 	var result []SportDef
-	for _, d := range registry {
+	for sportType, d := range registry {
+		if isLegacySportAlias(sportType) {
+			continue
+		}
 		if d.CategoryKey == categoryKey {
 			result = append(result, d)
 		}
@@ -712,6 +723,11 @@ func titleCase(s string) string {
 // Indoor SubType patterns. New indoor sub-types MUST use "indoor_" prefix
 // or be added here explicitly. See SportDef.IsIndoor for sport-level defaults.
 func IsIndoor(sportType, subType string) bool {
+	tuple, ok := normalizeTupleForLookup(sportType, subType)
+	if ok {
+		sportType = tuple.SportType
+		subType = tuple.SubType
+	}
 	if d, ok := registry[sportType]; ok && d.IsIndoor {
 		return true
 	}
@@ -719,4 +735,13 @@ func IsIndoor(sportType, subType string) bool {
 		subType == "treadmill" ||
 		subType == "spin" ||
 		subType == "lap_swimming"
+}
+
+func subTypeLabelCanStandAlone(d SportDef) bool {
+	switch d.SportType {
+	case "training", "fitness_equipment", "racket":
+		return true
+	default:
+		return false
+	}
 }

@@ -26,6 +26,19 @@ export interface SportDef {
   subTypes: SubTypeDef[]
 }
 
+export interface SportTuple {
+  sportType: string
+  subType: string
+  modifiers: {
+    isElectric?: boolean
+    isIndoor?: boolean
+  }
+}
+
+export interface SportLabelOptions {
+  mode?: 'compact' | 'withParent'
+}
+
 // ── Categories ──────────────────────────────────────────────────────────────────
 
 export const CATEGORIES: SportCategory[] = [
@@ -66,7 +79,6 @@ function sub(subType: string, label: string, detail?: string): SubTypeDef {
 export const SPORT_DEFS: SportDef[] = [
   // ── run ──
   def('running', 'run', 'foot', 'Laufen', true, false, [
-    sub('treadmill', 'Laufband'),
     sub('street', 'Straße'),
     sub('trail', 'Trail'),
     sub('track', 'Bahn'),
@@ -85,11 +97,10 @@ export const SPORT_DEFS: SportDef[] = [
   def('floor_climbing', 'run', 'foot', 'Treppensteigen', false, true),
   def('wheelchair_push_walk', 'run', 'foot', 'Rollstuhl (Fahren)', true),
   def('wheelchair_push_run', 'run', 'foot', 'Rollstuhl (Rennen)', true),
-  def('trail_running', 'run', 'foot', 'Trailrunning', true),
-  def('treadmill_running', 'run', 'foot', 'Laufband', false, true),
 
   // ── bike ──
   def('cycling', 'bike', 'bike', 'Radfahren', true, false, [
+    sub('generic', 'Radfahren'),
     sub('road', 'Rennrad'),
     sub('mountain', 'MTB'),
     sub('downhill', 'Downhill'),
@@ -104,9 +115,6 @@ export const SPORT_DEFS: SportDef[] = [
     sub('recumbent', 'Liegerad'),
     sub('unicycling', 'Einrad'),
   ]),
-  def('mountain_biking', 'bike', 'bike', 'Mountainbiken', true),
-  def('gravel_cycling', 'bike', 'bike', 'Gravel', true),
-  def('indoor_cycling', 'bike', 'bike', 'Indoor-Radfahren', false, true),
   def('inline_skating', 'outdoor', 'generic', 'Inline-Skaten', true),
 
   // ── winter ──
@@ -130,9 +138,7 @@ export const SPORT_DEFS: SportDef[] = [
     sub('lap_swimming', 'Hallenbad'),
     sub('open_water', 'Freiwasser'),
   ]),
-  def('lap_swimming', 'water', 'swim', 'Bahnschwimmen', false, true),
-  def('open_water_swimming', 'water', 'swim', 'Freiwasserschwimmen', true),
-  def('paddling', 'water', 'paddle', 'Wassersport', true),
+  def('paddling', 'water', 'paddle', 'Paddeln (Generisch)', true),
   def('kayaking', 'water', 'paddle', 'Kajak', true, false, [
     sub('whitewater', 'Wildwasser'),
   ]),
@@ -245,6 +251,20 @@ export const SPORT_DEFS: SportDef[] = [
   def('unknown', 'other', 'generic', 'Unbekannt', false),
 ]
 
+const LEGACY_ALIASES = new Map<string, SportTuple>([
+  ['mountain_biking', { sportType: 'cycling', subType: 'mountain', modifiers: {} }],
+  ['gravel_cycling', { sportType: 'cycling', subType: 'gravel_cycling', modifiers: {} }],
+  ['indoor_cycling', { sportType: 'cycling', subType: 'indoor_cycling', modifiers: { isIndoor: true } }],
+  ['trail_running', { sportType: 'running', subType: 'trail', modifiers: {} }],
+  ['treadmill_running', { sportType: 'running', subType: 'indoor_running', modifiers: { isIndoor: true } }],
+  ['lap_swimming', { sportType: 'swimming', subType: 'lap_swimming', modifiers: { isIndoor: true } }],
+  ['open_water_swimming', { sportType: 'swimming', subType: 'open_water', modifiers: {} }],
+  ['road_cycling', { sportType: 'cycling', subType: 'road', modifiers: {} }],
+  ['e_mountain_biking', { sportType: 'cycling', subType: 'mountain', modifiers: { isElectric: true } }],
+  ['e_biking', { sportType: 'cycling', subType: 'generic', modifiers: { isElectric: true } }],
+  ['e_bike', { sportType: 'cycling', subType: 'generic', modifiers: { isElectric: true } }],
+])
+
 // ── Lookup Maps ─────────────────────────────────────────────────────────────────
 
 const sportMap = new Map<string, SportDef>()
@@ -274,18 +294,42 @@ function humanize(raw: string): string {
 
 // ── Lookup Functions ────────────────────────────────────────────────────────────
 
+export function normalizeSportTuple(sportType: string, subType: string | null = null): SportTuple {
+  const trimmedSport = sportType.trim()
+  const trimmedSub = subType?.trim() ?? ''
+  const alias = LEGACY_ALIASES.get(trimmedSport)
+  const tuple: SportTuple = alias
+    ? {
+        sportType: alias.sportType,
+        subType: trimmedSub && trimmedSub !== 'generic' ? trimmedSub : alias.subType,
+        modifiers: { ...alias.modifiers },
+      }
+    : {
+        sportType: trimmedSport,
+        subType: trimmedSub,
+        modifiers: {},
+      }
+
+  if (tuple.sportType === 'running' && tuple.subType === 'treadmill') {
+    tuple.subType = 'indoor_running'
+    tuple.modifiers.isIndoor = true
+  }
+
+  return tuple
+}
+
 /**
  * Get sport definition. Returns undefined for unknown sport types.
  */
 export function getSportDef(sportType: string): SportDef | undefined {
-  return sportMap.get(sportType)
+  return sportMap.get(normalizeSportTuple(sportType).sportType)
 }
 
 /**
  * Get the segment group for a sport type. Returns 'generic' for unknown types.
  */
 export function getSegmentGroup(sportType: string): 'bike' | 'foot' | 'swim' | 'ski' | 'paddle' | 'generic' {
-  return sportMap.get(sportType)?.segmentGroup ?? 'generic'
+  return getSportDef(sportType)?.segmentGroup ?? 'generic'
 }
 
 /**
@@ -300,15 +344,17 @@ export function getSegmentGroup(sportType: string): 'bike' | 'foot' | 'swim' | '
  *   sportLabel("cycling")                      → "Radfahren"
  *   sportLabel("some_unknown_type")            → "Some Unknown Type"
  */
-export function sportLabel(sportType: string, subType?: string | null): string {
-  const d = sportMap.get(sportType)
+export function sportLabel(sportType: string, subType?: string | null, opts?: SportLabelOptions): string {
+  const tuple = normalizeSportTuple(sportType, subType)
+  const d = sportMap.get(tuple.sportType)
   if (!d) return humanize(sportType)
 
-  if (subType) {
-    const st = d.subTypes.find((s) => s.subType === subType)
+  if (tuple.subType && tuple.subType !== 'generic') {
+    const st = d.subTypes.find((s) => s.subType === tuple.subType)
     if (st) {
-      // For promoted sports (training, fitness_equipment, racket) AND for sports
-      // where the sub-type label is more specific than the parent label
+      if (opts?.mode === 'withParent' && !subTypeLabelCanStandAlone(d)) {
+        return `${d.label} (${st.label})`
+      }
       return st.label
     }
   }
@@ -326,22 +372,18 @@ export function sportLabel(sportType: string, subType?: string | null): string {
  *   sportDetailLabel("some_unknown_type")            → "Some Unknown Type"
  */
 export function sportDetailLabel(sportType: string, subType?: string | null): string {
-  const d = sportMap.get(sportType)
-  if (!d) return humanize(sportType)
+  return sportLabel(sportType, subType, { mode: 'withParent' })
+}
 
-  if (subType) {
-    const st = d.subTypes.find((s) => s.subType === subType)
-    if (st) return `${d.label} (${st.label})`
-  }
-
-  return d.label
+function subTypeLabelCanStandAlone(d: SportDef): boolean {
+  return d.sportType === 'training' || d.sportType === 'fitness_equipment' || d.sportType === 'racket'
 }
 
 /**
  * Category color for a sport type. Returns gray (#6B7280) for unknown types.
  */
 export function sportColor(sportType: string): string {
-  const d = sportMap.get(sportType)
+  const d = getSportDef(sportType)
   if (!d) return '#6B7280'
   return categoryMap.get(d.categoryKey)?.color ?? '#6B7280'
 }
@@ -350,7 +392,7 @@ export function sportColor(sportType: string): string {
  * Get category for a sport type. Defaults to the 'other' category for unknowns.
  */
 export function categoryForSport(sportType: string): SportCategory {
-  const d = sportMap.get(sportType)
+  const d = getSportDef(sportType)
   const cat = d ? categoryMap.get(d.categoryKey) : undefined
   return cat ?? { key: 'other', label: 'Sonstiges', color: '#6B7280' }
 }
