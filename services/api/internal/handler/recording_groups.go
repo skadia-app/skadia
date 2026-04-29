@@ -185,9 +185,9 @@ func (h *Handler) SetRecordingGroupPrimary(w http.ResponseWriter, r *http.Reques
 type setRecordingGroupSportTypeRequest struct {
 	SportType  string  `json:"sport_type"`
 	SubType    *string `json:"sub_type"`
-	IsElectric bool    `json:"is_electric"`
-	IsIndoor   bool    `json:"is_indoor"`
-	IsVirtual  bool    `json:"is_virtual"`
+	IsElectric *bool   `json:"is_electric"`
+	IsIndoor   *bool   `json:"is_indoor"`
+	IsVirtual  *bool   `json:"is_virtual"`
 }
 
 // SetRecordingGroupSportType godoc
@@ -224,8 +224,21 @@ func (h *Handler) SetRecordingGroupSportType(w http.ResponseWriter, r *http.Requ
 		if normalized.SubType != "" {
 			tuple.SubType = &normalized.SubType
 		}
-		tuple.IsElectric = body.IsElectric || (patch.IsElectric != nil && *patch.IsElectric)
-		tuple.IsIndoor = body.IsIndoor || (patch.IsIndoor != nil && *patch.IsIndoor)
+		tuple.IsElectric = body.IsElectric
+		tuple.IsIndoor = body.IsIndoor
+		tuple.IsVirtual = body.IsVirtual
+		if patch.IsElectric != nil {
+			tuple.IsElectric = patch.IsElectric
+		}
+		if patch.IsIndoor != nil {
+			tuple.IsIndoor = patch.IsIndoor
+		} else if sport.IsIndoor(normalized.SportType, normalized.SubType) && tuple.IsIndoor == nil {
+			v := true
+			tuple.IsIndoor = &v
+		}
+	} else {
+		tuple.IsElectric = body.IsElectric
+		tuple.IsIndoor = body.IsIndoor
 		tuple.IsVirtual = body.IsVirtual
 	}
 

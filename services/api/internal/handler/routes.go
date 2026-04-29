@@ -12,6 +12,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // ListRoutes returns paginated planned routes for the authenticated user.
@@ -60,6 +61,10 @@ func (h *Handler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	route.UserID = userID
+	if err := normalizeRouteSportForRequest(&route); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 
 	id, err := h.DB.CreateRoute(r.Context(), &route)
 	if err != nil {
@@ -221,6 +226,10 @@ func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
+	if err := normalizeRouteSportForRequest(existing); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 
 	// IDs are never patchable — reassert from URL/context for UpdateRoute's
 	// WHERE id = $1 AND user_id = $2 clause.
@@ -232,6 +241,24 @@ func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, existing)
+}
+
+func normalizeRouteSportForRequest(route *model.PlannedRoute) error {
+	rawSubType := ""
+	if route.SubType != nil {
+		rawSubType = *route.SubType
+	}
+	tuple, _, err := sport.NormalizeSportTuple(route.SportType, rawSubType)
+	if err != nil {
+		return err
+	}
+	route.SportType = tuple.SportType
+	if tuple.SubType == "" {
+		route.SubType = nil
+	} else {
+		route.SubType = &tuple.SubType
+	}
+	return nil
 }
 
 // DeleteRoute removes a planned route, enforcing ownership.

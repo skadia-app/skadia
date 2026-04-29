@@ -47,6 +47,59 @@ func doAddGroupMember(t *testing.T, h *Handler, userID, groupID, activityID stri
 	return rr.Code
 }
 
+func doSetGroupSportType(t *testing.T, h *Handler, userID, groupID string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/recording-groups/"+groupID+"/sport-type", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", groupID)
+	req = req.WithContext(context.WithValue(
+		context.WithValue(req.Context(), middleware.UserIDKey, userID),
+		chi.RouteCtxKey, rctx,
+	))
+
+	rr := httptest.NewRecorder()
+	h.SetRecordingGroupSportType(rr, req)
+	return rr
+}
+
+func TestSetRecordingGroupSportTypePreservesAbsentModifiers(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	act1 := insertMinimalActivity(t, db, userID)
+	act2 := insertMinimalActivity(t, db, userID)
+	group, err := db.CreateRecordingGroup(ctx, userID, []string{act1, act2}, act1, "")
+	if err != nil {
+		t.Fatalf("CreateRecordingGroup: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE recording_groups
+		SET sport_type = 'cycling', sub_type = 'mountain', is_electric = true, is_indoor = true, is_virtual = true
+		WHERE id = $1
+	`, group.ID); err != nil {
+		t.Fatalf("seed recording group sport tuple: %v", err)
+	}
+
+	h := &Handler{DB: db}
+	rr := doSetGroupSportType(t, h, userID, group.ID, []byte(`{"sport_type":"cycling"}`))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+
+	reloaded, err := db.GetRecordingGroup(ctx, group.ID)
+	if err != nil {
+		t.Fatalf("GetRecordingGroup: %v", err)
+	}
+	if !reloaded.IsElectric || !reloaded.IsIndoor || !reloaded.IsVirtual {
+		t.Fatalf("modifiers = electric:%v indoor:%v virtual:%v, want all preserved true",
+			reloaded.IsElectric, reloaded.IsIndoor, reloaded.IsVirtual)
+	}
+}
+
 // TestAddGroupMember_HappyPath: create a group with two activities, add a third
 // unrelated activity → should return 200 and list three members.
 func TestAddGroupMember_HappyPath(t *testing.T) {
@@ -569,4 +622,3 @@ func TestAddGroupMember_Conflict409(t *testing.T) {
 		}
 	}
 }
-

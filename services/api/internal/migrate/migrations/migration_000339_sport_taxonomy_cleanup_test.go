@@ -40,6 +40,7 @@ func TestMigration000339SQLFilesDeclareRequiredContracts(t *testing.T) {
 		"routing_profiles_predicates_valid",
 		"routing_profiles_modifier_filters_valid",
 		"activities_sport_type_canonical",
+		"planned_routes_sport_tuple_valid",
 		"CREATE TABLE IF NOT EXISTS segments_legacy_sub_type_hints",
 		"original_sport_types TEXT[] NOT NULL",
 		"original_sub_types TEXT[]",
@@ -71,6 +72,7 @@ func TestMigration000339SQLFilesDeclareRequiredContracts(t *testing.T) {
 
 	requiredDown := []string{
 		"WARNING: This down migration is destructive for post-cleanup sub_types.",
+		"Lossy surfaces intentionally not restored: segments, routing_profiles, automation_rules.",
 		"DROP TABLE IF EXISTS segments_legacy_sub_type_hints",
 		"DROP FUNCTION IF EXISTS fn_validate_predicates",
 		"DROP COLUMN IF EXISTS predicates",
@@ -397,6 +399,93 @@ func TestMigration000339PredicateValidatorMatchesGoFixtures(t *testing.T) {
 	}
 }
 
+func TestMigration000339PredicateValidatorAllowsEmptyAndRejectsExtraKeys(t *testing.T) {
+	upSQL, _, _ := readMigration000339SQL(t)
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback: %v", err)
+		}
+	})
+	if _, err := tx.Exec(ctx, `SET LOCAL skadia.allow_segment_sport_broadening = 'on'`); err != nil {
+		t.Fatalf("set segment broadening gate: %v", err)
+	}
+	if _, err := tx.Exec(ctx, upSQL); err != nil {
+		t.Fatalf("apply up.sql: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{name: "empty is valid generic predicate contract", raw: `[]`, want: true},
+		{name: "extra modifier key rejected", raw: `[{"sport":"cycling","is_electric":true}]`, want: false},
+		{name: "extra arbitrary key rejected", raw: `[{"sport":"cycling","foo":"bar"}]`, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got bool
+			if err := tx.QueryRow(ctx, `SELECT fn_validate_predicates($1::jsonb)`, tc.raw).Scan(&got); err != nil {
+				t.Fatalf("SQL validator: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("fn_validate_predicates(%s) = %v, want %v", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMigration000339RejectsUnknownSportDuringRewrite(t *testing.T) {
+	upSQL, _, _ := readMigration000339SQL(t)
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback: %v", err)
+		}
+	})
+	if _, err := tx.Exec(ctx, `SET LOCAL skadia.allow_segment_sport_broadening = 'on'`); err != nil {
+		t.Fatalf("set segment broadening gate: %v", err)
+	}
+	userID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, is_admin)
+		VALUES ($1, $2, $3, false)
+	`, userID, "mig339_unknown_"+userID[:8], "mig339_unknown_"+userID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO automation_rules (user_id, name, conditions, condition_groups, actions, branches)
+		VALUES (
+			$1,
+			'unknown sport rule',
+			'[{"field":"sport_type","op":"eq","value":"not_a_sport"}]'::jsonb,
+			'[]'::jsonb,
+			'[]'::jsonb,
+			'[]'::jsonb
+		)
+	`, userID); err != nil {
+		t.Fatalf("insert automation rule: %v", err)
+	}
+
+	_, err = tx.Exec(ctx, upSQL)
+	if err == nil || !strings.Contains(err.Error(), `unknown sport_type "not_a_sport"`) {
+		t.Fatalf("apply up.sql error = %v, want unknown sport_type", err)
+	}
+}
+
 func TestMigration000339PreflightReportsORGroupLegacySport(t *testing.T) {
 	_, _, preflightSQL := readMigration000339SQL(t)
 	pool := migrationTestPool(t)
@@ -448,6 +537,70 @@ func TestMigration000339PreflightReportsORGroupLegacySport(t *testing.T) {
 	}
 	if count < 2 {
 		t.Fatalf("preflight rows = %d, want top-level and branch OR findings", count)
+	}
+}
+
+func TestMigration000339PreflightReportsTopLevelUnsupportedSportOperator(t *testing.T) {
+	_, _, preflightSQL := readMigration000339SQL(t)
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback: %v", err)
+		}
+	})
+
+	userID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, is_admin)
+		VALUES ($1, $2, $3, false)
+	`, userID, "mig339_preflight_op_"+userID[:8], "mig339_preflight_op_"+userID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO automation_rules (user_id, name, conditions, condition_groups, actions, branches)
+		VALUES (
+			$1,
+			'unsupported operator rule',
+			'[{"field":"sport_type","op":"neq","value":"mountain_biking"}]'::jsonb,
+			'[]'::jsonb,
+			'[]'::jsonb,
+			'[]'::jsonb
+		)
+	`, userID); err != nil {
+		t.Fatalf("insert automation rule: %v", err)
+	}
+
+	rows, err := tx.Query(ctx, preflightSQL)
+	if err != nil {
+		t.Fatalf("run preflight: %v", err)
+	}
+	defer rows.Close()
+
+	var found bool
+	for rows.Next() {
+		var id, name, surface string
+		var condition json.RawMessage
+		var reason string
+		if err := rows.Scan(&id, &name, &surface, &condition, &reason); err != nil {
+			t.Fatalf("scan preflight row: %v", err)
+		}
+		if name == "unsupported operator rule" &&
+			surface == "conditions" &&
+			strings.Contains(reason, "unsupported sport_type operator") {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("preflight rows: %v", err)
+	}
+	if !found {
+		t.Fatal("preflight did not report top-level unsupported sport_type operator")
 	}
 }
 

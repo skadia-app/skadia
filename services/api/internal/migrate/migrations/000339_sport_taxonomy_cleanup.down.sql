@@ -1,7 +1,9 @@
 -- WARNING: This down migration is destructive for post-cleanup sub_types.
 -- It exists for test/dev rollback only and is not a production rollback plan.
+-- Lossy surfaces intentionally not restored: segments, routing_profiles, automation_rules.
 
 ALTER TABLE activities DROP CONSTRAINT IF EXISTS activities_sport_type_canonical;
+ALTER TABLE planned_routes DROP CONSTRAINT IF EXISTS planned_routes_sport_tuple_valid;
 ALTER TABLE routing_profiles DROP CONSTRAINT IF EXISTS routing_profiles_predicates_valid;
 ALTER TABLE routing_profiles DROP CONSTRAINT IF EXISTS routing_profiles_modifier_filters_valid;
 

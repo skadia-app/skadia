@@ -57,6 +57,20 @@ func TestSportTaxonomyRewriteActions(t *testing.T) {
 	}
 }
 
+func TestSportTaxonomyRewriteActionsRejectsModifierWriteConflict(t *testing.T) {
+	input := SportTaxonomyRuleJSON{
+		Actions: json.RawMessage(`[
+			{"action":"set_electric","params":{"electric":false}},
+			{"action":"set_sport_type","params":{"sport_type":"e_mountain_biking"}}
+		]`),
+	}
+
+	_, _, err := RewriteSportTaxonomyRuleJSON(input)
+	if err == nil || !strings.Contains(err.Error(), "multiple writes to is_electric") {
+		t.Fatalf("error = %v, want multiple writes to is_electric", err)
+	}
+}
+
 func TestSportTaxonomyRewriteConditions(t *testing.T) {
 	input := SportTaxonomyRuleJSON{
 		ConditionGroups: json.RawMessage(`[

@@ -20,6 +20,16 @@ top_level_groups AS (
     CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.condition_groups, '[]'::jsonb)) AS group_item(value)
     WHERE jsonb_typeof(COALESCE(r.condition_groups, '[]'::jsonb)) = 'array'
 ),
+top_level_conditions AS (
+    SELECT
+        r.id,
+        r.name,
+        'conditions'::text AS surface,
+        condition_item.value AS condition
+    FROM automation_rules r
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(r.conditions, '[]'::jsonb)) AS condition_item(value)
+    WHERE jsonb_typeof(COALESCE(r.conditions, '[]'::jsonb)) = 'array'
+),
 branch_groups AS (
     SELECT
         r.id,
@@ -57,4 +67,14 @@ SELECT
 FROM or_conditions
 WHERE condition->>'field' = 'sport_type'
   AND condition->>'value' IN (SELECT sport_type FROM legacy_sports)
+UNION ALL
+SELECT
+    id,
+    name,
+    surface,
+    condition,
+    'unsupported sport_type operator must be resolved before 000339' AS reason
+FROM top_level_conditions
+WHERE condition->>'field' = 'sport_type'
+  AND lower(btrim(COALESCE(condition->>'op', ''))) <> 'eq'
 ORDER BY name, id, surface;

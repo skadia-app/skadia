@@ -34,6 +34,26 @@ func TestNormalizeSportTaxonomyImportRowActivities(t *testing.T) {
 	}
 }
 
+func TestNormalizeSportTaxonomyImportRowClearsEmptyRuntimeSubTypeToNil(t *testing.T) {
+	row := map[string]any{
+		"sport_type":        "cycling",
+		"sub_type":          "",
+		"parsed_sport_type": "running",
+		"parsed_sub_type":   "",
+	}
+
+	got, err := normalizeSportTaxonomyImportRow("activities", row, nil)
+	if err != nil {
+		t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
+	}
+	if got["sub_type"] != nil {
+		t.Fatalf("sub_type = %#v, want nil for canonical no-subtype runtime storage", got["sub_type"])
+	}
+	if got["parsed_sub_type"] != nil {
+		t.Fatalf("parsed_sub_type = %#v, want nil for canonical no-subtype runtime storage", got["parsed_sub_type"])
+	}
+}
+
 func TestNormalizeSportTaxonomyImportRowRejectsUnknownActivitySport(t *testing.T) {
 	row := map[string]any{"sport_type": "not_a_sport", "sub_type": ""}
 	_, err := normalizeSportTaxonomyImportRow("activities", row, nil)

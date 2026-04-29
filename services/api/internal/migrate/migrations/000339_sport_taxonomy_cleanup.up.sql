@@ -64,6 +64,13 @@ BEGIN
         is_indoor := true;
     END IF;
 
+    IF NOT fn_validate_predicates(jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+        'sport', sport_type,
+        'sub_type', NULLIF(sub_type, '')
+    )))) THEN
+        RAISE EXCEPTION 'unknown sport_type "%"', raw_sport;
+    END IF;
+
     RETURN NEXT;
 END;
 $$;
@@ -137,11 +144,15 @@ items AS (
 )
 SELECT
     COALESCE(jsonb_typeof(p) = 'array', false)
-    AND jsonb_array_length(CASE WHEN jsonb_typeof(p) = 'array' THEN p ELSE '[]'::jsonb END) > 0
     AND NOT EXISTS (
         SELECT 1
         FROM items
         WHERE jsonb_typeof(pred) <> 'object'
+           OR EXISTS (
+                SELECT 1
+                FROM jsonb_object_keys(pred) AS pred_keys(key)
+                WHERE pred_keys.key NOT IN ('sport', 'sub_type')
+           )
            OR NOT (pred ? 'sport')
            OR jsonb_typeof(pred->'sport') <> 'string'
            OR NOT EXISTS (SELECT 1 FROM allowed_sports s WHERE s.sport = pred->>'sport')
@@ -333,6 +344,8 @@ DECLARE
     n RECORD;
     new_params JSONB;
     new_action JSONB;
+    modifier_field TEXT;
+    modifier_writes TEXT[] := ARRAY[]::text[];
 BEGIN
     IF actions IS NULL OR jsonb_typeof(actions) <> 'array' THEN
         RETURN actions;
@@ -341,6 +354,20 @@ BEGIN
     FOR action_item IN SELECT value FROM jsonb_array_elements(actions) LOOP
         action_name := COALESCE(action_item->>'action', action_item->>'type');
         IF action_name IS DISTINCT FROM 'set_sport_type' THEN
+            modifier_field := NULL;
+            IF action_name = 'set_electric' THEN
+                modifier_field := 'is_electric';
+            ELSIF action_name = 'set_indoor' THEN
+                modifier_field := 'is_indoor';
+            ELSIF action_name = 'set_field' AND action_item->'params'->>'field' IN ('is_electric', 'is_indoor') THEN
+                modifier_field := action_item->'params'->>'field';
+            END IF;
+            IF modifier_field IS NOT NULL THEN
+                IF modifier_field = ANY(modifier_writes) THEN
+                    RAISE EXCEPTION '%: multiple writes to %', surface, modifier_field;
+                END IF;
+                modifier_writes := array_append(modifier_writes, modifier_field);
+            END IF;
             out := out || jsonb_build_array(action_item);
             CONTINUE;
         END IF;
@@ -362,9 +389,17 @@ BEGIN
         out := out || jsonb_build_array(new_action);
 
         IF n.is_electric THEN
+            IF 'is_electric' = ANY(modifier_writes) THEN
+                RAISE EXCEPTION '%: multiple writes to is_electric', surface;
+            END IF;
+            modifier_writes := array_append(modifier_writes, 'is_electric');
             out := out || jsonb_build_array(jsonb_build_object('action', 'set_electric', 'params', jsonb_build_object('electric', true)));
         END IF;
         IF n.is_indoor THEN
+            IF 'is_indoor' = ANY(modifier_writes) THEN
+                RAISE EXCEPTION '%: multiple writes to is_indoor', surface;
+            END IF;
+            modifier_writes := array_append(modifier_writes, 'is_indoor');
             out := out || jsonb_build_array(jsonb_build_object('action', 'set_indoor', 'params', jsonb_build_object('indoor', true)));
         END IF;
     END LOOP;
@@ -690,6 +725,16 @@ ALTER TABLE routing_profiles
     DROP CONSTRAINT IF EXISTS routing_profiles_modifier_filters_valid,
     ADD CONSTRAINT routing_profiles_modifier_filters_valid
         CHECK (fn_validate_modifier_filters(modifier_filters));
+
+ALTER TABLE planned_routes
+    DROP CONSTRAINT IF EXISTS planned_routes_sport_tuple_valid,
+    ADD CONSTRAINT planned_routes_sport_tuple_valid
+        CHECK (fn_validate_predicates(jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+            'sport', sport_type,
+            'sub_type', sub_type
+        ))))) NOT VALID;
+
+ALTER TABLE planned_routes VALIDATE CONSTRAINT planned_routes_sport_tuple_valid;
 
 ALTER TABLE activities
     DROP CONSTRAINT IF EXISTS activities_sport_type_canonical,

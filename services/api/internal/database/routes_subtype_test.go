@@ -93,3 +93,51 @@ func TestPlannedRouteSubTypeRoundTrip(t *testing.T) {
 		t.Fatalf("SubType after clear = %q, want nil", *cleared.SubType)
 	}
 }
+
+func TestPlannedRouteCreateNormalizesLegacySportTuple(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+
+	route := &model.PlannedRoute{
+		UserID:          userID,
+		Name:            "legacy route",
+		SportType:       "mountain_biking",
+		Profile:         "mtb",
+		GeometryGeoJSON: `{"type":"LineString","coordinates":[[11.39,47.26],[11.40,47.27]]}`,
+		Waypoints:       []model.RouteWaypoint{},
+		Segments:        []model.RouteSegment{},
+	}
+
+	id, err := db.CreateRoute(ctx, route)
+	if err != nil {
+		t.Fatalf("CreateRoute: %v", err)
+	}
+	loaded, err := db.GetRoute(ctx, id, userID)
+	if err != nil {
+		t.Fatalf("GetRoute: %v", err)
+	}
+	if loaded.SportType != "cycling" || loaded.SubType == nil || *loaded.SubType != "mountain" {
+		t.Fatalf("route tuple = (%s,%v), want (cycling,mountain)", loaded.SportType, loaded.SubType)
+	}
+}
+
+func TestPlannedRouteCreateRejectsInvalidSubType(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+
+	badSubType := "trail"
+	route := &model.PlannedRoute{
+		UserID:          userID,
+		Name:            "bad route",
+		SportType:       "cycling",
+		SubType:         &badSubType,
+		Profile:         "mtb",
+		GeometryGeoJSON: `{"type":"LineString","coordinates":[[11.39,47.26],[11.40,47.27]]}`,
+		Waypoints:       []model.RouteWaypoint{},
+		Segments:        []model.RouteSegment{},
+	}
+
+	if _, err := db.CreateRoute(ctx, route); err == nil {
+		t.Fatal("CreateRoute succeeded for invalid cycling/trail tuple")
+	}
+}
