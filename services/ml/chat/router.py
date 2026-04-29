@@ -23,6 +23,7 @@ DOMAIN_KEYWORDS: dict[str, set[str]] = {
         "aktivität", "aktivitäten", "training", "trainings",
         "lauf", "laufen", "joggen", "gelaufen",
         "rad", "radfahren", "radtour", "biken", "gefahren",
+        "mtb", "mountainbike", "gravel",
         "wandern", "wanderung", "gewandert",
         "schwimmen", "geschwommen",
         "wann war", "wie oft", "letzte", "letzten", "letztes",

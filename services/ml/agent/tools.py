@@ -16,8 +16,8 @@ _SAFE_PROFILE_PARAM = re.compile(r"^[a-zA-Z0-9_.\-]{1,50}$")
 logger = logging.getLogger(__name__)
 
 # Canonical sport types as stored in DB (after migration 000037 normalization).
-# Sub-types (mountain_biking, trail_running, etc.) are stored as sub_type column,
-# NOT as sport_type. Use run_sql for sub_type filtering.
+# Specific disciplines are stored in sub_type, not as sport_type.
+# Use run_sql when a specialized tool cannot express the needed sub_type filter.
 _SPORT_TYPES = [
     "running", "cycling", "hiking", "walking", "swimming",
     "alpine_skiing", "cross_country_skiing", "strength_training",
@@ -103,7 +103,7 @@ ALL_TOOL_DEFINITIONS = [
                 "EXTRACT(YEAR FROM started_at) instead. "
                 "Do NOT use for sub-types (MTB, Gravel, Trail) — use run_sql with sub_type filter. "
                 "Sub-types: cycling has sub_type mountain/gravel_cycling/indoor_cycling, "
-                "running has trail/treadmill, swimming has open_water/lap_swimming. "
+                "running has trail/indoor_running, swimming has open_water/lap_swimming. "
                 "Do NOT use to list individual activities — use query_activities."
             ),
             "parameters": {
@@ -549,18 +549,18 @@ ALL_TOOL_DEFINITIONS = [
                 "NEVER use $1/$2 parameter placeholders. SELECT only.\n"
                 "IMPORTANT sport_type mapping: MTB/Mountainbike→sport_type='cycling' AND sub_type='mountain', "
                 "Gravel→sub_type='gravel_cycling', Trail→sport_type='running' AND sub_type='trail', "
-                "E-Bike→sport_type='cycling' AND is_ebike=true, Bouldern→sport_type='rock_climbing' AND sub_type='bouldering', "
+                "E-Bike→sport_type='cycling' AND is_electric=true, Bouldern→sport_type='rock_climbing' AND sub_type='bouldering', "
                 "Schwimmen open water→sub_type='open_water', Indoor-Rad→sub_type='indoor_cycling'.\n"
                 "IMPORTANT SQL rules: Use ROUND(x::numeric, n) not ROUND(float8, n). "
                 "gear.type values: 'bike','shoes','other' (NOT 'bicycle'). "
                 "activity_geo_tags.category values: 'summit','pass','still_water','flowing_water','forest','settlement','border'.\n"
                 "Tables: "
-                "activities(id UUID,title,sport_type,sub_type,started_at TIMESTAMPTZ,elapsed_time_s,moving_time_s,"
+                "activities(id UUID,title,sport_type,sub_type,is_electric,started_at TIMESTAMPTZ,elapsed_time_s,moving_time_s,"
                 "distance_m,elevation_gain_m,avg_speed_ms,avg_heart_rate,avg_power_w,tss,trimp,"
                 "is_indoor,start_city,gear_id UUID) | "
                 "segments(id UUID,created_by UUID,name,sport_group,distance_m,elevation_gain_m,effort_count) | "
                 "segment_efforts(segment_id UUID,activity_id UUID,started_at,elapsed_time_s,"
-                "sport_type,avg_power_w,avg_heart_rate,avg_speed_ms,is_personal_best,is_reverse) | "
+                "sport_type,sub_type,avg_power_w,avg_heart_rate,avg_speed_ms,is_personal_best,is_reverse) | "
                 "activity_laps(activity_id UUID,message_index,start_time,total_elapsed_time_s,"
                 "total_distance_m,avg_speed_ms,avg_heart_rate) | "
                 "gear(id UUID,name,type TEXT['bike','shoes','other'],brand,model,total_distance_m,status) | "
@@ -806,7 +806,7 @@ def _format_activity_compact(row: dict) -> dict:
     }
 
     # Add pace or speed depending on sport
-    if row.get("sport_type") in ("running", "trail_running", "hiking", "walking"):
+    if row.get("sport_type") in ("running", "hiking", "walking"):
         if speed and speed > 0:
             pace_min_km = (1000.0 / speed) / 60.0
             result["pace"] = f"{int(pace_min_km)}:{int((pace_min_km % 1) * 60):02d} min/km"
