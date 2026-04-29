@@ -20,5 +20,8 @@ transformers>=4.49.0,<5.0.0
 Pillow>=10.0.0
 pillow-heif>=0.21.0
 pillow-jxl-plugin>=0.4.0
-granite-tsfm @ git+https://github.com/ibm-granite/granite-tsfm.git
+# granite-tsfm is not on PyPI; pin to the v0.3.5 release commit so the install
+# is reproducible and a moving HEAD on the upstream branch cannot change the
+# code we run. Bump SHA together with the version comment when upgrading.
+granite-tsfm @ git+https://github.com/ibm-granite/granite-tsfm.git@bd28309b53e7ec6470e71a13e511d3dea8f21123
 chronos-forecasting>=2.2.0
