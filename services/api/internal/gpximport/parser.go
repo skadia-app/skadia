@@ -93,11 +93,18 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 		sport = "e_biking"
 	}
 
-	// E-Bike normalization
+	tuple, patch, err := sporttax.NormalizeSportTuple(sport, subType)
+	if err != nil {
+		return nil, err
+	}
+	sport, subType = tuple.SportType, tuple.SubType
 	isElectric := false
-	if sport == "e_biking" || sport == "e_bike" {
-		sport = "cycling"
-		isElectric = true
+	if patch.IsElectric != nil {
+		isElectric = *patch.IsElectric
+	}
+	isIndoorPatch := false
+	if patch.IsIndoor != nil {
+		isIndoorPatch = *patch.IsIndoor
 	}
 
 	// Prefer the track name; fall back to the metadata name (used e.g. by Bosch eBike).
@@ -269,7 +276,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	data.Streams = streams
 	data.TrackPoints = trackPoints
 	data.HasGPS = len(trackPoints) >= 2
-	data.IsIndoor = sporttax.IsIndoor(data.SportType, data.SubType)
+	data.IsIndoor = isIndoorPatch || sporttax.IsIndoor(data.SportType, data.SubType)
 
 	if data.HasGPS {
 		data.StartLat = trackPoints[0].Lat

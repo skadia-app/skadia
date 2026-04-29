@@ -142,7 +142,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		// Sport type resolution: compare file sport vs Komoot API sport using SegmentGroup.
 		// Silent resolution — no queue, no UI. File parser wins except when generic.
-		if mapping, ok := KomootSportMapping[tour.Sport]; ok {
+		if mapping, ok := normalizedKomootSportMapping(tour.Sport); ok {
 			fileSportType := data.SportType
 			fileGroup := sport.SegmentGroup(fileSportType)
 			komootGroup := sport.SegmentGroup(mapping.SportType)
@@ -268,7 +268,7 @@ func tourToActivityData(tour Tour) *model.ActivityData {
 		Source:    "Komoot",
 		StartedAt: tour.Date,
 	}
-	if mapping, ok := KomootSportMapping[tour.Sport]; ok {
+	if mapping, ok := normalizedKomootSportMapping(tour.Sport); ok {
 		data.SportType = mapping.SportType
 		data.SubType = mapping.SubType
 		data.IsElectric = mapping.IsElectric
@@ -290,6 +290,23 @@ func tourToActivityData(tour Tour) *model.ActivityData {
 		data.MovingTimeS = int(tour.TimeInMotion)
 	}
 	return data
+}
+
+func normalizedKomootSportMapping(komootSport string) (SportMapping, bool) {
+	mapping, ok := KomootSportMapping[komootSport]
+	if !ok {
+		return SportMapping{}, false
+	}
+	tuple, patch, err := sport.NormalizeSportTuple(mapping.SportType, mapping.SubType)
+	if err != nil {
+		return mapping, true
+	}
+	mapping.SportType = tuple.SportType
+	mapping.SubType = tuple.SubType
+	if patch.IsElectric != nil && *patch.IsElectric {
+		mapping.IsElectric = true
+	}
+	return mapping, true
 }
 
 // buildKnownKomootIDs fetches all known komoot_tour_ids for a user (for incremental sync).

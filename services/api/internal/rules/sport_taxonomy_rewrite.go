@@ -1,0 +1,291 @@
+package rules
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
+)
+
+type SportTaxonomyRewriteWarning struct {
+	Surface string
+	Reason  string
+}
+
+type SportTaxonomyRuleJSON struct {
+	Conditions      json.RawMessage
+	ConditionGroups json.RawMessage
+	Branches        json.RawMessage
+	Actions         json.RawMessage
+}
+
+func RewriteSportTaxonomyRuleJSON(input SportTaxonomyRuleJSON) (SportTaxonomyRuleJSON, []SportTaxonomyRewriteWarning, error) {
+	out := input
+	var warnings []SportTaxonomyRewriteWarning
+	var err error
+
+	out.Conditions, err = rewriteConditionArrayRaw(input.Conditions, "conditions", false)
+	if err != nil {
+		return SportTaxonomyRuleJSON{}, warnings, err
+	}
+	out.ConditionGroups, err = rewriteConditionGroupsRaw(input.ConditionGroups, "condition_groups")
+	if err != nil {
+		return SportTaxonomyRuleJSON{}, warnings, err
+	}
+	out.Actions, err = rewriteActionsRaw(input.Actions, "actions")
+	if err != nil {
+		return SportTaxonomyRuleJSON{}, warnings, err
+	}
+	out.Branches, err = rewriteBranchesRaw(input.Branches)
+	if err != nil {
+		return SportTaxonomyRuleJSON{}, warnings, err
+	}
+	return out, warnings, nil
+}
+
+func rewriteConditionArrayRaw(raw json.RawMessage, surface string, rejectLegacyInOR bool) (json.RawMessage, error) {
+	if isEmptyJSON(raw) {
+		return raw, nil
+	}
+	if !startsWithJSONDelim(raw, '[') {
+		return raw, nil
+	}
+	var conditions []Condition
+	if err := json.Unmarshal(raw, &conditions); err != nil {
+		return nil, fmt.Errorf("%s: decode conditions: %w", surface, err)
+	}
+	rewritten, err := rewriteConditions(conditions, surface, rejectLegacyInOR)
+	if err != nil {
+		return nil, err
+	}
+	return marshalRaw(rewritten, surface)
+}
+
+func rewriteConditionGroupsRaw(raw json.RawMessage, surface string) (json.RawMessage, error) {
+	if isEmptyJSON(raw) {
+		return raw, nil
+	}
+	if !startsWithJSONDelim(raw, '[') {
+		return raw, nil
+	}
+	var groups []ConditionGroup
+	if err := json.Unmarshal(raw, &groups); err != nil {
+		return nil, fmt.Errorf("%s: decode condition groups: %w", surface, err)
+	}
+	for i := range groups {
+		logic := strings.ToLower(strings.TrimSpace(groups[i].Logic))
+		rejectLegacyInOR := logic == "or"
+		rewritten, err := rewriteConditions(groups[i].Conditions, fmt.Sprintf("%s[%d]", surface, i), rejectLegacyInOR)
+		if err != nil {
+			return nil, err
+		}
+		groups[i].Conditions = rewritten
+	}
+	return marshalRaw(groups, surface)
+}
+
+func rewriteConditions(conditions []Condition, surface string, rejectLegacyInOR bool) ([]Condition, error) {
+	rewritten := make([]Condition, 0, len(conditions))
+	for _, condition := range conditions {
+		if condition.Field != "sport_type" {
+			rewritten = append(rewritten, condition)
+			continue
+		}
+		value, ok := condition.Value.(string)
+		if !ok {
+			return nil, fmt.Errorf("%s: sport_type condition value must be a string", surface)
+		}
+		op := strings.ToLower(strings.TrimSpace(condition.Op))
+		if op != "eq" {
+			return nil, fmt.Errorf("%s: unsupported sport_type operator %q for sport taxonomy rewrite", surface, condition.Op)
+		}
+		tuple, patch, err := sport.NormalizeSportTuple(value, "")
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", surface, err)
+		}
+		if rejectLegacyInOR && sportConditionNeedsTupleRewrite(value, tuple, patch) {
+			return nil, fmt.Errorf("%s: or group contains legacy sport predicate %q", surface, value)
+		}
+		rewritten = append(rewritten, Condition{Field: "sport_type", Op: "eq", Value: tuple.SportType})
+		if tuple.SubType != "" {
+			rewritten = append(rewritten, Condition{Field: "sub_type", Op: "eq", Value: tuple.SubType})
+		}
+		if patch.IsElectric != nil {
+			rewritten = append(rewritten, Condition{Field: "is_electric", Op: "eq", Value: *patch.IsElectric})
+		}
+		if patch.IsIndoor != nil {
+			rewritten = append(rewritten, Condition{Field: "is_indoor", Op: "eq", Value: *patch.IsIndoor})
+		}
+	}
+	return rewritten, nil
+}
+
+func sportConditionNeedsTupleRewrite(value string, tuple sport.Tuple, patch sport.ModifierPatch) bool {
+	return value != tuple.SportType || tuple.SubType != "" || patch.IsElectric != nil || patch.IsIndoor != nil
+}
+
+func rewriteActionsRaw(raw json.RawMessage, surface string) (json.RawMessage, error) {
+	if isEmptyJSON(raw) {
+		return raw, nil
+	}
+	if !startsWithJSONDelim(raw, '[') {
+		return raw, nil
+	}
+	var actions []map[string]any
+	if err := json.Unmarshal(raw, &actions); err != nil {
+		return nil, fmt.Errorf("%s: decode actions: %w", surface, err)
+	}
+	rewritten, err := rewriteActionMaps(actions, surface)
+	if err != nil {
+		return nil, err
+	}
+	return marshalRaw(rewritten, surface)
+}
+
+func rewriteActionMaps(actions []map[string]any, surface string) ([]map[string]any, error) {
+	rewritten := make([]map[string]any, 0, len(actions))
+	for i, action := range actions {
+		name := actionName(action)
+		if name != "set_sport_type" {
+			rewritten = append(rewritten, action)
+			continue
+		}
+		params, _ := action["params"].(map[string]any)
+		if params == nil {
+			rewritten = append(rewritten, action)
+			continue
+		}
+		rawSport, _ := params["sport_type"].(string)
+		if rawSport == "" {
+			rewritten = append(rewritten, action)
+			continue
+		}
+		rawSubType, _ := params["sub_type"].(string)
+		tuple, patch, err := sport.NormalizeSportTuple(rawSport, rawSubType)
+		if err != nil {
+			return nil, fmt.Errorf("%s[%d]: %w", surface, i, err)
+		}
+		newParams := cloneMap(params)
+		newParams["sport_type"] = tuple.SportType
+		if tuple.SubType != "" {
+			newParams["sub_type"] = tuple.SubType
+		} else {
+			delete(newParams, "sub_type")
+		}
+		newAction := cloneMap(action)
+		newAction["action"] = "set_sport_type"
+		delete(newAction, "type")
+		newAction["params"] = newParams
+		rewritten = append(rewritten, newAction)
+		if patch.IsElectric != nil {
+			rewritten = append(rewritten, map[string]any{
+				"action": "set_electric",
+				"params": map[string]any{"electric": *patch.IsElectric},
+			})
+		}
+		if patch.IsIndoor != nil {
+			rewritten = append(rewritten, map[string]any{
+				"action": "set_indoor",
+				"params": map[string]any{"indoor": *patch.IsIndoor},
+			})
+		}
+	}
+	return rewritten, nil
+}
+
+func rewriteBranchesRaw(raw json.RawMessage) (json.RawMessage, error) {
+	if isEmptyJSON(raw) {
+		return raw, nil
+	}
+	if !startsWithJSONDelim(raw, '[') {
+		return raw, nil
+	}
+	var branches []map[string]any
+	if err := json.Unmarshal(raw, &branches); err != nil {
+		return nil, fmt.Errorf("branches: decode: %w", err)
+	}
+	for i, branch := range branches {
+		if rawGroups, ok, err := rawMessageFromValue(branch["condition_groups"]); err != nil {
+			return nil, fmt.Errorf("branches[%d].condition_groups: %w", i, err)
+		} else if ok {
+			rewritten, err := rewriteConditionGroupsRaw(rawGroups, fmt.Sprintf("branches[%d].condition_groups", i))
+			if err != nil {
+				return nil, err
+			}
+			var decoded any
+			if err := json.Unmarshal(rewritten, &decoded); err != nil {
+				return nil, fmt.Errorf("branches[%d].condition_groups: decode rewritten: %w", i, err)
+			}
+			branch["condition_groups"] = decoded
+		}
+		if rawActions, ok, err := rawMessageFromValue(branch["actions"]); err != nil {
+			return nil, fmt.Errorf("branches[%d].actions: %w", i, err)
+		} else if ok {
+			rewritten, err := rewriteActionsRaw(rawActions, fmt.Sprintf("branches[%d].actions", i))
+			if err != nil {
+				return nil, err
+			}
+			var decoded any
+			if err := json.Unmarshal(rewritten, &decoded); err != nil {
+				return nil, fmt.Errorf("branches[%d].actions: decode rewritten: %w", i, err)
+			}
+			branch["actions"] = decoded
+		}
+	}
+	return marshalRaw(branches, "branches")
+}
+
+func actionName(action map[string]any) string {
+	if name, _ := action["action"].(string); name != "" {
+		return name
+	}
+	name, _ := action["type"].(string)
+	return name
+}
+
+func cloneMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func rawMessageFromValue(value any) (json.RawMessage, bool, error) {
+	if value == nil {
+		return nil, false, nil
+	}
+	switch v := value.(type) {
+	case json.RawMessage:
+		return v, true, nil
+	case []byte:
+		return json.RawMessage(v), true, nil
+	case string:
+		return json.RawMessage(v), true, nil
+	default:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return nil, false, err
+		}
+		return raw, true, nil
+	}
+}
+
+func isEmptyJSON(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return trimmed == "" || trimmed == "null"
+}
+
+func startsWithJSONDelim(raw json.RawMessage, delim byte) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return trimmed != "" && trimmed[0] == delim
+}
+
+func marshalRaw(value any, surface string) (json.RawMessage, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("%s: encode: %w", surface, err)
+	}
+	return raw, nil
+}
