@@ -1,0 +1,30 @@
+name: "Skadia CodeQL config"
+
+# Standard security-and-quality query suite — broadest free-tier coverage.
+# If false-positive volume becomes too high, downgrade to "security-extended"
+# or "security" (less noise, fewer findings).
+queries:
+  - uses: security-and-quality
+
+paths-ignore:
+  # Vendored Go modules — covered by upstream maintainers.
+  - services/api/vendor/**
+  # Frontend build output and dependencies.
+  - frontend/dist/**
+  - frontend/node_modules/**
+  # Runtime data, never source.
+  - data/**
+  # Reader-facing docs are MDX/MD; no executable code that needs scanning.
+  - docs/documentation/**
+  # Worktrees (local-only sibling checkouts during plan execution).
+  - .worktrees/**
+  # ML-service tests: noise-prone (test fixtures intentionally exercise
+  # error paths). Production code in services/ml/ outside tests/ stays scanned.
+  - services/ml/tests/**
+  # Local-only screenshot/scratch directories (cleanup doc Phase 1 moves
+  # `` to private; defensive ignore until then).
+  - **
+  - temp/**
+  # Local FIT/GPX corpus — gitignored in current state; defensive ignore
+  # so a future tracked import doesn't reach CodeQL extraction.
+  - 

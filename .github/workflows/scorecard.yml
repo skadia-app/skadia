@@ -1,0 +1,78 @@
+name: Scorecard supply-chain audit
+
+# OpenSSF Scorecard — automated check of repo-level supply-chain hygiene:
+# branch protection, pinned dependencies, token-permission scope, signed
+# releases, dangerous workflow patterns, license presence, etc.
+#
+# Result lands in the GitHub Security tab as code-scanning alerts and
+# (optionally) as a public score on scorecard.dev. Publishing to
+# scorecard.dev requires `id-token: write`, which is harmless on a public
+# repo and provides cryptographic provenance for the score. A README
+# badge linking to scorecard.dev can be added once a project owner has
+# decided how prominently to surface the score; the badge is NOT in the
+# README today.
+#
+# Free for public repositories. Recommended cadence: weekly + on push to
+# main + on branch-protection-rule changes.
+
+on:
+  branch_protection_rule:
+  schedule:
+    # Weekly Monday 04:23 UTC.
+    - cron: "23 4 * * 1"
+  push:
+    branches: [main]
+
+# Default to no permissions; the analysis job grants only what it needs.
+# (Scorecard's own Token-Permissions check flags `read-all` defaults, so
+# the workflow that runs Scorecard should not itself trip that finding.)
+permissions: {}
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      # Repository contents (clone + read for analysis).
+      contents: read
+      # SARIF upload to the GitHub Security tab.
+      security-events: write
+      # OIDC token for publishing results to scorecard.dev.
+      id-token: write
+
+    steps:
+      - name: Check out repository
+        # actions/checkout v4.2.2 — pinned by SHA.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        # ossf/scorecard-action v2.4.3 — pinned by SHA.
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # publish_results sends the score (not the source code) to
+          # scorecard.dev, where it powers the README badge and history
+          # graph. If the publishing endpoint is unreachable (rare), the
+          # action emits a warning and continues — the SARIF upload below
+          # still reaches the GitHub Security tab regardless.
+          publish_results: true
+
+      - name: Upload SARIF artifact
+        # actions/upload-artifact v4 — pinned by SHA. Keeps a 5-day copy of
+        # the raw SARIF as a fallback if the security-tab upload below fails.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload SARIF to code-scanning
+        # github/codeql-action v3 — pinned by SHA.
+        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a
+        with:
+          sarif_file: results.sarif
+          category: scorecard
