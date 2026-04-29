@@ -1,0 +1,119 @@
+# Gitleaks configuration for Skadia.
+#
+# Extends the default ruleset with project-specific allowlists for confirmed
+# false positives.
+#
+# This file is intended to evolve over time, in lockstep with the local
+# pre-commit hook (.githooks/pre-commit) — the same way that hook gains new
+# Check-N entries when new leak classes surface, this file gains new
+# allowlist entries when scanner false positives recur. Both files together
+# form a single moving target: hook catches structural classes, gitleaks
+# catches provider tokens, both learn over time.
+#
+# Workflow when a new finding triggers:
+#   1. Triage manually — is the hit a real credential? If yes, rotate it
+#      and remove from the diff; do not allowlist.
+#   2. If false positive, choose the narrowest justification:
+#      - Path-only allowlist for non-code files (vendor, generated)
+#      - targetRules + regex allowlist when one rule misfires on a
+#        recognisable pattern
+#      - Avoid path-only allowlists for active source files — that hides
+#        future real findings in the same file
+#   3. Re-run `gitleaks git --log-opts="--all" --redact` to confirm the
+#      finding is gone and no previously-suppressed finding got newly
+#      exposed by the rule change.
+#
+# Add new entries only after manually classifying a hit. Do NOT allowlist a
+# whole file or path globally to silence noise — that re-opens the leak window.
+
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Allowlist 1 — cache-key NAME convention in docs
+# Pattern `key: \`some_name\`` is documentation referring to a cache-key NAME
+# (e.g. `key: \`readiness_v2\``), not a credential. The default
+# generic-api-key rule fires on the surface shape.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Cache-key naming convention in docs (key: `<name>` is a key name, not a secret)"
+regexTarget = "line"
+regexes = ['''key:\s*`[a-z][a-z0-9_]*`''']
+
+# ---------------------------------------------------------------------------
+# Allowlist 2 — legacy local OIDC JWKS URL
+# A historical local-development URL has a host:port/path shape that the
+# generic-api-key rule misreads as a credential. Keep this scoped to the old
+# config file and to the non-secret URL shape.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Legacy local OIDC JWKS URL false positive"
+paths = ['''services/api/internal/config/config\.go''']
+regexes = ['''http://[a-z0-9_-]+:\d+/application/o/skadia/jwks/''']
+
+# ---------------------------------------------------------------------------
+# Allowlist 3 — frontend dev-mock JWT
+# `frontend/src/lib/auth.ts` contains a literal fake JWT used only when
+# VITE_DEV_AUTH=true: signature is `.dev`, exp is 9999999999. Cannot be
+# forged into a real token because no backend accepts it.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Frontend DEV_TOKEN (fake JWT, signature `.dev`, dev-only)"
+paths = ['''frontend/src/lib/auth\.ts''']
+regexes = ['''eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.dev''']
+
+# ---------------------------------------------------------------------------
+# Allowlist 4 — local-host DSNs (mirrors .githooks/pre-commit Check 5
+# post-filter, kept in lockstep so a credential-shaped DSN is treated
+# identically by hook and CI).
+#
+# DSNs that point at container-internal hosts (`postgres`, `mysql`,
+# `redis`, `mongo`) or local-loopback (`localhost`, `127.0.0.1`) cannot
+# reach the outside network — by definition they are not credentials in
+# the security sense. Production deployments override via DATABASE_URL et
+# al., and those overrides are NOT covered by this allowlist (the prod
+# host name will not match `localhost|postgres|...`).
+#
+# IF YOU EDIT THIS REGEX: also update the post-filter case in
+# .githooks/pre-commit (search for "POSTGRES_URI_WITH_CREDS" then the
+# `@(localhost|...)` line). They must list the same host set.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Local-host DSNs (container-internal / loopback) — mirrors .githooks/pre-commit Check 5 post-filter"
+regexes = [
+    '''(postgres(ql)?|mysql|mongodb(\+srv)?|redis)://[a-zA-Z0-9_-]+:[^@\s/$]{4,}@(localhost|127\.0\.0\.1|0\.0\.0\.0|postgres|mysql|mongo|mongodb|redis|db|database)(:|/|$|[^a-zA-Z0-9.-])''',
+]
+
+# ---------------------------------------------------------------------------
+# Allowlist 5 -- generated gear axle-standard option keys
+# Values such as `197x12_fatbike` are public gear-schema enum identifiers,
+# not credentials. Keep this scoped to generated schema files so real
+# generic-key findings elsewhere remain visible.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Generated gear axle-standard enum keys"
+paths = [
+    '''^frontend/src/lib/generatedGearSchema\.ts$''',
+    '''^services/api/internal/gear/schema_generated\.go$''',
+]
+regexTarget = "line"
+regexes = ['''(Key:\s*|"key":\s*)"[0-9]{3}x[0-9]{2}_[a-z0-9_]+"''']
+
+# ---------------------------------------------------------------------------
+# Allowlist 6 -- i18n label keys that look like generic API keys
+# These are UI translation keys and enum-like option identifiers, not
+# credentials. Keep the regex narrow so unrelated labelKey values can still be
+# reported by the generic rule.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+targetRules = ["generic-api-key"]
+description = "Selected i18n labelKey identifiers that are not credentials"
+regexTarget = "line"
+regexes = [
+    '''labelKey:\s*'hypertensionGrade[1-3]'(\s*,|\s*\})''',
+    '''labelKey:\s*'routePlanner\.suggestion\.sac\.(none|t[1-6])'(\s*,|\s*\})''',
+    '''labelKey:\s*'routePlanner\.suggestion\.mtb\.(none|s[0-5])'(\s*,|\s*\})''',
+]
