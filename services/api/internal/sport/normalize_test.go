@@ -44,6 +44,11 @@ func TestNormalizeSportTuple(t *testing.T) {
 			wantTuple: Tuple{SportType: "cycling", SubType: "road"},
 		},
 		{
+			name:      "legacy bike maps to cycling",
+			sportType: "bike",
+			wantTuple: Tuple{SportType: "cycling"},
+		},
+		{
 			name:      "paddling remains canonical",
 			sportType: "paddling",
 			wantTuple: Tuple{SportType: "paddling"},
