@@ -416,6 +416,12 @@ ALTER TABLE routing_profiles
 ALTER TABLE planned_routes
     ADD COLUMN IF NOT EXISTS sub_type TEXT;
 
+ALTER TABLE recording_groups
+    ADD COLUMN IF NOT EXISTS sub_type TEXT,
+    ADD COLUMN IF NOT EXISTS is_electric BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS is_indoor BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS is_virtual BOOLEAN NOT NULL DEFAULT FALSE;
+
 CREATE TABLE IF NOT EXISTS segments_legacy_sub_type_hints (
     segment_id UUID PRIMARY KEY REFERENCES segments(id) ON DELETE CASCADE,
     original_sport_types TEXT[] NOT NULL,
@@ -619,16 +625,28 @@ WITH normalized_recording_groups AS (
     SELECT
         rg.id,
         rg.sport_type AS old_sport_type,
-        n.sport_type
+        COALESCE(rg.sub_type, '') AS old_sub_type,
+        rg.is_indoor AS old_is_indoor,
+        rg.is_electric AS old_is_electric,
+        n.sport_type,
+        n.sub_type,
+        n.is_indoor,
+        n.is_electric
     FROM recording_groups rg
-    CROSS JOIN LATERAL fp_sport_taxonomy_normalize(rg.sport_type, '') AS n
+    CROSS JOIN LATERAL fp_sport_taxonomy_normalize(rg.sport_type, COALESCE(rg.sub_type, '')) AS n
     WHERE rg.sport_type IS NOT NULL
 )
 UPDATE recording_groups rg
-SET sport_type = n.sport_type
+SET sport_type = n.sport_type,
+    sub_type = NULLIF(n.sub_type, ''),
+    is_indoor = rg.is_indoor OR n.is_indoor,
+    is_electric = rg.is_electric OR n.is_electric
 FROM normalized_recording_groups n
 WHERE rg.id = n.id
-  AND n.old_sport_type IS DISTINCT FROM n.sport_type;
+  AND (n.old_sport_type IS DISTINCT FROM n.sport_type
+       OR n.old_sub_type IS DISTINCT FROM n.sub_type
+       OR (n.is_indoor AND n.old_is_indoor = false)
+       OR (n.is_electric AND n.old_is_electric = false));
 
 UPDATE routing_profiles rp
 SET predicates = CASE

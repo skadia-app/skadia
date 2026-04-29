@@ -1098,6 +1098,10 @@ export interface RecordingGroup {
   user_id: string
   primary_activity_id: string | null
   sport_type: string | null
+  sub_type?: string | null
+  is_electric: boolean
+  is_indoor: boolean
+  is_virtual: boolean
   created_at: string
   confirmed: boolean
   members: RecordingGroupMember[]

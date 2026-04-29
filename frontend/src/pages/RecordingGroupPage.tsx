@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchRecordingGroup, setGroupPrimary, setGroupSportType, dissolveRecordingGroup } from '@/api/recordingGroups'
+import { fetchRecordingGroup, setGroupPrimary, setGroupSportType, dissolveRecordingGroup, type RecordingGroupSportPayload } from '@/api/recordingGroups'
 import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import { SourcesProvider, type SourceInfo } from '@/components/comparison/SourcesContext'
 import MultiTrackMap from '@/components/comparison/MultiTrackMap'
@@ -226,7 +226,7 @@ export default function RecordingGroupPage() {
   })
 
   const setSportTypeMutation = useMutation({
-    mutationFn: (sportType: string) => setGroupSportType(groupId!, sportType),
+    mutationFn: (sport: RecordingGroupSportPayload) => setGroupSportType(groupId!, sport),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['recording-group', groupId] })
       addToast({ type: 'success', title: 'Sportart aktualisiert' })
@@ -268,7 +268,13 @@ export default function RecordingGroupPage() {
   }, [group])
 
   const hasSportTypeConflict = uniqueSportChoices.length > 1
-  const selectedSportChoiceKey = uniqueSportChoices.find(choice => choice.sportType === group?.sport_type)?.key ?? null
+  const selectedSportChoiceKey = uniqueSportChoices.find(choice =>
+    choice.sportType === group?.sport_type &&
+    (choice.subType ?? null) === (group?.sub_type ?? null) &&
+    !!choice.isElectric === !!group?.is_electric &&
+    !!choice.isIndoor === !!group?.is_indoor &&
+    !!choice.isVirtual === !!group?.is_virtual
+  )?.key ?? null
 
   // ── Header info ───────────────────────────────────────────────────────────
 
@@ -330,7 +336,13 @@ export default function RecordingGroupPage() {
           <SportConflictBanner
             choices={uniqueSportChoices}
             selectedKey={selectedSportChoiceKey}
-            onSelect={choice => setSportTypeMutation.mutate(choice.sportType)}
+            onSelect={choice => setSportTypeMutation.mutate({
+              sport_type: choice.sportType,
+              sub_type: choice.subType ?? null,
+              is_electric: !!choice.isElectric,
+              is_indoor: !!choice.isIndoor,
+              is_virtual: !!choice.isVirtual,
+            })}
             isSaving={setSportTypeMutation.isPending}
           />
         )}

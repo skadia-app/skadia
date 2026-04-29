@@ -9,6 +9,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/dbutil"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -182,12 +183,16 @@ func (h *Handler) SetRecordingGroupPrimary(w http.ResponseWriter, r *http.Reques
 }
 
 type setRecordingGroupSportTypeRequest struct {
-	SportType string `json:"sport_type"`
+	SportType  string  `json:"sport_type"`
+	SubType    *string `json:"sub_type"`
+	IsElectric bool    `json:"is_electric"`
+	IsIndoor   bool    `json:"is_indoor"`
+	IsVirtual  bool    `json:"is_virtual"`
 }
 
 // SetRecordingGroupSportType godoc
 // PATCH /api/v1/recording-groups/{id}/sport-type
-// Body: {"sport_type": "running"}
+// Body: {"sport_type": "cycling", "sub_type": "mountain", "is_electric": true}
 func (h *Handler) SetRecordingGroupSportType(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -204,7 +209,27 @@ func (h *Handler) SetRecordingGroupSportType(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := h.DB.SetRecordingGroupSportType(r.Context(), groupID, body.SportType); err != nil {
+	tuple := database.RecordingGroupSportTuple{}
+	if body.SportType != "" {
+		rawSubType := ""
+		if body.SubType != nil {
+			rawSubType = *body.SubType
+		}
+		normalized, patch, err := sport.NormalizeSportTuple(body.SportType, rawSubType)
+		if err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
+		tuple.SportType = normalized.SportType
+		if normalized.SubType != "" {
+			tuple.SubType = &normalized.SubType
+		}
+		tuple.IsElectric = body.IsElectric || (patch.IsElectric != nil && *patch.IsElectric)
+		tuple.IsIndoor = body.IsIndoor || (patch.IsIndoor != nil && *patch.IsIndoor)
+		tuple.IsVirtual = body.IsVirtual
+	}
+
+	if err := h.DB.SetRecordingGroupSportType(r.Context(), groupID, tuple); err != nil {
 		slog.Error("set recording group sport type", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to set sport type", r.URL.Path)
 		return
