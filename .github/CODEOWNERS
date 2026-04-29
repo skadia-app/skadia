@@ -1,0 +1,45 @@
+# CODEOWNERS for Skadia.
+#
+# Protects security- and policy-sensitive paths from unreviewed agent edits.
+# GitHub uses last-match-wins semantics: the LAST matching pattern wins, so
+# more specific rules go at the bottom.
+#
+# Code-owner approval is assigned to the project owner.
+# 
+# 
+# 
+
+* @Trailstein
+
+# CI / supply-chain — anything that can ship code on a developer's behalf.
+/.github/                                        @Trailstein
+/.githooks/                                      @Trailstein
+/.gitleaks.toml                                  @Trailstein
+
+# Authentication, authorization, sessions. Whole middleware dir because
+# devauth.go, security.go, ratelimit.go, trustedproxy.go, and
+# must_change_password.go all sit alongside the auth*.go files and are
+# equally security-critical.
+/services/api/internal/auth/                     @Trailstein
+/services/api/internal/middleware/               @Trailstein
+
+# GDPR — registry, export, delete must stay correct or users can't get
+# their data out (regulatory exposure).
+/services/api/internal/auth/gdpr_registry.go     @Trailstein
+/services/api/internal/database/gdpr.go          @Trailstein
+/services/api/internal/auth/handler_data_*.go    @Trailstein
+
+# Database migrations — irreversible if not designed carefully.
+/services/api/internal/migrate/migrations/       @Trailstein
+
+# Secret-adjacent runtime config. Note: the actual `.env` is gitignored;
+# only the tracked example/template files need code-owner review when
+# they change (because their defaults influence operator deployments).
+/garage/                                         @Trailstein
+/.env.example                                    @Trailstein
+/.env.template                                   @Trailstein
+
+# Compose / deploy surface — anything that affects what runs in production.
+/docker-compose.yml                              @Trailstein
+/docker-compose.override.example.yml             @Trailstein
+/scripts/                                        @Trailstein

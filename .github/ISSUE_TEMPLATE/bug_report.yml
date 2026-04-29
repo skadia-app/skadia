@@ -1,0 +1,92 @@
+name: Bug report
+description: Report a defect in code, container build, or runtime behaviour.
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For SECURITY vulnerabilities — do NOT use this form. See SECURITY.md
+        for the private-disclosure path.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Describe the actual behaviour you observed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-expected
+    attributes:
+      label: What you expected
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: |
+        Step-by-step instructions. Include input data shapes if relevant
+        (synthetic FIT/GPX, OAuth flow, browser actions, etc.). Exact
+        endpoint URLs, example payloads, and the smallest possible
+        reproduction help triage move fastest.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Skadia version
+      description: Commit SHA or release tag.
+      placeholder: e.g. abc1234 or v0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment shape
+      options:
+        - docker compose (default)
+        - bare-metal / systemd
+        - dev mode (npm run dev / go run)
+        - other (describe in additional context)
+    validations:
+      required: true
+
+  - type: input
+    id: host-os
+    attributes:
+      label: Host OS + kernel version
+      placeholder: e.g. Fedora 43, kernel 6.19.12 / Ubuntu 24.04 / Debian 13
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser (if frontend bug)
+      placeholder: e.g. Firefox 132 / Chromium 130 / Safari 18
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / output
+      description: |
+        Relevant log lines, error messages, stack traces. Redact tokens
+        and personal data before pasting.
+      render: text
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: |
+        Anything else: related issues, recent config changes, third-party
+        platforms involved (Garmin/Strava/Komoot import), etc.

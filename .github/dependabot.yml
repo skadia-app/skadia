@@ -1,0 +1,98 @@
+version: 2
+
+# Conservative defaults: weekly cadence, grouped minor+patch PRs, hard caps
+# per ecosystem so a single bad upstream doesn't flood the queue.
+#
+# Major-version bumps land as separate PRs (default behaviour) — review and
+# merge manually because they often need code adjustments.
+
+updates:
+  # Backend Go module.
+  - package-ecosystem: gomod
+    directory: /services/api
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    groups:
+      go-deps:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    labels: [dependencies, go]
+
+  # ML service Python deps.
+  - package-ecosystem: pip
+    directory: /services/ml
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      ml-deps:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    labels: [dependencies, python]
+    ignore:
+      # ML stack: hold majors by hand, model-loading often regresses on bumps.
+      # `sentence-transformers` is NOT in current services/ml/requirements.txt
+      # (verified 2026-04-29) — re-add to this list if it returns.
+      - dependency-name: torch
+        update-types: [version-update:semver-major]
+      - dependency-name: transformers
+        update-types: [version-update:semver-major]
+
+  # Frontend npm.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      frontend-deps:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    labels: [dependencies, frontend]
+
+  # GitHub Actions versions across all workflow files.
+  # Keeps the SHA pins in `.github/workflows/*.yml` current — without this
+  # the repo accumulates stale pinned actions and security patches stop
+  # arriving silently.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    labels: [dependencies, actions]
+
+  # Dockerfiles — base-image security updates.
+  #
+  # Caveat: Dependabot's docker ecosystem updates the FROM tag (e.g.
+  # `ubuntu:24.04` → `ubuntu:24.10`) but not the digest. OpenSSF Scorecard's
+  # Pinned-Dependencies check expects digest pins (`@sha256:...`) for full
+  # supply-chain hygiene. We accept the Scorecard hit on this dimension as
+  # a deliberate trade-off: digest pins block routine security-patch
+  # rebuilds (each pull would need a manual digest update) and the value
+  # add for a non-multi-tenant container we control end-to-end is low.
+  - package-ecosystem: docker
+    directory: /services/api
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels: [dependencies, docker]
+
+  - package-ecosystem: docker
+    directory: /services/ml
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels: [dependencies, docker]
+
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels: [dependencies, docker]
