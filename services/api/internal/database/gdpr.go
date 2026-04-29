@@ -289,6 +289,15 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 	if len(segIDs) > 0 {
 		retryDelete("segment_efforts(by_segment)",
 			`DELETE FROM segment_efforts WHERE segment_id = ANY($1)`, segIDs)
+		var hasLegacySubtypeHints bool
+		if err := conn.QueryRow(ctx,
+			`SELECT to_regclass('public.segments_legacy_sub_type_hints') IS NOT NULL`).Scan(&hasLegacySubtypeHints); err != nil {
+			slog.Error("GDPR: detect segments_legacy_sub_type_hints failed", "error", err)
+			phase1Errors = append(phase1Errors, fmt.Sprintf("segments_legacy_sub_type_hints: %s", err))
+		} else if hasLegacySubtypeHints {
+			retryDelete("segments_legacy_sub_type_hints",
+				`DELETE FROM segments_legacy_sub_type_hints WHERE segment_id = ANY($1)`, segIDs)
+		}
 	}
 	if len(actIDs) > 0 {
 		retryDelete("segment_efforts(by_activity)",

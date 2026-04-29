@@ -21,6 +21,9 @@ type legacySportAlias struct {
 }
 
 var legacySportAliases = map[string]legacySportAlias{
+	"bike":                {tuple: Tuple{SportType: "cycling"}},
+	"biking":              {tuple: Tuple{SportType: "cycling"}},
+	"ride":                {tuple: Tuple{SportType: "cycling"}},
 	"mountain_biking":     {tuple: Tuple{SportType: "cycling", SubType: "mountain"}},
 	"gravel_cycling":      {tuple: Tuple{SportType: "cycling", SubType: "gravel_cycling"}},
 	"indoor_cycling":      {tuple: Tuple{SportType: "cycling", SubType: "indoor_cycling"}, patch: ModifierPatch{IsIndoor: boolPtr(true)}},
@@ -29,6 +32,7 @@ var legacySportAliases = map[string]legacySportAlias{
 	"lap_swimming":        {tuple: Tuple{SportType: "swimming", SubType: "lap_swimming"}, patch: ModifierPatch{IsIndoor: boolPtr(true)}},
 	"open_water_swimming": {tuple: Tuple{SportType: "swimming", SubType: "open_water"}},
 	"road_cycling":        {tuple: Tuple{SportType: "cycling", SubType: "road"}},
+	"roadcycling":         {tuple: Tuple{SportType: "cycling", SubType: "road"}},
 	"e_mountain_biking":   {tuple: Tuple{SportType: "cycling", SubType: "mountain"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
 	"e_biking":            {tuple: Tuple{SportType: "cycling", SubType: "generic"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
 	"e_bike":              {tuple: Tuple{SportType: "cycling", SubType: "generic"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
