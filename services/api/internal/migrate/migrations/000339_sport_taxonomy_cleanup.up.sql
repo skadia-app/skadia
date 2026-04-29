@@ -434,16 +434,19 @@ DECLARE
     affected_segments INTEGER;
     affected_with_subtypes INTEGER;
 BEGIN
-    SELECT COUNT(*)
+    SELECT COUNT(DISTINCT seg.id)
     INTO affected_segments
-    FROM segments
-    WHERE allowed_sport_types && ARRAY[
+    FROM segments seg
+    CROSS JOIN LATERAL unnest(seg.allowed_sport_types) AS raw(sport_type)
+    CROSS JOIN LATERAL fp_sport_taxonomy_normalize(raw.sport_type, '') AS n
+    WHERE raw.sport_type IN (
         'mountain_biking', 'gravel_cycling', 'indoor_cycling',
         'trail_running', 'treadmill_running',
         'lap_swimming', 'open_water_swimming',
         'bike', 'biking', 'ride', 'road_cycling', 'roadcycling',
         'e_mountain_biking', 'e_biking', 'e_bike'
-    ]::text[];
+    )
+      AND NOT n.sport_type = ANY(seg.allowed_sport_types);
 
     SELECT COUNT(*)
     INTO affected_with_subtypes

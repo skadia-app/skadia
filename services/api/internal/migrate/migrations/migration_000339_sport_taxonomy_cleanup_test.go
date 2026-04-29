@@ -296,6 +296,53 @@ func TestMigration000339BlocksSegmentBroadeningWithoutGate(t *testing.T) {
 	}
 }
 
+func TestMigration000339DoesNotBlockSegmentWhenCanonicalParentAlreadyAllowed(t *testing.T) {
+	upSQL, _, _ := readMigration000339SQL(t)
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback: %v", err)
+		}
+	})
+
+	userID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, is_admin)
+		VALUES ($1, $2, $3, false)
+	`, userID, "mig339_segment_parent_"+userID[:8], "mig339_segment_parent_"+userID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	segmentID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO segments (id, created_by, name, allowed_sport_types, allowed_sub_types)
+		VALUES ($1, $2, 'parent already allowed segment', ARRAY['cycling','mountain_biking','gravel_cycling','indoor_cycling'], ARRAY[]::text[])
+	`, segmentID, userID); err != nil {
+		t.Fatalf("insert segment: %v", err)
+	}
+
+	if _, err := tx.Exec(ctx, upSQL); err != nil {
+		t.Fatalf("apply up.sql without broadening gate: %v", err)
+	}
+
+	var allowedSportTypes []string
+	if err := tx.QueryRow(ctx, `
+		SELECT allowed_sport_types
+		FROM segments
+		WHERE id = $1
+	`, segmentID).Scan(&allowedSportTypes); err != nil {
+		t.Fatalf("query segment: %v", err)
+	}
+	if len(allowedSportTypes) != 1 || allowedSportTypes[0] != "cycling" {
+		t.Fatalf("allowed_sport_types = %v, want [cycling]", allowedSportTypes)
+	}
+}
+
 func TestMigration000339PredicateValidatorMatchesGoFixtures(t *testing.T) {
 	upSQL, _, _ := readMigration000339SQL(t)
 	pool := migrationTestPool(t)
