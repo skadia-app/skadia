@@ -67,6 +67,18 @@ UPDATE planned_routes SET sport_type = 'treadmill_running' WHERE sport_type = 'r
 UPDATE planned_routes SET sport_type = 'lap_swimming' WHERE sport_type = 'swimming' AND sub_type = 'lap_swimming';
 UPDATE planned_routes SET sport_type = 'open_water_swimming' WHERE sport_type = 'swimming' AND sub_type = 'open_water';
 
+UPDATE recording_groups SET sport_type = 'mountain_biking', sub_type = NULL WHERE sport_type = 'cycling' AND sub_type = 'mountain';
+UPDATE recording_groups SET sport_type = 'gravel_cycling', sub_type = NULL WHERE sport_type = 'cycling' AND sub_type = 'gravel_cycling';
+UPDATE recording_groups SET sport_type = 'indoor_cycling', sub_type = NULL WHERE sport_type = 'cycling' AND sub_type = 'indoor_cycling';
+UPDATE recording_groups SET sport_type = 'trail_running', sub_type = NULL WHERE sport_type = 'running' AND sub_type = 'trail';
+UPDATE recording_groups SET sport_type = 'treadmill_running', sub_type = NULL WHERE sport_type = 'running' AND sub_type = 'indoor_running';
+UPDATE recording_groups SET sport_type = 'lap_swimming', sub_type = NULL WHERE sport_type = 'swimming' AND sub_type = 'lap_swimming';
+UPDATE recording_groups SET sport_type = 'open_water_swimming', sub_type = NULL WHERE sport_type = 'swimming' AND sub_type = 'open_water';
+
+ALTER TABLE recording_groups DROP COLUMN IF EXISTS is_virtual;
+ALTER TABLE recording_groups DROP COLUMN IF EXISTS is_indoor;
+ALTER TABLE recording_groups DROP COLUMN IF EXISTS is_electric;
+ALTER TABLE recording_groups DROP COLUMN IF EXISTS sub_type;
 ALTER TABLE planned_routes DROP COLUMN IF EXISTS sub_type;
 ALTER TABLE routing_profiles DROP COLUMN IF EXISTS predicates;
 ALTER TABLE routing_profiles DROP COLUMN IF EXISTS modifier_filters;

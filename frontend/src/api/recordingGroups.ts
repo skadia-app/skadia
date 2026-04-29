@@ -1,6 +1,14 @@
 import { apiClient } from './client'
 import type { RecordingGroup, RecordingGroupMember } from './types'
 
+export interface RecordingGroupSportPayload {
+  sport_type: string
+  sub_type?: string | null
+  is_electric?: boolean
+  is_indoor?: boolean
+  is_virtual?: boolean
+}
+
 export async function fetchRecordingGroups(limit?: number, offset?: number): Promise<RecordingGroup[]> {
   const params = new URLSearchParams()
   if (limit != null) params.set('limit', String(limit))
@@ -28,10 +36,11 @@ export async function setGroupPrimary(groupId: string, activityId: string): Prom
   })
 }
 
-export async function setGroupSportType(groupId: string, sportType: string): Promise<void> {
+export async function setGroupSportType(groupId: string, sport: string | RecordingGroupSportPayload): Promise<void> {
+  const body = typeof sport === 'string' ? { sport_type: sport } : sport
   return apiClient<void>(`/recording-groups/${groupId}/sport-type`, {
     method: 'PATCH',
-    body: { sport_type: sportType },
+    body,
   })
 }
 
@@ -46,4 +55,3 @@ export async function addGroupMember(groupId: string, activityId: string): Promi
     body: { activity_id: activityId },
   })
 }
-

@@ -45,6 +45,11 @@ func TestMigration000339SQLFilesDeclareRequiredContracts(t *testing.T) {
 		"original_sub_types TEXT[]",
 		"ALTER TABLE planned_routes",
 		"ADD COLUMN IF NOT EXISTS sub_type TEXT",
+		"ALTER TABLE recording_groups",
+		"ADD COLUMN IF NOT EXISTS sub_type TEXT",
+		"ADD COLUMN IF NOT EXISTS is_electric BOOLEAN NOT NULL DEFAULT FALSE",
+		"ADD COLUMN IF NOT EXISTS is_indoor BOOLEAN NOT NULL DEFAULT FALSE",
+		"ADD COLUMN IF NOT EXISTS is_virtual BOOLEAN NOT NULL DEFAULT FALSE",
 		"mountain_biking",
 		"gravel_cycling",
 		"indoor_cycling",
@@ -71,6 +76,9 @@ func TestMigration000339SQLFilesDeclareRequiredContracts(t *testing.T) {
 		"DROP COLUMN IF EXISTS predicates",
 		"DROP COLUMN IF EXISTS modifier_filters",
 		"DROP COLUMN IF EXISTS sub_type",
+		"DROP COLUMN IF EXISTS is_electric",
+		"DROP COLUMN IF EXISTS is_indoor",
+		"DROP COLUMN IF EXISTS is_virtual",
 		"parsed_sport_type",
 		"parsed_sub_type",
 	}
@@ -175,10 +183,11 @@ func TestMigration000339AppliesAndNormalizesFixtures(t *testing.T) {
 	`, userID); err != nil {
 		t.Fatalf("insert planned route: %v", err)
 	}
+	groupID := uuid.NewString()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO recording_groups (id, user_id, sport_type)
 		VALUES ($1, $2, 'trail_running')
-	`, uuid.NewString(), userID); err != nil {
+	`, groupID, userID); err != nil {
 		t.Fatalf("insert recording group: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -220,6 +229,17 @@ func TestMigration000339AppliesAndNormalizesFixtures(t *testing.T) {
 	}
 	if sportType != "cycling" || subType != "mountain" || parsedSportType != "running" || parsedSubType != "indoor_running" || !indoor || !electric {
 		t.Fatalf("activity tuple = (%s,%s), parsed=(%s,%s), indoor=%v electric=%v", sportType, subType, parsedSportType, parsedSubType, indoor, electric)
+	}
+
+	var groupSportType, groupSubType string
+	if err := tx.QueryRow(ctx, `
+		SELECT sport_type, COALESCE(sub_type, '')
+		FROM recording_groups WHERE id = $1
+	`, groupID).Scan(&groupSportType, &groupSubType); err != nil {
+		t.Fatalf("query recording group: %v", err)
+	}
+	if groupSportType != "running" || groupSubType != "trail" {
+		t.Fatalf("recording group tuple = (%s,%s), want (running,trail)", groupSportType, groupSubType)
 	}
 
 	var hints int

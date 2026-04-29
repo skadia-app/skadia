@@ -30,8 +30,20 @@ type RecordingGroup struct {
 	UserID            string    `json:"user_id"`
 	PrimaryActivityID *string   `json:"primary_activity_id,omitempty"`
 	SportType         *string   `json:"sport_type,omitempty"`
+	SubType           *string   `json:"sub_type,omitempty"`
+	IsElectric        bool      `json:"is_electric"`
+	IsIndoor          bool      `json:"is_indoor"`
+	IsVirtual         bool      `json:"is_virtual"`
 	CreatedAt         time.Time `json:"created_at"`
 	Confirmed         bool      `json:"confirmed"`
+}
+
+type RecordingGroupSportTuple struct {
+	SportType  string
+	SubType    *string
+	IsElectric bool
+	IsIndoor   bool
+	IsVirtual  bool
 }
 
 // RecordingGroupMember is a single member row from recording_group_members.
@@ -101,9 +113,9 @@ func (db *DB) CreateRecordingGroup(ctx context.Context, userID string, memberAct
 	err = tx.QueryRow(ctx,
 		`INSERT INTO recording_groups (user_id, primary_activity_id, sport_type)
 		 VALUES ($1, $2, $3)
-		 RETURNING id, user_id, primary_activity_id, sport_type, created_at, confirmed`,
+		 RETURNING id, user_id, primary_activity_id, sport_type, sub_type, is_electric, is_indoor, is_virtual, created_at, confirmed`,
 		userID, primaryArg, sportTypeArg,
-	).Scan(&g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.CreatedAt, &g.Confirmed)
+	).Scan(&g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.SubType, &g.IsElectric, &g.IsIndoor, &g.IsVirtual, &g.CreatedAt, &g.Confirmed)
 	if err != nil {
 		return nil, fmt.Errorf("insert recording group: %w", err)
 	}
@@ -137,10 +149,10 @@ func (db *DB) CreateRecordingGroup(ctx context.Context, userID string, memberAct
 func (db *DB) GetRecordingGroup(ctx context.Context, groupID string) (*RecordingGroup, error) {
 	var g RecordingGroup
 	err := db.Pool.QueryRow(ctx,
-		`SELECT id, user_id, primary_activity_id, sport_type, created_at, confirmed
+		`SELECT id, user_id, primary_activity_id, sport_type, sub_type, is_electric, is_indoor, is_virtual, created_at, confirmed
 		 FROM recording_groups WHERE id = $1`,
 		groupID,
-	).Scan(&g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.CreatedAt, &g.Confirmed)
+	).Scan(&g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.SubType, &g.IsElectric, &g.IsIndoor, &g.IsVirtual, &g.CreatedAt, &g.Confirmed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -155,12 +167,12 @@ func (db *DB) GetRecordingGroup(ctx context.Context, groupID string) (*Recording
 func (db *DB) GetRecordingGroupForActivity(ctx context.Context, activityID string) (*RecordingGroup, error) {
 	var g RecordingGroup
 	err := db.Pool.QueryRow(ctx,
-		`SELECT rg.id, rg.user_id, rg.primary_activity_id, rg.sport_type, rg.created_at, rg.confirmed
+		`SELECT rg.id, rg.user_id, rg.primary_activity_id, rg.sport_type, rg.sub_type, rg.is_electric, rg.is_indoor, rg.is_virtual, rg.created_at, rg.confirmed
 		 FROM recording_groups rg
 		 JOIN recording_group_members rgm ON rgm.group_id = rg.id
 		 WHERE rgm.activity_id = $1`,
 		activityID,
-	).Scan(&g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.CreatedAt, &g.Confirmed)
+	).Scan(&g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.SubType, &g.IsElectric, &g.IsIndoor, &g.IsVirtual, &g.CreatedAt, &g.Confirmed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -179,7 +191,7 @@ func (db *DB) GetRecordingGroupsForActivities(ctx context.Context, activityIDs [
 		return map[string]*RecordingGroup{}, nil
 	}
 	rows, err := db.Pool.Query(ctx,
-		`SELECT rgm.activity_id, rg.id, rg.user_id, rg.primary_activity_id, rg.sport_type, rg.created_at, rg.confirmed
+		`SELECT rgm.activity_id, rg.id, rg.user_id, rg.primary_activity_id, rg.sport_type, rg.sub_type, rg.is_electric, rg.is_indoor, rg.is_virtual, rg.created_at, rg.confirmed
 		 FROM recording_group_members rgm
 		 JOIN recording_groups rg ON rg.id = rgm.group_id
 		 WHERE rgm.activity_id = ANY($1)`,
@@ -194,7 +206,7 @@ func (db *DB) GetRecordingGroupsForActivities(ctx context.Context, activityIDs [
 	for rows.Next() {
 		var actID string
 		var g RecordingGroup
-		if err := rows.Scan(&actID, &g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.CreatedAt, &g.Confirmed); err != nil {
+		if err := rows.Scan(&actID, &g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.SubType, &g.IsElectric, &g.IsIndoor, &g.IsVirtual, &g.CreatedAt, &g.Confirmed); err != nil {
 			return nil, fmt.Errorf("scan recording group for activity: %w", err)
 		}
 		result[actID] = &g
@@ -217,14 +229,14 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 	if limit > 0 {
 		rows, err = db.Pool.Query(ctx, `
 			WITH limited_groups AS (
-				SELECT id, user_id, primary_activity_id, sport_type, created_at, confirmed
+				SELECT id, user_id, primary_activity_id, sport_type, sub_type, is_electric, is_indoor, is_virtual, created_at, confirmed
 				FROM recording_groups
 				WHERE user_id = $1
 				ORDER BY created_at DESC
 				LIMIT $2 OFFSET $3
 			)
 			SELECT
-				lg.id, lg.user_id, lg.primary_activity_id, lg.sport_type, lg.created_at, lg.confirmed,
+				lg.id, lg.user_id, lg.primary_activity_id, lg.sport_type, lg.sub_type, lg.is_electric, lg.is_indoor, lg.is_virtual, lg.created_at, lg.confirmed,
 				rgm.activity_id, rgm.is_fused,
 				(SELECT COUNT(DISTINCT merged_id) FROM activity_fusion_memberships WHERE source_id = a.id) AS fusion_source_count,
 				(lg.primary_activity_id = rgm.activity_id) AS is_primary,
@@ -243,7 +255,7 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 	} else {
 		rows, err = db.Pool.Query(ctx, `
 			SELECT
-				rg.id, rg.user_id, rg.primary_activity_id, rg.sport_type, rg.created_at, rg.confirmed,
+				rg.id, rg.user_id, rg.primary_activity_id, rg.sport_type, rg.sub_type, rg.is_electric, rg.is_indoor, rg.is_virtual, rg.created_at, rg.confirmed,
 				rgm.activity_id, rgm.is_fused, (SELECT COUNT(DISTINCT merged_id) FROM activity_fusion_memberships WHERE source_id = a.id) AS fusion_source_count,
 				(rg.primary_activity_id = rgm.activity_id) AS is_primary,
 					a.title, a.title_auto, a.started_at, a.sport_type, a.sub_type,
@@ -275,7 +287,7 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 			member RecordingGroupMemberDetail
 		)
 		if err := rows.Scan(
-			&g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.CreatedAt, &g.Confirmed,
+			&g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.SubType, &g.IsElectric, &g.IsIndoor, &g.IsVirtual, &g.CreatedAt, &g.Confirmed,
 			&member.ActivityID, &member.IsFused, &member.FusionSourceCount, &member.IsPrimary,
 			&member.Title, &member.TitleAuto, &member.StartedAt, &member.SportType, &member.SubType,
 			&member.IsElectric, &member.IsIndoor, &member.IsVirtual,
@@ -546,15 +558,21 @@ func (db *DB) GetRecordingGroupMembers(ctx context.Context, groupID string) ([]R
 	return result, nil
 }
 
-// SetRecordingGroupSportType updates the sport_type of a recording group.
-func (db *DB) SetRecordingGroupSportType(ctx context.Context, groupID, sportType string) error {
+// SetRecordingGroupSportType updates the persisted sport tuple of a recording group.
+func (db *DB) SetRecordingGroupSportType(ctx context.Context, groupID string, tuple RecordingGroupSportTuple) error {
 	var sportTypeArg any
-	if sportType != "" {
-		sportTypeArg = sportType
+	if tuple.SportType != "" {
+		sportTypeArg = tuple.SportType
 	}
 	tag, err := db.Pool.Exec(ctx,
-		`UPDATE recording_groups SET sport_type = $2 WHERE id = $1`,
-		groupID, sportTypeArg,
+		`UPDATE recording_groups
+		 SET sport_type = $2,
+		     sub_type = $3,
+		     is_electric = $4,
+		     is_indoor = $5,
+		     is_virtual = $6
+		 WHERE id = $1`,
+		groupID, sportTypeArg, tuple.SubType, tuple.IsElectric, tuple.IsIndoor, tuple.IsVirtual,
 	)
 	if err != nil {
 		return fmt.Errorf("set recording group sport type: %w", err)

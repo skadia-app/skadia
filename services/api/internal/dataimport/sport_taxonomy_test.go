@@ -60,12 +60,15 @@ func TestNormalizeSportTaxonomyImportRowOtherSportTables(t *testing.T) {
 			},
 		},
 		{
-			name:  "recording group collapses top sport",
+			name:  "recording group preserves tuple and modifiers",
 			table: "recording_groups",
-			row:   map[string]any{"sport_type": "trail_running"},
+			row:   map[string]any{"sport_type": "e_mountain_biking", "sub_type": "", "is_electric": false},
 			check: func(t *testing.T, got map[string]any) {
-				if got["sport_type"] != "running" {
-					t.Fatalf("recording group sport_type: got %#v, want running", got["sport_type"])
+				if got["sport_type"] != "cycling" || got["sub_type"] != "mountain" {
+					t.Fatalf("recording group tuple: got (%#v, %#v), want (cycling, mountain)", got["sport_type"], got["sub_type"])
+				}
+				if got["is_electric"] != true {
+					t.Fatalf("recording group is_electric: got %#v, want true", got["is_electric"])
 				}
 			},
 		},

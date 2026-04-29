@@ -32,8 +32,10 @@ func normalizeSportTaxonomyImportRow(table string, row map[string]any, targetCol
 			return nil, err
 		}
 	case "recording_groups":
-		if err := normalizeSingleSportType(row, "sport_type"); err != nil {
+		if patch, err := normalizeSportPair(row, "sport_type", "sub_type"); err != nil {
 			return nil, err
+		} else {
+			applyModifierPatchToRow(row, patch)
 		}
 	}
 	return row, nil
