@@ -1,6 +1,7 @@
 package sport
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -61,10 +62,12 @@ func TestAutoTitleBackwardsCompat(t *testing.T) {
 	}
 }
 
-func TestSubTypePromotion(t *testing.T) {
+func TestSubTypeLabels(t *testing.T) {
 	tests := []struct {
 		sport, sub, wantLabel string
 	}{
+		{"cycling", "mountain", "MTB"},
+		{"running", "indoor_running", "Indoor"},
 		{"training", "yoga", "Yoga"},
 		{"training", "strength_training", "Krafttraining"},
 		{"training", "cardio_training", "Cardio"},
@@ -79,6 +82,12 @@ func TestSubTypePromotion(t *testing.T) {
 		if got != tc.wantLabel {
 			t.Errorf("SportLabel(%q, %q) = %q, want %q", tc.sport, tc.sub, got, tc.wantLabel)
 		}
+	}
+}
+
+func TestSportDefHasNoSubTypePromotionField(t *testing.T) {
+	if _, ok := reflect.TypeOf(SportDef{}).FieldByName("SubTypePromotion"); ok {
+		t.Fatal("SportDef still has SubTypePromotion field")
 	}
 }
 
@@ -117,6 +126,20 @@ func TestAllSports(t *testing.T) {
 	if len(all) < 60 {
 		t.Errorf("AllSports() returned %d, want at least 60", len(all))
 	}
+	legacyAliases := map[string]bool{
+		"mountain_biking":     true,
+		"trail_running":       true,
+		"gravel_cycling":      true,
+		"indoor_cycling":      true,
+		"treadmill_running":   true,
+		"lap_swimming":        true,
+		"open_water_swimming": true,
+	}
+	for _, d := range all {
+		if legacyAliases[d.SportType] {
+			t.Fatalf("AllSports() included legacy alias %q", d.SportType)
+		}
+	}
 }
 
 func TestSportsInCategory(t *testing.T) {
@@ -145,6 +168,26 @@ func TestGetSportDef(t *testing.T) {
 	}
 }
 
+func TestLegacyAliasesRemainResolvable(t *testing.T) {
+	tests := map[string]string{
+		"mountain_biking":     "MTB",
+		"trail_running":       "Trail",
+		"gravel_cycling":      "Gravel",
+		"indoor_cycling":      "Indoor",
+		"treadmill_running":   "Indoor",
+		"lap_swimming":        "Bahnschwimmen",
+		"open_water_swimming": "Freiwasser",
+	}
+	for sportType, wantLabel := range tests {
+		if _, ok := GetSportDef(sportType); !ok {
+			t.Fatalf("GetSportDef(%q) returned false", sportType)
+		}
+		if got := SportLabel(sportType, ""); got != wantLabel {
+			t.Fatalf("SportLabel(%q, \"\") = %q, want %q", sportType, got, wantLabel)
+		}
+	}
+}
+
 func TestSportDetailLabel(t *testing.T) {
 	tests := []struct {
 		sport, sub, want string
@@ -152,8 +195,10 @@ func TestSportDetailLabel(t *testing.T) {
 		{"cycling", "mountain", "Radfahren (MTB)"},
 		{"cycling", "", "Radfahren"},
 		{"cycling", "generic", "Radfahren"},
+		{"running", "indoor_running", "Laufen (Indoor)"},
 		{"training", "yoga", "Yoga"},
 		{"training", "", "Training"},
+		{"paddling", "", "Paddeln (Generisch)"},
 	}
 	for _, tc := range tests {
 		got := SportDetailLabel(tc.sport, tc.sub)
