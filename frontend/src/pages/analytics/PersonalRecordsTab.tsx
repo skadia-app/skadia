@@ -36,6 +36,7 @@ import { SubFilterPills } from '@/components/records/SubFilterPills'
 import { PowerDurationChart } from '@/components/records/PowerDurationChart'
 import { SegmentSection } from '@/components/records/SegmentSection'
 import { PRProgressionChart } from '@/components/records/PRProgressionChart'
+import { SportFilter, type SportFilterValue } from '@/components/sport/SportFilter'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -48,6 +49,53 @@ const YEAR_OPTIONS = [
 ]
 
 const ALL_MAIN_CATEGORIES: MainCategory[] = ['laufen', 'radfahren', 'wandern', 'schwimmen']
+
+function recordSportFilterValue(mainCategory: MainCategory | null, subFilter: string | null): SportFilterValue {
+  if (!mainCategory) return { sportTypes: null, modifiers: {} }
+  if (mainCategory === 'laufen') {
+    if (subFilter === 'Trail') return { sportTypes: ['running:trail'], modifiers: {} }
+    if (subFilter === 'Stationär') return { sportTypes: ['running:indoor_running'], modifiers: {} }
+    if (subFilter === 'Straße') return { sportTypes: ['running'], modifiers: {} }
+    return { sportTypes: ['running'], modifiers: {} }
+  }
+  if (mainCategory === 'radfahren') {
+    if (subFilter === 'E-Bike') return { sportTypes: ['cycling'], modifiers: { is_electric: true } }
+    if (subFilter === 'Stationär') return { sportTypes: ['cycling:indoor_cycling'], modifiers: {} }
+    if (subFilter === 'Radfahren') return { sportTypes: ['cycling'], modifiers: { is_electric: false } }
+    return { sportTypes: ['cycling'], modifiers: {} }
+  }
+  if (mainCategory === 'schwimmen') {
+    if (subFilter === 'Freiwasser') return { sportTypes: ['swimming:open_water'], modifiers: {} }
+    if (subFilter === 'Becken') return { sportTypes: ['swimming:lap_swimming'], modifiers: {} }
+    return { sportTypes: ['swimming'], modifiers: {} }
+  }
+  return { sportTypes: ['hiking'], modifiers: {} }
+}
+
+function recordFilterSelection(value: SportFilterValue): { mainCategory: MainCategory | null; subFilter: string | null } {
+  const keys = value.sportTypes ?? []
+  if (keys.length === 0) return { mainCategory: null, subFilter: null }
+
+  if (keys.includes('running:trail')) return { mainCategory: 'laufen', subFilter: 'Trail' }
+  if (keys.includes('running:indoor_running') || value.modifiers?.is_virtual === true) {
+    return { mainCategory: 'laufen', subFilter: 'Stationär' }
+  }
+  if (keys.includes('running')) return { mainCategory: 'laufen', subFilter: 'Straße' }
+
+  if (keys.includes('cycling:indoor_cycling')) return { mainCategory: 'radfahren', subFilter: 'Stationär' }
+  if (keys.some((key) => key === 'cycling' || key.startsWith('cycling:'))) {
+    if (value.modifiers?.is_electric === true) return { mainCategory: 'radfahren', subFilter: 'E-Bike' }
+    if (value.modifiers?.is_electric === false) return { mainCategory: 'radfahren', subFilter: 'Radfahren' }
+    return { mainCategory: 'radfahren', subFilter: null }
+  }
+
+  if (keys.includes('swimming:open_water')) return { mainCategory: 'schwimmen', subFilter: 'Freiwasser' }
+  if (keys.includes('swimming:lap_swimming')) return { mainCategory: 'schwimmen', subFilter: 'Becken' }
+  if (keys.includes('swimming')) return { mainCategory: 'schwimmen', subFilter: null }
+
+  if (keys.includes('hiking')) return { mainCategory: 'wandern', subFilter: null }
+  return { mainCategory: null, subFilter: null }
+}
 
 // ── Excluded List ──────────────────────────────────────────────────────────
 
@@ -143,6 +191,16 @@ export default function PersonalRecordsTab() {
   const setYear = (y: string) => {
     setSearchParams(prev => {
       if (y) prev.set('year', y); else prev.delete('year')
+      return prev
+    }, { replace: true })
+  }
+
+  const setRecordSportFilter = (value: SportFilterValue) => {
+    const next = recordFilterSelection(value)
+    setSearchParams(prev => {
+      if (next.mainCategory) prev.set('sport', next.mainCategory); else prev.delete('sport')
+      if (next.subFilter) prev.set('sub', next.subFilter); else prev.delete('sub')
+      prev.delete('tab')
       return prev
     }, { replace: true })
   }
@@ -285,50 +343,23 @@ export default function PersonalRecordsTab() {
         </button>
       </div>
 
-      {/* Sport tabs + Year dropdown */}
-      <div className="flex items-center gap-2 mb-5 flex-wrap">
-        {/* Alle tab */}
-        <button
-          onClick={() => setMainCategory(null)}
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors border',
-            mainCategory === null
-              ? 'bg-orange-500 text-white border-orange-500'
-              : 'bg-transparent text-neutral-600 dark:text-neutral-400 border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200',
-          )}
-        >
-          Alle
-        </button>
-
-        {/* Per-sport tabs */}
-        {ALL_MAIN_CATEGORIES
-          .filter(cat => allRecords.some(r => MAIN_CATEGORIES[cat].includes(r.sport_group)))
-          .map(cat => (
-            <button
-              key={cat}
-              onClick={() => setMainCategory(cat)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors border',
-                mainCategory === cat
-                  ? 'bg-orange-500 text-white border-orange-500'
-                  : 'bg-transparent text-neutral-600 dark:text-neutral-400 border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200',
-              )}
-            >
-              <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ backgroundColor: mainCategory === cat ? 'white' : MAIN_CATEGORY_COLORS[cat] }}
-              />
-              {MAIN_CATEGORY_LABELS[cat]}
-            </button>
-          ))
-        }
+      {/* Sport filter + Year dropdown */}
+      <div className="grid gap-3 mb-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3">
+          <SportFilter
+            preset="RECORDS_RECORDABLE"
+            value={recordSportFilterValue(mainCategory, subFilter)}
+            onChange={setRecordSportFilter}
+            modifierKeys={['is_electric', 'is_virtual']}
+          />
+        </div>
 
         {/* Year dropdown — pushed to right */}
         <select
           value={year}
           onChange={(e) => setYear(e.target.value)}
           className={cn(
-            'ml-auto px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors cursor-pointer',
+            'px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors cursor-pointer',
             'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900',
             'text-neutral-700 dark:text-neutral-300',
             'focus:outline-none focus:ring-2 focus:ring-orange-500/30',

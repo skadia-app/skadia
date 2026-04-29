@@ -13,7 +13,8 @@ import { DifficultySelects } from './DifficultySelects'
 import { SurfaceDropdown } from './SurfaceDropdown'
 import { ClimbTypePills } from './ClimbTypePills'
 import { DifficultyColorPicker } from './DifficultyColorPicker'
-import { SportCategoryChips, getVisibleCategories, isCategoryFullyActive, expandCategoryToSportTypes } from './SportCategoryChips'
+import { SportCategoryChips } from './SportCategoryChips'
+import { isCategoryFullyActive, expandCategoryToSportTypes } from '@/lib/sportCategoryHelpers'
 import { cn } from '@/lib/utils'
 
 export interface SegmentMetadata {
@@ -396,6 +397,3 @@ function EnrichmentBadge({
     </span>
   )
 }
-
-// Re-export for backwards compat with any callers that import these from SegmentSidebar
-export { getVisibleCategories, isCategoryFullyActive, expandCategoryToSportTypes }

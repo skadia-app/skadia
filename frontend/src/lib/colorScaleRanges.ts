@@ -1,4 +1,6 @@
 // frontend/src/lib/colorScaleRanges.ts
+import { normalizeSportTuple } from '@/lib/sportTaxonomy'
+
 /**
  * Motion profiles for sport-dependent absolute scales (Speed, Pace, Cadence).
  *
@@ -177,6 +179,20 @@ export const MOTION_PROFILE_BY_SPORT_TYPE: Record<string, MotionProfile> = {
   training:   { speed: 'generic', cadence: 'generic' },
   generic:    { speed: 'generic', cadence: 'generic' },
   unknown:    { speed: 'generic', cadence: 'generic' },
+}
+
+export function motionProfileForSport(sportType: string, subType?: string | null): MotionProfile {
+  const tuple = normalizeSportTuple(sportType, subType)
+  if (tuple.sportType === 'cycling' && tuple.subType === 'mountain') {
+    return { speed: 'mtbCycling', cadence: 'bike' }
+  }
+  if (tuple.sportType === 'cycling' && tuple.subType === 'gravel_cycling') {
+    return { speed: 'roadCycling', cadence: 'bike' }
+  }
+  if (tuple.sportType === 'running' && tuple.subType === 'trail') {
+    return { speed: 'running', pace: 'running', cadence: 'foot_running' }
+  }
+  return MOTION_PROFILE_BY_SPORT_TYPE[tuple.sportType] ?? MOTION_PROFILE_BY_SPORT_TYPE.generic
 }
 
 /**

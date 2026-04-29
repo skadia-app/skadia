@@ -75,16 +75,18 @@ import { useToast } from '@/lib/toast'
 import TrackSummary, { buildStatsRowProps } from '@/components/track-summary/TrackSummary'
 import type { ScaleKind } from '@/components/track-summary/TrackSummary'
 import StatsRow from '@/components/track-summary/StatsRow'
+import { normalizeSportTuple } from '@/lib/sportTaxonomy'
 
 function getSportEmoji(sportType: string): string {
+  const normalized = normalizeSportTuple(sportType)
   const map: Record<string, string> = {
     swimming: '🏊', open_water_swimming: '🏊',
-    cycling: '🚴', mountain_biking: '🚴',
-    running: '🏃', trail_running: '🏃',
+    cycling: '🚴',
+    running: '🏃',
     transition: '⚡',
     walking: '🚶', hiking: '🚶',
   }
-  return map[sportType] ?? '●'
+  return map[normalized.sportType] ?? '●'
 }
 
 
@@ -729,7 +731,7 @@ export default function ActivityDetailPage() {
       )}
 
       {/* Running Form Card — Duty Factor, Vertical Ratio, GCT Asymmetry, Fatigue */}
-      {(activity.sport_type === 'running' || activity.sport_type === 'trail_running') &&
+      {normalizeSportTuple(activity.sport_type, activity.sub_type).sportType === 'running' &&
         (activity.running_form_tier ?? 0) >= 1 && (
         <RunningFormCard activity={activity} />
       )}
@@ -885,6 +887,7 @@ export default function ActivityDetailPage() {
             <TrackSummary
               summary={trackSummaryQuery.data}
               sportType={activity.sport_type}
+              subType={activity.sub_type}
               onSymbolHover={handleTrackSummarySymbolHover}
               onSymbolLeave={handleTrackSummarySymbolLeave}
               pinnedScale={scalePin}
@@ -905,6 +908,7 @@ export default function ActivityDetailPage() {
                     <StatsRow
                       {...buildStatsRowProps(trackSummaryQuery.data)}
                       sportType={activity.sport_type}
+                      subType={activity.sub_type}
                       onSymbolHover={handleTrackSummarySymbolHover}
                       onSymbolLeave={handleTrackSummarySymbolLeave}
                       pinnedScale={scalePin}

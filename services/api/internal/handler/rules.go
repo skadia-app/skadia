@@ -59,6 +59,20 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	tagNames, err := h.ruleTagNames(r.Context(), userID)
+	if err != nil {
+		slog.Error("create rule list tags failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to validate rule actions", r.URL.Path)
+		return
+	}
+	if create.Actions, err = rules.NormalizeRuleActions(create.Actions, tagNames); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if create.Branches, err = rules.NormalizeRuleBranches(create.Branches, tagNames); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 
 	rule, err := h.DB.CreateRule(r.Context(), userID, &create)
 	if err != nil {
@@ -81,6 +95,26 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	tagNames, err := h.ruleTagNames(r.Context(), userID)
+	if err != nil {
+		slog.Error("update rule list tags failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to validate rule actions", r.URL.Path)
+		return
+	}
+	if update.Actions != nil {
+		normalized, err := rules.NormalizeRuleActions(*update.Actions, tagNames)
+		if err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
+		update.Actions = &normalized
+	}
+	if len(update.Branches) > 0 && string(update.Branches) != "null" {
+		if update.Branches, err = rules.NormalizeRuleBranches(update.Branches, tagNames); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
+	}
 
 	rule, err := h.DB.UpdateRule(r.Context(), id, userID, &update)
 	if err != nil {
@@ -98,6 +132,18 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, rule)
+}
+
+func (h *Handler) ruleTagNames(ctx context.Context, userID string) (map[string]string, error) {
+	tags, err := h.DB.ListTags(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(tags))
+	for _, tag := range tags {
+		names[tag.ID] = tag.Name
+	}
+	return names, nil
 }
 
 func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
