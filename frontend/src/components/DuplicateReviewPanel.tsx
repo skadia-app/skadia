@@ -5,12 +5,12 @@ import { useToast } from '@/lib/toast'
 import { type RecordingGroup, type RecordingGroupMember } from '@/api/types'
 import { dissolveRecordingGroup } from '@/api/recordingGroups'
 import { fetchActivityStreams } from '@/api/activities'
-import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
+import { sportDetailLabel, sportColor } from '@/lib/sportTaxonomy'
 import { fmtDist } from '@/lib/format'
 import { getSourceColor } from '@/lib/comparisonColors'
 import { deviceLabel } from '@/lib/deviceUtils'
 import QueueMiniMap, { type MiniMapTrack } from '@/components/fusion/QueueMiniMap'
-import SportConflictBanner from '@/components/fusion/SportConflictBanner'
+import SportConflictBanner, { type SportConflictChoice } from '@/components/fusion/SportConflictBanner'
 
 interface DuplicateReviewPanelProps {
   groups: RecordingGroup[]
@@ -47,14 +47,34 @@ function timeDiffText(members: RecordingGroupMember[]): string {
   return diffMin === 0 ? 'Zeitdifferenz: 0 min' : `Zeitdifferenz: ${diffMin} min`
 }
 
-function uniqueSportTypes(members: RecordingGroupMember[]): string[] {
-  return [...new Set(members.map(m => m.sport_type))]
+function sportChoice(member: RecordingGroupMember): SportConflictChoice {
+  const suffix = [member.is_electric ? 'e' : '', member.is_indoor ? 'i' : '', member.is_virtual ? 'v' : ''].filter(Boolean).join('')
+  return {
+    key: `${member.sport_type}:${member.sub_type ?? ''}:${suffix}`,
+    sportType: member.sport_type,
+    subType: member.sub_type,
+    isElectric: member.is_electric,
+    isIndoor: member.is_indoor,
+    isVirtual: member.is_virtual,
+  }
 }
 
-function SportBadge({ sportType }: { sportType: string }) {
+function uniqueSportChoices(members: RecordingGroupMember[]): SportConflictChoice[] {
+  const choices = new Map<string, SportConflictChoice>()
+  for (const member of members) {
+    const choice = sportChoice(member)
+    choices.set(choice.key, choice)
+  }
+  return [...choices.values()]
+}
+
+function SportBadge({ member }: { member: RecordingGroupMember }) {
   return (
-    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${sportBadgeClass(sportType)}`}>
-      {sportLabel(sportType)}
+    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${sportBadgeClass(member.sport_type)}`}>
+      {sportDetailLabel(member.sport_type, member.sub_type)}
+      {(member.is_electric || member.is_indoor || member.is_virtual) && (
+        <span className="ml-1 uppercase">{member.is_electric ? 'E' : member.is_indoor ? 'I' : 'V'}</span>
+      )}
     </span>
   )
 }
@@ -82,7 +102,7 @@ function GroupCard({ member, isRichest }: GroupCardProps) {
         ) : (
           <span className="text-xs invisible" aria-hidden="true">Mehr Daten</span>
         )}
-        <SportBadge sportType={member.sport_type} />
+        <SportBadge member={member} />
       </div>
 
       <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 truncate">{member.title}</p>
@@ -154,8 +174,8 @@ function GroupItem({ group, onDissolved }: GroupItemProps) {
   const sorted = [...members].sort((a, b) => b.field_richness - a.field_richness)
   const richestId = sorted[0]?.activity_id
 
-  const sportTypes = uniqueSportTypes(members)
-  const hasSportConflict = sportTypes.length > 1
+  const sportChoices = uniqueSportChoices(members)
+  const hasSportConflict = sportChoices.length > 1
 
   // Editor disabled when sport conflict unresolved
   const editorDisabled = hasSportConflict && !selectedSport
@@ -204,9 +224,9 @@ function GroupItem({ group, onDissolved }: GroupItemProps) {
       {/* Sport conflict warning */}
       {hasSportConflict && (
         <SportConflictBanner
-          sportTypes={sportTypes}
-          selectedSportType={selectedSport}
-          onSelect={setSelectedSport}
+          choices={sportChoices}
+          selectedKey={selectedSport}
+          onSelect={choice => setSelectedSport(choice.key)}
         />
       )}
 

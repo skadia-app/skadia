@@ -464,7 +464,8 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 //   - "best_efforts": recompute best effort records for this activity. Works on the
 //     stream only. Does NOT trigger RunStage1.
 //   - "running_form": compute duty factor, vertical ratio, GCT asymmetry + fatigue
-//     indices (running/trail_running only). Works on the stream only.
+//     indices for canonical running subtypes with running-dynamics streams.
+//     Works on the stream only.
 //     Does NOT trigger RunStage1.
 //   - "speed_smooth": opt-in median filter on speed_ms. Never part of "all". Does
 //     NOT trigger RunStage1 (stream-only; see comment in block 8.).
@@ -1022,7 +1023,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	}
 
 	// 8e. Running Form — compute duty factor, vertical ratio, GCT asymmetry + fatigue indices.
-	// Restricted to running/trail_running: CategoryKey "run" but NOT walk/hike/etc.
+	// Restricted to top-level running (plus legacy trail_running until cleanup), not walk/hike.
 	if doRunningForm {
 		cat := sport.CategoryForSport(data.SportType)
 		isRunning := cat.Key == "run" &&

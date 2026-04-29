@@ -32,6 +32,7 @@ import { getToken } from '@/lib/auth'
 import { createSegment, suggestSegmentEnrichment } from '@/api/segments'
 import { useToast } from '@/lib/toast'
 import { SPORT_DEFS } from '@/lib/sportTaxonomy'
+import { splitSportSelectionKeys } from '@/lib/sportSelection'
 
 export interface SegmentEditorModalProps {
   mode: 'track' | 'draw' | 'lap'
@@ -295,6 +296,9 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       // Strip pure-UI flag before send
       const { userEditedBidirectional, ...savePayload } = meta
       void userEditedBidirectional
+      const sportSelection = savePayload.sportTypes === null
+        ? { sportTypes: null, subTypes: null }
+        : splitSportSelectionKeys(savePayload.sportTypes)
 
       return createSegment({
         name: savePayload.name,
@@ -306,7 +310,8 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
         //   [...] → konkrete Liste
         // WICHTIG: kein `?? []`-Fallback — würde null→[] umbiegen und damit
         // "alle" auf "keine" invertieren.
-        allowed_sport_types: savePayload.sportTypes,
+        allowed_sport_types: sportSelection.sportTypes,
+        allowed_sub_types: sportSelection.subTypes,
         bidirectional: savePayload.bidirectional,
         segment_type_meta: {
           surface: savePayload.surface,

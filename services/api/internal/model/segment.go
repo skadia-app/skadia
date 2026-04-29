@@ -43,9 +43,10 @@ type SegmentCreate struct {
 	Description       *string         `json:"description,omitempty"`
 	TerrainType       string          `json:"terrain_type"`
 	ClimbType         string          `json:"climb_type"`
-	Visibility        string          `json:"visibility,omitempty"`        // "public" | "private"; default "public"
+	Visibility        string          `json:"visibility,omitempty"`          // "public" | "private"; default "public"
 	AllowedSportTypes []string        `json:"allowed_sport_types,omitempty"` // nil = all sport types allowed
-	Bidirectional     *bool           `json:"bidirectional,omitempty"`      // nil = use sport-group default
+	AllowedSubTypes   []string        `json:"allowed_sub_types,omitempty"`   // nil/empty = all subtypes allowed
+	Bidirectional     *bool           `json:"bidirectional,omitempty"`       // nil = use sport-group default
 }
 
 type SegmentUpdate struct {
@@ -56,9 +57,10 @@ type SegmentUpdate struct {
 	NewVersion        bool             `json:"new_version,omitempty"`
 	TerrainType       *string          `json:"terrain_type,omitempty"`
 	ClimbType         *string          `json:"climb_type,omitempty"`
-	Visibility        *string          `json:"visibility,omitempty"`        // "public" | "private"
+	Visibility        *string          `json:"visibility,omitempty"`          // "public" | "private"
 	AllowedSportTypes []string         `json:"allowed_sport_types,omitempty"` // nil = unchanged; [] = clear filter; [...] = restrict
-	Bidirectional     *bool            `json:"bidirectional,omitempty"`      // nil = unchanged
+	AllowedSubTypes   []string         `json:"allowed_sub_types,omitempty"`   // nil = unchanged; [] = clear subtype filter
+	Bidirectional     *bool            `json:"bidirectional,omitempty"`       // nil = unchanged
 }
 
 type SegmentVersion struct {
@@ -110,6 +112,7 @@ type SegmentPerformance struct {
 	MovingTimeS     int       `json:"moving_time_s"`
 	StartedAt       time.Time `json:"started_at"`
 	SportType       string    `json:"sport_type"`
+	SubType         *string   `json:"sub_type,omitempty"`
 	Title           string    `json:"title"`
 	IsReverse       bool      `json:"is_reverse"`
 	GearID          *string   `json:"gear_id,omitempty"`
@@ -139,17 +142,17 @@ type DetectedLap struct {
 
 // ListSegmentsParams buendelt alle Filter- und Paginationsparameter.
 type ListSegmentsParams struct {
-	UserID         string
-	SportGroup     string
-	SegmentType    string
-	SegmentTypes   string
-	Name           string
-	BBox           string
+	UserID          string
+	SportGroup      string
+	SegmentType     string
+	SegmentTypes    string
+	Name            string
+	BBox            string
 	LiftsOnlyRidden bool
-	IncludeGeoJSON bool
-	Cursor         string // base64(created_at|id)
-	Limit          int    // 0 = kein Limit
-	IsAdmin        bool   // if true: bypass visibility filter
+	IncludeGeoJSON  bool
+	Cursor          string // base64(created_at|id)
+	Limit           int    // 0 = kein Limit
+	IsAdmin         bool   // if true: bypass visibility filter
 
 	// NEU (§5 Spec)
 	SacScale         string // komma-separiert, z.B. "T2,T3"
@@ -158,6 +161,7 @@ type ListSegmentsParams struct {
 	VisibilityFilter string // komma-separiert: "public", "private", "public,private", "" (= Default: beides)
 	DifficultyMatch  string // "any" | "all" | "" (= Default: "all")
 }
+
 // ListSegmentsResult enthaelt die paginierte Segment-Liste.
 type ListSegmentsResult struct {
 	Segments   []Segment `json:"segments"`

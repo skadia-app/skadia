@@ -1,10 +1,10 @@
 package database
 
 import (
-	"errors"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -325,8 +325,8 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	// Insert segment
 	var s model.Segment
 	err = tx.QueryRow(ctx, `
-		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, visibility, allowed_sport_types, bidirectional)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, visibility, allowed_sport_types, allowed_sub_types, bidirectional)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_by, name, description, sport_group,
 		          allowed_sport_types, allowed_sub_types,
 		          segment_type, segment_type_meta,
@@ -338,7 +338,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		userID, create.Name, create.Description, create.SportGroup,
 		create.SegmentType, segmentTypeMeta, create.SourceActivityID,
 		create.TerrainType, create.ClimbType, create.Visibility,
-		create.AllowedSportTypes, bidirectional,
+		create.AllowedSportTypes, create.AllowedSubTypes, bidirectional,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
 		&s.AllowedSportTypes, &s.AllowedSubTypes,
@@ -538,6 +538,15 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 			args = append(args, nil) // NULL = all sport types allowed
 		} else {
 			args = append(args, update.AllowedSportTypes)
+		}
+		argIdx++
+	}
+	if update.AllowedSubTypes != nil {
+		setClauses = append(setClauses, fmt.Sprintf("allowed_sub_types = $%d", argIdx))
+		if len(update.AllowedSubTypes) == 0 {
+			args = append(args, nil)
+		} else {
+			args = append(args, update.AllowedSubTypes)
 		}
 		argIdx++
 	}
@@ -889,22 +898,23 @@ func (db *DB) UpdateSegmentEffortRanks(ctx context.Context, segmentID string) er
 
 // CandidateSegment holds info for spatial pre-filtered segment matching.
 type CandidateSegment struct {
-	SegmentID   string
-	VersionID   string
-	SportGroup  string
-	DistanceM   float64
-	SegmentType string
-	TypeMeta    map[string]any
+	SegmentID     string
+	VersionID     string
+	SportGroup    string
+	DistanceM     float64
+	SegmentType   string
+	TypeMeta      map[string]any
 	TrackWKB      []byte // Segment track as WKB for in-memory Hausdorff
 	Bidirectional bool
 }
 
 // GetSpatialCandidateSegments returns segments within 50m of the activity track,
 // filtered by sport group. Uses ST_DWithin with GIST index for fast pre-filtering.
-func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userID, sportType string, activityDate time.Time) ([]CandidateSegment, error) {
+func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userID, sportType string, activityDate time.Time, subType string) ([]CandidateSegment, error) {
 	sportGroup := sportGroupFromSportType(sportType)
 
 	// $5 = sportType (exact string) for allowed_sport_types filter.
+	// $6 = subType (exact string) for allowed_sub_types filter.
 	// allowed_sport_types NULL means "all sport types allowed".
 	// allowed_sport_types = '{}' (empty array) means "none" — matched never.
 	rows, err := db.Pool.Query(ctx, `
@@ -927,10 +937,11 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		WHERE (s.visibility = 'public' OR s.created_by = $2)
 		  AND (s.sport_group = $3 OR s.sport_group = 'generic')
 		  AND (s.allowed_sport_types IS NULL OR $5 = ANY(s.allowed_sport_types))
+		  AND (s.allowed_sub_types IS NULL OR cardinality(s.allowed_sub_types) = 0 OR $6 = ANY(s.allowed_sub_types))
 		  AND at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
 		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,
-		activityID, userID, sportGroup, activityDate, sportType)
+		activityID, userID, sportGroup, activityDate, sportType, subType)
 	if err != nil {
 		return nil, fmt.Errorf("get spatial candidate segments: %w", err)
 	}
@@ -1412,10 +1423,11 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 		se.id,
 		se.activity_id,
 		se.elapsed_time_s,
-		a.moving_time_s,
-		a.started_at,
-		a.sport_type,
-		COALESCE(a.title, '') AS title,
+			a.moving_time_s,
+			a.started_at,
+			a.sport_type,
+			a.sub_type,
+			COALESCE(a.title, '') AS title,
 		se.is_reverse,
 		a.gear_id,
 		g.name AS gear_name,
@@ -1443,7 +1455,7 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 	for rows.Next() {
 		var perf model.SegmentPerformance
 		if err := rows.Scan(&perf.SegmentEffortID, &perf.ActivityID, &perf.ElapsedTimeS,
-			&perf.MovingTimeS, &perf.StartedAt, &perf.SportType, &perf.Title, &perf.IsReverse,
+			&perf.MovingTimeS, &perf.StartedAt, &perf.SportType, &perf.SubType, &perf.Title, &perf.IsReverse,
 			&perf.GearID, &perf.GearName, &perf.GearType, &perf.Timezone); err != nil {
 			return nil, fmt.Errorf("scan performance: %w", err)
 		}

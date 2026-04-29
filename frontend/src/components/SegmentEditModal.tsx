@@ -18,6 +18,7 @@ import { SportCategoryChips } from './segment-editor/SportCategoryChips'
 import { expandCategoryToSportTypes, isCategoryFullyActive } from '@/lib/sportCategoryHelpers'
 import { WINTER_SPORT_WHITELIST, WATER_SPORT_WHITELIST, BIDIRECTIONAL_DEFAULT, type SegType } from './segment-editor/constants'
 import { Pill } from './ui/Pill'
+import { splitSportSelectionKeys } from '@/lib/sportSelection'
 
 const SEG_TYPE_LABELS: Record<SegType, string> = {
   standard: 'Standard',
@@ -59,9 +60,12 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
   const [visibility, setVisibility] = useState<'public' | 'private'>(
     (initialSegment.visibility as 'public' | 'private') ?? 'public'
   )
-  const [allowedSportTypes, setAllowedSportTypes] = useState<string[] | null>(
-    initialSegment.allowed_sport_types ?? null
-  )
+  const [allowedSportTypes, setAllowedSportTypes] = useState<string[] | null>(() => {
+    const sports = initialSegment.allowed_sport_types ?? null
+    const subs = initialSegment.allowed_sub_types ?? []
+    if (sports === null || subs.length === 0) return sports
+    return sports.flatMap(sport => subs.map(sub => `${sport}:${sub}`))
+  })
   const [bidirectional, setBidirectional] = useState<boolean>(initialSegment.bidirectional ?? true)
   const [userEditedBidirectional, setUserEditedBidirectional] = useState(false)
   const [segType, setSegType] = useState<SegType>((initialSegment.segment_type as SegType) ?? 'standard')
@@ -114,6 +118,9 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         delete meta.difficulty_color
       }
 
+      const sportSelection = allowedSportTypes === null
+        ? { sportTypes: [], subTypes: [] }
+        : splitSportSelectionKeys(allowedSportTypes)
       const payload: UpdateSegmentPayload = {
         name: name.trim(),
         description: description.trim() || undefined,
@@ -122,7 +129,8 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         new_version: newVersion || undefined,
         climb_type: segType === 'lap' ? 'standard' : climbType,
         bidirectional,
-        allowed_sport_types: allowedSportTypes ?? [],
+        allowed_sport_types: sportSelection.sportTypes,
+        allowed_sub_types: sportSelection.subTypes,
       }
       if (initialSegment.visibility === 'public' && visibility === 'private') {
         payload.visibility = 'private'

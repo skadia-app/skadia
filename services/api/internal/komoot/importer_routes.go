@@ -77,10 +77,10 @@ func (i *RoutesImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 			continue
 		}
 
-		// Sport mapping
-		sportType := "hiking"
-		if mapping, ok := KomootSportMapping[tour.Sport]; ok {
-			sportType = mapping.SportType
+		sportType, subType, _ := komootRouteSportTuple(tour.Sport)
+		var subTypePtr *string
+		if subType != "" {
+			subTypePtr = &subType
 		}
 
 		// Source info
@@ -121,6 +121,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 			Name:               tour.Name,
 			Description:        nil,
 			SportType:          sportType,
+			SubType:            subTypePtr,
 			Profile:            profile,
 			GeometryGeoJSON:    geojson,
 			WaypointsJSON:      "[]",

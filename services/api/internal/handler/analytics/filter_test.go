@@ -27,6 +27,15 @@ func TestParseFilters_SportTypes(t *testing.T) {
 	}
 }
 
+func TestParseFilters_SubTypes(t *testing.T) {
+	r := httptest.NewRequest("GET", "/test?sport_type=cycling&sub_type=mountain,gravel_cycling", nil)
+	f := ParseFilters(r)
+
+	if len(f.SubTypes) != 2 || f.SubTypes[0] != "mountain" || f.SubTypes[1] != "gravel_cycling" {
+		t.Fatalf("SubTypes = %v, want [mountain gravel_cycling]", f.SubTypes)
+	}
+}
+
 func TestParseFilters_Seasons(t *testing.T) {
 	r := httptest.NewRequest("GET", "/test?season=sommer,winter", nil)
 	f := ParseFilters(r)
@@ -67,5 +76,18 @@ func TestBuildWhereClause_WithFilters(t *testing.T) {
 	}
 	if len(args) < 2 {
 		t.Errorf("expected at least 2 args, got %d", len(args))
+	}
+}
+
+func TestBuildWhereClause_WithSubTypeFilter(t *testing.T) {
+	r := httptest.NewRequest("GET", "/test?sport_type=cycling&sub_type=mountain", nil)
+	f := ParseFilters(r)
+	clause, args := f.BuildWhereClause(1)
+
+	if !strings.Contains(clause, "a.sub_type = ANY") {
+		t.Fatalf("expected subtype predicate in %q", clause)
+	}
+	if len(args) < 2 {
+		t.Fatalf("expected sport and subtype args, got %d", len(args))
 	}
 }

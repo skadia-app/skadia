@@ -43,14 +43,18 @@ type RecordingGroupMember struct {
 
 // RecordingGroupMemberDetail augments a member with activity metadata for display.
 type RecordingGroupMemberDetail struct {
-	ActivityID         string    `json:"activity_id"`
-	IsFused            bool      `json:"is_fused"`
-	FusionSourceCount  int       `json:"fusion_source_count"`
-	IsPrimary          bool      `json:"is_primary"`
-	Title              *string   `json:"title,omitempty"`
-	TitleAuto          *string   `json:"title_auto,omitempty"`
-	StartedAt          time.Time `json:"started_at"`
-	SportType          string    `json:"sport_type"`
+	ActivityID          string    `json:"activity_id"`
+	IsFused             bool      `json:"is_fused"`
+	FusionSourceCount   int       `json:"fusion_source_count"`
+	IsPrimary           bool      `json:"is_primary"`
+	Title               *string   `json:"title,omitempty"`
+	TitleAuto           *string   `json:"title_auto,omitempty"`
+	StartedAt           time.Time `json:"started_at"`
+	SportType           string    `json:"sport_type"`
+	SubType             *string   `json:"sub_type,omitempty"`
+	IsElectric          bool      `json:"is_electric"`
+	IsIndoor            bool      `json:"is_indoor"`
+	IsVirtual           bool      `json:"is_virtual"`
 	SourceDevice        *string   `json:"source_device,omitempty"`
 	Source              *string   `json:"source,omitempty"`
 	RecordingDeviceName *string   `json:"recording_device_name,omitempty"`
@@ -224,7 +228,8 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 				rgm.activity_id, rgm.is_fused,
 				(SELECT COUNT(DISTINCT merged_id) FROM activity_fusion_memberships WHERE source_id = a.id) AS fusion_source_count,
 				(lg.primary_activity_id = rgm.activity_id) AS is_primary,
-				a.title, a.title_auto, a.started_at, a.sport_type,
+					a.title, a.title_auto, a.started_at, a.sport_type, a.sub_type,
+					a.is_electric, a.is_indoor, a.is_virtual,
 				a.source_device, a.source, `+deviceNameSelect+`,
 				a.original_file_format, a.distance_m, a.elapsed_time_s,
 				`+fieldRichnessExpr+` AS field_richness,
@@ -241,7 +246,8 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 				rg.id, rg.user_id, rg.primary_activity_id, rg.sport_type, rg.created_at, rg.confirmed,
 				rgm.activity_id, rgm.is_fused, (SELECT COUNT(DISTINCT merged_id) FROM activity_fusion_memberships WHERE source_id = a.id) AS fusion_source_count,
 				(rg.primary_activity_id = rgm.activity_id) AS is_primary,
-				a.title, a.title_auto, a.started_at, a.sport_type,
+					a.title, a.title_auto, a.started_at, a.sport_type, a.sub_type,
+					a.is_electric, a.is_indoor, a.is_virtual,
 				a.source_device, a.source, `+deviceNameSelect+`,
 				a.original_file_format, a.distance_m, a.elapsed_time_s,
 				`+fieldRichnessExpr+` AS field_richness,
@@ -271,7 +277,8 @@ func (db *DB) GetRecordingGroupsForUser(ctx context.Context, userID string, limi
 		if err := rows.Scan(
 			&g.ID, &g.UserID, &g.PrimaryActivityID, &g.SportType, &g.CreatedAt, &g.Confirmed,
 			&member.ActivityID, &member.IsFused, &member.FusionSourceCount, &member.IsPrimary,
-			&member.Title, &member.TitleAuto, &member.StartedAt, &member.SportType,
+			&member.Title, &member.TitleAuto, &member.StartedAt, &member.SportType, &member.SubType,
+			&member.IsElectric, &member.IsIndoor, &member.IsVirtual,
 			&member.SourceDevice, &member.Source, &member.RecordingDeviceName, &member.OriginalFileFormat, &member.DistanceM, &member.ElapsedTimeS,
 			&member.FieldRichness, &member.HasGPS, &member.ElevationGainM, &member.ElevationLossM,
 		); err != nil {
@@ -502,7 +509,8 @@ func (db *DB) GetRecordingGroupMembers(ctx context.Context, groupID string) ([]R
 			rgm.activity_id, rgm.is_fused,
 			(SELECT COUNT(DISTINCT merged_id) FROM activity_fusion_memberships WHERE source_id = a.id) AS fusion_source_count,
 			(rg.primary_activity_id = rgm.activity_id) AS is_primary,
-			a.title, a.title_auto, a.started_at, a.sport_type,
+			a.title, a.title_auto, a.started_at, a.sport_type, a.sub_type,
+			a.is_electric, a.is_indoor, a.is_virtual,
 			a.source_device, a.source, `+deviceNameSelect+`,
 			a.original_file_format, a.distance_m, a.elapsed_time_s,
 			`+fieldRichnessExpr+` AS field_richness,
@@ -523,7 +531,8 @@ func (db *DB) GetRecordingGroupMembers(ctx context.Context, groupID string) ([]R
 		var m RecordingGroupMemberDetail
 		if err := rows.Scan(
 			&m.ActivityID, &m.IsFused, &m.FusionSourceCount, &m.IsPrimary,
-			&m.Title, &m.TitleAuto, &m.StartedAt, &m.SportType,
+			&m.Title, &m.TitleAuto, &m.StartedAt, &m.SportType, &m.SubType,
+			&m.IsElectric, &m.IsIndoor, &m.IsVirtual,
 			&m.SourceDevice, &m.Source, &m.RecordingDeviceName, &m.OriginalFileFormat, &m.DistanceM, &m.ElapsedTimeS,
 			&m.FieldRichness, &m.HasGPS, &m.ElevationGainM, &m.ElevationLossM,
 		); err != nil {
