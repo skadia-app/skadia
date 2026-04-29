@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
+	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
@@ -1092,7 +1094,14 @@ func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string) 
 	if err != nil {
 		return fmt.Errorf("list rules: %w", err)
 	}
-	return h.ApplyRulesToActivity(ctx, activityID, userID, allRules, "")
+	if err := h.ApplyRulesToActivity(ctx, activityID, userID, allRules, ""); err != nil {
+		if errors.Is(err, automation.ErrRulesEnginePaused) {
+			slog.Warn("reprocess tags skipped because rules engine is paused", "activity_id", activityID, "error", err)
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // RecomputeAllTSS starts an async background job that recomputes TSS for all
