@@ -226,11 +226,7 @@ func sportTypeToProfile(sportType string, subType *string) string {
 			return "cycling-mountain"
 		}
 		return "cycling-road"
-	case "mountain_biking":
-		return "cycling-mountain"
-	case "road_cycling", "gravel_cycling":
-		return "cycling-road"
-	case "running", "trail_running":
+	case "running":
 		return "running"
 	default:
 		return "hiking-sac2"

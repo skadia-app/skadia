@@ -1023,11 +1023,10 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	}
 
 	// 8e. Running Form — compute duty factor, vertical ratio, GCT asymmetry + fatigue indices.
-	// Restricted to top-level running (plus legacy trail_running until cleanup), not walk/hike.
+	// Restricted to canonical top-level running, not walk/hike.
 	if doRunningForm {
 		cat := sport.CategoryForSport(data.SportType)
-		isRunning := cat.Key == "run" &&
-			(data.SportType == "running" || data.SportType == "trail_running")
+		isRunning := cat.Key == "run" && data.SportType == "running"
 		if isRunning {
 			if sharedStreamErr != nil {
 				slog.Error("reprocess: load streams for running form failed", "id", activityID, "error", sharedStreamErr)

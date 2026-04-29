@@ -72,14 +72,6 @@ func NormalizeSportTuple(sportType, subType string) (Tuple, ModifierPatch, error
 	return tuple, patch, nil
 }
 
-func normalizeTupleForLookup(sportType, subType string) (Tuple, bool) {
-	tuple, _, err := NormalizeSportTuple(sportType, subType)
-	if err != nil {
-		return Tuple{SportType: strings.TrimSpace(sportType), SubType: strings.TrimSpace(subType)}, false
-	}
-	return tuple, true
-}
-
 func mergeModifierPatch(a, b ModifierPatch) ModifierPatch {
 	if b.IsElectric != nil {
 		a.IsElectric = b.IsElectric

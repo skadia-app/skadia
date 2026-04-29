@@ -78,10 +78,6 @@ func init() {
 			},
 		},
 		{
-			SportType: "trail_running", CategoryKey: "run", LabelDE: "Trailrunning", AutoTitleDE: "Trailrun",
-			SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.5,
-		},
-		{
 			SportType: "walking", CategoryKey: "run", LabelDE: "Gehen", AutoTitleDE: "Spaziergang",
 			SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.2,
 			SubTypes: map[string]SubTypeDef{
@@ -142,18 +138,6 @@ func init() {
 			},
 		},
 		{
-			SportType: "mountain_biking", CategoryKey: "bike", LabelDE: "Mountainbike", AutoTitleDE: "MTB-Tour",
-			SegmentGroup: "bike", TypicallyHasGPS: true, MovingThreshold: 0.5,
-		},
-		{
-			SportType: "gravel_cycling", CategoryKey: "bike", LabelDE: "Gravel", AutoTitleDE: "Gravel-Tour",
-			SegmentGroup: "bike", TypicallyHasGPS: true, MovingThreshold: 0.5,
-		},
-		{
-			SportType: "indoor_cycling", CategoryKey: "bike", LabelDE: "Indoor-Radfahren", AutoTitleDE: "Indoor-Radfahrt",
-			SegmentGroup: "bike", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-		},
-		{
 			SportType: "inline_skating", CategoryKey: "outdoor", LabelDE: "Inline-Skaten", AutoTitleDE: "Inline-Skaten",
 			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
 		},
@@ -206,14 +190,6 @@ func init() {
 				"lap_swimming": {SubType: "lap_swimming", LabelDE: "Bahnschwimmen", DetailDE: "Bahnschwimmen", AutoTitleDE: "Bahnschwimmen"},
 				"open_water":   {SubType: "open_water", LabelDE: "Freiwasser", DetailDE: "Freiwasserschwimmen", AutoTitleDE: "Freiwasserschwimmen"},
 			},
-		},
-		{
-			SportType: "open_water_swimming", CategoryKey: "water", LabelDE: "Freiwasserschwimmen", AutoTitleDE: "Freiwasserschwimmen",
-			SegmentGroup: "swim", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "lap_swimming", CategoryKey: "water", LabelDE: "Bahnschwimmen", AutoTitleDE: "Bahnschwimmen",
-			SegmentGroup: "swim", TypicallyHasGPS: false, MovingThreshold: 0.1, IsIndoor: true,
 		},
 		{
 			SportType: "paddling", CategoryKey: "water", LabelDE: "Paddeln (Generisch)", AutoTitleDE: "Wassersport-Tour",
@@ -535,14 +511,10 @@ func init() {
 			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
 		},
 
-		// Aliases used in existing codebase — kept for backwards compatibility.
+		// Aliases still emitted by upstream sources as canonical top-level sports.
 		{
 			SportType: "skiing", CategoryKey: "winter", LabelDE: "Skifahren", AutoTitleDE: "Skifahrt",
 			SegmentGroup: "ski", TypicallyHasGPS: true, MovingThreshold: 0.3,
-		},
-		{
-			SportType: "treadmill_running", CategoryKey: "run", LabelDE: "Laufband", AutoTitleDE: "Laufband",
-			SegmentGroup: "foot", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 		{
 			SportType: "strength", CategoryKey: "fitness", LabelDE: "Krafttraining", AutoTitleDE: "Krafttraining",
@@ -565,24 +537,18 @@ func init() {
 // GetSportDef returns the full definition for a sport type.
 // The second return value is false when the sport type is unknown.
 func GetSportDef(sportType string) (SportDef, bool) {
-	if tuple, ok := normalizeTupleForLookup(sportType, ""); ok {
-		if d, ok := registry[tuple.SportType]; ok {
-			return d, true
-		}
-	}
 	d, ok := registry[sportType]
 	return d, ok
 }
 
 // SportLabel returns the compact German display label for a sport tuple.
 func SportLabel(sportType, subType string) string {
-	tuple, _ := normalizeTupleForLookup(sportType, subType)
-	d, ok := registry[tuple.SportType]
+	d, ok := registry[sportType]
 	if !ok {
 		return titleCase(sportType)
 	}
-	if tuple.SubType != "" && tuple.SubType != "generic" {
-		if st, stOK := d.SubTypes[tuple.SubType]; stOK {
+	if subType != "" && subType != "generic" {
+		if st, stOK := d.SubTypes[subType]; stOK {
 			return st.LabelDE
 		}
 	}
@@ -592,15 +558,14 @@ func SportLabel(sportType, subType string) string {
 // SportDetailLabel returns a detailed German label including sub-type info.
 // Examples: "Radfahren (MTB)", "Krafttraining", "Kajak (Wildwasser)".
 func SportDetailLabel(sportType, subType string) string {
-	tuple, _ := normalizeTupleForLookup(sportType, subType)
-	d, ok := registry[tuple.SportType]
+	d, ok := registry[sportType]
 	if !ok {
 		return titleCase(sportType)
 	}
-	if tuple.SubType == "" || tuple.SubType == "generic" {
+	if subType == "" || subType == "generic" {
 		return d.LabelDE
 	}
-	if st, stOK := d.SubTypes[tuple.SubType]; stOK {
+	if st, stOK := d.SubTypes[subType]; stOK {
 		if subTypeLabelCanStandAlone(d) {
 			return st.DetailDE
 		}
@@ -612,13 +577,12 @@ func SportDetailLabel(sportType, subType string) string {
 // AutoTitle returns the German auto-title string used for auto-naming activities.
 // Sub-type-promoted sports use the sub-type's title. Fallback is "Training".
 func AutoTitle(sportType, subType string) string {
-	tuple, _ := normalizeTupleForLookup(sportType, subType)
-	d, ok := registry[tuple.SportType]
+	d, ok := registry[sportType]
 	if !ok {
 		return "Training"
 	}
-	if tuple.SubType != "" && tuple.SubType != "generic" {
-		if st, stOK := d.SubTypes[tuple.SubType]; stOK && st.AutoTitleDE != "" {
+	if subType != "" && subType != "generic" {
+		if st, stOK := d.SubTypes[subType]; stOK && st.AutoTitleDE != "" {
 			return st.AutoTitleDE
 		}
 	}
@@ -628,8 +592,7 @@ func AutoTitle(sportType, subType string) string {
 // SegmentGroup returns the segment matching group for a sport type.
 // Possible values: bike, foot, swim, ski, paddle, generic.
 func SegmentGroup(sportType string) string {
-	tuple, _ := normalizeTupleForLookup(sportType, "")
-	d, ok := registry[tuple.SportType]
+	d, ok := registry[sportType]
 	if !ok {
 		return "generic"
 	}
@@ -639,8 +602,7 @@ func SegmentGroup(sportType string) string {
 // MovingThreshold returns the minimum speed (m/s) that counts as "moving"
 // for the given sport type.
 func MovingThreshold(sportType string) float64 {
-	tuple, _ := normalizeTupleForLookup(sportType, "")
-	d, ok := registry[tuple.SportType]
+	d, ok := registry[sportType]
 	if !ok {
 		return 0.0
 	}
@@ -650,8 +612,7 @@ func MovingThreshold(sportType string) float64 {
 // CategoryForSport returns the category for a given sport type.
 // Falls back to the "other" category for unknown sport types.
 func CategoryForSport(sportType string) Category {
-	tuple, _ := normalizeTupleForLookup(sportType, "")
-	d, ok := registry[tuple.SportType]
+	d, ok := registry[sportType]
 	if !ok {
 		return categoryByKey["other"]
 	}
@@ -723,11 +684,6 @@ func titleCase(s string) string {
 // Indoor SubType patterns. New indoor sub-types MUST use "indoor_" prefix
 // or be added here explicitly. See SportDef.IsIndoor for sport-level defaults.
 func IsIndoor(sportType, subType string) bool {
-	tuple, ok := normalizeTupleForLookup(sportType, subType)
-	if ok {
-		sportType = tuple.SportType
-		subType = tuple.SubType
-	}
 	if d, ok := registry[sportType]; ok && d.IsIndoor {
 		return true
 	}

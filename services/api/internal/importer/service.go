@@ -441,9 +441,8 @@ func (s *Service) PostProcess(
 
 	// Best Efforts + Running Form share a single stream load.
 	// Running Form is valid for canonical running subtypes, including trail,
-	// indoor, track, and virtual runs when the imported stream carries running
-	// dynamics. The legacy trail_running guard stays until compatibility cleanup.
-	isRunning := data.SportType == "running" || data.SportType == "trail_running"
+	// indoor, track, and virtual runs when the imported stream carries running dynamics.
+	isRunning := data.SportType == "running"
 	if s.BestEfforts != nil || isRunning {
 		stream, streamErr := s.DB.GetStreamPoints(ctx, activityID)
 

@@ -32,16 +32,16 @@ var (
 
 const brouterCacheTTL = 30 * time.Second
 
-// brouterSportTypes maps BRouter profile file names (without .brf) to sport types.
-var brouterSportTypes = map[string][]string{
-	"trekking":         {"cycling"},
-	"hiking-mountain":  {"hiking", "mountaineering"},
-	"hiking-sac2":      {"hiking", "mountaineering"},
-	"cycling-road":     {"cycling"},
-	"cycling-mountain": {"mountain_biking"},
-	"cycling-gravel":   {"gravel_cycling"},
-	"running":          {"running", "trail_running"},
-	"walking":          {"walking", "hiking"},
+// brouterPredicates maps BRouter profile file names (without .brf) to sport predicates.
+var brouterPredicates = map[string][]sport.Predicate{
+	"trekking":         {{Sport: "cycling"}},
+	"hiking-mountain":  {{Sport: "hiking"}, {Sport: "mountaineering"}},
+	"hiking-sac2":      {{Sport: "hiking"}, {Sport: "mountaineering"}},
+	"cycling-road":     {{Sport: "cycling", SubType: stringPtr("road")}, {Sport: "cycling", SubType: stringPtr("gravel_cycling")}},
+	"cycling-mountain": {{Sport: "cycling", SubType: stringPtr("mountain")}},
+	"cycling-gravel":   {{Sport: "cycling", SubType: stringPtr("gravel_cycling")}},
+	"running":          {{Sport: "running"}},
+	"walking":          {{Sport: "walking"}, {Sport: "hiking"}},
 }
 
 // profileListItem is one entry in the HandleListProfiles response.
@@ -89,9 +89,8 @@ func profileListItemFromDBProfile(dp database.RoutingProfile, userID string) pro
 	}
 }
 
-func profileListItemFromBRouterProfile(name string, sportTypes []string) profileListItem {
-	preds, err := sport.PredicatesFromSportTypes(sportTypes)
-	if err != nil {
+func profileListItemFromBRouterProfile(name string, preds []sport.Predicate) profileListItem {
+	if err := sport.ValidatePredicates(preds, true); err != nil {
 		preds = []sport.Predicate{}
 	}
 	return profileListItem{
@@ -140,6 +139,10 @@ func validateLegacySportTypesForProfile(sportTypes []string) ([]sport.Predicate,
 	return preds, nil
 }
 
+func stringPtr(v string) *string {
+	return &v
+}
+
 // HandleListProfiles returns the combined list of system, user/filesystem, and BRouter profiles.
 // GET /routing/profiles
 func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
@@ -174,11 +177,11 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 		var items []profileListItem
 		for _, path := range matches {
 			base := strings.TrimSuffix(filepath.Base(path), ".brf")
-			st := brouterSportTypes[base]
-			if st == nil {
-				st = []string{}
+			preds := brouterPredicates[base]
+			if preds == nil {
+				preds = []sport.Predicate{}
 			}
-			items = append(items, profileListItemFromBRouterProfile(base, st))
+			items = append(items, profileListItemFromBRouterProfile(base, preds))
 		}
 		brouterCacheMu.Lock()
 		brouterCacheItems = items

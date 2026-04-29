@@ -47,8 +47,7 @@ var intervalEligibleGroups = map[string]bool{
 // intervalEligibleFoot lists the specific foot-group sports that are eligible.
 // Running yes, hiking no.
 var intervalEligibleFoot = map[string]bool{
-	"running":       true,
-	"trail_running": true,
+	"running": true,
 }
 
 // intervalEligibleExtra lists sports eligible regardless of their segment group.
