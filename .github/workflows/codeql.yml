@@ -1,0 +1,61 @@
+name: CodeQL
+
+# Static-analysis layer 4 of the threat model (after project greps, custom
+# hook, and provider-token scanners): finds vulnerability patterns that no
+# secret scanner sees — SQLi, XSS, path traversal, command injection,
+# unvalidated redirects, etc.
+#
+# Free for public AGPL-3.0 repositories. Buildless mode (`build-mode: none`)
+# means no project-specific build step is needed; CodeQL extracts directly
+# from source.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly Monday 06:23 UTC — re-runs against rule updates without waiting
+    # for the next code change.
+    - cron: '23 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, javascript-typescript, python]
+    steps:
+      - name: Check out repository
+        # actions/checkout v4.2.2 — pinned by SHA against tag-move attacks.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        # github/codeql-action v3 — pinned by SHA.
+        uses: github/codeql-action/init@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Perform CodeQL analysis
+        # github/codeql-action v3 — pinned by SHA.
+        uses: github/codeql-action/analyze@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a
+        with:
+          category: "/language:${{ matrix.language }}"
