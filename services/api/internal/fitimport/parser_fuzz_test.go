@@ -28,16 +28,18 @@ import (
 // they need separate fuzz targets, blocked on extracting their pure-decoder
 // helper from the surrounding context.Context + database.DB plumbing.
 //
-// Seed-corpus limitation: the available fixtures in ../garmin/testdata/ are
-// Garmin daily-data files (type 32/44/49/58/68 — monitoring, HRV, sleep,
-// SpO2). They do not exercise the session/lap/record code paths that
-// matter most for activity-FIT bugs. Real activity FIT files exist locally
-// in `data/hotfolder/` but are real user data (GPS = PII) and cannot be
-// committed to a public repo. The mutator still finds general decoder
-// bugs from these seeds, but session/lap-specific coverage is weaker than
-// it could be. Synthesising a minimal activity-shaped FIT fixture for the
-// `testdata/fuzz/` corpus is a follow-up task tracked separately from this
-// session.
+// Seed corpus: two sources are added to every fuzz target.
+//
+//  1. Garmin daily-data fixtures from ../garmin/testdata/ (type 32/44/49/58/68
+//     — monitoring, HRV, sleep, SpO2). Real activity FIT files from
+//     data/hotfolder/ are real-user GPS data (PII) and cannot be committed.
+//
+//  2. A synthetic minimal activity-FIT built inline by synthesizeMinimalActivityFIT()
+//     in parser_fuzz_helpers_test.go. It contains one Session (Cycling, 1 h,
+//     25 km), one Lap, and 10 Records with coordinates in the Atlantic Ocean
+//     (not near any city, safe to commit). This seed ensures the
+//     session/lap/record code paths are exercised from the first mutation;
+//     coverage within those paths scales with active-fuzz time.
 //
 // Oracle for both fuzz targets: the parser must never panic. Any error
 // return is acceptable — malformed FIT input legitimately produces errors.
@@ -60,8 +62,8 @@ import (
 // much larger inputs. We cap fuzz inputs at 16 MB because mutator output
 // at 50–256 MB makes each iteration so slow that the campaign produces
 // fewer total executions and therefore catches fewer bugs. OOM/quadratic-
-// blowup bugs in the 16–256 MB band need a separate large-input regression
-// suite (TODO — not in this file).
+// blowup bugs in the 16–256 MB band are covered by parser_largeinput_test.go
+// (build tag: largeinput), which is run explicitly rather than via go test ./...
 const fuzzMaxInputBytes = 16 * 1024 * 1024
 
 // fitSeedCorpusDir resolves the seed-corpus directory relative to THIS
@@ -106,13 +108,17 @@ func loadFITSeedCorpus(tb testing.TB) [][]byte {
 // and import_zip, Garmin, Strava).
 func FuzzParseMultiSessionFIT(f *testing.F) {
 	corpus := loadFITSeedCorpus(f)
-	if len(corpus) == 0 {
-		dir := fitSeedCorpusDir(f)
-		f.Skipf("no seed FIT files at %s — fuzz target needs at least one valid input", dir)
-	}
 	for _, data := range corpus {
 		f.Add(data)
 	}
+
+	// Synthetic activity seed: ensures session/lap/record branches are reached
+	// from the very first mutation even when daily-data seeds are absent.
+	synthetic, err := synthesizeMinimalActivityFIT()
+	if err != nil {
+		f.Fatalf("synthesizeMinimalActivityFIT: %v", err)
+	}
+	f.Add(synthetic)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > fuzzMaxInputBytes {
@@ -130,13 +136,15 @@ func FuzzParseMultiSessionFIT(f *testing.F) {
 // session-handling logic) so it gets its own fuzz target.
 func FuzzParseFIT(f *testing.F) {
 	corpus := loadFITSeedCorpus(f)
-	if len(corpus) == 0 {
-		dir := fitSeedCorpusDir(f)
-		f.Skipf("no seed FIT files at %s — fuzz target needs at least one valid input", dir)
-	}
 	for _, data := range corpus {
 		f.Add(data)
 	}
+
+	synthetic, err := synthesizeMinimalActivityFIT()
+	if err != nil {
+		f.Fatalf("synthesizeMinimalActivityFIT: %v", err)
+	}
+	f.Add(synthetic)
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > fuzzMaxInputBytes {
