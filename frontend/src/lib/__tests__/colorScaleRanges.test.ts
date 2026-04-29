@@ -5,6 +5,7 @@ import {
   MOTION_PROFILE_BY_SPORT_TYPE, GENERIC_ALLOWLIST,
   expandRange, TEMPERATURE_RANGE, ALTITUDE_MIN_SPREAD,
   HR_FALLBACK_MIN_SPREAD, POWER_FALLBACK_MIN_SPREAD,
+  motionProfileForSport,
 } from '../colorScaleRanges'
 import { SPORT_DEFS } from '../sportTaxonomy'
 
@@ -68,6 +69,16 @@ describe('CI-Guard: MOTION_PROFILE_BY_SPORT_TYPE', () => {
       unexpectedGeneric,
       `Sports with generic profile but not on allowlist: ${unexpectedGeneric.join(', ')}`,
     ).toHaveLength(0)
+  })
+})
+
+describe('motionProfileForSport', () => {
+  it('uses subtype-specific cycling profile for canonical MTB tuples', () => {
+    expect(motionProfileForSport('cycling', 'mountain').speed).toBe('mtbCycling')
+  })
+
+  it('normalizes legacy aliases before lookup', () => {
+    expect(motionProfileForSport('mountain_biking').speed).toBe('mtbCycling')
   })
 })
 

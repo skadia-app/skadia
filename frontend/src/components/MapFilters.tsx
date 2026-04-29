@@ -3,7 +3,6 @@ import { useClickOutside } from '@/hooks/useClickOutside'
 import type { CoverageOverlayState, CoverageCompositeState } from '@/hooks/useCoverageOverlays'
 import { useSystemLayerVisibility } from '@/hooks/useSystemLayerVisibility'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
 import { DayPicker } from 'react-day-picker'
 import 'react-day-picker/style.css'
 import type { DateRange } from 'react-day-picker'
@@ -11,11 +10,9 @@ import { MonthYearCaption } from '@/components/DateRangePicker'
 import { de } from 'date-fns/locale'
 import type { MapFilterState, MapOverlayState } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
-import { SPORT_OPTIONS, getAllSportKeys, DEFAULT_SPORT_COLORS, filterToExistingSports } from '@/lib/sportOptions'
+import { SPORT_OPTIONS, getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { CATEGORIES } from '@/lib/sportTaxonomy'
 import ColorPicker from '@/components/ColorPicker'
-import { fetchSportTypeStats } from '@/api/stats'
-import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import TagFilterInput from '@/components/TagFilterInput'
 import GearFilterInput, { gearTypeIcon } from '@/components/GearFilterInput'
 import type { TagFilter } from '@/components/TagFilterInput'
@@ -23,6 +20,7 @@ import type { GearFilter, GearFilterState } from '@/components/GearFilterInput'
 import { toLocalISO } from '@/lib/dateUtils'
 import type { SegmentColorConfig, SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
 import { DEFAULT_SEGMENT_COLORS } from '@/components/Map/SegmentsOverlay'
+import { SportFilter } from '@/components/sport/SportFilter'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 const USER_DEFAULT_KEY = 'skadia-sport-colors-user-default'
@@ -164,91 +162,18 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
   }
 
   const [collapsed, setCollapsed] = useState(false)
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [expandedColorGroups, setExpandedColorGroups] = useState<Set<string>>(new Set())
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const datePickerRef = useRef<HTMLDivElement>(null)
-
-  const { hideUnused } = useGlobalSportSettings()
-  const { data: statsData } = useQuery({
-    queryKey: ['sport-type-stats'],
-    queryFn: fetchSportTypeStats,
-    enabled: hideUnused,
-  })
-  const existingSportTypes = useMemo<Set<string>>(() => {
-    if (!statsData) return new Set()
-    return new Set(statsData.map((s) => s.sport_type))
-  }, [statsData])
-  const visibleOptions = useMemo(() => {
-    if (hideUnused && existingSportTypes.size > 0) {
-      return filterToExistingSports(SPORT_OPTIONS, existingSportTypes)
-    }
-    return SPORT_OPTIONS
-  }, [hideUnused, existingSportTypes])
-  const visibleKeys = useMemo(() => getAllSportKeys(visibleOptions), [visibleOptions])
-
-  // Close date picker on click outside
-  useClickOutside(datePickerRef, () => setDatePickerOpen(false), datePickerOpen)
-
-  const allSelected = visibleKeys.every(k => filters.sportTypes.has(k))
+  const visibleOptions = useMemo(() => SPORT_OPTIONS, [])
+  const allSelected = ALL_SPORT_KEYS.every(k => filters.sportTypes.has(k))
 
   function getKey(opt: SportOption): string {
     return opt.subType ? `${opt.value}:${opt.subType}` : opt.value
   }
 
-  function toggleSport(key: string) {
-    const next = new Set(filters.sportTypes)
-    if (next.has(key)) {
-      next.delete(key)
-    } else {
-      next.add(key)
-    }
-    onChange({ ...filters, sportTypes: next })
-  }
-
-  function toggleParent(parent: SportOption) {
-    if (!parent.children) return
-    const childKeys = parent.children.map(getKey)
-    const allChildrenSelected = childKeys.every(k => filters.sportTypes.has(k))
-    const next = new Set(filters.sportTypes)
-    if (allChildrenSelected) {
-      childKeys.forEach(k => next.delete(k))
-    } else {
-      childKeys.forEach(k => next.add(k))
-    }
-    onChange({ ...filters, sportTypes: next })
-  }
-
-  function isParentChecked(parent: SportOption): boolean {
-    if (!parent.children) return false
-    return parent.children.every(c => filters.sportTypes.has(getKey(c)))
-  }
-
-  function isParentIndeterminate(parent: SportOption): boolean {
-    if (!parent.children) return false
-    const checked = parent.children.filter(c => filters.sportTypes.has(getKey(c))).length
-    return checked > 0 && checked < parent.children.length
-  }
-
-  function toggleGroup(groupKey: string) {
-    setExpandedGroups(prev => {
-      const next = new Set(prev)
-      if (next.has(groupKey)) {
-        next.delete(groupKey)
-      } else {
-        next.add(groupKey)
-      }
-      return next
-    })
-  }
-
-  function toggleAll() {
-    if (allSelected) {
-      onChange({ ...filters, sportTypes: new Set() })
-    } else {
-      onChange({ ...filters, sportTypes: new Set(visibleKeys) })
-    }
-  }
+  // Close date picker on click outside
+  useClickOutside(datePickerRef, () => setDatePickerOpen(false), datePickerOpen)
 
   return (
     <div className={docked ? `h-full w-full${forceDark ? ' dark' : ''}` : `absolute top-3 right-4 z-10 w-64${forceDark ? ' dark' : ''}`} ref={datePickerRef}>
@@ -299,85 +224,24 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
           <div className="overflow-y-auto flex-1 px-4 pb-4 space-y-4 border-t border-neutral-100 dark:border-neutral-800">
             {/* Aktivitäts-Filter — in Terra Incognita nicht relevant */}
             {viewMode !== 'terra_incognita' && <>
-            {/* Sport type checkboxes */}
             <div className="pt-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Sportart</span>
-                <button
-                  onClick={toggleAll}
-                  className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
-                >
-                  {allSelected ? 'Alle abwählen' : 'Alle auswählen'}
-                </button>
-              </div>
-              <div className="space-y-1.5">
-                {visibleOptions.map((opt) => (
-                  <div key={opt.label}>
-                    {opt.children && opt.groupKey ? (
-                      /* Parent with children */
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={isParentChecked(opt)}
-                            ref={(el) => {
-                              if (el) el.indeterminate = isParentIndeterminate(opt)
-                            }}
-                            onChange={() => toggleParent(opt)}
-                            className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
-                          />
-                          <button
-                            onClick={() => toggleGroup(opt.groupKey!)}
-                            className="flex items-center gap-1 text-sm text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer"
-                          >
-                            <svg
-                              className={`w-3 h-3 text-neutral-400 transition-transform ${expandedGroups.has(opt.groupKey!) ? '' : '-rotate-90'}`}
-                              viewBox="0 0 20 20"
-                              fill="currentColor"
-                            >
-                              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-                            </svg>
-                            {opt.label}
-                          </button>
-                        </div>
-                        {expandedGroups.has(opt.groupKey!) && (
-                          <div className="ml-6 mt-1 space-y-1">
-                            {opt.children.map((child) => {
-                              const key = getKey(child)
-                              return (
-                                <label key={key} className="flex items-center gap-2 cursor-pointer group">
-                                  <input
-                                    type="checkbox"
-                                    checked={filters.sportTypes.has(key)}
-                                    onChange={() => toggleSport(key)}
-                                    className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
-                                  />
-                                  <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
-                                    {child.label}
-                                  </span>
-                                </label>
-                              )
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      /* Simple option */
-                      <label className="flex items-center gap-2 cursor-pointer group">
-                        <input
-                          type="checkbox"
-                          checked={filters.sportTypes.has(opt.value)}
-                          onChange={() => toggleSport(opt.value)}
-                          className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
-                        />
-                        <span className="text-sm text-neutral-700 dark:text-neutral-300 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
-                          {opt.label}
-                        </span>
-                      </label>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <SportFilter
+                preset="MAP_PANEL_GPS"
+                modifierKeys={['is_electric', 'is_commute']}
+                value={{
+                  sportTypes: filters.sportTypes.size === 0 ? null : [...filters.sportTypes],
+                  modifiers: {
+                    is_electric: filters.isElectric ?? undefined,
+                    is_commute: filters.isCommute ?? undefined,
+                  },
+                }}
+                onChange={(next) => onChange({
+                  ...filters,
+                  sportTypes: new Set(next.sportTypes ?? []),
+                  isElectric: next.modifiers?.is_electric ?? null,
+                  isCommute: next.modifiers?.is_commute ?? null,
+                })}
+              />
             </div>
 
             {/* Date range */}
@@ -493,33 +357,6 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
                 onChange={(v: GearFilter[]) => onChange({ ...filters, gearFilters: v })}
                 compact
               />
-            </div>
-
-            {/* E-Bike tristate filter */}
-            {/* TODO(electric): When additional electric sport tags are added (e.g. E-Scooter),
-                generalize this filter to "Elektrisch" with sport-specific sub-options,
-                or add separate per-sport electric filters. */}
-            <div>
-              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">🔌 E-Bike</div>
-              <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
-                {([
-                  [null, 'Alle'],
-                  [true, 'Nur'],
-                  [false, 'Ohne'],
-                ] as [boolean | null, string][]).map(([val, label]) => (
-                  <button
-                    key={String(val)}
-                    onClick={() => onChange({ ...filters, isElectric: val })}
-                    className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
-                      filters.isElectric === val
-                        ? 'bg-accent-DEFAULT text-white font-medium'
-                        : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
             </div>
 
             {/* Opacity slider */}
@@ -897,7 +734,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
 
             {/* Reset */}
 
-            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || !filters.showLocationTags || filters.heatmapColor !== '#F97316' || (filters.tagFilters?.length ?? 0) > 0 || (filters.gearFilters?.length ?? 0) > 0 || filters.isElectric !== null) && (
+            {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || !filters.showLocationTags || filters.heatmapColor !== '#F97316' || (filters.tagFilters?.length ?? 0) > 0 || (filters.gearFilters?.length ?? 0) > 0 || filters.isElectric !== null || filters.isCommute !== null) && (
               <button
                 onClick={() => onChange({
                   sportTypes: new Set(ALL_SPORT_KEYS),
@@ -910,6 +747,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
                   tagFilters: [],
                   gearFilters: [],
                   isElectric: null,
+                  isCommute: null,
                 })}
                 className="w-full text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
               >

@@ -4,6 +4,7 @@ import { labels } from '@/lib/trackSummaryLabels'
 import { SymbolListPopover } from './SymbolListPopover'
 import { ScaleBadge } from '@/components/shared/scale-badge/ScaleBadge'
 import type { ScaleBadgeLevel } from '@/lib/scaleAggregation'
+import { normalizeSportTuple } from '@/lib/sportTaxonomy'
 
 export type SummaryItem = {
   osm_id: number | null
@@ -22,20 +23,10 @@ export type VfAggregate = ScaleAggregate & {
   hasUnknown: boolean
 }
 
-// Frontend-only display gate: pills are only meaningful for these sports.
-// Backend produces the data unconditionally. Generic 'cycling' (road) is
-// deliberately excluded — SAC/VF are meaningless on road bikes. 'mountain_biking'
-// and 'gravel_cycling' are included because MTB scale is relevant there.
-// 'via_ferrata' sports require VF scale; 'rock_climbing' and 'mountaineering'
-// use SAC/VF. For multisport children, the caller must pass the child sport_type
-// or fall back to fit_sport_id resolution upstream.
 const SCALE_VISIBLE_SPORTS = new Set([
   'hiking',
   'mountaineering',
   'snowshoeing',
-  'trail_running',
-  'mountain_biking',
-  'gravel_cycling',
   'backcountry_skiing',
   'rock_climbing',
   'via_ferrata',
@@ -61,6 +52,7 @@ export interface StatsRowProps {
   mtbMaxLevel?: string | null
   vfMaxLevel?: string | null
   sportType?: string
+  subType?: string | null
   onSymbolHover?: (kind: StatsKind, items: SummaryItem[]) => void
   onSymbolLeave?: () => void
   /** Scale hover/pin callbacks — used when ScaleBadge breakdowns are provided. */
@@ -93,6 +85,7 @@ export function StatsRow({
   mtbMaxLevel,
   vfMaxLevel,
   sportType,
+  subType,
   onSymbolHover,
   onSymbolLeave,
   pinnedScale,
@@ -100,7 +93,12 @@ export function StatsRow({
   onScalePin,
 }: StatsRowProps) {
   const t = labels.trackSummary
-  const showScales = sportType != null && SCALE_VISIBLE_SPORTS.has(sportType)
+  const tuple = sportType ? normalizeSportTuple(sportType, subType) : null
+  const showScales = tuple != null && (
+    SCALE_VISIBLE_SPORTS.has(tuple.sportType) ||
+    (tuple.sportType === 'running' && tuple.subType === 'trail') ||
+    (tuple.sportType === 'cycling' && (tuple.subType === 'mountain' || tuple.subType === 'gravel_cycling'))
+  )
 
   // Item 2: hide forest/protected at 0% (Math.round-aware: <0.5 rounds to 0).
   // Activity API returns 0..100 range; threshold mirrors route-planner

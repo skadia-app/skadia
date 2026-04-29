@@ -12,6 +12,7 @@ import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import { fmtDist } from '@/lib/format'
 import { triggerBlobDownload } from '@/lib/utils'
+import { sportDetailLabel, normalizeSportTuple } from '@/lib/sportTaxonomy'
 
 // ── Sport type labels for filter dropdown ─────────────────────────────────────
 
@@ -19,26 +20,18 @@ const SPORT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'hiking', label: 'Wandern' },
   { value: 'running', label: 'Laufen' },
   { value: 'cycling', label: 'Radfahren' },
-  { value: 'mountain_biking', label: 'Mountainbike' },
-  { value: 'gravel_cycling', label: 'Gravel' },
-  { value: 'trail_running', label: 'Trail Running' },
   { value: 'skiing', label: 'Ski Alpin' },
   { value: 'cross_country_skiing', label: 'Langlauf' },
   { value: 'swimming', label: 'Schwimmen' },
   { value: 'generic', label: 'Sonstiges' },
 ]
 
-const SPORT_TYPE_LABELS: Record<string, string> = Object.fromEntries(
-  SPORT_TYPE_OPTIONS.map(({ value, label }) => [value, label]),
-)
-
 const SPORT_TYPE_COLORS: Record<string, string> = {
   hiking: 'text-green-500',
   running: 'text-blue-500',
-  trail_running: 'text-green-600',
   cycling: 'text-accent-DEFAULT',
-  mountain_biking: 'text-orange-500',
-  gravel_cycling: 'text-amber-500',
+  'cycling:mountain': 'text-orange-500',
+  'cycling:gravel_cycling': 'text-amber-500',
   skiing: 'text-cyan-500',
   cross_country_skiing: 'text-sky-400',
   swimming: 'text-blue-400',
@@ -58,12 +51,13 @@ const SORT_LABELS: Record<SortOption, string> = {
 
 // ── Icon helpers ──────────────────────────────────────────────────────────────
 
-function SportIcon({ sportType, className }: { sportType: string; className?: string }) {
-  const color = SPORT_TYPE_COLORS[sportType] ?? 'text-neutral-500'
+function SportIcon({ sportType, subType, className }: { sportType: string; subType?: string | null; className?: string }) {
+  const tuple = normalizeSportTuple(sportType, subType)
+  const color = SPORT_TYPE_COLORS[tuple.subType ? `${tuple.sportType}:${tuple.subType}` : tuple.sportType] ?? SPORT_TYPE_COLORS[tuple.sportType] ?? 'text-neutral-500'
   const cls = `${color} ${className ?? ''}`
 
   // Bike-family
-  if (['cycling', 'mountain_biking', 'gravel_cycling'].includes(sportType)) {
+  if (tuple.sportType === 'cycling') {
     return (
       <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
         <circle cx="5.5" cy="17.5" r="3.5" />
@@ -73,7 +67,7 @@ function SportIcon({ sportType, className }: { sportType: string; className?: st
     )
   }
   // Run-family
-  if (['running', 'trail_running'].includes(sportType)) {
+  if (tuple.sportType === 'running') {
     return (
       <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 5.5a2 2 0 100-4 2 2 0 000 4zm-2 2.5l-2 4 3 3-2 4m4-11l2 2-3 4" />
@@ -211,7 +205,7 @@ function RouteCard({
   isDeleting,
 }: RouteCardProps) {
   const navigate = useNavigate()
-  const sportLabel = SPORT_TYPE_LABELS[route.sport_type] ?? route.sport_type
+  const sportLabel = sportDetailLabel(route.sport_type, route.sub_type)
 
   return (
     <div
@@ -284,7 +278,7 @@ function RouteCard({
 
         {/* Sport + difficulty */}
         <div className="flex items-center gap-1.5 mb-2">
-          <SportIcon sportType={route.sport_type} className="w-3.5 h-3.5 flex-shrink-0" />
+          <SportIcon sportType={route.sport_type} subType={route.sub_type} className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="text-xs text-neutral-500 dark:text-neutral-400">{sportLabel}</span>
           {route.difficulty && (
             <>
