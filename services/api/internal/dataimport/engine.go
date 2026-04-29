@@ -467,6 +467,23 @@ func (e *Engine) runPhase5Activities(
 
 		rawRow = applyTransformers(exportMigration, "activities", rawRow)
 
+		oldID := extractOldID(rawRow, activitySpec)
+		var normalizeErr error
+		rawRow, normalizeErr = normalizeSportTaxonomyImportRow("activities", rawRow, targetCols)
+		if normalizeErr != nil {
+			result.EntitiesFailed++
+			result.Errors = append(result.Errors, ImportError{
+				Phase:    5,
+				Table:    "activities",
+				RowIndex: i,
+				OldID:    oldID,
+				Error:    normalizeErr.Error(),
+			})
+			i++
+			continue
+		}
+		insertCols, geometryCols = augmentInsertColumnsForRow(insertCols, geometryCols, targetCols, rawRow)
+
 		// Track files referenced but not in export (Finding #14).
 		fileID, hasFileID := stringVal(rawRow["file_id"])
 		if hasFileID && fileID != "" {
@@ -474,8 +491,6 @@ func (e *Engine) runPhase5Activities(
 				activitiesWithMissingFile++
 			}
 		}
-
-		oldID := extractOldID(rawRow, activitySpec)
 
 		// Per-activity transaction.
 		tx, err := e.DB.Begin(ctx)

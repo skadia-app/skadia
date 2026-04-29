@@ -145,31 +145,16 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		activityName := colVal(row, hdr["Name der Aktivität"])
 		description := colVal(row, hdr["Aktivitätsbeschreibung"])
 		sportStr := colVal(row, hdr["Aktivitätsart"])
-		sportType, subType := mapStravaSportType(sportStr), ""
-
-		// E-Bike normalization
-		isElectric := false
-		switch sportType {
-		case "e_biking", "e_bike":
-			sportType = "cycling"
-			isElectric = true
-		case "e_mountain_biking":
-			sportType = "mountain_biking"
-			isElectric = true
+		sportFields, err := normalizeStravaSportFields(sportStr)
+		if err != nil {
+			slog.Warn("strava activities: cannot normalize sport type", "sport", sportStr, "error", err)
+			result.Skipped++
+			tracker.Skipped(ctx, "sport_type_error", nil)
+			continue
 		}
-
-		isVirtual := false
-		switch sportType {
-		case "virtual_ride":
-			sportType = "cycling"
-			isVirtual = true
-		case "virtual_run":
-			sportType = "running"
-			isVirtual = true
-		case "virtual_row":
-			sportType = "rowing"
-			isVirtual = true
-		}
+		sportType, subType := sportFields.SportType, sportFields.SubType
+		isElectric := sportFields.IsElectric
+		isVirtual := sportFields.IsVirtual
 
 		// Moving time (seconds)
 		movingTimeS, _ := parseGermanInt(colVal(row, hdr["Bewegungszeit"]))
@@ -231,7 +216,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 		// Strava: filename=="" is a valuable signal (no GPS file = often indoor).
 		// Combine with taxonomy-based classification.
-		isIndoor := sport.IsIndoor(sportType, subType) || filename == ""
+		isIndoor := sportFields.IsIndoor || sport.IsIndoor(sportType, subType) || filename == ""
 
 		// Build base ActivityData (will be enriched if GPS file exists)
 		data := &model.ActivityData{
@@ -770,7 +755,48 @@ func parseStravaDateTime(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("cannot parse date %q: no known format matched", s)
 }
 
-// mapStravaSportType maps Strava sport type strings to Skadia canonical sport types.
+type normalizedStravaSport struct {
+	SportType  string
+	SubType    string
+	IsElectric bool
+	IsIndoor   bool
+	IsVirtual  bool
+}
+
+func normalizeStravaSportFields(stravaSport string) (normalizedStravaSport, error) {
+	rawSportType := mapStravaSportType(stravaSport)
+	isVirtual := false
+	switch rawSportType {
+	case "virtual_ride":
+		rawSportType = "cycling"
+		isVirtual = true
+	case "virtual_run":
+		rawSportType = "running"
+		isVirtual = true
+	case "virtual_row":
+		rawSportType = "rowing"
+		isVirtual = true
+	}
+
+	tuple, patch, err := sport.NormalizeSportTuple(rawSportType, "")
+	if err != nil {
+		return normalizedStravaSport{}, err
+	}
+	out := normalizedStravaSport{
+		SportType: tuple.SportType,
+		SubType:   tuple.SubType,
+		IsVirtual: isVirtual,
+	}
+	if patch.IsElectric != nil {
+		out.IsElectric = *patch.IsElectric
+	}
+	if patch.IsIndoor != nil {
+		out.IsIndoor = *patch.IsIndoor
+	}
+	return out, nil
+}
+
+// mapStravaSportType maps Strava sport type strings to raw Skadia sport aliases.
 //
 // English names come from the Strava API SportType enum (verified, PascalCase in API,
 // space-separated in CSV export). German names are ONLY included when verified from
@@ -989,7 +1015,6 @@ func mapStravaSportType(stravaSport string) string {
 		return "generic"
 	}
 }
-
 
 // extractWeatherFields previously populated flat weather_* columns from Strava CSV.
 // TODO(weather-improvements Task 6): migrate to InsertWeatherReadings via activity_weather table.
