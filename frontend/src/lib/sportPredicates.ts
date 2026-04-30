@@ -29,7 +29,8 @@ export function predicatesMatch(
   return predicates.some(predicate => {
     if (predicate.sport !== sportType) return false
     if (predicate.sub_type === undefined) return true
-    return predicate.sub_type === normalizedSubType
+    if (predicate.sub_type === normalizedSubType) return true
+    return subType == null && normalizedSubType === '' && predicate.sub_type === 'generic'
   })
 }
 

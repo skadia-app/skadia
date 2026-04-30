@@ -12,19 +12,11 @@ import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import { fmtDist } from '@/lib/format'
 import { triggerBlobDownload } from '@/lib/utils'
-import { sportDetailLabel, normalizeSportTuple } from '@/lib/sportTaxonomy'
+import { sportDetailLabel, normalizeSportTuple, routeSportOptions } from '@/lib/sportTaxonomy'
 
 // ── Sport type labels for filter dropdown ─────────────────────────────────────
 
-const SPORT_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'hiking', label: 'Wandern' },
-  { value: 'running', label: 'Laufen' },
-  { value: 'cycling', label: 'Radfahren' },
-  { value: 'skiing', label: 'Ski Alpin' },
-  { value: 'cross_country_skiing', label: 'Langlauf' },
-  { value: 'swimming', label: 'Schwimmen' },
-  { value: 'generic', label: 'Sonstiges' },
-]
+const SPORT_TYPE_OPTIONS = routeSportOptions()
 
 const SPORT_TYPE_COLORS: Record<string, string> = {
   hiking: 'text-green-500',
@@ -368,11 +360,15 @@ export default function RoutesPage() {
   }, [])
 
   const queryParams = useMemo(
-    () => ({
-      sort: sortBy,
-      sport_type: sportType || undefined,
-      search: search || undefined,
-    }),
+    () => {
+      const [selectedSportType, selectedSubType = ''] = sportType.split(':')
+      return {
+        sort: sortBy,
+        sport_type: selectedSportType || undefined,
+        sub_type: selectedSubType || undefined,
+        search: search || undefined,
+      }
+    },
     [sortBy, sportType, search],
   )
 
@@ -504,8 +500,8 @@ export default function RoutesPage() {
                      focus:outline-none focus:ring-1 focus:ring-neutral-400"
         >
           <option value="">Alle Sportarten</option>
-          {SPORT_TYPE_OPTIONS.map(({ value, label }) => (
-            <option key={value} value={value}>{label}</option>
+          {SPORT_TYPE_OPTIONS.map(({ sportType, subType, label }) => (
+            <option key={`${sportType}:${subType ?? ''}`} value={`${sportType}:${subType ?? ''}`}>{label}</option>
           ))}
         </select>
 

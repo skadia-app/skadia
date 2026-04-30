@@ -32,6 +32,15 @@ func TestDefaultPredicates(t *testing.T) {
 				{Sport: "cycling", SubType: strPtr("gravel_cycling")},
 			},
 		},
+		{
+			profile: "trekking",
+			want: []sport.Predicate{
+				{Sport: "cycling", SubType: &empty},
+				{Sport: "cycling", SubType: strPtr("generic")},
+				{Sport: "cycling", SubType: strPtr("road")},
+				{Sport: "cycling", SubType: strPtr("mixed_surface")},
+			},
+		},
 	}
 
 	for _, tt := range tests {

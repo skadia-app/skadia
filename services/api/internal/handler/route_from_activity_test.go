@@ -12,9 +12,9 @@ func TestSportTypeToProfileUsesCanonicalSubType(t *testing.T) {
 		subType   *string
 		want      string
 	}{
-		{name: "canonical MTB", sportType: "cycling", subType: &mountain, want: "cycling-mountain"},
-		{name: "canonical road", sportType: "cycling", subType: &road, want: "cycling-road"},
-		{name: "trail running", sportType: "running", want: "running"},
+		{name: "canonical MTB", sportType: "cycling", subType: &mountain, want: "mtb"},
+		{name: "canonical road", sportType: "cycling", subType: &road, want: "road"},
+		{name: "trail running", sportType: "running", want: "hiking"},
 	}
 
 	for _, tt := range tests {

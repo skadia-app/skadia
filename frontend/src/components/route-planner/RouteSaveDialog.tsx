@@ -16,6 +16,8 @@ interface Props {
   segments: RouteSegment[]
   /** Active BRouter profile in the planner */
   currentProfile: string
+  currentSportType?: string
+  currentSubType?: string | null
   /** When set: we are editing an existing route. Allows "save" + "save as new". */
   editingRouteId?: string | null
   /** Pre-fill metadata from the route being edited */
@@ -34,6 +36,8 @@ export default function RouteSaveDialog({
   waypoints,
   segments,
   currentProfile,
+  currentSportType,
+  currentSubType,
   editingRouteId,
   existingRoute,
   onClose,
@@ -47,7 +51,8 @@ export default function RouteSaveDialog({
   const [metadata, setMetadata] = useState<RouteMetadataValues>({
     name: existingRoute?.name ?? '',
     description: existingRoute?.description ?? '',
-    sport_type: existingRoute?.sport_type ?? 'hiking',
+    sport_type: existingRoute?.sport_type ?? currentSportType ?? 'hiking',
+    sub_type: existingRoute?.sub_type ?? currentSubType ?? '',
     difficulty: existingRoute?.difficulty ?? '',
     tag_ids: existingRoute?.tags?.map((t) => t.id) ?? [],
     auto_tag: existingRoute?.auto_tag ?? true,
@@ -76,6 +81,7 @@ export default function RouteSaveDialog({
         name: metadata.name.trim(),
         description: metadata.description.trim() || undefined,
         sport_type: metadata.sport_type,
+        sub_type: metadata.sub_type || null,
         difficulty: metadata.difficulty.trim() || undefined,
         auto_tag: metadata.auto_tag,
         profile: metadata.profile_override,

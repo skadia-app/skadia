@@ -44,19 +44,6 @@ func routingProfileMatchesSuggestionRequest(profile database.RoutingProfile, req
 }
 
 func routingProfileMatchesSuggestionRequestWithFilters(profile database.RoutingProfile, req RouteSuggestionRequest, filters sport.ModifierFilters) bool {
-	if req.SportType == "" {
-		return true
-	}
-
-	requestSubType := ""
-	if req.SubType != nil {
-		requestSubType = *req.SubType
-	}
-	tuple, _, err := sport.NormalizeSportTuple(req.SportType, requestSubType)
-	if err != nil {
-		return false
-	}
-
 	preds := profile.Predicates
 	if len(preds) == 0 {
 		var err error
@@ -66,18 +53,7 @@ func routingProfileMatchesSuggestionRequestWithFilters(profile database.RoutingP
 		}
 	}
 
-	matchesPredicate := false
-	if req.SubType == nil {
-		for _, profileSport := range sport.SportTypesFromPredicates(preds) {
-			if profileSport == tuple.SportType {
-				matchesPredicate = true
-				break
-			}
-		}
-	} else {
-		matchesPredicate = sport.PredicatesMatch(preds, tuple.SportType, &tuple.SubType)
-	}
-	if !matchesPredicate {
+	if !predicatesMatchSuggestionRequest(preds, req) {
 		return false
 	}
 
@@ -91,6 +67,37 @@ func routingProfileMatchesSuggestionRequestWithFilters(profile database.RoutingP
 		return sport.ModifiersMatch(filters, state)
 	}
 	return true
+}
+
+func builtinProfileMatchesSuggestionRequest(profileName string, req RouteSuggestionRequest) bool {
+	preds := routing.DefaultPredicates(profileName)
+	if len(preds) == 0 {
+		return true
+	}
+	return predicatesMatchSuggestionRequest(preds, req)
+}
+
+func predicatesMatchSuggestionRequest(preds []sport.Predicate, req RouteSuggestionRequest) bool {
+	if req.SportType == "" {
+		return true
+	}
+
+	requestSubType := ""
+	if req.SubType != nil {
+		requestSubType = *req.SubType
+	}
+	tuple, _, err := sport.NormalizeSportTuple(req.SportType, requestSubType)
+	if err != nil {
+		return false
+	}
+	if sport.PredicatesMatch(preds, tuple.SportType, &tuple.SubType) {
+		return true
+	}
+	if req.SubType == nil && tuple.SubType == "" {
+		genericSubType := "generic"
+		return sport.PredicatesMatch(preds, tuple.SportType, &genericSubType)
+	}
+	return false
 }
 
 func boolPtrValue(v *bool) bool {
@@ -326,6 +333,10 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	// --- Map profile ---
 	mappedProfile := profileMap[req.Profile]
 	profileCfg := routing.ProfileConfig{Profile: mappedProfile}
+	if mappedProfile != "" && !builtinProfileMatchesSuggestionRequest(mappedProfile, req) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "profile does not match requested sport tuple", r.URL.Path)
+		return
+	}
 
 	// If profile not in system defaults, try loading custom profile from DB.
 	if mappedProfile == "" {

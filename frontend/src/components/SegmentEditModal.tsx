@@ -18,7 +18,7 @@ import { SportCategoryChips } from './segment-editor/SportCategoryChips'
 import { expandCategoryToSportTypes, isCategoryFullyActive } from '@/lib/sportCategoryHelpers'
 import { WINTER_SPORT_WHITELIST, WATER_SPORT_WHITELIST, BIDIRECTIONAL_DEFAULT, type SegType } from './segment-editor/constants'
 import { Pill } from './ui/Pill'
-import { splitSportSelectionKeys } from '@/lib/sportSelection'
+import { sportPredicatesFromSelectionKeys } from '@/lib/sportSelection'
 
 const SEG_TYPE_LABELS: Record<SegType, string> = {
   standard: 'Standard',
@@ -61,6 +61,9 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
     (initialSegment.visibility as 'public' | 'private') ?? 'public'
   )
   const [allowedSportTypes, setAllowedSportTypes] = useState<string[] | null>(() => {
+    if (initialSegment.allowed_predicates != null) {
+      return initialSegment.allowed_predicates.map(p => p.sub_type ? `${p.sport}:${p.sub_type}` : p.sport)
+    }
     const sports = initialSegment.allowed_sport_types ?? null
     const subs = initialSegment.allowed_sub_types ?? []
     if (sports === null || subs.length === 0) return sports
@@ -118,9 +121,9 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         delete meta.difficulty_color
       }
 
-      const sportSelection = allowedSportTypes === null
-        ? { sportTypes: [], subTypes: [] }
-        : splitSportSelectionKeys(allowedSportTypes)
+      const sportPredicates = allowedSportTypes === null
+        ? undefined
+        : sportPredicatesFromSelectionKeys(allowedSportTypes)
       const payload: UpdateSegmentPayload = {
         name: name.trim(),
         description: description.trim() || undefined,
@@ -129,8 +132,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         new_version: newVersion || undefined,
         climb_type: segType === 'lap' ? 'standard' : climbType,
         bidirectional,
-        allowed_sport_types: sportSelection.sportTypes,
-        allowed_sub_types: sportSelection.subTypes,
+        ...(sportPredicates ? { allowed_predicates: sportPredicates } : { allowed_sport_types: [] }),
       }
       if (initialSegment.visibility === 'public' && visibility === 'private') {
         payload.visibility = 'private'

@@ -3256,6 +3256,8 @@ export default function MapPage() {
             waypoints={planner.waypoints}
             segments={planner.segments}
             currentProfile={planner.profile.status === 'ready' ? planner.profile.name : 'hiking'}
+            currentSportType={planner.sportType}
+            currentSubType={planner.subType}
             editingRouteId={planner.editingRouteId}
             onClose={() => setShowSaveDialog(false)}
             onSaved={(saved) => {

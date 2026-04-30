@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -24,15 +25,21 @@ func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit, offset := httputil.ParsePagination(r, 50, 200)
+	filters := database.RouteListFilters{
+		SportType: r.URL.Query().Get("sport_type"),
+		SubType:   r.URL.Query().Get("sub_type"),
+		Search:    r.URL.Query().Get("search"),
+		Sort:      r.URL.Query().Get("sort"),
+	}
 
-	routes, err := h.DB.ListRoutes(r.Context(), userID, limit, offset)
+	routes, err := h.DB.ListRoutes(r.Context(), userID, limit, offset, filters)
 	if err != nil {
 		slog.Error("list routes failed", "error", err, "user_id", userID)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list routes", r.URL.Path)
 		return
 	}
 
-	total, err := h.DB.CountRoutes(r.Context(), userID)
+	total, err := h.DB.CountRoutes(r.Context(), userID, filters)
 	if err != nil {
 		slog.Error("count routes failed", "error", err, "user_id", userID)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to count routes", r.URL.Path)
