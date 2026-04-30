@@ -152,6 +152,22 @@ func TestPredicatesFromSportTypesAndBack(t *testing.T) {
 	}
 }
 
+func TestPredicatesFromFilterTokens(t *testing.T) {
+	preds, err := PredicatesFromFilterTokens("cycling:mountain,running:trail,cycling")
+	if err != nil {
+		t.Fatalf("PredicatesFromFilterTokens() error = %v", err)
+	}
+
+	expected := []Predicate{
+		{Sport: "cycling", SubType: strPtr("mountain")},
+		{Sport: "running", SubType: strPtr("trail")},
+		{Sport: "cycling"},
+	}
+	if !reflect.DeepEqual(preds, expected) {
+		t.Fatalf("PredicatesFromFilterTokens() = %#v, want %#v", preds, expected)
+	}
+}
+
 func strPtr(v string) *string {
 	return &v
 }

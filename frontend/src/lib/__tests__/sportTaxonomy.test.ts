@@ -39,14 +39,22 @@ describe('sport taxonomy aliases', () => {
     expect(sportTypes).not.toContain('open_water_swimming')
   })
 
-  it('still displays legacy input values through their canonical labels', () => {
-    expect(sportLabel('mountain_biking')).toBe('MTB')
-    expect(sportLabel('trail_running')).toBe('Trail')
-    expect(sportLabel('gravel_cycling')).toBe('Gravel')
-    expect(sportLabel('indoor_cycling')).toBe('Indoor')
-    expect(sportLabel('treadmill_running')).toBe('Indoor')
-    expect(sportLabel('lap_swimming')).toBe('Hallenbad')
-    expect(sportLabel('open_water_swimming')).toBe('Freiwasser')
+  it('marks legacy input values as invalid at runtime display boundaries', () => {
+    expect(sportLabel('mountain_biking')).toContain('Veraltete Sportart')
+    expect(sportLabel('trail_running')).toContain('Veraltete Sportart')
+    expect(sportLabel('gravel_cycling')).toContain('Veraltete Sportart')
+    expect(sportLabel('indoor_cycling')).toContain('Veraltete Sportart')
+    expect(sportLabel('treadmill_running')).toContain('Veraltete Sportart')
+    expect(sportLabel('lap_swimming')).toContain('Veraltete Sportart')
+    expect(sportLabel('open_water_swimming')).toContain('Veraltete Sportart')
+  })
+
+  it('keeps labels for representative frontend/backend taxonomy parity points', () => {
+    expect(sportLabel('swimming', 'lap_swimming')).toBe('Bahnschwimmen')
+    expect(sportLabel('alpine_skiing', 'backcountry')).toBe('Freeride')
+    expect(sportLabel('training', 'flexibility_training')).toBe('Stretching')
+    expect(sportLabel('fitness_equipment', 'indoor_rowing')).toBe('Ruder-Ergometer')
+    expect(sportLabel('water_tubing')).toBe('Wassertubing')
   })
 
   it('builds route sport options from canonical GPS-capable sports and subtypes', () => {

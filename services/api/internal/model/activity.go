@@ -3,6 +3,8 @@ package model
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // Activity is the DB/API representation of an activity.
@@ -368,23 +370,24 @@ type ActivityList struct {
 
 // ActivityFilters holds filter parameters for the ListActivities query.
 type ActivityFilters struct {
-	SportTypes     []string
-	SubTypes       []string
-	DateFrom       string
-	DateTo         string
-	IsIndoor       *bool
-	IsElectric     *bool
-	IsVirtual      *bool
-	HasGPS         *bool
-	HasLocation    *bool
-	GearID         string
-	Search         string
-	IncludeTags    []string
-	ExcludeTags    []string
-	IncludeGear    []string
-	ExcludeGear    []string
-	IncludeDevices []string
-	ExcludeDevices []string
+	SportPredicates []sport.Predicate
+	SportTypes      []string
+	SubTypes        []string
+	DateFrom        string
+	DateTo          string
+	IsIndoor        *bool
+	IsElectric      *bool
+	IsVirtual       *bool
+	HasGPS          *bool
+	HasLocation     *bool
+	GearID          string
+	Search          string
+	IncludeTags     []string
+	ExcludeTags     []string
+	IncludeGear     []string
+	ExcludeGear     []string
+	IncludeDevices  []string
+	ExcludeDevices  []string
 }
 
 // UploadResponse wraps the activity with optional warnings.

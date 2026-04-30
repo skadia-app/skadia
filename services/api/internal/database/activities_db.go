@@ -831,7 +831,25 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 	var args []any
 	idx := startIdx
 
-	if len(filters.SportTypes) > 0 {
+	if len(filters.SportPredicates) > 0 {
+		var parts []string
+		for _, pred := range filters.SportPredicates {
+			idx++
+			sportIdx := idx
+			args = append(args, pred.Sport)
+			if pred.SubType == nil {
+				parts = append(parts, fmt.Sprintf("sport_type = $%d", sportIdx))
+				continue
+			}
+			idx++
+			subIdx := idx
+			args = append(args, *pred.SubType)
+			parts = append(parts, fmt.Sprintf("(sport_type = $%d AND COALESCE(sub_type, '') = $%d)", sportIdx, subIdx))
+		}
+		if len(parts) > 0 {
+			conds = append(conds, "("+strings.Join(parts, " OR ")+")")
+		}
+	} else if len(filters.SportTypes) > 0 {
 		idx++
 		conds = append(conds, fmt.Sprintf("sport_type = ANY($%d)", idx))
 		args = append(args, filters.SportTypes)

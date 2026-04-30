@@ -29,6 +29,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // GetSportTypeStats returns activity counts grouped by sport_type for the authenticated user.
@@ -76,7 +77,16 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 	// Parse filter parameters
 	var filters model.ActivityFilters
 	if st := r.URL.Query().Get("sport_type"); st != "" {
-		filters.SportTypes = strings.Split(st, ",")
+		if strings.Contains(st, ":") {
+			preds, err := sport.PredicatesFromFilterTokens(st)
+			if err != nil {
+				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+				return
+			}
+			filters.SportPredicates = preds
+		} else {
+			filters.SportTypes = strings.Split(st, ",")
+		}
 	}
 	if sub := r.URL.Query().Get("sub_type"); sub != "" {
 		filters.SubTypes = strings.Split(sub, ",")

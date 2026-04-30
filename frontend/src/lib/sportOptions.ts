@@ -190,28 +190,28 @@ export function generateGearSportOptions(): { value: string; label: string }[] {
 }
 
 /**
- * Filtert Sport-Optionen auf nur vorhandene Sport-Types.
- * Kategorie-Gruppen werden entfernt wenn keine ihrer Kinder vorhandene Sport-Types enthaelt.
- * Kinder werden gefiltert auf vorhandene Sport-Types.
+ * Filtert Sport-Optionen auf nur vorhandene Sport-Tuples.
+ * Kategorie-Gruppen werden entfernt wenn keine ihrer Kinder vorhandene Sport-Tuples enthaelt.
+ * Kinder werden gefiltert auf vorhandene Sport-Tuples.
  *
  * @param options - Alle Sport-Optionen
- * @param existingSportTypes - Set der Sport-Types die in der DB vorhanden sind
+ * @param existingSportKeys - Set der Sport-Keys die in der DB vorhanden sind
  */
 export function filterToExistingSports(
   options: SportOption[],
-  existingSportTypes: Set<string>,
+  existingSportKeys: Set<string>,
 ): SportOption[] {
   const filtered: SportOption[] = []
   for (const opt of options) {
     if (opt.children) {
       const filteredChildren = opt.children.filter((child) =>
-        existingSportTypes.has(child.value),
+        existingSportKeys.has(getOptionKey(child)),
       )
       if (filteredChildren.length > 0) {
         filtered.push({ ...opt, children: filteredChildren })
       }
     } else {
-      if (existingSportTypes.has(opt.value)) {
+      if (existingSportKeys.has(getOptionKey(opt))) {
         filtered.push(opt)
       }
     }

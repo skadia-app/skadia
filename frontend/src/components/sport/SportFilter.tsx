@@ -50,13 +50,13 @@ export function SportFilter({
     enabled: hideUnused,
   })
   const baseOptions = useMemo(() => sportFilterOptionsForPreset(preset), [preset])
-  const existingSportTypes = useMemo(() => new Set((statsData ?? []).map((s) => s.sport_type)), [statsData])
+  const existingSportKeys = useMemo(() => new Set((statsData ?? []).map((s) => s.sub_type ? `${s.sport_type}:${s.sub_type}` : s.sport_type)), [statsData])
   const options = useMemo(() => {
-    if (hideUnused && existingSportTypes.size > 0) {
-      return filterToExistingSports(baseOptions, existingSportTypes)
+    if (hideUnused && existingSportKeys.size > 0) {
+      return filterToExistingSports(baseOptions, existingSportKeys)
     }
     return baseOptions
-  }, [baseOptions, existingSportTypes, hideUnused])
+  }, [baseOptions, existingSportKeys, hideUnused])
   const allKeys = useMemo(() => getAllSportKeys(options), [options])
   const selected = useMemo(() => new Set(value.sportTypes ?? allKeys), [allKeys, value.sportTypes])
   const allSelected = allKeys.length > 0 && allKeys.every((key) => selected.has(key))

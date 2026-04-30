@@ -33,32 +33,7 @@ export async function fetchActivities(
   if (sortBy) params.set('sort_by', sortBy)
   if (sortDir) params.set('sort_dir', sortDir)
 
-  if (filters?.sportTypes?.length) {
-    const sports = new Set<string>()
-    const sportsWithBareKey = new Set<string>()
-    const subs = new Set<string>()
-    for (const key of filters.sportTypes) {
-      const colonIdx = key.indexOf(':')
-      if (colonIdx === -1) {
-        // Bare key — sport selected without sub-type restriction
-        sports.add(key)
-        sportsWithBareKey.add(key)
-      } else {
-        const sport = key.slice(0, colonIdx)
-        const sub = key.slice(colonIdx + 1)
-        sports.add(sport)
-        subs.add(sub)
-      }
-    }
-    if (sports.size) params.set('sport_type', [...sports].join(','))
-    // Only send sub_type filter when every selected sport carries an explicit sub-type.
-    // If any sport was selected without a sub-type (bare key), omitting sub_type ensures
-    // those activities (e.g. hiking, mountaineering with NULL sub_type) are not excluded
-    // by the backend AND-conjunction of sport_type and sub_type conditions.
-    if (subs.size > 0 && sportsWithBareKey.size === 0) {
-      params.set('sub_type', [...subs].join(','))
-    }
-  }
+  if (filters?.sportTypes?.length) params.set('sport_type', filters.sportTypes.join(','))
   if (filters?.dateFrom) params.set('date_from', filters.dateFrom)
   if (filters?.dateTo) params.set('date_to', filters.dateTo)
   if (filters?.isIndoor !== null && filters?.isIndoor !== undefined) params.set('is_indoor', String(filters.isIndoor))
@@ -306,4 +281,3 @@ export async function fetchHealthContext(activityId: string): Promise<HealthCont
 export async function fetchDeveloperFields(activityId: string): Promise<DeveloperFieldInfo[]> {
   return apiClient<DeveloperFieldInfo[]>(`/activities/${activityId}/developer-fields`)
 }
-

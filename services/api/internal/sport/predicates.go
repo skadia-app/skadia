@@ -2,6 +2,7 @@ package sport
 
 import (
 	"fmt"
+	"strings"
 )
 
 type Predicate struct {
@@ -142,6 +143,32 @@ func PredicatesFromSportTypes(sportTypes []string) ([]Predicate, error) {
 		preds = append(preds, pred)
 	}
 	return preds, nil
+}
+
+func PredicatesFromFilterTokens(raw string) ([]Predicate, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+
+	preds := make([]Predicate, 0)
+	for token := range strings.SplitSeq(raw, ",") {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		sportType, subType, hasSubType := strings.Cut(token, ":")
+		sportType = strings.TrimSpace(sportType)
+		subType = strings.TrimSpace(subType)
+		if sportType == "" {
+			continue
+		}
+		pred := Predicate{Sport: sportType}
+		if hasSubType {
+			pred.SubType = stringPtr(subType)
+		}
+		preds = append(preds, pred)
+	}
+	return NormalizePredicates(preds)
 }
 
 func SportTypesFromPredicates(preds []Predicate) []string {
