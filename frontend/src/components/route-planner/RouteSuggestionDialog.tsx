@@ -163,7 +163,7 @@ export default function RouteSuggestionDialog({
       : undefined
 
   // Filter profiles by selected sport tuple.
-  const allProfiles = profilesData?.profiles ?? []
+  const allProfiles = profilesData?.profiles.filter(p => p.engine !== 'brouter') ?? []
   const strictProfiles: RoutingProfileEntry[] = allProfiles.filter(p => {
     const predicateMatch = p.predicates
       ? predicatesMatch(p.predicates, sportType, subType)

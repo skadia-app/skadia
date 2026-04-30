@@ -3223,6 +3223,10 @@ export default function MapPage() {
             currentProfile={planner.profile.status === 'ready' ? planner.profile.name : 'hiking'}
             currentSportType={planner.sportType}
             currentSubType={planner.subType}
+            currentIsElectric={planner.isElectric}
+            currentIsIndoor={planner.isIndoor}
+            currentIsVirtual={planner.isVirtual}
+            currentIsCommute={planner.isCommute}
             editingRouteId={planner.editingRouteId}
             onClose={() => setShowSaveDialog(false)}
             onSaved={(saved) => {

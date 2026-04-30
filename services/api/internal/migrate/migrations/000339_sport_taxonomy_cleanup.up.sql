@@ -723,17 +723,26 @@ WITH normalized_planned_routes AS (
         pr.id,
         pr.sport_type AS old_sport_type,
         COALESCE(pr.sub_type, '') AS old_sub_type,
+        pr.is_electric AS old_is_electric,
+        pr.is_indoor AS old_is_indoor,
         n.sport_type,
-        n.sub_type
+        n.sub_type,
+        n.is_electric,
+        n.is_indoor
     FROM planned_routes pr
     CROSS JOIN LATERAL fp_sport_taxonomy_normalize(pr.sport_type, COALESCE(pr.sub_type, '')) AS n
 )
 UPDATE planned_routes pr
 SET sport_type = n.sport_type,
-    sub_type = NULLIF(n.sub_type, '')
+    sub_type = NULLIF(n.sub_type, ''),
+    is_electric = pr.is_electric OR n.is_electric,
+    is_indoor = pr.is_indoor OR n.is_indoor
 FROM normalized_planned_routes n
 WHERE pr.id = n.id
-  AND (n.old_sport_type IS DISTINCT FROM n.sport_type OR n.old_sub_type IS DISTINCT FROM n.sub_type);
+  AND (n.old_sport_type IS DISTINCT FROM n.sport_type
+       OR n.old_sub_type IS DISTINCT FROM n.sub_type
+       OR (n.is_electric AND n.old_is_electric = false)
+       OR (n.is_indoor AND n.old_is_indoor = false));
 
 WITH normalized_recording_groups AS (
     SELECT

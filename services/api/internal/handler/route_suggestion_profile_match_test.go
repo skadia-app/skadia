@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -85,6 +86,22 @@ func TestRoutingProfileMatchesStoredPredicatesAndModifierFilters(t *testing.T) {
 	}
 }
 
+func TestRoutingProfileMatchesStoredFalseModifierWhenRequestOmitsModifiers(t *testing.T) {
+	falseValue := false
+	profile := database.RoutingProfile{
+		Name:            "Acoustic MTB",
+		Predicates:      []sport.Predicate{{Sport: "cycling", SubType: strPtr("mountain")}},
+		ModifierFilters: sport.ModifierFilters{IsElectric: &falseValue},
+	}
+
+	if !routingProfileMatchesSuggestionRequest(profile, RouteSuggestionRequest{
+		SportType: "cycling",
+		SubType:   strPtr("mountain"),
+	}) {
+		t.Fatal("expected absent request modifier to mean false and match is_electric=false")
+	}
+}
+
 func TestBuiltinProfileMatchesSuggestionRequest(t *testing.T) {
 	if !builtinProfileMatchesSuggestionRequest("trekking", RouteSuggestionRequest{SportType: "cycling"}) {
 		t.Fatal("expected broad cycling route to match trekking")
@@ -97,5 +114,15 @@ func TestBuiltinProfileMatchesSuggestionRequest(t *testing.T) {
 	}
 	if builtinProfileMatchesSuggestionRequest("mtb", RouteSuggestionRequest{SportType: "cycling"}) {
 		t.Fatal("expected broad cycling route not to match exact mtb")
+	}
+}
+
+func TestSuggestRoutesRejectsUnknownExplicitProfile(t *testing.T) {
+	setup := newTestRoutingHandler(t)
+
+	const body = `{"start":[12.10,48.99],"target_distance_m":10000,"sport_type":"hiking","profile":"missing-profile"}`
+	w := postSuggestRoutes(setup.Handler, body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unknown explicit profile, got %d: %s", w.Code, w.Body.String())
 	}
 }

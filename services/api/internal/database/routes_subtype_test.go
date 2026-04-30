@@ -206,6 +206,19 @@ func TestPlannedRouteCreateNormalizesLegacySportTuple(t *testing.T) {
 	}
 }
 
+func TestNormalizePlannedRouteSportTupleReturnsModifierPatch(t *testing.T) {
+	sportType, subType, patch, err := normalizePlannedRouteSportTuple("e_mountain_biking", nil)
+	if err != nil {
+		t.Fatalf("normalizePlannedRouteSportTuple: %v", err)
+	}
+	if sportType != "cycling" || subType == nil || *subType != "mountain" {
+		t.Fatalf("tuple = (%s,%v), want (cycling,mountain)", sportType, subType)
+	}
+	if patch.IsElectric == nil || !*patch.IsElectric {
+		t.Fatalf("IsElectric patch = %#v, want true", patch.IsElectric)
+	}
+}
+
 func TestPlannedRouteCreateRejectsInvalidSubType(t *testing.T) {
 	db, userID := routeSubTypeTestDB(t)
 	ctx := context.Background()

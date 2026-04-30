@@ -308,7 +308,7 @@ func fitSportToSportType(sport typedef.Sport, subSport typedef.SubSport) (string
 	case typedef.SportCrossCountrySkiing:
 		return normalize("cross_country_skiing", "")
 	case typedef.SportPaddling:
-		return normalize("kayaking", "")
+		return normalize("paddling", "")
 	case typedef.SportRowing:
 		return normalize("rowing", "")
 	default:

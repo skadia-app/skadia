@@ -39,6 +39,13 @@ func TestNormalizeSportTuple(t *testing.T) {
 			wantIndoor: &trueValue,
 		},
 		{
+			name:       "explicit indoor cycling subtype sets indoor modifier",
+			sportType:  "cycling",
+			subType:    "indoor_cycling",
+			wantTuple:  Tuple{SportType: "cycling", SubType: "indoor_cycling"},
+			wantIndoor: &trueValue,
+		},
+		{
 			name:      "generic subtype clears to no subtype",
 			sportType: "cycling",
 			subType:   "generic",

@@ -29,6 +29,19 @@ func readMigration000339SQL(t *testing.T) (upSQL, downSQL, preflightSQL string) 
 	return string(upBytes), string(downBytes), string(preflightBytes)
 }
 
+func sqlBlockFrom(sql, marker string) string {
+	start := strings.Index(sql, marker)
+	if start < 0 {
+		return ""
+	}
+	rest := sql[start:]
+	end := strings.Index(rest, "\n\n")
+	if end < 0 {
+		return rest
+	}
+	return rest[:end]
+}
+
 func TestMigration000339SQLFilesDeclareRequiredContracts(t *testing.T) {
 	upSQL, downSQL, preflightSQL := readMigration000339SQL(t)
 
@@ -98,6 +111,27 @@ func TestMigration000339SQLFilesDeclareRequiredContracts(t *testing.T) {
 		!strings.Contains(preflightSQL, "logic") ||
 		!strings.Contains(preflightSQL, "or") {
 		t.Errorf("preflight SQL must scan OR condition groups in top-level and branch rule JSON")
+	}
+}
+
+func TestMigration000339PlannedRoutesBackfillPreservesModifierPatch(t *testing.T) {
+	upSQL, _, _ := readMigration000339SQL(t)
+	block := sqlBlockFrom(upSQL, "WITH normalized_planned_routes AS (")
+
+	required := []string{
+		"pr.is_electric AS old_is_electric",
+		"pr.is_indoor AS old_is_indoor",
+		"n.is_electric",
+		"n.is_indoor",
+		"is_electric = pr.is_electric OR n.is_electric",
+		"is_indoor = pr.is_indoor OR n.is_indoor",
+		"n.is_electric AND",
+		"n.is_indoor AND",
+	}
+	for _, needle := range required {
+		if !strings.Contains(block, needle) {
+			t.Fatalf("planned_routes backfill block missing %q:\n%s", needle, block)
+		}
 	}
 }
 
