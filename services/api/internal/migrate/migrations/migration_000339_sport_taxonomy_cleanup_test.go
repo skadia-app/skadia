@@ -609,6 +609,64 @@ func TestMigration000339PreflightReportsTopLevelUnsupportedSportOperator(t *test
 	}
 }
 
+func TestMigration000339PreflightAllowsCanonicalNonEqSportOperator(t *testing.T) {
+	_, _, preflightSQL := readMigration000339SQL(t)
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback: %v", err)
+		}
+	})
+
+	userID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, is_admin)
+		VALUES ($1, $2, $3, false)
+	`, userID, "mig339_preflight_canonical_"+userID[:8], "mig339_preflight_canonical_"+userID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO automation_rules (user_id, name, conditions, condition_groups, actions, branches)
+		VALUES (
+			$1,
+			'canonical neq rule',
+			'[{"field":"sport_type","op":"neq","value":"cycling"},{"field":"sport_type","op":"in","value":["running","swimming"]}]'::jsonb,
+			'[]'::jsonb,
+			'[]'::jsonb,
+			'[]'::jsonb
+		)
+	`, userID); err != nil {
+		t.Fatalf("insert automation rule: %v", err)
+	}
+
+	rows, err := tx.Query(ctx, preflightSQL)
+	if err != nil {
+		t.Fatalf("run preflight: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, name, surface string
+		var condition json.RawMessage
+		var reason string
+		if err := rows.Scan(&id, &name, &surface, &condition, &reason); err != nil {
+			t.Fatalf("scan preflight row: %v", err)
+		}
+		if name == "canonical neq rule" {
+			t.Fatalf("canonical sport operator was reported by preflight: surface=%s condition=%s reason=%s", surface, condition, reason)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("preflight rows: %v", err)
+	}
+}
+
 func stripSQLComments(sql string) string {
 	var out []string
 	for _, line := range strings.Split(sql, "\n") {

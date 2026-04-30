@@ -390,6 +390,12 @@ type ModifierChoice = '' | 'true' | 'false'
 const SPORT_TUPLE_ANCHOR_FIELDS = new Set(['sport_type', 'sub_type'])
 const SPORT_TUPLE_FIELDS = new Set(['sport_type', 'sub_type', 'is_electric', 'is_indoor', 'is_virtual', 'is_commute'])
 
+function canUseSportTupleControl(conditions: RuleCondition[]) {
+  const tupleConditions = conditions.filter((c) => SPORT_TUPLE_FIELDS.has(c.field))
+  if (!tupleConditions.some((c) => SPORT_TUPLE_ANCHOR_FIELDS.has(c.field))) return false
+  return tupleConditions.every((c) => String(c.op ?? 'eq').toLowerCase() === 'eq')
+}
+
 function subTypeOptionsForSport(sportType: string) {
   return getSportDef(sportType)?.subTypes ?? []
 }
@@ -436,8 +442,7 @@ function replaceSportTupleConditions(conditions: RuleCondition[], next: { sportT
 }
 
 function normaliseSportTupleConditionGroup(group: RuleConditionGroup): RuleConditionGroup {
-  const hasSportTuple = group.conditions.some((c) => SPORT_TUPLE_ANCHOR_FIELDS.has(c.field))
-  if (!hasSportTuple) return group
+  if (!canUseSportTupleControl(group.conditions)) return group
   return {
     ...group,
     conditions: replaceSportTupleConditions(group.conditions, sportTupleFromConditions(group.conditions)),
@@ -1148,10 +1153,10 @@ function ConditionGroupBlock({
       conditions: group.conditions.map((c, idx) => idx === i ? { ...c, ...patch } : c),
     })
   }
-  const hasSportTuple = group.conditions.some((c) => SPORT_TUPLE_ANCHOR_FIELDS.has(c.field))
+  const hasSportTuple = canUseSportTupleControl(group.conditions)
   const visibleConditions = group.conditions
     .map((cond, index) => ({ cond, index }))
-    .filter(({ cond }) => !SPORT_TUPLE_FIELDS.has(cond.field))
+    .filter(({ cond }) => !(hasSportTuple && SPORT_TUPLE_FIELDS.has(cond.field)))
 
   return (
     <div className="border border-neutral-200 dark:border-neutral-700 rounded-lg p-3 space-y-2 bg-white dark:bg-neutral-900/30">

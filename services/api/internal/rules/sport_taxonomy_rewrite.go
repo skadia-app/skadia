@@ -92,13 +92,17 @@ func rewriteConditions(conditions []Condition, surface string, rejectLegacyInOR 
 			rewritten = append(rewritten, condition)
 			continue
 		}
+		op := strings.ToLower(strings.TrimSpace(condition.Op))
+		if op != "eq" {
+			if err := validateCanonicalSportCondition(condition, surface, op); err != nil {
+				return nil, err
+			}
+			rewritten = append(rewritten, condition)
+			continue
+		}
 		value, ok := condition.Value.(string)
 		if !ok {
 			return nil, fmt.Errorf("%s: sport_type condition value must be a string", surface)
-		}
-		op := strings.ToLower(strings.TrimSpace(condition.Op))
-		if op != "eq" {
-			return nil, fmt.Errorf("%s: unsupported sport_type operator %q for sport taxonomy rewrite", surface, condition.Op)
 		}
 		tuple, patch, err := sport.NormalizeSportTuple(value, "")
 		if err != nil {
@@ -119,6 +123,63 @@ func rewriteConditions(conditions []Condition, surface string, rejectLegacyInOR 
 		}
 	}
 	return rewritten, nil
+}
+
+func validateCanonicalSportCondition(condition Condition, surface string, op string) error {
+	switch op {
+	case "neq":
+		value, ok := condition.Value.(string)
+		if !ok {
+			return fmt.Errorf("%s: sport_type condition value must be a string", surface)
+		}
+		if err := validateCanonicalSportValue(value, surface, op); err != nil {
+			return err
+		}
+		return nil
+	case "in", "not_in":
+		values, err := sportConditionListValues(condition.Value)
+		if err != nil {
+			return fmt.Errorf("%s: sport_type %s condition value must be a string array", surface, op)
+		}
+		for _, value := range values {
+			if err := validateCanonicalSportValue(value, surface, op); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("%s: unsupported sport_type operator %q for sport taxonomy rewrite", surface, condition.Op)
+	}
+}
+
+func validateCanonicalSportValue(value string, surface string, op string) error {
+	tuple, patch, err := sport.NormalizeSportTuple(value, "")
+	if err != nil {
+		return fmt.Errorf("%s: %w", surface, err)
+	}
+	if sportConditionNeedsTupleRewrite(value, tuple, patch) {
+		return fmt.Errorf("%s: unsupported sport_type operator %q for legacy or subtype sport predicate %q", surface, op, value)
+	}
+	return nil
+}
+
+func sportConditionListValues(value any) ([]string, error) {
+	switch values := value.(type) {
+	case []string:
+		return values, nil
+	case []any:
+		out := make([]string, 0, len(values))
+		for _, item := range values {
+			value, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("non-string item")
+			}
+			out = append(out, value)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("not a list")
+	}
 }
 
 func sportConditionNeedsTupleRewrite(value string, tuple sport.Tuple, patch sport.ModifierPatch) bool {

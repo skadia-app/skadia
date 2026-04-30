@@ -142,6 +142,22 @@ describe('RuleEditor sport tuple controls', () => {
     ])
   })
 
+  it('does not collapse canonical non-eq and in sport conditions into a sport tuple control', async () => {
+    const onSave = renderEditor({
+      condition_groups: [{ logic: 'and', conditions: [
+        { field: 'sport_type', op: 'neq', value: 'cycling' },
+        { field: 'sport_type', op: 'in', value: ['running', 'swimming'] },
+      ] }],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'sport_type', op: 'neq', value: 'cycling' },
+      { field: 'sport_type', op: 'in', value: ['running', 'swimming'] },
+    ])
+  })
+
   it('dedupes set_electric true with explicit E-Bike tag and blocks contradictions', async () => {
     const onSave = renderEditor({
       actions: [

@@ -267,6 +267,7 @@ DECLARE
     out JSONB := '[]'::jsonb;
     op TEXT;
     raw_sport TEXT;
+    raw_item JSONB;
     n RECORD;
     needs_tuple BOOLEAN;
 BEGIN
@@ -281,9 +282,47 @@ BEGIN
         END IF;
 
         op := lower(btrim(COALESCE(cond->>'op', '')));
-        IF op <> 'eq' THEN
+        IF op NOT IN ('eq', 'neq', 'in', 'not_in') THEN
             RAISE EXCEPTION '%: unsupported sport_type operator "%" for sport taxonomy rewrite', surface, cond->>'op';
         END IF;
+
+        IF op = 'neq' THEN
+            raw_sport := cond->>'value';
+            IF raw_sport IS NULL OR raw_sport = '' THEN
+                RAISE EXCEPTION '%: sport_type condition value must be a string', surface;
+            END IF;
+
+            SELECT * INTO n FROM fp_sport_taxonomy_normalize(raw_sport, '');
+            needs_tuple := raw_sport IS DISTINCT FROM n.sport_type OR n.sub_type <> '' OR n.is_indoor OR n.is_electric;
+            IF needs_tuple THEN
+                RAISE EXCEPTION '%: unsupported sport_type operator "%" for legacy or subtype sport predicate "%"', surface, cond->>'op', raw_sport;
+            END IF;
+
+            out := out || jsonb_build_array(cond);
+            CONTINUE;
+        END IF;
+
+        IF op IN ('in', 'not_in') THEN
+            IF jsonb_typeof(cond->'value') IS DISTINCT FROM 'array' THEN
+                RAISE EXCEPTION '%: sport_type % condition value must be a string array', surface, op;
+            END IF;
+
+            FOR raw_item IN SELECT value FROM jsonb_array_elements(cond->'value') LOOP
+                IF jsonb_typeof(raw_item) <> 'string' THEN
+                    RAISE EXCEPTION '%: sport_type % condition value must be a string array', surface, op;
+                END IF;
+                raw_sport := raw_item #>> '{}';
+                SELECT * INTO n FROM fp_sport_taxonomy_normalize(raw_sport, '');
+                needs_tuple := raw_sport IS DISTINCT FROM n.sport_type OR n.sub_type <> '' OR n.is_indoor OR n.is_electric;
+                IF needs_tuple THEN
+                    RAISE EXCEPTION '%: unsupported sport_type operator "%" for legacy or subtype sport predicate "%"', surface, cond->>'op', raw_sport;
+                END IF;
+            END LOOP;
+
+            out := out || jsonb_build_array(cond);
+            CONTINUE;
+        END IF;
+
         raw_sport := cond->>'value';
         IF raw_sport IS NULL OR raw_sport = '' THEN
             RAISE EXCEPTION '%: sport_type condition value must be a string', surface;
@@ -791,4 +830,3 @@ DROP FUNCTION IF EXISTS fp_rewrite_conditions(JSONB, TEXT, BOOLEAN);
 DROP FUNCTION IF EXISTS fp_default_predicates(TEXT);
 DROP FUNCTION IF EXISTS fp_modifier_filters_from_sport_types(TEXT[]);
 DROP FUNCTION IF EXISTS fp_predicates_from_sport_types(TEXT[]);
-DROP FUNCTION IF EXISTS fp_sport_taxonomy_normalize(TEXT, TEXT);

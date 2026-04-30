@@ -2,6 +2,7 @@ package rules
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -140,6 +141,27 @@ func TestSportTaxonomyRewriteConditions(t *testing.T) {
 	}
 }
 
+func TestSportTaxonomyRewritePreservesCanonicalNonEqAndInConditions(t *testing.T) {
+	input := SportTaxonomyRuleJSON{
+		Conditions: json.RawMessage(`[
+			{"field":"sport_type","op":"neq","value":"cycling"},
+			{"field":"sport_type","op":"in","value":["running","swimming"]}
+		]`),
+		ConditionGroups: json.RawMessage(`[
+			{"logic":"and","conditions":[
+				{"field":"sport_type","op":"not_in","value":["hiking","walking"]}
+			]}
+		]`),
+	}
+
+	got, _, err := RewriteSportTaxonomyRuleJSON(input)
+	if err != nil {
+		t.Fatalf("RewriteSportTaxonomyRuleJSON: %v", err)
+	}
+	assertRawJSONEqual(t, got.Conditions, input.Conditions, "conditions")
+	assertRawJSONEqual(t, got.ConditionGroups, input.ConditionGroups, "condition_groups")
+}
+
 func TestSportTaxonomyRewriteRejectsUnsupportedSemantics(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -167,5 +189,20 @@ func TestSportTaxonomyRewriteRejectsUnsupportedSemantics(t *testing.T) {
 				t.Fatalf("error: got %v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func assertRawJSONEqual(t *testing.T, got, want json.RawMessage, label string) {
+	t.Helper()
+	var gotValue any
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatalf("unmarshal got %s: %v", label, err)
+	}
+	var wantValue any
+	if err := json.Unmarshal(want, &wantValue); err != nil {
+		t.Fatalf("unmarshal want %s: %v", label, err)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("%s changed:\n got  %s\n want %s", label, got, want)
 	}
 }

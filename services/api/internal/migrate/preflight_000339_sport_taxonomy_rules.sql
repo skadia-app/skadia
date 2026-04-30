@@ -91,5 +91,28 @@ SELECT
     'unsupported sport_type operator must be resolved before 000339' AS reason
 FROM all_conditions
 WHERE condition->>'field' = 'sport_type'
-  AND lower(btrim(COALESCE(condition->>'op', ''))) <> 'eq'
+  AND (
+    lower(btrim(COALESCE(condition->>'op', ''))) NOT IN ('eq', 'neq', 'in', 'not_in')
+    OR (
+      lower(btrim(COALESCE(condition->>'op', ''))) = 'neq'
+      AND condition->>'value' IN (SELECT sport_type FROM legacy_sports)
+    )
+    OR (
+      lower(btrim(COALESCE(condition->>'op', ''))) IN ('in', 'not_in')
+      AND (
+        jsonb_typeof(condition->'value') IS DISTINCT FROM 'array'
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(
+            CASE
+              WHEN jsonb_typeof(condition->'value') = 'array' THEN condition->'value'
+              ELSE '[]'::jsonb
+            END
+          ) AS item(value)
+          WHERE jsonb_typeof(item.value) <> 'string'
+             OR item.value #>> '{}' IN (SELECT sport_type FROM legacy_sports)
+        )
+      )
+    )
+  )
 ORDER BY name, id, surface;
