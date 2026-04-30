@@ -24,6 +24,7 @@ type Activity struct {
 	ExcludeFromHeatmap bool       `json:"exclude_from_heatmap"`
 	ExcludeFromStats   bool       `json:"exclude_from_stats"`
 	IsManualEntry      bool       `json:"is_manual_entry"`
+	SportTypeIsManual  bool       `json:"sport_type_is_manual,omitempty"`
 	StartedAt          time.Time  `json:"started_at"`
 	EndedAt            *time.Time `json:"ended_at,omitempty"`
 	ElapsedTimeS       *int       `json:"elapsed_time_s,omitempty"`

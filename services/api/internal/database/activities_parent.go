@@ -14,9 +14,14 @@ import (
 // file_hash is stored so re-imports of the same file can detect the existing parent.
 func (db *DB) InsertMultisportParent(ctx context.Context, act *model.Activity) error {
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO activities (id, user_id, sport_type, title, started_at, file_hash, visibility, enrichment_status)
-		VALUES ($1, $2, $3, $4, $5, $6, 'private', 'complete')`,
-		act.ID, act.UserID, act.SportType, act.Title, act.StartedAt, act.FileHash)
+		INSERT INTO activities (
+			id, user_id, sport_type, sub_type, title, started_at, file_hash,
+			is_indoor, is_electric, is_virtual, exclude_from_heatmap, has_gps,
+			visibility, enrichment_status
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, 'private', 'complete')`,
+		act.ID, act.UserID, act.SportType, act.SubType, act.Title, act.StartedAt, act.FileHash,
+		act.IsIndoor, act.IsElectric, act.IsVirtual, act.HasGPS)
 	return err
 }
 
@@ -359,7 +364,12 @@ func (db *DB) AggregateParentMetrics(ctx context.Context, parentID string) error
 			distance_m      = (SELECT SUM(distance_m)       FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
 			elevation_gain_m = (SELECT SUM(elevation_gain_m) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
 			elevation_loss_m = (SELECT SUM(elevation_loss_m) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
-			total_calories  = (SELECT SUM(total_calories)   FROM activities WHERE parent_id = $1 AND deleted_at IS NULL)
+			total_calories  = (SELECT SUM(total_calories)   FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
+			is_indoor = COALESCE((SELECT BOOL_AND(is_indoor) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false),
+			is_electric = COALESCE((SELECT BOOL_OR(is_electric) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false),
+			is_virtual = COALESCE((SELECT BOOL_OR(is_virtual) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false),
+			exclude_from_heatmap = COALESCE((SELECT BOOL_OR(is_virtual) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false),
+			has_gps = COALESCE((SELECT BOOL_OR(has_gps) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false)
 		WHERE id = $1`, parentID)
 	return err
 }

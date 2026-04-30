@@ -665,6 +665,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.intensity_factor, a.left_right_balance, a.sport_profile_name, a.sport_index,
 		a.nec_lat, a.nec_lng, a.swc_lat, a.swc_lng,
 		COALESCE(a.title_is_manual, false),
+		COALESCE(a.sport_type_is_manual, false),
 		a.is_manual_entry, a.workout_feel, a.workout_rpe,
 		a.timezone,
 		a.num_sessions,
@@ -756,6 +757,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.IntensityFactor, &a.LeftRightBalance, &a.SportProfileName, &a.SportIndex,
 		&a.NecLat, &a.NecLng, &a.SwcLat, &a.SwcLng,
 		&a.TitleIsManual,
+		&a.SportTypeIsManual,
 		&a.IsManualEntry, &a.WorkoutFeel, &a.WorkoutRpe,
 		&a.Timezone,
 		&a.NumSessions,
@@ -1289,6 +1291,11 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	}
 	if update.IsVirtual != nil {
 		b.Set("is_virtual", *update.IsVirtual)
+		if *update.IsVirtual {
+			b.Set("exclude_from_heatmap", true)
+		} else if update.ExcludeFromHeatmap == nil {
+			b.Set("exclude_from_heatmap", false)
+		}
 	}
 	if update.Tags != nil {
 		b.Set("tags", update.Tags)
@@ -1328,14 +1335,23 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 		b.Set("workout_rpe", *update.WorkoutRpe)
 	}
 	if update.ExcludeFromHeatmap != nil {
-		if !*update.ExcludeFromHeatmap {
+		skipExplicitHeatmap := false
+		if update.IsVirtual != nil && *update.IsVirtual {
+			if !*update.ExcludeFromHeatmap {
+				return nil, fmt.Errorf("cannot disable heatmap exclusion for virtual activities")
+			}
+			skipExplicitHeatmap = true
+		}
+		if !skipExplicitHeatmap && !*update.ExcludeFromHeatmap {
 			var isVirtual bool
 			_ = db.Pool.QueryRow(ctx, "SELECT is_virtual FROM activities WHERE id = $1 AND user_id = $2", id, userID).Scan(&isVirtual)
 			if isVirtual {
 				return nil, fmt.Errorf("cannot disable heatmap exclusion for virtual activities")
 			}
 		}
-		b.Set("exclude_from_heatmap", *update.ExcludeFromHeatmap)
+		if !skipExplicitHeatmap {
+			b.Set("exclude_from_heatmap", *update.ExcludeFromHeatmap)
+		}
 	}
 	if update.ExcludeFromStats != nil {
 		b.Set("exclude_from_stats", *update.ExcludeFromStats)

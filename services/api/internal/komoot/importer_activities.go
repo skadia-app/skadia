@@ -140,7 +140,28 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			data = tourToActivityData(tour)
 		}
 
+		var conflictPlatformSnapshot komootSportConflictSnapshot
+		var conflictFileSnapshot komootSportConflictSnapshot
 		if mapping, ok := normalizedKomootSportMapping(tour.Sport); ok {
+			platformSnapshot := komootSportConflictSnapshot{
+				Sport:      mapping.SportType,
+				SubType:    mapping.SubType,
+				IsElectric: mapping.IsElectric,
+				IsIndoor:   sport.IsIndoor(mapping.SportType, mapping.SubType),
+				IsVirtual:  false,
+			}
+			fileSnapshot := komootSportConflictSnapshot{
+				Sport:      data.SportType,
+				SubType:    data.SubType,
+				IsElectric: data.IsElectric,
+				IsIndoor:   data.IsIndoor,
+				IsVirtual:  data.IsVirtual,
+			}
+			if komootSportConflictSnapshotsConflict(platformSnapshot, fileSnapshot) {
+				conflictPlatformSnapshot = platformSnapshot
+				conflictFileSnapshot = fileSnapshot
+				data.SportConflictPending = true
+			}
 			applyKomootSportMapping(data, mapping)
 		}
 
@@ -170,6 +191,21 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		// Always populate TourActivityMap — even for duplicates — so the PhotosImporter can look up the activity ID.
 		result.TourActivityMap[tour.ID] = actResult.ActivityID
+
+		if data.SportConflictPending {
+			if conflictFileSnapshot.Sport == "" {
+				conflictFileSnapshot = komootSportConflictSnapshot{Sport: data.SportType, SubType: data.SubType, IsElectric: data.IsElectric, IsIndoor: data.IsIndoor, IsVirtual: data.IsVirtual}
+			}
+			if _, markErr := p.DB.Pool.Exec(ctx,
+				`UPDATE activities SET sport_conflict_pending = TRUE WHERE id = $1 AND user_id = $2`,
+				actResult.ActivityID, p.UserID,
+			); markErr != nil {
+				slog.Warn("komoot sport conflict: failed to mark activity", "activity", actResult.ActivityID, "error", markErr)
+			}
+			if qErr := createKomootSportConflictQueueEntry(ctx, p.DB, p.UserID, actResult.ActivityID, conflictPlatformSnapshot, conflictFileSnapshot, format); qErr != nil {
+				slog.Warn("komoot sport conflict: failed to create queue entry", "activity", actResult.ActivityID, "error", qErr)
+			}
+		}
 
 		if actResult.Status == "enriched" || actResult.Status == "replaced" {
 			// M21: Run PostProcess for enriched/replaced so heatmap+streams stay up to date.
@@ -303,6 +339,70 @@ func applyKomootSportMapping(data *model.ActivityData, mapping SportMapping) {
 	if mapping.IsElectric {
 		data.IsElectric = true
 	}
+}
+
+type komootSportConflictSnapshot struct {
+	Sport      string
+	SubType    string
+	IsElectric bool
+	IsIndoor   bool
+	IsVirtual  bool
+}
+
+func komootSportConflictSnapshotsConflict(platform, file komootSportConflictSnapshot) bool {
+	if platform.Sport == "" || file.Sport == "" || file.Sport == "unknown" {
+		return false
+	}
+	platformGroup := sport.SegmentGroup(platform.Sport)
+	fileGroup := sport.SegmentGroup(file.Sport)
+	if platformGroup == "generic" || fileGroup == "generic" {
+		return false
+	}
+	if platformGroup != fileGroup {
+		return true
+	}
+	if platform.Sport != file.Sport {
+		return true
+	}
+	if platform.SubType != "" && platform.SubType != "generic" && file.SubType != "" && file.SubType != "generic" && platform.SubType != file.SubType {
+		return true
+	}
+	return platform.IsElectric != file.IsElectric ||
+		platform.IsIndoor != file.IsIndoor ||
+		platform.IsVirtual != file.IsVirtual
+}
+
+func komootSportConflictMetadata(platform, file komootSportConflictSnapshot, fileFormat string) map[string]any {
+	return map[string]any{
+		"activity_id":          "",
+		"file_sport":           file.Sport,
+		"file_sub_type":        file.SubType,
+		"file_is_electric":     file.IsElectric,
+		"file_is_indoor":       file.IsIndoor,
+		"file_is_virtual":      file.IsVirtual,
+		"file_source":          fileFormat,
+		"platform_sport":       platform.Sport,
+		"platform_sub_type":    platform.SubType,
+		"platform_is_electric": platform.IsElectric,
+		"platform_is_indoor":   platform.IsIndoor,
+		"platform_is_virtual":  platform.IsVirtual,
+		"platform_source":      "komoot",
+	}
+}
+
+func createKomootSportConflictQueueEntry(ctx context.Context, db *database.DB, userID, activityID string, platform, file komootSportConflictSnapshot, fileFormat string) error {
+	exists, err := db.SportConflictQueueExists(ctx, userID, activityID)
+	if err != nil || exists {
+		return err
+	}
+	meta := komootSportConflictMetadata(platform, file, fileFormat)
+	meta["activity_id"] = activityID
+	_, err = db.CreateImportQueueItem(ctx, database.ImportQueueItem{
+		UserID:    userID,
+		QueueType: "sport_conflict",
+		Metadata:  meta,
+	})
+	return err
 }
 
 // buildKnownKomootIDs fetches all known komoot_tour_ids for a user (for incremental sync).

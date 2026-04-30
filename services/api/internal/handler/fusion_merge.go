@@ -28,6 +28,7 @@ import (
 	sporttax "github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // ErrAlreadyFused is returned when a FusionMerge attempt includes a source
@@ -1627,7 +1628,7 @@ func applyFusionMetadataOverrides(
 	return warnings, nil
 }
 
-func applyFusionSportSelection(ctx context.Context, q database.Querier, mergedID string, selection *FusionSportSelection) error {
+func applyFusionSportSelection(ctx context.Context, q database.Querier, db *database.DB, mergedID string, selection *FusionSportSelection, groupID *string) error {
 	if selection == nil {
 		return nil
 	}
@@ -1646,18 +1647,38 @@ func applyFusionSportSelection(ctx context.Context, q database.Querier, mergedID
 		UPDATE activities
 		SET sport_type = $2,
 		    sub_type = $3,
-		    parsed_sport_type = $2,
-		    parsed_sub_type = $3,
 		    is_electric = $4,
 		    is_indoor = $5,
 		    is_virtual = $6,
-		    exclude_from_heatmap = CASE WHEN $6 THEN TRUE ELSE exclude_from_heatmap END,
+		    exclude_from_heatmap = CASE WHEN $6 THEN TRUE ELSE FALSE END,
 		    sport_type_is_manual = TRUE,
 		    has_edits = TRUE
 		WHERE id = $1`,
 		mergedID, tuple.SportType, subType, isElectric, isIndoor, isVirtual,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if groupID != nil && *groupID != "" {
+		tx, ok := q.(pgx.Tx)
+		if !ok {
+			return fmt.Errorf("recording group sport sync requires transaction")
+		}
+		var subTypePtr *string
+		if tuple.SubType != "" {
+			subTypePtr = &tuple.SubType
+		}
+		if err := db.SetRecordingGroupSportTypeTx(ctx, tx, *groupID, database.RecordingGroupSportTuple{
+			SportType:  tuple.SportType,
+			SubType:    subTypePtr,
+			IsElectric: ptrBool(isElectric),
+			IsIndoor:   ptrBool(isIndoor),
+			IsVirtual:  ptrBool(isVirtual),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func boolFromSelection(preferred, fallback *bool, defaultValue bool) bool {
@@ -1668,6 +1689,10 @@ func boolFromSelection(preferred, fallback *bool, defaultValue bool) bool {
 		return *fallback
 	}
 	return defaultValue
+}
+
+func ptrBool(v bool) *bool {
+	return &v
 }
 
 func derefString(v *string) string {
@@ -1846,7 +1871,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Sport != nil {
-		if err := applyFusionSportSelection(ctx, tx, merged.ID, req.Sport); err != nil {
+		if err := applyFusionSportSelection(ctx, tx, h.DB, merged.ID, req.Sport, req.GroupID); err != nil {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 			return
 		}

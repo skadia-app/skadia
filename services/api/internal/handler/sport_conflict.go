@@ -47,8 +47,14 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var resolution *database.SportConflictResolution
-	if req.SportType != "" {
-		tuple, patch, err := sport.NormalizeSportTuple(req.SportType, req.SubType)
+	if req.SportType != "" || req.IsElectric != nil || req.IsIndoor != nil || req.IsVirtual != nil {
+		rawSportType := req.SportType
+		rawSubType := req.SubType
+		if rawSportType == "" {
+			rawSportType = activity.SportType
+			rawSubType = derefSubType(activity.SubType)
+		}
+		tuple, patch, err := sport.NormalizeSportTuple(rawSportType, rawSubType)
 		if err != nil {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 			return

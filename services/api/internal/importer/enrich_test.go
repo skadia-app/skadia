@@ -60,7 +60,7 @@ func TestBuildEnrichFields_MaxMinElevation(t *testing.T) {
 func TestBuildReplaceFields_ElevationLoss(t *testing.T) {
 	newData := &model.ActivityData{ElevationLossM: 450.0}
 
-	fields := buildReplaceFields(newData)
+	fields := buildReplaceFields(nil, newData)
 
 	if _, ok := fields["elevation_loss_m"]; !ok {
 		t.Error("elevation_loss_m fehlt in buildReplaceFields")
@@ -75,7 +75,7 @@ func TestBuildReplaceFields_ElevationLoss(t *testing.T) {
 func TestBuildReplaceFields_MaxMinElevation(t *testing.T) {
 	newData := &model.ActivityData{MaxElevationM: 3000.0, MinElevationM: 500.0}
 
-	fields := buildReplaceFields(newData)
+	fields := buildReplaceFields(nil, newData)
 
 	if _, ok := fields["max_elevation_m"]; !ok {
 		t.Error("max_elevation_m fehlt in buildReplaceFields")
@@ -94,12 +94,36 @@ func TestBuildReplaceFieldsIncludesSportTupleAndModifiers(t *testing.T) {
 		IsVirtual:  true,
 	}
 
-	fields := buildReplaceFields(newData)
+	fields := buildReplaceFields(nil, newData)
 
 	for _, key := range []string{"sport_type", "sub_type", "parsed_sport_type", "parsed_sub_type", "is_electric", "is_indoor", "is_virtual", "exclude_from_heatmap"} {
 		if _, ok := fields[key]; !ok {
 			t.Fatalf("%s fehlt in buildReplaceFields", key)
 		}
+	}
+}
+
+func TestBuildReplaceFieldsPreservesManualSportTupleAndModifiers(t *testing.T) {
+	existing := &model.Activity{
+		SportTypeIsManual: true,
+	}
+	newData := &model.ActivityData{
+		SportType:  "cycling",
+		SubType:    "mountain",
+		IsElectric: true,
+		IsIndoor:   true,
+		IsVirtual:  true,
+	}
+
+	fields := buildReplaceFields(existing, newData)
+
+	for _, key := range []string{"sport_type", "sub_type", "is_electric", "is_indoor", "is_virtual", "exclude_from_heatmap"} {
+		if _, ok := fields[key]; ok {
+			t.Fatalf("%s must not be overwritten for manual sport decisions", key)
+		}
+	}
+	if fields["parsed_sport_type"] != "cycling" || fields["parsed_sub_type"] != "mountain" {
+		t.Fatalf("parsed tuple = %#v/%#v, want cycling/mountain import snapshot", fields["parsed_sport_type"], fields["parsed_sub_type"])
 	}
 }
 
@@ -125,5 +149,21 @@ func TestDuplicateSportUpdateFieldsRefinesTupleAndAdditiveModifiers(t *testing.T
 	}
 	if fields["exclude_from_heatmap"] != true {
 		t.Fatalf("exclude_from_heatmap update = %#v, want true", fields["exclude_from_heatmap"])
+	}
+}
+
+func TestDuplicateSportUpdateFieldsPreservesManualSportDecision(t *testing.T) {
+	existing := &model.Activity{SportType: "cycling", SportTypeIsManual: true}
+	newData := &model.ActivityData{
+		SportType:  "cycling",
+		SubType:    "mountain",
+		IsElectric: true,
+		IsVirtual:  true,
+	}
+
+	fields := duplicateSportUpdateFields(existing, newData)
+
+	if len(fields) != 0 {
+		t.Fatalf("duplicate sport update fields = %#v, want none for manual sport decision", fields)
 	}
 }
