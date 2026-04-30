@@ -49,14 +49,40 @@ def _segment_effort_insert_sql() -> str:
                 INSERT INTO segment_efforts
                     (activity_id, segment_id, segment_version_id, user_id,
                      started_at, elapsed_time_s, distance_m, elevation_gain_m,
-                     is_reverse, sport_type, sub_type)
+                     is_reverse, sport_type, sub_type, in_leaderboard)
                 SELECT $1, $2, $3, a.user_id, $4, $5,
                        ST_Length(sv.track::geometry::geography),
-                       $6, $7, a.sport_type, COALESCE(NULLIF(a.sub_type, ''), 'generic')
+                       $6, $7, a.sport_type, COALESCE(NULLIF(a.sub_type, ''), 'generic'), false
                 FROM segment_versions sv, activities a
                 WHERE sv.id = $3 AND a.id = $1
                 ON CONFLICT DO NOTHING
                 """
+
+
+def _osm_lift_candidates_sql() -> str:
+    return """
+            SELECT
+                l.id AS id, l.osm_id, l.name,
+                ST_Length(l.geom::geography) AS lift_length_m,
+                ST_HausdorffDistance(
+                    ST_Intersection(
+                        ST_Buffer(route.geom::geography, $2)::geometry,
+                        l.geom
+                    ),
+                    l.geom, 0.1
+                ) AS hausdorff_m,
+                ST_Length(
+                    ST_Intersection(
+                        ST_Buffer(route.geom::geography, $2)::geometry,
+                        l.geom
+                    )::geography
+                ) / NULLIF(ST_Length(l.geom::geography), 0) AS coverage_ratio,
+                degrees(ST_Azimuth(ST_StartPoint(l.geom), ST_EndPoint(l.geom))) AS lift_bearing
+            FROM osm_lifts l,
+                 (SELECT track_full AS geom FROM activity_tracks WHERE activity_id = $1) route
+            WHERE ST_DWithin(route.geom::geography, l.geom::geography, $3)
+            ORDER BY hausdorff_m
+            """
 
 
 async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> int:
@@ -98,29 +124,7 @@ async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
 
         # Methode A: OSM-Matching
         candidates = await conn.fetch(
-            """
-            SELECT
-                l.way_id AS id, l.osm_id, l.name,
-                ST_Length(l.geom::geography) AS lift_length_m,
-                ST_HausdorffDistance(
-                    ST_Intersection(
-                        ST_Buffer(route.geom::geography, $2)::geometry,
-                        l.geom
-                    ),
-                    l.geom, 0.1
-                ) AS hausdorff_m,
-                ST_Length(
-                    ST_Intersection(
-                        ST_Buffer(route.geom::geography, $2)::geometry,
-                        l.geom
-                    )::geography
-                ) / NULLIF(ST_Length(l.geom::geography), 0) AS coverage_ratio,
-                degrees(ST_Azimuth(ST_StartPoint(l.geom), ST_EndPoint(l.geom))) AS lift_bearing
-            FROM osm_lifts l,
-                 (SELECT track_full AS geom FROM activity_tracks WHERE activity_id = $1) route
-            WHERE ST_DWithin(route.geom::geography, l.geom::geography, $3)
-            ORDER BY hausdorff_m
-            """,
+            _osm_lift_candidates_sql(),
             activity_id, 30.0, float(PROXIMITY_M),
         )
 

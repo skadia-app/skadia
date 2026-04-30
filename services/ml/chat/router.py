@@ -94,12 +94,15 @@ DOMAIN_KEYWORDS: dict[str, set[str]] = {
         "landschaft", "gesehen", "steinbock", "murmeltier", "panorama",
     },
     "routing": {
-        "route", "routenplanung", "navigation", "wegpunkt",
-        "wanderung planen", "radtour planen", "tour planen",
+        "route", "routen", "routenplanung", "navigation", "wegpunkt",
+        "plane", "planen", "geplant", "wanderung planen", "radtour planen", "tour planen",
         "strecke", "weg", "pfad", "isochrone", "erreichbar",
         "wie komme ich", "kürzester weg", "schönste route", "rundtour",
         "schwierigkeit", "sac", "mtb skala", "steigung",
         "asphalt", "schotter", "profil", "gelände",
+        "e-bike", "ebike", "e bike", "electric", "elektrisch",
+        "indoor", "virtuell", "virtuelle", "virtual",
+        "pendelroute", "pendeln", "commute",
     },
 }
 

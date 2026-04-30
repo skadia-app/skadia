@@ -69,3 +69,17 @@ def test_max_two_domains():
 def test_sport_tuple_and_modifier_queries_route_to_activities(query):
     r = route_query(query, DEFAULT_PROFILES["small"])
     assert "activities" in r.domains
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Plane mir eine E-Bike Route",
+        "Plane eine Indoor-Rad Route",
+        "Plane eine virtuelle Route",
+        "Plane eine Pendelroute mit dem Fahrrad",
+    ],
+)
+def test_routing_modifier_queries_route_to_routing(query):
+    r = route_query(query, DEFAULT_PROFILES["small"])
+    assert "routing" in r.domains

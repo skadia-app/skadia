@@ -65,6 +65,38 @@ def test_schema_context_lists_all_activity_modifier_columns():
         assert column in SCHEMA_CONTEXT
 
 
+def test_schema_context_lists_segment_effort_distance_and_elevation():
+    from agent.sql_agent import SCHEMA_CONTEXT
+
+    segment_efforts_line = next(
+        line for line in SCHEMA_CONTEXT.splitlines()
+        if line.startswith("segment_efforts:")
+    )
+    assert "distance_m FLOAT8" in segment_efforts_line
+    assert "elevation_gain_m FLOAT8" in segment_efforts_line
+
+
+def test_reject_non_whitelisted_table():
+    ok, err = validate_sql("SELECT COUNT(*) FROM private_notes")
+    assert not ok
+    assert "Tabelle nicht erlaubt" in err
+
+
+def test_accept_whitelisted_lift_tables():
+    ok, err = validate_sql(
+        "SELECT COUNT(*) FROM segment_efforts se "
+        "JOIN activity_lift_candidates alc ON alc.activity_id = se.activity_id"
+    )
+    assert ok, err
+
+
+def test_accept_cte_backed_by_whitelisted_table():
+    ok, err = validate_sql(
+        "WITH recent AS (SELECT id FROM activities) SELECT COUNT(*) FROM recent"
+    )
+    assert ok, err
+
+
 def test_reject_user_id_filter():
     ok, err = validate_sql("SELECT COUNT(*) FROM activities WHERE user_id = :user_id")
     assert not ok
