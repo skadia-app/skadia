@@ -65,3 +65,7 @@ def test_ml_sport_enum_matches_backend_taxonomy():
     backend_sports = set(re.findall(r'SportType:\s+"([^"]+)"', taxonomy.read_text()))
 
     assert set(_SPORT_TYPES) == backend_sports
+
+
+def test_broad_canonical_sport_classes_remain_in_ml_enum():
+    assert {"skiing", "strength", "canoeing"} <= set(_SPORT_TYPES)
