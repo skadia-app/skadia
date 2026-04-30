@@ -18,6 +18,10 @@ interface Props {
   currentProfile: string
   currentSportType?: string
   currentSubType?: string | null
+  currentIsElectric?: boolean
+  currentIsIndoor?: boolean
+  currentIsVirtual?: boolean
+  currentIsCommute?: boolean
   /** When set: we are editing an existing route. Allows "save" + "save as new". */
   editingRouteId?: string | null
   /** Pre-fill metadata from the route being edited */
@@ -30,6 +34,42 @@ interface Props {
 
 type SaveMode = 'save' | 'save_as_new'
 
+export function buildRouteSavePayload({
+  metadata,
+  waypoints,
+  segments,
+}: {
+  metadata: RouteMetadataValues
+  waypoints: RouteWaypoint[]
+  segments: RouteSegment[]
+}): Partial<PlannedRoute> {
+  const combinedCoords = segments.flatMap((seg) => seg.geometry?.coordinates ?? [])
+  if (combinedCoords.length < 2) {
+    throw new Error('Die Route hat keine Geometrie. Bitte zuerst Wegpunkte setzen und eine Strecke berechnen lassen.')
+  }
+  const geometry_geojson = JSON.stringify({
+    type: 'LineString',
+    coordinates: combinedCoords,
+  })
+
+  return {
+    name: metadata.name.trim(),
+    description: metadata.description.trim() || undefined,
+    sport_type: metadata.sport_type,
+    sub_type: metadata.sub_type || null,
+    is_electric: metadata.is_electric,
+    is_indoor: metadata.is_indoor,
+    is_virtual: metadata.is_virtual,
+    is_commute: metadata.is_commute,
+    difficulty: metadata.difficulty.trim() || undefined,
+    auto_tag: metadata.auto_tag,
+    profile: metadata.profile_override,
+    waypoints,
+    segments,
+    geometry_geojson,
+  }
+}
+
 // ─── RouteSaveDialog ──────────────────────────────────────────────────────────
 
 export default function RouteSaveDialog({
@@ -38,6 +78,10 @@ export default function RouteSaveDialog({
   currentProfile,
   currentSportType,
   currentSubType,
+  currentIsElectric,
+  currentIsIndoor,
+  currentIsVirtual,
+  currentIsCommute,
   editingRouteId,
   existingRoute,
   onClose,
@@ -53,6 +97,10 @@ export default function RouteSaveDialog({
     description: existingRoute?.description ?? '',
     sport_type: existingRoute?.sport_type ?? currentSportType ?? 'hiking',
     sub_type: existingRoute?.sub_type ?? currentSubType ?? '',
+    is_electric: existingRoute?.is_electric ?? currentIsElectric ?? false,
+    is_indoor: existingRoute?.is_indoor ?? currentIsIndoor ?? false,
+    is_virtual: existingRoute?.is_virtual ?? currentIsVirtual ?? false,
+    is_commute: existingRoute?.is_commute ?? currentIsCommute ?? false,
     difficulty: existingRoute?.difficulty ?? '',
     tag_ids: existingRoute?.tags?.map((t) => t.id) ?? [],
     auto_tag: existingRoute?.auto_tag ?? true,
@@ -65,30 +113,7 @@ export default function RouteSaveDialog({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      // Build combined LineString geometry from all segments. Backend requires
-      // geometry_geojson (non-empty GeoJSON) — without it, ST_GeomFromGeoJSON('')
-      // fails with SQLSTATE XX000 "unexpected end of data".
-      const combinedCoords = segments.flatMap((seg) => seg.geometry?.coordinates ?? [])
-      if (combinedCoords.length < 2) {
-        throw new Error('Die Route hat keine Geometrie. Bitte zuerst Wegpunkte setzen und eine Strecke berechnen lassen.')
-      }
-      const geometry_geojson = JSON.stringify({
-        type: 'LineString',
-        coordinates: combinedCoords,
-      })
-
-      const payload: Partial<PlannedRoute> = {
-        name: metadata.name.trim(),
-        description: metadata.description.trim() || undefined,
-        sport_type: metadata.sport_type,
-        sub_type: metadata.sub_type || null,
-        difficulty: metadata.difficulty.trim() || undefined,
-        auto_tag: metadata.auto_tag,
-        profile: metadata.profile_override,
-        waypoints,
-        segments,
-        geometry_geojson,
-      }
+      const payload = buildRouteSavePayload({ metadata, waypoints, segments })
 
       let saved: PlannedRoute
 

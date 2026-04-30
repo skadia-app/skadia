@@ -54,6 +54,8 @@ func NormalizeSportTuple(sportType, subType string) (Tuple, ModifierPatch, error
 	}
 
 	switch {
+	case tuple.SportType == "cycling" && tuple.SubType == "indoor_cycling":
+		patch.IsIndoor = boolPtr(true)
 	case tuple.SportType == "running" && tuple.SubType == "treadmill":
 		patch.IsIndoor = boolPtr(true)
 	}

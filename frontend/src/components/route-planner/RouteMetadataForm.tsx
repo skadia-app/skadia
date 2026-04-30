@@ -23,6 +23,10 @@ export interface RouteMetadataValues {
   description: string
   sport_type: string
   sub_type: string
+  is_electric: boolean
+  is_indoor: boolean
+  is_virtual: boolean
+  is_commute: boolean
   difficulty: string
   tag_ids: string[]
   auto_tag: boolean
@@ -165,6 +169,10 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
   const [description, setDescription] = useState(initialValues?.description ?? '')
   const [sportType, setSportType] = useState(initialValues?.sport_type ?? 'hiking')
   const [subType, setSubType] = useState(initialValues?.sub_type ?? '')
+  const [isElectric, setIsElectric] = useState(initialValues?.is_electric ?? false)
+  const [isIndoor, setIsIndoor] = useState(initialValues?.is_indoor ?? false)
+  const [isVirtual, setIsVirtual] = useState(initialValues?.is_virtual ?? false)
+  const [isCommute, setIsCommute] = useState(initialValues?.is_commute ?? false)
   const [difficulty, setDifficulty] = useState(initialValues?.difficulty ?? '')
   const [tagIds, setTagIds] = useState<string[]>(initialValues?.tag_ids ?? [])
   const [autoTag, setAutoTag] = useState(initialValues?.auto_tag ?? true)
@@ -178,6 +186,10 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
       description,
       sport_type: sportType,
       sub_type: subType,
+      is_electric: isElectric,
+      is_indoor: isIndoor,
+      is_virtual: isVirtual,
+      is_commute: isCommute,
       difficulty,
       tag_ids: tagIds,
       auto_tag: autoTag,
@@ -190,6 +202,17 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
     'w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent'
 
   const labelClass = 'block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1'
+  const modifierControls: Array<{
+    key: keyof Pick<RouteMetadataValues, 'is_electric' | 'is_indoor' | 'is_virtual' | 'is_commute'>
+    label: string
+    checked: boolean
+    setChecked: (value: boolean) => void
+  }> = [
+    { key: 'is_electric', label: 'E-Bike', checked: isElectric, setChecked: setIsElectric },
+    { key: 'is_indoor', label: 'Indoor', checked: isIndoor, setChecked: setIsIndoor },
+    { key: 'is_virtual', label: 'Virtuell', checked: isVirtual, setChecked: setIsVirtual },
+    { key: 'is_commute', label: 'Pendeln', checked: isCommute, setChecked: setIsCommute },
+  ]
 
   return (
     <div className="space-y-4">
@@ -256,6 +279,27 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
             className={inputClass}
           />
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {modifierControls.map(({ key, label, checked, setChecked }) => (
+          <label key={key} className="flex items-center justify-between gap-3 cursor-pointer select-none rounded-md border border-neutral-200 dark:border-neutral-800 px-3 py-2">
+            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{label}</span>
+            <div className="relative flex-shrink-0">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => {
+                  setChecked(e.target.checked)
+                  notify({ [key]: e.target.checked })
+                }}
+                className="sr-only peer"
+              />
+              <div className="w-9 h-5 rounded-full bg-neutral-300 dark:bg-neutral-700 peer-checked:bg-accent-DEFAULT transition-colors" />
+              <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+            </div>
+          </label>
+        ))}
       </div>
 
       {/* Tags multi-select */}

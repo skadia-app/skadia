@@ -75,7 +75,7 @@ func TestFitSportToSportType(t *testing.T) {
 		{typedef.SportSwimming, typedef.SubSportGeneric, "swimming", ""},
 		{typedef.SportAlpineSkiing, typedef.SubSportGeneric, "alpine_skiing", ""},
 		{typedef.SportCrossCountrySkiing, typedef.SubSportGeneric, "cross_country_skiing", ""},
-		{typedef.SportPaddling, typedef.SubSportGeneric, "kayaking", ""},
+		{typedef.SportPaddling, typedef.SubSportGeneric, "paddling", ""},
 		{typedef.SportRowing, typedef.SubSportGeneric, "rowing", ""},
 		{typedef.SportInvalid, typedef.SubSportGeneric, "generic", ""}, // unknown -> generic
 		{typedef.Sport(255), typedef.SubSportGeneric, "generic", ""},   // unknown -> generic

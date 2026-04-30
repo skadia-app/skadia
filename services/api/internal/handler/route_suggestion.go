@@ -57,16 +57,14 @@ func routingProfileMatchesSuggestionRequestWithFilters(profile database.RoutingP
 		return false
 	}
 
+	state := sport.ActivityModifierState{}
 	if req.Modifiers != nil {
-		state := sport.ActivityModifierState{
-			IsElectric: boolPtrValue(req.Modifiers.IsElectric),
-			IsIndoor:   boolPtrValue(req.Modifiers.IsIndoor),
-			IsVirtual:  boolPtrValue(req.Modifiers.IsVirtual),
-			IsCommute:  boolPtrValue(req.Modifiers.IsCommute),
-		}
-		return sport.ModifiersMatch(filters, state)
+		state.IsElectric = boolPtrValue(req.Modifiers.IsElectric)
+		state.IsIndoor = boolPtrValue(req.Modifiers.IsIndoor)
+		state.IsVirtual = boolPtrValue(req.Modifiers.IsVirtual)
+		state.IsCommute = boolPtrValue(req.Modifiers.IsCommute)
 	}
-	return true
+	return sport.ModifiersMatch(filters, state)
 }
 
 func builtinProfileMatchesSuggestionRequest(profileName string, req RouteSuggestionRequest) bool {
@@ -335,7 +333,11 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 
 	// If profile not in system defaults, try loading custom profile from DB.
 	if mappedProfile == "" {
-		customProfile, dbErr := h.DB.GetRoutingProfileByNameOrGlobal(r.Context(), userID, req.Profile)
+		var customProfile *database.RoutingProfile
+		var dbErr error
+		if h.DB != nil {
+			customProfile, dbErr = h.DB.GetRoutingProfileByNameOrGlobal(r.Context(), userID, req.Profile)
+		}
 		if dbErr == nil && customProfile != nil {
 			if !req.ProfileSportOverride && !routingProfileMatchesSuggestionRequest(*customProfile, req) {
 				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "profile does not match requested sport tuple", r.URL.Path)
@@ -345,8 +347,8 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 			profileCfg.Profile = customProfile.BaseProfile
 			mappedProfile = customProfile.BaseProfile
 		} else {
-			mappedProfile = "hiking" // fallback
-			profileCfg.Profile = "hiking"
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown routing profile", r.URL.Path)
+			return
 		}
 	}
 
