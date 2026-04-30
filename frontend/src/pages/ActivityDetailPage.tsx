@@ -80,7 +80,7 @@ import { normalizeSportTuple } from '@/lib/sportTaxonomy'
 function getSportEmoji(sportType: string): string {
   const normalized = normalizeSportTuple(sportType)
   const map: Record<string, string> = {
-    swimming: '🏊', open_water_swimming: '🏊',
+    swimming: '🏊',
     cycling: '🚴',
     running: '🏃',
     transition: '⚡',
