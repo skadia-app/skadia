@@ -55,16 +55,17 @@ def test_max_two_domains():
     assert len(r.domains) <= 2
 
 
-def test_sport_tuple_and_modifier_queries_route_to_activities():
-    queries = [
+@pytest.mark.parametrize(
+    "query",
+    [
         "Zeig mir meine E-Bike Touren",
         "Wie oft war ich indoor Radfahren?",
         "Liste meine virtuellen Fahrten",
         "Welche Pendelaktivitäten waren mit dem Rad?",
         "Wie viele Gravel Touren hatte ich?",
         "Zeig mir Trail Runs",
-    ]
-
-    for query in queries:
-        r = route_query(query, DEFAULT_PROFILES["small"])
-        assert "activities" in r.domains, query
+    ],
+)
+def test_sport_tuple_and_modifier_queries_route_to_activities(query):
+    r = route_query(query, DEFAULT_PROFILES["small"])
+    assert "activities" in r.domains
