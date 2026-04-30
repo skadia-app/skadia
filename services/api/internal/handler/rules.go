@@ -65,6 +65,10 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to validate rule actions", r.URL.Path)
 		return
 	}
+	if err := rewriteCreateRuleSportTaxonomy(&create); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 	if create.Actions, err = rules.NormalizeRuleActions(create.Actions, tagNames); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
@@ -101,6 +105,10 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to validate rule actions", r.URL.Path)
 		return
 	}
+	if err := rewriteUpdateRuleSportTaxonomy(&update); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 	if update.Actions != nil {
 		normalized, err := rules.NormalizeRuleActions(*update.Actions, tagNames)
 		if err != nil {
@@ -132,6 +140,51 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, rule)
+}
+
+func rewriteCreateRuleSportTaxonomy(create *model.AutomationRuleCreate) error {
+	rewritten, _, err := rules.RewriteSportTaxonomyRuleJSON(rules.SportTaxonomyRuleJSON{
+		Conditions:      create.Conditions,
+		ConditionGroups: create.ConditionGroups,
+		Branches:        create.Branches,
+		Actions:         create.Actions,
+	})
+	if err != nil {
+		return err
+	}
+	create.Conditions = rewritten.Conditions
+	create.ConditionGroups = rewritten.ConditionGroups
+	create.Branches = rewritten.Branches
+	create.Actions = rewritten.Actions
+	return nil
+}
+
+func rewriteUpdateRuleSportTaxonomy(update *model.AutomationRuleUpdate) error {
+	input := rules.SportTaxonomyRuleJSON{Branches: update.Branches}
+	if update.Conditions != nil {
+		input.Conditions = *update.Conditions
+	}
+	if update.ConditionGroups != nil {
+		input.ConditionGroups = *update.ConditionGroups
+	}
+	if update.Actions != nil {
+		input.Actions = *update.Actions
+	}
+	rewritten, _, err := rules.RewriteSportTaxonomyRuleJSON(input)
+	if err != nil {
+		return err
+	}
+	if update.Conditions != nil {
+		*update.Conditions = rewritten.Conditions
+	}
+	if update.ConditionGroups != nil {
+		*update.ConditionGroups = rewritten.ConditionGroups
+	}
+	if update.Actions != nil {
+		*update.Actions = rewritten.Actions
+	}
+	update.Branches = rewritten.Branches
+	return nil
 }
 
 func (h *Handler) ruleTagNames(ctx context.Context, userID string) (map[string]string, error) {

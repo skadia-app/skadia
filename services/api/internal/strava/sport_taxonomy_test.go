@@ -33,7 +33,7 @@ func TestNormalizeStravaSportFields(t *testing.T) {
 			name:        "treadmill",
 			input:       "Treadmill",
 			wantSport:   "running",
-			wantSubType: "indoor_running",
+			wantSubType: "treadmill",
 			wantIndoor:  true,
 		},
 		{

@@ -198,7 +198,7 @@ func predicateMatches(pred Predicate, tuple Tuple) bool {
 }
 
 func validatePredicateSubType(sportType, subType string) error {
-	if subType == "" || subType == "generic" {
+	if subType == "" {
 		return nil
 	}
 	def, ok := registry[sportType]

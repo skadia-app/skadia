@@ -26,17 +26,29 @@ func TestNormalizeSportTuple(t *testing.T) {
 			wantElectric: &trueValue,
 		},
 		{
-			name:       "treadmill running maps to indoor running modifier",
+			name:       "treadmill running maps to treadmill modifier",
 			sportType:  "treadmill_running",
-			wantTuple:  Tuple{SportType: "running", SubType: "indoor_running"},
+			wantTuple:  Tuple{SportType: "running", SubType: "treadmill"},
 			wantIndoor: &trueValue,
 		},
 		{
-			name:       "explicit treadmill running subtype is canonicalized",
+			name:       "explicit treadmill running subtype stays precise",
 			sportType:  "running",
 			subType:    "treadmill",
-			wantTuple:  Tuple{SportType: "running", SubType: "indoor_running"},
+			wantTuple:  Tuple{SportType: "running", SubType: "treadmill"},
 			wantIndoor: &trueValue,
+		},
+		{
+			name:      "generic subtype clears to no subtype",
+			sportType: "cycling",
+			subType:   "generic",
+			wantTuple: Tuple{SportType: "cycling"},
+		},
+		{
+			name:         "electric generic bike maps to broad electric cycling",
+			sportType:    "e_bike",
+			wantTuple:    Tuple{SportType: "cycling"},
+			wantElectric: &trueValue,
 		},
 		{
 			name:      "road cycling maps to cycling road",
@@ -78,6 +90,19 @@ func TestNormalizeSportTuple(t *testing.T) {
 			assertBoolPatch(t, "IsElectric", gotPatch.IsElectric, tt.wantElectric)
 			assertBoolPatch(t, "IsIndoor", gotPatch.IsIndoor, tt.wantIndoor)
 		})
+	}
+}
+
+func TestNormalizeSportTupleForImportDropsDeviceModeSubTypes(t *testing.T) {
+	gotTuple, gotPatch, err := NormalizeSportTupleForImport("cycling", "commuting")
+	if err != nil {
+		t.Fatalf("NormalizeSportTupleForImport: %v", err)
+	}
+	if gotTuple != (Tuple{SportType: "cycling"}) {
+		t.Fatalf("tuple = %#v, want broad cycling", gotTuple)
+	}
+	if gotPatch.IsElectric != nil || gotPatch.IsIndoor != nil {
+		t.Fatalf("patch = %#v, want empty", gotPatch)
 	}
 }
 

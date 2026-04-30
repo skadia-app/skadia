@@ -689,8 +689,7 @@ func IsIndoor(sportType, subType string) bool {
 	}
 	return strings.HasPrefix(subType, "indoor_") ||
 		subType == "treadmill" ||
-		subType == "spin" ||
-		subType == "lap_swimming"
+		subType == "spin"
 }
 
 func subTypeLabelCanStandAlone(d SportDef) bool {

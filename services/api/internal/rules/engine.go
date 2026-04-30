@@ -564,6 +564,8 @@ type actionParams struct {
 	Intensity  string   `json:"intensity"`
 	Indoor     bool     `json:"indoor"`
 	Electric   bool     `json:"electric"`
+	Virtual    bool     `json:"virtual"`
+	Commute    bool     `json:"commute"`
 	Field      string   `json:"field"`
 	Value      any      `json:"value"`
 	URL        string   `json:"url,omitempty"`
@@ -610,11 +612,15 @@ func Apply(actions []Action) []ActivityChange {
 			changes = append(changes, ActivityChange{Field: "is_indoor", Value: p.Indoor})
 		case "set_electric":
 			changes = append(changes, ActivityChange{Field: "is_electric", Value: p.Electric})
+		case "set_virtual":
+			changes = append(changes, ActivityChange{Field: "is_virtual", Value: p.Virtual})
+		case "set_commute":
+			changes = append(changes, ActivityChange{Field: "is_commute", Value: p.Commute})
 		case "set_field":
 			if p.Field != "" {
-				// Whitelist: nur erlaubte Felder
+				// Only explicitly supported activity fields may be written.
 				switch p.Field {
-				case "is_round_trip", "is_indoor", "exclude_from_stats", "exclude_from_heatmap", "hide_map":
+				case "is_round_trip", "is_indoor", "is_electric", "is_virtual", "is_commute", "exclude_from_stats", "exclude_from_heatmap", "hide_map":
 					changes = append(changes, ActivityChange{Field: p.Field, Value: p.Value})
 				}
 			}

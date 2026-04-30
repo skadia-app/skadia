@@ -9,14 +9,17 @@ type ruleActionMap map[string]any
 
 type systemModifier struct {
 	Action    string
+	Field     string
 	Param     string
 	TagName   string
 	HumanName string
 }
 
 var systemModifiers = []systemModifier{
-	{Action: "set_electric", Param: "electric", TagName: "E-Bike", HumanName: "E-Bike"},
-	{Action: "set_indoor", Param: "indoor", TagName: "Indoor", HumanName: "Indoor"},
+	{Action: "set_electric", Field: "is_electric", Param: "electric", TagName: "E-Bike", HumanName: "E-Bike"},
+	{Action: "set_indoor", Field: "is_indoor", Param: "indoor", TagName: "Indoor", HumanName: "Indoor"},
+	{Action: "set_virtual", Field: "is_virtual", Param: "virtual", TagName: "virtuell", HumanName: "Virtuell"},
+	{Action: "set_commute", Field: "is_commute", Param: "commute", TagName: "Pendeln", HumanName: "Pendeln"},
 }
 
 // NormalizeRuleActions validates and normalizes an automation-rule action array.
@@ -86,12 +89,14 @@ func normalizeActionMaps(actions []ruleActionMap, tagNameByID map[string]string)
 
 	for _, action := range actions {
 		actionName, _ := action["action"].(string)
-		if modifier, ok := modifierForAction(actionName); ok {
-			value := actionBoolParam(action, modifier.Param, true)
+		if modifier, stateKey, value, ok := modifierWriteFromAction(action); ok {
+			if state := states[stateKey]; state.seen && state.value != value {
+				return nil, fmt.Errorf("conflicting writes to %s", stateKey)
+			}
 			if err := validateModifierAgainstExistingTags(modifier, value, out, tagNameByID); err != nil {
 				return nil, err
 			}
-			states[modifier.Action] = modifierState{seen: true, value: value}
+			states[stateKey] = modifierState{seen: true, value: value}
 			if value {
 				out = removeSystemTagActions(out, modifier.TagName, tagNameByID, "add_tag")
 			}
@@ -107,6 +112,9 @@ func normalizeActionMaps(actions []ruleActionMap, tagNameByID map[string]string)
 						continue
 					}
 					state := states[modifier.Action]
+					if !state.seen {
+						state = states[modifier.Field]
+					}
 					if actionName == "add_tag" && state.seen && state.value {
 						goto skipAction
 					}
@@ -134,6 +142,36 @@ func modifierForAction(action string) (systemModifier, bool) {
 		}
 	}
 	return systemModifier{}, false
+}
+
+func modifierForField(field string) (systemModifier, bool) {
+	for _, modifier := range systemModifiers {
+		if modifier.Field == field {
+			return modifier, true
+		}
+	}
+	return systemModifier{}, false
+}
+
+func modifierWriteFromAction(action ruleActionMap) (systemModifier, string, bool, bool) {
+	actionName, _ := action["action"].(string)
+	if modifier, ok := modifierForAction(actionName); ok {
+		return modifier, modifier.Field, actionBoolParam(action, modifier.Param, true), true
+	}
+	if actionName != "set_field" {
+		return systemModifier{}, "", false, false
+	}
+	params, _ := action["params"].(map[string]any)
+	if params == nil {
+		return systemModifier{}, "", false, false
+	}
+	field, _ := params["field"].(string)
+	modifier, ok := modifierForField(field)
+	if !ok {
+		return systemModifier{}, "", false, false
+	}
+	value, ok := params["value"].(bool)
+	return modifier, field, value, ok
 }
 
 func actionBoolParam(action ruleActionMap, param string, fallback bool) bool {

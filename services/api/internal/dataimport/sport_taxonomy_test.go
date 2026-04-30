@@ -23,8 +23,8 @@ func TestNormalizeSportTaxonomyImportRowActivities(t *testing.T) {
 	if got["sport_type"] != "cycling" || got["sub_type"] != "mountain" {
 		t.Fatalf("sport tuple: got (%#v, %#v), want (cycling, mountain)", got["sport_type"], got["sub_type"])
 	}
-	if got["parsed_sport_type"] != "running" || got["parsed_sub_type"] != "indoor_running" {
-		t.Fatalf("parsed tuple: got (%#v, %#v), want (running, indoor_running)", got["parsed_sport_type"], got["parsed_sub_type"])
+	if got["parsed_sport_type"] != "running" || got["parsed_sub_type"] != "treadmill" {
+		t.Fatalf("parsed tuple: got (%#v, %#v), want (running, treadmill)", got["parsed_sport_type"], got["parsed_sub_type"])
 	}
 	if got["is_electric"] != true {
 		t.Fatalf("is_electric should preserve true, got %#v", got["is_electric"])

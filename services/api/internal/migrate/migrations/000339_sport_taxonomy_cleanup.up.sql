@@ -15,6 +15,8 @@
 -- - Modifier tag synchronization is owned by existing triggers; this migration
 --   updates modifier columns only.
 
+SELECT pg_advisory_xact_lock(330339, 1);
+
 CREATE OR REPLACE FUNCTION fp_sport_taxonomy_normalize(in_sport TEXT, in_sub_type TEXT)
 RETURNS TABLE(sport_type TEXT, sub_type TEXT, is_indoor BOOLEAN, is_electric BOOLEAN)
 LANGUAGE plpgsql
@@ -36,14 +38,14 @@ BEGIN
         WHEN 'gravel_cycling' THEN sport_type := 'cycling'; sub_type := 'gravel_cycling';
         WHEN 'indoor_cycling' THEN sport_type := 'cycling'; sub_type := 'indoor_cycling'; is_indoor := true;
         WHEN 'trail_running' THEN sport_type := 'running'; sub_type := 'trail';
-        WHEN 'treadmill_running' THEN sport_type := 'running'; sub_type := 'indoor_running'; is_indoor := true;
-        WHEN 'lap_swimming' THEN sport_type := 'swimming'; sub_type := 'lap_swimming'; is_indoor := true;
+        WHEN 'treadmill_running' THEN sport_type := 'running'; sub_type := 'treadmill'; is_indoor := true;
+        WHEN 'lap_swimming' THEN sport_type := 'swimming'; sub_type := 'lap_swimming';
         WHEN 'open_water_swimming' THEN sport_type := 'swimming'; sub_type := 'open_water';
         WHEN 'road_cycling' THEN sport_type := 'cycling'; sub_type := 'road';
         WHEN 'roadcycling' THEN sport_type := 'cycling'; sub_type := 'road';
         WHEN 'e_mountain_biking' THEN sport_type := 'cycling'; sub_type := 'mountain'; is_electric := true;
-        WHEN 'e_biking' THEN sport_type := 'cycling'; sub_type := 'generic'; is_electric := true;
-        WHEN 'e_bike' THEN sport_type := 'cycling'; sub_type := 'generic'; is_electric := true;
+        WHEN 'e_biking' THEN sport_type := 'cycling'; sub_type := ''; is_electric := true;
+        WHEN 'e_bike' THEN sport_type := 'cycling'; sub_type := ''; is_electric := true;
         ELSE
             sport_type := raw_sport;
             sub_type := raw_sub_type;
@@ -59,8 +61,11 @@ BEGIN
         sub_type := raw_sub_type;
     END IF;
 
+    IF sub_type = 'generic' THEN
+        sub_type := '';
+    END IF;
+
     IF sport_type = 'running' AND sub_type = 'treadmill' THEN
-        sub_type := 'indoor_running';
         is_indoor := true;
     END IF;
 
@@ -161,7 +166,7 @@ SELECT
                 AND (
                     jsonb_typeof(pred->'sub_type') <> 'string'
                     OR NOT (
-                        pred->>'sub_type' IN ('', 'generic')
+                        pred->>'sub_type' = ''
                         OR EXISTS (
                             SELECT 1
                             FROM allowed_subtypes st
@@ -246,9 +251,9 @@ SELECT CASE base_profile
     WHEN 'gravel' THEN
         '[{"sport":"cycling","sub_type":"gravel_cycling"}]'::jsonb
     WHEN 'trekking' THEN
-        '[{"sport":"cycling","sub_type":""},{"sport":"cycling","sub_type":"generic"},{"sport":"cycling","sub_type":"road"},{"sport":"cycling","sub_type":"mixed_surface"}]'::jsonb
+        '[{"sport":"cycling","sub_type":""},{"sport":"cycling","sub_type":"road"},{"sport":"cycling","sub_type":"mixed_surface"}]'::jsonb
     WHEN 'road' THEN
-        '[{"sport":"cycling","sub_type":""},{"sport":"cycling","sub_type":"generic"},{"sport":"cycling","sub_type":"road"},{"sport":"cycling","sub_type":"gravel_cycling"}]'::jsonb
+        '[{"sport":"cycling","sub_type":""},{"sport":"cycling","sub_type":"road"},{"sport":"cycling","sub_type":"gravel_cycling"}]'::jsonb
     ELSE '[]'::jsonb
 END;
 $$;
@@ -345,7 +350,8 @@ DECLARE
     new_params JSONB;
     new_action JSONB;
     modifier_field TEXT;
-    modifier_writes TEXT[] := ARRAY[]::text[];
+    modifier_value BOOLEAN;
+    modifier_writes JSONB := '{}'::jsonb;
 BEGIN
     IF actions IS NULL OR jsonb_typeof(actions) <> 'array' THEN
         RETURN actions;
@@ -353,20 +359,45 @@ BEGIN
 
     FOR action_item IN SELECT value FROM jsonb_array_elements(actions) LOOP
         action_name := COALESCE(action_item->>'action', action_item->>'type');
+        IF action_name = 'set_field' AND action_item->'params'->>'field' = 'sport_type' THEN
+            raw_sport := action_item->'params'->>'value';
+            IF raw_sport IS NULL OR raw_sport = '' THEN
+                RAISE EXCEPTION '%: set_field sport_type value must be a string', surface;
+            END IF;
+            action_item := jsonb_build_object(
+                'action', 'set_sport_type',
+                'params', jsonb_build_object('sport_type', raw_sport)
+            );
+            action_name := 'set_sport_type';
+        END IF;
+
         IF action_name IS DISTINCT FROM 'set_sport_type' THEN
             modifier_field := NULL;
+            modifier_value := NULL;
             IF action_name = 'set_electric' THEN
                 modifier_field := 'is_electric';
+                modifier_value := COALESCE((action_item->'params'->>'electric')::boolean, true);
             ELSIF action_name = 'set_indoor' THEN
                 modifier_field := 'is_indoor';
-            ELSIF action_name = 'set_field' AND action_item->'params'->>'field' IN ('is_electric', 'is_indoor') THEN
+                modifier_value := COALESCE((action_item->'params'->>'indoor')::boolean, true);
+            ELSIF action_name = 'set_virtual' THEN
+                modifier_field := 'is_virtual';
+                modifier_value := COALESCE((action_item->'params'->>'virtual')::boolean, true);
+            ELSIF action_name = 'set_commute' THEN
+                modifier_field := 'is_commute';
+                modifier_value := COALESCE((action_item->'params'->>'commute')::boolean, true);
+            ELSIF action_name = 'set_field' AND action_item->'params'->>'field' IN ('is_electric', 'is_indoor', 'is_virtual', 'is_commute') THEN
                 modifier_field := action_item->'params'->>'field';
+                modifier_value := (action_item->'params'->>'value')::boolean;
             END IF;
             IF modifier_field IS NOT NULL THEN
-                IF modifier_field = ANY(modifier_writes) THEN
-                    RAISE EXCEPTION '%: multiple writes to %', surface, modifier_field;
+                IF modifier_writes ? modifier_field THEN
+                    IF (modifier_writes->>modifier_field)::boolean IS DISTINCT FROM modifier_value THEN
+                        RAISE EXCEPTION '%: conflicting writes to %', surface, modifier_field;
+                    END IF;
+                ELSE
+                    modifier_writes := modifier_writes || jsonb_build_object(modifier_field, modifier_value);
                 END IF;
-                modifier_writes := array_append(modifier_writes, modifier_field);
             END IF;
             out := out || jsonb_build_array(action_item);
             CONTINUE;
@@ -389,18 +420,24 @@ BEGIN
         out := out || jsonb_build_array(new_action);
 
         IF n.is_electric THEN
-            IF 'is_electric' = ANY(modifier_writes) THEN
-                RAISE EXCEPTION '%: multiple writes to is_electric', surface;
+            IF modifier_writes ? 'is_electric' THEN
+                IF (modifier_writes->>'is_electric')::boolean IS DISTINCT FROM true THEN
+                    RAISE EXCEPTION '%: conflicting writes to is_electric', surface;
+                END IF;
+            ELSE
+                modifier_writes := modifier_writes || jsonb_build_object('is_electric', true);
+                out := out || jsonb_build_array(jsonb_build_object('action', 'set_electric', 'params', jsonb_build_object('electric', true)));
             END IF;
-            modifier_writes := array_append(modifier_writes, 'is_electric');
-            out := out || jsonb_build_array(jsonb_build_object('action', 'set_electric', 'params', jsonb_build_object('electric', true)));
         END IF;
         IF n.is_indoor THEN
-            IF 'is_indoor' = ANY(modifier_writes) THEN
-                RAISE EXCEPTION '%: multiple writes to is_indoor', surface;
+            IF modifier_writes ? 'is_indoor' THEN
+                IF (modifier_writes->>'is_indoor')::boolean IS DISTINCT FROM true THEN
+                    RAISE EXCEPTION '%: conflicting writes to is_indoor', surface;
+                END IF;
+            ELSE
+                modifier_writes := modifier_writes || jsonb_build_object('is_indoor', true);
+                out := out || jsonb_build_array(jsonb_build_object('action', 'set_indoor', 'params', jsonb_build_object('indoor', true)));
             END IF;
-            modifier_writes := array_append(modifier_writes, 'is_indoor');
-            out := out || jsonb_build_array(jsonb_build_object('action', 'set_indoor', 'params', jsonb_build_object('indoor', true)));
         END IF;
     END LOOP;
 
@@ -739,27 +776,10 @@ ALTER TABLE planned_routes VALIDATE CONSTRAINT planned_routes_sport_tuple_valid;
 ALTER TABLE activities
     DROP CONSTRAINT IF EXISTS activities_sport_type_canonical,
     ADD CONSTRAINT activities_sport_type_canonical CHECK (
-        sport_type IN (
-            'alpine_skiing', 'american_football', 'backcountry_skiing',
-            'baseball', 'basketball', 'boating', 'boxing', 'canoeing',
-            'cricket', 'cross_country_skiing', 'cycling', 'dance',
-            'disc_golf', 'diving', 'driving', 'fishing',
-            'fitness_equipment', 'floor_climbing', 'flying', 'generic',
-            'golf', 'hang_gliding', 'hiit', 'hiking', 'hockey',
-            'horseback_riding', 'hunting', 'ice_skating', 'inline_skating',
-            'jump_rope', 'jumpmaster', 'kayaking', 'kitesurfing',
-            'lacrosse', 'meditation', 'mixed_martial_arts', 'motorcycling',
-            'mountaineering', 'multisport', 'paddling', 'pilates',
-            'racket', 'rafting', 'rock_climbing', 'rowing', 'rugby',
-            'running', 'sailing', 'skiing', 'sky_diving', 'sledding',
-            'snorkeling', 'snowboarding', 'snowmobiling', 'snowshoeing',
-            'soccer', 'stand_up_paddleboarding', 'strength',
-            'strength_training', 'surfing', 'swimming', 'tactical',
-            'tennis', 'training', 'transition', 'unknown', 'volleyball',
-            'wakeboarding', 'wakesurfing', 'walking', 'water_skiing',
-            'water_tubing', 'wheelchair_push_run', 'wheelchair_push_walk',
-            'windsurfing', 'yoga'
-        )
+        fn_validate_predicates(jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+            'sport', sport_type,
+            'sub_type', sub_type
+        ))))
     ) NOT VALID;
 
 ALTER TABLE activities VALIDATE CONSTRAINT activities_sport_type_canonical;

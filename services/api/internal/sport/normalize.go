@@ -28,14 +28,14 @@ var legacySportAliases = map[string]legacySportAlias{
 	"gravel_cycling":      {tuple: Tuple{SportType: "cycling", SubType: "gravel_cycling"}},
 	"indoor_cycling":      {tuple: Tuple{SportType: "cycling", SubType: "indoor_cycling"}, patch: ModifierPatch{IsIndoor: boolPtr(true)}},
 	"trail_running":       {tuple: Tuple{SportType: "running", SubType: "trail"}},
-	"treadmill_running":   {tuple: Tuple{SportType: "running", SubType: "indoor_running"}, patch: ModifierPatch{IsIndoor: boolPtr(true)}},
-	"lap_swimming":        {tuple: Tuple{SportType: "swimming", SubType: "lap_swimming"}, patch: ModifierPatch{IsIndoor: boolPtr(true)}},
+	"treadmill_running":   {tuple: Tuple{SportType: "running", SubType: "treadmill"}, patch: ModifierPatch{IsIndoor: boolPtr(true)}},
+	"lap_swimming":        {tuple: Tuple{SportType: "swimming", SubType: "lap_swimming"}},
 	"open_water_swimming": {tuple: Tuple{SportType: "swimming", SubType: "open_water"}},
 	"road_cycling":        {tuple: Tuple{SportType: "cycling", SubType: "road"}},
 	"roadcycling":         {tuple: Tuple{SportType: "cycling", SubType: "road"}},
 	"e_mountain_biking":   {tuple: Tuple{SportType: "cycling", SubType: "mountain"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
-	"e_biking":            {tuple: Tuple{SportType: "cycling", SubType: "generic"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
-	"e_bike":              {tuple: Tuple{SportType: "cycling", SubType: "generic"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
+	"e_biking":            {tuple: Tuple{SportType: "cycling"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
+	"e_bike":              {tuple: Tuple{SportType: "cycling"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
 }
 
 func NormalizeSportTuple(sportType, subType string) (Tuple, ModifierPatch, error) {
@@ -55,8 +55,10 @@ func NormalizeSportTuple(sportType, subType string) (Tuple, ModifierPatch, error
 
 	switch {
 	case tuple.SportType == "running" && tuple.SubType == "treadmill":
-		tuple.SubType = "indoor_running"
 		patch.IsIndoor = boolPtr(true)
+	}
+	if tuple.SubType == "generic" {
+		tuple.SubType = ""
 	}
 
 	def, ok := registry[tuple.SportType]
@@ -70,6 +72,22 @@ func NormalizeSportTuple(sportType, subType string) (Tuple, ModifierPatch, error
 		return Tuple{}, ModifierPatch{}, fmt.Errorf("unknown sub_type %q for sport_type %q", tuple.SubType, tuple.SportType)
 	}
 	return tuple, patch, nil
+}
+
+// NormalizeSportTupleForImport normalizes importer-provided sport fields while
+// dropping device-specific sub-sport modes that are not canonical taxonomy
+// subtypes. User-authored APIs should use NormalizeSportTuple instead so invalid
+// subtypes fail loudly.
+func NormalizeSportTupleForImport(sportType, subType string) (Tuple, ModifierPatch, error) {
+	tuple, patch, err := NormalizeSportTuple(sportType, subType)
+	if err == nil {
+		return tuple, patch, nil
+	}
+	fallbackTuple, fallbackPatch, fallbackErr := NormalizeSportTuple(sportType, "")
+	if fallbackErr != nil {
+		return Tuple{}, ModifierPatch{}, err
+	}
+	return fallbackTuple, mergeModifierPatch(fallbackPatch, patch), nil
 }
 
 func mergeModifierPatch(a, b ModifierPatch) ModifierPatch {

@@ -33,6 +33,7 @@ func TestMigration000339SQLFilesDeclareRequiredContracts(t *testing.T) {
 	upSQL, downSQL, preflightSQL := readMigration000339SQL(t)
 
 	requiredUp := []string{
+		"SELECT pg_advisory_xact_lock(330339, 1)",
 		"CREATE OR REPLACE FUNCTION fn_validate_predicates",
 		"ALTER TABLE routing_profiles",
 		"ADD COLUMN IF NOT EXISTS predicates JSONB NOT NULL DEFAULT '[]'::jsonb",
@@ -63,6 +64,8 @@ func TestMigration000339SQLFilesDeclareRequiredContracts(t *testing.T) {
 		"e_mountain_biking",
 		"e_biking",
 		"e_bike",
+		"set_field",
+		"is_commute",
 	}
 	for _, needle := range requiredUp {
 		if !strings.Contains(upSQL, needle) {
@@ -229,7 +232,7 @@ func TestMigration000339AppliesAndNormalizesFixtures(t *testing.T) {
 	`, activityID).Scan(&sportType, &subType, &parsedSportType, &parsedSubType, &indoor, &electric); err != nil {
 		t.Fatalf("query activity: %v", err)
 	}
-	if sportType != "cycling" || subType != "mountain" || parsedSportType != "running" || parsedSubType != "indoor_running" || !indoor || !electric {
+	if sportType != "cycling" || subType != "mountain" || parsedSportType != "running" || parsedSubType != "treadmill" || !indoor || !electric {
 		t.Fatalf("activity tuple = (%s,%s), parsed=(%s,%s), indoor=%v electric=%v", sportType, subType, parsedSportType, parsedSubType, indoor, electric)
 	}
 
@@ -425,7 +428,9 @@ func TestMigration000339PredicateValidatorAllowsEmptyAndRejectsExtraKeys(t *test
 		raw  string
 		want bool
 	}{
-		{name: "empty is valid generic predicate contract", raw: `[]`, want: true},
+		{name: "empty list is valid when allowed by caller", raw: `[]`, want: true},
+		{name: "empty string subtype is exact no-subtype sentinel", raw: `[{"sport":"cycling","sub_type":""}]`, want: true},
+		{name: "generic subtype is not a storage sentinel", raw: `[{"sport":"cycling","sub_type":"generic"}]`, want: false},
 		{name: "extra modifier key rejected", raw: `[{"sport":"cycling","is_electric":true}]`, want: false},
 		{name: "extra arbitrary key rejected", raw: `[{"sport":"cycling","foo":"bar"}]`, want: false},
 	}

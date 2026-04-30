@@ -34,13 +34,13 @@ func probeRulesEnginePause(ctx context.Context, db *database.DB) (bool, error) {
 	defer conn.Release()
 
 	var acquired bool
-	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1, $2)`, rulesEnginePauseLockNamespace, rulesEnginePauseLockKey).Scan(&acquired); err != nil {
+	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock_shared($1, $2)`, rulesEnginePauseLockNamespace, rulesEnginePauseLockKey).Scan(&acquired); err != nil {
 		return false, err
 	}
 	if !acquired {
 		return true, nil
 	}
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_unlock($1, $2)`, rulesEnginePauseLockNamespace, rulesEnginePauseLockKey); err != nil {
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_unlock_shared($1, $2)`, rulesEnginePauseLockNamespace, rulesEnginePauseLockKey); err != nil {
 		return false, err
 	}
 	return false, nil

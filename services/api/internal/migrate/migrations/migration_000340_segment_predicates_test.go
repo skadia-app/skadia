@@ -99,6 +99,22 @@ func TestMigration000340BackfillsTuplePredicates(t *testing.T) {
 	if !strings.Contains(tuplePreds, `"sport": "cycling"`) || !strings.Contains(tuplePreds, `"sub_type": "mountain"`) || !strings.Contains(tuplePreds, `"sport": "running"`) || !strings.Contains(tuplePreds, `"sub_type": "trail"`) {
 		t.Fatalf("tuple predicates = %s", tuplePreds)
 	}
+	var invalidPairs int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM segments s
+		CROSS JOIN LATERAL jsonb_array_elements(s.allowed_predicates) pred
+		WHERE s.id = $1
+		  AND (
+		    (pred->>'sport' = 'running' AND pred->>'sub_type' = 'mountain')
+		    OR (pred->>'sport' = 'cycling' AND pred->>'sub_type' = 'trail')
+		  )
+	`, segmentID).Scan(&invalidPairs); err != nil {
+		t.Fatalf("query invalid pairs: %v", err)
+	}
+	if invalidPairs != 0 {
+		t.Fatalf("tuple predicates contains %d cross-product pairs: %s", invalidPairs, tuplePreds)
+	}
 	if err := tx.QueryRow(ctx, `SELECT allowed_predicates::text FROM segments WHERE id = $1`, noneID).Scan(&nonePreds); err != nil {
 		t.Fatalf("query empty predicates: %v", err)
 	}
