@@ -145,15 +145,25 @@ func rewriteActionsRaw(raw json.RawMessage, surface string) (json.RawMessage, er
 
 func rewriteActionMaps(actions []map[string]any, surface string) ([]map[string]any, error) {
 	rewritten := make([]map[string]any, 0, len(actions))
-	modifierWrites := map[string]int{}
+	modifierWrites := map[string]modifierWriteState{}
 	for i, action := range actions {
 		name := actionName(action)
+		if converted, ok, err := rewriteSetFieldSportType(action, surface, i); ok || err != nil {
+			if err != nil {
+				return nil, err
+			}
+			action = converted
+			name = actionName(action)
+		}
 		if name != "set_sport_type" {
-			if field := modifierWriteField(action); field != "" {
+			if field, value, ok := modifierWrite(action); ok {
 				if previous, exists := modifierWrites[field]; exists {
-					return nil, fmt.Errorf("%s[%d]: multiple writes to %s (previous action index %d)", surface, i, field, previous)
+					if previous.value != value {
+						return nil, fmt.Errorf("%s[%d]: conflicting writes to %s (previous action index %d)", surface, i, field, previous.index)
+					}
+				} else {
+					modifierWrites[field] = modifierWriteState{index: i, value: value}
 				}
-				modifierWrites[field] = i
 			}
 			rewritten = append(rewritten, action)
 			continue
@@ -187,43 +197,96 @@ func rewriteActionMaps(actions []map[string]any, surface string) ([]map[string]a
 		rewritten = append(rewritten, newAction)
 		if patch.IsElectric != nil {
 			if previous, exists := modifierWrites["is_electric"]; exists {
-				return nil, fmt.Errorf("%s[%d]: multiple writes to is_electric (previous action index %d)", surface, i, previous)
+				if previous.value != *patch.IsElectric {
+					return nil, fmt.Errorf("%s[%d]: conflicting writes to is_electric (previous action index %d)", surface, i, previous.index)
+				}
+			} else {
+				modifierWrites["is_electric"] = modifierWriteState{index: i, value: *patch.IsElectric}
+				rewritten = append(rewritten, map[string]any{
+					"action": "set_electric",
+					"params": map[string]any{"electric": *patch.IsElectric},
+				})
 			}
-			modifierWrites["is_electric"] = i
-			rewritten = append(rewritten, map[string]any{
-				"action": "set_electric",
-				"params": map[string]any{"electric": *patch.IsElectric},
-			})
 		}
 		if patch.IsIndoor != nil {
 			if previous, exists := modifierWrites["is_indoor"]; exists {
-				return nil, fmt.Errorf("%s[%d]: multiple writes to is_indoor (previous action index %d)", surface, i, previous)
+				if previous.value != *patch.IsIndoor {
+					return nil, fmt.Errorf("%s[%d]: conflicting writes to is_indoor (previous action index %d)", surface, i, previous.index)
+				}
+			} else {
+				modifierWrites["is_indoor"] = modifierWriteState{index: i, value: *patch.IsIndoor}
+				rewritten = append(rewritten, map[string]any{
+					"action": "set_indoor",
+					"params": map[string]any{"indoor": *patch.IsIndoor},
+				})
 			}
-			modifierWrites["is_indoor"] = i
-			rewritten = append(rewritten, map[string]any{
-				"action": "set_indoor",
-				"params": map[string]any{"indoor": *patch.IsIndoor},
-			})
 		}
 	}
 	return rewritten, nil
 }
 
-func modifierWriteField(action map[string]any) string {
+type modifierWriteState struct {
+	index int
+	value bool
+}
+
+func rewriteSetFieldSportType(action map[string]any, surface string, index int) (map[string]any, bool, error) {
+	if actionName(action) != "set_field" {
+		return nil, false, nil
+	}
+	params, _ := action["params"].(map[string]any)
+	if params == nil {
+		return nil, false, nil
+	}
+	field, _ := params["field"].(string)
+	if field != "sport_type" {
+		return nil, false, nil
+	}
+	rawSport, _ := params["value"].(string)
+	if rawSport == "" {
+		return nil, false, fmt.Errorf("%s[%d]: set_field sport_type value must be a string", surface, index)
+	}
+	newAction := cloneMap(action)
+	newAction["action"] = "set_sport_type"
+	delete(newAction, "type")
+	newAction["params"] = map[string]any{"sport_type": rawSport}
+	return newAction, true, nil
+}
+
+func modifierWrite(action map[string]any) (string, bool, bool) {
 	switch actionName(action) {
 	case "set_electric":
-		return "is_electric"
+		return "is_electric", boolParam(action, "electric", true), true
 	case "set_indoor":
-		return "is_indoor"
+		return "is_indoor", boolParam(action, "indoor", true), true
+	case "set_virtual":
+		return "is_virtual", boolParam(action, "virtual", true), true
+	case "set_commute":
+		return "is_commute", boolParam(action, "commute", true), true
 	case "set_field":
 		params, _ := action["params"].(map[string]any)
 		field, _ := params["field"].(string)
 		switch field {
-		case "is_electric", "is_indoor":
-			return field
+		case "is_electric", "is_indoor", "is_virtual", "is_commute":
+			value, ok := params["value"].(bool)
+			return field, value, ok
 		}
 	}
-	return ""
+	return "", false, false
+}
+
+func boolParam(action map[string]any, name string, fallback bool) bool {
+	params, _ := action["params"].(map[string]any)
+	if params == nil {
+		return fallback
+	}
+	if value, ok := params[name].(bool); ok {
+		return value
+	}
+	if value, ok := params["value"].(bool); ok {
+		return value
+	}
+	return fallback
 }
 
 func rewriteBranchesRaw(raw json.RawMessage) (json.RawMessage, error) {

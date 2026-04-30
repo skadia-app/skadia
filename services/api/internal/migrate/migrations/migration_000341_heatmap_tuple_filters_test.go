@@ -26,6 +26,8 @@ func TestMigration000341PatchesHeatmapTupleFilters(t *testing.T) {
 		"heatmap_points_mvt(integer,integer,integer,json)",
 		"skadia_sport_tuple_filter_matches(sport_filter, hl.sport_type, hl.sub_type)",
 		"skadia_sport_tuple_filter_matches(sport_filter, hp.sport_type, hp.sub_type)",
+		"could not patch heatmap_lines_mvt",
+		"could not patch heatmap_points_mvt",
 	} {
 		if !strings.Contains(upSQL, needle) {
 			t.Fatalf("000341 up migration missing %q", needle)

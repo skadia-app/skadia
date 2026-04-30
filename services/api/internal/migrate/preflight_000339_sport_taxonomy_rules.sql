@@ -47,6 +47,21 @@ all_groups AS (
     UNION ALL
     SELECT * FROM branch_groups
 ),
+group_conditions AS (
+    SELECT
+        g.id,
+        g.name,
+        g.surface,
+        condition_item.value AS condition
+    FROM all_groups g
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(g.condition_group->'conditions', '[]'::jsonb)) AS condition_item(value)
+    WHERE jsonb_typeof(COALESCE(g.condition_group->'conditions', '[]'::jsonb)) = 'array'
+),
+all_conditions AS (
+    SELECT * FROM top_level_conditions
+    UNION ALL
+    SELECT * FROM group_conditions
+),
 or_conditions AS (
     SELECT
         g.id,
@@ -74,7 +89,7 @@ SELECT
     surface,
     condition,
     'unsupported sport_type operator must be resolved before 000339' AS reason
-FROM top_level_conditions
+FROM all_conditions
 WHERE condition->>'field' = 'sport_type'
   AND lower(btrim(COALESCE(condition->>'op', ''))) <> 'eq'
 ORDER BY name, id, surface;

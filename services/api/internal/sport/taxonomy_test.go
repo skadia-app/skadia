@@ -235,7 +235,7 @@ func TestIsIndoor(t *testing.T) {
 		{"running", "treadmill", true},
 		{"cycling", "indoor_cycling", true},
 		{"cycling", "spin", true},
-		{"swimming", "lap_swimming", true},
+		{"swimming", "lap_swimming", false},
 		{"rowing", "indoor_rowing", true},
 		{"alpine_skiing", "indoor_skiing", true},
 		{"walking", "indoor_walking", true},

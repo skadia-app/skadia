@@ -57,6 +57,27 @@ func TestSportTaxonomyRewriteActions(t *testing.T) {
 	}
 }
 
+func TestSportTaxonomyRewriteActionsAllowsIdempotentModifierWrite(t *testing.T) {
+	input := SportTaxonomyRuleJSON{
+		Actions: json.RawMessage(`[
+			{"action":"set_electric","params":{"electric":true}},
+			{"action":"set_sport_type","params":{"sport_type":"e_mountain_biking"}}
+		]`),
+	}
+
+	got, _, err := RewriteSportTaxonomyRuleJSON(input)
+	if err != nil {
+		t.Fatalf("RewriteSportTaxonomyRuleJSON: %v", err)
+	}
+	var actions []map[string]any
+	if err := json.Unmarshal(got.Actions, &actions); err != nil {
+		t.Fatalf("unmarshal actions: %v", err)
+	}
+	if len(actions) != 2 {
+		t.Fatalf("actions len = %d, want original modifier plus sport tuple only: %#v", len(actions), actions)
+	}
+}
+
 func TestSportTaxonomyRewriteActionsRejectsModifierWriteConflict(t *testing.T) {
 	input := SportTaxonomyRuleJSON{
 		Actions: json.RawMessage(`[
@@ -66,8 +87,29 @@ func TestSportTaxonomyRewriteActionsRejectsModifierWriteConflict(t *testing.T) {
 	}
 
 	_, _, err := RewriteSportTaxonomyRuleJSON(input)
-	if err == nil || !strings.Contains(err.Error(), "multiple writes to is_electric") {
-		t.Fatalf("error = %v, want multiple writes to is_electric", err)
+	if err == nil || !strings.Contains(err.Error(), "conflicting writes to is_electric") {
+		t.Fatalf("error = %v, want conflicting writes to is_electric", err)
+	}
+}
+
+func TestSportTaxonomyRewriteSetFieldSportType(t *testing.T) {
+	input := SportTaxonomyRuleJSON{
+		Actions: json.RawMessage(`[
+			{"action":"set_field","params":{"field":"sport_type","value":"mountain_biking"}}
+		]`),
+	}
+
+	got, _, err := RewriteSportTaxonomyRuleJSON(input)
+	if err != nil {
+		t.Fatalf("RewriteSportTaxonomyRuleJSON: %v", err)
+	}
+	var actions []map[string]any
+	if err := json.Unmarshal(got.Actions, &actions); err != nil {
+		t.Fatalf("unmarshal actions: %v", err)
+	}
+	params, _ := actions[0]["params"].(map[string]any)
+	if actions[0]["action"] != "set_sport_type" || params["sport_type"] != "cycling" || params["sub_type"] != "mountain" {
+		t.Fatalf("set_field sport_type was not canonicalized: %#v", actions)
 	}
 }
 

@@ -43,6 +43,7 @@ func TestPredicatesMatchSubtypeStates(t *testing.T) {
 func TestValidatePredicates(t *testing.T) {
 	mountain := "mountain"
 	empty := ""
+	generic := "generic"
 
 	tests := []struct {
 		name       string
@@ -55,6 +56,7 @@ func TestValidatePredicates(t *testing.T) {
 		{name: "accepts open canonical sport", preds: []Predicate{{Sport: "cycling"}}},
 		{name: "accepts exact subtype", preds: []Predicate{{Sport: "cycling", SubType: &mountain}}},
 		{name: "accepts empty subtype sentinel", preds: []Predicate{{Sport: "cycling", SubType: &empty}}},
+		{name: "rejects generic subtype storage sentinel", preds: []Predicate{{Sport: "cycling", SubType: &generic}}, wantErr: true},
 		{name: "rejects unknown sport", preds: []Predicate{{Sport: "does_not_exist"}}, wantErr: true},
 		{name: "rejects unknown subtype", preds: []Predicate{{Sport: "cycling", SubType: strPtr("does_not_exist")}}, wantErr: true},
 		{name: "rejects legacy sport alias", preds: []Predicate{{Sport: "mountain_biking"}}, wantErr: true},
@@ -140,7 +142,7 @@ func TestPredicatesFromSportTypesAndBack(t *testing.T) {
 	expected := []Predicate{
 		{Sport: "cycling", SubType: strPtr("mountain")},
 		{Sport: "cycling"},
-		{Sport: "cycling", SubType: strPtr("generic")},
+		{Sport: "cycling"},
 	}
 	if !reflect.DeepEqual(preds, expected) {
 		t.Fatalf("predicates = %#v, want %#v", preds, expected)

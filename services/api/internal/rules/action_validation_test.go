@@ -76,6 +76,30 @@ func TestNormalizeRuleActionsRejectsContradictorySystemTagActions(t *testing.T) 
 	}
 }
 
+func TestNormalizeRuleActionsRejectsConflictingModifierWrites(t *testing.T) {
+	raw := json.RawMessage(`[
+		{"action":"set_virtual","params":{"virtual":true}},
+		{"action":"set_virtual","params":{"virtual":false}}
+	]`)
+
+	_, err := NormalizeRuleActions(raw, nil)
+	if err == nil || !strings.Contains(err.Error(), "conflicting writes to is_virtual") {
+		t.Fatalf("error = %v, want conflicting is_virtual writes", err)
+	}
+}
+
+func TestNormalizeRuleActionsTreatsSetFieldModifierAsModifierWrite(t *testing.T) {
+	raw := json.RawMessage(`[
+		{"action":"set_field","params":{"field":"is_commute","value":true}},
+		{"action":"set_commute","params":{"commute":false}}
+	]`)
+
+	_, err := NormalizeRuleActions(raw, nil)
+	if err == nil || !strings.Contains(err.Error(), "conflicting writes to is_commute") {
+		t.Fatalf("error = %v, want conflicting is_commute writes", err)
+	}
+}
+
 func TestNormalizeRuleBranchesValidatesNestedActions(t *testing.T) {
 	tagNames := map[string]string{"tag-ebike": "E-Bike"}
 	raw := json.RawMessage(`[

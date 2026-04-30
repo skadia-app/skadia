@@ -23,6 +23,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/runningform"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // SegmentMatcherFunc is a callback that runs background segment matching and lap detection.
@@ -604,6 +605,9 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 			s.PostImportHook(ctx, userID)
 		}
 	}()
+	if err := normalizeImportedActivitySport(data); err != nil {
+		return nil, err
+	}
 	// 1. Duplicate check (Tier 1)
 	match, err := CheckTier1(ctx, s.DB, userID, fileBytes, data, meta.GarminActivityID, meta.StravaActivityID, meta.KomootTourID)
 	if err != nil {
@@ -702,6 +706,31 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 		ActivityID: inserted.ID,
 		Status:     "created",
 	}, nil
+}
+
+func normalizeImportedActivitySport(data *model.ActivityData) error {
+	if data == nil {
+		return fmt.Errorf("activity data is nil")
+	}
+	if data.SportType == "" {
+		return fmt.Errorf("sport_type is required")
+	}
+	tuple, patch, err := sport.NormalizeSportTupleForImport(data.SportType, data.SubType)
+	if err != nil {
+		return err
+	}
+	data.SportType = tuple.SportType
+	data.SubType = tuple.SubType
+	if patch.IsElectric != nil {
+		data.IsElectric = *patch.IsElectric
+	}
+	if patch.IsIndoor != nil && *patch.IsIndoor {
+		data.IsIndoor = true
+	}
+	if sport.IsIndoor(data.SportType, data.SubType) {
+		data.IsIndoor = true
+	}
+	return nil
 }
 
 // backfillPlatformIDs sets Garmin/Strava/Komoot IDs on an activity using
