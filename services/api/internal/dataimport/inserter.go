@@ -149,6 +149,22 @@ func (e *Engine) importTable(
 		// Capture old PK before prepareRow replaces it.
 		oldID := extractOldID(rawRow, spec)
 
+		var normalizeErr error
+		rawRow, normalizeErr = normalizeSportTaxonomyImportRow(spec.Name, rawRow, targetCols)
+		if normalizeErr != nil {
+			result.EntitiesFailed++
+			result.Errors = append(result.Errors, ImportError{
+				Phase:    spec.Phase,
+				Table:    spec.Name,
+				RowIndex: rowIndex,
+				OldID:    oldID,
+				Error:    normalizeErr.Error(),
+			})
+			rowIndex++
+			continue
+		}
+		insertCols, geometryCols = augmentInsertColumnsForRow(insertCols, geometryCols, targetCols, rawRow)
+
 		// Collect deferred FKs locally, then merge under mutex.
 		var localDeferred []deferredFK
 		prepared := e.prepareRow(spec, rawRow, idMap, userID, insertCols, &localDeferred)

@@ -47,9 +47,39 @@ def test_fallback_on_ambiguous():
 
 def test_large_profile_skips_routing():
     r = route_query("Wie viele Gipfel?", DEFAULT_PROFILES["large"])
-    assert len(r.domains) == 7  # all domains
+    assert len(r.domains) == 8  # all domains
 
 
 def test_max_two_domains():
     r = route_query("Gipfel Segment Bestzeit Berg", DEFAULT_PROFILES["small"])
     assert len(r.domains) <= 2
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Zeig mir meine E-Bike Touren",
+        "Wie oft war ich indoor Radfahren?",
+        "Liste meine virtuellen Fahrten",
+        "Welche Pendelaktivitäten waren mit dem Rad?",
+        "Wie viele Gravel Touren hatte ich?",
+        "Zeig mir Trail Runs",
+    ],
+)
+def test_sport_tuple_and_modifier_queries_route_to_activities(query):
+    r = route_query(query, DEFAULT_PROFILES["small"])
+    assert "activities" in r.domains
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Plane mir eine E-Bike Route",
+        "Plane eine Indoor-Rad Route",
+        "Plane eine virtuelle Route",
+        "Plane eine Pendelroute mit dem Fahrrad",
+    ],
+)
+def test_routing_modifier_queries_route_to_routing(query):
+    r = route_query(query, DEFAULT_PROFILES["small"])
+    assert "routing" in r.domains

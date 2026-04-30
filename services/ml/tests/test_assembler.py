@@ -9,7 +9,7 @@ from chat.skill_loader import load_skills
 def test_compact_prompt_contains_rules():
     prompt = assemble_system_prompt(DEFAULT_PROFILES["small"], [], today=date(2026, 3, 8))
     assert "08.03.2026" in prompt
-    assert "Trainingsanalyst" in prompt
+    assert "Sport-Datenassistent" in prompt
     assert "Regeln" in prompt
     assert "Referenzwerte" in prompt
 
@@ -29,6 +29,16 @@ def test_prompt_with_few_shots():
     assert "aggregate_stats" in prompt
 
 
+def test_segment_skill_context_lists_predicates_and_leaderboard():
+    skills = load_skills()
+    prompt = assemble_system_prompt(DEFAULT_PROFILES["small"], [skills["segments"]])
+
+    assert "allowed_predicates" in prompt
+    assert "sport_type" in prompt
+    assert "sub_type" in prompt
+    assert "in_leaderboard" in prompt
+
+
 def test_prompt_without_few_shots_for_large():
     prompt = assemble_system_prompt(DEFAULT_PROFILES["large"], [])
     assert "Beispiele" not in prompt  # large profile has few_shot_count=0
@@ -45,3 +55,12 @@ def test_tool_guide_only_for_routed():
     large_prompt = assemble_system_prompt(DEFAULT_PROFILES["large"], [])
     assert "Werkzeug-Auswahl" in small_prompt
     assert "Werkzeug-Auswahl" not in large_prompt
+
+
+def test_prompt_renders_multi_step_few_shots():
+    skills = load_skills()
+    prompt = assemble_system_prompt(DEFAULT_PROFILES["small"], [skills["gear"]])
+
+    assert "get_gear_stats" in prompt
+    assert "get_gear_documents" in prompt
+    assert "Schritt 1" in prompt

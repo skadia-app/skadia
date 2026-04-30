@@ -57,6 +57,12 @@ var validEnrichmentCols = map[string]bool{
 	"tags":                 true,
 	"sub_type":             true,
 	"exclude_from_heatmap": true,
+	"sport_type":           true,
+	"parsed_sport_type":    true,
+	"parsed_sub_type":      true,
+	"is_indoor":            true,
+	"is_electric":          true,
+	"is_virtual":           true,
 	// Activity metadata (manual activity, recompute, importers)
 	"title":           true,
 	"title_is_manual": true,

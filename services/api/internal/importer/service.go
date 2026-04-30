@@ -23,6 +23,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/runningform"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // SegmentMatcherFunc is a callback that runs background segment matching and lap detection.
@@ -108,7 +109,13 @@ func (s *Service) PostProcess(
 	enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, true)
 
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
-		_ = automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules, "on_import")
+		if rulesErr := automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules, "on_import"); rulesErr != nil {
+			if errors.Is(rulesErr, automation.ErrRulesEnginePaused) {
+				slog.Warn("postprocess: on_import rules skipped because rules engine is paused", "activity_id", activityID, "error", rulesErr)
+			} else {
+				slog.Warn("postprocess: on_import rules failed", "activity_id", activityID, "error", rulesErr)
+			}
+		}
 	}
 
 	// ── Phase 1 (parallel groups) ─────────────────────────────────────────
@@ -400,7 +407,11 @@ func (s *Service) PostProcess(
 	// Trigger on_enrichment_complete rules after all synchronous enrichment steps finish.
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
 		if rulesErr := automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules, "on_enrichment_complete"); rulesErr != nil {
-			slog.Warn("on_enrichment_complete rules failed", "activity_id", activityID, "error", rulesErr)
+			if errors.Is(rulesErr, automation.ErrRulesEnginePaused) {
+				slog.Warn("on_enrichment_complete rules skipped because rules engine is paused", "activity_id", activityID, "error", rulesErr)
+			} else {
+				slog.Warn("on_enrichment_complete rules failed", "activity_id", activityID, "error", rulesErr)
+			}
 		}
 	}
 
@@ -429,8 +440,10 @@ func (s *Service) PostProcess(
 		}
 	}
 
-	// Best Efforts + Running Form share a single stream load
-	isRunning := data.SportType == "running" || data.SportType == "trail_running"
+	// Best Efforts + Running Form share a single stream load.
+	// Running Form is valid for canonical running subtypes, including trail,
+	// indoor, track, and virtual runs when the imported stream carries running dynamics.
+	isRunning := data.SportType == "running"
 	if s.BestEfforts != nil || isRunning {
 		stream, streamErr := s.DB.GetStreamPoints(ctx, activityID)
 
@@ -592,6 +605,9 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 			s.PostImportHook(ctx, userID)
 		}
 	}()
+	if err := normalizeImportedActivitySport(data); err != nil {
+		return nil, err
+	}
 	// 1. Duplicate check (Tier 1)
 	match, err := CheckTier1(ctx, s.DB, userID, fileBytes, data, meta.GarminActivityID, meta.StravaActivityID, meta.KomootTourID)
 	if err != nil {
@@ -692,6 +708,31 @@ func (s *Service) ProcessActivity(ctx context.Context, userID string, data *mode
 	}, nil
 }
 
+func normalizeImportedActivitySport(data *model.ActivityData) error {
+	if data == nil {
+		return fmt.Errorf("activity data is nil")
+	}
+	if data.SportType == "" {
+		return fmt.Errorf("sport_type is required")
+	}
+	tuple, patch, err := sport.NormalizeSportTupleForImport(data.SportType, data.SubType)
+	if err != nil {
+		return err
+	}
+	data.SportType = tuple.SportType
+	data.SubType = tuple.SubType
+	if patch.IsElectric != nil {
+		data.IsElectric = *patch.IsElectric
+	}
+	if patch.IsIndoor != nil && *patch.IsIndoor {
+		data.IsIndoor = true
+	}
+	if sport.IsIndoor(data.SportType, data.SubType) {
+		data.IsIndoor = true
+	}
+	return nil
+}
+
 // backfillPlatformIDs sets Garmin/Strava/Komoot IDs on an activity using
 // COALESCE semantics (existing values are never overwritten by the DB functions).
 // Returns the list of column names that were successfully written.
@@ -789,4 +830,3 @@ func (s *Service) compareStreamRichness(ctx context.Context, newData *model.Acti
 
 	return newCount - existingCount
 }
-

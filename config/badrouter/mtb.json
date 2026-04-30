@@ -1,7 +1,8 @@
 {
   "profile": "mtb",
   "name": "MTB",
-  "sport_types": ["mountain_biking"],
+  "sport_types": ["cycling"],
+  "predicates": [{"sport":"cycling","sub_type":"mountain"}],
   "uphill_cost": 0,
   "downhill_cost": 0,
   "uphill_cutoff_pct": 1.5,

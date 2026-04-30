@@ -1,4 +1,6 @@
 // frontend/src/lib/colorScaleRanges.ts
+import { normalizeSportTuple } from '@/lib/sportTaxonomy'
+
 /**
  * Motion profiles for sport-dependent absolute scales (Speed, Pace, Cadence).
  *
@@ -59,8 +61,6 @@ export interface MotionProfile {
 export const MOTION_PROFILE_BY_SPORT_TYPE: Record<string, MotionProfile> = {
   // Foot: running
   running:             { speed: 'running', pace: 'running', cadence: 'foot_running' },
-  trail_running:       { speed: 'running', pace: 'running', cadence: 'foot_running' },
-  treadmill_running:   { speed: 'running', pace: 'running', cadence: 'foot_running' },
   wheelchair_push_run: { speed: 'running', pace: 'running', cadence: 'generic' },
 
   // Foot: walking
@@ -78,9 +78,6 @@ export const MOTION_PROFILE_BY_SPORT_TYPE: Record<string, MotionProfile> = {
 
   // Bike
   cycling:         { speed: 'roadCycling', cadence: 'bike' },
-  gravel_cycling:  { speed: 'roadCycling', cadence: 'bike' },
-  mountain_biking: { speed: 'mtbCycling',  cadence: 'bike' },
-  indoor_cycling:  { speed: 'roadCycling', cadence: 'bike' },
 
   // Ski / Snowboard
   alpine_skiing:        { speed: 'alpineSki', cadence: 'generic' },
@@ -102,8 +99,6 @@ export const MOTION_PROFILE_BY_SPORT_TYPE: Record<string, MotionProfile> = {
 
   // Water: swim
   swimming:            { speed: 'paddle', cadence: 'generic' },
-  lap_swimming:        { speed: 'paddle', cadence: 'generic' },
-  open_water_swimming: { speed: 'paddle', cadence: 'generic' },
   snorkeling:          { speed: 'paddle', cadence: 'generic' },
   diving:              { speed: 'paddle', cadence: 'generic' },
 
@@ -177,6 +172,20 @@ export const MOTION_PROFILE_BY_SPORT_TYPE: Record<string, MotionProfile> = {
   training:   { speed: 'generic', cadence: 'generic' },
   generic:    { speed: 'generic', cadence: 'generic' },
   unknown:    { speed: 'generic', cadence: 'generic' },
+}
+
+export function motionProfileForSport(sportType: string, subType?: string | null): MotionProfile {
+  const tuple = normalizeSportTuple(sportType, subType)
+  if (tuple.sportType === 'cycling' && tuple.subType === 'mountain') {
+    return { speed: 'mtbCycling', cadence: 'bike' }
+  }
+  if (tuple.sportType === 'cycling' && tuple.subType === 'gravel_cycling') {
+    return { speed: 'roadCycling', cadence: 'bike' }
+  }
+  if (tuple.sportType === 'running' && tuple.subType === 'trail') {
+    return { speed: 'running', pace: 'running', cadence: 'foot_running' }
+  }
+  return MOTION_PROFILE_BY_SPORT_TYPE[tuple.sportType] ?? MOTION_PROFILE_BY_SPORT_TYPE.generic
 }
 
 /**

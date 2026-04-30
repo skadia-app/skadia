@@ -2,15 +2,18 @@ name: segments
 description: "Segmente, Bestzeiten, PRs, Leaderboard, Runden"
 schema_excerpt: |
   segments: id UUID, name TEXT, sport_group TEXT, distance_m REAL,
-    elevation_gain_m REAL, start_point GEOMETRY, end_point GEOMETRY
+    elevation_gain_m REAL, allowed_predicates JSONB, start_point GEOMETRY, end_point GEOMETRY
   segment_efforts: id, segment_id, activity_id, started_at TIMESTAMPTZ,
-    elapsed_time_s REAL, moving_time_s REAL, avg_hr SMALLINT,
-    distance_m REAL, elevation_gain_m REAL
+    elapsed_time_s REAL, moving_time_s REAL, sport_type TEXT, sub_type TEXT,
+    avg_hr SMALLINT, distance_m REAL, elevation_gain_m REAL, in_leaderboard BOOL
   activity_detected_laps: activity_id, lap_number, distance_m, duration_s, avg_hr
 domain_knowledge: |
   - PR (Personal Record) = schnellste effort pro Segment
   - segment_efforts.elapsed_time_s ist die Gesamtzeit, moving_time_s ohne Pausen
   - sport_group: bike, foot, swim, ski, paddle, generic
+  - allowed_predicates beschreibt erlaubte Sport-Tuples; NULL = alle, [] = keine
+  - query_segments kann sport_type/sub_type und Modifier wie is_electric/is_indoor/is_virtual/is_commute filtern
+  - in_leaderboard=false kennzeichnet Efforts, die nicht in PR/Leaderboard zaehlen sollen
   - Segmente können manuell erstellt oder aus OSM-Liften importiert sein
 tools:
   - query_segments

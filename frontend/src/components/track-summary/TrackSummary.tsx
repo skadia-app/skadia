@@ -17,6 +17,7 @@ export type { ScaleKind }
 interface TrackSummaryProps {
   summary: ActivityTrackSummary | undefined
   sportType?: string
+  subType?: string | null
   onSymbolHover?: StatsRowProps['onSymbolHover']
   onSymbolLeave?: StatsRowProps['onSymbolLeave']
   /** Scale hover/pin state — forwarded to StatsRow for ScaleBadge interaction. */
@@ -120,6 +121,7 @@ function LoadingShell() {
 export function TrackSummary({
   summary,
   sportType,
+  subType,
   onSymbolHover,
   onSymbolLeave,
   pinnedScale,
@@ -140,6 +142,7 @@ export function TrackSummary({
         <StatsRow
           {...statsRowProps}
           sportType={sportType}
+          subType={subType}
           onSymbolHover={onSymbolHover}
           onSymbolLeave={onSymbolLeave}
           pinnedScale={pinnedScale}

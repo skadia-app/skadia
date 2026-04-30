@@ -14,9 +14,14 @@ import (
 // file_hash is stored so re-imports of the same file can detect the existing parent.
 func (db *DB) InsertMultisportParent(ctx context.Context, act *model.Activity) error {
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO activities (id, user_id, sport_type, title, started_at, file_hash, visibility, enrichment_status)
-		VALUES ($1, $2, $3, $4, $5, $6, 'private', 'complete')`,
-		act.ID, act.UserID, act.SportType, act.Title, act.StartedAt, act.FileHash)
+		INSERT INTO activities (
+			id, user_id, sport_type, sub_type, title, started_at, file_hash,
+			is_indoor, is_electric, is_virtual, exclude_from_heatmap, has_gps,
+			visibility, enrichment_status
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, 'private', 'complete')`,
+		act.ID, act.UserID, act.SportType, act.SubType, act.Title, act.StartedAt, act.FileHash,
+		act.IsIndoor, act.IsElectric, act.IsVirtual, act.HasGPS)
 	return err
 }
 
@@ -55,6 +60,7 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 			avg_power_w, max_power_w, normalized_power_w,
 			avg_cadence, avg_temperature_c,
 			tss, trimp, is_indoor, is_electric, has_gps,
+			is_virtual, exclude_from_heatmap, exclude_from_stats,
 			start_location, end_location,
 			original_filename, original_file_format,
 			source, source_device,
@@ -119,76 +125,78 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 			$23, $24,
 			-- TSS / TRIMP / Flags ($25-$29)
 			$25, $26, $27, $28, $29,
-			-- Start/End Location ($30-$33)
-			CASE WHEN $30::float8 != 0 THEN ST_SetSRID(ST_MakePoint($31::float8, $30::float8), 4326) ELSE NULL END,
-			CASE WHEN $32::float8 != 0 THEN ST_SetSRID(ST_MakePoint($33::float8, $32::float8), 4326) ELSE NULL END,
-			-- File / Source ($34-$37)
-			$34, $35,
-			$36, $37,
-			-- Parent ID ($38)
-			$38,
-			-- Visibility / Conflict ($39-$40)
-			$39,
-			$40,
-			-- FIT SDK: Workout ($41)
+			-- Virtual / stats flags ($30-$32)
+			$30, $31, $32,
+			-- Start/End Location ($33-$36)
+			CASE WHEN $33::float8 != 0 THEN ST_SetSRID(ST_MakePoint($34::float8, $33::float8), 4326) ELSE NULL END,
+			CASE WHEN $35::float8 != 0 THEN ST_SetSRID(ST_MakePoint($36::float8, $35::float8), 4326) ELSE NULL END,
+			-- File / Source ($37-$40)
+			$37, $38,
+			$39, $40,
+			-- Parent ID ($41)
 			$41,
-			-- FIT SDK: Cycles/Work/Calories ($42-$46)
-			$42, $43, $44, $45, $46,
-			-- FIT SDK: Swimming ($47-$55)
-			$47, $48, $49,
-			$50, $51, $52, $53,
-			$54, $55,
-			-- FIT SDK: Fractional Cadence ($56-$58)
-			$56, $57, $58,
-			-- FIT SDK: Running Dynamics ($59-$64)
+			-- Visibility / Conflict ($42-$43)
+			$42,
+			$43,
+			-- FIT SDK: Workout ($44)
+			$44,
+			-- FIT SDK: Cycles/Work/Calories ($45-$49)
+			$45, $46, $47, $48, $49,
+			-- FIT SDK: Swimming ($50-$58)
+			$50, $51, $52,
+			$53, $54, $55, $56,
+			$57, $58,
+			-- FIT SDK: Fractional Cadence ($59-$61)
 			$59, $60, $61,
+			-- FIT SDK: Running Dynamics ($62-$67)
 			$62, $63, $64,
-			-- FIT SDK: Grade ($65-$69)
-			$65, $66, $67, $68, $69,
-			-- FIT SDK: Vertical Speed ($70-$74)
-			$70, $71,
-			$72, $73, $74,
-			-- FIT SDK: Altitude / Fractional ($75-$77)
+			$65, $66, $67,
+			-- FIT SDK: Grade ($68-$72)
+			$68, $69, $70, $71, $72,
+			-- FIT SDK: Vertical Speed ($73-$77)
+			$73, $74,
 			$75, $76, $77,
-			-- FIT SDK: Pedal Torque/Smoothness ($78-$82)
-			$78, $79,
-			$80, $81,
-			$82,
-			-- FIT SDK: PCO ($83-$84)
+			-- FIT SDK: Altitude / Fractional ($78-$80)
+			$78, $79, $80,
+			-- FIT SDK: Pedal Torque/Smoothness ($81-$85)
+			$81, $82,
 			$83, $84,
-			-- FIT SDK: Power Phase Left ($85-$88)
-			$85, $86,
-			$87, $88,
-			-- FIT SDK: Power Phase Right ($89-$92)
-			$89, $90,
-			$91, $92,
-			-- FIT SDK: Power/Cadence Position ($93-$96)
-			$93, $94,
-			$95, $96,
-			-- FIT SDK: Standing ($97-$98)
-			$97, $98,
-			-- FIT SDK: LEV/E-Bike ($99-$101)
-			$99, $100, $101,
-			-- FIT SDK: Grit/Flow ($102-$106)
-			$102, $103, $104, $105,
-			$106,
-			-- FIT SDK: Ball Sports ($107-$111)
-			$107, $108, $109, $110, $111,
-			-- FIT SDK: Hemoglobin ($112-$117)
-			$112, $113, $114,
+			$85,
+			-- FIT SDK: PCO ($86-$87)
+			$86, $87,
+			-- FIT SDK: Power Phase Left ($88-$91)
+			$88, $89,
+			$90, $91,
+			-- FIT SDK: Power Phase Right ($92-$95)
+			$92, $93,
+			$94, $95,
+			-- FIT SDK: Power/Cadence Position ($96-$99)
+			$96, $97,
+			$98, $99,
+			-- FIT SDK: Standing ($100-$101)
+			$100, $101,
+			-- FIT SDK: LEV/E-Bike ($102-$104)
+			$102, $103, $104,
+			-- FIT SDK: Grit/Flow ($105-$109)
+			$105, $106, $107, $108,
+			$109,
+			-- FIT SDK: Ball Sports ($110-$114)
+			$110, $111, $112, $113, $114,
+			-- FIT SDK: Hemoglobin ($115-$120)
 			$115, $116, $117,
-			-- FIT SDK: Diving ($118-$126)
-			$118, $119, $120, $121,
-			$122, $123, $124, $125, $126,
-			-- FIT SDK: Respiration/HRV/Core ($127-$131)
-			$127, $128, $129,
-			$130, $131,
-			-- FIT SDK: Lap Stats ($132-$135)
-			$132, $133, $134, $135,
-			-- FIT SDK: Intensity/Balance/Profile ($136-$139)
-			$136, $137, $138, $139,
-			-- Bounding Box ($140-$143)
-			$140, $141, $142, $143
+			$118, $119, $120,
+			-- FIT SDK: Diving ($121-$129)
+			$121, $122, $123, $124,
+			$125, $126, $127, $128, $129,
+			-- FIT SDK: Respiration/HRV/Core ($130-$134)
+			$130, $131, $132,
+			$133, $134,
+			-- FIT SDK: Lap Stats ($135-$138)
+			$135, $136, $137, $138,
+			-- FIT SDK: Intensity/Balance/Profile ($139-$142)
+			$139, $140, $141, $142,
+			-- Bounding Box ($143-$146)
+			$143, $144, $145, $146
 		)
 		RETURNING id, is_electric, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
@@ -201,50 +209,51 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 		nilIfZeroF64(data.AvgPowerW), nilIfZeroInt(data.MaxPowerW), nilIfZeroF64(data.NormalizedPowerW), // $20-$22
 		nilIfZeroF64(data.AvgCadence), nilIfZeroF64(data.AvgTemperatureC), // $23-$24
 		nilIfZeroF64(data.TSS), nilIfZeroF64(data.TRIMP), data.IsIndoor, data.IsElectric, data.HasGPS, // $25-$29
-		data.StartLat, data.StartLng, // $30-$31
-		data.EndLat, data.EndLng, // $32-$33
-		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat), // $34-$35
-		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice), // $36-$37
-		parentID,                             // $38
-		visibilityOrDefault(data.Visibility), // $39
-		data.SportConflictPending,            // $40
+		data.IsVirtual, data.IsVirtual, false, // $30-$32
+		data.StartLat, data.StartLng, // $33-$34
+		data.EndLat, data.EndLng, // $35-$36
+		nilIfEmpty(data.OriginalName), nilIfEmpty(data.FileFormat), // $37-$38
+		nilIfEmpty(data.Source), nilIfEmpty(data.SourceDevice), // $39-$40
+		parentID,                             // $41
+		visibilityOrDefault(data.Visibility), // $42
+		data.SportConflictPending,            // $43
 		// FIT SDK new fields
-		data.WorkoutID,                                                                                          // $41
-		data.TotalCycles, data.TotalWorkJ, data.TotalFatCalories, data.MetabolicCalories, data.TotalMovingTimeS, // $42-$46
-		data.SwimStroke, data.PoolLengthM, data.PoolLengthUnit, // $47-$49
-		data.NumLengths, data.NumActiveLengths, data.AvgStrokeCount, data.AvgStrokeDistanceM, // $50-$53
-		data.StrokeCount, data.ZoneCount, // $54-$55
-		data.AvgFractionalCadence, data.MaxFractionalCadence, data.TotalFractionalCycles, // $56-$58
-		data.AvgVerticalOscillationMm, data.AvgStanceTimeMs, data.AvgStanceTimePct, // $59-$61
-		data.AvgStanceTimeBalancePct, data.AvgStepLengthMm, data.AvgVerticalRatioPct, // $62-$64
-		data.AvgGradePct, data.AvgPosGradePct, data.AvgNegGradePct, data.MaxPosGradePct, data.MaxNegGradePct, // $65-$69
-		data.AvgPosVerticalSpeedMs, data.AvgNegVerticalSpeedMs, // $70-$71
-		data.MaxPosVerticalSpeedMs, data.MaxNegVerticalSpeedMs, data.AvgVamMs, // $72-$74
-		data.AvgAltitudeM, data.TotalFractionalAscentM, data.TotalFractionalDescentM, // $75-$77
-		data.AvgLeftTorqueEffectivenessPct, data.AvgRightTorqueEffectivenessPct, // $78-$79
-		data.AvgLeftPedalSmoothnessPct, data.AvgRightPedalSmoothnessPct, // $80-$81
-		data.AvgCombinedPedalSmoothnessPct,    // $82
-		data.AvgLeftPcoMm, data.AvgRightPcoMm, // $83-$84
-		data.AvgLeftPowerPhaseStartDeg, data.AvgLeftPowerPhaseEndDeg, // $85-$86
-		data.AvgLeftPowerPhasePeakStartDeg, data.AvgLeftPowerPhasePeakEndDeg, // $87-$88
-		data.AvgRightPowerPhaseStartDeg, data.AvgRightPowerPhaseEndDeg, // $89-$90
-		data.AvgRightPowerPhasePeakStartDeg, data.AvgRightPowerPhasePeakEndDeg, // $91-$92
-		data.AvgPowerPositionW, data.MaxPowerPositionW, // $93-$94
-		data.AvgCadencePosition, data.MaxCadencePosition, // $95-$96
-		data.TimeStandingS, data.StandCount, // $97-$98
-		data.AvgLevMotorPowerW, data.MaxLevMotorPowerW, data.LevBatteryConsumptionPct, // $99-$101
-		data.TotalGrit, data.TotalFlow, data.AvgGrit, data.AvgFlow, // $102-$105
-		data.JumpCount,                                                                                    // $106
-		data.MaxBallSpeedMs, data.AvgBallSpeedMs, data.PlayerScore, data.OpponentScore, data.OpponentName, // $107-$111
-		data.AvgTotalHemoglobinConc, data.MinTotalHemoglobinConc, data.MaxTotalHemoglobinConc, // $112-$114
-		data.AvgSaturatedHemoglobinPct, data.MinSaturatedHemoglobinPct, data.MaxSaturatedHemoglobinPct, // $115-$117
-		data.AvgDepthM, data.MaxDepthM, data.SurfaceIntervalS, data.DiveNumber, // $118-$121
-		data.StartCnsPct, data.EndCnsPct, data.StartN2Pct, data.EndN2Pct, data.O2ToxicityOtu, // $122-$126
-		data.MaxRespirationRate, data.MinRespirationRate, data.SdrrHrvMs, // $127-$129
-		data.MinCoreTemperatureC, data.MaxCoreTemperatureC, // $130-$131
-		data.AvgLapTimeS, data.BestLapIndex, data.NumLaps, data.FirstLapIndex, // $132-$135
-		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex, // $136-$139
-		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng, // $140-$143
+		data.WorkoutID,                                                                                          // $44
+		data.TotalCycles, data.TotalWorkJ, data.TotalFatCalories, data.MetabolicCalories, data.TotalMovingTimeS, // $45-$49
+		data.SwimStroke, data.PoolLengthM, data.PoolLengthUnit, // $50-$52
+		data.NumLengths, data.NumActiveLengths, data.AvgStrokeCount, data.AvgStrokeDistanceM, // $53-$56
+		data.StrokeCount, data.ZoneCount, // $57-$58
+		data.AvgFractionalCadence, data.MaxFractionalCadence, data.TotalFractionalCycles, // $59-$61
+		data.AvgVerticalOscillationMm, data.AvgStanceTimeMs, data.AvgStanceTimePct, // $62-$64
+		data.AvgStanceTimeBalancePct, data.AvgStepLengthMm, data.AvgVerticalRatioPct, // $65-$67
+		data.AvgGradePct, data.AvgPosGradePct, data.AvgNegGradePct, data.MaxPosGradePct, data.MaxNegGradePct, // $68-$72
+		data.AvgPosVerticalSpeedMs, data.AvgNegVerticalSpeedMs, // $73-$74
+		data.MaxPosVerticalSpeedMs, data.MaxNegVerticalSpeedMs, data.AvgVamMs, // $75-$77
+		data.AvgAltitudeM, data.TotalFractionalAscentM, data.TotalFractionalDescentM, // $78-$80
+		data.AvgLeftTorqueEffectivenessPct, data.AvgRightTorqueEffectivenessPct, // $81-$82
+		data.AvgLeftPedalSmoothnessPct, data.AvgRightPedalSmoothnessPct, // $83-$84
+		data.AvgCombinedPedalSmoothnessPct,    // $85
+		data.AvgLeftPcoMm, data.AvgRightPcoMm, // $86-$87
+		data.AvgLeftPowerPhaseStartDeg, data.AvgLeftPowerPhaseEndDeg, // $88-$89
+		data.AvgLeftPowerPhasePeakStartDeg, data.AvgLeftPowerPhasePeakEndDeg, // $90-$91
+		data.AvgRightPowerPhaseStartDeg, data.AvgRightPowerPhaseEndDeg, // $92-$93
+		data.AvgRightPowerPhasePeakStartDeg, data.AvgRightPowerPhasePeakEndDeg, // $94-$95
+		data.AvgPowerPositionW, data.MaxPowerPositionW, // $96-$97
+		data.AvgCadencePosition, data.MaxCadencePosition, // $98-$99
+		data.TimeStandingS, data.StandCount, // $100-$101
+		data.AvgLevMotorPowerW, data.MaxLevMotorPowerW, data.LevBatteryConsumptionPct, // $102-$104
+		data.TotalGrit, data.TotalFlow, data.AvgGrit, data.AvgFlow, // $105-$108
+		data.JumpCount,                                                                                    // $109
+		data.MaxBallSpeedMs, data.AvgBallSpeedMs, data.PlayerScore, data.OpponentScore, data.OpponentName, // $110-$114
+		data.AvgTotalHemoglobinConc, data.MinTotalHemoglobinConc, data.MaxTotalHemoglobinConc, // $115-$117
+		data.AvgSaturatedHemoglobinPct, data.MinSaturatedHemoglobinPct, data.MaxSaturatedHemoglobinPct, // $118-$120
+		data.AvgDepthM, data.MaxDepthM, data.SurfaceIntervalS, data.DiveNumber, // $121-$124
+		data.StartCnsPct, data.EndCnsPct, data.StartN2Pct, data.EndN2Pct, data.O2ToxicityOtu, // $125-$129
+		data.MaxRespirationRate, data.MinRespirationRate, data.SdrrHrvMs, // $130-$132
+		data.MinCoreTemperatureC, data.MaxCoreTemperatureC, // $133-$134
+		data.AvgLapTimeS, data.BestLapIndex, data.NumLaps, data.FirstLapIndex, // $135-$138
+		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex, // $139-$142
+		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng, // $143-$146
 	).Scan(&id, &isElectric, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity with parent: %w", err)
@@ -258,7 +267,9 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 		Source:               ptrString(data.Source),
 		SourceDevice:         ptrString(data.SourceDevice),
 		StartedAt:            data.StartedAt,
-		IsElectric:              isElectric,
+		IsElectric:           isElectric,
+		IsVirtual:            data.IsVirtual,
+		ExcludeFromHeatmap:   data.IsVirtual,
 		IsIndoor:             data.IsIndoor,
 		HasGPS:               data.HasGPS,
 		NeedsClassification:  data.SportType == "unknown",
@@ -277,7 +288,7 @@ func (db *DB) GetChildActivities(ctx context.Context, parentID string) ([]model.
 		SELECT id, user_id, sport_type, sub_type, title, title_auto, started_at,
 		       elapsed_time_s, moving_time_s, distance_m, elevation_gain_m,
 		       elevation_loss_m, avg_heart_rate, avg_power_w, parent_id,
-		       is_indoor, has_gps, enrichment_status, visibility,
+		       is_indoor, is_electric, is_virtual, exclude_from_heatmap, has_gps, enrichment_status, visibility,
 		       COALESCE(tags, '{}'),
 		       file_hash, file_id, original_filename, original_file_format
 		FROM activities
@@ -295,7 +306,7 @@ func (db *DB) GetChildActivities(ctx context.Context, parentID string) ([]model.
 			&a.ID, &a.UserID, &a.SportType, &a.SubType, &a.Title, &a.TitleAuto, &a.StartedAt,
 			&a.ElapsedTimeS, &a.MovingTimeS, &a.DistanceM, &a.ElevationGainM,
 			&a.ElevationLossM, &a.AvgHeartRate, &a.AvgPowerW, &a.ParentID,
-			&a.IsIndoor, &a.HasGPS, &a.EnrichmentStatus, &a.Visibility,
+			&a.IsIndoor, &a.IsElectric, &a.IsVirtual, &a.ExcludeFromHeatmap, &a.HasGPS, &a.EnrichmentStatus, &a.Visibility,
 			&a.Tags,
 			&a.FileHash, &a.FileID, &a.OriginalFilename, &a.OriginalFileFormat,
 		); err != nil {
@@ -353,7 +364,12 @@ func (db *DB) AggregateParentMetrics(ctx context.Context, parentID string) error
 			distance_m      = (SELECT SUM(distance_m)       FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
 			elevation_gain_m = (SELECT SUM(elevation_gain_m) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
 			elevation_loss_m = (SELECT SUM(elevation_loss_m) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
-			total_calories  = (SELECT SUM(total_calories)   FROM activities WHERE parent_id = $1 AND deleted_at IS NULL)
+			total_calories  = (SELECT SUM(total_calories)   FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
+			is_indoor = COALESCE((SELECT BOOL_AND(is_indoor) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false),
+			is_electric = COALESCE((SELECT BOOL_OR(is_electric) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false),
+			is_virtual = COALESCE((SELECT BOOL_OR(is_virtual) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false),
+			exclude_from_heatmap = COALESCE((SELECT BOOL_OR(is_virtual) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false),
+			has_gps = COALESCE((SELECT BOOL_OR(has_gps) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false)
 		WHERE id = $1`, parentID)
 	return err
 }

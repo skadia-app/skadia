@@ -37,10 +37,11 @@ Laufen/Joggen → sport_type='running' | Radfahren → sport_type='cycling'
 Wandern → sport_type='hiking' | Gehen → sport_type='walking'
 MTB/Mountainbike → sport_type='cycling', sub_type='mountain'
 Gravel → sport_type='cycling', sub_type='gravel_cycling'
-E-Bike → sport_type='cycling', is_ebike=true | Bouldern → sport_type='rock_climbing', sub_type='bouldering'
+E-Bike → sport_type='cycling', is_electric=true | Indoor → is_indoor=true
+Virtuell → is_virtual=true | Pendeln → is_commute=true | Bouldern → sport_type='rock_climbing', sub_type='bouldering'
 Trail → sport_type='running', sub_type='trail'
-Ski → sport_type='alpine_skiing' | Langlauf → sport_type='cross_country_skiing'
-Kraft → sport_type='strength_training' | Bergsteigen → sport_type='mountaineering'
+Ski allgemein → sport_type='skiing' | Alpin-Ski → sport_type='alpine_skiing' | Langlauf → sport_type='cross_country_skiing'
+Kraft allgemein → sport_type='strength' | Krafttraining → sport_type='strength_training' | Bergsteigen → sport_type='mountaineering'
 
 ## Multi-Schritt
 Wenn eine Frage mehrere Informationsquellen braucht, nutze mehrere Tools nacheinander.
@@ -49,7 +50,7 @@ Beantworte ERST wenn ALLE nötigen Daten abgerufen sind."""
 SYSTEM_PROMPT_STANDARD = SYSTEM_PROMPT_COMPACT + """
 
 ## Weitere Sportarten (DB-Werte)
-Indoor-Rad → sport_type='cycling', sub_type='indoor_cycling'
+Indoor-Rad → sport_type='cycling', sub_type='indoor_cycling', is_indoor=true
 Freiwasser → sport_type='swimming', sub_type='open_water'
 Rudern → sport_type='rowing' | SUP → sport_type='stand_up_paddleboarding'
 Badminton → sport_type='racket', sub_type='badminton'
@@ -144,8 +145,13 @@ def assemble_system_prompt(
             parts.append("## Beispiele")
             for ex in few_shots[:profile.few_shot_count]:
                 parts.append(f'Frage: "{ex["q"]}"')
-                parts.append(f"→ {ex['tool']}({ex.get('args', '')})")
-                parts.append(f"→ {ex['answer']}")
+                if "steps" in ex:
+                    for idx, step in enumerate(ex["steps"], start=1):
+                        parts.append(f"→ Schritt {idx}: {step['tool']}({step.get('args', '')})")
+                else:
+                    parts.append(f"→ {ex['tool']}({ex.get('args', '')})")
+                if ex.get("answer"):
+                    parts.append(f"→ {ex['answer']}")
                 parts.append("")
 
     return "\n".join(parts)

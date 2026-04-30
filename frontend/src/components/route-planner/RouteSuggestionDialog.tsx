@@ -7,21 +7,13 @@ import {
 } from '@/api/routes'
 import { fetchAllProfiles, type RoutingProfileEntry } from '@/api/routingProfiles'
 import { useAccentColor } from '@/lib/accentColor'
+import { modifiersMatch, predicatesMatch, type ActivityModifierState, type ModifierFilters } from '@/lib/sportPredicates'
+import { routeSportOptions } from '@/lib/sportTaxonomy'
 import { useToast } from '@/lib/toast'
 import { ModalShell } from '@/components/ui/ModalShell'
 import Toggle from '@/components/Toggle'
 
-// Sport options for route planning (GPS-tracked outdoor sports)
-const ROUTE_SPORT_OPTIONS = [
-  { value: 'cycling', label: 'Radfahren' },
-  { value: 'mountain_biking', label: 'MTB' },
-  { value: 'gravel_cycling', label: 'Gravel' },
-  { value: 'running', label: 'Laufen' },
-  { value: 'trail_running', label: 'Trail Running' },
-  { value: 'hiking', label: 'Wandern' },
-  { value: 'mountaineering', label: 'Bergsteigen' },
-  { value: 'walking', label: 'Gehen' },
-] as const
+const ROUTE_SPORT_OPTIONS = routeSportOptions()
 
 const SURFACE_OPTIONS = [
   { value: 'trails', label: 'Naturwege / Singletrail' },
@@ -52,7 +44,6 @@ const MTB_SCALE_OPTIONS = [
 
 // Profiles that indicate hiking/trekking base for SAC display
 const HIKING_BASE_PROFILES = new Set(['hiking', 'trekking', 'mountaineering', 'walking'])
-const MTB_BASE_PROFILES = new Set(['mtb', 'mountain_biking'])
 
 interface PreferenceSliderProps {
   label: string
@@ -83,6 +74,17 @@ function PreferenceSlider({ label, value, onChange, accentColor }: PreferenceSli
   )
 }
 
+function isMtbProfile(profile: RoutingProfileEntry): boolean {
+  if (profile.base_profile === 'mtb') return true
+  if (profile.predicates?.some(p => p.sport === 'cycling' && p.sub_type === 'mountain')) return true
+  return false
+}
+
+function specificCyclingSubType(profile: RoutingProfileEntry): string | null {
+  const pred = profile.predicates?.find(p => p.sport === 'cycling' && p.sub_type && p.sub_type !== '')
+  return pred?.sub_type ?? null
+}
+
 export interface RouteSuggestionDialogProps {
   /** Start coordinate as [lng, lat] — either first planner waypoint or current map center */
   start: [number, number]
@@ -108,7 +110,13 @@ export default function RouteSuggestionDialog({
 
   // Sport + Profile selection
   const [sportType, setSportType] = useState('cycling')
+  const [subType, setSubType] = useState<string | undefined>(undefined)
+  const [isElectric, setIsElectric] = useState(false)
+  const [isIndoor, setIsIndoor] = useState(false)
+  const [isVirtual, setIsVirtual] = useState(false)
+  const [isCommute, setIsCommute] = useState(false)
   const [selectedProfile, setSelectedProfile] = useState<string>('')
+  const [profileSportOverride, setProfileSportOverride] = useState(false)
 
   // Round-trip + Terra Incognita toggles
   const [roundTrip, setRoundTrip] = useState(true)
@@ -138,10 +146,38 @@ export default function RouteSuggestionDialog({
     staleTime: 60_000,
   })
 
-  // Filter profiles by selected sport
-  const filteredProfiles: RoutingProfileEntry[] = (profilesData?.profiles ?? []).filter(p =>
-    p.sport_types.includes(sportType)
-  )
+  const modifierState: ActivityModifierState = {
+    is_electric: isElectric,
+    is_indoor: isIndoor,
+    is_virtual: isVirtual,
+    is_commute: isCommute,
+  }
+  const requestModifiers: ModifierFilters | undefined =
+    isElectric || isIndoor || isVirtual || isCommute
+      ? {
+          ...(isElectric ? { is_electric: true } : {}),
+          ...(isIndoor ? { is_indoor: true } : {}),
+          ...(isVirtual ? { is_virtual: true } : {}),
+          ...(isCommute ? { is_commute: true } : {}),
+        }
+      : undefined
+
+  // Filter profiles by selected sport tuple.
+  const allProfiles = profilesData?.profiles.filter(p => p.engine !== 'brouter') ?? []
+  const strictProfiles: RoutingProfileEntry[] = allProfiles.filter(p => {
+    const predicateMatch = p.predicates
+      ? predicatesMatch(p.predicates, sportType, subType)
+      : p.sport_types.includes(sportType)
+    return predicateMatch && modifiersMatch(p.modifier_filters, modifierState)
+  })
+  const advisoryProfiles: RoutingProfileEntry[] = sportType === 'cycling' && !subType
+    ? allProfiles.filter(p =>
+        !strictProfiles.some(strict => strict.name === p.name) &&
+        specificCyclingSubType(p) !== null &&
+        modifiersMatch(p.modifier_filters, modifierState),
+      )
+    : []
+  const filteredProfiles = [...strictProfiles, ...advisoryProfiles]
 
   // Auto-select first matching profile when sport changes (or when profiles load)
   const effectiveProfile = (() => {
@@ -152,12 +188,24 @@ export default function RouteSuggestionDialog({
 
   // Determine base_profile for current selection (for SAC/MTB scale display)
   const selectedProfileEntry = filteredProfiles.find(p => p.name === effectiveProfile)
+  const selectedProfileRequiresCyclingSubType = selectedProfileEntry ? specificCyclingSubType(selectedProfileEntry) : null
+  const profileNeedsBroadCyclingDecision = sportType === 'cycling' && !subType && selectedProfileRequiresCyclingSubType !== null
+  const broadCyclingDecisionIsMountain = selectedProfileRequiresCyclingSubType === 'mountain'
   const baseProfile = selectedProfileEntry?.base_profile ?? ''
   const showSacScale = HIKING_BASE_PROFILES.has(baseProfile)
-  const showMtbScale = MTB_BASE_PROFILES.has(baseProfile)
+  const showMtbScale = selectedProfileEntry ? isMtbProfile(selectedProfileEntry) : false
 
-  const handleSportChange = (sport: string) => {
+  const selectedSportKey = `${sportType}::${subType ?? ''}`
+
+  const handleSportChange = (key: string) => {
+    const [sport, sub = ''] = key.split('::')
     setSportType(sport)
+    setSubType(sub || undefined)
+    if (sport !== 'cycling') setIsElectric(false)
+    setIsIndoor(false)
+    setIsVirtual(false)
+    setIsCommute(false)
+    setProfileSportOverride(false)
     setSelectedProfile('') // reset so auto-select kicks in
   }
 
@@ -179,7 +227,10 @@ export default function RouteSuggestionDialog({
         round_trip: roundTrip,
         target_distance_m: distanceKm * 1000,
         sport_type: sportType,
+        sub_type: subType,
+        modifiers: requestModifiers,
         profile: effectiveProfile,
+        profile_sport_override: profileSportOverride || undefined,
         prefer_unknown: preferUnknown || undefined,
         landscape_prefs: {
           forest,
@@ -254,15 +305,36 @@ export default function RouteSuggestionDialog({
           </label>
           <select
             id="rsd-sport"
-            value={sportType}
+            value={selectedSportKey}
             onChange={e => handleSportChange(e.target.value)}
             className="w-full px-3 py-2 rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm text-neutral-900 dark:text-neutral-50 focus:outline-none focus:ring-2"
             style={{ '--tw-ring-color': accent.shade400 } as React.CSSProperties}
           >
             {ROUTE_SPORT_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+              <option key={`${opt.sportType}::${opt.subType ?? ''}`} value={`${opt.sportType}::${opt.subType ?? ''}`}>{opt.label}</option>
             ))}
           </select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {sportType === 'cycling' && (
+            <label className="flex items-center justify-between gap-3 cursor-pointer group">
+              <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">E-Bike</span>
+              <Toggle checked={isElectric} onChange={setIsElectric} size="sm" aria-label="E-Bike" />
+            </label>
+          )}
+          <label className="flex items-center justify-between gap-3 cursor-pointer group">
+            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Indoor</span>
+            <Toggle checked={isIndoor} onChange={setIsIndoor} size="sm" aria-label="Indoor" />
+          </label>
+          <label className="flex items-center justify-between gap-3 cursor-pointer group">
+            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Virtuell</span>
+            <Toggle checked={isVirtual} onChange={setIsVirtual} size="sm" aria-label="Virtuell" />
+          </label>
+          <label className="flex items-center justify-between gap-3 cursor-pointer group">
+            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Pendeln</span>
+            <Toggle checked={isCommute} onChange={setIsCommute} size="sm" aria-label="Pendeln" />
+          </label>
         </div>
 
         {/* Profil */}
@@ -281,7 +353,10 @@ export default function RouteSuggestionDialog({
             <select
               id="rsd-profile"
               value={effectiveProfile}
-              onChange={e => setSelectedProfile(e.target.value)}
+              onChange={e => {
+                setSelectedProfile(e.target.value)
+                setProfileSportOverride(false)
+              }}
               className="w-full px-3 py-2 rounded-md border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm text-neutral-900 dark:text-neutral-50 focus:outline-none focus:ring-2"
               style={{ '--tw-ring-color': accent.shade400 } as React.CSSProperties}
             >
@@ -304,6 +379,52 @@ export default function RouteSuggestionDialog({
             </select>
           )}
         </div>
+
+        {profileNeedsBroadCyclingDecision && (
+          <div className="rounded-lg border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-2">
+            <p className="text-sm text-amber-900 dark:text-amber-200">
+              Diese Aktivität hat keinen spezifischen Cycling-Subtyp.<br />
+              {broadCyclingDecisionIsMountain
+                ? "MTB-Profil setzt 'mountain' voraus. Möchtest du:"
+                : `Dieses Profil setzt '${selectedProfileRequiresCyclingSubType}' voraus. Möchtest du:`}
+            </p>
+            <div className="grid gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setSubType(selectedProfileRequiresCyclingSubType || undefined)
+                  setProfileSportOverride(false)
+                }}
+                className="text-left rounded-md border border-amber-300 dark:border-amber-800 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer"
+              >
+                (a) Subtyp dieser Activity auf '{selectedProfileRequiresCyclingSubType}' setzen
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedProfile('trekking')
+                  setProfileSportOverride(false)
+                }}
+                className="text-left rounded-md border border-amber-300 dark:border-amber-800 px-2 py-1.5 text-xs text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-900/40 cursor-pointer"
+              >
+                (b) Trekking-Profil verwenden (passt zu broad cycling)
+              </button>
+              <button
+                type="button"
+                onClick={() => setProfileSportOverride(true)}
+                className={`text-left rounded-md border px-2 py-1.5 text-xs cursor-pointer ${
+                  profileSportOverride
+                    ? 'border-accent-DEFAULT bg-accent-DEFAULT text-white'
+                    : 'border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-100 hover:bg-amber-100 dark:hover:bg-amber-900/40'
+                }`}
+              >
+                {broadCyclingDecisionIsMountain
+                  ? '(c) MTB-Profil trotzdem verwenden (manueller Override mit Warnung)'
+                  : '(c) Profil trotzdem verwenden (manueller Override mit Warnung)'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Distanz */}
         <div>
@@ -473,7 +594,7 @@ export default function RouteSuggestionDialog({
         </button>
         <button
           onClick={() => mutation.mutate()}
-          disabled={mutation.isPending || filteredProfiles.length === 0}
+          disabled={mutation.isPending || filteredProfiles.length === 0 || (profileNeedsBroadCyclingDecision && !profileSportOverride)}
           className="px-4 py-2 rounded-md text-sm font-medium text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed hover:opacity-90 transition-opacity flex items-center gap-2"
           style={{ backgroundColor: accent.shade500 }}
         >

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skadia.local/schemas/sport-predicates.schema.json",
+  "title": "Skadia sport predicate contract",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "predicates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sport"],
+        "properties": {
+          "sport": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sub_type": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "modifier_filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "is_electric": { "type": "boolean" },
+        "is_indoor": { "type": "boolean" },
+        "is_virtual": { "type": "boolean" },
+        "is_commute": { "type": "boolean" }
+      }
+    }
+  }
+}

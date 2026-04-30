@@ -1,8 +1,15 @@
 import { useState } from 'react'
 import { Check, ChevronDown, ChevronRight, X } from 'lucide-react'
 import { Pill } from '../ui/Pill'
-import { sportsInCategory, getSegmentGroup } from '@/lib/sportTaxonomy'
-import { WINTER_SPORT_WHITELIST, WATER_SPORT_WHITELIST, type SegType } from './constants'
+import { sportsInCategory } from '@/lib/sportTaxonomy'
+import {
+  getVisibleCategories,
+  isCategoryFullyActive,
+  isCategoryPartiallyActive,
+  whitelistForSegmentType,
+  type UISportCategory,
+} from '@/lib/sportCategoryHelpers'
+import { type SegType } from './constants'
 import { cn } from '@/lib/utils'
 
 // ── Enrichment types ──────────────────────────────────────────────────────────
@@ -18,56 +25,11 @@ export interface SportEnrichmentSource {
 
 export type SportEnrichmentStatus = 'loading' | 'done' | 'error'
 
-// ── Category definitions ───────────────────────────────────────────────────────
-
-export const UI_SPORT_CATEGORIES = [
-  { key: 'run',          label: 'Laufen & Wandern', taxonomyKeys: ['run'] },
-  { key: 'bike',         label: 'Rad',              taxonomyKeys: ['bike'] },
-  { key: 'winter',       label: 'Wintersport',      taxonomyKeys: ['winter'] },
-  { key: 'water_swim',   label: 'Schwimmen',        taxonomyKeys: ['water'], segmentGroups: ['swim'] },
-  { key: 'water_paddle', label: 'Paddeln',          taxonomyKeys: ['water'], segmentGroups: ['paddle'] },
-  { key: 'water_surf',   label: 'Surfen & Segeln',  taxonomyKeys: ['water'], segmentGroups: ['generic'] },
-  { key: 'sonstige',     label: 'Sonstige',         taxonomyKeys: ['fitness', 'game', 'climb', 'outdoor', 'multi', 'other'] },
-]
-
-// ── Helper exports (used by SegmentSidebar, SegmentEditModal) ─────────────────
-
-export function getVisibleCategories(segType: SegType) {
-  if (segType === 'wintersport') return UI_SPORT_CATEGORIES.filter(c => c.key === 'winter')
-  if (segType === 'wassersport') return UI_SPORT_CATEGORIES.filter(c => c.key.startsWith('water_'))
-  return UI_SPORT_CATEGORIES.filter(c => !c.key.startsWith('water_') && c.key !== 'winter')
-}
-
-export function expandCategoryToSportTypes(uiKey: string, whitelist?: readonly string[]): string[] {
-  const cat = UI_SPORT_CATEGORIES.find(c => c.key === uiKey)
-  if (!cat) return []
-  let types = cat.taxonomyKeys.flatMap(tk => sportsInCategory(tk).map(s => s.sportType))
-  if (cat.segmentGroups) {
-    types = types.filter(t => (cat.segmentGroups as string[]).includes(getSegmentGroup(t)))
-  }
-  if (whitelist) {
-    types = types.filter(t => whitelist.includes(t))
-  }
-  return types
-}
-
-export function isCategoryFullyActive(uiKey: string, active: string[] | null, whitelist?: readonly string[]): boolean {
-  if (active === null) return false
-  const types = expandCategoryToSportTypes(uiKey, whitelist)
-  return types.length > 0 && types.every(t => active.includes(t))
-}
-
-export function isCategoryPartiallyActive(uiKey: string, active: string[] | null, whitelist?: readonly string[]): boolean {
-  if (active === null) return false
-  const types = expandCategoryToSportTypes(uiKey, whitelist)
-  return types.some(t => active.includes(t)) && !types.every(t => active.includes(t))
-}
-
 // ── Internal DetailPanel ───────────────────────────────────────────────────────
 
 interface DetailPanelProps {
   /** The UI category being expanded */
-  category: typeof UI_SPORT_CATEGORIES[number]
+  category: UISportCategory
   /** All sport types available for this segment type (for filtering) */
   availableSportTypes: Array<{ key: string; label: string; category: string }>
   /** Currently selected sport types (null = all) */
@@ -95,21 +57,27 @@ function DetailPanel({
 
   return (
     <div className="flex flex-wrap gap-1 pl-3">
-      {catSports.map(s => {
-        const isActive = selectedSportTypes?.includes(s.sportType) ?? false
-        const badges = enrichmentSources?.[s.sportType]
+      {catSports.flatMap(s => {
+        const entries = [{ key: s.sportType, label: s.label }]
+        for (const st of s.subTypes) {
+          entries.push({ key: `${s.sportType}:${st.subType}`, label: st.label })
+        }
+        return entries.map(entry => ({ sport: s, entry }))
+      }).map(({ sport, entry }) => {
+        const isActive = selectedSportTypes?.includes(entry.key) ?? false
+        const badges = enrichmentSources?.[sport.sportType]
 
         return (
-          <div key={s.sportType} className="flex items-center gap-0.5">
+          <div key={entry.key} className="flex items-center gap-0.5">
             <Pill
               size="sm"
               role="checkbox"
               ariaChecked={isActive}
               active={isActive}
-              onClick={() => onToggleSportType(s.sportType)}
+              onClick={() => onToggleSportType(entry.key)}
               leftSlot={isActive ? <Check className="h-3 w-3 shrink-0" /> : undefined}
             >
-              {s.label}
+              {entry.label}
             </Pill>
 
             {/* Enrichment source badges — shown only when enrichmentSources provided */}
@@ -119,7 +87,7 @@ function DetailPanel({
                   <button
                     key={i}
                     type="button"
-                    onClick={() => onClearEnrichmentSource(s.sportType, src)}
+                    onClick={() => onClearEnrichmentSource(sport.sportType, src)}
                     title={`${src.label}${src.coverage != null ? ` (${Math.round(src.coverage * 100)}%)` : ''} — klicken zum Entfernen`}
                     className={cn(
                       'inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0 text-[10px] font-medium',
@@ -185,7 +153,7 @@ export function SportCategoryChips({
   const [openCategoryKey, setOpenCategoryKey] = useState<string | null>(null)
 
   const visible = getVisibleCategories(segType)
-  const whitelist = segType === 'wintersport' ? WINTER_SPORT_WHITELIST : (segType === 'wassersport' ? WATER_SPORT_WHITELIST : undefined)
+  const whitelist = whitelistForSegmentType(segType)
 
   // Fall back to "all taxonomy sports" if availableSportTypes not provided
   const resolvedAvailableSportTypes: Array<{ key: string; label: string; category: string }> =

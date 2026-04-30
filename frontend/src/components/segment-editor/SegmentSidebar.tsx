@@ -13,8 +13,10 @@ import { DifficultySelects } from './DifficultySelects'
 import { SurfaceDropdown } from './SurfaceDropdown'
 import { ClimbTypePills } from './ClimbTypePills'
 import { DifficultyColorPicker } from './DifficultyColorPicker'
-import { SportCategoryChips, getVisibleCategories, isCategoryFullyActive, expandCategoryToSportTypes } from './SportCategoryChips'
+import { SportCategoryChips } from './SportCategoryChips'
+import { isCategoryFullyActive, expandCategoryToSportTypes } from '@/lib/sportCategoryHelpers'
 import { cn } from '@/lib/utils'
+import { filterSegmentSportSelection, removeSegmentSportSelectionKeys } from './segmentSportSelection'
 
 export interface SegmentMetadata {
   name: string
@@ -99,12 +101,10 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
       patch.bidirectional = BIDIRECTIONAL_DEFAULT[newType]
     }
     if (newType === 'wintersport' && meta.sportTypes) {
-      patch.sportTypes = meta.sportTypes.filter(s => WINTER_SPORT_WHITELIST.includes(s))
-      if (patch.sportTypes.length === 0) patch.sportTypes = null
+      patch.sportTypes = filterSegmentSportSelection(meta.sportTypes, WINTER_SPORT_WHITELIST)
     }
     if (newType === 'wassersport' && meta.sportTypes) {
-      patch.sportTypes = meta.sportTypes.filter(s => WATER_SPORT_WHITELIST.includes(s))
-      if (patch.sportTypes.length === 0) patch.sportTypes = null
+      patch.sportTypes = filterSegmentSportSelection(meta.sportTypes, WATER_SPORT_WHITELIST)
     }
     if (newType === 'wintersport' || newType === 'wassersport' || newType === 'lift') {
       patch.sacScale = null
@@ -130,8 +130,8 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
       onMetaChange({ sportTypes: [key] })
       return
     }
-    const next = current.includes(key) ? current.filter(s => s !== key) : [...current, key]
-    onMetaChange({ sportTypes: next.length === 0 ? null : next })
+    const next = current.includes(key) ? removeSegmentSportSelectionKeys(current, [key]) : [...current, key]
+    onMetaChange({ sportTypes: next })
   }
 
   const setAll = () => onMetaChange({ sportTypes: null })
@@ -142,8 +142,8 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     const current = meta.sportTypes
 
     if (isCategoryFullyActive(uiKey, current, whitelist)) {
-      const next = current!.filter(t => !categoryTypes.includes(t))
-      onMetaChange({ sportTypes: next.length === 0 ? null : next })
+      const next = removeSegmentSportSelectionKeys(current, categoryTypes)
+      onMetaChange({ sportTypes: next })
     } else {
       const base = current ?? []
       const next = Array.from(new Set([...base, ...categoryTypes]))
@@ -396,6 +396,3 @@ function EnrichmentBadge({
     </span>
   )
 }
-
-// Re-export for backwards compat with any callers that import these from SegmentSidebar
-export { getVisibleCategories, isCategoryFullyActive, expandCategoryToSportTypes }

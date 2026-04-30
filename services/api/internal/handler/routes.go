@@ -7,11 +7,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // ListRoutes returns paginated planned routes for the authenticated user.
@@ -23,15 +26,28 @@ func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit, offset := httputil.ParsePagination(r, 50, 200)
+	predicates, err := sport.PredicatesFromFilterTokens(r.URL.Query().Get("sport_predicates"))
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	filters := database.RouteListFilters{
+		SportType:       r.URL.Query().Get("sport_type"),
+		SubType:         r.URL.Query().Get("sub_type"),
+		Predicates:      predicates,
+		ModifierFilters: parseRouteModifierFilters(r),
+		Search:          r.URL.Query().Get("search"),
+		Sort:            r.URL.Query().Get("sort"),
+	}
 
-	routes, err := h.DB.ListRoutes(r.Context(), userID, limit, offset)
+	routes, err := h.DB.ListRoutes(r.Context(), userID, limit, offset, filters)
 	if err != nil {
 		slog.Error("list routes failed", "error", err, "user_id", userID)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list routes", r.URL.Path)
 		return
 	}
 
-	total, err := h.DB.CountRoutes(r.Context(), userID)
+	total, err := h.DB.CountRoutes(r.Context(), userID, filters)
 	if err != nil {
 		slog.Error("count routes failed", "error", err, "user_id", userID)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to count routes", r.URL.Path)
@@ -60,6 +76,10 @@ func (h *Handler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	route.UserID = userID
+	if err := normalizeRouteSportForRequest(&route); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 
 	id, err := h.DB.CreateRoute(r.Context(), &route)
 	if err != nil {
@@ -103,6 +123,11 @@ var patchableRouteFields = map[string]struct{}{
 	"name":                 {},
 	"description":          {},
 	"sport_type":           {},
+	"sub_type":             {},
+	"is_electric":          {},
+	"is_indoor":            {},
+	"is_virtual":           {},
+	"is_commute":           {},
 	"difficulty":           {},
 	"profile":              {},
 	"geometry_geojson":     {},
@@ -136,6 +161,16 @@ func applyRoutePatch(route *model.PlannedRoute, fields map[string]json.RawMessag
 			target = &route.Description
 		case "sport_type":
 			target = &route.SportType
+		case "sub_type":
+			target = &route.SubType
+		case "is_electric":
+			target = &route.IsElectric
+		case "is_indoor":
+			target = &route.IsIndoor
+		case "is_virtual":
+			target = &route.IsVirtual
+		case "is_commute":
+			target = &route.IsCommute
 		case "difficulty":
 			target = &route.Difficulty
 		case "profile":
@@ -218,6 +253,10 @@ func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
+	if err := normalizeRouteSportForRequest(existing); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 
 	// IDs are never patchable — reassert from URL/context for UpdateRoute's
 	// WHERE id = $1 AND user_id = $2 clause.
@@ -229,6 +268,51 @@ func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, existing)
+}
+
+func normalizeRouteSportForRequest(route *model.PlannedRoute) error {
+	rawSubType := ""
+	if route.SubType != nil {
+		rawSubType = *route.SubType
+	}
+	tuple, patch, err := sport.NormalizeSportTuple(route.SportType, rawSubType)
+	if err != nil {
+		return err
+	}
+	route.SportType = tuple.SportType
+	if tuple.SubType == "" {
+		route.SubType = nil
+	} else {
+		route.SubType = &tuple.SubType
+	}
+	if patch.IsElectric != nil && *patch.IsElectric {
+		route.IsElectric = true
+	}
+	if patch.IsIndoor != nil && *patch.IsIndoor {
+		route.IsIndoor = true
+	}
+	return nil
+}
+
+func parseRouteModifierFilters(r *http.Request) sport.ModifierFilters {
+	query := r.URL.Query()
+	parse := func(key string) *bool {
+		raw := query.Get(key)
+		if raw == "" {
+			return nil
+		}
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return nil
+		}
+		return &value
+	}
+	return sport.ModifierFilters{
+		IsElectric: parse("is_electric"),
+		IsIndoor:   parse("is_indoor"),
+		IsVirtual:  parse("is_virtual"),
+		IsCommute:  parse("is_commute"),
+	}
 }
 
 // DeleteRoute removes a planned route, enforcing ownership.

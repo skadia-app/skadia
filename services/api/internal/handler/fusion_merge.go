@@ -25,8 +25,10 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
+	sporttax "github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // ErrAlreadyFused is returned when a FusionMerge attempt includes a source
@@ -641,11 +643,13 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 			// Diese Felder werden von RunStage1 für Intensität, TSS, TRIMP, Timezone,
 			// Weather, Sunrise/Sunset, AutoTitle etc. benötigt.
 			data := &model.ActivityData{
-				SportType: act.SportType,
-				StartedAt: act.StartedAt,
-				IsVirtual: act.IsVirtual,
-				IsIndoor:  act.IsIndoor,
-				HasGPS:    act.HasGPS,
+				SportType:  act.SportType,
+				SubType:    derefString(act.SubType),
+				StartedAt:  act.StartedAt,
+				IsElectric: act.IsElectric,
+				IsVirtual:  act.IsVirtual,
+				IsIndoor:   act.IsIndoor,
+				HasGPS:     act.HasGPS,
 			}
 			if act.EndedAt != nil {
 				data.EndedAt = *act.EndedAt
@@ -1624,18 +1628,101 @@ func applyFusionMetadataOverrides(
 	return warnings, nil
 }
 
+func applyFusionSportSelection(ctx context.Context, q database.Querier, db *database.DB, mergedID string, selection *FusionSportSelection, groupID *string) error {
+	if selection == nil {
+		return nil
+	}
+	tuple, patch, err := sporttax.NormalizeSportTuple(selection.SportType, selection.SubType)
+	if err != nil {
+		return err
+	}
+	isElectric := boolFromSelection(selection.IsElectric, patch.IsElectric, false)
+	isIndoor := boolFromSelection(selection.IsIndoor, patch.IsIndoor, sporttax.IsIndoor(tuple.SportType, tuple.SubType))
+	isVirtual := boolFromSelection(selection.IsVirtual, nil, false)
+	var subType any
+	if tuple.SubType != "" {
+		subType = tuple.SubType
+	}
+	_, err = q.Exec(ctx, `
+		UPDATE activities
+		SET sport_type = $2,
+		    sub_type = $3,
+		    is_electric = $4,
+		    is_indoor = $5,
+		    is_virtual = $6,
+		    exclude_from_heatmap = CASE WHEN $6 THEN TRUE ELSE FALSE END,
+		    sport_type_is_manual = TRUE,
+		    has_edits = TRUE
+		WHERE id = $1`,
+		mergedID, tuple.SportType, subType, isElectric, isIndoor, isVirtual,
+	)
+	if err != nil {
+		return err
+	}
+	if groupID != nil && *groupID != "" {
+		tx, ok := q.(pgx.Tx)
+		if !ok {
+			return fmt.Errorf("recording group sport sync requires transaction")
+		}
+		var subTypePtr *string
+		if tuple.SubType != "" {
+			subTypePtr = &tuple.SubType
+		}
+		if err := db.SetRecordingGroupSportTypeTx(ctx, tx, *groupID, database.RecordingGroupSportTuple{
+			SportType:  tuple.SportType,
+			SubType:    subTypePtr,
+			IsElectric: ptrBool(isElectric),
+			IsIndoor:   ptrBool(isIndoor),
+			IsVirtual:  ptrBool(isVirtual),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func boolFromSelection(preferred, fallback *bool, defaultValue bool) bool {
+	if preferred != nil {
+		return *preferred
+	}
+	if fallback != nil {
+		return *fallback
+	}
+	return defaultValue
+}
+
+func ptrBool(v bool) *bool {
+	return &v
+}
+
+func derefString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
 // FusionMergeRequest describes the body for POST /api/v1/fusion-merge (no target).
 // All sources are equal — the unified timeline is built from ALL timestamps.
 type FusionMergeRequest struct {
-	Sources         []string          `json:"sources"`   // all equal, min 2, max 6
-	FieldMap        map[string]string `json:"field_map"` // "hr" → "uuid-B", "gps" → "fuse"
-	GPSFusionConfig *GPSFusionConfig  `json:"gps_fusion_config,omitempty"`
-	TitleSource     *string           `json:"title_source,omitempty"`
-	TagsMerge       bool              `json:"tags_merge"`
-	TagsSource      *string           `json:"tags_source,omitempty"`
-	GearSource      *string           `json:"gear_source,omitempty"`
-	FitLevel        bool              `json:"fit_level"`
-	GroupID         *string           `json:"group_id,omitempty"` // if fusing from a recording group
+	Sources         []string              `json:"sources"`   // all equal, min 2, max 6
+	FieldMap        map[string]string     `json:"field_map"` // "hr" → "uuid-B", "gps" → "fuse"
+	GPSFusionConfig *GPSFusionConfig      `json:"gps_fusion_config,omitempty"`
+	Sport           *FusionSportSelection `json:"sport,omitempty"`
+	TitleSource     *string               `json:"title_source,omitempty"`
+	TagsMerge       bool                  `json:"tags_merge"`
+	TagsSource      *string               `json:"tags_source,omitempty"`
+	GearSource      *string               `json:"gear_source,omitempty"`
+	FitLevel        bool                  `json:"fit_level"`
+	GroupID         *string               `json:"group_id,omitempty"` // if fusing from a recording group
+}
+
+type FusionSportSelection struct {
+	SportType  string `json:"sport_type"`
+	SubType    string `json:"sub_type,omitempty"`
+	IsElectric *bool  `json:"is_electric,omitempty"`
+	IsIndoor   *bool  `json:"is_indoor,omitempty"`
+	IsVirtual  *bool  `json:"is_virtual,omitempty"`
 }
 
 // FusionMerge implements the unified-timeline merge without a target activity.
@@ -1783,6 +1870,12 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to apply metadata overrides", r.URL.Path)
 		return
 	}
+	if req.Sport != nil {
+		if err := applyFusionSportSelection(ctx, tx, h.DB, merged.ID, req.Sport, req.GroupID); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
+	}
 
 	// 2. Build unified timeline: INSERT skeleton rows for all unique timestamps across
 	//    all source activities. We use req.Sources (alle vom User deklarierten Quellen)
@@ -1856,6 +1949,7 @@ func (h *Handler) FusionMerge(w http.ResponseWriter, r *http.Request) {
 		"sources":   req.Sources,
 		"field_map": req.FieldMap,
 		"group_id":  req.GroupID,
+		"sport":     req.Sport,
 	})
 	var fitLevelTargetID string
 	var fitLevelSourceIDs []string
@@ -2195,7 +2289,7 @@ func activityFieldRichness(a *model.Activity) int {
 // tunnel gaps that are common in alpine terrain. (R4-9)
 func (h *Handler) computeElevationFromStreams(ctx context.Context, tx database.Querier, activityID string) (gain, loss float64, hasData bool, err error) {
 	const (
-		deadBandM         = 3.0
+		deadBandM          = 3.0
 		maxElevationGapSec = 120.0 // gaps > 120 s between altitude samples are excluded (R4-9)
 	)
 	err = tx.QueryRow(ctx, `

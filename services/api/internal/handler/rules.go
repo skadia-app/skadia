@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -58,6 +59,24 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	tagNames, err := h.ruleTagNames(r.Context(), userID)
+	if err != nil {
+		slog.Error("create rule list tags failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to validate rule actions", r.URL.Path)
+		return
+	}
+	if err := rewriteCreateRuleSportTaxonomy(&create); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if create.Actions, err = rules.NormalizeRuleActions(create.Actions, tagNames); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if create.Branches, err = rules.NormalizeRuleBranches(create.Branches, tagNames); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 
 	rule, err := h.DB.CreateRule(r.Context(), userID, &create)
 	if err != nil {
@@ -80,6 +99,30 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	tagNames, err := h.ruleTagNames(r.Context(), userID)
+	if err != nil {
+		slog.Error("update rule list tags failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to validate rule actions", r.URL.Path)
+		return
+	}
+	if err := rewriteUpdateRuleSportTaxonomy(&update); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	if update.Actions != nil {
+		normalized, err := rules.NormalizeRuleActions(*update.Actions, tagNames)
+		if err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
+		update.Actions = &normalized
+	}
+	if len(update.Branches) > 0 && string(update.Branches) != "null" {
+		if update.Branches, err = rules.NormalizeRuleBranches(update.Branches, tagNames); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
+	}
 
 	rule, err := h.DB.UpdateRule(r.Context(), id, userID, &update)
 	if err != nil {
@@ -97,6 +140,63 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, rule)
+}
+
+func rewriteCreateRuleSportTaxonomy(create *model.AutomationRuleCreate) error {
+	rewritten, _, err := rules.RewriteSportTaxonomyRuleJSON(rules.SportTaxonomyRuleJSON{
+		Conditions:      create.Conditions,
+		ConditionGroups: create.ConditionGroups,
+		Branches:        create.Branches,
+		Actions:         create.Actions,
+	})
+	if err != nil {
+		return err
+	}
+	create.Conditions = rewritten.Conditions
+	create.ConditionGroups = rewritten.ConditionGroups
+	create.Branches = rewritten.Branches
+	create.Actions = rewritten.Actions
+	return nil
+}
+
+func rewriteUpdateRuleSportTaxonomy(update *model.AutomationRuleUpdate) error {
+	input := rules.SportTaxonomyRuleJSON{Branches: update.Branches}
+	if update.Conditions != nil {
+		input.Conditions = *update.Conditions
+	}
+	if update.ConditionGroups != nil {
+		input.ConditionGroups = *update.ConditionGroups
+	}
+	if update.Actions != nil {
+		input.Actions = *update.Actions
+	}
+	rewritten, _, err := rules.RewriteSportTaxonomyRuleJSON(input)
+	if err != nil {
+		return err
+	}
+	if update.Conditions != nil {
+		*update.Conditions = rewritten.Conditions
+	}
+	if update.ConditionGroups != nil {
+		*update.ConditionGroups = rewritten.ConditionGroups
+	}
+	if update.Actions != nil {
+		*update.Actions = rewritten.Actions
+	}
+	update.Branches = rewritten.Branches
+	return nil
+}
+
+func (h *Handler) ruleTagNames(ctx context.Context, userID string) (map[string]string, error) {
+	tags, err := h.DB.ListTags(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(tags))
+	for _, tag := range tags {
+		names[tag.ID] = tag.Name
+	}
+	return names, nil
 }
 
 func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
@@ -174,10 +274,17 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		ctx := context.Background()
 		failed := false
+		pausedCount := 0
 
 		for i, activityID := range activityIDs {
 			if err := h.ApplyRulesToActivity(ctx, activityID, userID, activeRules, ""); err != nil {
-				slog.Warn("apply rules to activity", "activity_id", activityID, "error", err)
+				if errors.Is(err, automation.ErrRulesEnginePaused) {
+					pausedCount++
+					slog.Warn("apply rules skipped because rules engine is paused", "activity_id", activityID, "error", err)
+				} else {
+					failed = true
+					slog.Warn("apply rules to activity", "activity_id", activityID, "error", err)
+				}
 			}
 
 			if jobID != "" && (i%10 == 0 || i == len(activityIDs)-1) {
@@ -187,7 +294,7 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		slog.Info("apply rules: done", "user_id", userID, "total", len(activityIDs))
+		slog.Info("apply rules: done", "user_id", userID, "total", len(activityIDs), "paused_skipped", pausedCount)
 
 		if jobID != "" {
 			if err := h.DB.CompleteBackgroundJob(ctx, jobID, failed, ""); err != nil {
@@ -542,10 +649,16 @@ func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule 
 	}
 	singleRule := []model.AutomationRule{rule}
 	var errorCount int
+	var pausedCount int
 	for i, actID := range actIDs {
 		if err := automation.ApplyRulesToActivity(ctx, h.DB, actID, userID, singleRule, ""); err != nil {
-			errorCount++
-			slog.Warn("apply single rule to activity", "activity_id", actID, "rule_id", rule.ID, "error", err)
+			if errors.Is(err, automation.ErrRulesEnginePaused) {
+				pausedCount++
+				slog.Warn("apply single rule skipped because rules engine is paused", "activity_id", actID, "rule_id", rule.ID, "error", err)
+			} else {
+				errorCount++
+				slog.Warn("apply single rule to activity", "activity_id", actID, "rule_id", rule.ID, "error", err)
+			}
 		}
 		if i%50 == 0 || i == len(actIDs)-1 {
 			if err := h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+1)); err != nil {
@@ -553,7 +666,7 @@ func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule 
 			}
 		}
 	}
-	slog.Info("apply single rule: done", "user_id", userID, "rule_id", rule.ID, "total", len(actIDs), "errors", errorCount)
+	slog.Info("apply single rule: done", "user_id", userID, "rule_id", rule.ID, "total", len(actIDs), "errors", errorCount, "paused_skipped", pausedCount)
 	if errorCount > 0 {
 		return fmt.Errorf("%d errors processing %d activities", errorCount, len(actIDs))
 	}

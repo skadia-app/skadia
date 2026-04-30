@@ -19,6 +19,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
+	sporttax "github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // processCourseFIT parses a Garmin course FIT file (type 6) and imports the
@@ -163,17 +164,18 @@ func processCourseFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS
 	}
 
 	// --- Map FIT sport enum to taxonomy sport type ---
-	sportType := fitSportToSportType(sport, subSport)
-	profile := defaultProfileForSport(sportType)
+	sportType, routeSubType := fitSportToSportType(sport, subSport)
+	profile := defaultProfileForSportTuple(sportType, routeSubType)
 
 	// --- SourceID: SHA256(name + sport string) for dedup ---
-	sourceIDRaw := fmt.Sprintf("%s|%s", courseName, sportType)
+	sourceIDRaw := fmt.Sprintf("%s|%s|%s", courseName, sportType, ptrStringValue(routeSubType))
 	sourceIDHash := sha256hex([]byte(sourceIDRaw))
 	sourcePlatform := "garmin_fit"
 
 	route := &model.RouteImportData{
 		Name:               courseName,
 		SportType:          sportType,
+		SubType:            routeSubType,
 		Profile:            profile,
 		GeometryGeoJSON:    geoJSON,
 		WaypointsJSON:      waypointsJSON,
@@ -264,48 +266,62 @@ func coursePointTypeName(t typedef.CoursePoint) string {
 	}
 }
 
-// fitSportToSportType maps a FIT sport + sub-sport enum to a Skadia taxonomy sport type.
-func fitSportToSportType(sport typedef.Sport, subSport typedef.SubSport) string {
+// fitSportToSportType maps a FIT sport + sub-sport enum to a Skadia route sport tuple.
+func fitSportToSportType(sport typedef.Sport, subSport typedef.SubSport) (string, *string) {
+	normalize := func(sportType, subType string) (string, *string) {
+		tuple, _, err := sporttax.NormalizeSportTuple(sportType, subType)
+		if err != nil {
+			return "generic", nil
+		}
+		if tuple.SubType == "" {
+			return tuple.SportType, nil
+		}
+		return tuple.SportType, &tuple.SubType
+	}
 	switch sport {
 	case typedef.SportCycling:
 		switch subSport {
 		case typedef.SubSportMountain:
-			return "mountain_biking"
+			return normalize("cycling", "mountain")
 		case typedef.SubSportGravelCycling:
-			return "gravel_cycling"
+			return normalize("cycling", "gravel_cycling")
 		case typedef.SubSportIndoorCycling:
-			return "indoor_cycling"
+			return normalize("cycling", "indoor_cycling")
 		default:
-			return "cycling"
+			return normalize("cycling", "")
 		}
 	case typedef.SportRunning:
 		switch subSport {
 		case typedef.SubSportTrail:
-			return "trail_running"
+			return normalize("running", "trail")
 		default:
-			return "running"
+			return normalize("running", "")
 		}
 	case typedef.SportHiking:
-		return "hiking"
+		return normalize("hiking", "")
 	case typedef.SportWalking:
-		return "walking"
+		return normalize("walking", "")
 	case typedef.SportSwimming:
-		return "swimming"
+		return normalize("swimming", "")
 	case typedef.SportAlpineSkiing:
-		return "alpine_skiing"
+		return normalize("alpine_skiing", "")
 	case typedef.SportCrossCountrySkiing:
-		return "cross_country_skiing"
+		return normalize("cross_country_skiing", "")
 	case typedef.SportPaddling:
-		return "kayaking"
+		return normalize("paddling", "")
 	case typedef.SportRowing:
-		return "rowing"
+		return normalize("rowing", "")
 	default:
-		return "generic"
+		return normalize("generic", "")
 	}
 }
 
 // defaultProfileForSport returns a sensible routing profile for the given sport type.
 func defaultProfileForSport(sportType string) string {
+	return defaultProfileForSportTuple(sportType, nil)
+}
+
+func defaultProfileForSportTuple(sportType string, subType *string) string {
 	switch sportType {
 	case "cycling", "gravel_cycling", "mountain_biking", "indoor_cycling":
 		return "bike"
@@ -314,4 +330,11 @@ func defaultProfileForSport(sportType string) string {
 	default:
 		return "outdoor"
 	}
+}
+
+func ptrStringValue(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }

@@ -6,13 +6,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/google/uuid"
 )
 
 type AnalyticsFilter struct {
 	From             time.Time
 	To               time.Time
+	SportPredicates  []sport.Predicate
 	SportTypes       []string
+	SubTypes         []string
 	Tags             []string
 	WeatherCondition *string
 	TempMin          *float64
@@ -35,7 +38,8 @@ type AnalyticsFilter struct {
 	HRMax            *int
 	PowerMin         *int
 	PowerMax         *int
-	IsElectric          *bool // nil=neutral, true=only ebike, false=exclude ebike
+	IsElectric       *bool // nil=neutral, true=only ebike, false=exclude ebike
+	IsIndoor         *bool // nil=neutral, true=only indoor, false=exclude indoor
 	IsVirtual        *bool // nil=neutral, true=only virtual, false=exclude virtual
 	// Tri-state tag filters
 	IncludeTags []uuid.UUID // activity must have ALL of these tags
@@ -59,7 +63,16 @@ func ParseFilters(r *http.Request) AnalyticsFilter {
 		f.To = time.Now()
 	}
 	if v := q.Get("sport_type"); v != "" {
-		f.SportTypes = strings.Split(v, ",")
+		if strings.Contains(v, ":") {
+			if preds, err := sport.PredicatesFromFilterTokens(v); err == nil {
+				f.SportPredicates = preds
+			}
+		} else {
+			f.SportTypes, f.SubTypes = splitSportTypeFilter(v)
+		}
+	}
+	if v := q.Get("sub_type"); v != "" {
+		f.SubTypes = strings.Split(v, ",")
 	}
 	if v := q.Get("tags"); v != "" {
 		f.Tags = strings.Split(v, ",")
@@ -87,6 +100,7 @@ func ParseFilters(r *http.Request) AnalyticsFilter {
 	f.IsCommute = parseOptBool(q.Get("is_commute"))
 	f.IsRace = parseOptBool(q.Get("is_race"))
 	f.IsElectric = parseOptBool(q.Get("is_electric"))
+	f.IsIndoor = parseOptBool(q.Get("is_indoor"))
 	f.IsVirtual = parseOptBool(q.Get("is_virtual"))
 	f.PaceMinSecKm = parseOptFloat(q.Get("pace_min")) // sec/km
 	f.PaceMaxSecKm = parseOptFloat(q.Get("pace_max")) // sec/km
@@ -148,6 +162,62 @@ func ParseFilters(r *http.Request) AnalyticsFilter {
 	return f
 }
 
+func splitSportTypeFilter(raw string) ([]string, []string) {
+	sportSet := map[string]struct{}{}
+	bareSportSet := map[string]struct{}{}
+	subSet := map[string]struct{}{}
+
+	for token := range strings.SplitSeq(raw, ",") {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		if sportKey, subKey, ok := strings.Cut(token, ":"); ok {
+			sportKey = strings.TrimSpace(sportKey)
+			subKey = strings.TrimSpace(subKey)
+			if sportKey == "" || subKey == "" {
+				continue
+			}
+			sportSet[sportKey] = struct{}{}
+			subSet[subKey] = struct{}{}
+			continue
+		}
+		sportSet[token] = struct{}{}
+		bareSportSet[token] = struct{}{}
+	}
+
+	sports := make([]string, 0, len(sportSet))
+	for token := range strings.SplitSeq(raw, ",") {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		sportKey, _, _ := strings.Cut(token, ":")
+		sportKey = strings.TrimSpace(sportKey)
+		if _, ok := sportSet[sportKey]; ok {
+			sports = append(sports, sportKey)
+			delete(sportSet, sportKey)
+		}
+	}
+
+	if len(bareSportSet) > 0 {
+		return sports, nil
+	}
+	subs := make([]string, 0, len(subSet))
+	for token := range strings.SplitSeq(raw, ",") {
+		_, subKey, ok := strings.Cut(strings.TrimSpace(token), ":")
+		if !ok {
+			continue
+		}
+		subKey = strings.TrimSpace(subKey)
+		if _, ok := subSet[subKey]; ok {
+			subs = append(subs, subKey)
+			delete(subSet, subKey)
+		}
+	}
+	return sports, subs
+}
+
 // BuildWhereClause erzeugt SQL WHERE-Bedingungen und zugehörige Parameter.
 // startIdx gibt den Startindex für $N Placeholder an (1-basiert).
 // Gibt clause string und args []any zurück.
@@ -166,9 +236,32 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 		args = append(args, f.To)
 		idx++
 	}
-	if len(f.SportTypes) > 0 {
+	if len(f.SportPredicates) > 0 {
+		var parts []string
+		for _, pred := range f.SportPredicates {
+			sportIdx := idx
+			args = append(args, pred.Sport)
+			idx++
+			if pred.SubType == nil {
+				parts = append(parts, "a.sport_type = $"+strconv.Itoa(sportIdx))
+				continue
+			}
+			subIdx := idx
+			args = append(args, *pred.SubType)
+			idx++
+			parts = append(parts, "(a.sport_type = $"+strconv.Itoa(sportIdx)+" AND COALESCE(a.sub_type, '') = $"+strconv.Itoa(subIdx)+")")
+		}
+		if len(parts) > 0 {
+			conditions = append(conditions, "("+strings.Join(parts, " OR ")+")")
+		}
+	} else if len(f.SportTypes) > 0 {
 		conditions = append(conditions, "a.sport_type = ANY($"+strconv.Itoa(idx)+")")
 		args = append(args, f.SportTypes)
+		idx++
+	}
+	if len(f.SubTypes) > 0 {
+		conditions = append(conditions, "a.sub_type = ANY($"+strconv.Itoa(idx)+")")
+		args = append(args, f.SubTypes)
 		idx++
 	}
 	if len(f.Tags) > 0 {
@@ -332,6 +425,11 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 	if f.IsElectric != nil {
 		conditions = append(conditions, "a.is_electric = $"+strconv.Itoa(idx))
 		args = append(args, *f.IsElectric)
+		idx++
+	}
+	if f.IsIndoor != nil {
+		conditions = append(conditions, "a.is_indoor = $"+strconv.Itoa(idx))
+		args = append(args, *f.IsIndoor)
 		idx++
 	}
 	if f.IsVirtual != nil {

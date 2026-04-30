@@ -1,5 +1,6 @@
 import { apiClient, apiDownload } from './client'
 import type { DetectedLap } from './types'
+import type { SportPredicate } from '@/lib/sportPredicates'
 
 export interface Segment {
   id: string
@@ -20,8 +21,8 @@ export interface Segment {
   track_geojson?: string
   terrain_type?: string
   climb_type?: string
-  /** null/absent = all sport types allowed; [] = none; [...] = specific list */
-  allowed_sport_types?: string[] | null
+  /** null/absent = all sport tuples allowed; [] = none; entries = tuple predicates */
+  allowed_predicates?: SportPredicate[] | null
   /** true = segment can be ridden in both directions */
   bidirectional: boolean
 }
@@ -70,8 +71,8 @@ export interface CreateSegmentPayload {
   terrain_type?: string
   climb_type?: string
   visibility?: 'public' | 'private'
-  /** null = all sport types allowed; [] = none; [...] = specific list */
-  allowed_sport_types?: string[] | null
+  /** null = all sport tuples allowed; [] = none; entries = tuple predicates */
+  allowed_predicates?: SportPredicate[] | null
   /** nil on wire = use sport-group default (true for most groups) */
   bidirectional?: boolean
 }
@@ -131,8 +132,8 @@ export interface UpdateSegmentPayload {
   terrain_type?: string
   climb_type?: string
   visibility?: 'public' | 'private'
-  /** absent = unchanged; [] = clear filter (all allowed); [...] = restrict to list */
-  allowed_sport_types?: string[]
+  /** absent = unchanged; null = all sport tuples; [] = no sports; entries = tuple predicates */
+  allowed_predicates?: SportPredicate[] | null
   /** absent = unchanged */
   bidirectional?: boolean
 }

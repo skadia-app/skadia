@@ -12,33 +12,18 @@ import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import { fmtDist } from '@/lib/format'
 import { triggerBlobDownload } from '@/lib/utils'
+import { sportDetailLabel, normalizeSportTuple, routeSportOptions } from '@/lib/sportTaxonomy'
 
 // ── Sport type labels for filter dropdown ─────────────────────────────────────
 
-const SPORT_TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: 'hiking', label: 'Wandern' },
-  { value: 'running', label: 'Laufen' },
-  { value: 'cycling', label: 'Radfahren' },
-  { value: 'mountain_biking', label: 'Mountainbike' },
-  { value: 'gravel_cycling', label: 'Gravel' },
-  { value: 'trail_running', label: 'Trail Running' },
-  { value: 'skiing', label: 'Ski Alpin' },
-  { value: 'cross_country_skiing', label: 'Langlauf' },
-  { value: 'swimming', label: 'Schwimmen' },
-  { value: 'generic', label: 'Sonstiges' },
-]
-
-const SPORT_TYPE_LABELS: Record<string, string> = Object.fromEntries(
-  SPORT_TYPE_OPTIONS.map(({ value, label }) => [value, label]),
-)
+const SPORT_TYPE_OPTIONS = routeSportOptions()
 
 const SPORT_TYPE_COLORS: Record<string, string> = {
   hiking: 'text-green-500',
   running: 'text-blue-500',
-  trail_running: 'text-green-600',
   cycling: 'text-accent-DEFAULT',
-  mountain_biking: 'text-orange-500',
-  gravel_cycling: 'text-amber-500',
+  'cycling:mountain': 'text-orange-500',
+  'cycling:gravel_cycling': 'text-amber-500',
   skiing: 'text-cyan-500',
   cross_country_skiing: 'text-sky-400',
   swimming: 'text-blue-400',
@@ -48,6 +33,7 @@ const SPORT_TYPE_COLORS: Record<string, string> = {
 // ── Sort options ──────────────────────────────────────────────────────────────
 
 type SortOption = 'created_at' | 'name' | 'distance' | 'elevation'
+type ModifierFilter = 'any' | 'true' | 'false'
 
 const SORT_LABELS: Record<SortOption, string> = {
   created_at: 'Neueste',
@@ -58,12 +44,13 @@ const SORT_LABELS: Record<SortOption, string> = {
 
 // ── Icon helpers ──────────────────────────────────────────────────────────────
 
-function SportIcon({ sportType, className }: { sportType: string; className?: string }) {
-  const color = SPORT_TYPE_COLORS[sportType] ?? 'text-neutral-500'
+function SportIcon({ sportType, subType, className }: { sportType: string; subType?: string | null; className?: string }) {
+  const tuple = normalizeSportTuple(sportType, subType)
+  const color = SPORT_TYPE_COLORS[tuple.subType ? `${tuple.sportType}:${tuple.subType}` : tuple.sportType] ?? SPORT_TYPE_COLORS[tuple.sportType] ?? 'text-neutral-500'
   const cls = `${color} ${className ?? ''}`
 
   // Bike-family
-  if (['cycling', 'mountain_biking', 'gravel_cycling'].includes(sportType)) {
+  if (tuple.sportType === 'cycling') {
     return (
       <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
         <circle cx="5.5" cy="17.5" r="3.5" />
@@ -73,7 +60,7 @@ function SportIcon({ sportType, className }: { sportType: string; className?: st
     )
   }
   // Run-family
-  if (['running', 'trail_running'].includes(sportType)) {
+  if (tuple.sportType === 'running') {
     return (
       <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 5.5a2 2 0 100-4 2 2 0 000 4zm-2 2.5l-2 4 3 3-2 4m4-11l2 2-3 4" />
@@ -211,7 +198,7 @@ function RouteCard({
   isDeleting,
 }: RouteCardProps) {
   const navigate = useNavigate()
-  const sportLabel = SPORT_TYPE_LABELS[route.sport_type] ?? route.sport_type
+  const sportLabel = sportDetailLabel(route.sport_type, route.sub_type)
 
   return (
     <div
@@ -284,7 +271,7 @@ function RouteCard({
 
         {/* Sport + difficulty */}
         <div className="flex items-center gap-1.5 mb-2">
-          <SportIcon sportType={route.sport_type} className="w-3.5 h-3.5 flex-shrink-0" />
+          <SportIcon sportType={route.sport_type} subType={route.sub_type} className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="text-xs text-neutral-500 dark:text-neutral-400">{sportLabel}</span>
           {route.difficulty && (
             <>
@@ -355,7 +342,13 @@ export default function RoutesPage() {
   const { openModal } = useModal()
   const { addToast } = useToast()
 
-  const [sportType, setSportType] = useState('')
+  const [sportPredicates, setSportPredicates] = useState<string[]>([])
+  const [modifierFilters, setModifierFilters] = useState<Record<'is_electric' | 'is_indoor' | 'is_virtual' | 'is_commute', ModifierFilter>>({
+    is_electric: 'any',
+    is_indoor: 'any',
+    is_virtual: 'any',
+    is_commute: 'any',
+  })
   const [sortBy, setSortBy] = useState<SortOption>('created_at')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -374,12 +367,24 @@ export default function RoutesPage() {
   }, [])
 
   const queryParams = useMemo(
-    () => ({
-      sort: sortBy,
-      sport_type: sportType || undefined,
-      search: search || undefined,
-    }),
-    [sortBy, sportType, search],
+    () => {
+      const activePredicates = sportPredicates
+      const params = {
+        sort: sortBy,
+        sport_predicates: activePredicates.length > 0 ? activePredicates.join(',') : undefined,
+        search: search || undefined,
+      } as const
+      const boolFilters = Object.fromEntries(
+        Object.entries(modifierFilters)
+          .filter(([, value]) => value !== 'any')
+          .map(([key, value]) => [key, value === 'true']),
+      )
+      return {
+        ...params,
+        ...boolFilters,
+      }
+    },
+    [sortBy, sportPredicates, modifierFilters, search],
   )
 
   const { data: routesResponse, isLoading, isError } = useQuery({
@@ -454,6 +459,18 @@ export default function RoutesPage() {
     navigate('/map?planner=1')
   }
 
+  const resetFilters = () => {
+    setSearch('')
+    setSearchInput('')
+    setSportPredicates([])
+    setModifierFilters({
+      is_electric: 'any',
+      is_indoor: 'any',
+      is_virtual: 'any',
+      is_commute: 'any',
+    })
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (isLoading) {
@@ -503,17 +520,63 @@ export default function RoutesPage() {
       <div className="flex flex-wrap items-center gap-3 mb-6">
         {/* Sport type */}
         <select
-          value={sportType}
-          onChange={(e) => setSportType(e.target.value)}
+          value=""
+          onChange={(e) => {
+            const value = e.target.value
+            if (!value) {
+              setSportPredicates([])
+              return
+            }
+            setSportPredicates(prev => prev.includes(value) ? prev : [...prev, value])
+          }}
           className="border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm
                      bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
                      focus:outline-none focus:ring-1 focus:ring-neutral-400"
         >
-          <option value="">Alle Sportarten</option>
-          {SPORT_TYPE_OPTIONS.map(({ value, label }) => (
-            <option key={value} value={value}>{label}</option>
+          <option value="">{sportPredicates.length > 0 ? 'Sportart hinzufügen' : 'Alle Sportarten'}</option>
+          {SPORT_TYPE_OPTIONS.map(({ sportType, subType, label }) => (
+            <option key={`${sportType}:${subType ?? ''}`} value={`${sportType}:${subType ?? ''}`}>{label}</option>
           ))}
         </select>
+
+        {sportPredicates.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {sportPredicates.map(key => {
+              const [st, sub = ''] = key.split(':')
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setSportPredicates(prev => prev.filter(v => v !== key))}
+                  className="rounded-full border border-neutral-200 dark:border-neutral-700 px-2 py-1 text-xs text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+                >
+                  {sportDetailLabel(st, sub || null)} ×
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {[
+          ['is_electric', 'E-Bike'],
+          ['is_indoor', 'Indoor'],
+          ['is_virtual', 'Virtuell'],
+          ['is_commute', 'Pendeln'],
+        ].map(([key, label]) => (
+          <select
+            key={key}
+            value={modifierFilters[key as keyof typeof modifierFilters]}
+            onChange={(e) => setModifierFilters(prev => ({ ...prev, [key]: e.target.value as ModifierFilter }))}
+            className="border border-neutral-200 dark:border-neutral-700 rounded-lg px-2 py-1.5 text-sm
+                       bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
+                       focus:outline-none focus:ring-1 focus:ring-neutral-400"
+            aria-label={`${label}-Filter`}
+          >
+            <option value="any">{label}: egal</option>
+            <option value="true">{label}: ja</option>
+            <option value="false">{label}: nein</option>
+          </select>
+        ))}
 
         {/* Sort */}
         <select
@@ -575,11 +638,11 @@ export default function RoutesPage() {
           <svg className="w-14 h-14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={0.8}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
           </svg>
-          {search || sportType ? (
+          {search || sportPredicates.length > 0 || Object.values(modifierFilters).some(v => v !== 'any') ? (
             <>
               <p className="text-sm">Keine Routen gefunden.</p>
               <button
-                onClick={() => { setSearch(''); setSearchInput(''); setSportType('') }}
+                onClick={resetFilters}
                 className="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
               >
                 Filter zurücksetzen

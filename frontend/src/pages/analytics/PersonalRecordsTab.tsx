@@ -24,6 +24,8 @@ import {
   SUB_FILTERS,
   POWER_CURVE_GROUPS,
   CATEGORY_PREFIXES,
+  recordFilterSelection,
+  recordSportFilterValue,
   matchesSportGroup,
   type MainCategory,
 } from '@/lib/recordsConstants'
@@ -36,8 +38,7 @@ import { SubFilterPills } from '@/components/records/SubFilterPills'
 import { PowerDurationChart } from '@/components/records/PowerDurationChart'
 import { SegmentSection } from '@/components/records/SegmentSection'
 import { PRProgressionChart } from '@/components/records/PRProgressionChart'
-
-// ── Constants ──────────────────────────────────────────────────────────────
+import { SportFilter, type SportFilterValue } from '@/components/sport/SportFilter'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEAR_OPTIONS = [
@@ -143,6 +144,16 @@ export default function PersonalRecordsTab() {
   const setYear = (y: string) => {
     setSearchParams(prev => {
       if (y) prev.set('year', y); else prev.delete('year')
+      return prev
+    }, { replace: true })
+  }
+
+  const setRecordSportFilter = (value: SportFilterValue) => {
+    const next = recordFilterSelection(value)
+    setSearchParams(prev => {
+      if (next.mainCategory) prev.set('sport', next.mainCategory); else prev.delete('sport')
+      if (next.subFilter) prev.set('sub', next.subFilter); else prev.delete('sub')
+      prev.delete('tab')
       return prev
     }, { replace: true })
   }
@@ -285,50 +296,23 @@ export default function PersonalRecordsTab() {
         </button>
       </div>
 
-      {/* Sport tabs + Year dropdown */}
-      <div className="flex items-center gap-2 mb-5 flex-wrap">
-        {/* Alle tab */}
-        <button
-          onClick={() => setMainCategory(null)}
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors border',
-            mainCategory === null
-              ? 'bg-orange-500 text-white border-orange-500'
-              : 'bg-transparent text-neutral-600 dark:text-neutral-400 border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200',
-          )}
-        >
-          Alle
-        </button>
-
-        {/* Per-sport tabs */}
-        {ALL_MAIN_CATEGORIES
-          .filter(cat => allRecords.some(r => MAIN_CATEGORIES[cat].includes(r.sport_group)))
-          .map(cat => (
-            <button
-              key={cat}
-              onClick={() => setMainCategory(cat)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors border',
-                mainCategory === cat
-                  ? 'bg-orange-500 text-white border-orange-500'
-                  : 'bg-transparent text-neutral-600 dark:text-neutral-400 border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200',
-              )}
-            >
-              <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ backgroundColor: mainCategory === cat ? 'white' : MAIN_CATEGORY_COLORS[cat] }}
-              />
-              {MAIN_CATEGORY_LABELS[cat]}
-            </button>
-          ))
-        }
+      {/* Sport filter + Year dropdown */}
+      <div className="grid gap-3 mb-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3">
+          <SportFilter
+            preset="RECORDS_RECORDABLE"
+            value={recordSportFilterValue(mainCategory, subFilter)}
+            onChange={setRecordSportFilter}
+            modifierKeys={['is_electric', 'is_virtual']}
+          />
+        </div>
 
         {/* Year dropdown — pushed to right */}
         <select
           value={year}
           onChange={(e) => setYear(e.target.value)}
           className={cn(
-            'ml-auto px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors cursor-pointer',
+            'px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors cursor-pointer',
             'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900',
             'text-neutral-700 dark:text-neutral-300',
             'focus:outline-none focus:ring-2 focus:ring-orange-500/30',

@@ -5,10 +5,16 @@ from chat.skill_loader import load_skills, Skill
 
 def test_load_all_skills():
     skills = load_skills()
-    assert len(skills) == 6
-    assert "activities" in skills
-    assert "health" in skills
-    assert "geo" in skills
+    assert set(skills) == {
+        "activities",
+        "gear",
+        "geo",
+        "health",
+        "photos",
+        "routing",
+        "segments",
+        "training",
+    }
 
 
 def test_skill_has_required_fields():
@@ -29,8 +35,9 @@ def test_skill_few_shot_format():
     for skill in skills.values():
         for ex in skill.few_shot_examples:
             assert "q" in ex
-            assert "tool" in ex
-            assert "answer" in ex
+            assert "tool" in ex or "steps" in ex
+            if "steps" in ex:
+                assert all("tool" in step for step in ex["steps"])
 
 
 def test_skill_context_string():

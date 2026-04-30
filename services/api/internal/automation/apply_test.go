@@ -1,15 +1,28 @@
 package automation
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 //go:fix inline
 func ptr(s string) *string { return new(s) }
+
+func setRulesEnginePauseProbeForTest(probe func(context.Context, *database.DB) (bool, error)) func() {
+	previous := rulesEnginePauseProbe
+	rulesEnginePauseProbe = probe
+	return func() {
+		rulesEnginePauseProbe = previous
+	}
+}
 
 func TestShouldEvaluateRule(t *testing.T) {
 	tests := []struct {
@@ -75,6 +88,46 @@ func TestShouldEvaluateRule(t *testing.T) {
 				t.Errorf("shouldEvaluateRule() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestApplyRulesToActivityReturnsPausedBeforeActivityRead(t *testing.T) {
+	restore := setRulesEnginePauseProbeForTest(func(context.Context, *database.DB) (bool, error) {
+		return true, nil
+	})
+	defer restore()
+
+	err := ApplyRulesToActivity(context.Background(), nil, "activity-id", "user-id", nil, "on_import")
+	if !errors.Is(err, ErrRulesEnginePaused) {
+		t.Fatalf("ApplyRulesToActivity error = %v, want ErrRulesEnginePaused", err)
+	}
+}
+
+func TestApplyRulesToActivityReturnsPausedWhenAdvisoryLockHeld(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(func() { pool.Close() })
+
+	lockConn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire lock connection: %v", err)
+	}
+	defer lockConn.Release()
+	if _, err := lockConn.Exec(ctx, `SELECT pg_advisory_lock($1, $2)`, rulesEnginePauseLockNamespace, rulesEnginePauseLockKey); err != nil {
+		t.Fatalf("take advisory lock: %v", err)
+	}
+	defer lockConn.Exec(ctx, `SELECT pg_advisory_unlock($1, $2)`, rulesEnginePauseLockNamespace, rulesEnginePauseLockKey)
+
+	err = ApplyRulesToActivity(ctx, &database.DB{Pool: pool}, "missing-activity", "user-id", nil, "on_import")
+	if !errors.Is(err, ErrRulesEnginePaused) {
+		t.Fatalf("ApplyRulesToActivity error = %v, want ErrRulesEnginePaused", err)
 	}
 }
 

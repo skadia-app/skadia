@@ -3,6 +3,8 @@ package model
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // Activity is the DB/API representation of an activity.
@@ -22,6 +24,7 @@ type Activity struct {
 	ExcludeFromHeatmap bool       `json:"exclude_from_heatmap"`
 	ExcludeFromStats   bool       `json:"exclude_from_stats"`
 	IsManualEntry      bool       `json:"is_manual_entry"`
+	SportTypeIsManual  bool       `json:"sport_type_is_manual,omitempty"`
 	StartedAt          time.Time  `json:"started_at"`
 	EndedAt            *time.Time `json:"ended_at,omitempty"`
 	ElapsedTimeS       *int       `json:"elapsed_time_s,omitempty"`
@@ -321,10 +324,18 @@ type FusionMembershipResponse struct {
 
 // SportConflictMeta holds conflict metadata embedded from import_queue.
 type SportConflictMeta struct {
-	FileSport      string `json:"file_sport"`
-	FileSource     string `json:"file_source"`
-	PlatformSport  string `json:"platform_sport"`
-	PlatformSource string `json:"platform_source"`
+	FileSport          string `json:"file_sport"`
+	FileSubType        string `json:"file_sub_type,omitempty"`
+	FileIsElectric     bool   `json:"file_is_electric,omitempty"`
+	FileIsIndoor       bool   `json:"file_is_indoor,omitempty"`
+	FileIsVirtual      bool   `json:"file_is_virtual,omitempty"`
+	FileSource         string `json:"file_source"`
+	PlatformSport      string `json:"platform_sport"`
+	PlatformSubType    string `json:"platform_sub_type,omitempty"`
+	PlatformIsElectric bool   `json:"platform_is_electric,omitempty"`
+	PlatformIsIndoor   bool   `json:"platform_is_indoor,omitempty"`
+	PlatformIsVirtual  bool   `json:"platform_is_virtual,omitempty"`
+	PlatformSource     string `json:"platform_source"`
 }
 
 // ActivityUpdate is the PATCH request body for updating an activity.
@@ -333,6 +344,9 @@ type ActivityUpdate struct {
 	Description    *string         `json:"description,omitempty"`
 	SportType      *string         `json:"sport_type,omitempty"`
 	SubType        *string         `json:"sub_type,omitempty"`
+	IsIndoor       *bool           `json:"is_indoor,omitempty"`
+	IsElectric     *bool           `json:"is_electric,omitempty"`
+	IsVirtual      *bool           `json:"is_virtual,omitempty"`
 	Tags           []string        `json:"tags,omitempty"`
 	Visibility     *string         `json:"visibility,omitempty"`
 	HideMap        *bool           `json:"hide_map,omitempty"`
@@ -357,23 +371,25 @@ type ActivityList struct {
 
 // ActivityFilters holds filter parameters for the ListActivities query.
 type ActivityFilters struct {
-	SportTypes     []string
-	SubTypes       []string
-	DateFrom       string
-	DateTo         string
-	IsIndoor       *bool
-	IsElectric     *bool
-	IsVirtual      *bool
-	HasGPS         *bool
-	HasLocation    *bool
-	GearID         string
-	Search         string
-	IncludeTags    []string
-	ExcludeTags    []string
-	IncludeGear    []string
-	ExcludeGear    []string
-	IncludeDevices []string
-	ExcludeDevices []string
+	SportPredicates []sport.Predicate
+	SportTypes      []string
+	SubTypes        []string
+	DateFrom        string
+	DateTo          string
+	IsIndoor        *bool
+	IsElectric      *bool
+	IsVirtual       *bool
+	IsCommute       *bool
+	HasGPS          *bool
+	HasLocation     *bool
+	GearID          string
+	Search          string
+	IncludeTags     []string
+	ExcludeTags     []string
+	IncludeGear     []string
+	ExcludeGear     []string
+	IncludeDevices  []string
+	ExcludeDevices  []string
 }
 
 // UploadResponse wraps the activity with optional warnings.

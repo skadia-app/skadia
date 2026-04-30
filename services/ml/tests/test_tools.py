@@ -1,6 +1,9 @@
 """Tests for tool definitions and execution."""
+import re
+from pathlib import Path
+
 import pytest
-from agent.tools import TOOL_DEFINITIONS, ALL_TOOL_DEFINITIONS, get_tool_definitions
+from agent.tools import TOOL_DEFINITIONS, ALL_TOOL_DEFINITIONS, _SPORT_TYPES, get_tool_definitions
 
 
 def test_all_tools_defined():
@@ -43,6 +46,15 @@ def test_sport_type_uses_enum():
                 f"Tool {tool['function']['name']}: sport_type should use enum"
 
 
+def test_weekly_summary_template_groups_by_sport_tuple():
+    from agent.templates import TEMPLATES
+
+    sql = TEMPLATES["weekly_summary"]["sql"]
+
+    assert "sport_type || '/' || sub_type" in sql
+    assert "GROUP BY sport_type, sub_type" in sql
+
+
 def test_get_tool_definitions_filters():
     """get_tool_definitions should filter by tool names."""
     filtered = get_tool_definitions(["query_activities", "aggregate_stats"])
@@ -55,3 +67,14 @@ def test_get_tool_definitions_all():
     """Passing None returns all tools."""
     all_tools = get_tool_definitions(None)
     assert len(all_tools) == len(ALL_TOOL_DEFINITIONS)
+
+
+def test_ml_sport_enum_matches_backend_taxonomy():
+    taxonomy = Path(__file__).parents[2] / "api" / "internal" / "sport" / "taxonomy.go"
+    backend_sports = set(re.findall(r'SportType:\s+"([^"]+)"', taxonomy.read_text()))
+
+    assert set(_SPORT_TYPES) == backend_sports
+
+
+def test_broad_canonical_sport_classes_remain_in_ml_enum():
+    assert {"skiing", "strength", "canoeing"} <= set(_SPORT_TYPES)

@@ -15,6 +15,7 @@ interface Performance {
   moving_time_s: number
   started_at: string
   sport_type: string
+  sub_type?: string | null
   title: string
   is_reverse: boolean
   gear_id?: string | null
@@ -78,10 +79,10 @@ export function SegmentActivityList({ segmentId, segment, filters }: SegmentActi
       }
 
       if (filters?.sportTypes && filters.sportTypes.size > 0) {
-        // sportTypes uses "sport" or "sport:subtype" keys — match against sport_type
+        // sportTypes uses "sport" or "sport:subtype" keys.
         const matches = [...filters.sportTypes].some(key => {
-          const [sport] = key.split(':')
-          return sport === p.sport_type || key === p.sport_type
+          const [sport, sub] = key.split(':')
+          return sport === p.sport_type && (!sub || sub === (p.sub_type ?? ''))
         })
         if (!matches) return false
       }

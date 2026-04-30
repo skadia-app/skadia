@@ -15,6 +15,7 @@ import {
   deleteProfile,
   importProfiles,
   exportProfileUrl,
+  type RoutingProfileEntry,
 } from '@/api/routingProfiles'
 import { apiDownload } from '@/api/client'
 import {
@@ -204,6 +205,35 @@ const BROUTER_PROFILES_FALLBACK = [
   { value: 'walking',         label: 'Spaziergang' },
 ]
 
+export function buildCreateProfilePayload(
+  name: string,
+  profileConfig: ProfileConfig,
+  currentBadRouterEntry?: RoutingProfileEntry,
+) {
+  const config = { ...profileConfig } as Record<string, unknown>
+  const baseProfile = (profileConfig.profile ?? currentBadRouterEntry?.base_profile ?? 'hiking') as string
+  const predicates = profileConfig.predicates?.length
+    ? profileConfig.predicates
+    : currentBadRouterEntry?.predicates
+  const modifierFilters = profileConfig.modifier_filters ?? currentBadRouterEntry?.modifier_filters ?? {}
+
+  if (predicates?.length) {
+    return {
+      name,
+      base_profile: baseProfile,
+      predicates,
+      modifier_filters: modifierFilters,
+      config,
+    }
+  }
+
+  return {
+    name,
+    base_profile: baseProfile,
+    sport_types: currentBadRouterEntry?.sport_types ?? profileConfig.sport_types ?? [],
+    config,
+  }
+}
 
 export interface RoutePlannerPanelProps {
   // Current planning state (controlled from parent / MapPage)
@@ -329,14 +359,7 @@ export default function RoutePlannerPanel({
   function handleSaveProfile() {
     const name = saveProfileName.trim()
     if (!name || !profileConfig) return
-    const config = { ...profileConfig } as Record<string, unknown>
-    const baseProfile = (profileConfig.profile ?? 'hiking') as string
-    createMutation.mutate({
-      name,
-      base_profile: baseProfile,
-      sport_types: currentBadRouterEntry?.sport_types ?? [],
-      config,
-    })
+    createMutation.mutate(buildCreateProfilePayload(name, profileConfig, currentBadRouterEntry))
   }
 
   async function handleResetToDefault() {

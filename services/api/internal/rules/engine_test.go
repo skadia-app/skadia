@@ -213,6 +213,18 @@ func TestApply_SetField(t *testing.T) {
 	}
 }
 
+func TestApply_SetField_Modifier(t *testing.T) {
+	changes := rules.Apply([]rules.Action{
+		{Action: "set_field", Params: json.RawMessage(`{"field":"is_electric","value":true}`)},
+	})
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(changes))
+	}
+	if changes[0].Field != "is_electric" || changes[0].Value != true {
+		t.Fatalf("change = %#v, want is_electric=true", changes[0])
+	}
+}
+
 func TestApply_SetField_UnknownFieldIgnored(t *testing.T) {
 	actions := []rules.Action{
 		{Action: "set_field", Params: json.RawMessage(`{"field":"user_id","value":"hack"}`)},
@@ -220,6 +232,84 @@ func TestApply_SetField_UnknownFieldIgnored(t *testing.T) {
 	changes := rules.Apply(actions)
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes for unknown field, got %d", len(changes))
+	}
+}
+
+func TestApply_SetElectric(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"true", `{"electric":true}`, true},
+		{"false", `{"electric":false}`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			changes := rules.Apply([]rules.Action{
+				{Action: "set_electric", Params: json.RawMessage(tt.raw)},
+			})
+			if len(changes) != 1 {
+				t.Fatalf("changes len = %d, want 1", len(changes))
+			}
+			if changes[0].Field != "is_electric" {
+				t.Fatalf("field = %q, want is_electric", changes[0].Field)
+			}
+			if changes[0].Value != tt.want {
+				t.Fatalf("value = %#v, want %v", changes[0].Value, tt.want)
+			}
+		})
+	}
+}
+
+func TestApply_SetVirtualAndCommute(t *testing.T) {
+	changes := rules.Apply([]rules.Action{
+		{Action: "set_virtual", Params: json.RawMessage(`{"virtual":true}`)},
+		{Action: "set_commute", Params: json.RawMessage(`{"commute":true}`)},
+	})
+	if len(changes) != 2 {
+		t.Fatalf("changes len = %d, want 2", len(changes))
+	}
+	if changes[0].Field != "is_virtual" || changes[0].Value != true {
+		t.Fatalf("first change = %#v, want is_virtual=true", changes[0])
+	}
+	if changes[1].Field != "is_commute" || changes[1].Value != true {
+		t.Fatalf("second change = %#v, want is_commute=true", changes[1])
+	}
+}
+
+func TestApply_SetSportTypeEmitsAtomicTuple(t *testing.T) {
+	changes := rules.Apply([]rules.Action{
+		{Action: "set_sport_type", Params: json.RawMessage(`{"sport_type":"cycling","sub_type":"mountain"}`)},
+	})
+	if len(changes) != 1 {
+		t.Fatalf("changes len = %d, want 1", len(changes))
+	}
+	if changes[0].Field != "sport_tuple" {
+		t.Fatalf("field = %q, want sport_tuple", changes[0].Field)
+	}
+	got, ok := changes[0].Value.(rules.SportTupleChange)
+	if !ok {
+		t.Fatalf("value type = %T, want rules.SportTupleChange", changes[0].Value)
+	}
+	if got.SportType != "cycling" || got.SubType != "mountain" {
+		t.Fatalf("tuple = %#v, want cycling/mountain", got)
+	}
+}
+
+func TestApply_SetSportTypeWithoutSubTypeClearsPreviousSubType(t *testing.T) {
+	changes := rules.Apply([]rules.Action{
+		{Action: "set_sport_type", Params: json.RawMessage(`{"sport_type":"running"}`)},
+	})
+	if len(changes) != 1 {
+		t.Fatalf("changes len = %d, want 1", len(changes))
+	}
+	got, ok := changes[0].Value.(rules.SportTupleChange)
+	if !ok {
+		t.Fatalf("value type = %T, want rules.SportTupleChange", changes[0].Value)
+	}
+	if got.SportType != "running" || got.SubType != "" {
+		t.Fatalf("tuple = %#v, want running with empty subtype", got)
 	}
 }
 

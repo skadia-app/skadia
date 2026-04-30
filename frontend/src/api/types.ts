@@ -172,8 +172,16 @@ export interface Activity {
   sport_conflict_pending?: boolean
   sport_conflict?: {
     file_sport: string
+    file_sub_type?: string
+    file_is_electric?: boolean
+    file_is_indoor?: boolean
+    file_is_virtual?: boolean
     file_source: string
     platform_sport: string
+    platform_sub_type?: string
+    platform_is_electric?: boolean
+    platform_is_indoor?: boolean
+    platform_is_virtual?: boolean
     platform_source: string
   } | null
   // Recording device (linked to hardware registry)
@@ -781,7 +789,7 @@ export interface RuleCondition {
 }
 
 export interface RuleAction {
-  action: 'set_gear' | 'add_tag' | 'remove_tag' | 'set_visibility' | 'set_sport_type' | 'set_name' | 'set_intensity' | 'set_indoor' | string
+  action: 'set_gear' | 'add_tag' | 'remove_tag' | 'set_visibility' | 'set_sport_type' | 'set_name' | 'set_intensity' | 'set_indoor' | 'set_electric' | 'set_virtual' | 'set_commute' | string
   params: Record<string, any>
 }
 
@@ -1098,6 +1106,10 @@ export interface RecordingGroup {
   user_id: string
   primary_activity_id: string | null
   sport_type: string | null
+  sub_type?: string | null
+  is_electric: boolean
+  is_indoor: boolean
+  is_virtual: boolean
   created_at: string
   confirmed: boolean
   members: RecordingGroupMember[]
@@ -1112,6 +1124,10 @@ export interface RecordingGroupMember {
   title_auto: string | null
   started_at: string
   sport_type: string
+  sub_type?: string | null
+  is_electric: boolean
+  is_indoor: boolean
+  is_virtual: boolean
   distance_m: number | null
   elapsed_time_s: number | null
   field_richness: number
@@ -1129,6 +1145,13 @@ export interface FusionMergeRequest {
   sources: string[]
   field_map: Record<string, string>
   gps_fusion_config?: { primary_source: string; extend_track: boolean }
+  sport?: {
+    sport_type: string
+    sub_type?: string
+    is_electric?: boolean
+    is_indoor?: boolean
+    is_virtual?: boolean
+  }
   title_source?: string
   tags_merge: boolean
   tags_source?: string  // if set and !tags_merge: take tags from this source only
