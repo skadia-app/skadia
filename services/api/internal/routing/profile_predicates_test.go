@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -67,6 +69,34 @@ func TestLoadProfilesFromDirFillsAndValidatesPredicates(t *testing.T) {
 	}
 	if !reflect.DeepEqual(mtb.SportTypes, []string{"cycling"}) {
 		t.Fatalf("mtb sport types = %#v, want canonical [cycling]", mtb.SportTypes)
+	}
+}
+
+func TestBuiltinProfileFilesDoNotStoreGenericSubtypeSentinel(t *testing.T) {
+	root := findProjectRoot()
+	if root == "" {
+		t.Fatal("could not find project root")
+	}
+	matches, err := filepath.Glob(filepath.Join(root, "config", "badrouter", "*.json"))
+	if err != nil {
+		t.Fatalf("Glob: %v", err)
+	}
+	for _, path := range matches {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("ReadFile: %v", err)
+			}
+			var cfg ProfileConfig
+			if err := json.Unmarshal(data, &cfg); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+			for i, pred := range cfg.Predicates {
+				if pred.SubType != nil && *pred.SubType == "generic" {
+					t.Fatalf("predicate %d stores sub_type generic; use omitted sub_type for broad match or empty string for exact no-subtype", i)
+				}
+			}
+		})
 	}
 }
 
