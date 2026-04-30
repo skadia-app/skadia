@@ -379,6 +379,7 @@ type ActivityFilters struct {
 	IsIndoor        *bool
 	IsElectric      *bool
 	IsVirtual       *bool
+	IsCommute       *bool
 	HasGPS          *bool
 	HasLocation     *bool
 	GearID          string

@@ -70,6 +70,18 @@ describe('CI-Guard: MOTION_PROFILE_BY_SPORT_TYPE', () => {
       `Sports with generic profile but not on allowlist: ${unexpectedGeneric.join(', ')}`,
     ).toHaveLength(0)
   })
+
+  it('does not keep legacy top-level sport aliases as runtime motion-profile keys', () => {
+    expect(Object.keys(MOTION_PROFILE_BY_SPORT_TYPE)).not.toEqual(expect.arrayContaining([
+      'trail_running',
+      'treadmill_running',
+      'gravel_cycling',
+      'mountain_biking',
+      'indoor_cycling',
+      'lap_swimming',
+      'open_water_swimming',
+    ]))
+  })
 })
 
 describe('motionProfileForSport', () => {

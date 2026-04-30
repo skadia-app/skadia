@@ -95,6 +95,90 @@ func TestPlannedRouteSubTypeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPlannedRouteMetadataAndModifiersRoundTrip(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	subType := "mountain"
+	difficulty := "MTB S2"
+
+	route := &model.PlannedRoute{
+		UserID:          userID,
+		Name:            "metadata route",
+		SportType:       "cycling",
+		SubType:         &subType,
+		IsElectric:      true,
+		IsIndoor:        false,
+		IsVirtual:       true,
+		IsCommute:       true,
+		Difficulty:      &difficulty,
+		Profile:         "mtb",
+		GeometryGeoJSON: `{"type":"LineString","coordinates":[[11.39,47.26],[11.40,47.27]]}`,
+		Waypoints:       []model.RouteWaypoint{},
+		Segments:        []model.RouteSegment{},
+	}
+
+	id, err := db.CreateRoute(ctx, route)
+	if err != nil {
+		t.Fatalf("CreateRoute: %v", err)
+	}
+
+	assertMetadata := func(t *testing.T, got *model.PlannedRoute, wantDifficulty, wantProfile string, wantElectric, wantIndoor, wantVirtual, wantCommute bool) {
+		t.Helper()
+		if got.Difficulty == nil || *got.Difficulty != wantDifficulty {
+			t.Fatalf("Difficulty = %v, want %q", got.Difficulty, wantDifficulty)
+		}
+		if got.Profile != wantProfile {
+			t.Fatalf("Profile = %q, want %q", got.Profile, wantProfile)
+		}
+		if got.IsElectric != wantElectric || got.IsIndoor != wantIndoor || got.IsVirtual != wantVirtual || got.IsCommute != wantCommute {
+			t.Fatalf("modifiers = electric:%v indoor:%v virtual:%v commute:%v, want electric:%v indoor:%v virtual:%v commute:%v",
+				got.IsElectric, got.IsIndoor, got.IsVirtual, got.IsCommute,
+				wantElectric, wantIndoor, wantVirtual, wantCommute)
+		}
+	}
+
+	loaded, err := db.GetRoute(ctx, id, userID)
+	if err != nil {
+		t.Fatalf("GetRoute: %v", err)
+	}
+	assertMetadata(t, loaded, "MTB S2", "mtb", true, false, true, true)
+
+	listed, err := db.ListRoutes(ctx, userID, 10, 0, RouteListFilters{SportType: "cycling", SubType: "mountain"})
+	if err != nil {
+		t.Fatalf("ListRoutes: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("ListRoutes len = %d, want 1", len(listed))
+	}
+	assertMetadata(t, &listed[0], "MTB S2", "mtb", true, false, true, true)
+
+	updatedDifficulty := "SAC T3"
+	loaded.Difficulty = &updatedDifficulty
+	loaded.Profile = "hiking-sac2"
+	loaded.IsElectric = false
+	loaded.IsIndoor = true
+	loaded.IsVirtual = false
+	loaded.IsCommute = false
+	if err := db.UpdateRoute(ctx, loaded); err != nil {
+		t.Fatalf("UpdateRoute: %v", err)
+	}
+	updated, err := db.GetRoute(ctx, id, userID)
+	if err != nil {
+		t.Fatalf("GetRoute after update: %v", err)
+	}
+	assertMetadata(t, updated, "SAC T3", "hiking-sac2", false, true, false, false)
+
+	dupID, err := db.DuplicateRoute(ctx, id, userID)
+	if err != nil {
+		t.Fatalf("DuplicateRoute: %v", err)
+	}
+	duplicated, err := db.GetRoute(ctx, dupID, userID)
+	if err != nil {
+		t.Fatalf("GetRoute duplicate: %v", err)
+	}
+	assertMetadata(t, duplicated, "SAC T3", "hiking-sac2", false, true, false, false)
+}
+
 func TestPlannedRouteCreateNormalizesLegacySportTuple(t *testing.T) {
 	db, userID := routeSubTypeTestDB(t)
 	ctx := context.Background()

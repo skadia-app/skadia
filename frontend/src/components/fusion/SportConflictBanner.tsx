@@ -1,4 +1,5 @@
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
+import { sportModifierSuffix } from '@/lib/sportModifiers'
 
 export interface SportConflictChoice {
   key: string
@@ -32,7 +33,13 @@ export default function SportConflictBanner({
         Unterschiedliche Sportarten erkannt
       </p>
       <div className="flex gap-3">
-        {choices.map(choice => (
+        {choices.map(choice => {
+          const suffix = sportModifierSuffix({
+            isElectric: choice.isElectric,
+            isIndoor: choice.isIndoor,
+            isVirtual: choice.isVirtual,
+          })
+          return (
           <button
             key={choice.key}
             onClick={() => onSelect(choice)}
@@ -44,13 +51,14 @@ export default function SportConflictBanner({
             }`}
           >
             {sportDetailLabel(choice.sportType, choice.subType)}
-            {(choice.isElectric || choice.isIndoor || choice.isVirtual) && (
+            {suffix && (
               <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">
-                {choice.isElectric ? 'E' : choice.isIndoor ? 'I' : 'V'}
+                {suffix}
               </span>
             )}
           </button>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

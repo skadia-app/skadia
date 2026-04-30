@@ -24,6 +24,8 @@ import {
   SUB_FILTERS,
   POWER_CURVE_GROUPS,
   CATEGORY_PREFIXES,
+  recordFilterSelection,
+  recordSportFilterValue,
   matchesSportGroup,
   type MainCategory,
 } from '@/lib/recordsConstants'
@@ -38,8 +40,6 @@ import { SegmentSection } from '@/components/records/SegmentSection'
 import { PRProgressionChart } from '@/components/records/PRProgressionChart'
 import { SportFilter, type SportFilterValue } from '@/components/sport/SportFilter'
 
-// ── Constants ──────────────────────────────────────────────────────────────
-
 const CURRENT_YEAR = new Date().getFullYear()
 const YEAR_OPTIONS = [
   { value: '', label: 'Gesamt' },
@@ -49,53 +49,6 @@ const YEAR_OPTIONS = [
 ]
 
 const ALL_MAIN_CATEGORIES: MainCategory[] = ['laufen', 'radfahren', 'wandern', 'schwimmen']
-
-function recordSportFilterValue(mainCategory: MainCategory | null, subFilter: string | null): SportFilterValue {
-  if (!mainCategory) return { sportTypes: null, modifiers: {} }
-  if (mainCategory === 'laufen') {
-    if (subFilter === 'Trail') return { sportTypes: ['running:trail'], modifiers: {} }
-    if (subFilter === 'Stationär') return { sportTypes: ['running:indoor_running'], modifiers: {} }
-    if (subFilter === 'Straße') return { sportTypes: ['running'], modifiers: {} }
-    return { sportTypes: ['running'], modifiers: {} }
-  }
-  if (mainCategory === 'radfahren') {
-    if (subFilter === 'E-Bike') return { sportTypes: ['cycling'], modifiers: { is_electric: true } }
-    if (subFilter === 'Stationär') return { sportTypes: ['cycling:indoor_cycling'], modifiers: {} }
-    if (subFilter === 'Radfahren') return { sportTypes: ['cycling'], modifiers: { is_electric: false } }
-    return { sportTypes: ['cycling'], modifiers: {} }
-  }
-  if (mainCategory === 'schwimmen') {
-    if (subFilter === 'Freiwasser') return { sportTypes: ['swimming:open_water'], modifiers: {} }
-    if (subFilter === 'Becken') return { sportTypes: ['swimming:lap_swimming'], modifiers: {} }
-    return { sportTypes: ['swimming'], modifiers: {} }
-  }
-  return { sportTypes: ['hiking'], modifiers: {} }
-}
-
-function recordFilterSelection(value: SportFilterValue): { mainCategory: MainCategory | null; subFilter: string | null } {
-  const keys = value.sportTypes ?? []
-  if (keys.length === 0) return { mainCategory: null, subFilter: null }
-
-  if (keys.includes('running:trail')) return { mainCategory: 'laufen', subFilter: 'Trail' }
-  if (keys.includes('running:indoor_running') || value.modifiers?.is_virtual === true) {
-    return { mainCategory: 'laufen', subFilter: 'Stationär' }
-  }
-  if (keys.includes('running')) return { mainCategory: 'laufen', subFilter: 'Straße' }
-
-  if (keys.includes('cycling:indoor_cycling')) return { mainCategory: 'radfahren', subFilter: 'Stationär' }
-  if (keys.some((key) => key === 'cycling' || key.startsWith('cycling:'))) {
-    if (value.modifiers?.is_electric === true) return { mainCategory: 'radfahren', subFilter: 'E-Bike' }
-    if (value.modifiers?.is_electric === false) return { mainCategory: 'radfahren', subFilter: 'Radfahren' }
-    return { mainCategory: 'radfahren', subFilter: null }
-  }
-
-  if (keys.includes('swimming:open_water')) return { mainCategory: 'schwimmen', subFilter: 'Freiwasser' }
-  if (keys.includes('swimming:lap_swimming')) return { mainCategory: 'schwimmen', subFilter: 'Becken' }
-  if (keys.includes('swimming')) return { mainCategory: 'schwimmen', subFilter: null }
-
-  if (keys.includes('hiking')) return { mainCategory: 'wandern', subFilter: null }
-  return { mainCategory: null, subFilter: null }
-}
 
 // ── Excluded List ──────────────────────────────────────────────────────────
 

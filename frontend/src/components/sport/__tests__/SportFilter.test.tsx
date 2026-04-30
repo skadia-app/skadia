@@ -6,8 +6,12 @@ import { GlobalSportSettingsProvider } from '@/lib/globalSportSettings'
 import { SportFilter, type SportFilterValue } from '../SportFilter'
 
 vi.mock('@/api/stats', () => ({
-  fetchSportTypeStats: vi.fn(async () => [{ sport_type: 'cycling', sub_type: 'mountain', count: 1 }]),
+  fetchSportTypeStats: vi.fn(async () => sportStats),
 }))
+
+let sportStats: Array<{ sport_type: string; sub_type: string | null; count: number }> = [
+  { sport_type: 'cycling', sub_type: 'mountain', count: 1 },
+]
 
 function renderFilter(value: SportFilterValue, onChange = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -39,6 +43,7 @@ describe('SportFilter', () => {
   })
 
   it('hide-unused keeps only existing sport tuples', async () => {
+    sportStats = [{ sport_type: 'cycling', sub_type: 'mountain', count: 1 }]
     localStorage.setItem('skadia-hide-unused-sports', 'true')
     renderFilter({ sportTypes: null })
 
@@ -46,6 +51,17 @@ describe('SportFilter', () => {
     expect(screen.getByText('MTB')).toBeInTheDocument()
     expect(screen.queryByText('Gravel')).not.toBeInTheDocument()
     expect(screen.queryByText('Radfahren')).not.toBeInTheDocument()
+    localStorage.removeItem('skadia-hide-unused-sports')
+  })
+
+  it('hide-unused keeps bare parent options for activities without sub type', async () => {
+    sportStats = [{ sport_type: 'cycling', sub_type: null, count: 1 }]
+    localStorage.setItem('skadia-hide-unused-sports', 'true')
+    renderFilter({ sportTypes: null })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Radfahrten' }))
+    expect(screen.getByText('Radfahren')).toBeInTheDocument()
+    expect(screen.queryByText('MTB')).not.toBeInTheDocument()
     localStorage.removeItem('skadia-hide-unused-sports')
   })
 })

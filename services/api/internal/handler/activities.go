@@ -105,6 +105,10 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 		b := v == "true"
 		filters.IsVirtual = &b
 	}
+	if v := r.URL.Query().Get("is_commute"); v != "" {
+		b := v == "true"
+		filters.IsCommute = &b
+	}
 	if v := r.URL.Query().Get("has_gps"); v != "" {
 		b := v == "true"
 		filters.HasGPS = &b

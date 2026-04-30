@@ -31,3 +31,21 @@ func TestBuildFilterSQLCompositeSportTuples(t *testing.T) {
 		t.Fatalf("args = %#v, want cycling/mountain and running/trail", args)
 	}
 }
+
+func TestBuildFilterSQLIncludesCommuteModifier(t *testing.T) {
+	isCommute := true
+	clause, args := buildFilterSQL(model.ActivityFilters{
+		SportTypes: []string{"cycling"},
+		IsCommute:  &isCommute,
+	}, 1)
+
+	if !strings.Contains(clause, "sport_type = ANY($2)") {
+		t.Fatalf("missing sport_type clause in %q", clause)
+	}
+	if !strings.Contains(clause, "is_commute = $3") {
+		t.Fatalf("missing is_commute clause in %q", clause)
+	}
+	if len(args) != 2 || args[1] != true {
+		t.Fatalf("args = %#v, want second arg true", args)
+	}
+}

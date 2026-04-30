@@ -1665,6 +1665,12 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 	case "is_electric":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET is_electric = $1 WHERE id = $2`, value, activityID)
 		return err
+	case "is_virtual":
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET is_virtual = $1 WHERE id = $2`, value, activityID)
+		return err
+	case "is_commute":
+		_, err := db.Pool.Exec(ctx, `UPDATE activities SET is_commute = $1 WHERE id = $2`, value, activityID)
+		return err
 	case "is_round_trip":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET is_round_trip = $1 WHERE id = $2`, value, activityID)
 		return err
