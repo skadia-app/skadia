@@ -74,3 +74,39 @@ func TestInsertActivityWithParentPersistsVirtualModifier(t *testing.T) {
 		t.Fatalf("stored child = %+v, want virtual child excluded from heatmap", children)
 	}
 }
+
+func TestAggregateParentMetricsRollsUpModifiers(t *testing.T) {
+	db, userID := activitiesParentTestDB(t)
+	ctx := context.Background()
+	parentID := uuid.NewString()
+
+	if err := db.InsertMultisportParent(ctx, &model.Activity{
+		ID:        parentID,
+		UserID:    userID,
+		SportType: "multisport",
+		StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("InsertMultisportParent: %v", err)
+	}
+
+	for _, data := range []*model.ActivityData{
+		{SportType: "cycling", StartedAt: time.Now().UTC(), IsIndoor: true, IsElectric: true, IsVirtual: true, HasGPS: false},
+		{SportType: "running", StartedAt: time.Now().UTC(), IsIndoor: true, IsElectric: false, IsVirtual: false, HasGPS: true},
+	} {
+		if _, err := db.InsertActivityWithParent(ctx, userID, data, parentID); err != nil {
+			t.Fatalf("InsertActivityWithParent: %v", err)
+		}
+	}
+
+	if err := db.AggregateParentMetrics(ctx, parentID); err != nil {
+		t.Fatalf("AggregateParentMetrics: %v", err)
+	}
+	parent, err := db.GetActivity(ctx, parentID)
+	if err != nil {
+		t.Fatalf("GetActivity parent: %v", err)
+	}
+	if !parent.IsIndoor || !parent.IsElectric || !parent.IsVirtual || !parent.ExcludeFromHeatmap || !parent.HasGPS {
+		t.Fatalf("parent modifiers indoor/electric/virtual/heatmap/gps = %v/%v/%v/%v/%v, want all true",
+			parent.IsIndoor, parent.IsElectric, parent.IsVirtual, parent.ExcludeFromHeatmap, parent.HasGPS)
+	}
+}

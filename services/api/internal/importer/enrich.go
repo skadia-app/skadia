@@ -62,37 +62,45 @@ func buildEnrichFields(existing *model.Activity, newData *model.ActivityData) ma
 	return fields
 }
 
-// buildReplaceFields erstellt die Map aller zu überschreibenden Felder für ReplaceActivity.
-// Reine Funktion ohne Seiteneffekte — direkt testbar.
-func buildReplaceFields(newData *model.ActivityData) map[string]any {
-	return map[string]any{
-		"avg_heart_rate":       newData.AvgHeartRate,
-		"max_heart_rate":       newData.MaxHeartRate,
-		"avg_power_w":          newData.AvgPowerW,
-		"max_power_w":          newData.MaxPowerW,
-		"avg_cadence":          newData.AvgCadence,
-		"avg_temperature_c":    newData.AvgTemperatureC,
-		"elevation_gain_m":     newData.ElevationGainM,
-		"elevation_loss_m":     newData.ElevationLossM,
-		"max_elevation_m":      newData.MaxElevationM,
-		"min_elevation_m":      newData.MinElevationM,
-		"moving_time_s":        newData.MovingTimeS,
-		"distance_m":           newData.DistanceM,
-		"tss":                  newData.TSS,
-		"sport_type":           newData.SportType,
-		"sub_type":             nilIfEmptySportField(newData.SubType),
-		"parsed_sport_type":    newData.SportType,
-		"parsed_sub_type":      nilIfEmptySportField(newData.SubType),
-		"is_indoor":            newData.IsIndoor,
-		"is_electric":          newData.IsElectric,
-		"is_virtual":           newData.IsVirtual,
-		"exclude_from_heatmap": newData.IsVirtual,
+// buildReplaceFields returns the fields ReplaceActivity may overwrite.
+// Parser snapshots are updated on import, while manual sport decisions keep
+// their effective tuple and modifiers.
+func buildReplaceFields(existing *model.Activity, newData *model.ActivityData) map[string]any {
+	fields := map[string]any{
+		"avg_heart_rate":    newData.AvgHeartRate,
+		"max_heart_rate":    newData.MaxHeartRate,
+		"avg_power_w":       newData.AvgPowerW,
+		"max_power_w":       newData.MaxPowerW,
+		"avg_cadence":       newData.AvgCadence,
+		"avg_temperature_c": newData.AvgTemperatureC,
+		"elevation_gain_m":  newData.ElevationGainM,
+		"elevation_loss_m":  newData.ElevationLossM,
+		"max_elevation_m":   newData.MaxElevationM,
+		"min_elevation_m":   newData.MinElevationM,
+		"moving_time_s":     newData.MovingTimeS,
+		"distance_m":        newData.DistanceM,
+		"tss":               newData.TSS,
+		"parsed_sport_type": newData.SportType,
+		"parsed_sub_type":   nilIfEmptySportField(newData.SubType),
 	}
+
+	if existing == nil || !existing.SportTypeIsManual {
+		fields["sport_type"] = newData.SportType
+		fields["sub_type"] = nilIfEmptySportField(newData.SubType)
+		fields["is_indoor"] = newData.IsIndoor
+		fields["is_electric"] = newData.IsElectric
+		fields["is_virtual"] = newData.IsVirtual
+		fields["exclude_from_heatmap"] = newData.IsVirtual
+	}
+	return fields
 }
 
 func duplicateSportUpdateFields(existing *model.Activity, newData *model.ActivityData) map[string]any {
 	fields := map[string]any{}
 	if existing == nil || newData == nil || newData.SportType == "" {
+		return fields
+	}
+	if existing.SportTypeIsManual {
 		return fields
 	}
 
@@ -164,5 +172,9 @@ func ReplaceActivity(ctx context.Context, db *database.DB, existingID string, ne
 	if newData == nil {
 		return nil
 	}
-	return db.UpdateEnrichmentFields(ctx, existingID, buildReplaceFields(newData))
+	existing, err := db.GetActivity(ctx, existingID)
+	if err != nil {
+		return err
+	}
+	return db.UpdateEnrichmentFields(ctx, existingID, buildReplaceFields(existing, newData))
 }

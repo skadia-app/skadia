@@ -16,11 +16,11 @@ func TestApplyFusionSportSelectionPersistsTupleAndModifiers(t *testing.T) {
 
 	isElectric := true
 	isVirtual := true
-	if err := applyFusionSportSelection(ctx, db.Pool, activityID, &FusionSportSelection{
+	if err := applyFusionSportSelection(ctx, db.Pool, db, activityID, &FusionSportSelection{
 		SportType:  "mountain_biking",
 		IsElectric: &isElectric,
 		IsVirtual:  &isVirtual,
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("applyFusionSportSelection: %v", err)
 	}
 
@@ -38,6 +38,48 @@ func TestApplyFusionSportSelectionPersistsTupleAndModifiers(t *testing.T) {
 	}
 	if !gotElectric || !gotVirtual || !gotHeatmap {
 		t.Fatalf("modifiers = electric %v virtual %v heatmap %v, want true/true/true", gotElectric, gotVirtual, gotHeatmap)
+	}
+}
+
+func TestApplyFusionSportSelectionKeepsParsedSnapshotAndClearsVirtualHeatmap(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	activityID := insertMinimalActivity(t, db, userID)
+	if _, err := pool.Exec(ctx, `
+		UPDATE activities
+		SET parsed_sport_type = 'cycling',
+		    parsed_sub_type = 'road',
+		    is_virtual = true,
+		    exclude_from_heatmap = true
+		WHERE id = $1`, activityID); err != nil {
+		t.Fatalf("seed activity: %v", err)
+	}
+
+	isVirtual := false
+	if err := applyFusionSportSelection(ctx, db.Pool, db, activityID, &FusionSportSelection{
+		SportType: "cycling",
+		SubType:   "mountain",
+		IsVirtual: &isVirtual,
+	}, nil); err != nil {
+		t.Fatalf("applyFusionSportSelection: %v", err)
+	}
+
+	var parsedSport string
+	var parsedSub *string
+	var gotVirtual, gotHeatmap bool
+	if err := pool.QueryRow(ctx, `
+		SELECT parsed_sport_type, parsed_sub_type, is_virtual, exclude_from_heatmap
+		FROM activities WHERE id = $1`, activityID,
+	).Scan(&parsedSport, &parsedSub, &gotVirtual, &gotHeatmap); err != nil {
+		t.Fatalf("select activity: %v", err)
+	}
+	if parsedSport != "cycling" || parsedSub == nil || *parsedSub != "road" {
+		t.Fatalf("parsed tuple = %s/%v, want unchanged cycling/road", parsedSport, parsedSub)
+	}
+	if gotVirtual || gotHeatmap {
+		t.Fatalf("virtual=%v heatmap=%v, want false/false", gotVirtual, gotHeatmap)
 	}
 }
 

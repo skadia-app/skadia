@@ -12,6 +12,7 @@ func TestStravaRouteTypeToSportTuple(t *testing.T) {
 		{name: "trail run", input: "trail run", wantSport: "running", wantSub: "trail"},
 		{name: "ride", input: "ride", wantSport: "cycling", wantSub: ""},
 		{name: "hiking", input: "hike", wantSport: "hiking", wantSub: ""},
+		{name: "unknown", input: "pickleball", wantSport: "unknown", wantSub: ""},
 	}
 
 	for _, tt := range tests {

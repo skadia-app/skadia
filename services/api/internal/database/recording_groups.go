@@ -560,11 +560,25 @@ func (db *DB) GetRecordingGroupMembers(ctx context.Context, groupID string) ([]R
 
 // SetRecordingGroupSportType updates the persisted sport tuple of a recording group.
 func (db *DB) SetRecordingGroupSportType(ctx context.Context, groupID string, tuple RecordingGroupSportTuple) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := db.SetRecordingGroupSportTypeTx(ctx, tx, groupID, tuple); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// SetRecordingGroupSportTypeTx updates a group's sport tuple and propagates the
+// explicit user decision to its member activities in the same transaction.
+func (db *DB) SetRecordingGroupSportTypeTx(ctx context.Context, tx pgx.Tx, groupID string, tuple RecordingGroupSportTuple) error {
 	var sportTypeArg any
 	if tuple.SportType != "" {
 		sportTypeArg = tuple.SportType
 	}
-	tag, err := db.Pool.Exec(ctx,
+	tag, err := tx.Exec(ctx,
 		`UPDATE recording_groups
 		 SET sport_type = COALESCE($2, sport_type),
 		     sub_type = CASE WHEN $2 IS NULL THEN sub_type ELSE $3 END,
@@ -579,6 +593,37 @@ func (db *DB) SetRecordingGroupSportType(ctx context.Context, groupID string, tu
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("set recording group sport type: group %s not found", groupID)
+	}
+
+	_, err = tx.Exec(ctx,
+		`UPDATE activities a
+		 SET sport_type = COALESCE($2, a.sport_type),
+		     sub_type = CASE WHEN $2 IS NULL THEN a.sub_type ELSE $3 END,
+		     is_electric = COALESCE($4, a.is_electric),
+		     is_indoor = COALESCE($5, a.is_indoor),
+		     is_virtual = COALESCE($6, a.is_virtual),
+		     exclude_from_heatmap = CASE
+		       WHEN $6 IS TRUE THEN TRUE
+		       WHEN $6 IS FALSE THEN FALSE
+		       ELSE a.exclude_from_heatmap
+		     END,
+		     sport_type_is_manual = CASE
+		       WHEN $2 IS NULL AND $4 IS NULL AND $5 IS NULL AND $6 IS NULL THEN a.sport_type_is_manual
+		       ELSE TRUE
+		     END,
+		     has_edits = CASE
+		       WHEN $2 IS NULL AND $4 IS NULL AND $5 IS NULL AND $6 IS NULL THEN a.has_edits
+		       ELSE TRUE
+		     END
+		 FROM recording_group_members rgm
+		 JOIN recording_groups rg ON rg.id = rgm.group_id
+		 WHERE rgm.group_id = $1
+		   AND rgm.activity_id = a.id
+		   AND rg.user_id = a.user_id`,
+		groupID, sportTypeArg, tuple.SubType, tuple.IsElectric, tuple.IsIndoor, tuple.IsVirtual,
+	)
+	if err != nil {
+		return fmt.Errorf("set recording group member sport type: %w", err)
 	}
 	return nil
 }

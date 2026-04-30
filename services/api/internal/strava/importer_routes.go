@@ -162,7 +162,7 @@ func stravaRouteTypeToSport(t string) (string, *string) {
 	normalize := func(sportType, subType string) (string, *string) {
 		tuple, _, err := sporttax.NormalizeSportTuple(sportType, subType)
 		if err != nil {
-			return "cycling", nil
+			return "unknown", nil
 		}
 		if tuple.SubType == "" {
 			return tuple.SportType, nil
@@ -183,6 +183,6 @@ func stravaRouteTypeToSport(t string) (string, *string) {
 	case "alpine ski", "skiing":
 		return normalize("alpine_skiing", "")
 	default:
-		return normalize("cycling", "") // Strava's most common route type
+		return normalize("unknown", "")
 	}
 }

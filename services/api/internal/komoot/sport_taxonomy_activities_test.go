@@ -27,3 +27,21 @@ func TestApplyKomootSportMappingKeepsSpecificFileSubtype(t *testing.T) {
 		t.Fatalf("SubType = %q, want existing gravel_cycling", data.SubType)
 	}
 }
+
+func TestKomootSportConflictDetectsSpecificSubtypeMismatch(t *testing.T) {
+	platform := komootSportConflictSnapshot{Sport: "cycling", SubType: "mountain"}
+	file := komootSportConflictSnapshot{Sport: "cycling", SubType: "road"}
+
+	if !komootSportConflictSnapshotsConflict(platform, file) {
+		t.Fatal("expected Komoot platform MTB vs file road cycling to queue a sport conflict")
+	}
+}
+
+func TestKomootSportConflictIgnoresBroadFileSubtype(t *testing.T) {
+	platform := komootSportConflictSnapshot{Sport: "cycling", SubType: "mountain"}
+	file := komootSportConflictSnapshot{Sport: "cycling"}
+
+	if komootSportConflictSnapshotsConflict(platform, file) {
+		t.Fatal("broad file cycling should accept the platform subtype without conflict")
+	}
+}
