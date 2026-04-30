@@ -46,6 +46,15 @@ def test_sport_type_uses_enum():
                 f"Tool {tool['function']['name']}: sport_type should use enum"
 
 
+def test_weekly_summary_template_groups_by_sport_tuple():
+    from agent.templates import TEMPLATES
+
+    sql = TEMPLATES["weekly_summary"]["sql"]
+
+    assert "sport_type || '/' || sub_type" in sql
+    assert "GROUP BY sport_type, sub_type" in sql
+
+
 def test_get_tool_definitions_filters():
     """get_tool_definitions should filter by tool names."""
     filtered = get_tool_definitions(["query_activities", "aggregate_stats"])

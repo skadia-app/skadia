@@ -29,6 +29,16 @@ def test_prompt_with_few_shots():
     assert "aggregate_stats" in prompt
 
 
+def test_segment_skill_context_lists_predicates_and_leaderboard():
+    skills = load_skills()
+    prompt = assemble_system_prompt(DEFAULT_PROFILES["small"], [skills["segments"]])
+
+    assert "allowed_predicates" in prompt
+    assert "sport_type" in prompt
+    assert "sub_type" in prompt
+    assert "in_leaderboard" in prompt
+
+
 def test_prompt_without_few_shots_for_large():
     prompt = assemble_system_prompt(DEFAULT_PROFILES["large"], [])
     assert "Beispiele" not in prompt  # large profile has few_shot_count=0
