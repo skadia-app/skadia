@@ -43,6 +43,7 @@ function activeFilterCount(filters: AnalyticsFilterState): number {
   if (filters.isCommute) count++
   if (filters.isRace) count++
   if (filters.isElectric !== null) count++
+  if (filters.isIndoor !== null) count++
   if (filters.isVirtual !== null) count++
   if (filters.distMin || filters.distMax) count++
   if (filters.elevMin || filters.elevMax) count++
@@ -69,6 +70,41 @@ interface SportTypeSelectorProps {
   onChange: (types: string[]) => void
 }
 
+function ModifierTriState({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: boolean | null
+  onChange: (value: boolean | null) => void
+}) {
+  return (
+    <div>
+      <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">{label}</div>
+      <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
+        {([
+          [null, 'Alle'],
+          [true, 'Nur'],
+          [false, 'Ohne'],
+        ] as [boolean | null, string][]).map(([val, optionLabel]) => (
+          <button
+            key={String(val)}
+            onClick={() => onChange(val)}
+            className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
+              value === val
+                ? 'bg-[var(--color-accent-DEFAULT)] text-white font-medium'
+                : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+            }`}
+          >
+            {optionLabel}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [sportSearch, setSportSearch] = useState('')
@@ -78,16 +114,16 @@ function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
     queryFn: fetchSportTypeStats,
     enabled: hideUnused,
   })
-  const existingSportTypes = useMemo<Set<string>>(() => {
+  const existingSportKeys = useMemo<Set<string>>(() => {
     if (!statsData) return new Set()
-    return new Set(statsData.map((s) => s.sport_type))
+    return new Set(statsData.map((s) => s.sub_type ? `${s.sport_type}:${s.sub_type}` : s.sport_type))
   }, [statsData])
   const visibleOptions = useMemo(() => {
-    if (hideUnused && existingSportTypes.size > 0) {
-      return filterToExistingSports(ANALYTICS_SPORT_OPTIONS, existingSportTypes)
+    if (hideUnused && existingSportKeys.size > 0) {
+      return filterToExistingSports(ANALYTICS_SPORT_OPTIONS, existingSportKeys)
     }
     return ANALYTICS_SPORT_OPTIONS
-  }, [hideUnused, existingSportTypes])
+  }, [hideUnused, existingSportKeys])
 
   const selectedSet = useMemo(() => new Set(selected), [selected])
 
@@ -581,31 +617,10 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
         </div>
       </div>
 
-      {/* E-Bike tristate filter */}
-      {/* TODO(electric): When additional electric sport tags are added (e.g. E-Scooter),
-          generalize this filter to "Elektrisch" with sport-specific sub-options,
-          or add separate per-sport electric filters. */}
-      <div>
-        <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">E-Bike</div>
-        <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
-          {([
-            [null, 'Alle'],
-            [true, 'Nur'],
-            [false, 'Ohne'],
-          ] as [boolean | null, string][]).map(([val, label]) => (
-            <button
-              key={String(val)}
-              onClick={() => onFilterChange({ isElectric: val })}
-              className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
-                filters.isElectric === val
-                  ? 'bg-[var(--color-accent-DEFAULT)] text-white font-medium'
-                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <ModifierTriState label="E-Bike" value={filters.isElectric} onChange={(isElectric) => onFilterChange({ isElectric })} />
+        <ModifierTriState label="Indoor" value={filters.isIndoor} onChange={(isIndoor) => onFilterChange({ isIndoor })} />
+        <ModifierTriState label="Virtuell" value={filters.isVirtual} onChange={(isVirtual) => onFilterChange({ isVirtual })} />
       </div>
 
       {/* Sport Type Selector */}
@@ -694,6 +709,7 @@ export default function AnalyticsPage() {
       includeTags: [], excludeTags: [],
       includeGear: [], excludeGear: [],
       isElectric: null,
+      isIndoor: null,
       isVirtual: null,
     })
   }

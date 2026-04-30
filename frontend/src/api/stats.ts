@@ -15,6 +15,7 @@ export async function fetchPMC(from: string, to: string): Promise<PMCDataPoint[]
 
 export interface SportTypeStatItem {
   sport_type: string
+  sub_type?: string | null
   count: number
 }
 

@@ -74,6 +74,32 @@ describe('RuleEditor sport tuple controls', () => {
     expect(JSON.stringify(onSave.mock.calls[0][0].actions)).not.toContain('e_mountain_biking')
   })
 
+  it('carries indoor modifiers through compound sport conditions and actions', async () => {
+    const onSave = renderEditor({
+      condition_groups: [{ logic: 'and', conditions: [{ field: 'sport_type', op: 'eq', value: 'treadmill_running' }] }],
+      actions: [{ action: 'set_sport_type', params: { sport_type: 'indoor_cycling' } }],
+    })
+
+    expect(screen.getByLabelText('Sportart')).toHaveValue('running')
+    expect(screen.getByLabelText('Sub-Sportart')).toHaveValue('indoor_running')
+    expect(screen.getByLabelText('Indoor')).toHaveValue('true')
+    expect(screen.getByLabelText('Sportart setzen')).toHaveValue('cycling')
+    expect(screen.getByLabelText('Sub-Sportart setzen')).toHaveValue('indoor_cycling')
+    expect(screen.getByLabelText('Indoor setzen')).toHaveValue('true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'sport_type', op: 'eq', value: 'running' },
+      { field: 'sub_type', op: 'eq', value: 'indoor_running' },
+      { field: 'is_indoor', op: 'eq', value: true },
+    ])
+    expect(onSave.mock.calls[0][0].actions).toEqual([
+      { action: 'set_sport_type', params: { sport_type: 'cycling', sub_type: 'indoor_cycling' } },
+      { action: 'set_indoor', params: { indoor: true } },
+    ])
+  })
+
   it('dedupes set_electric true with explicit E-Bike tag and blocks contradictions', async () => {
     const onSave = renderEditor({
       actions: [

@@ -225,42 +225,7 @@ function buildTileUrl(
 
   const allSelected = filters.sportTypes.size === ALL_SPORT_KEYS.length
   if (!allSelected && filters.sportTypes.size > 0) {
-    // Split composite keys ("sport:subType") back into sport_type and sub_type sets.
-    // A key without a colon (e.g. "cycling" for road cycling) has no sub_type restriction —
-    // if such a key is selected alongside sub-typed keys we must NOT send a sub_type
-    // filter for that sport, or the road cycling activities would be excluded.
-    const sportTypes = new Set<string>()
-    // Track which sports appear with a bare (no-subType) key — those must not be
-    // constrained by sub_type in the API query.
-    const sportsWithBareKey = new Set<string>()
-    const subTypes = new Set<string>()
-
-    for (const key of filters.sportTypes) {
-      const colonIdx = key.indexOf(':')
-      if (colonIdx === -1) {
-        // Bare key — no sub_type restriction for this sport
-        sportTypes.add(key)
-        sportsWithBareKey.add(key)
-      } else {
-        const sport = key.slice(0, colonIdx)
-        const sub = key.slice(colonIdx + 1)
-        sportTypes.add(sport)
-        subTypes.add(sub)
-      }
-    }
-
-    params.set('sport_type', Array.from(sportTypes).join(','))
-
-    // Only send sub_type when NO selected sport has a bare key (i.e. every selected
-    // cycling variant has an explicit sub_type). This prevents the filter from
-    // accidentally excluding road cycling when MTB/Gravel are also selected.
-    const subTypedSports = Array.from(subTypes).length > 0
-      ? Array.from(sportTypes).filter(s => !sportsWithBareKey.has(s))
-      : []
-    if (subTypedSports.length > 0 && sportsWithBareKey.size === 0) {
-      // All cycling selections carry a sub_type — safe to filter by sub_type
-      params.set('sub_type', Array.from(subTypes).join(','))
-    }
+    params.set('sport_type', Array.from(filters.sportTypes).join(','))
   }
   if (filters.dateFrom) params.set('date_from', filters.dateFrom)
   if (filters.dateTo) params.set('date_to', filters.dateTo)

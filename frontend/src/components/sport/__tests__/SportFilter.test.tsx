@@ -6,7 +6,7 @@ import { GlobalSportSettingsProvider } from '@/lib/globalSportSettings'
 import { SportFilter, type SportFilterValue } from '../SportFilter'
 
 vi.mock('@/api/stats', () => ({
-  fetchSportTypeStats: vi.fn(async () => [{ sport_type: 'cycling', count: 1 }]),
+  fetchSportTypeStats: vi.fn(async () => [{ sport_type: 'cycling', sub_type: 'mountain', count: 1 }]),
 }))
 
 function renderFilter(value: SportFilterValue, onChange = vi.fn()) {
@@ -36,5 +36,16 @@ describe('SportFilter', () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
       modifiers: expect.objectContaining({ is_electric: true }),
     }))
+  })
+
+  it('hide-unused keeps only existing sport tuples', async () => {
+    localStorage.setItem('skadia-hide-unused-sports', 'true')
+    renderFilter({ sportTypes: null })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Radfahrten' }))
+    expect(screen.getByText('MTB')).toBeInTheDocument()
+    expect(screen.queryByText('Gravel')).not.toBeInTheDocument()
+    expect(screen.queryByText('Radfahren')).not.toBeInTheDocument()
+    localStorage.removeItem('skadia-hide-unused-sports')
   })
 })
