@@ -26,6 +26,8 @@ func TestMigration000340AddsNullableSegmentPredicates(t *testing.T) {
 	upSQL, downSQL := readMigration000340SQL(t)
 	for _, needle := range []string{
 		"ADD COLUMN IF NOT EXISTS allowed_predicates JSONB DEFAULT NULL",
+		"segments_legacy_sub_type_hints",
+		"original_sport_types",
 		"segments_allowed_predicates_valid",
 		"fn_validate_predicates",
 		"DROP COLUMN IF EXISTS allowed_predicates",
@@ -126,5 +128,58 @@ func TestMigration000340BackfillsTuplePredicates(t *testing.T) {
 	}
 	if allPreds != nil {
 		t.Fatalf("all allowed_predicates = %v, want NULL", *allPreds)
+	}
+}
+
+func TestMigration000340BackfillsLegacyHintsBeforeCollapsedSports(t *testing.T) {
+	upSQL, _ := readMigration000340SQL(t)
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback: %v", err)
+		}
+	})
+	if _, err := tx.Exec(ctx, `SET LOCAL skadia.allow_segment_sport_broadening = 'on'`); err != nil {
+		t.Fatalf("set gate: %v", err)
+	}
+
+	userID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, is_admin)
+		VALUES ($1, $2, $3, false)
+	`, userID, "mig340legacy_"+userID[:8], "mig340legacy_"+userID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	segmentID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO segments (id, created_by, name, allowed_sport_types, allowed_sub_types)
+		VALUES ($1, $2, 'legacy mtb segment', ARRAY['mountain_biking'], NULL)
+	`, segmentID, userID); err != nil {
+		t.Fatalf("insert legacy segment: %v", err)
+	}
+
+	up339, _, _ := readMigration000339SQL(t)
+	if _, err := tx.Exec(ctx, up339); err != nil {
+		t.Fatalf("apply 000339: %v", err)
+	}
+	if _, err := tx.Exec(ctx, upSQL); err != nil {
+		t.Fatalf("apply 000340: %v", err)
+	}
+
+	var predicates string
+	if err := tx.QueryRow(ctx, `SELECT allowed_predicates::text FROM segments WHERE id = $1`, segmentID).Scan(&predicates); err != nil {
+		t.Fatalf("query predicates: %v", err)
+	}
+	if !strings.Contains(predicates, `"sport": "cycling"`) || !strings.Contains(predicates, `"sub_type": "mountain"`) {
+		t.Fatalf("legacy predicates = %s, want cycling/mountain from hint table", predicates)
+	}
+	if strings.Contains(predicates, `{"sport": "cycling"}`) || !strings.Contains(predicates, `"sub_type"`) {
+		t.Fatalf("legacy predicates = %s, must not broaden to plain cycling", predicates)
 	}
 }

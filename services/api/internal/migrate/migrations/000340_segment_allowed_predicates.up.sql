@@ -1,6 +1,35 @@
 ALTER TABLE segments
     ADD COLUMN IF NOT EXISTS allowed_predicates JSONB DEFAULT NULL;
 
+WITH raw_hint_predicates AS (
+    SELECT
+        h.segment_id,
+        jsonb_strip_nulls(jsonb_build_object(
+            'sport', n.sport_type,
+            'sub_type', NULLIF(n.sub_type, '')
+        )) AS predicate
+    FROM segments_legacy_sub_type_hints h
+    CROSS JOIN LATERAL unnest(h.original_sport_types) WITH ORDINALITY AS raw(sport_type, ord)
+    LEFT JOIN LATERAL unnest(COALESCE(h.original_sub_types, ARRAY[]::text[])) WITH ORDINALITY AS st(sub_type, ord)
+      ON st.ord = raw.ord
+    CROSS JOIN LATERAL fp_sport_taxonomy_normalize(raw.sport_type, COALESCE(st.sub_type, '')) AS n
+),
+hint_predicates AS (
+    SELECT
+        segment_id,
+        jsonb_agg(predicate ORDER BY predicate::text) AS predicates
+    FROM (
+        SELECT DISTINCT segment_id, predicate
+        FROM raw_hint_predicates
+    ) deduped
+    GROUP BY segment_id
+)
+UPDATE segments s
+SET allowed_predicates = h.predicates
+FROM hint_predicates h
+WHERE s.id = h.segment_id
+  AND s.allowed_predicates IS NULL;
+
 UPDATE segments
 SET allowed_predicates = CASE
     WHEN allowed_sport_types IS NULL THEN NULL

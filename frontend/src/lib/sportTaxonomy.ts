@@ -116,7 +116,6 @@ export const SPORT_DEFS: SportDef[] = [
 
   // ── bike ──
   def('cycling', 'bike', 'bike', 'Radfahren', true, false, [
-    sub('generic', 'Radfahren'),
     sub('road', 'Rennrad'),
     sub('mountain', 'MTB'),
     sub('downhill', 'Downhill'),

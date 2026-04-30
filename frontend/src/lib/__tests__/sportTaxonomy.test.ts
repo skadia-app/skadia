@@ -88,4 +88,9 @@ describe('sport taxonomy aliases', () => {
     expect(values).not.toContain('mountain_biking/')
     expect(values).not.toContain('trail_running/')
   })
+
+  it('does not expose generic as a cycling subtype option', () => {
+    const cycling = SPORT_DEFS.find((s) => s.sportType === 'cycling')
+    expect(cycling?.subTypes.map((s) => s.subType)).not.toContain('generic')
+  })
 })
