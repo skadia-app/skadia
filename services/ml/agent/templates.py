@@ -13,12 +13,14 @@ TEMPLATES = {
     "weekly_summary": {
         "patterns": [r"wochenzu", r"diese\s*woche", r"weekly\s*summary"],
         "sql": """
-            SELECT sport_type, COUNT(*) AS count,
+            SELECT CASE WHEN sub_type IS NULL OR sub_type = ''
+                        THEN sport_type ELSE sport_type || '/' || sub_type END AS sport_tuple,
+                   sport_type, sub_type, COUNT(*) AS count,
                    ROUND(SUM(distance_m)/1000.0, 1) AS km,
                    ROUND(SUM(duration_s)/3600.0, 1) AS hours
             FROM activities
             WHERE user_id = $1 AND started_at >= NOW() - INTERVAL '7 days'
-            GROUP BY sport_type ORDER BY count DESC
+            GROUP BY sport_type, sub_type ORDER BY count DESC
         """,
         "params": lambda m: [],
         "format": "Wochenzusammenfassung:",

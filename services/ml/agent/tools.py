@@ -68,7 +68,7 @@ def _sport_filter_params(include_sub_type: bool = True) -> dict:
         params["sub_type"] = {
             "type": "string",
             "description": (
-                "Filter by sub_type. Use '' for exact no-subtype rows. Examples: "
+                "Filter by sub_type. Pass '' only for exact no-subtype rows stored as NULL. Examples: "
                 "MTB = sport_type='cycling' AND sub_type='mountain'; "
                 "Gravel = sport_type='cycling' AND sub_type='gravel_cycling'; "
                 "Trail = sport_type='running' AND sub_type='trail'; "
@@ -111,6 +111,41 @@ def _apply_activity_filters(
         if value is not None:
             params.append(bool(value))
             conditions.append(f"{prefix}{field} = ${len(params)}")
+
+
+def _apply_segment_effort_filters(
+    conditions: list[str],
+    params: list,
+    *,
+    sport_type=None,
+    sub_type=None,
+    is_electric=None,
+    is_indoor=None,
+    is_virtual=None,
+    is_commute=None,
+    in_leaderboard=None,
+) -> None:
+    if sport_type:
+        params.append(sport_type)
+        conditions.append(f"se.sport_type = ${len(params)}")
+    if sub_type is not None:
+        if sub_type == "":
+            conditions.append("(se.sub_type IS NULL OR se.sub_type = 'generic')")
+        else:
+            params.append(sub_type)
+            conditions.append(f"se.sub_type = ${len(params)}")
+    if in_leaderboard is not None:
+        params.append(bool(in_leaderboard))
+        conditions.append(f"se.in_leaderboard = ${len(params)}")
+    _apply_activity_filters(
+        conditions,
+        params,
+        table_alias="a",
+        is_electric=is_electric,
+        is_indoor=is_indoor,
+        is_virtual=is_virtual,
+        is_commute=is_commute,
+    )
 
 ALL_TOOL_DEFINITIONS = [
     # ── 1. query_activities ────────────────────────────────────────────────
@@ -413,6 +448,11 @@ ALL_TOOL_DEFINITIONS = [
                         "description": "Max segments to return (default 5)",
                         "default": 5,
                     },
+                    **_sport_filter_params(),
+                    "in_leaderboard": {
+                        "type": "boolean",
+                        "description": "Filter leaderboard-eligible efforts; false includes non-leaderboard efforts such as lifts",
+                    },
                 },
             },
         },
@@ -610,6 +650,8 @@ ALL_TOOL_DEFINITIONS = [
                 "Indoor-Rad→sport_type='cycling' AND sub_type='indoor_cycling' AND is_indoor=true, "
                 "E-Bike→sport_type='cycling' AND is_electric=true, "
                 "Virtual→is_virtual=true, Pendeln/Commute→is_commute=true, "
+                "Ski allgemein→sport_type='skiing', Alpin-Ski→sport_type='alpine_skiing', "
+                "Kraft allgemein→sport_type='strength', Krafttraining→sport_type='strength_training', "
                 "Bouldern→sport_type='rock_climbing' AND sub_type='bouldering'.\n"
                 "IMPORTANT SQL rules: Use ROUND(x::numeric, n) not ROUND(float8, n). "
                 "gear.type values: 'bike','shoes','other' (NOT 'bicycle'). "
@@ -618,7 +660,7 @@ ALL_TOOL_DEFINITIONS = [
                 "activities(id UUID,title,sport_type,sub_type,is_electric,is_indoor,is_virtual,is_commute,started_at TIMESTAMPTZ,elapsed_time_s,moving_time_s,"
                 "distance_m,elevation_gain_m,avg_speed_ms,avg_heart_rate,avg_power_w,tss,trimp,"
                 "start_city,gear_id UUID) | "
-                "segments(id UUID,created_by UUID,name,sport_group,distance_m,elevation_gain_m,effort_count) | "
+                "segments(id UUID,created_by UUID,name,sport_group,distance_m,elevation_gain_m,effort_count,allowed_predicates JSONB) | "
                 "segment_efforts(segment_id UUID,activity_id UUID,started_at,elapsed_time_s,"
                 "distance_m,elevation_gain_m,sport_type,sub_type,avg_power_w,avg_heart_rate,"
                 "avg_speed_ms,is_personal_best,is_reverse,in_leaderboard) | "
@@ -1321,7 +1363,21 @@ async def _query_geo_features(
     return {"feature_type": feature_type, "total_count": total_count, "features": data, "note": f"Showing {len(data)} of {total_count} total matches"}
 
 
-async def _query_segments(pool, user_id, query=None, include_efforts=True, days=365, limit=5):
+async def _query_segments(
+    pool,
+    user_id,
+    query=None,
+    include_efforts=True,
+    days=365,
+    limit=5,
+    sport_type=None,
+    sub_type=None,
+    is_electric=None,
+    is_indoor=None,
+    is_virtual=None,
+    is_commute=None,
+    in_leaderboard=None,
+):
     since = date.today() - timedelta(days=days)
 
     conditions = ["se.user_id = $1"]
@@ -1330,10 +1386,21 @@ async def _query_segments(pool, user_id, query=None, include_efforts=True, days=
     if query:
         params.append(f"%{query}%")
         conditions.append(f"s.name ILIKE ${len(params)}")
+    _apply_segment_effort_filters(
+        conditions,
+        params,
+        sport_type=sport_type,
+        sub_type=sub_type,
+        is_electric=is_electric,
+        is_indoor=is_indoor,
+        is_virtual=is_virtual,
+        is_commute=is_commute,
+        in_leaderboard=in_leaderboard,
+    )
 
     where = " AND ".join(conditions)
     sql = (
-        "SELECT s.id, s.name, s.sport_group, "
+        "SELECT s.id, s.name, s.sport_group, s.allowed_predicates, "
         "ROUND((s.distance_m / 1000.0)::numeric, 2) AS distance_km, "
         "s.elevation_gain_m, "
         "COUNT(se.id) AS effort_count, "
@@ -1341,8 +1408,9 @@ async def _query_segments(pool, user_id, query=None, include_efforts=True, days=
         "MAX(se.started_at)::date AS last_attempt "
         "FROM segments s "
         "JOIN segment_efforts se ON se.segment_id = s.id "
+        "JOIN activities a ON a.id = se.activity_id AND a.user_id = se.user_id "
         f"WHERE {where} "
-        "GROUP BY s.id, s.name, s.sport_group, s.distance_m, s.elevation_gain_m "
+        "GROUP BY s.id, s.name, s.sport_group, s.allowed_predicates, s.distance_m, s.elevation_gain_m "
         f"ORDER BY last_attempt DESC LIMIT {min(int(limit), 20)}"
     )
     rows = await pool.fetch(sql, *params)
@@ -1357,12 +1425,26 @@ async def _query_segments(pool, user_id, query=None, include_efforts=True, days=
     if include_efforts and segments:
         # Fetch last 3 efforts for each segment
         seg_ids = [r["id"] for r in rows]
+        effort_conditions = ["se.user_id = $1", "se.segment_id = ANY($2)", "se.started_at >= $3"]
+        effort_params: list = [user_id, seg_ids, since]
+        _apply_segment_effort_filters(
+            effort_conditions,
+            effort_params,
+            sport_type=sport_type,
+            sub_type=sub_type,
+            is_electric=is_electric,
+            is_indoor=is_indoor,
+            is_virtual=is_virtual,
+            is_commute=is_commute,
+            in_leaderboard=in_leaderboard,
+        )
         effort_rows = await pool.fetch(
-            "SELECT segment_id, started_at::date AS date, elapsed_time_s, avg_heart_rate "
-            "FROM segment_efforts "
-            "WHERE user_id = $1 AND segment_id = ANY($2) AND started_at >= $3 "
-            "ORDER BY started_at DESC",
-            user_id, seg_ids, since,
+            "SELECT se.segment_id, se.started_at::date AS date, se.elapsed_time_s, se.avg_heart_rate "
+            "FROM segment_efforts se "
+            "JOIN activities a ON a.id = se.activity_id AND a.user_id = se.user_id "
+            f"WHERE {' AND '.join(effort_conditions)} "
+            "ORDER BY se.started_at DESC",
+            *effort_params,
         )
         efforts_by_seg: dict = {}
         for e in effort_rows:

@@ -68,12 +68,18 @@ def test_schema_context_lists_all_activity_modifier_columns():
 def test_schema_context_lists_segment_effort_distance_and_elevation():
     from agent.sql_agent import SCHEMA_CONTEXT
 
+    segments_line = next(
+        line for line in SCHEMA_CONTEXT.splitlines()
+        if line.startswith("segments:")
+    )
     segment_efforts_line = next(
         line for line in SCHEMA_CONTEXT.splitlines()
         if line.startswith("segment_efforts:")
     )
+    assert "allowed_predicates JSONB" in segments_line
     assert "distance_m FLOAT8" in segment_efforts_line
     assert "elevation_gain_m FLOAT8" in segment_efforts_line
+    assert "in_leaderboard BOOL" in segment_efforts_line
 
 
 def test_reject_non_whitelisted_table():
