@@ -1,5 +1,6 @@
 import { apiClient, apiDownload } from './client'
 import type { DetectedLap } from './types'
+import type { SportPredicate } from '@/lib/sportPredicates'
 
 export interface Segment {
   id: string
@@ -24,6 +25,8 @@ export interface Segment {
   allowed_sport_types?: string[] | null
   /** null/absent/[] = no subtype restriction; [...] = specific canonical subtypes */
   allowed_sub_types?: string[] | null
+  /** null/absent = all sport tuples allowed; [] = none; entries = tuple predicates */
+  allowed_predicates?: SportPredicate[] | null
   /** true = segment can be ridden in both directions */
   bidirectional: boolean
 }
@@ -76,6 +79,8 @@ export interface CreateSegmentPayload {
   allowed_sport_types?: string[] | null
   /** null/[] = no subtype restriction; [...] = specific canonical subtypes */
   allowed_sub_types?: string[] | null
+  /** null = all sport tuples allowed; [] = none; entries = tuple predicates */
+  allowed_predicates?: SportPredicate[] | null
   /** nil on wire = use sport-group default (true for most groups) */
   bidirectional?: boolean
 }
@@ -139,6 +144,8 @@ export interface UpdateSegmentPayload {
   allowed_sport_types?: string[]
   /** absent = unchanged; [] = clear subtype filter; [...] = restrict to listed subtypes */
   allowed_sub_types?: string[]
+  /** absent = unchanged; [] = no sports; entries = tuple predicates */
+  allowed_predicates?: SportPredicate[]
   /** absent = unchanged */
   bidirectional?: boolean
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -13,6 +14,13 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
+
+type RouteListFilters struct {
+	SportType string
+	SubType   string
+	Search    string
+	Sort      string
+}
 
 // t0SchemaVersion returns 1 if the route data satisfies T0 form-compliance
 // (non-empty elevation_profile starting at dist_m=0 with monotonically increasing
@@ -134,15 +142,30 @@ func (db *DB) GetRoute(ctx context.Context, id, userID string) (*model.PlannedRo
 
 // ListRoutes returns paginated routes for a user, with simplified geometry for mini-map display.
 // E13: geometry_simplified uses ST_Simplify(geometry, 0.001) to reduce payload size.
-func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int) ([]model.PlannedRoute, error) {
+func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int, filters ...RouteListFilters) ([]model.PlannedRoute, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	if offset < 0 {
 		offset = 0
 	}
+	filter := RouteListFilters{}
+	if len(filters) > 0 {
+		filter = filters[0]
+	}
+	orderBy := "updated_at DESC"
+	switch filter.Sort {
+	case "created_at":
+		orderBy = "created_at DESC"
+	case "name":
+		orderBy = "name ASC, updated_at DESC"
+	case "distance":
+		orderBy = "total_distance_m DESC NULLS LAST, updated_at DESC"
+	case "elevation":
+		orderBy = "total_elevation_gain DESC NULLS LAST, updated_at DESC"
+	}
 
-	rows, err := db.Pool.Query(ctx, `
+	query := fmt.Sprintf(`
 		SELECT id, user_id, name, description, sport_type, sub_type, difficulty, profile,
 			ST_AsGeoJSON(ST_Simplify(geometry, 0.001)) AS geometry_simplified,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
@@ -151,9 +174,13 @@ func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int) 
 			route_schema_version
 		FROM planned_routes
 		WHERE user_id = $1
-		ORDER BY updated_at DESC
+		  AND ($4 = '' OR sport_type = $4)
+		  AND ($5 = '' OR COALESCE(sub_type, '') = $5)
+		  AND ($6 = '' OR name ILIKE '%%' || $6 || '%%' OR COALESCE(description, '') ILIKE '%%' || $6 || '%%')
+		ORDER BY %s
 		LIMIT $2 OFFSET $3
-	`, userID, limit, offset)
+	`, orderBy)
+	rows, err := db.Pool.Query(ctx, query, userID, limit, offset, filter.SportType, filter.SubType, strings.TrimSpace(filter.Search))
 	if err != nil {
 		return nil, fmt.Errorf("list routes: %w", err)
 	}
@@ -295,10 +322,20 @@ func (db *DB) DuplicateRoute(ctx context.Context, id, userID string) (string, er
 }
 
 // CountRoutes returns the total number of routes for a user (for pagination metadata).
-func (db *DB) CountRoutes(ctx context.Context, userID string) (int, error) {
+func (db *DB) CountRoutes(ctx context.Context, userID string, filters ...RouteListFilters) (int, error) {
+	filter := RouteListFilters{}
+	if len(filters) > 0 {
+		filter = filters[0]
+	}
 	var count int
 	err := db.Pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM planned_routes WHERE user_id = $1", userID,
+		`SELECT COUNT(*)
+		FROM planned_routes
+		WHERE user_id = $1
+		  AND ($2 = '' OR sport_type = $2)
+		  AND ($3 = '' OR COALESCE(sub_type, '') = $3)
+		  AND ($4 = '' OR name ILIKE '%' || $4 || '%' OR COALESCE(description, '') ILIKE '%' || $4 || '%')`,
+		userID, filter.SportType, filter.SubType, strings.TrimSpace(filter.Search),
 	).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count routes: %w", err)

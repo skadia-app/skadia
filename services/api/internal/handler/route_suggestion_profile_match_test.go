@@ -13,8 +13,8 @@ func TestRoutingProfileMatchesSuggestionRequest(t *testing.T) {
 		SportTypes: []string{"mountain_biking"},
 	}
 
-	if !routingProfileMatchesSuggestionRequest(profile, RouteSuggestionRequest{SportType: "cycling"}) {
-		t.Fatal("expected sport-only cycling request to match MTB profile for backward compatibility")
+	if routingProfileMatchesSuggestionRequest(profile, RouteSuggestionRequest{SportType: "cycling"}) {
+		t.Fatal("expected broad cycling request not to match exact MTB profile")
 	}
 	if !routingProfileMatchesSuggestionRequest(profile, RouteSuggestionRequest{SportType: "cycling", SubType: strPtr("mountain")}) {
 		t.Fatal("expected cycling/mountain request to match MTB profile")
@@ -72,9 +72,30 @@ func TestRoutingProfileMatchesStoredPredicatesAndModifierFilters(t *testing.T) {
 	}
 	if routingProfileMatchesSuggestionRequest(profile, RouteSuggestionRequest{
 		SportType: "cycling",
+		Modifiers: &sport.ModifierFilters{IsElectric: &trueValue},
+	}) {
+		t.Fatal("expected broad cycling request to reject exact stored MTB predicate")
+	}
+	if routingProfileMatchesSuggestionRequest(profile, RouteSuggestionRequest{
+		SportType: "cycling",
 		SubType:   strPtr("mountain"),
 		Modifiers: &sport.ModifierFilters{IsElectric: &falseValue},
 	}) {
 		t.Fatal("expected nonmatching stored electric filter to reject")
+	}
+}
+
+func TestBuiltinProfileMatchesSuggestionRequest(t *testing.T) {
+	if !builtinProfileMatchesSuggestionRequest("trekking", RouteSuggestionRequest{SportType: "cycling"}) {
+		t.Fatal("expected broad cycling route to match trekking")
+	}
+	if builtinProfileMatchesSuggestionRequest("trekking", RouteSuggestionRequest{SportType: "cycling", SubType: strPtr("mountain")}) {
+		t.Fatal("expected cycling/mountain route not to match trekking")
+	}
+	if !builtinProfileMatchesSuggestionRequest("mtb", RouteSuggestionRequest{SportType: "cycling", SubType: strPtr("mountain")}) {
+		t.Fatal("expected cycling/mountain route to match mtb")
+	}
+	if builtinProfileMatchesSuggestionRequest("mtb", RouteSuggestionRequest{SportType: "cycling"}) {
+		t.Fatal("expected broad cycling route not to match exact mtb")
 	}
 }

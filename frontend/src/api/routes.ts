@@ -182,6 +182,8 @@ export interface ListRoutesResponse {
 export interface ListRoutesParams {
   sort?: string
   sport_type?: string
+  sub_type?: string
+  search?: string
 }
 
 export interface BRouterRequest {

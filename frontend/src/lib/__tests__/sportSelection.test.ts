@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { splitSportSelectionKeys } from '../sportSelection'
+import { sportPredicatesFromSelectionKeys } from '../sportSelection'
 
-describe('splitSportSelectionKeys', () => {
-  it('preserves subtype-only selections as sport_type plus sub_type filters', () => {
-    expect(splitSportSelectionKeys(['cycling:mountain', 'running:trail'])).toEqual({
-      sportTypes: ['cycling', 'running'],
-      subTypes: ['mountain', 'trail'],
-    })
+describe('sportPredicatesFromSelectionKeys', () => {
+  it('preserves tuple selections without cross-matching unrelated subtypes', () => {
+    expect(sportPredicatesFromSelectionKeys(['cycling:mountain', 'running:trail'])).toEqual([
+      { sport: 'cycling', sub_type: 'mountain' },
+      { sport: 'running', sub_type: 'trail' },
+    ])
   })
 
-  it('drops subtype filters when a bare key would otherwise be excluded', () => {
-    expect(splitSportSelectionKeys(['cycling', 'cycling:mountain'])).toEqual({
-      sportTypes: ['cycling'],
-      subTypes: [],
-    })
+  it('keeps broad and exact predicates independently for the same sport', () => {
+    expect(sportPredicatesFromSelectionKeys(['cycling', 'cycling:mountain'])).toEqual([
+      { sport: 'cycling' },
+      { sport: 'cycling', sub_type: 'mountain' },
+    ])
   })
 })

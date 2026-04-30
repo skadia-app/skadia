@@ -519,8 +519,10 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
     : ''
 
   function updatePrimaryPredicate(value: string) {
+    const existing = config.predicates ?? []
+    const rest = existing.slice(1)
     if (value === '') {
-      onChange({ ...config, predicates: undefined })
+      onChange({ ...config, predicates: rest.length > 0 ? rest : undefined })
       return
     }
     const [sportType, subType = ''] = value.split('/')
@@ -530,7 +532,7 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
     }
     onChange({
       ...config,
-      predicates: [predicate],
+      predicates: [predicate, ...rest],
       sport_types: undefined,
     })
   }

@@ -77,7 +77,7 @@ function PreferenceSlider({ label, value, onChange, accentColor }: PreferenceSli
 function isMtbProfile(profile: RoutingProfileEntry): boolean {
   if (profile.base_profile === 'mtb') return true
   if (profile.predicates?.some(p => p.sport === 'cycling' && p.sub_type === 'mountain')) return true
-  return profile.sport_types.includes('mountain_biking')
+  return false
 }
 
 export interface RouteSuggestionDialogProps {
@@ -107,6 +107,9 @@ export default function RouteSuggestionDialog({
   const [sportType, setSportType] = useState('cycling')
   const [subType, setSubType] = useState<string | undefined>(undefined)
   const [isElectric, setIsElectric] = useState(false)
+  const [isIndoor, setIsIndoor] = useState(false)
+  const [isVirtual, setIsVirtual] = useState(false)
+  const [isCommute, setIsCommute] = useState(false)
   const [selectedProfile, setSelectedProfile] = useState<string>('')
 
   // Round-trip + Terra Incognita toggles
@@ -139,8 +142,19 @@ export default function RouteSuggestionDialog({
 
   const modifierState: ActivityModifierState = {
     is_electric: isElectric,
+    is_indoor: isIndoor,
+    is_virtual: isVirtual,
+    is_commute: isCommute,
   }
-  const requestModifiers: ModifierFilters | undefined = isElectric ? { is_electric: true } : undefined
+  const requestModifiers: ModifierFilters | undefined =
+    isElectric || isIndoor || isVirtual || isCommute
+      ? {
+          ...(isElectric ? { is_electric: true } : {}),
+          ...(isIndoor ? { is_indoor: true } : {}),
+          ...(isVirtual ? { is_virtual: true } : {}),
+          ...(isCommute ? { is_commute: true } : {}),
+        }
+      : undefined
 
   // Filter profiles by selected sport tuple.
   const filteredProfiles: RoutingProfileEntry[] = (profilesData?.profiles ?? []).filter(p => {
@@ -170,6 +184,7 @@ export default function RouteSuggestionDialog({
     setSportType(sport)
     setSubType(sub || undefined)
     if (sport !== 'cycling') setIsElectric(false)
+    if (sub !== 'indoor_cycling' && sub !== 'indoor_running') setIsIndoor(false)
     setSelectedProfile('') // reset so auto-select kicks in
   }
 
@@ -279,19 +294,26 @@ export default function RouteSuggestionDialog({
           </select>
         </div>
 
-        {sportType === 'cycling' && (
+        <div className="grid grid-cols-2 gap-3">
+          {sportType === 'cycling' && (
+            <label className="flex items-center justify-between gap-3 cursor-pointer group">
+              <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">E-Bike</span>
+              <Toggle checked={isElectric} onChange={setIsElectric} size="sm" aria-label="E-Bike" />
+            </label>
+          )}
           <label className="flex items-center justify-between gap-3 cursor-pointer group">
-            <div>
-              <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300 block">
-                E-Bike
-              </span>
-              <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                Elektrische Unterstützung berücksichtigen
-              </span>
-            </div>
-            <Toggle checked={isElectric} onChange={setIsElectric} size="sm" aria-label="E-Bike" />
+            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Indoor</span>
+            <Toggle checked={isIndoor} onChange={setIsIndoor} size="sm" aria-label="Indoor" />
           </label>
-        )}
+          <label className="flex items-center justify-between gap-3 cursor-pointer group">
+            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Virtuell</span>
+            <Toggle checked={isVirtual} onChange={setIsVirtual} size="sm" aria-label="Virtuell" />
+          </label>
+          <label className="flex items-center justify-between gap-3 cursor-pointer group">
+            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Pendeln</span>
+            <Toggle checked={isCommute} onChange={setIsCommute} size="sm" aria-label="Pendeln" />
+          </label>
+        </div>
 
         {/* Profil */}
         <div>

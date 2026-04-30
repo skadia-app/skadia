@@ -141,3 +141,62 @@ func TestPlannedRouteCreateRejectsInvalidSubType(t *testing.T) {
 		t.Fatal("CreateRoute succeeded for invalid cycling/trail tuple")
 	}
 }
+
+func TestListRoutesFiltersBySportTuple(t *testing.T) {
+	db, userID := routeSubTypeTestDB(t)
+	ctx := context.Background()
+	mountain := "mountain"
+	road := "road"
+
+	for _, route := range []*model.PlannedRoute{
+		{
+			UserID:          userID,
+			Name:            "MTB route",
+			SportType:       "cycling",
+			SubType:         &mountain,
+			Profile:         "mtb",
+			GeometryGeoJSON: `{"type":"LineString","coordinates":[[11.39,47.26],[11.40,47.27]]}`,
+			Waypoints:       []model.RouteWaypoint{},
+			Segments:        []model.RouteSegment{},
+		},
+		{
+			UserID:          userID,
+			Name:            "Road route",
+			SportType:       "cycling",
+			SubType:         &road,
+			Profile:         "road",
+			GeometryGeoJSON: `{"type":"LineString","coordinates":[[11.39,47.26],[11.40,47.27]]}`,
+			Waypoints:       []model.RouteWaypoint{},
+			Segments:        []model.RouteSegment{},
+		},
+		{
+			UserID:          userID,
+			Name:            "Hike route",
+			SportType:       "hiking",
+			Profile:         "hiking",
+			GeometryGeoJSON: `{"type":"LineString","coordinates":[[11.39,47.26],[11.40,47.27]]}`,
+			Waypoints:       []model.RouteWaypoint{},
+			Segments:        []model.RouteSegment{},
+		},
+	} {
+		if _, err := db.CreateRoute(ctx, route); err != nil {
+			t.Fatalf("CreateRoute %q: %v", route.Name, err)
+		}
+	}
+
+	got, err := db.ListRoutes(ctx, userID, 10, 0, RouteListFilters{SportType: "cycling", SubType: "mountain"})
+	if err != nil {
+		t.Fatalf("ListRoutes cycling/mountain: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "MTB route" {
+		t.Fatalf("cycling/mountain routes = %#v, want only MTB route", got)
+	}
+
+	got, err = db.ListRoutes(ctx, userID, 10, 0, RouteListFilters{SportType: "cycling"})
+	if err != nil {
+		t.Fatalf("ListRoutes cycling: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("cycling routes len = %d, want 2", len(got))
+	}
+}

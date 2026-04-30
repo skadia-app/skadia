@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchTags } from '@/api/tags'
-import { generateGearSportOptions } from '@/lib/sportOptions'
+import { routeSportOptions } from '@/lib/sportTaxonomy'
 import type { Tag } from '@/api/tags'
 
 // ─── BRouter profiles ─────────────────────────────────────────────────────────
@@ -22,6 +22,7 @@ export interface RouteMetadataValues {
   name: string
   description: string
   sport_type: string
+  sub_type: string
   difficulty: string
   tag_ids: string[]
   auto_tag: boolean
@@ -158,11 +159,12 @@ function TagMultiSelect({
 // ─── RouteMetadataForm ────────────────────────────────────────────────────────
 
 export default function RouteMetadataForm({ initialValues, currentProfile, onChange, isNew }: Props) {
-  const sportOptions = generateGearSportOptions()
+  const sportOptions = routeSportOptions()
 
   const [name, setName] = useState(initialValues?.name ?? '')
   const [description, setDescription] = useState(initialValues?.description ?? '')
   const [sportType, setSportType] = useState(initialValues?.sport_type ?? 'hiking')
+  const [subType, setSubType] = useState(initialValues?.sub_type ?? '')
   const [difficulty, setDifficulty] = useState(initialValues?.difficulty ?? '')
   const [tagIds, setTagIds] = useState<string[]>(initialValues?.tag_ids ?? [])
   const [autoTag, setAutoTag] = useState(initialValues?.auto_tag ?? true)
@@ -175,6 +177,7 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
       name,
       description,
       sport_type: sportType,
+      sub_type: subType,
       difficulty,
       tag_ids: tagIds,
       auto_tag: autoTag,
@@ -228,12 +231,17 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
         <div>
           <label className={labelClass}>Sportart</label>
           <select
-            value={sportType}
-            onChange={(e) => { setSportType(e.target.value); notify({ sport_type: e.target.value }) }}
+            value={`${sportType}:${subType}`}
+            onChange={(e) => {
+              const [nextSportType, nextSubType = ''] = e.target.value.split(':')
+              setSportType(nextSportType)
+              setSubType(nextSubType)
+              notify({ sport_type: nextSportType, sub_type: nextSubType })
+            }}
             className={inputClass}
           >
-            {sportOptions.map(({ value, label }) => (
-              <option key={value} value={value}>{label}</option>
+            {sportOptions.map(({ sportType, subType, label }) => (
+              <option key={`${sportType}:${subType ?? ''}`} value={`${sportType}:${subType ?? ''}`}>{label}</option>
             ))}
           </select>
         </div>

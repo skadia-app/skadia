@@ -34,7 +34,7 @@ const brouterCacheTTL = 30 * time.Second
 
 // brouterPredicates maps BRouter profile file names (without .brf) to sport predicates.
 var brouterPredicates = map[string][]sport.Predicate{
-	"trekking":         {{Sport: "cycling"}},
+	"trekking":         routing.DefaultPredicates("trekking"),
 	"hiking-mountain":  {{Sport: "hiking"}, {Sport: "mountaineering"}},
 	"hiking-sac2":      {{Sport: "hiking"}, {Sport: "mountaineering"}},
 	"cycling-road":     {{Sport: "cycling", SubType: stringPtr("road")}, {Sport: "cycling", SubType: stringPtr("gravel_cycling")}},
@@ -466,7 +466,8 @@ func (h *Handler) HandleImportProfiles(w http.ResponseWriter, r *http.Request) {
 		}
 		sportTypes := cfg.SportTypes
 		if len(sportTypes) == 0 && inputPredicates == nil {
-			sportTypes = routing.DefaultSportTypes(cfg.Profile)
+			defaultPredicates := routing.DefaultPredicates(cfg.Profile)
+			inputPredicates = &defaultPredicates
 		}
 		preds, modifierFilters, canonicalSportTypes, err := normalizeProfileStorageFields(inputPredicates, &cfg.ModifierFilters, sportTypes)
 		if err != nil {
