@@ -38,6 +38,21 @@ func TestMigration000340AddsNullableSegmentPredicates(t *testing.T) {
 	}
 }
 
+func TestMigration000340OwnsSharedNormalizerDrop(t *testing.T) {
+	up339, _, _ := readMigration000339SQL(t)
+	up340, _ := readMigration000340SQL(t)
+
+	if strings.Contains(up339, "DROP FUNCTION IF EXISTS fp_sport_taxonomy_normalize(TEXT, TEXT)") {
+		t.Fatal("000339 must leave fp_sport_taxonomy_normalize available for 000340")
+	}
+	if !strings.Contains(up340, "fp_sport_taxonomy_normalize") {
+		t.Fatal("000340 must use fp_sport_taxonomy_normalize for legacy segment hint backfill")
+	}
+	if !strings.Contains(up340, "DROP FUNCTION IF EXISTS fp_sport_taxonomy_normalize(TEXT, TEXT)") {
+		t.Fatal("000340 must drop fp_sport_taxonomy_normalize after the final migration that uses it")
+	}
+}
+
 func TestMigration000340BackfillsTuplePredicates(t *testing.T) {
 	upSQL, _ := readMigration000340SQL(t)
 	pool := migrationTestPool(t)

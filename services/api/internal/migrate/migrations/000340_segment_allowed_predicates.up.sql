@@ -58,3 +58,5 @@ ALTER TABLE segments
     DROP CONSTRAINT IF EXISTS segments_allowed_predicates_valid,
     ADD CONSTRAINT segments_allowed_predicates_valid
         CHECK (allowed_predicates IS NULL OR fn_validate_predicates(allowed_predicates));
+
+DROP FUNCTION IF EXISTS fp_sport_taxonomy_normalize(TEXT, TEXT);
