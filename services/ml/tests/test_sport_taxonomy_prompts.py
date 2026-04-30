@@ -60,8 +60,14 @@ def test_tool_descriptions_do_not_recommend_deprecated_top_level_sports():
     tool_text = json.dumps(get_tool_definitions(None), ensure_ascii=False)
 
     assert "sport_type='cycling' AND sub_type='mountain'" in tool_text
+    assert "sport_type='cycling' AND sub_type='gravel_cycling'" in tool_text
     assert "sport_type='running' AND sub_type='trail'" in tool_text
+    assert "sport_type='swimming' AND sub_type='open_water'" in tool_text
+    assert "sport_type='cycling' AND sub_type='indoor_cycling'" in tool_text
     assert "is_electric=true" in tool_text
+    assert "is_indoor=true" in tool_text
+    assert "is_virtual=true" in tool_text
+    assert "is_commute=true" in tool_text
     for sport_type in DEPRECATED_TOP_LEVEL_SPORTS:
         assert f"sport_type='{sport_type}'" not in tool_text
     assert LEGACY_ELECTRIC_FIELD not in tool_text
