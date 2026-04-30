@@ -24,45 +24,45 @@ HEURISTIC_NO_SPEED_MIN_RATE = 0.6
 HEURISTIC_NO_SPEED_MIN_DURATION = 90
 
 LIFT_RELEVANT_SPORTS = {
-    'alpine_skiing', 'cycling', 'mountain_biking', 'hiking', 'mountaineering',
+    'alpine_skiing', 'hiking', 'mountaineering',
     'cross_country_skiing', 'snowboarding',
 }
+LIFT_EXCLUDED_CYCLING_SUB_TYPES = {'indoor_cycling', 'spin'}
 
 
-async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> int:
-    """Detect lift rides in activity. Returns number of detected rides."""
-    async with pool.acquire() as conn:
-        sport_type = await conn.fetchval(
-            "SELECT sport_type FROM activities WHERE id = $1", activity_id
-        )
-        if sport_type and sport_type not in LIFT_RELEVANT_SPORTS:
-            return 0
+def _is_lift_relevant_activity(
+    sport_type: str | None,
+    sub_type: str | None,
+    is_indoor: bool,
+    is_electric: bool,
+    is_virtual: bool = False,
+) -> bool:
+    if is_indoor or is_virtual:
+        return False
+    if sport_type == 'cycling':
+        return (sub_type or '') not in LIFT_EXCLUDED_CYCLING_SUB_TYPES
+    return sport_type in LIFT_RELEVANT_SPORTS
 
-        has_osm = await conn.fetchval(
-            "SELECT EXISTS (SELECT 1 FROM osm_lifts LIMIT 1)"
-        )
-        if not has_osm:
-            return 0
 
-        track = await conn.fetchval(
-            "SELECT track_full FROM activity_tracks WHERE activity_id = $1", activity_id
-        )
-        if track is None:
-            return 0
+def _segment_effort_insert_sql() -> str:
+    return """
+                INSERT INTO segment_efforts
+                    (activity_id, segment_id, segment_version_id, user_id,
+                     started_at, elapsed_time_s, distance_m, elevation_gain_m,
+                     is_reverse, sport_type, sub_type, in_leaderboard)
+                SELECT $1, $2, $3, a.user_id, $4, $5,
+                       ST_Length(sv.track::geometry::geography),
+                       $6, $7, a.sport_type, COALESCE(NULLIF(a.sub_type, ''), 'generic'), false
+                FROM segment_versions sv, activities a
+                WHERE sv.id = $3 AND a.id = $1 AND a.user_id = $8
+                ON CONFLICT DO NOTHING
+                """
 
-        # Bestehende Lift-Daten löschen, damit ein Re-Run idempotent ist.
-        await conn.execute(
-            "DELETE FROM activity_lift_candidates WHERE activity_id = $1",
-            activity_id,
-        )
 
-        total = 0
-
-        # Methode A: OSM-Matching
-        candidates = await conn.fetch(
-            """
+def _osm_lift_candidates_sql() -> str:
+    return """
             SELECT
-                l.way_id AS id, l.osm_id, l.name,
+                l.id AS id, l.osm_id, l.name,
                 ST_Length(l.geom::geography) AS lift_length_m,
                 ST_HausdorffDistance(
                     ST_Intersection(
@@ -79,11 +79,63 @@ async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
                 ) / NULLIF(ST_Length(l.geom::geography), 0) AS coverage_ratio,
                 degrees(ST_Azimuth(ST_StartPoint(l.geom), ST_EndPoint(l.geom))) AS lift_bearing
             FROM osm_lifts l,
-                 (SELECT track_full AS geom FROM activity_tracks WHERE activity_id = $1) route
+                 (
+                     SELECT at.track_full AS geom
+                     FROM activity_tracks at
+                     JOIN activities a ON a.id = at.activity_id
+                     WHERE at.activity_id = $1 AND a.user_id = $4
+                 ) route
             WHERE ST_DWithin(route.geom::geography, l.geom::geography, $3)
             ORDER BY hausdorff_m
-            """,
-            activity_id, 30.0, float(PROXIMITY_M),
+            """
+
+
+async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> int:
+    """Detect lift rides in activity. Returns number of detected rides."""
+    async with pool.acquire() as conn:
+        activity = await conn.fetchrow(
+            "SELECT sport_type, sub_type, is_indoor, is_electric, is_virtual "
+            "FROM activities WHERE id = $1 AND user_id = $2",
+            activity_id, user_id,
+        )
+        if activity is None:
+            return 0
+        if not _is_lift_relevant_activity(
+            activity["sport_type"],
+            activity["sub_type"],
+            bool(activity["is_indoor"]),
+            bool(activity["is_electric"]),
+            bool(activity["is_virtual"]),
+        ):
+            return 0
+
+        has_osm = await conn.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM osm_lifts LIMIT 1)"
+        )
+        if not has_osm:
+            return 0
+
+        track = await conn.fetchval(
+            "SELECT track_full FROM activity_tracks at "
+            "JOIN activities a ON a.id = at.activity_id "
+            "WHERE at.activity_id = $1 AND a.user_id = $2",
+            activity_id, user_id,
+        )
+        if track is None:
+            return 0
+
+        await conn.execute(
+            "DELETE FROM activity_lift_candidates alc "
+            "USING activities a "
+            "WHERE alc.activity_id = $1 AND a.id = alc.activity_id AND a.user_id = $2",
+            activity_id, user_id,
+        )
+
+        total = 0
+
+        candidates = await conn.fetch(
+            _osm_lift_candidates_sql(),
+            activity_id, 30.0, float(PROXIMITY_M), user_id,
         )
 
         for c in candidates:
@@ -105,65 +157,58 @@ async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
             if segment is None:
                 continue
 
-            ride = await _extract_ride_timewindow(conn, activity_id, c)
+            ride = await _extract_ride_timewindow(conn, activity_id, c, user_id)
             if ride is None:
                 continue
 
             is_reverse = _check_is_reverse(ride["bearing_deg"], c["lift_bearing"])
 
             await conn.execute(
-                """
-                INSERT INTO segment_efforts
-                    (activity_id, segment_id, segment_version_id,
-                     started_at, elapsed_time_s, distance_m, elevation_gain_m,
-                     is_reverse, sport_type)
-                SELECT $1, $2, $3, $4, $5,
-                       ST_Length(sv.track::geometry::geography),
-                       $6, $7, a.sport_type
-                FROM segment_versions sv, activities a
-                WHERE sv.id = $3 AND a.id = $1
-                ON CONFLICT DO NOTHING
-                """,
+                _segment_effort_insert_sql(),
                 activity_id, segment["id"], segment["version_id"],
-                ride["started_at"], ride["duration_s"], ride["ascent_m"], is_reverse,
+                ride["started_at"], ride["duration_s"], ride["ascent_m"], is_reverse, user_id,
             )
             total += 1
 
-        # Methode B: Heuristik-Fallback
-        heuristic_rides = await _detect_heuristic_rides(conn, activity_id)
+        heuristic_rides = await _detect_heuristic_rides(conn, activity_id, user_id)
         for ride in heuristic_rides:
             await conn.execute(
                 """
                 INSERT INTO activity_lift_candidates
                     (activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m, confidence, confirmed)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
+                SELECT $1, $2, $3, $4, $5, $6, $7, $8, false
+                WHERE EXISTS (
+                    SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id = $9
+                )
                 ON CONFLICT (activity_id, started_at) DO NOTHING
                 """,
                 activity_id, ride["started_at"], ride["ended_at"],
                 ride["duration_s"], ride["ascent_m"], ride["descent_m"],
-                ride["distance_m"], ride["confidence"],
+                ride["distance_m"], ride["confidence"], user_id,
             )
 
-        await _update_lift_stats(conn, activity_id)
+        await _update_lift_stats(conn, activity_id, user_id)
         logger.info("Detected %d lift rides (OSM) for activity %s", total, activity_id)
         return total
 
 
-async def _extract_ride_timewindow(conn, activity_id: str, candidate: dict) -> Optional[dict]:
+async def _extract_ride_timewindow(conn, activity_id: str, candidate: dict, user_id: str) -> Optional[dict]:
     rows = await conn.fetch(
         """
-        SELECT time, altitude_m, speed_ms, lat, lng
-        FROM activity_streams
-        WHERE activity_id = $1
-          AND lat IS NOT NULL
+        SELECT ast.time, ast.altitude_m, ast.speed_ms, ast.lat, ast.lng
+        FROM activity_streams ast
+        JOIN activities a ON a.id = ast.activity_id
+        WHERE ast.activity_id = $1
+          AND a.user_id = $3
+          AND ast.lat IS NOT NULL
           AND ST_DWithin(
-            ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography,
+            ST_SetSRID(ST_MakePoint(ast.lng, ast.lat), 4326)::geography,
             (SELECT geom::geography FROM osm_lifts WHERE osm_id = $2),
             75
           )
-        ORDER BY time
+        ORDER BY ast.time
         """,
-        activity_id, candidate["osm_id"],
+        activity_id, candidate["osm_id"], user_id,
     )
     if not rows or len(rows) < 2:
         return None
@@ -198,15 +243,16 @@ def _check_is_reverse(track_bearing: float, lift_bearing: float) -> bool:
     return diff > 90
 
 
-async def _detect_heuristic_rides(conn, activity_id: str) -> list:
+async def _detect_heuristic_rides(conn, activity_id: str, user_id: str) -> list:
     rows = await conn.fetch(
         """
-        SELECT time, lat, lng, altitude_m, speed_ms
-        FROM activity_streams
-        WHERE activity_id = $1 AND lat IS NOT NULL
-        ORDER BY time
+        SELECT ast.time, ast.lat, ast.lng, ast.altitude_m, ast.speed_ms
+        FROM activity_streams ast
+        JOIN activities a ON a.id = ast.activity_id
+        WHERE ast.activity_id = $1 AND a.user_id = $2 AND ast.lat IS NOT NULL
+        ORDER BY ast.time
         """,
-        activity_id,
+        activity_id, user_id,
     )
     if len(rows) < 30:
         return []
@@ -327,7 +373,7 @@ def _haversine(lat1, lon1, lat2, lon2) -> float:
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-async def _update_lift_stats(conn, activity_id: str) -> None:
+async def _update_lift_stats(conn, activity_id: str, user_id: str) -> None:
     """Recompute lift_* columns from both OSM segment_efforts and confirmed heuristic candidates."""
     await conn.execute(
         """
@@ -374,7 +420,7 @@ async def _update_lift_stats(conn, activity_id: str) -> None:
                 SELECT COALESCE(SUM(distance_m), 0) FROM activity_lift_candidates
                 WHERE activity_id = $1 AND confirmed = true
             )
-        WHERE id = $1
+        WHERE id = $1 AND user_id = $2
         """,
-        activity_id,
+        activity_id, user_id,
     )

@@ -7,7 +7,7 @@ import (
 	"github.com/muktihari/fit/profile/typedef"
 )
 
-// TestCoursePointTypeName prüft alle bekannten CoursePoint-Enum-Werte.
+// TestCoursePointTypeName checks all known CoursePoint enum values.
 func TestCoursePointTypeName(t *testing.T) {
 	cases := []struct {
 		input typedef.CoursePoint
@@ -44,8 +44,8 @@ func TestCoursePointTypeName(t *testing.T) {
 		{28, "rest_stop"},
 		{40, "general_distance"},
 		{48, "custom"},
-		{99, "generic"},  // unbekannter Wert → Fallback
-		{255, "generic"}, // typisches FIT-Invalid → Fallback
+		{99, "generic"},  // unknown value -> fallback
+		{255, "generic"}, // typical FIT invalid value -> fallback
 	}
 
 	for _, tc := range cases {
@@ -56,40 +56,41 @@ func TestCoursePointTypeName(t *testing.T) {
 	}
 }
 
-// TestFitSportToSportType prüft die Sport-Mapping-Funktion für Courses.
+// TestFitSportToSportType checks course sport tuple mapping.
 func TestFitSportToSportType(t *testing.T) {
 	cases := []struct {
-		sport    typedef.Sport
-		subSport typedef.SubSport
-		want     string
+		sport     typedef.Sport
+		subSport  typedef.SubSport
+		wantSport string
+		wantSub   string
 	}{
-		{typedef.SportCycling, typedef.SubSportGeneric, "cycling"},
-		{typedef.SportCycling, typedef.SubSportMountain, "mountain_biking"},
-		{typedef.SportCycling, typedef.SubSportGravelCycling, "gravel_cycling"},
-		{typedef.SportCycling, typedef.SubSportIndoorCycling, "indoor_cycling"},
-		{typedef.SportRunning, typedef.SubSportGeneric, "running"},
-		{typedef.SportRunning, typedef.SubSportTrail, "trail_running"},
-		{typedef.SportHiking, typedef.SubSportGeneric, "hiking"},
-		{typedef.SportWalking, typedef.SubSportGeneric, "walking"},
-		{typedef.SportSwimming, typedef.SubSportGeneric, "swimming"},
-		{typedef.SportAlpineSkiing, typedef.SubSportGeneric, "alpine_skiing"},
-		{typedef.SportCrossCountrySkiing, typedef.SubSportGeneric, "cross_country_skiing"},
-		{typedef.SportPaddling, typedef.SubSportGeneric, "kayaking"},
-		{typedef.SportRowing, typedef.SubSportGeneric, "rowing"},
-		{typedef.SportInvalid, typedef.SubSportGeneric, "generic"},        // Unbekannt → generic
-		{typedef.Sport(255), typedef.SubSportGeneric, "generic"},           // Unbekannt → generic
+		{typedef.SportCycling, typedef.SubSportGeneric, "cycling", ""},
+		{typedef.SportCycling, typedef.SubSportMountain, "cycling", "mountain"},
+		{typedef.SportCycling, typedef.SubSportGravelCycling, "cycling", "gravel_cycling"},
+		{typedef.SportCycling, typedef.SubSportIndoorCycling, "cycling", "indoor_cycling"},
+		{typedef.SportRunning, typedef.SubSportGeneric, "running", ""},
+		{typedef.SportRunning, typedef.SubSportTrail, "running", "trail"},
+		{typedef.SportHiking, typedef.SubSportGeneric, "hiking", ""},
+		{typedef.SportWalking, typedef.SubSportGeneric, "walking", ""},
+		{typedef.SportSwimming, typedef.SubSportGeneric, "swimming", ""},
+		{typedef.SportAlpineSkiing, typedef.SubSportGeneric, "alpine_skiing", ""},
+		{typedef.SportCrossCountrySkiing, typedef.SubSportGeneric, "cross_country_skiing", ""},
+		{typedef.SportPaddling, typedef.SubSportGeneric, "paddling", ""},
+		{typedef.SportRowing, typedef.SubSportGeneric, "rowing", ""},
+		{typedef.SportInvalid, typedef.SubSportGeneric, "generic", ""}, // unknown -> generic
+		{typedef.Sport(255), typedef.SubSportGeneric, "generic", ""},   // unknown -> generic
 	}
 
 	for _, tc := range cases {
-		got := fitSportToSportType(tc.sport, tc.subSport)
-		if got != tc.want {
-			t.Errorf("fitSportToSportType(sport=%d, subSport=%d): got %q, want %q",
-				tc.sport, tc.subSport, got, tc.want)
+		gotSport, gotSub := fitSportToSportType(tc.sport, tc.subSport)
+		if gotSport != tc.wantSport || ptrStringValue(gotSub) != tc.wantSub {
+			t.Errorf("fitSportToSportType(sport=%d, subSport=%d): got %q/%q, want %q/%q",
+				tc.sport, tc.subSport, gotSport, ptrStringValue(gotSub), tc.wantSport, tc.wantSub)
 		}
 	}
 }
 
-// TestDefaultProfileForSport prüft das Standard-Routing-Profil pro Sporttyp.
+// TestDefaultProfileForSport checks the default routing profile per sport type.
 func TestDefaultProfileForSport(t *testing.T) {
 	cases := []struct {
 		sportType string
@@ -117,8 +118,8 @@ func TestDefaultProfileForSport(t *testing.T) {
 	}
 }
 
-// TestSemicirclesToDegrees prüft die Semicircle-zu-Grad-Konvertierung für GPS-Koordinaten.
-// FIT speichert Koordinaten als Semicircles: degrees = value * (180 / 2^31)
+// TestSemicirclesToDegrees checks semicircle-to-degree conversion for GPS coordinates.
+// FIT stores coordinates as semicircles: degrees = value * (180 / 2^31).
 func TestSemicirclesToDegrees(t *testing.T) {
 	const epsilon = 0.00001
 	factor := 180.0 / math.Pow(2, 31)
@@ -128,56 +129,56 @@ func TestSemicirclesToDegrees(t *testing.T) {
 		wantDeg float64
 	}{
 		{0, 0.0},
-		{1073741824, 90.0},    // 2^30 → 90° (Nordpol)
-		{-1073741824, -90.0},  // -2^30 → -90° (Südpol)
-		{534182912, 44.8985},  // Innsbruck ~47.26°N (nur ein Beispielwert)
-		{119926019, 10.06},    // nur ungefähr
+		{1073741824, 90.0},   // 2^30 -> 90 degrees north
+		{-1073741824, -90.0}, // -2^30 -> 90 degrees south
+		{534182912, 44.8985}, // example value
+		{119926019, 10.06},   // approximate only
 	}
 
 	for _, tc := range cases {
-		// Benutzen wir nur den ersten Testfall exakt
+		// Only the cardinal test cases are asserted exactly.
 		if tc.raw == 0 {
 			got := float64(tc.raw) * factor
 			if math.Abs(got-0.0) > epsilon {
-				t.Errorf("semicircles %d → %.5f, want %.5f", tc.raw, got, tc.wantDeg)
+				t.Errorf("semicircles %d -> %.5f, want %.5f", tc.raw, got, tc.wantDeg)
 			}
 		}
 		if tc.raw == 1073741824 {
 			got := float64(tc.raw) * factor
 			if math.Abs(got-90.0) > epsilon {
-				t.Errorf("semicircles %d → %.5f, want 90.0", tc.raw, got)
+				t.Errorf("semicircles %d -> %.5f, want 90.0", tc.raw, got)
 			}
 		}
 		if tc.raw == -1073741824 {
 			got := float64(tc.raw) * factor
 			if math.Abs(got-(-90.0)) > epsilon {
-				t.Errorf("semicircles %d → %.5f, want -90.0", tc.raw, got)
+				t.Errorf("semicircles %d -> %.5f, want -90.0", tc.raw, got)
 			}
 		}
 	}
 }
 
-// TestAltitudeScaling prüft die Höhen-Dekodierung: raw/5 - 500 = Meter.
+// TestAltitudeScaling checks altitude decoding: raw/5 - 500 = meters.
 func TestAltitudeScaling(t *testing.T) {
 	// Enhanced Altitude: uint32 /5 - 500
-	// 500m ü. NN: (500+500)*5 = 5000 raw
+	// 500m above sea level: (500+500)*5 = 5000 raw.
 	rawAlt := uint32(5000)
 	ele := float64(rawAlt)/5.0 - 500.0
 	if ele != 500.0 {
-		t.Errorf("altitude: raw=%d → %.1f m, want 500.0 m", rawAlt, ele)
+		t.Errorf("altitude: raw=%d -> %.1f m, want 500.0 m", rawAlt, ele)
 	}
 
-	// 0m ü. NN (Meeresspiegel): raw = 2500
+	// 0m above sea level: raw = 2500.
 	rawSea := uint32(2500)
 	eleSea := float64(rawSea)/5.0 - 500.0
 	if eleSea != 0.0 {
-		t.Errorf("altitude: raw=%d → %.1f m, want 0.0 m", rawSea, eleSea)
+		t.Errorf("altitude: raw=%d -> %.1f m, want 0.0 m", rawSea, eleSea)
 	}
 
-	// 1200m ü. NN: (1200+500)*5 = 8500 raw
+	// 1200m above sea level: (1200+500)*5 = 8500 raw.
 	raw1200 := uint32(8500)
 	ele1200 := float64(raw1200)/5.0 - 500.0
 	if ele1200 != 1200.0 {
-		t.Errorf("altitude: raw=%d → %.1f m, want 1200.0 m", raw1200, ele1200)
+		t.Errorf("altitude: raw=%d -> %.1f m, want 1200.0 m", raw1200, ele1200)
 	}
 }

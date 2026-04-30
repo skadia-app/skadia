@@ -35,6 +35,7 @@ export interface AnalyticsFilterState {
   excludeGear: string[]  // gear IDs to exclude
   // Tri-state e-bike filter
   isElectric: boolean | null  // null=neutral, true=only, false=exclude
+  isIndoor: boolean | null  // null=neutral, true=only, false=exclude
   isVirtual: boolean | null  // null=neutral, true=only, false=exclude
 }
 
@@ -77,6 +78,7 @@ const PARAM_MAP: Record<string, string> = {
   includeTags: 'include_tags', excludeTags: 'exclude_tags',
   includeGear: 'include_gear', excludeGear: 'exclude_gear',
   isElectric: 'is_electric',
+  isIndoor: 'is_indoor',
   isVirtual: 'is_virtual',
 }
 
@@ -114,6 +116,7 @@ export function useAnalyticsFilters() {
     includeGear: searchParams.get('include_gear')?.split(',').filter(Boolean) || [],
     excludeGear: searchParams.get('exclude_gear')?.split(',').filter(Boolean) || [],
     isElectric: searchParams.has('is_electric') ? searchParams.get('is_electric') === 'true' : null,
+    isIndoor: searchParams.has('is_indoor') ? searchParams.get('is_indoor') === 'true' : null,
     isVirtual: searchParams.has('is_virtual') ? searchParams.get('is_virtual') === 'true' : null,
   }), [searchParams])
 
@@ -125,7 +128,7 @@ export function useAnalyticsFilters() {
         if (Array.isArray(value)) {
           if (value.length > 0) next.set(paramKey, value.join(','))
           else next.delete(paramKey)
-        } else if (key === 'isElectric' || key === 'isVirtual') {
+        } else if (key === 'isElectric' || key === 'isIndoor' || key === 'isVirtual') {
           if (value === null || value === undefined) next.delete(paramKey)
           else next.set(paramKey, String(value))
         } else if (value) {
@@ -144,7 +147,7 @@ export function useAnalyticsFilters() {
       const paramKey = PARAM_MAP[key] || key
       if (Array.isArray(value) && value.length > 0) {
         params.set(paramKey, value.join(','))
-      } else if (key === 'isElectric' || key === 'isVirtual') {
+      } else if (key === 'isElectric' || key === 'isIndoor' || key === 'isVirtual') {
         if (value !== null && value !== undefined) params.set(paramKey, String(value))
       } else if (typeof value === 'string' && value) {
         params.set(paramKey, value)

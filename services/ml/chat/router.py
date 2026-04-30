@@ -22,7 +22,13 @@ DOMAIN_KEYWORDS: dict[str, set[str]] = {
     "activities": {
         "aktivität", "aktivitäten", "training", "trainings",
         "lauf", "laufen", "joggen", "gelaufen",
-        "rad", "radfahren", "radtour", "biken", "gefahren",
+        "rad", "radfahren", "radtour", "radtouren", "biken", "bike", "fahrrad", "gefahren",
+        "tour", "touren", "fahrt", "fahrten",
+        "mtb", "mountainbike", "gravel",
+        "e-bike", "ebike", "e bike", "electric", "elektrisch",
+        "indoor", "virtuell", "virtual",
+        "pendel", "pendeln", "pendelaktivität", "pendelaktivitäten", "commute",
+        "trail", "trailrun", "trailruns",
         "wandern", "wanderung", "gewandert",
         "schwimmen", "geschwommen",
         "wann war", "wie oft", "letzte", "letzten", "letztes",
@@ -88,12 +94,15 @@ DOMAIN_KEYWORDS: dict[str, set[str]] = {
         "landschaft", "gesehen", "steinbock", "murmeltier", "panorama",
     },
     "routing": {
-        "route", "routenplanung", "navigation", "wegpunkt",
-        "wanderung planen", "radtour planen", "tour planen",
+        "route", "routen", "routenplanung", "navigation", "wegpunkt",
+        "plane", "planen", "geplant", "wanderung planen", "radtour planen", "tour planen",
         "strecke", "weg", "pfad", "isochrone", "erreichbar",
         "wie komme ich", "kürzester weg", "schönste route", "rundtour",
         "schwierigkeit", "sac", "mtb skala", "steigung",
         "asphalt", "schotter", "profil", "gelände",
+        "e-bike", "ebike", "e bike", "electric", "elektrisch",
+        "indoor", "virtuell", "virtuelle", "virtual",
+        "pendelroute", "pendeln", "commute",
     },
 }
 

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // Profile source constants used across the application.
@@ -48,17 +50,37 @@ func LoadProfilesFromDir(dir string) (map[string]ProfileConfig, error) {
 			continue
 		}
 
-		if err := ValidateProfileConfig(cfg); err != nil {
-			fileErrors = append(fileErrors, fmt.Sprintf("%s: validation failed: %v", name, err))
-			continue
-		}
-
 		if cfg.Name == "" {
 			cfg.Name = name
 		}
 
-		if len(cfg.SportTypes) == 0 {
-			cfg.SportTypes = DefaultSportTypes(cfg.Profile)
+		if len(cfg.Predicates) == 0 {
+			if len(cfg.SportTypes) > 0 {
+				preds, err := sport.PredicatesFromSportTypes(cfg.SportTypes)
+				if err != nil {
+					fileErrors = append(fileErrors, fmt.Sprintf("%s: predicate fallback failed: %v", name, err))
+					continue
+				}
+				cfg.Predicates = preds
+			} else {
+				cfg.Predicates = DefaultPredicates(cfg.Profile)
+			}
+		} else {
+			preds, err := sport.NormalizePredicates(cfg.Predicates)
+			if err != nil {
+				fileErrors = append(fileErrors, fmt.Sprintf("%s: predicate normalization failed: %v", name, err))
+				continue
+			}
+			cfg.Predicates = preds
+		}
+
+		if len(cfg.SportTypes) == 0 || len(cfg.Predicates) > 0 {
+			cfg.SportTypes = sport.SportTypesFromPredicates(cfg.Predicates)
+		}
+
+		if err := ValidateProfileConfig(cfg); err != nil {
+			fileErrors = append(fileErrors, fmt.Sprintf("%s: validation failed: %v", name, err))
+			continue
 		}
 
 		loaded[name] = cfg
@@ -153,18 +175,42 @@ func ValidateBuiltinCompleteness(cfg ProfileConfig) error {
 
 // DefaultSportTypes returns the default sport type associations for a profile type.
 func DefaultSportTypes(profile string) []string {
+	return sport.SportTypesFromPredicates(DefaultPredicates(profile))
+}
+
+// DefaultPredicates returns the canonical sport tuple associations for a profile type.
+func DefaultPredicates(profile string) []sport.Predicate {
+	empty := ""
 	switch profile {
 	case "hiking":
-		return []string{"hiking", "trail_running", "running", "walking", "mountaineering"}
+		return []sport.Predicate{
+			{Sport: "hiking"},
+			{Sport: "running", SubType: stringPtr("trail")},
+			{Sport: "running"},
+			{Sport: "walking"},
+			{Sport: "mountaineering"},
+		}
 	case "mtb":
-		return []string{"mountain_biking"}
+		return []sport.Predicate{{Sport: "cycling", SubType: stringPtr("mountain")}}
 	case "gravel":
-		return []string{"gravel_cycling"}
+		return []sport.Predicate{{Sport: "cycling", SubType: stringPtr("gravel_cycling")}}
 	case "trekking":
-		return []string{"cycling"}
+		return []sport.Predicate{
+			{Sport: "cycling", SubType: &empty},
+			{Sport: "cycling", SubType: stringPtr("road")},
+			{Sport: "cycling", SubType: stringPtr("mixed_surface")},
+		}
 	case "road":
-		return []string{"cycling", "gravel_cycling"}
+		return []sport.Predicate{
+			{Sport: "cycling", SubType: &empty},
+			{Sport: "cycling", SubType: stringPtr("road")},
+			{Sport: "cycling", SubType: stringPtr("gravel_cycling")},
+		}
 	default:
-		return []string{}
+		return []sport.Predicate{}
 	}
+}
+
+func stringPtr(v string) *string {
+	return &v
 }

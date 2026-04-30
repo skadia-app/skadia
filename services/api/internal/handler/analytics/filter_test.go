@@ -27,6 +27,62 @@ func TestParseFilters_SportTypes(t *testing.T) {
 	}
 }
 
+func TestParseFilters_SubTypes(t *testing.T) {
+	r := httptest.NewRequest("GET", "/test?sport_type=cycling&sub_type=mountain,gravel_cycling", nil)
+	f := ParseFilters(r)
+
+	if len(f.SubTypes) != 2 || f.SubTypes[0] != "mountain" || f.SubTypes[1] != "gravel_cycling" {
+		t.Fatalf("SubTypes = %v, want [mountain gravel_cycling]", f.SubTypes)
+	}
+}
+
+func TestBuildWhereClause_WithCompositeSportTuples(t *testing.T) {
+	r := httptest.NewRequest("GET", "/test?sport_type=cycling:mountain,running:trail", nil)
+	f := ParseFilters(r)
+	clause, args := f.BuildWhereClause(1)
+
+	if strings.Contains(clause, "a.sport_type = ANY") || strings.Contains(clause, "a.sub_type = ANY") {
+		t.Fatalf("expected tuple OR predicate, got cross-product clause %q", clause)
+	}
+	if !strings.Contains(clause, "a.sport_type = $2 AND COALESCE(a.sub_type, '') = $3") {
+		t.Fatalf("missing cycling mountain tuple in %q", clause)
+	}
+	if !strings.Contains(clause, "a.sport_type = $4 AND COALESCE(a.sub_type, '') = $5") {
+		t.Fatalf("missing running trail tuple in %q", clause)
+	}
+	if len(args) < 5 || args[1] != "cycling" || args[2] != "mountain" || args[3] != "running" || args[4] != "trail" {
+		t.Fatalf("args = %#v, want cycling/mountain and running/trail first", args)
+	}
+}
+
+func TestBuildWhereClause_WithMixedBareAndCompositeSports(t *testing.T) {
+	r := httptest.NewRequest("GET", "/test?sport_type=cycling,running:trail", nil)
+	f := ParseFilters(r)
+	clause, args := f.BuildWhereClause(1)
+
+	if strings.Contains(clause, "a.sub_type = ANY") {
+		t.Fatalf("expected tuple OR predicate without subtype cross-product, got %q", clause)
+	}
+	if !strings.Contains(clause, "a.sport_type = $2") {
+		t.Fatalf("missing bare cycling predicate in %q", clause)
+	}
+	if !strings.Contains(clause, "a.sport_type = $3 AND COALESCE(a.sub_type, '') = $4") {
+		t.Fatalf("missing running trail predicate in %q", clause)
+	}
+	if len(args) < 4 || args[1] != "cycling" || args[2] != "running" || args[3] != "trail" {
+		t.Fatalf("args = %#v, want cycling and running/trail first", args)
+	}
+}
+
+func TestParseFilters_IndoorModifier(t *testing.T) {
+	r := httptest.NewRequest("GET", "/test?is_indoor=true", nil)
+	f := ParseFilters(r)
+
+	if f.IsIndoor == nil || *f.IsIndoor != true {
+		t.Fatalf("IsIndoor = %#v, want true", f.IsIndoor)
+	}
+}
+
 func TestParseFilters_Seasons(t *testing.T) {
 	r := httptest.NewRequest("GET", "/test?season=sommer,winter", nil)
 	f := ParseFilters(r)
@@ -67,5 +123,18 @@ func TestBuildWhereClause_WithFilters(t *testing.T) {
 	}
 	if len(args) < 2 {
 		t.Errorf("expected at least 2 args, got %d", len(args))
+	}
+}
+
+func TestBuildWhereClause_WithSubTypeFilter(t *testing.T) {
+	r := httptest.NewRequest("GET", "/test?sport_type=cycling&sub_type=mountain", nil)
+	f := ParseFilters(r)
+	clause, args := f.BuildWhereClause(1)
+
+	if !strings.Contains(clause, "a.sub_type = ANY") {
+		t.Fatalf("expected subtype predicate in %q", clause)
+	}
+	if len(args) < 2 {
+		t.Fatalf("expected sport and subtype args, got %d", len(args))
 	}
 }

@@ -2,6 +2,7 @@ import { apiClient, apiUpload, apiDownload } from './client'
 import type { Tag } from './tags'
 import type { ProfileConfig } from '@/lib/routingProfiles'
 import type { RouteSubSegment } from '@/lib/routeSurfaceAggregation'
+import type { ModifierFilters } from '@/lib/sportPredicates'
 
 export type { RouteSubSegment }
 
@@ -45,6 +46,11 @@ export interface PlannedRoute {
   name: string
   description?: string            // Markdown
   sport_type: string
+  sub_type?: string | null
+  is_electric?: boolean
+  is_indoor?: boolean
+  is_virtual?: boolean
+  is_commute?: boolean
   difficulty?: string
   profile: string                 // BRouter profile
   waypoints: RouteWaypoint[]
@@ -151,6 +157,9 @@ export interface RouteSuggestionParams {
   direction_point?: [number, number]
   target_distance_m: number
   sport_type: string
+  sub_type?: string
+  modifiers?: ModifierFilters
+  profile_sport_override?: boolean
   profile: string
   prefer_unknown?: boolean  // Terra Incognita bias
   landscape_prefs?: LandscapePreferences
@@ -178,6 +187,13 @@ export interface ListRoutesResponse {
 export interface ListRoutesParams {
   sort?: string
   sport_type?: string
+  sub_type?: string
+  sport_predicates?: string
+  is_electric?: boolean
+  is_indoor?: boolean
+  is_virtual?: boolean
+  is_commute?: boolean
+  search?: string
 }
 
 export interface BRouterRequest {
@@ -194,9 +210,13 @@ export async function getCapabilities(): Promise<Capabilities> {
 // === Routes CRUD ===
 
 export async function listRoutes(params?: ListRoutesParams): Promise<ListRoutesResponse> {
-  const qs = params ? '?' + new URLSearchParams(
-    Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined)) as Record<string, string>
-  ).toString() : ''
+  const qsObj = new URLSearchParams()
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined) qsObj.set(key, String(value))
+    }
+  }
+  const qs = qsObj.size > 0 ? `?${qsObj.toString()}` : ''
   return apiClient(`/routes${qs}`)
 }
 

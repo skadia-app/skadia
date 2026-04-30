@@ -140,33 +140,29 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 			data = tourToActivityData(tour)
 		}
 
-		// Sport type resolution: compare file sport vs Komoot API sport using SegmentGroup.
-		// Silent resolution — no queue, no UI. File parser wins except when generic.
-		if mapping, ok := KomootSportMapping[tour.Sport]; ok {
-			fileSportType := data.SportType
-			fileGroup := sport.SegmentGroup(fileSportType)
-			komootGroup := sport.SegmentGroup(mapping.SportType)
-
-			switch {
-			case fileGroup == "generic":
-				// File parser returned generic → Komoot wins
-				data.SportType = mapping.SportType
-				data.SubType = mapping.SubType
-			case komootGroup == "generic":
-				// Komoot returned generic → file wins (already set)
-			case fileGroup == komootGroup:
-				// Same group → file wins (more specific from device)
-				// NOTE: SubType from Komoot is NOT adopted here — SubType and SportType
-				// are a pair and mixing sources can create inconsistent combinations.
-				// The existing mergeActivityData/isSportRefinement handles this correctly.
-			default:
-				// Different specific groups → file wins (device is authoritative)
+		var conflictPlatformSnapshot komootSportConflictSnapshot
+		var conflictFileSnapshot komootSportConflictSnapshot
+		if mapping, ok := normalizedKomootSportMapping(tour.Sport); ok {
+			platformSnapshot := komootSportConflictSnapshot{
+				Sport:      mapping.SportType,
+				SubType:    mapping.SubType,
+				IsElectric: mapping.IsElectric,
+				IsIndoor:   sport.IsIndoor(mapping.SportType, mapping.SubType),
+				IsVirtual:  false,
 			}
-
-			// E-Bike flag is always additive (Komoot knows if tour was e-bike)
-			if mapping.IsElectric {
-				data.IsElectric = true
+			fileSnapshot := komootSportConflictSnapshot{
+				Sport:      data.SportType,
+				SubType:    data.SubType,
+				IsElectric: data.IsElectric,
+				IsIndoor:   data.IsIndoor,
+				IsVirtual:  data.IsVirtual,
 			}
+			if komootSportConflictSnapshotsConflict(platformSnapshot, fileSnapshot) {
+				conflictPlatformSnapshot = platformSnapshot
+				conflictFileSnapshot = fileSnapshot
+				data.SportConflictPending = true
+			}
+			applyKomootSportMapping(data, mapping)
 		}
 
 		// Map Komoot tour visibility to activity visibility
@@ -195,6 +191,21 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		// Always populate TourActivityMap — even for duplicates — so the PhotosImporter can look up the activity ID.
 		result.TourActivityMap[tour.ID] = actResult.ActivityID
+
+		if data.SportConflictPending {
+			if conflictFileSnapshot.Sport == "" {
+				conflictFileSnapshot = komootSportConflictSnapshot{Sport: data.SportType, SubType: data.SubType, IsElectric: data.IsElectric, IsIndoor: data.IsIndoor, IsVirtual: data.IsVirtual}
+			}
+			if _, markErr := p.DB.Pool.Exec(ctx,
+				`UPDATE activities SET sport_conflict_pending = TRUE WHERE id = $1 AND user_id = $2`,
+				actResult.ActivityID, p.UserID,
+			); markErr != nil {
+				slog.Warn("komoot sport conflict: failed to mark activity", "activity", actResult.ActivityID, "error", markErr)
+			}
+			if qErr := createKomootSportConflictQueueEntry(ctx, p.DB, p.UserID, actResult.ActivityID, conflictPlatformSnapshot, conflictFileSnapshot, format); qErr != nil {
+				slog.Warn("komoot sport conflict: failed to create queue entry", "activity", actResult.ActivityID, "error", qErr)
+			}
+		}
 
 		if actResult.Status == "enriched" || actResult.Status == "replaced" {
 			// M21: Run PostProcess for enriched/replaced so heatmap+streams stay up to date.
@@ -268,7 +279,7 @@ func tourToActivityData(tour Tour) *model.ActivityData {
 		Source:    "Komoot",
 		StartedAt: tour.Date,
 	}
-	if mapping, ok := KomootSportMapping[tour.Sport]; ok {
+	if mapping, ok := normalizedKomootSportMapping(tour.Sport); ok {
 		data.SportType = mapping.SportType
 		data.SubType = mapping.SubType
 		data.IsElectric = mapping.IsElectric
@@ -290,6 +301,108 @@ func tourToActivityData(tour Tour) *model.ActivityData {
 		data.MovingTimeS = int(tour.TimeInMotion)
 	}
 	return data
+}
+
+func normalizedKomootSportMapping(komootSport string) (SportMapping, bool) {
+	mapping, ok := KomootSportMapping[komootSport]
+	if !ok {
+		return SportMapping{}, false
+	}
+	tuple, patch, err := sport.NormalizeSportTuple(mapping.SportType, mapping.SubType)
+	if err != nil {
+		return mapping, true
+	}
+	mapping.SportType = tuple.SportType
+	mapping.SubType = tuple.SubType
+	if patch.IsElectric != nil && *patch.IsElectric {
+		mapping.IsElectric = true
+	}
+	return mapping, true
+}
+
+func applyKomootSportMapping(data *model.ActivityData, mapping SportMapping) {
+	fileGroup := sport.SegmentGroup(data.SportType)
+	komootGroup := sport.SegmentGroup(mapping.SportType)
+
+	switch {
+	case fileGroup == "generic":
+		data.SportType = mapping.SportType
+		data.SubType = mapping.SubType
+	case komootGroup == "generic":
+	case fileGroup == komootGroup:
+		if data.SportType == mapping.SportType && (data.SubType == "" || data.SubType == "generic") && mapping.SubType != "" && mapping.SubType != "generic" {
+			data.SubType = mapping.SubType
+		}
+	default:
+	}
+
+	if mapping.IsElectric {
+		data.IsElectric = true
+	}
+}
+
+type komootSportConflictSnapshot struct {
+	Sport      string
+	SubType    string
+	IsElectric bool
+	IsIndoor   bool
+	IsVirtual  bool
+}
+
+func komootSportConflictSnapshotsConflict(platform, file komootSportConflictSnapshot) bool {
+	if platform.Sport == "" || file.Sport == "" || file.Sport == "unknown" {
+		return false
+	}
+	platformGroup := sport.SegmentGroup(platform.Sport)
+	fileGroup := sport.SegmentGroup(file.Sport)
+	if platformGroup == "generic" || fileGroup == "generic" {
+		return false
+	}
+	if platformGroup != fileGroup {
+		return true
+	}
+	if platform.Sport != file.Sport {
+		return true
+	}
+	if platform.SubType != "" && platform.SubType != "generic" && file.SubType != "" && file.SubType != "generic" && platform.SubType != file.SubType {
+		return true
+	}
+	return platform.IsElectric != file.IsElectric ||
+		platform.IsIndoor != file.IsIndoor ||
+		platform.IsVirtual != file.IsVirtual
+}
+
+func komootSportConflictMetadata(platform, file komootSportConflictSnapshot, fileFormat string) map[string]any {
+	return map[string]any{
+		"activity_id":          "",
+		"file_sport":           file.Sport,
+		"file_sub_type":        file.SubType,
+		"file_is_electric":     file.IsElectric,
+		"file_is_indoor":       file.IsIndoor,
+		"file_is_virtual":      file.IsVirtual,
+		"file_source":          fileFormat,
+		"platform_sport":       platform.Sport,
+		"platform_sub_type":    platform.SubType,
+		"platform_is_electric": platform.IsElectric,
+		"platform_is_indoor":   platform.IsIndoor,
+		"platform_is_virtual":  platform.IsVirtual,
+		"platform_source":      "komoot",
+	}
+}
+
+func createKomootSportConflictQueueEntry(ctx context.Context, db *database.DB, userID, activityID string, platform, file komootSportConflictSnapshot, fileFormat string) error {
+	exists, err := db.SportConflictQueueExists(ctx, userID, activityID)
+	if err != nil || exists {
+		return err
+	}
+	meta := komootSportConflictMetadata(platform, file, fileFormat)
+	meta["activity_id"] = activityID
+	_, err = db.CreateImportQueueItem(ctx, database.ImportQueueItem{
+		UserID:    userID,
+		QueueType: "sport_conflict",
+		Metadata:  meta,
+	})
+	return err
 }
 
 // buildKnownKomootIDs fetches all known komoot_tour_ids for a user (for incremental sync).

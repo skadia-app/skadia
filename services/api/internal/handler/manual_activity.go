@@ -30,7 +30,8 @@ type CreateManualActivityRequest struct {
 	ElevationLossM float64  `json:"elevation_loss_m,omitempty"`
 	Tags           []string `json:"tags,omitempty"`
 	GearID         string   `json:"gear_id,omitempty"`
-	IsElectric        bool     `json:"is_electric,omitempty"`
+	IsElectric     bool     `json:"is_electric,omitempty"`
+	IsIndoor       bool     `json:"is_indoor,omitempty"`
 	IsVirtual      bool     `json:"is_virtual,omitempty"`
 	WorkoutFeel    *int     `json:"workout_feel,omitempty"`
 	WorkoutRpe     *int     `json:"workout_rpe,omitempty"`
@@ -48,15 +49,19 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate sport_type against taxonomy.
 	if req.SportType == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "sport_type is required", r.URL.Path)
 		return
 	}
-	if _, valid := sport.GetSportDef(req.SportType); !valid {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown sport_type: "+req.SportType, r.URL.Path)
+	tuple, patch, err := sport.NormalizeSportTuple(req.SportType, req.SubType)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
+	req.SportType = tuple.SportType
+	req.SubType = tuple.SubType
+	req.IsElectric = req.IsElectric || (patch.IsElectric != nil && *patch.IsElectric)
+	req.IsIndoor = req.IsIndoor || (patch.IsIndoor != nil && *patch.IsIndoor) || sport.IsIndoor(tuple.SportType, tuple.SubType)
 
 	if req.ElapsedTimeS <= 0 {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "elapsed_time_s must be positive", r.URL.Path)
@@ -90,7 +95,8 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		ElevationGainM: req.ElevationGainM,
 		Tags:           req.Tags,
 		GearID:         req.GearID,
-		IsElectric:        req.IsElectric,
+		IsElectric:     req.IsElectric,
+		IsIndoor:       req.IsIndoor,
 		IsVirtual:      req.IsVirtual,
 		IsManualEntry:  true,
 		Source:         "manual",
@@ -138,7 +144,8 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		DistanceM:      req.DistanceM,
 		ElevationGainM: req.ElevationGainM,
 		ElevationLossM: req.ElevationLossM,
-		IsElectric:        req.IsElectric,
+		IsElectric:     req.IsElectric,
+		IsIndoor:       req.IsIndoor,
 		IsVirtual:      req.IsVirtual,
 		IsManualEntry:  true,
 		FileHash:       hashStr,

@@ -47,6 +47,109 @@ func doAddGroupMember(t *testing.T, h *Handler, userID, groupID, activityID stri
 	return rr.Code
 }
 
+func doSetGroupSportType(t *testing.T, h *Handler, userID, groupID string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/recording-groups/"+groupID+"/sport-type", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", groupID)
+	req = req.WithContext(context.WithValue(
+		context.WithValue(req.Context(), middleware.UserIDKey, userID),
+		chi.RouteCtxKey, rctx,
+	))
+
+	rr := httptest.NewRecorder()
+	h.SetRecordingGroupSportType(rr, req)
+	return rr
+}
+
+func TestSetRecordingGroupSportTypePreservesAbsentModifiers(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	act1 := insertMinimalActivity(t, db, userID)
+	act2 := insertMinimalActivity(t, db, userID)
+	group, err := db.CreateRecordingGroup(ctx, userID, []string{act1, act2}, act1, "")
+	if err != nil {
+		t.Fatalf("CreateRecordingGroup: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE recording_groups
+		SET sport_type = 'cycling', sub_type = 'mountain', is_electric = true, is_indoor = true, is_virtual = true
+		WHERE id = $1
+	`, group.ID); err != nil {
+		t.Fatalf("seed recording group sport tuple: %v", err)
+	}
+
+	h := &Handler{DB: db}
+	rr := doSetGroupSportType(t, h, userID, group.ID, []byte(`{"sport_type":"cycling"}`))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+
+	reloaded, err := db.GetRecordingGroup(ctx, group.ID)
+	if err != nil {
+		t.Fatalf("GetRecordingGroup: %v", err)
+	}
+	if !reloaded.IsElectric || !reloaded.IsIndoor || !reloaded.IsVirtual {
+		t.Fatalf("modifiers = electric:%v indoor:%v virtual:%v, want all preserved true",
+			reloaded.IsElectric, reloaded.IsIndoor, reloaded.IsVirtual)
+	}
+}
+
+func TestSetRecordingGroupSportTypePropagatesToMembers(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	act1 := insertMinimalActivity(t, db, userID)
+	act2 := insertMinimalActivity(t, db, userID)
+	group, err := db.CreateRecordingGroup(ctx, userID, []string{act1, act2}, act1, "")
+	if err != nil {
+		t.Fatalf("CreateRecordingGroup: %v", err)
+	}
+
+	h := &Handler{DB: db}
+	rr := doSetGroupSportType(t, h, userID, group.ID, []byte(`{"sport_type":"mountain_biking","is_virtual":true}`))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PATCH status = %d, body = %s", rr.Code, rr.Body.String())
+	}
+
+	rows, err := pool.Query(ctx, `
+		SELECT sport_type, sub_type, is_virtual, exclude_from_heatmap, sport_type_is_manual
+		FROM activities
+		WHERE id IN ($1, $2)
+		ORDER BY id`, act1, act2)
+	if err != nil {
+		t.Fatalf("query member activities: %v", err)
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		count++
+		var sportType string
+		var subType *string
+		var isVirtual, excludeFromHeatmap, isManual bool
+		if err := rows.Scan(&sportType, &subType, &isVirtual, &excludeFromHeatmap, &isManual); err != nil {
+			t.Fatalf("scan member activity: %v", err)
+		}
+		if sportType != "cycling" || subType == nil || *subType != "mountain" || !isVirtual || !excludeFromHeatmap || !isManual {
+			t.Fatalf("member tuple/modifiers = %s/%v virtual=%v heatmap=%v manual=%v, want cycling/mountain true/true/true",
+				sportType, subType, isVirtual, excludeFromHeatmap, isManual)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate member activities: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("updated member count = %d, want 2", count)
+	}
+}
+
 // TestAddGroupMember_HappyPath: create a group with two activities, add a third
 // unrelated activity → should return 200 and list three members.
 func TestAddGroupMember_HappyPath(t *testing.T) {
@@ -569,4 +672,3 @@ func TestAddGroupMember_Conflict409(t *testing.T) {
 		}
 	}
 }
-

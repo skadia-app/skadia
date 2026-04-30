@@ -147,11 +147,18 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	sport, subType := mapTCXSport(act.Sport)
 	source, sourceDevice, recordingDevice := parseTCXCreator(act.Creator)
 
-	// E-Bike normalization
+	tuple, patch, err := sporttax.NormalizeSportTuple(sport, subType)
+	if err != nil {
+		return nil, err
+	}
+	sport, subType = tuple.SportType, tuple.SubType
 	isElectric := false
-	if sport == "e_biking" || sport == "e_bike" {
-		sport = "cycling"
-		isElectric = true
+	if patch.IsElectric != nil {
+		isElectric = *patch.IsElectric
+	}
+	isIndoorPatch := false
+	if patch.IsIndoor != nil {
+		isIndoorPatch = *patch.IsIndoor
 	}
 
 	data := &model.ActivityData{
@@ -161,7 +168,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 		SourceDevice:    sourceDevice,
 		SportType:       sport,
 		SubType:         subType,
-		IsElectric:         isElectric,
+		IsElectric:      isElectric,
 		RecordingDevice: recordingDevice,
 	}
 
@@ -387,7 +394,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	data.Streams = streams
 	data.TrackPoints = trackPoints
 	data.HasGPS = len(trackPoints) >= 2
-	data.IsIndoor = sporttax.IsIndoor(data.SportType, data.SubType)
+	data.IsIndoor = isIndoorPatch || sporttax.IsIndoor(data.SportType, data.SubType)
 
 	if data.HasGPS {
 		data.StartLat = trackPoints[0].Lat
@@ -416,6 +423,8 @@ func mapTCXSport(sport string) (sportType, subType string) {
 	// Cycling (TCX standard: "Biking")
 	case "biking", "cycling", "ride":
 		return "cycling", ""
+	case "road_cycling", "roadcycling":
+		return "cycling", "road"
 	case "mountainbikeride", "mountain_biking":
 		return "cycling", "mountain"
 	case "ebikeride", "e_bike_ride", "ebike":

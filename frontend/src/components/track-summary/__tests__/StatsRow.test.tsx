@@ -22,6 +22,12 @@ describe('StatsRow — sport gating for scale pills', () => {
     expect(screen.getByText(/T4/)).toBeInTheDocument()
   })
 
+  it('cycling/mountain → MTB pill visible', () => {
+    render(<StatsRow sportType="cycling" subType="mountain" sacAggregate={SAC_AGG} mtbAggregate={MTB_AGG} />)
+    expect(screen.getByText(/S3/)).toBeInTheDocument()
+    expect(screen.getByText(/T4/)).toBeInTheDocument()
+  })
+
   it('hiking → SAC pill visible', () => {
     render(<StatsRow sportType="hiking" sacAggregate={SAC_AGG} />)
     expect(screen.getByText(/T4/)).toBeInTheDocument()
@@ -34,6 +40,11 @@ describe('StatsRow — sport gating for scale pills', () => {
 
   it('trail_running → SAC pill visible', () => {
     render(<StatsRow sportType="trail_running" sacAggregate={SAC_AGG} />)
+    expect(screen.getByText(/T4/)).toBeInTheDocument()
+  })
+
+  it('running/trail → SAC pill visible', () => {
+    render(<StatsRow sportType="running" subType="trail" sacAggregate={SAC_AGG} />)
     expect(screen.getByText(/T4/)).toBeInTheDocument()
   })
 

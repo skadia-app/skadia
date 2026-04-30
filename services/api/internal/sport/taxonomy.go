@@ -21,16 +21,15 @@ type SubTypeDef struct {
 
 // SportDef holds every piece of metadata for a single sport type.
 type SportDef struct {
-	SportType        string                `json:"sport_type"`
-	CategoryKey      string                `json:"category_key"`
-	LabelDE          string                `json:"label_de"`
-	AutoTitleDE      string                `json:"auto_title_de"`
-	SegmentGroup     string                `json:"segment_group"`
-	TypicallyHasGPS  bool                  `json:"typically_has_gps"`
-	MovingThreshold  float64               `json:"moving_threshold"`
-	IsIndoor         bool                  `json:"is_indoor"`
-	SubTypePromotion bool                  `json:"sub_type_promotion"`
-	SubTypes         map[string]SubTypeDef `json:"sub_types,omitempty"`
+	SportType       string                `json:"sport_type"`
+	CategoryKey     string                `json:"category_key"`
+	LabelDE         string                `json:"label_de"`
+	AutoTitleDE     string                `json:"auto_title_de"`
+	SegmentGroup    string                `json:"segment_group"`
+	TypicallyHasGPS bool                  `json:"typically_has_gps"`
+	MovingThreshold float64               `json:"moving_threshold"`
+	IsIndoor        bool                  `json:"is_indoor"`
+	SubTypes        map[string]SubTypeDef `json:"sub_types,omitempty"`
 }
 
 // ---- Categories ----
@@ -77,10 +76,6 @@ func init() {
 				"ultra":          {SubType: "ultra", LabelDE: "Ultra", DetailDE: "Ultramarathon", AutoTitleDE: "Ultramarathon"},
 				"obstacle":       {SubType: "obstacle", LabelDE: "Hindernislauf", DetailDE: "Hindernislauf", AutoTitleDE: "Hindernislauf"},
 			},
-		},
-		{
-			SportType: "trail_running", CategoryKey: "run", LabelDE: "Trailrunning", AutoTitleDE: "Trailrun",
-			SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.5,
 		},
 		{
 			SportType: "walking", CategoryKey: "run", LabelDE: "Gehen", AutoTitleDE: "Spaziergang",
@@ -143,18 +138,6 @@ func init() {
 			},
 		},
 		{
-			SportType: "mountain_biking", CategoryKey: "bike", LabelDE: "Mountainbike", AutoTitleDE: "MTB-Tour",
-			SegmentGroup: "bike", TypicallyHasGPS: true, MovingThreshold: 0.5,
-		},
-		{
-			SportType: "gravel_cycling", CategoryKey: "bike", LabelDE: "Gravel", AutoTitleDE: "Gravel-Tour",
-			SegmentGroup: "bike", TypicallyHasGPS: true, MovingThreshold: 0.5,
-		},
-		{
-			SportType: "indoor_cycling", CategoryKey: "bike", LabelDE: "Indoor-Radfahren", AutoTitleDE: "Indoor-Radfahrt",
-			SegmentGroup: "bike", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-		},
-		{
 			SportType: "inline_skating", CategoryKey: "outdoor", LabelDE: "Inline-Skaten", AutoTitleDE: "Inline-Skaten",
 			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
 		},
@@ -209,15 +192,7 @@ func init() {
 			},
 		},
 		{
-			SportType: "open_water_swimming", CategoryKey: "water", LabelDE: "Freiwasserschwimmen", AutoTitleDE: "Freiwasserschwimmen",
-			SegmentGroup: "swim", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "lap_swimming", CategoryKey: "water", LabelDE: "Bahnschwimmen", AutoTitleDE: "Bahnschwimmen",
-			SegmentGroup: "swim", TypicallyHasGPS: false, MovingThreshold: 0.1, IsIndoor: true,
-		},
-		{
-			SportType: "paddling", CategoryKey: "water", LabelDE: "Wassersport", AutoTitleDE: "Wassersport-Tour",
+			SportType: "paddling", CategoryKey: "water", LabelDE: "Paddeln (Generisch)", AutoTitleDE: "Wassersport-Tour",
 			SegmentGroup: "paddle", TypicallyHasGPS: true, MovingThreshold: 0.1,
 		},
 		{
@@ -310,7 +285,6 @@ func init() {
 		{
 			SportType: "training", CategoryKey: "fitness", LabelDE: "Training", AutoTitleDE: "Training",
 			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-			SubTypePromotion: true,
 			SubTypes: map[string]SubTypeDef{
 				"strength_training":    {SubType: "strength_training", LabelDE: "Krafttraining", DetailDE: "Krafttraining", AutoTitleDE: "Krafttraining"},
 				"flexibility_training": {SubType: "flexibility_training", LabelDE: "Stretching", DetailDE: "Dehnungstraining", AutoTitleDE: "Stretching"},
@@ -323,7 +297,6 @@ func init() {
 		{
 			SportType: "fitness_equipment", CategoryKey: "fitness", LabelDE: "Fitnessgerät", AutoTitleDE: "Fitnessgerät",
 			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-			SubTypePromotion: true,
 			SubTypes: map[string]SubTypeDef{
 				"treadmill":           {SubType: "treadmill", LabelDE: "Laufband", DetailDE: "Laufband", AutoTitleDE: "Laufband"},
 				"indoor_cycling":      {SubType: "indoor_cycling", LabelDE: "Indoor-Rad", DetailDE: "Indoor-Rad", AutoTitleDE: "Indoor-Radfahrt"},
@@ -412,8 +385,7 @@ func init() {
 		},
 		{
 			SportType: "racket", CategoryKey: "game", LabelDE: "Schlägersport", AutoTitleDE: "Schlägersport",
-			SubTypePromotion: true,
-			SegmentGroup:     "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
+			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
 			SubTypes: map[string]SubTypeDef{
 				"pickleball":   {SubType: "pickleball", LabelDE: "Pickleball", DetailDE: "Pickleball", AutoTitleDE: "Pickleball"},
 				"padel":        {SubType: "padel", LabelDE: "Padel", DetailDE: "Padel", AutoTitleDE: "Padel"},
@@ -539,14 +511,10 @@ func init() {
 			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
 		},
 
-		// Aliases used in existing codebase — kept for backwards compatibility.
+		// Aliases still emitted by upstream sources as canonical top-level sports.
 		{
 			SportType: "skiing", CategoryKey: "winter", LabelDE: "Skifahren", AutoTitleDE: "Skifahrt",
 			SegmentGroup: "ski", TypicallyHasGPS: true, MovingThreshold: 0.3,
-		},
-		{
-			SportType: "treadmill_running", CategoryKey: "run", LabelDE: "Laufband", AutoTitleDE: "Laufband",
-			SegmentGroup: "foot", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
 		},
 		{
 			SportType: "strength", CategoryKey: "fitness", LabelDE: "Krafttraining", AutoTitleDE: "Krafttraining",
@@ -573,15 +541,13 @@ func GetSportDef(sportType string) (SportDef, bool) {
 	return d, ok
 }
 
-// SportLabel returns the German display label, using sub-type promotion
-// when appropriate. For sports with SubTypePromotion (training, fitness_equipment),
-// the sub-type label is returned directly instead of the parent label.
+// SportLabel returns the compact German display label for a sport tuple.
 func SportLabel(sportType, subType string) string {
 	d, ok := registry[sportType]
 	if !ok {
 		return titleCase(sportType)
 	}
-	if d.SubTypePromotion && subType != "" && subType != "generic" {
+	if subType != "" && subType != "generic" {
 		if st, stOK := d.SubTypes[subType]; stOK {
 			return st.LabelDE
 		}
@@ -600,7 +566,7 @@ func SportDetailLabel(sportType, subType string) string {
 		return d.LabelDE
 	}
 	if st, stOK := d.SubTypes[subType]; stOK {
-		if d.SubTypePromotion {
+		if subTypeLabelCanStandAlone(d) {
 			return st.DetailDE
 		}
 		return d.LabelDE + " (" + st.LabelDE + ")"
@@ -717,6 +683,14 @@ func IsIndoor(sportType, subType string) bool {
 	}
 	return strings.HasPrefix(subType, "indoor_") ||
 		subType == "treadmill" ||
-		subType == "spin" ||
-		subType == "lap_swimming"
+		subType == "spin"
+}
+
+func subTypeLabelCanStandAlone(d SportDef) bool {
+	switch d.SportType {
+	case "training", "fitness_equipment", "racket":
+		return true
+	default:
+		return false
+	}
 }

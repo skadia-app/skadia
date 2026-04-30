@@ -93,11 +93,18 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 		sport = "e_biking"
 	}
 
-	// E-Bike normalization
+	tuple, patch, err := sporttax.NormalizeSportTuple(sport, subType)
+	if err != nil {
+		return nil, err
+	}
+	sport, subType = tuple.SportType, tuple.SubType
 	isElectric := false
-	if sport == "e_biking" || sport == "e_bike" {
-		sport = "cycling"
-		isElectric = true
+	if patch.IsElectric != nil {
+		isElectric = *patch.IsElectric
+	}
+	isIndoorPatch := false
+	if patch.IsIndoor != nil {
+		isIndoorPatch = *patch.IsIndoor
 	}
 
 	// Prefer the track name; fall back to the metadata name (used e.g. by Bosch eBike).
@@ -269,7 +276,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	data.Streams = streams
 	data.TrackPoints = trackPoints
 	data.HasGPS = len(trackPoints) >= 2
-	data.IsIndoor = sporttax.IsIndoor(data.SportType, data.SubType)
+	data.IsIndoor = isIndoorPatch || sporttax.IsIndoor(data.SportType, data.SubType)
 
 	if data.HasGPS {
 		data.StartLat = trackPoints[0].Lat
@@ -326,8 +333,10 @@ func mapGPXType(gpxType string) (sport, subType string) {
 		return "running", "trail"
 
 	// Cycling
-	case "cycling", "biking", "bike", "ride", "road_cycling", "roadcycling":
+	case "cycling", "biking", "bike", "ride":
 		return "cycling", ""
+	case "road_cycling", "roadcycling":
+		return "cycling", "road"
 	case "mountainbikeride", "mountain_biking", "mountainbiking", "mtb":
 		return "cycling", "mountain"
 	case "ebikeride", "e_bike_ride", "ebike", "e-bike":

@@ -43,7 +43,7 @@ export const WINTER_SPORT_WHITELIST: readonly string[] = [
 // Quelle: sportTaxonomy.ts:129-163 categoryKey='water', ohne diving (hasGPS=false)
 export const WATER_SPORT_WHITELIST: readonly string[] = [
   // swim
-  'swimming', 'lap_swimming', 'open_water_swimming',
+  'swimming',
   // paddle
   'paddling', 'kayaking', 'stand_up_paddleboarding', 'rowing', 'rafting', 'canoeing',
   // generic water (hasGPS=true only — diving excluded)

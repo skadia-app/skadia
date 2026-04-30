@@ -100,6 +100,7 @@ export interface MapFilterState {
   tagFilters: import('@/components/TagFilterInput').TagFilter[]
   gearFilters: import('@/components/GearFilterInput').GearFilter[]
   isElectric: boolean | null  // null=neutral, true=only E-Bike, false=exclude E-Bike
+  isCommute: boolean | null   // null=neutral, true=only commute, false=exclude commute
 }
 
 export interface MapOverlayState {
@@ -148,6 +149,7 @@ const defaultFilters: MapFilterState = {
   tagFilters: [],
   gearFilters: [],
   isElectric: null,
+  isCommute: null,
 }
 
 function loadColorConfig(): SportColorConfig {
@@ -210,6 +212,7 @@ function buildTileUrl(
   samplingIntervalM?: number, // undefined = kein Filter (Standardwert aus DB)
   userId?: string, // privacy: filter by current user
   electricTagId?: string, // ID of the E-Bike system tag (for tristate filter)
+  commuteTagId?: string, // ID of the commute system tag (for tristate filter)
 ): string {
   // Heatmap tiles are routed through the Go API for authentication + per-user isolation.
   // MapLibre v5 lädt Tiles in einem Web Worker. Worker können relative URLs
@@ -222,42 +225,7 @@ function buildTileUrl(
 
   const allSelected = filters.sportTypes.size === ALL_SPORT_KEYS.length
   if (!allSelected && filters.sportTypes.size > 0) {
-    // Split composite keys ("sport:subType") back into sport_type and sub_type sets.
-    // A key without a colon (e.g. "cycling" for road cycling) has no sub_type restriction —
-    // if such a key is selected alongside sub-typed keys we must NOT send a sub_type
-    // filter for that sport, or the road cycling activities would be excluded.
-    const sportTypes = new Set<string>()
-    // Track which sports appear with a bare (no-subType) key — those must not be
-    // constrained by sub_type in the API query.
-    const sportsWithBareKey = new Set<string>()
-    const subTypes = new Set<string>()
-
-    for (const key of filters.sportTypes) {
-      const colonIdx = key.indexOf(':')
-      if (colonIdx === -1) {
-        // Bare key — no sub_type restriction for this sport
-        sportTypes.add(key)
-        sportsWithBareKey.add(key)
-      } else {
-        const sport = key.slice(0, colonIdx)
-        const sub = key.slice(colonIdx + 1)
-        sportTypes.add(sport)
-        subTypes.add(sub)
-      }
-    }
-
-    params.set('sport_type', Array.from(sportTypes).join(','))
-
-    // Only send sub_type when NO selected sport has a bare key (i.e. every selected
-    // cycling variant has an explicit sub_type). This prevents the filter from
-    // accidentally excluding road cycling when MTB/Gravel are also selected.
-    const subTypedSports = Array.from(subTypes).length > 0
-      ? Array.from(sportTypes).filter(s => !sportsWithBareKey.has(s))
-      : []
-    if (subTypedSports.length > 0 && sportsWithBareKey.size === 0) {
-      // All cycling selections carry a sub_type — safe to filter by sub_type
-      params.set('sub_type', Array.from(subTypes).join(','))
-    }
+    params.set('sport_type', Array.from(filters.sportTypes).join(','))
   }
   if (filters.dateFrom) params.set('date_from', filters.dateFrom)
   if (filters.dateTo) params.set('date_to', filters.dateTo)
@@ -267,20 +235,24 @@ function buildTileUrl(
   if (samplingIntervalM != null && samplingIntervalM > 0) {
     params.set('sample_interval_m', String(samplingIntervalM))
   }
-  const includeTags = (filters.tagFilters ?? []).filter(f => f.state === 'include').map(f => f.id)
-  const excludeTags = (filters.tagFilters ?? []).filter(f => f.state === 'exclude').map(f => f.id)
-  // Merge E-Bike tristate filter into tag arrays
-  const effectiveIncludeTags = [...includeTags]
-  const effectiveExcludeTags = [...excludeTags]
-  if (filters.isElectric === true && electricTagId) {
-    effectiveIncludeTags.push(electricTagId)
-  } else if (filters.isElectric === false && electricTagId) {
-    effectiveExcludeTags.push(electricTagId)
+  const effectiveIncludeTags = new Set((filters.tagFilters ?? []).filter(f => f.state === 'include').map(f => f.id))
+  const effectiveExcludeTags = new Set((filters.tagFilters ?? []).filter(f => f.state === 'exclude').map(f => f.id))
+  const applySystemTagFilter = (tagID: string | undefined, state: boolean | null) => {
+    if (!tagID || state === null) return
+    if (state) {
+      effectiveIncludeTags.add(tagID)
+      effectiveExcludeTags.delete(tagID)
+    } else {
+      effectiveExcludeTags.add(tagID)
+      effectiveIncludeTags.delete(tagID)
+    }
   }
+  applySystemTagFilter(electricTagId, filters.isElectric)
+  applySystemTagFilter(commuteTagId, filters.isCommute)
   const includeGear = (filters.gearFilters ?? []).filter(f => f.state === 'include').map(f => f.id)
   const excludeGear = (filters.gearFilters ?? []).filter(f => f.state === 'exclude').map(f => f.id)
-  if (effectiveIncludeTags.length) params.set('include_tags', effectiveIncludeTags.join(','))
-  if (effectiveExcludeTags.length) params.set('exclude_tags', effectiveExcludeTags.join(','))
+  if (effectiveIncludeTags.size) params.set('include_tags', Array.from(effectiveIncludeTags).join(','))
+  if (effectiveExcludeTags.size) params.set('exclude_tags', Array.from(effectiveExcludeTags).join(','))
   if (includeGear.length) params.set('include_gear', includeGear.join(','))
   if (excludeGear.length) params.set('exclude_gear', excludeGear.join(','))
 
@@ -1378,6 +1350,7 @@ export default function MapPage() {
 
   // E-Bike tag — resolved by name (includes non-system tags for users with pre-existing E-Bike tag)
   const electricTag = allTags.find(t => t.name === 'E-Bike')
+  const commuteTag = allTags.find(t => t.name === 'Pendeln')
 
   // Derive selected tag from fresh query data to avoid stale state
   const selectedLocationTag = selectedLocationTagId
@@ -1424,6 +1397,8 @@ export default function MapPage() {
   const pendingCameraRestoreRef = useRef<{ center: maplibregl.LngLat; zoom: number } | null>(null)
   const electricTagIdRef = useRef<string | undefined>(electricTag?.id)
   useEffect(() => { electricTagIdRef.current = electricTag?.id }, [electricTag])
+  const commuteTagIdRef = useRef<string | undefined>(commuteTag?.id)
+  useEffect(() => { commuteTagIdRef.current = commuteTag?.id }, [commuteTag])
   useEffect(() => { filtersRef.current = filters }, [filters])
   useEffect(() => {
     viewModeRef.current = viewMode
@@ -1568,11 +1543,11 @@ export default function MapPage() {
       removeOverlayLayers(map)
       removeTerraIncognitaLayers(map)
       if (filters.sportTypes.size > 0) {
-        addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId, electricTag?.id)
+        addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId, electricTag?.id, commuteTag?.id)
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, filters.isElectric, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion, currentUserId, electricTag?.id])
+  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, filters.isElectric, filters.isCommute, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion, currentUserId, electricTag?.id, commuteTag?.id])
 
   // ── Terra Incognita Overlay Layer ────────────────────────────────────────
   // styleVersion in deps: nach Stilwechsel muss der Overlay neu aufgebaut werden,
@@ -2752,7 +2727,7 @@ export default function MapPage() {
                   removeTerraIncognitaLayers(map)
                   if (enabled) {
                     if (filtersRef.current.sportTypes.size > 0) {
-                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
+                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current, commuteTagIdRef.current)
                     }
                     setViewMode('heatmap')
                   } else {
@@ -2988,7 +2963,7 @@ export default function MapPage() {
                     removeOverlayLayers(map)
                     removeTerraIncognitaLayers(map)
                     if (filtersRef.current.sportTypes.size > 0) {
-                      addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
+                      addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current, commuteTagIdRef.current)
                     }
                   }
                   setViewMode('tracks')
@@ -3008,7 +2983,7 @@ export default function MapPage() {
                     removeOverlayLayers(map)
                     removeTerraIncognitaLayers(map)
                     if (filtersRef.current.sportTypes.size > 0) {
-                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current)
+                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current, commuteTagIdRef.current)
                     }
                   }
                   setViewMode('heatmap')
@@ -3246,6 +3221,12 @@ export default function MapPage() {
             waypoints={planner.waypoints}
             segments={planner.segments}
             currentProfile={planner.profile.status === 'ready' ? planner.profile.name : 'hiking'}
+            currentSportType={planner.sportType}
+            currentSubType={planner.subType}
+            currentIsElectric={planner.isElectric}
+            currentIsIndoor={planner.isIndoor}
+            currentIsVirtual={planner.isVirtual}
+            currentIsCommute={planner.isCommute}
             editingRouteId={planner.editingRouteId}
             onClose={() => setShowSaveDialog(false)}
             onSaved={(saved) => {
@@ -3762,12 +3743,13 @@ function addOverlayLayers(
   samplingIntervalM?: number,
   userId?: string,
   electricTagId?: string,
+  commuteTagId?: string,
 ) {
   // Layer und Source vollständig entfernen und neu aufbauen.
   // removeOverlayLayers() stellt sicher, dass kein "Source already exists"-Fehler entsteht.
   removeOverlayLayers(map)
 
-  const tileUrl = buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM, userId, electricTagId)
+  const tileUrl = buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM, userId, electricTagId, commuteTagId)
 
   if (viewMode === 'tracks') {
     map.addSource(HEATMAP_SOURCE_ID, {

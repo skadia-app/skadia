@@ -41,6 +41,16 @@ export interface SubFilter {
   sportGroups: string[]
 }
 
+export interface RecordsSportFilterValue {
+  sportTypes: string[] | null
+  modifiers?: {
+    is_electric?: boolean
+    is_indoor?: boolean
+    is_virtual?: boolean
+    is_commute?: boolean
+  }
+}
+
 export const SUB_FILTERS: Record<MainCategory, SubFilter[]> = {
   laufen: [
     { label: 'Alle', sportGroups: ['running', 'running_trail', 'running_indoor', 'running_virtual'] },
@@ -81,47 +91,102 @@ export const CATEGORY_PREFIXES = {
 export const POOL_BADGE = 'B'
 export const OW_BADGE = 'FW'
 
-/**
- * Mapping from sport_group values (used in BestEffortRanked.sport_group) to
- * sport_type values (used in SegmentEffort.sport_type / sportTaxonomy.ts).
- * Used as the base for matchesSportGroup() below.
- *
- * NOTE: Garmin FIT files encode trail running as sport=running + sub_sport=trail,
- * not as a distinct trail_running sport_type — the FIT enum has no such value.
- * Migration 000037 normalized historical trail_running rows to (running, trail).
- * matchesSportGroup() therefore inspects sub_type to disambiguate running vs.
- * running_trail; the base list keeps trail_running for future Strava/GPX/TCX
- * imports that may still surface that string.
- */
 export const SPORT_GROUP_TO_SPORT_TYPES: Record<string, string[]> = {
   running:          ['running'],
-  running_trail:    ['trail_running'],
-  running_indoor:   ['treadmill_running'],
-  running_virtual:  ['running'],  // virtual running has no distinct sport_type in taxonomy
-  cycling:          ['cycling', 'mountain_biking', 'gravel_cycling'],
-  cycling_electric: ['cycling'],  // e-bike has no distinct sport_type in taxonomy
-  cycling_virtual:  ['indoor_cycling'],
+  running_trail:    ['running'],
+  running_indoor:   ['running'],
+  running_virtual:  ['running'],
+  cycling:          ['cycling'],
+  cycling_electric: ['cycling'],
+  cycling_virtual:  ['cycling'],
   hiking:           ['hiking', 'mountaineering', 'snowshoeing'],
-  swim_pool:        ['lap_swimming'],
-  swim_ow:          ['open_water_swimming', 'swimming'],
+  swim_pool:        ['swimming'],
+  swim_ow:          ['swimming'],
 }
 
 /** Predicate for filtering SegmentEffort / similar records by best-efforts sport_group. */
 export function matchesSportGroup(
   sportGroup: string,
-  effort: { sport_type: string; sub_type?: string },
+  effort: { sport_type: string; sub_type?: string; is_electric?: boolean; is_indoor?: boolean; is_virtual?: boolean },
 ): boolean {
   const types = SPORT_GROUP_TO_SPORT_TYPES[sportGroup] ?? []
   const matchesType = types.includes(effort.sport_type)
 
   if (sportGroup === 'running_trail') {
-    // (running, trail) is the Garmin-FIT canonical representation; trail_running
-    // is the legacy Strava/GPX/TCX representation — accept both.
-    return matchesType || (effort.sport_type === 'running' && effort.sub_type === 'trail')
+    return matchesType && effort.sub_type === 'trail'
+  }
+  if (sportGroup === 'running_indoor') {
+    return matchesType && (effort.is_indoor === true || effort.sub_type === 'indoor_running' || effort.sub_type === 'treadmill')
   }
   if (sportGroup === 'running') {
-    // Plain road running: exclude entries that should belong to running_trail.
-    return matchesType && effort.sub_type !== 'trail'
+    return matchesType && effort.sub_type !== 'trail' && effort.sub_type !== 'indoor_running' && effort.sub_type !== 'treadmill' && effort.is_indoor !== true && effort.is_virtual !== true
+  }
+  if (sportGroup === 'running_virtual') {
+    return matchesType && effort.is_virtual === true
+  }
+  if (sportGroup === 'cycling_electric') {
+    return matchesType && effort.is_electric === true
+  }
+  if (sportGroup === 'cycling_virtual') {
+    return matchesType && (effort.is_virtual === true || effort.is_indoor === true || effort.sub_type === 'indoor_cycling')
+  }
+  if (sportGroup === 'cycling') {
+    return matchesType && effort.is_electric !== true && effort.is_indoor !== true && effort.is_virtual !== true && effort.sub_type !== 'indoor_cycling'
+  }
+  if (sportGroup === 'swim_pool') {
+    return matchesType && effort.sub_type === 'lap_swimming'
+  }
+  if (sportGroup === 'swim_ow') {
+    return matchesType && (effort.sub_type === 'open_water' || !effort.sub_type)
   }
   return matchesType
+}
+
+export function recordSportFilterValue(mainCategory: MainCategory | null, subFilter: string | null): RecordsSportFilterValue {
+  if (!mainCategory) return { sportTypes: null, modifiers: {} }
+  if (mainCategory === 'laufen') {
+    if (subFilter === 'Trail') return { sportTypes: ['running:trail'], modifiers: {} }
+    if (subFilter === 'Stationär') return { sportTypes: ['running:indoor_running'], modifiers: { is_virtual: true } }
+    if (subFilter === 'Straße') return { sportTypes: ['running'], modifiers: {} }
+    return { sportTypes: ['running'], modifiers: {} }
+  }
+  if (mainCategory === 'radfahren') {
+    if (subFilter === 'E-Bike') return { sportTypes: ['cycling'], modifiers: { is_electric: true } }
+    if (subFilter === 'Stationär') return { sportTypes: ['cycling:indoor_cycling'], modifiers: { is_virtual: true } }
+    if (subFilter === 'Radfahren') return { sportTypes: ['cycling'], modifiers: { is_electric: false } }
+    return { sportTypes: ['cycling'], modifiers: {} }
+  }
+  if (mainCategory === 'schwimmen') {
+    if (subFilter === 'Freiwasser') return { sportTypes: ['swimming:open_water'], modifiers: {} }
+    if (subFilter === 'Becken') return { sportTypes: ['swimming:lap_swimming'], modifiers: {} }
+    return { sportTypes: ['swimming'], modifiers: {} }
+  }
+  return { sportTypes: ['hiking'], modifiers: {} }
+}
+
+export function recordFilterSelection(value: RecordsSportFilterValue): { mainCategory: MainCategory | null; subFilter: string | null } {
+  const keys = value.sportTypes ?? []
+  if (keys.length === 0) return { mainCategory: null, subFilter: null }
+
+  if (keys.includes('running:trail')) return { mainCategory: 'laufen', subFilter: 'Trail' }
+  if (keys.includes('running:indoor_running') || (keys.some((key) => key === 'running' || key.startsWith('running:')) && value.modifiers?.is_virtual === true)) {
+    return { mainCategory: 'laufen', subFilter: 'Stationär' }
+  }
+  if (keys.includes('running')) return { mainCategory: 'laufen', subFilter: 'Straße' }
+
+  if (keys.includes('cycling:indoor_cycling') || (keys.some((key) => key === 'cycling' || key.startsWith('cycling:')) && value.modifiers?.is_virtual === true)) {
+    return { mainCategory: 'radfahren', subFilter: 'Stationär' }
+  }
+  if (keys.some((key) => key === 'cycling' || key.startsWith('cycling:'))) {
+    if (value.modifiers?.is_electric === true) return { mainCategory: 'radfahren', subFilter: 'E-Bike' }
+    if (value.modifiers?.is_electric === false) return { mainCategory: 'radfahren', subFilter: 'Radfahren' }
+    return { mainCategory: 'radfahren', subFilter: null }
+  }
+
+  if (keys.includes('swimming:open_water')) return { mainCategory: 'schwimmen', subFilter: 'Freiwasser' }
+  if (keys.includes('swimming:lap_swimming')) return { mainCategory: 'schwimmen', subFilter: 'Becken' }
+  if (keys.includes('swimming')) return { mainCategory: 'schwimmen', subFilter: null }
+
+  if (keys.includes('hiking')) return { mainCategory: 'wandern', subFilter: null }
+  return { mainCategory: null, subFilter: null }
 }

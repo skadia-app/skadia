@@ -5,14 +5,17 @@ import (
 	"math"
 
 	"github.com/skadia-app/skadia/services/api/internal/routing/graph"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // ProfileConfig holds user-facing routing profile parameters.
 // Nil fields inherit from the built-in profile defaults.
 type ProfileConfig struct {
-	Profile    string   `json:"profile"`              // trekking/hiking/mtb/gravel/road
-	Name       string   `json:"name,omitempty"`
-	SportTypes []string `json:"sport_types,omitempty"`
+	Profile         string                `json:"profile"` // trekking/hiking/mtb/gravel/road
+	Name            string                `json:"name,omitempty"`
+	SportTypes      []string              `json:"sport_types,omitempty"`
+	Predicates      []sport.Predicate     `json:"predicates,omitempty"`
+	ModifierFilters sport.ModifierFilters `json:"modifier_filters,omitempty"`
 
 	// Elevation
 	UphillCost        *float32 `json:"uphill_cost,omitempty"`
@@ -24,15 +27,15 @@ type ProfileConfig struct {
 	ElevBufferReduce  *float32 `json:"elev_buffer_reduce,omitempty"`
 
 	// Difficulty
-	MaxSacScale   *int  `json:"max_sac_scale,omitempty"`   // 0-6
-	SacPreferred  *int  `json:"sac_preferred,omitempty"`   // 0-6
-	MaxMtbScale   *int  `json:"max_mtb_scale,omitempty"`   // 0-5
-	MaxViaFerrata           *int  `json:"max_via_ferrata,omitempty"`            // 0-6
-	AllowUnscaledViaFerrata *bool `json:"allow_unscaled_via_ferrata,omitempty"` // default nil = false (sicher)
-	MaxTrailVisibility     *int     `json:"max_trail_visibility,omitempty"`     // 0-6 (0 or unset = no limit)
-	TrailVisibilityPenalty *float32 `json:"trail_visibility_penalty,omitempty"` // 0.0-2.0
-	AllowSteps    *bool `json:"allow_steps,omitempty"`
-	AllowFerries  *bool `json:"allow_ferries,omitempty"`
+	MaxSacScale             *int     `json:"max_sac_scale,omitempty"`              // 0-6
+	SacPreferred            *int     `json:"sac_preferred,omitempty"`              // 0-6
+	MaxMtbScale             *int     `json:"max_mtb_scale,omitempty"`              // 0-5
+	MaxViaFerrata           *int     `json:"max_via_ferrata,omitempty"`            // 0-6
+	AllowUnscaledViaFerrata *bool    `json:"allow_unscaled_via_ferrata,omitempty"` // default nil = false (sicher)
+	MaxTrailVisibility      *int     `json:"max_trail_visibility,omitempty"`       // 0-6 (0 or unset = no limit)
+	TrailVisibilityPenalty  *float32 `json:"trail_visibility_penalty,omitempty"`   // 0.0-2.0
+	AllowSteps              *bool    `json:"allow_steps,omitempty"`
+	AllowFerries            *bool    `json:"allow_ferries,omitempty"`
 
 	// Enrichment weights (0=ignore, 1=full BRouter-calibrated effect)
 	ForestBonus    *float32 `json:"forest_bonus,omitempty"`
@@ -998,19 +1001,19 @@ func surfaceDownhillMod(sf uint8, wet bool) float32 {
 func landmarkClosureProfile() ProfileConfig {
 	allowUnscaled := true
 	return ProfileConfig{
-		Profile:           "hiking",
-		UphillCost:        new(float32(0)), // overridden per LandmarkCostConfig
-		DownhillCost:      new(float32(0)), // overridden per LandmarkCostConfig
-		UphillCutoffPct:   new(float32(3)),
-		DownhillCutoffPct: new(float32(3)),
-		ElevPenaltyBuffer: new(float32(5)),
-		ElevMaxBuffer:     new(float32(10)),
-		ElevBufferReduce:  new(float32(0.01)),
-		MaxSacScale:             new(6),           // allow everything
-		SacPreferred:            new(0),           // no preference penalty
-		MaxMtbScale:             new(5),           // allow everything
-		MaxViaFerrata:           new(6),           // allow everything
-		AllowUnscaledViaFerrata: &allowUnscaled,  // allow unscaled VF (admissibility)
+		Profile:                 "hiking",
+		UphillCost:              new(float32(0)), // overridden per LandmarkCostConfig
+		DownhillCost:            new(float32(0)), // overridden per LandmarkCostConfig
+		UphillCutoffPct:         new(float32(3)),
+		DownhillCutoffPct:       new(float32(3)),
+		ElevPenaltyBuffer:       new(float32(5)),
+		ElevMaxBuffer:           new(float32(10)),
+		ElevBufferReduce:        new(float32(0.01)),
+		MaxSacScale:             new(6),         // allow everything
+		SacPreferred:            new(0),         // no preference penalty
+		MaxMtbScale:             new(5),         // allow everything
+		MaxViaFerrata:           new(6),         // allow everything
+		AllowUnscaledViaFerrata: &allowUnscaled, // allow unscaled VF (admissibility)
 		AllowSteps:              new(true),
 		AllowFerries:            new(true),
 		// ALL enrichment weights = 0 (lower bound guarantee)
@@ -1072,17 +1075,17 @@ type ProfileDefaultsResponse struct {
 	TurnCost          *float32 `json:"turn_cost"`
 	Pass0Coefficient  *float32 `json:"pass0_coefficient"`
 	// Difficulty
-	MaxSacScale   *int  `json:"max_sac_scale"`
-	SacPreferred  *int  `json:"sac_preferred"`
-	MaxMtbScale   *int  `json:"max_mtb_scale"`
-	MaxViaFerrata           *int  `json:"max_via_ferrata"`
+	MaxSacScale   *int `json:"max_sac_scale"`
+	SacPreferred  *int `json:"sac_preferred"`
+	MaxMtbScale   *int `json:"max_mtb_scale"`
+	MaxViaFerrata *int `json:"max_via_ferrata"`
 	// AllowUnscaledViaFerrata WITHOUT omitempty: explicit null = "not set" / false (safe default).
 	// Intentional asymmetry with ProfileConfig (which has omitempty for sparse patch semantics).
-	AllowUnscaledViaFerrata *bool `json:"allow_unscaled_via_ferrata"`
-	MaxTrailVisibility     *int     `json:"max_trail_visibility"`
-	TrailVisibilityPenalty *float32 `json:"trail_visibility_penalty"`
-	AllowSteps             *bool    `json:"allow_steps"`
-	AllowFerries  *bool `json:"allow_ferries"`
+	AllowUnscaledViaFerrata *bool    `json:"allow_unscaled_via_ferrata"`
+	MaxTrailVisibility      *int     `json:"max_trail_visibility"`
+	TrailVisibilityPenalty  *float32 `json:"trail_visibility_penalty"`
+	AllowSteps              *bool    `json:"allow_steps"`
+	AllowFerries            *bool    `json:"allow_ferries"`
 	// Enrichment weights
 	ForestBonus    *float32 `json:"forest_bonus"`
 	NoisePenalty   *float32 `json:"noise_penalty"`
@@ -1137,15 +1140,15 @@ func ProfileDefaults(name string) (*ProfileDefaultsResponse, error) {
 		TurnCost:          base.TurnCost,
 		Pass0Coefficient:  base.Pass0Coefficient,
 		// Difficulty
-		MaxSacScale:   base.MaxSacScale,
-		SacPreferred:  base.SacPreferred,
-		MaxMtbScale:   base.MaxMtbScale,
+		MaxSacScale:             base.MaxSacScale,
+		SacPreferred:            base.SacPreferred,
+		MaxMtbScale:             base.MaxMtbScale,
 		MaxViaFerrata:           base.MaxViaFerrata,
 		AllowUnscaledViaFerrata: base.AllowUnscaledViaFerrata,
-		MaxTrailVisibility:     base.MaxTrailVisibility,
-		TrailVisibilityPenalty: base.TrailVisibilityPenalty,
-		AllowSteps:             base.AllowSteps,
-		AllowFerries:  base.AllowFerries,
+		MaxTrailVisibility:      base.MaxTrailVisibility,
+		TrailVisibilityPenalty:  base.TrailVisibilityPenalty,
+		AllowSteps:              base.AllowSteps,
+		AllowFerries:            base.AllowFerries,
 		// Enrichment
 		ForestBonus:    base.ForestBonus,
 		NoisePenalty:   base.NoisePenalty,

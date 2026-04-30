@@ -1,12 +1,9 @@
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useClickOutside } from '@/hooks/useClickOutside'
-import { useQuery } from '@tanstack/react-query'
-import type { SportOption } from '@/lib/sportOptions'
-import { generateActivityFilterOptions, getOptionKey, getAllSportKeys, filterToExistingSports } from '@/lib/sportOptions'
-import { fetchSportTypeStats } from '@/api/stats'
+import { generateActivityFilterOptions, getAllSportKeys } from '@/lib/sportOptions'
 import { sportLabel } from '@/lib/sportTaxonomy'
-import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import { Pill } from '@/components/ui/Pill'
+import { SportFilter } from '@/components/sport/SportFilter'
 import TagFilterInput from '@/components/TagFilterInput'
 import GearFilterInput, { gearTypeIcon } from '@/components/GearFilterInput'
 import type { TagFilter, TagFilterState } from '@/components/TagFilterInput'
@@ -23,6 +20,7 @@ export interface ActivityFilterState {
   hasGPS: boolean | null
   isElectric: boolean | null
   isVirtual: boolean | null
+  isCommute: boolean | null
   gearId: string
   tagFilters: TagFilter[]
   gearFilters: GearFilter[]
@@ -38,6 +36,7 @@ export const EMPTY_FILTERS: ActivityFilterState = {
   hasGPS: null,
   isElectric: null,
   isVirtual: null,
+  isCommute: null,
   gearId: '',
   tagFilters: [],
   gearFilters: [],
@@ -57,6 +56,7 @@ export function filtersToParams(f: ActivityFilterState): URLSearchParams {
   if (f.hasGPS !== null) p.set('gps', String(f.hasGPS))
   if (f.isElectric !== null) p.set('ebike', String(f.isElectric))
   if (f.isVirtual !== null) p.set('virtual', String(f.isVirtual))
+  if (f.isCommute !== null) p.set('commute', String(f.isCommute))
   if (f.gearId) p.set('gear', f.gearId)
   if (f.search) p.set('q', f.search)
   const includeTags = f.tagFilters.filter(tf => tf.state === 'include').map(tf => tf.id)
@@ -89,6 +89,8 @@ export function paramsToFilters(p: URLSearchParams): ActivityFilterState {
   if (ebike !== null) f.isElectric = ebike === 'true'
   const virtual_ = p.get('virtual')
   if (virtual_ !== null) f.isVirtual = virtual_ === 'true'
+  const commute = p.get('commute')
+  if (commute !== null) f.isCommute = commute === 'true'
   f.gearId = p.get('gear') ?? ''
   f.search = p.get('q') ?? ''
   // tagFilters, gearFilters and deviceFilters require full objects and cannot be restored from URL IDs alone
@@ -113,6 +115,7 @@ export function filtersToApiParams(f: ActivityFilterState) {
     hasGPS: f.hasGPS,
     isElectric: f.isElectric,
     isVirtual: f.isVirtual,
+    isCommute: f.isCommute,
     gearId: f.gearId,
     search: f.search,
     includeTags: includeTags.length ? includeTags : undefined,
@@ -135,27 +138,7 @@ interface Props {
 
 export default function ActivityFilters({ filters, onChange }: Props) {
   const [open, setOpen] = useState(false)
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
-  const [sportSearch, setSportSearch] = useState('')
   const popoverRef = useRef<HTMLDivElement>(null)
-
-  const { hideUnused } = useGlobalSportSettings()
-  const { data: statsData } = useQuery({
-    queryKey: ['sport-type-stats'],
-    queryFn: fetchSportTypeStats,
-    enabled: hideUnused,
-  })
-  const existingSportTypes = useMemo<Set<string>>(() => {
-    if (!statsData) return new Set()
-    return new Set(statsData.map((s) => s.sport_type))
-  }, [statsData])
-  const visibleOptions = useMemo(() => {
-    if (hideUnused && existingSportTypes.size > 0) {
-      return filterToExistingSports(ACTIVITY_SPORT_OPTIONS, existingSportTypes)
-    }
-    return ACTIVITY_SPORT_OPTIONS
-  }, [hideUnused, existingSportTypes])
-  const visibleKeys = useMemo(() => getAllSportKeys(visibleOptions), [visibleOptions])
 
   // Close popover on outside click
   useClickOutside(popoverRef, () => setOpen(false), open)
@@ -165,12 +148,14 @@ export default function ActivityFilters({ filters, onChange }: Props) {
 
   function countActive(f: ActivityFilterState): number {
     let n = 0
-    if (f.sportTypes.size > 0 && !visibleKeys.every(k => f.sportTypes.has(k))) n++
+    if (f.sportTypes.size > 0 && !ALL_SPORT_KEYS.every(k => f.sportTypes.has(k))) n++
     if (f.dateFrom) n++
     if (f.dateTo) n++
+    if (f.isIndoor !== null) n++
     if (f.hasGPS !== null) n++
     if (f.isElectric !== null) n++
     if (f.isVirtual !== null) n++
+    if (f.isCommute !== null) n++
     if (f.gearId) n++
     if (f.tagFilters.length) n++
     if (f.gearFilters.length) n++
@@ -178,66 +163,8 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     return n
   }
 
-  // Sport toggle helpers (same pattern as MapFilters)
-  function toggleSport(key: string) {
-    const next = new Set(filters.sportTypes)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    onChange({ ...filters, sportTypes: next })
-  }
-
-  function toggleParent(parent: SportOption) {
-    if (!parent.children) return
-    const childKeys = parent.children.map(getOptionKey)
-    const allSelected = childKeys.every(k => filters.sportTypes.has(k))
-    const next = new Set(filters.sportTypes)
-    if (allSelected) childKeys.forEach(k => next.delete(k))
-    else childKeys.forEach(k => next.add(k))
-    onChange({ ...filters, sportTypes: next })
-  }
-
-  function isParentChecked(parent: SportOption): boolean {
-    if (!parent.children) return false
-    return parent.children.every(c => filters.sportTypes.has(getOptionKey(c)))
-  }
-
-  function isParentIndeterminate(parent: SportOption): boolean {
-    if (!parent.children) return false
-    const checked = parent.children.filter(c => filters.sportTypes.has(getOptionKey(c))).length
-    return checked > 0 && checked < parent.children.length
-  }
-
-  const allSportsSelected = filters.sportTypes.size === 0 || visibleKeys.every(k => filters.sportTypes.has(k))
-
-  function toggleAllSports() {
-    if (allSportsSelected) {
-      onChange({ ...filters, sportTypes: new Set<string>() })
-    } else {
-      onChange({ ...filters, sportTypes: new Set(visibleKeys) })
-    }
-  }
-
-  function toggleGroup(groupKey: string) {
-    setExpandedGroups(prev => {
-      const next = new Set(prev)
-      if (next.has(groupKey)) next.delete(groupKey)
-      else next.add(groupKey)
-      return next
-    })
-  }
-
   function resetFilters() {
     onChange({ ...EMPTY_FILTERS, search: filters.search })
-    setSportSearch('')
-  }
-
-  // Filter sport options by search
-  const sportSearchLower = sportSearch.toLowerCase().trim()
-  function matchesSportSearch(opt: SportOption): boolean {
-    if (!sportSearchLower) return true
-    if (opt.label.toLowerCase().includes(sportSearchLower)) return true
-    if (opt.children) return opt.children.some(c => c.label.toLowerCase().includes(sportSearchLower))
-    return false
   }
 
   // Active filter chips
@@ -260,11 +187,17 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   if (filters.hasGPS !== null) {
     chips.push({ label: filters.hasGPS ? 'Mit GPS' : 'Ohne GPS', onRemove: () => onChange({ ...filters, hasGPS: null }) })
   }
+  if (filters.isIndoor !== null) {
+    chips.push({ label: filters.isIndoor ? 'Nur Indoor' : 'Ohne Indoor', onRemove: () => onChange({ ...filters, isIndoor: null }) })
+  }
   if (filters.isElectric !== null) {
     chips.push({ label: filters.isElectric ? 'Nur E-Bike' : 'Ohne E-Bike', onRemove: () => onChange({ ...filters, isElectric: null }) })
   }
   if (filters.isVirtual !== null) {
     chips.push({ label: filters.isVirtual ? 'Nur Virtuell' : 'Ohne Virtuell', onRemove: () => onChange({ ...filters, isVirtual: null }) })
+  }
+  if (filters.isCommute !== null) {
+    chips.push({ label: filters.isCommute ? 'Nur Pendeln' : 'Ohne Pendeln', onRemove: () => onChange({ ...filters, isCommute: null }) })
   }
   if (filters.gearId) {
     chips.push({ label: 'Ausrüstung', onRemove: () => onChange({ ...filters, gearId: '' }) })
@@ -302,90 +235,27 @@ export default function ActivityFilters({ filters, onChange }: Props) {
         >
           <div className="overflow-y-auto p-4 space-y-4" style={{ maxHeight: 'calc(100vh - 82px)' }}>
 
-            {/* Sportarten */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Sportarten</span>
-                <button
-                  onClick={toggleAllSports}
-                  className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
-                >
-                  {allSportsSelected ? 'Keine' : 'Alle'}
-                </button>
-              </div>
-              <input
-                type="text"
-                value={sportSearch}
-                onChange={e => setSportSearch(e.target.value)}
-                placeholder="Sportart suchen..."
-                className="w-full mb-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-800 dark:text-neutral-200 placeholder:text-neutral-400 focus:outline-none focus:ring-1 focus:ring-accent-400"
-              />
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {visibleOptions.filter(matchesSportSearch).map(opt => (
-                  <div key={opt.label}>
-                    {opt.children && opt.groupKey ? (
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={isParentChecked(opt)}
-                            ref={el => { if (el) el.indeterminate = isParentIndeterminate(opt) }}
-                            onChange={() => toggleParent(opt)}
-                            className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
-                          />
-                          <button
-                            onClick={() => toggleGroup(opt.groupKey!)}
-                            className="flex items-center gap-1 text-sm text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer"
-                          >
-                            <svg
-                              className={`w-3 h-3 text-neutral-400 transition-transform ${expandedGroups.has(opt.groupKey!) ? '' : '-rotate-90'}`}
-                              viewBox="0 0 20 20" fill="currentColor"
-                            >
-                              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-                            </svg>
-                            {opt.label}
-                          </button>
-                        </div>
-                        {(expandedGroups.has(opt.groupKey!) || sportSearchLower) && (
-                          <div className="ml-6 mt-1 space-y-1">
-                            {opt.children
-                              .filter(c => !sportSearchLower || c.label.toLowerCase().includes(sportSearchLower))
-                              .map(child => {
-                                const key = getOptionKey(child)
-                                return (
-                                  <label key={key} className="flex items-center gap-2 cursor-pointer group">
-                                    <input
-                                      type="checkbox"
-                                      checked={filters.sportTypes.has(key)}
-                                      onChange={() => toggleSport(key)}
-                                      className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
-                                    />
-                                    <span className="text-sm text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
-                                      {child.label}
-                                    </span>
-                                  </label>
-                                )
-                              })}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <label className="flex items-center gap-2 cursor-pointer group">
-                        <input
-                          type="checkbox"
-                          checked={filters.sportTypes.has(opt.value)}
-                          onChange={() => toggleSport(opt.value)}
-                          className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
-                        />
-                        <span className="text-sm text-neutral-700 dark:text-neutral-300 group-hover:text-neutral-900 dark:group-hover:text-neutral-100">
-                          {opt.label}
-                        </span>
-                      </label>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+            <SportFilter
+              preset="ACTIVITY_ALL"
+              modifierKeys={['is_electric', 'is_indoor', 'is_virtual', 'is_commute']}
+              value={{
+                sportTypes: filters.sportTypes.size === 0 ? null : [...filters.sportTypes],
+                modifiers: {
+                  is_electric: filters.isElectric ?? undefined,
+                  is_indoor: filters.isIndoor ?? undefined,
+                  is_virtual: filters.isVirtual ?? undefined,
+                  is_commute: filters.isCommute ?? undefined,
+                },
+              }}
+              onChange={(next) => onChange({
+                ...filters,
+                sportTypes: new Set(next.sportTypes ?? []),
+                isElectric: next.modifiers?.is_electric ?? null,
+                isIndoor: next.modifiers?.is_indoor ?? null,
+                isVirtual: next.modifiers?.is_virtual ?? null,
+                isCommute: next.modifiers?.is_commute ?? null,
+              })}
+            />
 
             {/* Zeitraum */}
             <div>
@@ -412,8 +282,8 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               </div>
             </div>
 
-            {/* GPS / E-Bike / Virtuell */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* GPS */}
+            <div>
               <div>
                 <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">GPS</div>
                 <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
@@ -427,53 +297,6 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                       onClick={() => onChange({ ...filters, hasGPS: val })}
                       className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
                         filters.hasGPS === val
-                          ? 'bg-accent-DEFAULT text-white font-medium'
-                          : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* TODO(electric): When additional electric sport tags are added (e.g. E-Scooter),
-                  generalize this filter to "Elektrisch" with sport-specific sub-options,
-                  or add separate per-sport electric filters. */}
-              <div>
-                <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">E-Bike</div>
-                <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
-                  {([
-                    [null, 'Alle'],
-                    [true, 'Nur'],
-                    [false, 'Ohne'],
-                  ] as [boolean | null, string][]).map(([val, label]) => (
-                    <button
-                      key={String(val)}
-                      onClick={() => onChange({ ...filters, isElectric: val })}
-                      className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
-                        filters.isElectric === val
-                          ? 'bg-accent-DEFAULT text-white font-medium'
-                          : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">Virtuell</div>
-                <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
-                  {([
-                    [null, 'Alle'],
-                    [true, 'Nur'],
-                    [false, 'Ohne'],
-                  ] as [boolean | null, string][]).map(([val, label]) => (
-                    <button
-                      key={String(val)}
-                      onClick={() => onChange({ ...filters, isVirtual: val })}
-                      className={`flex-1 px-2 py-1.5 transition-colors cursor-pointer ${
-                        filters.isVirtual === val
                           ? 'bg-accent-DEFAULT text-white font-medium'
                           : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                       }`}

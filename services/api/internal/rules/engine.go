@@ -95,6 +95,11 @@ type ActivityChange struct {
 	Value any
 }
 
+type SportTupleChange struct {
+	SportType string
+	SubType   string
+}
+
 // EvaluateGroups evaluates a slice of ConditionGroups against an activity map.
 // Each group is evaluated independently by evalGroup (which respects the
 // group's own "logic" field for AND/OR within the group). Multiple groups are
@@ -550,16 +555,19 @@ func ParseBranches(raw json.RawMessage) []ParsedBranch {
 // actionParams is the consolidated struct for all action parameter fields.
 // A single Unmarshal covers all action types, eliminating repeated per-case allocations.
 type actionParams struct {
-	GearID    string   `json:"gear_id"`
-	TagID     string   `json:"tag_id"`
-	Visibility string  `json:"visibility"`
-	SportType  string  `json:"sport_type"`
-	SubType    string  `json:"sub_type"`
-	Template   string  `json:"template"`
-	Intensity  string  `json:"intensity"`
-	Indoor     bool    `json:"indoor"`
-	Field      string  `json:"field"`
-	Value      any     `json:"value"`
+	GearID     string   `json:"gear_id"`
+	TagID      string   `json:"tag_id"`
+	Visibility string   `json:"visibility"`
+	SportType  string   `json:"sport_type"`
+	SubType    string   `json:"sub_type"`
+	Template   string   `json:"template"`
+	Intensity  string   `json:"intensity"`
+	Indoor     bool     `json:"indoor"`
+	Electric   bool     `json:"electric"`
+	Virtual    bool     `json:"virtual"`
+	Commute    bool     `json:"commute"`
+	Field      string   `json:"field"`
+	Value      any      `json:"value"`
 	URL        string   `json:"url,omitempty"`
 	Allowlist  []string `json:"allowlist,omitempty"`
 }
@@ -590,10 +598,7 @@ func Apply(actions []Action) []ActivityChange {
 			}
 		case "set_sport_type":
 			if p.SportType != "" {
-				changes = append(changes, ActivityChange{Field: "sport_type", Value: p.SportType})
-				if p.SubType != "" {
-					changes = append(changes, ActivityChange{Field: "sub_type", Value: p.SubType})
-				}
+				changes = append(changes, ActivityChange{Field: "sport_tuple", Value: SportTupleChange{SportType: p.SportType, SubType: p.SubType}})
 			}
 		case "set_name":
 			if p.Template != "" {
@@ -605,11 +610,17 @@ func Apply(actions []Action) []ActivityChange {
 			}
 		case "set_indoor":
 			changes = append(changes, ActivityChange{Field: "is_indoor", Value: p.Indoor})
+		case "set_electric":
+			changes = append(changes, ActivityChange{Field: "is_electric", Value: p.Electric})
+		case "set_virtual":
+			changes = append(changes, ActivityChange{Field: "is_virtual", Value: p.Virtual})
+		case "set_commute":
+			changes = append(changes, ActivityChange{Field: "is_commute", Value: p.Commute})
 		case "set_field":
 			if p.Field != "" {
-				// Whitelist: nur erlaubte Felder
+				// Only explicitly supported activity fields may be written.
 				switch p.Field {
-				case "is_round_trip", "is_indoor", "exclude_from_stats", "exclude_from_heatmap", "hide_map":
+				case "is_round_trip", "is_indoor", "is_electric", "is_virtual", "is_commute", "exclude_from_stats", "exclude_from_heatmap", "hide_map":
 					changes = append(changes, ActivityChange{Field: p.Field, Value: p.Value})
 				}
 			}

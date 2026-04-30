@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
+	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
@@ -462,7 +464,8 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 //   - "best_efforts": recompute best effort records for this activity. Works on the
 //     stream only. Does NOT trigger RunStage1.
 //   - "running_form": compute duty factor, vertical ratio, GCT asymmetry + fatigue
-//     indices (running/trail_running only). Works on the stream only.
+//     indices for canonical running subtypes with running-dynamics streams.
+//     Works on the stream only.
 //     Does NOT trigger RunStage1.
 //   - "speed_smooth": opt-in median filter on speed_ms. Never part of "all". Does
 //     NOT trigger RunStage1 (stream-only; see comment in block 8.).
@@ -1020,11 +1023,10 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	}
 
 	// 8e. Running Form — compute duty factor, vertical ratio, GCT asymmetry + fatigue indices.
-	// Restricted to running/trail_running: CategoryKey "run" but NOT walk/hike/etc.
+	// Restricted to canonical top-level running, not walk/hike.
 	if doRunningForm {
 		cat := sport.CategoryForSport(data.SportType)
-		isRunning := cat.Key == "run" &&
-			(data.SportType == "running" || data.SportType == "trail_running")
+		isRunning := cat.Key == "run" && data.SportType == "running"
 		if isRunning {
 			if sharedStreamErr != nil {
 				slog.Error("reprocess: load streams for running form failed", "id", activityID, "error", sharedStreamErr)
@@ -1092,7 +1094,14 @@ func (h *Handler) reprocessTags(ctx context.Context, activityID, userID string) 
 	if err != nil {
 		return fmt.Errorf("list rules: %w", err)
 	}
-	return h.ApplyRulesToActivity(ctx, activityID, userID, allRules, "")
+	if err := h.ApplyRulesToActivity(ctx, activityID, userID, allRules, ""); err != nil {
+		if errors.Is(err, automation.ErrRulesEnginePaused) {
+			slog.Warn("reprocess tags skipped because rules engine is paused", "activity_id", activityID, "error", err)
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // RecomputeAllTSS starts an async background job that recomputes TSS for all

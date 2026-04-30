@@ -20,12 +20,12 @@ type RouteWaypoint struct {
 }
 
 type RouteSegment struct {
-	FromWaypoint  string             `json:"from_waypoint"`
-	ToWaypoint    string             `json:"to_waypoint"`
-	Mode          string             `json:"mode"` // routed, offroad
-	ControlPoints [][2]float64       `json:"control_points,omitempty"`
-	Smooth        bool               `json:"smooth"`
-	DistanceM     float64            `json:"distance_m"`
+	FromWaypoint  string       `json:"from_waypoint"`
+	ToWaypoint    string       `json:"to_waypoint"`
+	Mode          string       `json:"mode"` // routed, offroad
+	ControlPoints [][2]float64 `json:"control_points,omitempty"`
+	Smooth        bool         `json:"smooth"`
+	DistanceM     float64      `json:"distance_m"`
 	// TotalDistanceM is the approach-inclusive distance (DistanceM plus the
 	// click-to-projection straight-line approach legs). Absent for legacy
 	// segments and BRouter/offroad-only segments. T0 (Migration 000334).
@@ -55,6 +55,11 @@ type PlannedRoute struct {
 	Name               string          `json:"name"`
 	Description        *string         `json:"description,omitempty"`
 	SportType          string          `json:"sport_type"`
+	SubType            *string         `json:"sub_type,omitempty"`
+	IsElectric         bool            `json:"is_electric"`
+	IsIndoor           bool            `json:"is_indoor"`
+	IsVirtual          bool            `json:"is_virtual"`
+	IsCommute          bool            `json:"is_commute"`
 	Difficulty         *string         `json:"difficulty,omitempty"`
 	Profile            string          `json:"profile"`
 	GeometryGeoJSON    string          `json:"geometry_geojson,omitempty"` // ST_AsGeoJSON
@@ -96,10 +101,15 @@ type RouteImportData struct {
 	Name               string
 	Description        *string
 	SportType          string
+	SubType            *string
+	IsElectric         bool
+	IsIndoor           bool
+	IsVirtual          bool
+	IsCommute          bool
 	Profile            string
 	GeometryGeoJSON    string
-	WaypointsJSON      string          // "[]" if none
-	SegmentsJSON       string          // "[]" if none
+	WaypointsJSON      string // "[]" if none
+	SegmentsJSON       string // "[]" if none
 	TotalDistanceM     *float64
 	TotalElevationGain *float64
 	TotalElevationLoss *float64

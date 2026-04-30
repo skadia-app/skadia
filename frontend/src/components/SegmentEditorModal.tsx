@@ -32,6 +32,7 @@ import { getToken } from '@/lib/auth'
 import { createSegment, suggestSegmentEnrichment } from '@/api/segments'
 import { useToast } from '@/lib/toast'
 import { SPORT_DEFS } from '@/lib/sportTaxonomy'
+import { sportPredicatesFromSelectionKeys } from '@/lib/sportSelection'
 
 export interface SegmentEditorModalProps {
   mode: 'track' | 'draw' | 'lap'
@@ -295,18 +296,19 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       // Strip pure-UI flag before send
       const { userEditedBidirectional, ...savePayload } = meta
       void userEditedBidirectional
+      const sportPredicates = savePayload.sportTypes === null
+        ? null
+        : sportPredicatesFromSelectionKeys(savePayload.sportTypes)
 
       return createSegment({
         name: savePayload.name,
-        sport_group: 'generic', // sport_group is legacy — segment matching now uses allowed_sport_types
+        sport_group: 'generic', // sport_group is legacy; tuple matching uses allowed_predicates.
         segment_type: savePayload.segType,
-        // allowed_sport_types-Semantik (verifiziert in Step 8.4e.0):
-        //   null  → "Alle Sportarten" (kein Filter, matcher matched immer)
-        //   []    → "keine" (Edge-Case; matcher matched nie)
-        //   [...] → konkrete Liste
-        // WICHTIG: kein `?? []`-Fallback — würde null→[] umbiegen und damit
-        // "alle" auf "keine" invertieren.
-        allowed_sport_types: savePayload.sportTypes,
+        // allowed_predicates:
+        //   null  → alle Sport-Tuples
+        //   []    → keine Sport-Tuples
+        //   [...] → konkrete Tuple-Predicates
+        allowed_predicates: sportPredicates,
         bidirectional: savePayload.bidirectional,
         segment_type_meta: {
           surface: savePayload.surface,

@@ -162,18 +162,19 @@ func (db *DB) GetActivityStreams(ctx context.Context, activityID string) ([]mode
 
 // SportTypeStatRow holds a sport_type and its activity count for a user.
 type SportTypeStatRow struct {
-	SportType string `json:"sport_type"`
-	Count     int    `json:"count"`
+	SportType string  `json:"sport_type"`
+	SubType   *string `json:"sub_type,omitempty"`
+	Count     int     `json:"count"`
 }
 
-// GetSportTypeStats returns the activity count per sport_type for a user,
+// GetSportTypeStats returns the activity count per sport tuple for a user,
 // ordered by count descending.
 func (db *DB) GetSportTypeStats(ctx context.Context, userID string) ([]SportTypeStatRow, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT sport_type, COUNT(*)::int AS count
+		`SELECT sport_type, sub_type, COUNT(*)::int AS count
 		 FROM activities
 		 WHERE user_id = $1
-		 GROUP BY sport_type
+		 GROUP BY sport_type, sub_type
 		 ORDER BY count DESC`,
 		userID,
 	)
@@ -184,7 +185,7 @@ func (db *DB) GetSportTypeStats(ctx context.Context, userID string) ([]SportType
 	var result []SportTypeStatRow
 	for rows.Next() {
 		var row SportTypeStatRow
-		if err := rows.Scan(&row.SportType, &row.Count); err != nil {
+		if err := rows.Scan(&row.SportType, &row.SubType, &row.Count); err != nil {
 			return nil, fmt.Errorf("scan sport type stat: %w", err)
 		}
 		result = append(result, row)

@@ -3,49 +3,50 @@ package model
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 type Segment struct {
-	ID                string          `json:"id" db:"id"`
-	CreatedBy         string          `json:"created_by" db:"created_by"`
-	Name              string          `json:"name" db:"name"`
-	Description       *string         `json:"description,omitempty" db:"description"`
-	SportGroup        string          `json:"sport_group" db:"sport_group"`
-	AllowedSportTypes []string        `json:"allowed_sport_types,omitempty" db:"allowed_sport_types"`
-	AllowedSubTypes   []string        `json:"allowed_sub_types,omitempty" db:"allowed_sub_types"`
-	SegmentType       string          `json:"segment_type" db:"segment_type"`
-	SegmentTypeMeta   json.RawMessage `json:"segment_type_meta" db:"segment_type_meta"`
-	SourceActivityID  *string         `json:"source_activity_id,omitempty" db:"source_activity_id"`
-	OsmLiftID         *int64          `json:"osm_lift_id,omitempty" db:"osm_lift_id"`
-	DistanceM         *float64        `json:"distance_m,omitempty" db:"distance_m"`
-	ElevationGainM    *float64        `json:"elevation_gain_m,omitempty" db:"elevation_gain_m"`
-	EffortCount       int             `json:"effort_count" db:"effort_count"`
-	AthleteCount      int             `json:"athlete_count" db:"athlete_count"`
-	RiddenCount       int             `json:"ridden_count" db:"ridden_count"`
-	IsFavorite        bool            `json:"is_favorite" db:"is_favorite"`
-	Visibility        string          `json:"visibility" db:"visibility"`
-	RouteHash         *string         `json:"route_hash,omitempty" db:"route_hash"`
-	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
-	TerrainType       *string         `json:"terrain_type,omitempty" db:"terrain_type"`
-	ClimbType         *string         `json:"climb_type,omitempty" db:"climb_type"`
-	Bidirectional     bool            `json:"bidirectional" db:"bidirectional"`
+	ID                string            `json:"id" db:"id"`
+	CreatedBy         string            `json:"created_by" db:"created_by"`
+	Name              string            `json:"name" db:"name"`
+	Description       *string           `json:"description,omitempty" db:"description"`
+	SportGroup        string            `json:"sport_group" db:"sport_group"`
+	AllowedPredicates []sport.Predicate `json:"allowed_predicates,omitempty" db:"allowed_predicates"`
+	SegmentType       string            `json:"segment_type" db:"segment_type"`
+	SegmentTypeMeta   json.RawMessage   `json:"segment_type_meta" db:"segment_type_meta"`
+	SourceActivityID  *string           `json:"source_activity_id,omitempty" db:"source_activity_id"`
+	OsmLiftID         *int64            `json:"osm_lift_id,omitempty" db:"osm_lift_id"`
+	DistanceM         *float64          `json:"distance_m,omitempty" db:"distance_m"`
+	ElevationGainM    *float64          `json:"elevation_gain_m,omitempty" db:"elevation_gain_m"`
+	EffortCount       int               `json:"effort_count" db:"effort_count"`
+	AthleteCount      int               `json:"athlete_count" db:"athlete_count"`
+	RiddenCount       int               `json:"ridden_count" db:"ridden_count"`
+	IsFavorite        bool              `json:"is_favorite" db:"is_favorite"`
+	Visibility        string            `json:"visibility" db:"visibility"`
+	RouteHash         *string           `json:"route_hash,omitempty" db:"route_hash"`
+	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
+	TerrainType       *string           `json:"terrain_type,omitempty" db:"terrain_type"`
+	ClimbType         *string           `json:"climb_type,omitempty" db:"climb_type"`
+	Bidirectional     bool              `json:"bidirectional" db:"bidirectional"`
 	// Joined field: latest version track as GeoJSON
 	TrackGeoJSON *string `json:"track_geojson,omitempty" db:"track_geojson"`
 }
 
 type SegmentCreate struct {
-	Name              string          `json:"name"`
-	SportGroup        string          `json:"sport_group"`
-	SegmentType       string          `json:"segment_type"`
-	SegmentTypeMeta   json.RawMessage `json:"segment_type_meta,omitempty"`
-	GeoJSONTrack      string          `json:"geojson_track"`
-	SourceActivityID  *string         `json:"source_activity_id,omitempty"`
-	Description       *string         `json:"description,omitempty"`
-	TerrainType       string          `json:"terrain_type"`
-	ClimbType         string          `json:"climb_type"`
-	Visibility        string          `json:"visibility,omitempty"`        // "public" | "private"; default "public"
-	AllowedSportTypes []string        `json:"allowed_sport_types,omitempty"` // nil = all sport types allowed
-	Bidirectional     *bool           `json:"bidirectional,omitempty"`      // nil = use sport-group default
+	Name              string            `json:"name"`
+	SportGroup        string            `json:"sport_group"`
+	SegmentType       string            `json:"segment_type"`
+	SegmentTypeMeta   json.RawMessage   `json:"segment_type_meta,omitempty"`
+	GeoJSONTrack      string            `json:"geojson_track"`
+	SourceActivityID  *string           `json:"source_activity_id,omitempty"`
+	Description       *string           `json:"description,omitempty"`
+	TerrainType       string            `json:"terrain_type"`
+	ClimbType         string            `json:"climb_type"`
+	Visibility        string            `json:"visibility,omitempty"`         // "public" | "private"; default "public"
+	AllowedPredicates []sport.Predicate `json:"allowed_predicates,omitempty"` // nil = all, [] = none, entries = tuple predicates
+	Bidirectional     *bool             `json:"bidirectional,omitempty"`      // nil = use sport-group default
 }
 
 type SegmentUpdate struct {
@@ -56,8 +57,8 @@ type SegmentUpdate struct {
 	NewVersion        bool             `json:"new_version,omitempty"`
 	TerrainType       *string          `json:"terrain_type,omitempty"`
 	ClimbType         *string          `json:"climb_type,omitempty"`
-	Visibility        *string          `json:"visibility,omitempty"`        // "public" | "private"
-	AllowedSportTypes []string         `json:"allowed_sport_types,omitempty"` // nil = unchanged; [] = clear filter; [...] = restrict
+	Visibility        *string          `json:"visibility,omitempty"`         // "public" | "private"
+	AllowedPredicates json.RawMessage  `json:"allowed_predicates,omitempty"` // absent = unchanged; null = all; [] = no sports; entries = tuple predicates
 	Bidirectional     *bool            `json:"bidirectional,omitempty"`      // nil = unchanged
 }
 
@@ -110,6 +111,7 @@ type SegmentPerformance struct {
 	MovingTimeS     int       `json:"moving_time_s"`
 	StartedAt       time.Time `json:"started_at"`
 	SportType       string    `json:"sport_type"`
+	SubType         *string   `json:"sub_type,omitempty"`
 	Title           string    `json:"title"`
 	IsReverse       bool      `json:"is_reverse"`
 	GearID          *string   `json:"gear_id,omitempty"`
@@ -139,17 +141,17 @@ type DetectedLap struct {
 
 // ListSegmentsParams buendelt alle Filter- und Paginationsparameter.
 type ListSegmentsParams struct {
-	UserID         string
-	SportGroup     string
-	SegmentType    string
-	SegmentTypes   string
-	Name           string
-	BBox           string
+	UserID          string
+	SportGroup      string
+	SegmentType     string
+	SegmentTypes    string
+	Name            string
+	BBox            string
 	LiftsOnlyRidden bool
-	IncludeGeoJSON bool
-	Cursor         string // base64(created_at|id)
-	Limit          int    // 0 = kein Limit
-	IsAdmin        bool   // if true: bypass visibility filter
+	IncludeGeoJSON  bool
+	Cursor          string // base64(created_at|id)
+	Limit           int    // 0 = kein Limit
+	IsAdmin         bool   // if true: bypass visibility filter
 
 	// NEU (§5 Spec)
 	SacScale         string // komma-separiert, z.B. "T2,T3"
@@ -158,6 +160,7 @@ type ListSegmentsParams struct {
 	VisibilityFilter string // komma-separiert: "public", "private", "public,private", "" (= Default: beides)
 	DifficultyMatch  string // "any" | "all" | "" (= Default: "all")
 }
+
 // ListSegmentsResult enthaelt die paginierte Segment-Liste.
 type ListSegmentsResult struct {
 	Segments   []Segment `json:"segments"`

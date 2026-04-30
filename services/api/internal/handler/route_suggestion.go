@@ -16,6 +16,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // LandscapePreferences holds per-dimension landscape preference weights (0–10).
@@ -38,6 +39,62 @@ var profileMap = map[string]string{
 	"road":        "road",
 }
 
+func routingProfileMatchesSuggestionRequest(profile database.RoutingProfile, req RouteSuggestionRequest) bool {
+	return routingProfileMatchesSuggestionRequestWithFilters(profile, req, profile.ModifierFilters)
+}
+
+func routingProfileMatchesSuggestionRequestWithFilters(profile database.RoutingProfile, req RouteSuggestionRequest, filters sport.ModifierFilters) bool {
+	preds := profile.Predicates
+	if len(preds) == 0 {
+		var err error
+		preds, err = sport.PredicatesFromSportTypes(profile.SportTypes)
+		if err != nil {
+			return false
+		}
+	}
+
+	if !predicatesMatchSuggestionRequest(preds, req) {
+		return false
+	}
+
+	state := sport.ActivityModifierState{}
+	if req.Modifiers != nil {
+		state.IsElectric = boolPtrValue(req.Modifiers.IsElectric)
+		state.IsIndoor = boolPtrValue(req.Modifiers.IsIndoor)
+		state.IsVirtual = boolPtrValue(req.Modifiers.IsVirtual)
+		state.IsCommute = boolPtrValue(req.Modifiers.IsCommute)
+	}
+	return sport.ModifiersMatch(filters, state)
+}
+
+func builtinProfileMatchesSuggestionRequest(profileName string, req RouteSuggestionRequest) bool {
+	preds := routing.DefaultPredicates(profileName)
+	if len(preds) == 0 {
+		return true
+	}
+	return predicatesMatchSuggestionRequest(preds, req)
+}
+
+func predicatesMatchSuggestionRequest(preds []sport.Predicate, req RouteSuggestionRequest) bool {
+	if req.SportType == "" {
+		return true
+	}
+
+	requestSubType := ""
+	if req.SubType != nil {
+		requestSubType = *req.SubType
+	}
+	tuple, _, err := sport.NormalizeSportTuple(req.SportType, requestSubType)
+	if err != nil {
+		return false
+	}
+	return sport.PredicatesMatch(preds, tuple.SportType, &tuple.SubType)
+}
+
+func boolPtrValue(v *bool) bool {
+	return v != nil && *v
+}
+
 // RouteSuggestionRequest is the request body for POST /api/v1/routes/suggest.
 type RouteSuggestionRequest struct {
 	// Start is [longitude, latitude] of the starting point.
@@ -52,8 +109,14 @@ type RouteSuggestionRequest struct {
 	TargetDistanceM float64 `json:"target_distance_m"`
 	// SportType is the FIT sport type (e.g. "hiking", "cycling").
 	SportType string `json:"sport_type"`
+	// SubType is the optional canonical FIT sport subtype.
+	SubType *string `json:"sub_type,omitempty"`
+	// Modifiers optionally constrain profile matching by activity flags.
+	Modifiers *sport.ModifierFilters `json:"modifiers,omitempty"`
 	// Profile is the routing profile (e.g. "hiking", "mtb", "gravel") or a custom profile name.
 	Profile string `json:"profile"`
+	// ProfileSportOverride bypasses profile-vs-sport tuple matching after an explicit frontend warning.
+	ProfileSportOverride bool `json:"profile_sport_override"`
 	// PreferUnknown, when true, weights the via-point selection toward
 	// trail segments the user has not visited yet (Terra Incognita).
 	PreferUnknown bool `json:"prefer_unknown"`
@@ -263,17 +326,29 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	// --- Map profile ---
 	mappedProfile := profileMap[req.Profile]
 	profileCfg := routing.ProfileConfig{Profile: mappedProfile}
+	if mappedProfile != "" && !req.ProfileSportOverride && !builtinProfileMatchesSuggestionRequest(mappedProfile, req) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "profile does not match requested sport tuple", r.URL.Path)
+		return
+	}
 
 	// If profile not in system defaults, try loading custom profile from DB.
 	if mappedProfile == "" {
-		customProfile, dbErr := h.DB.GetRoutingProfileByNameOrGlobal(r.Context(), userID, req.Profile)
+		var customProfile *database.RoutingProfile
+		var dbErr error
+		if h.DB != nil {
+			customProfile, dbErr = h.DB.GetRoutingProfileByNameOrGlobal(r.Context(), userID, req.Profile)
+		}
 		if dbErr == nil && customProfile != nil {
+			if !req.ProfileSportOverride && !routingProfileMatchesSuggestionRequest(*customProfile, req) {
+				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "profile does not match requested sport tuple", r.URL.Path)
+				return
+			}
 			_ = json.Unmarshal(customProfile.Config, &profileCfg)
 			profileCfg.Profile = customProfile.BaseProfile
 			mappedProfile = customProfile.BaseProfile
 		} else {
-			mappedProfile = "hiking" // fallback
-			profileCfg.Profile = "hiking"
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown routing profile", r.URL.Path)
+			return
 		}
 	}
 
@@ -760,4 +835,3 @@ func deriveCandidateMetrics(built []RouteCandidate) []routing.CandidateMetrics {
 	}
 	return metrics
 }
-

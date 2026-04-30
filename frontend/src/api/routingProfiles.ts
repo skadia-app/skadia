@@ -1,4 +1,5 @@
 import { apiClient, apiUpload, API_BASE } from './client'
+import type { ModifierFilters, SportPredicate } from '@/lib/sportPredicates'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -10,6 +11,8 @@ export interface RoutingProfileEntry {
   engine: 'badrouter' | 'brouter'
   base_profile: string
   sport_types: string[]
+  predicates?: SportPredicate[]
+  modifier_filters?: ModifierFilters
   source: ProfileSource
   config: Record<string, unknown> | null
   editable: boolean
@@ -38,7 +41,9 @@ export function fetchAllProfiles(): Promise<RoutingProfilesResponse> {
 export function createProfile(body: {
   name: string
   base_profile: string
-  sport_types: string[]
+  sport_types?: string[]
+  predicates?: SportPredicate[]
+  modifier_filters?: ModifierFilters
   config: Record<string, unknown>
 }): Promise<RoutingProfileEntry> {
   return apiClient('/routing/profiles', { method: 'POST', body })
@@ -48,7 +53,9 @@ export function updateProfile(
   id: string,
   body: {
     name: string
-    sport_types: string[]
+    sport_types?: string[]
+    predicates?: SportPredicate[]
+    modifier_filters?: ModifierFilters
     config: Record<string, unknown>
   },
 ): Promise<void> {

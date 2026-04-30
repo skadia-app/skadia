@@ -18,6 +18,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // devAppDeviceIndex is a sentinel device index for developer apps,
@@ -317,12 +318,12 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		data.IntensityFactor, data.LeftRightBalance, data.SportProfileName, data.SportIndex, // $138-$141
 		data.NecLat, data.NecLng, data.SwcLat, data.SwcLng, // $142-$145
 		data.IsManualEntry, nilIfZeroInt(data.WorkoutFeel), nilIfZeroInt(data.WorkoutRpe), // $146-$148
-		nilIfEmpty(data.Timezone),                                                          // $149
+		nilIfEmpty(data.Timezone),                                                 // $149
 		nilIfZeroInt(data.MaxCadence), data.MinTemperatureC, data.MaxTemperatureC, // $150-$152
-		nilIfZeroInt(data.NumSessions),                                           // $153
+		nilIfZeroInt(data.NumSessions),                                                         // $153
 		data.Vo2MaxMlKgMin, data.Vo2MaxCalibrated, data.Vo2MaxHrSource, data.Vo2MaxSpeedSource, // $154-$157
-		nilIfZeroInt(data.GpsAccuracyM),                                                        // $158
-		data.SuuntoVO2max, data.SuuntoPeakEPOC, data.SuuntoRecoveryTimeH,                      // $159-$161
+		nilIfZeroInt(data.GpsAccuracyM),                                  // $158
+		data.SuuntoVO2max, data.SuuntoPeakEPOC, data.SuuntoRecoveryTimeH, // $159-$161
 	).Scan(&id, &isElectric, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -336,7 +337,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		Source:               ptrString(data.Source),
 		SourceDevice:         ptrString(data.SourceDevice),
 		StartedAt:            data.StartedAt,
-		IsElectric:              isElectric,
+		IsElectric:           isElectric,
 		IsVirtual:            isVirtual,
 		ExcludeFromHeatmap:   isVirtual,
 		ExcludeFromStats:     false,
@@ -664,6 +665,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		a.intensity_factor, a.left_right_balance, a.sport_profile_name, a.sport_index,
 		a.nec_lat, a.nec_lng, a.swc_lat, a.swc_lng,
 		COALESCE(a.title_is_manual, false),
+		COALESCE(a.sport_type_is_manual, false),
 		a.is_manual_entry, a.workout_feel, a.workout_rpe,
 		a.timezone,
 		a.num_sessions,
@@ -755,6 +757,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.IntensityFactor, &a.LeftRightBalance, &a.SportProfileName, &a.SportIndex,
 		&a.NecLat, &a.NecLng, &a.SwcLat, &a.SwcLng,
 		&a.TitleIsManual,
+		&a.SportTypeIsManual,
 		&a.IsManualEntry, &a.WorkoutFeel, &a.WorkoutRpe,
 		&a.Timezone,
 		&a.NumSessions,
@@ -830,7 +833,25 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 	var args []any
 	idx := startIdx
 
-	if len(filters.SportTypes) > 0 {
+	if len(filters.SportPredicates) > 0 {
+		var parts []string
+		for _, pred := range filters.SportPredicates {
+			idx++
+			sportIdx := idx
+			args = append(args, pred.Sport)
+			if pred.SubType == nil {
+				parts = append(parts, fmt.Sprintf("sport_type = $%d", sportIdx))
+				continue
+			}
+			idx++
+			subIdx := idx
+			args = append(args, *pred.SubType)
+			parts = append(parts, fmt.Sprintf("(sport_type = $%d AND COALESCE(sub_type, '') = $%d)", sportIdx, subIdx))
+		}
+		if len(parts) > 0 {
+			conds = append(conds, "("+strings.Join(parts, " OR ")+")")
+		}
+	} else if len(filters.SportTypes) > 0 {
 		idx++
 		conds = append(conds, fmt.Sprintf("sport_type = ANY($%d)", idx))
 		args = append(args, filters.SportTypes)
@@ -869,6 +890,11 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 		idx++
 		conds = append(conds, fmt.Sprintf("is_virtual = $%d", idx))
 		args = append(args, *filters.IsVirtual)
+	}
+	if filters.IsCommute != nil {
+		idx++
+		conds = append(conds, fmt.Sprintf("is_commute = $%d", idx))
+		args = append(args, *filters.IsCommute)
 	}
 	if filters.HasGPS != nil {
 		idx++
@@ -1221,25 +1247,60 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	if update.SportType != nil || update.SubType != nil {
 		// Load parsed values to compare — sport_type_is_manual should only be
 		// true when the manual value differs from the parser-detected value.
-		var parsedSportType, parsedSubType *string
+		var currentSportType string
+		var currentSubType, parsedSportType, parsedSubType *string
 		_ = db.Pool.QueryRow(ctx,
-			`SELECT parsed_sport_type, parsed_sub_type FROM activities WHERE id = $1`, id,
-		).Scan(&parsedSportType, &parsedSubType)
+			`SELECT sport_type, sub_type, parsed_sport_type, parsed_sub_type FROM activities WHERE id = $1 AND user_id = $2`,
+			id, userID,
+		).Scan(&currentSportType, &currentSubType, &parsedSportType, &parsedSubType)
 
+		rawSportType := currentSportType
 		if update.SportType != nil {
-			b.Set("sport_type", *update.SportType)
+			rawSportType = *update.SportType
 		}
+		rawSubType := derefOr(currentSubType, "")
 		if update.SubType != nil {
-			b.Set("sub_type", *update.SubType)
+			rawSubType = *update.SubType
+		}
+		tuple, patch, err := sport.NormalizeSportTuple(rawSportType, rawSubType)
+		if err != nil {
+			return nil, err
+		}
+		b.Set("sport_type", tuple.SportType)
+		if tuple.SubType == "" {
+			b.SetExpr("sub_type = NULL")
+		} else {
+			b.Set("sub_type", tuple.SubType)
+		}
+		if patch.IsElectric != nil {
+			update.IsElectric = patch.IsElectric
+		}
+		if patch.IsIndoor != nil {
+			update.IsIndoor = patch.IsIndoor
+		} else if sport.IsIndoor(tuple.SportType, tuple.SubType) {
+			v := true
+			update.IsIndoor = &v
 		}
 
 		// Determine if the effective values differ from parsed values.
-		newST := derefOr(update.SportType, derefOr(parsedSportType, ""))
-		newSub := derefOr(update.SubType, derefOr(parsedSubType, ""))
 		parsedST := derefOr(parsedSportType, "")
 		parsedSub := derefOr(parsedSubType, "")
-		isManual := newST != parsedST || newSub != parsedSub
+		isManual := tuple.SportType != parsedST || tuple.SubType != parsedSub
 		b.SetExpr(fmt.Sprintf("sport_type_is_manual = %t", isManual))
+	}
+	if update.IsIndoor != nil {
+		b.Set("is_indoor", *update.IsIndoor)
+	}
+	if update.IsElectric != nil {
+		b.Set("is_electric", *update.IsElectric)
+	}
+	if update.IsVirtual != nil {
+		b.Set("is_virtual", *update.IsVirtual)
+		if *update.IsVirtual {
+			b.Set("exclude_from_heatmap", true)
+		} else if update.ExcludeFromHeatmap == nil {
+			b.Set("exclude_from_heatmap", false)
+		}
 	}
 	if update.Tags != nil {
 		b.Set("tags", update.Tags)
@@ -1279,14 +1340,23 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 		b.Set("workout_rpe", *update.WorkoutRpe)
 	}
 	if update.ExcludeFromHeatmap != nil {
-		if !*update.ExcludeFromHeatmap {
+		skipExplicitHeatmap := false
+		if update.IsVirtual != nil && *update.IsVirtual {
+			if !*update.ExcludeFromHeatmap {
+				return nil, fmt.Errorf("cannot disable heatmap exclusion for virtual activities")
+			}
+			skipExplicitHeatmap = true
+		}
+		if !skipExplicitHeatmap && !*update.ExcludeFromHeatmap {
 			var isVirtual bool
 			_ = db.Pool.QueryRow(ctx, "SELECT is_virtual FROM activities WHERE id = $1 AND user_id = $2", id, userID).Scan(&isVirtual)
 			if isVirtual {
 				return nil, fmt.Errorf("cannot disable heatmap exclusion for virtual activities")
 			}
 		}
-		b.Set("exclude_from_heatmap", *update.ExcludeFromHeatmap)
+		if !skipExplicitHeatmap {
+			b.Set("exclude_from_heatmap", *update.ExcludeFromHeatmap)
+		}
 	}
 	if update.ExcludeFromStats != nil {
 		b.Set("exclude_from_stats", *update.ExcludeFromStats)
@@ -1602,8 +1672,10 @@ func (db *DB) GetStreamPoints(ctx context.Context, activityID string) ([]model.S
 //
 // NOTE(E-6): The Compute* functions in bestefforts/compute.go currently accept
 // []model.StreamPoint. Using this getter in RecalcAll requires either:
-//   a) Refactoring Compute* signatures to a generic/interface type, or
-//   b) Adapting the service layer to work with StreamPointLight directly.
+//
+//	a) Refactoring Compute* signatures to a generic/interface type, or
+//	b) Adapting the service layer to work with StreamPointLight directly.
+//
 // Until that refactor, RecalcAll uses GetStreamPoints and this getter is
 // available for the future migration.
 func (db *DB) GetStreamPointsLightweight(ctx context.Context, activityID string) ([]model.StreamPointLight, error) {

@@ -509,7 +509,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		SubType:       subType,
 		FitSportID:    fitSportID,
 		FitSubSportID: fitSubSportID,
-		IsElectric:       isElectric,
+		IsElectric:    isElectric,
 		IsVirtual:     isVirtual,
 		StartedAt:     session.StartTime,
 		EndedAt:       session.Timestamp,
@@ -1676,7 +1676,35 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		}
 	}
 
+	if err := normalizeParsedActivitySport(data); err != nil {
+		return nil, err
+	}
 	return data, nil
+}
+
+func normalizeParsedActivitySport(data *model.ActivityData) error {
+	if data == nil {
+		return fmt.Errorf("activity data is nil")
+	}
+	if strings.TrimSpace(data.SportType) == "" {
+		return fmt.Errorf("sport_type is required")
+	}
+	tuple, patch, err := sport.NormalizeSportTupleForImport(data.SportType, data.SubType)
+	if err != nil {
+		return err
+	}
+	data.SportType = tuple.SportType
+	data.SubType = tuple.SubType
+	if patch.IsElectric != nil {
+		data.IsElectric = *patch.IsElectric
+	}
+	if patch.IsIndoor != nil && *patch.IsIndoor {
+		data.IsIndoor = true
+	}
+	if sport.IsIndoor(data.SportType, data.SubType) {
+		data.IsIndoor = true
+	}
+	return nil
 }
 
 // assignHeadingToStreams assigns GPS heading values from gps_metadata messages to

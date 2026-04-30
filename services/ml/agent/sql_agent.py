@@ -22,24 +22,28 @@ TABLE_WHITELIST = {
     "activities", "activity_streams", "activity_laps", "activity_splits",
     "activity_geo_tags", "activity_stops", "activity_rr_intervals", "activity_photos",
     "health_snapshots", "health_sleep", "health_weight_entries",
-    "gear", "gear_components", "segments", "segment_efforts",
+    "gear", "gear_components", "segments", "segment_versions", "segment_efforts",
+    "activity_lift_candidates",
     "pmc_daily", "user_daily_features", "tags", "activity_tags",
     "osm_pois", "osm_ways", "osm_pistes", "osm_glaciers", "osm_wetlands", "osm_routes",
-    # NEU hinzugefügt:
     "osm_lifts", "osm_waterways", "osm_waters", "osm_forests", "osm_boundaries",
     "osm_import_regions",
 }
 
 SCHEMA_CONTEXT = """Available tables (PostgreSQL, READ-ONLY):
 
-activities: id UUID, user_id UUID, title TEXT, sport_type TEXT, sub_type TEXT, started_at TIMESTAMPTZ, elapsed_time_s INT, moving_time_s INT, distance_m FLOAT8, elevation_gain_m FLOAT8, avg_speed_ms FLOAT8, max_speed_ms FLOAT8, avg_heart_rate FLOAT8, max_heart_rate INT, avg_power_w FLOAT8, max_power_w INT, avg_cadence FLOAT8, avg_temperature_c FLOAT8, tss FLOAT8, trimp FLOAT8, is_indoor BOOL, is_commute BOOL, start_city TEXT, weather_temp_c FLOAT8, weather_condition TEXT, gear_id UUID
+activities: id UUID, user_id UUID, title TEXT, sport_type TEXT, sub_type TEXT, started_at TIMESTAMPTZ, elapsed_time_s INT, moving_time_s INT, distance_m FLOAT8, elevation_gain_m FLOAT8, avg_speed_ms FLOAT8, max_speed_ms FLOAT8, avg_heart_rate FLOAT8, max_heart_rate INT, avg_power_w FLOAT8, max_power_w INT, avg_cadence FLOAT8, avg_temperature_c FLOAT8, tss FLOAT8, trimp FLOAT8, is_indoor BOOL, is_electric BOOL, is_virtual BOOL, is_commute BOOL, start_city TEXT, weather_temp_c FLOAT8, weather_condition TEXT, gear_id UUID
 activity_streams: activity_id UUID, time TIMESTAMPTZ, lat FLOAT8, lng FLOAT8, altitude_m FLOAT8, speed_ms FLOAT8, distance_m FLOAT8, heart_rate SMALLINT, power_w SMALLINT, cadence SMALLINT, temperature_c SMALLINT
 activity_laps: activity_id UUID, message_index INT, start_time TIMESTAMPTZ, total_elapsed_time_s FLOAT8, total_distance_m FLOAT8, avg_speed_ms FLOAT8, avg_heart_rate INT, max_heart_rate INT, avg_cadence INT, max_cadence INT, avg_power_w INT, max_power_w INT, total_ascent_m FLOAT8, total_descent_m FLOAT8, total_calories INT
 health_snapshots: user_id UUID, measured_at_utc TIMESTAMPTZ, rmssd_ms FLOAT8, sdrr_ms FLOAT8, time_of_day TEXT, source_type TEXT, extra_data JSONB
 health_sleep: user_id UUID, calendar_date DATE, sleep_start_utc TIMESTAMPTZ, sleep_end_utc TIMESTAMPTZ, deep_seconds INT, light_seconds INT, rem_seconds INT, awake_seconds INT, score_overall INT, score_quality INT
 health_weight_entries: user_id UUID, measured_at_utc TIMESTAMPTZ, weight_g INT, bmi FLOAT8, body_fat_pct FLOAT8
-segments: id UUID, created_by UUID, name TEXT, sport_group TEXT, distance_m FLOAT8, elevation_gain_m FLOAT8, effort_count INT
-segment_efforts: segment_id UUID, activity_id UUID, user_id UUID, started_at TIMESTAMPTZ, elapsed_time_s INT, sport_type TEXT, avg_power_w FLOAT8, avg_heart_rate FLOAT8, avg_speed_ms FLOAT8, is_personal_best BOOL, is_reverse BOOL
+segments: id UUID, created_by UUID, name TEXT, sport_group TEXT, distance_m FLOAT8, elevation_gain_m FLOAT8, effort_count INT, allowed_predicates JSONB
+segment_versions: id UUID, segment_id UUID, version_number INT, valid_from DATE, track GEOMETRY(LineString,4326), start_point GEOMETRY(Point,4326), end_point GEOMETRY(Point,4326)
+segment_efforts: segment_id UUID, segment_version_id UUID, activity_id UUID, user_id UUID, started_at TIMESTAMPTZ, elapsed_time_s INT, distance_m FLOAT8, elevation_gain_m FLOAT8, sport_type TEXT, sub_type TEXT, avg_power_w FLOAT8, avg_heart_rate FLOAT8, avg_speed_ms FLOAT8, is_personal_best BOOL, is_reverse BOOL, in_leaderboard BOOL
+activity_lift_candidates: activity_id UUID, started_at TIMESTAMPTZ, ended_at TIMESTAMPTZ, duration_s INT, ascent_m FLOAT8, descent_m FLOAT8, distance_m FLOAT8, confidence TEXT, confirmed BOOL
+
+Sport-specific filters use canonical tuples: MTB/Mountainbike = sport_type='cycling' AND sub_type='mountain'; Gravel = sport_type='cycling' AND sub_type='gravel_cycling'; Trail running = sport_type='running' AND sub_type='trail'; Open-water swimming = sport_type='swimming' AND sub_type='open_water'; Indoor ride = sport_type='cycling' AND sub_type='indoor_cycling' AND is_indoor=true; E-Bike = sport_type='cycling' AND is_electric=true; Virtual = is_virtual=true; Commute = is_commute=true; general skiing = sport_type='skiing'; alpine skiing = sport_type='alpine_skiing'; general strength = sport_type='strength'; strength training = sport_type='strength_training'.
 gear: id UUID, user_id UUID, name TEXT, type TEXT, brand TEXT, model TEXT, total_distance_m FLOAT8, status TEXT
 pmc_daily: user_id UUID, date DATE, tss FLOAT8, ctl FLOAT8, atl FLOAT8, tsb FLOAT8
 user_daily_features: user_id UUID, date DATE, activity_id UUID, feature_key TEXT, value_num FLOAT8, value_json JSONB
@@ -118,6 +122,16 @@ def validate_sql(sql: str) -> tuple[bool, str]:
         if isinstance(node, (exp.Insert, exp.Update, exp.Delete, exp.Drop,
                              exp.Alter, exp.Create, exp.Command)):
             return False, f"Verbotene Operation: {type(node).__name__}"
+
+    cte_names = {
+        cte.alias_or_name
+        for cte in stmt.find_all(exp.CTE)
+        if cte.alias_or_name
+    }
+    for table in stmt.find_all(exp.Table):
+        name = table.name
+        if name and name not in TABLE_WHITELIST and name not in cte_names:
+            return False, f"Tabelle nicht erlaubt: {name}"
 
     return True, ""
 

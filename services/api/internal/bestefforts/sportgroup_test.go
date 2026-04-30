@@ -14,12 +14,9 @@ func TestDetermineSportGroup(t *testing.T) {
 	}{
 		// ── Running ──
 		{name: "running outdoor", sportType: "running", want: "running"},
-		{name: "trail running", sportType: "trail_running", want: "running_trail"},
-		{name: "running with sub_type trail (Garmin legacy)", sportType: "running", subType: "trail", want: "running_trail"},
+		{name: "running with sub_type trail", sportType: "running", subType: "trail", want: "running_trail"},
 		{name: "running sub_type trail indoor overrides", sportType: "running", subType: "trail", isIndoor: true, want: "running_indoor"},
 		{name: "running sub_type trail virtual overrides", sportType: "running", subType: "trail", isVirtual: true, want: "running_virtual"},
-		{name: "trail running indoor overrides trail", sportType: "trail_running", isIndoor: true, want: "running_indoor"},   // Indoor > Trail
-		{name: "trail running virtual overrides trail", sportType: "trail_running", isVirtual: true, want: "running_virtual"}, // Virtual > Trail
 		{name: "treadmill via isIndoor", sportType: "running", isIndoor: true, want: "running_indoor"},
 		{name: "virtual run via isVirtual", sportType: "running", isVirtual: true, want: "running_virtual"},
 		{name: "virtual run overrides indoor", sportType: "running", isIndoor: true, isVirtual: true, want: "running_virtual"},
@@ -37,9 +34,8 @@ func TestDetermineSportGroup(t *testing.T) {
 
 		// ── Cycling ──
 		{name: "cycling outdoor", sportType: "cycling", want: "cycling"},
-		{name: "mountain biking", sportType: "mountain_biking", want: "cycling"},
-		{name: "gravel cycling", sportType: "gravel_cycling", want: "cycling"},
-		{name: "indoor cycling", sportType: "indoor_cycling", want: "cycling"}, // indoor_cycling sport type without isIndoor flag → falls back to cycling
+		{name: "mountain biking", sportType: "cycling", subType: "mountain", want: "cycling"},
+		{name: "gravel cycling", sportType: "cycling", subType: "gravel_cycling", want: "cycling"},
 		{name: "cycling electric", sportType: "cycling", isElectric: true, want: "cycling_electric"},
 		{name: "cycling virtual", sportType: "cycling", isVirtual: true, want: "cycling_virtual"},
 		{name: "virtual overrides electric", sportType: "cycling", isVirtual: true, isElectric: true, want: "cycling_virtual"},
@@ -47,8 +43,6 @@ func TestDetermineSportGroup(t *testing.T) {
 		{name: "indoor cycling electric is cycling_virtual", sportType: "cycling", isIndoor: true, isElectric: true, want: "cycling_virtual"}, // Indoor > Electric
 
 		// ── Swimming ──
-		{name: "lap_swimming sport type", sportType: "lap_swimming", want: "swim_pool"},
-		{name: "open_water_swimming sport type", sportType: "open_water_swimming", want: "swim_ow"},
 		{name: "swimming with lap subtype", sportType: "swimming", subType: "lap_swimming", want: "swim_pool"},
 		{name: "swimming without lap subtype", sportType: "swimming", want: "swim_ow"},
 		{name: "swimming open_water subtype", sportType: "swimming", subType: "open_water", want: "swim_ow"},
@@ -80,43 +74,43 @@ func TestCategoriesFor(t *testing.T) {
 		wantHasElev     bool
 		wantHasSuperlat bool
 	}{
-		{   // 15 dist + 4 elev + 9 power + 4 superlatives (with elevation)
+		{ // 15 dist + 4 elev + 9 power + 4 superlatives (with elevation)
 			sportGroup: "running", wantMinLen: 15 + 4 + 9 + 4,
 			wantDistKey: "dist_400m", wantHasPower: true, wantHasElev: true, wantHasSuperlat: true,
 		},
-		{   // 15 dist + 9 power + 2 superlatives (basic, no elevation indoors)
+		{ // 15 dist + 9 power + 2 superlatives (basic, no elevation indoors)
 			sportGroup: "running_indoor", wantMinLen: 15 + 9 + 2,
 			wantDistKey: "dist_400m", wantHasPower: true, wantHasElev: false, wantHasSuperlat: true,
 		},
-		{   // 15 dist + 9 power + 2 superlatives (basic, no elevation for virtual)
+		{ // 15 dist + 9 power + 2 superlatives (basic, no elevation for virtual)
 			sportGroup: "running_virtual", wantMinLen: 15 + 9 + 2,
 			wantDistKey: "dist_400m", wantHasPower: true, wantHasElev: false, wantHasSuperlat: true,
 		},
-		{   // 15 dist + 4 elev + 9 power + 4 superlatives (with elevation)
+		{ // 15 dist + 4 elev + 9 power + 4 superlatives (with elevation)
 			sportGroup: "running_trail", wantMinLen: 15 + 4 + 9 + 4,
 			wantDistKey: "dist_400m", wantHasPower: true, wantHasElev: true, wantHasSuperlat: true,
 		},
-		{   // 11 dist + 4 elev + 9 power + 4 superlatives (with elevation)
+		{ // 11 dist + 4 elev + 9 power + 4 superlatives (with elevation)
 			sportGroup: "cycling", wantMinLen: 11 + 4 + 9 + 4,
 			wantDistKey: "dist_10km", wantHasPower: true, wantHasElev: true, wantHasSuperlat: true,
 		},
-		{   // 11 dist + 4 elev + 4 superlatives (with elevation, e-bike has real hills)
+		{ // 11 dist + 4 elev + 4 superlatives (with elevation, e-bike has real hills)
 			sportGroup: "cycling_electric", wantMinLen: 11 + 4 + 4,
 			wantDistKey: "dist_10km", wantHasPower: false, wantHasElev: true, wantHasSuperlat: true,
 		},
-		{   // 11 dist + 2 superlatives (basic, simulated elevation)
+		{ // 11 dist + 2 superlatives (basic, simulated elevation)
 			sportGroup: "cycling_virtual", wantMinLen: 11 + 2,
 			wantDistKey: "dist_10km", wantHasPower: false, wantHasElev: false, wantHasSuperlat: true,
 		},
-		{   // 5 dist + 4 elev + 4 superlatives (with elevation)
+		{ // 5 dist + 4 elev + 4 superlatives (with elevation)
 			sportGroup: "hiking", wantMinLen: 5 + 4 + 4,
 			wantDistKey: "dist_5km", wantHasPower: false, wantHasElev: true, wantHasSuperlat: true,
 		},
-		{   // 6 dist + 2 superlatives (basic, no elevation in pool)
+		{ // 6 dist + 2 superlatives (basic, no elevation in pool)
 			sportGroup: "swim_pool", wantMinLen: 6 + 2,
 			wantDistKey: "dist_50m", wantHasPower: false, wantHasElev: false, wantHasSuperlat: true,
 		},
-		{   // 3 dist + 2 superlatives (basic, no meaningful elevation)
+		{ // 3 dist + 2 superlatives (basic, no meaningful elevation)
 			sportGroup: "swim_ow", wantMinLen: 3 + 2,
 			wantDistKey: "dist_1km", wantHasPower: false, wantHasElev: false, wantHasSuperlat: true,
 		},
@@ -220,7 +214,10 @@ func TestPowerCategoryDurations(t *testing.T) {
 		byKey[c.Key] = c
 	}
 
-	checks := []struct{ key string; wantS int }{
+	checks := []struct {
+		key   string
+		wantS int
+	}{
 		{"power_5s", 5},
 		{"power_30s", 30},
 		{"power_1min", 60},

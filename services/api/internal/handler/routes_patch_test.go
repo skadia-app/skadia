@@ -162,6 +162,32 @@ func TestApplyRoutePatch_RoutingEngineExplicitNullClears(t *testing.T) {
 	}
 }
 
+func TestApplyRoutePatch_SubTypeSetsAndClears(t *testing.T) {
+	initialSubType := "mountain"
+	r := &model.PlannedRoute{SportType: "cycling", SubType: &initialSubType}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(`{"sub_type":"road"}`), &fields); err != nil {
+		t.Fatalf("unmarshal set payload: %v", err)
+	}
+	if err := applyRoutePatch(r, fields); err != nil {
+		t.Fatalf("applyRoutePatch set: %v", err)
+	}
+	if r.SubType == nil || *r.SubType != "road" {
+		t.Fatalf("SubType after set = %v, want road", r.SubType)
+	}
+
+	if err := json.Unmarshal([]byte(`{"sub_type":null}`), &fields); err != nil {
+		t.Fatalf("unmarshal clear payload: %v", err)
+	}
+	if err := applyRoutePatch(r, fields); err != nil {
+		t.Fatalf("applyRoutePatch clear: %v", err)
+	}
+	if r.SubType != nil {
+		t.Fatalf("SubType after clear = %q, want nil", *r.SubType)
+	}
+}
+
 // ----------------------------------------------------------------------------
 // Integration-level coverage against a real DB. Skipped unless TEST_DATABASE_URL is set.
 // ----------------------------------------------------------------------------

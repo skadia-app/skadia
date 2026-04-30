@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -253,7 +255,13 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Apply automation rules for all activities — Frost/Nacht don't need GPS
-		_ = h.ApplyRulesToActivity(r.Context(), a.ID, userID, allRules, "")
+		if err := h.ApplyRulesToActivity(r.Context(), a.ID, userID, allRules, ""); err != nil {
+			if errors.Is(err, automation.ErrRulesEnginePaused) {
+				slog.Warn("enrichment backfill rules skipped because rules engine is paused", "activity_id", a.ID, "error", err)
+			} else {
+				slog.Warn("enrichment backfill rules failed", "activity_id", a.ID, "error", err)
+			}
+		}
 		processed++
 	}
 

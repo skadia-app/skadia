@@ -1,16 +1,16 @@
 package sport
 
 import (
+	"reflect"
 	"testing"
 )
 
 func TestSegmentGroupBackwardsCompat(t *testing.T) {
 	checks := map[string]string{
-		"cycling": "bike", "mountain_biking": "bike",
-		"gravel_cycling": "bike", "indoor_cycling": "bike",
-		"running": "foot", "trail_running": "foot", "hiking": "foot",
-		"walking": "foot", "treadmill_running": "foot",
-		"swimming": "swim", "open_water_swimming": "swim", "lap_swimming": "swim",
+		"cycling": "bike",
+		"running": "foot", "hiking": "foot",
+		"walking":       "foot",
+		"swimming":      "swim",
 		"alpine_skiing": "ski", "cross_country_skiing": "ski",
 		"backcountry_skiing": "ski", "snowboarding": "ski",
 		"kayaking": "paddle", "stand_up_paddleboarding": "paddle", "rowing": "paddle",
@@ -27,7 +27,7 @@ func TestSegmentGroupBackwardsCompat(t *testing.T) {
 func TestMovingThresholdBackwardsCompat(t *testing.T) {
 	thresholds := map[string]float64{
 		"cycling": 0.5,
-		"running": 0.5, "trail_running": 0.5,
+		"running": 0.5,
 		"walking": 0.2, "hiking": 0.2,
 		"swimming": 0.1,
 		"rowing":   0.1, "kayaking": 0.1, "stand_up_paddleboarding": 0.1, "paddling": 0.1,
@@ -48,10 +48,9 @@ func TestAutoTitleBackwardsCompat(t *testing.T) {
 		"walking": "Spaziergang", "swimming": "Schwimmen",
 		"cross_country_skiing": "Langlauf", "paddling": "Wassersport-Tour",
 		"rock_climbing": "Klettern", "stand_up_paddleboarding": "SUP-Tour",
-		"trail_running": "Trailrun", "mountaineering": "Bergtour",
-		"inline_skating": "Inline-Skaten", "open_water_swimming": "Freiwasserschwimmen",
-		"mountain_biking": "MTB-Tour", "gravel_cycling": "Gravel-Tour",
-		"generic": "Training",
+		"mountaineering": "Bergtour",
+		"inline_skating": "Inline-Skaten",
+		"generic":        "Training",
 	}
 	for st, expected := range titles {
 		got := AutoTitle(st, "")
@@ -61,10 +60,12 @@ func TestAutoTitleBackwardsCompat(t *testing.T) {
 	}
 }
 
-func TestSubTypePromotion(t *testing.T) {
+func TestSubTypeLabels(t *testing.T) {
 	tests := []struct {
 		sport, sub, wantLabel string
 	}{
+		{"cycling", "mountain", "MTB"},
+		{"running", "indoor_running", "Indoor"},
 		{"training", "yoga", "Yoga"},
 		{"training", "strength_training", "Krafttraining"},
 		{"training", "cardio_training", "Cardio"},
@@ -79,6 +80,12 @@ func TestSubTypePromotion(t *testing.T) {
 		if got != tc.wantLabel {
 			t.Errorf("SportLabel(%q, %q) = %q, want %q", tc.sport, tc.sub, got, tc.wantLabel)
 		}
+	}
+}
+
+func TestSportDefHasNoSubTypePromotionField(t *testing.T) {
+	if _, ok := reflect.TypeOf(SportDef{}).FieldByName("SubTypePromotion"); ok {
+		t.Fatal("SportDef still has SubTypePromotion field")
 	}
 }
 
@@ -117,6 +124,20 @@ func TestAllSports(t *testing.T) {
 	if len(all) < 60 {
 		t.Errorf("AllSports() returned %d, want at least 60", len(all))
 	}
+	legacyAliases := map[string]bool{
+		"mountain_biking":     true,
+		"trail_running":       true,
+		"gravel_cycling":      true,
+		"indoor_cycling":      true,
+		"treadmill_running":   true,
+		"lap_swimming":        true,
+		"open_water_swimming": true,
+	}
+	for _, d := range all {
+		if legacyAliases[d.SportType] {
+			t.Fatalf("AllSports() included legacy alias %q", d.SportType)
+		}
+	}
 }
 
 func TestSportsInCategory(t *testing.T) {
@@ -145,6 +166,22 @@ func TestGetSportDef(t *testing.T) {
 	}
 }
 
+func TestLegacyAliasesAreNotRuntimeSports(t *testing.T) {
+	for _, sportType := range []string{
+		"mountain_biking",
+		"trail_running",
+		"gravel_cycling",
+		"indoor_cycling",
+		"treadmill_running",
+		"lap_swimming",
+		"open_water_swimming",
+	} {
+		if _, ok := GetSportDef(sportType); ok {
+			t.Fatalf("GetSportDef(%q) returned true after compatibility cleanup", sportType)
+		}
+	}
+}
+
 func TestSportDetailLabel(t *testing.T) {
 	tests := []struct {
 		sport, sub, want string
@@ -152,8 +189,10 @@ func TestSportDetailLabel(t *testing.T) {
 		{"cycling", "mountain", "Radfahren (MTB)"},
 		{"cycling", "", "Radfahren"},
 		{"cycling", "generic", "Radfahren"},
+		{"running", "indoor_running", "Laufen (Indoor)"},
 		{"training", "yoga", "Yoga"},
 		{"training", "", "Training"},
+		{"paddling", "", "Paddeln (Generisch)"},
 	}
 	for _, tc := range tests {
 		got := SportDetailLabel(tc.sport, tc.sub)
@@ -172,11 +211,8 @@ func TestIsIndoor(t *testing.T) {
 		{"training", "", true},
 		{"fitness_equipment", "", true},
 		{"strength_training", "", true},
-		{"indoor_cycling", "", true},
-		{"lap_swimming", "", true},
 		{"yoga", "", true},
 		{"pilates", "", true},
-		{"treadmill_running", "", true},
 		{"hiit", "", true},
 		{"dance", "", true},
 		{"jump_rope", "", true},
@@ -193,14 +229,13 @@ func TestIsIndoor(t *testing.T) {
 		{"diving", "", false},
 		{"swimming", "", false},
 		{"rock_climbing", "", false},
-		{"open_water_swimming", "", false},
 
 		// SubType patterns
 		{"running", "indoor_running", true},
 		{"running", "treadmill", true},
 		{"cycling", "indoor_cycling", true},
 		{"cycling", "spin", true},
-		{"swimming", "lap_swimming", true},
+		{"swimming", "lap_swimming", false},
 		{"rowing", "indoor_rowing", true},
 		{"alpine_skiing", "indoor_skiing", true},
 		{"walking", "indoor_walking", true},

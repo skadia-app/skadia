@@ -72,6 +72,11 @@ interface RoutePlannerState {
   segments: RouteSegment[]
   profileConfig: ProfileConfig | null
   sportType: string
+  subType: string | null
+  isElectric: boolean
+  isIndoor: boolean
+  isVirtual: boolean
+  isCommute: boolean
   isCalculating: boolean
   calculationError: string | null
   editingRouteId: string | null
@@ -112,6 +117,11 @@ const INITIAL_STATE: RoutePlannerState = {
   segments: [],
   profileConfig: null,
   sportType: 'hiking',
+  subType: null,
+  isElectric: false,
+  isIndoor: false,
+  isVirtual: false,
+  isCommute: false,
   isCalculating: false,
   calculationError: null,
   editingRouteId: null,
@@ -1228,8 +1238,23 @@ export function useRoutePlanner() {
     [_calculateSegment],
   )
 
-  const setSportType = useCallback((sportType: string) => {
-    setState(s => ({ ...s, sportType }))
+  const setSportType = useCallback((sportType: string, subType?: string | null) => {
+    setState(s => ({ ...s, sportType, subType: subType ?? null }))
+  }, [])
+
+  const setRouteModifiers = useCallback((modifiers: {
+    isElectric?: boolean
+    isIndoor?: boolean
+    isVirtual?: boolean
+    isCommute?: boolean
+  }) => {
+    setState(s => ({
+      ...s,
+      isElectric: modifiers.isElectric ?? s.isElectric,
+      isIndoor: modifiers.isIndoor ?? s.isIndoor,
+      isVirtual: modifiers.isVirtual ?? s.isVirtual,
+      isCommute: modifiers.isCommute ?? s.isCommute,
+    }))
   }, [])
 
   // ── Load route into planner ─────────────────────────────────────────────────
@@ -1285,6 +1310,11 @@ export function useRoutePlanner() {
       // profileConfig: use cached if present; otherwise keep current and fetch below.
       profileConfig: cached ?? s.profileConfig,
       sportType: route.sport_type,
+      subType: route.sub_type ?? null,
+      isElectric: route.is_electric ?? false,
+      isIndoor: route.is_indoor ?? false,
+      isVirtual: route.is_virtual ?? false,
+      isCommute: route.is_commute ?? false,
       isCalculating: false,
       calculationError: null,
       editingRouteId: route.id,
@@ -1524,6 +1554,11 @@ export function useRoutePlanner() {
       ...INITIAL_STATE,
       profileConfig: s.profileConfig,
       sportType: s.sportType,
+      subType: s.subType,
+      isElectric: s.isElectric,
+      isIndoor: s.isIndoor,
+      isVirtual: s.isVirtual,
+      isCommute: s.isCommute,
       routingEngine: s.routingEngine,
       brouterProfile: s.brouterProfile,
     }))
@@ -1703,6 +1738,11 @@ export function useRoutePlanner() {
         geometry_geojson: geometryGeoJSON,
         profile: state.profileConfig.profile,
         sport_type: state.sportType,
+        sub_type: state.subType,
+        is_electric: state.isElectric,
+        is_indoor: state.isIndoor,
+        is_virtual: state.isVirtual,
+        is_commute: state.isCommute,
         total_distance_m: totals.distance_m,
         total_elevation_gain: totals.elevation_gain,
         total_elevation_loss: totals.elevation_loss,
@@ -1981,6 +2021,11 @@ export function useRoutePlanner() {
     waypoints: state.waypoints,
     segments: state.segments,
     sportType: state.sportType,
+    subType: state.subType,
+    isElectric: state.isElectric,
+    isIndoor: state.isIndoor,
+    isVirtual: state.isVirtual,
+    isCommute: state.isCommute,
     isCalculating: state.isCalculating,
     calculationError: state.calculationError,
     editingRouteId: state.editingRouteId,
@@ -2007,6 +2052,7 @@ export function useRoutePlanner() {
 
     // ── Sport / Engine ────────────────────────────────────────────────────
     setSportType,
+    setRouteModifiers,
     setRoutingEngine,
     setBrouterProfile,
 

@@ -3,6 +3,7 @@ package automation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -14,6 +15,36 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/rules"
 )
+
+var ErrRulesEnginePaused = errors.New("rules engine paused for maintenance")
+
+// sport taxonomy cleanup rules pause
+const (
+	rulesEnginePauseLockNamespace = 330339
+	rulesEnginePauseLockKey       = 1
+)
+
+var rulesEnginePauseProbe = probeRulesEnginePause
+
+func probeRulesEnginePause(ctx context.Context, db *database.DB) (bool, error) {
+	conn, err := db.Pool.Acquire(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer conn.Release()
+
+	var acquired bool
+	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock_shared($1, $2)`, rulesEnginePauseLockNamespace, rulesEnginePauseLockKey).Scan(&acquired); err != nil {
+		return false, err
+	}
+	if !acquired {
+		return true, nil
+	}
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_unlock_shared($1, $2)`, rulesEnginePauseLockNamespace, rulesEnginePauseLockKey); err != nil {
+		return false, err
+	}
+	return false, nil
+}
 
 // sendWebhookChange fires a webhook from an ActivityChange with field=="webhook".
 // It extracts url/allowlist from the value map and delegates to SendWebhook.
@@ -70,6 +101,14 @@ func shouldEvaluateRule(rule model.AutomationRule, triggerEvent string) bool {
 // - No match + tag present → remove tag + invert set_field (bool→false)
 // User rules only add, never retract.
 func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, userID string, allRules []model.AutomationRule, triggerEvent string) error {
+	paused, err := rulesEnginePauseProbe(ctx, db)
+	if err != nil {
+		return fmt.Errorf("probe rules engine pause: %w", err)
+	}
+	if paused {
+		return ErrRulesEnginePaused
+	}
+
 	actMap, err := db.GetActivityAsMap(ctx, activityID)
 	if err != nil || actMap == nil {
 		return err

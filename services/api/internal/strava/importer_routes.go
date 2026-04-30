@@ -7,6 +7,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	sporttax "github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // RoutesImporter imports planned routes from a Strava export (routes.csv + routes/*.gpx).
@@ -68,7 +69,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 		routeID := stravaCSVField(row, colIdx, "route id", "routenid", "id")
 		gpxFile := stravaCSVField(row, colIdx, "filename", "routendateiname", "gpx filename")
 		csvSport := stravaCSVField(row, colIdx, "sport type", "sportart", "type", "activity type")
-		sportType := stravaRouteTypeToSport(csvSport)
+		sportType, subType := stravaRouteTypeToSport(csvSport)
 
 		if name == "" || gpxFile == "" {
 			result.Skipped++
@@ -125,6 +126,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 		_, err = p.DB.CreateRouteFromImport(ctx, p.UserID, &model.RouteImportData{
 			Name:               name,
 			SportType:          sportType,
+			SubType:            subType,
 			Profile:            "outdoor",
 			GeometryGeoJSON:    geojson,
 			WaypointsJSON:      "[]",
@@ -155,22 +157,32 @@ func stravaCSVField(row []string, colIdx map[string]int, candidates ...string) s
 	return ""
 }
 
-// stravaRouteTypeToSport maps Strava CSV sport/type values to Skadia sport_type.
-func stravaRouteTypeToSport(t string) string {
+// stravaRouteTypeToSport maps Strava CSV sport/type values to Skadia route sport tuples.
+func stravaRouteTypeToSport(t string) (string, *string) {
+	normalize := func(sportType, subType string) (string, *string) {
+		tuple, _, err := sporttax.NormalizeSportTuple(sportType, subType)
+		if err != nil {
+			return "unknown", nil
+		}
+		if tuple.SubType == "" {
+			return tuple.SportType, nil
+		}
+		return tuple.SportType, &tuple.SubType
+	}
 	switch strings.ToLower(t) {
 	case "run", "running":
-		return "running"
+		return normalize("running", "")
 	case "trail run", "trail running", "trailrun":
-		return "trail_running"
+		return normalize("running", "trail")
 	case "ride", "cycling", "bike":
-		return "cycling"
+		return normalize("cycling", "")
 	case "hike", "hiking":
-		return "hiking"
+		return normalize("hiking", "")
 	case "walk", "walking":
-		return "walking"
+		return normalize("walking", "")
 	case "alpine ski", "skiing":
-		return "alpine_skiing"
+		return normalize("alpine_skiing", "")
 	default:
-		return "cycling" // Strava's most common route type
+		return normalize("unknown", "")
 	}
 }

@@ -16,6 +16,10 @@ type FusionCandidate struct {
 	StartedAt          time.Time `json:"started_at"`
 	DistanceM          float64   `json:"distance_m"`
 	SportType          string    `json:"sport_type"`
+	SubType            *string   `json:"sub_type"`
+	IsElectric         bool      `json:"is_electric"`
+	IsIndoor           bool      `json:"is_indoor"`
+	IsVirtual          bool      `json:"is_virtual"`
 	HasHR              bool      `json:"has_hr"`
 	HasPower           bool      `json:"has_power"`
 	HasGPS             bool      `json:"has_gps"`
@@ -31,9 +35,8 @@ type FusionCandidate struct {
 
 // GetFusionCandidates godoc
 // GET /api/v1/activities/{id}/fusion-candidates
-// Returns activities that are temporally close and share the same sport type,
-// making them potential candidates for stream fusion.
-// Includes stream availability flags and temporal overlap percentage.
+// Returns activities that are temporally close, making them potential candidates
+// for stream fusion. Includes stream availability flags and temporal overlap percentage.
 func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -61,6 +64,10 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 			b.started_at,
 			COALESCE(b.distance_m, 0) AS distance_m,
 			b.sport_type,
+			b.sub_type,
+			b.is_electric,
+			b.is_indoor,
+			b.is_virtual,
 			(b.avg_heart_rate IS NOT NULL)    AS has_hr,
 			(b.avg_power_w IS NOT NULL)       AS has_power,
 			b.has_gps,
@@ -116,6 +123,10 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 			&c.StartedAt,
 			&c.DistanceM,
 			&c.SportType,
+			&c.SubType,
+			&c.IsElectric,
+			&c.IsIndoor,
+			&c.IsVirtual,
 			&c.HasHR,
 			&c.HasPower,
 			&c.HasGPS,

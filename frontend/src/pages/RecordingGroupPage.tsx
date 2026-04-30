@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchRecordingGroup, setGroupPrimary, setGroupSportType, dissolveRecordingGroup } from '@/api/recordingGroups'
+import { fetchRecordingGroup, setGroupPrimary, setGroupSportType, dissolveRecordingGroup, type RecordingGroupSportPayload } from '@/api/recordingGroups'
 import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import { SourcesProvider, type SourceInfo } from '@/components/comparison/SourcesContext'
 import MultiTrackMap from '@/components/comparison/MultiTrackMap'
@@ -13,10 +13,10 @@ import StreamChartContainer from '@/components/comparison/StreamChartContainer'
 import ComparisonSummaryTable from '@/components/comparison/ComparisonSummaryTable'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { getSourceColor } from '@/lib/comparisonColors'
-import { sportLabel } from '@/lib/sportTaxonomy'
+import { sportDetailLabel } from '@/lib/sportTaxonomy'
 import { formatDistance, formatDuration } from '@/lib/utils'
 import { useToast } from '@/lib/toast'
-import SportConflictBanner from '@/components/fusion/SportConflictBanner'
+import SportConflictBanner, { type SportConflictChoice } from '@/components/fusion/SportConflictBanner'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +46,10 @@ interface SourceCardProps {
   distanceM: number | null | undefined
   durationS: number | null | undefined
   sportType: string
+  subType?: string | null
+  isElectric?: boolean
+  isIndoor?: boolean
+  isVirtual?: boolean
   onSetPrimary: () => void
   isSettingPrimary: boolean
 }
@@ -60,6 +64,10 @@ function SourceCard({
   distanceM,
   durationS,
   sportType,
+  subType,
+  isElectric,
+  isIndoor,
+  isVirtual,
   onSetPrimary,
   isSettingPrimary,
 }: SourceCardProps) {
@@ -114,7 +122,10 @@ function SourceCard({
       <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">
         Sportart:{' '}
         <span className="text-neutral-600 dark:text-neutral-300">
-          {sportLabel(sportType)}
+          {sportDetailLabel(sportType, subType)}
+          {(isElectric || isIndoor || isVirtual) && (
+            <span className="ml-1 text-[10px] uppercase">{isElectric ? 'E' : isIndoor ? 'I' : 'V'}</span>
+          )}
         </span>
       </p>
     </div>
@@ -215,7 +226,7 @@ export default function RecordingGroupPage() {
   })
 
   const setSportTypeMutation = useMutation({
-    mutationFn: (sportType: string) => setGroupSportType(groupId!, sportType),
+    mutationFn: (sport: RecordingGroupSportPayload) => setGroupSportType(groupId!, sport),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['recording-group', groupId] })
       addToast({ type: 'success', title: 'Sportart aktualisiert' })
@@ -238,13 +249,32 @@ export default function RecordingGroupPage() {
 
   // ── Sport type conflict detection ─────────────────────────────────────────
 
-  const uniqueSportTypes = useMemo(() => {
+  const uniqueSportChoices = useMemo<SportConflictChoice[]>(() => {
     if (!group) return []
-    const types = [...new Set(group.members.map(m => m.sport_type))]
-    return types
+    const choices = new Map<string, SportConflictChoice>()
+    for (const m of group.members) {
+      const suffix = [m.is_electric ? 'e' : '', m.is_indoor ? 'i' : '', m.is_virtual ? 'v' : ''].filter(Boolean).join('')
+      const key = `${m.sport_type}:${m.sub_type ?? ''}:${suffix}`
+      choices.set(key, {
+        key,
+        sportType: m.sport_type,
+        subType: m.sub_type,
+        isElectric: m.is_electric,
+        isIndoor: m.is_indoor,
+        isVirtual: m.is_virtual,
+      })
+    }
+    return [...choices.values()]
   }, [group])
 
-  const hasSportTypeConflict = uniqueSportTypes.length > 1
+  const hasSportTypeConflict = uniqueSportChoices.length > 1
+  const selectedSportChoiceKey = uniqueSportChoices.find(choice =>
+    choice.sportType === group?.sport_type &&
+    (choice.subType ?? null) === (group?.sub_type ?? null) &&
+    !!choice.isElectric === !!group?.is_electric &&
+    !!choice.isIndoor === !!group?.is_indoor &&
+    !!choice.isVirtual === !!group?.is_virtual
+  )?.key ?? null
 
   // ── Header info ───────────────────────────────────────────────────────────
 
@@ -293,7 +323,7 @@ export default function RecordingGroupPage() {
         <div className="flex items-center gap-3 mt-2 mb-6 flex-wrap">
           <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
             {primaryMember
-              ? `${sportLabel(primaryMember.sport_type)} · ${formatDate(primaryMember.started_at)}`
+              ? `${sportDetailLabel(primaryMember.sport_type, primaryMember.sub_type)} · ${formatDate(primaryMember.started_at)}`
               : 'Aufnahmegruppe'}
           </h1>
           <span className="text-xs bg-accent-DEFAULT/10 text-accent-DEFAULT px-2.5 py-1 rounded-full font-semibold">
@@ -304,9 +334,15 @@ export default function RecordingGroupPage() {
         {/* Sport type conflict banner */}
         {hasSportTypeConflict && (
           <SportConflictBanner
-            sportTypes={uniqueSportTypes}
-            selectedSportType={group.sport_type}
-            onSelect={st => setSportTypeMutation.mutate(st)}
+            choices={uniqueSportChoices}
+            selectedKey={selectedSportChoiceKey}
+            onSelect={choice => setSportTypeMutation.mutate({
+              sport_type: choice.sportType,
+              sub_type: choice.subType ?? null,
+              is_electric: !!choice.isElectric,
+              is_indoor: !!choice.isIndoor,
+              is_virtual: !!choice.isVirtual,
+            })}
             isSaving={setSportTypeMutation.isPending}
           />
         )}
@@ -332,6 +368,10 @@ export default function RecordingGroupPage() {
                 distanceM={member.distance_m}
                 durationS={member.elapsed_time_s}
                 sportType={member.sport_type}
+                subType={member.sub_type}
+                isElectric={member.is_electric}
+                isIndoor={member.is_indoor}
+                isVirtual={member.is_virtual}
                 onSetPrimary={() => setPrimaryMutation.mutate({ activityId: member.activity_id })}
                 isSettingPrimary={settingPrimaryId === member.activity_id}
               />

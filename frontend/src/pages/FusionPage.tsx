@@ -70,6 +70,17 @@ export default function FusionPage() {
 
   const groupId = searchParams.get('group') ?? null
   const idsParam = searchParams.get('ids') ?? null
+  const sportTypeParam = searchParams.get('sport_type') ?? ''
+  const subTypeParam = searchParams.get('sub_type') ?? ''
+  const sportSelection = sportTypeParam
+    ? {
+        sport_type: sportTypeParam,
+        sub_type: subTypeParam || undefined,
+        is_electric: searchParams.get('is_electric') === 'true',
+        is_indoor: searchParams.get('is_indoor') === 'true',
+        is_virtual: searchParams.get('is_virtual') === 'true',
+      }
+    : undefined
 
   // selectedSources: ordered list of activity IDs (2–6)
   const [selectedSources, setSelectedSources] = useState<string[]>([])
@@ -299,6 +310,7 @@ export default function FusionPage() {
           fieldMap[FUSION_FIELDS.GPS] === 'fuse'
             ? { primary_source: gpsPrimarySource || selectedSources[0], extend_track: gpsExtendTrack }
             : undefined,
+        sport: sportSelection,
         title_source: titleSource ?? undefined,
         tags_merge: tagsSelection === 'fuse',
         tags_source: tagsSelection && tagsSelection !== 'fuse' ? tagsSelection : undefined,

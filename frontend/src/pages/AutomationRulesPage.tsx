@@ -17,7 +17,7 @@ import type { ApplyResult, DryRunAllResult, DryRunSingleResult } from '@/api/rul
 import RuleEditor from '@/components/RuleEditor'
 import Toggle from '@/components/Toggle'
 import { useToast } from '@/lib/toast'
-import { sportLabel } from '@/lib/sportTaxonomy'
+import { sportDetailLabel, sportLabel } from '@/lib/sportTaxonomy'
 
 interface DryRunMatch {
   activity_id: string
@@ -69,23 +69,12 @@ const OP_DISPLAY: Record<string, string> = {
   between: 'zwischen', in: 'in',
 }
 
-// Sport type value → German label
-const SPORT_LABELS: Record<string, string> = {
-  running: 'Laufen', cycling: 'Radfahren', hiking: 'Wandern',
-  trail_running: 'Trailrunning', swimming: 'Schwimmen', walking: 'Gehen',
-  mountaineering: 'Bergsteigen', skiing: 'Skifahren', snowboarding: 'Snowboard',
-  strength_training: 'Krafttraining', yoga: 'Yoga', diving: 'Tauchen',
-  indoor_cycling: 'Indoor-Radfahren', treadmill_running: 'Laufband',
-  lap_swimming: 'Bahnschwimmen', open_water_swimming: 'Freiwasserschwimmen',
-  mountain_biking: 'Mountainbike', gravel_cycling: 'Gravel',
-}
-
 function formatConditionValue(c: { field: string; op: string; value: unknown }): string {
   if (typeof c.value === 'boolean') return c.value ? 'Ja' : 'Nein'
   if (c.value === null || c.value === undefined) return ''
   const v = String(c.value)
   // Sport type → German label
-  if (c.field === 'sport_type') return SPORT_LABELS[v] || v
+  if (c.field === 'sport_type') return sportLabel(v)
   // Distance in meters → formatted with unit
   if (c.field === 'distance_m' || c.field === 'start_end_distance_m' || c.field === 'net_distance_m') {
     const n = Number(v)
@@ -118,7 +107,8 @@ function formatActionParams(action: string, params: Record<string, unknown> | un
     const label = FIELD_LABELS[String(params.field)] || String(params.field)
     return `${label} = ${params.value}`
   }
-  if (action === 'set_sport_type') return String(params.sport_type || '')
+  if (action === 'set_sport_type') return sportDetailLabel(String(params.sport_type || ''), params.sub_type == null ? null : String(params.sub_type))
+  if (action === 'set_electric') return params.electric ? 'Ja' : 'Nein'
   if (action === 'set_name') return `"${params.template || ''}"`
   if (action === 'set_visibility') return String(params.visibility || '')
   if (action === 'set_intensity') return String(params.intensity || '')
@@ -736,6 +726,7 @@ function actionLabel(action: string): string {
     remove_tag: 'Tag entfernen',
     set_visibility: 'Sichtbarkeit',
     set_sport_type: 'Sportart',
+    set_electric: 'E-Bike',
     set_name: 'Titel',
     set_intensity: 'Intensität',
     set_indoor: 'Indoor',

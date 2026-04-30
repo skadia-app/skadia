@@ -66,7 +66,7 @@ func collectSegmentEfforts(ctx context.Context, db *database.DB, activityID, use
 	matchedSegmentIDs = make(map[string]struct{})
 
 	// 1. Spatial pre-filter: only segments within 50m of activity track
-	candidates, err := db.GetSpatialCandidateSegments(ctx, activityID, userID, sportType, activityDate)
+	candidates, err := db.GetSpatialCandidateSegments(ctx, activityID, userID, sportType, activityDate, subType)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("spatial pre-filter: %w", err)
 	}

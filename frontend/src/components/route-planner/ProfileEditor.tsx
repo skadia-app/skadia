@@ -12,6 +12,8 @@ import {
   getProfileDefaults as fetchProfileDefaults,
   type ProfileDefaultsResponse,
 } from '@/api/routes'
+import { routeSportOptions } from '@/lib/sportTaxonomy'
+import type { ModifierFilters, SportPredicate } from '@/lib/sportPredicates'
 
 // ─── Highway cost slider definitions ──────────────────────────────────────
 
@@ -69,6 +71,15 @@ const HIGHWAY_GROUP_LABELS: Record<string, string> = {
   trails: 'Trails',
   roads: 'Strassen',
 }
+
+const ROUTE_SPORT_OPTIONS = routeSportOptions()
+const MODIFIER_FILTER_OPTIONS: { key: keyof ModifierFilters; label: string }[] = [
+  { key: 'is_electric', label: 'E-Bike' },
+  { key: 'is_indoor', label: 'Indoor' },
+  { key: 'is_virtual', label: 'Virtuell' },
+  { key: 'is_commute', label: 'Pendeln' },
+]
+type ModifierFilterValue = 'any' | 'true' | 'false'
 
 // ─── Sub-components ────────────────────────────────────────────────────────
 
@@ -503,6 +514,56 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
   }
 
   const sections = ['elevation', 'difficulty', 'environment', 'paths', 'behavior'] as FieldSection[]
+  const predicates = config.predicates ?? []
+
+  function predicateValue(predicate: SportPredicate): string {
+    return `${predicate.sport}/${predicate.sub_type ?? ''}`
+  }
+
+  function predicateFromValue(value: string): SportPredicate | null {
+    if (value === '') return null
+    const [sportType, subType = ''] = value.split('/')
+    const predicate: SportPredicate = { sport: sportType }
+    if (subType !== '') {
+      predicate.sub_type = subType
+    }
+    return predicate
+  }
+
+  function updatePredicate(index: number, value: string) {
+    const predicate = predicateFromValue(value)
+    const next = [...predicates]
+    if (predicate === null) {
+      next.splice(index, 1)
+    } else {
+      next[index] = predicate
+    }
+    onChange({ ...config, predicates: next.length > 0 ? next : undefined, sport_types: undefined })
+  }
+
+  function addPredicate() {
+    const firstOption = ROUTE_SPORT_OPTIONS[0]
+    if (!firstOption) return
+    const predicate: SportPredicate = { sport: firstOption.sportType }
+    if (firstOption.subType) predicate.sub_type = firstOption.subType
+    onChange({ ...config, predicates: [...predicates, predicate], sport_types: undefined })
+  }
+
+  function updateModifierFilter(key: keyof ModifierFilters, value: ModifierFilterValue) {
+    const next = { ...(config.modifier_filters ?? {}) }
+    if (value === 'any') {
+      delete next[key]
+    } else {
+      next[key] = value === 'true'
+    }
+    onChange({ ...config, modifier_filters: next })
+  }
+
+  function modifierFilterValue(key: keyof ModifierFilters): ModifierFilterValue {
+    const value = config.modifier_filters?.[key]
+    if (value === undefined) return 'any'
+    return value ? 'true' : 'false'
+  }
 
   return (
     <div className="flex flex-col">
@@ -529,6 +590,64 @@ export default function ProfileEditor({ config, onChange }: ProfileEditorProps) 
               </button>
             )
           })}
+        </div>
+      </div>
+
+      <div className="px-3 py-2.5 border-b border-neutral-100 dark:border-neutral-800 space-y-2">
+        <div className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+          Sport-Zuordnung
+        </div>
+        <div className="space-y-1.5">
+          {predicates.length === 0 && (
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">Nicht festgelegt</div>
+          )}
+          {predicates.map((predicate, idx) => (
+            <div key={`${idx}-${predicateValue(predicate)}`} className="flex items-center gap-1.5">
+              <select
+                value={predicateValue(predicate)}
+                onChange={e => updatePredicate(idx, e.target.value)}
+                className="min-w-0 flex-1 text-xs rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+                aria-label={`Sport-Zuordnung ${idx + 1}`}
+              >
+                {ROUTE_SPORT_OPTIONS.map(option => (
+                  <option key={`${option.sportType}/${option.subType ?? ''}`} value={`${option.sportType}/${option.subType ?? ''}`}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => updatePredicate(idx, '')}
+                className="h-7 w-7 rounded-md border border-neutral-200 dark:border-neutral-700 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+                aria-label="Sport-Zuordnung entfernen"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={addPredicate}
+            className="text-xs text-accent-600 dark:text-accent-400 hover:underline cursor-pointer"
+          >
+            + Sport-Zuordnung hinzufügen
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {MODIFIER_FILTER_OPTIONS.map(option => (
+            <label key={option.key} className="space-y-1 text-xs text-neutral-700 dark:text-neutral-300">
+              <span>{option.label}</span>
+              <select
+                value={modifierFilterValue(option.key)}
+                onChange={e => updateModifierFilter(option.key, e.target.value as ModifierFilterValue)}
+                className="w-full rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1 text-xs text-neutral-800 dark:text-neutral-200"
+              >
+                <option value="any">egal</option>
+                <option value="true">ja</option>
+                <option value="false">nein</option>
+              </select>
+            </label>
+          ))}
         </div>
       </div>
 
