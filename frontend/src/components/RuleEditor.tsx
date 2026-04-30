@@ -127,9 +127,9 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'start_end_distance_m', label: 'Start-End-Abstand', inputType: 'number', unit: 'm' },
   ]},
   { key: 'speed', label: 'Geschwindigkeit', fields: [
-    { field: 'avg_speed_ms', label: 'Ø Geschwindigkeit', inputType: 'number', unit: 'm/s' },
-    { field: 'max_speed_ms', label: 'Max. Geschwindigkeit', inputType: 'number', unit: 'm/s' },
-    { field: 'min_speed_ms', label: 'Min. Geschwindigkeit', inputType: 'number', unit: 'm/s' },
+    { field: 'avg_speed_ms', label: 'Ø Geschwindigkeit', inputType: 'number', unit: 'km/h' },
+    { field: 'max_speed_ms', label: 'Max. Geschwindigkeit', inputType: 'number', unit: 'km/h' },
+    { field: 'min_speed_ms', label: 'Min. Geschwindigkeit', inputType: 'number', unit: 'km/h' },
   ]},
   { key: 'pace', label: 'Tempo', fields: [
     { field: 'avg_pace_min_km', label: 'Ø Tempo', inputType: 'number', unit: 'min/km' },
@@ -361,7 +361,7 @@ const ACTION_TYPES = [
 // ---------------------------------------------------------------------------
 
 function defaultCondition(): RuleCondition {
-  return { field: 'sport_type', op: 'eq', value: '' }
+  return { field: 'title', op: 'eq', value: '' }
 }
 
 function defaultGroup(): RuleConditionGroup {
@@ -392,12 +392,18 @@ const SPORT_TUPLE_FIELDS = new Set(['sport_type', 'sub_type', 'is_electric', 'is
 
 function canUseSportTupleControl(conditions: RuleCondition[]) {
   const tupleConditions = conditions.filter((c) => SPORT_TUPLE_FIELDS.has(c.field))
+  const sportCondition = tupleConditions.find((c) => c.field === 'sport_type')
+  if (!sportCondition || String(sportCondition.value ?? '') === '') return false
   if (!tupleConditions.some((c) => SPORT_TUPLE_ANCHOR_FIELDS.has(c.field))) return false
   return tupleConditions.every((c) => String(c.op ?? 'eq').toLowerCase() === 'eq')
 }
 
 function subTypeOptionsForSport(sportType: string) {
   return getSportDef(sportType)?.subTypes ?? []
+}
+
+function supportsElectricModifier(sportType: string) {
+  return sportType === 'cycling'
 }
 
 function sportTupleFromConditions(conditions: RuleCondition[]) {
@@ -426,7 +432,7 @@ function replaceSportTupleConditions(conditions: RuleCondition[], next: { sportT
   if (next.subType) {
     tupleConditions.push({ field: 'sub_type', op: 'eq', value: next.subType })
   }
-  if (next.electric !== '') {
+  if (supportsElectricModifier(next.sportType) && next.electric !== '') {
     tupleConditions.push({ field: 'is_electric', op: 'eq', value: next.electric === 'true' })
   }
   if (next.indoor !== '') {
@@ -460,83 +466,109 @@ function SportTupleConditionControl({
 }) {
   const value = sportTupleFromConditions(conditions)
   const subTypes = subTypeOptionsForSport(value.sportType)
+  const showElectric = supportsElectricModifier(value.sportType)
 
   function patch(next: Partial<typeof value>) {
     const updated = { ...value, ...next }
     if (next.sportType && next.sportType !== value.sportType) {
       updated.subType = ''
+      if (!supportsElectricModifier(next.sportType)) {
+        updated.electric = ''
+      }
     }
     onChange(replaceSportTupleConditions(conditions, updated))
   }
 
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <select
-        aria-label="Sportart"
-        value={value.sportType}
-        onChange={(e) => patch({ sportType: e.target.value })}
-        className={inputClass}
-      >
-        {CANONICAL_SPORT_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-      </select>
-      <select
-        aria-label="Sub-Sportart"
-        value={value.subType}
-        onChange={(e) => patch({ subType: e.target.value })}
-        className={inputClass}
-      >
-        <option value="">beliebig</option>
-        {subTypes.map((s) => <option key={s.subType} value={s.subType}>{s.label}</option>)}
-      </select>
-      <select
-        aria-label="E-Bike"
-        value={value.electric}
-        onChange={(e) => patch({ electric: e.target.value as ModifierChoice })}
-        className={inputClass}
-      >
-        <option value="">egal</option>
-        <option value="true">nur E-Bike</option>
-        <option value="false">kein E-Bike</option>
-      </select>
-      <select
-        aria-label="Indoor"
-        value={value.indoor}
-        onChange={(e) => patch({ indoor: e.target.value as ModifierChoice })}
-        className={inputClass}
-      >
-        <option value="">egal</option>
-        <option value="true">nur Indoor</option>
-        <option value="false">kein Indoor</option>
-      </select>
-      <select
-        aria-label="Virtuell"
-        value={value.virtual}
-        onChange={(e) => patch({ virtual: e.target.value as ModifierChoice })}
-        className={inputClass}
-      >
-        <option value="">egal</option>
-        <option value="true">nur virtuell</option>
-        <option value="false">nicht virtuell</option>
-      </select>
-      <select
-        aria-label="Pendeln"
-        value={value.commute}
-        onChange={(e) => patch({ commute: e.target.value as ModifierChoice })}
-        className={inputClass}
-      >
-        <option value="">egal</option>
-        <option value="true">nur Pendeln</option>
-        <option value="false">kein Pendeln</option>
-      </select>
+    <div className="space-y-2">
+      <div className="flex items-end gap-2 flex-wrap">
+        <label className="text-xs text-neutral-500 dark:text-neutral-400">
+          <span className="block mb-1">Sportart</span>
+          <select
+            aria-label="Sportart"
+            value={value.sportType}
+            onChange={(e) => patch({ sportType: e.target.value })}
+            className={inputClass}
+          >
+            {CANONICAL_SPORT_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </label>
+        <label className="text-xs text-neutral-500 dark:text-neutral-400">
+          <span className="block mb-1">Sub-Sportart</span>
+          <select
+            aria-label="Sub-Sportart"
+            value={value.subType}
+            onChange={(e) => patch({ subType: e.target.value })}
+            className={inputClass}
+          >
+            <option value="">beliebig</option>
+            {subTypes.map((s) => <option key={s.subType} value={s.subType}>{s.label}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="flex items-end gap-2 flex-wrap">
+        {showElectric && (
+          <label className="text-xs text-neutral-500 dark:text-neutral-400">
+            <span className="block mb-1">E-Bike</span>
+            <select
+              aria-label="E-Bike"
+              value={value.electric}
+              onChange={(e) => patch({ electric: e.target.value as ModifierChoice })}
+              className={inputClass}
+            >
+              <option value="">egal</option>
+              <option value="true">nur E-Bike</option>
+              <option value="false">kein E-Bike</option>
+            </select>
+          </label>
+        )}
+        <label className="text-xs text-neutral-500 dark:text-neutral-400">
+          <span className="block mb-1">Indoor</span>
+          <select
+            aria-label="Indoor"
+            value={value.indoor}
+            onChange={(e) => patch({ indoor: e.target.value as ModifierChoice })}
+            className={inputClass}
+          >
+            <option value="">egal</option>
+            <option value="true">nur Indoor</option>
+            <option value="false">kein Indoor</option>
+          </select>
+        </label>
+        <label className="text-xs text-neutral-500 dark:text-neutral-400">
+          <span className="block mb-1">Virtuell</span>
+          <select
+            aria-label="Virtuell"
+            value={value.virtual}
+            onChange={(e) => patch({ virtual: e.target.value as ModifierChoice })}
+            className={inputClass}
+          >
+            <option value="">egal</option>
+            <option value="true">nur virtuell</option>
+            <option value="false">nicht virtuell</option>
+          </select>
+        </label>
+        <label className="text-xs text-neutral-500 dark:text-neutral-400">
+          <span className="block mb-1">Pendeln</span>
+          <select
+            aria-label="Pendeln"
+            value={value.commute}
+            onChange={(e) => patch({ commute: e.target.value as ModifierChoice })}
+            className={inputClass}
+          >
+            <option value="">egal</option>
+            <option value="true">nur Pendeln</option>
+            <option value="false">kein Pendeln</option>
+          </select>
+        </label>
+      </div>
       <button
         type="button"
         onClick={onRemove}
-        className="text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer"
+        className="text-xs text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer"
         title="Bedingung entfernen"
       >
-        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-        </svg>
+        Sportbedingung entfernen
       </button>
     </div>
   )
@@ -547,6 +579,38 @@ function SportTupleConditionControl({
 // ---------------------------------------------------------------------------
 
 const inputClass = 'border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1.5 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent'
+
+const KPH_DISPLAY_SPEED_FIELDS = new Set(['avg_speed_ms', 'max_speed_ms', 'min_speed_ms'])
+
+function roundRuleNumber(value: number): number {
+  return Number(value.toFixed(3))
+}
+
+function displayNumberValue(field: string, value: unknown): number | string {
+  if (value === '' || value == null) return ''
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return ''
+  if (KPH_DISPLAY_SPEED_FIELDS.has(field)) return roundRuleNumber(numeric * 3.6)
+  return numeric
+}
+
+function storedNumberValue(field: string, value: string): number | string {
+  if (value === '') return ''
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return ''
+  if (KPH_DISPLAY_SPEED_FIELDS.has(field)) return roundRuleNumber(numeric / 3.6)
+  return numeric
+}
+
+function displayRangePart(field: string, value: string): string {
+  const display = displayNumberValue(field, value)
+  return display === '' ? '' : String(display)
+}
+
+function storedRangePart(field: string, value: string): string {
+  const stored = storedNumberValue(field, value)
+  return stored === '' ? '' : String(stored)
+}
 
 // ---------------------------------------------------------------------------
 // Unified Geofence components
@@ -919,17 +983,17 @@ function ConditionValueEditor({
 
   if (inputType === 'number' && cond.op === 'between') {
     const parts = typeof cond.value === 'string' ? cond.value.split(',') : ['', '']
-    const from = parts[0] ?? ''
-    const to = parts[1] ?? ''
+    const from = displayRangePart(fieldDef.field, parts[0] ?? '')
+    const to = displayRangePart(fieldDef.field, parts[1] ?? '')
     return (
       <div className="flex items-center gap-2 flex-1 min-w-0">
         <input type="number" placeholder="von" value={from}
-          onChange={(e) => onChange({ value: `${e.target.value},${to}` })}
+          onChange={(e) => onChange({ value: `${storedRangePart(fieldDef.field, e.target.value)},${storedRangePart(fieldDef.field, to)}` })}
           className={inputClass + ' w-24'}
         />
         <span className="text-neutral-500 text-xs">–</span>
         <input type="number" placeholder="bis" value={to}
-          onChange={(e) => onChange({ value: `${from},${e.target.value}` })}
+          onChange={(e) => onChange({ value: `${storedRangePart(fieldDef.field, from)},${storedRangePart(fieldDef.field, e.target.value)}` })}
           className={inputClass + ' w-24'}
         />
         {fieldDef.unit && <span className="text-xs text-neutral-400">{fieldDef.unit}</span>}
@@ -940,8 +1004,8 @@ function ConditionValueEditor({
   if (inputType === 'number') {
     return (
       <div className="flex items-center gap-1 flex-1 min-w-0">
-        <input type="number" value={cond.value ?? ''}
-          onChange={(e) => onChange({ value: Number(e.target.value) })}
+        <input type="number" value={displayNumberValue(fieldDef.field, cond.value)}
+          onChange={(e) => onChange({ value: storedNumberValue(fieldDef.field, e.target.value) })}
           placeholder="Wert"
           className={inputClass + ' flex-1 min-w-0'}
         />
@@ -1305,84 +1369,115 @@ function ActionParams({
   }
   if (action === 'set_sport_type') {
     const tuple = normalizeSportTuple(String(params.sport_type ?? ''), params.sub_type == null ? null : String(params.sub_type))
-    const sportType = tuple.sportType || 'cycling'
+    const sportType = tuple.sportType
     const subType = tuple.subType && tuple.subType !== 'generic' ? tuple.subType : ''
     const subTypes = subTypeOptionsForSport(sportType)
-    const electric: ModifierChoice = params.electric === true ? 'true' : params.electric === false ? 'false' : tuple.modifiers.isElectric === true ? 'true' : ''
+    const showElectric = supportsElectricModifier(sportType)
+    const electric: ModifierChoice = showElectric && params.electric === true ? 'true' : showElectric && params.electric === false ? 'false' : showElectric && tuple.modifiers.isElectric === true ? 'true' : ''
     const indoor: ModifierChoice = params.indoor === true ? 'true' : params.indoor === false ? 'false' : tuple.modifiers.isIndoor === true ? 'true' : ''
     const virtual: ModifierChoice = params.virtual === true ? 'true' : params.virtual === false ? 'false' : ''
     const commute: ModifierChoice = params.commute === true ? 'true' : params.commute === false ? 'false' : ''
     return (
-      <div className="flex items-center gap-2 flex-1 min-w-0">
-        <select
-          aria-label="Sportart setzen"
-          value={sportType}
-          onChange={(e) => onChange({ ...params, sport_type: e.target.value, sub_type: '' })}
-          className={inputClass + ' flex-1 min-w-0'}
-        >
-          {CANONICAL_SPORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
-        <select
-          aria-label="Sub-Sportart setzen"
-          value={subType}
-          onChange={(e) => onChange({ ...params, sport_type: sportType, sub_type: e.target.value })}
-          className={inputClass + ' w-40'}
-        >
-          <option value="">beliebig</option>
-          {subTypes.map((s) => <option key={s.subType} value={s.subType}>{s.label}</option>)}
-        </select>
-        <select
-          aria-label="E-Bike setzen"
-          value={electric}
-          onChange={(e) => {
-            const next = e.target.value as ModifierChoice
-            onChange({ ...params, sport_type: sportType, sub_type: subType, electric: next === '' ? undefined : next === 'true' })
-          }}
-          className={inputClass + ' w-36'}
-        >
-          <option value="">egal</option>
-          <option value="true">E-Bike</option>
-          <option value="false">kein E-Bike</option>
-        </select>
-        <select
-          aria-label="Indoor setzen"
-          value={indoor}
-          onChange={(e) => {
-            const next = e.target.value as ModifierChoice
-            onChange({ ...params, sport_type: sportType, sub_type: subType, indoor: next === '' ? undefined : next === 'true' })
-          }}
-          className={inputClass + ' w-36'}
-        >
-          <option value="">egal</option>
-          <option value="true">Indoor</option>
-          <option value="false">kein Indoor</option>
-        </select>
-        <select
-          aria-label="Virtuell setzen"
-          value={virtual}
-          onChange={(e) => {
-            const next = e.target.value as ModifierChoice
-            onChange({ ...params, sport_type: sportType, sub_type: subType, virtual: next === '' ? undefined : next === 'true' })
-          }}
-          className={inputClass + ' w-36'}
-        >
-          <option value="">egal</option>
-          <option value="true">virtuell</option>
-          <option value="false">nicht virtuell</option>
-        </select>
-        <select
-          aria-label="Pendeln setzen"
-          value={commute}
-          onChange={(e) => {
-            const next = e.target.value as ModifierChoice
-            onChange({ ...params, sport_type: sportType, sub_type: subType, commute: next === '' ? undefined : next === 'true' })
-          }}
-          className={inputClass + ' w-36'}
-        >
-          <option value="">egal</option>
-          <option value="true">Pendeln</option>
-          <option value="false">kein Pendeln</option>
-        </select>
+      <div className="space-y-2 flex-1 min-w-0">
+        <div className="flex items-end gap-2 flex-wrap">
+          <label className="text-xs text-neutral-500 dark:text-neutral-400 flex-1 min-w-48">
+            <span className="block mb-1">Sportart setzen</span>
+            <select
+              aria-label="Sportart setzen"
+              value={sportType}
+              onChange={(e) => {
+                const nextSport = e.target.value
+                const nextParams: Record<string, any> = { ...params, sport_type: nextSport, sub_type: '' }
+                if (!supportsElectricModifier(nextSport)) delete nextParams.electric
+                onChange(nextParams)
+              }}
+              className={inputClass + ' w-full'}
+            >
+              <option value="">Sportart wählen...</option>
+              {CANONICAL_SPORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </label>
+          <label className="text-xs text-neutral-500 dark:text-neutral-400">
+            <span className="block mb-1">Sub-Sportart setzen</span>
+            <select
+              aria-label="Sub-Sportart setzen"
+              value={subType}
+              onChange={(e) => onChange({ ...params, sport_type: sportType, sub_type: e.target.value })}
+              className={inputClass + ' w-40'}
+            >
+              <option value="">beliebig</option>
+              {subTypes.map((s) => <option key={s.subType} value={s.subType}>{s.label}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="flex items-end gap-2 flex-wrap">
+          {showElectric && (
+            <label className="text-xs text-neutral-500 dark:text-neutral-400">
+              <span className="block mb-1">E-Bike setzen</span>
+              <select
+                aria-label="E-Bike setzen"
+                value={electric}
+                onChange={(e) => {
+                  const next = e.target.value as ModifierChoice
+                  onChange({ ...params, sport_type: sportType, sub_type: subType, electric: next === '' ? undefined : next === 'true' })
+                }}
+                className={inputClass + ' w-36'}
+              >
+                <option value="">egal</option>
+                <option value="true">E-Bike</option>
+                <option value="false">kein E-Bike</option>
+              </select>
+            </label>
+          )}
+          <label className="text-xs text-neutral-500 dark:text-neutral-400">
+            <span className="block mb-1">Indoor setzen</span>
+            <select
+              aria-label="Indoor setzen"
+              value={indoor}
+              onChange={(e) => {
+                const next = e.target.value as ModifierChoice
+                onChange({ ...params, sport_type: sportType, sub_type: subType, indoor: next === '' ? undefined : next === 'true' })
+              }}
+              className={inputClass + ' w-36'}
+            >
+              <option value="">egal</option>
+              <option value="true">Indoor</option>
+              <option value="false">kein Indoor</option>
+            </select>
+          </label>
+          <label className="text-xs text-neutral-500 dark:text-neutral-400">
+            <span className="block mb-1">Virtuell setzen</span>
+            <select
+              aria-label="Virtuell setzen"
+              value={virtual}
+              onChange={(e) => {
+                const next = e.target.value as ModifierChoice
+                onChange({ ...params, sport_type: sportType, sub_type: subType, virtual: next === '' ? undefined : next === 'true' })
+              }}
+              className={inputClass + ' w-36'}
+            >
+              <option value="">egal</option>
+              <option value="true">virtuell</option>
+              <option value="false">nicht virtuell</option>
+            </select>
+          </label>
+          <label className="text-xs text-neutral-500 dark:text-neutral-400">
+            <span className="block mb-1">Pendeln setzen</span>
+            <select
+              aria-label="Pendeln setzen"
+              value={commute}
+              onChange={(e) => {
+                const next = e.target.value as ModifierChoice
+                onChange({ ...params, sport_type: sportType, sub_type: subType, commute: next === '' ? undefined : next === 'true' })
+              }}
+              className={inputClass + ' w-36'}
+            >
+              <option value="">egal</option>
+              <option value="true">Pendeln</option>
+              <option value="false">kein Pendeln</option>
+            </select>
+          </label>
+        </div>
       </div>
     )
   }
@@ -1779,7 +1874,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
             sub_type: tuple.subType && tuple.subType !== 'generic' ? tuple.subType : '',
           },
         })
-        const electric = a.params?.electric ?? tuple.modifiers.isElectric
+        const electric = supportsElectricModifier(tuple.sportType) ? a.params?.electric ?? tuple.modifiers.isElectric : undefined
         if (electric !== undefined) {
           normalized.push({ action: 'set_electric', params: { electric: electric === true } })
         }

@@ -13,12 +13,12 @@ let sportStats: Array<{ sport_type: string; sub_type: string | null; count: numb
   { sport_type: 'cycling', sub_type: 'mountain', count: 1 },
 ]
 
-function renderFilter(value: SportFilterValue, onChange = vi.fn()) {
+function renderFilter(value: SportFilterValue, onChange = vi.fn(), preset: 'ACTIVITY_ALL' | 'MAP_PANEL_GPS' = 'ACTIVITY_ALL') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={client}>
       <GlobalSportSettingsProvider>
-        <SportFilter preset="ACTIVITY_ALL" value={value} onChange={onChange} />
+        <SportFilter preset={preset} value={value} onChange={onChange} />
       </GlobalSportSettingsProvider>
     </QueryClientProvider>,
   )
@@ -26,6 +26,33 @@ function renderFilter(value: SportFilterValue, onChange = vi.fn()) {
 }
 
 describe('SportFilter', () => {
+  it('splits water sports into swim, paddle, and surf/sail groups', () => {
+    renderFilter({ sportTypes: null })
+
+    expect(screen.getByRole('button', { name: 'Schwimmen' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Paddeln' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Surfen & Segeln' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Wassersport' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Paddeln' }))
+    expect(screen.getByText('Paddeln (Generisch)')).toBeInTheDocument()
+  })
+
+  it('keeps non-GPS water sports in the activity water split', () => {
+    renderFilter({ sportTypes: null })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Surfen & Segeln' }))
+    expect(screen.getByText('Tauchen')).toBeInTheDocument()
+  })
+
+  it('uses the water split in map filters too', () => {
+    renderFilter({ sportTypes: null }, vi.fn(), 'MAP_PANEL_GPS')
+
+    expect(screen.getByRole('button', { name: 'Schwimmen' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Paddeln' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Surfen & Segeln' })).toBeInTheDocument()
+  })
+
   it('renders canonical top sport groups without deprecated top-level options', () => {
     renderFilter({ sportTypes: null })
     expect(screen.getByRole('button', { name: 'Radfahrten' })).toBeInTheDocument()
