@@ -318,6 +318,15 @@ func replaceRuleJSONValue(row map[string]any, key string, raw json.RawMessage) e
 func normalizeSegmentSportFields(row map[string]any) error {
 	value, ok := row["allowed_predicates"]
 	if !ok || value == nil {
+		predicates, err := predicatesFromSegmentLegacyArrays(row)
+		if err != nil {
+			return err
+		}
+		if predicates != nil {
+			row["allowed_predicates"] = predicates
+			delete(row, "allowed_sport_types")
+			delete(row, "allowed_sub_types")
+		}
 		return nil
 	}
 	predicates, _, err := normalizePredicateList(value)
@@ -326,6 +335,50 @@ func normalizeSegmentSportFields(row map[string]any) error {
 	}
 	row["allowed_predicates"] = predicates
 	return nil
+}
+
+func predicatesFromSegmentLegacyArrays(row map[string]any) ([]any, error) {
+	if _, ok := row["allowed_sport_types"]; !ok {
+		return nil, nil
+	}
+	sportTypes, err := stringList(row["allowed_sport_types"])
+	if err != nil {
+		return nil, fmt.Errorf("allowed_sport_types: %w", err)
+	}
+	subTypes, err := stringList(row["allowed_sub_types"])
+	if err != nil {
+		return nil, fmt.Errorf("allowed_sub_types: %w", err)
+	}
+	if sportTypes == nil {
+		return nil, nil
+	}
+	if len(sportTypes) == 0 {
+		return []any{}, nil
+	}
+
+	predicates := make([]any, 0, len(sportTypes))
+	seen := map[string]bool{}
+	for i, rawSport := range sportTypes {
+		rawSubType := ""
+		if i < len(subTypes) {
+			rawSubType = subTypes[i]
+		}
+		tuple, _, err := sport.NormalizeSportTuple(rawSport, rawSubType)
+		if err != nil {
+			return nil, fmt.Errorf("allowed_sport_types[%d]: %w", i, err)
+		}
+		key := tuple.SportType + "\x00" + tuple.SubType
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		predicate := map[string]any{"sport": tuple.SportType}
+		if tuple.SubType != "" {
+			predicate["sub_type"] = tuple.SubType
+		}
+		predicates = append(predicates, predicate)
+	}
+	return predicates, nil
 }
 
 func targetHasColumn(cols []targetColumn, name string) bool {

@@ -181,6 +181,36 @@ func TestNormalizeSportTaxonomyImportRowRejectsInvalidSegmentPredicate(t *testin
 	}
 }
 
+func TestNormalizeSportTaxonomyImportRowMigratesLegacySegmentArrays(t *testing.T) {
+	row := map[string]any{
+		"allowed_sport_types": []any{"mountain_biking", "trail_running"},
+	}
+
+	got, err := normalizeSportTaxonomyImportRow("segments", row, nil)
+	if err != nil {
+		t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
+	}
+	preds, ok := got["allowed_predicates"].([]any)
+	if !ok || len(preds) != 2 {
+		t.Fatalf("allowed_predicates = %#v, want two predicates", got["allowed_predicates"])
+	}
+	want := map[string]bool{
+		"cycling:mountain": true,
+		"running:trail":    true,
+	}
+	for _, raw := range preds {
+		pred := raw.(map[string]any)
+		key := pred["sport"].(string) + ":" + pred["sub_type"].(string)
+		if !want[key] {
+			t.Fatalf("unexpected predicate %#v from legacy arrays", pred)
+		}
+		delete(want, key)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing predicates from legacy arrays: %#v", want)
+	}
+}
+
 func TestNormalizeSportTaxonomyImportRowAcceptsJSONRawMessages(t *testing.T) {
 	raw := json.RawMessage(`[{"action":"set_sport_type","params":{"sport_type":"mountain_biking"}}]`)
 	row := map[string]any{"actions": raw}
