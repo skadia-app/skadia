@@ -633,10 +633,7 @@ func AllCategories() []Category {
 // AllSports returns all registered sport definitions, sorted alphabetically by SportType.
 func AllSports() []SportDef {
 	result := make([]SportDef, 0, len(registry))
-	for sportType, d := range registry {
-		if isLegacySportAlias(sportType) {
-			continue
-		}
+	for _, d := range registry {
 		result = append(result, d)
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -649,10 +646,7 @@ func AllSports() []SportDef {
 // sorted alphabetically by SportType.
 func SportsInCategory(categoryKey string) []SportDef {
 	var result []SportDef
-	for sportType, d := range registry {
-		if isLegacySportAlias(sportType) {
-			continue
-		}
+	for _, d := range registry {
 		if d.CategoryKey == categoryKey {
 			result = append(result, d)
 		}

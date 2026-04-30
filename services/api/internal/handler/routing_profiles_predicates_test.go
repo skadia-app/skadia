@@ -60,7 +60,7 @@ func TestProfileStorageFieldsPreferPredicatesOverLegacySportTypes(t *testing.T) 
 	preds := []sport.Predicate{{Sport: "cycling"}}
 	filters := sport.ModifierFilters{IsElectric: boolPtr(true)}
 
-	gotPreds, gotFilters, gotSportTypes, err := normalizeProfileStorageFields(&preds, &filters, []string{"mountain_biking"})
+	gotPreds, gotFilters, gotSportTypes, err := normalizeProfileStorageFields(&preds, &filters, []string{"cycling"})
 	if err != nil {
 		t.Fatalf("normalizeProfileStorageFields() error = %v", err)
 	}
@@ -76,11 +76,11 @@ func TestProfileStorageFieldsPreferPredicatesOverLegacySportTypes(t *testing.T) 
 }
 
 func TestValidateLegacySportTypesForProfile(t *testing.T) {
-	got, err := validateLegacySportTypesForProfile([]string{"mountain_biking"})
+	got, err := validateLegacySportTypesForProfile([]string{"cycling"})
 	if err != nil {
 		t.Fatalf("validateLegacySportTypesForProfile() error = %v", err)
 	}
-	if len(got) != 1 || got[0].Sport != "cycling" || got[0].SubType == nil || *got[0].SubType != "mountain" {
+	if len(got) != 1 || got[0].Sport != "cycling" || got[0].SubType != nil {
 		t.Fatalf("predicates = %#v", got)
 	}
 

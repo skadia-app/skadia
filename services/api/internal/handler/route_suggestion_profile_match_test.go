@@ -11,7 +11,7 @@ import (
 func TestRoutingProfileMatchesSuggestionRequest(t *testing.T) {
 	profile := database.RoutingProfile{
 		Name:       "MTB",
-		SportTypes: []string{"mountain_biking"},
+		Predicates: []sport.Predicate{{Sport: "cycling", SubType: strPtr("mountain")}},
 	}
 
 	if routingProfileMatchesSuggestionRequest(profile, RouteSuggestionRequest{SportType: "cycling"}) {
@@ -29,8 +29,9 @@ func TestRoutingProfileMatchesSuggestionModifiers(t *testing.T) {
 	trueValue := true
 	falseValue := false
 	profile := database.RoutingProfile{
-		Name:       "eBike",
-		SportTypes: []string{"e_bike"},
+		Name:            "eBike",
+		Predicates:      []sport.Predicate{{Sport: "cycling"}},
+		ModifierFilters: sport.ModifierFilters{IsElectric: &trueValue},
 	}
 	filters := sport.ModifierFilters{IsElectric: &trueValue}
 
