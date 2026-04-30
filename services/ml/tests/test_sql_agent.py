@@ -58,6 +58,13 @@ def test_accept_aggregation():
     assert ok, err
 
 
+def test_schema_context_lists_all_activity_modifier_columns():
+    from agent.sql_agent import SCHEMA_CONTEXT
+
+    for column in ("is_electric BOOL", "is_indoor BOOL", "is_virtual BOOL", "is_commute BOOL"):
+        assert column in SCHEMA_CONTEXT
+
+
 def test_reject_user_id_filter():
     ok, err = validate_sql("SELECT COUNT(*) FROM activities WHERE user_id = :user_id")
     assert not ok

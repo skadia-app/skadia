@@ -1,6 +1,9 @@
 """Tests for tool definitions and execution."""
+import re
+from pathlib import Path
+
 import pytest
-from agent.tools import TOOL_DEFINITIONS, ALL_TOOL_DEFINITIONS, get_tool_definitions
+from agent.tools import TOOL_DEFINITIONS, ALL_TOOL_DEFINITIONS, _SPORT_TYPES, get_tool_definitions
 
 
 def test_all_tools_defined():
@@ -55,3 +58,10 @@ def test_get_tool_definitions_all():
     """Passing None returns all tools."""
     all_tools = get_tool_definitions(None)
     assert len(all_tools) == len(ALL_TOOL_DEFINITIONS)
+
+
+def test_ml_sport_enum_matches_backend_taxonomy():
+    taxonomy = Path(__file__).parents[2] / "api" / "internal" / "sport" / "taxonomy.go"
+    backend_sports = set(re.findall(r'SportType:\s+"([^"]+)"', taxonomy.read_text()))
+
+    assert set(_SPORT_TYPES) == backend_sports

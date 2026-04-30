@@ -15,17 +15,102 @@ _SAFE_PROFILE_PARAM = re.compile(r"^[a-zA-Z0-9_.\-]{1,50}$")
 
 logger = logging.getLogger(__name__)
 
-# Canonical sport types as stored in DB (after migration 000037 normalization).
+# Canonical sport types as stored in DB after the sport-taxonomy cleanup.
 # Specific disciplines are stored in sub_type, not as sport_type.
-# Use run_sql when a specialized tool cannot express the needed sub_type filter.
 _SPORT_TYPES = [
-    "running", "cycling", "hiking", "walking", "swimming",
-    "alpine_skiing", "cross_country_skiing", "strength_training",
-    "mountaineering", "rowing", "paddle_boarding", "kayaking",
-    "training", "fitness_equipment", "rock_climbing",
-    "stand_up_paddleboarding", "multisport", "racket", "generic",
-    "unknown", "other",
+    "running", "walking", "hiking", "mountaineering", "snowshoeing",
+    "floor_climbing", "wheelchair_push_walk", "wheelchair_push_run",
+    "cycling", "inline_skating", "alpine_skiing", "backcountry_skiing",
+    "cross_country_skiing", "snowboarding", "ice_skating", "snowmobiling",
+    "sledding", "swimming", "paddling", "kayaking", "stand_up_paddleboarding",
+    "rowing", "surfing", "kitesurfing", "windsurfing", "wakeboarding",
+    "wakesurfing", "water_skiing", "water_tubing", "diving", "snorkeling",
+    "boating", "sailing", "fishing", "rafting", "training",
+    "fitness_equipment", "strength_training", "hiit", "dance", "jump_rope",
+    "meditation", "yoga", "pilates", "soccer", "basketball",
+    "american_football", "rugby", "lacrosse", "hockey", "volleyball",
+    "tennis", "racket", "cricket", "baseball", "golf", "disc_golf",
+    "rock_climbing", "flying", "hang_gliding", "sky_diving", "jumpmaster",
+    "horseback_riding", "hunting", "motorcycling", "driving", "boxing",
+    "mixed_martial_arts", "tactical", "multisport", "transition",
+    "generic", "unknown", "skiing", "strength", "canoeing",
 ]
+
+_MODIFIER_FILTER_PARAMS = {
+    "is_electric": {
+        "type": "boolean",
+        "description": "Filter E-Bike/electric activities: true = only electric, false = only non-electric",
+    },
+    "is_indoor": {
+        "type": "boolean",
+        "description": "Filter indoor activities: true = only indoor, false = only outdoor/not indoor",
+    },
+    "is_virtual": {
+        "type": "boolean",
+        "description": "Filter virtual/simulated activities: true = only virtual, false = only non-virtual",
+    },
+    "is_commute": {
+        "type": "boolean",
+        "description": "Filter commute activities: true = only commute, false = only non-commute",
+    },
+}
+
+
+def _sport_filter_params(include_sub_type: bool = True) -> dict:
+    params = {
+        "sport_type": {
+            "type": "string",
+            "description": "Filter by canonical sport type (exact DB value)",
+            "enum": _SPORT_TYPES,
+        },
+    }
+    if include_sub_type:
+        params["sub_type"] = {
+            "type": "string",
+            "description": (
+                "Filter by sub_type. Use '' for exact no-subtype rows. Examples: "
+                "MTB = sport_type='cycling' AND sub_type='mountain'; "
+                "Gravel = sport_type='cycling' AND sub_type='gravel_cycling'; "
+                "Trail = sport_type='running' AND sub_type='trail'; "
+                "Freiwasser = sport_type='swimming' AND sub_type='open_water'; "
+                "Indoor-Rad = sport_type='cycling' AND sub_type='indoor_cycling'."
+            ),
+        }
+    params.update(_MODIFIER_FILTER_PARAMS)
+    return params
+
+
+def _apply_activity_filters(
+    conditions: list[str],
+    params: list,
+    *,
+    table_alias: str | None = None,
+    sport_type=None,
+    sub_type=None,
+    is_electric=None,
+    is_indoor=None,
+    is_virtual=None,
+    is_commute=None,
+) -> None:
+    prefix = f"{table_alias}." if table_alias else ""
+    if sport_type:
+        params.append(sport_type)
+        conditions.append(f"{prefix}sport_type = ${len(params)}")
+    if sub_type is not None:
+        if sub_type == "":
+            conditions.append(f"{prefix}sub_type IS NULL")
+        else:
+            params.append(sub_type)
+            conditions.append(f"{prefix}sub_type = ${len(params)}")
+    for field, value in (
+        ("is_electric", is_electric),
+        ("is_indoor", is_indoor),
+        ("is_virtual", is_virtual),
+        ("is_commute", is_commute),
+    ):
+        if value is not None:
+            params.append(bool(value))
+            conditions.append(f"{prefix}{field} = ${len(params)}")
 
 ALL_TOOL_DEFINITIONS = [
     # ── 1. query_activities ────────────────────────────────────────────────
@@ -44,19 +129,7 @@ ALL_TOOL_DEFINITIONS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sport_type": {
-                        "type": "string",
-                        "description": "Filter by sport type (exact DB value)",
-                        "enum": _SPORT_TYPES,
-                    },
-                    "sub_type": {
-                        "type": "string",
-                        "description": (
-                            "Filter by sub_type for more specific sport: "
-                            "mountain (MTB), gravel_cycling, indoor_cycling, road, "
-                            "unicycling, trail (Trail Running), open_water, bouldering"
-                        ),
-                    },
+                    **_sport_filter_params(),
                     "days": {
                         "type": "integer",
                         "description": "Lookback window in days (default 30; use 3650 for 'aller Zeiten')",
@@ -101,9 +174,8 @@ ALL_TOOL_DEFINITIONS = [
                 "Use for 'Wie weit?', 'Wie oft?', 'Wie viel insgesamt?' with relative time. "
                 "Do NOT use for calendar years ('letztes Jahr 2025', '2024') — use run_sql with "
                 "EXTRACT(YEAR FROM started_at) instead. "
-                "Do NOT use for sub-types (MTB, Gravel, Trail) — use run_sql with sub_type filter. "
-                "Sub-types: cycling has sub_type mountain/gravel_cycling/indoor_cycling, "
-                "running has trail/indoor_running, swimming has open_water/lap_swimming. "
+                "Supports canonical sub_type and modifier filters for MTB, Gravel, Trail, "
+                "Freiwasser, E-Bike, Indoor, Virtual and Commute. "
                 "Do NOT use to list individual activities — use query_activities."
             ),
             "parameters": {
@@ -117,11 +189,7 @@ ALL_TOOL_DEFINITIONS = [
                         ],
                         "description": "Which aggregate metric to compute",
                     },
-                    "sport_type": {
-                        "type": "string",
-                        "enum": _SPORT_TYPES,
-                        "description": "Limit to a specific sport (omit for all sports)",
-                    },
+                    **_sport_filter_params(),
                     "days": {
                         "type": "integer",
                         "description": "Lookback window in days (default 30)",
@@ -217,11 +285,7 @@ ALL_TOOL_DEFINITIONS = [
                     "period1_end": {"type": "string", "description": "YYYY-MM-DD"},
                     "period2_start": {"type": "string", "description": "YYYY-MM-DD"},
                     "period2_end": {"type": "string", "description": "YYYY-MM-DD"},
-                    "sport_type": {
-                        "type": "string",
-                        "enum": _SPORT_TYPES,
-                        "description": "Limit comparison to one sport (optional)",
-                    },
+                    **_sport_filter_params(),
                 },
                 "required": ["period1_start", "period1_end", "period2_start", "period2_end"],
             },
@@ -304,11 +368,7 @@ ALL_TOOL_DEFINITIONS = [
                         "description": "Max features returned (default 20). Does NOT affect total_count in the response — total_count always reflects ALL matching features.",
                         "default": 20,
                     },
-                    "sport_type": {
-                        "type": "string",
-                        "enum": _SPORT_TYPES,
-                        "description": "Limit to activities of this sport (optional)",
-                    },
+                    **_sport_filter_params(),
                     "activity_ids": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -412,11 +472,7 @@ ALL_TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": "UUID of reference activity for similarity search",
                     },
-                    "sport_type": {
-                        "type": "string",
-                        "enum": _SPORT_TYPES,
-                        "description": "Limit to sport type (optional)",
-                    },
+                    **_sport_filter_params(),
                     "days": {
                         "type": "integer",
                         "description": "Lookback window in days (default 365)",
@@ -548,16 +604,20 @@ ALL_TOOL_DEFINITIONS = [
                 "user_id filtering is AUTOMATIC (RLS) — NEVER add WHERE user_id=... or current_user. "
                 "NEVER use $1/$2 parameter placeholders. SELECT only.\n"
                 "IMPORTANT sport_type mapping: MTB/Mountainbike→sport_type='cycling' AND sub_type='mountain', "
-                "Gravel→sub_type='gravel_cycling', Trail→sport_type='running' AND sub_type='trail', "
-                "E-Bike→sport_type='cycling' AND is_electric=true, Bouldern→sport_type='rock_climbing' AND sub_type='bouldering', "
-                "Schwimmen open water→sub_type='open_water', Indoor-Rad→sub_type='indoor_cycling'.\n"
+                "Gravel→sport_type='cycling' AND sub_type='gravel_cycling', "
+                "Trail→sport_type='running' AND sub_type='trail', "
+                "Freiwasser/Open Water→sport_type='swimming' AND sub_type='open_water', "
+                "Indoor-Rad→sport_type='cycling' AND sub_type='indoor_cycling' AND is_indoor=true, "
+                "E-Bike→sport_type='cycling' AND is_electric=true, "
+                "Virtual→is_virtual=true, Pendeln/Commute→is_commute=true, "
+                "Bouldern→sport_type='rock_climbing' AND sub_type='bouldering'.\n"
                 "IMPORTANT SQL rules: Use ROUND(x::numeric, n) not ROUND(float8, n). "
                 "gear.type values: 'bike','shoes','other' (NOT 'bicycle'). "
                 "activity_geo_tags.category values: 'summit','pass','still_water','flowing_water','forest','settlement','border'.\n"
                 "Tables: "
-                "activities(id UUID,title,sport_type,sub_type,is_electric,started_at TIMESTAMPTZ,elapsed_time_s,moving_time_s,"
+                "activities(id UUID,title,sport_type,sub_type,is_electric,is_indoor,is_virtual,is_commute,started_at TIMESTAMPTZ,elapsed_time_s,moving_time_s,"
                 "distance_m,elevation_gain_m,avg_speed_ms,avg_heart_rate,avg_power_w,tss,trimp,"
-                "is_indoor,start_city,gear_id UUID) | "
+                "start_city,gear_id UUID) | "
                 "segments(id UUID,created_by UUID,name,sport_group,distance_m,elevation_gain_m,effort_count) | "
                 "segment_efforts(segment_id UUID,activity_id UUID,started_at,elapsed_time_s,"
                 "sport_type,sub_type,avg_power_w,avg_heart_rate,avg_speed_ms,is_personal_best,is_reverse) | "
@@ -792,6 +852,17 @@ def _format_activity_compact(row: dict) -> dict:
     sport_label = row.get("sport_type", "")
     if row.get("sub_type"):
         sport_label = f"{sport_label}/{row['sub_type']}"
+    modifiers = [
+        label for field, label in (
+            ("is_electric", "electric"),
+            ("is_indoor", "indoor"),
+            ("is_virtual", "virtual"),
+            ("is_commute", "commute"),
+        )
+        if row.get(field)
+    ]
+    if modifiers:
+        sport_label = f"{sport_label} ({', '.join(modifiers)})"
 
     result = {
         "id": str(row["id"]) if row.get("id") else "",
@@ -873,6 +944,7 @@ async def _query_activities(
     pool, user_id,
     sport_type=None, sub_type=None, days=30, limit=10, sort_by="date",
     min_distance_km=None, title_search=None, gear_id=None,
+    is_electric=None, is_indoor=None, is_virtual=None, is_commute=None,
 ):
     from uuid import UUID as UUIDType
     since = date.today() - timedelta(days=days)
@@ -881,12 +953,17 @@ async def _query_activities(
     conditions = ["a.user_id = $1", "a.started_at >= $2"]
     params: list = [user_id, since]
 
-    if sport_type:
-        params.append(sport_type)
-        conditions.append(f"a.sport_type = ${len(params)}")
-    if sub_type:
-        params.append(sub_type)
-        conditions.append(f"a.sub_type = ${len(params)}")
+    _apply_activity_filters(
+        conditions,
+        params,
+        table_alias="a",
+        sport_type=sport_type,
+        sub_type=sub_type,
+        is_electric=is_electric,
+        is_indoor=is_indoor,
+        is_virtual=is_virtual,
+        is_commute=is_commute,
+    )
     if min_distance_km is not None:
         params.append(min_distance_km * 1000)
         conditions.append(f"a.distance_m >= ${len(params)}")
@@ -901,7 +978,7 @@ async def _query_activities(
     query = (
         "SELECT a.id, a.title, a.sport_type, a.sub_type, a.started_at, "
         "a.distance_m, a.elapsed_time_s, a.avg_heart_rate, a.elevation_gain_m, "
-        "a.avg_speed_ms, a.start_city "
+        "a.avg_speed_ms, a.is_electric, a.is_indoor, a.is_virtual, a.is_commute, a.start_city "
         f"FROM activities a WHERE {where} "
         f"ORDER BY a.{sort_col} DESC NULLS LAST LIMIT {min(int(limit), 50)}"
     )
@@ -909,7 +986,10 @@ async def _query_activities(
     return {"activities": [_format_activity_compact(dict(r)) for r in rows]}
 
 
-async def _aggregate_stats(pool, user_id, metric="count", sport_type=None, days=30, group_by="none"):
+async def _aggregate_stats(
+    pool, user_id, metric="count", sport_type=None, sub_type=None, days=30,
+    group_by="none", is_electric=None, is_indoor=None, is_virtual=None, is_commute=None,
+):
     since = date.today() - timedelta(days=days)
 
     _METRIC_SQL = {
@@ -925,9 +1005,16 @@ async def _aggregate_stats(pool, user_id, metric="count", sport_type=None, days=
     conditions = ["user_id = $1", "started_at >= $2"]
     params: list = [user_id, since]
 
-    if sport_type:
-        params.append(sport_type)
-        conditions.append(f"sport_type = ${len(params)}")
+    _apply_activity_filters(
+        conditions,
+        params,
+        sport_type=sport_type,
+        sub_type=sub_type,
+        is_electric=is_electric,
+        is_indoor=is_indoor,
+        is_virtual=is_virtual,
+        is_commute=is_commute,
+    )
 
     where = " AND ".join(conditions)
 
@@ -958,6 +1045,7 @@ async def _aggregate_stats(pool, user_id, metric="count", sport_type=None, days=
         "metric": metric,
         "unit": _METRIC_UNITS.get(metric, ""),
         "sport_type": sport_type,
+        "sub_type": sub_type,
         "days": days,
         "group_by": group_by,
         "data": data,
@@ -1062,14 +1150,22 @@ async def _compare_periods(
     pool, user_id,
     period1_start, period1_end,
     period2_start, period2_end,
-    sport_type=None,
+    sport_type=None, sub_type=None,
+    is_electric=None, is_indoor=None, is_virtual=None, is_commute=None,
 ):
     async def _period_stats(start, end):
         conditions = ["user_id = $1", "started_at::date BETWEEN $2 AND $3"]
         params: list = [user_id, date.fromisoformat(start), date.fromisoformat(end)]
-        if sport_type:
-            params.append(sport_type)
-            conditions.append(f"sport_type = ${len(params)}")
+        _apply_activity_filters(
+            conditions,
+            params,
+            sport_type=sport_type,
+            sub_type=sub_type,
+            is_electric=is_electric,
+            is_indoor=is_indoor,
+            is_virtual=is_virtual,
+            is_commute=is_commute,
+        )
         where = " AND ".join(conditions)
         row = await pool.fetchrow(
             f"SELECT COUNT(*) AS count, "
@@ -1119,6 +1215,7 @@ async def _get_gear_stats(pool, user_id, gear_id=None, gear_type=None):
 async def _query_geo_features(
     pool, user_id,
     feature_type=None, min_elevation=None, days=365, limit=20, sport_type=None,
+    sub_type=None, is_electric=None, is_indoor=None, is_virtual=None, is_commute=None,
     activity_ids=None, date_from=None, date_to=None,
 ):
     if date_from:
@@ -1149,6 +1246,17 @@ async def _query_geo_features(
         if date_to:
             params.append(date.fromisoformat(date_to))
             gastro_conditions.append(f"a.started_at <= ${len(params)}")
+        _apply_activity_filters(
+            gastro_conditions,
+            params,
+            table_alias="a",
+            sport_type=sport_type,
+            sub_type=sub_type,
+            is_electric=is_electric,
+            is_indoor=is_indoor,
+            is_virtual=is_virtual,
+            is_commute=is_commute,
+        )
         table_join = (
             "JOIN activities a ON a.id = s.activity_id WHERE "
             + " AND ".join(gastro_conditions)
@@ -1168,9 +1276,17 @@ async def _query_geo_features(
         if min_elevation is not None:
             params.append(min_elevation)
             conditions.append(f"gt.ele >= ${len(params)}")
-        if sport_type:
-            params.append(sport_type)
-            conditions.append(f"a.sport_type = ${len(params)}")
+        _apply_activity_filters(
+            conditions,
+            params,
+            table_alias="a",
+            sport_type=sport_type,
+            sub_type=sub_type,
+            is_electric=is_electric,
+            is_indoor=is_indoor,
+            is_virtual=is_virtual,
+            is_commute=is_commute,
+        )
         if activity_ids:
             from uuid import UUID as UUIDType
             params.append([UUIDType(aid) for aid in activity_ids])
@@ -1267,7 +1383,10 @@ async def _get_analytics(pool, user_id, analysis):
     return {"analysis": analysis, "data": None, "note": "No cached result available"}
 
 
-async def _search_routes(pool, user_id, location_name=None, activity_id=None, sport_type=None, days=365, limit=10):
+async def _search_routes(
+    pool, user_id, location_name=None, activity_id=None, sport_type=None, sub_type=None,
+    is_electric=None, is_indoor=None, is_virtual=None, is_commute=None, days=365, limit=10,
+):
     since = date.today() - timedelta(days=days)
 
     conditions = ["a.user_id = $1", "a.started_at >= $2"]
@@ -1278,13 +1397,21 @@ async def _search_routes(pool, user_id, location_name=None, activity_id=None, sp
         conditions.append(
             f"(a.start_city ILIKE ${len(params)} OR a.start_state ILIKE ${len(params)})"
         )
-    if sport_type:
-        params.append(sport_type)
-        conditions.append(f"a.sport_type = ${len(params)}")
+    _apply_activity_filters(
+        conditions,
+        params,
+        table_alias="a",
+        sport_type=sport_type,
+        sub_type=sub_type,
+        is_electric=is_electric,
+        is_indoor=is_indoor,
+        is_virtual=is_virtual,
+        is_commute=is_commute,
+    )
 
     where = " AND ".join(conditions)
     rows = await pool.fetch(
-        f"SELECT a.id, a.title, a.sport_type, a.started_at::date AS date, "
+        f"SELECT a.id, a.title, a.sport_type, a.sub_type, a.is_electric, a.is_indoor, a.is_virtual, a.is_commute, a.started_at::date AS date, "
         f"ROUND((a.distance_m / 1000.0)::numeric, 1) AS distance_km, "
         f"a.elevation_gain_m, a.start_city "
         f"FROM activities a WHERE {where} "
@@ -1358,7 +1485,7 @@ async def _get_gear_documents(pool, user_id, gear_id):
 async def _get_activity_detail(pool, user_id, activity_id):
     from uuid import UUID as UUIDType
     row = await pool.fetchrow(
-        "SELECT a.id, a.title, a.sport_type, a.sub_type, a.started_at, a.elapsed_time_s, "
+        "SELECT a.id, a.title, a.sport_type, a.sub_type, a.is_electric, a.is_indoor, a.is_virtual, a.is_commute, a.started_at, a.elapsed_time_s, "
         "a.distance_m, a.elevation_gain_m, "
         "a.avg_heart_rate, a.max_heart_rate, a.avg_speed_ms, a.avg_power_w, "
         "a.start_city, a.start_state, a.start_country, "

@@ -24,18 +24,56 @@ HEURISTIC_NO_SPEED_MIN_RATE = 0.6
 HEURISTIC_NO_SPEED_MIN_DURATION = 90
 
 LIFT_RELEVANT_SPORTS = {
-    'alpine_skiing', 'cycling', 'hiking', 'mountaineering',
+    'alpine_skiing', 'hiking', 'mountaineering',
     'cross_country_skiing', 'snowboarding',
 }
+LIFT_EXCLUDED_CYCLING_SUB_TYPES = {'indoor_cycling', 'spin'}
+
+
+def _is_lift_relevant_activity(
+    sport_type: str | None,
+    sub_type: str | None,
+    is_indoor: bool,
+    is_electric: bool,
+    is_virtual: bool = False,
+) -> bool:
+    if is_indoor or is_virtual:
+        return False
+    if sport_type == 'cycling':
+        return (sub_type or '') not in LIFT_EXCLUDED_CYCLING_SUB_TYPES
+    return sport_type in LIFT_RELEVANT_SPORTS
+
+
+def _segment_effort_insert_sql() -> str:
+    return """
+                INSERT INTO segment_efforts
+                    (activity_id, segment_id, segment_version_id, user_id,
+                     started_at, elapsed_time_s, distance_m, elevation_gain_m,
+                     is_reverse, sport_type, sub_type)
+                SELECT $1, $2, $3, a.user_id, $4, $5,
+                       ST_Length(sv.track::geometry::geography),
+                       $6, $7, a.sport_type, COALESCE(NULLIF(a.sub_type, ''), 'generic')
+                FROM segment_versions sv, activities a
+                WHERE sv.id = $3 AND a.id = $1
+                ON CONFLICT DO NOTHING
+                """
 
 
 async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> int:
     """Detect lift rides in activity. Returns number of detected rides."""
     async with pool.acquire() as conn:
-        sport_type = await conn.fetchval(
-            "SELECT sport_type FROM activities WHERE id = $1", activity_id
+        activity = await conn.fetchrow(
+            "SELECT sport_type, sub_type, is_indoor, is_electric, is_virtual "
+            "FROM activities WHERE id = $1",
+            activity_id,
         )
-        if sport_type and sport_type not in LIFT_RELEVANT_SPORTS:
+        if activity and not _is_lift_relevant_activity(
+            activity["sport_type"],
+            activity["sub_type"],
+            bool(activity["is_indoor"]),
+            bool(activity["is_electric"]),
+            bool(activity["is_virtual"]),
+        ):
             return 0
 
         has_osm = await conn.fetchval(
@@ -112,18 +150,7 @@ async def enrich_lifts(pool: asyncpg.Pool, activity_id: str, user_id: str) -> in
             is_reverse = _check_is_reverse(ride["bearing_deg"], c["lift_bearing"])
 
             await conn.execute(
-                """
-                INSERT INTO segment_efforts
-                    (activity_id, segment_id, segment_version_id,
-                     started_at, elapsed_time_s, distance_m, elevation_gain_m,
-                     is_reverse, sport_type)
-                SELECT $1, $2, $3, $4, $5,
-                       ST_Length(sv.track::geometry::geography),
-                       $6, $7, a.sport_type
-                FROM segment_versions sv, activities a
-                WHERE sv.id = $3 AND a.id = $1
-                ON CONFLICT DO NOTHING
-                """,
+                _segment_effort_insert_sql(),
                 activity_id, segment["id"], segment["version_id"],
                 ride["started_at"], ride["duration_s"], ride["ascent_m"], is_reverse,
             )

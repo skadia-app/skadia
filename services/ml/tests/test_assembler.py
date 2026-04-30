@@ -45,3 +45,12 @@ def test_tool_guide_only_for_routed():
     large_prompt = assemble_system_prompt(DEFAULT_PROFILES["large"], [])
     assert "Werkzeug-Auswahl" in small_prompt
     assert "Werkzeug-Auswahl" not in large_prompt
+
+
+def test_prompt_renders_multi_step_few_shots():
+    skills = load_skills()
+    prompt = assemble_system_prompt(DEFAULT_PROFILES["small"], [skills["gear"]])
+
+    assert "get_gear_stats" in prompt
+    assert "get_gear_documents" in prompt
+    assert "Schritt 1" in prompt

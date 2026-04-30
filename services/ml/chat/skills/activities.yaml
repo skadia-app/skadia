@@ -1,7 +1,8 @@
 name: activities
 description: "Aktivitäten, Trainings, Pace, Distanz, Sport-Typen"
 schema_excerpt: |
-  activities: id UUID, user_id UUID, sport_type TEXT, sub_type TEXT, is_electric BOOL, title TEXT,
+  activities: id UUID, user_id UUID, sport_type TEXT, sub_type TEXT,
+    is_electric BOOL, is_indoor BOOL, is_virtual BOOL, is_commute BOOL, title TEXT,
     started_at TIMESTAMPTZ, elapsed_time_s INT, moving_time_s INT, distance_m REAL,
     elevation_gain_m REAL, avg_heart_rate SMALLINT, max_heart_rate SMALLINT,
     avg_speed_ms REAL (m/s), total_calories INT, start_city TEXT, start_location TEXT
@@ -18,6 +19,7 @@ domain_knowledge: |
     Gravel = cycling + gravel_cycling; Indoor-Rad = cycling + indoor_cycling;
     Trail-Lauf = running + trail; Freiwasser = swimming + open_water
   - E-Bike ist kein eigener Sport-Typ, sondern cycling + is_electric=true
+  - Indoor, Virtual und Pendeln sind Modifier: is_indoor/is_virtual/is_commute
 tools:
   - query_activities
   - aggregate_stats
