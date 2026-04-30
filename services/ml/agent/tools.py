@@ -197,8 +197,8 @@ ALL_TOOL_DEFINITIONS = [
                     },
                     "group_by": {
                         "type": "string",
-                        "enum": ["none", "week", "month", "sport"],
-                        "description": "Break down results by time period or sport (default: none)",
+                        "enum": ["none", "week", "month", "sport", "sport_tuple"],
+                        "description": "Break down results by time period, sport, or sport+sub_type tuple (default: none)",
                         "default": "none",
                     },
                 },
@@ -620,7 +620,8 @@ ALL_TOOL_DEFINITIONS = [
                 "start_city,gear_id UUID) | "
                 "segments(id UUID,created_by UUID,name,sport_group,distance_m,elevation_gain_m,effort_count) | "
                 "segment_efforts(segment_id UUID,activity_id UUID,started_at,elapsed_time_s,"
-                "sport_type,sub_type,avg_power_w,avg_heart_rate,avg_speed_ms,is_personal_best,is_reverse) | "
+                "distance_m,elevation_gain_m,sport_type,sub_type,avg_power_w,avg_heart_rate,"
+                "avg_speed_ms,is_personal_best,is_reverse,in_leaderboard) | "
                 "activity_laps(activity_id UUID,message_index,start_time,total_elapsed_time_s,"
                 "total_distance_m,avg_speed_ms,avg_heart_rate) | "
                 "gear(id UUID,name,type TEXT['bike','shoes','other'],brand,model,total_distance_m,status) | "
@@ -1026,6 +1027,16 @@ async def _aggregate_stats(
         query = f"SELECT {group_expr}, {agg_expr} FROM activities WHERE {where} GROUP BY period ORDER BY period"
     elif group_by == "sport":
         query = f"SELECT sport_type AS period, {agg_expr} FROM activities WHERE {where} GROUP BY sport_type ORDER BY value DESC"
+    elif group_by == "sport_tuple":
+        period_expr = (
+            "CASE WHEN sub_type IS NULL OR sub_type = '' "
+            "THEN sport_type ELSE sport_type || '/' || sub_type END AS period"
+        )
+        query = (
+            f"SELECT {period_expr}, sport_type, sub_type, {agg_expr} "
+            f"FROM activities WHERE {where} "
+            "GROUP BY sport_type, sub_type ORDER BY value DESC"
+        )
     else:
         query = f"SELECT {agg_expr}, COUNT(*) AS activity_count FROM activities WHERE {where}"
 

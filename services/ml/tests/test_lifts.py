@@ -38,5 +38,12 @@ def test_lift_effort_insert_persists_activity_sub_type():
     sql = lifts._segment_effort_insert_sql()
 
     assert "user_id" in sql
-    assert "sport_type, sub_type" in sql
-    assert "a.sport_type, COALESCE(NULLIF(a.sub_type, ''), 'generic')" in sql
+    assert "sport_type, sub_type, in_leaderboard" in sql
+    assert "a.sport_type, COALESCE(NULLIF(a.sub_type, ''), 'generic'), false" in sql
+
+
+def test_osm_lift_candidates_sql_uses_existing_lift_id_column():
+    sql = lifts._osm_lift_candidates_sql()
+
+    assert "l.id AS id" in sql
+    assert "way_id" not in sql

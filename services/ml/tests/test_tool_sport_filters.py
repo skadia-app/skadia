@@ -69,6 +69,23 @@ def test_aggregate_stats_filters_by_subtype_and_modifiers():
     assert "is_commute = $" in query
 
 
+def test_aggregate_stats_can_group_by_sport_tuple():
+    pool = CapturePool()
+
+    asyncio.run(
+        _aggregate_stats(
+            pool,
+            uuid4(),
+            metric="count",
+            group_by="sport_tuple",
+        )
+    )
+
+    query, _ = pool.calls[0]
+    assert "sport_type, sub_type" in query
+    assert "GROUP BY sport_type, sub_type" in query
+
+
 def test_activity_tools_expose_modifier_parameters():
     tools = {
         tool["function"]["name"]: tool["function"]["parameters"]["properties"]
@@ -82,5 +99,6 @@ def test_activity_tools_expose_modifier_parameters():
         assert "is_virtual" in tools[name]
         assert "is_commute" in tools[name]
 
+    assert "sport_tuple" in tools["aggregate_stats"]["group_by"]["enum"]
     assert "paddling" in tools["query_activities"]["sport_type"]["enum"]
     assert "paddle_boarding" not in tools["query_activities"]["sport_type"]["enum"]
