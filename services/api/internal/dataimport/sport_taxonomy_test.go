@@ -211,6 +211,18 @@ func TestNormalizeSportTaxonomyImportRowMigratesLegacySegmentArrays(t *testing.T
 	}
 }
 
+func TestNormalizeSportTaxonomyImportRowRejectsAmbiguousLegacySegmentSubTypes(t *testing.T) {
+	row := map[string]any{
+		"allowed_sport_types": []any{"cycling", "running"},
+		"allowed_sub_types":   []any{"mountain", "trail"},
+	}
+
+	_, err := normalizeSportTaxonomyImportRow("segments", row, nil)
+	if err == nil || !strings.Contains(err.Error(), "allowed_sub_types") {
+		t.Fatalf("error: got %v, want ambiguous allowed_sub_types error", err)
+	}
+}
+
 func TestNormalizeSportTaxonomyImportRowAcceptsJSONRawMessages(t *testing.T) {
 	raw := json.RawMessage(`[{"action":"set_sport_type","params":{"sport_type":"mountain_biking"}}]`)
 	row := map[string]any{"actions": raw}

@@ -2,7 +2,7 @@
   "profile": "trekking",
   "name": "Trekking",
   "sport_types": ["cycling"],
-  "predicates": [{"sport":"cycling","sub_type":""},{"sport":"cycling","sub_type":"generic"},{"sport":"cycling","sub_type":"road"},{"sport":"cycling","sub_type":"mixed_surface"}],
+  "predicates": [{"sport":"cycling","sub_type":""},{"sport":"cycling","sub_type":"road"},{"sport":"cycling","sub_type":"mixed_surface"}],
   "uphill_cost": 0,
   "downhill_cost": 60,
   "uphill_cutoff_pct": 1.5,

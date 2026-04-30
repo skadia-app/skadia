@@ -355,14 +355,14 @@ func predicatesFromSegmentLegacyArrays(row map[string]any) ([]any, error) {
 	if len(sportTypes) == 0 {
 		return []any{}, nil
 	}
+	if len(subTypes) > 0 {
+		return nil, fmt.Errorf("allowed_sub_types: legacy segment subtype arrays are ambiguous after tuple migration; use allowed_predicates")
+	}
 
 	predicates := make([]any, 0, len(sportTypes))
 	seen := map[string]bool{}
 	for i, rawSport := range sportTypes {
 		rawSubType := ""
-		if i < len(subTypes) {
-			rawSubType = subTypes[i]
-		}
 		tuple, _, err := sport.NormalizeSportTuple(rawSport, rawSubType)
 		if err != nil {
 			return nil, fmt.Errorf("allowed_sport_types[%d]: %w", i, err)
