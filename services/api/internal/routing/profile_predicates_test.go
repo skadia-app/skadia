@@ -27,7 +27,6 @@ func TestDefaultPredicates(t *testing.T) {
 			profile: "road",
 			want: []sport.Predicate{
 				{Sport: "cycling", SubType: &empty},
-				{Sport: "cycling", SubType: strPtr("generic")},
 				{Sport: "cycling", SubType: strPtr("road")},
 				{Sport: "cycling", SubType: strPtr("gravel_cycling")},
 			},
@@ -36,7 +35,6 @@ func TestDefaultPredicates(t *testing.T) {
 			profile: "trekking",
 			want: []sport.Predicate{
 				{Sport: "cycling", SubType: &empty},
-				{Sport: "cycling", SubType: strPtr("generic")},
 				{Sport: "cycling", SubType: strPtr("road")},
 				{Sport: "cycling", SubType: strPtr("mixed_surface")},
 			},

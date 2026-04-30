@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -154,6 +155,7 @@ func TestListRoutesFiltersBySportTuple(t *testing.T) {
 			Name:            "MTB route",
 			SportType:       "cycling",
 			SubType:         &mountain,
+			IsElectric:      true,
 			Profile:         "mtb",
 			GeometryGeoJSON: `{"type":"LineString","coordinates":[[11.39,47.26],[11.40,47.27]]}`,
 			Waypoints:       []model.RouteWaypoint{},
@@ -198,5 +200,30 @@ func TestListRoutesFiltersBySportTuple(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Fatalf("cycling routes len = %d, want 2", len(got))
+	}
+
+	got, err = db.ListRoutes(ctx, userID, 10, 0, RouteListFilters{
+		Predicates: []sport.Predicate{
+			{Sport: "cycling", SubType: &mountain},
+			{Sport: "hiking"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ListRoutes predicate OR: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("predicate OR routes len = %d, want 2", len(got))
+	}
+
+	wantTrue := true
+	got, err = db.ListRoutes(ctx, userID, 10, 0, RouteListFilters{
+		Predicates:      []sport.Predicate{{Sport: "cycling"}},
+		ModifierFilters: sport.ModifierFilters{IsElectric: &wantTrue},
+	})
+	if err != nil {
+		t.Fatalf("ListRoutes electric cycling: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "MTB route" {
+		t.Fatalf("electric cycling routes = %#v, want only MTB route", got)
 	}
 }

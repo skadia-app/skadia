@@ -95,7 +95,7 @@ func TestMatcherSkipsReverseTraversal(t *testing.T) {
 	fwdTrack := "LINESTRING(0 0, 0.25 0, 0.5 0, 0.75 0, 1 0)"
 	fwdActID := insertActivityWithTrack(t, db, userID, "cycling", fwdTrack, fwdPts)
 
-	MatchActivitySegments(ctx, db, fwdActID, userID, "cycling", "generic", nil, now)
+	MatchActivitySegments(ctx, db, fwdActID, userID, "cycling", "", nil, now)
 
 	var fwdCount int
 	pool.QueryRow(ctx,
@@ -116,7 +116,7 @@ func TestMatcherSkipsReverseTraversal(t *testing.T) {
 	revTrack := "LINESTRING(1 0, 0.75 0, 0.5 0, 0.25 0, 0 0)"
 	revActID := insertActivityWithTrack(t, db, userID, "cycling", revTrack, revPts)
 
-	MatchActivitySegments(ctx, db, revActID, userID, "cycling", "generic", nil, now)
+	MatchActivitySegments(ctx, db, revActID, userID, "cycling", "", nil, now)
 
 	var revCount int
 	pool.QueryRow(ctx,

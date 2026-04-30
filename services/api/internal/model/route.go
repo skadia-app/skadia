@@ -56,6 +56,10 @@ type PlannedRoute struct {
 	Description        *string         `json:"description,omitempty"`
 	SportType          string          `json:"sport_type"`
 	SubType            *string         `json:"sub_type,omitempty"`
+	IsElectric         bool            `json:"is_electric"`
+	IsIndoor           bool            `json:"is_indoor"`
+	IsVirtual          bool            `json:"is_virtual"`
+	IsCommute          bool            `json:"is_commute"`
 	Difficulty         *string         `json:"difficulty,omitempty"`
 	Profile            string          `json:"profile"`
 	GeometryGeoJSON    string          `json:"geometry_geojson,omitempty"` // ST_AsGeoJSON
@@ -98,6 +102,10 @@ type RouteImportData struct {
 	Description        *string
 	SportType          string
 	SubType            *string
+	IsElectric         bool
+	IsIndoor           bool
+	IsVirtual          bool
+	IsCommute          bool
 	Profile            string
 	GeometryGeoJSON    string
 	WaypointsJSON      string // "[]" if none

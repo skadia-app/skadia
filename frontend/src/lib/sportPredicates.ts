@@ -30,7 +30,7 @@ export function predicatesMatch(
     if (predicate.sport !== sportType) return false
     if (predicate.sub_type === undefined) return true
     if (predicate.sub_type === normalizedSubType) return true
-    return subType == null && normalizedSubType === '' && predicate.sub_type === 'generic'
+    return false
   })
 }
 

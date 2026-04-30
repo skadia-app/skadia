@@ -197,14 +197,12 @@ func DefaultPredicates(profile string) []sport.Predicate {
 	case "trekking":
 		return []sport.Predicate{
 			{Sport: "cycling", SubType: &empty},
-			{Sport: "cycling", SubType: stringPtr("generic")},
 			{Sport: "cycling", SubType: stringPtr("road")},
 			{Sport: "cycling", SubType: stringPtr("mixed_surface")},
 		}
 	case "road":
 		return []sport.Predicate{
 			{Sport: "cycling", SubType: &empty},
-			{Sport: "cycling", SubType: stringPtr("generic")},
 			{Sport: "cycling", SubType: stringPtr("road")},
 			{Sport: "cycling", SubType: stringPtr("gravel_cycling")},
 		}

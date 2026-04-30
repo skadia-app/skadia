@@ -16,8 +16,10 @@ func normalizeSportTaxonomyImportRow(table string, row map[string]any, targetCol
 			return nil, err
 		}
 	case "planned_routes":
-		if _, err := normalizeSportPair(row, "sport_type", "sub_type"); err != nil {
+		if patch, err := normalizeSportPair(row, "sport_type", "sub_type"); err != nil {
 			return nil, err
+		} else {
+			applyModifierPatchToRow(row, patch)
 		}
 	case "routing_profiles":
 		if err := normalizeRoutingProfileSportFields(row, targetCols); err != nil {
@@ -314,34 +316,15 @@ func replaceRuleJSONValue(row map[string]any, key string, raw json.RawMessage) e
 }
 
 func normalizeSegmentSportFields(row map[string]any) error {
-	sportTypes, err := stringList(row["allowed_sport_types"])
-	if err != nil || len(sportTypes) == 0 {
-		return err
+	value, ok := row["allowed_predicates"]
+	if !ok || value == nil {
+		return nil
 	}
-	subTypes, err := stringList(row["allowed_sub_types"])
+	predicates, _, err := normalizePredicateList(value)
 	if err != nil {
-		return fmt.Errorf("allowed_sub_types: %w", err)
+		return fmt.Errorf("allowed_predicates: %w", err)
 	}
-	var changed bool
-	out := make([]any, 0, len(sportTypes))
-	seen := map[string]bool{}
-	for _, rawSport := range sportTypes {
-		tuple, _, err := sport.NormalizeSportTuple(rawSport, "")
-		if err != nil {
-			return fmt.Errorf("allowed_sport_types: %w", err)
-		}
-		if tuple.SportType != rawSport || tuple.SubType != "" {
-			changed = true
-		}
-		if !seen[tuple.SportType] {
-			seen[tuple.SportType] = true
-			out = append(out, tuple.SportType)
-		}
-	}
-	if changed && len(subTypes) > 0 {
-		return fmt.Errorf("segments allowed_sport_types collapse conflicts with existing allowed_sub_types")
-	}
-	row["allowed_sport_types"] = out
+	row["allowed_predicates"] = predicates
 	return nil
 }
 
