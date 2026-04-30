@@ -891,6 +891,11 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 		conds = append(conds, fmt.Sprintf("is_virtual = $%d", idx))
 		args = append(args, *filters.IsVirtual)
 	}
+	if filters.IsCommute != nil {
+		idx++
+		conds = append(conds, fmt.Sprintf("is_commute = $%d", idx))
+		args = append(args, *filters.IsCommute)
+	}
 	if filters.HasGPS != nil {
 		idx++
 		conds = append(conds, fmt.Sprintf("has_gps = $%d", idx))

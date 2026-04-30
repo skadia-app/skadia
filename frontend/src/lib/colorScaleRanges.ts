@@ -61,8 +61,6 @@ export interface MotionProfile {
 export const MOTION_PROFILE_BY_SPORT_TYPE: Record<string, MotionProfile> = {
   // Foot: running
   running:             { speed: 'running', pace: 'running', cadence: 'foot_running' },
-  trail_running:       { speed: 'running', pace: 'running', cadence: 'foot_running' },
-  treadmill_running:   { speed: 'running', pace: 'running', cadence: 'foot_running' },
   wheelchair_push_run: { speed: 'running', pace: 'running', cadence: 'generic' },
 
   // Foot: walking
@@ -80,9 +78,6 @@ export const MOTION_PROFILE_BY_SPORT_TYPE: Record<string, MotionProfile> = {
 
   // Bike
   cycling:         { speed: 'roadCycling', cadence: 'bike' },
-  gravel_cycling:  { speed: 'roadCycling', cadence: 'bike' },
-  mountain_biking: { speed: 'mtbCycling',  cadence: 'bike' },
-  indoor_cycling:  { speed: 'roadCycling', cadence: 'bike' },
 
   // Ski / Snowboard
   alpine_skiing:        { speed: 'alpineSki', cadence: 'generic' },
@@ -104,8 +99,6 @@ export const MOTION_PROFILE_BY_SPORT_TYPE: Record<string, MotionProfile> = {
 
   // Water: swim
   swimming:            { speed: 'paddle', cadence: 'generic' },
-  lap_swimming:        { speed: 'paddle', cadence: 'generic' },
-  open_water_swimming: { speed: 'paddle', cadence: 'generic' },
   snorkeling:          { speed: 'paddle', cadence: 'generic' },
   diving:              { speed: 'paddle', cadence: 'generic' },
 

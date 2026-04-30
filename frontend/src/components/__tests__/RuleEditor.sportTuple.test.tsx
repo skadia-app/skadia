@@ -100,6 +100,48 @@ describe('RuleEditor sport tuple controls', () => {
     ])
   })
 
+  it('carries virtual and commute modifiers through compound sport conditions and actions', async () => {
+    const onSave = renderEditor({
+      condition_groups: [{ logic: 'and', conditions: [
+        { field: 'sport_type', op: 'eq', value: 'cycling' },
+        { field: 'is_virtual', op: 'eq', value: true },
+        { field: 'is_commute', op: 'eq', value: false },
+      ] }],
+      actions: [{ action: 'set_sport_type', params: { sport_type: 'cycling', virtual: true, commute: false } }],
+    })
+
+    expect(screen.getByLabelText('Virtuell')).toHaveValue('true')
+    expect(screen.getByLabelText('Pendeln')).toHaveValue('false')
+    expect(screen.getByLabelText('Virtuell setzen')).toHaveValue('true')
+    expect(screen.getByLabelText('Pendeln setzen')).toHaveValue('false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'sport_type', op: 'eq', value: 'cycling' },
+      { field: 'is_virtual', op: 'eq', value: true },
+      { field: 'is_commute', op: 'eq', value: false },
+    ])
+    expect(onSave.mock.calls[0][0].actions).toEqual([
+      { action: 'set_sport_type', params: { sport_type: 'cycling', sub_type: '' } },
+      { action: 'set_virtual', params: { virtual: true } },
+      { action: 'set_commute', params: { commute: false } },
+    ])
+  })
+
+  it('keeps standalone indoor conditions when no sport tuple is present', async () => {
+    const onSave = renderEditor({
+      condition_groups: [{ logic: 'and', conditions: [{ field: 'is_indoor', op: 'eq', value: true }] }],
+      actions: [{ action: 'set_indoor', params: { indoor: true } }],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'is_indoor', op: 'eq', value: true },
+    ])
+  })
+
   it('dedupes set_electric true with explicit E-Bike tag and blocks contradictions', async () => {
     const onSave = renderEditor({
       actions: [

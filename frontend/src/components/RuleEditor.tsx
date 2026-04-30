@@ -108,6 +108,8 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'source', label: 'Quelle', inputType: 'enum', options: SOURCE_OPTIONS },
     { field: 'intensity', label: 'Intensität', inputType: 'enum', options: INTENSITY_OPTIONS },
     { field: 'is_indoor', label: 'Indoor', inputType: 'bool' },
+    { field: 'is_virtual', label: 'Virtuell', inputType: 'bool' },
+    { field: 'is_commute', label: 'Pendeln', inputType: 'bool' },
     { field: 'has_gps', label: 'Hat GPS', inputType: 'bool' },
     { field: 'visibility', label: 'Sichtbarkeit', inputType: 'enum', options: VISIBILITY_OPTIONS },
   ]},
@@ -347,6 +349,8 @@ const ACTION_TYPES = [
   { value: 'set_name',        label: 'Titel setzen' },
   { value: 'set_intensity',   label: 'Intensität setzen' },
   { value: 'set_indoor',      label: 'Indoor-Flag setzen' },
+  { value: 'set_virtual',     label: 'Virtuell-Flag setzen' },
+  { value: 'set_commute',     label: 'Pendeln-Flag setzen' },
   { value: 'set_exclude_from_stats',   label: 'Aus Statistiken ausschließen' },
   { value: 'set_exclude_from_heatmap', label: 'Aus Heatmap ausschließen' },
   { value: 'set_hide_map',             label: 'Karte verstecken' },
@@ -383,6 +387,9 @@ function flattenGroups(groups: RuleConditionGroup[]): { conditions: RuleConditio
 
 type ModifierChoice = '' | 'true' | 'false'
 
+const SPORT_TUPLE_ANCHOR_FIELDS = new Set(['sport_type', 'sub_type'])
+const SPORT_TUPLE_FIELDS = new Set(['sport_type', 'sub_type', 'is_electric', 'is_indoor', 'is_virtual', 'is_commute'])
+
 function subTypeOptionsForSport(sportType: string) {
   return getSportDef(sportType)?.subTypes ?? []
 }
@@ -392,17 +399,21 @@ function sportTupleFromConditions(conditions: RuleCondition[]) {
   const sub = conditions.find((c) => c.field === 'sub_type')
   const electric = conditions.find((c) => c.field === 'is_electric')
   const indoor = conditions.find((c) => c.field === 'is_indoor')
+  const virtual = conditions.find((c) => c.field === 'is_virtual')
+  const commute = conditions.find((c) => c.field === 'is_commute')
   const tuple = normalizeSportTuple(String(sport?.value ?? ''), sub?.value == null ? null : String(sub.value))
   return {
     sportType: tuple.sportType,
     subType: tuple.subType && tuple.subType !== 'generic' ? tuple.subType : '',
     electric: electric?.value === true ? 'true' as ModifierChoice : electric?.value === false ? 'false' as ModifierChoice : tuple.modifiers.isElectric === true ? 'true' as ModifierChoice : '' as ModifierChoice,
     indoor: indoor?.value === true ? 'true' as ModifierChoice : indoor?.value === false ? 'false' as ModifierChoice : tuple.modifiers.isIndoor === true ? 'true' as ModifierChoice : '' as ModifierChoice,
+    virtual: virtual?.value === true ? 'true' as ModifierChoice : virtual?.value === false ? 'false' as ModifierChoice : '' as ModifierChoice,
+    commute: commute?.value === true ? 'true' as ModifierChoice : commute?.value === false ? 'false' as ModifierChoice : '' as ModifierChoice,
   }
 }
 
-function replaceSportTupleConditions(conditions: RuleCondition[], next: { sportType: string; subType: string; electric: ModifierChoice; indoor: ModifierChoice }): RuleCondition[] {
-  const rest = conditions.filter((c) => c.field !== 'sport_type' && c.field !== 'sub_type' && c.field !== 'is_electric' && c.field !== 'is_indoor')
+function replaceSportTupleConditions(conditions: RuleCondition[], next: { sportType: string; subType: string; electric: ModifierChoice; indoor: ModifierChoice; virtual: ModifierChoice; commute: ModifierChoice }): RuleCondition[] {
+  const rest = conditions.filter((c) => !SPORT_TUPLE_FIELDS.has(c.field))
   const tupleConditions: RuleCondition[] = [
     { field: 'sport_type', op: 'eq', value: next.sportType },
   ]
@@ -415,11 +426,17 @@ function replaceSportTupleConditions(conditions: RuleCondition[], next: { sportT
   if (next.indoor !== '') {
     tupleConditions.push({ field: 'is_indoor', op: 'eq', value: next.indoor === 'true' })
   }
+  if (next.virtual !== '') {
+    tupleConditions.push({ field: 'is_virtual', op: 'eq', value: next.virtual === 'true' })
+  }
+  if (next.commute !== '') {
+    tupleConditions.push({ field: 'is_commute', op: 'eq', value: next.commute === 'true' })
+  }
   return [...tupleConditions, ...rest]
 }
 
 function normaliseSportTupleConditionGroup(group: RuleConditionGroup): RuleConditionGroup {
-  const hasSportTuple = group.conditions.some((c) => c.field === 'sport_type' || c.field === 'sub_type' || c.field === 'is_electric' || c.field === 'is_indoor')
+  const hasSportTuple = group.conditions.some((c) => SPORT_TUPLE_ANCHOR_FIELDS.has(c.field))
   if (!hasSportTuple) return group
   return {
     ...group,
@@ -485,6 +502,26 @@ function SportTupleConditionControl({
         <option value="">egal</option>
         <option value="true">nur Indoor</option>
         <option value="false">kein Indoor</option>
+      </select>
+      <select
+        aria-label="Virtuell"
+        value={value.virtual}
+        onChange={(e) => patch({ virtual: e.target.value as ModifierChoice })}
+        className={inputClass}
+      >
+        <option value="">egal</option>
+        <option value="true">nur virtuell</option>
+        <option value="false">nicht virtuell</option>
+      </select>
+      <select
+        aria-label="Pendeln"
+        value={value.commute}
+        onChange={(e) => patch({ commute: e.target.value as ModifierChoice })}
+        className={inputClass}
+      >
+        <option value="">egal</option>
+        <option value="true">nur Pendeln</option>
+        <option value="false">kein Pendeln</option>
       </select>
       <button
         type="button"
@@ -1111,10 +1148,10 @@ function ConditionGroupBlock({
       conditions: group.conditions.map((c, idx) => idx === i ? { ...c, ...patch } : c),
     })
   }
-  const hasSportTuple = group.conditions.some((c) => c.field === 'sport_type' || c.field === 'sub_type' || c.field === 'is_electric' || c.field === 'is_indoor')
+  const hasSportTuple = group.conditions.some((c) => SPORT_TUPLE_ANCHOR_FIELDS.has(c.field))
   const visibleConditions = group.conditions
     .map((cond, index) => ({ cond, index }))
-    .filter(({ cond }) => cond.field !== 'sport_type' && cond.field !== 'sub_type' && cond.field !== 'is_electric' && cond.field !== 'is_indoor')
+    .filter(({ cond }) => !SPORT_TUPLE_FIELDS.has(cond.field))
 
   return (
     <div className="border border-neutral-200 dark:border-neutral-700 rounded-lg p-3 space-y-2 bg-white dark:bg-neutral-900/30">
@@ -1156,7 +1193,7 @@ function ConditionGroupBlock({
             <SportTupleConditionControl
               conditions={group.conditions}
               onChange={(conditions) => onChange({ ...group, conditions })}
-              onRemove={() => onChange({ ...group, conditions: group.conditions.filter((c) => c.field !== 'sport_type' && c.field !== 'sub_type' && c.field !== 'is_electric' && c.field !== 'is_indoor') })}
+              onRemove={() => onChange({ ...group, conditions: group.conditions.filter((c) => !SPORT_TUPLE_FIELDS.has(c.field)) })}
             />
           </div>
         )}
@@ -1268,12 +1305,14 @@ function ActionParams({
     const subTypes = subTypeOptionsForSport(sportType)
     const electric: ModifierChoice = params.electric === true ? 'true' : params.electric === false ? 'false' : tuple.modifiers.isElectric === true ? 'true' : ''
     const indoor: ModifierChoice = params.indoor === true ? 'true' : params.indoor === false ? 'false' : tuple.modifiers.isIndoor === true ? 'true' : ''
+    const virtual: ModifierChoice = params.virtual === true ? 'true' : params.virtual === false ? 'false' : ''
+    const commute: ModifierChoice = params.commute === true ? 'true' : params.commute === false ? 'false' : ''
     return (
       <div className="flex items-center gap-2 flex-1 min-w-0">
         <select
           aria-label="Sportart setzen"
           value={sportType}
-          onChange={(e) => onChange({ ...params, sport_type: e.target.value, sub_type: '', electric: params.electric, indoor: params.indoor })}
+          onChange={(e) => onChange({ ...params, sport_type: e.target.value, sub_type: '' })}
           className={inputClass + ' flex-1 min-w-0'}
         >
           {CANONICAL_SPORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -1312,6 +1351,32 @@ function ActionParams({
           <option value="">egal</option>
           <option value="true">Indoor</option>
           <option value="false">kein Indoor</option>
+        </select>
+        <select
+          aria-label="Virtuell setzen"
+          value={virtual}
+          onChange={(e) => {
+            const next = e.target.value as ModifierChoice
+            onChange({ ...params, sport_type: sportType, sub_type: subType, virtual: next === '' ? undefined : next === 'true' })
+          }}
+          className={inputClass + ' w-36'}
+        >
+          <option value="">egal</option>
+          <option value="true">virtuell</option>
+          <option value="false">nicht virtuell</option>
+        </select>
+        <select
+          aria-label="Pendeln setzen"
+          value={commute}
+          onChange={(e) => {
+            const next = e.target.value as ModifierChoice
+            onChange({ ...params, sport_type: sportType, sub_type: subType, commute: next === '' ? undefined : next === 'true' })
+          }}
+          className={inputClass + ' w-36'}
+        >
+          <option value="">egal</option>
+          <option value="true">Pendeln</option>
+          <option value="false">kein Pendeln</option>
         </select>
       </div>
     )
@@ -1365,6 +1430,30 @@ function ActionParams({
       >
         <option value="true">Ja (Indoor)</option>
         <option value="false">Nein (Outdoor)</option>
+      </select>
+    )
+  }
+  if (action === 'set_virtual') {
+    return (
+      <select
+        value={String(params.virtual ?? 'true')}
+        onChange={(e) => onChange({ virtual: e.target.value === 'true' })}
+        className={inputClass + ' flex-1 min-w-0'}
+      >
+        <option value="true">Ja (virtuell)</option>
+        <option value="false">Nein (nicht virtuell)</option>
+      </select>
+    )
+  }
+  if (action === 'set_commute') {
+    return (
+      <select
+        value={String(params.commute ?? 'true')}
+        onChange={(e) => onChange({ commute: e.target.value === 'true' })}
+        className={inputClass + ' flex-1 min-w-0'}
+      >
+        <option value="true">Ja (Pendeln)</option>
+        <option value="false">Nein (kein Pendeln)</option>
       </select>
     )
   }
@@ -1430,6 +1519,13 @@ const SET_FIELD_FIELD_TO_ACTION: Record<string, string> = {
   hide_map:             'set_hide_map',
 }
 
+const MODIFIER_ACTION_SPECS = [
+  { action: 'set_electric', field: 'is_electric', param: 'electric', tag: 'E-Bike' },
+  { action: 'set_indoor', field: 'is_indoor', param: 'indoor', tag: 'Indoor' },
+  { action: 'set_virtual', field: 'is_virtual', param: 'virtual', tag: 'virtuell' },
+  { action: 'set_commute', field: 'is_commute', param: 'commute', tag: 'Pendeln' },
+] as const
+
 /** When loading saved rules, translate set_field actions back to frontend action types. */
 function denormaliseActions(raw: RuleAction[]): RuleAction[] {
   const out: RuleAction[] = []
@@ -1452,14 +1548,11 @@ function denormaliseActions(raw: RuleAction[]): RuleAction[] {
       if (tuple.modifiers.isIndoor !== undefined) {
         params.indoor = tuple.modifiers.isIndoor
       }
-      const next = raw[i + 1]
-      if (next?.action === 'set_electric') {
-        params.electric = next.params?.electric ?? next.params?.value ?? true
-        i++
-      }
-      const nextAfterElectric = raw[i + 1]
-      if (nextAfterElectric?.action === 'set_indoor') {
-        params.indoor = nextAfterElectric.params?.indoor ?? nextAfterElectric.params?.value ?? true
+      while (i + 1 < raw.length) {
+        const next = raw[i + 1]
+        const spec = MODIFIER_ACTION_SPECS.find((s) => s.action === next.action)
+        if (!spec) break
+        params[spec.param] = next.params?.[spec.param] ?? next.params?.value ?? true
         i++
       }
       out.push({ action: 'set_sport_type', params })
@@ -1473,10 +1566,7 @@ function denormaliseActions(raw: RuleAction[]): RuleAction[] {
 function dedupeSystemTagActions(actions: RuleAction[], tagNameForAction: (action: RuleAction) => string | undefined): RuleAction[] {
   const out: RuleAction[] = []
   const modifierState = new Map<string, boolean>()
-  const specs = [
-    { action: 'set_electric', param: 'electric', tag: 'E-Bike' },
-    { action: 'set_indoor', param: 'indoor', tag: 'Indoor' },
-  ]
+  const specs = MODIFIER_ACTION_SPECS
 
   for (const action of actions) {
     const spec = specs.find((s) => s.action === action.action)
@@ -1664,6 +1754,8 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
       const lowered = String(tagID).toLowerCase()
       if (lowered.includes('ebike') || lowered.includes('e-bike')) return 'E-Bike'
       if (lowered.includes('indoor')) return 'Indoor'
+      if (lowered.includes('virtual') || lowered.includes('virtuell')) return 'virtuell'
+      if (lowered.includes('commute') || lowered.includes('pendel')) return 'Pendeln'
       return undefined
     }
     const normalized: RuleAction[] = []
@@ -1689,6 +1781,14 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
         const indoor = a.params?.indoor ?? tuple.modifiers.isIndoor
         if (indoor !== undefined) {
           normalized.push({ action: 'set_indoor', params: { indoor: indoor === true } })
+        }
+        const virtual = a.params?.virtual
+        if (virtual !== undefined) {
+          normalized.push({ action: 'set_virtual', params: { virtual: virtual === true } })
+        }
+        const commute = a.params?.commute
+        if (commute !== undefined) {
+          normalized.push({ action: 'set_commute', params: { commute: commute === true } })
         }
         continue
       }

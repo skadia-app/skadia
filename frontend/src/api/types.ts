@@ -789,7 +789,7 @@ export interface RuleCondition {
 }
 
 export interface RuleAction {
-  action: 'set_gear' | 'add_tag' | 'remove_tag' | 'set_visibility' | 'set_sport_type' | 'set_name' | 'set_intensity' | 'set_indoor' | 'set_electric' | string
+  action: 'set_gear' | 'add_tag' | 'remove_tag' | 'set_visibility' | 'set_sport_type' | 'set_name' | 'set_intensity' | 'set_indoor' | 'set_electric' | 'set_virtual' | 'set_commute' | string
   params: Record<string, any>
 }
 

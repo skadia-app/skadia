@@ -6,6 +6,7 @@ import { type RecordingGroup, type RecordingGroupMember } from '@/api/types'
 import { dissolveRecordingGroup } from '@/api/recordingGroups'
 import { fetchActivityStreams } from '@/api/activities'
 import { sportDetailLabel, sportColor } from '@/lib/sportTaxonomy'
+import { sportModifierSuffix } from '@/lib/sportModifiers'
 import { fmtDist } from '@/lib/format'
 import { getSourceColor } from '@/lib/comparisonColors'
 import { deviceLabel } from '@/lib/deviceUtils'
@@ -69,11 +70,16 @@ function uniqueSportChoices(members: RecordingGroupMember[]): SportConflictChoic
 }
 
 function SportBadge({ member }: { member: RecordingGroupMember }) {
+  const suffix = sportModifierSuffix({
+    isElectric: member.is_electric,
+    isIndoor: member.is_indoor,
+    isVirtual: member.is_virtual,
+  })
   return (
     <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${sportBadgeClass(member.sport_type)}`}>
       {sportDetailLabel(member.sport_type, member.sub_type)}
-      {(member.is_electric || member.is_indoor || member.is_virtual) && (
-        <span className="ml-1 uppercase">{member.is_electric ? 'E' : member.is_indoor ? 'I' : 'V'}</span>
+      {suffix && (
+        <span className="ml-1 uppercase">{suffix}</span>
       )}
     </span>
   )
