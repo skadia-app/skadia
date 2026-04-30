@@ -9,6 +9,7 @@ export interface ActivityFilterParams {
   isIndoor?: boolean | null
   isElectric?: boolean | null
   isVirtual?: boolean | null
+  isCommute?: boolean | null
   hasGPS?: boolean | null
   hasLocation?: boolean | null
   gearId?: string
@@ -39,6 +40,7 @@ export async function fetchActivities(
   if (filters?.isIndoor !== null && filters?.isIndoor !== undefined) params.set('is_indoor', String(filters.isIndoor))
   if (filters?.isElectric !== null && filters?.isElectric !== undefined) params.set('is_electric', String(filters.isElectric))
   if (filters?.isVirtual !== null && filters?.isVirtual !== undefined) params.set('is_virtual', String(filters.isVirtual))
+  if (filters?.isCommute !== null && filters?.isCommute !== undefined) params.set('is_commute', String(filters.isCommute))
   if (filters?.hasGPS !== null && filters?.hasGPS !== undefined) params.set('has_gps', String(filters.hasGPS))
   if (filters?.hasLocation !== null && filters?.hasLocation !== undefined) params.set('has_location', String(filters.hasLocation))
   if (filters?.gearId) params.set('gear_id', filters.gearId)

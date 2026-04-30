@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -96,5 +98,32 @@ func TestFusionRowToEntryCarriesIndoorVirtualModifiers(t *testing.T) {
 	}
 	if !entry.IsVirtualB {
 		t.Fatal("IsVirtualB was not carried to API entry")
+	}
+}
+
+func TestLegacyFusionCandidateJSONIncludesSportTupleAndModifiers(t *testing.T) {
+	subType := "mountain"
+	payload, err := json.Marshal(FusionCandidate{
+		ID:         "activity-1",
+		SportType:  "cycling",
+		SubType:    &subType,
+		IsElectric: true,
+		IsIndoor:   false,
+		IsVirtual:  true,
+	})
+	if err != nil {
+		t.Fatalf("marshal fusion candidate: %v", err)
+	}
+
+	for _, want := range []string{
+		`"sport_type":"cycling"`,
+		`"sub_type":"mountain"`,
+		`"is_electric":true`,
+		`"is_indoor":false`,
+		`"is_virtual":true`,
+	} {
+		if !strings.Contains(string(payload), want) {
+			t.Fatalf("payload %s missing %s", payload, want)
+		}
 	}
 }
