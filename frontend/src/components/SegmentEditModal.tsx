@@ -64,10 +64,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
     if (initialSegment.allowed_predicates != null) {
       return initialSegment.allowed_predicates.map(p => p.sub_type ? `${p.sport}:${p.sub_type}` : p.sport)
     }
-    const sports = initialSegment.allowed_sport_types ?? null
-    const subs = initialSegment.allowed_sub_types ?? []
-    if (sports === null || subs.length === 0) return sports
-    return sports.flatMap(sport => subs.map(sub => `${sport}:${sub}`))
+    return null
   })
   const [bidirectional, setBidirectional] = useState<boolean>(initialSegment.bidirectional ?? true)
   const [userEditedBidirectional, setUserEditedBidirectional] = useState(false)
@@ -132,7 +129,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         new_version: newVersion || undefined,
         climb_type: segType === 'lap' ? 'standard' : climbType,
         bidirectional,
-        ...(sportPredicates ? { allowed_predicates: sportPredicates } : { allowed_sport_types: [] }),
+        allowed_predicates: sportPredicates ?? null,
       }
       if (initialSegment.visibility === 'public' && visibility === 'private') {
         payload.visibility = 'private'

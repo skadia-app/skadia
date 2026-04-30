@@ -32,18 +32,6 @@ var (
 
 const brouterCacheTTL = 30 * time.Second
 
-// brouterPredicates maps BRouter profile file names (without .brf) to sport predicates.
-var brouterPredicates = map[string][]sport.Predicate{
-	"trekking":         routing.DefaultPredicates("trekking"),
-	"hiking-mountain":  {{Sport: "hiking"}, {Sport: "mountaineering"}},
-	"hiking-sac2":      {{Sport: "hiking"}, {Sport: "mountaineering"}},
-	"cycling-road":     {{Sport: "cycling", SubType: stringPtr("road")}, {Sport: "cycling", SubType: stringPtr("gravel_cycling")}},
-	"cycling-mountain": {{Sport: "cycling", SubType: stringPtr("mountain")}},
-	"cycling-gravel":   {{Sport: "cycling", SubType: stringPtr("gravel_cycling")}},
-	"running":          {{Sport: "running"}},
-	"walking":          {{Sport: "walking"}, {Sport: "hiking"}},
-}
-
 // profileListItem is one entry in the HandleListProfiles response.
 type profileListItem struct {
 	ID              *string               `json:"id"`
@@ -139,8 +127,25 @@ func validateLegacySportTypesForProfile(sportTypes []string) ([]sport.Predicate,
 	return preds, nil
 }
 
-func stringPtr(v string) *string {
-	return &v
+func brouterProfilePredicates(name string) []sport.Predicate {
+	switch name {
+	case "trekking":
+		return routing.DefaultPredicates("trekking")
+	case "cycling-road":
+		return routing.DefaultPredicates("road")
+	case "cycling-mountain":
+		return routing.DefaultPredicates("mtb")
+	case "cycling-gravel":
+		return routing.DefaultPredicates("gravel")
+	case "hiking-mountain", "hiking-sac2":
+		return []sport.Predicate{{Sport: "hiking"}, {Sport: "mountaineering"}}
+	case "running":
+		return []sport.Predicate{{Sport: "running"}}
+	case "walking":
+		return []sport.Predicate{{Sport: "walking"}, {Sport: "hiking"}}
+	default:
+		return []sport.Predicate{}
+	}
 }
 
 // HandleListProfiles returns the combined list of system, user/filesystem, and BRouter profiles.
@@ -177,11 +182,7 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 		var items []profileListItem
 		for _, path := range matches {
 			base := strings.TrimSuffix(filepath.Base(path), ".brf")
-			preds := brouterPredicates[base]
-			if preds == nil {
-				preds = []sport.Predicate{}
-			}
-			items = append(items, profileListItemFromBRouterProfile(base, preds))
+			items = append(items, profileListItemFromBRouterProfile(base, brouterProfilePredicates(base)))
 		}
 		brouterCacheMu.Lock()
 		brouterCacheItems = items

@@ -90,14 +90,7 @@ func predicatesMatchSuggestionRequest(preds []sport.Predicate, req RouteSuggesti
 	if err != nil {
 		return false
 	}
-	if sport.PredicatesMatch(preds, tuple.SportType, &tuple.SubType) {
-		return true
-	}
-	if req.SubType == nil && tuple.SubType == "" {
-		genericSubType := "generic"
-		return sport.PredicatesMatch(preds, tuple.SportType, &genericSubType)
-	}
-	return false
+	return sport.PredicatesMatch(preds, tuple.SportType, &tuple.SubType)
 }
 
 func boolPtrValue(v *bool) bool {
@@ -124,6 +117,8 @@ type RouteSuggestionRequest struct {
 	Modifiers *sport.ModifierFilters `json:"modifiers,omitempty"`
 	// Profile is the routing profile (e.g. "hiking", "mtb", "gravel") or a custom profile name.
 	Profile string `json:"profile"`
+	// ProfileSportOverride bypasses profile-vs-sport tuple matching after an explicit frontend warning.
+	ProfileSportOverride bool `json:"profile_sport_override"`
 	// PreferUnknown, when true, weights the via-point selection toward
 	// trail segments the user has not visited yet (Terra Incognita).
 	PreferUnknown bool `json:"prefer_unknown"`
@@ -333,7 +328,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	// --- Map profile ---
 	mappedProfile := profileMap[req.Profile]
 	profileCfg := routing.ProfileConfig{Profile: mappedProfile}
-	if mappedProfile != "" && !builtinProfileMatchesSuggestionRequest(mappedProfile, req) {
+	if mappedProfile != "" && !req.ProfileSportOverride && !builtinProfileMatchesSuggestionRequest(mappedProfile, req) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "profile does not match requested sport tuple", r.URL.Path)
 		return
 	}
@@ -342,7 +337,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	if mappedProfile == "" {
 		customProfile, dbErr := h.DB.GetRoutingProfileByNameOrGlobal(r.Context(), userID, req.Profile)
 		if dbErr == nil && customProfile != nil {
-			if !routingProfileMatchesSuggestionRequest(*customProfile, req) {
+			if !req.ProfileSportOverride && !routingProfileMatchesSuggestionRequest(*customProfile, req) {
 				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "profile does not match requested sport tuple", r.URL.Path)
 				return
 			}

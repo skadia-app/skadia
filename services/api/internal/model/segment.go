@@ -13,8 +13,6 @@ type Segment struct {
 	Name              string            `json:"name" db:"name"`
 	Description       *string           `json:"description,omitempty" db:"description"`
 	SportGroup        string            `json:"sport_group" db:"sport_group"`
-	AllowedSportTypes []string          `json:"allowed_sport_types,omitempty" db:"allowed_sport_types"`
-	AllowedSubTypes   []string          `json:"allowed_sub_types,omitempty" db:"allowed_sub_types"`
 	AllowedPredicates []sport.Predicate `json:"allowed_predicates,omitempty" db:"allowed_predicates"`
 	SegmentType       string            `json:"segment_type" db:"segment_type"`
 	SegmentTypeMeta   json.RawMessage   `json:"segment_type_meta" db:"segment_type_meta"`
@@ -46,26 +44,22 @@ type SegmentCreate struct {
 	Description       *string           `json:"description,omitempty"`
 	TerrainType       string            `json:"terrain_type"`
 	ClimbType         string            `json:"climb_type"`
-	Visibility        string            `json:"visibility,omitempty"`          // "public" | "private"; default "public"
-	AllowedSportTypes []string          `json:"allowed_sport_types,omitempty"` // nil = all sport types allowed
-	AllowedSubTypes   []string          `json:"allowed_sub_types,omitempty"`   // nil/empty = all subtypes allowed
-	AllowedPredicates []sport.Predicate `json:"allowed_predicates,omitempty"`  // nil = all, [] = none, entries = tuple predicates
-	Bidirectional     *bool             `json:"bidirectional,omitempty"`       // nil = use sport-group default
+	Visibility        string            `json:"visibility,omitempty"`         // "public" | "private"; default "public"
+	AllowedPredicates []sport.Predicate `json:"allowed_predicates,omitempty"` // nil = all, [] = none, entries = tuple predicates
+	Bidirectional     *bool             `json:"bidirectional,omitempty"`      // nil = use sport-group default
 }
 
 type SegmentUpdate struct {
-	Name              *string           `json:"name,omitempty"`
-	Description       *string           `json:"description,omitempty"`
-	SegmentType       *string           `json:"segment_type,omitempty"` // nil = unchanged; handler whitelists
-	SegmentTypeMeta   *json.RawMessage  `json:"segment_type_meta,omitempty"`
-	NewVersion        bool              `json:"new_version,omitempty"`
-	TerrainType       *string           `json:"terrain_type,omitempty"`
-	ClimbType         *string           `json:"climb_type,omitempty"`
-	Visibility        *string           `json:"visibility,omitempty"`          // "public" | "private"
-	AllowedSportTypes []string          `json:"allowed_sport_types,omitempty"` // nil = unchanged; [] = clear filter; [...] = restrict
-	AllowedSubTypes   []string          `json:"allowed_sub_types,omitempty"`   // nil = unchanged; [] = clear subtype filter
-	AllowedPredicates []sport.Predicate `json:"allowed_predicates,omitempty"`  // nil = unchanged; [] = no sports; entries = tuple predicates
-	Bidirectional     *bool             `json:"bidirectional,omitempty"`       // nil = unchanged
+	Name              *string          `json:"name,omitempty"`
+	Description       *string          `json:"description,omitempty"`
+	SegmentType       *string          `json:"segment_type,omitempty"` // nil = unchanged; handler whitelists
+	SegmentTypeMeta   *json.RawMessage `json:"segment_type_meta,omitempty"`
+	NewVersion        bool             `json:"new_version,omitempty"`
+	TerrainType       *string          `json:"terrain_type,omitempty"`
+	ClimbType         *string          `json:"climb_type,omitempty"`
+	Visibility        *string          `json:"visibility,omitempty"`         // "public" | "private"
+	AllowedPredicates json.RawMessage  `json:"allowed_predicates,omitempty"` // absent = unchanged; null = all; [] = no sports; entries = tuple predicates
+	Bidirectional     *bool            `json:"bidirectional,omitempty"`      // nil = unchanged
 }
 
 type SegmentVersion struct {

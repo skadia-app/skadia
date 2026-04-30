@@ -33,6 +33,7 @@ const SPORT_TYPE_COLORS: Record<string, string> = {
 // ── Sort options ──────────────────────────────────────────────────────────────
 
 type SortOption = 'created_at' | 'name' | 'distance' | 'elevation'
+type ModifierFilter = 'any' | 'true' | 'false'
 
 const SORT_LABELS: Record<SortOption, string> = {
   created_at: 'Neueste',
@@ -341,7 +342,13 @@ export default function RoutesPage() {
   const { openModal } = useModal()
   const { addToast } = useToast()
 
-  const [sportType, setSportType] = useState('')
+  const [sportPredicates, setSportPredicates] = useState<string[]>([])
+  const [modifierFilters, setModifierFilters] = useState<Record<'is_electric' | 'is_indoor' | 'is_virtual' | 'is_commute', ModifierFilter>>({
+    is_electric: 'any',
+    is_indoor: 'any',
+    is_virtual: 'any',
+    is_commute: 'any',
+  })
   const [sortBy, setSortBy] = useState<SortOption>('created_at')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -361,15 +368,23 @@ export default function RoutesPage() {
 
   const queryParams = useMemo(
     () => {
-      const [selectedSportType, selectedSubType = ''] = sportType.split(':')
-      return {
+      const activePredicates = sportPredicates
+      const params = {
         sort: sortBy,
-        sport_type: selectedSportType || undefined,
-        sub_type: selectedSubType || undefined,
+        sport_predicates: activePredicates.length > 0 ? activePredicates.join(',') : undefined,
         search: search || undefined,
+      } as const
+      const boolFilters = Object.fromEntries(
+        Object.entries(modifierFilters)
+          .filter(([, value]) => value !== 'any')
+          .map(([key, value]) => [key, value === 'true']),
+      )
+      return {
+        ...params,
+        ...boolFilters,
       }
     },
-    [sortBy, sportType, search],
+    [sortBy, sportPredicates, modifierFilters, search],
   )
 
   const { data: routesResponse, isLoading, isError } = useQuery({
@@ -444,6 +459,18 @@ export default function RoutesPage() {
     navigate('/map?planner=1')
   }
 
+  const resetFilters = () => {
+    setSearch('')
+    setSearchInput('')
+    setSportPredicates([])
+    setModifierFilters({
+      is_electric: 'any',
+      is_indoor: 'any',
+      is_virtual: 'any',
+      is_commute: 'any',
+    })
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (isLoading) {
@@ -493,17 +520,63 @@ export default function RoutesPage() {
       <div className="flex flex-wrap items-center gap-3 mb-6">
         {/* Sport type */}
         <select
-          value={sportType}
-          onChange={(e) => setSportType(e.target.value)}
+          value=""
+          onChange={(e) => {
+            const value = e.target.value
+            if (!value) {
+              setSportPredicates([])
+              return
+            }
+            setSportPredicates(prev => prev.includes(value) ? prev : [...prev, value])
+          }}
           className="border border-neutral-200 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-sm
                      bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
                      focus:outline-none focus:ring-1 focus:ring-neutral-400"
         >
-          <option value="">Alle Sportarten</option>
+          <option value="">{sportPredicates.length > 0 ? 'Sportart hinzufügen' : 'Alle Sportarten'}</option>
           {SPORT_TYPE_OPTIONS.map(({ sportType, subType, label }) => (
             <option key={`${sportType}:${subType ?? ''}`} value={`${sportType}:${subType ?? ''}`}>{label}</option>
           ))}
         </select>
+
+        {sportPredicates.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {sportPredicates.map(key => {
+              const [st, sub = ''] = key.split(':')
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setSportPredicates(prev => prev.filter(v => v !== key))}
+                  className="rounded-full border border-neutral-200 dark:border-neutral-700 px-2 py-1 text-xs text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+                >
+                  {sportDetailLabel(st, sub || null)} ×
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {[
+          ['is_electric', 'E-Bike'],
+          ['is_indoor', 'Indoor'],
+          ['is_virtual', 'Virtuell'],
+          ['is_commute', 'Pendeln'],
+        ].map(([key, label]) => (
+          <select
+            key={key}
+            value={modifierFilters[key as keyof typeof modifierFilters]}
+            onChange={(e) => setModifierFilters(prev => ({ ...prev, [key]: e.target.value as ModifierFilter }))}
+            className="border border-neutral-200 dark:border-neutral-700 rounded-lg px-2 py-1.5 text-sm
+                       bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
+                       focus:outline-none focus:ring-1 focus:ring-neutral-400"
+            aria-label={`${label}-Filter`}
+          >
+            <option value="any">{label}: egal</option>
+            <option value="true">{label}: ja</option>
+            <option value="false">{label}: nein</option>
+          </select>
+        ))}
 
         {/* Sort */}
         <select
@@ -565,11 +638,11 @@ export default function RoutesPage() {
           <svg className="w-14 h-14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={0.8}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
           </svg>
-          {search || sportType ? (
+          {search || sportPredicates.length > 0 || Object.values(modifierFilters).some(v => v !== 'any') ? (
             <>
               <p className="text-sm">Keine Routen gefunden.</p>
               <button
-                onClick={() => { setSearch(''); setSearchInput(''); setSportType('') }}
+                onClick={resetFilters}
                 className="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
               >
                 Filter zurücksetzen

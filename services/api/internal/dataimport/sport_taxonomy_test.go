@@ -93,12 +93,14 @@ func TestNormalizeSportTaxonomyImportRowOtherSportTables(t *testing.T) {
 			},
 		},
 		{
-			name:  "segments collapse allowed sports",
+			name:  "segments normalize allowed predicates",
 			table: "segments",
-			row:   map[string]any{"allowed_sport_types": []any{"mountain_biking"}, "allowed_sub_types": []any{}},
+			row:   map[string]any{"allowed_predicates": []any{map[string]any{"sport": "mountain_biking"}}},
 			check: func(t *testing.T, got map[string]any) {
-				if got["allowed_sport_types"].([]any)[0] != "cycling" {
-					t.Fatalf("allowed_sport_types: %#v", got["allowed_sport_types"])
+				preds := got["allowed_predicates"].([]any)
+				pred := preds[0].(map[string]any)
+				if pred["sport"] != "cycling" || pred["sub_type"] != "mountain" {
+					t.Fatalf("allowed_predicates: %#v", got["allowed_predicates"])
 				}
 			},
 		},
@@ -169,14 +171,13 @@ func TestNormalizeSportTaxonomyImportRowRejectsUnsupportedAutomationRule(t *test
 	}
 }
 
-func TestNormalizeSportTaxonomyImportRowRejectsSegmentBroadeningConflict(t *testing.T) {
+func TestNormalizeSportTaxonomyImportRowRejectsInvalidSegmentPredicate(t *testing.T) {
 	row := map[string]any{
-		"allowed_sport_types": []any{"mountain_biking"},
-		"allowed_sub_types":   []any{"mountain"},
+		"allowed_predicates": []any{map[string]any{"sport": "cycling", "sub_type": "trail"}},
 	}
 	_, err := normalizeSportTaxonomyImportRow("segments", row, nil)
-	if err == nil || !strings.Contains(err.Error(), "allowed_sub_types") {
-		t.Fatalf("error: got %v, want allowed_sub_types conflict", err)
+	if err == nil || !strings.Contains(err.Error(), "allowed_predicates") {
+		t.Fatalf("error: got %v, want allowed_predicates error", err)
 	}
 }
 

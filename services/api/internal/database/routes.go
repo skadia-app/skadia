@@ -16,10 +16,66 @@ import (
 )
 
 type RouteListFilters struct {
-	SportType string
-	SubType   string
-	Search    string
-	Sort      string
+	SportType       string
+	SubType         string
+	Predicates      []sport.Predicate
+	ModifierFilters sport.ModifierFilters
+	Search          string
+	Sort            string
+}
+
+func normalizedRouteFilterPredicates(filter RouteListFilters) ([]sport.Predicate, error) {
+	if filter.Predicates != nil {
+		return sport.NormalizePredicates(filter.Predicates)
+	}
+	if filter.SportType == "" {
+		return nil, nil
+	}
+	pred := sport.Predicate{Sport: filter.SportType}
+	if filter.SubType != "" {
+		pred.SubType = &filter.SubType
+	}
+	return sport.NormalizePredicates([]sport.Predicate{pred})
+}
+
+func appendRouteListWhere(where []string, args []any, filter RouteListFilters) ([]string, []any, error) {
+	preds, err := normalizedRouteFilterPredicates(filter)
+	if err != nil {
+		return nil, nil, err
+	}
+	if preds != nil {
+		raw, err := json.Marshal(preds)
+		if err != nil {
+			return nil, nil, err
+		}
+		idx := len(args) + 1
+		where = append(where, fmt.Sprintf(`EXISTS (
+			SELECT 1
+			FROM jsonb_array_elements($%d::jsonb) pred
+			WHERE pred->>'sport' = sport_type
+			  AND (NOT pred ? 'sub_type' OR pred->>'sub_type' = COALESCE(sub_type, ''))
+		)`, idx))
+		args = append(args, raw)
+	}
+	appendBool := func(column string, value *bool) {
+		if value == nil {
+			return
+		}
+		idx := len(args) + 1
+		where = append(where, fmt.Sprintf("%s = $%d", column, idx))
+		args = append(args, *value)
+	}
+	appendBool("is_electric", filter.ModifierFilters.IsElectric)
+	appendBool("is_indoor", filter.ModifierFilters.IsIndoor)
+	appendBool("is_virtual", filter.ModifierFilters.IsVirtual)
+	appendBool("is_commute", filter.ModifierFilters.IsCommute)
+
+	if search := strings.TrimSpace(filter.Search); search != "" {
+		idx := len(args) + 1
+		where = append(where, fmt.Sprintf("(name ILIKE '%%' || $%d || '%%' OR COALESCE(description, '') ILIKE '%%' || $%d || '%%')", idx, idx))
+		args = append(args, search)
+	}
+	return where, args, nil
 }
 
 // t0SchemaVersion returns 1 if the route data satisfies T0 form-compliance
@@ -71,23 +127,29 @@ func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (strin
 	var id string
 	err = db.Pool.QueryRow(ctx, `
 		INSERT INTO planned_routes (
-			user_id, name, description, sport_type, sub_type, difficulty, profile,
+			user_id, name, description, sport_type, sub_type,
+			is_electric, is_indoor, is_virtual, is_commute,
+			difficulty, profile,
 			geometry, waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
 			elevation_profile, enrichment, routing_engine,
 			route_schema_version
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
-			ST_Force2D(ST_GeomFromGeoJSON($8)), $9, $10,
-			$11, $12, $13,
-			$14, $15, $16,
-			$17, $18, $19,
-			$20
+			$1, $2, $3, $4, $5,
+			$6, $7, $8, $9,
+			$10, $11,
+			ST_Force2D(ST_GeomFromGeoJSON($12)), $13, $14,
+			$15, $16, $17,
+			$18, $19, $20,
+			$21, $22, $23,
+			$24
 		)
 		RETURNING id
 	`,
-		route.UserID, route.Name, route.Description, route.SportType, route.SubType, route.Difficulty, route.Profile,
+		route.UserID, route.Name, route.Description, route.SportType, route.SubType,
+		route.IsElectric, route.IsIndoor, route.IsVirtual, route.IsCommute,
+		route.Difficulty, route.Profile,
 		route.GeometryGeoJSON, waypointsJSON, segmentsJSON,
 		route.TotalDistanceM, route.TotalElevationGain, route.TotalElevationLoss,
 		route.EstimatedTimeMin, route.TimeOverride, route.AutoTag,
@@ -106,7 +168,9 @@ func (db *DB) GetRoute(ctx context.Context, id, userID string) (*model.PlannedRo
 	var waypointsJSON, segmentsJSON []byte
 
 	err := db.Pool.QueryRow(ctx, `
-		SELECT id, user_id, name, description, sport_type, sub_type, difficulty, profile,
+		SELECT id, user_id, name, description, sport_type, sub_type,
+			is_electric, is_indoor, is_virtual, is_commute,
+			difficulty, profile,
 			ST_AsGeoJSON(geometry) AS geometry_geojson,
 			waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
@@ -118,7 +182,9 @@ func (db *DB) GetRoute(ctx context.Context, id, userID string) (*model.PlannedRo
 		WHERE id = $1 AND user_id = $2
 	`, id, userID).Scan(
 		&route.ID, &route.UserID, &route.Name, &route.Description,
-		&route.SportType, &route.SubType, &route.Difficulty, &route.Profile,
+		&route.SportType, &route.SubType,
+		&route.IsElectric, &route.IsIndoor, &route.IsVirtual, &route.IsCommute,
+		&route.Difficulty, &route.Profile,
 		&route.GeometryGeoJSON,
 		&waypointsJSON, &segmentsJSON,
 		&route.TotalDistanceM, &route.TotalElevationGain, &route.TotalElevationLoss,
@@ -165,22 +231,27 @@ func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int, 
 		orderBy = "total_elevation_gain DESC NULLS LAST, updated_at DESC"
 	}
 
+	where := []string{"user_id = $1"}
+	args := []any{userID, limit, offset}
+	where, args, err := appendRouteListWhere(where, args, filter)
+	if err != nil {
+		return nil, fmt.Errorf("normalize route filters: %w", err)
+	}
+
 	query := fmt.Sprintf(`
 		SELECT id, user_id, name, description, sport_type, sub_type, difficulty, profile,
+			is_electric, is_indoor, is_virtual, is_commute,
 			ST_AsGeoJSON(ST_Simplify(geometry, 0.001)) AS geometry_simplified,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
 			created_at, updated_at,
 			route_schema_version
 		FROM planned_routes
-		WHERE user_id = $1
-		  AND ($4 = '' OR sport_type = $4)
-		  AND ($5 = '' OR COALESCE(sub_type, '') = $5)
-		  AND ($6 = '' OR name ILIKE '%%' || $6 || '%%' OR COALESCE(description, '') ILIKE '%%' || $6 || '%%')
+		WHERE %s
 		ORDER BY %s
 		LIMIT $2 OFFSET $3
-	`, orderBy)
-	rows, err := db.Pool.Query(ctx, query, userID, limit, offset, filter.SportType, filter.SubType, strings.TrimSpace(filter.Search))
+	`, strings.Join(where, " AND "), orderBy)
+	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list routes: %w", err)
 	}
@@ -192,6 +263,7 @@ func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int, 
 		if err := rows.Scan(
 			&r.ID, &r.UserID, &r.Name, &r.Description,
 			&r.SportType, &r.SubType, &r.Difficulty, &r.Profile,
+			&r.IsElectric, &r.IsIndoor, &r.IsVirtual, &r.IsCommute,
 			&r.GeometryGeoJSON,
 			&r.TotalDistanceM, &r.TotalElevationGain, &r.TotalElevationLoss,
 			&r.EstimatedTimeMin, &r.TimeOverride, &r.AutoTag,
@@ -240,25 +312,31 @@ func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error 
 			description        = $4,
 			sport_type         = $5,
 			sub_type           = $6,
-			difficulty         = $7,
-			profile            = $8,
-			geometry           = ST_Force2D(ST_GeomFromGeoJSON($9)),
-			waypoints          = $10,
-			segments           = $11,
-			total_distance_m   = $12,
-			total_elevation_gain = $13,
-			total_elevation_loss = $14,
-			estimated_time_min = $15,
-			time_override      = $16,
-			auto_tag           = $17,
-			elevation_profile  = $18,
-			enrichment         = $19,
-			routing_engine     = $20,
-			route_schema_version = $21
+			is_electric        = $7,
+			is_indoor          = $8,
+			is_virtual         = $9,
+			is_commute         = $10,
+			difficulty         = $11,
+			profile            = $12,
+			geometry           = ST_Force2D(ST_GeomFromGeoJSON($13)),
+			waypoints          = $14,
+			segments           = $15,
+			total_distance_m   = $16,
+			total_elevation_gain = $17,
+			total_elevation_loss = $18,
+			estimated_time_min = $19,
+			time_override      = $20,
+			auto_tag           = $21,
+			elevation_profile  = $22,
+			enrichment         = $23,
+			routing_engine     = $24,
+			route_schema_version = $25
 		WHERE id = $1 AND user_id = $2
 	`,
 		route.ID, route.UserID,
-		route.Name, route.Description, route.SportType, route.SubType, route.Difficulty, route.Profile,
+		route.Name, route.Description, route.SportType, route.SubType,
+		route.IsElectric, route.IsIndoor, route.IsVirtual, route.IsCommute,
+		route.Difficulty, route.Profile,
 		route.GeometryGeoJSON, waypointsJSON, segmentsJSON,
 		route.TotalDistanceM, route.TotalElevationGain, route.TotalElevationLoss,
 		route.EstimatedTimeMin, route.TimeOverride, route.AutoTag,
@@ -297,7 +375,8 @@ func (db *DB) DuplicateRoute(ctx context.Context, id, userID string) (string, er
 	var newID string
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO planned_routes (
-			user_id, name, description, sport_type, sub_type, difficulty,
+			user_id, name, description, sport_type, sub_type,
+			is_electric, is_indoor, is_virtual, is_commute, difficulty,
 			profile, geometry, waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
@@ -305,7 +384,8 @@ func (db *DB) DuplicateRoute(ctx context.Context, id, userID string) (string, er
 			route_schema_version
 		)
 		SELECT
-			user_id, name || ' (Kopie)', description, sport_type, sub_type, difficulty,
+			user_id, name || ' (Kopie)', description, sport_type, sub_type,
+			is_electric, is_indoor, is_virtual, is_commute, difficulty,
 			profile, geometry, waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
@@ -328,15 +408,15 @@ func (db *DB) CountRoutes(ctx context.Context, userID string, filters ...RouteLi
 		filter = filters[0]
 	}
 	var count int
-	err := db.Pool.QueryRow(ctx,
-		`SELECT COUNT(*)
-		FROM planned_routes
-		WHERE user_id = $1
-		  AND ($2 = '' OR sport_type = $2)
-		  AND ($3 = '' OR COALESCE(sub_type, '') = $3)
-		  AND ($4 = '' OR name ILIKE '%' || $4 || '%' OR COALESCE(description, '') ILIKE '%' || $4 || '%')`,
-		userID, filter.SportType, filter.SubType, strings.TrimSpace(filter.Search),
-	).Scan(&count)
+	where := []string{"user_id = $1"}
+	args := []any{userID}
+	var err error
+	where, args, err = appendRouteListWhere(where, args, filter)
+	if err != nil {
+		return 0, fmt.Errorf("normalize route filters: %w", err)
+	}
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM planned_routes WHERE %s`, strings.Join(where, " AND "))
+	err = db.Pool.QueryRow(ctx, query, args...).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count routes: %w", err)
 	}
@@ -539,21 +619,27 @@ func (db *DB) CreateRouteFromImport(ctx context.Context, userID string, r *model
 	var id string
 	err = db.Pool.QueryRow(ctx, `
 		INSERT INTO planned_routes (
-			user_id, name, description, sport_type, sub_type, profile,
+			user_id, name, description, sport_type, sub_type,
+			is_electric, is_indoor, is_virtual, is_commute,
+			profile,
 			geometry, waypoints, segments,
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			source_platform, source_id, source_url,
 			geometry_hash,
 			route_schema_version
 		) VALUES (
-			$1, $2, $3, $4, $5, $6,
-			ST_Force2D(ST_GeomFromGeoJSON($7)), $8, $9,
-			$10, $11, $12,
-			$13, $14, $15,
-			encode(digest(ST_AsEWKB(ST_SnapToGrid(ST_Force2D(ST_GeomFromGeoJSON($7)), 0.00001)), 'sha256'), 'hex'),
-			$16
+			$1, $2, $3, $4, $5,
+			$6, $7, $8, $9,
+			$10,
+			ST_Force2D(ST_GeomFromGeoJSON($11)), $12, $13,
+			$14, $15, $16,
+			$17, $18, $19,
+			encode(digest(ST_AsEWKB(ST_SnapToGrid(ST_Force2D(ST_GeomFromGeoJSON($11)), 0.00001)), 'sha256'), 'hex'),
+			$20
 		) RETURNING id`,
-		userID, r.Name, r.Description, r.SportType, r.SubType, r.Profile,
+		userID, r.Name, r.Description, r.SportType, r.SubType,
+		r.IsElectric, r.IsIndoor, r.IsVirtual, r.IsCommute,
+		r.Profile,
 		r.GeometryGeoJSON, r.WaypointsJSON, r.SegmentsJSON,
 		r.TotalDistanceM, r.TotalElevationGain, r.TotalElevationLoss,
 		r.SourcePlatform, r.SourceID, r.SourceURL,

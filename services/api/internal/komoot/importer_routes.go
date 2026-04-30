@@ -77,7 +77,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 			continue
 		}
 
-		sportType, subType, _ := komootRouteSportTuple(tour.Sport)
+		sportType, subType, isElectric := komootRouteSportTuple(tour.Sport)
 		var subTypePtr *string
 		if subType != "" {
 			subTypePtr = &subType
@@ -122,6 +122,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 			Description:        nil,
 			SportType:          sportType,
 			SubType:            subTypePtr,
+			IsElectric:         isElectric,
 			Profile:            profile,
 			GeometryGeoJSON:    geojson,
 			WaypointsJSON:      "[]",

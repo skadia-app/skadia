@@ -42,7 +42,6 @@ describe('RoutePlannerPanel profile predicate save payload', () => {
   it('preserves the road system profile explicit no-subtype predicates', () => {
     const roadPredicates = [
       { sport: 'cycling', sub_type: '' },
-      { sport: 'cycling', sub_type: 'generic' },
       { sport: 'cycling', sub_type: 'road' },
       { sport: 'cycling', sub_type: 'gravel_cycling' },
     ]

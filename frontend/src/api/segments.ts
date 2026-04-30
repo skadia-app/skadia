@@ -21,10 +21,6 @@ export interface Segment {
   track_geojson?: string
   terrain_type?: string
   climb_type?: string
-  /** null/absent = all sport types allowed; [] = none; [...] = specific list */
-  allowed_sport_types?: string[] | null
-  /** null/absent/[] = no subtype restriction; [...] = specific canonical subtypes */
-  allowed_sub_types?: string[] | null
   /** null/absent = all sport tuples allowed; [] = none; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
   /** true = segment can be ridden in both directions */
@@ -75,10 +71,6 @@ export interface CreateSegmentPayload {
   terrain_type?: string
   climb_type?: string
   visibility?: 'public' | 'private'
-  /** null = all sport types allowed; [] = none; [...] = specific list */
-  allowed_sport_types?: string[] | null
-  /** null/[] = no subtype restriction; [...] = specific canonical subtypes */
-  allowed_sub_types?: string[] | null
   /** null = all sport tuples allowed; [] = none; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
   /** nil on wire = use sport-group default (true for most groups) */
@@ -140,12 +132,8 @@ export interface UpdateSegmentPayload {
   terrain_type?: string
   climb_type?: string
   visibility?: 'public' | 'private'
-  /** absent = unchanged; [] = clear filter (all allowed); [...] = restrict to list */
-  allowed_sport_types?: string[]
-  /** absent = unchanged; [] = clear subtype filter; [...] = restrict to listed subtypes */
-  allowed_sub_types?: string[]
-  /** absent = unchanged; [] = no sports; entries = tuple predicates */
-  allowed_predicates?: SportPredicate[]
+  /** absent = unchanged; null = all sport tuples; [] = no sports; entries = tuple predicates */
+  allowed_predicates?: SportPredicate[] | null
   /** absent = unchanged */
   bidirectional?: boolean
 }

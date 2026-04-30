@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -25,11 +26,18 @@ func (h *Handler) ListRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit, offset := httputil.ParsePagination(r, 50, 200)
+	predicates, err := sport.PredicatesFromFilterTokens(r.URL.Query().Get("sport_predicates"))
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 	filters := database.RouteListFilters{
-		SportType: r.URL.Query().Get("sport_type"),
-		SubType:   r.URL.Query().Get("sub_type"),
-		Search:    r.URL.Query().Get("search"),
-		Sort:      r.URL.Query().Get("sort"),
+		SportType:       r.URL.Query().Get("sport_type"),
+		SubType:         r.URL.Query().Get("sub_type"),
+		Predicates:      predicates,
+		ModifierFilters: parseRouteModifierFilters(r),
+		Search:          r.URL.Query().Get("search"),
+		Sort:            r.URL.Query().Get("sort"),
 	}
 
 	routes, err := h.DB.ListRoutes(r.Context(), userID, limit, offset, filters)
@@ -116,6 +124,10 @@ var patchableRouteFields = map[string]struct{}{
 	"description":          {},
 	"sport_type":           {},
 	"sub_type":             {},
+	"is_electric":          {},
+	"is_indoor":            {},
+	"is_virtual":           {},
+	"is_commute":           {},
 	"difficulty":           {},
 	"profile":              {},
 	"geometry_geojson":     {},
@@ -151,6 +163,14 @@ func applyRoutePatch(route *model.PlannedRoute, fields map[string]json.RawMessag
 			target = &route.SportType
 		case "sub_type":
 			target = &route.SubType
+		case "is_electric":
+			target = &route.IsElectric
+		case "is_indoor":
+			target = &route.IsIndoor
+		case "is_virtual":
+			target = &route.IsVirtual
+		case "is_commute":
+			target = &route.IsCommute
 		case "difficulty":
 			target = &route.Difficulty
 		case "profile":
@@ -255,7 +275,7 @@ func normalizeRouteSportForRequest(route *model.PlannedRoute) error {
 	if route.SubType != nil {
 		rawSubType = *route.SubType
 	}
-	tuple, _, err := sport.NormalizeSportTuple(route.SportType, rawSubType)
+	tuple, patch, err := sport.NormalizeSportTuple(route.SportType, rawSubType)
 	if err != nil {
 		return err
 	}
@@ -265,7 +285,34 @@ func normalizeRouteSportForRequest(route *model.PlannedRoute) error {
 	} else {
 		route.SubType = &tuple.SubType
 	}
+	if patch.IsElectric != nil && *patch.IsElectric {
+		route.IsElectric = true
+	}
+	if patch.IsIndoor != nil && *patch.IsIndoor {
+		route.IsIndoor = true
+	}
 	return nil
+}
+
+func parseRouteModifierFilters(r *http.Request) sport.ModifierFilters {
+	query := r.URL.Query()
+	parse := func(key string) *bool {
+		raw := query.Get(key)
+		if raw == "" {
+			return nil
+		}
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return nil
+		}
+		return &value
+	}
+	return sport.ModifierFilters{
+		IsElectric: parse("is_electric"),
+		IsIndoor:   parse("is_indoor"),
+		IsVirtual:  parse("is_virtual"),
+		IsCommute:  parse("is_commute"),
+	}
 }
 
 // DeleteRoute removes a planned route, enforcing ownership.

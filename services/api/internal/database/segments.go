@@ -24,63 +24,6 @@ var (
 	ErrSegmentOSMLift       = errors.New("OSM-imported lift segments cannot be deleted")
 )
 
-func segmentPredicatesFromLegacyFilters(sportTypes, subTypes []string) ([]sport.Predicate, error) {
-	if sportTypes == nil {
-		return nil, nil
-	}
-	if len(sportTypes) == 0 {
-		return []sport.Predicate{}, nil
-	}
-
-	preds := make([]sport.Predicate, 0, len(sportTypes))
-	if len(subTypes) == 0 {
-		for i, sportType := range sportTypes {
-			tuple, _, err := sport.NormalizeSportTuple(sportType, "")
-			if err != nil {
-				return nil, fmt.Errorf("allowed_sport_types[%d]: %w", i, err)
-			}
-			pred := sport.Predicate{Sport: tuple.SportType}
-			if tuple.SubType != "" {
-				pred.SubType = stringPtr(tuple.SubType)
-			}
-			preds = append(preds, pred)
-		}
-		return sport.NormalizePredicates(preds)
-	}
-
-	for i, sportType := range sportTypes {
-		for j, subType := range subTypes {
-			tuple, _, err := sport.NormalizeSportTuple(sportType, subType)
-			if err != nil {
-				return nil, fmt.Errorf("allowed_sport_types[%d]/allowed_sub_types[%d]: %w", i, j, err)
-			}
-			preds = append(preds, sport.Predicate{Sport: tuple.SportType, SubType: stringPtr(tuple.SubType)})
-		}
-	}
-	return sport.NormalizePredicates(preds)
-}
-
-func legacyFiltersFromSegmentPredicates(preds []sport.Predicate) ([]string, []string) {
-	if preds == nil {
-		return nil, nil
-	}
-	sportSeen := map[string]bool{}
-	subSeen := map[string]bool{}
-	sportTypes := make([]string, 0, len(preds))
-	subTypes := make([]string, 0, len(preds))
-	for _, pred := range preds {
-		if pred.Sport != "" && !sportSeen[pred.Sport] {
-			sportSeen[pred.Sport] = true
-			sportTypes = append(sportTypes, pred.Sport)
-		}
-		if pred.SubType != nil && *pred.SubType != "" && !subSeen[*pred.SubType] {
-			subSeen[*pred.SubType] = true
-			subTypes = append(subTypes, *pred.SubType)
-		}
-	}
-	return sportTypes, subTypes
-}
-
 func normalizeSegmentPredicates(preds []sport.Predicate) ([]sport.Predicate, error) {
 	normalized, err := sport.NormalizePredicates(preds)
 	if err != nil {
@@ -114,10 +57,6 @@ func decodeSegmentPredicates(raw []byte) ([]sport.Predicate, error) {
 	return preds, nil
 }
 
-func stringPtr(v string) *string {
-	return &v
-}
-
 func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*model.ListSegmentsResult, error) {
 	// args: $1 = userID (always used by CTE). $2 = isAdmin is appended ONLY when the
 	// visibility clause actually references it — otherwise pgx passes an orphan param
@@ -143,7 +82,7 @@ user_favs AS (
 	// --- SELECT ---
 	selectCols := `
 SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
-       s.allowed_sport_types, s.allowed_sub_types, s.allowed_predicates,
+       s.allowed_predicates,
        s.segment_type, s.segment_type_meta,
        s.source_activity_id, s.osm_lift_id,
        s.distance_m, s.elevation_gain_m,
@@ -360,7 +299,7 @@ LEFT JOIN LATERAL (
 		var allowedPredicatesJSON []byte
 		err := rows.Scan(
 			&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
-			&s.AllowedSportTypes, &s.AllowedSubTypes, &allowedPredicatesJSON,
+			&allowedPredicatesJSON,
 			&s.SegmentType, &s.SegmentTypeMeta,
 			&s.SourceActivityID, &s.OsmLiftID,
 			&s.DistanceM, &s.ElevationGainM,
@@ -420,17 +359,9 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	if create.Bidirectional != nil {
 		bidirectional = *create.Bidirectional
 	}
-	allowedPredicates := create.AllowedPredicates
-	if allowedPredicates == nil {
-		allowedPredicates, err = segmentPredicatesFromLegacyFilters(create.AllowedSportTypes, create.AllowedSubTypes)
-	} else {
-		allowedPredicates, err = normalizeSegmentPredicates(allowedPredicates)
-	}
+	allowedPredicates, err := normalizeSegmentPredicates(create.AllowedPredicates)
 	if err != nil {
 		return nil, fmt.Errorf("normalize segment predicates: %w", err)
-	}
-	if create.AllowedPredicates != nil {
-		create.AllowedSportTypes, create.AllowedSubTypes = legacyFiltersFromSegmentPredicates(allowedPredicates)
 	}
 	allowedPredicatesJSON, err := marshalSegmentPredicates(allowedPredicates)
 	if err != nil {
@@ -441,10 +372,10 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	var s model.Segment
 	var scannedPredicatesJSON []byte
 	err = tx.QueryRow(ctx, `
-		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, visibility, allowed_sport_types, allowed_sub_types, allowed_predicates, bidirectional)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		INSERT INTO segments (created_by, name, description, sport_group, segment_type, segment_type_meta, source_activity_id, terrain_type, climb_type, visibility, allowed_predicates, bidirectional)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_by, name, description, sport_group,
-		          allowed_sport_types, allowed_sub_types, allowed_predicates,
+		          allowed_predicates,
 		          segment_type, segment_type_meta,
 		          source_activity_id, osm_lift_id,
 		          distance_m, elevation_gain_m,
@@ -454,10 +385,10 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		userID, create.Name, create.Description, create.SportGroup,
 		create.SegmentType, segmentTypeMeta, create.SourceActivityID,
 		create.TerrainType, create.ClimbType, create.Visibility,
-		create.AllowedSportTypes, create.AllowedSubTypes, allowedPredicatesJSON, bidirectional,
+		allowedPredicatesJSON, bidirectional,
 	).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
-		&s.AllowedSportTypes, &s.AllowedSubTypes, &scannedPredicatesJSON,
+		&scannedPredicatesJSON,
 		&s.SegmentType, &s.SegmentTypeMeta,
 		&s.SourceActivityID, &s.OsmLiftID,
 		&s.DistanceM, &s.ElevationGainM,
@@ -548,7 +479,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 
 	query := fmt.Sprintf(`
                 SELECT s.id, s.created_by, s.name, s.description, s.sport_group,
-                       s.allowed_sport_types, s.allowed_sub_types, s.allowed_predicates,
+                       s.allowed_predicates,
                        s.segment_type, s.segment_type_meta,
                        s.source_activity_id, s.osm_lift_id,
                        s.distance_m, s.elevation_gain_m,
@@ -582,7 +513,7 @@ func (db *DB) GetSegment(ctx context.Context, segmentID, userID string, isAdmin 
 	var allowedPredicatesJSON []byte
 	err := db.Pool.QueryRow(ctx, query, segmentID, userID, isAdmin).Scan(
 		&s.ID, &s.CreatedBy, &s.Name, &s.Description, &s.SportGroup,
-		&s.AllowedSportTypes, &s.AllowedSubTypes, &allowedPredicatesJSON,
+		&allowedPredicatesJSON,
 		&s.SegmentType, &s.SegmentTypeMeta,
 		&s.SourceActivityID, &s.OsmLiftID,
 		&s.DistanceM, &s.ElevationGainM,
@@ -655,59 +586,26 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 		args = append(args, *update.Visibility)
 		argIdx++
 	}
-	if update.AllowedPredicates != nil {
-		allowedPredicates, err := normalizeSegmentPredicates(update.AllowedPredicates)
-		if err != nil {
-			return nil, fmt.Errorf("normalize segment predicates: %w", err)
-		}
-		allowedSportTypes, allowedSubTypes := legacyFiltersFromSegmentPredicates(allowedPredicates)
-		allowedPredicatesJSON, err := marshalSegmentPredicates(allowedPredicates)
-		if err != nil {
-			return nil, fmt.Errorf("marshal segment predicates: %w", err)
+	if len(update.AllowedPredicates) > 0 {
+		var allowedPredicatesJSON any
+		if string(update.AllowedPredicates) == "null" {
+			allowedPredicatesJSON = nil
+		} else {
+			var requested []sport.Predicate
+			if err := json.Unmarshal(update.AllowedPredicates, &requested); err != nil {
+				return nil, fmt.Errorf("decode segment predicates: %w", err)
+			}
+			allowedPredicates, err := normalizeSegmentPredicates(requested)
+			if err != nil {
+				return nil, fmt.Errorf("normalize segment predicates: %w", err)
+			}
+			allowedPredicatesJSON, err = marshalSegmentPredicates(allowedPredicates)
+			if err != nil {
+				return nil, fmt.Errorf("marshal segment predicates: %w", err)
+			}
 		}
 		setClauses = append(setClauses, fmt.Sprintf("allowed_predicates = $%d", argIdx))
 		args = append(args, allowedPredicatesJSON)
-		argIdx++
-		setClauses = append(setClauses, fmt.Sprintf("allowed_sport_types = $%d", argIdx))
-		args = append(args, allowedSportTypes)
-		argIdx++
-		setClauses = append(setClauses, fmt.Sprintf("allowed_sub_types = $%d", argIdx))
-		if len(allowedSubTypes) == 0 {
-			args = append(args, nil)
-		} else {
-			args = append(args, allowedSubTypes)
-		}
-		argIdx++
-	}
-	// nil slice = unchanged (omitempty on wire), empty slice = clear filter (allow all),
-	// non-empty slice = restrict to listed sport types.
-	if update.AllowedSportTypes != nil && update.AllowedPredicates == nil {
-		allowedPredicates, err := segmentPredicatesFromLegacyFilters(update.AllowedSportTypes, update.AllowedSubTypes)
-		if err != nil {
-			return nil, fmt.Errorf("normalize segment predicates: %w", err)
-		}
-		allowedPredicatesJSON, err := marshalSegmentPredicates(allowedPredicates)
-		if err != nil {
-			return nil, fmt.Errorf("marshal segment predicates: %w", err)
-		}
-		setClauses = append(setClauses, fmt.Sprintf("allowed_predicates = $%d", argIdx))
-		args = append(args, allowedPredicatesJSON)
-		argIdx++
-		setClauses = append(setClauses, fmt.Sprintf("allowed_sport_types = $%d", argIdx))
-		if len(update.AllowedSportTypes) == 0 {
-			args = append(args, nil) // NULL = all sport types allowed
-		} else {
-			args = append(args, update.AllowedSportTypes)
-		}
-		argIdx++
-	}
-	if update.AllowedSubTypes != nil && update.AllowedPredicates == nil {
-		setClauses = append(setClauses, fmt.Sprintf("allowed_sub_types = $%d", argIdx))
-		if len(update.AllowedSubTypes) == 0 {
-			args = append(args, nil)
-		} else {
-			args = append(args, update.AllowedSubTypes)
-		}
 		argIdx++
 	}
 	if update.Bidirectional != nil {
