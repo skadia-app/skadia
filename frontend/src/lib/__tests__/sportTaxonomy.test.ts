@@ -11,14 +11,35 @@ describe('sport taxonomy aliases', () => {
     })
     expect(normalizeSportTuple('treadmill_running')).toEqual({
       sportType: 'running',
-      subType: 'indoor_running',
+      subType: 'treadmill',
       modifiers: { isIndoor: true },
+    })
+    expect(normalizeSportTuple('lap_swimming')).toEqual({
+      sportType: 'swimming',
+      subType: 'lap_swimming',
+      modifiers: {},
     })
     expect(normalizeSportTuple('e_mountain_biking')).toEqual({
       sportType: 'cycling',
       subType: 'mountain',
       modifiers: { isElectric: true },
     })
+    expect(normalizeSportTuple('e_bike')).toEqual({
+      sportType: 'cycling',
+      subType: '',
+      modifiers: { isElectric: true },
+    })
+    expect(normalizeSportTuple('cycling', 'generic')).toEqual({
+      sportType: 'cycling',
+      subType: '',
+      modifiers: {},
+    })
+  })
+
+  it('keeps broad canonical sport classes distinct from legacy aliases', () => {
+    expect(normalizeSportTuple('skiing')).toEqual({ sportType: 'skiing', subType: '', modifiers: {} })
+    expect(normalizeSportTuple('strength')).toEqual({ sportType: 'strength', subType: '', modifiers: {} })
+    expect(normalizeSportTuple('canoeing')).toEqual({ sportType: 'canoeing', subType: '', modifiers: {} })
   })
 
   it('uses canonical subtype labels', () => {

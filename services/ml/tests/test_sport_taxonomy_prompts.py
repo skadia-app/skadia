@@ -51,6 +51,8 @@ def test_prompt_maps_specific_sports_to_tuple_fields():
     assert "Gravel -> sport_type='cycling', sub_type='gravel_cycling'" in _ascii(prompt)
     assert "Trail -> sport_type='running', sub_type='trail'" in _ascii(prompt)
     assert "E-Bike -> sport_type='cycling', is_electric=true" in _ascii(prompt)
+    assert "Ski -> sport_type='alpine_skiing'" in _ascii(prompt)
+    assert "Kraft -> sport_type='strength_training'" in _ascii(prompt)
     for sport_type in DEPRECATED_TOP_LEVEL_SPORTS:
         assert sport_type not in prompt
     assert LEGACY_ELECTRIC_FIELD not in prompt

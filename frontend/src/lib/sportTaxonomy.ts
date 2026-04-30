@@ -305,13 +305,13 @@ const LEGACY_ALIASES = new Map<string, SportTuple>([
   ['gravel_cycling', { sportType: 'cycling', subType: 'gravel_cycling', modifiers: {} }],
   ['indoor_cycling', { sportType: 'cycling', subType: 'indoor_cycling', modifiers: { isIndoor: true } }],
   ['trail_running', { sportType: 'running', subType: 'trail', modifiers: {} }],
-  ['treadmill_running', { sportType: 'running', subType: 'indoor_running', modifiers: { isIndoor: true } }],
-  ['lap_swimming', { sportType: 'swimming', subType: 'lap_swimming', modifiers: { isIndoor: true } }],
+  ['treadmill_running', { sportType: 'running', subType: 'treadmill', modifiers: { isIndoor: true } }],
+  ['lap_swimming', { sportType: 'swimming', subType: 'lap_swimming', modifiers: {} }],
   ['open_water_swimming', { sportType: 'swimming', subType: 'open_water', modifiers: {} }],
   ['road_cycling', { sportType: 'cycling', subType: 'road', modifiers: {} }],
   ['e_mountain_biking', { sportType: 'cycling', subType: 'mountain', modifiers: { isElectric: true } }],
-  ['e_biking', { sportType: 'cycling', subType: 'generic', modifiers: { isElectric: true } }],
-  ['e_bike', { sportType: 'cycling', subType: 'generic', modifiers: { isElectric: true } }],
+  ['e_biking', { sportType: 'cycling', subType: '', modifiers: { isElectric: true } }],
+  ['e_bike', { sportType: 'cycling', subType: '', modifiers: { isElectric: true } }],
 ])
 
 // ── Lookup Maps ─────────────────────────────────────────────────────────────────
@@ -360,8 +360,10 @@ export function normalizeSportTuple(sportType: string, subType: string | null = 
       }
 
   if (tuple.sportType === 'running' && tuple.subType === 'treadmill') {
-    tuple.subType = 'indoor_running'
     tuple.modifiers.isIndoor = true
+  }
+  if (tuple.subType === 'generic') {
+    tuple.subType = ''
   }
 
   return tuple

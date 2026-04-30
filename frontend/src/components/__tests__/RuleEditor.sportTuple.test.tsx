@@ -81,7 +81,7 @@ describe('RuleEditor sport tuple controls', () => {
     })
 
     expect(screen.getByLabelText('Sportart')).toHaveValue('running')
-    expect(screen.getByLabelText('Sub-Sportart')).toHaveValue('indoor_running')
+    expect(screen.getByLabelText('Sub-Sportart')).toHaveValue('treadmill')
     expect(screen.getByLabelText('Indoor')).toHaveValue('true')
     expect(screen.getByLabelText('Sportart setzen')).toHaveValue('cycling')
     expect(screen.getByLabelText('Sub-Sportart setzen')).toHaveValue('indoor_cycling')
@@ -91,7 +91,7 @@ describe('RuleEditor sport tuple controls', () => {
     await waitFor(() => expect(onSave).toHaveBeenCalled())
     expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
       { field: 'sport_type', op: 'eq', value: 'running' },
-      { field: 'sub_type', op: 'eq', value: 'indoor_running' },
+      { field: 'sub_type', op: 'eq', value: 'treadmill' },
       { field: 'is_indoor', op: 'eq', value: true },
     ])
     expect(onSave.mock.calls[0][0].actions).toEqual([
