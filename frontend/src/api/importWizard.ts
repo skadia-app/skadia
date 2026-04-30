@@ -77,6 +77,10 @@ export interface FusionCandidate {
   started_at: string
   distance_m: number
   sport_type: string
+  sub_type: string | null
+  is_electric: boolean
+  is_indoor: boolean
+  is_virtual: boolean
 }
 
 export async function getFusionCandidates(activityId: string): Promise<FusionCandidate[]> {

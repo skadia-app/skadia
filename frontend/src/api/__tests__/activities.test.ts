@@ -26,4 +26,14 @@ describe('activities API filters', () => {
 
     expect(apiClientMock).toHaveBeenCalledWith('/activities?limit=20&sport_type=cycling%3Amountain%2Crunning%3Atrail')
   })
+
+  it('serializes commute modifier filters to the activities endpoint', async () => {
+    apiClientMock.mockResolvedValueOnce({ activities: [], total: 0 })
+
+    await fetchActivities(undefined, 20, undefined, undefined, {
+      isCommute: false,
+    })
+
+    expect(apiClientMock).toHaveBeenCalledWith('/activities?limit=20&is_commute=false')
+  })
 })

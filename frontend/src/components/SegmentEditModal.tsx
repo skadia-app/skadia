@@ -19,6 +19,7 @@ import { expandCategoryToSportTypes, isCategoryFullyActive } from '@/lib/sportCa
 import { WINTER_SPORT_WHITELIST, WATER_SPORT_WHITELIST, BIDIRECTIONAL_DEFAULT, type SegType } from './segment-editor/constants'
 import { Pill } from './ui/Pill'
 import { sportPredicatesFromSelectionKeys } from '@/lib/sportSelection'
+import { filterSegmentSportSelection, removeSegmentSportSelectionKeys } from './segment-editor/segmentSportSelection'
 
 const SEG_TYPE_LABELS: Record<SegType, string> = {
   standard: 'Standard',
@@ -83,16 +84,12 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
     }
     if (newType === 'wintersport') {
       setAllowedSportTypes(prev => {
-        if (!prev) return null
-        const filtered = prev.filter(s => WINTER_SPORT_WHITELIST.includes(s))
-        return filtered.length === 0 ? null : filtered
+        return filterSegmentSportSelection(prev, WINTER_SPORT_WHITELIST)
       })
     }
     if (newType === 'wassersport') {
       setAllowedSportTypes(prev => {
-        if (!prev) return null
-        const filtered = prev.filter(s => WATER_SPORT_WHITELIST.includes(s))
-        return filtered.length === 0 ? null : filtered
+        return filterSegmentSportSelection(prev, WATER_SPORT_WHITELIST)
       })
     }
   }
@@ -302,7 +299,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
               setAllowedSportTypes(prev => {
                 const current = prev ?? []
                 if (isFull) {
-                  return current.filter(t => !types.includes(t))
+                  return removeSegmentSportSelectionKeys(current, types)
                 } else {
                   const next = [...current]
                   types.forEach(t => { if (!next.includes(t)) next.push(t) })
@@ -318,7 +315,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
                 const next = prev.includes(sportType)
                   ? prev.filter(t => t !== sportType)
                   : [...prev, sportType]
-                return next.length === 0 ? null : next
+                return next
               })
             }}
           />

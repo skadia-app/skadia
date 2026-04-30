@@ -20,6 +20,7 @@ export interface ActivityFilterState {
   hasGPS: boolean | null
   isElectric: boolean | null
   isVirtual: boolean | null
+  isCommute: boolean | null
   gearId: string
   tagFilters: TagFilter[]
   gearFilters: GearFilter[]
@@ -35,6 +36,7 @@ export const EMPTY_FILTERS: ActivityFilterState = {
   hasGPS: null,
   isElectric: null,
   isVirtual: null,
+  isCommute: null,
   gearId: '',
   tagFilters: [],
   gearFilters: [],
@@ -54,6 +56,7 @@ export function filtersToParams(f: ActivityFilterState): URLSearchParams {
   if (f.hasGPS !== null) p.set('gps', String(f.hasGPS))
   if (f.isElectric !== null) p.set('ebike', String(f.isElectric))
   if (f.isVirtual !== null) p.set('virtual', String(f.isVirtual))
+  if (f.isCommute !== null) p.set('commute', String(f.isCommute))
   if (f.gearId) p.set('gear', f.gearId)
   if (f.search) p.set('q', f.search)
   const includeTags = f.tagFilters.filter(tf => tf.state === 'include').map(tf => tf.id)
@@ -86,6 +89,8 @@ export function paramsToFilters(p: URLSearchParams): ActivityFilterState {
   if (ebike !== null) f.isElectric = ebike === 'true'
   const virtual_ = p.get('virtual')
   if (virtual_ !== null) f.isVirtual = virtual_ === 'true'
+  const commute = p.get('commute')
+  if (commute !== null) f.isCommute = commute === 'true'
   f.gearId = p.get('gear') ?? ''
   f.search = p.get('q') ?? ''
   // tagFilters, gearFilters and deviceFilters require full objects and cannot be restored from URL IDs alone
@@ -110,6 +115,7 @@ export function filtersToApiParams(f: ActivityFilterState) {
     hasGPS: f.hasGPS,
     isElectric: f.isElectric,
     isVirtual: f.isVirtual,
+    isCommute: f.isCommute,
     gearId: f.gearId,
     search: f.search,
     includeTags: includeTags.length ? includeTags : undefined,
@@ -149,6 +155,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     if (f.hasGPS !== null) n++
     if (f.isElectric !== null) n++
     if (f.isVirtual !== null) n++
+    if (f.isCommute !== null) n++
     if (f.gearId) n++
     if (f.tagFilters.length) n++
     if (f.gearFilters.length) n++
@@ -189,6 +196,9 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   if (filters.isVirtual !== null) {
     chips.push({ label: filters.isVirtual ? 'Nur Virtuell' : 'Ohne Virtuell', onRemove: () => onChange({ ...filters, isVirtual: null }) })
   }
+  if (filters.isCommute !== null) {
+    chips.push({ label: filters.isCommute ? 'Nur Pendeln' : 'Ohne Pendeln', onRemove: () => onChange({ ...filters, isCommute: null }) })
+  }
   if (filters.gearId) {
     chips.push({ label: 'Ausrüstung', onRemove: () => onChange({ ...filters, gearId: '' }) })
   }
@@ -227,13 +237,14 @@ export default function ActivityFilters({ filters, onChange }: Props) {
 
             <SportFilter
               preset="ACTIVITY_ALL"
-              modifierKeys={['is_electric', 'is_indoor', 'is_virtual']}
+              modifierKeys={['is_electric', 'is_indoor', 'is_virtual', 'is_commute']}
               value={{
                 sportTypes: filters.sportTypes.size === 0 ? null : [...filters.sportTypes],
                 modifiers: {
                   is_electric: filters.isElectric ?? undefined,
                   is_indoor: filters.isIndoor ?? undefined,
                   is_virtual: filters.isVirtual ?? undefined,
+                  is_commute: filters.isCommute ?? undefined,
                 },
               }}
               onChange={(next) => onChange({
@@ -242,6 +253,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                 isElectric: next.modifiers?.is_electric ?? null,
                 isIndoor: next.modifiers?.is_indoor ?? null,
                 isVirtual: next.modifiers?.is_virtual ?? null,
+                isCommute: next.modifiers?.is_commute ?? null,
               })}
             />
 
