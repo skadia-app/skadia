@@ -44,6 +44,12 @@ export interface SportOption {
   label: string
 }
 
+export interface WaterSportUIGroup {
+  key: string
+  label: string
+  segmentGroups: SportDef['segmentGroup'][]
+}
+
 export interface RouteSportOption {
   sportType: string
   subType?: string
@@ -63,6 +69,12 @@ export const CATEGORIES: SportCategory[] = [
   { key: 'outdoor', label: 'Outdoor', color: '#84CC16' },
   { key: 'multi', label: 'Multisport', color: '#F59E0B' },
   { key: 'other', label: 'Sonstiges', color: '#6B7280' },
+]
+
+export const WATER_SPORT_UI_GROUPS: WaterSportUIGroup[] = [
+  { key: 'water_swim', label: 'Schwimmen', segmentGroups: ['swim'] },
+  { key: 'water_paddle', label: 'Paddeln', segmentGroups: ['paddle'] },
+  { key: 'water_surf', label: 'Surfen & Segeln', segmentGroups: ['generic'] },
 ]
 
 const categoryMap = new Map<string, SportCategory>(CATEGORIES.map((c) => [c.key, c]))

@@ -1,17 +1,25 @@
-import { getSegmentGroup, sportsInCategory } from '@/lib/sportTaxonomy'
+import { WATER_SPORT_UI_GROUPS, getSegmentGroup, sportsInCategory, type SportDef } from '@/lib/sportTaxonomy'
 import { WINTER_SPORT_WHITELIST, WATER_SPORT_WHITELIST, type SegType } from '@/components/segment-editor/constants'
 
-export const UI_SPORT_CATEGORIES = [
+export interface UISportCategory {
+  key: string
+  label: string
+  taxonomyKeys: string[]
+  segmentGroups?: SportDef['segmentGroup'][]
+}
+
+export const UI_SPORT_CATEGORIES: UISportCategory[] = [
   { key: 'run',          label: 'Laufen & Wandern', taxonomyKeys: ['run'] },
   { key: 'bike',         label: 'Rad',              taxonomyKeys: ['bike'] },
   { key: 'winter',       label: 'Wintersport',      taxonomyKeys: ['winter'] },
-  { key: 'water_swim',   label: 'Schwimmen',        taxonomyKeys: ['water'], segmentGroups: ['swim'] },
-  { key: 'water_paddle', label: 'Paddeln',          taxonomyKeys: ['water'], segmentGroups: ['paddle'] },
-  { key: 'water_surf',   label: 'Surfen & Segeln',  taxonomyKeys: ['water'], segmentGroups: ['generic'] },
+  ...WATER_SPORT_UI_GROUPS.map(group => ({
+    key: group.key,
+    label: group.label,
+    taxonomyKeys: ['water'],
+    segmentGroups: group.segmentGroups,
+  })),
   { key: 'sonstige',     label: 'Sonstige',         taxonomyKeys: ['fitness', 'game', 'climb', 'outdoor', 'multi', 'other'] },
 ]
-
-export type UISportCategory = typeof UI_SPORT_CATEGORIES[number]
 
 export function getVisibleCategories(segType: SegType) {
   if (segType === 'wintersport') return UI_SPORT_CATEGORIES.filter(c => c.key === 'winter')
@@ -24,7 +32,7 @@ export function expandCategoryToSportTypes(uiKey: string, whitelist?: readonly s
   if (!cat) return []
   let types = cat.taxonomyKeys.flatMap(tk => sportsInCategory(tk).map(s => s.sportType))
   if (cat.segmentGroups) {
-    types = types.filter(t => (cat.segmentGroups as string[]).includes(getSegmentGroup(t)))
+    types = types.filter(t => cat.segmentGroups?.includes(getSegmentGroup(t)))
   }
   if (whitelist) {
     types = types.filter(t => whitelist.includes(t))

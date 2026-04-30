@@ -5,6 +5,7 @@ import {
   CATEGORIES,
   SPORT_DEFS,
   PROMOTE_SUB_TYPE,
+  WATER_SPORT_UI_GROUPS,
   sportColor,
   sportsInCategory,
   type SportDef,
@@ -73,6 +74,13 @@ function categoryGroup(catKey: string, label: string, sports: SportDef[]): Sport
   return { value: catKey, label, groupKey: catKey, children }
 }
 
+function waterCategoryGroups(sports: SportDef[]): SportOption[] {
+  return WATER_SPORT_UI_GROUPS.flatMap((group) => {
+    const groupedSports = sports.filter((sport) => group.segmentGroups.includes(sport.segmentGroup))
+    return groupedSports.length > 0 ? [categoryGroup(group.key, group.label, groupedSports)] : []
+  })
+}
+
 // ── GPS-relevant categories for map view ────────────────────────────────────────
 
 const GPS_CATEGORIES = ['run', 'bike', 'winter', 'water', 'climb', 'outdoor', 'multi']
@@ -90,6 +98,11 @@ export function generateMapFilterOptions(): SportOption[] {
     if (!cat) continue
     const sports = sportsInCategory(catKey)
     if (sports.length === 0) continue
+
+    if (catKey === 'water') {
+      options.push(...waterCategoryGroups(sports))
+      continue
+    }
 
     if (sports.length === 1 && sports[0].subTypes.length === 0) {
       options.push({ value: sports[0].sportType, label: cat.label })
@@ -120,6 +133,11 @@ export function generateActivityFilterOptions(): SportOption[] {
   for (const cat of CATEGORIES) {
     const sports = sportsInCategory(cat.key)
     if (sports.length === 0) continue
+
+    if (cat.key === 'water') {
+      options.push(...waterCategoryGroups(sports))
+      continue
+    }
 
     if (sports.length === 1 && sports[0].subTypes.length === 0) {
       options.push({ value: sports[0].sportType, label: cat.label })

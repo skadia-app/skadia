@@ -37,7 +37,91 @@ function renderEditor(seed: Partial<AutomationRule>, onSave = vi.fn()) {
   return onSave
 }
 
+function renderNewEditor(seed: Partial<AutomationRule> = {}, onSave = vi.fn()) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={client}>
+      <RuleEditor
+        initialData={{
+          name: 'Neue Regel',
+          priority: 0,
+          trigger_event: 'on_import',
+          stop_on_match: false,
+          ...seed,
+        }}
+        onSave={onSave}
+        onCancel={() => {}}
+      />
+    </QueryClientProvider>,
+  )
+  return onSave
+}
+
 describe('RuleEditor sport tuple controls', () => {
+  it('starts new rules with the generic condition picker instead of an empty sport tuple', () => {
+    renderNewEditor()
+
+    expect(screen.getByDisplayValue('Titel')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Sportart')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('E-Bike')).not.toBeInTheDocument()
+  })
+
+  it('keeps newly added conditions visible when a sport tuple already exists', () => {
+    renderEditor({})
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Bedingung hinzufügen' }))
+
+    expect(screen.getByLabelText('Sportart')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Titel')).toBeInTheDocument()
+  })
+
+  it('shows running subtypes and hides E-Bike modifiers for running sport tuples', () => {
+    renderEditor({
+      condition_groups: [{ logic: 'and', conditions: [{ field: 'sport_type', op: 'eq', value: 'running' }] }],
+      actions: [{ action: 'set_sport_type', params: { sport_type: 'running' } }],
+    })
+
+    expect(screen.getByLabelText('Sportart')).toHaveValue('running')
+    expect(screen.getAllByRole('option', { name: 'Trail' }).length).toBeGreaterThan(0)
+    expect(screen.queryByLabelText('E-Bike')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('E-Bike setzen')).not.toBeInTheDocument()
+  })
+
+  it('edits activity speed conditions in km/h while saving m/s', async () => {
+    const onSave = renderEditor({
+      condition_groups: [{ logic: 'and', conditions: [{ field: 'avg_speed_ms', op: 'gt', value: 10 }] }],
+    })
+
+    expect(screen.getByDisplayValue('36')).toBeInTheDocument()
+    expect(screen.getByText('km/h')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByDisplayValue('36'), { target: { value: '54' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'avg_speed_ms', op: 'gt', value: 15 },
+    ])
+  })
+
+  it('edits activity speed ranges in km/h while saving m/s ranges', async () => {
+    const onSave = renderEditor({
+      condition_groups: [{ logic: 'and', conditions: [{ field: 'max_speed_ms', op: 'between', value: '5,10' }] }],
+    })
+
+    expect(screen.getByDisplayValue('18')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('36')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByDisplayValue('18'), { target: { value: '21.6' } })
+    fireEvent.change(screen.getByDisplayValue('36'), { target: { value: '43.2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'max_speed_ms', op: 'between', value: '6,12' },
+    ])
+  })
+
   it('serializes sport condition and action as canonical tuple plus electric modifier', async () => {
     const onSave = renderEditor({})
 
