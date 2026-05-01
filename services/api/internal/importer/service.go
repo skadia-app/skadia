@@ -106,7 +106,7 @@ func (s *Service) PostProcess(
 	// RunStreamEnrichment is called explicitly in Phase 2 after g.Wait().
 	// skipGeo=true: activity_tracks is written in Phase 1 (InsertTrack).
 	// RunGeoAndPublishStage2 is called explicitly in Phase 2 after g.Wait().
-	enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, true)
+	enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, true, nil)
 
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
 		if rulesErr := automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules, "on_import"); rulesErr != nil {

@@ -140,7 +140,8 @@ const enableDEMEnrichment = false
 // When skipStreamEnrichment is true, RunStreamEnrichment is NOT called — the caller is
 // responsible for calling it separately after streams have been written to the DB
 // (import path: activity_streams is empty until InsertStreams completes in Phase 1).
-func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub event.Stage2ReadyPublisher, asyncWeather bool, skipStreamEnrichment bool, graphReader routing.GraphReader, skipGeo bool) {
+func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub event.Stage2ReadyPublisher, asyncWeather bool, skipStreamEnrichment bool, graphReader routing.GraphReader, skipGeo bool, deps *Stage1Deps) {
+	weatherFetcher, geocoder := resolveStage1Deps(deps)
 	fields := make(map[string]any)
 
 	// Load user profile for HR-based calculations
@@ -371,7 +372,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	// settings — Nominatim or Photon when osm_boundaries has no match).
 	// Skip virtual activities: GPS is simulated.
 	if data.StartLat != 0 && data.StartLng != 0 && !data.IsVirtual {
-		if geo, err := ReverseGeocode(ctx, db, userID, data.StartLat, data.StartLng); err == nil && geo != nil {
+		if geo, err := geocoder.Reverse(ctx, db, userID, data.StartLat, data.StartLng); err == nil && geo != nil {
 			if geo.City != "" {
 				fields["start_city"] = geo.City
 			}
@@ -387,7 +388,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 	if data.EndLat != 0 && data.EndLng != 0 && !data.IsVirtual {
-		if geo, err := ReverseGeocode(ctx, db, userID, data.EndLat, data.EndLng); err == nil && geo != nil {
+		if geo, err := geocoder.Reverse(ctx, db, userID, data.EndLat, data.EndLng); err == nil && geo != nil {
 			if geo.City != "" {
 				fields["end_city"] = geo.City
 			}
@@ -402,9 +403,9 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		if asyncWeather {
 			// Import path: fire-and-forget so we don't block the import pipeline.
 			// Tags are applied later by automation rules / Stage 2.
-			go fetchAndInsertWeather(db, userID, activityID, data)
+			go fetchAndInsertWeather(db, userID, activityID, data, weatherFetcher)
 		} else {
-			fetchAndInsertWeather(db, userID, activityID, data)
+			fetchAndInsertWeather(db, userID, activityID, data, weatherFetcher)
 		}
 	}
 
@@ -654,7 +655,10 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 
 // fetchAndInsertWeather fetches weather data for an activity and inserts readings + tags.
 // Safe to call from a goroutine (uses context.Background with 30s timeout).
-func fetchAndInsertWeather(db *database.DB, userID, activityID string, data *model.ActivityData) {
+func fetchAndInsertWeather(db *database.DB, userID, activityID string, data *model.ActivityData, weather WeatherFetcher) {
+	if weather == nil {
+		weather = defaultWeatherFetcher{}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -679,7 +683,7 @@ func fetchAndInsertWeather(db *database.DB, userID, activityID string, data *mod
 	if len(weatherReqs) == 0 {
 		return
 	}
-	readings, err := FetchWeatherReadings(ctx, weatherReqs)
+	readings, err := weather.FetchReadings(ctx, weatherReqs)
 	if err != nil {
 		slog.Warn("stage1: weather fetch failed (non-fatal)", "activity_id", activityID, "error", err)
 		return
