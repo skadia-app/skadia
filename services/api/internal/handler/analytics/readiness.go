@@ -87,7 +87,16 @@ func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if row == nil {
-		writeRefused(w, "no_data", nil)
+		// Cache miss: trigger recompute so the worker populates the row, then
+		// serve service_unavailable rather than conflating this with a genuine
+		// "no data ever" state. The frontend already handles service_unavailable
+		// with the "Berechnung temporär nicht verfügbar" copy.
+		if h.Invalidator != nil {
+			if err := h.Invalidator.PublishAnalyticsInvalidate(userID); err != nil {
+				slog.Warn("readiness cache miss: invalidate publish failed", "user_id", userID, "error", err)
+			}
+		}
+		writeRefused(w, "service_unavailable", nil)
 		return
 	}
 

@@ -6,6 +6,10 @@ CREATE TABLE IF NOT EXISTS user_readiness_preferences (
 );
 
 DELETE FROM analytics_cache WHERE cache_key = 'readiness_v2';
+-- Also purge legacy rows written by main-branch code with the old shape
+-- ({score, level, factors{name,value,status}}, expires_at=NULL).
+-- These would be served verbatim by GetReadiness after deploy — wrong schema.
+DELETE FROM analytics_cache WHERE cache_key = 'readiness';
 
 -- Note: audit-log INSERT is non-idempotent; re-running the migration appends a row.
 INSERT INTO auth_audit_log (user_id, event_type, details)
