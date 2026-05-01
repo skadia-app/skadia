@@ -29,10 +29,16 @@ func RenderTS(t Taxonomy, source []byte) ([]byte, error) {
 		fmt.Fprintf(&buf, "    label: %s,\n", tsString(s.Labels["de"]))
 		fmt.Fprintf(&buf, "    typicallyHasGPS: %t,\n", s.TypicallyHasGPS)
 		fmt.Fprintf(&buf, "    isIndoor: %t,\n", s.IsIndoor)
+		fmt.Fprintf(&buf, "    lifecycle: %s,\n", tsString(s.Lifecycle))
+		fmt.Fprintf(&buf, "    selectable: %t,\n", *s.Selectable)
 		if len(s.SubTypes) > 0 {
 			buf.WriteString("    subTypes: [\n")
 			for _, st := range s.SubTypes {
-				fmt.Fprintf(&buf, "      { subType: %s, label: %s, detail: %s },\n", tsString(st.SubType), tsString(st.Labels["de"]), tsString(st.Details["de"]))
+				fmt.Fprintf(&buf, "      { subType: %s, label: %s, detail: %s, selectable: %t", tsString(st.SubType), tsString(st.Labels["de"]), tsString(st.Details["de"]), *st.Selectable)
+				if st.MovingThreshold != nil {
+					fmt.Fprintf(&buf, ", movingThreshold: %v", *st.MovingThreshold)
+				}
+				buf.WriteString(" },\n")
 			}
 			buf.WriteString("    ],\n")
 		} else {

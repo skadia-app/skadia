@@ -35,6 +35,8 @@ type Sport struct {
 	TypicallyHasGPS       bool                   `yaml:"typically_has_gps"`
 	MovingThreshold       float64                `yaml:"moving_threshold"`
 	IsIndoor              bool                   `yaml:"is_indoor"`
+	Lifecycle             string                 `yaml:"lifecycle"`
+	Selectable            *bool                  `yaml:"selectable"`
 	ModifierApplicability *ModifierApplicability `yaml:"modifier_applicability"`
 	SubTypes              []SubType              `yaml:"sub_types"`
 }
@@ -47,10 +49,12 @@ type ModifierApplicability struct {
 }
 
 type SubType struct {
-	SubType    string    `yaml:"sub_type"`
-	Labels     LocaleMap `yaml:"labels"`
-	Details    LocaleMap `yaml:"details"`
-	AutoTitles LocaleMap `yaml:"auto_titles"`
+	SubType         string    `yaml:"sub_type"`
+	Labels          LocaleMap `yaml:"labels"`
+	Details         LocaleMap `yaml:"details"`
+	AutoTitles      LocaleMap `yaml:"auto_titles"`
+	MovingThreshold *float64  `yaml:"moving_threshold"`
+	Selectable      *bool     `yaml:"selectable"`
 }
 
 var validHex = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
@@ -62,10 +66,30 @@ func LoadTaxonomy(r io.Reader) (Taxonomy, error) {
 	if err := dec.Decode(&taxonomy); err != nil {
 		return Taxonomy{}, err
 	}
+	applyTaxonomyDefaults(&taxonomy)
 	if err := validateTaxonomy(taxonomy); err != nil {
 		return Taxonomy{}, err
 	}
 	return taxonomy, nil
+}
+
+func applyTaxonomyDefaults(t *Taxonomy) {
+	for i := range t.Sports {
+		s := &t.Sports[i]
+		if s.Lifecycle == "" {
+			s.Lifecycle = "canonical"
+		}
+		if s.Selectable == nil {
+			defaultSelectable := s.Lifecycle == "canonical"
+			s.Selectable = &defaultSelectable
+		}
+		for j := range s.SubTypes {
+			if s.SubTypes[j].Selectable == nil {
+				defaultSelectable := true
+				s.SubTypes[j].Selectable = &defaultSelectable
+			}
+		}
+	}
 }
 
 func validateTaxonomy(t Taxonomy) error {
@@ -113,6 +137,12 @@ func validateTaxonomy(t Taxonomy) error {
 		if s.MovingThreshold < 0 {
 			return fmt.Errorf("sport %q: negative moving_threshold", s.SportType)
 		}
+		if !isValidLifecycle(s.Lifecycle) {
+			return fmt.Errorf("sport %q: invalid lifecycle %q", s.SportType, s.Lifecycle)
+		}
+		if s.Selectable == nil {
+			return fmt.Errorf("sport %q: missing selectable default", s.SportType)
+		}
 		if s.ModifierApplicability == nil {
 			return fmt.Errorf("sport %q: missing modifier_applicability", s.SportType)
 		}
@@ -140,9 +170,24 @@ func validateTaxonomy(t Taxonomy) error {
 			if st.AutoTitles["de"] == "" {
 				return fmt.Errorf("sport %q/%q: missing auto_titles.de", s.SportType, st.SubType)
 			}
+			if st.MovingThreshold != nil && *st.MovingThreshold < 0 {
+				return fmt.Errorf("sport %q/%q: negative moving_threshold", s.SportType, st.SubType)
+			}
+			if st.Selectable == nil {
+				return fmt.Errorf("sport %q/%q: missing selectable default", s.SportType, st.SubType)
+			}
 		}
 	}
 	return nil
+}
+
+func isValidLifecycle(value string) bool {
+	switch value {
+	case "canonical", "broad_fallback", "deprecated":
+		return true
+	default:
+		return false
+	}
 }
 
 func isValidSegmentGroup(group string) bool {
