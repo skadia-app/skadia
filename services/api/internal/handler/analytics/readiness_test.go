@@ -302,3 +302,76 @@ func TestReadiness_Unauth(t *testing.T) {
 		t.Fatalf("status %d, want 401; body: %s", rr.Code, rr.Body.String())
 	}
 }
+
+// TestReadiness_AdditiveSchemaPassthrough — validates the additive-only cache
+// schema contract (Spec §12.5): the handler MUST pass through unknown fields
+// verbatim without stripping them. An old frontend build reading a cache row
+// written by a newer worker must not lose any data it doesn't yet know about.
+//
+// Additive-only contract:
+//   - Fields are NEVER renamed or removed from the cache JSONB.
+//   - New fields are ONLY added; older readers skip them safely.
+//   - The handler MUST NOT unmarshal+remarshal through a typed struct on the
+//     fresh-cache path — doing so would strip unknown keys silently.
+//
+// If this test fails it means GetReadiness has introduced a normalization step
+// on the fresh-cache path that destroys forward compatibility.
+func TestReadiness_AdditiveSchemaPassthrough(t *testing.T) {
+	h, pool := newReadinessTestHandler(t, &event.FakeInvalidator{})
+	uid := seedReadinessTestUser(t, pool)
+
+	// Seed a cache row containing a field that does not exist in the current
+	// ReadinessResponse schema — simulating a row written by a future worker.
+	body := json.RawMessage(`{` +
+		`"refused":false,` +
+		`"refusal_reason":null,` +
+		`"score":73,` +
+		`"level":"good",` +
+		`"factors":[],` +
+		`"missing_factors":[],` +
+		`"computed_at":"2026-05-01T08:00:00Z",` +
+		`"data_window_end":null,` +
+		`"preferences_version":1,` +
+		`"confidence":0.85,` +
+		`"recommendation_code":null,` +
+		`"signal_modifier":null,` +
+		`"degraded":null,` +
+		`"future_field":42` +
+		`}`)
+
+	now := time.Now()
+	expires := now.Add(6 * time.Hour)
+	seedReadinessRow(t, pool, uid, body, now.Add(-30*time.Minute), &expires)
+
+	rr := httptest.NewRecorder()
+	h.GetReadiness(rr, reqWithUser(uid))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	// Core fields must survive.
+	if score, _ := got["score"].(float64); score != 73 {
+		t.Errorf("score = %v, want 73", got["score"])
+	}
+	if level, _ := got["level"].(string); level != "good" {
+		t.Errorf("level = %v, want good", got["level"])
+	}
+
+	// The unknown future field must be present and carry the original value.
+	// Absence means the handler normalised the payload through a typed struct,
+	// breaking forward compatibility for older frontend builds.
+	futureVal, ok := got["future_field"]
+	if !ok {
+		t.Fatal("additive-schema violation: 'future_field' was stripped by GetReadiness — " +
+			"fresh-cache path must write row.Data verbatim without unmarshal/remarshal")
+	}
+	if futureVal.(float64) != 42 {
+		t.Errorf("future_field = %v, want 42", futureVal)
+	}
+}
