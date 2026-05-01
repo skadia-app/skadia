@@ -124,17 +124,62 @@ describe('ReadinessCardCompact', () => {
     mockFetchReadinessPreferences.mockResolvedValue(DEFAULT_PREFS)
   })
 
-  // Test 1: Compact renders refused-state with banner
-  it('renders refused-state with refusal banner', async () => {
-    mockFetchReadiness.mockResolvedValue(REFUSED_RESPONSE)
+  // Test 1: Compact renders refused-state — single-line compact hint (no heavy amber banner in dashboard context)
+  it('renders refused-state with compact inline hint text', async () => {
+    mockFetchReadiness.mockResolvedValue(REFUSED_RESPONSE) // refusal_reason: 'no_data'
     render(<ReadinessCardCompact />, { wrapper: makeWrapper() })
 
     await waitFor(() => {
-      expect(screen.getByTestId('refusal-banner')).toBeInTheDocument()
+      // Compact refused shows a short inline text, not the full amber refusal-banner.
+      expect(screen.getByTestId('readiness-compact')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('refusal-banner')).toHaveTextContent(
-      'Noch keine Daten verfügbar.',
+    // REFUSAL_TEXTS_COMPACT['no_data'] = 'Keine Daten'
+    expect(screen.getByTestId('readiness-compact')).toHaveTextContent('Keine Daten')
+    // Full amber refusal banner must NOT appear in compact/dashboard context.
+    expect(screen.queryByTestId('refusal-banner')).not.toBeInTheDocument()
+  })
+})
+
+describe('ReadinessCardCompact — error state', () => {
+  beforeEach(() => {
+    mockFetchReadiness.mockReset()
+    mockFetchReadinessPreferences.mockReset()
+    mockFetchReadinessPreferences.mockResolvedValue(DEFAULT_PREFS)
+  })
+
+  it('renders ghost ring on isError', async () => {
+    mockFetchReadiness.mockRejectedValue(new Error('Network error'))
+    render(<ReadinessCardCompact />, { wrapper: makeWrapper() })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('readiness-compact-empty')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('readiness-compact-empty')).toHaveTextContent('Nicht verfügbar')
+    // Populated card must not appear during error
+    expect(screen.queryByTestId('readiness-compact')).not.toBeInTheDocument()
+  })
+})
+
+describe('ReadinessCardFull — error state', () => {
+  beforeEach(() => {
+    mockFetchReadiness.mockReset()
+    mockFetchReadinessPreferences.mockReset()
+    mockFetchReadinessPreferences.mockResolvedValue(DEFAULT_PREFS)
+  })
+
+  it('renders ghost ring on isError with retry hint', async () => {
+    mockFetchReadiness.mockRejectedValue(new Error('Network error'))
+    render(<ReadinessCardFull />, { wrapper: makeWrapper() })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('readiness-full-empty')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('readiness-full-empty')).toHaveTextContent(
+      'Bereitschaftswert konnte nicht geladen werden.',
     )
+    expect(screen.getByTestId('readiness-full-empty')).toHaveTextContent('Seite neu laden')
+    // Populated card must not appear during error
+    expect(screen.queryByTestId('readiness-full')).not.toBeInTheDocument()
   })
 })
 
