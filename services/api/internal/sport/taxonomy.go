@@ -14,10 +14,12 @@ type Category struct {
 
 // SubTypeDef describes a sub-sport variation within a parent sport.
 type SubTypeDef struct {
-	SubType     string `json:"sub_type"`
-	LabelDE     string `json:"label_de"`
-	DetailDE    string `json:"detail_de"`
-	AutoTitleDE string `json:"auto_title_de"`
+	SubType         string   `json:"sub_type"`
+	LabelDE         string   `json:"label_de"`
+	DetailDE        string   `json:"detail_de"`
+	AutoTitleDE     string   `json:"auto_title_de"`
+	MovingThreshold *float64 `json:"moving_threshold,omitempty"`
+	Selectable      bool     `json:"selectable"`
 }
 
 // SportDef holds every piece of metadata for a single sport type.
@@ -30,6 +32,8 @@ type SportDef struct {
 	TypicallyHasGPS bool                  `json:"typically_has_gps"`
 	MovingThreshold float64               `json:"moving_threshold"`
 	IsIndoor        bool                  `json:"is_indoor"`
+	Lifecycle       string                `json:"lifecycle"`
+	Selectable      bool                  `json:"selectable"`
 	SubTypes        map[string]SubTypeDef `json:"sub_types,omitempty"`
 }
 
@@ -126,9 +130,20 @@ func SegmentGroup(sportType string) string {
 // MovingThreshold returns the minimum speed (m/s) that counts as "moving"
 // for the given sport type.
 func MovingThreshold(sportType string) float64 {
+	return MovingThresholdForTuple(sportType, "")
+}
+
+// MovingThresholdForTuple returns the minimum speed (m/s) that counts as
+// moving for the given sport tuple.
+func MovingThresholdForTuple(sportType, subType string) float64 {
 	d, ok := registry[sportType]
 	if !ok {
 		return 0.0
+	}
+	if subType != "" && subType != "generic" {
+		if st, stOK := d.SubTypes[subType]; stOK && st.MovingThreshold != nil {
+			return *st.MovingThreshold
+		}
 	}
 	return d.MovingThreshold
 }
@@ -217,4 +232,8 @@ func subTypeLabelCanStandAlone(d SportDef) bool {
 	default:
 		return false
 	}
+}
+
+func ptrFloat64(v float64) *float64 {
+	return &v
 }

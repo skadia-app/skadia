@@ -23,12 +23,17 @@ func RenderGo(t Taxonomy) ([]byte, error) {
 		fmt.Fprintf(&buf, "\t{\n")
 		fmt.Fprintf(&buf, "\t\tSportType: %q, CategoryKey: %q, LabelDE: %q, AutoTitleDE: %q,\n", s.SportType, s.CategoryKey, s.Labels["de"], s.AutoTitles["de"])
 		fmt.Fprintf(&buf, "\t\tSegmentGroup: %q, TypicallyHasGPS: %t, MovingThreshold: %v, IsIndoor: %t,\n", s.SegmentGroup, s.TypicallyHasGPS, s.MovingThreshold, s.IsIndoor)
+		fmt.Fprintf(&buf, "\t\tLifecycle: %q, Selectable: %t,\n", s.Lifecycle, *s.Selectable)
 		if len(s.SubTypes) > 0 {
 			buf.WriteString("\t\tSubTypes: map[string]SubTypeDef{\n")
 			subTypes := append([]SubType(nil), s.SubTypes...)
 			sort.Slice(subTypes, func(i, j int) bool { return subTypes[i].SubType < subTypes[j].SubType })
 			for _, st := range subTypes {
-				fmt.Fprintf(&buf, "\t\t\t%q: {SubType: %q, LabelDE: %q, DetailDE: %q, AutoTitleDE: %q},\n", st.SubType, st.SubType, st.Labels["de"], st.Details["de"], st.AutoTitles["de"])
+				fmt.Fprintf(&buf, "\t\t\t%q: {SubType: %q, LabelDE: %q, DetailDE: %q, AutoTitleDE: %q, Selectable: %t", st.SubType, st.SubType, st.Labels["de"], st.Details["de"], st.AutoTitles["de"], *st.Selectable)
+				if st.MovingThreshold != nil {
+					fmt.Fprintf(&buf, ", MovingThreshold: ptrFloat64(%v)", *st.MovingThreshold)
+				}
+				buf.WriteString("},\n")
 			}
 			buf.WriteString("\t\t},\n")
 		}

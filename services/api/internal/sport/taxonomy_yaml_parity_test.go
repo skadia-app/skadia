@@ -46,7 +46,10 @@ func TestSportsYAMLMatchesCurrentBackendRegistry(t *testing.T) {
 			got.SegmentGroup != want.SegmentGroup ||
 			got.TypicallyHasGPS != want.TypicallyHasGPS ||
 			got.MovingThreshold != want.MovingThreshold ||
-			got.IsIndoor != want.IsIndoor {
+			got.IsIndoor != want.IsIndoor ||
+			got.Lifecycle != want.Lifecycle ||
+			got.Selectable == nil ||
+			*got.Selectable != want.Selectable {
 			t.Fatalf("sport[%d] %q does not match backend registry: got %#v want %#v", i, got.SportType, got, want)
 		}
 		if len(got.SubTypes) != len(want.SubTypes) {
@@ -64,9 +67,19 @@ func TestSportsYAMLMatchesCurrentBackendRegistry(t *testing.T) {
 			if gotSub.SubType != wantSub.SubType ||
 				gotSub.Labels["de"] != wantSub.LabelDE ||
 				gotSub.Details["de"] != wantSub.DetailDE ||
-				gotSub.AutoTitles["de"] != wantSub.AutoTitleDE {
+				gotSub.AutoTitles["de"] != wantSub.AutoTitleDE ||
+				gotSub.Selectable == nil ||
+				*gotSub.Selectable != wantSub.Selectable ||
+				!sameOptionalFloat64(gotSub.MovingThreshold, wantSub.MovingThreshold) {
 				t.Fatalf("sport %q subtype[%d] = %#v, want %#v", got.SportType, j, gotSub, wantSub)
 			}
 		}
 	}
+}
+
+func sameOptionalFloat64(got, want *float64) bool {
+	if got == nil || want == nil {
+		return got == nil && want == nil
+	}
+	return *got == *want
 }

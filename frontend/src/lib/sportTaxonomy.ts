@@ -16,6 +16,8 @@ export interface SubTypeDef {
   subType: string
   label: string
   detail: string
+  movingThreshold?: number
+  selectable: boolean
 }
 
 export interface SportDef {
@@ -25,6 +27,8 @@ export interface SportDef {
   label: string
   typicallyHasGPS: boolean
   isIndoor: boolean
+  lifecycle: 'canonical' | 'broad_fallback' | 'deprecated'
+  selectable: boolean
   subTypes: SubTypeDef[]
 }
 
@@ -164,6 +168,8 @@ export const SPORT_DEFS: SportDef[] = [
   label: s.label,
   typicallyHasGPS: s.typicallyHasGPS,
   isIndoor: s.isIndoor,
+  lifecycle: s.lifecycle,
+  selectable: s.selectable,
   subTypes: s.subTypes.map((st) => ({ ...st })),
 }))
 

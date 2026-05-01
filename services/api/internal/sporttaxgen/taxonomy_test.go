@@ -112,6 +112,100 @@ sports:
 	}
 }
 
+func TestLoadTaxonomyAcceptsLifecycleSelectableAndSubtypeThreshold(t *testing.T) {
+	_, err := LoadTaxonomy(strings.NewReader(lifecycleFixture()))
+	if err != nil {
+		t.Fatalf("LoadTaxonomy returned error: %v", err)
+	}
+}
+
+func TestLoadTaxonomyRejectsInvalidLifecycle(t *testing.T) {
+	src := strings.Replace(lifecycleFixture(), "lifecycle: broad_fallback", "lifecycle: maybe", 1)
+	_, err := LoadTaxonomy(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("LoadTaxonomy accepted invalid lifecycle")
+	}
+}
+
+func TestLoadTaxonomyPreservesLifecycleSelectableAndSubtypeThreshold(t *testing.T) {
+	taxonomy, err := LoadTaxonomy(strings.NewReader(lifecycleFixture()))
+	if err != nil {
+		t.Fatalf("LoadTaxonomy returned error: %v", err)
+	}
+	if got := taxonomy.Sports[0].Lifecycle; got != "broad_fallback" {
+		t.Fatalf("lifecycle = %q, want broad_fallback", got)
+	}
+	if taxonomy.Sports[0].Selectable == nil || *taxonomy.Sports[0].Selectable {
+		t.Fatalf("selectable = %#v, want false", taxonomy.Sports[0].Selectable)
+	}
+	if taxonomy.Sports[0].SubTypes[0].MovingThreshold == nil || *taxonomy.Sports[0].SubTypes[0].MovingThreshold != 0.4 {
+		t.Fatalf("subtype moving threshold = %#v, want 0.4", taxonomy.Sports[0].SubTypes[0].MovingThreshold)
+	}
+	if taxonomy.Sports[0].SubTypes[0].Selectable == nil || !*taxonomy.Sports[0].SubTypes[0].Selectable {
+		t.Fatalf("subtype selectable = %#v, want true", taxonomy.Sports[0].SubTypes[0].Selectable)
+	}
+}
+
+func lifecycleFixture() string {
+	return `
+categories:
+  - key: other
+    labels: {de: Sonstiges}
+    color: {token: other, light_hex: "#6B7280"}
+sports:
+  - sport_type: generic
+    category_key: other
+    labels: {de: Allgemein}
+    auto_titles: {de: Training}
+    segment_group: generic
+    typically_has_gps: false
+    moving_threshold: 0
+    is_indoor: false
+    lifecycle: broad_fallback
+    selectable: false
+    modifier_applicability:
+      is_electric: false
+      is_indoor: false
+      is_virtual: false
+      is_commute: false
+    sub_types:
+      - sub_type: mode
+        labels: {de: Modus}
+        details: {de: Modus}
+        auto_titles: {de: Modus}
+        moving_threshold: 0.4
+        selectable: true
+`
+}
+
+func TestLoadTaxonomyRejectsDomainGroupKey(t *testing.T) {
+	src := `
+categories:
+  - key: water
+    labels: {de: Wassersport}
+    color: {token: water, light_hex: "#3B82F6"}
+sports:
+  - sport_type: swimming
+    category_key: water
+    domain_group_key: water.swim
+    labels: {de: Schwimmen}
+    auto_titles: {de: Schwimmen}
+    segment_group: swim
+    typically_has_gps: false
+    moving_threshold: 0.1
+    is_indoor: false
+    modifier_applicability:
+      is_electric: false
+      is_indoor: false
+      is_virtual: false
+      is_commute: false
+`
+	_, err := LoadTaxonomy(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("LoadTaxonomy accepted domain_group_key")
+	}
+}
+
 func TestRepositorySportsYAMLLoads(t *testing.T) {
 	file, err := os.Open("../../../../config/sport-taxonomy/sports.yaml")
 	if err != nil {
@@ -152,6 +246,8 @@ func TestTaxonomySchemaMentionsValidatedFields(t *testing.T) {
 		"typically_has_gps",
 		"moving_threshold",
 		"is_indoor",
+		"lifecycle",
+		"selectable",
 		"modifier_applicability",
 		"sub_types",
 		"sub_type",

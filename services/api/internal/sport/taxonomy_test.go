@@ -166,6 +166,19 @@ func TestGetSportDef(t *testing.T) {
 	}
 }
 
+func TestSportDefLifecycleDefaults(t *testing.T) {
+	d, ok := GetSportDef("running")
+	if !ok {
+		t.Fatal("GetSportDef(running) returned false")
+	}
+	if d.Lifecycle != "canonical" {
+		t.Fatalf("running lifecycle = %q, want canonical", d.Lifecycle)
+	}
+	if !d.Selectable {
+		t.Fatal("running selectable = false, want true")
+	}
+}
+
 func TestLegacyAliasesAreNotRuntimeSports(t *testing.T) {
 	for _, sportType := range []string{
 		"mountain_biking",

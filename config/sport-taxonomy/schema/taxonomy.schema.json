@@ -54,6 +54,11 @@
           "typically_has_gps": { "type": "boolean" },
           "moving_threshold": { "type": "number", "minimum": 0 },
           "is_indoor": { "type": "boolean" },
+          "lifecycle": {
+            "type": "string",
+            "enum": ["canonical", "broad_fallback", "deprecated"]
+          },
+          "selectable": { "type": "boolean" },
           "modifier_applicability": {
             "type": "object",
             "additionalProperties": false,
@@ -75,7 +80,9 @@
                 "sub_type": { "type": "string", "minLength": 1 },
                 "labels": { "$ref": "#/$defs/localeMap" },
                 "details": { "$ref": "#/$defs/localeMap" },
-                "auto_titles": { "$ref": "#/$defs/localeMap" }
+                "auto_titles": { "$ref": "#/$defs/localeMap" },
+                "moving_threshold": { "type": "number", "minimum": 0 },
+                "selectable": { "type": "boolean" }
               }
             }
           }
