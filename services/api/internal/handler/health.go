@@ -9,6 +9,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
+	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -61,6 +62,12 @@ type Handler struct {
 	// with parallel goroutines. See activity_set_virtual_test.go for the
 	// expected pattern.
 	TxFactory TxFactory
+
+	// Stage1Deps overrides the external dependencies (WeatherFetcher,
+	// ReverseGeocoder) used by RunStage1 in CreateManualActivity. When nil,
+	// production defaults are used (real HTTP weather + PostGIS geocoder).
+	// Set only in integration tests to avoid network calls.
+	Stage1Deps *enrichment.Stage1Deps
 }
 
 type HandlerConfig struct {
