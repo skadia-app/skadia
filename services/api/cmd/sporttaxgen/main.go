@@ -26,6 +26,7 @@ func run() error {
 	repoRoot := flag.String("repo-root", defaultRoot, "repository root")
 	source := flag.String("source", "", "taxonomy YAML source")
 	goOut := flag.String("go-out", "", "generated Go output path")
+	tsOut := flag.String("ts-out", "", "generated TypeScript output path")
 	check := flag.Bool("check", false, "verify generated outputs are current")
 	flag.Parse()
 
@@ -35,14 +36,15 @@ func run() error {
 	if *goOut == "" {
 		*goOut = filepath.Join(*repoRoot, "services", "api", "internal", "sport", "taxonomy_generated.go")
 	}
-
-	src, err := os.Open(*source)
-	if err != nil {
-		return fmt.Errorf("open taxonomy source: %w", err)
+	if *tsOut == "" {
+		*tsOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedSportTaxonomy.ts")
 	}
-	defer src.Close()
 
-	taxonomy, err := sporttaxgen.LoadTaxonomy(src)
+	sourceBytes, err := os.ReadFile(*source)
+	if err != nil {
+		return fmt.Errorf("read taxonomy source: %w", err)
+	}
+	taxonomy, err := sporttaxgen.LoadTaxonomy(bytes.NewReader(sourceBytes))
 	if err != nil {
 		return fmt.Errorf("load taxonomy: %w", err)
 	}
@@ -50,12 +52,22 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("render Go taxonomy: %w", err)
 	}
+	renderedTS, err := sporttaxgen.RenderTS(taxonomy, sourceBytes)
+	if err != nil {
+		return fmt.Errorf("render TypeScript taxonomy: %w", err)
+	}
 
 	if *check {
-		return checkFile(*goOut, renderedGo)
+		if err := checkFile(*goOut, renderedGo); err != nil {
+			return err
+		}
+		return checkFile(*tsOut, renderedTS)
 	}
 	if err := os.WriteFile(*goOut, renderedGo, 0o644); err != nil {
 		return fmt.Errorf("write Go taxonomy: %w", err)
+	}
+	if err := os.WriteFile(*tsOut, renderedTS, 0o644); err != nil {
+		return fmt.Errorf("write TypeScript taxonomy: %w", err)
 	}
 	return nil
 }

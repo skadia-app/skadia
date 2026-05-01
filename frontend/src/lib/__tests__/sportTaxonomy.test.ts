@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 
+import { GENERATED_SPORT_TAXONOMY_SOURCE_SHA256 } from '../generatedSportTaxonomy'
 import { SPORT_DEFS, normalizeSportTuple, routeSportOptions, sportLabel } from '../sportTaxonomy'
 
 describe('sport taxonomy aliases', () => {
+  it('keeps the generated frontend taxonomy source hash in sync with sports.yaml', () => {
+    const yaml = readFileSync('../config/sport-taxonomy/sports.yaml')
+    const expected = createHash('sha256').update(yaml).digest('hex')
+
+    expect(GENERATED_SPORT_TAXONOMY_SOURCE_SHA256).toBe(expected)
+  })
+
   it('normalizes legacy sport types to canonical tuples', () => {
     expect(normalizeSportTuple('mountain_biking')).toEqual({
       sportType: 'cycling',
@@ -87,6 +97,66 @@ describe('sport taxonomy aliases', () => {
     expect(values).toContain('hiking/')
     expect(values).not.toContain('mountain_biking/')
     expect(values).not.toContain('trail_running/')
+  })
+
+  it('keeps current route sport option keys stable while projections are deferred', () => {
+    const values = routeSportOptions().map((opt) => `${opt.sportType}/${opt.subType ?? ''}`)
+
+    expect(values).toEqual([
+      'running/',
+      'running/trail',
+      'walking/',
+      'hiking/',
+      'mountaineering/',
+      'snowshoeing/',
+      'wheelchair_push_walk/',
+      'wheelchair_push_run/',
+      'cycling/',
+      'cycling/mountain',
+      'cycling/gravel_cycling',
+      'cycling/road',
+      'inline_skating/',
+      'alpine_skiing/',
+      'backcountry_skiing/',
+      'cross_country_skiing/',
+      'snowboarding/',
+      'ice_skating/',
+      'snowmobiling/',
+      'sledding/',
+      'skiing/',
+      'swimming/',
+      'paddling/',
+      'kayaking/',
+      'stand_up_paddleboarding/',
+      'rowing/',
+      'rafting/',
+      'canoeing/',
+      'surfing/',
+      'kitesurfing/',
+      'windsurfing/',
+      'wakeboarding/',
+      'wakesurfing/',
+      'water_skiing/',
+      'water_tubing/',
+      'snorkeling/',
+      'boating/',
+      'sailing/',
+      'fishing/',
+      'cricket/',
+      'golf/',
+      'disc_golf/',
+      'rock_climbing/',
+      'flying/',
+      'hang_gliding/',
+      'sky_diving/',
+      'jumpmaster/',
+      'horseback_riding/',
+      'hunting/',
+      'motorcycling/',
+      'driving/',
+      'multisport/',
+      'transition/',
+    ])
   })
 
   it('does not expose generic as a cycling subtype option', () => {
