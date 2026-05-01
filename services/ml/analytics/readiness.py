@@ -379,15 +379,18 @@ async def _load_sample_entropy(conn, user_id: str, user_tz: str) -> tuple[float 
     return today_v, med
 
 
-async def _load_rhr_changepoint_signal(conn, user_id: str, user_tz: str) -> str | None:
-    """Read analytics_cache cache_key='changepoints.resting_hr'.
+async def _ensure_rhr_changepoint_fresh(conn, user_id: str) -> None:
+    """Refresh analytics_cache cache_key='changepoints.resting_hr' if stale.
 
-    Auto-trigger: cache missing or older than 24h → run detect_changepoints
-    inside the same transaction (caller's tx) and re-read.
+    Per R1-#17: hoisted out of the readiness compute transaction so the
+    detect_changepoints work — which can run for seconds on a long
+    resting_hr series — does not extend the readiness write tx and the
+    advisory lock window. Caller invokes this BEFORE opening the readiness
+    transaction in its own short-lived tx.
     """
     row = await conn.fetchrow(
         """
-        SELECT data, computed_at,
+        SELECT computed_at,
                EXTRACT(EPOCH FROM (NOW() - computed_at)) / 3600.0 AS age_h
           FROM analytics_cache
          WHERE user_id = $1::uuid
@@ -395,13 +398,14 @@ async def _load_rhr_changepoint_signal(conn, user_id: str, user_tz: str) -> str 
         """,
         user_id,
     )
-
     needs_recompute = row is None or row["computed_at"] is None or \
         (row["age_h"] is not None and float(row["age_h"]) > 24.0)
+    if not needs_recompute:
+        return
 
-    if needs_recompute:
-        try:
-            cps = await detect_changepoints(conn, user_id, "resting_hr")
+    try:
+        cps = await detect_changepoints(conn, user_id, "resting_hr")
+        async with conn.transaction():
             await conn.execute(
                 """
                 INSERT INTO analytics_cache (user_id, cache_key, data, computed_at)
@@ -411,22 +415,12 @@ async def _load_rhr_changepoint_signal(conn, user_id: str, user_tz: str) -> str 
                 """,
                 user_id, json.dumps(cps),
             )
-            row = await conn.fetchrow(
-                """
-                SELECT data, computed_at
-                  FROM analytics_cache
-                 WHERE user_id = $1::uuid
-                   AND cache_key = 'changepoints.resting_hr'
-                """,
-                user_id,
-            )
-        except Exception as exc:  # pragma: no cover — defensive
-            logger.warning("rhr changepoint auto-trigger failed for %s: %s", user_id, exc)
-            return None
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning("rhr changepoint auto-trigger failed for %s: %s", user_id, exc)
 
-    if row is None or row["data"] is None:
-        return None
-    data = row["data"]
+
+def _interpret_rhr_changepoint(data: Any, user_tz: str) -> str | None:
+    """Pure interpretation of cached changepoint data → signal string."""
     if isinstance(data, str):
         try:
             data = json.loads(data)
@@ -446,13 +440,39 @@ async def _load_rhr_changepoint_signal(conn, user_id: str, user_tz: str) -> str 
     if latest_iso is None:
         return None
     try:
-        latest = date.fromisoformat(latest_iso)
-    except ValueError:
+        # Accept both 'YYYY-MM-DD' and full datetime ISO strings — R1-#19.
+        latest = datetime.fromisoformat(latest_iso).date()
+    except (ValueError, TypeError) as exc:
+        logger.warning("rhr changepoint date parse failed for %r: %s", latest_iso, exc)
         return None
     user_today = datetime.now(ZoneInfo(user_tz)).date()
     if (user_today - latest).days < 7:
         return "rhr_changepoint_recent"
     return None
+
+
+async def _read_rhr_changepoint_signal(conn, user_id: str, user_tz: str) -> str | None:
+    """Read-only signal lookup — assumes the cache has already been refreshed
+    by `_ensure_rhr_changepoint_fresh`. Safe inside the readiness tx."""
+    row = await conn.fetchrow(
+        """
+        SELECT data
+          FROM analytics_cache
+         WHERE user_id = $1::uuid
+           AND cache_key = 'changepoints.resting_hr'
+        """,
+        user_id,
+    )
+    if row is None or row["data"] is None:
+        return None
+    return _interpret_rhr_changepoint(row["data"], user_tz)
+
+
+async def _load_rhr_changepoint_signal(conn, user_id: str, user_tz: str) -> str | None:
+    """Combined ensure-fresh + read. Kept for callers/tests that exercise
+    both halves in one call. Production hot-path uses the split functions."""
+    await _ensure_rhr_changepoint_fresh(conn, user_id)
+    return await _read_rhr_changepoint_signal(conn, user_id, user_tz)
 
 
 # --- Refusal -----------------------------------------------------------------
@@ -742,8 +762,14 @@ def _refused_envelope(
     preferences_version: str | None,
     factors_eigen: dict[str, FactorInput],
     mfr: dict | None,
+    now_utc: datetime | None = None,
 ) -> dict:
-    """Schema-stable refused envelope (Plan Phase 5)."""
+    """Schema-stable refused envelope (Plan Phase 5).
+
+    `now_utc` lets callers thread the same UTC timestamp into the JSON envelope
+    and the cache row's `computed_at` column (R1-#20). Defaults to a fresh
+    `datetime.now(timezone.utc)` when omitted.
+    """
     factor_list: list[dict] = []
     for k in CRITICAL_FACTORS:
         f = factors_eigen.get(k)
@@ -761,7 +787,7 @@ def _refused_envelope(
     return {
         "score": None,
         "level": None,
-        "computed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "computed_at": (now_utc or datetime.now(timezone.utc)).isoformat().replace("+00:00", "Z"),
         "data_window_end": data_window_end,
         "preferences_version": preferences_version,
         "confidence": None,
@@ -803,7 +829,7 @@ async def _read_pref(conn, user_id: str) -> tuple[str | None, str | None]:
     return pref, upd_iso
 
 
-async def _compute_readiness_locked(conn, user_id: str) -> dict:
+async def _compute_readiness_locked(conn, user_id: str, *, rhr_signal: str | None = None) -> dict:
     """Inside-tx computation. Lock has already been acquired by caller.
 
     All date anchors use the user's local timezone (users.timezone) so that
@@ -812,7 +838,10 @@ async def _compute_readiness_locked(conn, user_id: str) -> dict:
     """
     # 0. User timezone — anchor all date queries to local calendar day.
     user_tz = await _load_user_timezone(conn, user_id)
-    today_iso = datetime.now(ZoneInfo(user_tz)).date().isoformat()
+    # Single Python-side timestamp used for both the JSON envelope and the
+    # cache-row's `computed_at` column (R1-#20). Avoids JSON/DB time drift.
+    now_utc = datetime.now(timezone.utc)
+    today_iso = now_utc.astimezone(ZoneInfo(user_tz)).date().isoformat()
 
     # 1. Pref + version snapshot
     pref, pref_version_at_start = await _read_pref(conn, user_id)
@@ -836,6 +865,7 @@ async def _compute_readiness_locked(conn, user_id: str) -> dict:
             preferences_version=pref_version_at_start,
             factors_eigen=eigen,
             mfr=mfr,
+            now_utc=now_utc,
         )
 
     # 5. Path determination — see spec §6.4 (Path A / Path B definitions) and
@@ -859,8 +889,11 @@ async def _compute_readiness_locked(conn, user_id: str) -> dict:
     else:
         path_kind = "B"
 
-    # Bonus inputs (only loaded once)
-    rhr_signal = await _load_rhr_changepoint_signal(conn, user_id, user_tz)
+    # Bonus inputs — RHR changepoint cache was refreshed before the tx
+    # opened (R1-#17). If the caller did not pass a pre-computed signal,
+    # do a read-only lookup here (cache-only, no recompute).
+    if rhr_signal is None:
+        rhr_signal = await _read_rhr_changepoint_signal(conn, user_id, user_tz)
 
     if path_kind == "B":
         # 6. Path B: use manufacturer score directly
@@ -955,6 +988,7 @@ async def _compute_readiness_locked(conn, user_id: str) -> dict:
             preferences_version=pref_version_at_start,
             factors_eigen=eigen,
             mfr=mfr,
+            now_utc=now_utc,
         )
 
     # 10. Output
@@ -967,7 +1001,7 @@ async def _compute_readiness_locked(conn, user_id: str) -> dict:
     return {
         "score": int(score),
         "level": level,
-        "computed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "computed_at": now_utc.isoformat().replace("+00:00", "Z"),
         "data_window_end": today_iso,
         "preferences_version": pref_version_at_start,
         "confidence": confidence,
@@ -993,6 +1027,24 @@ async def compute_readiness(conn, user_id: str, publisher=None) -> dict:
       forever. The original exception is logged and then suppressed (message ack).
     """
     try:
+        # R1-#17: Refresh the RHR-changepoint cache BEFORE opening the
+        # readiness transaction so detect_changepoints (which can run for
+        # seconds on long series) does not extend the advisory-lock window
+        # or block parallel readiness writers. Then read the signal from the
+        # (now-fresh) cache for use inside the locked compute. Failures here
+        # are non-fatal — the locked compute falls back to a read-only lookup
+        # and tolerates a missing signal.
+        try:
+            await _ensure_rhr_changepoint_fresh(conn, user_id)
+            user_tz_pre = await _load_user_timezone(conn, user_id)
+            rhr_signal = await _read_rhr_changepoint_signal(conn, user_id, user_tz_pre)
+        except Exception as pre_exc:  # pragma: no cover — defensive
+            logger.warning(
+                "compute_readiness: RHR pre-step failed for %s: %s — proceeding without",
+                user_id, pre_exc,
+            )
+            rhr_signal = None
+
         async with conn.transaction():
             got_lock = await conn.fetchval(
                 "SELECT pg_try_advisory_xact_lock(hashtextextended('readiness:' || $1, 0))",
@@ -1001,21 +1053,27 @@ async def compute_readiness(conn, user_id: str, publisher=None) -> dict:
             if not got_lock:
                 return {"refused": True, "refusal_reason": "already_running", "written": False}
 
-            result = await _compute_readiness_locked(conn, user_id)
+            result = await _compute_readiness_locked(conn, user_id, rhr_signal=rhr_signal)
 
             if result.get("refusal_reason") == "stale_compute_pref_changed":
                 return {**result, "written": False, "republish": True}
 
+            # R1-#20: write the same UTC timestamp into the cache row that the
+            # JSON envelope already carries — single source of truth.
+            computed_at_db = datetime.fromisoformat(
+                result["computed_at"].replace("Z", "+00:00")
+            )
             await conn.execute(
                 """
                 INSERT INTO analytics_cache (user_id, cache_key, data, computed_at, expires_at)
-                VALUES ($1::uuid, 'readiness', $2::jsonb, NOW(), NOW() + make_interval(secs => $3))
+                VALUES ($1::uuid, 'readiness', $2::jsonb, $4::timestamptz,
+                        $4::timestamptz + make_interval(secs => $3))
                 ON CONFLICT (user_id, cache_key) DO UPDATE
                 SET data        = EXCLUDED.data,
                     computed_at = EXCLUDED.computed_at,
                     expires_at  = EXCLUDED.expires_at
                 """,
-                user_id, json.dumps(result), int(CACHE_TTL_HOURS * 3600),
+                user_id, json.dumps(result), int(CACHE_TTL_HOURS * 3600), computed_at_db,
             )
             return {**result, "written": True}
 
@@ -1031,26 +1089,29 @@ async def compute_readiness(conn, user_id: str, publisher=None) -> dict:
             _exc_tz = await _load_user_timezone(conn, user_id)
         except Exception:
             _exc_tz = "UTC"
-        today_iso = datetime.now(ZoneInfo(_exc_tz)).date().isoformat()
+        exc_now_utc = datetime.now(timezone.utc)
+        today_iso = exc_now_utc.astimezone(ZoneInfo(_exc_tz)).date().isoformat()
         refused = _refused_envelope(
             refusal_reason="service_unavailable",
             data_window_end=today_iso,
             preferences_version=None,
             factors_eigen={},
             mfr=None,
+            now_utc=exc_now_utc,
         )
         try:
             async with conn.transaction():
                 await conn.execute(
                     """
                     INSERT INTO analytics_cache (user_id, cache_key, data, computed_at, expires_at)
-                    VALUES ($1::uuid, 'readiness', $2::jsonb, NOW(), NOW() + make_interval(secs => $3))
+                    VALUES ($1::uuid, 'readiness', $2::jsonb, $4::timestamptz,
+                            $4::timestamptz + make_interval(secs => $3))
                     ON CONFLICT (user_id, cache_key) DO UPDATE
                     SET data        = EXCLUDED.data,
                         computed_at = EXCLUDED.computed_at,
                         expires_at  = EXCLUDED.expires_at
                     """,
-                    user_id, json.dumps(refused), int(CACHE_TTL_HOURS * 3600),
+                    user_id, json.dumps(refused), int(CACHE_TTL_HOURS * 3600), exc_now_utc,
                 )
         except Exception as write_exc:
             logger.error(
