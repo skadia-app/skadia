@@ -228,7 +228,9 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 	enrichment.RunStage1(r.Context(), h.DB, userID, activity.ID, data, h.Events, true, true, nil, true)
 
 	if h.Events != nil {
-		h.Events.PublishAnalyticsInvalidate(userID)
+		if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
+			slog.Warn("manual activity analytics invalidate failed", "user_id", userID, "error", err)
+		}
 	}
 
 	// Write .meta companion for manual activity.

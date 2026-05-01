@@ -368,7 +368,9 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		// Einmalige Analytics-Invalidierung nach Abschluss aller Workers
 		// (per-activity wurde mit skipAnalyticsEvent=true unterdrückt).
 		if h.Events != nil {
-			h.Events.PublishAnalyticsInvalidate(userID)
+			if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
+				slog.Warn("analytics invalidate failed", "user_id", userID, "error", err)
+			}
 		}
 
 		slog.Info("reprocess-all: finished",
@@ -1082,7 +1084,9 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if err := h.Events.PublishActivityUploaded(evt); err != nil {
 			slog.Error("reprocess: event publish failed", "id", activityID, "error", err)
 		}
-		h.Events.PublishAnalyticsInvalidate(userID)
+		if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
+			slog.Warn("reprocess: analytics invalidate failed", "user_id", userID, "error", err)
+		}
 	}
 
 	return nil

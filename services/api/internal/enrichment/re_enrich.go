@@ -80,7 +80,9 @@ func ReEnrichBatch(ctx context.Context, db *database.DB, events *event.Publisher
 
 	// Single analytics invalidation (Signatur: string, NICHT struct!)
 	if events != nil {
-		events.PublishAnalyticsInvalidate(userID)
+		if err := events.PublishAnalyticsInvalidate(userID); err != nil {
+			slog.Warn("re-enrich analytics invalidate failed", "user_id", userID, "error", err)
+		}
 	}
 
 	slog.Info("re-enrich: batch complete",

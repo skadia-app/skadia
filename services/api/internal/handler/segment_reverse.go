@@ -75,7 +75,9 @@ func (h *Handler) ReverseSegment(w http.ResponseWriter, r *http.Request) {
 	// handler/recompute.go:369 and handler/manual_activity.go:224 (real signature:
 	// h.Events.PublishAnalyticsInvalidate(userID) — verified per grep).
 	if h.Events != nil {
-		h.Events.PublishAnalyticsInvalidate(userID)
+		if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
+			slog.Warn("analytics invalidate failed", "user_id", userID, "error", err)
+		}
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]int{"efforts_updated": effortsUpdated})
