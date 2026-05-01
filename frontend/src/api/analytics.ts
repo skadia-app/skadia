@@ -246,7 +246,7 @@ export interface YearlyOverviewRow {
 
 export type ReadinessLevel = 'critical' | 'low' | 'moderate' | 'good' | 'optimal'
 export type ReadinessConfidence = 'high' | 'medium' | 'low'
-export type ReadinessSource = 'garmin' | 'garmin_fit' | 'skadia' | 'manual_override'
+export type ReadinessSource = 'garmin' | 'garmin_fit' | 'skadia' | 'manual_override' | 'strava' | 'komoot' | 'manual' | 'mobile'
 
 export interface ReadinessFactor {
   key: string
