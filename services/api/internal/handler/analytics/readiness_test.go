@@ -383,3 +383,104 @@ func TestReadiness_AdditiveSchemaPassthrough(t *testing.T) {
 		t.Errorf("future_field = %v, want 42", futureVal)
 	}
 }
+
+// seedReadinessPref inserts a user_readiness_preferences row with an explicit
+// updated_at value so we can control the pref-version comparison.
+func seedReadinessPref(t *testing.T, pool *pgxpool.Pool, uid, source string, updatedAt time.Time) {
+	t.Helper()
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO user_readiness_preferences (user_id, preferred_source, updated_at)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (user_id) DO UPDATE
+		 SET preferred_source = EXCLUDED.preferred_source,
+		     updated_at       = EXCLUDED.updated_at`,
+		uid, source, updatedAt,
+	)
+	if err != nil {
+		t.Fatalf("seed pref: %v", err)
+	}
+}
+
+// TestReadiness_PreferencesVersionMismatch — cache row carries an old
+// preferences_version; current pref.updated_at is newer.
+// GetReadiness must return degraded="service_unavailable" and publish invalidate.
+func TestReadiness_PreferencesVersionMismatch(t *testing.T) {
+	fake := &event.FakeInvalidator{}
+	h, pool := newReadinessTestHandler(t, fake)
+	uid := seedReadinessTestUser(t, pool)
+
+	// Seed the pref row with a known updated_at.
+	oldPrefTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	newPrefTime := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	seedReadinessPref(t, pool, uid, "skadia", newPrefTime)
+
+	// Seed the cache row with preferences_version pointing to the OLD time.
+	oldPrefISO := oldPrefTime.UTC().Format(time.RFC3339Nano)
+	body := json.RawMessage(`{"refused":false,"score":65,"level":"yellow","factors":[],"missing_factors":[],"computed_at":"2026-04-30T10:00:00Z","data_window_end":null,"preferences_version":"` + oldPrefISO + `","confidence":null,"recommendation_code":null,"signal_modifier":null,"degraded":null}`)
+	now := time.Now()
+	expires := now.Add(6 * time.Hour) // fresh by expires_at, but stale by pref-version
+	seedReadinessRow(t, pool, uid, body, now.Add(-1*time.Hour), &expires)
+
+	rr := httptest.NewRecorder()
+	h.GetReadiness(rr, reqWithUser(uid))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["degraded"] != "service_unavailable" {
+		t.Errorf("degraded = %v, want service_unavailable (pref-version mismatch)", got["degraded"])
+	}
+	// Original score must survive (stale body is passed through, not replaced).
+	if got["score"].(float64) != 65 {
+		t.Errorf("score = %v, want 65 (stale body preserved)", got["score"])
+	}
+	// Must publish invalidate so worker recomputes with the new pref.
+	if len(fake.Calls) != 1 || fake.Calls[0] != uid {
+		t.Errorf("invalidator calls = %v, want [%s]", fake.Calls, uid)
+	}
+}
+
+// TestReadiness_PreferencesVersionMatch — cache row has preferences_version
+// matching the current pref.updated_at → must serve fresh without degraded.
+func TestReadiness_PreferencesVersionMatch(t *testing.T) {
+	fake := &event.FakeInvalidator{}
+	h, pool := newReadinessTestHandler(t, fake)
+	uid := seedReadinessTestUser(t, pool)
+
+	// Seed pref with a fixed time.
+	prefTime := time.Date(2026, 4, 30, 20, 11, 0, 0, time.UTC)
+	seedReadinessPref(t, pool, uid, "manufacturer", prefTime)
+
+	// Cache body carries the same time as preferences_version.
+	prefISO := prefTime.UTC().Format(time.RFC3339Nano)
+	body := json.RawMessage(`{"refused":false,"score":88,"level":"green","factors":[],"missing_factors":[],"computed_at":"2026-04-30T22:00:00Z","data_window_end":null,"preferences_version":"` + prefISO + `","confidence":null,"recommendation_code":null,"signal_modifier":null,"degraded":null}`)
+	now := time.Now()
+	expires := now.Add(6 * time.Hour)
+	seedReadinessRow(t, pool, uid, body, now.Add(-30*time.Minute), &expires)
+
+	rr := httptest.NewRecorder()
+	h.GetReadiness(rr, reqWithUser(uid))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// No degraded on matching pref version.
+	if v, ok := got["degraded"]; ok && v != nil {
+		t.Errorf("degraded = %v, want null/absent on pref-version match", v)
+	}
+	if got["score"].(float64) != 88 {
+		t.Errorf("score = %v, want 88", got["score"])
+	}
+	// No invalidate on a fresh, pref-version-matched cache hit.
+	if len(fake.Calls) != 0 {
+		t.Errorf("invalidator called %d times, want 0", len(fake.Calls))
+	}
+}
