@@ -1155,7 +1155,12 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		FROM activities a
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_photos GROUP BY activity_id) pc ON pc.activity_id = a.id
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_detected_laps GROUP BY activity_id) lc ON lc.activity_id = a.id
-		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS climb_count, MIN(category)::int AS max_category FROM activity_climbs GROUP BY activity_id) cd ON cd.activity_id = a.id
+		LEFT JOIN (
+			SELECT activity_id,
+			       COUNT(*)::int AS climb_count,
+			       MIN(CASE WHEN category ~ '^[0-9]+$' THEN category::int END) AS max_category
+			FROM activity_climbs GROUP BY activity_id
+		) cd ON cd.activity_id = a.id
 		LEFT JOIN LATERAL (
 			SELECT temp_c, humidity, wind_speed_ms, wind_gusts_ms, condition
 			FROM activity_weather
