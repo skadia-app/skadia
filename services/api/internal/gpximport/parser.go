@@ -236,7 +236,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	// GPX files have speed values computed from position deltas above (sp.SpeedMS).
 	// Use the stream-based moving time; fall back to elapsed time if no
 	// usable data is present.
-	streamMoving := activityutil.CalcMovingTime(streams, sport)
+	streamMoving := activityutil.CalcMovingTimeForTuple(streams, sport, subType)
 	if streamMoving > 0 {
 		data.MovingTimeS = streamMoving
 	} else {

@@ -13,10 +13,10 @@ import (
 // treated as pauses regardless of speed (e.g. GPS signal loss, tunnel, rest).
 const maxGapSeconds = 300 // 5 minutes
 
-// movingThreshold returns the minimum speed in m/s that counts as "moving"
-// for the given sport type. Delegates to the centralized sport taxonomy.
-func movingThreshold(sportType string) float64 {
-	return sport.MovingThreshold(sportType)
+// movingThresholdForTuple returns the minimum speed in m/s that counts as
+// "moving" for the given sport tuple. It delegates to the centralized taxonomy.
+func movingThresholdForTuple(sportType, subType string) float64 {
+	return sport.MovingThresholdForTuple(sportType, subType)
 }
 
 // CalcMovingTime berechnet die Bewegungszeit aus den Stream-Datenpunkten.
@@ -35,11 +35,17 @@ func movingThreshold(sportType string) float64 {
 //
 // Gibt 0 zurück, wenn weniger als 2 auswertbare Punkte vorhanden sind.
 func CalcMovingTime(streams []model.StreamPoint, sportType string) int {
+	return CalcMovingTimeForTuple(streams, sportType, "")
+}
+
+// CalcMovingTimeForTuple berechnet die Bewegungszeit aus den Stream-Datenpunkten
+// und berücksichtigt sportartspezifische Subtyp-Schwellwerte.
+func CalcMovingTimeForTuple(streams []model.StreamPoint, sportType, subType string) int {
 	if len(streams) < 2 {
 		return 0
 	}
 
-	threshold := movingThreshold(sportType)
+	threshold := movingThresholdForTuple(sportType, subType)
 	var movingSeconds int
 
 	// Find the first valid point (non-zero timestamp).

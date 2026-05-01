@@ -346,7 +346,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	// not pause for. Take the minimum to stay conservative.
 	deviceMoving := int(totalTime)
 	if activityutil.HasSpeedData(streams) || activityutil.HasGPSData(streams) {
-		streamMoving := activityutil.CalcMovingTime(streams, sport)
+		streamMoving := activityutil.CalcMovingTimeForTuple(streams, sport, subType)
 		if streamMoving > 0 {
 			data.MovingTimeS = activityutil.MinMovingTime(deviceMoving, streamMoving)
 		} else {

@@ -1486,7 +1486,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	// did not pause but the athlete was actually stopped (e.g. red lights,
 	// waiting at a summit). We take the minimum of both to stay conservative.
 	if activityutil.HasSpeedData(data.Streams) || activityutil.HasGPSData(data.Streams) {
-		streamMoving := activityutil.CalcMovingTime(data.Streams, data.SportType)
+		streamMoving := activityutil.CalcMovingTimeForTuple(data.Streams, data.SportType, data.SubType)
 		if streamMoving > 0 {
 			data.MovingTimeS = activityutil.MinMovingTime(data.MovingTimeS, streamMoving)
 		}
