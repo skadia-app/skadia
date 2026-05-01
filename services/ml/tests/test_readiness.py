@@ -36,6 +36,7 @@ from analytics.readiness import (
     _load_dfa_alpha1,
     _load_sample_entropy,
     _load_rhr_changepoint_signal,
+    _refused_envelope,
     FactorInput,
     CRITICAL_FACTORS,
 )
@@ -593,10 +594,45 @@ async def test_mix_sources_via_compute_pref_null_path_b_when_eigen_incomplete(co
 
 
 # ===========================================================================
+# Envelope schema completeness
+# ===========================================================================
+
+_REQUIRED_ENVELOPE_KEYS = frozenset({
+    "score", "level", "computed_at", "data_window_end", "preferences_version",
+    "confidence", "refused", "refusal_reason", "factors", "missing_factors",
+    "recommendation_code", "signal_modifier",
+})
+
+
+def test_already_running_envelope_is_schema_complete():
+    """already_running refused envelope must carry all schema keys so that
+    callers which serialize the result never encounter a KeyError or a
+    frontend type mismatch (L4 regression guard)."""
+    from datetime import datetime, timezone
+    env = _refused_envelope(
+        refusal_reason="already_running",
+        data_window_end="2026-05-01",
+        preferences_version=None,
+        factors_eigen={},
+        mfr=None,
+        now_utc=datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    assert _REQUIRED_ENVELOPE_KEYS.issubset(env.keys()), (
+        f"Missing keys: {_REQUIRED_ENVELOPE_KEYS - env.keys()}"
+    )
+    assert env["refused"] is True
+    assert env["refusal_reason"] == "already_running"
+    assert env["score"] is None
+    assert env["level"] is None
+    assert isinstance(env["factors"], list)
+    assert isinstance(env["missing_factors"], list)
+
+
+# ===========================================================================
 # Pref-Race
 # ===========================================================================
 
-async def test_pref_race_handle_message_republishes(conn):
+async def test_pref_race_handle_message_republishes(conn, monkeypatch):
     """compute_readiness running while a pref change happens between
     snapshot-read and final re-read should refuse with stale_compute_pref_changed
     and the wrapper should call publish_analytics_invalidate exactly once.
@@ -607,9 +643,8 @@ async def test_pref_race_handle_message_republishes(conn):
     await _insert_sleep(conn, uid, score=82)
     await _insert_pref(conn, uid, "skadia")
 
-    # Patch a hook: bump pref between Step 1 and Step 9. We call _read_pref
-    # twice in _compute_readiness_locked; do the bump after the first call by
-    # monkey-patching the _read_pref module-level function.
+    # Intercept _read_pref: bump the pref between the first and second call so
+    # the pref-version re-check inside _compute_readiness_locked sees a mismatch.
     import analytics.readiness as mod
 
     orig = mod._read_pref
@@ -629,7 +664,7 @@ async def test_pref_race_handle_message_republishes(conn):
         )
         return await orig(c, user_id)
 
-    mod._read_pref = racy_read
+    monkeypatch.setattr(mod, "_read_pref", racy_read)
 
     publish_calls = []
 
@@ -637,10 +672,7 @@ async def test_pref_race_handle_message_republishes(conn):
         async def publish_analytics_invalidate(self, user_id):
             publish_calls.append(user_id)
 
-    try:
-        result = await handle_readiness_message(conn, uid, FakePub())
-    finally:
-        mod._read_pref = orig
+    result = await handle_readiness_message(conn, uid, FakePub())
 
     assert result["refused"] is True
     assert result["refusal_reason"] == "stale_compute_pref_changed"
@@ -648,7 +680,7 @@ async def test_pref_race_handle_message_republishes(conn):
     assert publish_calls == [uid]
 
 
-async def test_pref_race_no_cache_write_on_stale(conn):
+async def test_pref_race_no_cache_write_on_stale(conn, monkeypatch):
     """stale_compute_pref_changed must not UPSERT analytics_cache."""
     uid = await seed_user(conn)
     await _insert_hrv_night_history(conn, uid, n_days=30)
@@ -673,11 +705,8 @@ async def test_pref_race_no_cache_write_on_stale(conn):
         )
         return await orig(c, user_id)
 
-    mod._read_pref = racy_read
-    try:
-        await compute_readiness(conn, uid)
-    finally:
-        mod._read_pref = orig
+    monkeypatch.setattr(mod, "_read_pref", racy_read)
+    await compute_readiness(conn, uid)
 
     row = await conn.fetchrow(
         "SELECT 1 FROM analytics_cache WHERE user_id=$1::uuid AND cache_key='readiness'",
@@ -686,7 +715,7 @@ async def test_pref_race_no_cache_write_on_stale(conn):
     assert row is None
 
 
-async def test_pref_race_handle_message_calls_publisher_once(conn):
+async def test_pref_race_handle_message_calls_publisher_once(conn, monkeypatch):
     """Idempotency: handle_readiness_message must invoke
     publish_analytics_invalidate at most once per stale-detection."""
     uid = await seed_user(conn)
@@ -715,11 +744,8 @@ async def test_pref_race_handle_message_calls_publisher_once(conn):
         async def publish_analytics_invalidate(self, user_id):
             publish_calls.append(user_id)
 
-    mod._read_pref = racy_read
-    try:
-        await handle_readiness_message(conn, uid, FakePub())
-    finally:
-        mod._read_pref = orig
+    monkeypatch.setattr(mod, "_read_pref", racy_read)
+    await handle_readiness_message(conn, uid, FakePub())
 
     assert len(publish_calls) == 1
 
