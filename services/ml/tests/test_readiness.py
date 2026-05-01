@@ -365,6 +365,14 @@ async def test_load_hrv_status_with_baseline(conn):
     assert f.raw_unit == "ms"
 
 
+async def test_load_hrv_status_no_data_today(conn):
+    uid = await seed_user(conn)
+    # No today snapshot at all → no_data_today
+    f = await _load_hrv_status(conn, uid, 'UTC')
+    assert f.missing
+    assert f.missing_reason == "no_data_today"
+
+
 async def test_load_hrv_status_no_baseline(conn):
     uid = await seed_user(conn)
     await _insert_hrv_today_snapshot(conn, uid, rmssd=60.0)
@@ -372,6 +380,7 @@ async def test_load_hrv_status_no_baseline(conn):
     await _insert_hrv_night_history(conn, uid, n_days=5)
     f = await _load_hrv_status(conn, uid, 'UTC')
     assert f.missing
+    assert f.missing_reason == "no_baseline"
 
 
 async def test_load_sleep_fresh(conn):
@@ -390,6 +399,7 @@ async def test_load_sleep_stale(conn):
                         calendar_offset=2, hours_ago_end=40.0)
     f = await _load_sleep_factor(conn, uid, 'UTC')
     assert f.missing
+    assert f.missing_reason == "stale"
 
 
 async def test_load_sleep_score_null(conn):
@@ -397,6 +407,7 @@ async def test_load_sleep_score_null(conn):
     await _insert_sleep(conn, uid, score=None, recorded_s=7 * 3600)
     f = await _load_sleep_factor(conn, uid, 'UTC')
     assert f.missing  # query filters score_overall IS NOT NULL
+    assert f.missing_reason == "no_data"
 
 
 async def test_load_sleep_short_duration(conn):
@@ -405,6 +416,15 @@ async def test_load_sleep_short_duration(conn):
     await _insert_sleep(conn, uid, score=80, recorded_s=3 * 3600, hours_ago_end=2.0)
     f = await _load_sleep_factor(conn, uid, 'UTC')
     assert f.missing
+    assert f.missing_reason == "stale"
+
+
+async def test_load_training_load_no_data(conn):
+    uid = await seed_user(conn)
+    # No pmc_daily row at all → no_data
+    f = await _load_training_load_factor(conn, uid, 'UTC')
+    assert f.missing
+    assert f.missing_reason == "no_data"
 
 
 async def test_load_training_load_acwr_zero(conn):
@@ -412,6 +432,7 @@ async def test_load_training_load_acwr_zero(conn):
     await _insert_pmc(conn, uid, acwr=0.0)
     f = await _load_training_load_factor(conn, uid, 'UTC')
     assert f.missing
+    assert f.missing_reason == "no_baseline"
 
 
 async def test_load_training_load_acwr_normal(conn):
