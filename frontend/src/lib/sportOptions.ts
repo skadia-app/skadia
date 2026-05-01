@@ -7,6 +7,7 @@ import {
   PROMOTE_SUB_TYPE,
   WATER_SPORT_UI_GROUPS,
   sportColor,
+  selectableParentSportOptions,
   sportsInCategory,
   type SportDef,
 } from '@/lib/sportTaxonomy'
@@ -201,9 +202,8 @@ export function getAllSportTypes(): string[] {
  * Generates sport options for GearForm (flat list of all sports, sorted by label).
  */
 export function generateGearSportOptions(): { value: string; label: string }[] {
-  return SPORT_DEFS
-    .filter((s) => s.sportType !== 'unknown')
-    .map((s) => ({ value: s.sportType, label: s.label }))
+  return selectableParentSportOptions()
+    .filter((s) => s.value !== 'unknown')
     .sort((a, b) => a.label.localeCompare(b.label, 'de'))
 }
 

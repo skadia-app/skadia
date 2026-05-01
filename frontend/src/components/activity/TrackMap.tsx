@@ -44,6 +44,7 @@ interface TrackMapProps {
   hoverIndex: number | null
   sportColor: string
   sportType: string
+  subType?: string | null
   fitSportId?: number
   hasGps: boolean
   zoomRange: ZoomRange | null
@@ -129,6 +130,7 @@ export default function TrackMap({
   hoverIndex,
   sportColor,
   sportType,
+  subType,
   fitSportId,
   hasGps,
   zoomRange,
@@ -229,7 +231,7 @@ export default function TrackMap({
 
   const metricColoring = useMetricColoring({
     streams,
-    activity: { sport_type: sportType, fit_sport_id: fitSportId },
+    activity: { sport_type: sportType, sub_type: subType ?? null, fit_sport_id: fitSportId },
     hasGps,
     zoomRange,
     map: mapInstance,
@@ -1033,6 +1035,7 @@ export default function TrackMap({
           <MapColorDropdown
             streams={streams}
             sportType={sportType}
+            subType={subType}
             metric={metricColoring.metric}
             onChange={metricColoring.setMetric}
             modeByMetric={metricColoring.modeByMetric}

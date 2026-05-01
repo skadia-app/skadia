@@ -3,7 +3,7 @@ import { useMemo, useRef, useState, useEffect } from 'react'
 import type { StreamPoint } from '@/api/types'
 import type { Metric, Mode } from '@/lib/mapColorUtils'
 import { DROPDOWN_LABELS, METRIC_LABELS, MODE_LABELS } from '@/lib/colorMetricLabels'
-import { MOTION_PROFILE_BY_SPORT_TYPE, METRIC_AVAILABILITY_THRESHOLDS } from '@/lib/colorScaleRanges'
+import { motionProfileForSport, METRIC_AVAILABILITY_THRESHOLDS } from '@/lib/colorScaleRanges'
 import { useClickOutside } from '@/hooks/useClickOutside'
 
 function pctNonNull(streams: StreamPoint[], field: keyof StreamPoint): number {
@@ -16,6 +16,7 @@ function pctNonNull(streams: StreamPoint[], field: keyof StreamPoint): number {
 interface Props {
   streams: StreamPoint[]
   sportType: string
+  subType?: string | null
   metric: Metric
   onChange: (m: Metric) => void
   // Phase B:
@@ -26,7 +27,7 @@ interface Props {
   effectiveMode: Mode
 }
 
-export default function MapColorDropdown({ streams, sportType, metric, onChange, modeByMetric, setMode, zonesAvailable, effectiveMode }: Props) {
+export default function MapColorDropdown({ streams, sportType, subType, metric, onChange, modeByMetric, setMode, zonesAvailable, effectiveMode }: Props) {
   const [open, setOpen] = useState(false)
   const [focusedIdx, setFocusedIdx] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -45,7 +46,7 @@ export default function MapColorDropdown({ streams, sportType, metric, onChange,
     return () => document.removeEventListener('keydown', handleKey)
   }, [open])
 
-  const motion = MOTION_PROFILE_BY_SPORT_TYPE[sportType] ?? MOTION_PROFILE_BY_SPORT_TYPE.generic
+  const motion = motionProfileForSport(sportType, subType)
   const speedLabel = motion.pace ? METRIC_LABELS.pace : METRIC_LABELS.speed
   const speedMetric: Metric = motion.pace ? 'pace' : 'speed'
 

@@ -41,7 +41,7 @@ E-Bike → sport_type='cycling', is_electric=true | Indoor → is_indoor=true
 Virtuell → is_virtual=true | Pendeln → is_commute=true | Bouldern → sport_type='rock_climbing', sub_type='bouldering'
 Trail → sport_type='running', sub_type='trail'
 Ski allgemein → sport_type='skiing' | Alpin-Ski → sport_type='alpine_skiing' | Langlauf → sport_type='cross_country_skiing'
-Kraft allgemein → sport_type='strength' | Krafttraining → sport_type='strength_training' | Bergsteigen → sport_type='mountaineering'
+Krafttraining → sport_type='strength_training' | Bergsteigen → sport_type='mountaineering'
 
 ## Multi-Schritt
 Wenn eine Frage mehrere Informationsquellen braucht, nutze mehrere Tools nacheinander.

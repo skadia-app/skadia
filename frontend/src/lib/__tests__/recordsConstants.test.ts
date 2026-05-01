@@ -19,6 +19,10 @@ describe('matchesSportGroup', () => {
     expect(matchesSportGroup('running_indoor', { sport_type: 'running', sub_type: 'indoor_running' })).toBe(true)
   })
 
+  it('keeps snowshoeing in the hiking record group after category cleanup', () => {
+    expect(matchesSportGroup('hiking', { sport_type: 'snowshoeing' })).toBe(true)
+  })
+
   it('treats indoor and virtual modifiers symmetrically for stationary record groups', () => {
     expect(matchesSportGroup('running_indoor', { sport_type: 'running', is_indoor: true })).toBe(true)
     expect(matchesSportGroup('running_virtual', { sport_type: 'running', is_virtual: true })).toBe(true)

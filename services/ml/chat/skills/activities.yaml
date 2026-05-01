@@ -14,7 +14,7 @@ domain_knowledge: |
   - Dauer: elapsed_time_s / 3600 = Stunden
   - Distanz: distance_m / 1000 = km
   - Sport-Typen: running, cycling, hiking, walking, swimming,
-    skiing, alpine_skiing, cross_country_skiing, strength, strength_training,
+    skiing, alpine_skiing, cross_country_skiing, strength_training,
     mountaineering, paddling, canoeing
   - Sub-Typen: MTB = sport_type cycling + sub_type mountain;
     Gravel = cycling + gravel_cycling; Indoor-Rad = cycling + indoor_cycling;
@@ -22,7 +22,7 @@ domain_knowledge: |
   - E-Bike ist kein eigener Sport-Typ, sondern cycling + is_electric=true
   - Indoor, Virtual und Pendeln sind Modifier: is_indoor/is_virtual/is_commute
   - Allgemein vs. spezifisch: Ski allgemein = skiing; Alpin-Ski = alpine_skiing;
-    Kraft allgemein = strength; Krafttraining = strength_training
+    Krafttraining = strength_training
 tools:
   - query_activities
   - aggregate_stats

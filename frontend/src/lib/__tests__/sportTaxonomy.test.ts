@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
 import { GENERATED_SPORT_TAXONOMY_SOURCE_SHA256 } from '../generatedSportTaxonomy'
-import { SPORT_DEFS, canonicalSportOptions, categoryForSport, normalizeSportTuple, routeSportOptions, sportColor, sportLabel, sportsInCategory } from '../sportTaxonomy'
+import { SPORT_DEFS, canonicalSportOptions, categoryForSport, normalizeSportTuple, routeSportOptions, selectableParentSportOptions, selectableSportTupleOptions, sportColor, sportLabel, sportsInCategory } from '../sportTaxonomy'
 
 describe('sport taxonomy aliases', () => {
   it('keeps the generated frontend taxonomy source hash in sync with sports.yaml', () => {
@@ -168,6 +168,16 @@ describe('sport taxonomy aliases', () => {
     expect(bySport.get('canoeing')?.lifecycle).toBe('canonical')
   })
 
+  it('keeps broad fallback parents out of selectable creation options while preserving selectable subtypes', () => {
+    const parentValues = selectableParentSportOptions().map((opt) => opt.value)
+    const tupleValues = selectableSportTupleOptions().map((opt) => `${opt.value}/${opt.subType ?? ''}`)
+
+    expect(parentValues).not.toEqual(expect.arrayContaining(['skiing', 'training', 'fitness_equipment', 'paddling']))
+    expect(tupleValues).toContain('fitness_equipment/stair_climbing')
+    expect(tupleValues).toContain('training/flexibility_training')
+    expect(tupleValues).not.toContain('training/strength_training')
+  })
+
   it('keeps generated category colors as hex defaults', () => {
     expect(categoryForSport('running').color).toBe('#EF4444')
     expect(categoryForSport('cycling').color).toBe('#F97316')
@@ -186,6 +196,8 @@ describe('sport taxonomy aliases', () => {
     expect(values).not.toContain('trail_running/')
     expect(values).not.toContain('wheelchair_push_walk/')
     expect(values).not.toContain('wheelchair_push_run/')
+    expect(values).not.toContain('skiing/')
+    expect(values).not.toContain('paddling/')
   })
 
   it('keeps current route sport option keys stable while projections are deferred', () => {
@@ -211,9 +223,7 @@ describe('sport taxonomy aliases', () => {
       'ice_skating/',
       'snowmobiling/',
       'sledding/',
-      'skiing/',
       'swimming/',
-      'paddling/',
       'kayaking/',
       'stand_up_paddleboarding/',
       'rowing/',

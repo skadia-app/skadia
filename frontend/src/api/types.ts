@@ -7,7 +7,7 @@ export type SportType =
   | 'skiing'
   | 'paddling'
   | 'walking'
-  | 'strength'
+  | 'strength_training'
   | 'rock_climbing'
   | 'stand_up_paddleboarding'
   | 'generic'

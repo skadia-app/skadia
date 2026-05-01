@@ -70,11 +70,12 @@ def test_get_tool_definitions_all():
 
 
 def test_ml_sport_enum_matches_backend_taxonomy():
-    taxonomy = Path(__file__).parents[2] / "api" / "internal" / "sport" / "taxonomy.go"
+    taxonomy = Path(__file__).parents[2] / "api" / "internal" / "sport" / "taxonomy_generated.go"
     backend_sports = set(re.findall(r'SportType:\s+"([^"]+)"', taxonomy.read_text()))
 
     assert set(_SPORT_TYPES) == backend_sports
 
 
 def test_broad_canonical_sport_classes_remain_in_ml_enum():
-    assert {"skiing", "strength", "canoeing"} <= set(_SPORT_TYPES)
+    assert {"skiing", "canoeing"} <= set(_SPORT_TYPES)
+    assert "strength" not in set(_SPORT_TYPES)

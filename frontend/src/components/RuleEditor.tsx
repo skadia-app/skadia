@@ -6,7 +6,7 @@ import { fetchTags } from '@/api/tags'
 import { fetchDevices } from '@/api/hardware'
 import type { Device } from '@/api/hardware'
 import type { AutomationRule, RuleCondition, RuleConditionGroup, RuleAction, RuleBranch } from '@/api/types'
-import { SPORT_DEFS, canonicalSportOptions, getSportDef, normalizeSportTuple } from '@/lib/sportTaxonomy'
+import { SPORT_DEFS, getSportDef, normalizeSportTuple, selectableSportTupleOptions } from '@/lib/sportTaxonomy'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import ZoneEditor, { type ZoneData } from '@/components/ZoneEditor'
@@ -21,7 +21,12 @@ const SPORT_OPTIONS = SPORT_DEFS.map(d => ({
   category: d.categoryKey,
 }))
 
-const CANONICAL_SPORT_OPTIONS = canonicalSportOptions()
+const CANONICAL_SPORT_OPTIONS = Array.from(
+  new Map(selectableSportTupleOptions().map((opt) => [opt.value, {
+    value: opt.value,
+    label: getSportDef(opt.value)?.label ?? opt.label,
+  }])).values(),
+)
 
 
 
@@ -403,6 +408,12 @@ function subTypeOptionsForSport(sportType: string) {
   return getSportDef(sportType)?.subTypes ?? []
 }
 
+function firstSelectableSubType(sportType: string): string {
+  const def = getSportDef(sportType)
+  if (!def || def.selectable) return ''
+  return def.subTypes.find((st) => st.selectable)?.subType ?? ''
+}
+
 function supportsElectricModifier(sportType: string) {
   return sportType === 'cycling'
 }
@@ -472,7 +483,7 @@ function SportTupleConditionControl({
   function patch(next: Partial<typeof value>) {
     const updated = { ...value, ...next }
     if (next.sportType && next.sportType !== value.sportType) {
-      updated.subType = ''
+      updated.subType = firstSelectableSubType(next.sportType)
       if (!supportsElectricModifier(next.sportType)) {
         updated.electric = ''
       }
@@ -1422,7 +1433,7 @@ function ActionParams({
               value={sportType}
               onChange={(e) => {
                 const nextSport = e.target.value
-                const nextParams: Record<string, any> = { ...params, sport_type: nextSport, sub_type: '' }
+                const nextParams: Record<string, any> = { ...params, sport_type: nextSport, sub_type: firstSelectableSubType(nextSport) }
                 if (!supportsElectricModifier(nextSport)) delete nextParams.electric
                 onChange(nextParams)
               }}
@@ -1441,7 +1452,7 @@ function ActionParams({
               className={inputClass + ' w-40'}
             >
               <option value="">beliebig</option>
-              {subTypes.map((s) => <option key={s.subType} value={s.subType}>{s.label}</option>)}
+              {subTypes.filter((s) => s.selectable).map((s) => <option key={s.subType} value={s.subType}>{s.label}</option>)}
             </select>
           </label>
         </div>
