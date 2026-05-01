@@ -35,8 +35,8 @@ WITH allowed_sports(sport) AS (
         ('strength_training'), ('surfing'), ('swimming'), ('tactical'),
         ('tennis'), ('training'), ('transition'), ('unknown'), ('volleyball'),
         ('wakeboarding'), ('wakesurfing'), ('walking'), ('water_skiing'),
-        ('water_tubing'), ('wheelchair_push'), ('wheelchair_push_run'),
-        ('wheelchair_push_walk'), ('windsurfing'), ('yoga')
+        ('water_tubing'), ('wheelchair_push_run'), ('wheelchair_push_walk'),
+        ('windsurfing'), ('yoga')
 ),
 allowed_subtypes(sport, sub_type) AS (
     VALUES
@@ -68,10 +68,9 @@ allowed_subtypes(sport, sub_type) AS (
         ('swimming','lap_swimming'), ('swimming','open_water'),
         ('tennis','exercise'), ('tennis','match'), ('tennis','warm_up'),
         ('training','breathing'), ('training','cardio_training'), ('training','flexibility_training'),
-        ('training','hiit'), ('training','pilates'), ('training','strength_training'), ('training','yoga'),
+        ('training','hiit'), ('training','strength_training'), ('training','yoga'),
         ('transition','bike_to_run_transition'), ('transition','run_to_bike_transition'), ('transition','swim_to_bike_transition'),
         ('walking','casual_walking'), ('walking','indoor_walking'), ('walking','speed_walking'),
-        ('wheelchair_push','run_speed'), ('wheelchair_push','walk_speed'),
         ('wheelchair_push_run','indoor_wheelchair_run'),
         ('wheelchair_push_walk','indoor_wheelchair_walk')
 ),
@@ -113,10 +112,12 @@ BEGIN
         RETURN predicates;
     END IF;
     FOR pred IN SELECT value FROM jsonb_array_elements(predicates) LOOP
-        IF pred->>'sport' = 'wheelchair_push' AND pred->>'sub_type' = 'walk_speed' THEN
-            out := out || jsonb_build_array(jsonb_build_object('sport', 'wheelchair_push_walk'));
+        IF pred->>'sport' = 'training' AND pred->>'sub_type' = 'pilates' THEN
+            out := out || jsonb_build_array(jsonb_build_object('sport', 'pilates'));
         ELSIF pred->>'sport' = 'wheelchair_push' AND pred->>'sub_type' = 'run_speed' THEN
             out := out || jsonb_build_array(jsonb_build_object('sport', 'wheelchair_push_run'));
+        ELSIF pred->>'sport' = 'wheelchair_push' THEN
+            out := out || jsonb_build_array(jsonb_build_object('sport', 'wheelchair_push_walk'));
         ELSE
             out := out || jsonb_build_array(pred);
         END IF;
@@ -128,49 +129,67 @@ $$;
 UPDATE activities
 SET sport_type = 'wheelchair_push_walk',
     sub_type = CASE WHEN is_indoor THEN 'indoor_wheelchair_walk' ELSE NULL END
-WHERE sport_type = 'wheelchair_push' AND sub_type = 'walk_speed';
+WHERE sport_type = 'wheelchair_push' AND COALESCE(sub_type, '') IN ('', 'walk_speed');
 UPDATE activities
 SET sport_type = 'wheelchair_push_run',
     sub_type = CASE WHEN is_indoor THEN 'indoor_wheelchair_run' ELSE NULL END
 WHERE sport_type = 'wheelchair_push' AND sub_type = 'run_speed';
 UPDATE activities
+SET sport_type = 'pilates', sub_type = NULL
+WHERE sport_type = 'training' AND sub_type = 'pilates';
+UPDATE activities
 SET parsed_sport_type = 'wheelchair_push_walk',
     parsed_sub_type = CASE WHEN is_indoor THEN 'indoor_wheelchair_walk' ELSE NULL END
-WHERE parsed_sport_type = 'wheelchair_push' AND parsed_sub_type = 'walk_speed';
+WHERE parsed_sport_type = 'wheelchair_push' AND COALESCE(parsed_sub_type, '') IN ('', 'walk_speed');
 UPDATE activities
 SET parsed_sport_type = 'wheelchair_push_run',
     parsed_sub_type = CASE WHEN is_indoor THEN 'indoor_wheelchair_run' ELSE NULL END
 WHERE parsed_sport_type = 'wheelchair_push' AND parsed_sub_type = 'run_speed';
+UPDATE activities
+SET parsed_sport_type = 'pilates', parsed_sub_type = NULL
+WHERE parsed_sport_type = 'training' AND parsed_sub_type = 'pilates';
 
 UPDATE heatmap_lines SET sport_type = 'wheelchair_push_walk', sub_type = NULL
-WHERE sport_type = 'wheelchair_push' AND sub_type = 'walk_speed';
+WHERE sport_type = 'wheelchair_push' AND COALESCE(sub_type, '') IN ('', 'walk_speed');
 UPDATE heatmap_lines SET sport_type = 'wheelchair_push_run', sub_type = NULL
 WHERE sport_type = 'wheelchair_push' AND sub_type = 'run_speed';
+UPDATE heatmap_lines SET sport_type = 'pilates', sub_type = NULL
+WHERE sport_type = 'training' AND sub_type = 'pilates';
 UPDATE heatmap_points SET sport_type = 'wheelchair_push_walk', sub_type = NULL
-WHERE sport_type = 'wheelchair_push' AND sub_type = 'walk_speed';
+WHERE sport_type = 'wheelchair_push' AND COALESCE(sub_type, '') IN ('', 'walk_speed');
 UPDATE heatmap_points SET sport_type = 'wheelchair_push_run', sub_type = NULL
 WHERE sport_type = 'wheelchair_push' AND sub_type = 'run_speed';
+UPDATE heatmap_points SET sport_type = 'pilates', sub_type = NULL
+WHERE sport_type = 'training' AND sub_type = 'pilates';
 UPDATE segment_efforts SET sport_type = 'wheelchair_push_walk', sub_type = 'generic'
-WHERE sport_type = 'wheelchair_push' AND sub_type = 'walk_speed';
+WHERE sport_type = 'wheelchair_push' AND COALESCE(sub_type, '') IN ('', 'walk_speed', 'generic');
 UPDATE segment_efforts SET sport_type = 'wheelchair_push_run', sub_type = 'generic'
 WHERE sport_type = 'wheelchair_push' AND sub_type = 'run_speed';
+UPDATE segment_efforts SET sport_type = 'pilates', sub_type = 'generic'
+WHERE sport_type = 'training' AND sub_type = 'pilates';
 
 UPDATE planned_routes
 SET sport_type = 'wheelchair_push_walk',
     sub_type = CASE WHEN is_indoor THEN 'indoor_wheelchair_walk' ELSE NULL END
-WHERE sport_type = 'wheelchair_push' AND sub_type = 'walk_speed';
+WHERE sport_type = 'wheelchair_push' AND COALESCE(sub_type, '') IN ('', 'walk_speed');
 UPDATE planned_routes
 SET sport_type = 'wheelchair_push_run',
     sub_type = CASE WHEN is_indoor THEN 'indoor_wheelchair_run' ELSE NULL END
 WHERE sport_type = 'wheelchair_push' AND sub_type = 'run_speed';
+UPDATE planned_routes
+SET sport_type = 'pilates', sub_type = NULL
+WHERE sport_type = 'training' AND sub_type = 'pilates';
 UPDATE recording_groups
 SET sport_type = 'wheelchair_push_walk',
     sub_type = CASE WHEN is_indoor THEN 'indoor_wheelchair_walk' ELSE NULL END
-WHERE sport_type = 'wheelchair_push' AND sub_type = 'walk_speed';
+WHERE sport_type = 'wheelchair_push' AND COALESCE(sub_type, '') IN ('', 'walk_speed');
 UPDATE recording_groups
 SET sport_type = 'wheelchair_push_run',
     sub_type = CASE WHEN is_indoor THEN 'indoor_wheelchair_run' ELSE NULL END
 WHERE sport_type = 'wheelchair_push' AND sub_type = 'run_speed';
+UPDATE recording_groups
+SET sport_type = 'pilates', sub_type = NULL
+WHERE sport_type = 'training' AND sub_type = 'pilates';
 
 UPDATE segments
 SET allowed_predicates = fp_plan_t_down_predicates(allowed_predicates)
@@ -212,3 +231,4 @@ ALTER TABLE segments
 ALTER TABLE segments VALIDATE CONSTRAINT segments_allowed_predicates_valid;
 
 DROP FUNCTION IF EXISTS fp_plan_t_down_predicates(JSONB);
+DROP FUNCTION IF EXISTS fp_sport_taxonomy_normalize(TEXT, TEXT);

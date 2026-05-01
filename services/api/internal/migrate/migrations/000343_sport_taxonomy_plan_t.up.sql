@@ -286,6 +286,8 @@ DECLARE
     out JSONB := '[]'::jsonb;
     op TEXT;
     raw_sport TEXT;
+    raw_values TEXT[];
+    normalized_values TEXT[];
     n RECORD;
     needs_tuple BOOLEAN;
 BEGIN
@@ -301,21 +303,44 @@ BEGIN
 
         op := lower(btrim(COALESCE(cond->>'op', '')));
         IF op <> 'eq' THEN
-            raw_sport := cond->>'value';
-            SELECT * INTO n FROM fp_sport_taxonomy_normalize(raw_sport, '');
-            needs_tuple := raw_sport IS DISTINCT FROM n.sport_type OR n.sub_type <> '' OR n.is_indoor OR n.is_electric;
-            IF needs_tuple THEN
-                RAISE EXCEPTION '%: unsupported sport_type operator "%" for legacy or subtype sport predicate "%"', surface, cond->>'op', raw_sport;
+            IF op = 'neq' THEN
+                raw_sport := cond->>'value';
+                SELECT * INTO n FROM fp_sport_taxonomy_normalize(raw_sport, '');
+                IF n.sub_type <> '' OR n.is_indoor OR n.is_electric THEN
+                    RAISE EXCEPTION '%: unsupported sport_type operator "%" for legacy or subtype sport predicate "%"', surface, cond->>'op', raw_sport;
+                END IF;
+                out := out || jsonb_build_array(jsonb_set(cond, '{value}', to_jsonb(n.sport_type), true));
+                CONTINUE;
             END IF;
-            out := out || jsonb_build_array(cond);
-            CONTINUE;
+            IF op IN ('in', 'not_in') THEN
+                IF jsonb_typeof(cond->'value') <> 'array' THEN
+                    RAISE EXCEPTION '%: sport_type % condition value must be a string array', surface, cond->>'op';
+                END IF;
+                SELECT array_agg(value ORDER BY value)
+                INTO raw_values
+                FROM jsonb_array_elements_text(cond->'value') AS values(value);
+                normalized_values := ARRAY[]::text[];
+                FOREACH raw_sport IN ARRAY COALESCE(raw_values, ARRAY[]::text[]) LOOP
+                    SELECT * INTO n FROM fp_sport_taxonomy_normalize(raw_sport, '');
+                    IF n.sub_type <> '' OR n.is_indoor OR n.is_electric THEN
+                        RAISE EXCEPTION '%: unsupported sport_type operator "%" for legacy or subtype sport predicate "%"', surface, cond->>'op', raw_sport;
+                    END IF;
+                    normalized_values := array_append(normalized_values, n.sport_type);
+                END LOOP;
+                SELECT array_agg(DISTINCT value ORDER BY value)
+                INTO normalized_values
+                FROM unnest(normalized_values) AS values(value);
+                out := out || jsonb_build_array(jsonb_set(cond, '{value}', to_jsonb(COALESCE(normalized_values, ARRAY[]::text[])), true));
+                CONTINUE;
+            END IF;
+            RAISE EXCEPTION '%: unsupported sport_type operator "%" for sport taxonomy rewrite', surface, cond->>'op';
         END IF;
 
         raw_sport := cond->>'value';
         SELECT * INTO n FROM fp_sport_taxonomy_normalize(raw_sport, '');
         needs_tuple := raw_sport IS DISTINCT FROM n.sport_type OR n.sub_type <> '' OR n.is_indoor OR n.is_electric;
         IF reject_tuple_in_or AND needs_tuple THEN
-            RAISE EXCEPTION '%: or group contains legacy sport predicate "%"', surface, raw_sport;
+                RAISE EXCEPTION '%: unsupported sport_type operator "%" for legacy or subtype sport predicate "%"', surface, cond->>'op', raw_sport;
         END IF;
 
         out := out || jsonb_build_array(jsonb_set(cond, '{value}', to_jsonb(n.sport_type), true));
@@ -616,18 +641,23 @@ UPDATE segments
 SET allowed_predicates = fp_plan_t_rewrite_predicates(allowed_predicates)
 WHERE allowed_predicates IS NOT NULL;
 
-UPDATE routing_profiles rp
-SET predicates = CASE
-        WHEN COALESCE(array_length(rp.sport_types, 1), 0) > 0 THEN fp_plan_t_predicates_from_sport_types(rp.sport_types)
-        ELSE fp_plan_t_rewrite_predicates(rp.predicates)
-    END,
-    modifier_filters = fp_plan_t_modifier_filters_from_predicates(
+WITH rewritten_profiles AS (
+    SELECT
+        rp.id,
         CASE
-            WHEN COALESCE(array_length(rp.sport_types, 1), 0) > 0 THEN fp_plan_t_predicates_from_sport_types(rp.sport_types)
+            WHEN jsonb_typeof(rp.predicates) = 'array' AND jsonb_array_length(rp.predicates) > 0
+                THEN fp_plan_t_rewrite_predicates(rp.predicates)
+            WHEN COALESCE(array_length(rp.sport_types, 1), 0) > 0
+                THEN fp_plan_t_predicates_from_sport_types(rp.sport_types)
             ELSE rp.predicates
-        END,
-        rp.modifier_filters
-    );
+        END AS predicates
+    FROM routing_profiles rp
+)
+UPDATE routing_profiles rp
+SET predicates = rewritten.predicates,
+    modifier_filters = fp_plan_t_modifier_filters_from_predicates(rewritten.predicates, rp.modifier_filters)
+FROM rewritten_profiles rewritten
+WHERE rp.id = rewritten.id;
 
 UPDATE routing_profiles
 SET sport_types = fp_plan_t_sport_types_from_predicates(predicates);
@@ -838,3 +868,4 @@ DROP FUNCTION IF EXISTS fp_plan_t_sport_types_from_predicates(JSONB);
 DROP FUNCTION IF EXISTS fp_plan_t_predicates_from_sport_types(TEXT[]);
 DROP FUNCTION IF EXISTS fp_plan_t_modifier_filters_from_predicates(JSONB, JSONB);
 DROP FUNCTION IF EXISTS fp_plan_t_rewrite_predicates(JSONB);
+DROP FUNCTION IF EXISTS fp_sport_taxonomy_normalize(TEXT, TEXT);
