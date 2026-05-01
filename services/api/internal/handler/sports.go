@@ -31,14 +31,6 @@ type subTypeResponse struct {
 }
 
 func (h *Handler) GetSportsTaxonomy(w http.ResponseWriter, r *http.Request) {
-	// Category colors matching frontend
-	catColors := map[string]string{
-		"run": "#EF4444", "bike": "#F97316", "winter": "#06B6D4",
-		"water": "#3B82F6", "fitness": "#8B5CF6", "game": "#10B981",
-		"climb": "#A855F7", "outdoor": "#84CC16", "multi": "#F59E0B",
-		"other": "#6B7280",
-	}
-
 	var resp taxonomyResponse
 	for _, cat := range sport.AllCategories() {
 		cr := categoryResponse{
@@ -50,7 +42,7 @@ func (h *Handler) GetSportsTaxonomy(w http.ResponseWriter, r *http.Request) {
 				SportType:       s.SportType,
 				Label:           s.LabelDE,
 				TypicallyHasGPS: s.TypicallyHasGPS,
-				Color:           catColors[s.CategoryKey],
+				Color:           cat.Color,
 			}
 			for stKey, st := range s.SubTypes {
 				_ = stKey

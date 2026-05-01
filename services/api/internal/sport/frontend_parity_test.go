@@ -7,9 +7,9 @@ import (
 )
 
 func TestFrontendTaxonomyContainsBackendLabels(t *testing.T) {
-	data, err := os.ReadFile("../../../../frontend/src/lib/sportTaxonomy.ts")
+	data, err := os.ReadFile("../../../../frontend/src/lib/generatedSportTaxonomy.ts")
 	if err != nil {
-		t.Fatalf("read frontend taxonomy: %v", err)
+		t.Fatalf("read generated frontend taxonomy: %v", err)
 	}
 	src := string(data)
 

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
 import { GENERATED_SPORT_TAXONOMY_SOURCE_SHA256 } from '../generatedSportTaxonomy'
-import { SPORT_DEFS, normalizeSportTuple, routeSportOptions, sportLabel } from '../sportTaxonomy'
+import { SPORT_DEFS, categoryForSport, normalizeSportTuple, routeSportOptions, sportColor, sportLabel } from '../sportTaxonomy'
 
 describe('sport taxonomy aliases', () => {
   it('keeps the generated frontend taxonomy source hash in sync with sports.yaml', () => {
@@ -86,6 +86,12 @@ describe('sport taxonomy aliases', () => {
     expect(sportLabel('training', 'flexibility_training')).toBe('Stretching')
     expect(sportLabel('fitness_equipment', 'indoor_rowing')).toBe('Ruder-Ergometer')
     expect(sportLabel('water_tubing')).toBe('Wassertubing')
+  })
+
+  it('keeps generated category colors as hex defaults', () => {
+    expect(categoryForSport('running').color).toBe('#EF4444')
+    expect(categoryForSport('cycling').color).toBe('#F97316')
+    expect(sportColor('totally_unknown')).toBe('#6B7280')
   })
 
   it('builds route sport options from canonical GPS-capable sports and subtypes', () => {
