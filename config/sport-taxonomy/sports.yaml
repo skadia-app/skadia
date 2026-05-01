@@ -943,6 +943,14 @@ sports:
     auto_titles:
       de: Yoga
     selectable: false
+  - sub_type: pilates
+    labels:
+      de: Pilates
+    details:
+      de: Pilates
+    auto_titles:
+      de: Pilates
+    selectable: false
   - sub_type: breathing
     labels:
       de: Atemübung

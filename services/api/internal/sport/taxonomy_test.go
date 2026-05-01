@@ -67,6 +67,7 @@ func TestSubTypeLabels(t *testing.T) {
 		{"cycling", "mountain", "MTB"},
 		{"running", "indoor_running", "Indoor"},
 		{"training", "yoga", "Yoga"},
+		{"training", "pilates", "Pilates"},
 		{"training", "strength_training", "Krafttraining"},
 		{"training", "cardio_training", "Cardio"},
 		{"training", "", "Training"},
@@ -222,6 +223,7 @@ func TestSportDetailLabel(t *testing.T) {
 		{"cycling", "generic", "Radfahren"},
 		{"running", "indoor_running", "Laufen (Indoor)"},
 		{"training", "yoga", "Yoga"},
+		{"training", "pilates", "Pilates"},
 		{"training", "", "Training"},
 		{"paddling", "", "Paddeln (Generisch)"},
 	}
