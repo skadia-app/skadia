@@ -12,7 +12,7 @@ import WarningsPanel from '@/components/analytics/insights/WarningsPanel'
 import FitnessProjection from '@/components/analytics/insights/FitnessProjection'
 import TrainingClusters from '@/components/analytics/insights/TrainingClusters'
 import CorrelationsPanel from '@/components/analytics/insights/CorrelationsPanel'
-import ReadinessV2Card from '@/components/analytics/ReadinessV2Card'
+import ReadinessV2Card from '@/components/analytics/ReadinessCard'
 
 export default function InsightsTab() {
   const { toQueryString } = useAnalyticsFilters()
