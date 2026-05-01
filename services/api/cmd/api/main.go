@@ -637,9 +637,9 @@ func main() {
 	importSvc.BestEfforts = bestEffortsService
 
 	h := &handler.Handler{
-		DB:             db,
-		Events:         pub,
-		PMC:            pmcService,
+		DB:    db,
+		Events: pub,
+		PMC:   pmcService,
 		BestEfforts:    bestEffortsService,
 		ShadowFS:       store,
 		ShadowFSConfig: shadowFSCfg,
@@ -670,6 +670,19 @@ func main() {
 			S3BE:                s3BE,
 			BucketFn:            store.BucketFor,
 		},
+	}
+
+	// Wire the segregated publisher interfaces. When NATS is unavailable
+	// (pub == nil) we leave the interface fields as untyped nil so that
+	// `if h.X != nil` checks work as expected (assigning a nil *Publisher
+	// directly would yield a non-nil interface holding a typed-nil pointer).
+	if pub != nil {
+		h.AnalyticsInvalidator = pub
+		h.ActivityUploadedPublisher = pub
+		h.Stage2ReadyPublisher = pub
+		h.DocumentUploadedPublisher = pub
+		h.PhotoEmbedPublisher = pub
+		h.EventConn = pub
 	}
 
 	// Routing graph manager — initialize tiled routing (UnifiedRouter).

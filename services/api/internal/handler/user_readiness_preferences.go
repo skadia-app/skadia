@@ -8,18 +8,11 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
-// readinessInvalidator picks the test-injectable AnalyticsInvalidator (when
-// set) or falls back to h.Events. *event.Publisher satisfies the interface
-// (asserted in internal/event/publisher_test.go). Returns nil when neither
-// is wired so callers can skip the publish entirely.
+// readinessInvalidator returns the AnalyticsInvalidator wired on the Handler
+// (production: *event.Publisher; tests: FakeInvalidator). Returns nil when
+// NATS is not configured so callers can skip the publish entirely.
 func (h *Handler) readinessInvalidator() event.AnalyticsInvalidator {
-	if h.ReadinessInvalidator != nil {
-		return h.ReadinessInvalidator
-	}
-	if h.Events != nil {
-		return h.Events
-	}
-	return nil
+	return h.AnalyticsInvalidator
 }
 
 // readinessPreferenceBody is the wire shape for both GET response and PUT body.
@@ -66,6 +59,7 @@ func (h *Handler) PutUserReadinessPreferences(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Empty body {} and {"preferred_source": null} are both treated as "set to NULL" (auto-mode).
 	body, ok := httputil.DecodeJSON[readinessPreferenceBody](w, r)
 	if !ok {
 		return

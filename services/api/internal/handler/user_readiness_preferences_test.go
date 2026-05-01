@@ -26,7 +26,7 @@ func newReadinessPrefHandler(t *testing.T, pool *pgxpool.Pool) (*Handler, *event
 	fake := &event.FakeInvalidator{}
 	h := &Handler{
 		DB:                   &database.DB{Pool: pool},
-		ReadinessInvalidator: fake,
+		AnalyticsInvalidator: fake,
 	}
 	return h, fake
 }
@@ -153,7 +153,7 @@ func TestUserReadinessPref_PutInvalidatorErr(t *testing.T) {
 	fake := &event.FakeInvalidator{NextErr: errors.New("boom")}
 	h := &Handler{
 		DB:                   &database.DB{Pool: pool},
-		ReadinessInvalidator: fake,
+		AnalyticsInvalidator: fake,
 	}
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(),
