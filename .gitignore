@@ -34,6 +34,9 @@ data/dem/
 **/.cache/
 *.log
 
+# Frontend npm commands must run from frontend/; ignore accidental root lockfile.
+/package-lock.json
+
 # Python
 __pycache__/
 *.py[cod]
