@@ -12,7 +12,7 @@ exports[`ReadinessCardFull — detail overlay snapshot > snapshot: fully-expande
     <h3
       class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide"
     >
-      Trainingsbereitschaft
+      Readiness
     </h3>
     <span
       class="text-xs text-neutral-500 dark:text-neutral-400"
@@ -297,7 +297,7 @@ exports[`ReadinessCardFull — level snapshots > snapshot for level="critical" 1
     <h3
       class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide"
     >
-      Trainingsbereitschaft
+      Readiness
     </h3>
     <span
       class="text-xs text-neutral-500 dark:text-neutral-400"
@@ -451,7 +451,7 @@ exports[`ReadinessCardFull — level snapshots > snapshot for level="good" 1`] =
     <h3
       class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide"
     >
-      Trainingsbereitschaft
+      Readiness
     </h3>
     <span
       class="text-xs text-neutral-500 dark:text-neutral-400"
@@ -605,7 +605,7 @@ exports[`ReadinessCardFull — level snapshots > snapshot for level="low" 1`] = 
     <h3
       class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide"
     >
-      Trainingsbereitschaft
+      Readiness
     </h3>
     <span
       class="text-xs text-neutral-500 dark:text-neutral-400"
@@ -759,7 +759,7 @@ exports[`ReadinessCardFull — level snapshots > snapshot for level="moderate" 1
     <h3
       class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide"
     >
-      Trainingsbereitschaft
+      Readiness
     </h3>
     <span
       class="text-xs text-neutral-500 dark:text-neutral-400"
@@ -913,7 +913,7 @@ exports[`ReadinessCardFull — level snapshots > snapshot for level="optimal" 1`
     <h3
       class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide"
     >
-      Trainingsbereitschaft
+      Readiness
     </h3>
     <span
       class="text-xs text-neutral-500 dark:text-neutral-400"
