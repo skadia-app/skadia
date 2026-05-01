@@ -864,7 +864,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if h.GraphManager != nil {
 			gr = h.GraphManager.Reader()
 		}
-		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Events, false, false, gr, !geoViaStage1)
+		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Stage2ReadyPublisher, false, false, gr, !geoViaStage1)
 	}
 
 	// Per-submodule geo enrichment: runs when geo is requested but not as part of allScope.

@@ -118,7 +118,7 @@ func (h *Handler) ReEnrichActivities(w http.ResponseWriter, r *http.Request) {
 		if h.GraphManager != nil {
 			gr = h.GraphManager.Reader()
 		}
-		enrichment.ReEnrichBatch(ctx, h.DB, h.Events, userID, req.Modules, ids, jobID, gr)
+		enrichment.ReEnrichBatch(ctx, h.DB, h.AnalyticsInvalidator, userID, req.Modules, ids, jobID, gr)
 	})
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{

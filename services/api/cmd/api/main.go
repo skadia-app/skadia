@@ -638,7 +638,6 @@ func main() {
 
 	h := &handler.Handler{
 		DB:    db,
-		Events: pub,
 		PMC:   pmcService,
 		BestEfforts:    bestEffortsService,
 		ShadowFS:       store,

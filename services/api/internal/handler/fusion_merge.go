@@ -611,7 +611,7 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 		mergedID := p.merged.ID
 		userID := p.userID
 		db := h.DB
-		events := h.Events
+		events := h.Stage2ReadyPublisher
 		var gr routing.GraphReader
 		if h.GraphManager != nil {
 			gr = h.GraphManager.Reader()
