@@ -310,12 +310,15 @@ def test_mix_pref_skadia_picks_eigen():
     assert set(out["hrv_status"].available_sources) == {"skadia", "garmin"}
 
 
-def test_mix_pref_none_picks_mfr():
+def test_mix_pref_none_picks_eigen_auto_best():
+    """R1-#5 (Option B): pref=None → Skadia-first per factor.
+    The path selector only routes to the mix (Path A) when eigen is complete,
+    so pref=None inside the mix means we already chose to trust eigen."""
     eigen = {"hrv_status": _f("hrv_status", 80.0)}
     mfr = {"hrv_factor_pct": 50.0, "source_type": "garmin"}
     out = _mix_sources(eigen, mfr, None)
-    assert out["hrv_status"].value == 50.0
-    assert out["hrv_status"].source == "garmin"
+    assert out["hrv_status"].value == 80.0
+    assert out["hrv_status"].source == "skadia"
 
 
 def test_mix_manual_override_source():
@@ -553,24 +556,19 @@ async def test_rhr_auto_trigger_when_cache_stale(conn):
 # Mix DB-backed (just one extra spot-check)
 # ===========================================================================
 
-async def test_mix_sources_via_compute_pref_null_uses_mfr(conn):
+async def test_mix_sources_via_compute_pref_null_path_b_when_eigen_incomplete(conn):
+    """R1-#5 auto-best: pref=None and eigen incomplete (no training_load) →
+    Path B (manufacturer score used directly)."""
     uid = await seed_user(conn)
     await _insert_hrv_night_history(conn, uid, n_days=30)
     await _insert_hrv_today_snapshot(conn, uid, rmssd=55.0)
     await _insert_sleep(conn, uid, score=82)
-    # Manufacturer factor values all 40 → if mix picks them, composite = 40.
+    # No pmc_daily → eigen incomplete (training_load missing).
     await _insert_manufacturer(conn, uid, score=75, hrv=40, sleep=40, acwr=40)
-    # No pref row → pref=None. Path-decision (Plan §5): both available + pref!=manufacturer
-    # → Path A. Inside Path A, _mix_sources with pref=None picks manufacturer per-factor
-    # (spec §6.3: manufacturer fresh wins when pref is null).
     result = await compute_readiness(conn, uid)
     assert result["refused"] is False
-    # All three critical factors were sourced from manufacturer → composite ≈ 40.
-    assert result["score"] == 40
-    # And every critical factor's source must be the manufacturer's source_type.
-    by_key = {f["key"]: f for f in result["factors"]}
-    for k in ("hrv_status", "sleep", "training_load"):
-        assert by_key[k]["source"] == "garmin"
+    # Path B → score equals manufacturer score (no RHR penalty seeded).
+    assert result["score"] == 75
 
 
 # ===========================================================================

@@ -476,6 +476,22 @@ def _check_refusal(eigen: dict[str, FactorInput], mfr: dict | None) -> tuple[boo
     return True, "insufficient_factors"
 
 
+# --- Path-selection helper ---------------------------------------------------
+
+def _eigen_is_complete(eigen: dict[str, FactorInput]) -> bool:
+    """All critical eigen-factors present (per spec §6.1).
+
+    Used by the auto-best path selector when the user has expressed no
+    preference: only when every critical eigen-factor is available do we
+    trust Skadia's own composite over the manufacturer's score.
+    """
+    for k in CRITICAL_FACTORS:
+        f = eigen.get(k)
+        if f is None or f.missing or f.value is None:
+            return False
+    return True
+
+
 # --- Composite ---------------------------------------------------------------
 
 def _score_to_level(score: int) -> str:
@@ -561,16 +577,18 @@ def _mix_sources(
         if not eigen_avail and not mfr_avail:
             continue
 
-        # Picking rule (matches spec §6.3):
-        # - mfr_only            → use mfr
-        # - eigen_only          → use eigen
+        # Picking rule (spec §6.4 — auto-best, R1-#5 user decision):
+        # - mfr_only                → use mfr
+        # - eigen_only              → use eigen
         # - both, pref=manufacturer → mfr
-        # - both, pref=skadia   → eigen
-        # - both, pref=None      → mfr (manufacturer fresh today wins per spec)
+        # - both, pref=skadia      → eigen
+        # - both, pref=None         → eigen (Skadia-first when both complete;
+        #   path selector already routes to manufacturer-score Path B when
+        #   eigen is incomplete, so reaching the mix with pref=None means we
+        #   trust our own per-factor numbers).
         use_mfr = mfr_avail and (
             not eigen_avail
             or pref == "manufacturer"
-            or pref is None
         )
         if use_mfr:
             v = float(mfr[col])
@@ -820,12 +838,22 @@ async def _compute_readiness_locked(conn, user_id: str) -> dict:
             mfr=mfr,
         )
 
-    # 5. Path determination
+    # 5. Path determination — see spec §6.4 (Path A / Path B definitions) and
+    # the user-decision recorded for R1-#5 (Option B "auto-best"): when the
+    # user has no explicit preference (`pref is None`), we pick Path B
+    # (Skadia / eigen-mix flow) only if all critical eigen-factors are
+    # complete; otherwise we fall back to the manufacturer side (Path A here
+    # uses the manufacturer's score directly when path_a is false).
     n_eigen = sum(1 for f in eigen.values() if not f.missing and f.value is not None)
     path_a = n_eigen >= 2
-    path_b = mfr is not None and mfr.get("score") is not None
-    if path_a and path_b:
-        path_kind = "B" if pref == "manufacturer" else "A"
+    path_b_available = mfr is not None and mfr.get("score") is not None
+    if path_a and path_b_available:
+        if pref == "skadia":
+            path_kind = "A"
+        elif pref == "manufacturer":
+            path_kind = "B"
+        else:  # pref is None — auto-best per R1-#5
+            path_kind = "A" if _eigen_is_complete(eigen) else "B"
     elif path_a:
         path_kind = "A"
     else:
