@@ -1,18 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
-  fetchInsightsReadiness,
   fetchInsightsWarnings,
   fetchInsightsClusters,
   refreshInsights,
 } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
-import ReadinessGauge from '@/components/analytics/insights/ReadinessGauge'
 import WarningsPanel from '@/components/analytics/insights/WarningsPanel'
 import FitnessProjection from '@/components/analytics/insights/FitnessProjection'
 import TrainingClusters from '@/components/analytics/insights/TrainingClusters'
 import CorrelationsPanel from '@/components/analytics/insights/CorrelationsPanel'
-import ReadinessV2Card from '@/components/analytics/ReadinessCard'
+import ReadinessCardFull from '@/components/analytics/ReadinessCard'
 
 export default function InsightsTab() {
   const { toQueryString } = useAnalyticsFilters()
@@ -21,19 +19,6 @@ export default function InsightsTab() {
   const navigate = useNavigate()
 
   // Probe queries to determine if any data is available yet
-  const { data: readiness, isLoading: readinessLoading } = useQuery({
-    queryKey: ['analytics', 'insights', 'readiness', queryParams],
-    queryFn: async () => {
-      try {
-        return await fetchInsightsReadiness(queryParams)
-      } catch {
-        return null
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
-  })
-
   const { data: warnings, isLoading: warningsLoading } = useQuery({
     queryKey: ['analytics', 'insights', 'warnings', queryParams],
     queryFn: async () => {
@@ -64,11 +49,12 @@ export default function InsightsTab() {
     mutationFn: refreshInsights,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['analytics', 'insights'] })
+      queryClient.invalidateQueries({ queryKey: ['analytics', 'readiness'] })
     },
   })
 
-  const isProbing = readinessLoading || warningsLoading || clustersLoading
-  const hasNoData = !isProbing && !readiness && (!warnings || warnings.length === 0) && (!clusters || clusters.length === 0)
+  const isProbing = warningsLoading || clustersLoading
+  const hasNoData = !isProbing && (!warnings || warnings.length === 0) && (!clusters || clusters.length === 0)
 
   // Show empty state when all data is absent
   if (hasNoData) {
@@ -168,8 +154,8 @@ export default function InsightsTab() {
         </div>
       )}
 
-      {/* Readiness v2 — full width */}
-      <ReadinessV2Card />
+      {/* Readiness — full width */}
+      <ReadinessCardFull />
 
       {/* Frag den Assistenten */}
       <div className="flex justify-end">
@@ -186,11 +172,8 @@ export default function InsightsTab() {
         </button>
       </div>
 
-      {/* Row 1: Readiness (left) | Warnings (right) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ReadinessGauge />
-        <WarningsPanel />
-      </div>
+      {/* Row 1: Warnings — full width */}
+      <WarningsPanel />
 
       {/* Row 2: Fitness Projection (full width) */}
       <FitnessProjection />
