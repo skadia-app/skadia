@@ -127,3 +127,101 @@ func TestReconcileReadiness_InactiveUser(t *testing.T) {
 		}
 	}
 }
+
+// TestReconcileReadiness_LimitRespected — when more stale users than the per-run
+// limit exist, only limit many publishes are issued.
+func TestReconcileReadiness_LimitRespected(t *testing.T) {
+	pool := reconcileTestPool(t)
+
+	// Seed 3 stale users with distinct login times so ORDER BY is deterministic.
+	uids := make([]string, 3)
+	for i := range uids {
+		// oldest first: 10d, 8d, 6d ago
+		ago := time.Duration(10-i*2) * 24 * time.Hour
+		uids[i] = seedReconcileUser(t, pool, time.Now().Add(-ago))
+	}
+
+	// Override env to limit to 2 per run.
+	t.Setenv("RECONCILE_MAX_PER_RUN", "2")
+	// Use zero delay so the test finishes quickly.
+	t.Setenv("RECONCILE_PUBLISH_DELAY_MS", "0")
+
+	fake := &event.FakeInvalidator{}
+	if err := ReconcileReadiness(context.Background(), pool, fake); err != nil {
+		t.Fatalf("ReconcileReadiness returned error: %v", err)
+	}
+
+	// Count how many of our 3 seeded users were published.
+	published := 0
+	for _, call := range fake.Calls {
+		for _, uid := range uids {
+			if call == uid {
+				published++
+			}
+		}
+	}
+	if published > 2 {
+		t.Errorf("expected at most 2 publishes for our seeded users, got %d", published)
+	}
+}
+
+// TestReconcileReadiness_PublishDelay — verifies that the per-publish sleep is
+// observed: N users with a known delay must take at least (N-1)*delay.
+func TestReconcileReadiness_PublishDelay(t *testing.T) {
+	pool := reconcileTestPool(t)
+
+	// Seed 3 stale users.
+	for i := 0; i < 3; i++ {
+		seedReconcileUser(t, pool, time.Now().Add(-time.Duration(i+1)*24*time.Hour))
+	}
+
+	const delayMS = 5
+	t.Setenv("RECONCILE_PUBLISH_DELAY_MS", fmt.Sprintf("%d", delayMS))
+	t.Setenv("RECONCILE_MAX_PER_RUN", "1000")
+
+	fake := &event.FakeInvalidator{}
+	start := time.Now()
+	if err := ReconcileReadiness(context.Background(), pool, fake); err != nil {
+		t.Fatalf("ReconcileReadiness returned error: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	// There may be other stale users in the DB from other tests; we only care
+	// that at least 2 delays fired (our 3 users → 2 inter-publish sleeps).
+	// Use a conservative lower bound to avoid flakiness.
+	minExpected := time.Duration(2*delayMS) * time.Millisecond
+	if elapsed < minExpected {
+		t.Errorf("expected elapsed >= %v (2 delays of %dms), got %v", minExpected, delayMS, elapsed)
+	}
+}
+
+// TestReconcileReadiness_ContextCancelDuringDelay — cancelling the context while
+// the function is sleeping between publishes causes an early return with an error.
+func TestReconcileReadiness_ContextCancelDuringDelay(t *testing.T) {
+	pool := reconcileTestPool(t)
+
+	// Seed 3 stale users so there are multiple sleeps to cancel.
+	for i := 0; i < 3; i++ {
+		seedReconcileUser(t, pool, time.Now().Add(-time.Duration(i+1)*24*time.Hour))
+	}
+
+	// Long delay ensures the context cancel fires during a sleep.
+	t.Setenv("RECONCILE_PUBLISH_DELAY_MS", "5000")
+	t.Setenv("RECONCILE_MAX_PER_RUN", "1000")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	fake := &event.FakeInvalidator{}
+	start := time.Now()
+	err := ReconcileReadiness(ctx, pool, fake)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Error("expected error after context cancel, got nil")
+	}
+	// Must return well before a full 5 s delay cycle.
+	if elapsed > 2*time.Second {
+		t.Errorf("expected early return after ctx cancel, but elapsed %v", elapsed)
+	}
+}
