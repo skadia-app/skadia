@@ -21,21 +21,35 @@ type legacySportAlias struct {
 }
 
 var legacySportAliases = map[string]legacySportAlias{
-	"bike":                {tuple: Tuple{SportType: "cycling"}},
-	"biking":              {tuple: Tuple{SportType: "cycling"}},
-	"ride":                {tuple: Tuple{SportType: "cycling"}},
-	"mountain_biking":     {tuple: Tuple{SportType: "cycling", SubType: "mountain"}},
-	"gravel_cycling":      {tuple: Tuple{SportType: "cycling", SubType: "gravel_cycling"}},
-	"indoor_cycling":      {tuple: Tuple{SportType: "cycling", SubType: "indoor_cycling"}, patch: ModifierPatch{IsIndoor: boolPtr(true)}},
-	"trail_running":       {tuple: Tuple{SportType: "running", SubType: "trail"}},
-	"treadmill_running":   {tuple: Tuple{SportType: "running", SubType: "treadmill"}, patch: ModifierPatch{IsIndoor: boolPtr(true)}},
-	"lap_swimming":        {tuple: Tuple{SportType: "swimming", SubType: "lap_swimming"}},
-	"open_water_swimming": {tuple: Tuple{SportType: "swimming", SubType: "open_water"}},
-	"road_cycling":        {tuple: Tuple{SportType: "cycling", SubType: "road"}},
-	"roadcycling":         {tuple: Tuple{SportType: "cycling", SubType: "road"}},
-	"e_mountain_biking":   {tuple: Tuple{SportType: "cycling", SubType: "mountain"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
-	"e_biking":            {tuple: Tuple{SportType: "cycling"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
-	"e_bike":              {tuple: Tuple{SportType: "cycling"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
+	"bike":                 {tuple: Tuple{SportType: "cycling"}},
+	"biking":               {tuple: Tuple{SportType: "cycling"}},
+	"ride":                 {tuple: Tuple{SportType: "cycling"}},
+	"mountain_biking":      {tuple: Tuple{SportType: "cycling", SubType: "mountain"}},
+	"gravel_cycling":       {tuple: Tuple{SportType: "cycling", SubType: "gravel_cycling"}},
+	"indoor_cycling":       {tuple: Tuple{SportType: "cycling", SubType: "indoor_cycling"}, patch: ModifierPatch{IsIndoor: boolPtr(true)}},
+	"trail_running":        {tuple: Tuple{SportType: "running", SubType: "trail"}},
+	"treadmill_running":    {tuple: Tuple{SportType: "running", SubType: "treadmill"}, patch: ModifierPatch{IsIndoor: boolPtr(true)}},
+	"lap_swimming":         {tuple: Tuple{SportType: "swimming", SubType: "lap_swimming"}},
+	"open_water_swimming":  {tuple: Tuple{SportType: "swimming", SubType: "open_water"}},
+	"road_cycling":         {tuple: Tuple{SportType: "cycling", SubType: "road"}},
+	"roadcycling":          {tuple: Tuple{SportType: "cycling", SubType: "road"}},
+	"wheelchair_push_walk": {tuple: Tuple{SportType: "wheelchair_push", SubType: "walk_speed"}},
+	"wheelchair_push_run":  {tuple: Tuple{SportType: "wheelchair_push", SubType: "run_speed"}},
+	"strength":             {tuple: Tuple{SportType: "strength_training"}},
+	"e_mountain_biking":    {tuple: Tuple{SportType: "cycling", SubType: "mountain"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
+	"e_biking":             {tuple: Tuple{SportType: "cycling"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
+	"e_bike":               {tuple: Tuple{SportType: "cycling"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
+}
+
+var legacySubTypeAliases = map[Tuple]legacySportAlias{
+	{SportType: "wheelchair_push_walk", SubType: "indoor_wheelchair_walk"}: {
+		tuple: Tuple{SportType: "wheelchair_push", SubType: "walk_speed"},
+		patch: ModifierPatch{IsIndoor: boolPtr(true)},
+	},
+	{SportType: "wheelchair_push_run", SubType: "indoor_wheelchair_run"}: {
+		tuple: Tuple{SportType: "wheelchair_push", SubType: "run_speed"},
+		patch: ModifierPatch{IsIndoor: boolPtr(true)},
+	},
 }
 
 func NormalizeSportTuple(sportType, subType string) (Tuple, ModifierPatch, error) {
@@ -45,10 +59,13 @@ func NormalizeSportTuple(sportType, subType string) (Tuple, ModifierPatch, error
 	tuple := Tuple{SportType: sportType, SubType: subType}
 	var patch ModifierPatch
 
-	if alias, ok := legacySportAliases[sportType]; ok {
+	if alias, ok := legacySubTypeAliases[Tuple{SportType: sportType, SubType: subType}]; ok {
 		tuple = alias.tuple
 		patch = mergeModifierPatch(patch, alias.patch)
-		if subType != "" && subType != "generic" {
+	} else if alias, ok := legacySportAliases[sportType]; ok {
+		tuple = alias.tuple
+		patch = mergeModifierPatch(patch, alias.patch)
+		if tuple.SubType == "" && subType != "" && subType != "generic" {
 			tuple.SubType = subType
 		}
 	}

@@ -81,16 +81,14 @@ const FRONTEND_SPORT_ORDER = [
   'walking',
   'hiking',
   'mountaineering',
-  'snowshoeing',
-  'floor_climbing',
-  'wheelchair_push_walk',
-  'wheelchair_push_run',
+  'wheelchair_push',
   'cycling',
   'inline_skating',
   'alpine_skiing',
   'backcountry_skiing',
   'cross_country_skiing',
   'snowboarding',
+  'snowshoeing',
   'ice_skating',
   'snowmobiling',
   'sledding',
@@ -120,10 +118,10 @@ const FRONTEND_SPORT_ORDER = [
   'hiit',
   'yoga',
   'pilates',
+  'floor_climbing',
   'dance',
   'jump_rope',
   'meditation',
-  'strength',
   'soccer',
   'basketball',
   'american_football',
@@ -182,10 +180,22 @@ const LEGACY_ALIASES = new Map<string, SportTuple>([
   ['lap_swimming', { sportType: 'swimming', subType: 'lap_swimming', modifiers: {} }],
   ['open_water_swimming', { sportType: 'swimming', subType: 'open_water', modifiers: {} }],
   ['road_cycling', { sportType: 'cycling', subType: 'road', modifiers: {} }],
+  ['wheelchair_push_walk', { sportType: 'wheelchair_push', subType: 'walk_speed', modifiers: {} }],
+  ['wheelchair_push_run', { sportType: 'wheelchair_push', subType: 'run_speed', modifiers: {} }],
+  ['strength', { sportType: 'strength_training', subType: '', modifiers: {} }],
   ['e_mountain_biking', { sportType: 'cycling', subType: 'mountain', modifiers: { isElectric: true } }],
   ['e_biking', { sportType: 'cycling', subType: '', modifiers: { isElectric: true } }],
   ['e_bike', { sportType: 'cycling', subType: '', modifiers: { isElectric: true } }],
 ])
+
+const LEGACY_SUBTYPE_ALIASES = new Map<string, SportTuple>([
+  [tupleKey('wheelchair_push_walk', 'indoor_wheelchair_walk'), { sportType: 'wheelchair_push', subType: 'walk_speed', modifiers: { isIndoor: true } }],
+  [tupleKey('wheelchair_push_run', 'indoor_wheelchair_run'), { sportType: 'wheelchair_push', subType: 'run_speed', modifiers: { isIndoor: true } }],
+])
+
+function tupleKey(sportType: string, subType: string): string {
+  return `${sportType}\u0000${subType}`
+}
 
 // ── Lookup Maps ─────────────────────────────────────────────────────────────────
 
@@ -219,11 +229,19 @@ function humanize(raw: string): string {
 export function normalizeSportTuple(sportType: string, subType: string | null = null): SportTuple {
   const trimmedSport = sportType.trim()
   const trimmedSub = subType?.trim() ?? ''
+  const subtypeAlias = LEGACY_SUBTYPE_ALIASES.get(tupleKey(trimmedSport, trimmedSub))
+  if (subtypeAlias) {
+    return {
+      sportType: subtypeAlias.sportType,
+      subType: subtypeAlias.subType,
+      modifiers: { ...subtypeAlias.modifiers },
+    }
+  }
   const alias = LEGACY_ALIASES.get(trimmedSport)
   const tuple: SportTuple = alias
     ? {
         sportType: alias.sportType,
-        subType: trimmedSub && trimmedSub !== 'generic' ? trimmedSub : alias.subType,
+        subType: alias.subType || (trimmedSub && trimmedSub !== 'generic' ? trimmedSub : ''),
         modifiers: { ...alias.modifiers },
       }
     : {
@@ -347,8 +365,7 @@ const ROUTE_COMPATIBLE_SPORT_TYPES = [
   'hiking',
   'mountaineering',
   'snowshoeing',
-  'wheelchair_push_walk',
-  'wheelchair_push_run',
+  'wheelchair_push',
   'cycling',
   'inline_skating',
   'alpine_skiing',

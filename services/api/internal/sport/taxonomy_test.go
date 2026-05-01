@@ -125,13 +125,16 @@ func TestAllSports(t *testing.T) {
 		t.Errorf("AllSports() returned %d, want at least 60", len(all))
 	}
 	legacyAliases := map[string]bool{
-		"mountain_biking":     true,
-		"trail_running":       true,
-		"gravel_cycling":      true,
-		"indoor_cycling":      true,
-		"treadmill_running":   true,
-		"lap_swimming":        true,
-		"open_water_swimming": true,
+		"mountain_biking":      true,
+		"trail_running":        true,
+		"gravel_cycling":       true,
+		"indoor_cycling":       true,
+		"treadmill_running":    true,
+		"lap_swimming":         true,
+		"open_water_swimming":  true,
+		"wheelchair_push_walk": true,
+		"wheelchair_push_run":  true,
+		"strength":             true,
 	}
 	for _, d := range all {
 		if legacyAliases[d.SportType] {
@@ -188,10 +191,25 @@ func TestLegacyAliasesAreNotRuntimeSports(t *testing.T) {
 		"treadmill_running",
 		"lap_swimming",
 		"open_water_swimming",
+		"wheelchair_push_walk",
+		"wheelchair_push_run",
+		"strength",
 	} {
 		if _, ok := GetSportDef(sportType); ok {
 			t.Fatalf("GetSportDef(%q) returned true after compatibility cleanup", sportType)
 		}
+	}
+}
+
+func TestMovingThresholdForTupleUsesSubTypeOverride(t *testing.T) {
+	if got := MovingThresholdForTuple("wheelchair_push", "walk_speed"); got != 0.2 {
+		t.Fatalf("walk threshold = %v, want 0.2", got)
+	}
+	if got := MovingThresholdForTuple("wheelchair_push", "run_speed"); got != 0.5 {
+		t.Fatalf("run threshold = %v, want 0.5", got)
+	}
+	if got := MovingThreshold("wheelchair_push"); got != 0.2 {
+		t.Fatalf("parent threshold = %v, want 0.2", got)
 	}
 }
 
@@ -233,7 +251,6 @@ func TestIsIndoor(t *testing.T) {
 		{"boxing", "", true},
 		{"mixed_martial_arts", "", true},
 		{"floor_climbing", "", true},
-		{"strength", "", true}, // alias
 
 		// Sport-level IsIndoor: false
 		{"running", "", false},
