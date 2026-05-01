@@ -11,28 +11,23 @@ package migrations_test
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 )
 
-const migration000343UpSQL = `
-CREATE TABLE IF NOT EXISTS user_readiness_preferences (
-    user_id          UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    preferred_source TEXT
-        CHECK (preferred_source IS NULL OR preferred_source IN ('manufacturer','skadia')),
-    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-DELETE FROM analytics_cache WHERE cache_key = 'readiness_v2';
-
--- Note: audit-log INSERT is non-idempotent; re-running the migration appends a row.
-INSERT INTO auth_audit_log (user_id, event_type, details)
-SELECT NULL, 'migration', jsonb_build_object(
-  'migration', '000343', 'name', 'user_readiness_preferences'
-);
-`
+// migration000343UpSQL loads the real migration file at test runtime so the
+// test always reflects the actual SQL on disk (not a stale inline copy).
+func migration000343UpSQL(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile("000343_user_readiness_preferences.up.sql")
+	if err != nil {
+		t.Fatalf("read 000343 up.sql: %v", err)
+	}
+	return string(b)
+}
 
 const migration000343DownSQL = `DROP TABLE IF EXISTS user_readiness_preferences;`
 
@@ -48,7 +43,7 @@ func TestMigration000343_TableCreated(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = tx.Rollback(ctx) })
 
-	if _, err := tx.Exec(ctx, migration000343UpSQL); err != nil {
+	if _, err := tx.Exec(ctx, migration000343UpSQL(t)); err != nil {
 		t.Fatalf("apply up-migration: %v", err)
 	}
 
@@ -78,7 +73,7 @@ func TestMigration000343_CheckConstraintMentionsBothSources(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = tx.Rollback(ctx) })
 
-	if _, err := tx.Exec(ctx, migration000343UpSQL); err != nil {
+	if _, err := tx.Exec(ctx, migration000343UpSQL(t)); err != nil {
 		t.Fatalf("apply up-migration: %v", err)
 	}
 
@@ -150,7 +145,7 @@ func TestMigration000343_AnalyticsCacheCleanup(t *testing.T) {
 	}
 
 	// Apply migration.
-	if _, err := tx.Exec(ctx, migration000343UpSQL); err != nil {
+	if _, err := tx.Exec(ctx, migration000343UpSQL(t)); err != nil {
 		t.Fatalf("apply up-migration: %v", err)
 	}
 
@@ -163,6 +158,70 @@ func TestMigration000343_AnalyticsCacheCleanup(t *testing.T) {
 	}
 	if after != 0 {
 		t.Errorf("expected readiness_v2 cache row to be removed by migration, got count=%d", after)
+	}
+}
+
+// TestMigration000343_AnalyticsCacheCleanupLegacy verifies that the second
+// DELETE in the up-migration removes legacy analytics_cache rows written with
+// cache_key='readiness' (the old shape before the _v2 rename).
+func TestMigration000343_AnalyticsCacheCleanupLegacy(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	// Insert a real user (analytics_cache.user_id has FK→users.id).
+	userID := uuid.NewString()
+	_, err = tx.Exec(ctx,
+		`INSERT INTO users (id, username, email, email_verified, registration_source)
+		 VALUES ($1, $2, $3, true, 'test')`,
+		userID,
+		"mig343_leg_"+userID[:8],
+		"mig343_leg_"+userID[:8]+"@example.com",
+	)
+	if err != nil {
+		t.Fatalf("insert test user: %v", err)
+	}
+
+	// Insert synthetic legacy readiness cache row (old shape, no _v2 suffix).
+	_, err = tx.Exec(ctx,
+		`INSERT INTO analytics_cache (user_id, cache_key, data) VALUES ($1, 'readiness', '{"score":42,"level":"good","factors":[]}'::jsonb)`,
+		userID,
+	)
+	if err != nil {
+		t.Fatalf("insert analytics_cache legacy row: %v", err)
+	}
+
+	// Verify it's there before.
+	var before int
+	if err := tx.QueryRow(ctx,
+		`SELECT count(*) FROM analytics_cache WHERE user_id = $1 AND cache_key = 'readiness'`,
+		userID,
+	).Scan(&before); err != nil {
+		t.Fatalf("query before: %v", err)
+	}
+	if before != 1 {
+		t.Fatalf("expected legacy row to exist before migration, got count=%d", before)
+	}
+
+	// Apply migration.
+	if _, err := tx.Exec(ctx, migration000343UpSQL(t)); err != nil {
+		t.Fatalf("apply up-migration: %v", err)
+	}
+
+	var after int
+	if err := tx.QueryRow(ctx,
+		`SELECT count(*) FROM analytics_cache WHERE user_id = $1 AND cache_key = 'readiness'`,
+		userID,
+	).Scan(&after); err != nil {
+		t.Fatalf("query after: %v", err)
+	}
+	if after != 0 {
+		t.Errorf("expected legacy 'readiness' cache row to be removed by migration, got count=%d", after)
 	}
 }
 
@@ -189,7 +248,7 @@ func TestMigration000343_AuditLogRow(t *testing.T) {
 		t.Fatalf("query auth_audit_log before: %v", err)
 	}
 
-	if _, err := tx.Exec(ctx, migration000343UpSQL); err != nil {
+	if _, err := tx.Exec(ctx, migration000343UpSQL(t)); err != nil {
 		t.Fatalf("apply up-migration: %v", err)
 	}
 
@@ -221,7 +280,7 @@ func TestMigration000343_DownSmoke(t *testing.T) {
 	t.Cleanup(func() { _ = tx.Rollback(ctx) })
 
 	// 1) Up.
-	if _, err := tx.Exec(ctx, migration000343UpSQL); err != nil {
+	if _, err := tx.Exec(ctx, migration000343UpSQL(t)); err != nil {
 		t.Fatalf("first up: %v", err)
 	}
 
@@ -263,7 +322,7 @@ func TestMigration000343_DownSmoke(t *testing.T) {
 	}
 
 	// 3) Up again — table back, empty.
-	if _, err := tx.Exec(ctx, migration000343UpSQL); err != nil {
+	if _, err := tx.Exec(ctx, migration000343UpSQL(t)); err != nil {
 		t.Fatalf("second up: %v", err)
 	}
 
