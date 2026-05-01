@@ -76,6 +76,7 @@ class FactorInput:
     source: str | None = None        # 'skadia', 'garmin', 'manual_override', ...
     stale_hours: float | None = None
     missing: bool = False
+    missing_reason: str | None = None  # one of MISSING_REASONS when missing=True
     available_sources: tuple[str, ...] = ()
 
     def _replace(self, **kw):  # mimic NamedTuple._replace
@@ -138,8 +139,16 @@ async def _load_hrv_status(conn, user_id: str, user_tz: str) -> FactorInput:
             user_id, user_tz,
         )
 
-    if today_row is None or today_row["age_h"] is None or float(today_row["age_h"]) > HRV_TODAY_MAX_AGE_H:
-        return FactorInput(key="hrv_status", value=None, missing=True, source="skadia")
+    if today_row is None or today_row["age_h"] is None:
+        return FactorInput(
+            key="hrv_status", value=None, missing=True, missing_reason="no_data_today",
+            source="skadia",
+        )
+    if float(today_row["age_h"]) > HRV_TODAY_MAX_AGE_H:
+        return FactorInput(
+            key="hrv_status", value=None, missing=True, missing_reason="stale",
+            source="skadia", stale_hours=float(today_row["age_h"]),
+        )
 
     rmssd_today = float(today_row["rmssd_ms"])
     stale_h = float(today_row["age_h"])
@@ -179,8 +188,10 @@ async def _load_hrv_status(conn, user_id: str, user_tz: str) -> FactorInput:
     )
     if baseline is None or baseline["n"] is None or int(baseline["n"]) < 7 \
             or baseline["mean"] is None or baseline["sd"] is None or float(baseline["sd"]) <= 0:
-        return FactorInput(key="hrv_status", value=None, missing=True, source="skadia",
-                           raw_value=rmssd_today, raw_unit="ms", stale_hours=stale_h)
+        return FactorInput(
+            key="hrv_status", value=None, missing=True, missing_reason="no_baseline",
+            source="skadia", raw_value=rmssd_today, raw_unit="ms", stale_hours=stale_h,
+        )
 
     z = (rmssd_today - float(baseline["mean"])) / float(baseline["sd"])
     z = max(-2.0, min(2.0, z))
@@ -218,17 +229,24 @@ async def _load_sleep_factor(conn, user_id: str, user_tz: str) -> FactorInput:
         user_id, user_tz,
     )
     if row is None:
-        return FactorInput(key="sleep", value=None, missing=True, source="skadia")
+        return FactorInput(
+            key="sleep", value=None, missing=True, missing_reason="no_data", source="skadia",
+        )
 
     recorded_s = int(row["recorded_s"] or 0)
     age_h = float(row["age_h"]) if row["age_h"] is not None else None
 
     if recorded_s < SLEEP_MIN_RECORDED_SECONDS:
-        return FactorInput(key="sleep", value=None, missing=True, source="skadia",
-                           stale_hours=age_h)
+        # Recording exists but is below the minimum quality threshold → treat as stale.
+        return FactorInput(
+            key="sleep", value=None, missing=True, missing_reason="stale",
+            source="skadia", stale_hours=age_h,
+        )
     if age_h is None or age_h > SLEEP_MAX_AGE_H:
-        return FactorInput(key="sleep", value=None, missing=True, source="skadia",
-                           stale_hours=age_h)
+        return FactorInput(
+            key="sleep", value=None, missing=True, missing_reason="stale",
+            source="skadia", stale_hours=age_h,
+        )
 
     score = float(row["score_overall"])
     return FactorInput(
@@ -255,12 +273,17 @@ async def _load_training_load_factor(conn, user_id: str, user_tz: str) -> Factor
         user_id, user_tz,
     )
     if row is None or row["acwr_ra"] is None:
-        return FactorInput(key="training_load", value=None, missing=True, source="skadia")
+        return FactorInput(
+            key="training_load", value=None, missing=True, missing_reason="no_data",
+            source="skadia",
+        )
     acwr = float(row["acwr_ra"])
     if acwr == 0.0:
         # PMC convention: acwr_ra=0 → insufficient training-day history
-        return FactorInput(key="training_load", value=None, missing=True, source="skadia",
-                           raw_value=acwr, raw_unit="ratio")
+        return FactorInput(
+            key="training_load", value=None, missing=True, missing_reason="no_baseline",
+            source="skadia", raw_value=acwr, raw_unit="ratio",
+        )
 
     # Mapping: 0.8–1.3 → 100; <0.8 → linear 60→100 (at 0.0..0.8); >1.3 → linear 100→0 (1.3..2.0)
     if 0.8 <= acwr <= 1.3:
@@ -795,7 +818,15 @@ def _refused_envelope(
         "refusal_reason": refusal_reason,
         "factors": factor_list,
         "missing_factors": [
-            {"key": k, "reason": MISSING_REASONS[0], "last_seen_at": None}  # "no_data"
+            {
+                "key": k,
+                "reason": (
+                    factors_eigen[k].missing_reason
+                    if factors_eigen.get(k) is not None and factors_eigen[k].missing_reason
+                    else MISSING_REASONS[0]  # "no_data" fallback
+                ),
+                "last_seen_at": None,
+            }
             for k in CRITICAL_FACTORS
             if factors_eigen.get(k) is None or factors_eigen[k].missing
         ],
@@ -993,7 +1024,15 @@ async def _compute_readiness_locked(conn, user_id: str, *, rhr_signal: str | Non
 
     # 10. Output
     missing_factors = [
-        {"key": k, "reason": MISSING_REASONS[3], "last_seen_at": None}  # "no_data_today"
+        {
+            "key": k,
+            "reason": (
+                used_mix[k].missing_reason
+                if used_mix.get(k) is not None and used_mix[k].missing_reason
+                else MISSING_REASONS[3]  # "no_data_today" default for Path-A missing
+            ),
+            "last_seen_at": None,
+        }
         for k in CRITICAL_FACTORS
         if (used_mix.get(k) is None or used_mix[k].missing) and path_kind == "A"
     ]
@@ -1014,7 +1053,7 @@ async def _compute_readiness_locked(conn, user_id: str, *, rhr_signal: str | Non
     }
 
 
-async def compute_readiness(conn, user_id: str, publisher=None) -> dict:
+async def compute_readiness(conn, user_id: str) -> dict:
     """Race-Verhalten:
     - already_running:        ack ohne Write. Kein Re-Trigger nötig.
     - stale_compute_pref_changed: ack ohne Write **und** anschließend einen
@@ -1123,7 +1162,7 @@ async def compute_readiness(conn, user_id: str, publisher=None) -> dict:
 
 async def handle_readiness_message(conn, user_id: str, publisher=None) -> dict:
     """NATS handler wrapper — pref-race triggers re-publish."""
-    result = await compute_readiness(conn, user_id, publisher)
+    result = await compute_readiness(conn, user_id)
     if result.get("republish") and publisher is not None:
         await publisher.publish_analytics_invalidate(user_id)
     return result
