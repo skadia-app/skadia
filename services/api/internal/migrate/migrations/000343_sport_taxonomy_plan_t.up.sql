@@ -1,4 +1,4 @@
-SELECT pg_advisory_xact_lock(330999, 1);
+SELECT pg_advisory_xact_lock(330343, 1);
 
 CREATE OR REPLACE FUNCTION fn_validate_predicates(p JSONB)
 RETURNS BOOLEAN
