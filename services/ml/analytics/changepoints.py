@@ -94,12 +94,14 @@ async def detect_changepoints(
             })
 
     # Store in analytics_cache
+    # 7-day TTL — matches the readiness-worker stale-recompute threshold.
     await pool.execute(
         """
-        INSERT INTO analytics_cache (user_id, cache_key, data, computed_at)
-        VALUES ($1, $2, $3::jsonb, NOW())
+        INSERT INTO analytics_cache (user_id, cache_key, data, computed_at, expires_at)
+        VALUES ($1, $2, $3::jsonb, NOW(), NOW() + INTERVAL '7 days')
         ON CONFLICT (user_id, cache_key)
-        DO UPDATE SET data = $3::jsonb, computed_at = NOW()
+        DO UPDATE SET data = $3::jsonb, computed_at = NOW(),
+                      expires_at = NOW() + INTERVAL '7 days'
         """,
         user_id, f"changepoints.{metric}", json.dumps(changepoints),
     )
