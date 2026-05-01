@@ -531,8 +531,15 @@ def _mix_sources(
     return out
 
 
-def _mfr_to_factors(mfr: dict) -> list[dict]:
-    """Path-B factor envelope: surface manufacturer sub-factors directly."""
+def _mfr_to_factors(mfr: dict, eigen: dict[str, FactorInput] | None = None) -> list[dict]:
+    """Path-B factor envelope: surface manufacturer sub-factors directly.
+
+    When eigen factors are provided, available_sources is populated per-factor
+    so the frontend toggle (f.available_sources?.length >= 2) is visible even
+    when the user's preference routes through Path B. Without this, a user with
+    full eigen factors + manufacturer score + pref='manufacturer' would see no
+    toggle and could never switch back.
+    """
     src = mfr.get("source_type") or "garmin"
     factors: list[dict] = []
     weights = {
@@ -542,6 +549,15 @@ def _mfr_to_factors(mfr: dict) -> list[dict]:
     }
     for key, (col, w) in weights.items():
         v = mfr.get(col)
+        # Compute available_sources: include 'skadia' when a non-missing eigen
+        # factor for this key is present; include the mfr source when mfr provides it.
+        avail: list[str] = []
+        if eigen is not None:
+            ef = eigen.get(key)
+            if ef is not None and not ef.missing and ef.value is not None:
+                avail.append("skadia")
+        if v is not None:
+            avail.append(src)
         factors.append({
             "key": key,
             "value": float(v) if v is not None else None,
@@ -551,6 +567,7 @@ def _mfr_to_factors(mfr: dict) -> list[dict]:
             "source": src,
             "stale_hours": None,
             "missing": v is None,
+            "available_sources": avail,
         })
     return factors
 
@@ -754,7 +771,9 @@ async def _compute_readiness_locked(conn, user_id: str) -> dict:
             manufacturer_in_critical=True,
         )
         level = _score_to_level(score)
-        factors_out = _mfr_to_factors(mfr)
+        # Pass eigen so _mfr_to_factors can populate available_sources when both
+        # sources have data — required for the frontend source-toggle to appear.
+        factors_out = _mfr_to_factors(mfr, eigen=eigen)
         used_mix: dict[str, FactorInput] = {}  # for confidence path
     else:
         # 7. Path A
