@@ -37,7 +37,15 @@ type SegmentMatcherFunc func(activityID, userID, sportType, subType string, gear
 type Service struct {
 	DB       *database.DB
 	ShadowFS shadowfs.ShadowFS
-	Events   *event.Publisher
+
+	// Segregated publisher interfaces. Production wires all four fields to the
+	// same *event.Publisher; tests can substitute fakes per-method. Each may be
+	// nil when NATS is not configured — call sites must guard with a nil-check
+	// before publishing.
+	ActivityUploadedPublisher event.ActivityUploadedPublisher
+	AnalyticsInvalidator      event.AnalyticsInvalidator
+	Stage2ReadyPublisher      event.Stage2ReadyPublisher
+	PhotoEmbedPublisher       event.PhotoEmbedPublisher
 
 	// Callback for segment matching that lives in the handler package to
 	// avoid circular imports. Optional (nil is safe – the step is skipped).
@@ -58,20 +66,26 @@ type Service struct {
 	// PostImportHook is called once after a successful activity import.
 	// Used to trigger fusion queue recompute. Optional — nil is safe.
 	PostImportHook func(ctx context.Context, userID string)
+
+	// Stage1Deps overrides the external dependencies (WeatherFetcher,
+	// ReverseGeocoder) used by RunStage1 in PostProcess. When nil,
+	// production defaults are used (real HTTP weather + PostGIS geocoder).
+	// Set only in integration tests to avoid network calls.
+	Stage1Deps *enrichment.Stage1Deps
 }
 
 // NewService constructs a Service with the provided dependencies.
-// segmentMatcher may be nil; the step will be skipped.
+// segmentMatcher may be nil; the step will be skipped. Publisher interfaces
+// are wired by the caller after construction (see cmd/api/main.go) so that
+// untyped-nil semantics survive when NATS is unavailable.
 func NewService(
 	db *database.DB,
 	store shadowfs.ShadowFS,
-	events *event.Publisher,
 	segmentMatcher SegmentMatcherFunc,
 ) *Service {
 	return &Service{
 		DB:             db,
 		ShadowFS:       store,
-		Events:         events,
 		SegmentMatcher: segmentMatcher,
 	}
 }
@@ -106,7 +120,7 @@ func (s *Service) PostProcess(
 	// RunStreamEnrichment is called explicitly in Phase 2 after g.Wait().
 	// skipGeo=true: activity_tracks is written in Phase 1 (InsertTrack).
 	// RunGeoAndPublishStage2 is called explicitly in Phase 2 after g.Wait().
-	enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Events, true, true, s.GraphReader, true, nil)
+	enrichment.RunStage1(ctx, s.DB, userID, activityID, data, s.Stage2ReadyPublisher, true, true, s.GraphReader, true, s.Stage1Deps)
 
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
 		if rulesErr := automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules, "on_import"); rulesErr != nil {
@@ -402,7 +416,7 @@ func (s *Service) PostProcess(
 	// Geo-Enrichment + Stage-2 NATS event run AFTER InsertTrack (Phase 1) because
 	// all geo queries read from activity_tracks.track_full.
 	// For non-GPS activities, geo queries are skipped internally but Stage-2 NATS event (embeddings) is still published.
-	enrichment.RunGeoAndPublishStage2(ctx, s.DB, userID, activityID, data.HasGPS, data.SportType, data.IsVirtual, s.Events, s.GraphReader)
+	enrichment.RunGeoAndPublishStage2(ctx, s.DB, userID, activityID, data.HasGPS, data.SportType, data.IsVirtual, s.Stage2ReadyPublisher, s.GraphReader)
 
 	// Trigger on_enrichment_complete rules after all synchronous enrichment steps finish.
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
@@ -482,17 +496,19 @@ func (s *Service) PostProcess(
 	}
 
 	// Publish NATS events
-	if s.Events != nil {
+	if s.ActivityUploadedPublisher != nil {
 		evt := event.ActivityUploadedEvent{
 			ActivityID: activityID,
 			UserID:     userID,
 			SportType:  data.SportType,
 			HasGPS:     data.HasGPS,
 		}
-		if err := s.Events.PublishActivityUploaded(evt); err != nil {
+		if err := s.ActivityUploadedPublisher.PublishActivityUploaded(evt); err != nil {
 			slog.Error("event publish failed", "error", err)
 		}
-		if err := s.Events.PublishAnalyticsInvalidate(userID); err != nil {
+	}
+	if s.AnalyticsInvalidator != nil {
+		if err := s.AnalyticsInvalidator.PublishAnalyticsInvalidate(userID); err != nil {
 			slog.Warn("analytics invalidate failed", "user_id", userID, "error", err)
 		}
 	}

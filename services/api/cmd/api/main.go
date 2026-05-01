@@ -632,9 +632,18 @@ func main() {
 	// Build the ImportService which holds the shared post-processing pipeline.
 	// The SegmentMatcher callback is wired after the Handler is created
 	// (it references handler methods), so we set it below.
-	importSvc := importer.NewService(db, store, pub, nil)
+	importSvc := importer.NewService(db, store, nil)
 	importSvc.PMC = pmcService
 	importSvc.BestEfforts = bestEffortsService
+	// Wire segregated publisher interfaces. When NATS is unavailable
+	// (pub == nil) we leave the interface fields as untyped nil so that
+	// `if s.X != nil` checks behave as expected.
+	if pub != nil {
+		importSvc.ActivityUploadedPublisher = pub
+		importSvc.AnalyticsInvalidator = pub
+		importSvc.Stage2ReadyPublisher = pub
+		importSvc.PhotoEmbedPublisher = pub
+	}
 
 	h := &handler.Handler{
 		DB:    db,
