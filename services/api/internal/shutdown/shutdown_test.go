@@ -86,3 +86,61 @@ func TestShutdown_TimeoutReturnsFalse(t *testing.T) {
 		t.Fatal("expected timeout, got success")
 	}
 }
+
+// TestManager_GoDuringShutdown_NotLeaked exercises the TOCTOU race between
+// Go and Shutdown (R2-M5). 100 goroutines are launched concurrently with a
+// Shutdown call. Every goroutine must receive a cancelled context — either
+// because it saw closed=true in Go, or because Shutdown's cancels.Range
+// reached its entry. The WaitGroup must drain within the timeout, proving
+// that no context was permanently uncancelled.
+func TestManager_GoDuringShutdown_NotLeaked(t *testing.T) {
+	const (
+		numGoroutines = 100
+		timeout       = 2 * time.Second
+	)
+
+	m := NewManager()
+
+	// Signal to start all goroutines and Shutdown simultaneously.
+	start := make(chan struct{})
+
+	// Count how many goroutines completed (context cancelled + returned).
+	var completed atomic.Int32
+
+	// Launch goroutines that race with Shutdown.
+	for i := range numGoroutines {
+		id := "racing-job-" + strconv.Itoa(i)
+		go func() {
+			<-start // wait for the gun
+			m.Go(id, func(ctx context.Context) {
+				// Block until context is cancelled (which must happen —
+				// either via the closed-path in Go or via Shutdown's Range).
+				<-ctx.Done()
+				completed.Add(1)
+			})
+		}()
+	}
+
+	// Trigger Shutdown concurrently with all the Go() calls above.
+	go func() {
+		<-start
+		m.Shutdown(timeout)
+	}()
+
+	close(start) // release everything at once
+
+	// Allow time for all goroutines and Shutdown to run.
+	deadline := time.After(timeout)
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out: only %d/%d goroutines completed — leaked contexts detected", completed.Load(), numGoroutines)
+		case <-tick.C:
+			if completed.Load() == numGoroutines {
+				return // all goroutines received their cancellation signal
+			}
+		}
+	}
+}

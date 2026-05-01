@@ -1092,12 +1092,11 @@ async def compute_readiness(conn, user_id: str) -> dict:
             if not got_lock:
                 # Return a schema-complete refused envelope so any caller sees a
                 # consistent shape regardless of the refusal path taken.
+                # Skip the _load_user_timezone DB round-trip: already_running is a
+                # hot-path (lock contention) and the envelope is refused anyway, so
+                # UTC is accurate enough for data_window_end here.
                 _ar_now = datetime.now(timezone.utc)
-                try:
-                    _ar_tz = await _load_user_timezone(conn, user_id)
-                except Exception:
-                    _ar_tz = "UTC"
-                _ar_today = _ar_now.astimezone(ZoneInfo(_ar_tz)).date().isoformat()
+                _ar_today = _ar_now.date().isoformat()
                 _ar_envelope = _refused_envelope(
                     refusal_reason="already_running",
                     data_window_end=_ar_today,

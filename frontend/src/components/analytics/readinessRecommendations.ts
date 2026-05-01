@@ -17,7 +17,7 @@ const EXPLICIT: Record<string, string> = {
 
 const LEVEL_FALLBACK: Record<Level, string> = {
   critical: 'Ruhetag oder sehr lockere Bewegung. Intensive Belastung heute meiden.',
-  low: 'Aktive Erholung — locker laufen, schwimmen oder mobilisieren.',
+  low: 'Aktive Erholung — locker bewegen, mobilisieren, kein Tempo.',
   moderate: 'Lockere Einheit machbar — keine Intervalle, kein Wettkampftempo.',
   good: 'Planmäßige Einheit empfehlenswert. Bei Schwellen- oder Intervalltraining auf die Tagesform achten.',
   optimal: 'Sehr gute Bereitschaft. Intensive Einheiten, Schwellentraining oder Wettkampf möglich.',

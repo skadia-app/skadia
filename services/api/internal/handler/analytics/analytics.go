@@ -1,23 +1,19 @@
 package analytics
 
 import (
-	"sync"
-
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/ml"
 	"github.com/go-chi/chi/v5"
 )
 
+// Trigger-loop throttling for the analytics-invalidate publish path lives
+// in event.Publisher.AnalyticsThrottle (R2-L5) — every caller is throttled
+// centrally, so no handler-side throttle is needed here.
 type Handler struct {
 	DB          *database.DB
 	Invalidator event.AnalyticsInvalidator // optional — nil when NATS is unavailable
 	ML          *ml.Client                 // optional — nil when ML service is unconfigured
-
-	// Trigger-loop throttle for the readiness recompute path (M14). Lazy-
-	// initialized via sync.Once so struct-literal Handlers (tests) work.
-	readinessThrottleOnce sync.Once
-	readinessThrottleInst *readinessTriggerThrottle
 }
 
 func NewHandler(db *database.DB, inv event.AnalyticsInvalidator) *Handler {

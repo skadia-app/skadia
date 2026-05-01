@@ -50,18 +50,39 @@ func (m *Manager) currentWG() *sync.WaitGroup {
 // or Reset is called.
 //
 // If the Manager is shut down, fn still runs but receives an already-cancelled
-// context.
+// context. The goroutine is NOT added to the WaitGroup in this case — Shutdown
+// no longer needs to drain it, and adding it after Shutdown's wg.Wait starts
+// would cause a race.
+//
+// Race-safety: RLock is held across the closed-check + cancels.Store + wg.Add
+// sequence. Shutdown holds the write lock across closed.Store + cancels.Range,
+// so the two sequences are mutually exclusive:
+//   - Any Go call holding RLock before Shutdown's Lock will finish its
+//     wg.Add before Shutdown releases the lock, and its cancel is in the
+//     map before Range runs — guaranteed cancellation.
+//   - Any Go call that acquires RLock after Shutdown releases the lock will
+//     see closed=true, cancel immediately, and skip wg.Add — no race with
+//     the ongoing wg.Wait.
 func (m *Manager) Go(id string, fn func(ctx context.Context)) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// RLock prevents Reset from swapping the WaitGroup and returning from
-	// wg.Wait while we have already incremented the old WaitGroup counter.
+	// RLock covers the entire closed-check + cancels.Store + wg.Add
+	// sequence. Shutdown holds the write lock across closed.Store +
+	// cancels.Range, so no cancel can slip through the gap.
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	if m.closed.Load() {
+		// Already shut down: run fn with a cancelled context but do not
+		// track it in the WaitGroup. Shutdown's wg.Wait may already be
+		// running; adding to the WaitGroup now would race with it.
+		// The cancel is not stored in the map — it is already cancelled
+		// and Shutdown will not call Range again.
 		cancel()
+		go fn(ctx)
+		return
 	}
+
 	m.cancels.Store(id, cancel)
 
 	wg := m.currentWG()
@@ -87,12 +108,21 @@ func (m *Manager) Cancel(id string) {
 // When the timeout fires, a background goroutine may still be draining the
 // WaitGroup. That goroutine captures the WaitGroup pointer at call time and
 // is therefore not affected by a subsequent Reset.
+//
+// Race-safety: the write lock is held across closed.Store + cancels.Range so
+// that no concurrent Go call can store a new cancel entry between those two
+// operations. Any Go call that acquired RLock before Shutdown's Lock will have
+// finished storing its cancel before Range runs (and will see closed=true and
+// cancel immediately). Any Go call that tries to acquire RLock after Shutdown's
+// Lock will see closed=true and cancel before storing, so it is also covered.
 func (m *Manager) Shutdown(timeout time.Duration) bool {
+	m.mu.Lock()
 	m.closed.Store(true)
 	m.cancels.Range(func(_, value any) bool {
 		value.(context.CancelFunc)()
 		return true
 	})
+	m.mu.Unlock()
 
 	// Capture current WaitGroup; Reset may swap it out before this goroutine
 	// finishes, and that is fine — they operate on independent objects.
