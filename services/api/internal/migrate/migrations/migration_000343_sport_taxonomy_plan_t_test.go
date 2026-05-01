@@ -27,11 +27,13 @@ func TestMigration000343PlanTDeclaresRequiredContracts(t *testing.T) {
 
 	for _, needle := range []string{
 		"SELECT pg_advisory_xact_lock(330343, 1)",
+		"ALTER TABLE activities DROP CONSTRAINT IF EXISTS activities_sport_type_canonical",
 		"wheelchair_push_walk",
 		"wheelchair_push_run",
 		"indoor_wheelchair_walk",
 		"indoor_wheelchair_run",
 		"strength_training",
+		"('training','pilates')",
 		"CREATE OR REPLACE FUNCTION fp_sport_taxonomy_normalize",
 		"CREATE OR REPLACE FUNCTION fn_validate_predicates",
 		"fp_plan_t_rewrite_predicates",
@@ -92,7 +94,11 @@ func TestMigration000343PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
 		VALUES
 			($1, $3, 'wheel walk', 'wheelchair_push_walk', '', NULL, NULL, false, now()),
 			($2, $3, 'wheel run', 'wheelchair_push_run', 'indoor_wheelchair_run', 'wheelchair_push_run', 'indoor_wheelchair_run', false, now()),
-			(gen_random_uuid(), $3, 'strength legacy', 'strength', NULL, NULL, NULL, false, now())
+			(gen_random_uuid(), $3, 'strength legacy', 'strength', NULL, NULL, NULL, false, now()),
+			(gen_random_uuid(), $3, 'generic legacy subtype', 'running', 'generic', 'running', 'generic', false, now()),
+			(gen_random_uuid(), $3, 'hiking legacy subtype', 'hiking', 'trail', 'hiking', 'trail', false, now()),
+			(gen_random_uuid(), $3, 'cycling legacy subtype', 'cycling', 'commuting', NULL, NULL, false, now()),
+			(gen_random_uuid(), $3, 'diving legacy subtype', 'diving', 'subsportinvalid(63)', NULL, NULL, false, now())
 	`, activityWalk, activityRun, userID); err != nil {
 		t.Fatalf("insert activities: %v", err)
 	}
@@ -207,5 +213,25 @@ func TestMigration000343PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
 	}
 	if removedCount != 0 {
 		t.Fatalf("removed activity sport values remain: %d", removedCount)
+	}
+
+	var invalidSubTypeCount int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM activities
+		WHERE user_id = $1
+		  AND (
+		    COALESCE(sub_type, '') = 'generic'
+		    OR COALESCE(parsed_sub_type, '') = 'generic'
+		    OR
+		    (sport_type = 'hiking' AND COALESCE(sub_type, '') = 'trail')
+		    OR (sport_type = 'cycling' AND COALESCE(sub_type, '') = 'commuting')
+		    OR COALESCE(sub_type, '') LIKE 'subsportinvalid%'
+		    OR (parsed_sport_type = 'hiking' AND COALESCE(parsed_sub_type, '') = 'trail')
+		  )
+	`, userID).Scan(&invalidSubTypeCount); err != nil {
+		t.Fatalf("query invalid legacy subtypes: %v", err)
+	}
+	if invalidSubTypeCount != 0 {
+		t.Fatalf("invalid legacy subtypes remain: %d", invalidSubTypeCount)
 	}
 }

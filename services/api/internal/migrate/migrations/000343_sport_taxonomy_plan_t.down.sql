@@ -68,7 +68,7 @@ allowed_subtypes(sport, sub_type) AS (
         ('swimming','lap_swimming'), ('swimming','open_water'),
         ('tennis','exercise'), ('tennis','match'), ('tennis','warm_up'),
         ('training','breathing'), ('training','cardio_training'), ('training','flexibility_training'),
-        ('training','hiit'), ('training','strength_training'), ('training','yoga'),
+        ('training','hiit'), ('training','pilates'), ('training','strength_training'), ('training','yoga'),
         ('transition','bike_to_run_transition'), ('transition','run_to_bike_transition'), ('transition','swim_to_bike_transition'),
         ('walking','casual_walking'), ('walking','indoor_walking'), ('walking','speed_walking'),
         ('wheelchair_push','run_speed'), ('wheelchair_push','walk_speed'),

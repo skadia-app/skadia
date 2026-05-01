@@ -176,6 +176,7 @@ describe('sport taxonomy aliases', () => {
     expect(tupleValues).toContain('fitness_equipment/stair_climbing')
     expect(tupleValues).toContain('training/flexibility_training')
     expect(tupleValues).not.toContain('training/strength_training')
+    expect(tupleValues).not.toContain('training/pilates')
   })
 
   it('keeps generated category colors as hex defaults', () => {

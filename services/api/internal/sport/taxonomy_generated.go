@@ -265,6 +265,7 @@ var generatedSportDefs = []SportDef{
 			"cardio_training":      {SubType: "cardio_training", LabelDE: "Cardio", DetailDE: "Cardio-Training", AutoTitleDE: "Cardio", Selectable: true},
 			"flexibility_training": {SubType: "flexibility_training", LabelDE: "Stretching", DetailDE: "Dehnungstraining", AutoTitleDE: "Stretching", Selectable: true},
 			"hiit":                 {SubType: "hiit", LabelDE: "HIIT", DetailDE: "High Intensity Interval Training", AutoTitleDE: "HIIT", Selectable: false},
+			"pilates":              {SubType: "pilates", LabelDE: "Pilates", DetailDE: "Pilates", AutoTitleDE: "Pilates", Selectable: false},
 			"strength_training":    {SubType: "strength_training", LabelDE: "Krafttraining", DetailDE: "Krafttraining", AutoTitleDE: "Krafttraining", Selectable: false},
 			"yoga":                 {SubType: "yoga", LabelDE: "Yoga", DetailDE: "Yoga", AutoTitleDE: "Yoga", Selectable: false},
 		},

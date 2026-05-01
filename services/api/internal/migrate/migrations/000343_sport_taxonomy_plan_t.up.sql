@@ -1,5 +1,10 @@
 SELECT pg_advisory_xact_lock(330343, 1);
 
+ALTER TABLE activities DROP CONSTRAINT IF EXISTS activities_sport_type_canonical;
+ALTER TABLE planned_routes DROP CONSTRAINT IF EXISTS planned_routes_sport_tuple_valid;
+ALTER TABLE routing_profiles DROP CONSTRAINT IF EXISTS routing_profiles_predicates_valid;
+ALTER TABLE segments DROP CONSTRAINT IF EXISTS segments_allowed_predicates_valid;
+
 CREATE OR REPLACE FUNCTION fn_validate_predicates(p JSONB)
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -57,7 +62,7 @@ allowed_subtypes(sport, sub_type) AS (
         ('swimming','lap_swimming'), ('swimming','open_water'),
         ('tennis','exercise'), ('tennis','match'), ('tennis','warm_up'),
         ('training','breathing'), ('training','cardio_training'), ('training','flexibility_training'),
-        ('training','hiit'), ('training','strength_training'), ('training','yoga'),
+        ('training','hiit'), ('training','pilates'), ('training','strength_training'), ('training','yoga'),
         ('transition','bike_to_run_transition'), ('transition','run_to_bike_transition'), ('transition','swim_to_bike_transition'),
         ('walking','casual_walking'), ('walking','indoor_walking'), ('walking','speed_walking'),
         ('wheelchair_push','run_speed'), ('wheelchair_push','walk_speed'),
@@ -158,6 +163,17 @@ BEGIN
     END IF;
     IF sport_type = 'cycling' AND sub_type = 'indoor_cycling' THEN
         is_indoor := true;
+    END IF;
+
+    IF sub_type <> ''
+       AND NOT fn_validate_predicates(jsonb_build_array(jsonb_build_object(
+            'sport', sport_type,
+            'sub_type', sub_type
+       )))
+       AND fn_validate_predicates(jsonb_build_array(jsonb_build_object(
+            'sport', sport_type
+       ))) THEN
+        sub_type := '';
     END IF;
 
     IF NOT fn_validate_predicates(jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
@@ -418,6 +434,14 @@ WITH normalized AS (
     SELECT a.id, n.*
     FROM activities a
     CROSS JOIN LATERAL fp_sport_taxonomy_normalize(a.sport_type, COALESCE(a.sub_type, '')) n
+    WHERE a.sport_type IN (
+        'bike', 'biking', 'ride', 'mountain_biking', 'gravel_cycling',
+        'indoor_cycling', 'trail_running', 'treadmill_running',
+        'lap_swimming', 'open_water_swimming', 'road_cycling', 'roadcycling',
+        'wheelchair_push_walk', 'wheelchair_push_run', 'strength',
+        'e_mountain_biking', 'e_biking', 'e_bike'
+    )
+       OR COALESCE(a.sub_type, '') <> ''
 )
 UPDATE activities a
 SET sport_type = n.sport_type,
@@ -425,13 +449,29 @@ SET sport_type = n.sport_type,
     is_indoor = a.is_indoor OR n.is_indoor,
     is_electric = a.is_electric OR n.is_electric
 FROM normalized n
-WHERE a.id = n.id;
+WHERE a.id = n.id
+  AND (
+    a.sport_type IS DISTINCT FROM n.sport_type
+    OR COALESCE(a.sub_type, '') IS DISTINCT FROM n.sub_type
+    OR (n.is_indoor AND NOT a.is_indoor)
+    OR (n.is_electric AND NOT a.is_electric)
+  );
 
 WITH normalized AS (
     SELECT a.id, n.*
     FROM activities a
     CROSS JOIN LATERAL fp_sport_taxonomy_normalize(a.parsed_sport_type, COALESCE(a.parsed_sub_type, '')) n
     WHERE a.parsed_sport_type IS NOT NULL
+      AND (
+        a.parsed_sport_type IN (
+            'bike', 'biking', 'ride', 'mountain_biking', 'gravel_cycling',
+            'indoor_cycling', 'trail_running', 'treadmill_running',
+            'lap_swimming', 'open_water_swimming', 'road_cycling', 'roadcycling',
+            'wheelchair_push_walk', 'wheelchair_push_run', 'strength',
+            'e_mountain_biking', 'e_biking', 'e_bike'
+        )
+        OR COALESCE(a.parsed_sub_type, '') <> ''
+      )
 )
 UPDATE activities a
 SET parsed_sport_type = n.sport_type,
@@ -439,47 +479,94 @@ SET parsed_sport_type = n.sport_type,
     is_indoor = a.is_indoor OR n.is_indoor,
     is_electric = a.is_electric OR n.is_electric
 FROM normalized n
-WHERE a.id = n.id;
+WHERE a.id = n.id
+  AND (
+    a.parsed_sport_type IS DISTINCT FROM n.sport_type
+    OR COALESCE(a.parsed_sub_type, '') IS DISTINCT FROM n.sub_type
+    OR (n.is_indoor AND NOT a.is_indoor)
+    OR (n.is_electric AND NOT a.is_electric)
+  );
 
 WITH normalized AS (
     SELECT h.id, n.*
     FROM heatmap_lines h
     CROSS JOIN LATERAL fp_sport_taxonomy_normalize(h.sport_type, COALESCE(h.sub_type, '')) n
     WHERE h.sport_type IS NOT NULL
+      AND h.sport_type IN (
+            'bike', 'biking', 'ride', 'mountain_biking', 'gravel_cycling',
+            'indoor_cycling', 'trail_running', 'treadmill_running',
+            'lap_swimming', 'open_water_swimming', 'road_cycling', 'roadcycling',
+            'wheelchair_push_walk', 'wheelchair_push_run', 'strength',
+            'e_mountain_biking', 'e_biking', 'e_bike'
+      )
 )
 UPDATE heatmap_lines h
 SET sport_type = n.sport_type,
     sub_type = NULLIF(n.sub_type, '')
 FROM normalized n
-WHERE h.id = n.id;
+WHERE h.id = n.id
+  AND (
+    h.sport_type IS DISTINCT FROM n.sport_type
+    OR COALESCE(h.sub_type, '') IS DISTINCT FROM n.sub_type
+  );
 
 WITH normalized AS (
     SELECT h.id, n.*
     FROM heatmap_points h
     CROSS JOIN LATERAL fp_sport_taxonomy_normalize(h.sport_type, COALESCE(h.sub_type, '')) n
     WHERE h.sport_type IS NOT NULL
+      AND h.sport_type IN (
+            'bike', 'biking', 'ride', 'mountain_biking', 'gravel_cycling',
+            'indoor_cycling', 'trail_running', 'treadmill_running',
+            'lap_swimming', 'open_water_swimming', 'road_cycling', 'roadcycling',
+            'wheelchair_push_walk', 'wheelchair_push_run', 'strength',
+            'e_mountain_biking', 'e_biking', 'e_bike'
+      )
 )
 UPDATE heatmap_points h
 SET sport_type = n.sport_type,
     sub_type = NULLIF(n.sub_type, '')
 FROM normalized n
-WHERE h.id = n.id;
+WHERE h.id = n.id
+  AND (
+    h.sport_type IS DISTINCT FROM n.sport_type
+    OR COALESCE(h.sub_type, '') IS DISTINCT FROM n.sub_type
+  );
 
 WITH normalized AS (
     SELECT se.ctid AS row_id, n.sport_type, COALESCE(NULLIF(n.sub_type, ''), 'generic') AS sub_type
     FROM segment_efforts se
     CROSS JOIN LATERAL fp_sport_taxonomy_normalize(se.sport_type, COALESCE(se.sub_type, '')) n
+    WHERE se.sport_type IN (
+        'bike', 'biking', 'ride', 'mountain_biking', 'gravel_cycling',
+        'indoor_cycling', 'trail_running', 'treadmill_running',
+        'lap_swimming', 'open_water_swimming', 'road_cycling', 'roadcycling',
+        'wheelchair_push_walk', 'wheelchair_push_run', 'strength',
+        'e_mountain_biking', 'e_biking', 'e_bike'
+    )
 )
 UPDATE segment_efforts se
 SET sport_type = n.sport_type,
     sub_type = n.sub_type
 FROM normalized n
-WHERE se.ctid = n.row_id;
+WHERE se.ctid = n.row_id
+  AND (
+    se.sport_type IS DISTINCT FROM n.sport_type
+    OR COALESCE(se.sub_type, 'generic') IS DISTINCT FROM n.sub_type
+  );
 
 WITH normalized AS (
     SELECT pr.id, n.*
     FROM planned_routes pr
     CROSS JOIN LATERAL fp_sport_taxonomy_normalize(pr.sport_type, COALESCE(pr.sub_type, '')) n
+    WHERE pr.sport_type IN (
+        'bike', 'biking', 'ride', 'mountain_biking', 'gravel_cycling',
+        'indoor_cycling', 'trail_running', 'treadmill_running',
+        'lap_swimming', 'open_water_swimming', 'road_cycling', 'roadcycling',
+        'wheelchair_push_walk', 'wheelchair_push_run', 'strength',
+        'e_mountain_biking', 'e_biking', 'e_bike'
+    )
+       OR COALESCE(pr.sub_type, '') <> ''
 )
 UPDATE planned_routes pr
 SET sport_type = n.sport_type,
@@ -487,13 +574,29 @@ SET sport_type = n.sport_type,
     is_indoor = pr.is_indoor OR n.is_indoor,
     is_electric = pr.is_electric OR n.is_electric
 FROM normalized n
-WHERE pr.id = n.id;
+WHERE pr.id = n.id
+  AND (
+    pr.sport_type IS DISTINCT FROM n.sport_type
+    OR COALESCE(pr.sub_type, '') IS DISTINCT FROM n.sub_type
+    OR (n.is_indoor AND NOT pr.is_indoor)
+    OR (n.is_electric AND NOT pr.is_electric)
+  );
 
 WITH normalized AS (
     SELECT rg.id, n.*
     FROM recording_groups rg
     CROSS JOIN LATERAL fp_sport_taxonomy_normalize(rg.sport_type, COALESCE(rg.sub_type, '')) n
     WHERE rg.sport_type IS NOT NULL
+      AND (
+        rg.sport_type IN (
+            'bike', 'biking', 'ride', 'mountain_biking', 'gravel_cycling',
+            'indoor_cycling', 'trail_running', 'treadmill_running',
+            'lap_swimming', 'open_water_swimming', 'road_cycling', 'roadcycling',
+            'wheelchair_push_walk', 'wheelchair_push_run', 'strength',
+            'e_mountain_biking', 'e_biking', 'e_bike'
+        )
+        OR COALESCE(rg.sub_type, '') <> ''
+      )
 )
 UPDATE recording_groups rg
 SET sport_type = n.sport_type,
@@ -501,7 +604,13 @@ SET sport_type = n.sport_type,
     is_indoor = rg.is_indoor OR n.is_indoor,
     is_electric = rg.is_electric OR n.is_electric
 FROM normalized n
-WHERE rg.id = n.id;
+WHERE rg.id = n.id
+  AND (
+    rg.sport_type IS DISTINCT FROM n.sport_type
+    OR COALESCE(rg.sub_type, '') IS DISTINCT FROM n.sub_type
+    OR (n.is_indoor AND NOT rg.is_indoor)
+    OR (n.is_electric AND NOT rg.is_electric)
+  );
 
 UPDATE segments
 SET allowed_predicates = fp_plan_t_rewrite_predicates(allowed_predicates)
@@ -585,7 +694,7 @@ allowed_subtypes(sport, sub_type) AS (
         ('swimming','lap_swimming'), ('swimming','open_water'),
         ('tennis','exercise'), ('tennis','match'), ('tennis','warm_up'),
         ('training','breathing'), ('training','cardio_training'), ('training','flexibility_training'),
-        ('training','hiit'), ('training','strength_training'), ('training','yoga'),
+        ('training','hiit'), ('training','pilates'), ('training','strength_training'), ('training','yoga'),
         ('transition','bike_to_run_transition'), ('transition','run_to_bike_transition'), ('transition','swim_to_bike_transition'),
         ('walking','casual_walking'), ('walking','indoor_walking'), ('walking','speed_walking'),
         ('wheelchair_push','run_speed'), ('wheelchair_push','walk_speed')
