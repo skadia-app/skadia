@@ -31,3 +31,10 @@ func TestGeneratedBackendTaxonomyIsCurrent(t *testing.T) {
 		t.Fatal("taxonomy_generated.go is stale; run scripts/generate-sport-taxonomy.sh")
 	}
 }
+
+func TestCategoryForSportIncludesGeneratedColor(t *testing.T) {
+	cat := CategoryForSport("running")
+	if cat.Color != "#EF4444" {
+		t.Fatalf("running category color = %q, want #EF4444", cat.Color)
+	}
+}
