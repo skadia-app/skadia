@@ -24,7 +24,7 @@ const reEnrichWorkers = 3
 // Three parallel workers process activities concurrently. For geo modules,
 // geoEnrichSem (capacity=1) ensures only one activity runs heavy PostGIS
 // operations at a time — other workers load streams in the meantime.
-func ReEnrichBatch(ctx context.Context, db *database.DB, events *event.Publisher,
+func ReEnrichBatch(ctx context.Context, db *database.DB, events event.AnalyticsInvalidator,
 	userID string, modules, activityIDs []string, jobID string, graphReader routing.GraphReader) {
 
 	total := len(activityIDs)

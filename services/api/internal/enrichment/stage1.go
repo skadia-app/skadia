@@ -51,7 +51,7 @@ func DetermineTimezone(lat, lng float64) string {
 // because every geo query reads from activity_tracks.track_full.
 // This is a separate function from RunStage1 so that the import path (service.go)
 // can defer geo work to Phase 2 while still running scalar enrichment in Phase 0.
-func RunGeoAndPublishStage2(ctx context.Context, db *database.DB, userID, activityID string, hasGPS bool, sportType string, isVirtual bool, pub *event.Publisher, graphReader routing.GraphReader) {
+func RunGeoAndPublishStage2(ctx context.Context, db *database.DB, userID, activityID string, hasGPS bool, sportType string, isVirtual bool, pub event.Stage2ReadyPublisher, graphReader routing.GraphReader) {
 	enrichSettings, settingsErr := db.GetEnrichmentSettings(ctx, userID)
 	if settingsErr != nil {
 		slog.Warn("RunGeoAndPublishStage2: could not load enrichment settings, running all geo modules",
@@ -140,7 +140,7 @@ const enableDEMEnrichment = false
 // When skipStreamEnrichment is true, RunStreamEnrichment is NOT called — the caller is
 // responsible for calling it separately after streams have been written to the DB
 // (import path: activity_streams is empty until InsertStreams completes in Phase 1).
-func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub *event.Publisher, asyncWeather bool, skipStreamEnrichment bool, graphReader routing.GraphReader, skipGeo bool) {
+func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, data *model.ActivityData, pub event.Stage2ReadyPublisher, asyncWeather bool, skipStreamEnrichment bool, graphReader routing.GraphReader, skipGeo bool) {
 	fields := make(map[string]any)
 
 	// Load user profile for HR-based calculations
