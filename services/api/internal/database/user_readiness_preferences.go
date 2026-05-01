@@ -18,7 +18,7 @@ type UserReadinessPreference struct {
 }
 
 // validReadinessSources lists the values accepted by the typed Upsert.
-// Must stay in sync with the CHECK constraint in migration 000999.
+// Must stay in sync with the CHECK constraint in migration 000343.
 var validReadinessSources = map[string]struct{}{
 	"manufacturer": {},
 	"skadia":      {},

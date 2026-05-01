@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS user_readiness_preferences (
 
 DELETE FROM analytics_cache WHERE cache_key = 'readiness_v2';
 
+-- Note: audit-log INSERT is non-idempotent; re-running the migration appends a row.
 INSERT INTO auth_audit_log (user_id, event_type, details)
 SELECT NULL, 'migration', jsonb_build_object(
-  'migration', '000999', 'name', 'user_readiness_preferences'
+  'migration', '000343', 'name', 'user_readiness_preferences'
 );

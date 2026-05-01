@@ -1,15 +1,13 @@
 package migrations_test
 
-// Integration tests for migration 000999 (user_readiness_preferences).
+// Integration tests for migration 000343 (user_readiness_preferences).
 //
 // Requires TEST_DATABASE_URL to point to a fully-migrated Skadia database.
 // Tests are skipped when the env var is not set so CI without a live DB stays
 // green.
 //
 // Strategy: each test runs the up-migration SQL inside a transaction that is
-// rolled back at the end so the real schema stays untouched. This works even
-// before the migration has been applied to the test database (the placeholder
-// number 000999 will be renumbered at merge time).
+// rolled back at the end so the real schema stays untouched.
 
 import (
 	"context"
@@ -19,7 +17,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const migration000999UpSQL = `
+const migration000343UpSQL = `
 CREATE TABLE IF NOT EXISTS user_readiness_preferences (
     user_id          UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     preferred_source TEXT
@@ -28,13 +26,19 @@ CREATE TABLE IF NOT EXISTS user_readiness_preferences (
 );
 
 DELETE FROM analytics_cache WHERE cache_key = 'readiness_v2';
+
+-- Note: audit-log INSERT is non-idempotent; re-running the migration appends a row.
+INSERT INTO auth_audit_log (user_id, event_type, details)
+SELECT NULL, 'migration', jsonb_build_object(
+  'migration', '000343', 'name', 'user_readiness_preferences'
+);
 `
 
-const migration000999DownSQL = `DROP TABLE IF EXISTS user_readiness_preferences;`
+const migration000343DownSQL = `DROP TABLE IF EXISTS user_readiness_preferences;`
 
-// TestMigration000999_TableCreated verifies that information_schema.tables
+// TestMigration000343_TableCreated verifies that information_schema.tables
 // contains user_readiness_preferences after running the up-migration.
-func TestMigration000999_TableCreated(t *testing.T) {
+func TestMigration000343_TableCreated(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -44,7 +48,7 @@ func TestMigration000999_TableCreated(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = tx.Rollback(ctx) })
 
-	if _, err := tx.Exec(ctx, migration000999UpSQL); err != nil {
+	if _, err := tx.Exec(ctx, migration000343UpSQL); err != nil {
 		t.Fatalf("apply up-migration: %v", err)
 	}
 
@@ -62,9 +66,9 @@ func TestMigration000999_TableCreated(t *testing.T) {
 	}
 }
 
-// TestMigration000999_CheckConstraintMentionsBothSources verifies that the
+// TestMigration000343_CheckConstraintMentionsBothSources verifies that the
 // CHECK constraint definition contains both 'manufacturer' and 'skadia'.
-func TestMigration000999_CheckConstraintMentionsBothSources(t *testing.T) {
+func TestMigration000343_CheckConstraintMentionsBothSources(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -74,7 +78,7 @@ func TestMigration000999_CheckConstraintMentionsBothSources(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = tx.Rollback(ctx) })
 
-	if _, err := tx.Exec(ctx, migration000999UpSQL); err != nil {
+	if _, err := tx.Exec(ctx, migration000343UpSQL); err != nil {
 		t.Fatalf("apply up-migration: %v", err)
 	}
 
@@ -98,10 +102,10 @@ func TestMigration000999_CheckConstraintMentionsBothSources(t *testing.T) {
 	}
 }
 
-// TestMigration000999_AnalyticsCacheCleanup verifies that a synthetic
+// TestMigration000343_AnalyticsCacheCleanup verifies that a synthetic
 // analytics_cache row with cache_key='readiness_v2' inserted before the
 // up-migration is removed by the DELETE in the migration.
-func TestMigration000999_AnalyticsCacheCleanup(t *testing.T) {
+func TestMigration000343_AnalyticsCacheCleanup(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -117,8 +121,8 @@ func TestMigration000999_AnalyticsCacheCleanup(t *testing.T) {
 		`INSERT INTO users (id, username, email, email_verified, registration_source)
 		 VALUES ($1, $2, $3, true, 'test')`,
 		userID,
-		"mig999_cache_"+userID[:8],
-		"mig999_cache_"+userID[:8]+"@example.com",
+		"mig343_cache_"+userID[:8],
+		"mig343_cache_"+userID[:8]+"@example.com",
 	)
 	if err != nil {
 		t.Fatalf("insert test user: %v", err)
@@ -146,7 +150,7 @@ func TestMigration000999_AnalyticsCacheCleanup(t *testing.T) {
 	}
 
 	// Apply migration.
-	if _, err := tx.Exec(ctx, migration000999UpSQL); err != nil {
+	if _, err := tx.Exec(ctx, migration000343UpSQL); err != nil {
 		t.Fatalf("apply up-migration: %v", err)
 	}
 
@@ -162,10 +166,51 @@ func TestMigration000999_AnalyticsCacheCleanup(t *testing.T) {
 	}
 }
 
-// TestMigration000999_DownSmoke verifies the up→insert→down→up cycle:
+// TestMigration000343_AuditLogRow verifies that the up-migration inserts one
+// row into auth_audit_log with migration='000343'.
+func TestMigration000343_AuditLogRow(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback(ctx) })
+
+	// Count existing rows before so we check the delta (DB may already have rows).
+	var before int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*)
+		FROM auth_audit_log
+		WHERE event_type = 'migration'
+		  AND details->>'migration' = '000343'
+	`).Scan(&before); err != nil {
+		t.Fatalf("query auth_audit_log before: %v", err)
+	}
+
+	if _, err := tx.Exec(ctx, migration000343UpSQL); err != nil {
+		t.Fatalf("apply up-migration: %v", err)
+	}
+
+	var after int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*)
+		FROM auth_audit_log
+		WHERE event_type = 'migration'
+		  AND details->>'migration' = '000343'
+	`).Scan(&after); err != nil {
+		t.Fatalf("query auth_audit_log after: %v", err)
+	}
+	if after != before+1 {
+		t.Errorf("expected exactly one new auth_audit_log row for migration 000343, got before=%d after=%d", before, after)
+	}
+}
+
+// TestMigration000343_DownSmoke verifies the up→insert→down→up cycle:
 // up-migration creates the table, an inserted test row exists, down-migration
 // drops the table, second up-migration recreates it empty.
-func TestMigration000999_DownSmoke(t *testing.T) {
+func TestMigration000343_DownSmoke(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -176,7 +221,7 @@ func TestMigration000999_DownSmoke(t *testing.T) {
 	t.Cleanup(func() { _ = tx.Rollback(ctx) })
 
 	// 1) Up.
-	if _, err := tx.Exec(ctx, migration000999UpSQL); err != nil {
+	if _, err := tx.Exec(ctx, migration000343UpSQL); err != nil {
 		t.Fatalf("first up: %v", err)
 	}
 
@@ -186,8 +231,8 @@ func TestMigration000999_DownSmoke(t *testing.T) {
 		`INSERT INTO users (id, username, email, email_verified, registration_source)
 		 VALUES ($1, $2, $3, true, 'test')`,
 		userID,
-		"mig999_down_"+userID[:8],
-		"mig999_down_"+userID[:8]+"@example.com",
+		"mig343_down_"+userID[:8],
+		"mig343_down_"+userID[:8]+"@example.com",
 	)
 	if err != nil {
 		t.Fatalf("insert test user: %v", err)
@@ -200,7 +245,7 @@ func TestMigration000999_DownSmoke(t *testing.T) {
 	}
 
 	// 2) Down.
-	if _, err := tx.Exec(ctx, migration000999DownSQL); err != nil {
+	if _, err := tx.Exec(ctx, migration000343DownSQL); err != nil {
 		t.Fatalf("apply down: %v", err)
 	}
 
@@ -218,7 +263,7 @@ func TestMigration000999_DownSmoke(t *testing.T) {
 	}
 
 	// 3) Up again — table back, empty.
-	if _, err := tx.Exec(ctx, migration000999UpSQL); err != nil {
+	if _, err := tx.Exec(ctx, migration000343UpSQL); err != nil {
 		t.Fatalf("second up: %v", err)
 	}
 

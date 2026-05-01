@@ -175,7 +175,7 @@ func TestAnalyticsCacheWithMetaRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	userID := seedReadinessUser(t, db)
 
-	cacheKey := "readiness_v2_test_" + uuid.New().String()[:8]
+	cacheKey := "readiness_test_" + uuid.New().String()[:8]
 	dataA := json.RawMessage(`{"score":42}`)
 	dataB := json.RawMessage(`{"score":77}`)
 
