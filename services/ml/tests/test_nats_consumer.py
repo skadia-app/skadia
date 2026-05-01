@@ -5,21 +5,70 @@ Covers:
 - Blank user → refused:no_data envelope still ends up in analytics_cache.
 - Module-failure isolation: cluster_activities raising does not block readiness.
 - Pref-race → publisher.publish_analytics_invalidate is invoked.
+- _BoundedSemaphoreMap: LRU-Cap, TTL eviction, acquired-semaphore safety.
 """
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import sys
+import time
 import types
 
 import pytest
 
-# nats_consumer pulls aioboto3 + nats at import-time; the dev venv is minimal
-# (asyncpg + pytest only). Stub the heavy optional deps before importing the
-# module — the consumer code paths exercised here never touch S3 or NATS.
+# nats_consumer pulls aioboto3 + nats + sklearn (via analytics) at import-time;
+# the dev venv is minimal (asyncpg + pytest only). Stub heavy optional deps
+# before importing the module — the consumer code paths exercised here never
+# touch S3, NATS, or ML inference.
 for _name in ("aioboto3", "nats", "nats.js", "nats.js.api", "nats.js.errors"):
     sys.modules.setdefault(_name, types.ModuleType(_name))
+
+# sklearn is pulled by analytics.clustering; stub it out so the import chain
+# resolves without the wheel installed.
+for _sk in ("sklearn", "sklearn.cluster", "sklearn.preprocessing", "sklearn.metrics"):
+    sys.modules.setdefault(_sk, types.ModuleType(_sk))
+sys.modules["sklearn.cluster"].KMeans = type("KMeans", (), {"__init__": lambda s, *a, **kw: None})
+sys.modules["sklearn.preprocessing"].StandardScaler = type("StandardScaler", (), {"__init__": lambda s, *a, **kw: None})
+sys.modules["sklearn.metrics"].silhouette_score = lambda *a, **kw: 0.0
+# ruptures and numpy are used by analytics sub-modules (changepoints, dfa_alpha1
+# etc.).  Stub them with just enough surface area so the import chain resolves.
+for _mod_name in ("ruptures", "numpy"):
+    sys.modules.setdefault(_mod_name, types.ModuleType(_mod_name))
+
+_rpt_mod = sys.modules["ruptures"]
+_rpt_mod.Pelt = type(
+    "Pelt", (),
+    {
+        "__init__": lambda s, *a, **kw: None,
+        "fit": lambda s, *a, **kw: s,
+        "predict": lambda s, *a, **kw: [],
+    }
+)
+
+_np = sys.modules["numpy"]
+
+
+class _NdArray:
+    pass
+
+
+_np.ndarray = _NdArray
+_np.array = lambda *a, **kw: _NdArray()
+_np.arange = lambda *a, **kw: _NdArray()
+_np.cumsum = lambda *a, **kw: _NdArray()
+_np.mean = lambda *a, **kw: 0.0
+_np.std = lambda *a, **kw: 0.0
+_np.nan = float("nan")
+_np.inf = float("inf")
+_np.log = lambda *a, **kw: 0.0
+_np.polyfit = lambda *a, **kw: [0.0, 0.0]
+_np.polyval = lambda *a, **kw: 0.0
+_np.isfinite = lambda *a, **kw: True
+_np.isnan = lambda *a, **kw: False
+_np.maximum = lambda *a, **kw: 0.0
+_np.float64 = float
 # nats.js.api needs ConsumerConfig/DeliverPolicy/AckPolicy attrs
 _api = sys.modules["nats.js.api"]
 for _attr in ("ConsumerConfig", "DeliverPolicy", "AckPolicy"):
@@ -292,3 +341,99 @@ async def test_pref_race_triggers_publisher(conn, patch_pool):
         readiness_mod._read_pref = orig
 
     assert pub.calls == [uid], f"expected one re-publish, got {pub.calls!r}"
+
+
+# ---------------------------------------------------------------------------
+# _BoundedSemaphoreMap tests
+# ---------------------------------------------------------------------------
+
+
+def test_bounded_semaphore_map_cap():
+    """Inserting more than cap entries keeps map size at or below cap.
+
+    Only idle (not-acquired) semaphores may be evicted.  With cap=10 and
+    10 001 distinct keys (all idle), the map must not exceed 10 000.
+    """
+    from nats_consumer import _BoundedSemaphoreMap
+
+    cap = 10_000
+    sm = _BoundedSemaphoreMap(initial_value=2, cap=cap, ttl=3600)
+    for i in range(cap + 1):
+        sm[f"user-{i}"]
+
+    assert len(sm) <= cap, f"map grew to {len(sm)}, expected <= {cap}"
+
+
+def test_bounded_semaphore_map_ttl_eviction():
+    """Accessing a key after TTL expiry returns a fresh (unused) semaphore.
+
+    We cannot inject wall-clock time directly, so we use a tiny TTL and
+    monkeypatch time.monotonic to simulate passage of time.
+    """
+    import nats_consumer as nc_mod
+    from nats_consumer import _BoundedSemaphoreMap
+
+    ttl = 10  # 10 s TTL for the test
+    sm = _BoundedSemaphoreMap(initial_value=2, cap=10_000, ttl=ttl)
+
+    real_mono = time.monotonic
+
+    # Step 1 – prime user-A at t=0
+    t_base = real_mono()
+    mono_calls = [t_base]
+
+    def fake_mono():
+        return mono_calls[0]
+
+    original = nc_mod.time.monotonic
+    nc_mod.time.monotonic = fake_mono
+    try:
+        sem_a_first = sm["user-A"]
+        assert sem_a_first._value == 2
+
+        # Step 2 – advance fake clock beyond TTL
+        mono_calls[0] = t_base + ttl + 1
+
+        # Add a second key to trigger _maybe_evict (cap not exceeded yet, but
+        # TTL-expired stale entries should be cleaned up)
+        sm["user-B"]
+
+        # At this point user-A should have been evicted (it was idle + stale).
+        # Accessing user-A again must create a brand-new semaphore.
+        sem_a_second = sm["user-A"]
+    finally:
+        nc_mod.time.monotonic = original
+
+    # A fresh Semaphore has _value == initial_value (2).
+    assert sem_a_second._value == 2
+    # The two objects must be different instances (eviction happened).
+    assert sem_a_second is not sem_a_first, (
+        "Expected a new Semaphore after TTL eviction, got the same object"
+    )
+
+
+def test_bounded_semaphore_map_acquired_never_evicted():
+    """An acquired (held) semaphore must not be evicted even when over cap.
+
+    Safety requirement: evicting an acquired semaphore would leave waiting
+    coroutines permanently blocked on a semaphore that no-one will release.
+    """
+    from nats_consumer import _BoundedSemaphoreMap
+
+    cap = 5
+    sm = _BoundedSemaphoreMap(initial_value=1, cap=cap, ttl=3600)
+
+    # Acquire user-protected's semaphore synchronously (no await needed for
+    # Semaphore._value manipulation in a unit test — we set _value directly to
+    # simulate an active acquire without running the event loop).
+    protected_sem = sm["user-protected"]
+    protected_sem._value = 0  # simulate acquired
+
+    # Now flood with cap+1 additional idle users to trigger eviction.
+    for i in range(cap + 1):
+        sm[f"user-idle-{i}"]
+
+    # The protected semaphore must still be present and identical.
+    assert "user-protected" in sm, "acquired semaphore was evicted — safety violation"
+    retrieved = sm["user-protected"]
+    assert retrieved is protected_sem, "acquired semaphore was replaced — safety violation"
