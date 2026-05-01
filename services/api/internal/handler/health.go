@@ -33,11 +33,6 @@ type Handler struct {
 	PhotoEmbedPublisher       event.PhotoEmbedPublisher
 	EventConn                 event.EventConn
 
-	// Events is the legacy concrete pointer kept solely so handlers can pass
-	// the publisher wholesale to enrichment.RunStage1 / ReEnrichBatch /
-	// RunGeoAndPublishStage2, which still take *event.Publisher. Direct
-	// publish calls in handlers must use the segregated interfaces above.
-	Events *event.Publisher
 	ShadowFS       shadowfs.ShadowFS        // nil when not yet initialized
 	ShadowFSConfig *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
 	WatcherManager *shadowfs.WatcherManager // nil when per-user hotfolder is not configured
