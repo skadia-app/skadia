@@ -1,0 +1,1056 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ReadinessCardFull — detail overlay snapshot > snapshot: fully-expanded detail with visible toggle, rhr_changepoint_recent, all 5 factors 1`] = `
+<div
+  class="rounded-xl border p-5 space-y-4"
+  data-testid="readiness-full"
+  style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.07), rgba(234, 179, 8, 0.024)); border-color: rgba(234, 179, 8, 0.19);"
+>
+  <div
+    class="flex items-center justify-between gap-2 flex-wrap"
+  >
+    <h3
+      class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide"
+    >
+      Trainingsbereitschaft
+    </h3>
+    <span
+      class="text-xs text-neutral-500 dark:text-neutral-400"
+    >
+      Konfidenz: 
+      <span
+        class="font-medium text-neutral-700 dark:text-neutral-200"
+      >
+        Mittel
+      </span>
+    </span>
+  </div>
+  <div
+    class="flex items-start gap-4"
+  >
+    <div
+      class="flex-shrink-0 flex flex-col items-center gap-1"
+    >
+      <svg
+        aria-label="Bereitschaftswert 58 von 100"
+        height="64"
+        role="img"
+        viewBox="0 0 64 64"
+        width="64"
+      >
+        <circle
+          cx="32"
+          cy="32"
+          fill="none"
+          r="26"
+          stroke="#e5e7eb"
+          stroke-width="5"
+        />
+        <circle
+          cx="32"
+          cy="32"
+          fill="none"
+          r="26"
+          stroke="#eab308"
+          stroke-dasharray="163.36281798666926"
+          stroke-dashoffset="68.61238355440109"
+          stroke-linecap="round"
+          stroke-width="5"
+          style="transition: stroke-dashoffset 0.6s ease;"
+          transform="rotate(-90 32 32)"
+        />
+        <text
+          dominant-baseline="middle"
+          fill="#eab308"
+          font-size="14"
+          font-weight="bold"
+          text-anchor="middle"
+          x="32"
+          y="32"
+        >
+          58
+        </text>
+      </svg>
+      <span
+        class="text-[10px] font-medium"
+        style="color: rgb(234, 179, 8);"
+      >
+        moderat
+      </span>
+    </div>
+    <div
+      class="flex-1 min-w-0 space-y-2"
+    >
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-hrv_status"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          HRV-Status
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            75
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+            data-testid="status-badge-hrv_status"
+          >
+            gut
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+            data-testid="source-badge-hrv_status"
+          >
+            Garmin
+          </span>
+        </div>
+      </div>
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-sleep"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          Schlaf
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            62
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            data-testid="status-badge-sleep"
+          >
+            moderat
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+            data-testid="source-badge-sleep"
+          >
+            Garmin (FIT-Datei)
+          </span>
+        </div>
+      </div>
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-training_load"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          Trainingslast
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            48
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            data-testid="status-badge-training_load"
+          >
+            moderat
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+            data-testid="source-badge-training_load"
+          >
+            Garmin
+          </span>
+        </div>
+      </div>
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-dfa_alpha1"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          DFA-α1
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            35
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+            data-testid="status-badge-dfa_alpha1"
+          >
+            niedrig
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+            data-testid="source-badge-dfa_alpha1"
+          >
+            Skadia
+          </span>
+        </div>
+      </div>
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-rhr_changepoint"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          Ruhepuls-Veränderung
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            40
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            data-testid="status-badge-rhr_changepoint"
+          >
+            moderat
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+            data-testid="source-badge-rhr_changepoint"
+          >
+            Skadia
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div
+    class="flex items-center gap-2"
+  >
+    <label
+      class="text-xs text-neutral-500 dark:text-neutral-400 whitespace-nowrap"
+      for="readiness-source-toggle"
+    >
+      Datenquelle:
+    </label>
+    <select
+      aria-label="Datenquelle für Bereitschaftsberechnung"
+      class="text-xs rounded border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+      data-testid="source-toggle"
+      id="readiness-source-toggle"
+    >
+      <option
+        value="null"
+      >
+        Automatisch
+      </option>
+      <option
+        value="manufacturer"
+      >
+        Hersteller (Garmin)
+      </option>
+      <option
+        value="skadia"
+      >
+        Skadia-Berechnung
+      </option>
+    </select>
+  </div>
+  <p
+    class="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed border-t border-neutral-200/50 dark:border-neutral-700/50 pt-3"
+    data-testid="recommendation-text"
+  >
+    Moderate Bereitschaft. Lockere Einheit empfehlenswert.
+  </p>
+  <p
+    class="text-[10px] text-amber-600 dark:text-amber-400"
+    data-testid="signal-modifier-notice"
+  >
+    Hinweis: Ruhepuls-Veränderung erkannt.
+  </p>
+</div>
+`;
+
+exports[`ReadinessCardFull — level snapshots > snapshot for level="critical" 1`] = `
+<div
+  class="rounded-xl border p-5 space-y-4"
+  data-testid="readiness-full"
+  style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.07), rgba(239, 68, 68, 0.024)); border-color: rgba(239, 68, 68, 0.19);"
+>
+  <div
+    class="flex items-center justify-between gap-2 flex-wrap"
+  >
+    <h3
+      class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide"
+    >
+      Trainingsbereitschaft
+    </h3>
+    <span
+      class="text-xs text-neutral-500 dark:text-neutral-400"
+    >
+      Konfidenz: 
+      <span
+        class="font-medium text-neutral-700 dark:text-neutral-200"
+      >
+        Hoch
+      </span>
+    </span>
+  </div>
+  <div
+    class="flex items-start gap-4"
+  >
+    <div
+      class="flex-shrink-0 flex flex-col items-center gap-1"
+    >
+      <svg
+        aria-label="Bereitschaftswert 15 von 100"
+        height="64"
+        role="img"
+        viewBox="0 0 64 64"
+        width="64"
+      >
+        <circle
+          cx="32"
+          cy="32"
+          fill="none"
+          r="26"
+          stroke="#e5e7eb"
+          stroke-width="5"
+        />
+        <circle
+          cx="32"
+          cy="32"
+          fill="none"
+          r="26"
+          stroke="#ef4444"
+          stroke-dasharray="163.36281798666926"
+          stroke-dashoffset="138.85839528866887"
+          stroke-linecap="round"
+          stroke-width="5"
+          style="transition: stroke-dashoffset 0.6s ease;"
+          transform="rotate(-90 32 32)"
+        />
+        <text
+          dominant-baseline="middle"
+          fill="#ef4444"
+          font-size="14"
+          font-weight="bold"
+          text-anchor="middle"
+          x="32"
+          y="32"
+        >
+          15
+        </text>
+      </svg>
+      <span
+        class="text-[10px] font-medium"
+        style="color: rgb(239, 68, 68);"
+      >
+        kritisch
+      </span>
+    </div>
+    <div
+      class="flex-1 min-w-0 space-y-2"
+    >
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-hrv_status"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          HRV-Status
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            75
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+            data-testid="status-badge-hrv_status"
+          >
+            gut
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+            data-testid="source-badge-hrv_status"
+          >
+            Garmin
+          </span>
+        </div>
+      </div>
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-sleep"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          Schlaf
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            60
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            data-testid="status-badge-sleep"
+          >
+            moderat
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+            data-testid="source-badge-sleep"
+          >
+            Skadia
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p
+    class="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed border-t border-neutral-200/50 dark:border-neutral-700/50 pt-3"
+    data-testid="recommendation-text"
+  >
+    Bereitschaft kritisch. Ruhetag oder sehr lockere Bewegung.
+  </p>
+</div>
+`;
+
+exports[`ReadinessCardFull — level snapshots > snapshot for level="good" 1`] = `
+<div
+  class="rounded-xl border p-5 space-y-4"
+  data-testid="readiness-full"
+  style="background: linear-gradient(135deg, rgba(34, 197, 94, 0.07), rgba(34, 197, 94, 0.024)); border-color: rgba(34, 197, 94, 0.19);"
+>
+  <div
+    class="flex items-center justify-between gap-2 flex-wrap"
+  >
+    <h3
+      class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide"
+    >
+      Trainingsbereitschaft
+    </h3>
+    <span
+      class="text-xs text-neutral-500 dark:text-neutral-400"
+    >
+      Konfidenz: 
+      <span
+        class="font-medium text-neutral-700 dark:text-neutral-200"
+      >
+        Hoch
+      </span>
+    </span>
+  </div>
+  <div
+    class="flex items-start gap-4"
+  >
+    <div
+      class="flex-shrink-0 flex flex-col items-center gap-1"
+    >
+      <svg
+        aria-label="Bereitschaftswert 72 von 100"
+        height="64"
+        role="img"
+        viewBox="0 0 64 64"
+        width="64"
+      >
+        <circle
+          cx="32"
+          cy="32"
+          fill="none"
+          r="26"
+          stroke="#e5e7eb"
+          stroke-width="5"
+        />
+        <circle
+          cx="32"
+          cy="32"
+          fill="none"
+          r="26"
+          stroke="#22c55e"
+          stroke-dasharray="163.36281798666926"
+          stroke-dashoffset="45.7415890362674"
+          stroke-linecap="round"
+          stroke-width="5"
+          style="transition: stroke-dashoffset 0.6s ease;"
+          transform="rotate(-90 32 32)"
+        />
+        <text
+          dominant-baseline="middle"
+          fill="#22c55e"
+          font-size="14"
+          font-weight="bold"
+          text-anchor="middle"
+          x="32"
+          y="32"
+        >
+          72
+        </text>
+      </svg>
+      <span
+        class="text-[10px] font-medium"
+        style="color: rgb(34, 197, 94);"
+      >
+        gut
+      </span>
+    </div>
+    <div
+      class="flex-1 min-w-0 space-y-2"
+    >
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-hrv_status"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          HRV-Status
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            75
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+            data-testid="status-badge-hrv_status"
+          >
+            gut
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+            data-testid="source-badge-hrv_status"
+          >
+            Garmin
+          </span>
+        </div>
+      </div>
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-sleep"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          Schlaf
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            60
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            data-testid="status-badge-sleep"
+          >
+            moderat
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+            data-testid="source-badge-sleep"
+          >
+            Skadia
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p
+    class="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed border-t border-neutral-200/50 dark:border-neutral-700/50 pt-3"
+    data-testid="recommendation-text"
+  >
+    Gute Bereitschaft. Planmäßige Einheit empfehlenswert.
+  </p>
+</div>
+`;
+
+exports[`ReadinessCardFull — level snapshots > snapshot for level="low" 1`] = `
+<div
+  class="rounded-xl border p-5 space-y-4"
+  data-testid="readiness-full"
+  style="background: linear-gradient(135deg, rgba(249, 115, 22, 0.07), rgba(249, 115, 22, 0.024)); border-color: rgba(249, 115, 22, 0.19);"
+>
+  <div
+    class="flex items-center justify-between gap-2 flex-wrap"
+  >
+    <h3
+      class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide"
+    >
+      Trainingsbereitschaft
+    </h3>
+    <span
+      class="text-xs text-neutral-500 dark:text-neutral-400"
+    >
+      Konfidenz: 
+      <span
+        class="font-medium text-neutral-700 dark:text-neutral-200"
+      >
+        Hoch
+      </span>
+    </span>
+  </div>
+  <div
+    class="flex items-start gap-4"
+  >
+    <div
+      class="flex-shrink-0 flex flex-col items-center gap-1"
+    >
+      <svg
+        aria-label="Bereitschaftswert 30 von 100"
+        height="64"
+        role="img"
+        viewBox="0 0 64 64"
+        width="64"
+      >
+        <circle
+          cx="32"
+          cy="32"
+          fill="none"
+          r="26"
+          stroke="#e5e7eb"
+          stroke-width="5"
+        />
+        <circle
+          cx="32"
+          cy="32"
+          fill="none"
+          r="26"
+          stroke="#f97316"
+          stroke-dasharray="163.36281798666926"
+          stroke-dashoffset="114.35397259066848"
+          stroke-linecap="round"
+          stroke-width="5"
+          style="transition: stroke-dashoffset 0.6s ease;"
+          transform="rotate(-90 32 32)"
+        />
+        <text
+          dominant-baseline="middle"
+          fill="#f97316"
+          font-size="14"
+          font-weight="bold"
+          text-anchor="middle"
+          x="32"
+          y="32"
+        >
+          30
+        </text>
+      </svg>
+      <span
+        class="text-[10px] font-medium"
+        style="color: rgb(249, 115, 22);"
+      >
+        niedrig
+      </span>
+    </div>
+    <div
+      class="flex-1 min-w-0 space-y-2"
+    >
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-hrv_status"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          HRV-Status
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            75
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+            data-testid="status-badge-hrv_status"
+          >
+            gut
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+            data-testid="source-badge-hrv_status"
+          >
+            Garmin
+          </span>
+        </div>
+      </div>
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-sleep"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          Schlaf
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            60
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            data-testid="status-badge-sleep"
+          >
+            moderat
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+            data-testid="source-badge-sleep"
+          >
+            Skadia
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p
+    class="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed border-t border-neutral-200/50 dark:border-neutral-700/50 pt-3"
+    data-testid="recommendation-text"
+  >
+    Bereitschaft niedrig. Aktive Erholung empfohlen.
+  </p>
+</div>
+`;
+
+exports[`ReadinessCardFull — level snapshots > snapshot for level="moderate" 1`] = `
+<div
+  class="rounded-xl border p-5 space-y-4"
+  data-testid="readiness-full"
+  style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.07), rgba(234, 179, 8, 0.024)); border-color: rgba(234, 179, 8, 0.19);"
+>
+  <div
+    class="flex items-center justify-between gap-2 flex-wrap"
+  >
+    <h3
+      class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide"
+    >
+      Trainingsbereitschaft
+    </h3>
+    <span
+      class="text-xs text-neutral-500 dark:text-neutral-400"
+    >
+      Konfidenz: 
+      <span
+        class="font-medium text-neutral-700 dark:text-neutral-200"
+      >
+        Hoch
+      </span>
+    </span>
+  </div>
+  <div
+    class="flex items-start gap-4"
+  >
+    <div
+      class="flex-shrink-0 flex flex-col items-center gap-1"
+    >
+      <svg
+        aria-label="Bereitschaftswert 50 von 100"
+        height="64"
+        role="img"
+        viewBox="0 0 64 64"
+        width="64"
+      >
+        <circle
+          cx="32"
+          cy="32"
+          fill="none"
+          r="26"
+          stroke="#e5e7eb"
+          stroke-width="5"
+        />
+        <circle
+          cx="32"
+          cy="32"
+          fill="none"
+          r="26"
+          stroke="#eab308"
+          stroke-dasharray="163.36281798666926"
+          stroke-dashoffset="81.68140899333463"
+          stroke-linecap="round"
+          stroke-width="5"
+          style="transition: stroke-dashoffset 0.6s ease;"
+          transform="rotate(-90 32 32)"
+        />
+        <text
+          dominant-baseline="middle"
+          fill="#eab308"
+          font-size="14"
+          font-weight="bold"
+          text-anchor="middle"
+          x="32"
+          y="32"
+        >
+          50
+        </text>
+      </svg>
+      <span
+        class="text-[10px] font-medium"
+        style="color: rgb(234, 179, 8);"
+      >
+        moderat
+      </span>
+    </div>
+    <div
+      class="flex-1 min-w-0 space-y-2"
+    >
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-hrv_status"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          HRV-Status
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            75
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+            data-testid="status-badge-hrv_status"
+          >
+            gut
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+            data-testid="source-badge-hrv_status"
+          >
+            Garmin
+          </span>
+        </div>
+      </div>
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-sleep"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          Schlaf
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            60
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            data-testid="status-badge-sleep"
+          >
+            moderat
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+            data-testid="source-badge-sleep"
+          >
+            Skadia
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p
+    class="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed border-t border-neutral-200/50 dark:border-neutral-700/50 pt-3"
+    data-testid="recommendation-text"
+  >
+    Moderate Bereitschaft. Lockere Einheit empfehlenswert.
+  </p>
+</div>
+`;
+
+exports[`ReadinessCardFull — level snapshots > snapshot for level="optimal" 1`] = `
+<div
+  class="rounded-xl border p-5 space-y-4"
+  data-testid="readiness-full"
+  style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.07), rgba(16, 185, 129, 0.024)); border-color: rgba(16, 185, 129, 0.19);"
+>
+  <div
+    class="flex items-center justify-between gap-2 flex-wrap"
+  >
+    <h3
+      class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide"
+    >
+      Trainingsbereitschaft
+    </h3>
+    <span
+      class="text-xs text-neutral-500 dark:text-neutral-400"
+    >
+      Konfidenz: 
+      <span
+        class="font-medium text-neutral-700 dark:text-neutral-200"
+      >
+        Hoch
+      </span>
+    </span>
+  </div>
+  <div
+    class="flex items-start gap-4"
+  >
+    <div
+      class="flex-shrink-0 flex flex-col items-center gap-1"
+    >
+      <svg
+        aria-label="Bereitschaftswert 92 von 100"
+        height="64"
+        role="img"
+        viewBox="0 0 64 64"
+        width="64"
+      >
+        <circle
+          cx="32"
+          cy="32"
+          fill="none"
+          r="26"
+          stroke="#e5e7eb"
+          stroke-width="5"
+        />
+        <circle
+          cx="32"
+          cy="32"
+          fill="none"
+          r="26"
+          stroke="#10b981"
+          stroke-dasharray="163.36281798666926"
+          stroke-dashoffset="13.069025438933535"
+          stroke-linecap="round"
+          stroke-width="5"
+          style="transition: stroke-dashoffset 0.6s ease;"
+          transform="rotate(-90 32 32)"
+        />
+        <text
+          dominant-baseline="middle"
+          fill="#10b981"
+          font-size="14"
+          font-weight="bold"
+          text-anchor="middle"
+          x="32"
+          y="32"
+        >
+          92
+        </text>
+      </svg>
+      <span
+        class="text-[10px] font-medium"
+        style="color: rgb(16, 185, 129);"
+      >
+        optimal
+      </span>
+    </div>
+    <div
+      class="flex-1 min-w-0 space-y-2"
+    >
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-hrv_status"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          HRV-Status
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            75
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+            data-testid="status-badge-hrv_status"
+          >
+            gut
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+            data-testid="source-badge-hrv_status"
+          >
+            Garmin
+          </span>
+        </div>
+      </div>
+      <div
+        class="flex items-center justify-between gap-2 text-xs"
+        data-testid="factor-row-sleep"
+      >
+        <span
+          class="text-neutral-600 dark:text-neutral-300 truncate min-w-0"
+        >
+          Schlaf
+        </span>
+        <div
+          class="flex items-center gap-1 flex-shrink-0"
+        >
+          <span
+            class="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium"
+          >
+            60
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            data-testid="status-badge-sleep"
+          >
+            moderat
+          </span>
+          <span
+            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+            data-testid="source-badge-sleep"
+          >
+            Skadia
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p
+    class="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed border-t border-neutral-200/50 dark:border-neutral-700/50 pt-3"
+    data-testid="recommendation-text"
+  >
+    Sehr gute Bereitschaft. Intensive Einheiten oder Wettkampf möglich.
+  </p>
+</div>
+`;
