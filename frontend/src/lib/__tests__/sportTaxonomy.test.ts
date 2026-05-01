@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
 import { GENERATED_SPORT_TAXONOMY_SOURCE_SHA256 } from '../generatedSportTaxonomy'
-import { SPORT_DEFS, categoryForSport, normalizeSportTuple, routeSportOptions, sportColor, sportLabel } from '../sportTaxonomy'
+import { SPORT_DEFS, canonicalSportOptions, categoryForSport, normalizeSportTuple, routeSportOptions, sportColor, sportLabel, sportsInCategory } from '../sportTaxonomy'
 
 describe('sport taxonomy aliases', () => {
   it('keeps the generated frontend taxonomy source hash in sync with sports.yaml', () => {
@@ -11,6 +12,10 @@ describe('sport taxonomy aliases', () => {
     const expected = createHash('sha256').update(yaml).digest('hex')
 
     expect(GENERATED_SPORT_TAXONOMY_SOURCE_SHA256).toBe(expected)
+  })
+
+  it('keeps generated frontend taxonomy content in sync with sports.yaml', () => {
+    execFileSync('../scripts/generate-sport-taxonomy.sh', ['--check'], { stdio: 'pipe' })
   })
 
   it('normalizes legacy sport types to canonical tuples', () => {
@@ -69,6 +74,38 @@ describe('sport taxonomy aliases', () => {
     expect(sportTypes).not.toContain('lap_swimming')
     expect(sportTypes).not.toContain('open_water_swimming')
   })
+
+  it('keeps frontend option order stable while generated source order is backend-owned', () => {
+    expect(canonicalSportOptions().slice(0, 12).map((opt) => opt.value)).toEqual([
+      'running',
+      'walking',
+      'hiking',
+      'mountaineering',
+      'snowshoeing',
+      'floor_climbing',
+      'wheelchair_push_walk',
+      'wheelchair_push_run',
+      'cycling',
+      'inline_skating',
+      'alpine_skiing',
+      'backcountry_skiing',
+    ])
+    expect(sportsInCategory('fitness').map((s) => s.sportType)).toEqual([
+      'training',
+      'fitness_equipment',
+      'strength_training',
+      'hiit',
+      'yoga',
+      'pilates',
+      'dance',
+      'jump_rope',
+      'meditation',
+      'strength',
+      'boxing',
+      'mixed_martial_arts',
+    ])
+  })
+
 
   it('marks legacy input values as invalid at runtime display boundaries', () => {
     expect(sportLabel('mountain_biking')).toContain('Veraltete Sportart')
