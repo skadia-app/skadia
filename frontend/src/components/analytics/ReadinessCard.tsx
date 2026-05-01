@@ -246,7 +246,7 @@ function SourceToggle({ preferred, onChange, disabled }: SourceToggleProps) {
 interface MissingFactorsBannerProps {
   refused: boolean
   refusalReason: string | null
-  missingFactors: string[]
+  missingFactors: Array<{ key: string; reason: string; last_seen_at: string | null }>
 }
 
 function MissingFactorsBanner({ refused, refusalReason, missingFactors }: MissingFactorsBannerProps) {
@@ -271,7 +271,7 @@ function MissingFactorsBanner({ refused, refusalReason, missingFactors }: Missin
       >
         {'Fehlende Faktoren: '}
         <span className="font-medium">
-          {missingFactors.map(k => FACTOR_LABELS[k] ?? k).join(', ')}
+          {missingFactors.map(f => FACTOR_LABELS[f.key] ?? f.key).join(', ')}
         </span>
       </div>
     )

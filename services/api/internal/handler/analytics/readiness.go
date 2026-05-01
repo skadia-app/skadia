@@ -14,26 +14,41 @@ import (
 // becomes a hard refusal with reason="service_unavailable".
 const STALE_HARD_CAP = 48 * time.Hour
 
+// readinessMissingFactor matches the Python worker's missing_factors element
+// shape: {key, reason, last_seen_at}. Spec §5.3.
+type readinessMissingFactor struct {
+	Key        string  `json:"key"`
+	Reason     string  `json:"reason"`
+	LastSeenAt *string `json:"last_seen_at"`
+}
+
 // readinessRefusal is the schema-complete refusal envelope. Every field is
 // non-omit-empty so a TS interface generated 1:1 from this struct parses
 // without excess-property errors. See Spec §5.3 / Plan Phase 5.
 //
+// Type notes (matching the Python worker's output):
+//   - Score: *int (0–100 integer, never float)
+//   - Confidence: *string ("high"|"medium"|"low")
+//   - SignalModifier: *string (e.g. "rhr_changepoint_recent")
+//   - PreferencesVersion: *string (ISO timestamp from user_readiness_preferences.updated_at)
+//   - MissingFactors: []readinessMissingFactor ({key, reason, last_seen_at})
+//
 // Values are written as nil/zero when not applicable; encoding/json renders
-// pointer-nil as `null` and an empty []string as `[]`.
+// pointer-nil as `null` and an empty slice as `[]`.
 type readinessRefusal struct {
-	Refused            bool      `json:"refused"`
-	RefusalReason      string    `json:"refusal_reason"`
-	Score              *float64  `json:"score"`
-	Level              *string   `json:"level"`
-	Factors            []any     `json:"factors"`
-	MissingFactors     []string  `json:"missing_factors"`
-	ComputedAt         string    `json:"computed_at"`
-	DataWindowEnd      *string   `json:"data_window_end"`
-	PreferencesVersion *int      `json:"preferences_version"`
-	Confidence         *float64  `json:"confidence"`
-	RecommendationCode *string   `json:"recommendation_code"`
-	SignalModifier     *float64  `json:"signal_modifier"`
-	Degraded           *string   `json:"degraded"`
+	Refused            bool                     `json:"refused"`
+	RefusalReason      string                   `json:"refusal_reason"`
+	Score              *int                     `json:"score"`
+	Level              *string                  `json:"level"`
+	Factors            []any                    `json:"factors"`
+	MissingFactors     []readinessMissingFactor  `json:"missing_factors"`
+	ComputedAt         string                   `json:"computed_at"`
+	DataWindowEnd      *string                  `json:"data_window_end"`
+	PreferencesVersion *string                  `json:"preferences_version"`
+	Confidence         *string                  `json:"confidence"`
+	RecommendationCode *string                  `json:"recommendation_code"`
+	SignalModifier     *string                  `json:"signal_modifier"`
+	Degraded           *string                  `json:"degraded"`
 }
 
 // writeRefused writes a 200 response carrying the schema-complete refusal
@@ -50,7 +65,7 @@ func writeRefused(w http.ResponseWriter, reason string, lastComputedAt *time.Tim
 		Refused:        true,
 		RefusalReason:  reason,
 		Factors:        []any{},
-		MissingFactors: []string{},
+		MissingFactors: []readinessMissingFactor{},
 		ComputedAt:     ts.UTC().Format(time.RFC3339),
 	}
 	httputil.WriteJSON(w, http.StatusOK, body)

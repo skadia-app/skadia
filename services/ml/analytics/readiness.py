@@ -52,6 +52,13 @@ MFR_FACTOR_COL = {
 # Sleep minimum recorded duration (deep+light+rem ≥ 4h)
 SLEEP_MIN_RECORDED_SECONDS = 4 * 3600
 
+# Canonical set of reason strings used in missing_factors entries.
+# "no_data"      — factor was never available (no historical data at all)
+# "stale"        — factor data exists but is older than the allowed max age
+# "no_baseline"  — raw measurement exists but baseline (60d HRV / 28d ACWR) is insufficient
+# "no_data_today"— factor data from prior days exists, but nothing recorded today
+MISSING_REASONS = ("no_data", "stale", "no_baseline", "no_data_today")
+
 # Baseline / history window thresholds for confidence
 HRV_BASELINE_MIN_DAYS = 60
 ACWR_HISTORY_MIN_DAYS = 28
@@ -656,7 +663,7 @@ def _refused_envelope(
         "refusal_reason": refusal_reason,
         "factors": factor_list,
         "missing_factors": [
-            {"key": k, "reason": "no_data", "last_seen_at": None}
+            {"key": k, "reason": MISSING_REASONS[0], "last_seen_at": None}  # "no_data"
             for k in CRITICAL_FACTORS
             if factors_eigen.get(k) is None or factors_eigen[k].missing
         ],
@@ -812,17 +819,21 @@ async def _compute_readiness_locked(conn, user_id: str) -> dict:
     )
     recommendation_code = _derive_recommendation_code(level, confidence, sig)
 
-    # 9. Pref-Race re-check
+    # 9. Pref-Race re-check — return a full refused envelope so any caller sees a
+    # consistent shape. The "republish" key is added by compute_readiness wrapper.
     _, pref_version_at_end = await _read_pref(conn, user_id)
     if pref_version_at_end != pref_version_at_start:
-        return {
-            "refused": True,
-            "refusal_reason": "stale_compute_pref_changed",
-        }
+        return _refused_envelope(
+            refusal_reason="stale_compute_pref_changed",
+            data_window_end=today_iso,
+            preferences_version=pref_version_at_start,
+            factors_eigen=eigen,
+            mfr=mfr,
+        )
 
     # 10. Output
     missing_factors = [
-        {"key": k, "reason": "no_data_today", "last_seen_at": None}
+        {"key": k, "reason": MISSING_REASONS[3], "last_seen_at": None}  # "no_data_today"
         for k in CRITICAL_FACTORS
         if (used_mix.get(k) is None or used_mix[k].missing) and path_kind == "A"
     ]

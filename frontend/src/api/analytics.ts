@@ -265,7 +265,9 @@ export interface ReadinessResponse {
   score: number | null
   level: ReadinessLevel | null
   factors: ReadinessFactor[]
-  missing_factors: string[]
+  // Each element is an object {key, reason, last_seen_at} — not a plain string.
+  // Spec §5.3. Consumers must use `.key` for the factor identifier.
+  missing_factors: Array<{ key: string; reason: string; last_seen_at: string | null }>
   computed_at: string
   data_window_end: string | null
   preferences_version: string | null
