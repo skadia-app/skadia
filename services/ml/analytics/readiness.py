@@ -26,6 +26,7 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .changepoints import detect_changepoints
 
@@ -83,7 +84,30 @@ class FactorInput:
 
 # --- Loaders -----------------------------------------------------------------
 
-async def _load_hrv_status(conn, user_id: str) -> FactorInput:
+async def _load_user_timezone(conn, user_id: str) -> str:
+    """Return the user's IANA timezone name (e.g. 'Europe/Berlin').
+
+    Falls back to 'UTC' if the row is missing, the timezone column is NULL,
+    or the stored value is not a valid IANA zone — preventing a single bad
+    row from breaking the entire readiness computation.
+    """
+    row = await conn.fetchrow(
+        "SELECT timezone FROM users WHERE id = $1::uuid",
+        user_id,
+    )
+    tz_name = (row["timezone"] if row and row["timezone"] else None) or "UTC"
+    try:
+        ZoneInfo(tz_name)  # validate — raises ZoneInfoNotFoundError if bogus
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning(
+            "readiness: invalid timezone %r for user %s — falling back to UTC",
+            tz_name, user_id,
+        )
+        tz_name = "UTC"
+    return tz_name
+
+
+async def _load_hrv_status(conn, user_id: str, user_tz: str) -> FactorInput:
     """Today's RMSSD, normalized against 60-day baseline (Z-score → 0..100)."""
     # Today's value: prefer health_snapshots.rmssd_ms (max measured_at_utc::date = today),
     # fallback health_hrv_night_values.
@@ -94,11 +118,11 @@ async def _load_hrv_status(conn, user_id: str) -> FactorInput:
           FROM health_snapshots
          WHERE user_id = $1::uuid
            AND rmssd_ms IS NOT NULL
-           AND measured_at_utc::date = CURRENT_DATE
+           AND measured_at_utc::date = (NOW() AT TIME ZONE $2)::date
          ORDER BY measured_at_utc DESC
          LIMIT 1
         """,
-        user_id,
+        user_id, user_tz,
     )
     if today_row is None:
         today_row = await conn.fetchrow(
@@ -107,11 +131,11 @@ async def _load_hrv_status(conn, user_id: str) -> FactorInput:
                    EXTRACT(EPOCH FROM (NOW() - ts)) / 3600.0 AS age_h
               FROM health_hrv_night_values
              WHERE user_id = $1::uuid
-               AND ts::date = CURRENT_DATE
+               AND ts::date = (NOW() AT TIME ZONE $2)::date
              ORDER BY ts DESC
              LIMIT 1
             """,
-            user_id,
+            user_id, user_tz,
         )
 
     if today_row is None or today_row["age_h"] is None or float(today_row["age_h"]) > HRV_TODAY_MAX_AGE_H:
@@ -128,10 +152,10 @@ async def _load_hrv_status(conn, user_id: str) -> FactorInput:
                COUNT(*) AS n
           FROM health_hrv_night_values
          WHERE user_id = $1::uuid
-           AND ts >= (CURRENT_DATE - INTERVAL '60 days')
-           AND ts::date < CURRENT_DATE
+           AND ts >= ((NOW() AT TIME ZONE $2)::date - INTERVAL '60 days')
+           AND ts::date < (NOW() AT TIME ZONE $2)::date
         """,
-        user_id,
+        user_id, user_tz,
     )
     if baseline is None or baseline["n"] is None or int(baseline["n"]) < 7 \
             or baseline["mean"] is None or baseline["sd"] is None or float(baseline["sd"]) <= 0:
@@ -153,7 +177,7 @@ async def _load_hrv_status(conn, user_id: str) -> FactorInput:
     )
 
 
-async def _load_sleep_factor(conn, user_id: str) -> FactorInput:
+async def _load_sleep_factor(conn, user_id: str, user_tz: str) -> FactorInput:
     """Most-recent health_sleep with score_overall NOT NULL, ≤36h, ≥4h recorded."""
     row = await conn.fetchrow(
         """
@@ -167,11 +191,11 @@ async def _load_sleep_factor(conn, user_id: str) -> FactorInput:
           FROM health_sleep
          WHERE user_id = $1::uuid
            AND score_overall IS NOT NULL
-           AND calendar_date <= CURRENT_DATE
+           AND calendar_date <= (NOW() AT TIME ZONE $2)::date
          ORDER BY calendar_date DESC, sleep_end_utc DESC
          LIMIT 1
         """,
-        user_id,
+        user_id, user_tz,
     )
     if row is None:
         return FactorInput(key="sleep", value=None, missing=True, source="skadia")
@@ -198,17 +222,17 @@ async def _load_sleep_factor(conn, user_id: str) -> FactorInput:
     )
 
 
-async def _load_training_load_factor(conn, user_id: str) -> FactorInput:
+async def _load_training_load_factor(conn, user_id: str, user_tz: str) -> FactorInput:
     """pmc_daily.acwr_ra for today, sport_group='__combined__'."""
     row = await conn.fetchrow(
         """
         SELECT acwr_ra
           FROM pmc_daily
          WHERE user_id = $1::uuid
-           AND date = CURRENT_DATE
+           AND date = (NOW() AT TIME ZONE $2)::date
            AND sport_group = '__combined__'
         """,
-        user_id,
+        user_id, user_tz,
     )
     if row is None or row["acwr_ra"] is None:
         return FactorInput(key="training_load", value=None, missing=True, source="skadia")
@@ -242,7 +266,7 @@ async def _load_training_load_factor(conn, user_id: str) -> FactorInput:
     )
 
 
-async def _load_manufacturer_factors(conn, user_id: str) -> dict | None:
+async def _load_manufacturer_factors(conn, user_id: str, user_tz: str) -> dict | None:
     """health_readiness_scores for today, score IS NOT NULL."""
     row = await conn.fetchrow(
         """
@@ -252,10 +276,10 @@ async def _load_manufacturer_factors(conn, user_id: str) -> dict | None:
                acwr_pct, source_type
           FROM health_readiness_scores
          WHERE user_id = $1::uuid
-           AND calendar_date = CURRENT_DATE
+           AND calendar_date = (NOW() AT TIME ZONE $2)::date
            AND score IS NOT NULL
         """,
-        user_id,
+        user_id, user_tz,
     )
     if row is None:
         return None
@@ -271,24 +295,24 @@ async def _load_manufacturer_factors(conn, user_id: str) -> dict | None:
     }
 
 
-async def _load_dfa_alpha1(conn, user_id: str) -> float | None:
+async def _load_dfa_alpha1(conn, user_id: str, user_tz: str) -> float | None:
     row = await conn.fetchrow(
         """
         SELECT value_num
           FROM user_daily_features
          WHERE user_id = $1::uuid
            AND feature_key = 'hrv.HRV_DFA_alpha1'
-           AND date = CURRENT_DATE
+           AND date = (NOW() AT TIME ZONE $2)::date
            AND value_num IS NOT NULL
          ORDER BY computed_at DESC NULLS LAST
          LIMIT 1
         """,
-        user_id,
+        user_id, user_tz,
     )
     return float(row["value_num"]) if row else None
 
 
-async def _load_sample_entropy(conn, user_id: str) -> tuple[float | None, float | None]:
+async def _load_sample_entropy(conn, user_id: str, user_tz: str) -> tuple[float | None, float | None]:
     """Returns (today_value, 30d_median)."""
     today = await conn.fetchrow(
         """
@@ -296,12 +320,12 @@ async def _load_sample_entropy(conn, user_id: str) -> tuple[float | None, float 
           FROM user_daily_features
          WHERE user_id = $1::uuid
            AND feature_key = 'hrv.HRV_SampEn'
-           AND date = CURRENT_DATE
+           AND date = (NOW() AT TIME ZONE $2)::date
            AND value_num IS NOT NULL
          ORDER BY computed_at DESC NULLS LAST
          LIMIT 1
         """,
-        user_id,
+        user_id, user_tz,
     )
     today_v = float(today["value_num"]) if today else None
 
@@ -311,17 +335,17 @@ async def _load_sample_entropy(conn, user_id: str) -> tuple[float | None, float 
           FROM user_daily_features
          WHERE user_id = $1::uuid
            AND feature_key = 'hrv.HRV_SampEn'
-           AND date >= (CURRENT_DATE - INTERVAL '30 days')
-           AND date < CURRENT_DATE
+           AND date >= ((NOW() AT TIME ZONE $2)::date - INTERVAL '30 days')
+           AND date < (NOW() AT TIME ZONE $2)::date
            AND value_num IS NOT NULL
         """,
-        user_id,
+        user_id, user_tz,
     )
     med = float(median_row["med"]) if median_row and median_row["med"] is not None else None
     return today_v, med
 
 
-async def _load_rhr_changepoint_signal(conn, user_id: str) -> str | None:
+async def _load_rhr_changepoint_signal(conn, user_id: str, user_tz: str) -> str | None:
     """Read analytics_cache cache_key='changepoints.resting_hr'.
 
     Auto-trigger: cache missing or older than 24h → run detect_changepoints
@@ -391,7 +415,8 @@ async def _load_rhr_changepoint_signal(conn, user_id: str) -> str | None:
         latest = date.fromisoformat(latest_iso)
     except ValueError:
         return None
-    if (date.today() - latest).days < 7:
+    user_today = datetime.now(ZoneInfo(user_tz)).date()
+    if (user_today - latest).days < 7:
         return "rhr_changepoint_recent"
     return None
 
@@ -580,6 +605,7 @@ async def _derive_confidence(
     *,
     factors: dict[str, FactorInput],
     path_kind: str,
+    user_tz: str,
 ) -> str:
     if path_kind == "B":
         return "medium"
@@ -601,8 +627,8 @@ async def _derive_confidence(
 
     # History thresholds (only relevant for `high`)
     if n == 3 and not any_24_48h_stale:
-        baseline_ok = await _hrv_baseline_days_geq(conn, user_id, HRV_BASELINE_MIN_DAYS)
-        acwr_ok = await _acwr_history_days_geq(conn, user_id, ACWR_HISTORY_MIN_DAYS)
+        baseline_ok = await _hrv_baseline_days_geq(conn, user_id, HRV_BASELINE_MIN_DAYS, user_tz)
+        acwr_ok = await _acwr_history_days_geq(conn, user_id, ACWR_HISTORY_MIN_DAYS, user_tz)
         if baseline_ok and acwr_ok:
             return "high"
         return "medium"
@@ -612,30 +638,30 @@ async def _derive_confidence(
     return "low"
 
 
-async def _hrv_baseline_days_geq(conn, user_id: str, days: int) -> bool:
+async def _hrv_baseline_days_geq(conn, user_id: str, days: int, user_tz: str) -> bool:
     row = await conn.fetchrow(
         """
         SELECT COUNT(DISTINCT ts::date) AS n
           FROM health_hrv_night_values
          WHERE user_id = $1::uuid
-           AND ts >= (CURRENT_DATE - ($2::int || ' days')::interval)
+           AND ts >= ((NOW() AT TIME ZONE $3)::date - ($2::int || ' days')::interval)
         """,
-        user_id, days,
+        user_id, days, user_tz,
     )
     return row is not None and row["n"] is not None and int(row["n"]) >= days
 
 
-async def _acwr_history_days_geq(conn, user_id: str, days: int) -> bool:
+async def _acwr_history_days_geq(conn, user_id: str, days: int, user_tz: str) -> bool:
     row = await conn.fetchrow(
         """
         SELECT COUNT(*) AS n
           FROM pmc_daily
          WHERE user_id = $1::uuid
            AND sport_group = '__combined__'
-           AND date >= (CURRENT_DATE - ($2::int || ' days')::interval)
+           AND date >= ((NOW() AT TIME ZONE $3)::date - ($2::int || ' days')::interval)
            AND acwr_ra IS NOT NULL AND acwr_ra <> 0
         """,
-        user_id, days,
+        user_id, days, user_tz,
     )
     return row is not None and row["n"] is not None and int(row["n"]) >= days
 
@@ -715,21 +741,28 @@ async def _read_pref(conn, user_id: str) -> tuple[str | None, str | None]:
 
 
 async def _compute_readiness_locked(conn, user_id: str) -> dict:
-    """Inside-tx computation. Lock has already been acquired by caller."""
-    today_iso = date.today().isoformat()
+    """Inside-tx computation. Lock has already been acquired by caller.
+
+    All date anchors use the user's local timezone (users.timezone) so that
+    a user in UTC+12 does not see empty "today" data because the server clock
+    is still on the previous UTC date.
+    """
+    # 0. User timezone — anchor all date queries to local calendar day.
+    user_tz = await _load_user_timezone(conn, user_id)
+    today_iso = datetime.now(ZoneInfo(user_tz)).date().isoformat()
 
     # 1. Pref + version snapshot
     pref, pref_version_at_start = await _read_pref(conn, user_id)
 
     # 2. Own factors
     eigen = {
-        "hrv_status":    await _load_hrv_status(conn, user_id),
-        "sleep":         await _load_sleep_factor(conn, user_id),
-        "training_load": await _load_training_load_factor(conn, user_id),
+        "hrv_status":    await _load_hrv_status(conn, user_id, user_tz),
+        "sleep":         await _load_sleep_factor(conn, user_id, user_tz),
+        "training_load": await _load_training_load_factor(conn, user_id, user_tz),
     }
 
     # 3. Manufacturer factors
-    mfr = await _load_manufacturer_factors(conn, user_id)
+    mfr = await _load_manufacturer_factors(conn, user_id, user_tz)
 
     # 4. Refusal check (early-exit)
     refused, reason = _check_refusal(eigen, mfr)
@@ -754,7 +787,7 @@ async def _compute_readiness_locked(conn, user_id: str) -> dict:
         path_kind = "B"
 
     # Bonus inputs (only loaded once)
-    rhr_signal = await _load_rhr_changepoint_signal(conn, user_id)
+    rhr_signal = await _load_rhr_changepoint_signal(conn, user_id, user_tz)
 
     if path_kind == "B":
         # 6. Path B: use manufacturer score directly
@@ -786,8 +819,8 @@ async def _compute_readiness_locked(conn, user_id: str) -> dict:
             if k in mixed and mixed[k] is not None and not mixed[k].missing
         )
 
-        dfa = await _load_dfa_alpha1(conn, user_id)
-        sampen, sampen_med = await _load_sample_entropy(conn, user_id)
+        dfa = await _load_dfa_alpha1(conn, user_id, user_tz)
+        sampen, sampen_med = await _load_sample_entropy(conn, user_id, user_tz)
 
         stress_unusually_high = bool(
             mfr is not None
@@ -835,6 +868,7 @@ async def _compute_readiness_locked(conn, user_id: str) -> dict:
         conn, user_id,
         factors=used_mix if path_kind == "A" else {},
         path_kind=path_kind,
+        user_tz=user_tz,
     )
     recommendation_code = _derive_recommendation_code(level, confidence, sig)
 
@@ -920,7 +954,11 @@ async def compute_readiness(conn, user_id: str, publisher=None) -> dict:
             user_id,
             exc_info=exc,
         )
-        today_iso = date.today().isoformat()
+        try:
+            _exc_tz = await _load_user_timezone(conn, user_id)
+        except Exception:
+            _exc_tz = "UTC"
+        today_iso = datetime.now(ZoneInfo(_exc_tz)).date().isoformat()
         refused = _refused_envelope(
             refusal_reason="service_unavailable",
             data_window_end=today_iso,
