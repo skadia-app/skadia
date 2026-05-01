@@ -6,21 +6,21 @@ type Level = 'critical' | 'low' | 'moderate' | 'good' | 'optimal'
 
 const EXPLICIT: Record<string, string> = {
   optimal_high_normal:
-    'Sehr gute Bereitschaft. Intensive Einheiten oder Wettkampf möglich.',
+    'Sehr gute Bereitschaft. Intensive Einheiten, Schwellentraining oder Wettkampf möglich.',
   good_high_normal:
-    'Gute Bereitschaft. Planmäßige Einheit empfehlenswert.',
+    'Planmäßige Einheit empfehlenswert. Bei Schwellen- oder Intervalltraining auf die Tagesform achten.',
   good_high_rhr_changepoint_recent:
     'Gute Bereitschaft, aber Ruhepuls hat sich kürzlich verändert — auf zusätzliche Erholung achten.',
   critical_high_normal:
-    'Bereitschaft kritisch. Ruhetag oder sehr lockere Bewegung.',
+    'Ruhetag oder sehr lockere Bewegung. Intensive Belastung heute meiden.',
 }
 
 const LEVEL_FALLBACK: Record<Level, string> = {
-  critical: 'Bereitschaft kritisch. Ruhetag oder sehr lockere Bewegung.',
-  low: 'Bereitschaft niedrig. Aktive Erholung empfohlen.',
-  moderate: 'Moderate Bereitschaft. Lockere Einheit empfehlenswert.',
-  good: 'Gute Bereitschaft. Planmäßige Einheit empfehlenswert.',
-  optimal: 'Sehr gute Bereitschaft. Intensive Einheiten oder Wettkampf möglich.',
+  critical: 'Ruhetag oder sehr lockere Bewegung. Intensive Belastung heute meiden.',
+  low: 'Aktive Erholung — locker laufen, schwimmen oder mobilisieren.',
+  moderate: 'Lockere Einheit machbar — keine Intervalle, kein Wettkampftempo.',
+  good: 'Planmäßige Einheit empfehlenswert. Bei Schwellen- oder Intervalltraining auf die Tagesform achten.',
+  optimal: 'Sehr gute Bereitschaft. Intensive Einheiten, Schwellentraining oder Wettkampf möglich.',
 }
 
 const LEVELS: ReadonlySet<Level> = new Set<Level>([
