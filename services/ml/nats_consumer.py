@@ -3,8 +3,9 @@ import contextlib
 import json
 import logging
 import os
+import time
 import uuid
-from collections import defaultdict
+from collections import OrderedDict
 
 import aioboto3
 import nats
@@ -33,15 +34,91 @@ MAX_CONCURRENT_PHOTO_EMBED = 2
 # Global semaphore to prevent resource exhaustion under burst load
 _global_semaphore = asyncio.Semaphore(MAX_GLOBAL_CONCURRENT)
 
-# Per-user semaphores for rate limiting
-_user_semaphores: dict[str, asyncio.Semaphore] = defaultdict(
-    lambda: asyncio.Semaphore(MAX_CONCURRENT_PER_USER)
-)
+# Cap and TTL for per-user semaphore maps.
+# At 100k+ users, unbounded defaultdicts would accumulate hundreds of thousands
+# of Semaphore objects. These constants bound memory: max 10 000 entries, idle
+# entries (unused for >1 h) are evicted lazily at access time.
+_SEM_MAP_CAP = 10_000
+_SEM_MAP_TTL = 3_600  # seconds
 
-# Per-user analytics semaphores (max 1 concurrent analytics job per user)
-_analytics_semaphores: dict[str, asyncio.Semaphore] = defaultdict(
-    lambda: asyncio.Semaphore(MAX_CONCURRENT_ANALYTICS_PER_USER)
-)
+
+class _BoundedSemaphoreMap:
+    """OrderedDict-backed map of per-user asyncio.Semaphore objects.
+
+    Eviction strategy (C — lazy TTL + LRU-Cap):
+    - Every __getitem__ moves the key to the end (LRU touch) and records the
+      current time as the last-access timestamp.
+    - After the touch, if the map exceeds *cap* entries, the oldest 50 % of
+      entries that are *not* currently acquired are evicted.  Acquired
+      semaphores (``semaphore._value < initial_value``) are never evicted —
+      evicting an acquired semaphore would leave awaiting coroutines
+      permanently blocked.
+    - TTL is checked opportunistically during eviction: entries whose last
+      access is older than *ttl* seconds are preferred candidates even when the
+      map is below *cap*.
+
+    Thread-safety: single-threaded asyncio event loop assumed (same as the rest
+    of this module).  No asyncio.Lock needed.
+    """
+
+    def __init__(self, initial_value: int, cap: int = _SEM_MAP_CAP, ttl: float = _SEM_MAP_TTL) -> None:
+        self._initial = initial_value
+        self._cap = cap
+        self._ttl = ttl
+        # Maps user_id → (semaphore, last_access_ts)
+        self._store: OrderedDict[str, tuple[asyncio.Semaphore, float]] = OrderedDict()
+
+    def __getitem__(self, key: str) -> asyncio.Semaphore:
+        now = time.monotonic()
+        if key in self._store:
+            sem, _ = self._store[key]
+            self._store.move_to_end(key)
+            self._store[key] = (sem, now)
+        else:
+            sem = asyncio.Semaphore(self._initial)
+            self._store[key] = (sem, now)
+            self._store.move_to_end(key)
+            self._maybe_evict(now)
+        return sem
+
+    def _maybe_evict(self, now: float) -> None:
+        """Evict stale / over-cap entries that are not currently acquired."""
+        if len(self._store) <= self._cap:
+            # Even below cap, evict TTL-expired idle entries to free memory
+            # progressively rather than waiting for a burst.
+            stale = [
+                k for k, (s, ts) in self._store.items()
+                if (now - ts) > self._ttl and s._value == self._initial
+            ]
+            for k in stale:
+                del self._store[k]
+            return
+
+        # Over cap: evict oldest 50 % of evictable entries.
+        target = len(self._store) - self._cap // 2
+        evicted = 0
+        to_delete = []
+        for k, (s, _) in self._store.items():
+            if evicted >= target:
+                break
+            if s._value == self._initial:  # not currently acquired
+                to_delete.append(k)
+                evicted += 1
+        for k in to_delete:
+            del self._store[k]
+
+    def __len__(self) -> int:
+        return len(self._store)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._store
+
+
+# Per-user semaphores for rate limiting (bounded: max _SEM_MAP_CAP entries)
+_user_semaphores = _BoundedSemaphoreMap(MAX_CONCURRENT_PER_USER)
+
+# Per-user analytics semaphores (bounded: max _SEM_MAP_CAP entries)
+_analytics_semaphores = _BoundedSemaphoreMap(MAX_CONCURRENT_ANALYTICS_PER_USER)
 
 # Global semaphore for photo embedding (CPU/GPU-bound CLIP inference)
 _photo_embed_semaphore = asyncio.Semaphore(MAX_CONCURRENT_PHOTO_EMBED)
