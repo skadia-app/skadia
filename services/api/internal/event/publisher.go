@@ -11,6 +11,13 @@ import (
 type Publisher struct {
 	nc *natsgo.Conn
 	js natsgo.JetStreamContext
+
+	// AnalyticsThrottle, when non-nil, rate-limits PublishAnalyticsInvalidate
+	// calls per user_id. Centralizing the throttle here means every caller
+	// (readiness GET, health-data ingest, manual activity, recompute, garmin
+	// import, …) is automatically throttled — no caller-side coordination
+	// required. nil disables throttling (Publisher behaves as before).
+	AnalyticsThrottle *Throttler
 }
 
 type ActivityUploadedEvent struct {
@@ -166,7 +173,20 @@ type EventConn interface {
 
 // PublishAnalyticsInvalidate publishes a skadia.analytics.invalidate event.
 // The ML service listens on this subject and recomputes all analytics cache entries for the user.
+//
+// When AnalyticsThrottle is configured and rejects the call for userID, the
+// publish is silently dropped (returns nil with a debug log). This breaks
+// runaway-trigger loops (a deterministically-failing worker that the GET path
+// would re-fire on every poll) and bounds attacker-driven NATS spam from any
+// trigger site (health-data ingest, manual activity, …) without per-caller
+// coordination.
 func (p *Publisher) PublishAnalyticsInvalidate(userID string) error {
+	if p.AnalyticsThrottle != nil && !p.AnalyticsThrottle.Allow(userID) {
+		slog.Debug("analytics invalidate throttled",
+			"user_id", userID,
+			"subject", "skadia.analytics.invalidate")
+		return nil
+	}
 	data, err := json.Marshal(AnalyticsInvalidateEvent{UserID: userID})
 	if err != nil {
 		return fmt.Errorf("analytics invalidate: marshal: %w", err)

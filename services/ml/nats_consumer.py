@@ -50,15 +50,16 @@ class _BoundedSemaphoreMap:
       current time as the last-access timestamp.
     - After the touch, if the map exceeds *cap* entries, the oldest 50 % of
       entries that are *not* currently acquired are evicted.  Acquired
-      semaphores (``semaphore._value < initial_value``) are never evicted —
+      semaphores (Semaphore.locked() == True, i.e. value==0) are never evicted —
       evicting an acquired semaphore would leave awaiting coroutines
       permanently blocked.
     - TTL is checked opportunistically during eviction: entries whose last
       access is older than *ttl* seconds are preferred candidates even when the
       map is below *cap*.
 
-    Thread-safety: single-threaded asyncio event loop assumed (same as the rest
-    of this module).  No asyncio.Lock needed.
+    Thread-safety: single asyncio event-loop required; do not access from
+    multiple loops.  No asyncio.Lock needed because mutation only happens in
+    the single event loop's coroutines.
     """
 
     def __init__(self, initial_value: int, cap: int = _SEM_MAP_CAP, ttl: float = _SEM_MAP_TTL) -> None:
@@ -82,13 +83,26 @@ class _BoundedSemaphoreMap:
         return sem
 
     def _maybe_evict(self, now: float) -> None:
-        """Evict stale / over-cap entries that are not currently acquired."""
+        """Evict stale / over-cap entries that are not currently acquired.
+
+        Uses the public asyncio.Semaphore.locked() API (stable since Python 3.10)
+        rather than the private _value attribute to determine whether a semaphore
+        is safe to evict.  A semaphore is evictable when it is not locked
+        (i.e. at least one permit is free and no waiter is blocked on it).
+        """
+        if len(self._store) > 2 * self._cap:
+            logger.warning(
+                "BoundedSemaphoreMap above 2x cap (%d entries, cap=%d) — "
+                "possibly leaked semaphores from stuck workers",
+                len(self._store), self._cap,
+            )
+
         if len(self._store) <= self._cap:
             # Even below cap, evict TTL-expired idle entries to free memory
             # progressively rather than waiting for a burst.
             stale = [
                 k for k, (s, ts) in self._store.items()
-                if (now - ts) > self._ttl and s._value == self._initial
+                if (now - ts) > self._ttl and not s.locked()
             ]
             for k in stale:
                 del self._store[k]
@@ -101,7 +115,7 @@ class _BoundedSemaphoreMap:
         for k, (s, _) in self._store.items():
             if evicted >= target:
                 break
-            if s._value == self._initial:  # not currently acquired
+            if not s.locked():  # not currently acquired (public API, no _value)
                 to_delete.append(k)
                 evicted += 1
         for k in to_delete:
@@ -114,10 +128,12 @@ class _BoundedSemaphoreMap:
         return key in self._store
 
 
-# Per-user semaphores for rate limiting (bounded: max _SEM_MAP_CAP entries)
+# Per-user semaphores for rate limiting (bounded: max _SEM_MAP_CAP entries).
+# Single asyncio event-loop required; do not access from multiple loops.
 _user_semaphores = _BoundedSemaphoreMap(MAX_CONCURRENT_PER_USER)
 
-# Per-user analytics semaphores (bounded: max _SEM_MAP_CAP entries)
+# Per-user analytics semaphores (bounded: max _SEM_MAP_CAP entries).
+# Single asyncio event-loop required; do not access from multiple loops.
 _analytics_semaphores = _BoundedSemaphoreMap(MAX_CONCURRENT_ANALYTICS_PER_USER)
 
 # Global semaphore for photo embedding (CPU/GPU-bound CLIP inference)

@@ -246,7 +246,15 @@ export interface YearlyOverviewRow {
 
 export type ReadinessLevel = 'critical' | 'low' | 'moderate' | 'good' | 'optimal'
 export type ReadinessConfidence = 'high' | 'medium' | 'low'
+
+// Sources that appear on individual ReadinessFactor rows.
+// 'skadia' = factor computed by the Skadia ML pipeline (not a device source).
 export type ReadinessSource = 'garmin' | 'garmin_fit' | 'skadia' | 'manual_override' | 'strava' | 'komoot' | 'manual' | 'mobile'
+
+// Path preference stored in user_readiness_preferences.preferred_source.
+// Distinct domain from ReadinessSource: 'manufacturer' means "prefer device data
+// over Skadia's own computation" — it is not itself a factor source.
+export type ReadinessPathPreference = 'manufacturer' | 'skadia' | null
 
 export interface ReadinessFactor {
   key: string
@@ -278,7 +286,7 @@ export interface ReadinessResponse {
 }
 
 export interface ReadinessPreferences {
-  preferred_source: 'manufacturer' | 'skadia' | null
+  preferred_source: ReadinessPathPreference
 }
 
 // === Insights Tab Types ===

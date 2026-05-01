@@ -588,6 +588,13 @@ func main() {
 		slog.Warn("NATS unavailable, events will not be published", "error", err)
 		pub = nil
 	} else {
+		// Centralized throttle for analytics-invalidate publishes (R2-L5).
+		// 60s window per user_id, 10k user cap. Bounds runaway trigger loops
+		// and per-user spam from any caller (readiness GET, health-data
+		// ingest, manual activity, recompute, garmin import) without
+		// per-handler coordination.
+		pub.AnalyticsThrottle = event.NewThrottler(60*time.Second, 10_000)
+
 		defer pub.Close()
 
 		// Start PMC consumer
@@ -864,28 +871,17 @@ func main() {
 	// Readiness reconcile (daily, 5-minute initial delay, graceful shutdown).
 	// Finds active users whose readiness cache is stale and triggers recomputation.
 	// Skipped when NATS is unavailable (pub == nil).
-	// Override with env vars RECONCILE_INITIAL_DELAY_SECONDS (default 300) and
-	// RECONCILE_TICK_INTERVAL_HOURS (default 24).
+	// All tuning knobs (delays, limits) are read once via analytics.LoadReconcileConfig;
+	// see reconcile_config.go for env var documentation.
 	if pub != nil {
-		reconcileInitialDelaySec := 300
-		if raw := os.Getenv("RECONCILE_INITIAL_DELAY_SECONDS"); raw != "" {
-			if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
-				reconcileInitialDelaySec = n
-			}
-		}
-		reconcileTickIntervalHours := 24
-		if raw := os.Getenv("RECONCILE_TICK_INTERVAL_HOURS"); raw != "" {
-			if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-				reconcileTickIntervalHours = n
-			}
-		}
+		reconcileCfg := analytics.LoadReconcileConfig()
 		shutdown.Go("readiness-reconcile", func(ctx context.Context) {
 			select {
-			case <-time.After(time.Duration(reconcileInitialDelaySec) * time.Second):
+			case <-time.After(reconcileCfg.InitialDelay):
 			case <-ctx.Done():
 				return
 			}
-			ticker := time.NewTicker(time.Duration(reconcileTickIntervalHours) * time.Hour)
+			ticker := time.NewTicker(reconcileCfg.TickInterval)
 			defer ticker.Stop()
 			for {
 				slog.Info("readiness reconcile: starting run")

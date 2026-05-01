@@ -10,6 +10,7 @@ import {
   type ReadinessLevel,
   type ReadinessConfidence,
   type ReadinessSource,
+  type ReadinessPathPreference,
 } from '@/api/analytics'
 import { recommendationText } from './readinessRecommendations'
 
@@ -85,22 +86,30 @@ const MISSING_REASON_LABELS: Record<string, string> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Derive a display status from the factor's 0-100 value. */
-function factorStatus(factor: ReadinessFactor): 'gut' | 'moderat' | 'niedrig' | 'fehlend' {
+/** Derive a display status from the factor's 0-100 value.
+ * Thresholds mirror backend _score_to_level for consistency:
+ * optimal ≥80, gut ≥60, moderat ≥40, niedrig ≥20, kritisch <20. */
+function factorStatus(factor: ReadinessFactor): 'optimal' | 'gut' | 'moderat' | 'niedrig' | 'kritisch' | 'fehlend' {
   if (factor.missing || factor.value === null) return 'fehlend'
-  if (factor.value >= 70) return 'gut'
+  if (factor.value >= 80) return 'optimal'
+  if (factor.value >= 60) return 'gut'
   if (factor.value >= 40) return 'moderat'
-  return 'niedrig'
+  if (factor.value >= 20) return 'niedrig'
+  return 'kritisch'
 }
 
 function statusBadgeClasses(status: ReturnType<typeof factorStatus>): string {
   switch (status) {
-    case 'gut':
+    case 'optimal':
       return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+    case 'gut':
+      return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
     case 'moderat':
       return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
     case 'niedrig':
       return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+    case 'kritisch':
+      return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
     case 'fehlend':
       return 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'
   }
@@ -116,12 +125,13 @@ function sourceBadgeClasses(source: ReadinessSource): string {
 }
 
 // ── Level scale thresholds — defines the boundary positions on the 0-100 bar ──
-// Levels: critical <20, low <40, moderate <60, good <80, optimal ≤100
+// Levels: critical <20, low <40, moderate <60, good <80, optimal ≤100.
+// Labels are rendered below each tick mark for visual orientation.
 const LEVEL_THRESHOLDS: { level: ReadinessLevel; pct: number; label: string }[] = [
-  { level: 'critical', pct: 20, label: 'Kritisch' },
-  { level: 'low',      pct: 40, label: 'Niedrig'  },
-  { level: 'moderate', pct: 60, label: 'Moderat'  },
-  { level: 'good',     pct: 80, label: 'Gut'      },
+  { level: 'critical', pct: 20, label: 'Niedrig'  },
+  { level: 'low',      pct: 40, label: 'Moderat'  },
+  { level: 'moderate', pct: 60, label: 'Gut'      },
+  { level: 'good',     pct: 80, label: 'Optimal'  },
 ]
 
 // ── ScoreRing ─────────────────────────────────────────────────────────────────
@@ -260,7 +270,7 @@ function ScaleBar({ score, level }: ScaleBarProps) {
   const color = level ? LEVEL_COLORS[level] : '#6b7280'
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1">
       {/* Track + fill */}
       <div
         className="relative h-2.5 w-full rounded-full bg-neutral-200 dark:bg-neutral-700 overflow-visible"
@@ -279,13 +289,27 @@ function ScaleBar({ score, level }: ScaleBarProps) {
             transition: 'width 0.6s ease',
           }}
         />
-        {/* Level boundary tick marks */}
+        {/* Level boundary tick marks — higher contrast in dark mode */}
         {LEVEL_THRESHOLDS.map(t => (
           <div
             key={t.level}
-            className="absolute top-[-2px] bottom-[-2px] w-px bg-white dark:bg-neutral-900 opacity-60"
+            className="absolute top-[-2px] bottom-[-2px] w-px bg-neutral-300 dark:bg-neutral-500 opacity-70"
             style={{ left: `${t.pct}%` }}
           />
+        ))}
+      </div>
+
+      {/* Tick labels — one per boundary, anchored at tick position */}
+      <div className="relative h-3 select-none">
+        {LEVEL_THRESHOLDS.map(t => (
+          <span
+            key={t.level}
+            className="absolute text-[8px] text-neutral-400 dark:text-neutral-500 -translate-x-1/2"
+            style={{ left: `${t.pct}%` }}
+            aria-hidden="true"
+          >
+            {t.label}
+          </span>
         ))}
       </div>
 
@@ -352,8 +376,8 @@ function ConfidenceBadge({ confidence }: { confidence: ReadinessConfidence }) {
 // ── SourceToggle ──────────────────────────────────────────────────────────────
 
 interface SourceToggleProps {
-  preferred: 'manufacturer' | 'skadia' | null
-  onChange: (value: 'manufacturer' | 'skadia' | null) => void
+  preferred: ReadinessPathPreference
+  onChange: (value: ReadinessPathPreference) => void
   disabled?: boolean
 }
 
@@ -399,8 +423,9 @@ interface MissingFactorsBannerProps {
 }
 
 function MissingFactorsBanner({ refused, refusalReason, missingFactors }: MissingFactorsBannerProps) {
-  if (refused && refusalReason) {
-    const text = REFUSAL_TEXTS[refusalReason] ?? 'Berechnung nicht möglich.'
+  if (refused) {
+    // Defensive: render fallback even when backend omits refusal_reason.
+    const text = (refusalReason ? REFUSAL_TEXTS[refusalReason] : null) ?? 'Berechnung nicht möglich.'
     return (
       <div
         className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"

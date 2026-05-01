@@ -129,6 +129,10 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid blood_pressure data", r.URL.Path)
 			return
 		}
+		if d.Pulse != nil && (*d.Pulse < 30 || *d.Pulse > 250) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "pulse must be 30-250", r.URL.Path)
+			return
+		}
 		// Try RFC3339 first (with time component) to support multiple daily measurements
 		// (e.g. morning/evening). Fall back to date-only + current time so that same-day
 		// entries don't collapse onto midnight and overwrite each other via ON CONFLICT.

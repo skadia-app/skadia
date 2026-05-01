@@ -26,8 +26,9 @@ vi.mock('@/api/analytics', async () => {
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-// ReadinessSource = 'garmin' | 'garmin_fit' | 'skadia' | 'manual_override'
-// 'manufacturer' is only valid for ReadinessPreferences.preferred_source, not for ReadinessFactor.source.
+// ReadinessSource covers device/pipeline sources on ReadinessFactor rows.
+// ReadinessPathPreference ('manufacturer' | 'skadia' | null) is a separate domain
+// used only in ReadinessPreferences.preferred_source — not valid as a factor source.
 
 const FACTOR_GARMIN: ReadinessFactor = {
   key: 'hrv_status',
@@ -247,6 +248,55 @@ describe('ReadinessCardFull', () => {
     })
     // recommendationText('good_high_normal') returns text containing 'Planmäßige'
     expect(screen.getByTestId('recommendation-text')).toHaveTextContent('Planmäßige')
+  })
+
+  // Test 6 (R2-M12): ScaleBar renders with correct aria-progressbar attributes
+  it('renders ScaleBar with correct aria-progressbar attributes when score present', async () => {
+    mockFetchReadiness.mockResolvedValue(BASE_RESPONSE) // score: 72, level: 'good'
+    render(<ReadinessCardFull />, { wrapper: makeWrapper() })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('readiness-full')).toBeInTheDocument()
+    })
+
+    const bar = screen.getByRole('progressbar')
+    expect(bar).toBeInTheDocument()
+    expect(bar).toHaveAttribute('aria-valuemin', '0')
+    expect(bar).toHaveAttribute('aria-valuemax', '100')
+    expect(bar).toHaveAttribute('aria-valuenow', '72')
+    expect(bar).toHaveAttribute('aria-label', 'Bereitschaftswert 72 von 100')
+  })
+
+  // Test 7 (R2-M12): MissingFactorsBanner renders per-factor missing_reason labels
+  it('renders MissingFactorsBanner per-factor reasons (no_data, no_data_today, stale, no_baseline)', async () => {
+    const responseWithMissing: ReadinessResponse = {
+      ...BASE_RESPONSE,
+      score: null,
+      level: null,
+      factors: [],
+      missing_factors: [
+        { key: 'hrv_status',    reason: 'no_data',       last_seen_at: null },
+        { key: 'sleep',         reason: 'no_data_today',  last_seen_at: null },
+        { key: 'training_load', reason: 'stale',          last_seen_at: '2026-04-28T08:00:00Z' },
+        { key: 'dfa_alpha1',    reason: 'no_baseline',    last_seen_at: null },
+      ],
+    }
+    mockFetchReadiness.mockResolvedValue(responseWithMissing)
+    render(<ReadinessCardFull />, { wrapper: makeWrapper() })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('missing-factors-banner')).toBeInTheDocument()
+    })
+
+    const banner = screen.getByTestId('missing-factors-banner')
+    expect(banner).toHaveTextContent('HRV-Status')
+    expect(banner).toHaveTextContent('Noch keine Daten')
+    expect(banner).toHaveTextContent('Schlaf')
+    expect(banner).toHaveTextContent('Heute keine Messung')
+    expect(banner).toHaveTextContent('Trainingslast')
+    expect(banner).toHaveTextContent('Letzte Messung zu alt')
+    expect(banner).toHaveTextContent('DFA-α1')
+    expect(banner).toHaveTextContent('Basislinie noch nicht ausreichend')
   })
 })
 

@@ -427,7 +427,7 @@ def test_bounded_semaphore_map_acquired_never_evicted():
     # Semaphore._value manipulation in a unit test — we set _value directly to
     # simulate an active acquire without running the event loop).
     protected_sem = sm["user-protected"]
-    protected_sem._value = 0  # simulate acquired
+    protected_sem._value = 0  # simulate acquired (makes locked() return True)
 
     # Now flood with cap+1 additional idle users to trigger eviction.
     for i in range(cap + 1):
@@ -437,3 +437,39 @@ def test_bounded_semaphore_map_acquired_never_evicted():
     assert "user-protected" in sm, "acquired semaphore was evicted — safety violation"
     retrieved = sm["user-protected"]
     assert retrieved is protected_sem, "acquired semaphore was replaced — safety violation"
+
+
+def test_bounded_semaphore_map_logs_warning_above_double_cap(caplog):
+    """When the map exceeds 2x cap, a warning is emitted.
+
+    This acts as a watchdog for leaked (stuck-acquired) semaphores: normal
+    eviction keeps the map at or near cap, so exceeding 2x cap indicates that
+    many semaphores are permanently locked and cannot be freed.
+    """
+    import asyncio
+    import logging
+    import time
+    from nats_consumer import _BoundedSemaphoreMap
+
+    cap = 3
+    sm = _BoundedSemaphoreMap(initial_value=1, cap=cap, ttl=3600)
+
+    # Directly inject 2*cap+1 locked (stuck) semaphores into the internal store
+    # without going through __getitem__ so that eviction is not triggered
+    # piecemeal during setup.  This simulates the stuck-worker scenario where
+    # semaphores are acquired but never released.
+    now = time.monotonic()
+    for i in range(2 * cap + 1):
+        sem = asyncio.Semaphore(1)
+        sem._value = 0  # simulate permanently acquired (locked() == True)
+        sm._store[f"user-stuck-{i}"] = (sem, now)
+
+    # Now trigger one normal __getitem__ access; _maybe_evict will see
+    # len(store) == 2*cap+1 > 2*cap and must emit the watchdog warning.
+    with caplog.at_level(logging.WARNING, logger="nats_consumer"):
+        sm._maybe_evict(time.monotonic())
+
+    assert any(
+        "2x cap" in record.message or "above 2x cap" in record.message
+        for record in caplog.records
+    ), f"Expected 2x-cap warning, got: {[r.message for r in caplog.records]}"
