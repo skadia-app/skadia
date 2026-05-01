@@ -1090,7 +1090,23 @@ async def compute_readiness(conn, user_id: str) -> dict:
                 user_id,
             )
             if not got_lock:
-                return {"refused": True, "refusal_reason": "already_running", "written": False}
+                # Return a schema-complete refused envelope so any caller sees a
+                # consistent shape regardless of the refusal path taken.
+                _ar_now = datetime.now(timezone.utc)
+                try:
+                    _ar_tz = await _load_user_timezone(conn, user_id)
+                except Exception:
+                    _ar_tz = "UTC"
+                _ar_today = _ar_now.astimezone(ZoneInfo(_ar_tz)).date().isoformat()
+                _ar_envelope = _refused_envelope(
+                    refusal_reason="already_running",
+                    data_window_end=_ar_today,
+                    preferences_version=None,
+                    factors_eigen={},
+                    mfr=None,
+                    now_utc=_ar_now,
+                )
+                return {**_ar_envelope, "written": False}
 
             result = await _compute_readiness_locked(conn, user_id, rhr_signal=rhr_signal)
 
