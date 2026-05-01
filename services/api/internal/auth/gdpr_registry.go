@@ -67,6 +67,7 @@ var GDPRRegistry = map[string]TableCategory{
 	"user_files":                  Export, // Metadaten; Binaries via ShadowFS
 	"user_map_layers":             Export, // per-user custom tile-URL layers (Mig 000333)
 	"user_privacy_zones":          Export,
+	"user_readiness_preferences":  Export, // Setting (Mig 000999)
 	"activity_fusion_memberships": Export, // Join-Tabelle: welche Quell-Activity trägt welches Feld zur Merged-Activity bei. DeleteVia: CASCADE via activities(merged_id|source_id) und users(user_id)
 	"workouts":                    Export,
 	"workout_steps":               Export,
@@ -205,6 +206,7 @@ var ExportedTables = []string{
 	"oauth_connections",
 	"user_files",
 	"user_map_layers",
+	"user_readiness_preferences",
 	"file_attachments",
 	"training_zones",
 	"activity_edits",
