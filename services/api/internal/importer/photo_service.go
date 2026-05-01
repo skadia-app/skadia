@@ -382,7 +382,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	}
 
 	// Publish CLIP embed event (best-effort)
-	if s.Events != nil {
+	if s.PhotoEmbedPublisher != nil {
 		clipFrames := 4
 		if enrichSettings != nil && enrichSettings.VideoClipFrames > 0 {
 			clipFrames = enrichSettings.VideoClipFrames
@@ -398,7 +398,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 			ContentType:     ct,
 			VideoClipFrames: clipFrames,
 		}
-		if err := s.Events.PublishPhotoEmbed(ev); err != nil {
+		if err := s.PhotoEmbedPublisher.PublishPhotoEmbed(ev); err != nil {
 			slog.Warn("importer: failed to publish photo embed event", "photo_id", saved.ID, "err", err)
 		}
 	}
