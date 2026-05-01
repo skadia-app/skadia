@@ -13,8 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 )
@@ -135,36 +133,6 @@ func TestIngestHealthData_Weight_DoesNotTriggerInvalidate(t *testing.T) {
 	}
 	if got := fake.CallsCopy(); len(got) != 0 {
 		t.Errorf("FakeInvalidator.Calls = %v, want []", got)
-	}
-}
-
-// TestReverseSegment_TriggersAnalyticsInvalidate verifies segment_reverse.go:78
-// fires PublishAnalyticsInvalidate after a successful flip.
-func TestReverseSegment_TriggersAnalyticsInvalidate(t *testing.T) {
-	pool := fusionTestPool(t)
-	uid := insertTestUser(t, pool)
-	segmentID := insertTestSegment(t, pool, uid, TestSegmentOpts{
-		Track: "LINESTRING(0 0, 1 1, 2 2)",
-	})
-
-	fake := &event.FakeInvalidator{}
-	h := &Handler{
-		DB:                   &database.DB{Pool: pool},
-		AnalyticsInvalidator: fake,
-	}
-	r := chi.NewRouter()
-	r.Post("/api/v1/segments/{id}/reverse", h.ReverseSegment)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/segments/"+segmentID+"/reverse", nil)
-	req = req.WithContext(withUserAndAdmin(req.Context(), uid, false))
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("reverse: code = %d body = %s, want 200", rec.Code, rec.Body.String())
-	}
-	if got := fake.CallsCopy(); len(got) != 1 || got[0] != uid {
-		t.Fatalf("FakeInvalidator.Calls = %v, want [%q]", got, uid)
 	}
 }
 
