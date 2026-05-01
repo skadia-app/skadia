@@ -18,6 +18,8 @@ from enrichment import (
 from enrichment.document_vlm import convert_to_markdown, process_document, upload_to_s3
 from analytics import (
     cluster_activities,
+    compute_readiness,
+    handle_readiness_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -298,12 +300,34 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                     await msg.nak(delay=30)
 
 
-async def _process_analytics_message(msg, nc: nats.NATS) -> None:
+class _JetStreamAnalyticsPublisher:
+    """Thin wrapper around the JetStream context that exposes the
+    `publish_analytics_invalidate` contract expected by self-writing
+    analytics modules (e.g. readiness pref-race re-publish).
+    """
+
+    __slots__ = ("_js",)
+
+    def __init__(self, js):
+        self._js = js
+
+    async def publish_analytics_invalidate(self, user_id: str) -> None:
+        await self._js.publish(
+            "skadia.analytics.invalidate",
+            json.dumps({"user_id": user_id}).encode(),
+        )
+
+
+async def _process_analytics_message(msg, nc: nats.NATS, publisher=None) -> None:
     """Verarbeitet ein skadia.analytics.invalidate Event.
 
     Ruft alle Analytics-Module für den Nutzer auf und speichert die
     Ergebnisse in analytics_cache. Fehler einzelner Module stoppen
     nicht die anderen (graceful degradation).
+
+    `publisher` is injected for self-writing modules (readiness uses it for
+    pref-race re-publish). When omitted, a default JetStream publisher is
+    derived from `nc` — kept overridable so tests can substitute a fake.
     """
     data = await _decode_or_ack(msg, "analytics")
     if data is None:
@@ -315,6 +339,9 @@ async def _process_analytics_message(msg, nc: nats.NATS) -> None:
         await msg.ack()
         return
 
+    if publisher is None:
+        publisher = _JetStreamAnalyticsPublisher(nc.jetstream())
+
     # Per-user Semaphore: max 1 gleichzeitiger Analytics-Job pro Nutzer
     sem = _analytics_semaphores[user_id]
     async with sem:
@@ -325,17 +352,22 @@ async def _process_analytics_message(msg, nc: nats.NATS) -> None:
                 # Acquire a single connection for all analytics modules
                 # to avoid exhausting the pool (previously up to 9 connections)
                 async with pool.acquire() as conn:
-                    # Definiere alle zu berechnenden Module: (cache_key, factory)
-                    # Note: readiness, anomalies, projection, correlations are now
-                    # computed by the Go API (RefreshInsights → goanalytics package).
+                    # Each tuple: (cache_key, module_fn, self_writes)
+                    # self_writes=True means the module wrote analytics_cache
+                    # itself (in its own transaction); caller MUST NOT
+                    # _upsert_analytics_cache afterwards.
                     modules = [
-                        ("clusters", cluster_activities),
+                        ("clusters",  cluster_activities,       False),
+                        ("readiness", handle_readiness_message, True),
                     ]
 
-                    for cache_key, module_fn in modules:
+                    for cache_key, module_fn, self_writes in modules:
                         try:
-                            result = await module_fn(conn, user_id)
-                            await _upsert_analytics_cache(conn, user_id, cache_key, result)
+                            if self_writes:
+                                await module_fn(conn, user_id, publisher)
+                            else:
+                                result = await module_fn(conn, user_id)
+                                await _upsert_analytics_cache(conn, user_id, cache_key, result)
                             logger.debug(
                                 "analytics: computed %s for user %s", cache_key, user_id
                             )
