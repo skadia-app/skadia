@@ -251,6 +251,43 @@ export interface YearlyOverviewRow {
   avg_tss?: number | null
 }
 
+// === Readiness (consolidated) Types — Spec §5.3 ===
+
+export type ReadinessLevel = 'critical' | 'low' | 'moderate' | 'good' | 'optimal'
+export type ReadinessConfidence = 'high' | 'medium' | 'low'
+export type ReadinessSource = 'garmin' | 'garmin_fit' | 'skadia' | 'manual_override'
+
+export interface ReadinessFactor {
+  key: string
+  value: number | null
+  raw_value: number | null
+  raw_unit: string | null
+  source: ReadinessSource
+  available_sources: ReadinessSource[]
+  stale_hours: number | null
+  missing: boolean
+}
+
+export interface ReadinessResponse {
+  refused: boolean
+  refusal_reason: 'no_data' | 'insufficient_factors' | 'service_unavailable' | null
+  score: number | null
+  level: ReadinessLevel | null
+  factors: ReadinessFactor[]
+  missing_factors: string[]
+  computed_at: string
+  data_window_end: string | null
+  preferences_version: string | null
+  confidence: ReadinessConfidence | null
+  recommendation_code: string | null
+  signal_modifier: 'rhr_changepoint_recent' | null
+  degraded: 'service_unavailable' | null
+}
+
+export interface ReadinessPreferences {
+  preferred_source: 'manufacturer' | 'skadia' | null
+}
+
 // === Insights Tab Types ===
 
 export interface ReadinessInsight {
@@ -532,4 +569,21 @@ export async function fetchRunningFormTrend(from?: string, to?: string): Promise
   if (to) params.set('to', to)
   const qs = params.toString()
   return apiClient(`/running-form/trend${qs ? `?${qs}` : ''}`)
+}
+
+// === Readiness (consolidated) API ===
+
+export async function fetchReadiness(): Promise<ReadinessResponse> {
+  return apiClient('/analytics/readiness')
+}
+
+export async function fetchReadinessPreferences(): Promise<ReadinessPreferences> {
+  return apiClient('/user/readiness-preferences')
+}
+
+export async function putReadinessPreferences(body: ReadinessPreferences): Promise<ReadinessPreferences> {
+  return apiClient('/user/readiness-preferences', {
+    method: 'PUT',
+    body,
+  })
 }
