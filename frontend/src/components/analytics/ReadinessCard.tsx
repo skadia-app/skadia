@@ -52,6 +52,10 @@ const SOURCE_LABELS: Record<ReadinessSource, string> = {
   garmin_fit: 'Garmin (FIT-Datei)',
   manual_override: 'Manuell',
   skadia: 'Skadia',
+  strava: 'Strava',
+  komoot: 'Komoot',
+  manual: 'Manuell (Import)',
+  mobile: 'Mobile App',
 }
 
 const REFUSAL_TEXTS: Record<string, string> = {
@@ -403,7 +407,7 @@ export default function ReadinessCardFull() {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200 mb-3">
-          Readiness
+          Bereitschaft
         </h3>
         <p className="text-sm text-neutral-400 text-center py-4">
           Bereitschaftswert konnte nicht geladen werden.
@@ -431,7 +435,7 @@ export default function ReadinessCardFull() {
       {/* Header */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h3 className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-          Readiness
+          Bereitschaft
         </h3>
         {data?.confidence && <ConfidenceBadge confidence={data.confidence} />}
       </div>
