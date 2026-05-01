@@ -124,9 +124,13 @@ func TestReadiness_CacheHit(t *testing.T) {
 	}
 }
 
-// TestReadiness_Miss — no row → refused envelope with reason=no_data.
+// TestReadiness_Miss — no cache row → refused with reason=service_unavailable and
+// invalidate published so the worker recomputes. The "no_data" reason is reserved
+// for genuine blank accounts; a cache miss after a fresh deploy must not conflate
+// those two states.
 func TestReadiness_Miss(t *testing.T) {
-	h, pool := newReadinessTestHandler(t, &event.FakeInvalidator{})
+	fake := &event.FakeInvalidator{}
+	h, pool := newReadinessTestHandler(t, fake)
 	uid := seedReadinessTestUser(t, pool)
 
 	rr := httptest.NewRecorder()
@@ -142,14 +146,18 @@ func TestReadiness_Miss(t *testing.T) {
 	if got["refused"] != true {
 		t.Errorf("refused = %v, want true", got["refused"])
 	}
-	if got["refusal_reason"] != "no_data" {
-		t.Errorf("refusal_reason = %v, want no_data", got["refusal_reason"])
+	if got["refusal_reason"] != "service_unavailable" {
+		t.Errorf("refusal_reason = %v, want service_unavailable", got["refusal_reason"])
 	}
-	// Schema-completeness: required null-able fields must be present.
+	// Schema-completeness: required nullable fields must be present.
 	for _, k := range []string{"score", "level", "factors", "missing_factors", "computed_at", "data_window_end", "preferences_version", "confidence", "recommendation_code", "signal_modifier", "degraded"} {
 		if _, ok := got[k]; !ok {
 			t.Errorf("refused envelope missing field %q", k)
 		}
+	}
+	// Cache miss must trigger a recompute publish so the worker fills the row.
+	if len(fake.Calls) != 1 || fake.Calls[0] != uid {
+		t.Errorf("invalidator calls = %v, want [%s]", fake.Calls, uid)
 	}
 }
 
