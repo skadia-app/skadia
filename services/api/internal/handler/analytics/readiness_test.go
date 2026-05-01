@@ -3,6 +3,7 @@
 package analytics
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -443,6 +444,124 @@ func TestReadiness_PreferencesVersionMismatch(t *testing.T) {
 	// Must publish invalidate so worker recomputes with the new pref.
 	if len(fake.Calls) != 1 || fake.Calls[0] != uid {
 		t.Errorf("invalidator calls = %v, want [%s]", fake.Calls, uid)
+	}
+}
+
+// TestReadiness_TriggerLoopThrottle — two GETs for the same user within
+// the readinessTriggerWindow must produce at most one
+// PublishAnalyticsInvalidate. Without throttling, a deterministically-failing
+// worker would produce a runaway loop: every GET → publish → fail →
+// preferences_version=null in fallback envelope → mismatch → publish → ...
+//
+// Uses the stale-while-revalidate path (expires_at in the past) which is
+// the most common trigger site.
+func TestReadiness_TriggerLoopThrottle(t *testing.T) {
+	fake := &event.FakeInvalidator{}
+	h, pool := newReadinessTestHandler(t, fake)
+	uid := seedReadinessTestUser(t, pool)
+
+	body := json.RawMessage(`{"refused":false,"score":50,"level":"moderate","factors":[],"missing_factors":[],"computed_at":"2026-04-30T10:00:00Z","data_window_end":null,"preferences_version":null,"confidence":"medium","recommendation_code":null,"signal_modifier":null,"degraded":null}`)
+	now := time.Now()
+	expires := now.Add(-1 * time.Hour) // stale
+	seedReadinessRow(t, pool, uid, body, now.Add(-2*time.Hour), &expires)
+
+	// First GET — publishes.
+	rr1 := httptest.NewRecorder()
+	h.GetReadiness(rr1, reqWithUser(uid))
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("GET#1 status %d, want 200", rr1.Code)
+	}
+	if len(fake.Calls) != 1 {
+		t.Fatalf("after GET#1, invalidator calls = %d, want 1", len(fake.Calls))
+	}
+
+	// Second GET, immediately — must be throttled (no second publish).
+	rr2 := httptest.NewRecorder()
+	h.GetReadiness(rr2, reqWithUser(uid))
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("GET#2 status %d, want 200", rr2.Code)
+	}
+	if len(fake.Calls) != 1 {
+		t.Errorf("after GET#2, invalidator calls = %d, want 1 (second call must be throttled)", len(fake.Calls))
+	}
+	// Body of GET#2 must still be useful — the throttled path returns the
+	// stale body with degraded spliced in.
+	var got map[string]any
+	if err := json.Unmarshal(rr2.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode GET#2: %v", err)
+	}
+	if got["degraded"] != "service_unavailable" {
+		t.Errorf("GET#2 degraded = %v, want service_unavailable", got["degraded"])
+	}
+}
+
+// TestReadinessTriggerThrottle_WindowExpiry — after the window has elapsed,
+// a fresh trigger fires for the same user_id. Uses shouldTrigger directly
+// with an explicit clock so the test stays fast.
+func TestReadinessTriggerThrottle_WindowExpiry(t *testing.T) {
+	throttle := &readinessTriggerThrottle{}
+	uid := "user-1"
+	t0 := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+
+	if !throttle.shouldTrigger(uid, t0) {
+		t.Fatal("first call must trigger")
+	}
+	if throttle.shouldTrigger(uid, t0.Add(30*time.Second)) {
+		t.Error("call within window must be suppressed")
+	}
+	if !throttle.shouldTrigger(uid, t0.Add(61*time.Second)) {
+		t.Error("call after window must trigger again")
+	}
+}
+
+// TestReadinessTriggerThrottle_MemoryCap — when the map exceeds
+// readinessTriggerCap, eviction keeps it bounded. Uses a tiny synthetic
+// load (cap+1 unique users) and verifies the map shrinks.
+func TestReadinessTriggerThrottle_MemoryCap(t *testing.T) {
+	throttle := &readinessTriggerThrottle{}
+	t0 := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+
+	// Fill to cap with old entries.
+	for i := 0; i < readinessTriggerCap; i++ {
+		throttle.shouldTrigger(fmt.Sprintf("u-%d", i), t0)
+	}
+	if len(throttle.lastFired) != readinessTriggerCap {
+		t.Fatalf("pre-eviction size = %d, want %d", len(throttle.lastFired), readinessTriggerCap)
+	}
+
+	// One more user, far enough in the future that all prior entries are
+	// outside the window — eviction should drop them all and admit only
+	// the new one (plus the in-window new caller).
+	throttle.shouldTrigger("u-new", t0.Add(5*time.Minute))
+	if got := len(throttle.lastFired); got > readinessTriggerCap {
+		t.Errorf("post-eviction size = %d, must stay ≤ %d", got, readinessTriggerCap)
+	}
+}
+
+// TestWriteStaleDegraded_PreservesExistingKey — when the cached body already
+// has a top-level `degraded` key (e.g. the worker wrote one with a specific
+// value), writeStaleDegraded must not splice a second `degraded` field.
+// Duplicate keys produce parser-implementation-defined behavior; the worker's
+// value is authoritative — pass the body through unchanged (M3).
+func TestWriteStaleDegraded_PreservesExistingKey(t *testing.T) {
+	original := []byte(`{"refused":false,"score":42,"level":"low","degraded":"compute_pending"}`)
+
+	rr := httptest.NewRecorder()
+	writeStaleDegraded(rr, original)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200", rr.Code)
+	}
+	got := rr.Body.Bytes()
+
+	// Body must be byte-identical to the input — no splice happened.
+	if string(got) != string(original) {
+		t.Errorf("body modified:\n got:  %s\n want: %s", got, original)
+	}
+	// Sanity: there must be exactly one occurrence of `"degraded":` in the
+	// response body. A duplicate-key splice would yield two.
+	if c := bytes.Count(got, []byte(`"degraded":`)); c != 1 {
+		t.Errorf("\"degraded\": occurrences = %d, want 1", c)
 	}
 }
 

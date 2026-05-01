@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -15,6 +16,95 @@ import (
 // served (with a stale-while-revalidate trigger). Beyond this, the response
 // becomes a hard refusal with reason="service_unavailable".
 const STALE_HARD_CAP = 48 * time.Hour
+
+// readinessTriggerWindow is the minimum interval between two
+// PublishAnalyticsInvalidate calls for the same user_id from the readiness
+// stale/mismatch path. Within this window, repeated GETs return the existing
+// degraded body without re-publishing, breaking the trigger-loop a
+// deterministic worker failure would otherwise cause: every GET would publish,
+// the worker would re-fail, the fallback envelope would carry
+// preferences_version=null which mismatches every real pref row, the next GET
+// would publish again, and so on.
+const readinessTriggerWindow = 60 * time.Second
+
+// readinessTriggerCap caps the in-memory user→last-trigger map. Above this
+// size, half of the entries are evicted (oldest first). 10k slots × ~48 bytes
+// (UUID string + time.Time) ≈ 480 KB worst-case — bounded.
+const readinessTriggerCap = 10_000
+
+// readinessTriggerThrottle rate-limits PublishAnalyticsInvalidate calls per
+// user_id. Concurrency-safe; lazy-initialized via sync.Once on first use so
+// Handlers built via struct literal (test code) work without ceremony.
+type readinessTriggerThrottle struct {
+	mu        sync.Mutex
+	lastFired map[string]time.Time
+}
+
+// shouldTrigger returns true exactly once per user_id per readinessTriggerWindow.
+// Uses now as the clock to keep tests deterministic.
+func (t *readinessTriggerThrottle) shouldTrigger(userID string, now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.lastFired == nil {
+		t.lastFired = make(map[string]time.Time)
+	}
+	if last, ok := t.lastFired[userID]; ok && now.Sub(last) < readinessTriggerWindow {
+		return false
+	}
+	t.evictIfFullLocked(now)
+	t.lastFired[userID] = now
+	return true
+}
+
+// evictIfFullLocked drops entries older than readinessTriggerWindow when the
+// map exceeds readinessTriggerCap. Caller must hold t.mu. Worst case: a burst
+// of 10k unique users within window — we then drop only the truly-stale ones,
+// keeping the throttle effective for the active set.
+func (t *readinessTriggerThrottle) evictIfFullLocked(now time.Time) {
+	if len(t.lastFired) < readinessTriggerCap {
+		return
+	}
+	cutoff := now.Add(-readinessTriggerWindow)
+	for uid, ts := range t.lastFired {
+		if ts.Before(cutoff) {
+			delete(t.lastFired, uid)
+		}
+	}
+	// If everything is still in-window, force-drop arbitrary half to bound
+	// memory. Throttling becomes best-effort under sustained 10k+ unique
+	// active users — acceptable for selfhost scale targets.
+	if len(t.lastFired) >= readinessTriggerCap {
+		drop := len(t.lastFired) / 2
+		for uid := range t.lastFired {
+			if drop == 0 {
+				break
+			}
+			delete(t.lastFired, uid)
+			drop--
+		}
+	}
+}
+
+// readinessThrottle returns the Handler's throttle, initializing on first use.
+func (h *Handler) readinessThrottle() *readinessTriggerThrottle {
+	h.readinessThrottleOnce.Do(func() {
+		h.readinessThrottleInst = &readinessTriggerThrottle{}
+	})
+	return h.readinessThrottleInst
+}
+
+// publishReadinessInvalidate wraps Invalidator.PublishAnalyticsInvalidate
+// behind the per-user throttle. Returns (triggered, error). triggered=false
+// means the call was suppressed by the throttle, not a failure.
+func (h *Handler) publishReadinessInvalidate(userID string) (bool, error) {
+	if h.Invalidator == nil {
+		return false, nil
+	}
+	if !h.readinessThrottle().shouldTrigger(userID, time.Now()) {
+		return false, nil
+	}
+	return true, h.Invalidator.PublishAnalyticsInvalidate(userID)
+}
 
 // readinessMissingFactor matches the Python worker's missing_factors element
 // shape: {key, reason, last_seen_at}. Spec §5.3.
@@ -93,10 +183,8 @@ func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 		// serve service_unavailable rather than conflating this with a genuine
 		// "no data ever" state. The frontend already handles service_unavailable
 		// with the "Berechnung temporär nicht verfügbar" copy.
-		if h.Invalidator != nil {
-			if err := h.Invalidator.PublishAnalyticsInvalidate(userID); err != nil {
-				slog.Warn("readiness cache miss: invalidate publish failed", "user_id", userID, "error", err)
-			}
+		if _, err := h.publishReadinessInvalidate(userID); err != nil {
+			slog.Warn("readiness cache miss: invalidate publish failed", "user_id", userID, "error", err)
 		}
 		writeRefused(w, "service_unavailable", nil)
 		return
@@ -109,10 +197,8 @@ func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 	if mismatch := h.checkPreferencesVersionMismatch(r.Context(), userID, row.Data); mismatch {
 		slog.Info("readiness preferences_version mismatch — serving degraded, triggering recompute",
 			"user_id", userID)
-		if h.Invalidator != nil {
-			if err := h.Invalidator.PublishAnalyticsInvalidate(userID); err != nil {
-				slog.Warn("readiness pref-version recompute publish failed", "user_id", userID, "error", err)
-			}
+		if _, err := h.publishReadinessInvalidate(userID); err != nil {
+			slog.Warn("readiness pref-version recompute publish failed", "user_id", userID, "error", err)
 		}
 		writeStaleDegraded(w, row.Data)
 		return
@@ -142,8 +228,17 @@ func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 		writeStaleDegraded(w, row.Data)
 		return
 	}
-	if err := h.Invalidator.PublishAnalyticsInvalidate(userID); err != nil {
+	triggered, err := h.publishReadinessInvalidate(userID)
+	if err != nil {
 		slog.Warn("readiness invalidate publish failed", "user_id", userID, "error", err)
+		writeStaleDegraded(w, row.Data)
+		return
+	}
+	if !triggered {
+		// Throttled — a recompute for this user fired within the last
+		// readinessTriggerWindow. Serve the stale body decorated as degraded
+		// so the client sees a clear "computation pending" signal instead of
+		// a fresh-looking row that would silently be repeated indefinitely.
 		writeStaleDegraded(w, row.Data)
 		return
 	}
@@ -249,6 +344,14 @@ func (h *Handler) checkPreferencesVersionMismatch(ctx context.Context, userID st
 // Edge cases:
 //   - Empty object `{}` → replaced with `{"degraded":"service_unavailable"}`.
 //   - Non-object payload → falls back to a refused envelope.
+//   - Body already contains a top-level `degraded` key with a non-null value:
+//     pass body through unchanged (M3). The worker's authoritative degraded
+//     value (e.g. "compute_pending") wins over the handler's stale-decoration.
+//     Splicing a second `degraded` would produce a duplicate-key object
+//     whose final value is parser-implementation-defined.
+//   - Body has `"degraded": null` (the spec-required default written by the
+//     worker on every fresh compute): rewrite the null in place to
+//     "service_unavailable" so the response has exactly one degraded key.
 func writeStaleDegraded(w http.ResponseWriter, data []byte) {
 	const suffix = `,"degraded":"service_unavailable"}`
 	body := bytes.TrimSpace(data)
@@ -257,6 +360,37 @@ func writeStaleDegraded(w http.ResponseWriter, data []byte) {
 		writeRefused(w, "service_unavailable", nil)
 		return
 	}
+
+	// Top-level key probe (M3). Using map[string]json.RawMessage ensures we
+	// match a real JSON key and ignore any "degraded" substring that may
+	// occur inside a string value.
+	if topKeys, err := parseTopKeys(body); err == nil {
+		if raw, present := topKeys["degraded"]; present {
+			if isJSONNull(raw) {
+				// degraded:null → rewrite that null to "service_unavailable"
+				// in place; preserves key order, no duplicate.
+				if rewritten, ok := rewriteDegradedNull(data); ok {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write(rewritten)
+					return
+				}
+				// Fall through to splice if rewrite couldn't locate the null
+				// (string value containing "degraded":null is the pathological
+				// case; the parser-validated rewrite above is robust to it).
+			} else {
+				// Worker set a non-null degraded value — that's authoritative.
+				// Pass body verbatim.
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(data)
+				return
+			}
+		}
+	}
+	// Note: an unmarshal failure here doesn't change the splice path — the
+	// outer-shape check above already confirmed `{...}` framing.
+
 	var spliced []byte
 	if body[len(body)-2] == '{' {
 		// Empty object: {} → {"degraded":"service_unavailable"}
@@ -268,5 +402,95 @@ func writeStaleDegraded(w http.ResponseWriter, data []byte) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(spliced)
+}
+
+// parseTopKeys extracts only the top-level keys of a JSON object. Used to
+// detect well-formed JSON without paying the full deep-parse cost.
+func parseTopKeys(body []byte) (map[string]json.RawMessage, error) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(body, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// isJSONNull reports whether raw represents the literal JSON `null` (after
+// trimming whitespace). RawMessage preserves whitespace from the source.
+func isJSONNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
+// rewriteDegradedNull replaces the value of a top-level `"degraded": null`
+// with `"service_unavailable"`. Walks the JSON byte-by-byte at depth 1 so a
+// nested "degraded" key inside a factor object never matches.
+//
+// Returns the rewritten body and true on success; the original body and
+// false if no top-level `"degraded": null` was found (caller falls back to
+// splice).
+func rewriteDegradedNull(data []byte) ([]byte, bool) {
+	const target = `"degraded"`
+	const replacement = `"service_unavailable"`
+
+	// Walk bytes tracking object/array depth and string state.
+	depth := 0
+	i := 0
+	n := len(data)
+	for i < n {
+		c := data[i]
+		switch c {
+		case '"':
+			// Scan to end of string, honoring escapes.
+			j := i + 1
+			for j < n {
+				if data[j] == '\\' {
+					j += 2
+					continue
+				}
+				if data[j] == '"' {
+					break
+				}
+				j++
+			}
+			if j >= n {
+				return data, false
+			}
+			// We're at depth==1 inside the top-level object on a key. Check
+			// for the target key.
+			if depth == 1 && j-i == len(target)-1 && bytes.Equal(data[i:j+1], []byte(target)) {
+				// Skip to ':'
+				k := j + 1
+				for k < n && (data[k] == ' ' || data[k] == '\t' || data[k] == '\n' || data[k] == '\r') {
+					k++
+				}
+				if k >= n || data[k] != ':' {
+					return data, false
+				}
+				k++
+				// Skip whitespace.
+				for k < n && (data[k] == ' ' || data[k] == '\t' || data[k] == '\n' || data[k] == '\r') {
+					k++
+				}
+				// Check for `null`.
+				if k+4 <= n && string(data[k:k+4]) == "null" {
+					out := make([]byte, 0, n+len(replacement))
+					out = append(out, data[:k]...)
+					out = append(out, []byte(replacement)...)
+					out = append(out, data[k+4:]...)
+					return out, true
+				}
+				// Not null — caller's parseTopKeys decided the value is non-null
+				// and the caller path handles that. Stop searching.
+				return data, false
+			}
+			i = j + 1
+			continue
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+		}
+		i++
+	}
+	return data, false
 }
 
