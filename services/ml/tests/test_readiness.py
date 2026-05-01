@@ -852,3 +852,82 @@ async def test_worker_crash_mid_tx_no_partial_state(concurrent_pool):
             assert row is None
     finally:
         await _cleanup_user(concurrent_pool, uid)
+
+
+# ===========================================================================
+# C3 follow-up: timezone-anchored "today"
+# ===========================================================================
+
+async def test_compute_readiness_picks_up_local_today_for_far_east_tz(conn):
+    """Around UTC midnight, a Pacific/Auckland user (UTC+12/+13) sees data
+    inserted for the user's local 'today' even if the server clock is still
+    on the previous UTC date. The C3 fix anchored every date query to
+    (NOW() AT TIME ZONE users.timezone)::date — this regression test fails
+    if any loader regresses to CURRENT_DATE / date.today()."""
+    uid = await seed_user(conn)
+    await conn.execute(
+        "UPDATE users SET timezone = 'Pacific/Auckland' WHERE id = $1::uuid",
+        uid,
+    )
+
+    # Anchor every seeded row to the USER's local-today, not the server's.
+    user_today = await conn.fetchval(
+        "SELECT (NOW() AT TIME ZONE 'Pacific/Auckland')::date"
+    )
+
+    # 60 nightly RMSSD values ending the user's local yesterday (baseline).
+    for i in range(1, 61):
+        await conn.execute(
+            """
+            INSERT INTO health_hrv_night_values (user_id, ts, rmssd_ms)
+            VALUES ($1::uuid,
+                    (($2::date - $3::int)::timestamp AT TIME ZONE 'Pacific/Auckland')
+                       + INTERVAL '4 hours',
+                    $4)
+            ON CONFLICT (user_id, ts) DO NOTHING
+            """,
+            uid, user_today, i, 50.0 + (5.0 if i % 2 == 0 else -5.0),
+        )
+
+    # Today's HRV snapshot — a moment in user-local today.
+    await conn.execute(
+        """
+        INSERT INTO health_snapshots (user_id, measured_at_utc, rmssd_ms, source_type)
+        VALUES ($1::uuid, NOW(), 60.0, 'garmin_fit')
+        """,
+        uid,
+    )
+
+    # Sleep ending a couple of hours ago (well within 36h freshness gate).
+    await conn.execute(
+        """
+        INSERT INTO health_sleep
+            (user_id, calendar_date, sleep_start_utc, sleep_end_utc,
+             deep_seconds, light_seconds, rem_seconds, score_overall, source_type)
+        VALUES ($1::uuid, $2::date,
+                NOW() - INTERVAL '10 hours', NOW() - INTERVAL '2 hours',
+                7200, 10800, 7200, 82, 'garmin_fit')
+        """,
+        uid, user_today,
+    )
+
+    # PMC for user-local today.
+    await conn.execute(
+        """
+        INSERT INTO pmc_daily (user_id, date, sport_group, acwr_ra)
+        VALUES ($1::uuid, $2::date, '__combined__', 1.0)
+        ON CONFLICT (user_id, date, sport_group) DO UPDATE SET acwr_ra = 1.0
+        """,
+        uid, user_today,
+    )
+
+    result = await compute_readiness(conn, uid)
+
+    assert result["refused"] is False, (
+        f"Expected refused=False but got {result.get('refusal_reason')!r} — "
+        f"loaders likely missed the user's local 'today' rows."
+    )
+    by_key = {f["key"]: f for f in result["factors"]}
+    for k in ("hrv_status", "sleep", "training_load"):
+        assert by_key[k]["missing"] is False, f"factor {k} unexpectedly missing"
+    assert result["data_window_end"] == user_today.isoformat()
