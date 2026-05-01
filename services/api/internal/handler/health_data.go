@@ -146,6 +146,13 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save blood pressure data", r.URL.Path)
 			return
 		}
+		// A blood_pressure reading with a pulse component is effectively a
+		// resting-HR observation and must invalidate the readiness cache.
+		if d.Pulse != nil && h.AnalyticsInvalidator != nil {
+			if err := h.AnalyticsInvalidator.PublishAnalyticsInvalidate(userID); err != nil {
+				slog.Warn("health ingest: analytics invalidate failed", "type", req.Type, "user_id", userID, "error", err)
+			}
+		}
 
 	case "weight":
 		var d struct {
