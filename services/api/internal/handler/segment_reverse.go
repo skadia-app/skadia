@@ -70,16 +70,6 @@ func (h *Handler) ReverseSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Event-Bus dispatch so Activity/Segment-Leaderboard views re-fetch rankings
-	// for anyone with an effort on this segment. Pattern matches
-	// handler/recompute.go:369 and handler/manual_activity.go:224 (real signature:
-	// h.AnalyticsInvalidator.PublishAnalyticsInvalidate(userID) — verified per grep).
-	if h.AnalyticsInvalidator != nil {
-		if err := h.AnalyticsInvalidator.PublishAnalyticsInvalidate(userID); err != nil {
-			slog.Warn("analytics invalidate failed", "user_id", userID, "error", err)
-		}
-	}
-
 	httputil.WriteJSON(w, http.StatusOK, map[string]int{"efforts_updated": effortsUpdated})
 }
 
