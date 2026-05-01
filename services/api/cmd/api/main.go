@@ -864,14 +864,28 @@ func main() {
 	// Readiness reconcile (daily, 5-minute initial delay, graceful shutdown).
 	// Finds active users whose readiness cache is stale and triggers recomputation.
 	// Skipped when NATS is unavailable (pub == nil).
+	// Override with env vars RECONCILE_INITIAL_DELAY_SECONDS (default 300) and
+	// RECONCILE_TICK_INTERVAL_HOURS (default 24).
 	if pub != nil {
+		reconcileInitialDelaySec := 300
+		if raw := os.Getenv("RECONCILE_INITIAL_DELAY_SECONDS"); raw != "" {
+			if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+				reconcileInitialDelaySec = n
+			}
+		}
+		reconcileTickIntervalHours := 24
+		if raw := os.Getenv("RECONCILE_TICK_INTERVAL_HOURS"); raw != "" {
+			if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+				reconcileTickIntervalHours = n
+			}
+		}
 		shutdown.Go("readiness-reconcile", func(ctx context.Context) {
 			select {
-			case <-time.After(5 * time.Minute):
+			case <-time.After(time.Duration(reconcileInitialDelaySec) * time.Second):
 			case <-ctx.Done():
 				return
 			}
-			ticker := time.NewTicker(24 * time.Hour)
+			ticker := time.NewTicker(time.Duration(reconcileTickIntervalHours) * time.Hour)
 			defer ticker.Stop()
 			for {
 				slog.Info("readiness reconcile: starting run")
