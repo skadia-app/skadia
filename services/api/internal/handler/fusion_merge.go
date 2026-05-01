@@ -711,7 +711,7 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 				data.SubType = *act.SubType
 			}
 			enrichment.RunStage1(ctx, db, userID, mergedID, data, events,
-				true /* asyncWeather */, false /* skipStreamEnrichment */, gr, false /* skipGeo */, nil)
+				true /* asyncWeather */, false /* skipStreamEnrichment */, gr, false /* skipGeo */, h.Stage1Deps)
 			enrichment.RunGeoAndPublishStage2(ctx, db, userID, mergedID,
 				act.HasGPS, act.SportType, act.IsVirtual, events, gr)
 		})
