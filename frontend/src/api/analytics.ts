@@ -105,15 +105,6 @@ export interface HRVCorrelation {
   interpretation: string
 }
 
-export interface HRVRecovery {
-  score: number
-  level: string
-  hrv_factor: number
-  sleep_factor: number
-  fatigue_factor: number
-  recommendation: string
-}
-
 export interface SleepPoint {
   date: string
   duration_min: number | null
@@ -290,14 +281,6 @@ export interface ReadinessPreferences {
 
 // === Insights Tab Types ===
 
-export interface ReadinessInsight {
-  score: number
-  level: string
-  factors: { name: string; value: number; status: string }[]
-  explanation: string | null
-  computed_at: string
-}
-
 export interface Warning {
   type: string
   severity: 'info' | 'warning' | 'danger' | 'critical'
@@ -462,10 +445,6 @@ export async function fetchStreaks(params: string): Promise<StreaksResponse> {
   return apiClient(`/analytics/streaks?${params}`)
 }
 
-export async function fetchInsightsReadiness(params: string): Promise<ReadinessInsight> {
-  return apiClient(`/analytics/insights/readiness?${params}`)
-}
-
 export async function fetchInsightsWarnings(params: string): Promise<Warning[]> {
   return apiClient(`/analytics/insights/warnings?${params}`)
 }
@@ -488,10 +467,6 @@ export async function refreshInsights(): Promise<{ status: string }> {
 
 export async function fetchHRVCorrelation(params: string): Promise<HRVCorrelation> {
   return apiClient(`/analytics/hrv/correlation?${params}`)
-}
-
-export async function fetchHRVRecovery(): Promise<HRVRecovery> {
-  return apiClient('/analytics/hrv/recovery')
 }
 
 export async function fetchSleepAnalysis(params: string): Promise<SleepAnalysis> {

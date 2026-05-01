@@ -36,7 +36,6 @@ func (h *Handler) Routes() chi.Router {
 	r.Get("/hrv", h.GetHRV)
 	r.Get("/hrv/correlation", h.GetHRVCorrelation)
 	r.Get("/hrv/dfa-alpha1", h.GetHRVDFAAlpha1)
-	r.Get("/hrv/recovery", h.GetHRVRecovery)
 	r.Get("/sleep", h.GetSleep)
 	r.Get("/weight", h.GetWeight)
 	r.Get("/health-metrics", h.GetHealthMetrics)
@@ -50,7 +49,6 @@ func (h *Handler) Routes() chi.Router {
 	r.Get("/streaks", h.GetStreaks)
 
 	// Insights Tab
-	r.Get("/insights/readiness", h.GetInsightsReadiness)
 	r.Get("/insights/warnings", h.GetInsightsWarnings)
 	r.Get("/insights/projection", h.GetInsightsProjection)
 	r.Get("/insights/clusters", h.GetInsightsClusters)
@@ -60,16 +58,13 @@ func (h *Handler) Routes() chi.Router {
 	// Route similarity
 	r.Get("/similar-routes", h.GetSimilarRoutes)
 
-	// Consolidated readiness endpoint (Phase 5). The legacy /readiness-v2,
-	// /insights/readiness and /hrv/recovery routes remain for now; Phase 10
-	// removes them once the frontend has fully migrated.
+	// Consolidated readiness endpoint (Phase 5).
 	r.Get("/readiness", h.GetReadiness)
 
 	// ML Features (WP3)
 	r.Get("/changepoints", h.GetChangepoints)
 	r.Get("/hrv-extended", h.GetHRVExtended)
 	r.Get("/features", h.GetActivityFeatures)
-	r.Get("/readiness-v2", h.GetReadinessV2)
 	r.Get("/anomalies-v2", h.GetAnomaliesV2)
 	r.Get("/correlations-v2", h.GetCorrelationsV2)
 

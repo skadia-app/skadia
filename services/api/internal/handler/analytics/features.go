@@ -184,12 +184,6 @@ func (h *Handler) GetActivityFeatures(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetReadinessV2 reads readiness_v2 from analytics_cache.
-// Returns 204 No Content when not yet computed.
-func (h *Handler) GetReadinessV2(w http.ResponseWriter, r *http.Request) {
-	h.serveInsightsCache(w, r, "readiness_v2")
-}
-
 // GetAnomaliesV2 reads anomalies_v2 from analytics_cache.
 // Returns 204 No Content when not yet computed.
 func (h *Handler) GetAnomaliesV2(w http.ResponseWriter, r *http.Request) {
