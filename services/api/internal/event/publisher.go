@@ -133,6 +133,37 @@ type AnalyticsInvalidator interface {
 	PublishAnalyticsInvalidate(userID string) error
 }
 
+// ActivityUploadedPublisher is the segregated interface for publishing
+// activity-uploaded events. *Publisher implements it.
+type ActivityUploadedPublisher interface {
+	PublishActivityUploaded(ActivityUploadedEvent) error
+}
+
+// Stage2ReadyPublisher is the segregated interface for publishing
+// stage-2-ready events. *Publisher implements it.
+type Stage2ReadyPublisher interface {
+	PublishStage2Ready(Stage2ReadyEvent) error
+}
+
+// DocumentUploadedPublisher is the segregated interface for publishing
+// gear-document-uploaded events. *Publisher implements it.
+type DocumentUploadedPublisher interface {
+	PublishDocumentUploaded(DocumentUploadedEvent) error
+}
+
+// PhotoEmbedPublisher is the segregated interface for publishing
+// photo-embed events. *Publisher implements it.
+type PhotoEmbedPublisher interface {
+	PublishPhotoEmbed(PhotoEmbedEvent) error
+}
+
+// EventConn is the SSE-side surface: connection liveness and core NATS
+// subscription. *Publisher implements it.
+type EventConn interface {
+	IsConnected() bool
+	Subscribe(subject string, handler natsgo.MsgHandler) (*natsgo.Subscription, error)
+}
+
 // PublishAnalyticsInvalidate publishes a skadia.analytics.invalidate event.
 // The ML service listens on this subject and recomputes all analytics cache entries for the user.
 func (p *Publisher) PublishAnalyticsInvalidate(userID string) error {
