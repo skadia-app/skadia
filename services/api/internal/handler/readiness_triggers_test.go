@@ -136,6 +136,76 @@ func TestIngestHealthData_Weight_DoesNotTriggerInvalidate(t *testing.T) {
 	}
 }
 
+// TestIngestHealthData_BloodPressure_WithPulse_TriggersAnalyticsInvalidate
+// verifies that a blood_pressure ingest carrying a pulse field fires
+// PublishAnalyticsInvalidate, because the pulse value is effectively a
+// resting-HR observation that must invalidate the readiness cache.
+func TestIngestHealthData_BloodPressure_WithPulse_TriggersAnalyticsInvalidate(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+
+	fake := &event.FakeInvalidator{}
+	h := &Handler{
+		DB:                   &database.DB{Pool: pool},
+		AnalyticsInvalidator: fake,
+	}
+
+	pulse := 55
+	body := ingestHealthBody(t, "blood_pressure", "2026-05-01", map[string]any{
+		"systolic":  120,
+		"diastolic": 80,
+		"pulse":     pulse,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/import/health-data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withUserAndAdmin(req.Context(), uid, false))
+	rec := httptest.NewRecorder()
+	h.IngestHealthData(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("blood_pressure+pulse ingest: code = %d body = %s, want 200", rec.Code, rec.Body.String())
+	}
+	calls := fake.CallsCopy()
+	if len(calls) != 1 {
+		t.Fatalf("FakeInvalidator.Calls = %d, want 1", len(calls))
+	}
+	if calls[0] != uid {
+		t.Errorf("FakeInvalidator.Calls[0] = %q, want %q", calls[0], uid)
+	}
+}
+
+// TestIngestHealthData_BloodPressure_WithoutPulse_NoInvalidate verifies that a
+// blood_pressure ingest without a pulse field does NOT fire
+// PublishAnalyticsInvalidate — only systolic/diastolic carry no readiness signal.
+func TestIngestHealthData_BloodPressure_WithoutPulse_NoInvalidate(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+
+	fake := &event.FakeInvalidator{}
+	h := &Handler{
+		DB:                   &database.DB{Pool: pool},
+		AnalyticsInvalidator: fake,
+	}
+
+	body := ingestHealthBody(t, "blood_pressure", "2026-05-01", map[string]any{
+		"systolic":  118,
+		"diastolic": 76,
+		// pulse intentionally omitted
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/import/health-data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withUserAndAdmin(req.Context(), uid, false))
+	rec := httptest.NewRecorder()
+	h.IngestHealthData(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("blood_pressure without pulse: code = %d body = %s, want 200", rec.Code, rec.Body.String())
+	}
+	if got := fake.CallsCopy(); len(got) != 0 {
+		t.Errorf("FakeInvalidator.Calls = %v, want [] (no pulse = no invalidate)", got)
+	}
+}
+
 // buildGarminGDPRZip returns a minimal Garmin GDPR export ZIP containing a
 // user_profile.json file so that only the ProfileImporter is detected.
 // ProfileImporter needs no ShadowFS or ImportService — it only updates the
