@@ -43,6 +43,7 @@ func TestMigration000343PlanTDeclaresRequiredContracts(t *testing.T) {
 		"routing_profiles_predicates_valid",
 		"activities_sport_type_canonical",
 		"Plan T sport taxonomy migration left removed sport values behind",
+		"DROP FUNCTION IF EXISTS fp_sport_taxonomy_normalize(TEXT, TEXT)",
 	} {
 		if !strings.Contains(upSQL, needle) {
 			t.Fatalf("up migration missing %q", needle)
@@ -54,9 +55,19 @@ func TestMigration000343PlanTDeclaresRequiredContracts(t *testing.T) {
 		"wheelchair_push_walk",
 		"wheelchair_push_run",
 		"fp_plan_t_down_predicates",
+		"DROP FUNCTION IF EXISTS fp_sport_taxonomy_normalize(TEXT, TEXT)",
 	} {
 		if !strings.Contains(downSQL, needle) {
 			t.Fatalf("down migration missing %q", needle)
+		}
+	}
+	for _, forbidden := range []string{
+		"('wheelchair_push','run_speed')",
+		"('wheelchair_push','walk_speed')",
+		"('training','pilates')",
+	} {
+		if strings.Contains(downSQL, forbidden) {
+			t.Fatalf("down migration still allows Plan T tuple %q", forbidden)
 		}
 	}
 	if strings.Contains(upSQL, "CREATE INDEX CONCURRENTLY") {
@@ -65,7 +76,7 @@ func TestMigration000343PlanTDeclaresRequiredContracts(t *testing.T) {
 }
 
 func TestMigration000343PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
-	upSQL, _ := readMigration000343PlanTSQL(t)
+	upSQL, downSQL := readMigration000343PlanTSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -151,7 +162,7 @@ func TestMigration000343PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO routing_profiles (user_id, name, base_profile, sport_types, predicates, modifier_filters, config, source)
-		VALUES ($1, 'wheel profile', 'hiking', ARRAY['wheelchair_push_walk','wheelchair_push_run','strength'], '[{"sport":"wheelchair_push_walk"}]'::jsonb, '{}'::jsonb, '{}'::jsonb, 'user')
+		VALUES ($1, 'wheel profile', 'hiking', ARRAY['wheelchair_push_walk','wheelchair_push_run','strength'], '[{"sport":"cycling","sub_type":"mountain"},{"sport":"wheelchair_push_walk"}]'::jsonb, '{}'::jsonb, '{}'::jsonb, 'user')
 	`, userID); err != nil {
 		t.Fatalf("insert routing profile: %v", err)
 	}
@@ -160,7 +171,7 @@ func TestMigration000343PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
 		VALUES (
 			$1,
 			'wheel rule',
-			'[{"field":"sport_type","op":"eq","value":"wheelchair_push_walk"}]'::jsonb,
+			'[{"field":"sport_type","op":"eq","value":"wheelchair_push_walk"},{"field":"sport_type","op":"in","value":["running","strength"]}]'::jsonb,
 			'[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"wheelchair_push_run"}]}]'::jsonb,
 			'[{"action":"set_sport_type","params":{"sport_type":"strength"}}]'::jsonb,
 			'[{"type":"if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"wheelchair_push_run"}]}],"actions":[{"action":"set_sport_type","params":{"sport_type":"wheelchair_push_walk","sub_type":"indoor_wheelchair_walk"}}]}]'::jsonb
@@ -189,8 +200,17 @@ func TestMigration000343PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
 	if err := tx.QueryRow(ctx, `SELECT sport_types FROM routing_profiles WHERE user_id = $1 AND name = 'wheel profile'`, userID).Scan(&routingSports); err != nil {
 		t.Fatalf("query routing sport types: %v", err)
 	}
-	if strings.Join(routingSports, ",") != "strength_training,wheelchair_push" {
-		t.Fatalf("routing sport_types = %v, want strength_training,wheelchair_push", routingSports)
+	if strings.Join(routingSports, ",") != "cycling,wheelchair_push" {
+		t.Fatalf("routing sport_types = %v, want cycling,wheelchair_push", routingSports)
+	}
+	var routingPredicates string
+	if err := tx.QueryRow(ctx, `SELECT predicates::text FROM routing_profiles WHERE user_id = $1 AND name = 'wheel profile'`, userID).Scan(&routingPredicates); err != nil {
+		t.Fatalf("query routing predicates: %v", err)
+	}
+	for _, needle := range []string{`"sport": "cycling"`, `"sub_type": "mountain"`, `"sport": "wheelchair_push"`, `"sub_type": "walk_speed"`} {
+		if !strings.Contains(routingPredicates, needle) {
+			t.Fatalf("routing predicates missing %s: %s", needle, routingPredicates)
+		}
 	}
 
 	var validatorOK, validatorOldOK bool
@@ -233,5 +253,42 @@ func TestMigration000343PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
 	}
 	if invalidSubTypeCount != 0 {
 		t.Fatalf("invalid legacy subtypes remain: %d", invalidSubTypeCount)
+	}
+
+	var automationJSON string
+	if err := tx.QueryRow(ctx, `
+		SELECT conditions::text || condition_groups::text || actions::text || branches::text
+		FROM automation_rules WHERE user_id = $1 AND name = 'wheel rule'
+	`, userID).Scan(&automationJSON); err != nil {
+		t.Fatalf("query automation rule: %v", err)
+	}
+	for _, needle := range []string{`"value": "wheelchair_push"`, `"value": "walk_speed"`, `"value": "run_speed"`, `"value": ["running", "strength_training"]`} {
+		if !strings.Contains(automationJSON, needle) {
+			t.Fatalf("automation JSON missing %s: %s", needle, automationJSON)
+		}
+	}
+
+	if _, err := tx.Exec(ctx, downSQL); err != nil {
+		t.Fatalf("apply down.sql: %v", err)
+	}
+	var downOldOK, downNewOK, downTrainingPilatesOK bool
+	if err := tx.QueryRow(ctx, `SELECT fn_validate_predicates('[{"sport":"wheelchair_push_walk"}]'::jsonb)`).Scan(&downOldOK); err != nil {
+		t.Fatalf("validate old predicate after down: %v", err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT fn_validate_predicates('[{"sport":"wheelchair_push"}]'::jsonb)`).Scan(&downNewOK); err != nil {
+		t.Fatalf("validate new predicate after down: %v", err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT fn_validate_predicates('[{"sport":"training","sub_type":"pilates"}]'::jsonb)`).Scan(&downTrainingPilatesOK); err != nil {
+		t.Fatalf("validate training/pilates after down: %v", err)
+	}
+	if !downOldOK || downNewOK || downTrainingPilatesOK {
+		t.Fatalf("down validator old=%v new=%v training/pilates=%v, want true/false/false", downOldOK, downNewOK, downTrainingPilatesOK)
+	}
+	var normalizeExists bool
+	if err := tx.QueryRow(ctx, `SELECT to_regprocedure('fp_sport_taxonomy_normalize(text,text)') IS NOT NULL`).Scan(&normalizeExists); err != nil {
+		t.Fatalf("query normalize function after down: %v", err)
+	}
+	if normalizeExists {
+		t.Fatal("fp_sport_taxonomy_normalize still exists after down migration")
 	}
 }

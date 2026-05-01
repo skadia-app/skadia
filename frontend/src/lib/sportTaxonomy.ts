@@ -379,6 +379,7 @@ export function selectableSportTupleOptions(): SportOption[] {
 const ROUTE_PROMOTED_SUBTYPES: Record<string, string[]> = {
   cycling: ['mountain', 'gravel_cycling', 'road'],
   running: ['trail'],
+  wheelchair_push: ['walk_speed', 'run_speed'],
 }
 
 const ROUTE_COMPATIBLE_SPORT_TYPES = [

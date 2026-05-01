@@ -1479,6 +1479,10 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		}
 	}
 
+	if err := normalizeParsedActivitySport(data); err != nil {
+		return nil, err
+	}
+
 	// Refine MovingTimeS using stream data when speed or GPS information is
 	// available. The device's TotalTimerTime (already set above) is a valid
 	// upper bound because the device itself excluded manual/auto-pause periods.
@@ -1687,9 +1691,6 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		}
 	}
 
-	if err := normalizeParsedActivitySport(data); err != nil {
-		return nil, err
-	}
 	return data, nil
 }
 

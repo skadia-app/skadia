@@ -193,6 +193,8 @@ describe('sport taxonomy aliases', () => {
     expect(values).toContain('running/trail')
     expect(values).toContain('hiking/')
     expect(values).toContain('wheelchair_push/')
+    expect(values).toContain('wheelchair_push/walk_speed')
+    expect(values).toContain('wheelchair_push/run_speed')
     expect(values).not.toContain('mountain_biking/')
     expect(values).not.toContain('trail_running/')
     expect(values).not.toContain('wheelchair_push_walk/')
@@ -212,6 +214,8 @@ describe('sport taxonomy aliases', () => {
       'mountaineering/',
       'snowshoeing/',
       'wheelchair_push/',
+      'wheelchair_push/walk_speed',
+      'wheelchair_push/run_speed',
       'cycling/',
       'cycling/mountain',
       'cycling/gravel_cycling',
