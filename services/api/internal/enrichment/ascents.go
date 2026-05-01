@@ -202,8 +202,9 @@ func enrichStreamAscents(ctx context.Context, db *database.DB, userID, activityI
 
 // classifyClimb returns a standard cycling climb category (HC, 1–4) based on
 // elevation gain (meters) and average gradient (percent).
-// This value is stored in activity_climbs.category for all sports
-// (backward compatible with rules engine and gear.go which cast to int).
+// Stored as text in activity_climbs.category for all sports. Consumers that
+// numerically aggregate the column (gear.go climb_category_max) must filter
+// HC out of the cast — HC presence is exposed separately as has_hc_climb.
 func classifyClimb(elevationGain, avgGradient float64) string {
 	switch {
 	case elevationGain >= 1500 || (elevationGain >= 1000 && avgGradient >= 7):
