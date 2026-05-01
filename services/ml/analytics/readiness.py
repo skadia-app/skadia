@@ -861,32 +861,73 @@ async def compute_readiness(conn, user_id: str, publisher=None) -> dict:
                               neuen Invalidate publishen (handled by
                               handle_readiness_message).
     - no_data / insufficient_factors: schreiben (Refused-Envelope).
+    - uncaught exception in _compute_readiness_locked: the original transaction
+      is rolled back automatically; a fresh transaction writes a
+      service_unavailable refused envelope so the cache does not stay stale
+      forever. The original exception is logged and then suppressed (message ack).
     """
-    async with conn.transaction():
-        got_lock = await conn.fetchval(
-            "SELECT pg_try_advisory_xact_lock(hashtextextended('readiness:' || $1, 0))",
+    try:
+        async with conn.transaction():
+            got_lock = await conn.fetchval(
+                "SELECT pg_try_advisory_xact_lock(hashtextextended('readiness:' || $1, 0))",
+                user_id,
+            )
+            if not got_lock:
+                return {"refused": True, "refusal_reason": "already_running", "written": False}
+
+            result = await _compute_readiness_locked(conn, user_id)
+
+            if result.get("refusal_reason") == "stale_compute_pref_changed":
+                return {**result, "written": False, "republish": True}
+
+            await conn.execute(
+                """
+                INSERT INTO analytics_cache (user_id, cache_key, data, computed_at, expires_at)
+                VALUES ($1::uuid, 'readiness', $2::jsonb, NOW(), NOW() + make_interval(secs => $3))
+                ON CONFLICT (user_id, cache_key) DO UPDATE
+                SET data        = EXCLUDED.data,
+                    computed_at = EXCLUDED.computed_at,
+                    expires_at  = EXCLUDED.expires_at
+                """,
+                user_id, json.dumps(result), int(CACHE_TTL_HOURS * 3600),
+            )
+            return {**result, "written": True}
+
+    except Exception as exc:
+        # Original transaction has been rolled back. Write a refused envelope in a
+        # fresh transaction so the cache does not remain stale forever.
+        logger.error(
+            "compute_readiness: unhandled exception for %s — writing service_unavailable",
             user_id,
+            exc_info=exc,
         )
-        if not got_lock:
-            return {"refused": True, "refusal_reason": "already_running", "written": False}
-
-        result = await _compute_readiness_locked(conn, user_id)
-
-        if result.get("refusal_reason") == "stale_compute_pref_changed":
-            return {**result, "written": False, "republish": True}
-
-        await conn.execute(
-            """
-            INSERT INTO analytics_cache (user_id, cache_key, data, computed_at, expires_at)
-            VALUES ($1::uuid, 'readiness', $2::jsonb, NOW(), NOW() + make_interval(secs => $3))
-            ON CONFLICT (user_id, cache_key) DO UPDATE
-            SET data        = EXCLUDED.data,
-                computed_at = EXCLUDED.computed_at,
-                expires_at  = EXCLUDED.expires_at
-            """,
-            user_id, json.dumps(result), int(CACHE_TTL_HOURS * 3600),
+        today_iso = date.today().isoformat()
+        refused = _refused_envelope(
+            refusal_reason="service_unavailable",
+            data_window_end=today_iso,
+            preferences_version=None,
+            factors_eigen={},
+            mfr=None,
         )
-        return {**result, "written": True}
+        try:
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    INSERT INTO analytics_cache (user_id, cache_key, data, computed_at, expires_at)
+                    VALUES ($1::uuid, 'readiness', $2::jsonb, NOW(), NOW() + make_interval(secs => $3))
+                    ON CONFLICT (user_id, cache_key) DO UPDATE
+                    SET data        = EXCLUDED.data,
+                        computed_at = EXCLUDED.computed_at,
+                        expires_at  = EXCLUDED.expires_at
+                    """,
+                    user_id, json.dumps(refused), int(CACHE_TTL_HOURS * 3600),
+                )
+        except Exception as write_exc:
+            logger.error(
+                "compute_readiness: fallback cache write also failed for %s: %s",
+                user_id, write_exc,
+            )
+        return {**refused, "written": False}
 
 
 async def handle_readiness_message(conn, user_id: str, publisher=None) -> dict:
