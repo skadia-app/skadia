@@ -357,7 +357,7 @@ async def test_load_hrv_status_with_baseline(conn):
     await _insert_hrv_night_history(conn, uid, n_days=30)
     await _insert_hrv_today_snapshot(conn, uid, rmssd=60.0, hours_ago=2.0)
 
-    f = await _load_hrv_status(conn, uid)
+    f = await _load_hrv_status(conn, uid, 'UTC')
     assert not f.missing
     assert f.value is not None
     assert 0 <= f.value <= 100
@@ -370,14 +370,14 @@ async def test_load_hrv_status_no_baseline(conn):
     await _insert_hrv_today_snapshot(conn, uid, rmssd=60.0)
     # Only 5 days of baseline → < 7 → missing
     await _insert_hrv_night_history(conn, uid, n_days=5)
-    f = await _load_hrv_status(conn, uid)
+    f = await _load_hrv_status(conn, uid, 'UTC')
     assert f.missing
 
 
 async def test_load_sleep_fresh(conn):
     uid = await seed_user(conn)
     await _insert_sleep(conn, uid, score=82, recorded_s=7 * 3600, hours_ago_end=2.0)
-    f = await _load_sleep_factor(conn, uid)
+    f = await _load_sleep_factor(conn, uid, 'UTC')
     assert not f.missing
     assert f.value == 82
     assert f.source == "skadia"
@@ -388,14 +388,14 @@ async def test_load_sleep_stale(conn):
     # End time 40h ago → > 36h gate → missing
     await _insert_sleep(conn, uid, score=82, recorded_s=7 * 3600,
                         calendar_offset=2, hours_ago_end=40.0)
-    f = await _load_sleep_factor(conn, uid)
+    f = await _load_sleep_factor(conn, uid, 'UTC')
     assert f.missing
 
 
 async def test_load_sleep_score_null(conn):
     uid = await seed_user(conn)
     await _insert_sleep(conn, uid, score=None, recorded_s=7 * 3600)
-    f = await _load_sleep_factor(conn, uid)
+    f = await _load_sleep_factor(conn, uid, 'UTC')
     assert f.missing  # query filters score_overall IS NOT NULL
 
 
@@ -403,21 +403,21 @@ async def test_load_sleep_short_duration(conn):
     uid = await seed_user(conn)
     # 3h recorded → < 4h → missing
     await _insert_sleep(conn, uid, score=80, recorded_s=3 * 3600, hours_ago_end=2.0)
-    f = await _load_sleep_factor(conn, uid)
+    f = await _load_sleep_factor(conn, uid, 'UTC')
     assert f.missing
 
 
 async def test_load_training_load_acwr_zero(conn):
     uid = await seed_user(conn)
     await _insert_pmc(conn, uid, acwr=0.0)
-    f = await _load_training_load_factor(conn, uid)
+    f = await _load_training_load_factor(conn, uid, 'UTC')
     assert f.missing
 
 
 async def test_load_training_load_acwr_normal(conn):
     uid = await seed_user(conn)
     await _insert_pmc(conn, uid, acwr=1.0)
-    f = await _load_training_load_factor(conn, uid)
+    f = await _load_training_load_factor(conn, uid, 'UTC')
     assert not f.missing
     assert f.value == 100.0
 
@@ -425,7 +425,7 @@ async def test_load_training_load_acwr_normal(conn):
 async def test_load_manufacturer_today(conn):
     uid = await seed_user(conn)
     await _insert_manufacturer(conn, uid, score=78)
-    mfr = await _load_manufacturer_factors(conn, uid)
+    mfr = await _load_manufacturer_factors(conn, uid, 'UTC')
     assert mfr is not None
     assert mfr["score"] == 78
     assert mfr["source_type"] == "garmin"
@@ -434,15 +434,15 @@ async def test_load_manufacturer_today(conn):
 async def test_load_manufacturer_yesterday_ignored(conn):
     uid = await seed_user(conn)
     await _insert_manufacturer(conn, uid, score=78, calendar_offset=1)
-    mfr = await _load_manufacturer_factors(conn, uid)
+    mfr = await _load_manufacturer_factors(conn, uid, 'UTC')
     assert mfr is None
 
 
 async def test_load_dfa_present_and_missing(conn):
     uid = await seed_user(conn)
-    assert await _load_dfa_alpha1(conn, uid) is None
+    assert await _load_dfa_alpha1(conn, uid, 'UTC') is None
     await _insert_dfa_today(conn, uid, 0.85)
-    assert await _load_dfa_alpha1(conn, uid) == pytest.approx(0.85)
+    assert await _load_dfa_alpha1(conn, uid, 'UTC') == pytest.approx(0.85)
 
 
 # ===========================================================================
@@ -523,7 +523,7 @@ async def test_path_selection_pref_skadia_chooses_a(conn):
 async def test_rhr_auto_trigger_when_no_cache(conn):
     uid = await seed_user(conn)
     # No cache exists yet — _load_rhr_changepoint_signal should write an entry.
-    sig = await _load_rhr_changepoint_signal(conn, uid)
+    sig = await _load_rhr_changepoint_signal(conn, uid, 'UTC')
     # detect_changepoints returns [] without enough data → no signal
     assert sig is None
     row = await conn.fetchrow(
@@ -543,7 +543,7 @@ async def test_rhr_auto_trigger_when_cache_stale(conn):
         """,
         uid,
     )
-    await _load_rhr_changepoint_signal(conn, uid)
+    await _load_rhr_changepoint_signal(conn, uid, 'UTC')
     row = await conn.fetchrow(
         "SELECT computed_at FROM analytics_cache WHERE user_id=$1::uuid AND cache_key='changepoints.resting_hr'",
         uid,
