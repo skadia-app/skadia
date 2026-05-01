@@ -446,6 +446,44 @@ func TestReadiness_PreferencesVersionMismatch(t *testing.T) {
 	}
 }
 
+// TestReadiness_PreferencesVersionInvalidType — cache row carries a
+// non-string preferences_version (e.g. numeric, written by a stale/older
+// worker). The strict-parse policy (M9) treats this as a mismatch and
+// triggers recompute — never silently passes the row through as if its
+// version were valid.
+func TestReadiness_PreferencesVersionInvalidType(t *testing.T) {
+	fake := &event.FakeInvalidator{}
+	h, pool := newReadinessTestHandler(t, fake)
+	uid := seedReadinessTestUser(t, pool)
+
+	// Seed the pref row so DB read succeeds and returns non-nil pref.
+	prefTime := time.Date(2026, 5, 1, 8, 0, 0, 0, time.UTC)
+	seedReadinessPref(t, pool, uid, "skadia", prefTime)
+
+	// preferences_version as numeric — violates Spec §5.3 type contract.
+	body := json.RawMessage(`{"refused":false,"score":60,"level":"moderate","factors":[],"missing_factors":[],"computed_at":"2026-04-30T10:00:00Z","data_window_end":null,"preferences_version":1,"confidence":null,"recommendation_code":null,"signal_modifier":null,"degraded":null}`)
+	now := time.Now()
+	expires := now.Add(6 * time.Hour) // fresh by expires_at
+	seedReadinessRow(t, pool, uid, body, now.Add(-1*time.Hour), &expires)
+
+	rr := httptest.NewRecorder()
+	h.GetReadiness(rr, reqWithUser(uid))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["degraded"] != "service_unavailable" {
+		t.Errorf("degraded = %v, want service_unavailable (invalid pref-version type must be treated as mismatch)", got["degraded"])
+	}
+	if len(fake.Calls) != 1 || fake.Calls[0] != uid {
+		t.Errorf("invalidator calls = %v, want [%s] (invalid pref-version must trigger recompute)", fake.Calls, uid)
+	}
+}
+
 // TestReadiness_PreferencesVersionMatch — cache row has preferences_version
 // matching the current pref.updated_at → must serve fresh without degraded.
 func TestReadiness_PreferencesVersionMatch(t *testing.T) {
