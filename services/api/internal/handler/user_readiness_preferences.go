@@ -101,5 +101,18 @@ func (h *Handler) PutUserReadinessPreferences(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	httputil.WriteJSON(w, http.StatusOK, body)
+	// Re-read from DB so the response reflects the canonical persisted state
+	// rather than echoing the request body (which may differ if the DB applied
+	// coercion such as NULL normalization).
+	stored, err := h.DB.GetUserReadinessPreference(r.Context(), userID)
+	if err != nil {
+		slog.Error("get readiness preference after put failed", "user_id", userID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "preference read-back failed", r.URL.Path)
+		return
+	}
+	canonical := readinessPreferenceBody{}
+	if stored != nil {
+		canonical.PreferredSource = stored.PreferredSource
+	}
+	httputil.WriteJSON(w, http.StatusOK, canonical)
 }
