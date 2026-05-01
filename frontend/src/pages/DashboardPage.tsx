@@ -9,8 +9,9 @@ import { SportIcon } from '@/components/SportIcon'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
 import { formatDuration, formatDistance, formatElevationGain } from '@/lib/utils'
 import { normTz } from '@/lib/format'
-import { fetchInsightsReadiness, fetchHRVAnalysis } from '@/api/analytics'
-import type { ReadinessInsight, HRVAnalysis } from '@/api/analytics'
+import { fetchHRVAnalysis } from '@/api/analytics'
+import type { HRVAnalysis } from '@/api/analytics'
+import { ReadinessCardCompact } from '@/components/analytics/ReadinessCard'
 import { toLocalISO } from '@/lib/dateUtils'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
@@ -29,60 +30,6 @@ function sevenDaysAgo(): string {
   const d = new Date()
   d.setDate(d.getDate() - 7)
   return toLocalISO(d)
-}
-
-// ── Readiness Ring ────────────────────────────────────────────────────────────────
-
-function ReadinessRing({ score }: { score: number | null }) {
-  const size = 72
-  const strokeWidth = 7
-  const radius = (size - strokeWidth) / 2
-  const circumference = 2 * Math.PI * radius
-  const pct = score != null ? Math.min(Math.max(score, 0), 100) / 100 : 0
-  const offset = circumference * (1 - pct)
-
-  const color =
-    score == null ? '#6b7280'
-    : score >= 70 ? '#22c55e'
-    : score >= 40 ? '#eab308'
-    : '#ef4444'
-
-  return (
-    <svg width={size} height={size} className="rotate-[-90deg]">
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={strokeWidth}
-        className="text-neutral-200 dark:text-neutral-700"
-      />
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke={color}
-        strokeWidth={strokeWidth}
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
-
-function readinessLevel(score: number): string {
-  if (score >= 70) return 'Bereit'
-  if (score >= 40) return 'Moderat'
-  return 'Erholen'
-}
-
-function readinessColor(score: number): string {
-  if (score >= 70) return 'text-green-600 dark:text-green-400'
-  if (score >= 40) return 'text-yellow-600 dark:text-yellow-400'
-  return 'text-red-500 dark:text-red-400'
 }
 
 // ── Component ────────────────────────────────────────────────────────────────────
@@ -117,16 +64,6 @@ export default function DashboardPage() {
   const { data: maintenanceAlerts } = useQuery({
     queryKey: ['maintenance-alerts'],
     queryFn: () => fetchMaintenanceAlerts(),
-    staleTime: 5 * 60 * 1000,
-    retry: false,
-  })
-
-  const { data: readiness } = useQuery<ReadinessInsight | null>({
-    queryKey: ['analytics', 'insights', 'readiness'],
-    queryFn: async () => {
-      try { return await fetchInsightsReadiness('') }
-      catch { return null }
-    },
     staleTime: 5 * 60 * 1000,
     retry: false,
   })
@@ -188,32 +125,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
         {/* Readiness Score Card */}
-        <Link
-          to="/analytics/insights"
-          className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-4 flex items-center gap-4
-                     hover:border-neutral-300 dark:hover:border-neutral-700
-                     hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors group"
-        >
-          <div className="relative flex-shrink-0">
-            <ReadinessRing score={readiness?.score ?? null} />
-            <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-neutral-900 dark:text-neutral-100">
-              {readiness?.score != null ? Math.round(readiness.score) : '–'}
-            </span>
-          </div>
-          <div className="min-w-0">
-            <div className="text-xs text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-0.5">Bereitschaft</div>
-            {readiness?.score != null ? (
-              <div className={`text-base font-semibold ${readinessColor(readiness.score)}`}>
-                {readinessLevel(readiness.score)}
-              </div>
-            ) : (
-              <div className="text-sm text-neutral-400">Keine Daten</div>
-            )}
-            {readiness?.explanation && (
-              <div className="text-xs text-neutral-400 mt-0.5 line-clamp-2">{readiness.explanation}</div>
-            )}
-          </div>
-        </Link>
+        <ReadinessCardCompact />
 
         {/* Diese Woche Card */}
         <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-4">
