@@ -91,7 +91,7 @@ func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	stale := row.ExpiresAt != nil && row.ExpiresAt.Before(now)
 	if !stale {
 		// Fresh cache hit — write payload verbatim.
