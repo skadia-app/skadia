@@ -2,6 +2,8 @@ package analytics
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -100,6 +102,22 @@ func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Preferences-version check (Spec §10.2): compare preferences_version
+	// embedded in the cache JSON against the current user_readiness_preferences.updated_at.
+	// If they differ the cache was computed under a stale pref — treat as degraded
+	// and trigger a fresh recompute, regardless of expires_at.
+	if mismatch := h.checkPreferencesVersionMismatch(r.Context(), userID, row.Data); mismatch {
+		slog.Info("readiness preferences_version mismatch — serving degraded, triggering recompute",
+			"user_id", userID)
+		if h.Invalidator != nil {
+			if err := h.Invalidator.PublishAnalyticsInvalidate(userID); err != nil {
+				slog.Warn("readiness pref-version recompute publish failed", "user_id", userID, "error", err)
+			}
+		}
+		writeStaleDegraded(w, row.Data)
+		return
+	}
+
 	now := time.Now().UTC()
 	stale := row.ExpiresAt != nil && row.ExpiresAt.Before(now)
 	if !stale {
@@ -134,6 +152,66 @@ func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(row.Data)
+}
+
+// cachePreferencesVersionShape is the minimal subset of the cache JSON that
+// we need to extract preferences_version without unmarshal-remarshaling the
+// full payload (which would strip unknown fields and violate the additive-only
+// contract on other code paths).
+type cachePreferencesVersionShape struct {
+	PreferencesVersion *string `json:"preferences_version"`
+}
+
+// checkPreferencesVersionMismatch returns true when the preferences_version
+// stored in the cache JSON no longer matches the current
+// user_readiness_preferences.updated_at. This means the cache was computed
+// under a superseded preference and must be treated as stale-degraded.
+//
+// Null-vs-null is explicitly treated as a match: a cache computed when no
+// pref row existed and a current state with no pref row are consistent.
+//
+// On any read error the function returns false (conservative: don't degrade
+// unnecessarily when the DB is temporarily unavailable).
+func (h *Handler) checkPreferencesVersionMismatch(ctx context.Context, userID string, cacheData []byte) bool {
+	// Extract preferences_version from cache JSON.
+	var shape cachePreferencesVersionShape
+	if err := json.Unmarshal(cacheData, &shape); err != nil {
+		slog.Warn("readiness: cannot parse preferences_version from cache JSON — skipping pref-version check",
+			"user_id", userID, "error", err)
+		return false
+	}
+
+	// Load current pref row.
+	pref, err := h.DB.GetUserReadinessPreference(ctx, userID)
+	if err != nil {
+		slog.Warn("readiness: pref-version DB read failed — skipping check", "user_id", userID, "error", err)
+		return false
+	}
+
+	// Both null → computed and current both have no pref row → consistent.
+	if shape.PreferencesVersion == nil && pref == nil {
+		return false
+	}
+	// One null, one non-null → mismatch.
+	if (shape.PreferencesVersion == nil) != (pref == nil) {
+		return true
+	}
+	// Both non-null: parse and compare as time instants.
+	// The worker writes updated_at.astimezone(utc).isoformat().replace("+00:00","Z")
+	// which matches RFC3339Nano. The DB column is TIMESTAMPTZ so both sides
+	// represent the same physical instant — time.Parse + Equal handles any
+	// representation differences (trailing zeros, 'Z' vs '+00:00').
+	cachedTime, err := time.Parse(time.RFC3339Nano, *shape.PreferencesVersion)
+	if err != nil {
+		// Try plain RFC3339 as fallback.
+		cachedTime, err = time.Parse(time.RFC3339, *shape.PreferencesVersion)
+		if err != nil {
+			slog.Warn("readiness: cannot parse cached preferences_version timestamp",
+				"user_id", userID, "value", *shape.PreferencesVersion, "error", err)
+			return false
+		}
+	}
+	return !cachedTime.Equal(pref.UpdatedAt)
 }
 
 // writeStaleDegraded splices `,"degraded":"service_unavailable"` into the
