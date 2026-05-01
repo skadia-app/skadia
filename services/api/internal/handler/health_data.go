@@ -207,6 +207,17 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// HRV, sleep, and resting-HR directly feed the readiness score. Invalidate
+	// the analytics cache so the ML worker recomputes on the next tick.
+	switch req.Type {
+	case "hrv", "sleep", "resting_hr":
+		if h.Events != nil {
+			if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
+				slog.Warn("health ingest: analytics invalidate failed", "type", req.Type, "user_id", userID, "error", err)
+			}
+		}
+	}
+
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
