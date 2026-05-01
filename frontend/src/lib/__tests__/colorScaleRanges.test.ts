@@ -80,6 +80,9 @@ describe('CI-Guard: MOTION_PROFILE_BY_SPORT_TYPE', () => {
       'indoor_cycling',
       'lap_swimming',
       'open_water_swimming',
+      'wheelchair_push_walk',
+      'wheelchair_push_run',
+      'strength',
     ]))
   })
 })
@@ -91,6 +94,13 @@ describe('motionProfileForSport', () => {
 
   it('normalizes legacy aliases before lookup', () => {
     expect(motionProfileForSport('mountain_biking').speed).toBe('mtbCycling')
+  })
+
+  it('uses wheelchair speed subtypes for motion profiles', () => {
+    expect(motionProfileForSport('wheelchair_push', 'walk_speed')).toMatchObject({ speed: 'walking', pace: 'walking' })
+    expect(motionProfileForSport('wheelchair_push', 'run_speed')).toMatchObject({ speed: 'running', pace: 'running' })
+    expect(motionProfileForSport('wheelchair_push_walk')).toMatchObject({ speed: 'walking', pace: 'walking' })
+    expect(motionProfileForSport('wheelchair_push_run')).toMatchObject({ speed: 'running', pace: 'running' })
   })
 })
 

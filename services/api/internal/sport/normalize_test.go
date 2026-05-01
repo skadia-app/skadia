@@ -73,6 +73,40 @@ func TestNormalizeSportTuple(t *testing.T) {
 			wantTuple: Tuple{SportType: "paddling"},
 		},
 		{
+			name:      "wheelchair walk maps to speed subtype",
+			sportType: "wheelchair_push_walk",
+			wantTuple: Tuple{SportType: "wheelchair_push", SubType: "walk_speed"},
+		},
+		{
+			name:      "wheelchair run maps to speed subtype",
+			sportType: "wheelchair_push_run",
+			wantTuple: Tuple{SportType: "wheelchair_push", SubType: "run_speed"},
+		},
+		{
+			name:       "indoor wheelchair walk preserves speed and sets indoor",
+			sportType:  "wheelchair_push_walk",
+			subType:    "indoor_wheelchair_walk",
+			wantTuple:  Tuple{SportType: "wheelchair_push", SubType: "walk_speed"},
+			wantIndoor: &trueValue,
+		},
+		{
+			name:       "indoor wheelchair run preserves speed and sets indoor",
+			sportType:  "wheelchair_push_run",
+			subType:    "indoor_wheelchair_run",
+			wantTuple:  Tuple{SportType: "wheelchair_push", SubType: "run_speed"},
+			wantIndoor: &trueValue,
+		},
+		{
+			name:      "strength maps to strength training",
+			sportType: "strength",
+			wantTuple: Tuple{SportType: "strength_training"},
+		},
+		{
+			name:      "canoeing remains canonical",
+			sportType: "canoeing",
+			wantTuple: Tuple{SportType: "canoeing"},
+		},
+		{
 			name:      "unknown sport returns error",
 			sportType: "totally_new_sport",
 			wantErr:   true,

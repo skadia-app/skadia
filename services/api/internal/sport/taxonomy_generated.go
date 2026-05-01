@@ -10,7 +10,7 @@ var generatedCategories = []Category{
 	{Key: "fitness", LabelDE: "Fitness", Color: "#8B5CF6"},
 	{Key: "game", LabelDE: "Spiele", Color: "#10B981"},
 	{Key: "climb", LabelDE: "Klettern", Color: "#A855F7"},
-	{Key: "outdoor", LabelDE: "Outdoor", Color: "#84CC16"},
+	{Key: "outdoor", LabelDE: "Weitere Aktivitäten", Color: "#84CC16"},
 	{Key: "multi", LabelDE: "Multisport", Color: "#F59E0B"},
 	{Key: "other", LabelDE: "Sonstiges", Color: "#6B7280"},
 }
@@ -51,29 +51,22 @@ var generatedSportDefs = []SportDef{
 		Lifecycle: "canonical", Selectable: true,
 	},
 	{
-		SportType: "snowshoeing", CategoryKey: "run", LabelDE: "Schneeschuhwandern", AutoTitleDE: "Schneeschuhtour",
+		SportType: "snowshoeing", CategoryKey: "winter", LabelDE: "Schneeschuhwandern", AutoTitleDE: "Schneeschuhtour",
 		SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.2, IsIndoor: false,
 		Lifecycle: "canonical", Selectable: true,
 	},
 	{
-		SportType: "floor_climbing", CategoryKey: "run", LabelDE: "Treppensteigen", AutoTitleDE: "Treppensteigen",
+		SportType: "floor_climbing", CategoryKey: "fitness", LabelDE: "Treppensteigen", AutoTitleDE: "Treppensteigen",
 		SegmentGroup: "foot", TypicallyHasGPS: false, MovingThreshold: 0, IsIndoor: true,
 		Lifecycle: "canonical", Selectable: true,
 	},
 	{
-		SportType: "wheelchair_push_walk", CategoryKey: "run", LabelDE: "Rollstuhl (Fahren)", AutoTitleDE: "Rollstuhl-Spaziergang",
+		SportType: "wheelchair_push", CategoryKey: "run", LabelDE: "Rollstuhl", AutoTitleDE: "Rollstuhl-Aktivität",
 		SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.2, IsIndoor: false,
 		Lifecycle: "canonical", Selectable: true,
 		SubTypes: map[string]SubTypeDef{
-			"indoor_wheelchair_walk": {SubType: "indoor_wheelchair_walk", LabelDE: "Indoor", DetailDE: "Indoor-Rollstuhl", AutoTitleDE: "Indoor-Rollstuhl", Selectable: true},
-		},
-	},
-	{
-		SportType: "wheelchair_push_run", CategoryKey: "run", LabelDE: "Rollstuhl (Rennen)", AutoTitleDE: "Rollstuhl-Lauf",
-		SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.5, IsIndoor: false,
-		Lifecycle: "canonical", Selectable: true,
-		SubTypes: map[string]SubTypeDef{
-			"indoor_wheelchair_run": {SubType: "indoor_wheelchair_run", LabelDE: "Indoor", DetailDE: "Indoor-Rollstuhl-Lauf", AutoTitleDE: "Indoor-Rollstuhl-Lauf", Selectable: true},
+			"run_speed":  {SubType: "run_speed", LabelDE: "Lauftempo", DetailDE: "Rollstuhl (Lauftempo)", AutoTitleDE: "Rollstuhl (Lauftempo)", Selectable: true, MovingThreshold: ptrFloat64(0.5)},
+			"walk_speed": {SubType: "walk_speed", LabelDE: "Gehtempo", DetailDE: "Rollstuhl (Gehtempo)", AutoTitleDE: "Rollstuhl (Gehtempo)", Selectable: true, MovingThreshold: ptrFloat64(0.2)},
 		},
 	},
 	{
@@ -160,7 +153,7 @@ var generatedSportDefs = []SportDef{
 	{
 		SportType: "paddling", CategoryKey: "water", LabelDE: "Paddeln (Generisch)", AutoTitleDE: "Wassersport-Tour",
 		SegmentGroup: "paddle", TypicallyHasGPS: true, MovingThreshold: 0.1, IsIndoor: false,
-		Lifecycle: "canonical", Selectable: true,
+		Lifecycle: "broad_fallback", Selectable: false,
 	},
 	{
 		SportType: "kayaking", CategoryKey: "water", LabelDE: "Kajak", AutoTitleDE: "Kajaktour",
@@ -266,20 +259,20 @@ var generatedSportDefs = []SportDef{
 	{
 		SportType: "training", CategoryKey: "fitness", LabelDE: "Training", AutoTitleDE: "Training",
 		SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0, IsIndoor: true,
-		Lifecycle: "canonical", Selectable: true,
+		Lifecycle: "broad_fallback", Selectable: false,
 		SubTypes: map[string]SubTypeDef{
 			"breathing":            {SubType: "breathing", LabelDE: "Atemübung", DetailDE: "Atemübung", AutoTitleDE: "Atemübung", Selectable: true},
 			"cardio_training":      {SubType: "cardio_training", LabelDE: "Cardio", DetailDE: "Cardio-Training", AutoTitleDE: "Cardio", Selectable: true},
 			"flexibility_training": {SubType: "flexibility_training", LabelDE: "Stretching", DetailDE: "Dehnungstraining", AutoTitleDE: "Stretching", Selectable: true},
-			"hiit":                 {SubType: "hiit", LabelDE: "HIIT", DetailDE: "High Intensity Interval Training", AutoTitleDE: "HIIT", Selectable: true},
-			"strength_training":    {SubType: "strength_training", LabelDE: "Krafttraining", DetailDE: "Krafttraining", AutoTitleDE: "Krafttraining", Selectable: true},
-			"yoga":                 {SubType: "yoga", LabelDE: "Yoga", DetailDE: "Yoga", AutoTitleDE: "Yoga", Selectable: true},
+			"hiit":                 {SubType: "hiit", LabelDE: "HIIT", DetailDE: "High Intensity Interval Training", AutoTitleDE: "HIIT", Selectable: false},
+			"strength_training":    {SubType: "strength_training", LabelDE: "Krafttraining", DetailDE: "Krafttraining", AutoTitleDE: "Krafttraining", Selectable: false},
+			"yoga":                 {SubType: "yoga", LabelDE: "Yoga", DetailDE: "Yoga", AutoTitleDE: "Yoga", Selectable: false},
 		},
 	},
 	{
 		SportType: "fitness_equipment", CategoryKey: "fitness", LabelDE: "Fitnessgerät", AutoTitleDE: "Fitnessgerät",
 		SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0, IsIndoor: true,
-		Lifecycle: "canonical", Selectable: true,
+		Lifecycle: "broad_fallback", Selectable: false,
 		SubTypes: map[string]SubTypeDef{
 			"elliptical":          {SubType: "elliptical", LabelDE: "Crosstrainer", DetailDE: "Crosstrainer", AutoTitleDE: "Crosstrainer", Selectable: true},
 			"indoor_cycling":      {SubType: "indoor_cycling", LabelDE: "Indoor-Rad", DetailDE: "Indoor-Rad", AutoTitleDE: "Indoor-Radfahrt", Selectable: true},
@@ -522,12 +515,7 @@ var generatedSportDefs = []SportDef{
 	{
 		SportType: "skiing", CategoryKey: "winter", LabelDE: "Skifahren", AutoTitleDE: "Skifahrt",
 		SegmentGroup: "ski", TypicallyHasGPS: true, MovingThreshold: 0.3, IsIndoor: false,
-		Lifecycle: "canonical", Selectable: true,
-	},
-	{
-		SportType: "strength", CategoryKey: "fitness", LabelDE: "Krafttraining", AutoTitleDE: "Krafttraining",
-		SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0, IsIndoor: true,
-		Lifecycle: "canonical", Selectable: true,
+		Lifecycle: "broad_fallback", Selectable: false,
 	},
 	{
 		SportType: "canoeing", CategoryKey: "water", LabelDE: "Kanu", AutoTitleDE: "Kanutour",

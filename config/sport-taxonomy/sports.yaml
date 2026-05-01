@@ -43,7 +43,7 @@ categories:
     light_hex: '#A855F7'
 - key: outdoor
   labels:
-    de: Outdoor
+    de: Weitere Aktivitäten
   color:
     token: outdoor
     light_hex: '#84CC16'
@@ -193,7 +193,7 @@ sports:
     is_virtual: true
     is_commute: true
 - sport_type: snowshoeing
-  category_key: run
+  category_key: winter
   labels:
     de: Schneeschuhwandern
   auto_titles:
@@ -208,7 +208,7 @@ sports:
     is_virtual: true
     is_commute: true
 - sport_type: floor_climbing
-  category_key: run
+  category_key: fitness
   labels:
     de: Treppensteigen
   auto_titles:
@@ -222,12 +222,12 @@ sports:
     is_indoor: true
     is_virtual: true
     is_commute: false
-- sport_type: wheelchair_push_walk
+- sport_type: wheelchair_push
   category_key: run
   labels:
-    de: Rollstuhl (Fahren)
+    de: Rollstuhl
   auto_titles:
-    de: Rollstuhl-Spaziergang
+    de: Rollstuhl-Aktivität
   segment_group: foot
   typically_has_gps: true
   moving_threshold: 0.2
@@ -238,36 +238,22 @@ sports:
     is_virtual: true
     is_commute: true
   sub_types:
-  - sub_type: indoor_wheelchair_walk
+  - sub_type: walk_speed
     labels:
-      de: Indoor
+      de: Gehtempo
     details:
-      de: Indoor-Rollstuhl
+      de: Rollstuhl (Gehtempo)
     auto_titles:
-      de: Indoor-Rollstuhl
-- sport_type: wheelchair_push_run
-  category_key: run
-  labels:
-    de: Rollstuhl (Rennen)
-  auto_titles:
-    de: Rollstuhl-Lauf
-  segment_group: foot
-  typically_has_gps: true
-  moving_threshold: 0.5
-  is_indoor: false
-  modifier_applicability:
-    is_electric: false
-    is_indoor: true
-    is_virtual: true
-    is_commute: true
-  sub_types:
-  - sub_type: indoor_wheelchair_run
+      de: Rollstuhl (Gehtempo)
+    moving_threshold: 0.2
+  - sub_type: run_speed
     labels:
-      de: Indoor
+      de: Lauftempo
     details:
-      de: Indoor-Rollstuhl-Lauf
+      de: Rollstuhl (Lauftempo)
     auto_titles:
-      de: Indoor-Rollstuhl-Lauf
+      de: Rollstuhl (Lauftempo)
+    moving_threshold: 0.5
 - sport_type: cycling
   category_key: bike
   labels:
@@ -580,6 +566,8 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  lifecycle: broad_fallback
+  selectable: false
   modifier_applicability:
     is_electric: false
     is_indoor: false
@@ -917,6 +905,8 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  lifecycle: broad_fallback
+  selectable: false
   modifier_applicability:
     is_electric: false
     is_indoor: true
@@ -930,6 +920,7 @@ sports:
       de: Krafttraining
     auto_titles:
       de: Krafttraining
+    selectable: false
   - sub_type: flexibility_training
     labels:
       de: Stretching
@@ -951,6 +942,7 @@ sports:
       de: Yoga
     auto_titles:
       de: Yoga
+    selectable: false
   - sub_type: breathing
     labels:
       de: Atemübung
@@ -965,6 +957,7 @@ sports:
       de: High Intensity Interval Training
     auto_titles:
       de: HIIT
+    selectable: false
 - sport_type: fitness_equipment
   category_key: fitness
   labels:
@@ -975,6 +968,8 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  lifecycle: broad_fallback
+  selectable: false
   modifier_applicability:
     is_electric: false
     is_indoor: true
@@ -1819,25 +1814,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.3
   is_indoor: false
+  lifecycle: broad_fallback
+  selectable: false
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
-    is_commute: false
-- sport_type: strength
-  category_key: fitness
-  labels:
-    de: Krafttraining
-  auto_titles:
-    de: Krafttraining
-  segment_group: generic
-  typically_has_gps: false
-  moving_threshold: 0
-  is_indoor: true
-  modifier_applicability:
-    is_electric: false
-    is_indoor: true
-    is_virtual: true
     is_commute: false
 - sport_type: canoeing
   category_key: water
