@@ -227,8 +227,8 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 	// Stage 1 enrichment: asyncWeather=true, skipStreamEnrichment=true, skipGeo=true (no GPS).
 	enrichment.RunStage1(r.Context(), h.DB, userID, activity.ID, data, h.Events, true, true, nil, true)
 
-	if h.Events != nil {
-		if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
+	if h.AnalyticsInvalidator != nil {
+		if err := h.AnalyticsInvalidator.PublishAnalyticsInvalidate(userID); err != nil {
 			slog.Warn("manual activity analytics invalidate failed", "user_id", userID, "error", err)
 		}
 	}

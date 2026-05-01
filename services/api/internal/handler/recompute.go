@@ -367,8 +367,8 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 
 		// Einmalige Analytics-Invalidierung nach Abschluss aller Workers
 		// (per-activity wurde mit skipAnalyticsEvent=true unterdrückt).
-		if h.Events != nil {
-			if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
+		if h.AnalyticsInvalidator != nil {
+			if err := h.AnalyticsInvalidator.PublishAnalyticsInvalidate(userID); err != nil {
 				slog.Warn("analytics invalidate failed", "user_id", userID, "error", err)
 			}
 		}
@@ -921,9 +921,9 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 
 		// Emit Stage-2 event only for ML modules in the selection (currently: lifts).
 		// Stage-2 handles lift detection; all other geo modules are Go-native.
-		if doLifts && h.Events != nil {
+		if doLifts && h.Stage2ReadyPublisher != nil {
 			stage2Modules := []string{"lifts"}
-			if err := h.Events.PublishStage2Ready(event.Stage2ReadyEvent{
+			if err := h.Stage2ReadyPublisher.PublishStage2Ready(event.Stage2ReadyEvent{
 				ActivityID:     activityID,
 				UserID:         userID,
 				EnabledModules: stage2Modules,
@@ -1074,18 +1074,20 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	// PublishActivityUploaded löst eine vollständige PMC-Neuberechnung aus — bei 700+
 	// Aktivitäten parallel würde das die DB überlasten. Ein einziges Event wird am Ende
 	// vom Caller (RecomputeAllActivities) via PublishAnalyticsInvalidate gefeuert.
-	if h.Events != nil && !skipAnalyticsEvent {
+	if h.ActivityUploadedPublisher != nil && !skipAnalyticsEvent {
 		evt := event.ActivityUploadedEvent{
 			ActivityID: activityID,
 			UserID:     userID,
 			SportType:  data.SportType,
 			HasGPS:     data.HasGPS,
 		}
-		if err := h.Events.PublishActivityUploaded(evt); err != nil {
+		if err := h.ActivityUploadedPublisher.PublishActivityUploaded(evt); err != nil {
 			slog.Error("reprocess: event publish failed", "id", activityID, "error", err)
 		}
-		if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
-			slog.Warn("reprocess: analytics invalidate failed", "user_id", userID, "error", err)
+		if h.AnalyticsInvalidator != nil {
+			if err := h.AnalyticsInvalidator.PublishAnalyticsInvalidate(userID); err != nil {
+				slog.Warn("reprocess: analytics invalidate failed", "user_id", userID, "error", err)
+			}
 		}
 	}
 
@@ -1143,8 +1145,8 @@ func (h *Handler) RecomputeAllTSS(w http.ResponseWriter, r *http.Request) {
 			slog.Error("RecomputeAllTSS failed", "user", userID, "job_id", jobID, "err", err)
 			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true, err.Error())
 		} else {
-			if h.Events != nil {
-				if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
+			if h.AnalyticsInvalidator != nil {
+				if err := h.AnalyticsInvalidator.PublishAnalyticsInvalidate(userID); err != nil {
 					slog.Warn("RecomputeAllTSS: analytics invalidate failed", "user_id", userID, "err", err)
 				}
 			}
