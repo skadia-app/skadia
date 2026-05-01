@@ -95,7 +95,9 @@ func TestReadiness_CacheHit(t *testing.T) {
 	h, pool := newReadinessTestHandler(t, fake)
 	uid := seedReadinessTestUser(t, pool)
 
-	body := json.RawMessage(`{"refused":false,"score":72.5,"level":"green","factors":[],"missing_factors":[],"computed_at":"2026-04-30T12:00:00Z","data_window_end":null,"preferences_version":1,"confidence":0.8,"recommendation_code":null,"signal_modifier":null,"degraded":null}`)
+	// Spec §5.3: score is int (0–100), level is enum critical|low|moderate|good|optimal,
+	// preferences_version is ISO timestamp (or null when no pref row exists).
+	body := json.RawMessage(`{"refused":false,"score":72,"level":"good","factors":[],"missing_factors":[],"computed_at":"2026-04-30T12:00:00Z","data_window_end":null,"preferences_version":null,"confidence":"high","recommendation_code":null,"signal_modifier":null,"degraded":null}`)
 	now := time.Now()
 	expires := now.Add(6 * time.Hour)
 	seedReadinessRow(t, pool, uid, body, now.Add(-1*time.Hour), &expires)
@@ -110,8 +112,8 @@ func TestReadiness_CacheHit(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got["score"].(float64) != 72.5 {
-		t.Errorf("score = %v, want 72.5", got["score"])
+	if got["score"].(float64) != 72 {
+		t.Errorf("score = %v, want 72", got["score"])
 	}
 	// Fresh hit must NOT splice degraded — the body's literal null is fine
 	// (json.Unmarshal yields nil interface for explicit null), but we must NOT
@@ -168,7 +170,7 @@ func TestReadiness_StaleInvalidatorOK(t *testing.T) {
 	h, pool := newReadinessTestHandler(t, fake)
 	uid := seedReadinessTestUser(t, pool)
 
-	body := json.RawMessage(`{"refused":false,"score":50,"level":"yellow","factors":[],"missing_factors":[],"computed_at":"2026-04-30T10:00:00Z","data_window_end":null,"preferences_version":1,"confidence":0.7,"recommendation_code":null,"signal_modifier":null,"degraded":null}`)
+	body := json.RawMessage(`{"refused":false,"score":50,"level":"moderate","factors":[],"missing_factors":[],"computed_at":"2026-04-30T10:00:00Z","data_window_end":null,"preferences_version":null,"confidence":"medium","recommendation_code":null,"signal_modifier":null,"degraded":null}`)
 	now := time.Now()
 	expires := now.Add(-1 * time.Hour)
 	seedReadinessRow(t, pool, uid, body, now.Add(-2*time.Hour), &expires)
@@ -204,7 +206,7 @@ func TestReadiness_StaleInvalidatorErr(t *testing.T) {
 	h, pool := newReadinessTestHandler(t, fake)
 	uid := seedReadinessTestUser(t, pool)
 
-	body := json.RawMessage(`{"refused":false,"score":40,"level":"yellow","factors":[],"missing_factors":[],"computed_at":"2026-04-30T10:00:00Z","data_window_end":null,"preferences_version":1,"confidence":0.6,"recommendation_code":null,"signal_modifier":null,"degraded":null}`)
+	body := json.RawMessage(`{"refused":false,"score":40,"level":"low","factors":[],"missing_factors":[],"computed_at":"2026-04-30T10:00:00Z","data_window_end":null,"preferences_version":null,"confidence":"low","recommendation_code":null,"signal_modifier":null,"degraded":null}`)
 	now := time.Now()
 	expires := now.Add(-30 * time.Minute)
 	seedReadinessRow(t, pool, uid, body, now.Add(-2*time.Hour), &expires)
@@ -233,7 +235,7 @@ func TestReadiness_StaleNoInvalidator(t *testing.T) {
 	h, pool := newReadinessTestHandler(t, nil)
 	uid := seedReadinessTestUser(t, pool)
 
-	body := json.RawMessage(`{"refused":false,"score":33,"level":"yellow","factors":[],"missing_factors":[],"computed_at":"2026-04-30T09:00:00Z","data_window_end":null,"preferences_version":1,"confidence":0.5,"recommendation_code":null,"signal_modifier":null,"degraded":null}`)
+	body := json.RawMessage(`{"refused":false,"score":33,"level":"low","factors":[],"missing_factors":[],"computed_at":"2026-04-30T09:00:00Z","data_window_end":null,"preferences_version":null,"confidence":"low","recommendation_code":null,"signal_modifier":null,"degraded":null}`)
 	now := time.Now()
 	expires := now.Add(-15 * time.Minute)
 	seedReadinessRow(t, pool, uid, body, now.Add(-3*time.Hour), &expires)
@@ -263,7 +265,7 @@ func TestReadiness_StaleHardCap(t *testing.T) {
 	h, pool := newReadinessTestHandler(t, fake)
 	uid := seedReadinessTestUser(t, pool)
 
-	body := json.RawMessage(`{"refused":false,"score":80,"level":"green","factors":[],"missing_factors":[],"computed_at":"2026-04-28T10:00:00Z","data_window_end":null,"preferences_version":1,"confidence":0.9,"recommendation_code":null,"signal_modifier":null,"degraded":null}`)
+	body := json.RawMessage(`{"refused":false,"score":80,"level":"optimal","factors":[],"missing_factors":[],"computed_at":"2026-04-28T10:00:00Z","data_window_end":null,"preferences_version":null,"confidence":"high","recommendation_code":null,"signal_modifier":null,"degraded":null}`)
 	now := time.Now()
 	expires := now.Add(-50 * time.Hour)
 	computedAt := now.Add(-50 * time.Hour)
@@ -339,8 +341,8 @@ func TestReadiness_AdditiveSchemaPassthrough(t *testing.T) {
 		`"missing_factors":[],` +
 		`"computed_at":"2026-05-01T08:00:00Z",` +
 		`"data_window_end":null,` +
-		`"preferences_version":1,` +
-		`"confidence":0.85,` +
+		`"preferences_version":null,` +
+		`"confidence":"high",` +
 		`"recommendation_code":null,` +
 		`"signal_modifier":null,` +
 		`"degraded":null,` +
@@ -416,7 +418,7 @@ func TestReadiness_PreferencesVersionMismatch(t *testing.T) {
 
 	// Seed the cache row with preferences_version pointing to the OLD time.
 	oldPrefISO := oldPrefTime.UTC().Format(time.RFC3339Nano)
-	body := json.RawMessage(`{"refused":false,"score":65,"level":"yellow","factors":[],"missing_factors":[],"computed_at":"2026-04-30T10:00:00Z","data_window_end":null,"preferences_version":"` + oldPrefISO + `","confidence":null,"recommendation_code":null,"signal_modifier":null,"degraded":null}`)
+	body := json.RawMessage(`{"refused":false,"score":65,"level":"moderate","factors":[],"missing_factors":[],"computed_at":"2026-04-30T10:00:00Z","data_window_end":null,"preferences_version":"` + oldPrefISO + `","confidence":null,"recommendation_code":null,"signal_modifier":null,"degraded":null}`)
 	now := time.Now()
 	expires := now.Add(6 * time.Hour) // fresh by expires_at, but stale by pref-version
 	seedReadinessRow(t, pool, uid, body, now.Add(-1*time.Hour), &expires)
@@ -457,7 +459,7 @@ func TestReadiness_PreferencesVersionMatch(t *testing.T) {
 
 	// Cache body carries the same time as preferences_version.
 	prefISO := prefTime.UTC().Format(time.RFC3339Nano)
-	body := json.RawMessage(`{"refused":false,"score":88,"level":"green","factors":[],"missing_factors":[],"computed_at":"2026-04-30T22:00:00Z","data_window_end":null,"preferences_version":"` + prefISO + `","confidence":null,"recommendation_code":null,"signal_modifier":null,"degraded":null}`)
+	body := json.RawMessage(`{"refused":false,"score":88,"level":"optimal","factors":[],"missing_factors":[],"computed_at":"2026-04-30T22:00:00Z","data_window_end":null,"preferences_version":"` + prefISO + `","confidence":null,"recommendation_code":null,"signal_modifier":null,"degraded":null}`)
 	now := time.Now()
 	expires := now.Add(6 * time.Hour)
 	seedReadinessRow(t, pool, uid, body, now.Add(-30*time.Minute), &expires)
