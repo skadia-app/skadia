@@ -158,8 +158,13 @@ func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 // we need to extract preferences_version without unmarshal-remarshaling the
 // full payload (which would strip unknown fields and violate the additive-only
 // contract on other code paths).
+//
+// PreferencesVersion is captured as json.RawMessage so we can distinguish
+// "field absent / explicit null" from "field present with a non-string value"
+// (e.g. a stale cache row written by an older worker that used a numeric
+// version). Non-string values must be treated as a mismatch — see M9.
 type cachePreferencesVersionShape struct {
-	PreferencesVersion *string `json:"preferences_version"`
+	PreferencesVersion json.RawMessage `json:"preferences_version"`
 }
 
 // checkPreferencesVersionMismatch returns true when the preferences_version
@@ -170,15 +175,38 @@ type cachePreferencesVersionShape struct {
 // Null-vs-null is explicitly treated as a match: a cache computed when no
 // pref row existed and a current state with no pref row are consistent.
 //
-// On any read error the function returns false (conservative: don't degrade
-// unnecessarily when the DB is temporarily unavailable).
+// Parse-error policy (M9): if the cached preferences_version is present but
+// malformed (wrong JSON type, unparseable timestamp), treat as mismatch and
+// recompute. The conservative path is "force fresh", not "serve stale of
+// unknown vintage" — a cache row whose type-contract doesn't match the spec
+// has no trustworthy meaning. Pure DB read failures still return false: a
+// transient DB outage shouldn't snowball into recompute storms.
 func (h *Handler) checkPreferencesVersionMismatch(ctx context.Context, userID string, cacheData []byte) bool {
 	// Extract preferences_version from cache JSON.
 	var shape cachePreferencesVersionShape
 	if err := json.Unmarshal(cacheData, &shape); err != nil {
-		slog.Warn("readiness: cannot parse preferences_version from cache JSON — skipping pref-version check",
+		slog.Warn("readiness: cannot parse cache JSON for pref-version check — treating as mismatch",
 			"user_id", userID, "error", err)
-		return false
+		return true
+	}
+
+	// Classify the raw preferences_version field.
+	//   absent / explicit null  → cachedISO = "", cachedNull = true
+	//   string                  → cachedISO = unquoted string, cachedNull = false
+	//   anything else (number,  → invalid type → mismatch
+	//                  bool,
+	//                  array,
+	//                  object)
+	var cachedISO string
+	cachedNull := true
+	if len(shape.PreferencesVersion) > 0 && !bytes.Equal(bytes.TrimSpace(shape.PreferencesVersion), []byte("null")) {
+		// Field is present and not null. Must be a JSON string per Spec §5.3.
+		if err := json.Unmarshal(shape.PreferencesVersion, &cachedISO); err != nil {
+			slog.Warn("readiness: preferences_version has non-string type — treating as mismatch",
+				"user_id", userID, "raw", string(shape.PreferencesVersion))
+			return true
+		}
+		cachedNull = false
 	}
 
 	// Load current pref row.
@@ -189,11 +217,11 @@ func (h *Handler) checkPreferencesVersionMismatch(ctx context.Context, userID st
 	}
 
 	// Both null → computed and current both have no pref row → consistent.
-	if shape.PreferencesVersion == nil && pref == nil {
+	if cachedNull && pref == nil {
 		return false
 	}
 	// One null, one non-null → mismatch.
-	if (shape.PreferencesVersion == nil) != (pref == nil) {
+	if cachedNull != (pref == nil) {
 		return true
 	}
 	// Both non-null: parse and compare as time instants.
@@ -201,14 +229,14 @@ func (h *Handler) checkPreferencesVersionMismatch(ctx context.Context, userID st
 	// which matches RFC3339Nano. The DB column is TIMESTAMPTZ so both sides
 	// represent the same physical instant — time.Parse + Equal handles any
 	// representation differences (trailing zeros, 'Z' vs '+00:00').
-	cachedTime, err := time.Parse(time.RFC3339Nano, *shape.PreferencesVersion)
+	cachedTime, err := time.Parse(time.RFC3339Nano, cachedISO)
 	if err != nil {
 		// Try plain RFC3339 as fallback.
-		cachedTime, err = time.Parse(time.RFC3339, *shape.PreferencesVersion)
+		cachedTime, err = time.Parse(time.RFC3339, cachedISO)
 		if err != nil {
-			slog.Warn("readiness: cannot parse cached preferences_version timestamp",
-				"user_id", userID, "value", *shape.PreferencesVersion, "error", err)
-			return false
+			slog.Warn("readiness: cannot parse cached preferences_version timestamp — treating as mismatch",
+				"user_id", userID, "value", cachedISO, "error", err)
+			return true
 		}
 	}
 	return !cachedTime.Equal(pref.UpdatedAt)
