@@ -361,10 +361,25 @@ async def _process_analytics_message(msg, nc: nats.NATS, publisher=None) -> None
                         ("readiness", handle_readiness_message, True),
                     ]
 
+                    # Flag set by any self-writing module that requests a NAK
+                    # (e.g. readiness already_running — another worker holds the
+                    # lock; redelivery after 2 s lets the lock-holder finish).
+                    nak_delay: int | None = None
+
                     for cache_key, module_fn, self_writes in modules:
                         try:
                             if self_writes:
-                                await module_fn(conn, user_id, publisher)
+                                mod_result = await module_fn(conn, user_id, publisher)
+                                # already_running: another compute is in flight.
+                                # NAK so this message is redelivered once the
+                                # lock-holder has committed. 2 s is intentional:
+                                # readiness compute is typically <1 s; 2 s gives
+                                # enough headroom without overloading the queue.
+                                if (
+                                    isinstance(mod_result, dict)
+                                    and mod_result.get("refusal_reason") == "already_running"
+                                ):
+                                    nak_delay = 2
                             else:
                                 result = await module_fn(conn, user_id)
                                 await _upsert_analytics_cache(conn, user_id, cache_key, result)
@@ -379,6 +394,15 @@ async def _process_analytics_message(msg, nc: nats.NATS, publisher=None) -> None
                                 user_id,
                                 e,
                             )
+
+                if nak_delay is not None:
+                    logger.debug(
+                        "analytics: readiness already_running for user %s — NAK delay=%ds",
+                        user_id,
+                        nak_delay,
+                    )
+                    await msg.nak(delay=nak_delay)
+                    return
 
                 await msg.ack()
                 _metrics["processed_total"] += 1
