@@ -17,14 +17,15 @@ import type { ZoneRow } from './ZoneTable'
 
 function sourceLabel(sourceType: string): string {
   const lower = sourceType.toLowerCase()
-  if (lower.includes('fit') || lower.includes('garmin')) return 'Device Import'
-  if (lower.includes('manual')) return 'Manual'
+  if (lower.includes('fit') || lower.includes('garmin')) return 'Geräte-Import'
+  if (lower.includes('manual')) return 'Manuell'
   return sourceType
 }
 
 function SourceBadge({ sourceType }: { sourceType: string }) {
   const label = sourceLabel(sourceType)
-  const isDevice = label === 'Device Import'
+  const lower = sourceType.toLowerCase()
+  const isDevice = lower.includes('fit') || lower.includes('garmin')
   return (
     <span
       className={[
@@ -180,7 +181,7 @@ function ZoneSection({
           disabled={disabled || mutation.isPending || config.isSaveDisabled(state)}
           className="cursor-pointer px-3 py-1.5 text-sm font-medium rounded-lg bg-accent-DEFAULT hover:bg-accent-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {mutation.isPending ? 'Saving...' : config.saveLabel}
+          {mutation.isPending ? 'Speichere…' : config.saveLabel}
         </button>
       </div>
     </div>
@@ -191,15 +192,15 @@ function ZoneSection({
 
 const HR_CONFIG: ZoneSectionConfig = {
   zoneType: ZONE_TYPES.HR,
-  heading: 'Heart Rate Zones',
+  heading: 'Herzfrequenz-Zonen',
   thresholdLabel: 'LTHR',
-  thresholdPlaceholder: 'e.g. 165',
+  thresholdPlaceholder: 'z.B. 165',
   thresholdMin: 40,
   thresholdMax: 250,
   unit: 'bpm',
-  saveLabel: 'Save HR zones',
-  successTitle: 'Heart rate zones saved',
-  errorTitle: 'Failed to save HR zones',
+  saveLabel: 'HF-Zonen speichern',
+  successTitle: 'Herzfrequenz-Zonen gespeichert',
+  errorTitle: 'Fehler beim Speichern der HF-Zonen',
   readThreshold: d => d.threshold_heart_rate ?? 0,
   buildPayload: (sport, state) => {
     const { zone_names, zone_highs } = rowsToNamesHighs(state.rows)
@@ -217,15 +218,15 @@ const HR_CONFIG: ZoneSectionConfig = {
 
 const POWER_CONFIG: ZoneSectionConfig = {
   zoneType: ZONE_TYPES.POWER,
-  heading: 'Power Zones',
+  heading: 'Power-Zonen',
   thresholdLabel: 'FTP',
-  thresholdPlaceholder: 'e.g. 280',
+  thresholdPlaceholder: 'z.B. 280',
   thresholdMin: 0,
   thresholdMax: 1000,
   unit: 'W',
-  saveLabel: 'Save power zones',
-  successTitle: 'Power zones saved',
-  errorTitle: 'Failed to save power zones',
+  saveLabel: 'Power-Zonen speichern',
+  successTitle: 'Power-Zonen gespeichert',
+  errorTitle: 'Fehler beim Speichern der Power-Zonen',
   readThreshold: d => d.functional_threshold_power ?? 0,
   buildPayload: (sport, state) => {
     const { zone_names, zone_highs } = rowsToNamesHighs(state.rows)
@@ -243,7 +244,7 @@ const POWER_CONFIG: ZoneSectionConfig = {
 
 const SPEED_CONFIG: ZoneSectionConfig = {
   zoneType: ZONE_TYPES.SPEED,
-  heading: 'Speed Zones',
+  heading: 'Geschwindigkeitszonen',
   thresholdLabel: 'CSS',
   thresholdPlaceholder: 'Optional',
   thresholdMin: 0,
@@ -251,9 +252,9 @@ const SPEED_CONFIG: ZoneSectionConfig = {
   thresholdStep: 0.1,
   unit: 'km/h',
   convertMps: true,
-  saveLabel: 'Save speed zones',
-  successTitle: 'Speed zones saved',
-  errorTitle: 'Failed to save speed zones',
+  saveLabel: 'Geschwindigkeitszonen speichern',
+  successTitle: 'Geschwindigkeitszonen gespeichert',
+  errorTitle: 'Fehler beim Speichern der Geschwindigkeitszonen',
   readThreshold: d =>
     d.threshold_speed_mps != null ? Math.round(d.threshold_speed_mps * 3.6 * 10) / 10 : null,
   buildPayload: (sport, state) => {
@@ -287,7 +288,7 @@ export default function ZoneEditorCard({ sportZones, disabled = false }: ZoneEdi
   if (!hasAny) {
     return (
       <div className="text-sm text-neutral-500 dark:text-neutral-400 py-4">
-        No training zones found for this sport. Import a FIT file with zones to populate this section.
+        Keine Trainingszonen für diese Sportart. Importiere eine FIT-Datei mit Zonendaten.
       </div>
     )
   }

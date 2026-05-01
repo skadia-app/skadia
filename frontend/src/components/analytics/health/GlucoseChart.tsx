@@ -25,19 +25,19 @@ echarts.use([
 // ── Labels ────────────────────────────────────────────────────────────────────
 
 const LABELS = {
-  title: 'Blood Glucose (per Activity)',
+  title: 'Blutzucker (pro Aktivität)',
   unit: 'mg/dL',
-  loading: 'Loading glucose data...',
-  error: 'Failed to load glucose data',
-  noData: 'No activity glucose data available',
+  loading: 'Lade Blutzucker-Daten…',
+  error: 'Fehler beim Laden der Blutzucker-Daten',
+  noData: 'Keine Blutzucker-Aktivitätsdaten vorhanden',
   zoneNormal: 'Normal',
-  zoneElevated: 'Elevated',
-  zoneHigh: 'High',
+  zoneElevated: 'Erhöht',
+  zoneHigh: 'Hoch',
   presets: {
-    '30d': '30D',
-    '90d': '90D',
-    '1y': '1Y',
-    'all': 'All',
+    '30d': '30T',
+    '90d': '90T',
+    '1y': '1J',
+    'all': 'Alle',
   } as Record<string, string>,
 }
 

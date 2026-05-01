@@ -50,6 +50,20 @@ function trendIndicator(trend: number): { symbol: string; color: string } {
   return { symbol: '→', color: 'text-neutral-400' }
 }
 
+function metricNameLabel(name: string): string {
+  const labels: Record<string, string> = {
+    rhr: 'Ruhepuls',
+    hrv_rmssd: 'HRV (RMSSD)',
+    sleep_duration: 'Schlafdauer',
+    sleep_score: 'Schlafqualität',
+    weight: 'Gewicht',
+    steps: 'Schritte',
+    stress: 'Stresslevel',
+    body_battery: 'Body Battery',
+  }
+  return labels[name.toLowerCase()] ?? name
+}
+
 function metricColor(name: string): string {
   const colors: Record<string, string> = {
     resting_hr: '#ef4444',
@@ -81,7 +95,7 @@ function MetricCard({ metric }: MetricCardProps) {
     >
       <div className="flex items-start justify-between mb-1">
         <div className="text-xs text-neutral-500 dark:text-neutral-400 font-medium truncate pr-2">
-          {metric.name}
+          {metricNameLabel(metric.name)}
         </div>
         <span className={`text-xs font-bold flex-shrink-0 ${trend.color}`}>
           {trend.symbol}

@@ -75,9 +75,19 @@ function severityBadge(severity: Warning['severity']): string {
 }
 
 function formatWarningType(type: string): string {
-  return type
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, l => l.toUpperCase())
+  const labels: Record<string, string> = {
+    hrv_rmssd_anomaly: 'HRV-Anomalie (RMSSD)',
+    resting_hr_anomaly: 'Ruhepuls-Anomalie',
+    sleep_score_anomaly: 'Schlafqualitäts-Anomalie',
+    spo2_anomaly: 'SpO₂-Anomalie',
+    overtraining_risk: 'Übertrainingsrisiko',
+    high_acwr: 'Hohe Belastungsrate (ACWR)',
+    low_acwr: 'Niedrige Belastungsrate (ACWR)',
+    monotony_risk: 'Monotonie-Risiko',
+    ramp_rate_risk: 'Kritische Belastungsrampe',
+    recovery_deficit: 'Erholungsdefizit',
+  }
+  return labels[type] ?? type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
 }
 
 

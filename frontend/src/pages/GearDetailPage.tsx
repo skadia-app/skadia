@@ -399,7 +399,7 @@ function ComponentsList({ gearId, gearType, components }: {
                         onClick={() => setTransferringId(comp.id)}
                         className="text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer"
                       >
-                        Transfer
+                        Übertragen
                       </button>
                       <button
                         onClick={() => setEditingId(comp.id)}
@@ -517,7 +517,7 @@ function TransferDialog({ componentId, currentGearId, onClose }: {
           disabled={!targetId || mutation.isPending}
           className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
         >
-          {mutation.isPending ? '...' : 'Transfer'}
+          {mutation.isPending ? '...' : 'Übertragen'}
         </button>
         <button
           onClick={onClose}
@@ -527,7 +527,7 @@ function TransferDialog({ componentId, currentGearId, onClose }: {
         </button>
       </div>
       {mutation.isError && (
-        <p className="text-xs text-rose-500 mt-1">Transfer fehlgeschlagen</p>
+        <p className="text-xs text-rose-500 mt-1">Übertragung fehlgeschlagen</p>
       )}
     </div>
   )
@@ -544,12 +544,12 @@ function ComponentHistoryPanel({ componentId }: { componentId: string }) {
   if (isLoading) return <div className="text-xs text-neutral-400 mt-2">Lade Historie...</div>
 
   if (!history || history.length === 0) {
-    return <div className="text-xs text-neutral-400 mt-2">Keine Transfer-Historie vorhanden.</div>
+    return <div className="text-xs text-neutral-400 mt-2">Keine Übertragungs-Historie vorhanden.</div>
   }
 
   return (
     <div className="mt-3 space-y-1">
-      <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Transfer-Historie</div>
+      <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Übertragungs-Historie</div>
       {history.map((a: ComponentAssignment) => (
         <div key={a.id} className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
           <span className="w-2 h-2 rounded-full bg-accent-400 flex-shrink-0" />
@@ -1590,6 +1590,8 @@ function subTypeLabel(subType: string): string {
     bmx: 'BMX',
     fixie: 'Fixie',
     urban: 'Urban',
+    e_bike: 'E-Bike',
+    hybrid: 'Hybrid',
   }
   return labels[subType] ?? subType
 }
@@ -1876,7 +1878,7 @@ function GearImagesSection({ gearId }: { gearId: string }) {
           </div>
         ) : !uploading ? (
           <div className="text-center py-8 text-sm text-neutral-400">
-            Noch keine Bilder. Fotos hierher ziehen oder Knopf nutzen.
+            Noch keine Bilder. Fotos hierher ziehen oder Button nutzen.
           </div>
         ) : null}
       </div>

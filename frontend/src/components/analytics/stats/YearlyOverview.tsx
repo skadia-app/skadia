@@ -83,7 +83,7 @@ export default function YearlyOverview() {
   if (isError || !data) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 text-center text-sm text-neutral-400">
-        Fehler beim Laden der Jahres-Ubersicht
+        Fehler beim Laden der Jahres-Übersicht
       </div>
     )
   }
@@ -137,7 +137,7 @@ export default function YearlyOverview() {
                   {isCurrent && <span className="ml-2 text-xs font-normal text-[var(--color-accent-DEFAULT)]/70">aktuell</span>}
                 </span>
                 <div className="hidden sm:flex items-center gap-4 text-sm text-neutral-600 dark:text-neutral-400">
-                  <span className="font-semibold text-neutral-800 dark:text-neutral-200">{group.totals.count} Aktivitaten</span>
+                  <span className="font-semibold text-neutral-800 dark:text-neutral-200">{group.totals.count} Aktivitäten</span>
                   <span>{fmtDist(group.totals.distance_m)}</span>
                   <span>{fmtNum(group.totals.elevation_m)} m</span>
                   <span>{fmtDuration(group.totals.duration_s, 'compact')}</span>
@@ -199,9 +199,9 @@ export default function YearlyOverview() {
             {isOpen && !group.hasMonths && (
               <div className="border-t border-neutral-100 dark:border-neutral-800 px-4 py-3 bg-white dark:bg-neutral-900">
                 <div className="flex items-center gap-6 text-sm text-neutral-600 dark:text-neutral-400">
-                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{group.totals.count}</span> Aktivitaten</span>
+                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{group.totals.count}</span> Aktivitäten</span>
                   <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtDist(group.totals.distance_m)}</span> Distanz</span>
-                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtNum(group.totals.elevation_m)} m</span> Hohenmeter</span>
+                  <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtNum(group.totals.elevation_m)} m</span> Höhenmeter</span>
                   <span><span className="font-semibold text-neutral-800 dark:text-neutral-200">{fmtDuration(group.totals.duration_s, 'compact')}</span> Dauer</span>
                 </div>
               </div>

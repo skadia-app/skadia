@@ -26,6 +26,35 @@ function statusColor(status: string): string {
   }
 }
 
+function factorLabel(name: string): string {
+  const labels: Record<string, string> = {
+    hrv_cv: 'HRV-Variabilität',
+    hrv_rmssd: 'HRV (RMSSD)',
+    acwr: 'ACWR',
+    sleep: 'Schlaf',
+    changepoints: 'Veränderungspunkte',
+    fatigue: 'Ermüdung',
+    ctl: 'Fitness (CTL)',
+    tsb: 'Form (TSB)',
+    resting_hr: 'Ruhepuls',
+    body_battery: 'Körperbatterie',
+  }
+  return labels[name.toLowerCase()] ?? name
+}
+
+function factorStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    good: 'Gut', gut: 'Gut',
+    ok: 'OK',
+    warning: 'Warnung',
+    bad: 'Schlecht', schlecht: 'Schlecht',
+    high: 'Hoch', hoch: 'Hoch',
+    low: 'Niedrig', niedrig: 'Niedrig',
+    moderate: 'Moderat', moderat: 'Moderat', medium: 'Moderat', mittel: 'Moderat',
+  }
+  return labels[status.toLowerCase()] ?? status
+}
+
 function levelLabel(level: string): string {
   const labels: Record<string, string> = {
     high: 'Hoch', good: 'Gut', optimal: 'Optimal',
@@ -128,7 +157,7 @@ export default function ReadinessGauge() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <span>Dein Readiness-Score wird nach der nächsten Aktivität berechnet.</span>
+          <span>Die Trainingsbereitschaft wird nach der nächsten Aktivität berechnet.</span>
         </div>
       </div>
     )
@@ -146,13 +175,13 @@ export default function ReadinessGauge() {
         <div className="space-y-2">
           {data.factors.map((factor, i) => (
             <div key={i} className="flex items-center justify-between gap-2 text-xs">
-              <span className="text-neutral-600 dark:text-neutral-300 truncate">{factor.name}</span>
+              <span className="text-neutral-600 dark:text-neutral-300 truncate">{factorLabel(factor.name)}</span>
               <div className="flex items-center gap-2">
                 <span className="tabular-nums text-neutral-700 dark:text-neutral-200 font-medium">
                   {typeof factor.value === 'number' ? factor.value.toFixed(0) : factor.value}
                 </span>
                 <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${statusColor(factor.status)}`}>
-                  {factor.status}
+                  {factorStatusLabel(factor.status)}
                 </span>
               </div>
             </div>

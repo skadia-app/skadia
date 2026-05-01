@@ -712,7 +712,7 @@ export default function ActivityDetailPage() {
           )}
           {activity.suunto_recovery_time_h != null && (
             <div className="flex-1 min-w-0 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 space-y-1">
-              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Recovery Time</div>
+              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Erholungszeit</div>
               <div className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
                 {Math.floor(activity.suunto_recovery_time_h)} h {Math.round((activity.suunto_recovery_time_h % 1) * 60)} min
               </div>

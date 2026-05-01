@@ -41,7 +41,7 @@ func (h *Handler) AdminBackfillActivityEnrichments(w http.ResponseWriter, r *htt
 		return
 	}
 
-	entityName := "Activity Track Enrichments"
+	entityName := "Track-Anreicherungen"
 	jobID, created, err := h.DB.InsertBackgroundJobGuarded(
 		r.Context(),
 		adminID,

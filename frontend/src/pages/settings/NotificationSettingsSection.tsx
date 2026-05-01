@@ -85,7 +85,7 @@ export function NotificationSettingsSection() {
       {devices && devices.length > 0 && (
         <div className="pt-3 border-t border-neutral-100 dark:border-neutral-800/60 space-y-2">
           <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-            Registrierte Ger&auml;te
+            Registrierte Geräte
           </p>
           <div className="space-y-1.5">
             {devices.map(device => (

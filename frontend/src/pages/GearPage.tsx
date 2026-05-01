@@ -6,6 +6,7 @@ import { fetchGear, createGear, fetchGearDocuments, getGearDocumentUrl } from '@
 import { fetchDevices } from '@/api/hardware'
 import type { Gear, GearStatus } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
+import { sportLabel } from '@/lib/sportTaxonomy'
 import GearForm from '@/components/GearForm'
 import MaintenanceAlerts from '@/components/MaintenanceAlerts'
 import GearMergePanel from '@/components/GearMergePanel'
@@ -120,7 +121,7 @@ export default function GearPage() {
         {showMerge && (
           <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100">Gear-Duplikate</h2>
+              <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100">Ausrüstungs-Duplikate</h2>
             </div>
             <GearMergePanel onClose={() => setShowMerge(false)} />
           </div>
@@ -208,7 +209,7 @@ export default function GearPage() {
       <div>
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Ausrüstung</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Gear, Geräte und Sensoren verwalten.
+          Ausrüstung, Geräte und Sensoren verwalten.
         </p>
       </div>
 
@@ -306,7 +307,7 @@ function GearCard({ gear }: { gear: Gear }) {
             </div>
           </div>
           <div>
-            <div className="text-xs text-neutral-500 dark:text-neutral-400">Hoehe</div>
+            <div className="text-xs text-neutral-500 dark:text-neutral-400">Höhe</div>
             <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
               {elevGain ?? '\u2014'}
             </div>
@@ -332,7 +333,7 @@ function GearCard({ gear }: { gear: Gear }) {
                 key={sport}
                 className="px-1.5 py-0.5 rounded text-xs bg-orange-50 text-accent-600 dark:bg-orange-900/20 dark:text-orange-400"
               >
-                {sport}
+                {sportLabel(sport)}
               </span>
             ))}
           </div>

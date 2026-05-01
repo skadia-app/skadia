@@ -66,7 +66,7 @@ export function MLServiceSection() {
         <div>
           <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">ML-Service</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Status des ML-Dienstes und n&auml;chtliche Analysejobs.
+            Status des ML-Dienstes und nächtliche Analysejobs.
           </p>
         </div>
         <span
@@ -85,7 +85,7 @@ export function MLServiceSection() {
 
       <div className="space-y-2">
         <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-          N&auml;chtliche Jobs
+          Nächtliche Jobs
         </p>
         {NIGHTLY_JOBS.map(({ key, label, description }) => {
           const enabled = mlSettings?.[key]?.enabled ?? false
