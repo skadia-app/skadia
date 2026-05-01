@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/skadia-app/skadia/services/api/internal/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/auth"
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
@@ -832,6 +833,32 @@ func main() {
 				select {
 				case <-ticker.C:
 					doReconcile()
+				case <-ctx.Done():
+					return
+				}
+			}
+		})
+	}
+
+	// Readiness reconcile (daily, 5-minute initial delay, graceful shutdown).
+	// Finds active users whose readiness cache is stale and triggers recomputation.
+	// Skipped when NATS is unavailable (pub == nil).
+	if pub != nil {
+		shutdown.Go("readiness-reconcile", func(ctx context.Context) {
+			select {
+			case <-time.After(5 * time.Minute):
+			case <-ctx.Done():
+				return
+			}
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+			for {
+				slog.Info("readiness reconcile: starting run")
+				if err := analytics.ReconcileReadiness(ctx, db.Pool, pub); err != nil {
+					slog.Error("readiness reconcile: run failed", "error", err)
+				}
+				select {
+				case <-ticker.C:
 				case <-ctx.Done():
 					return
 				}
