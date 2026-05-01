@@ -131,8 +131,8 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 			if err := cb.completeJob(ctx, jobID, allErrors); err != nil {
 				slog.Warn("garmin import: complete job failed", "job_id", jobID, "error", err)
 			}
-			if h.Events != nil {
-				if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
+			if h.AnalyticsInvalidator != nil {
+				if err := h.AnalyticsInvalidator.PublishAnalyticsInvalidate(userID); err != nil {
 					slog.Warn("garmin import: analytics invalidate failed", "user_id", userID, "err", err)
 				}
 			}
@@ -191,8 +191,8 @@ func (h *Handler) UploadGarminZIP(w http.ResponseWriter, r *http.Request) {
 			if err := cb.completeJob(ctx, jobID, allErrors); err != nil {
 				slog.Warn("garmin import (zip): complete job failed", "job_id", jobID, "error", err)
 			}
-			if h.Events != nil {
-				if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
+			if h.AnalyticsInvalidator != nil {
+				if err := h.AnalyticsInvalidator.PublishAnalyticsInvalidate(userID); err != nil {
 					slog.Warn("garmin import (zip): analytics invalidate failed", "user_id", userID, "err", err)
 				}
 			}

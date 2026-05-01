@@ -695,7 +695,7 @@ func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Reques
 		anyFailed := false
 
 		for _, photo := range photos {
-			if h.Events != nil {
+			if h.PhotoEmbedPublisher != nil {
 				var embedFileID string
 				if photo.FileID != nil {
 					embedFileID = *photo.FileID
@@ -706,7 +706,7 @@ func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Reques
 					FileID:          embedFileID,
 					VideoClipFrames: clipFrames,
 				}
-				if err := h.Events.PublishPhotoEmbed(ev); err != nil {
+				if err := h.PhotoEmbedPublisher.PublishPhotoEmbed(ev); err != nil {
 					slog.Warn("recompute embeddings: publish failed", "photo_id", photo.ID, "err", err)
 					anyFailed = true
 				}

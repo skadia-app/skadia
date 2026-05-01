@@ -1033,7 +1033,7 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 	}
 
 	// NATS event (graceful - no error if NATS unavailable)
-	if cfg.publishEvent && h.Events != nil {
+	if cfg.publishEvent && h.DocumentUploadedPublisher != nil {
 		evt := event.DocumentUploadedEvent{
 			DocID:         result.ID,
 			GearID:        result.GearID,
@@ -1044,7 +1044,7 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 			ExtractedText: extractedText,
 			FileID:        storedFileID,
 		}
-		if err := h.Events.PublishDocumentUploaded(evt); err != nil {
+		if err := h.DocumentUploadedPublisher.PublishDocumentUploaded(evt); err != nil {
 			slog.Warn("failed to publish document uploaded event", "error", err)
 		}
 	}

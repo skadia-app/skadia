@@ -211,8 +211,8 @@ func (h *Handler) IngestHealthData(w http.ResponseWriter, r *http.Request) {
 	// the analytics cache so the ML worker recomputes on the next tick.
 	switch req.Type {
 	case "hrv", "sleep", "resting_hr":
-		if h.Events != nil {
-			if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
+		if h.AnalyticsInvalidator != nil {
+			if err := h.AnalyticsInvalidator.PublishAnalyticsInvalidate(userID); err != nil {
 				slog.Warn("health ingest: analytics invalidate failed", "type", req.Type, "user_id", userID, "error", err)
 			}
 		}

@@ -128,8 +128,8 @@ func (h *Handler) Readyz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// NATS check: h.Events is nil when NATS is not configured or unavailable.
-	if h.Events != nil && !h.Events.IsConnected() {
+	// NATS check: h.EventConn is nil when NATS is not configured or unavailable.
+	if h.EventConn != nil && !h.EventConn.IsConnected() {
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"status": "not ready",
 			"nats":   "disconnected",
@@ -165,9 +165,9 @@ func (h *Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 		status["status"] = "degraded"
 		status["db"] = err.Error()
 	}
-	if h.Events == nil {
+	if h.EventConn == nil {
 		status["nats"] = "not configured"
-	} else if !h.Events.IsConnected() {
+	} else if !h.EventConn.IsConnected() {
 		status["status"] = "degraded"
 		status["nats"] = "disconnected"
 	}

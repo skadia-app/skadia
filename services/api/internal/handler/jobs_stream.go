@@ -128,7 +128,7 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	if h.Events == nil {
+	if h.EventConn == nil {
 		jobTicker := time.NewTicker(5 * time.Second)
 		defer jobTicker.Stop()
 		keepaliveTicker := time.NewTicker(30 * time.Second)
@@ -172,7 +172,7 @@ func (h *Handler) StreamJobProgress(w http.ResponseWriter, r *http.Request) {
 	// Kanal für eingehende NATS-Nachrichten (gepuffert damit der Handler nicht blockiert).
 	msgCh := make(chan *natsgo.Msg, 32)
 
-	sub, err := h.Events.Subscribe("skadia.enrichment.progress."+userID, func(msg *natsgo.Msg) {
+	sub, err := h.EventConn.Subscribe("skadia.enrichment.progress."+userID, func(msg *natsgo.Msg) {
 		select {
 		case msgCh <- msg:
 		default:
