@@ -1,7 +1,7 @@
 package analytics
 
 import (
-	"encoding/json"
+	"bytes"
 	"log/slog"
 	"net/http"
 	"time"
@@ -127,17 +127,31 @@ func (h *Handler) GetReadiness(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(row.Data)
 }
 
-// writeStaleDegraded splices "degraded":"service_unavailable" into the
-// existing JSON object without losing its other fields.
-func writeStaleDegraded(w http.ResponseWriter, data json.RawMessage) {
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil || m == nil {
-		// Fall back to a refused envelope when the payload is not a JSON object.
-		slog.Warn("readiness stale body not a JSON object", "error", err)
+// writeStaleDegraded splices `,"degraded":"service_unavailable"` into the
+// existing cache-hit JSON object at the byte level, avoiding a full
+// unmarshal-remarshal round trip that loses key order and may reformat numbers.
+//
+// Edge cases:
+//   - Empty object `{}` → replaced with `{"degraded":"service_unavailable"}`.
+//   - Non-object payload → falls back to a refused envelope.
+func writeStaleDegraded(w http.ResponseWriter, data []byte) {
+	const suffix = `,"degraded":"service_unavailable"}`
+	body := bytes.TrimSpace(data)
+	if len(body) < 2 || body[0] != '{' || body[len(body)-1] != '}' {
+		slog.Warn("readiness stale body not a JSON object — falling back to refused envelope")
 		writeRefused(w, "service_unavailable", nil)
 		return
 	}
-	m["degraded"] = "service_unavailable"
-	httputil.WriteJSON(w, http.StatusOK, m)
+	var spliced []byte
+	if body[len(body)-2] == '{' {
+		// Empty object: {} → {"degraded":"service_unavailable"}
+		spliced = []byte(`{"degraded":"service_unavailable"}`)
+	} else {
+		// Normal case: append before closing brace.
+		spliced = append(body[:len(body)-1:len(body)-1], []byte(suffix)...)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(spliced)
 }
 
