@@ -241,7 +241,7 @@ export default function ActivityComparisonPage() {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <p className="text-neutral-500 dark:text-neutral-400">
-          Mindestens 2 Aktivitäten zum Vergleichen auswahlen.
+          Mindestens 2 Aktivitäten zum Vergleichen auswählen.
         </p>
         <button
           onClick={() => navigate('/activities')}
@@ -269,7 +269,7 @@ export default function ActivityComparisonPage() {
           onClick={() => navigate('/activities')}
           className="px-4 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
         >
-          Zuruck
+          Zurück
         </button>
       </div>
     )

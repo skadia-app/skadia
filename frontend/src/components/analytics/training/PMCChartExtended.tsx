@@ -747,7 +747,7 @@ export default function PMCChartExtended() {
                   Mono {effectiveCombinedData.monotony.toFixed(2)}{dateSuffix}
                 </span>
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                  Strain {effectiveCombinedData.strain.toFixed(0)}{dateSuffix}
+                  Belastung {effectiveCombinedData.strain.toFixed(0)}{dateSuffix}
                 </span>
               </>
             )}
@@ -793,7 +793,7 @@ export default function PMCChartExtended() {
       <div className="flex items-center gap-3 flex-wrap text-xs text-neutral-500 dark:text-neutral-400">
         <span className="flex items-center gap-1.5" title="Hoher TSB kann Erholung ODER Formverlust durch Trainingsunterbrechung bedeuten.">
           <span className="w-3 h-3 rounded-sm inline-block bg-blue-400/30" />
-          Frisch / Detrained (&gt;+15)
+          Frisch / Formverlust (&gt;+15)
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded-sm inline-block bg-emerald-400/30" />
@@ -801,7 +801,7 @@ export default function PMCChartExtended() {
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded-sm inline-block bg-yellow-400/30" />
-          Overreach (−30…−10)
+          Überbelastung (−30…−10)
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded-sm inline-block bg-red-400/30" />

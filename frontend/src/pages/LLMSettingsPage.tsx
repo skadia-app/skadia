@@ -13,7 +13,7 @@ const ROLE_LABELS: Record<string, string> = {
 }
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
-  default: 'Fur Text-Analyse, NL-Abfragen, Foto-Analyse und automatische Aktivitats-Benennung (skadia-default).',
+  default: 'Für Text-Analyse, NL-Abfragen, Foto-Analyse und automatische Aktivitäts-Benennung (skadia-default).',
 }
 
 const BACKEND_OPTIONS = [
@@ -267,7 +267,7 @@ function LLMRoleCard({ role, config, onSave }: {
                              bg-white dark:bg-neutral-800 px-3 py-2 text-sm
                              text-neutral-900 dark:text-neutral-100 focus:outline-none"
                 >
-                  <option value="">-- Modell waehlen --</option>
+                  <option value="">-- Modell wählen --</option>
                   {ollamaModels.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
               ) : (
@@ -301,7 +301,7 @@ function LLMRoleCard({ role, config, onSave }: {
           {needsAPIKey && (
             <div>
               <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
-                API-Schluessel {config?.has_api_key && <span className="text-green-500">(gesetzt)</span>}
+                API-Schlüssel {config?.has_api_key && <span className="text-green-500">(gesetzt)</span>}
               </label>
               <input
                 type="password"

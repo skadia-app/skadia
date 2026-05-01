@@ -129,7 +129,7 @@ export default function ZoneTable({ rows, onChange, unit, convertMpsToKmh = fals
                     disabled={disabled || rows.length <= 2}
                     className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-red-500 disabled:opacity-0 transition-opacity text-xs leading-none px-1"
                     aria-label={`Remove zone ${i + 1}`}
-                    title="Remove zone"
+                    title="Zone entfernen"
                   >
                     ✕
                   </button>

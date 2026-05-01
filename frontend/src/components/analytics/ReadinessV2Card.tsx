@@ -51,6 +51,19 @@ function confidenceLabel(confidence: string): string {
   return labels[confidence.toLowerCase()] ?? confidence
 }
 
+function factorStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    good: 'Gut', gut: 'Gut',
+    ok: 'OK',
+    warning: 'Warnung',
+    bad: 'Schlecht', schlecht: 'Schlecht',
+    high: 'Hoch', hoch: 'Hoch',
+    low: 'Niedrig', niedrig: 'Niedrig',
+    moderate: 'Moderat', moderat: 'Moderat', medium: 'Moderat', mittel: 'Moderat',
+  }
+  return labels[status.toLowerCase()] ?? status
+}
+
 function factorLabel(name: string): string {
   const labels: Record<string, string> = {
     hrv_cv: 'HRV-Variabilität',
@@ -105,7 +118,7 @@ function FactorRow({ factor }: { factor: ReadinessV2Factor }) {
           {typeof factor.value === 'number' ? factor.value.toFixed(1) : factor.value}
         </span>
         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${factorStatusColor(factor.status)}`}>
-          {factor.status}
+          {factorStatusLabel(factor.status)}
         </span>
       </div>
     </div>
@@ -150,7 +163,7 @@ export default function ReadinessV2Card() {
           Trainingsbereitschaft
         </h3>
         <p className="text-sm text-neutral-400 text-center py-4">
-          Dein Readiness-Score wird nach der nächsten Analyse berechnet.
+          Die Trainingsbereitschaft wird nach der nächsten Analyse berechnet.
         </p>
       </div>
     )

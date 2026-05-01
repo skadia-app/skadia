@@ -425,7 +425,7 @@ function ImportPhase({
                 ? 'Abgeschlossen'
                 : job?.status === 'failed'
                 ? 'Fehlgeschlagen'
-                : 'Lauft...'}
+                : 'Läuft...'}
             </span>
             <span className="text-xs text-neutral-500 tabular-nums font-mono">
               Job {jobId.slice(0, 8)}

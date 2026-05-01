@@ -14,6 +14,7 @@ import { DEMSettings } from '@/components/DEMSettings'
 import { OfflineMapSettings } from '@/components/OfflineMapSettings'
 import { OSMRegionManager, type OSMRegionManagerBatchUpdateProps } from '@/components/OSMRegionManager'
 import OSMImportModal from '@/components/OSMImportModal'
+import { osmCategoryLabel } from '@/lib/osmCategoryLabels'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import { useToast } from '@/lib/toast'
 import { getToken } from '@/lib/auth'
@@ -242,7 +243,7 @@ export default function AdminMapTilesSubTab() {
                 <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">POIs</p>
                 <div className="grid grid-cols-3 gap-2 text-center">
                   {Object.entries(osmStatus.categories).map(([key, count]) => (
-                    <OsmStatCard key={key} value={count} label={key} labelClassName="capitalize" />
+                    <OsmStatCard key={key} value={count} label={osmCategoryLabel(key)} />
                   ))}
                 </div>
               </div>

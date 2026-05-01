@@ -206,19 +206,19 @@ export default function PhysiologicalProfilePage() {
       {/* Training Zones */}
       <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-5">
         <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Training Zones</h2>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Trainingszonen</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Sport-specific heart rate, power and speed zones. Imported automatically from FIT files or editable manually.
+            Sportartspezifische HF-, Power- und Geschwindigkeitszonen. Werden automatisch aus FIT-Dateien importiert oder können manuell bearbeitet werden.
           </p>
         </div>
 
         {zonesLoading && (
-          <div className="text-sm text-neutral-500 dark:text-neutral-400 py-2">Loading zones...</div>
+          <div className="text-sm text-neutral-500 dark:text-neutral-400 py-2">Lade Zonen…</div>
         )}
 
         {!zonesLoading && (!zonesData?.sports || zonesData.sports.length === 0) && (
           <div className="text-sm text-neutral-500 dark:text-neutral-400 py-2">
-            No training zones found. Import a FIT file that contains zone data to populate this section.
+            Keine Trainingszonen gefunden. Importiere eine FIT-Datei mit Zonendaten, um diesen Bereich zu befüllen.
           </div>
         )}
 

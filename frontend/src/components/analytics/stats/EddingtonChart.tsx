@@ -138,7 +138,7 @@ export default function EddingtonChart() {
           </div>
           {data.number > 0 && data.next_levels && data.next_levels.length > 0 && nextLevel && (
             <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-              Fur E{nextLevel.level}: noch{' '}
+              Für E{nextLevel.level}: noch{' '}
               <span className="font-semibold text-neutral-700 dark:text-neutral-300">{nextLevel.remaining}</span>{' '}
               {nextLevel.remaining === 1 ? 'Tag' : 'Tage'} mit mindestens {nextLevel.level} {metricOption.unit}
             </div>
@@ -158,7 +158,7 @@ export default function EddingtonChart() {
           </div>
         ) : !data || !data.top_values || data.top_values.length === 0 ? (
           <div className="flex items-center justify-center h-48 text-sm text-neutral-400">
-            Keine Daten verfugbar
+            Keine Daten verfügbar
           </div>
         ) : (
           <div ref={containerRef} className="h-48 w-full" />

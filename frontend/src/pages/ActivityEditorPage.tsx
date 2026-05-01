@@ -536,7 +536,7 @@ export default function ActivityEditorPage() {
         to={`/activities/${id}`}
         className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 transition-colors"
       >
-        <span>&#8592;</span> Zur Aktivitatsdetailseite
+        <span>&#8592;</span> Zur Aktivitätsdetailseite
       </Link>
 
       {/* Header */}
@@ -769,7 +769,7 @@ export default function ActivityEditorPage() {
         </div>
       ) : !hasHR ? (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-8 text-center text-sm text-neutral-400">
-          Diese Aktivitat enthalt keine Herzfrequenzdaten.
+          Diese Aktivität enthält keine Herzfrequenzdaten.
         </div>
       ) : null}
 
