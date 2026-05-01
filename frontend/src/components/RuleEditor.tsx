@@ -1451,7 +1451,7 @@ function ActionParams({
               onChange={(e) => onChange({ ...params, sport_type: sportType, sub_type: e.target.value })}
               className={inputClass + ' w-40'}
             >
-              <option value="">beliebig</option>
+              {getSportDef(sportType)?.selectable !== false && <option value="">beliebig</option>}
               {subTypes.filter((s) => s.selectable).map((s) => <option key={s.subType} value={s.subType}>{s.label}</option>)}
             </select>
           </label>

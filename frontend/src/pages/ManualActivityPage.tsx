@@ -113,6 +113,10 @@ export default function ManualActivityPage() {
       addToast({ type: 'error', title: 'Dauer fehlt', message: 'Bitte gib eine Dauer ein.' })
       return
     }
+    if (selectedSportDef?.selectable === false && !subType) {
+      addToast({ type: 'error', title: 'Unterart fehlt', message: 'Bitte wähle eine konkrete Unterart.' })
+      return
+    }
 
     // Combine date + time → RFC3339 in local timezone
     const startedAt = new Date(`${date}T${time}:00`).toISOString()
@@ -224,7 +228,7 @@ export default function ManualActivityPage() {
                   onChange={e => setSubType(e.target.value)}
                   className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                 >
-                  <option value="">— keine —</option>
+                  {selectedSportDef.selectable && <option value="">— keine —</option>}
                   {selectedSportDef.subTypes.filter(st => st.selectable).map(st => (
                     <option key={st.subType} value={st.subType}>{st.label}</option>
                   ))}

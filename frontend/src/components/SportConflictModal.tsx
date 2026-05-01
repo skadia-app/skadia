@@ -19,6 +19,14 @@ type Selection = {
   label: string
 }
 
+type SportPickerEntry = {
+  sportType: string
+  subType: string
+  label: string
+  displayLabel: string
+  category: string
+}
+
 export default function SportConflictModal({ activity, open, onClose, onResolved }: SportConflictModalProps) {
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
@@ -59,13 +67,18 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
     return SPORT_DEFS.flatMap(sd => {
       const cat = CATEGORIES.find(c => c.key === sd.categoryKey)
       const category = cat?.label ?? sd.categoryKey
-      const topKey = `${sd.label}:${category}`
-      if (seenTopLevel.has(topKey)) return []
-      seenTopLevel.add(topKey)
-
-      const entries = [{ sportType: sd.sportType, subType: '', label: sd.label, displayLabel: sd.label, category }]
+      const entries: SportPickerEntry[] = []
+      if (sd.selectable) {
+        const topKey = `${sd.label}:${category}`
+        if (!seenTopLevel.has(topKey)) {
+          seenTopLevel.add(topKey)
+          entries.push({ sportType: sd.sportType, subType: '', label: sd.label, displayLabel: sd.label, category })
+        }
+      }
       for (const st of sd.subTypes) {
-        entries.push({ sportType: sd.sportType, subType: st.subType, label: st.label, displayLabel: `${sd.label} › ${st.label}`, category })
+        if (st.selectable) {
+          entries.push({ sportType: sd.sportType, subType: st.subType, label: st.label, displayLabel: `${sd.label} › ${st.label}`, category })
+        }
       }
       return entries
     })
