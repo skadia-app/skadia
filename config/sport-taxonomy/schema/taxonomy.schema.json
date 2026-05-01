@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Skadia Sport Taxonomy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["categories", "sports"],
+  "properties": {
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "labels", "color"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "labels": { "$ref": "#/$defs/localeMap" },
+          "color": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["token", "light_hex"],
+            "properties": {
+              "token": { "type": "string", "minLength": 1 },
+              "light_hex": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" }
+            }
+          }
+        }
+      }
+    },
+    "sports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sport_type",
+          "category_key",
+          "labels",
+          "auto_titles",
+          "segment_group",
+          "typically_has_gps",
+          "moving_threshold",
+          "is_indoor",
+          "modifier_applicability"
+        ],
+        "properties": {
+          "sport_type": { "type": "string", "minLength": 1 },
+          "category_key": { "type": "string", "minLength": 1 },
+          "labels": { "$ref": "#/$defs/localeMap" },
+          "auto_titles": { "$ref": "#/$defs/localeMap" },
+          "segment_group": {
+            "type": "string",
+            "enum": ["bike", "foot", "swim", "ski", "paddle", "generic"]
+          },
+          "typically_has_gps": { "type": "boolean" },
+          "moving_threshold": { "type": "number", "minimum": 0 },
+          "is_indoor": { "type": "boolean" },
+          "modifier_applicability": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["is_electric", "is_indoor", "is_virtual", "is_commute"],
+            "properties": {
+              "is_electric": { "type": "boolean" },
+              "is_indoor": { "type": "boolean" },
+              "is_virtual": { "type": "boolean" },
+              "is_commute": { "type": "boolean" }
+            }
+          },
+          "sub_types": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sub_type", "labels", "details", "auto_titles"],
+              "properties": {
+                "sub_type": { "type": "string", "minLength": 1 },
+                "labels": { "$ref": "#/$defs/localeMap" },
+                "details": { "$ref": "#/$defs/localeMap" },
+                "auto_titles": { "$ref": "#/$defs/localeMap" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "localeMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "required": ["de"],
+      "properties": {
+        "de": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
