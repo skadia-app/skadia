@@ -1143,6 +1143,11 @@ func (h *Handler) RecomputeAllTSS(w http.ResponseWriter, r *http.Request) {
 			slog.Error("RecomputeAllTSS failed", "user", userID, "job_id", jobID, "err", err)
 			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, true, err.Error())
 		} else {
+			if h.Events != nil {
+				if err := h.Events.PublishAnalyticsInvalidate(userID); err != nil {
+					slog.Warn("RecomputeAllTSS: analytics invalidate failed", "user_id", userID, "err", err)
+				}
+			}
 			slog.Info("RecomputeAllTSS completed", "user", userID, "job_id", jobID)
 			_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, false, "")
 		}

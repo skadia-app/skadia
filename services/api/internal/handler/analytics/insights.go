@@ -262,14 +262,24 @@ func (h *Handler) serveInsightsCache(w http.ResponseWriter, r *http.Request, cac
 }
 
 // RefreshInsights triggers re-computation of all analytics insights for the current user.
-// The four Go analytics functions (readiness, anomalies, projection, correlations) are
-// called directly in a background goroutine. Returns 202 Accepted immediately.
-// At most one computation per user runs concurrently; additional requests are silently
-// dropped (the in-flight computation will write fresh results).
+// Readiness is now owned by the Python ML worker — we publish an analytics-invalidate
+// event so the worker recomputes and writes the fresh row. The remaining Go analytics
+// functions (anomalies, projection, correlations) still run directly in a background
+// goroutine because they write different cache keys not yet migrated to the worker.
+// Returns 202 Accepted immediately. At most one computation per user runs concurrently;
+// additional requests are silently dropped (the in-flight computation will write fresh
+// results).
 func (h *Handler) RefreshInsights(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
+	}
+
+	// Trigger readiness recompute via the worker. Best-effort: log on failure.
+	if h.Invalidator != nil {
+		if err := h.Invalidator.PublishAnalyticsInvalidate(userID); err != nil {
+			slog.Warn("RefreshInsights: analytics invalidate failed", "user_id", userID, "err", err)
+		}
 	}
 
 	// Acquire per-user lock — non-blocking. If a computation is already running, skip.
@@ -291,9 +301,6 @@ func (h *Handler) RefreshInsights(w http.ResponseWriter, r *http.Request) {
 
 			ctx := context.Background()
 
-			if err := goanalytics.ComputeReadiness(ctx, db, userID); err != nil {
-				slog.Error("RefreshInsights: ComputeReadiness failed", "user_id", userID, "err", err)
-			}
 			if err := goanalytics.DetectAnomalies(ctx, db, userID); err != nil {
 				slog.Error("RefreshInsights: DetectAnomalies failed", "user_id", userID, "err", err)
 			}
