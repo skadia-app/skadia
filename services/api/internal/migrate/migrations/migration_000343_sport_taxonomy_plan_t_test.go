@@ -9,24 +9,24 @@ import (
 	"github.com/google/uuid"
 )
 
-func readMigration000999PlanTSQL(t *testing.T) (upSQL, downSQL string) {
+func readMigration000343PlanTSQL(t *testing.T) (upSQL, downSQL string) {
 	t.Helper()
-	upBytes, err := os.ReadFile("000999_sport_taxonomy_plan_t.up.sql")
+	upBytes, err := os.ReadFile("000343_sport_taxonomy_plan_t.up.sql")
 	if err != nil {
-		t.Fatalf("read 000999 up.sql: %v", err)
+		t.Fatalf("read 000343 up.sql: %v", err)
 	}
-	downBytes, err := os.ReadFile("000999_sport_taxonomy_plan_t.down.sql")
+	downBytes, err := os.ReadFile("000343_sport_taxonomy_plan_t.down.sql")
 	if err != nil {
-		t.Fatalf("read 000999 down.sql: %v", err)
+		t.Fatalf("read 000343 down.sql: %v", err)
 	}
 	return string(upBytes), string(downBytes)
 }
 
-func TestMigration000999PlanTDeclaresRequiredContracts(t *testing.T) {
-	upSQL, downSQL := readMigration000999PlanTSQL(t)
+func TestMigration000343PlanTDeclaresRequiredContracts(t *testing.T) {
+	upSQL, downSQL := readMigration000343PlanTSQL(t)
 
 	for _, needle := range []string{
-		"SELECT pg_advisory_xact_lock(330999, 1)",
+		"SELECT pg_advisory_xact_lock(330343, 1)",
 		"wheelchair_push_walk",
 		"wheelchair_push_run",
 		"indoor_wheelchair_walk",
@@ -62,8 +62,8 @@ func TestMigration000999PlanTDeclaresRequiredContracts(t *testing.T) {
 	}
 }
 
-func TestMigration000999PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
-	upSQL, _ := readMigration000999PlanTSQL(t)
+func TestMigration000343PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
+	upSQL, _ := readMigration000343PlanTSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
