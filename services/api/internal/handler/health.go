@@ -20,12 +20,24 @@ import (
 )
 
 type Handler struct {
-	DB             *database.DB
-	Events         *event.Publisher
-	// ReadinessInvalidator is an optional override used by the readiness-pref
-	// PUT path. When nil, the handler falls back to Events (which satisfies
-	// event.AnalyticsInvalidator). Tests inject a FakeInvalidator here.
-	ReadinessInvalidator event.AnalyticsInvalidator
+	DB *database.DB
+
+	// Segregated publisher interfaces. Production wires all six fields to the
+	// same *event.Publisher; tests can substitute a FakeInvalidator (or other
+	// fake) per-method. Each may be nil when NATS is not configured — call
+	// sites must guard with a nil-check before publishing.
+	AnalyticsInvalidator      event.AnalyticsInvalidator
+	ActivityUploadedPublisher event.ActivityUploadedPublisher
+	Stage2ReadyPublisher      event.Stage2ReadyPublisher
+	DocumentUploadedPublisher event.DocumentUploadedPublisher
+	PhotoEmbedPublisher       event.PhotoEmbedPublisher
+	EventConn                 event.EventConn
+
+	// Events is the legacy concrete pointer kept solely so handlers can pass
+	// the publisher wholesale to enrichment.RunStage1 / ReEnrichBatch /
+	// RunGeoAndPublishStage2, which still take *event.Publisher. Direct
+	// publish calls in handlers must use the segregated interfaces above.
+	Events *event.Publisher
 	ShadowFS       shadowfs.ShadowFS        // nil when not yet initialized
 	ShadowFSConfig *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
 	WatcherManager *shadowfs.WatcherManager // nil when per-user hotfolder is not configured
