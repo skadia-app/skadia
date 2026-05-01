@@ -149,98 +149,6 @@ func (h *Handler) GetHRVDFAAlpha1(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetHRVRecovery computes a composite recovery score from HRV, sleep, and ATL.
-func (h *Handler) GetHRVRecovery(w http.ResponseWriter, r *http.Request) {
-	userID, ok := httputil.RequireUserID(w, r)
-	if !ok {
-		return
-	}
-
-	// Last 7 days HRV trend.
-	filter := ParseFilters(r)
-	hrvPts, err := h.DB.GetHRVAnalysis(r.Context(), userID, filter.From, filter.To)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "HRV Query Failed",
-			err.Error(), r.URL.Path)
-		return
-	}
-
-	// Latest sleep.
-	latestSleep, err := h.DB.GetLatestHealthSleep(r.Context(), userID)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "Sleep Query Failed",
-			err.Error(), r.URL.Path)
-		return
-	}
-
-	// Latest training load (ATL).
-	latestLoad, err := h.DB.GetLatestHealthTrainingLoad(r.Context(), userID)
-	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, "Training Load Query Failed",
-			err.Error(), r.URL.Path)
-		return
-	}
-
-	// HRV factor (0–1): compare last 7-day average to overall baseline.
-	var rmssdVals []float64
-	for _, p := range hrvPts {
-		if p.RMSSD != nil {
-			rmssdVals = append(rmssdVals, *p.RMSSD)
-		}
-	}
-	baselineMean, baselineStd := meanStd(rmssdVals)
-	sevenDayAvg := tailMean(rmssdVals, 7)
-
-	var hrvFactor float64
-	if baselineMean > 0 {
-		// Normalize: 1.0 = at baseline, 0.0 = at baseline - 2*std.
-		low := baselineMean - 2*baselineStd
-		if low < 0 {
-			low = 0
-		}
-		hrvFactor = clamp((sevenDayAvg-low)/(baselineMean-low+1), 0, 1)
-	}
-
-	// Sleep factor (0–1): based on last night's score.
-	var sleepFactor float64
-	if latestSleep != nil && latestSleep.ScoreOverall != nil {
-		sleepFactor = clamp(float64(*latestSleep.ScoreOverall)/100.0, 0, 1)
-	}
-
-	// Fatigue factor (0–1): inverse of normalized ATL.
-	// ATL > 100 = high fatigue (factor near 0); ATL = 0 = no fatigue (factor = 1).
-	var fatigueFactor float64 = 1.0
-	if latestLoad != nil && latestLoad.ATLAcute != nil {
-		atl := *latestLoad.ATLAcute
-		// Normalize against a practical max of 150 TSS/day ATL.
-		fatigueFactor = clamp(1.0-(atl/150.0), 0, 1)
-	}
-
-	// Composite score: HRV 40%, sleep 30%, fatigue 30%.
-	compositeRaw := (hrvFactor*0.40 + sleepFactor*0.30 + fatigueFactor*0.30) * 100
-	score := int(math.Round(compositeRaw))
-
-	level, recommendation := recoveryLevel(score)
-
-	type response struct {
-		Score          int     `json:"score"`
-		Level          string  `json:"level"`
-		HRVFactor      float64 `json:"hrv_factor"`
-		SleepFactor    float64 `json:"sleep_factor"`
-		FatigueFactor  float64 `json:"fatigue_factor"`
-		Recommendation string  `json:"recommendation"`
-	}
-
-	httputil.WriteJSON(w, http.StatusOK, response{
-		Score:          score,
-		Level:          level,
-		HRVFactor:      round2(hrvFactor),
-		SleepFactor:    round2(sleepFactor),
-		FatigueFactor:  round2(fatigueFactor),
-		Recommendation: recommendation,
-	})
-}
-
 // GetSleep returns sleep analytics with 7-day rolling averages.
 func (h *Handler) GetSleep(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
@@ -453,22 +361,6 @@ func interpretCorrelation(r float64) string {
 		return "weak " + dir + " correlation"
 	default:
 		return "no meaningful correlation"
-	}
-}
-
-// recoveryLevel converts a composite score (0–100) to a named level and recommendation.
-func recoveryLevel(score int) (string, string) {
-	switch {
-	case score >= 80:
-		return "excellent", "Sehr gute Erholung. Intensive Trainingseinheiten sind heute problemlos möglich."
-	case score >= 60:
-		return "good", "Gute Erholung. Moderate bis intensive Einheiten sind geeignet."
-	case score >= 40:
-		return "moderate", "Leichte Ermüdung erkannt. Eine lockere Einheit oder Tempolauf empfehlenswert."
-	case score >= 20:
-		return "low", "Erholung unter Durchschnitt. Einen ruhigen Tag oder Pause einplanen."
-	default:
-		return "very_low", "Erhebliche Ermüdung oder schlechter Schlaf. Ruhetag oder aktive Erholung empfohlen."
 	}
 }
 

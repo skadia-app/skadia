@@ -23,12 +23,6 @@ var (
 	refreshLock = map[string]struct{}{}
 )
 
-// GetInsightsReadiness returns the ML-computed readiness score from the analytics cache.
-// Returns 204 No Content when the ML service has not yet computed the data.
-func (h *Handler) GetInsightsReadiness(w http.ResponseWriter, r *http.Request) {
-	h.serveInsightsCache(w, r, "readiness")
-}
-
 // apiWarning is the shape the frontend Warning type expects.
 type apiWarning struct {
 	Type        string  `json:"type"`
