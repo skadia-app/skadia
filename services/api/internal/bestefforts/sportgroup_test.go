@@ -29,8 +29,7 @@ func TestDetermineSportGroup(t *testing.T) {
 		// no best efforts
 		{name: "walking", sportType: "walking", want: ""},
 		{name: "floor climbing", sportType: "floor_climbing", want: ""},
-		{name: "wheelchair push walk", sportType: "wheelchair_push_walk", want: ""},
-		{name: "wheelchair push run", sportType: "wheelchair_push_run", want: ""},
+		{name: "wheelchair push", sportType: "wheelchair_push", want: ""},
 
 		// ── Cycling ──
 		{name: "cycling outdoor", sportType: "cycling", want: "cycling"},

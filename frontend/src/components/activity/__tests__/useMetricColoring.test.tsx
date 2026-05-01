@@ -55,7 +55,7 @@ describe('useMetricColoring', () => {
     const map = makeFakeMap()
     const { result } = renderHook(() => useMetricColoring({
       streams: streamsWithHR,
-      activity: { sport_type: 'running', fit_sport_id: 1 },
+      activity: { sport_type: 'running', sub_type: null, fit_sport_id: 1 },
       hasGps: true, zoomRange: null, map,
     }), { wrapper })
     expect(result.current.metric).toBe('sport')
@@ -65,7 +65,7 @@ describe('useMetricColoring', () => {
     const map = makeFakeMap()
     const { result } = renderHook(() => useMetricColoring({
       streams: streamsWithHR,
-      activity: { sport_type: 'running', fit_sport_id: 1 },
+      activity: { sport_type: 'running', sub_type: null, fit_sport_id: 1 },
       hasGps: true, zoomRange: null, map,
     }), { wrapper })
     act(() => result.current.setMetric('hr'))
@@ -77,7 +77,7 @@ describe('useMetricColoring', () => {
     const { result, rerender } = renderHook(
       ({ streams }: { streams: StreamPoint[] }) => useMetricColoring({
         streams,
-        activity: { sport_type: 'running', fit_sport_id: 1 },
+        activity: { sport_type: 'running', sub_type: null, fit_sport_id: 1 },
         hasGps: true, zoomRange: null, map,
       }),
       { wrapper, initialProps: { streams: streamsWithHR } },
@@ -93,7 +93,7 @@ describe('useMetricColoring', () => {
     const map = makeFakeMap()
     const { result } = renderHook(() => useMetricColoring({
       streams: streamsWithHR,
-      activity: { sport_type: 'running', fit_sport_id: 1 },
+      activity: { sport_type: 'running', sub_type: null, fit_sport_id: 1 },
       hasGps: false, zoomRange: null, map,
     }), { wrapper })
     expect(result.current.scale).toBeNull()
@@ -103,7 +103,7 @@ describe('useMetricColoring', () => {
     const map = makeFakeMap()
     const { result } = renderHook(() => useMetricColoring({
       streams: streamsWithHR,
-      activity: { sport_type: 'running', fit_sport_id: 1 },
+      activity: { sport_type: 'running', sub_type: null, fit_sport_id: 1 },
       hasGps: true, zoomRange: null, map,
     }), { wrapper })
     expect(result.current.scale?.type).toBe('constant')
@@ -113,7 +113,7 @@ describe('useMetricColoring', () => {
     const map = makeFakeMap()
     const { unmount } = renderHook(() => useMetricColoring({
       streams: streamsWithHR,
-      activity: { sport_type: 'running', fit_sport_id: 1 },
+      activity: { sport_type: 'running', sub_type: null, fit_sport_id: 1 },
       hasGps: true, zoomRange: null, map,
     }), { wrapper })
     expect(map.on).toHaveBeenCalledWith('moveend', expect.any(Function))

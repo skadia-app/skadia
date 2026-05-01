@@ -48,6 +48,7 @@ export interface SportLabelOptions {
 export interface SportOption {
   value: string
   label: string
+  subType?: string
 }
 
 export interface WaterSportUIGroup {
@@ -354,6 +355,27 @@ export function canonicalSportOptions(): SportOption[] {
   return SPORT_DEFS.map((s) => ({ value: s.sportType, label: s.label }))
 }
 
+export function selectableParentSportOptions(): SportOption[] {
+  return SPORT_DEFS
+    .filter((s) => s.selectable)
+    .map((s) => ({ value: s.sportType, label: s.label }))
+}
+
+export function selectableSportTupleOptions(): SportOption[] {
+  const options: SportOption[] = []
+  for (const s of SPORT_DEFS) {
+    if (s.selectable) {
+      options.push({ value: s.sportType, label: s.label })
+    }
+    for (const st of s.subTypes) {
+      if (st.selectable) {
+        options.push({ value: s.sportType, subType: st.subType, label: sportLabel(s.sportType, st.subType) })
+      }
+    }
+  }
+  return options
+}
+
 const ROUTE_PROMOTED_SUBTYPES: Record<string, string[]> = {
   cycling: ['mountain', 'gravel_cycling', 'road'],
   running: ['trail'],
@@ -415,9 +437,9 @@ export function routeSportOptions(): RouteSportOption[] {
     .map((sportType) => sportMap.get(sportType))
     .filter((s): s is SportDef => Boolean(s))
     .flatMap((s) => {
-      const options: RouteSportOption[] = [{ sportType: s.sportType, label: s.label }]
+      const options: RouteSportOption[] = s.selectable ? [{ sportType: s.sportType, label: s.label }] : []
       for (const subType of ROUTE_PROMOTED_SUBTYPES[s.sportType] ?? []) {
-        if (s.subTypes.some((st) => st.subType === subType)) {
+        if (s.subTypes.some((st) => st.subType === subType && st.selectable)) {
           options.push({ sportType: s.sportType, subType, label: sportLabel(s.sportType, subType) })
         }
       }

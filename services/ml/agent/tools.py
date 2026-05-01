@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Specific disciplines are stored in sub_type, not as sport_type.
 _SPORT_TYPES = [
     "running", "walking", "hiking", "mountaineering", "snowshoeing",
-    "floor_climbing", "wheelchair_push_walk", "wheelchair_push_run",
+    "floor_climbing", "wheelchair_push",
     "cycling", "inline_skating", "alpine_skiing", "backcountry_skiing",
     "cross_country_skiing", "snowboarding", "ice_skating", "snowmobiling",
     "sledding", "swimming", "paddling", "kayaking", "stand_up_paddleboarding",
@@ -33,7 +33,7 @@ _SPORT_TYPES = [
     "rock_climbing", "flying", "hang_gliding", "sky_diving", "jumpmaster",
     "horseback_riding", "hunting", "motorcycling", "driving", "boxing",
     "mixed_martial_arts", "tactical", "multisport", "transition",
-    "generic", "unknown", "skiing", "strength", "canoeing",
+    "generic", "unknown", "skiing", "canoeing",
 ]
 
 _MODIFIER_FILTER_PARAMS = {
@@ -651,7 +651,7 @@ ALL_TOOL_DEFINITIONS = [
                 "E-Bike→sport_type='cycling' AND is_electric=true, "
                 "Virtual→is_virtual=true, Pendeln/Commute→is_commute=true, "
                 "Ski allgemein→sport_type='skiing', Alpin-Ski→sport_type='alpine_skiing', "
-                "Kraft allgemein→sport_type='strength', Krafttraining→sport_type='strength_training', "
+                "Krafttraining→sport_type='strength_training', "
                 "Bouldern→sport_type='rock_climbing' AND sub_type='bouldering'.\n"
                 "IMPORTANT SQL rules: Use ROUND(x::numeric, n) not ROUND(float8, n). "
                 "gear.type values: 'bike','shoes','other' (NOT 'bicycle'). "

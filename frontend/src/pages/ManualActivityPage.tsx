@@ -91,9 +91,10 @@ export default function ManualActivityPage() {
   const isBike = selectedSportDef?.categoryKey === 'bike'
 
   function handleSportChange(newSport: string) {
+    const nextDef = SPORT_DEFS.find(d => d.sportType === newSport)
     setSportType(newSport)
-    setSubType('')
-    if (SPORT_DEFS.find(d => d.sportType === newSport)?.categoryKey !== 'bike') {
+    setSubType(nextDef?.selectable === false ? (nextDef.subTypes.find(st => st.selectable)?.subType ?? '') : '')
+    if (nextDef?.categoryKey !== 'bike') {
       setIsElectric(false)
     }
   }
@@ -176,7 +177,7 @@ export default function ManualActivityPage() {
               <legend className="mb-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">Sportart</legend>
               <div className="overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900">
                 {CATEGORIES.map(cat => {
-                  const sports = sportsInCategory(cat.key)
+                  const sports = sportsInCategory(cat.key).filter(s => s.selectable || s.subTypes.some(st => st.selectable))
                   if (!sports.length) return null
                   return (
                     <details key={cat.key} open={sports.some(s => s.sportType === sportType)}>
@@ -224,7 +225,7 @@ export default function ManualActivityPage() {
                   className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                 >
                   <option value="">— keine —</option>
-                  {selectedSportDef.subTypes.map(st => (
+                  {selectedSportDef.subTypes.filter(st => st.selectable).map(st => (
                     <option key={st.subType} value={st.subType}>{st.label}</option>
                   ))}
                 </select>
