@@ -22,6 +22,10 @@ import (
 type Handler struct {
 	DB             *database.DB
 	Events         *event.Publisher
+	// ReadinessInvalidator is an optional override used by the readiness-pref
+	// PUT path. When nil, the handler falls back to Events (which satisfies
+	// event.AnalyticsInvalidator). Tests inject a FakeInvalidator here.
+	ReadinessInvalidator event.AnalyticsInvalidator
 	ShadowFS       shadowfs.ShadowFS        // nil when not yet initialized
 	ShadowFSConfig *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
 	WatcherManager *shadowfs.WatcherManager // nil when per-user hotfolder is not configured

@@ -125,20 +125,26 @@ type AnalyticsInvalidateEvent struct {
 	UserID string `json:"user_id"`
 }
 
+// AnalyticsInvalidator is the only method handlers/tests consume from the
+// publisher. *Publisher implements it; a Fake in this package implements it
+// too. Returning error replaces the previous slog.Warn-and-swallow so callers
+// can mark responses degraded when publish fails.
+type AnalyticsInvalidator interface {
+	PublishAnalyticsInvalidate(userID string) error
+}
+
 // PublishAnalyticsInvalidate publishes a skadia.analytics.invalidate event.
 // The ML service listens on this subject and recomputes all analytics cache entries for the user.
-func (p *Publisher) PublishAnalyticsInvalidate(userID string) {
+func (p *Publisher) PublishAnalyticsInvalidate(userID string) error {
 	data, err := json.Marshal(AnalyticsInvalidateEvent{UserID: userID})
 	if err != nil {
-		slog.Warn("analytics invalidate: marshal failed", "error", err)
-		return
+		return fmt.Errorf("analytics invalidate: marshal: %w", err)
 	}
-	_, err = p.js.Publish("skadia.analytics.invalidate", data)
-	if err != nil {
-		slog.Warn("analytics invalidate: publish failed", "error", err)
-		return
+	if _, err := p.js.Publish("skadia.analytics.invalidate", data); err != nil {
+		return fmt.Errorf("analytics invalidate: publish: %w", err)
 	}
 	slog.Info("event published", "subject", "skadia.analytics.invalidate", "user_id", userID)
+	return nil
 }
 
 // PhotoEmbedEvent is emitted after every photo upload so the ML service

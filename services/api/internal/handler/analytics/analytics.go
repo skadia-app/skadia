@@ -8,18 +8,18 @@ import (
 )
 
 type Handler struct {
-	DB        *database.DB
-	Publisher *event.Publisher // optional — nil when NATS is unavailable
-	ML        *ml.Client       // optional — nil when ML service is unconfigured
+	DB          *database.DB
+	Invalidator event.AnalyticsInvalidator // optional — nil when NATS is unavailable
+	ML          *ml.Client                 // optional — nil when ML service is unconfigured
 }
 
-func NewHandler(db *database.DB, pub *event.Publisher) *Handler {
-	return &Handler{DB: db, Publisher: pub}
+func NewHandler(db *database.DB, inv event.AnalyticsInvalidator) *Handler {
+	return &Handler{DB: db, Invalidator: inv}
 }
 
 // NewHandlerWithML creates a Handler with an ML client attached.
-func NewHandlerWithML(db *database.DB, pub *event.Publisher, mlClient *ml.Client) *Handler {
-	return &Handler{DB: db, Publisher: pub, ML: mlClient}
+func NewHandlerWithML(db *database.DB, inv event.AnalyticsInvalidator, mlClient *ml.Client) *Handler {
+	return &Handler{DB: db, Invalidator: inv, ML: mlClient}
 }
 
 func (h *Handler) Routes() chi.Router {
@@ -59,6 +59,11 @@ func (h *Handler) Routes() chi.Router {
 
 	// Route similarity
 	r.Get("/similar-routes", h.GetSimilarRoutes)
+
+	// Consolidated readiness endpoint (Phase 5). The legacy /readiness-v2,
+	// /insights/readiness and /hrv/recovery routes remain for now; Phase 10
+	// removes them once the frontend has fully migrated.
+	r.Get("/readiness", h.GetReadiness)
 
 	// ML Features (WP3)
 	r.Get("/changepoints", h.GetChangepoints)

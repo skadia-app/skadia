@@ -1425,6 +1425,10 @@ func main() {
 			r.Get("/user/llm-config", h.GetLLMUserConfig)
 			r.Patch("/user/llm-config", h.PatchLLMUserConfig)
 
+			// Readiness preferences (per-user manual source override)
+			r.Get("/user/readiness-preferences", h.GetUserReadinessPreferences)
+			r.Put("/user/readiness-preferences", h.PutUserReadinessPreferences)
+
 			// Health data
 			r.Route("/health", func(r chi.Router) {
 				r.Get("/daily-summary", h.GetHealthDailySummaries)

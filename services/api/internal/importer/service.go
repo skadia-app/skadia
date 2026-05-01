@@ -492,7 +492,9 @@ func (s *Service) PostProcess(
 		if err := s.Events.PublishActivityUploaded(evt); err != nil {
 			slog.Error("event publish failed", "error", err)
 		}
-		s.Events.PublishAnalyticsInvalidate(userID)
+		if err := s.Events.PublishAnalyticsInvalidate(userID); err != nil {
+			slog.Warn("analytics invalidate failed", "user_id", userID, "error", err)
+		}
 	}
 
 	// Segment matching + lap detection (non-blocking background goroutine)
