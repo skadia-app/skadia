@@ -144,16 +144,36 @@ async def _load_hrv_status(conn, user_id: str, user_tz: str) -> FactorInput:
     rmssd_today = float(today_row["rmssd_ms"])
     stale_h = float(today_row["age_h"])
 
-    # 60-day baseline from health_hrv_night_values (n>=7, AVG/STDDEV)
+    # 60-day baseline — union health_hrv_night_values + health_snapshots so that
+    # mobile-import users (snapshots-only) get a baseline too. Day+source dedup:
+    # one row per (local-date, source_type) — prevents source-double-counting
+    # when both tables ingest the same night via different importers.
     baseline = await conn.fetchrow(
         """
-        SELECT AVG(rmssd_ms) AS mean,
-               STDDEV_SAMP(rmssd_ms) AS sd,
+        WITH src AS (
+            SELECT (ts AT TIME ZONE $2)::date AS day,
+                   source_type,
+                   AVG(rmssd_ms) AS rmssd
+              FROM health_hrv_night_values
+             WHERE user_id = $1::uuid
+               AND ts >= ((NOW() AT TIME ZONE $2)::date - INTERVAL '60 days')
+               AND ts::date < (NOW() AT TIME ZONE $2)::date
+             GROUP BY day, source_type
+            UNION ALL
+            SELECT (measured_at_utc AT TIME ZONE $2)::date AS day,
+                   source_type,
+                   AVG(rmssd_ms) AS rmssd
+              FROM health_snapshots
+             WHERE user_id = $1::uuid
+               AND rmssd_ms IS NOT NULL
+               AND measured_at_utc >= ((NOW() AT TIME ZONE $2)::date - INTERVAL '60 days')
+               AND (measured_at_utc AT TIME ZONE $2)::date < (NOW() AT TIME ZONE $2)::date
+             GROUP BY day, source_type
+        )
+        SELECT AVG(rmssd) AS mean,
+               STDDEV_SAMP(rmssd) AS sd,
                COUNT(*) AS n
-          FROM health_hrv_night_values
-         WHERE user_id = $1::uuid
-           AND ts >= ((NOW() AT TIME ZONE $2)::date - INTERVAL '60 days')
-           AND ts::date < (NOW() AT TIME ZONE $2)::date
+          FROM src
         """,
         user_id, user_tz,
     )
@@ -267,7 +287,13 @@ async def _load_training_load_factor(conn, user_id: str, user_tz: str) -> Factor
 
 
 async def _load_manufacturer_factors(conn, user_id: str, user_tz: str) -> dict | None:
-    """health_readiness_scores for today, score IS NOT NULL."""
+    """health_readiness_scores for today.
+
+    Returns the row when ANY relevant field is non-null (score, level, or any
+    of the per-factor pct columns). Path-B eligibility is decided downstream
+    via `mfr['score'] is not None` — this loader must not silently discard
+    partial rows that still carry usable per-factor data for Path A's mix.
+    """
     row = await conn.fetchrow(
         """
         SELECT score, level,
@@ -277,7 +303,15 @@ async def _load_manufacturer_factors(conn, user_id: str, user_tz: str) -> dict |
           FROM health_readiness_scores
          WHERE user_id = $1::uuid
            AND calendar_date = (NOW() AT TIME ZONE $2)::date
-           AND score IS NOT NULL
+           AND (
+                score IS NOT NULL
+             OR level IS NOT NULL
+             OR hrv_factor_pct IS NOT NULL
+             OR sleep_history_factor_pct IS NOT NULL
+             OR stress_history_factor_pct IS NOT NULL
+             OR recovery_time_factor_pct IS NOT NULL
+             OR acwr_pct IS NOT NULL
+           )
         """,
         user_id, user_tz,
     )
@@ -639,12 +673,23 @@ async def _derive_confidence(
 
 
 async def _hrv_baseline_days_geq(conn, user_id: str, days: int, user_tz: str) -> bool:
+    # Counts distinct local calendar days across the same union as the HRV
+    # baseline mean/sd query so mobile-import users with snapshots-only data
+    # qualify for `confidence='high'`.
     row = await conn.fetchrow(
         """
-        SELECT COUNT(DISTINCT ts::date) AS n
-          FROM health_hrv_night_values
-         WHERE user_id = $1::uuid
-           AND ts >= ((NOW() AT TIME ZONE $3)::date - ($2::int || ' days')::interval)
+        SELECT COUNT(*) AS n FROM (
+            SELECT (ts AT TIME ZONE $3)::date AS day
+              FROM health_hrv_night_values
+             WHERE user_id = $1::uuid
+               AND ts >= ((NOW() AT TIME ZONE $3)::date - ($2::int || ' days')::interval)
+            UNION
+            SELECT (measured_at_utc AT TIME ZONE $3)::date AS day
+              FROM health_snapshots
+             WHERE user_id = $1::uuid
+               AND rmssd_ms IS NOT NULL
+               AND measured_at_utc >= ((NOW() AT TIME ZONE $3)::date - ($2::int || ' days')::interval)
+        ) d
         """,
         user_id, days, user_tz,
     )
