@@ -135,15 +135,15 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filter := ParseFilters(r)
+	from, to := parseDateOnly(r)
 	splitBySport := r.URL.Query().Get("split_by_sport") == "true"
 
 	if splitBySport {
-		h.getPMCSplit(w, r, userID, filter)
+		h.getPMCSplit(w, r, userID, from, to)
 		return
 	}
 
-	days, err := h.DB.GetPMCRange(ctx, userID, filter.From, filter.To)
+	days, err := h.DB.GetPMCRange(ctx, userID, from, to)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return
@@ -237,10 +237,10 @@ func (h *Handler) GetPMC(w http.ResponseWriter, r *http.Request) {
 // sport_group rows, groups them by sport, and returns a PMCSplitResponse. The
 // summary metrics (ACWR, RampRate, Monotony, Strain, Projection) are derived
 // from the "__combined__" series, keeping them consistent with the default view.
-func (h *Handler) getPMCSplit(w http.ResponseWriter, r *http.Request, userID string, filter AnalyticsFilter) {
+func (h *Handler) getPMCSplit(w http.ResponseWriter, r *http.Request, userID string, from, to time.Time) {
 	ctx := r.Context()
 
-	allDays, err := h.DB.GetPMCRangeAllSports(ctx, userID, filter.From, filter.To)
+	allDays, err := h.DB.GetPMCRangeAllSports(ctx, userID, from, to)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
 		return

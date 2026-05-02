@@ -9,8 +9,7 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchWeightAnalysis } from '@/api/analytics'
-import { useAnalyticsFilters } from '@/lib/analyticsFilters'
-import { toLocalISO } from '@/lib/dateUtils'
+import { useHealthRange } from '@/components/analytics/filters/HealthRangeContext'
 import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([
@@ -23,18 +22,14 @@ echarts.use([
 ])
 
 export default function WeightChart() {
-  const { toQueryString } = useAnalyticsFilters()
+  const { from, to } = useHealthRange()
 
   const queryParams = useMemo(() => {
-    const base = toQueryString()
-    const params = new URLSearchParams(base)
-    const to = new Date()
-    const from = new Date()
-    from.setDate(from.getDate() - 90)
-    params.set('from', toLocalISO(from))
-    params.set('to', toLocalISO(to))
+    const params = new URLSearchParams()
+    params.set('from', from)
+    params.set('to', to)
     return params.toString()
-  }, [toQueryString])
+  }, [from, to])
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['analytics', 'weight-analysis', queryParams],

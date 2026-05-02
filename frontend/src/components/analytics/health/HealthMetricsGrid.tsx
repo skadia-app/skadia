@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -6,7 +6,7 @@ import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchHealthMetrics } from '@/api/analytics'
 import type { HealthMetric } from '@/api/analytics'
-import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { useHealthRange } from '@/components/analytics/filters/HealthRangeContext'
 import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
@@ -126,11 +126,18 @@ function MetricCard({ metric }: MetricCardProps) {
 }
 
 export default function HealthMetricsGrid() {
-  const { toQueryString } = useAnalyticsFilters()
+  const { from, to } = useHealthRange()
+
+  const queryParams = useMemo(() => {
+    const params = new URLSearchParams()
+    params.set('from', from)
+    params.set('to', to)
+    return params.toString()
+  }, [from, to])
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['analytics', 'health-metrics', toQueryString()],
-    queryFn: () => fetchHealthMetrics(toQueryString()),
+    queryKey: ['analytics', 'health-metrics', queryParams],
+    queryFn: () => fetchHealthMetrics(queryParams),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   })

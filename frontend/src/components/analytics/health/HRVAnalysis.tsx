@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import { LineChart, ScatterChart } from 'echarts/charts'
@@ -12,11 +12,11 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchHRVAnalysis } from '@/api/analytics'
-import { useAnalyticsFilters } from '@/lib/analyticsFilters'
-import { toLocalISO } from '@/lib/dateUtils'
 import { useChangepoints, changepointsToMarkLines } from '@/components/analytics/ChangepointMarkers'
 import { useECharts } from '@/hooks/useECharts'
 import { cn } from '@/lib/utils'
+import PureAggregateRangePicker from '@/components/analytics/filters/PureAggregateRangePicker'
+import { type DateRange } from '@/components/analytics/filters/RangePresetBar'
 
 echarts.use([
   LineChart,
@@ -30,50 +30,18 @@ echarts.use([
   CanvasRenderer,
 ])
 
-type TimePreset = '7d' | '30d' | '90d' | '1y' | 'all'
-
-const presetLabels: Record<TimePreset, string> = {
-  '7d': '7T',
-  '30d': '30T',
-  '90d': '90T',
-  '1y': '1J',
-  'all': 'Alle',
-}
-
-function getDateRange(preset: TimePreset): { from: string; to: string } {
-  const to = new Date()
-  const from = new Date()
-  switch (preset) {
-    case '7d': from.setDate(from.getDate() - 7); break
-    case '30d': from.setDate(from.getDate() - 30); break
-    case '90d': from.setDate(from.getDate() - 90); break
-    case '1y': from.setFullYear(from.getFullYear() - 1); break
-    case 'all': return { from: '0001-01-01', to: toLocalISO(to) }
-  }
-  return {
-    from: toLocalISO(from),
-    to: toLocalISO(to),
-  }
-}
-
 export default function HRVAnalysisChart() {
-  const { toQueryString } = useAnalyticsFilters()
-  const [preset, setPreset] = useState<TimePreset>('90d')
+  const [range, setRange] = useState<DateRange | null>(null)
   const changepoints = useChangepoints('hrv_rmssd', 180)
 
-  const { from, to } = useMemo(() => getDateRange(preset), [preset])
-
-  const queryParams = useMemo(() => {
-    const base = toQueryString()
-    const params = new URLSearchParams(base)
-    params.set('from', from)
-    params.set('to', to)
-    return params.toString()
-  }, [toQueryString, from, to])
+  const queryParams = range
+    ? new URLSearchParams({ from: range.from, to: range.to }).toString()
+    : null
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['analytics', 'hrv', queryParams],
-    queryFn: () => fetchHRVAnalysis(queryParams),
+    queryFn: () => fetchHRVAnalysis(queryParams!),
+    enabled: queryParams !== null,
     staleTime: 5 * 60 * 1000,
     retry: 1,
   })
@@ -236,21 +204,7 @@ export default function HRVAnalysisChart() {
             RMSSD-Trend mit Anomalie-Erkennung
           </p>
         </div>
-        <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
-          {(Object.keys(presetLabels) as TimePreset[]).map(p => (
-            <button
-              key={p}
-              onClick={() => setPreset(p)}
-              className={
-                p === preset
-                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
-                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
-              }
-            >
-              {presetLabels[p]}
-            </button>
-          ))}
-        </div>
+        <PureAggregateRangePicker defaultPreset="90d" onChange={setRange} />
       </div>
 
       {/* Info panel — only when data has points */}
@@ -290,14 +244,6 @@ export default function HRVAnalysisChart() {
                   d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
               </svg>
               <span className="text-sm">Keine HRV-Daten für diesen Zeitraum</span>
-              {preset !== 'all' && (
-                <button
-                  onClick={() => setPreset('all')}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
-                >
-                  Alle verfügbaren Daten anzeigen
-                </button>
-              )}
             </div>
           )}
           <div

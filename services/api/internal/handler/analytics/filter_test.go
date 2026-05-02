@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -136,5 +137,97 @@ func TestBuildWhereClause_WithSubTypeFilter(t *testing.T) {
 	}
 	if len(args) < 2 {
 		t.Fatalf("expected sport and subtype args, got %d", len(args))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseDateOnly — backwards-compat tests for pure-aggregate handlers
+// ---------------------------------------------------------------------------
+
+// TestParseDateOnly_ExtractsFromTo verifies that from/to are parsed correctly.
+func TestParseDateOnly_ExtractsFromTo(t *testing.T) {
+	r := httptest.NewRequest("GET", "/analytics/hrv?from=2024-01-01&to=2024-12-31", nil)
+	from, to := parseDateOnly(r)
+	if from.Format("2006-01-02") != "2024-01-01" {
+		t.Errorf("from = %s, want 2024-01-01", from.Format("2006-01-02"))
+	}
+	if to.Format("2006-01-02") != "2024-12-31" {
+		t.Errorf("to = %s, want 2024-12-31", to.Format("2006-01-02"))
+	}
+}
+
+// TestParseDateOnly_IgnoresActivityFilters verifies that extra params (sport_type, tags, etc.)
+// have no effect — the returned from/to are identical to the variant without them.
+// This is the backwards-compat guarantee for pure-aggregate handlers.
+func TestParseDateOnly_IgnoresActivityFilters(t *testing.T) {
+	withExtra := httptest.NewRequest("GET", "/analytics/hrv?sport_type=foo&tags=bar&from=2024-01-01&to=2024-12-31", nil)
+	withoutExtra := httptest.NewRequest("GET", "/analytics/hrv?from=2024-01-01&to=2024-12-31", nil)
+
+	fromA, toA := parseDateOnly(withExtra)
+	fromB, toB := parseDateOnly(withoutExtra)
+
+	if !fromA.Equal(fromB) {
+		t.Errorf("from mismatch: with-extra=%s, without-extra=%s", fromA, fromB)
+	}
+	if !toA.Equal(toB) {
+		t.Errorf("to mismatch: with-extra=%s, without-extra=%s", toA, toB)
+	}
+}
+
+// TestParseDateOnly_DefaultToNow verifies that a missing "to" defaults to today (not zero).
+func TestParseDateOnly_DefaultToNow(t *testing.T) {
+	r := httptest.NewRequest("GET", "/analytics/hrv?from=2024-01-01", nil)
+	_, to := parseDateOnly(r)
+	if to.IsZero() {
+		t.Error("to must default to time.Now(), got zero value")
+	}
+}
+
+// TestParseDateOnly_EmptyFromIsZero verifies that a missing "from" stays zero (no lower bound).
+func TestParseDateOnly_EmptyFromIsZero(t *testing.T) {
+	r := httptest.NewRequest("GET", "/analytics/hrv", nil)
+	from, _ := parseDateOnly(r)
+	if !from.IsZero() {
+		t.Errorf("from must be zero when absent, got %s", from)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Handler 401 early-return — pure-aggregate handlers (no DB needed)
+// ---------------------------------------------------------------------------
+
+// TestPureAggregateHandlers_NoUserID verifies that HRV, Sleep, and Weight handlers
+// return 401 before any DB call when no user identity is present. This also confirms
+// that the parseDateOnly refactor does not introduce any panic on missing user.
+func TestPureAggregateHandlers_NoUserID(t *testing.T) {
+	h := &Handler{DB: nil}
+
+	handlers := []struct {
+		name string
+		fn   func(http.ResponseWriter, *http.Request)
+	}{
+		{"GetHRV", h.GetHRV},
+		{"GetSleep", h.GetSleep},
+		{"GetWeight", h.GetWeight},
+	}
+
+	for _, hh := range handlers {
+		t.Run(hh.name, func(t *testing.T) {
+			// Variant A: extra ignored params present.
+			reqA := httptest.NewRequest("GET", "/analytics?sport_type=foo&tags=bar&from=2024-01-01&to=2024-12-31", nil)
+			rrA := httptest.NewRecorder()
+			hh.fn(rrA, reqA)
+			if rrA.Code != 401 {
+				t.Errorf("%s (A): expected 401, got %d", hh.name, rrA.Code)
+			}
+
+			// Variant B: only date params.
+			reqB := httptest.NewRequest("GET", "/analytics?from=2024-01-01&to=2024-12-31", nil)
+			rrB := httptest.NewRecorder()
+			hh.fn(rrB, reqB)
+			if rrB.Code != 401 {
+				t.Errorf("%s (B): expected 401, got %d", hh.name, rrB.Code)
+			}
+		})
 	}
 }

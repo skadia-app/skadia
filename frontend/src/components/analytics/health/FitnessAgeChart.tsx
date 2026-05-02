@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -9,23 +9,19 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchHealthFitnessAge } from '@/api/analytics'
-import { toLocalISO } from '@/lib/dateUtils'
 import { useECharts } from '@/hooks/useECharts'
+import PureAggregateRangePicker from '@/components/analytics/filters/PureAggregateRangePicker'
+import { type DateRange } from '@/components/analytics/filters/RangePresetBar'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
 
 export default function FitnessAgeChart() {
-  const { from, to } = useMemo(() => {
-    const to = new Date()
-    return {
-      from: '0001-01-01',
-      to: toLocalISO(to),
-    }
-  }, [])
+  const [range, setRange] = useState<DateRange | null>(null)
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['health', 'fitness-age', from, to],
-    queryFn: () => fetchHealthFitnessAge(from, to),
+    queryKey: ['health', 'fitness-age', range?.from, range?.to],
+    queryFn: () => fetchHealthFitnessAge(range!.from, range!.to),
+    enabled: range !== null,
     staleTime: 5 * 60 * 1000,
     retry: 1,
   })
@@ -107,6 +103,7 @@ export default function FitnessAgeChart() {
             </span>
           )}
         </div>
+        <PureAggregateRangePicker defaultPreset="90d" onChange={setRange} />
       </div>
 
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">

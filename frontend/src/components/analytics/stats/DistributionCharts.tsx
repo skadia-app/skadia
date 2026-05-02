@@ -10,7 +10,8 @@ import { CanvasRenderer } from 'echarts/renderers'
 import * as echarts from 'echarts/core'
 import { fetchDistributions } from '@/api/analytics'
 import type { Distribution } from '@/api/analytics'
-import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import SportOnlyFilterBar, { expandSportSelection } from '@/components/analytics/filters/SportOnlyFilterBar'
+import type { SportOnlyFilterValue } from '@/components/analytics/filters/SportOnlyFilterBar'
 import { useECharts } from '@/hooks/useECharts'
 import { cn } from '@/lib/utils'
 
@@ -54,10 +55,10 @@ interface DistChartProps {
   label: string
   metric: MetricKey
   params: string
-  onLabelClick: (label: string, type: DistType) => void
+  onSportClick: (label: string) => void
 }
 
-function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartProps) {
+function DistChartCard({ type, label, metric, params, onSportClick }: DistChartProps) {
   const [chartType, setChartType] = useState<ChartType>('pie')
 
   const metricOption = METRIC_OPTIONS.find(o => o.value === metric)!
@@ -159,7 +160,11 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
     (chart) => {
       const handler = (params: unknown) => {
         const p = params as { name?: string }
-        if (p.name) onLabelClick(p.name, type)
+        // Pie clicks on sport segments redirect to the local sport filter.
+        // Other segment types (country, gear, distance_bucket) are not clickable.
+        if (type === 'sport' && p.name && p.name.toLowerCase() !== 'unknown') {
+          onSportClick(p.name)
+        }
       }
       chart.on('click', handler)
       return () => chart.off('click', handler)
@@ -197,18 +202,17 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
   )
 }
 
-export default function DistributionCharts() {
-  const { toQueryString, setFilters } = useAnalyticsFilters()
-  const [metric, setMetric] = useState<MetricKey>('count')
-  const params = toQueryString()
+const DEFAULT_FILTER: SportOnlyFilterValue = { selectedSports: [], from: '', to: '' }
 
-  const handleLabelClick = (label: string, type: DistType) => {
-    if (type === 'sport') {
-      if (label.toLowerCase() === 'unknown') return
-      setFilters({ sportTypes: [label] })
-    } else if (type === 'country') {
-      setFilters({ countries: [label] })
-    }
+export default function DistributionCharts() {
+  const [metric, setMetric] = useState<MetricKey>('count')
+  const [filter, setFilter] = useState<SportOnlyFilterValue>(DEFAULT_FILTER)
+
+  const params = buildParams(filter)
+
+  // Pie click on a sport label sets the local sport filter rather than the global URL state.
+  function handleSportClick(sportLabel: string) {
+    setFilter(prev => ({ ...prev, selectedSports: [sportLabel] }))
   }
 
   return (
@@ -232,6 +236,9 @@ export default function DistributionCharts() {
         </div>
       </div>
 
+      {/* Local sport + range filter — career aggregate: no global filter */}
+      <SportOnlyFilterBar value={filter} onChange={setFilter} />
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {DISTRIBUTION_CARDS.map(card => (
           <DistChartCard
@@ -240,14 +247,23 @@ export default function DistributionCharts() {
             label={card.label}
             metric={metric}
             params={params}
-            onLabelClick={handleLabelClick}
+            onSportClick={handleSportClick}
           />
         ))}
       </div>
 
       <p className="text-xs text-neutral-400 text-center">
-        Klick auf ein Segment filtert die Analytics-Ansicht
+        Klick auf ein Sport-Segment filtert die Sportart-Auswahl
       </p>
     </div>
   )
+}
+
+function buildParams(filter: SportOnlyFilterValue): string {
+  const p = new URLSearchParams()
+  const expanded = expandSportSelection(filter.selectedSports)
+  if (expanded.length > 0) p.set('sport_type', expanded.join(','))
+  if (filter.from) p.set('from', filter.from)
+  if (filter.to) p.set('to', filter.to)
+  return p.toString()
 }

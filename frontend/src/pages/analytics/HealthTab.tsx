@@ -8,41 +8,48 @@ import BloodPressureChart from '@/components/analytics/health/BloodPressureChart
 import FitnessAgeChart from '@/components/analytics/health/FitnessAgeChart'
 import HRVCorrelationChart from '@/components/analytics/health/HRVCorrelationChart'
 import GlucoseChart from '@/components/analytics/health/GlucoseChart'
+import { HealthRangeProvider } from '@/components/analytics/filters/HealthRangeContext'
+import HealthRangePresetBar from '@/components/analytics/filters/HealthRangePresetBar'
 
 // ── HealthTab ─────────────────────────────────────────────────────────────────
 
 export default function HealthTab() {
   return (
-    <div className="space-y-6">
-      {/* HRV Analysis — full width */}
-      <HRVAnalysisChart />
+    <HealthRangeProvider>
+      <div className="space-y-6">
+        {/* Shared range picker — controls all health-daily components below */}
+        <HealthRangePresetBar />
 
-      {/* Sleep — full width */}
-      <SleepAnalysisChart />
+        {/* HRV Analysis — full width */}
+        <HRVAnalysisChart />
 
-      {/* Weight — full width */}
-      <WeightChart />
+        {/* Sleep — full width */}
+        <SleepAnalysisChart />
 
-      {/* Stress — full width */}
-      <StressChart />
+        {/* Weight — full width */}
+        <WeightChart />
 
-      {/* SpO2 — full width */}
-      <SpO2Chart />
+        {/* Stress — full width */}
+        <StressChart />
 
-      {/* Glucose — full width, only rendered when user has glucose data */}
-      <GlucoseChart />
+        {/* SpO2 — full width */}
+        <SpO2Chart />
 
-      {/* Blood Pressure — full width */}
-      <BloodPressureChart />
+        {/* Glucose — full width, only rendered when user has glucose data */}
+        <GlucoseChart />
 
-      {/* Fitness Age — full width */}
-      <FitnessAgeChart />
+        {/* Blood Pressure — full width */}
+        <BloodPressureChart />
 
-      {/* HRV Correlation — full width */}
-      <HRVCorrelationChart />
+        {/* Fitness Age — full width */}
+        <FitnessAgeChart />
 
-      {/* Health Metrics Grid — full width */}
-      <HealthMetricsGrid />
-    </div>
+        {/* HRV Correlation — full width */}
+        <HRVCorrelationChart />
+
+        {/* Health Metrics Grid — full width */}
+        <HealthMetricsGrid />
+      </div>
+    </HealthRangeProvider>
   )
 }
