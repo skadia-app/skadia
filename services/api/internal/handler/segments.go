@@ -151,6 +151,10 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 	if create.SegmentType == "" {
 		create.SegmentType = "standard"
 	}
+	if !isValidSegmentType(create.SegmentType) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid segment_type", r.URL.Path)
+		return
+	}
 	if create.TerrainType == "" {
 		create.TerrainType = "standard"
 	}
@@ -193,6 +197,10 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 
 	segment, err := h.DB.CreateSegment(r.Context(), userID, &create)
 	if err != nil {
+		if errors.Is(err, database.ErrSegmentValidation) {
+			httputil.WriteError(w, http.StatusUnprocessableEntity, "Validation Error", err.Error(), r.URL.Path)
+			return
+		}
 		if strings.Contains(err.Error(), "lap segment must be a closed loop") {
 			httputil.WriteError(w, http.StatusUnprocessableEntity, "Validation Error", err.Error(), r.URL.Path)
 			return
@@ -273,6 +281,15 @@ func stripIncompatibleMeta(m map[string]any, segType string) {
 	}
 }
 
+func isValidSegmentType(segType string) bool {
+	switch segType {
+	case "standard", "trail", "lap", "wintersport", "wassersport", "lift":
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -321,8 +338,7 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 	// (The frontend segment-type picker sends this; without validation the DB
 	// CHECK constraint would yield a 500 instead of a clean 400.)
 	if update.SegmentType != nil {
-		validSegTypes := map[string]bool{"standard": true, "trail": true, "lap": true, "wintersport": true, "wassersport": true, "lift": true}
-		if !validSegTypes[*update.SegmentType] {
+		if !isValidSegmentType(*update.SegmentType) {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid segment_type", r.URL.Path)
 			return
 		}
@@ -358,6 +374,10 @@ func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
 
 	segment, err := h.DB.UpdateSegment(r.Context(), id, userID, isAdmin, &update)
 	if err != nil {
+		if errors.Is(err, database.ErrSegmentValidation) {
+			httputil.WriteError(w, http.StatusUnprocessableEntity, "Validation Error", err.Error(), r.URL.Path)
+			return
+		}
 		slog.Error("update segment failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update segment", r.URL.Path)
 		return

@@ -1,6 +1,11 @@
 package database
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
+)
 
 func TestIsValidSacList(t *testing.T) {
 	tests := []struct {
@@ -41,5 +46,50 @@ func TestIsValidSurfaceList(t *testing.T) {
 	}
 	if IsValidSurfaceList("'; DROP") {
 		t.Error("injection attempt")
+	}
+}
+
+func TestSegmentSportGroupFromPredicatesUsesProjection(t *testing.T) {
+	if got := segmentSportGroupFromPredicates([]sport.Predicate{{Sport: "snowshoeing"}}); got != "foot" {
+		t.Fatalf("snowshoeing segment group = %q, want foot", got)
+	}
+	if got := segmentSportGroupFromPredicates([]sport.Predicate{{Sport: "kayaking"}}); got != "paddle" {
+		t.Fatalf("kayaking segment group = %q, want paddle", got)
+	}
+	if got := segmentSportGroupFromPredicates([]sport.Predicate{{Sport: "snowshoeing"}, {Sport: "alpine_skiing"}}); got != "generic" {
+		t.Fatalf("mixed segment group = %q, want generic", got)
+	}
+}
+
+func TestMatcherSportGroupFromTupleUsesSegmentProjection(t *testing.T) {
+	if got := sportGroupFromTuple("snowshoeing", ""); got != "foot" {
+		t.Fatalf("sportGroupFromTuple(snowshoeing) = %q, want foot", got)
+	}
+	if got := sportGroupFromTuple("running", "trail"); got != "foot" {
+		t.Fatalf("sportGroupFromTuple(running, trail) = %q, want foot parent fallback", got)
+	}
+	if got := sportGroupFromTuple("totally_unknown", ""); got != "generic" {
+		t.Fatalf("sportGroupFromTuple(unknown) = %q, want generic", got)
+	}
+}
+
+func TestSegmentPredicatesForTypeUsesProjection(t *testing.T) {
+	if err := validateSegmentPredicatesForType("wassersport", []sport.Predicate{{Sport: "diving"}}); err == nil {
+		t.Fatal("validateSegmentPredicatesForType accepted diving for wassersport")
+	} else if !errors.Is(err, ErrSegmentValidation) {
+		t.Fatalf("validateSegmentPredicatesForType error = %v, want ErrSegmentValidation", err)
+	}
+	if err := validateSegmentPredicatesForType("wintersport", []sport.Predicate{{Sport: "cycling"}}); err == nil {
+		t.Fatal("validateSegmentPredicatesForType accepted cycling for wintersport")
+	}
+	if err := validateSegmentPredicatesForType("wintersport", []sport.Predicate{{Sport: "snowshoeing"}}); err != nil {
+		t.Fatalf("validateSegmentPredicatesForType rejected snowshoeing for wintersport: %v", err)
+	}
+	trail := "trail"
+	if err := validateSegmentPredicatesForType("standard", []sport.Predicate{{Sport: "running", SubType: &trail}}); err != nil {
+		t.Fatalf("validateSegmentPredicatesForType rejected running:trail for standard: %v", err)
+	}
+	if err := validateSegmentPredicatesForType("lift", []sport.Predicate{{Sport: "cycling"}}); err != nil {
+		t.Fatalf("validateSegmentPredicatesForType rejected lift predicate: %v", err)
 	}
 }

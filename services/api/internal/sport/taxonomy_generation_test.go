@@ -26,25 +26,38 @@ func TestGeneratedBackendTaxonomyIsCurrent(t *testing.T) {
 	}
 }
 
-func TestGeneratedBackendActivityFilterProjectionsAreCurrent(t *testing.T) {
+func TestGeneratedBackendSegmentProjectionIsCurrent(t *testing.T) {
 	taxonomy := loadTestTaxonomy(t)
-	file, err := os.Open("../../../../config/sport-taxonomy/projections/activity_filters.yaml")
+	activityFile, err := os.Open("../../../../config/sport-taxonomy/projections/activity_filters.yaml")
 	if err != nil {
 		t.Fatalf("open activity_filters.yaml: %v", err)
 	}
-	defer file.Close()
+	defer activityFile.Close()
 
-	projections, err := sporttaxgen.LoadActivityFilterProjections(file, taxonomy)
+	activityProjection, err := sporttaxgen.LoadActivityFilterProjections(activityFile, taxonomy)
 	if err != nil {
 		t.Fatalf("load activity filter projections: %v", err)
 	}
-	expanded, err := sporttaxgen.ExpandActivityFilterPresets(taxonomy, projections)
+	activityExpanded, err := sporttaxgen.ExpandActivityFilterPresets(taxonomy, activityProjection)
 	if err != nil {
 		t.Fatalf("expand activity filter projections: %v", err)
 	}
-	got, err := sporttaxgen.RenderGoActivityFilterProjections(expanded)
+	segmentFile, err := os.Open("../../../../config/sport-taxonomy/projections/segments.yaml")
 	if err != nil {
-		t.Fatalf("render Go activity filter projections: %v", err)
+		t.Fatalf("open segments.yaml: %v", err)
+	}
+	defer segmentFile.Close()
+	segmentProjection, err := sporttaxgen.LoadSegmentProjection(segmentFile, taxonomy)
+	if err != nil {
+		t.Fatalf("load segment projection: %v", err)
+	}
+	segmentExpanded, err := sporttaxgen.ExpandSegmentProjection(taxonomy, segmentProjection)
+	if err != nil {
+		t.Fatalf("expand segment projection: %v", err)
+	}
+	got, err := sporttaxgen.RenderGoProjections(activityExpanded, segmentExpanded)
+	if err != nil {
+		t.Fatalf("render Go projections: %v", err)
 	}
 	want, err := os.ReadFile("projections_generated.go")
 	if err != nil {

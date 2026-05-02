@@ -34,6 +34,34 @@ type ActivityFilterEntry struct {
 	LabelMode   string    `yaml:"label_mode"`
 }
 
+type SegmentProjection struct {
+	Domains      []SegmentProjectionDomain      `yaml:"domains"`
+	SegmentTypes []SegmentProjectionSegmentType `yaml:"segment_types"`
+	Eligible     []SegmentProjectionEligible    `yaml:"eligible"`
+}
+
+type SegmentProjectionDomain struct {
+	Key    string    `yaml:"key"`
+	Labels LocaleMap `yaml:"labels"`
+	Status string    `yaml:"status"`
+}
+
+type SegmentProjectionSegmentType struct {
+	Key               string    `yaml:"key"`
+	Labels            LocaleMap `yaml:"labels"`
+	ActiveDomains     []string  `yaml:"active_domains"`
+	CompatibilityRole string    `yaml:"compatibility_role"`
+}
+
+type SegmentProjectionEligible struct {
+	SportType       string   `yaml:"sport_type"`
+	SubTypes        []string `yaml:"sub_types"`
+	SegmentTypes    []string `yaml:"segment_types"`
+	Domains         []string `yaml:"domains"`
+	SportGroup      string   `yaml:"sport_group"`
+	EligibilityRole string   `yaml:"eligibility_role"`
+}
+
 type ExpandedActivityFilterPreset struct {
 	Key    string
 	Label  LocaleMap
@@ -50,6 +78,33 @@ type ExpandedActivityFilterLeaf struct {
 	SportType string
 	SubType   string
 	Label     LocaleMap
+}
+
+type ExpandedSegmentProjection struct {
+	Domains      []ExpandedSegmentProjectionDomain
+	SegmentTypes []ExpandedSegmentProjectionSegmentType
+	Entries      []ExpandedSegmentProjectionEntry
+}
+
+type ExpandedSegmentProjectionDomain struct {
+	Key    string
+	Label  LocaleMap
+	Status string
+}
+
+type ExpandedSegmentProjectionSegmentType struct {
+	Key               string
+	Label             LocaleMap
+	ActiveDomains     []string
+	CompatibilityRole string
+}
+
+type ExpandedSegmentProjectionEntry struct {
+	SegmentType string
+	Domain      string
+	SportType   string
+	SubType     string
+	SportGroup  string
 }
 
 type projectionIndexes struct {
@@ -93,6 +148,19 @@ func LoadActivityFilterProjections(r io.Reader, taxonomy Taxonomy) (ActivityFilt
 	return projections, nil
 }
 
+func LoadSegmentProjection(r io.Reader, taxonomy Taxonomy) (SegmentProjection, error) {
+	var projection SegmentProjection
+	dec := yaml.NewDecoder(r)
+	dec.SetStrict(true)
+	if err := dec.Decode(&projection); err != nil {
+		return SegmentProjection{}, err
+	}
+	if err := validateSegmentProjection(projection, taxonomy); err != nil {
+		return SegmentProjection{}, err
+	}
+	return projection, nil
+}
+
 func ExpandActivityFilterPresets(taxonomy Taxonomy, projections ActivityFilterProjections) ([]ExpandedActivityFilterPreset, error) {
 	idx := newProjectionIndexes(taxonomy)
 	expanded := make([]ExpandedActivityFilterPreset, 0, len(projections.Presets))
@@ -129,6 +197,33 @@ func ExpandActivityFilterPresets(taxonomy Taxonomy, projections ActivityFilterPr
 		expanded = append(expanded, outPreset)
 	}
 	return expanded, nil
+}
+
+func ExpandSegmentProjection(taxonomy Taxonomy, projection SegmentProjection) (ExpandedSegmentProjection, error) {
+	if err := validateSegmentProjection(projection, taxonomy); err != nil {
+		return ExpandedSegmentProjection{}, err
+	}
+	out := ExpandedSegmentProjection{
+		Domains:      make([]ExpandedSegmentProjectionDomain, 0, len(projection.Domains)),
+		SegmentTypes: make([]ExpandedSegmentProjectionSegmentType, 0, len(projection.SegmentTypes)),
+	}
+	for _, domain := range projection.Domains {
+		out.Domains = append(out.Domains, ExpandedSegmentProjectionDomain{
+			Key:    domain.Key,
+			Label:  cloneLocaleMap(domain.Labels),
+			Status: domain.Status,
+		})
+	}
+	for _, segmentType := range projection.SegmentTypes {
+		out.SegmentTypes = append(out.SegmentTypes, ExpandedSegmentProjectionSegmentType{
+			Key:               segmentType.Key,
+			Label:             cloneLocaleMap(segmentType.Labels),
+			ActiveDomains:     append([]string(nil), segmentType.ActiveDomains...),
+			CompatibilityRole: segmentType.CompatibilityRole,
+		})
+	}
+	out.Entries = expandSegmentProjectionEntries(projection)
+	return out, nil
 }
 
 func validateActivityFilterProjections(projections ActivityFilterProjections, taxonomy Taxonomy) error {
@@ -186,6 +281,135 @@ func validateActivityFilterProjections(projections ActivityFilterProjections, ta
 	return nil
 }
 
+func validateSegmentProjection(projection SegmentProjection, taxonomy Taxonomy) error {
+	idx := newProjectionIndexes(taxonomy)
+	if len(projection.Domains) == 0 {
+		return fmt.Errorf("missing domains")
+	}
+	if len(projection.SegmentTypes) == 0 {
+		return fmt.Errorf("missing segment_types")
+	}
+	domains := map[string]SegmentProjectionDomain{}
+	for i, domain := range projection.Domains {
+		if domain.Key == "" {
+			return fmt.Errorf("domains[%d]: missing key", i)
+		}
+		if _, ok := domains[domain.Key]; ok {
+			return fmt.Errorf("duplicate domain key %q", domain.Key)
+		}
+		if domain.Labels["de"] == "" {
+			return fmt.Errorf("domain %q: missing labels.de", domain.Key)
+		}
+		if domain.Status != "active" && domain.Status != "reserved" {
+			return fmt.Errorf("domain %q: invalid status %q", domain.Key, domain.Status)
+		}
+		domains[domain.Key] = domain
+	}
+	segmentTypes := map[string]SegmentProjectionSegmentType{}
+	for i, segmentType := range projection.SegmentTypes {
+		if segmentType.Key == "" {
+			return fmt.Errorf("segment_types[%d]: missing key", i)
+		}
+		if _, ok := segmentTypes[segmentType.Key]; ok {
+			return fmt.Errorf("duplicate segment_type key %q", segmentType.Key)
+		}
+		if segmentType.Labels["de"] == "" {
+			return fmt.Errorf("segment_type %q: missing labels.de", segmentType.Key)
+		}
+		if segmentType.CompatibilityRole != "legacy_segment_type" && segmentType.CompatibilityRole != "legacy_lift" {
+			return fmt.Errorf("segment_type %q: invalid compatibility_role %q", segmentType.Key, segmentType.CompatibilityRole)
+		}
+		if len(segmentType.ActiveDomains) == 0 && segmentType.Key != "lift" {
+			return fmt.Errorf("segment_type %q: missing active_domains", segmentType.Key)
+		}
+		if len(segmentType.ActiveDomains) > 0 && segmentType.Key == "lift" {
+			return fmt.Errorf("segment_type %q: lift must not have active_domains", segmentType.Key)
+		}
+		for _, domainKey := range segmentType.ActiveDomains {
+			domain, ok := domains[domainKey]
+			if !ok {
+				return fmt.Errorf("segment_type %q: active_domains references unknown domain %q", segmentType.Key, domainKey)
+			}
+			if domain.Status != "active" {
+				return fmt.Errorf("segment_type %q: active_domains references non-active domain %q", segmentType.Key, domainKey)
+			}
+		}
+		segmentTypes[segmentType.Key] = segmentType
+	}
+	if len(projection.Eligible) == 0 {
+		return fmt.Errorf("missing eligible")
+	}
+	seenRows := map[string]struct{}{}
+	activeTupleGroups := map[string]string{}
+	for i, eligible := range projection.Eligible {
+		if eligible.SportType == "" {
+			return fmt.Errorf("eligible[%d]: missing sport_type", i)
+		}
+		sport, ok := idx.sports[eligible.SportType]
+		if !ok {
+			return fmt.Errorf("eligible[%d]: unknown sport_type %q", i, eligible.SportType)
+		}
+		if eligible.EligibilityRole != "" && eligible.EligibilityRole != "legacy_fallback_coverage" {
+			return fmt.Errorf("eligible[%d]: invalid eligibility_role %q", i, eligible.EligibilityRole)
+		}
+		if (sport.Selectable == nil || !*sport.Selectable) && !isAllowedSegmentFallbackSport(sport, eligible.SportGroup, eligible.EligibilityRole) {
+			return fmt.Errorf("eligible[%d]: sport_type %q is not selectable", i, eligible.SportType)
+		}
+		if eligible.EligibilityRole == "legacy_fallback_coverage" && !isAllowedSegmentFallbackSport(sport, eligible.SportGroup, eligible.EligibilityRole) {
+			return fmt.Errorf("eligible[%d]: eligibility_role legacy_fallback_coverage requires matching broad fallback sport_group", i)
+		}
+		if sport.Traits.ActivityForm == "system" {
+			return fmt.Errorf("eligible[%d]: sport_type %q has system activity_form", i, eligible.SportType)
+		}
+		if len(eligible.SegmentTypes) == 0 {
+			return fmt.Errorf("eligible[%d]: missing segment_types", i)
+		}
+		if len(eligible.Domains) == 0 {
+			return fmt.Errorf("eligible[%d]: missing domains", i)
+		}
+		if !isValidSegmentGroup(eligible.SportGroup) {
+			return fmt.Errorf("eligible[%d]: invalid sport_group %q", i, eligible.SportGroup)
+		}
+		for _, subType := range eligible.SubTypes {
+			if !sportHasSubType(sport, subType) {
+				return fmt.Errorf("eligible[%d]: sport %q has no sub_type %q", i, eligible.SportType, subType)
+			}
+		}
+		for _, segmentTypeKey := range eligible.SegmentTypes {
+			segmentType, ok := segmentTypes[segmentTypeKey]
+			if !ok {
+				return fmt.Errorf("eligible[%d]: unknown segment_type %q", i, segmentTypeKey)
+			}
+			for _, domainKey := range eligible.Domains {
+				domain, ok := domains[domainKey]
+				if !ok {
+					return fmt.Errorf("eligible[%d]: unknown domain %q", i, domainKey)
+				}
+				activeForSegmentType := domain.Status == "active" && containsString(segmentType.ActiveDomains, domainKey)
+				if domain.Status == "active" && !activeForSegmentType {
+					return fmt.Errorf("eligible[%d]: domain %q is not active for segment_type %q", i, domainKey, segmentTypeKey)
+				}
+				for _, subType := range segmentProjectionSubTypes(eligible) {
+					rowKey := strings.Join([]string{segmentTypeKey, domainKey, eligible.SportType, subType}, "\x00")
+					if _, ok := seenRows[rowKey]; ok {
+						return fmt.Errorf("eligible[%d]: duplicate tuple %q for segment_type %q and domain %q", i, projectionTupleKey(eligible.SportType, subType), segmentTypeKey, domainKey)
+					}
+					seenRows[rowKey] = struct{}{}
+					if !activeForSegmentType {
+						continue
+					}
+					tupleKey := projectionTupleKey(eligible.SportType, subType)
+					if existing, ok := activeTupleGroups[tupleKey]; ok && existing != eligible.SportGroup {
+						return fmt.Errorf("eligible[%d]: tuple %q uses sport_group %q and %q", i, tupleKey, existing, eligible.SportGroup)
+					}
+					activeTupleGroups[tupleKey] = eligible.SportGroup
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func validateProjectionEntry(entry ActivityFilterEntry, idx projectionIndexes) error {
 	hasCategory := entry.CategoryKey != ""
 	hasSport := entry.SportType != ""
@@ -233,6 +457,41 @@ func validateProjectionEntry(entry ActivityFilterEntry, idx projectionIndexes) e
 		return fmt.Errorf("sport %q has no sub_type %q", entry.SportType, entry.SubType)
 	}
 	return nil
+}
+
+func expandSegmentProjectionEntries(projection SegmentProjection) []ExpandedSegmentProjectionEntry {
+	entries := []ExpandedSegmentProjectionEntry{}
+	for _, eligible := range projection.Eligible {
+		for _, segmentType := range eligible.SegmentTypes {
+			for _, domain := range eligible.Domains {
+				for _, subType := range segmentProjectionSubTypes(eligible) {
+					entries = append(entries, ExpandedSegmentProjectionEntry{
+						SegmentType: segmentType,
+						Domain:      domain,
+						SportType:   eligible.SportType,
+						SubType:     subType,
+						SportGroup:  eligible.SportGroup,
+					})
+				}
+			}
+		}
+	}
+	return entries
+}
+
+func segmentProjectionSubTypes(entry SegmentProjectionEligible) []string {
+	if len(entry.SubTypes) == 0 {
+		return []string{""}
+	}
+	return entry.SubTypes
+}
+
+func isAllowedSegmentFallbackSport(sport Sport, sportGroup, eligibilityRole string) bool {
+	return eligibilityRole == "legacy_fallback_coverage" &&
+		sport.Lifecycle == "broad_fallback" &&
+		sport.Traits.ActivityForm == "fallback" &&
+		sport.SegmentGroup != "generic" &&
+		sport.SegmentGroup == sportGroup
 }
 
 func expandProjectionEntry(entry ActivityFilterEntry, idx projectionIndexes) ([]pendingProjectionLeaf, error) {

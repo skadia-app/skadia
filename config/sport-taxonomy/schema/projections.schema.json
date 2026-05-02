@@ -1,48 +1,134 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Skadia Sport Taxonomy Projections",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["presets"],
-  "properties": {
-    "presets": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["key", "labels", "groups"],
-        "properties": {
-          "key": { "type": "string", "minLength": 1 },
-          "labels": { "$ref": "#/$defs/localeMap" },
-          "groups": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["key", "entries"],
-              "oneOf": [
-                { "required": ["labels"], "not": { "required": ["label_ref"] } },
-                { "required": ["label_ref"], "not": { "required": ["labels"] } }
-              ],
-              "properties": {
-                "key": { "type": "string", "minLength": 1 },
-                "labels": { "$ref": "#/$defs/localeMap" },
-                "label_ref": { "type": "string", "pattern": "^category:[A-Za-z0-9_]+$" },
-                "entries": {
-                  "type": "array",
-                  "minItems": 1,
-                  "items": { "$ref": "#/$defs/entry" }
+  "oneOf": [
+    { "$ref": "#/$defs/activityFilterProjection" },
+    { "$ref": "#/$defs/segmentProjection" }
+  ],
+  "$defs": {
+    "activityFilterProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["presets"],
+      "properties": {
+        "presets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "labels", "groups"],
+            "properties": {
+              "key": { "type": "string", "minLength": 1 },
+              "labels": { "$ref": "#/$defs/localeMap" },
+              "groups": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["key", "entries"],
+                  "oneOf": [
+                    { "required": ["labels"], "not": { "required": ["label_ref"] } },
+                    { "required": ["label_ref"], "not": { "required": ["labels"] } }
+                  ],
+                  "properties": {
+                    "key": { "type": "string", "minLength": 1 },
+                    "labels": { "$ref": "#/$defs/localeMap" },
+                    "label_ref": { "type": "string", "pattern": "^category:[A-Za-z0-9_]+$" },
+                    "entries": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": { "$ref": "#/$defs/activityEntry" }
+                    }
+                  }
                 }
               }
             }
           }
         }
       }
-    }
-  },
-  "$defs": {
+    },
+    "segmentProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domains", "segment_types", "eligible"],
+      "properties": {
+        "domains": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "labels", "status"],
+            "properties": {
+              "key": { "type": "string", "minLength": 1 },
+              "labels": { "$ref": "#/$defs/localeMap" },
+              "status": { "type": "string", "enum": ["active", "reserved"] }
+            }
+          }
+        },
+        "segment_types": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "labels", "active_domains", "compatibility_role"],
+            "properties": {
+              "key": { "type": "string", "minLength": 1 },
+              "labels": { "$ref": "#/$defs/localeMap" },
+              "active_domains": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "compatibility_role": {
+                "type": "string",
+                "enum": ["legacy_segment_type", "legacy_lift"]
+              }
+            }
+          }
+        },
+        "eligible": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sport_type", "segment_types", "domains", "sport_group"],
+            "properties": {
+              "sport_type": { "type": "string", "minLength": 1 },
+              "sub_types": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "segment_types": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "domains": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "sport_group": {
+                "type": "string",
+                "enum": ["bike", "foot", "swim", "ski", "paddle", "generic"]
+              },
+              "eligibility_role": {
+                "type": "string",
+                "enum": ["legacy_fallback_coverage"]
+              }
+            }
+          }
+        }
+      }
+    },
     "localeMap": {
       "type": "object",
       "additionalProperties": { "type": "string" },
@@ -51,7 +137,7 @@
         "de": { "type": "string", "minLength": 1 }
       }
     },
-    "entry": {
+    "activityEntry": {
       "type": "object",
       "additionalProperties": false,
       "properties": {

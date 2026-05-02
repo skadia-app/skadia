@@ -87,6 +87,37 @@ func TestActivityFilterProjectionAccessorsReturnCopies(t *testing.T) {
 	}
 }
 
+func TestSegmentProjectionEntriesForType(t *testing.T) {
+	winter := SegmentProjectionEntriesForType("wintersport")
+	if !segmentProjectionHasEntry(winter, "snowshoeing", "", "foot") {
+		t.Fatalf("wintersport entries = %#v, want snowshoeing foot entry", winter)
+	}
+	water := SegmentProjectionEntriesForType("wassersport")
+	if segmentProjectionHasEntry(water, "diving", "", "") {
+		t.Fatalf("wassersport entries = %#v, want no diving entry", water)
+	}
+	if !segmentProjectionHasEntry(water, "snorkeling", "", "generic") {
+		t.Fatalf("wassersport entries = %#v, want snorkeling generic entry", water)
+	}
+	for _, entry := range SegmentProjectionEntriesForType("standard") {
+		if entry.Domain != "real_world_gps" {
+			t.Fatalf("standard active entries include reserved domain: %#v", entry)
+		}
+	}
+}
+
+func TestSegmentProjectionGroupForPredicates(t *testing.T) {
+	if got := SegmentProjectionGroupForPredicates([]Predicate{{Sport: "snowshoeing"}}); got != "foot" {
+		t.Fatalf("snowshoeing group = %q, want foot", got)
+	}
+	if got := SegmentProjectionGroupForPredicates([]Predicate{{Sport: "alpine_skiing"}, {Sport: "snowshoeing"}}); got != "generic" {
+		t.Fatalf("mixed winter group = %q, want generic", got)
+	}
+	if got := SegmentProjectionGroupForPredicates(nil); got != "generic" {
+		t.Fatalf("nil predicate group = %q, want generic", got)
+	}
+}
+
 func projectionGroupByKey(preset ActivityFilterProjectionPreset, key string) *ActivityFilterProjectionGroup {
 	for i := range preset.Groups {
 		if preset.Groups[i].Key == key {
@@ -99,6 +130,15 @@ func projectionGroupByKey(preset ActivityFilterProjectionPreset, key string) *Ac
 func projectionGroupHasLeaf(group ActivityFilterProjectionGroup, sportType, subType string) bool {
 	for _, leaf := range group.Leaves {
 		if leaf.SportType == sportType && leaf.SubType == subType {
+			return true
+		}
+	}
+	return false
+}
+
+func segmentProjectionHasEntry(entries []SegmentProjectionEntry, sportType, subType, group string) bool {
+	for _, entry := range entries {
+		if entry.SportType == sportType && entry.SubType == subType && (group == "" || entry.SportGroup == group) {
 			return true
 		}
 	}

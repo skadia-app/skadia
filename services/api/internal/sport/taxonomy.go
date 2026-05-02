@@ -49,6 +49,27 @@ type ActivityFilterProjectionLeaf struct {
 	LabelDE   string `json:"label_de"`
 }
 
+type SegmentProjectionDomain struct {
+	Key     string `json:"key"`
+	LabelDE string `json:"label_de"`
+	Status  string `json:"status"`
+}
+
+type SegmentProjectionSegmentType struct {
+	Key               string   `json:"key"`
+	LabelDE           string   `json:"label_de"`
+	ActiveDomains     []string `json:"active_domains"`
+	CompatibilityRole string   `json:"compatibility_role"`
+}
+
+type SegmentProjectionEntry struct {
+	SegmentType string `json:"segment_type"`
+	Domain      string `json:"domain"`
+	SportType   string `json:"sport_type"`
+	SubType     string `json:"sub_type,omitempty"`
+	SportGroup  string `json:"sport_group"`
+}
+
 // SubTypeDef describes a sub-sport variation within a parent sport.
 type SubTypeDef struct {
 	SubType          string           `json:"sub_type"`
@@ -239,6 +260,65 @@ func ActivityFilterProjectionPresetByKey(key string) (ActivityFilterProjectionPr
 	return ActivityFilterProjectionPreset{}, false
 }
 
+func SegmentProjectionEntriesForType(segmentType string) []SegmentProjectionEntry {
+	entries := make([]SegmentProjectionEntry, 0)
+	activeDomains := segmentProjectionActiveDomains(segmentType)
+	for _, entry := range generatedSegmentProjectionEntries {
+		if entry.SegmentType != segmentType {
+			continue
+		}
+		if _, ok := activeDomains[entry.Domain]; !ok {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+func SegmentProjectionGroupForTuple(sportType, subType string) (string, bool) {
+	if subType != "" && subType != "generic" {
+		for _, entry := range generatedSegmentProjectionEntries {
+			if entry.SportType == sportType && entry.SubType == subType && segmentProjectionEntryIsActive(entry) {
+				return entry.SportGroup, true
+			}
+		}
+	}
+	for _, entry := range generatedSegmentProjectionEntries {
+		if entry.SportType == sportType && entry.SubType == "" && segmentProjectionEntryIsActive(entry) {
+			return entry.SportGroup, true
+		}
+	}
+	return "", false
+}
+
+func SegmentProjectionGroupForPredicates(preds []Predicate) string {
+	if len(preds) == 0 {
+		return "generic"
+	}
+	group := ""
+	for _, pred := range preds {
+		subType := ""
+		if pred.SubType != nil {
+			subType = *pred.SubType
+		}
+		next, ok := SegmentProjectionGroupForTuple(pred.Sport, subType)
+		if !ok {
+			return "generic"
+		}
+		if group == "" {
+			group = next
+			continue
+		}
+		if group != next {
+			return "generic"
+		}
+	}
+	if group == "" {
+		return "generic"
+	}
+	return group
+}
+
 // SportsInCategory returns all sport definitions belonging to a category,
 // sorted alphabetically by SportType.
 func SportsInCategory(categoryKey string) []SportDef {
@@ -317,6 +397,25 @@ func cloneActivityFilterProjectionPreset(in ActivityFilterProjectionPreset) Acti
 		out.Groups[i].Leaves = append([]ActivityFilterProjectionLeaf(nil), in.Groups[i].Leaves...)
 	}
 	return out
+}
+
+func segmentProjectionActiveDomains(segmentType string) map[string]struct{} {
+	active := map[string]struct{}{}
+	for _, candidate := range generatedSegmentProjectionSegmentTypes {
+		if candidate.Key != segmentType {
+			continue
+		}
+		for _, domain := range candidate.ActiveDomains {
+			active[domain] = struct{}{}
+		}
+		break
+	}
+	return active
+}
+
+func segmentProjectionEntryIsActive(entry SegmentProjectionEntry) bool {
+	_, ok := segmentProjectionActiveDomains(entry.SegmentType)[entry.Domain]
+	return ok
 }
 
 // IsIndoor returns true when generated canonical modifier defaults mark the

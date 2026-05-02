@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   BIDIRECTIONAL_DEFAULT, SAC_COLOR_MAP, MTB_COLOR_MAP,
-  deriveTrailDifficultyColor, WINTER_SPORT_WHITELIST,
+  deriveTrailDifficultyColor,
 } from './constants'
+import { segmentEligibleSelectionKeys } from '@/lib/segmentProjection'
 
 describe('deriveTrailDifficultyColor', () => {
   it('returns null when both unset', () => {
@@ -34,9 +35,9 @@ describe('BIDIRECTIONAL_DEFAULT', () => {
   })
 })
 
-describe('WINTER_SPORT_WHITELIST', () => {
+describe('segment projection winter eligibility', () => {
   it('includes snowshoeing even though taxonomy puts it in run-category', () => {
-    expect(WINTER_SPORT_WHITELIST).toContain('snowshoeing')
+    expect(segmentEligibleSelectionKeys('wintersport')).toContain('snowshoeing')
   })
 })
 
