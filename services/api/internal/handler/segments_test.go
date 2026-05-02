@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,41 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/go-chi/chi/v5"
 )
+
+func TestCreateSegmentRejectsInvalidSegmentTypeBeforeDB(t *testing.T) {
+	h := &Handler{}
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments", h.CreateSegment)
+
+	body := `{"name":"bad","segment_type":"bogus","geojson_track":"{\"type\":\"LineString\",\"coordinates\":[[0,0],[1,1]]}"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/segments", bytes.NewReader([]byte(body)))
+	req = req.WithContext(withUserAndAdmin(req.Context(), "00000000-0000-0000-0000-000000000001", false))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdateSegmentReturnsValidationErrorForIneligiblePredicate_DB(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	r := chi.NewRouter()
+	r.Put("/api/v1/segments/{id}", h.UpdateSegment)
+
+	userID := insertTestUser(t, pool)
+	segID := insertTestSegment(t, pool, userID, TestSegmentOpts{SegmentType: "wassersport"})
+	body := `{"allowed_predicates":[{"sport":"diving"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/segments/"+segID, bytes.NewReader([]byte(body)))
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body: %s", rec.Code, rec.Body.String())
+	}
+}
 
 // TestGetSegment_IncludeGeoJSON_FlagControlsResponseField verifies that the
 // include_geojson query parameter controls whether TrackGeoJSON is populated
@@ -79,19 +115,19 @@ func TestNormalizeSurfaceLabel(t *testing.T) {
 		{"", ""},
 		{"Asphalt", "Asphalt"},
 		{"Pflaster", "Pflaster"},
-		{"Schotter", "Schotter (grob)"},        // historic: promoted to grob
+		{"Schotter", "Schotter (grob)"}, // historic: promoted to grob
 		{"Schotter (fein)", "Schotter (fein)"},
 		{"Schotter (grob)", "Schotter (grob)"},
-		{"Erde", "Naturweg"},                   // historic
+		{"Erde", "Naturweg"}, // historic
 		{"Naturweg", "Naturweg"},
 		{"Naturweg (fest)", "Naturweg (fest)"}, // user-only sub-type: pass through
 		{"Holz", "Holz"},
 		{"Sportbelag", "Sportbelag"},
 		{"Schnee", "Schnee"},
-		{"Wechselnd", "Wechselnd"},             // editor-only: pass through
-		{"   Asphalt  ", "Asphalt"},            // trim whitespace
+		{"Wechselnd", "Wechselnd"},  // editor-only: pass through
+		{"   Asphalt  ", "Asphalt"}, // trim whitespace
 		{"Unbekannt", "Unbekannt"},
-		{"NonsenseValue", "NonsenseValue"},     // unknown stays raw (UI falls back)
+		{"NonsenseValue", "NonsenseValue"}, // unknown stays raw (UI falls back)
 	}
 	for _, c := range cases {
 		got := normalizeSurfaceLabel(c.input)

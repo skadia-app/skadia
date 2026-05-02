@@ -32,6 +32,8 @@ func run() error {
 	activityFilterSource := flag.String("activity-filter-source", "", "activity filter projection YAML source")
 	goProjectionsOut := flag.String("go-projections-out", "", "generated Go activity filter projection output path")
 	tsProjectionsOut := flag.String("ts-projections-out", "", "generated TypeScript activity filter projection output path")
+	segmentProjectionSource := flag.String("segment-projection-source", "", "segment eligibility projection YAML source")
+	tsSegmentProjectionsOut := flag.String("ts-segment-projections-out", "", "generated TypeScript segment projection output path")
 	aliasSourceDir := flag.String("alias-source-dir", "", "source-specific sport alias YAML directory")
 	goAliasesOut := flag.String("go-aliases-out", "", "generated Go source aliases output path")
 	check := flag.Bool("check", false, "verify generated outputs are current")
@@ -54,6 +56,12 @@ func run() error {
 	}
 	if *tsProjectionsOut == "" {
 		*tsProjectionsOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedSportFilterProjections.ts")
+	}
+	if *segmentProjectionSource == "" {
+		*segmentProjectionSource = filepath.Join(*repoRoot, "config", "sport-taxonomy", "projections", "segments.yaml")
+	}
+	if *tsSegmentProjectionsOut == "" {
+		*tsSegmentProjectionsOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedSegmentProjections.ts")
 	}
 	if *aliasSourceDir == "" {
 		*aliasSourceDir = filepath.Join(*repoRoot, "config", "sport-taxonomy", "aliases")
@@ -90,13 +98,29 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("expand activity filter projection: %w", err)
 	}
-	renderedGoProjections, err := sporttaxgen.RenderGoActivityFilterProjections(expandedProjections)
+	segmentProjectionBytes, err := os.ReadFile(*segmentProjectionSource)
 	if err != nil {
-		return fmt.Errorf("render Go activity filter projection: %w", err)
+		return fmt.Errorf("read segment projection source: %w", err)
+	}
+	segmentProjection, err := sporttaxgen.LoadSegmentProjection(bytes.NewReader(segmentProjectionBytes), taxonomy)
+	if err != nil {
+		return fmt.Errorf("load segment projection: %w", err)
+	}
+	expandedSegmentProjection, err := sporttaxgen.ExpandSegmentProjection(taxonomy, segmentProjection)
+	if err != nil {
+		return fmt.Errorf("expand segment projection: %w", err)
+	}
+	renderedGoProjections, err := sporttaxgen.RenderGoProjections(expandedProjections, expandedSegmentProjection)
+	if err != nil {
+		return fmt.Errorf("render Go projections: %w", err)
 	}
 	renderedTSProjections, err := sporttaxgen.RenderTSActivityFilterProjections(expandedProjections)
 	if err != nil {
 		return fmt.Errorf("render TypeScript activity filter projection: %w", err)
+	}
+	renderedTSSegmentProjections, err := sporttaxgen.RenderTSSegmentProjection(expandedSegmentProjection)
+	if err != nil {
+		return fmt.Errorf("render TypeScript segment projection: %w", err)
 	}
 	renderedGoAliases, aliasesExist, err := renderGoAliasesFromDir(*aliasSourceDir, taxonomy)
 	if err != nil {
@@ -116,6 +140,9 @@ func run() error {
 		if err := checkFile(*tsProjectionsOut, renderedTSProjections); err != nil {
 			return err
 		}
+		if err := checkFile(*tsSegmentProjectionsOut, renderedTSSegmentProjections); err != nil {
+			return err
+		}
 		if aliasesExist {
 			return checkFile(*goAliasesOut, renderedGoAliases)
 		}
@@ -132,6 +159,9 @@ func run() error {
 	}
 	if err := os.WriteFile(*tsProjectionsOut, renderedTSProjections, 0o644); err != nil {
 		return fmt.Errorf("write TypeScript activity filter projection: %w", err)
+	}
+	if err := os.WriteFile(*tsSegmentProjectionsOut, renderedTSSegmentProjections, 0o644); err != nil {
+		return fmt.Errorf("write TypeScript segment projection: %w", err)
 	}
 	if aliasesExist {
 		if err := os.WriteFile(*goAliasesOut, renderedGoAliases, 0o644); err != nil {

@@ -21,7 +21,7 @@ export interface Segment {
   track_geojson?: string
   terrain_type?: string
   climb_type?: string
-  /** null/absent = all sport tuples allowed; [] = none; entries = tuple predicates */
+  /** null = legacy match-all inside the stored sport group; [] = none; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
   /** true = segment can be ridden in both directions */
   bidirectional: boolean
@@ -71,7 +71,7 @@ export interface CreateSegmentPayload {
   terrain_type?: string
   climb_type?: string
   visibility?: 'public' | 'private'
-  /** null = all sport tuples allowed; [] = none; entries = tuple predicates */
+  /** null = legacy match-all inside the stored sport group; [] = none; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
   /** nil on wire = use sport-group default (true for most groups) */
   bidirectional?: boolean
@@ -134,7 +134,7 @@ export interface UpdateSegmentPayload {
   terrain_type?: string
   climb_type?: string
   visibility?: 'public' | 'private'
-  /** absent = unchanged; null = all sport tuples; [] = no sports; entries = tuple predicates */
+  /** absent = unchanged; null = legacy match-all inside the stored sport group; [] = no sports; entries = tuple predicates */
   allowed_predicates?: SportPredicate[] | null
   /** absent = unchanged */
   bidirectional?: boolean

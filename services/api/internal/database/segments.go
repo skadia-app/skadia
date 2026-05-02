@@ -22,15 +22,16 @@ var (
 	ErrSegmentNotFound      = errors.New("segment not found")
 	ErrSegmentNotAuthorized = errors.New("segment not authorized")
 	ErrSegmentOSMLift       = errors.New("OSM-imported lift segments cannot be deleted")
+	ErrSegmentValidation    = errors.New("segment validation failed")
 )
 
 func normalizeSegmentPredicates(preds []sport.Predicate) ([]sport.Predicate, error) {
 	normalized, err := sport.NormalizePredicates(preds)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrSegmentValidation, err)
 	}
 	if err := sport.ValidatePredicates(normalized, true); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrSegmentValidation, err)
 	}
 	return normalized, nil
 }
@@ -55,6 +56,38 @@ func decodeSegmentPredicates(raw []byte) ([]sport.Predicate, error) {
 		return nil, err
 	}
 	return preds, nil
+}
+
+func segmentSportGroupFromPredicates(preds []sport.Predicate) string {
+	return sport.SegmentProjectionGroupForPredicates(preds)
+}
+
+func validateSegmentPredicatesForType(segmentType string, preds []sport.Predicate) error {
+	if segmentType == "lift" {
+		return nil
+	}
+	eligible := make(map[string]struct{})
+	for _, entry := range sport.SegmentProjectionEntriesForType(segmentType) {
+		key := entry.SportType
+		if entry.SubType != "" {
+			key += ":" + entry.SubType
+		}
+		eligible[key] = struct{}{}
+	}
+	for _, pred := range preds {
+		key := pred.Sport
+		if pred.SubType != nil && *pred.SubType != "" {
+			key += ":" + *pred.SubType
+		}
+		if _, ok := eligible[key]; ok {
+			continue
+		}
+		if _, ok := eligible[pred.Sport]; ok {
+			continue
+		}
+		return fmt.Errorf("%w: sport predicate %s is not eligible for segment_type %s", ErrSegmentValidation, key, segmentType)
+	}
+	return nil
 }
 
 func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*model.ListSegmentsResult, error) {
@@ -365,9 +398,21 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	if err != nil {
 		return nil, fmt.Errorf("normalize segment predicates: %w", err)
 	}
+	if create.AllowedPredicates != nil {
+		if err := validateSegmentPredicatesForType(create.SegmentType, allowedPredicates); err != nil {
+			return nil, err
+		}
+	}
 	allowedPredicatesJSON, err := marshalSegmentPredicates(allowedPredicates)
 	if err != nil {
 		return nil, fmt.Errorf("marshal segment predicates: %w", err)
+	}
+	segmentSportGroup := create.SportGroup
+	if segmentSportGroup == "" {
+		segmentSportGroup = "generic"
+	}
+	if create.AllowedPredicates != nil {
+		segmentSportGroup = segmentSportGroupFromPredicates(allowedPredicates)
 	}
 
 	// Insert segment
@@ -384,7 +429,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 		          effort_count, athlete_count,
 		          visibility, route_hash, created_at,
 		          terrain_type, climb_type`,
-		userID, create.Name, create.Description, create.SportGroup,
+		userID, create.Name, create.Description, segmentSportGroup,
 		create.SegmentType, segmentTypeMeta, create.SourceActivityID,
 		create.TerrainType, create.ClimbType, create.Visibility,
 		allowedPredicatesJSON, bidirectional,
@@ -601,10 +646,29 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 			if err != nil {
 				return nil, fmt.Errorf("normalize segment predicates: %w", err)
 			}
+			effectiveSegmentType := ""
+			if update.SegmentType != nil {
+				effectiveSegmentType = *update.SegmentType
+			} else {
+				var ok bool
+				effectiveSegmentType, ok, err = db.segmentTypeForUpdate(ctx, segmentID, userID, isAdmin)
+				if err != nil {
+					return nil, err
+				}
+				if !ok {
+					return nil, nil
+				}
+			}
+			if err := validateSegmentPredicatesForType(effectiveSegmentType, allowedPredicates); err != nil {
+				return nil, err
+			}
 			allowedPredicatesJSON, err = marshalSegmentPredicates(allowedPredicates)
 			if err != nil {
 				return nil, fmt.Errorf("marshal segment predicates: %w", err)
 			}
+			setClauses = append(setClauses, fmt.Sprintf("sport_group = $%d", argIdx))
+			args = append(args, segmentSportGroupFromPredicates(allowedPredicates))
+			argIdx++
 		}
 		setClauses = append(setClauses, fmt.Sprintf("allowed_predicates = $%d", argIdx))
 		args = append(args, allowedPredicatesJSON)
@@ -641,6 +705,23 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 	}
 
 	return db.GetSegment(ctx, segmentID, userID, isAdmin, false)
+}
+
+func (db *DB) segmentTypeForUpdate(ctx context.Context, segmentID, userID string, isAdmin bool) (string, bool, error) {
+	var segmentType string
+	var err error
+	if isAdmin {
+		err = db.Pool.QueryRow(ctx, `SELECT segment_type FROM segments WHERE id = $1`, segmentID).Scan(&segmentType)
+	} else {
+		err = db.Pool.QueryRow(ctx, `SELECT segment_type FROM segments WHERE id = $1 AND created_by = $2`, segmentID, userID).Scan(&segmentType)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("get segment type for update: %w", err)
+	}
+	return segmentType, true, nil
 }
 
 // createNewSegmentVersion copies the latest segment_version into a new version row.
@@ -971,10 +1052,10 @@ type CandidateSegment struct {
 // GetSpatialCandidateSegments returns segments within 50m of the activity track,
 // filtered by sport group. Uses ST_DWithin with GIST index for fast pre-filtering.
 func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userID, sportType string, activityDate time.Time, subType string) ([]CandidateSegment, error) {
-	sportGroup := sportGroupFromSportType(sportType)
+	sportGroup := sportGroupFromTuple(sportType, subType)
 
 	// $5/$6 form the canonical activity tuple for allowed_predicates.
-	// allowed_predicates NULL means "all sport tuples allowed".
+	// allowed_predicates NULL means all tuples inside the segment's stored prefilter group.
 	// allowed_predicates = '[]' means "none" — matched never.
 	rows, err := db.Pool.Query(ctx, `
 		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0),
@@ -1259,8 +1340,11 @@ func (db *DB) IsLapDetectionEnabled(ctx context.Context, userID string) bool {
 	return enabled
 }
 
-func sportGroupFromSportType(sportType string) string {
-	return sport.SegmentGroup(sportType)
+func sportGroupFromTuple(sportType, subType string) string {
+	if group, ok := sport.SegmentProjectionGroupForTuple(sportType, subType); ok {
+		return group
+	}
+	return "generic"
 }
 
 type liftSegmentImportCandidate struct {

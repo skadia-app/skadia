@@ -14,9 +14,14 @@ and source-specific modifier patches when the raw source label itself carries
 that evidence. Do not use aliases to create new canonical sports or to encode
 parser/device evidence that is derived from numeric IDs or file metadata.
 
-`projections/*.yaml` defines consumer-specific groupings of canonical tuples,
-for example activity or map filter placement. Projections do not own taxonomy
-identity and should not duplicate source/import alias rules.
+`projections/*.yaml` defines consumer-specific groupings of canonical tuples.
+`projections/activity_filters.yaml` owns activity and map filter placement.
+`projections/segments.yaml` defines which sport tuples are eligible for segment
+creation and which matcher segment group each eligible tuple uses. Projections
+do not own taxonomy identity and should not duplicate source/import alias rules.
+If a non-selectable broad fallback must remain matchable for compatibility, mark
+that row with `eligibility_role: legacy_fallback_coverage` and cover it with a
+loader test; do not add hidden generator exceptions.
 
 Generated Go artifacts are committed. Review the YAML source first, then use
 generated diffs and tests to verify the runtime contract.

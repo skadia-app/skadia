@@ -32,6 +32,7 @@ interface DetailPanelProps {
   category: UISportCategory
   /** All sport types available for this segment type (for filtering) */
   availableSportTypes: Array<{ key: string; label: string; category: string }>
+  allowedSelectionKeys?: readonly string[]
   /** Currently selected sport types (null = all) */
   selectedSportTypes: string[] | null
   onToggleSportType: (key: string) => void
@@ -44,6 +45,7 @@ interface DetailPanelProps {
 function DetailPanel({
   category,
   availableSportTypes,
+  allowedSelectionKeys,
   selectedSportTypes,
   onToggleSportType,
   enrichmentSources,
@@ -63,6 +65,11 @@ function DetailPanel({
           entries.push({ key: `${s.sportType}:${st.subType}`, label: st.label })
         }
         return entries.map(entry => ({ sport: s, entry }))
+      }).filter(({ entry }) => {
+        if (!allowedSelectionKeys) return true
+        if (allowedSelectionKeys.includes(entry.key)) return true
+        const [parent, subType] = entry.key.split(':', 2)
+        return subType != null && allowedSelectionKeys.includes(parent)
       }).map(({ sport, entry }) => {
         const isActive = selectedSportTypes?.includes(entry.key) ?? false
         const badges = enrichmentSources?.[sport.sportType]
@@ -276,10 +283,11 @@ export function SportCategoryChips({
                       {isCategoryFullyActive(cat.key, activeTypes, whitelist) ? 'Alle aus' : 'Alle an'}
                     </button>
                   </div>
-                  <DetailPanel
-                    category={cat}
-                    availableSportTypes={resolvedAvailableSportTypes}
-                    selectedSportTypes={activeTypes}
+	                  <DetailPanel
+	                    category={cat}
+	                    availableSportTypes={resolvedAvailableSportTypes}
+	                    allowedSelectionKeys={whitelist}
+	                    selectedSportTypes={activeTypes}
                     onToggleSportType={onToggleSportType ?? (() => {})}
                     enrichmentSources={enrichmentSources}
                     onClearEnrichmentSource={onClearEnrichmentSource}

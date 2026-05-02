@@ -308,12 +308,97 @@ func TestLoadCurrentActivityFilterProjection(t *testing.T) {
 	}
 }
 
+func TestLoadSegmentProjectionRejectsDanglingSport(t *testing.T) {
+	_, err := loadSegmentProjectionFixture(t, strings.Replace(validSegmentProjectionFixture(), "sport_type: running", "sport_type: missing", 1))
+	if err == nil {
+		t.Fatal("LoadSegmentProjection accepted dangling sport")
+	}
+}
+
+func TestLoadSegmentProjectionRejectsDanglingSegmentType(t *testing.T) {
+	_, err := loadSegmentProjectionFixture(t, strings.Replace(validSegmentProjectionFixture(), "segment_types: [standard]", "segment_types: [missing]", 1))
+	if err == nil {
+		t.Fatal("LoadSegmentProjection accepted dangling segment type")
+	}
+}
+
+func TestLoadSegmentProjectionRejectsReservedActiveDomain(t *testing.T) {
+	_, err := loadSegmentProjectionFixture(t, strings.Replace(validSegmentProjectionFixture(), "active_domains: [real_world_gps]", "active_domains: [virtual_route]", 1))
+	if err == nil {
+		t.Fatal("LoadSegmentProjection accepted reserved active domain")
+	}
+}
+
+func TestLoadSegmentProjectionRejectsDuplicateTupleForSegmentType(t *testing.T) {
+	_, err := loadSegmentProjectionFixture(t, strings.Replace(validSegmentProjectionFixture(), "sport_type: running", "sport_type: running\n    segment_types: [standard]\n    domains: [real_world_gps]\n    sport_group: foot\n  - sport_type: running", 1))
+	if err == nil {
+		t.Fatal("LoadSegmentProjection accepted duplicate tuple for same segment type/domain")
+	}
+}
+
+func TestLoadSegmentProjectionRejectsTupleGroupDrift(t *testing.T) {
+	_, err := loadSegmentProjectionFixture(t, strings.Replace(validSegmentProjectionFixture(), "segment_types: [standard]\n    domains: [real_world_gps]\n    sport_group: foot", "segment_types: [standard]\n    domains: [real_world_gps]\n    sport_group: foot\n  - sport_type: running\n    segment_types: [trail]\n    domains: [real_world_gps]\n    sport_group: generic", 1))
+	if err == nil {
+		t.Fatal("LoadSegmentProjection accepted different sport_group values for one tuple")
+	}
+}
+
+func TestLoadSegmentProjectionRejectsUnmarkedBroadFallback(t *testing.T) {
+	src := strings.Replace(validSegmentProjectionFixture(), "sport_type: running", "sport_type: paddling", 1)
+	src = strings.Replace(src, "sport_group: foot", "sport_group: paddle", 1)
+	_, err := loadSegmentProjectionFixture(t, src)
+	if err == nil {
+		t.Fatal("LoadSegmentProjection accepted unmarked broad fallback")
+	}
+}
+
+func TestLoadSegmentProjectionAllowsMarkedLegacyFallbackCoverage(t *testing.T) {
+	src := strings.Replace(validSegmentProjectionFixture(), "sport_type: running", "sport_type: paddling\n    eligibility_role: legacy_fallback_coverage", 1)
+	src = strings.Replace(src, "sport_group: foot", "sport_group: paddle", 1)
+	_, err := loadSegmentProjectionFixture(t, src)
+	if err != nil {
+		t.Fatalf("LoadSegmentProjection rejected marked legacy fallback coverage: %v", err)
+	}
+}
+
+func TestLoadCurrentSegmentProjection(t *testing.T) {
+	taxonomyFile, err := os.Open("../../../../config/sport-taxonomy/sports.yaml")
+	if err != nil {
+		t.Fatalf("open sports.yaml: %v", err)
+	}
+	defer taxonomyFile.Close()
+	taxonomy, err := LoadTaxonomy(taxonomyFile)
+	if err != nil {
+		t.Fatalf("load sports.yaml: %v", err)
+	}
+
+	file, err := os.Open("../../../../config/sport-taxonomy/projections/segments.yaml")
+	if err != nil {
+		t.Fatalf("open segments.yaml: %v", err)
+	}
+	defer file.Close()
+	projection, err := LoadSegmentProjection(file, taxonomy)
+	if err != nil {
+		t.Fatalf("LoadSegmentProjection returned error: %v", err)
+	}
+	expanded, err := ExpandSegmentProjection(taxonomy, projection)
+	if err != nil {
+		t.Fatalf("ExpandSegmentProjection returned error: %v", err)
+	}
+	if !expandedHasSegmentTuple(expanded, "wintersport", "snowshoeing", "") {
+		t.Fatal("current segment projection does not expose snowshoeing for wintersport")
+	}
+	if expandedHasSegmentTuple(expanded, "wassersport", "diving", "") {
+		t.Fatal("current segment projection unexpectedly exposes diving for wassersport")
+	}
+}
+
 func TestProjectionSchemaMentionsValidatedFields(t *testing.T) {
 	schema, err := os.ReadFile("../../../../config/sport-taxonomy/schema/projections.schema.json")
 	if err != nil {
 		t.Fatalf("read projections.schema.json: %v", err)
 	}
-	for _, field := range []string{"presets", "groups", "entries", "category_key", "sport_type", "sub_type", "sport_order", "labels", "label_ref", "label_mode"} {
+	for _, field := range []string{"presets", "groups", "entries", "category_key", "sport_type", "sub_type", "sport_order", "labels", "label_ref", "label_mode", "domains", "segment_types", "active_domains", "compatibility_role", "eligible", "sport_group", "eligibility_role"} {
 		if !strings.Contains(string(schema), field) {
 			t.Fatalf("schema does not mention %q", field)
 		}
@@ -326,6 +411,11 @@ func TestProjectionSchemaMentionsValidatedFields(t *testing.T) {
 func loadProjectionFixture(t *testing.T, src string) (ActivityFilterProjections, error) {
 	t.Helper()
 	return LoadActivityFilterProjections(strings.NewReader(src), testProjectionTaxonomy())
+}
+
+func loadSegmentProjectionFixture(t *testing.T, src string) (SegmentProjection, error) {
+	t.Helper()
+	return LoadSegmentProjection(strings.NewReader(src), testProjectionTaxonomy())
 }
 
 func validProjectionFixture() string {
@@ -357,6 +447,36 @@ presets:
 `
 }
 
+func validSegmentProjectionFixture() string {
+	return `
+domains:
+  - key: real_world_gps
+    labels: {de: GPS draußen}
+    status: active
+  - key: virtual_route
+    labels: {de: Virtuelle Strecke}
+    status: reserved
+segment_types:
+  - key: standard
+    labels: {de: Standard}
+    active_domains: [real_world_gps]
+    compatibility_role: legacy_segment_type
+  - key: trail
+    labels: {de: Trail}
+    active_domains: [real_world_gps]
+    compatibility_role: legacy_segment_type
+  - key: lift
+    labels: {de: Lift}
+    active_domains: []
+    compatibility_role: legacy_lift
+eligible:
+  - sport_type: running
+    segment_types: [standard]
+    domains: [real_world_gps]
+    sport_group: foot
+`
+}
+
 func testProjectionTaxonomy() Taxonomy {
 	return Taxonomy{
 		Categories: []Category{
@@ -374,6 +494,7 @@ func testProjectionTaxonomy() Taxonomy {
 				testSubType("indoor_walking", "Indoor", true),
 			}),
 			testSport("cycling", "bike", "Radfahren", true, nil),
+			testBroadFallbackSport("paddling", "water", "Paddeln", "paddle"),
 			testSport("pilates", "fitness", "Pilates", true, nil),
 			testSport("fitness_equipment", "fitness", "Fitnessgerät", false, []SubType{
 				testSubType("pilates", "Pilates", true),
@@ -386,6 +507,16 @@ func testProjectionTaxonomy() Taxonomy {
 			testSport("duplicate_two", "dup", "Doppelt", true, nil),
 		},
 	}
+}
+
+func testBroadFallbackSport(sportType, categoryKey, label, segmentGroup string) Sport {
+	selectable := false
+	sport := testSport(sportType, categoryKey, label, false, nil)
+	sport.Selectable = &selectable
+	sport.SegmentGroup = segmentGroup
+	sport.Lifecycle = "broad_fallback"
+	sport.Traits.ActivityForm = "fallback"
+	return sport
 }
 
 func testSport(sportType, categoryKey, label string, selectable bool, subTypes []SubType) Sport {
@@ -428,6 +559,15 @@ func tupleKeys(leaves []ExpandedActivityFilterLeaf) []string {
 func contains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func expandedHasSegmentTuple(projection ExpandedSegmentProjection, segmentType, sportType, subType string) bool {
+	for _, entry := range projection.Entries {
+		if entry.SegmentType == segmentType && entry.SportType == sportType && entry.SubType == subType {
 			return true
 		}
 	}

@@ -1,5 +1,6 @@
 import { WATER_SPORT_UI_GROUPS, getSegmentGroup, sportsInCategory, type SportDef } from '@/lib/sportTaxonomy'
-import { WINTER_SPORT_WHITELIST, WATER_SPORT_WHITELIST, type SegType } from '@/components/segment-editor/constants'
+import { type SegType } from '@/components/segment-editor/constants'
+import { segmentEligibleSelectionKeys } from '@/lib/segmentProjection'
 
 export interface UISportCategory {
   key: string
@@ -52,6 +53,6 @@ export function isCategoryPartiallyActive(uiKey: string, active: string[] | null
   return types.some(t => active.includes(t)) && !types.every(t => active.includes(t))
 }
 
-export function whitelistForSegmentType(segType: SegType): readonly string[] | undefined {
-  return segType === 'wintersport' ? WINTER_SPORT_WHITELIST : (segType === 'wassersport' ? WATER_SPORT_WHITELIST : undefined)
+export function whitelistForSegmentType(segType: SegType): readonly string[] {
+  return segmentEligibleSelectionKeys(segType)
 }
