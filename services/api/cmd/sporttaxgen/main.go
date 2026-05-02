@@ -27,6 +27,9 @@ func run() error {
 	source := flag.String("source", "", "taxonomy YAML source")
 	goOut := flag.String("go-out", "", "generated Go output path")
 	tsOut := flag.String("ts-out", "", "generated TypeScript output path")
+	activityFilterSource := flag.String("activity-filter-source", "", "activity filter projection YAML source")
+	goProjectionsOut := flag.String("go-projections-out", "", "generated Go activity filter projection output path")
+	tsProjectionsOut := flag.String("ts-projections-out", "", "generated TypeScript activity filter projection output path")
 	check := flag.Bool("check", false, "verify generated outputs are current")
 	flag.Parse()
 
@@ -38,6 +41,15 @@ func run() error {
 	}
 	if *tsOut == "" {
 		*tsOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedSportTaxonomy.ts")
+	}
+	if *activityFilterSource == "" {
+		*activityFilterSource = filepath.Join(*repoRoot, "config", "sport-taxonomy", "projections", "activity_filters.yaml")
+	}
+	if *goProjectionsOut == "" {
+		*goProjectionsOut = filepath.Join(*repoRoot, "services", "api", "internal", "sport", "projections_generated.go")
+	}
+	if *tsProjectionsOut == "" {
+		*tsProjectionsOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedSportFilterProjections.ts")
 	}
 
 	sourceBytes, err := os.ReadFile(*source)
@@ -56,18 +68,50 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("render TypeScript taxonomy: %w", err)
 	}
+	activityFilterBytes, err := os.ReadFile(*activityFilterSource)
+	if err != nil {
+		return fmt.Errorf("read activity filter projection source: %w", err)
+	}
+	projections, err := sporttaxgen.LoadActivityFilterProjections(bytes.NewReader(activityFilterBytes), taxonomy)
+	if err != nil {
+		return fmt.Errorf("load activity filter projection: %w", err)
+	}
+	expandedProjections, err := sporttaxgen.ExpandActivityFilterPresets(taxonomy, projections)
+	if err != nil {
+		return fmt.Errorf("expand activity filter projection: %w", err)
+	}
+	renderedGoProjections, err := sporttaxgen.RenderGoActivityFilterProjections(expandedProjections)
+	if err != nil {
+		return fmt.Errorf("render Go activity filter projection: %w", err)
+	}
+	renderedTSProjections, err := sporttaxgen.RenderTSActivityFilterProjections(expandedProjections)
+	if err != nil {
+		return fmt.Errorf("render TypeScript activity filter projection: %w", err)
+	}
 
 	if *check {
 		if err := checkFile(*goOut, renderedGo); err != nil {
 			return err
 		}
-		return checkFile(*tsOut, renderedTS)
+		if err := checkFile(*tsOut, renderedTS); err != nil {
+			return err
+		}
+		if err := checkFile(*goProjectionsOut, renderedGoProjections); err != nil {
+			return err
+		}
+		return checkFile(*tsProjectionsOut, renderedTSProjections)
 	}
 	if err := os.WriteFile(*goOut, renderedGo, 0o644); err != nil {
 		return fmt.Errorf("write Go taxonomy: %w", err)
 	}
 	if err := os.WriteFile(*tsOut, renderedTS, 0o644); err != nil {
 		return fmt.Errorf("write TypeScript taxonomy: %w", err)
+	}
+	if err := os.WriteFile(*goProjectionsOut, renderedGoProjections, 0o644); err != nil {
+		return fmt.Errorf("write Go activity filter projection: %w", err)
+	}
+	if err := os.WriteFile(*tsProjectionsOut, renderedTSProjections, 0o644); err != nil {
+		return fmt.Errorf("write TypeScript activity filter projection: %w", err)
 	}
 	return nil
 }

@@ -26,6 +26,29 @@ type ModifierDefaults struct {
 	IsIndoor *bool `json:"is_indoor,omitempty"`
 }
 
+// ActivityFilterProjectionPreset is the generated option tree used by activity
+// and map filters.
+type ActivityFilterProjectionPreset struct {
+	Key     string                          `json:"key"`
+	LabelDE string                          `json:"label_de"`
+	Groups  []ActivityFilterProjectionGroup `json:"groups"`
+}
+
+// ActivityFilterProjectionGroup groups related activity-filter leaves.
+type ActivityFilterProjectionGroup struct {
+	Key     string                         `json:"key"`
+	LabelDE string                         `json:"label_de"`
+	Leaves  []ActivityFilterProjectionLeaf `json:"leaves"`
+}
+
+// ActivityFilterProjectionLeaf describes a concrete sport tuple displayed in a
+// filter group.
+type ActivityFilterProjectionLeaf struct {
+	SportType string `json:"sport_type"`
+	SubType   string `json:"sub_type,omitempty"`
+	LabelDE   string `json:"label_de"`
+}
+
 // SubTypeDef describes a sub-sport variation within a parent sport.
 type SubTypeDef struct {
 	SubType          string           `json:"sub_type"`
@@ -199,6 +222,23 @@ func AllSports() []SportDef {
 	return result
 }
 
+// ActivityFilterProjectionPresets returns generated activity-filter projection
+// presets in display order.
+func ActivityFilterProjectionPresets() []ActivityFilterProjectionPreset {
+	return cloneActivityFilterProjectionPresets(generatedActivityFilterProjectionPresets)
+}
+
+// ActivityFilterProjectionPresetByKey returns one generated activity-filter
+// projection preset by key.
+func ActivityFilterProjectionPresetByKey(key string) (ActivityFilterProjectionPreset, bool) {
+	for _, preset := range generatedActivityFilterProjectionPresets {
+		if preset.Key == key {
+			return cloneActivityFilterProjectionPreset(preset), true
+		}
+	}
+	return ActivityFilterProjectionPreset{}, false
+}
+
 // SportsInCategory returns all sport definitions belonging to a category,
 // sorted alphabetically by SportType.
 func SportsInCategory(categoryKey string) []SportDef {
@@ -259,6 +299,24 @@ func cloneModifierDefaults(defaults ModifierDefaults) ModifierDefaults {
 		cloned.IsIndoor = ptrBool(*defaults.IsIndoor)
 	}
 	return cloned
+}
+
+func cloneActivityFilterProjectionPresets(in []ActivityFilterProjectionPreset) []ActivityFilterProjectionPreset {
+	out := make([]ActivityFilterProjectionPreset, len(in))
+	for i := range in {
+		out[i] = cloneActivityFilterProjectionPreset(in[i])
+	}
+	return out
+}
+
+func cloneActivityFilterProjectionPreset(in ActivityFilterProjectionPreset) ActivityFilterProjectionPreset {
+	out := in
+	out.Groups = make([]ActivityFilterProjectionGroup, len(in.Groups))
+	for i := range in.Groups {
+		out.Groups[i] = in.Groups[i]
+		out.Groups[i].Leaves = append([]ActivityFilterProjectionLeaf(nil), in.Groups[i].Leaves...)
+	}
+	return out
 }
 
 // IsIndoor returns true when generated canonical modifier defaults mark the

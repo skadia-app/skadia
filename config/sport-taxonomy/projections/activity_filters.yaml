@@ -1,0 +1,170 @@
+presets:
+  - key: activity_all
+    labels:
+      de: Aktivitätsfilter
+    groups:
+      - key: run
+        label_ref: category:run
+        entries:
+          - category_key: run
+            sport_order: [running, walking, hiking, mountaineering, wheelchair_push]
+      - key: bike
+        label_ref: category:bike
+        entries:
+          - category_key: bike
+            sport_order: [cycling]
+      - key: winter
+        label_ref: category:winter
+        entries:
+          - category_key: winter
+            sport_order: [alpine_skiing, backcountry_skiing, cross_country_skiing, snowboarding, snowshoeing, ice_skating, snowmobiling, sledding]
+          - sport_type: skiing
+      - key: water_swim
+        labels: {de: Schwimmen}
+        entries:
+          - sport_type: swimming
+      - key: water_paddle
+        labels: {de: Paddeln}
+        entries:
+          - sport_type: paddling
+          - sport_type: kayaking
+          - sport_type: stand_up_paddleboarding
+          - sport_type: rowing
+          - sport_type: rafting
+          - sport_type: canoeing
+      - key: water_board
+        labels: {de: Surfen/Board}
+        entries:
+          - sport_type: surfing
+          - sport_type: kitesurfing
+          - sport_type: windsurfing
+          - sport_type: wakeboarding
+          - sport_type: wakesurfing
+          - sport_type: water_skiing
+          - sport_type: water_tubing
+      - key: water_boat
+        labels: {de: Segeln/Boot}
+        entries:
+          - sport_type: boating
+          - sport_type: sailing
+      - key: water_dive
+        labels: {de: Tauchen/Schnorcheln}
+        entries:
+          - sport_type: diving
+          - sport_type: snorkeling
+      - key: water_other
+        labels: {de: Angeln}
+        entries:
+          - sport_type: fishing
+      - key: fitness
+        label_ref: category:fitness
+        entries:
+          - category_key: fitness
+            sport_order: [training, fitness_equipment, strength_training, hiit, yoga, pilates, floor_climbing, dance, jump_rope, meditation, boxing, mixed_martial_arts]
+      - key: game
+        label_ref: category:game
+        entries:
+          - category_key: game
+            sport_order: [soccer, basketball, american_football, rugby, lacrosse, hockey, volleyball, tennis, racket, cricket, baseball, golf, disc_golf]
+      - key: climb
+        label_ref: category:climb
+        entries:
+          - category_key: climb
+            sport_order: [rock_climbing]
+      - key: outdoor
+        label_ref: category:outdoor
+        entries:
+          - category_key: outdoor
+            sport_order: [inline_skating, flying, hang_gliding, sky_diving, jumpmaster, horseback_riding, hunting, motorcycling, driving, tactical]
+      - key: multi
+        label_ref: category:multi
+        entries:
+          - category_key: multi
+            sport_order: [multisport, transition]
+      - key: other
+        label_ref: category:other
+        entries:
+          - category_key: other
+            sport_order: [generic, unknown]
+
+  - key: map_panel_gps
+    labels:
+      de: Kartenfilter
+    groups:
+      - key: run
+        label_ref: category:run
+        entries:
+          - category_key: run
+            sport_order: [running, walking, hiking, mountaineering, wheelchair_push]
+      - key: bike
+        label_ref: category:bike
+        entries:
+          - category_key: bike
+            sport_order: [cycling]
+      - key: winter
+        label_ref: category:winter
+        entries:
+          - category_key: winter
+            sport_order: [alpine_skiing, backcountry_skiing, cross_country_skiing, snowboarding, snowshoeing, ice_skating, snowmobiling, sledding]
+          - sport_type: skiing
+      - key: water_swim
+        labels: {de: Schwimmen}
+        entries:
+          - sport_type: swimming
+      - key: water_paddle
+        labels: {de: Paddeln}
+        entries:
+          - sport_type: paddling
+          - sport_type: kayaking
+          - sport_type: stand_up_paddleboarding
+          - sport_type: rowing
+          - sport_type: rafting
+          - sport_type: canoeing
+      - key: water_board
+        labels: {de: Surfen/Board}
+        entries:
+          - sport_type: surfing
+          - sport_type: kitesurfing
+          - sport_type: windsurfing
+          - sport_type: wakeboarding
+          - sport_type: wakesurfing
+          - sport_type: water_skiing
+          - sport_type: water_tubing
+      - key: water_boat
+        labels: {de: Segeln/Boot}
+        entries:
+          - sport_type: boating
+          - sport_type: sailing
+      - key: water_dive
+        labels: {de: Tauchen/Schnorcheln}
+        entries:
+          - sport_type: diving
+          - sport_type: snorkeling
+      - key: water_other
+        labels: {de: Angeln}
+        entries:
+          - sport_type: fishing
+      - key: climb
+        label_ref: category:climb
+        entries:
+          - category_key: climb
+            sport_order: [rock_climbing]
+      - key: outdoor
+        label_ref: category:outdoor
+        entries:
+          - category_key: outdoor
+            sport_order: [inline_skating, flying, hang_gliding, sky_diving, jumpmaster, horseback_riding, hunting, motorcycling, driving, tactical]
+      - key: multi
+        label_ref: category:multi
+        entries:
+          - category_key: multi
+            sport_order: [multisport, transition]
+      - key: fitness_other
+        labels: {de: Fitness & Sonstiges}
+        entries:
+          - category_key: fitness
+            sport_order: [training, fitness_equipment, strength_training, hiit, yoga, pilates, floor_climbing, dance, jump_rope, meditation, boxing, mixed_martial_arts]
+          - category_key: game
+            sport_order: [soccer, basketball, american_football, rugby, lacrosse, hockey, volleyball, tennis, racket, cricket, baseball, golf, disc_golf]
+          - category_key: other
+            sport_order: [generic, unknown]
