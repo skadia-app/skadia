@@ -379,6 +379,28 @@ export async function fetchYearProgression(params: string): Promise<YearProgress
   return apiClient(`/analytics/year-progression?${params}`)
 }
 
+export interface YearProgressionRollingDataPoint {
+  date: string   // YYYY-MM-DD
+  value: number
+}
+
+export interface YearProgressionRollingYearGroup {
+  year: number
+  points: YearProgressionRollingDataPoint[]
+}
+
+export interface YearProgressionRollingResponse {
+  metric: string
+  period_days: number
+  granularity: 'day' | 'week'
+  years: YearProgressionRollingYearGroup[]
+  best_year: number
+}
+
+export async function fetchYearProgressionRolling(params: string): Promise<YearProgressionRollingResponse> {
+  return apiClient(`/analytics/year-progression-rolling?${params}`)
+}
+
 
 export async function fetchZoneDistribution(params: string): Promise<ZoneDistribution[]> {
   return apiClient(`/analytics/zone-distribution?${params}`)

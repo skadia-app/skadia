@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import type { EChartsCoreOption } from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
@@ -11,8 +10,10 @@ import {
   ToolboxComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { fetchYearProgression } from '@/api/analytics'
+import { Maximize2 } from 'lucide-react'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { useYearProgression } from '@/hooks/useYearProgression'
+import YearProgressionFullscreenModal from './YearProgressionFullscreenModal'
 
 echarts.use([
   LineChart,
@@ -56,6 +57,7 @@ export default function YearProgressionChart() {
   const [metric, setMetric] = useState<MetricKey>('distance_m')
   const [selectedYears, setSelectedYears] = useState<Set<number>>(new Set())
   const [chartType, setChartType] = useState<'line' | 'bar'>('line')
+  const [fullscreenOpen, setFullscreenOpen] = useState(false)
 
   const monthlyRef = useRef<HTMLDivElement>(null)
   const cumulRef = useRef<HTMLDivElement>(null)
@@ -69,12 +71,7 @@ export default function YearProgressionChart() {
     return params.toString()
   }, [toQueryString, metric])
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['analytics', 'year-progression', queryParams],
-    queryFn: () => fetchYearProgression(queryParams),
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
-  })
+  const { data, isLoading, isError } = useYearProgression({ mode: 'progress', metric, queryParams })
 
   const yearListKey = useMemo(() => data?.years?.map(y => y.year).join(',') ?? '', [data?.years])
 
@@ -314,6 +311,13 @@ export default function YearProgressionChart() {
               Balken
             </button>
           </div>
+          <button
+            onClick={() => setFullscreenOpen(true)}
+            aria-label="Vollbild öffnen"
+            className="p-1.5 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors cursor-pointer"
+          >
+            <Maximize2 size={14} />
+          </button>
         </div>
       </div>
 
@@ -372,6 +376,13 @@ export default function YearProgressionChart() {
           </div>
         </div>
       )}
+
+      {/* Fullscreen modal — opened by Maximize2 button in the header */}
+      <YearProgressionFullscreenModal
+        open={fullscreenOpen}
+        onClose={() => setFullscreenOpen(false)}
+        initialMetric={metric}
+      />
     </div>
   )
 }
