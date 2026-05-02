@@ -48,6 +48,23 @@ vi.mock('@/api/routes', async () => {
     // DEM endpoint — default: empty profile (no DEM available). Tests that need
     // a resolved profile override this via vi.mocked(getElevationProfile).mockResolvedValue(...)
     getElevationProfile: vi.fn().mockResolvedValue({ profile: [] }),
+    // updateRoute — needed by forceMigrateAndSave tests; default returns a minimal PlannedRoute.
+    updateRoute: vi.fn(async (id: string, payload: Partial<PlannedRoute>) => ({
+      id,
+      name: 'Gespeicherte Route',
+      profile: payload.profile ?? 'hiking',
+      sport_type: payload.sport_type ?? 'hiking',
+      waypoints: payload.waypoints ?? [],
+      segments: payload.segments ?? [],
+      elevation_profile: payload.elevation_profile ?? null,
+      time_override: false,
+      auto_tag: false,
+      route_schema_version: payload.route_schema_version ?? 1,
+      photos: [],
+      tags: [],
+      created_at: '2026-04-27T00:00:00Z',
+      updated_at: '2026-04-27T00:00:00Z',
+    })),
   }
 })
 
@@ -1277,6 +1294,9 @@ describe('fillOffroadProfile + per-segment fill tokens (Phase D.2)', () => {
       distance_m: 5000,
       elevation_gain: 50,
       elevation_loss: 10,
+      // Pre-populate elevation_profile so needsMigration() returns false for these
+      // test routes — tests here target fillOffroadAndApply, not lazy-fill migration.
+      elevation_profile: [{ dist_m: 0, ele_m: 500 }, { dist_m: 5000, ele_m: 510 }],
     }
   }
 
@@ -1299,6 +1319,9 @@ describe('fillOffroadProfile + per-segment fill tokens (Phase D.2)', () => {
       updated_at: '2026-01-01T00:00:00Z',
       elevation_profile: null,
       enrichment: null,
+      // route_schema_version=1: both conditions in needsMigration() are false
+      // (version gate passes; segments already have elevation_profile via makeOffroadSeg).
+      route_schema_version: 1,
     }
   }
 
@@ -1306,6 +1329,8 @@ describe('fillOffroadProfile + per-segment fill tokens (Phase D.2)', () => {
     qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     addToastMock.mockClear()
     getElevationAtVerticesChunkedMock.mockClear()
+    // Prevent cross-test cache hits in migrateRouteCached (module-level Map).
+    clearMigrationCache()
 
     const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
     vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
@@ -1402,8 +1427,10 @@ describe('fillOffroadProfile + per-segment fill tokens (Phase D.2)', () => {
       tags: [],
       created_at: '2026-01-01T00:00:00Z',
       updated_at: '2026-01-01T00:00:00Z',
-      elevation_profile: [{ dist_m: 0, ele_m: 0 }],  // non-null, non-empty → needsLazyFill=false
+      elevation_profile: [{ dist_m: 0, ele_m: 0 }],
       enrichment: null,
+      // route_schema_version=1 + segments with elevation_profile → needsMigration()=false.
+      route_schema_version: 1,
     }
 
     await act(async () => { result.current.loadRoute(twoSegRoute) })
@@ -1552,5 +1579,335 @@ describe('fillOffroadProfile + per-segment fill tokens (Phase D.2)', () => {
     if (seg?.elevation_profile != null && seg.elevation_profile.length > 0) {
       expect(seg.elevation_profile[0].ele_m).not.toBe(888)
     }
+  })
+})
+
+// ── P6 null-initial-state + profile lifecycle tests ───────────────────────────
+// Migrated from the flat hooks/useRoutePlanner.test.tsx (P6 block).
+
+describe('useRoutePlanner (P6 null-initial-state)', () => {
+  let qc: QueryClient
+
+  beforeEach(async () => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    addToastMock.mockClear()
+
+    const { getProfileDefaults, cacheServerDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue(null)
+    vi.mocked(cacheServerDefaults).mockReset()
+
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockResolvedValue({
+      profile: 'hiking',
+      uphill_cost: 7,
+    } as any)
+  })
+
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <ToastProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </ToastProvider>
+  )
+
+  it('starts with profile.status === loading before server fetch', () => {
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    expect(result.current.profile.status).toBe('loading')
+  })
+
+  it('populates profile to ready after server fetch resolves', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    const hikingProfile = { profile: 'hiking', uphill_cost: 7 } as any
+    vi.mocked(getProfileDefaults).mockReturnValue(hikingProfile)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => {
+      expect(result.current.profile.status).toBe('ready')
+    })
+    if (result.current.profile.status === 'ready') {
+      expect(result.current.profile.name).toBe('hiking')
+    }
+  })
+
+  it('shows error toast when mount-fetch fails; profile.status stays loading', async () => {
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockRejectedValueOnce(new Error('network'))
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    await waitFor(() => {
+      expect(addToastMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'error',
+          title: expect.stringContaining('Profil-Defaults'),
+        })
+      )
+    })
+    expect(result.current.profile.status).toBe('loading')
+  })
+
+  it('addWaypoint before mount-fetch resolves does not crash (profile still loading)', async () => {
+    let resolveMount: (v: any) => void
+    const mountPromise = new Promise<any>(r => { resolveMount = r })
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockImplementationOnce(() => mountPromise)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    expect(result.current.profile.status).toBe('loading')
+
+    await act(async () => {
+      await result.current.addWaypoint([47.0, 11.0])
+    })
+
+    expect(result.current.waypoints.length).toBeGreaterThan(0)
+
+    await act(async () => {
+      resolveMount({ profile: 'hiking', uphill_cost: 7 })
+      await new Promise(r => setTimeout(r, 0))
+    })
+  })
+
+  it('loadSuggestion setzt 2 Waypoints + 1 Segment mit voller Geometrie', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    const hikingProfile = { profile: 'hiking', uphill_cost: 7 } as any
+    vi.mocked(getProfileDefaults).mockReturnValue(hikingProfile)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    await waitFor(() => {
+      expect(result.current.profile.status).toBe('ready')
+    })
+
+    const fakeSuggestion = makeFakeSuggestion({
+      geojson: {
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [12.0, 49.0, 500],
+              [12.01, 49.01, 510],
+              [12.02, 49.0, 505],
+              [12.0, 49.0, 500],
+            ],
+          },
+          properties: {},
+        }],
+      },
+    })
+
+    act(() => {
+      result.current.loadSuggestion(fakeSuggestion)
+    })
+
+    expect(result.current.waypoints).toHaveLength(2)
+    expect(result.current.waypoints[0].latlng[0]).toBeCloseTo(49.0)
+    expect(result.current.waypoints[0].latlng[1]).toBeCloseTo(12.0)
+    expect(result.current.waypoints[1].latlng[0]).toBeCloseTo(49.0)
+    expect(result.current.waypoints[1].latlng[1]).toBeCloseTo(12.0)
+
+    expect(result.current.segments).toHaveLength(1)
+    expect(result.current.segments[0].distance_m).toBe(11700)
+    expect(result.current.segments[0].elevation_gain).toBe(208)
+    expect(result.current.segments[0].elevation_loss).toBe(208)
+    expect(result.current.segments[0].geometry?.coordinates).toHaveLength(4)
+  })
+
+  it('mount-fetch does not overwrite profileConfig set by loadRoute', async () => {
+    let resolveMountFetch!: (v: any) => void
+    const mountFetchPromise = new Promise<any>(r => { resolveMountFetch = r })
+
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockReturnValueOnce(mountFetchPromise)
+
+    const mtbProfileConfig = { profile: 'mtb', uphill_cost: 5 } as any
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockImplementation((name: string) => {
+      if (name === 'mtb') return mtbProfileConfig
+      return null
+    })
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    expect(result.current.profile.status).toBe('loading')
+
+    act(() => {
+      result.current.loadRoute({
+        id: 'route-1',
+        profile: 'mtb',
+        sport_type: 'mountain_biking',
+        waypoints: [],
+        segments: [],
+        total_distance_m: 0,
+        total_elevation_gain: 0,
+        total_elevation_loss: 0,
+        name: 'Test Route',
+        created_at: '',
+        updated_at: '',
+      } as any)
+    })
+
+    expect(result.current.profile.status).toBe('ready')
+    if (result.current.profile.status === 'ready') {
+      expect(result.current.profile.name).toBe('mtb')
+    }
+
+    await act(async () => {
+      resolveMountFetch({ profile: 'hiking', uphill_cost: 7 })
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    expect(result.current.profile.status).toBe('ready')
+    if (result.current.profile.status === 'ready') {
+      expect(result.current.profile.name).toBe('mtb')
+    }
+  })
+
+  it('loadSuggestion setzt scalePin auf null zurück (I3-Invariant)', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
+
+    act(() => { result.current.togglePin('sac') })
+    expect(result.current.scalePin).toBe('sac')
+
+    act(() => { result.current.loadSuggestion(makeFakeSuggestion()) })
+    expect(result.current.scalePin).toBeNull()
+  })
+
+  it('recalculateAll setzt scalePin auf null zurück', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
+
+    act(() => { result.current.togglePin('mtb') })
+    expect(result.current.scalePin).toBe('mtb')
+
+    await act(async () => {
+      if (result.current.profile.status === 'ready') {
+        await result.current.profile.recalculate()
+      }
+    })
+    expect(result.current.scalePin).toBeNull()
+  })
+
+  it('loadRoute (cache-hit) setzt scalePin auf null zurück', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    const hikingProfile = { profile: 'hiking', uphill_cost: 7 } as any
+    vi.mocked(getProfileDefaults).mockReturnValue(hikingProfile)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => { expect(result.current.profile.status).toBe('ready') })
+
+    act(() => { result.current.togglePin('vf') })
+    expect(result.current.scalePin).toBe('vf')
+
+    act(() => {
+      result.current.loadRoute({
+        id: 'route-cache-hit',
+        profile: 'hiking',
+        sport_type: 'hiking',
+        waypoints: [],
+        segments: [],
+        total_distance_m: 0,
+        total_elevation_gain: 0,
+        total_elevation_loss: 0,
+        name: 'Cache-Hit Route',
+        created_at: '',
+        updated_at: '',
+      } as any)
+    })
+    expect(result.current.scalePin).toBeNull()
+  })
+
+  it('loadRoute (cache-miss) setzt scalePin auf null zurück', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue(null)
+
+    const { getProfileDefaults: fetchProfileDefaults } = await import('@/api/routes')
+    vi.mocked(fetchProfileDefaults).mockResolvedValue({ profile: 'hiking', uphill_cost: 7 } as any)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    act(() => { result.current.togglePin('sac') })
+    expect(result.current.scalePin).toBe('sac')
+
+    act(() => {
+      result.current.loadRoute({
+        id: 'route-cache-miss',
+        profile: 'hiking',
+        sport_type: 'hiking',
+        waypoints: [],
+        segments: [],
+        total_distance_m: 0,
+        total_elevation_gain: 0,
+        total_elevation_loss: 0,
+        name: 'Cache-Miss Route',
+        created_at: '',
+        updated_at: '',
+      } as any)
+    })
+    expect(result.current.scalePin).toBeNull()
+  })
+
+  it('forceMigrateAndSave saves a loaded pre-T0 route with schema version 1', async () => {
+    const { getProfileDefaults } = await import('@/lib/routingProfiles')
+    vi.mocked(getProfileDefaults).mockReturnValue({ profile: 'hiking', uphill_cost: 7 } as any)
+    const { updateRoute } = await import('@/api/routes')
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+    await waitFor(() => {
+      expect(result.current.profile.status).toBe('ready')
+    })
+
+    const route: PlannedRoute = {
+      id: 'route-pre-t0',
+      name: 'Alte Route',
+      profile: 'hiking',
+      sport_type: 'hiking',
+      waypoints: [
+        { id: 'a', latlng: [47, 11] as [number, number], type: 'start' as const },
+        { id: 'b', latlng: [47.1, 11.1] as [number, number], type: 'end' as const },
+      ],
+      segments: [{
+        from_waypoint: 'a',
+        to_waypoint: 'b',
+        mode: 'routed' as const,
+        geometry: { type: 'LineString' as const, coordinates: [[11, 47], [11.1, 47.1]] },
+        control_points: [],
+        smooth: true,
+        distance_m: 100,
+        elevation_gain: 10,
+        elevation_loss: 0,
+        elevation_profile: [{ dist_m: 0, ele_m: 100 }, { dist_m: 100, ele_m: 110 }],
+      }],
+      elevation_profile: [{ dist_m: 0, ele_m: 100 }, { dist_m: 100, ele_m: 110 }],
+      time_override: false,
+      auto_tag: false,
+      route_schema_version: 0,
+      photos: [],
+      tags: [],
+      created_at: '2026-04-27T00:00:00Z',
+      updated_at: '2026-04-27T00:00:00Z',
+    }
+
+    act(() => {
+      result.current.loadRoute(route)
+    })
+    expect(result.current.routeSchemaVersion).toBe(0)
+
+    await act(async () => {
+      await result.current.forceMigrateAndSave()
+    })
+
+    expect(updateRoute).toHaveBeenCalledWith('route-pre-t0', expect.objectContaining({
+      route_schema_version: 1,
+    }))
+    await waitFor(() => {
+      expect(result.current.routeSchemaVersion).toBe(1)
+    })
   })
 })
