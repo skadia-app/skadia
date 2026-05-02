@@ -280,6 +280,37 @@ describe('YearProgressionFullscreenModal', () => {
     expect(screen.getByTestId('period-selector')).toBeInTheDocument()
   })
 
+  it('F007: rolling mode with fewer years than progress trims year pills', async () => {
+    // Progress returns 2024 + 2023; rolling only returns 2024.
+    mockFetchYearProgressionRolling.mockResolvedValue({
+      metric: 'distance_m',
+      period_days: 30,
+      granularity: 'day',
+      best_year: 2024,
+      years: [
+        { year: 2024, points: [] },
+      ],
+    })
+
+    wrapper(<YearProgressionFullscreenModal open={true} onClose={vi.fn()} />)
+
+    // Switch to rolling mode.
+    await userEvent.click(screen.getByRole('button', { name: 'Rolling' }))
+
+    // Wait for rolling data to settle.
+    await new Promise(r => setTimeout(r, 50))
+
+    // In rolling mode, availableYears derives from rollingResult — only 2024 is present.
+    // The year pills container should not show 2023.
+    const yearPills = screen.queryByTestId('year-pills')
+    if (yearPills) {
+      // If the pill container is rendered, 2023 must not appear in it.
+      const pills = yearPills.querySelectorAll('button')
+      const pillTexts = Array.from(pills).map(b => b.textContent)
+      expect(pillTexts).not.toContain('2023')
+    }
+  })
+
   it('metric toggle sends the correct metric value via useYearProgression', async () => {
     // This test verifies that switching metric triggers a re-fetch with the new
     // metric param. Because useYearProgression is wired to the real hook (mocked

@@ -122,6 +122,51 @@ describe('useYearProgression', () => {
     expect(rollingData?.period_days).toBe(30)
   })
 
+  it('F013: progress mode injects metric into fetch params even when absent from queryParams', async () => {
+    const wrapper = makeWrapper()
+    renderHook(
+      () => useYearProgression({
+        mode: 'progress',
+        metric: 'elevation_gain_m',
+        queryParams: 'sport_type=cycling',
+      }),
+      { wrapper },
+    )
+
+    await waitFor(() => expect(mockFetchYearProgression).toHaveBeenCalledTimes(1))
+
+    const calledWith: string = mockFetchYearProgression.mock.calls[0][0]
+    const params = new URLSearchParams(calledWith)
+    expect(params.get('metric')).toBe('elevation_gain_m')
+    expect(params.get('sport_type')).toBe('cycling')
+  })
+
+  it('F013: progress cache key changes when metric changes (no stale cross-metric cache)', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      createElement(QueryClientProvider, { client: queryClient }, children)
+
+    const { rerender } = renderHook(
+      ({ metric }: { metric: string }) =>
+        useYearProgression({ mode: 'progress', metric: metric as 'distance_m' | 'elevation_gain_m', queryParams: '' }),
+      { wrapper, initialProps: { metric: 'distance_m' } },
+    )
+
+    await waitFor(() => expect(mockFetchYearProgression).toHaveBeenCalledTimes(1))
+
+    rerender({ metric: 'elevation_gain_m' })
+
+    await waitFor(() => expect(mockFetchYearProgression).toHaveBeenCalledTimes(2))
+
+    const calls = mockFetchYearProgression.mock.calls
+    const firstMetric = new URLSearchParams(calls[0][0]).get('metric')
+    const secondMetric = new URLSearchParams(calls[1][0]).get('metric')
+    expect(firstMetric).toBe('distance_m')
+    expect(secondMetric).toBe('elevation_gain_m')
+  })
+
   it('passes period_days and granularity into the rolling fetch params', async () => {
     const wrapper = makeWrapper()
     renderHook(

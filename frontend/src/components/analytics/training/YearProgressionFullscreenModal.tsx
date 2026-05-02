@@ -87,7 +87,10 @@ function ModalStateContainer({
   const [mode, setMode] = useState<YearProgressionMode>('progress')
   const [metric, setMetric] = useState<MetricKey>(initialMetric ?? 'distance_m')
   // Rolling granularity (X-axis resolution). Progress mode has no granularity param.
-  const [granularity] = useState<'day' | 'week'>('day')
+  // Granularity stays 'day' across modes; rolling mode is the only consumer.
+  // _setGranularity is reserved for the future granularity toggle UI (not in this round).
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [granularity, _setGranularity] = useState<'day' | 'week'>('day')
   const [selectedYears, setSelectedYears] = useState<number[]>(initialYears ?? [])
   const [selectedSports, setSelectedSports] = useState<string[]>([])
   const [lockedDate, setLockedDate] = useState<Date | null>(null)
@@ -97,11 +100,11 @@ function ModalStateContainer({
   const [periodUnit, setPeriodUnit] = useState<PeriodUnit>('month')
   const periodDays = periodToDays(periodMultiplier, periodUnit)
 
-  // ── Mode-switch handler (F007 rules) ────────────────────────────────────────
+  // ── Mode-switch handler ──────────────────────────────────────────────────────
   const handleModeSwitch = useCallback((next: YearProgressionMode) => {
     if (next === mode) return
-    // Keep: metric, selectedYears, selectedSports
-    // Reset: lockedDate, granularity stays 'month' (both modes default to month)
+    // Keep: metric, selectedYears, selectedSports, granularity
+    // Reset: lockedDate (only meaningful in progress mode)
     setLockedDate(null)
     setMode(next)
   }, [mode])
@@ -132,14 +135,13 @@ function ModalStateContainer({
   const activeResult = mode === 'progress' ? progressResult : rollingResult
   const { isLoading, isError } = activeResult
 
-  // ── Available years (derived from progress data; rolling uses same year set) ─
-  const availableYears = useMemo(
-    () => progressResult.data?.years?.map(y => y.year) ?? [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [progressResult.data?.years?.map(y => y.year).join(',')],
-  )
+  // ── Available years (mode-specific: rolling may cover fewer years than progress) ─
+  const availableYears = useMemo(() => {
+    const data = mode === 'progress' ? progressResult.data : rollingResult.data
+    return data?.years?.map(y => y.year) ?? []
+  }, [mode, progressResult.data?.years, rollingResult.data?.years]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Year-Set-Mismatch rule: trim selectedYears to available years on first load.
+  // Year-Set-Mismatch rule: trim selectedYears to available years on load / mode switch.
   useEffect(() => {
     if (availableYears.length === 0) return
     if (selectedYears.length === 0) {
@@ -331,10 +333,29 @@ function ModalStateContainer({
 
   const activeOption = mode === 'progress' ? progressChartOption : rollingChartOption
 
+  // Progress-mode click handler: converts the clicked month index (x-axis category index)
+  // into a Date set to the last day of that month, then locks the comparison table.
+  // Only active in progress mode; rolling mode has no monthly x-axis.
+  const handleProgressChartClick = useCallback((chart: echarts.ECharts) => {
+    if (mode !== 'progress') return
+    const onClick = (params: unknown) => {
+      const p = params as { dataIndex?: number }
+      if (p.dataIndex == null) return
+      const monthIdx = p.dataIndex // 0-based month index from the category x-axis
+      const currentYear = new Date().getFullYear()
+      // Last day of the clicked month in the current year.
+      // new Date(year, month + 1, 0) gives the last day of `month`.
+      const lastDay = new Date(currentYear, monthIdx + 1, 0).getDate()
+      setLockedDate(new Date(currentYear, monthIdx, lastDay))
+    }
+    chart.on('click', onClick)
+    return () => chart.off('click', onClick)
+  }, [mode]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const chartContainerRef = useECharts(
     () => activeOption ?? { series: [] },
     [activeOption],
-    { enabled: !!activeOption },
+    { enabled: !!activeOption, onChart: handleProgressChartClick },
   )
 
   // ── Toggle helpers ────────────────────────────────────────────────────────────

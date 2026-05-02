@@ -364,6 +364,14 @@ type YearProgressionRollingRow struct {
 	Value float64
 }
 
+// EXPLAIN ANALYZE 2026-05-02: 45ms, buffers shared hit=42796 (planning hit=770),
+// plan: Sort(quicksort 106kB) → FunctionScan generate_series → SubPlan Aggregate →
+//   IndexScan activities_user_id_started_at_idx (user_id+started_at range per day,
+//   1827 loops, ~10.5 rows/loop). Filter (exclude_from_stats, is_group_secondary)
+//   removes 0 rows in this dataset. Params: user_id=UUID, metric=distance_m,
+//   period_days=30, granularity=day, span=2021-01-01..2026-01-01 (1827 days).
+//   Well below threshold (800ms / 200k buffers). Index covers the query fully.
+//
 // GetYearProgressionRolling returns rolling-window aggregated metric values for each
 // day (or week) in the requested span, grouped by year for multi-year overlay charts.
 //

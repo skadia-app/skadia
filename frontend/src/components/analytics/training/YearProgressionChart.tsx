@@ -382,6 +382,7 @@ export default function YearProgressionChart() {
         open={fullscreenOpen}
         onClose={() => setFullscreenOpen(false)}
         initialMetric={metric}
+        initialYears={yearNumbers.length > 0 ? yearNumbers.filter(y => selectedYears.has(y)) : undefined}
       />
     </div>
   )

@@ -58,9 +58,9 @@ export function expandSportSelection(selectedSports: string[]): string[] {
       continue
     }
 
-    // Bare sport type (e.g. "running" without a subtype token) — emit as-is.
-    // The caller is responsible for not sending these to the backend.
-    result.push(token)
+    // Unrecognised bare token (neither a known category key nor a sport:subtype pair).
+    // Passing it to the backend would produce a non-matching filter; drop it and warn.
+    console.warn('[expandSportSelection] dropping unrecognised sport token:', token)
   }
 
   return result

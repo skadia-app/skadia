@@ -8,6 +8,8 @@ export default function FilterActiveBadge() {
   if (count === 0) return null
 
   function handleClick() {
+    // Open a collapsed filter panel before scrolling to it.
+    window.dispatchEvent(new CustomEvent('analytics:open-filter-panel'))
     document.getElementById('analytics-filter-panel')?.scrollIntoView({ behavior: 'smooth' })
   }
 

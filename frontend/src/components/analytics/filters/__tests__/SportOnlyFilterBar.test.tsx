@@ -144,4 +144,34 @@ describe('expandSportSelection', () => {
     expect(result.some(t => t.startsWith('running:'))).toBe(true)
     expect(result).not.toContain('run')
   })
+
+  it('drops unknown bare tokens and emits a console warning', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const result = expandSportSelection(['Rennrad'])
+    expect(result).toEqual([])
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[expandSportSelection] dropping unrecognised sport token:',
+      'Rennrad',
+    )
+    warnSpy.mockRestore()
+  })
+
+  it('passes through sport:subtype tokens unchanged and drops bare unknown tokens', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const result = expandSportSelection(['cycling:road', 'Rennrad'])
+    expect(result).toContain('cycling:road')
+    expect(result).not.toContain('Rennrad')
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    warnSpy.mockRestore()
+  })
+
+  it('handles mixed category expansion and sport:subtype without bare-token drift', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const result = expandSportSelection(['cycling', 'cycling:road'])
+    // 'cycling' is not a category key — it should be dropped
+    expect(result).not.toContain('cycling')
+    // 'cycling:road' passes through unchanged
+    expect(result).toContain('cycling:road')
+    warnSpy.mockRestore()
+  })
 })

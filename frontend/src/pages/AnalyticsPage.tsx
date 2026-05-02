@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAnalyticsFilters, getPresets, savePreset, deletePreset, activeFilterCount } from '@/lib/analyticsFilters'
@@ -663,6 +663,16 @@ export default function AnalyticsPage() {
   const { filters, setFilters, toQueryString } = useAnalyticsFilters()
   const [filterOpen, setFilterOpen] = useState(false)
   const location = useLocation()
+
+  useEffect(() => {
+    function handleOpenFilterPanel() {
+      setFilterOpen(true)
+    }
+    window.addEventListener('analytics:open-filter-panel', handleOpenFilterPanel)
+    return () => {
+      window.removeEventListener('analytics:open-filter-panel', handleOpenFilterPanel)
+    }
+  }, [])
   const isRecordsTab = location.pathname === '/analytics/records' || location.pathname === '/analytics/records/'
 
   const filterCount = activeFilterCount(filters)
