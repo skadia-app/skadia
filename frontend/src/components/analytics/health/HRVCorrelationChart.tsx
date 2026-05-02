@@ -148,9 +148,14 @@ export default function HRVCorrelationChart() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          HRV-Korrelation
-        </h2>
+        <div>
+          <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+            HRV-Korrelation
+          </h2>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+            HRV vs. Trainingsstress (TSS Vortag)
+          </p>
+        </div>
         <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
           {(Object.keys(presetLabels) as TimePreset[]).map(p => (
             <button

@@ -7,7 +7,6 @@ import SpO2Chart from '@/components/analytics/health/SpO2Chart'
 import BloodPressureChart from '@/components/analytics/health/BloodPressureChart'
 import FitnessAgeChart from '@/components/analytics/health/FitnessAgeChart'
 import HRVCorrelationChart from '@/components/analytics/health/HRVCorrelationChart'
-import HRVExtendedPanel from '@/components/analytics/HRVExtendedPanel'
 import GlucoseChart from '@/components/analytics/health/GlucoseChart'
 
 // ── HealthTab ─────────────────────────────────────────────────────────────────
@@ -17,9 +16,6 @@ export default function HealthTab() {
     <div className="space-y-6">
       {/* HRV Analysis — full width */}
       <HRVAnalysisChart />
-
-      {/* Extended HRV Analysis (NeuroKit2) — full width */}
-      <HRVExtendedPanel />
 
       {/* Sleep — full width */}
       <SleepAnalysisChart />

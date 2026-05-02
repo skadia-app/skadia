@@ -16,6 +16,7 @@ import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { toLocalISO } from '@/lib/dateUtils'
 import { useChangepoints, changepointsToMarkLines } from '@/components/analytics/ChangepointMarkers'
 import { useECharts } from '@/hooks/useECharts'
+import { cn } from '@/lib/utils'
 
 echarts.use([
   LineChart,
@@ -227,9 +228,14 @@ export default function HRVAnalysisChart() {
     <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-          HRV-Analyse
-        </h2>
+        <div>
+          <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+            HRV-Analyse
+          </h2>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+            RMSSD-Trend mit Anomalie-Erkennung
+          </p>
+        </div>
         <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
           {(Object.keys(presetLabels) as TimePreset[]).map(p => (
             <button
@@ -264,35 +270,43 @@ export default function HRVAnalysisChart() {
         </div>
       )}
 
-      {/* Chart */}
+      {/* Chart — always-mount pattern prevents ECharts dispose crash on preset toggle */}
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            Lade HRV-Daten…
-          </div>
-        ) : isError ? (
-          <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            Fehler beim Laden der HRV-Daten
-          </div>
-        ) : !data || !data.points?.length ? (
-          <div className="flex flex-col items-center justify-center h-[280px] gap-3 text-neutral-400">
-            <svg className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-            </svg>
-            <span className="text-sm">Keine HRV-Daten für diesen Zeitraum</span>
-            {preset !== 'all' && (
-              <button
-                onClick={() => setPreset('all')}
-                className="text-xs px-3 py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
-              >
-                Alle verfügbaren Daten anzeigen
-              </button>
-            )}
-          </div>
-        ) : (
-          <div ref={containerRef} className="h-[280px] w-full" />
-        )}
+        <div className="relative h-[280px]">
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
+              Lade HRV-Daten…
+            </div>
+          )}
+          {!isLoading && isError && (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
+              Fehler beim Laden der HRV-Daten
+            </div>
+          )}
+          {!isLoading && !isError && (!data || !data.points?.length) && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-neutral-400">
+              <svg className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+              </svg>
+              <span className="text-sm">Keine HRV-Daten für diesen Zeitraum</span>
+              {preset !== 'all' && (
+                <button
+                  onClick={() => setPreset('all')}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+                >
+                  Alle verfügbaren Daten anzeigen
+                </button>
+              )}
+            </div>
+          )}
+          <div
+            ref={containerRef}
+            className={cn('w-full h-full', {
+              invisible: isLoading || isError || !data || !data.points?.length,
+            })}
+          />
+        </div>
       </div>
     </div>
   )

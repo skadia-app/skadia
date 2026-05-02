@@ -12,6 +12,7 @@ import { fetchDistributions } from '@/api/analytics'
 import type { Distribution } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useECharts } from '@/hooks/useECharts'
+import { cn } from '@/lib/utils'
 
 echarts.use([PieChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -180,15 +181,18 @@ function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartP
         </button>
       </div>
 
-      {isLoading ? (
-        <div className="flex items-center justify-center h-40 text-sm text-neutral-400">Lade…</div>
-      ) : isError ? (
-        <div className="flex items-center justify-center h-40 text-sm text-neutral-400">Fehler</div>
-      ) : !data || data.length === 0 ? (
-        <div className="flex items-center justify-center h-40 text-sm text-neutral-400">Keine Daten</div>
-      ) : (
-        <div ref={containerRef} className="h-40 w-full" />
-      )}
+      <div className="relative h-40">
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">Lade…</div>
+        )}
+        {!isLoading && isError && (
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">Fehler</div>
+        )}
+        {!isLoading && !isError && (!data || data.length === 0) && (
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">Keine Daten</div>
+        )}
+        <div ref={containerRef} className={cn("w-full h-full", { invisible: isLoading || isError || !data || data.length === 0 })} />
+      </div>
     </div>
   )
 }
@@ -204,8 +208,6 @@ export default function DistributionCharts() {
       setFilters({ sportTypes: [label] })
     } else if (type === 'country') {
       setFilters({ countries: [label] })
-    } else if (type === 'gear') {
-      // gear filter by name - use gearId if we had the ID, skip for now
     }
   }
 

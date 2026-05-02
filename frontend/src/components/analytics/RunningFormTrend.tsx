@@ -81,6 +81,10 @@ export default function RunningFormTrend() {
   const points = trend?.points ?? []
   const hasVerticalRatio = points.some(p => p.vertical_ratio != null)
 
+  const isLoading = baselineLoading || trendLoading
+  const isEmpty = !isLoading && points.length === 0
+  const hasData = !isLoading && !isError && !isEmpty
+
   const containerRef = useECharts(
     (theme) => {
       const dates = points.map(p => p.date)
@@ -220,10 +224,15 @@ export default function RunningFormTrend() {
       }
     },
     [points, baseline, hasVerticalRatio],
+    { enabled: hasData },
   )
 
-  const isLoading = baselineLoading || trendLoading
-  const isEmpty = !isLoading && points.length === 0
+  // Sport-gate: once the baseline has loaded, hide the entire component for
+  // users who have never recorded running form data (no running-dynamics device).
+  // During loading we keep it mounted to avoid a layout shift on first render.
+  if (!baselineLoading && baseline != null && baseline.activity_count === 0) {
+    return null
+  }
 
   return (
     <div>
@@ -250,18 +259,15 @@ export default function RunningFormTrend() {
         </div>
 
         {/* Time range buttons */}
-        <div className="flex items-center gap-1">
+        <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
           {(Object.keys(RANGE_LABELS) as TimeRange[]).map((r) => (
             <button
               key={r}
               title={RANGE_TOOLTIPS[r]}
               onClick={() => setRange(r)}
-              className={[
-                'px-2 py-0.5 rounded text-xs font-medium transition-colors',
-                range === r
-                  ? 'bg-blue-500 text-white'
-                  : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800',
-              ].join(' ')}
+              className={range === r
+                ? 'px-2.5 py-1 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
+                : 'px-2.5 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'}
             >
               {RANGE_LABELS[r]}
             </button>
@@ -269,32 +275,33 @@ export default function RunningFormTrend() {
         </div>
       </div>
 
-      {/* Chart area */}
-      {isLoading && (
-        <div className="h-[280px] flex items-center justify-center text-neutral-400 text-sm">
-          Laden…
-        </div>
-      )}
-
-      {isError && (
-        <div className="h-[280px] flex items-center justify-center text-red-500 text-sm">
-          Fehler beim Laden der Lauftechnik-Daten.
-        </div>
-      )}
-
-      {isEmpty && (
-        <div className="h-[280px] flex items-center justify-center text-neutral-400 dark:text-neutral-500 text-sm">
-          Keine Lauftechnik-Daten im gewählten Zeitraum.
-          <br />
-          <span className="text-xs mt-1 block text-center">
-            Lauftechnik-Daten werden von Garmin-Geräten mit Running Dynamics erfasst.
-          </span>
-        </div>
-      )}
-
-      {!isLoading && !isError && !isEmpty && (
-        <div ref={containerRef} className="h-[280px] w-full" />
-      )}
+      {/* Chart area — container always mounted; useECharts enabled only when data ready */}
+      <div className="relative h-[280px]">
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center text-neutral-400 text-sm">
+            Laden…
+          </div>
+        )}
+        {!isLoading && isError && (
+          <div className="absolute inset-0 flex items-center justify-center text-red-500 text-sm">
+            Fehler beim Laden der Lauftechnik-Daten.
+          </div>
+        )}
+        {!isLoading && !isError && isEmpty && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-400 dark:text-neutral-500 text-sm gap-1">
+            <span>Keine Lauftechnik-Daten im gewählten Zeitraum.</span>
+            <span className="text-xs text-center">
+              Lauftechnik-Daten werden von Garmin-Geräten mit Running Dynamics erfasst.
+            </span>
+          </div>
+        )}
+        {/* Container stays in DOM; chart only initialised when hasData to avoid removeChild crash on range toggle */}
+        <div
+          ref={containerRef}
+          className="w-full h-full"
+          style={{ visibility: hasData ? 'visible' : 'hidden' }}
+        />
+      </div>
     </div>
   )
 }

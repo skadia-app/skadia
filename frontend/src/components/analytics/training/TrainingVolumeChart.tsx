@@ -14,6 +14,8 @@ import { fetchTrainingVolumeSeries } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useECharts } from '@/hooks/useECharts'
 import { sportChartColor } from '@/lib/sportColors'
+import { sportLabel } from '@/lib/sportTaxonomy'
+import { cn } from '@/lib/utils'
 
 echarts.use([
   BarChart,
@@ -72,6 +74,7 @@ export default function TrainingVolumeChart() {
       const sports = Array.from(sportsSet).sort()
 
       const series = sports.map(sport => {
+        const label = sportLabel(sport)
         const values = periods.map(period => {
           const match = data.find(d => d.period === period && d.sport_type === sport)
           return match ? (match.value > 0 ? match.value : null) : null
@@ -79,13 +82,13 @@ export default function TrainingVolumeChart() {
         const color = sportChartColor(sport)
         if (chartType === 'line') {
           return {
-            name: sport, type: 'line' as const, data: values, showSymbol: false,
+            name: label, type: 'line' as const, data: values, showSymbol: false,
             lineStyle: { width: 2, color }, itemStyle: { color },
             emphasis: { focus: 'series' as const }, connectNulls: false,
           }
         }
         return {
-          name: sport, type: 'bar' as const, stack: 'volume', data: values,
+          name: label, type: 'bar' as const, stack: 'volume', data: values,
           itemStyle: { color }, emphasis: { focus: 'series' as const },
         }
       })
@@ -112,7 +115,7 @@ export default function TrainingVolumeChart() {
           iconStyle: { borderColor: '#6b7280' },
           emphasis: { iconStyle: { borderColor: '#d1d5db' } },
         },
-        legend: { data: sports, top: 4, textStyle: { fontSize: 10, color: '#9ca3af' }, itemWidth: 12, itemHeight: 8 },
+        legend: { data: sports.map(s => sportLabel(s)), top: 4, textStyle: { fontSize: 10, color: '#9ca3af' }, itemWidth: 12, itemHeight: 8 },
         tooltip: {
           trigger: 'axis',
           axisPointer: { type: 'shadow' },
@@ -165,6 +168,13 @@ export default function TrainingVolumeChart() {
   )
 
   const hasData = data && data.length > 0
+  const hasTSSValues = volumeMetric !== 'tss' || (data ?? []).some(d => (d.value ?? 0) > 0)
+
+  const showLoading = isLoading
+  const showError = !isLoading && isError
+  const showEmpty = !isLoading && !isError && !hasData
+  const showTSSEmpty = !isLoading && !isError && hasData && volumeMetric === 'tss' && !hasTSSValues
+  const showChart = !isLoading && !isError && hasData && hasTSSValues
 
   return (
     <div className="space-y-3">
@@ -244,21 +254,35 @@ export default function TrainingVolumeChart() {
       </div>
 
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            Lade Trainingsvolumen…
-          </div>
-        ) : isError ? (
-          <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            Fehler beim Laden
-          </div>
-        ) : !hasData ? (
-          <div className="flex flex-col items-center justify-center h-[280px] gap-2 text-neutral-400">
-            <span className="text-sm">Keine Daten vorhanden</span>
-          </div>
-        ) : (
-          <div ref={containerRef} className="h-[280px] w-full" />
-        )}
+        <div className="relative h-[280px]">
+          {showLoading && (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
+              Lade Trainingsvolumen…
+            </div>
+          )}
+          {showError && (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
+              Fehler beim Laden
+            </div>
+          )}
+          {showEmpty && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-neutral-400">
+              <span className="text-sm">Keine Daten vorhanden</span>
+            </div>
+          )}
+          {showTSSEmpty && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-neutral-400">
+              <span className="text-sm font-medium">Keine TSS-Daten</span>
+              <span className="text-xs leading-relaxed">
+                Trainingsstress (TSS) wird aus Powermeter- oder HF-Daten berechnet — für die Aktivitäten in diesem Zeitraum sind keine TSS-Werte verfügbar.
+              </span>
+            </div>
+          )}
+          <div
+            ref={containerRef}
+            className={cn('w-full h-full', { invisible: !showChart })}
+          />
+        </div>
       </div>
 
       {/* Quick info */}
@@ -270,4 +294,3 @@ export default function TrainingVolumeChart() {
     </div>
   )
 }
-
