@@ -26,23 +26,28 @@ function renderFilter(value: SportFilterValue, onChange = vi.fn(), preset: 'ACTI
 }
 
 describe('SportFilter', () => {
-  it('splits water sports into swim, paddle, and surf/sail groups', () => {
+  it('splits water sports into generated water groups', () => {
     renderFilter({ sportTypes: null })
 
     expect(screen.getByRole('button', { name: 'Schwimmen' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Paddeln' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Surfen & Segeln' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Surfen/Board' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Segeln/Boot' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tauchen/Schnorcheln' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Angeln' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Surfen & Segeln' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Wassersport' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Paddeln' }))
-    expect(screen.getByText('Paddeln (Generisch)')).toBeInTheDocument()
+    expect(screen.getByText('Paddeln (allgemein)')).toBeInTheDocument()
   })
 
   it('keeps non-GPS water sports in the activity water split', () => {
     renderFilter({ sportTypes: null })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Surfen & Segeln' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tauchen/Schnorcheln' }))
     expect(screen.getByText('Tauchen')).toBeInTheDocument()
+    expect(screen.getByText('Schnorcheln')).toBeInTheDocument()
   })
 
   it('uses the water split in map filters too', () => {
@@ -50,7 +55,11 @@ describe('SportFilter', () => {
 
     expect(screen.getByRole('button', { name: 'Schwimmen' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Paddeln' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Surfen & Segeln' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Surfen/Board' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Segeln/Boot' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tauchen/Schnorcheln' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Angeln' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Surfen & Segeln' })).not.toBeInTheDocument()
   })
 
   it('renders canonical top sport groups without deprecated top-level options', () => {
