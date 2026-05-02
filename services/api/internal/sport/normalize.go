@@ -13,6 +13,39 @@ type Tuple struct {
 type ModifierPatch struct {
 	IsElectric *bool
 	IsIndoor   *bool
+	IsVirtual  *bool
+}
+
+type Source string
+
+const (
+	SourceLegacy       Source = "legacy"
+	SourceFITFile      Source = "fit"
+	SourceGPXFile      Source = "gpx"
+	SourceTCXFile      Source = "tcx"
+	SourceGarminCourse Source = "garmin"
+	SourceStrava       Source = "strava"
+	SourceKomoot       Source = "komoot"
+)
+
+type ResolveInput struct {
+	Source   Source
+	RawSport string
+	RawSub   string
+}
+
+type ResolveResult struct {
+	Tuple        Tuple
+	Patch        ModifierPatch
+	AliasMatched bool
+	Resolved     bool
+}
+
+type sourceAliasDef struct {
+	RawSport string
+	RawSub   string
+	Tuple    Tuple
+	Patch    ModifierPatch
 }
 
 type legacySportAlias struct {
@@ -118,6 +151,9 @@ func mergeModifierPatch(a, b ModifierPatch) ModifierPatch {
 	}
 	if b.IsIndoor != nil {
 		a.IsIndoor = b.IsIndoor
+	}
+	if b.IsVirtual != nil {
+		a.IsVirtual = b.IsVirtual
 	}
 	return a
 }
