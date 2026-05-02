@@ -166,7 +166,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const datePickerRef = useRef<HTMLDivElement>(null)
   const visibleOptions = useMemo(() => SPORT_OPTIONS, [])
-  const allSelected = ALL_SPORT_KEYS.every(k => filters.sportTypes.has(k))
+  const allSelected = filters.sportTypes === null || ALL_SPORT_KEYS.every(k => filters.sportTypes!.has(k))
 
   function getKey(opt: SportOption): string {
     return opt.subType ? `${opt.value}:${opt.subType}` : opt.value
@@ -229,7 +229,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
                 preset="MAP_PANEL_GPS"
                 modifierKeys={['is_electric', 'is_commute']}
                 value={{
-                  sportTypes: filters.sportTypes.size === 0 ? null : [...filters.sportTypes],
+                  sportTypes: filters.sportTypes === null ? null : [...filters.sportTypes],
                   modifiers: {
                     is_electric: filters.isElectric ?? undefined,
                     is_commute: filters.isCommute ?? undefined,
@@ -237,7 +237,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
                 }}
                 onChange={(next) => onChange({
                   ...filters,
-                  sportTypes: new Set(next.sportTypes ?? []),
+                  sportTypes: next.sportTypes === null ? null : new Set(next.sportTypes),
                   isElectric: next.modifiers?.is_electric ?? null,
                   isCommute: next.modifiers?.is_commute ?? null,
                 })}
@@ -431,8 +431,8 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
                       {visibleOptions.map(opt => {
                         const key = opt.subType ? `${opt.value}:${opt.subType}` : opt.value
                         const isActive = opt.children
-                          ? opt.children.some(c => filters.sportTypes.has(getKey(c)))
-                          : filters.sportTypes.has(key)
+                          ? (filters.sportTypes === null || opt.children.some(c => filters.sportTypes!.has(getKey(c))))
+                          : (filters.sportTypes === null || filters.sportTypes.has(key))
 
                         if (!isActive) return null
 
@@ -472,7 +472,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
                             </div>
                             {hasChildren && isExpanded && (
                               <div className="ml-4 mt-1 space-y-1">
-                                {opt.children!.filter(c => filters.sportTypes.has(getKey(c))).map(child => {
+                                {(filters.sportTypes === null ? opt.children! : opt.children!.filter(c => filters.sportTypes!.has(getKey(c)))).map(child => {
                                   const childKey = getKey(child)
                                   return (
                                     <div key={childKey} className="flex items-center gap-1.5">
@@ -737,7 +737,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
             {(!allSelected || filters.dateFrom || filters.dateTo || filters.opacity !== 70 || filters.colorConfig.mode !== 'uniform' || filters.colorConfig.uniformColor !== '#F97316' || !filters.showLocationTags || filters.heatmapColor !== '#F97316' || (filters.tagFilters?.length ?? 0) > 0 || (filters.gearFilters?.length ?? 0) > 0 || filters.isElectric !== null || filters.isCommute !== null) && (
               <button
                 onClick={() => onChange({
-                  sportTypes: new Set(ALL_SPORT_KEYS),
+                  sportTypes: null,
                   dateFrom: '',
                   dateTo: '',
                   opacity: 70,

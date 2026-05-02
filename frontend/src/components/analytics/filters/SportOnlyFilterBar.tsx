@@ -7,7 +7,7 @@ import { sportsInCategory } from '@/lib/sportTaxonomy'
 import { CATEGORIES } from '@/lib/sportTaxonomy'
 
 export interface SportOnlyFilterValue {
-  selectedSports: string[]
+  selectedSports: string[] | null
   from: string
   to: string
 }
@@ -66,8 +66,8 @@ export function expandSportSelection(selectedSports: string[]): string[] {
   return result
 }
 
-function sportFilterValueFromSelected(selected: string[]): SportFilterValue {
-  return { sportTypes: selected.length > 0 ? selected : null }
+function sportFilterValueFromSelected(selected: string[] | null): SportFilterValue {
+  return { sportTypes: selected }
 }
 
 export default function SportOnlyFilterBar({ value, onChange, rangePresets }: Props) {
@@ -75,8 +75,7 @@ export default function SportOnlyFilterBar({ value, onChange, rangePresets }: Pr
   const [rangePreset, setRangePreset] = useState<PresetValue>('all')
 
   function handleSportChange(sfv: SportFilterValue) {
-    const sportTypes = sfv.sportTypes ?? []
-    onChange({ ...value, selectedSports: sportTypes })
+    onChange({ ...value, selectedSports: sfv.sportTypes === null ? null : sfv.sportTypes })
   }
 
   function handleRangeChange(range: DateRange, preset: PresetValue) {

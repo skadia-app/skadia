@@ -90,7 +90,7 @@ export interface SportColorConfig {
 }
 
 export interface MapFilterState {
-  sportTypes: Set<string>
+  sportTypes: Set<string> | null
   dateFrom: string
   dateTo: string
   opacity: number
@@ -135,7 +135,7 @@ const SUMMIT_ICON_UNVISITED = `data:image/svg+xml,${encodeURIComponent(
 )}`
 
 const defaultFilters: MapFilterState = {
-  sportTypes: new Set(ALL_SPORT_KEYS),
+  sportTypes: null,
   dateFrom: '',
   dateTo: '',
   opacity: 70,
@@ -223,8 +223,8 @@ function buildTileUrl(
 
   if (userId) params.set('user_id', userId)
 
-  const allSelected = filters.sportTypes.size === ALL_SPORT_KEYS.length
-  if (!allSelected && filters.sportTypes.size > 0) {
+  const allSelected = filters.sportTypes === null || filters.sportTypes.size === ALL_SPORT_KEYS.length
+  if (!allSelected && filters.sportTypes !== null && filters.sportTypes.size > 0) {
     params.set('sport_type', Array.from(filters.sportTypes).join(','))
   }
   if (filters.dateFrom) params.set('date_from', filters.dateFrom)
@@ -1542,7 +1542,7 @@ export default function MapPage() {
     } else {
       removeOverlayLayers(map)
       removeTerraIncognitaLayers(map)
-      if (filters.sportTypes.size > 0) {
+      if (filters.sportTypes === null || filters.sportTypes.size > 0) {
         addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId, electricTag?.id, commuteTag?.id)
       }
     }
@@ -2726,7 +2726,7 @@ export default function MapPage() {
                   removeOverlayLayers(map)
                   removeTerraIncognitaLayers(map)
                   if (enabled) {
-                    if (filtersRef.current.sportTypes.size > 0) {
+                    if (filtersRef.current.sportTypes === null || filtersRef.current.sportTypes.size > 0) {
                       addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current, commuteTagIdRef.current)
                     }
                     setViewMode('heatmap')
@@ -2962,7 +2962,7 @@ export default function MapPage() {
                   if (map) {
                     removeOverlayLayers(map)
                     removeTerraIncognitaLayers(map)
-                    if (filtersRef.current.sportTypes.size > 0) {
+                    if (filtersRef.current.sportTypes === null || filtersRef.current.sportTypes.size > 0) {
                       addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current, commuteTagIdRef.current)
                     }
                   }
@@ -2982,7 +2982,7 @@ export default function MapPage() {
                   if (map) {
                     removeOverlayLayers(map)
                     removeTerraIncognitaLayers(map)
-                    if (filtersRef.current.sportTypes.size > 0) {
+                    if (filtersRef.current.sportTypes === null || filtersRef.current.sportTypes.size > 0) {
                       addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current, commuteTagIdRef.current)
                     }
                   }
