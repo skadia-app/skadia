@@ -234,7 +234,7 @@ func ModifierDefaultsForTuple(sportType, subType string) ModifierDefaults {
 	if !ok {
 		return ModifierDefaults{}
 	}
-	defaults := d.ModifierDefaults
+	defaults := cloneModifierDefaults(d.ModifierDefaults)
 	if subType != "" && subType != "generic" {
 		st, stOK := d.SubTypes[subType]
 		if !stOK {
@@ -246,11 +246,19 @@ func ModifierDefaultsForTuple(sportType, subType string) ModifierDefaults {
 }
 
 func mergeModifierDefaults(parent, child ModifierDefaults) ModifierDefaults {
-	merged := parent
+	merged := cloneModifierDefaults(parent)
 	if child.IsIndoor != nil {
-		merged.IsIndoor = child.IsIndoor
+		merged.IsIndoor = ptrBool(*child.IsIndoor)
 	}
 	return merged
+}
+
+func cloneModifierDefaults(defaults ModifierDefaults) ModifierDefaults {
+	cloned := ModifierDefaults{}
+	if defaults.IsIndoor != nil {
+		cloned.IsIndoor = ptrBool(*defaults.IsIndoor)
+	}
+	return cloned
 }
 
 // IsIndoor returns true when generated canonical modifier defaults mark the

@@ -91,7 +91,7 @@ func NormalizeSportTuple(sportType, subType string) (Tuple, ModifierPatch, error
 func modifierDefaultsToPatch(defaults ModifierDefaults) ModifierPatch {
 	var patch ModifierPatch
 	if defaults.IsIndoor != nil {
-		patch.IsIndoor = defaults.IsIndoor
+		patch.IsIndoor = boolPtr(*defaults.IsIndoor)
 	}
 	return patch
 }

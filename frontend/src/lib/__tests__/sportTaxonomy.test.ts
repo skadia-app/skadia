@@ -49,6 +49,11 @@ describe('sport taxonomy aliases', () => {
       subType: '',
       modifiers: {},
     })
+    expect(normalizeSportTuple('roadcycling')).toEqual({
+      sportType: 'cycling',
+      subType: 'road',
+      modifiers: {},
+    })
     expect(normalizeSportTuple('wheelchair_push_walk')).toEqual({
       sportType: 'wheelchair_push',
       subType: 'walk_speed',
@@ -86,6 +91,8 @@ describe('sport taxonomy aliases', () => {
     expect(normalizeSportTuple('diving', 'apnea_pool').modifiers.isIndoor).toBe(true)
     expect(normalizeSportTuple('rock_climbing', 'bouldering').modifiers.isIndoor).toBeUndefined()
     expect(normalizeSportTuple('swimming', 'lap_swimming').modifiers.isIndoor).toBeUndefined()
+    expect(modifierDefaultsForTuple('fitness_equipment', 'treadmill').isIndoor).toBe(true)
+    expect(normalizeSportTuple('fitness_equipment', 'indoor_rowing').modifiers.isIndoor).toBe(true)
 
     for (const [sportType, subType] of [
       ['running', 'indoor_running'],
