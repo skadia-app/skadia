@@ -18,18 +18,18 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
-// processWeightFIT parses a Garmin weight-scale FIT file (type 9) and upserts
-// body-composition entries into health_weight_entries.
-//
-// Message 30 (WeightScale) carries up to 12 body-composition fields.
-// All numeric fields use Garmin fixed-point encoding; scale factors are applied
-// here to convert to SI units stored in the database.
-func processWeightFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())
+// parsedWeightData holds the pure decode output of a weight FIT file.
+type parsedWeightData struct {
+	Entries []*model.HealthWeightEntry
+	FileTS  time.Time // earliest valid message timestamp, used for ShadowFS naming
+}
+
+// decodeWeight decodes a raw weight FIT payload into typed entries without any I/O.
+func decodeWeight(raw []byte, userID string) (parsedWeightData, error) {
+	dec := decoder.New(bytes.NewReader(raw), decoder.WithIgnoreChecksum())
 	fit, err := dec.Decode()
 	if err != nil {
-		slog.Warn("processWeightFIT: decode failed", "error", err)
-		return nil
+		return parsedWeightData{}, fmt.Errorf("decode weight FIT: %w", err)
 	}
 
 	// Derive file timestamp from first valid message timestamp for ShadowFS tags.
@@ -44,9 +44,8 @@ func processWeightFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS
 			}
 		}
 	}
-	storeHealthFIT(ctx, db, fs, data, userID, "weight", fmt.Sprintf("weight_%s.fit", fileTS.Format("20060102_150405")), fileTS) //nolint:errcheck // non-fatal
 
-	count := 0
+	var entries []*model.HealthWeightEntry
 	for i := range fit.Messages {
 		msg := &fit.Messages[i]
 
@@ -124,12 +123,36 @@ func processWeightFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS
 				entry.BMI = &v
 			}
 
-			if upsertErr := db.UpsertHealthWeightEntry(ctx, entry); upsertErr != nil {
-				slog.Warn("processWeightFIT: upsert failed", "ts", ws.Timestamp, "error", upsertErr)
-				continue
-			}
-			count++
+			entries = append(entries, entry)
 		}
+	}
+
+	return parsedWeightData{Entries: entries, FileTS: fileTS}, nil
+}
+
+// processWeightFIT parses a Garmin weight-scale FIT file (type 9) and upserts
+// body-composition entries into health_weight_entries.
+//
+// Message 30 (WeightScale) carries up to 12 body-composition fields.
+// All numeric fields use Garmin fixed-point encoding; scale factors are applied
+// here to convert to SI units stored in the database.
+func processWeightFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
+	parsed, err := decodeWeight(data, userID)
+	if err != nil {
+		slog.Warn("processWeightFIT: decode failed", "error", err)
+		return nil
+	}
+
+	storeHealthFIT(ctx, db, fs, data, userID, "weight",
+		fmt.Sprintf("weight_%s.fit", parsed.FileTS.Format("20060102_150405")), parsed.FileTS) //nolint:errcheck // non-fatal
+
+	count := 0
+	for _, entry := range parsed.Entries {
+		if upsertErr := db.UpsertHealthWeightEntry(ctx, entry); upsertErr != nil {
+			slog.Warn("processWeightFIT: upsert failed", "ts", entry.MeasuredAtUTC, "error", upsertErr)
+			continue
+		}
+		count++
 	}
 
 	if count > 0 {

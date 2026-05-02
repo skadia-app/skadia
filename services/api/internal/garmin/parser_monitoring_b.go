@@ -21,18 +21,19 @@ import (
 // minSaneTimestamp is the earliest timestamp we accept from FIT files.
 var minSaneTimestamp = time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// processMonitoringBFIT parses Garmin monitoring FIT file types 15, 28, 32.
-// These files contain high-resolution sensor data: heart rate, stress, body battery,
-// respiration, SpO2, wrist temperature, and activity type/intensity.
-//
-// Two-pass approach:
-//  1. Collect all messages into typed slices, track HSA presence flags.
-//  2. Merge into final []model.MonitoringSample with source priority (HSA > legacy).
-func processMonitoringBFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())
+// parsedMonitoringBData holds the pure decode output of a monitoring_b FIT file.
+type parsedMonitoringBData struct {
+	Samples         []model.MonitoringSample
+	RestingHRByDate map[string]int
+	FileTS          time.Time // earliest valid message timestamp, used for ShadowFS naming
+}
+
+// decodeMonitoringB decodes a raw monitoring_b FIT payload into typed samples without any I/O.
+func decodeMonitoringB(raw []byte, userID string) (parsedMonitoringBData, error) {
+	dec := decoder.New(bytes.NewReader(raw), decoder.WithIgnoreChecksum())
 	fit, err := dec.Decode()
 	if err != nil {
-		return fmt.Errorf("decode monitoring_b FIT: %w", err)
+		return parsedMonitoringBData{}, fmt.Errorf("decode monitoring_b FIT: %w", err)
 	}
 
 	// Derive file timestamp from first valid message timestamp for ShadowFS tags.
@@ -47,7 +48,6 @@ func processMonitoringBFIT(ctx context.Context, db *database.DB, fs shadowfs.Sha
 			}
 		}
 	}
-	storeHealthFIT(ctx, db, fs, data, userID, "monitoring_b", fmt.Sprintf("monitoring_b_%s.fit", fileTS.Format("20060102_150405")), fileTS)
 
 	// --- Pass 1: Collect all messages into typed slices ---
 
@@ -513,27 +513,46 @@ func processMonitoringBFIT(ctx context.Context, db *database.DB, fs shadowfs.Sha
 	// not BB. This is already handled above since legacyStress and legacyBB are
 	// separate slices with independent priority flags.
 
-	// Build final slice
 	samples := make([]model.MonitoringSample, 0, len(merged))
 	for _, s := range merged {
 		samples = append(samples, *s)
 	}
 
-	if len(samples) > 0 {
-		if err := db.InsertMonitoringSamples(ctx, samples); err != nil {
+	return parsedMonitoringBData{
+		Samples:         samples,
+		RestingHRByDate: restingHRByDate,
+		FileTS:          fileTS,
+	}, nil
+}
+
+// processMonitoringBFIT parses Garmin monitoring FIT file types 15, 28, 32.
+// These files contain high-resolution sensor data: heart rate, stress, body battery,
+// respiration, SpO2, wrist temperature, and activity type/intensity.
+//
+// Two-pass approach:
+//  1. Collect all messages into typed slices, track HSA presence flags.
+//  2. Merge into final []model.MonitoringSample with source priority (HSA > legacy).
+func processMonitoringBFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
+	parsed, err := decodeMonitoringB(data, userID)
+	if err != nil {
+		return err
+	}
+
+	storeHealthFIT(ctx, db, fs, data, userID, "monitoring_b",
+		fmt.Sprintf("monitoring_b_%s.fit", parsed.FileTS.Format("20060102_150405")), parsed.FileTS)
+
+	if len(parsed.Samples) > 0 {
+		if err := db.InsertMonitoringSamples(ctx, parsed.Samples); err != nil {
 			return fmt.Errorf("insert monitoring samples: %w", err)
 		}
 		slog.Info("processMonitoringBFIT: inserted samples",
 			"user_id", userID,
-			"count", len(samples),
-			"hsa_stress", hasHsaStress,
-			"hsa_bb", hasHsaBB,
-			"hsa_spo2", hasHsaSpo2,
+			"count", len(parsed.Samples),
 		)
 	}
 
 	// Upsert resting HR
-	for calDate, rhr := range restingHRByDate {
+	for calDate, rhr := range parsed.RestingHRByDate {
 		rhrVal := rhr
 		summary := &model.HealthDailySummary{
 			UserID:           userID,

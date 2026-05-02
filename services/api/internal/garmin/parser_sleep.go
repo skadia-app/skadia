@@ -29,19 +29,24 @@ func loadUserTimezone(ctx context.Context, db *database.DB, userID string) strin
 	return tz
 }
 
-// processSleepFIT decodes a Garmin sleep FIT file (type 49) and persists:
-//   - Sleep levels (msg 275) as MonitoringSamples
-//   - Sleep assessment scores (msg 346) as HealthSleep
-//   - Sleep window timestamps derived from Event msg 21 (event=74) or fallback to first/last SleepLevel
-func processSleepFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	// Decode FIT first to find the first timestamp for filename/ts derivation.
-	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())
+// parsedSleepData holds the pure decode output of a sleep FIT file.
+type parsedSleepData struct {
+	SleepLevels   []model.MonitoringSample
+	Assessment    *mesgdef.SleepAssessment // nil when absent
+	SleepStartUTC time.Time
+	SleepEndUTC   time.Time
+	FirstTS       time.Time // earliest valid SleepLevel timestamp, used for ShadowFS naming
+}
+
+// decodeSleep decodes a raw sleep FIT payload into typed data without any I/O.
+func decodeSleep(raw []byte, userID string) (parsedSleepData, error) {
+	dec := decoder.New(bytes.NewReader(raw), decoder.WithIgnoreChecksum())
 	fit, err := dec.Decode()
 	if err != nil {
-		return fmt.Errorf("processSleepFIT: decode: %w", err)
+		return parsedSleepData{}, fmt.Errorf("decodeSleep: %w", err)
 	}
 
-	// --- Pass 1: determine first timestamp for storeHealthFIT ---
+	// Pass 1: find first valid SleepLevel timestamp for ShadowFS filename derivation.
 	var firstTS time.Time
 	for i := range fit.Messages {
 		msg := &fit.Messages[i]
@@ -57,13 +62,7 @@ func processSleepFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 		firstTS = time.Now().UTC()
 	}
 
-	filename := fmt.Sprintf("sleep_%s.fit", firstTS.UTC().Format("20060102T150405Z"))
-	if _, err := storeHealthFIT(ctx, db, fs, data, userID, "sleep", filename, firstTS); err != nil {
-		slog.Warn("processSleepFIT: storeHealthFIT failed", "error", err)
-		// non-fatal, continue
-	}
-
-	// --- Pass 2: collect data ---
+	// Pass 2: collect sleep levels, assessment, and window timestamps.
 	var sleepLevels []model.MonitoringSample
 	var assessment *mesgdef.SleepAssessment
 	var sleepStartUTC, sleepEndUTC time.Time
@@ -115,7 +114,7 @@ func processSleepFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 		}
 	}
 
-	// --- Fallback: use first/last SleepLevel timestamps if no Event msg with event=74 ---
+	// Fallback: use first/last SleepLevel timestamps when no Event msg with event=74 is present.
 	if sleepStartUTC.IsZero() && len(sleepLevels) > 0 {
 		sleepStartUTC = sleepLevels[0].TS
 	}
@@ -123,15 +122,38 @@ func processSleepFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 		sleepEndUTC = sleepLevels[len(sleepLevels)-1].TS
 	}
 
-	// --- Persist sleep levels ---
-	if len(sleepLevels) > 0 {
-		if err := db.InsertMonitoringSamples(ctx, sleepLevels); err != nil {
+	return parsedSleepData{
+		SleepLevels:   sleepLevels,
+		Assessment:    assessment,
+		SleepStartUTC: sleepStartUTC,
+		SleepEndUTC:   sleepEndUTC,
+		FirstTS:       firstTS,
+	}, nil
+}
+
+// processSleepFIT decodes a Garmin sleep FIT file (type 49) and persists:
+//   - Sleep levels (msg 275) as MonitoringSamples
+//   - Sleep assessment scores (msg 346) as HealthSleep
+//   - Sleep window timestamps derived from Event msg 21 (event=74) or fallback to first/last SleepLevel
+func processSleepFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
+	parsed, err := decodeSleep(data, userID)
+	if err != nil {
+		return fmt.Errorf("processSleepFIT: %w", err)
+	}
+
+	filename := fmt.Sprintf("sleep_%s.fit", parsed.FirstTS.UTC().Format("20060102T150405Z"))
+	if _, err := storeHealthFIT(ctx, db, fs, data, userID, "sleep", filename, parsed.FirstTS); err != nil {
+		slog.Warn("processSleepFIT: storeHealthFIT failed", "error", err)
+		// non-fatal, continue
+	}
+
+	if len(parsed.SleepLevels) > 0 {
+		if err := db.InsertMonitoringSamples(ctx, parsed.SleepLevels); err != nil {
 			slog.Warn("processSleepFIT: InsertMonitoringSamples failed", "error", err)
 		}
 	}
 
-	// --- Build and persist HealthSleep if assessment present ---
-	if assessment == nil {
+	if parsed.Assessment == nil {
 		return nil
 	}
 
@@ -143,9 +165,9 @@ func processSleepFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 	}
 
 	// calendar_date = sleep start in local time
-	calDate := sleepStartUTC.In(loc).Format("2006-01-02")
-	if sleepStartUTC.IsZero() {
-		calDate = firstTS.In(loc).Format("2006-01-02")
+	calDate := parsed.SleepStartUTC.In(loc).Format("2006-01-02")
+	if parsed.SleepStartUTC.IsZero() {
+		calDate = parsed.FirstTS.In(loc).Format("2006-01-02")
 	}
 
 	sleep := &model.HealthSleep{
@@ -154,33 +176,33 @@ func processSleepFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 		SourceType:   "garmin_fit",
 	}
 
-	// Set timestamps only if non-zero (COALESCE preserves existing values on conflict)
-	if !sleepStartUTC.IsZero() {
-		sleep.SleepStartUTC = &sleepStartUTC
+	// Set timestamps only if non-zero (COALESCE preserves existing values on conflict).
+	if !parsed.SleepStartUTC.IsZero() {
+		sleep.SleepStartUTC = &parsed.SleepStartUTC
 	}
-	if !sleepEndUTC.IsZero() {
-		sleep.SleepEndUTC = &sleepEndUTC
+	if !parsed.SleepEndUTC.IsZero() {
+		sleep.SleepEndUTC = &parsed.SleepEndUTC
 	}
 
-	// Map SleepAssessment fields — all uint8, 255 = invalid → nil
-	sleep.ScoreOverall = uint8PtrToIntPtr(assessment.OverallSleepScore)
-	sleep.ScoreQuality = uint8PtrToIntPtr(assessment.SleepQualityScore)
-	sleep.ScoreDuration = uint8PtrToIntPtr(assessment.SleepDurationScore)
-	sleep.ScoreDeep = uint8PtrToIntPtr(assessment.DeepSleepScore)
-	sleep.ScoreRem = uint8PtrToIntPtr(assessment.RemSleepScore)
-	sleep.AwakeCount = uint8PtrToIntPtr(assessment.AwakeningsCount)
+	// Map SleepAssessment fields — all uint8, 255 = invalid → nil.
+	sleep.ScoreOverall = uint8PtrToIntPtr(parsed.Assessment.OverallSleepScore)
+	sleep.ScoreQuality = uint8PtrToIntPtr(parsed.Assessment.SleepQualityScore)
+	sleep.ScoreDuration = uint8PtrToIntPtr(parsed.Assessment.SleepDurationScore)
+	sleep.ScoreDeep = uint8PtrToIntPtr(parsed.Assessment.DeepSleepScore)
+	sleep.ScoreRem = uint8PtrToIntPtr(parsed.Assessment.RemSleepScore)
+	sleep.AwakeCount = uint8PtrToIntPtr(parsed.Assessment.AwakeningsCount)
 
-	sleep.ScoreLight = uint8PtrToInt16Ptr(assessment.LightSleepScore)
-	sleep.ScoreAwakeTime = uint8PtrToInt16Ptr(assessment.AwakeTimeScore)
-	sleep.ScoreAwakenings = uint8PtrToInt16Ptr(assessment.AwakeningsCountScore)
-	sleep.ScoreCombinedAwake = uint8PtrToInt16Ptr(assessment.CombinedAwakeScore)
-	sleep.ScoreRestlessness = uint8PtrToInt16Ptr(assessment.SleepRestlessnessScore)
-	sleep.ScoreInterruptions = uint8PtrToInt16Ptr(assessment.InterruptionsScore)
-	sleep.ScoreRecovery = uint8PtrToInt16Ptr(assessment.SleepRecoveryScore)
+	sleep.ScoreLight = uint8PtrToInt16Ptr(parsed.Assessment.LightSleepScore)
+	sleep.ScoreAwakeTime = uint8PtrToInt16Ptr(parsed.Assessment.AwakeTimeScore)
+	sleep.ScoreAwakenings = uint8PtrToInt16Ptr(parsed.Assessment.AwakeningsCountScore)
+	sleep.ScoreCombinedAwake = uint8PtrToInt16Ptr(parsed.Assessment.CombinedAwakeScore)
+	sleep.ScoreRestlessness = uint8PtrToInt16Ptr(parsed.Assessment.SleepRestlessnessScore)
+	sleep.ScoreInterruptions = uint8PtrToInt16Ptr(parsed.Assessment.InterruptionsScore)
+	sleep.ScoreRecovery = uint8PtrToInt16Ptr(parsed.Assessment.SleepRecoveryScore)
 
-	// AverageStressDuringSleep: uint16, scale /100 → float64
-	if assessment.AverageStressDuringSleep != basetype.Uint16Invalid {
-		v := float64(assessment.AverageStressDuringSleep) / 100.0
+	// AverageStressDuringSleep: uint16, scale /100 → float64.
+	if parsed.Assessment.AverageStressDuringSleep != basetype.Uint16Invalid {
+		v := float64(parsed.Assessment.AverageStressDuringSleep) / 100.0
 		sleep.AvgSleepStress = &v
 	}
 

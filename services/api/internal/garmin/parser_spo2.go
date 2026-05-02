@@ -18,18 +18,19 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
-// processSpO2FIT parses a Garmin SpO2 FIT file (type 58) and upserts blood-oxygen
-// snapshots into health_spo2_snapshots.
-//
-// Strategy: opportunistic — only SDK-standard messages 269 (Spo2Data) and 305
-// (HsaSpo2Data) are processed. Proprietary msg 318 is silently skipped.
-// If neither standard message is found, the function returns nil without error.
-func processSpO2FIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())
+// parsedSpo2Data holds the pure decode output of a SpO2 FIT file.
+type parsedSpo2Data struct {
+	Snapshots []model.HealthSpO2Snapshot
+	FileTS    time.Time // earliest valid message timestamp, used for ShadowFS naming
+}
+
+// decodeSpO2 decodes a raw SpO2 FIT payload into typed snapshots without any I/O.
+// Returns an error only for malformed FIT; missing or blank readings are silently skipped.
+func decodeSpO2(raw []byte, userID string) (parsedSpo2Data, error) {
+	dec := decoder.New(bytes.NewReader(raw), decoder.WithIgnoreChecksum())
 	fit, err := dec.Decode()
 	if err != nil {
-		slog.Warn("processSpO2FIT: decode failed", "error", err)
-		return nil
+		return parsedSpo2Data{}, fmt.Errorf("decode spo2 FIT: %w", err)
 	}
 
 	// Derive file timestamp from first valid message timestamp for ShadowFS tags.
@@ -44,9 +45,8 @@ func processSpO2FIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, 
 			}
 		}
 	}
-	storeHealthFIT(ctx, db, fs, data, userID, "spo2", fmt.Sprintf("spo2_%s.fit", fileTS.Format("20060102_150405")), fileTS) //nolint:errcheck // non-fatal
 
-	count := 0
+	var snapshots []model.HealthSpO2Snapshot
 	for i := range fit.Messages {
 		msg := &fit.Messages[i]
 		switch msg.Num {
@@ -66,18 +66,13 @@ func processSpO2FIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, 
 				c := int16(s.ReadingConfidence)
 				conf = &c
 			}
-			snap := &model.HealthSpO2Snapshot{
+			snapshots = append(snapshots, model.HealthSpO2Snapshot{
 				UserID:        userID,
 				MeasuredAtUTC: s.Timestamp,
 				SpO2Pct:       &spo2Val,
 				Confidence:    conf,
 				SourceType:    "garmin_fit",
-			}
-			if upsertErr := db.UpsertHealthSpO2Snapshot(ctx, snap); upsertErr != nil {
-				slog.Warn("processSpO2FIT: upsert Spo2Data failed", "ts", s.Timestamp, "error", upsertErr)
-				continue
-			}
-			count++
+			})
 
 		case typedef.MesgNumHsaSpo2Data: // 305 — HSA array with processing_interval
 			h := mesgdef.NewHsaSpo2Data(msg)
@@ -100,21 +95,43 @@ func processSpO2FIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, 
 					c := int16(h.Confidence[j])
 					conf = &c
 				}
-				snap := &model.HealthSpO2Snapshot{
+				snapshots = append(snapshots, model.HealthSpO2Snapshot{
 					UserID:        userID,
 					MeasuredAtUTC: slotTS,
 					SpO2Pct:       &spo2Val,
 					Confidence:    conf,
 					SourceType:    "garmin_fit",
-				}
-				if upsertErr := db.UpsertHealthSpO2Snapshot(ctx, snap); upsertErr != nil {
-					slog.Warn("processSpO2FIT: upsert HsaSpo2Data slot failed", "ts", slotTS, "error", upsertErr)
-					continue
-				}
-				count++
+				})
 			}
 		// msg 318 (proprietary) and all other unknown messages are silently skipped.
 		}
+	}
+
+	return parsedSpo2Data{Snapshots: snapshots, FileTS: fileTS}, nil
+}
+
+// processSpO2FIT parses a Garmin SpO2 FIT file (type 58) and upserts blood-oxygen
+// snapshots into health_spo2_snapshots.
+//
+// Strategy: opportunistic — only SDK-standard messages 269 (Spo2Data) and 305
+// (HsaSpo2Data) are processed. Proprietary msg 318 is silently skipped.
+// If neither standard message is found, the function returns nil without error.
+func processSpO2FIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
+	parsed, err := decodeSpO2(data, userID)
+	if err != nil {
+		slog.Warn("processSpO2FIT: decode failed", "error", err)
+		return nil
+	}
+
+	storeHealthFIT(ctx, db, fs, data, userID, "spo2", fmt.Sprintf("spo2_%s.fit", parsed.FileTS.Format("20060102_150405")), parsed.FileTS) //nolint:errcheck // non-fatal
+
+	count := 0
+	for i := range parsed.Snapshots {
+		if upsertErr := db.UpsertHealthSpO2Snapshot(ctx, &parsed.Snapshots[i]); upsertErr != nil {
+			slog.Warn("processSpO2FIT: upsert snapshot failed", "ts", parsed.Snapshots[i].MeasuredAtUTC, "error", upsertErr)
+			continue
+		}
+		count++
 	}
 
 	if count > 0 {

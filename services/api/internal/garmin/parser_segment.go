@@ -28,19 +28,29 @@ type segmentPointData struct {
 	Ele   float64
 }
 
-// processSegmentFIT parses a Garmin segment FIT file (FileType 34) and inserts
-// a new segment into the database if it is not already present.
-// If the SegmentId message has Enabled=false the file is silently skipped.
-func processSegmentFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	segTS := time.Now().UTC()
-	if _, err := storeHealthFIT(ctx, db, fs, data, userID, "segment", fmt.Sprintf("segment_%s.fit", segTS.Format("20060102_150405")), segTS); err != nil {
-		slog.Warn("processSegmentFIT: storeHealthFIT failed", "error", err)
-	}
+// parsedSegmentData holds the pure decode output of a segment FIT file.
+type parsedSegmentData struct {
+	Name         string
+	UUID         string
+	SportGroup   string
+	TrackGeoJSON string
+	RouteHash    string
+	FileTS       time.Time
+	// Disabled is true when the SegmentId message carries Enabled=false.
+	Disabled bool
+}
 
-	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())
+// decodeSegment decodes a raw segment FIT payload without any I/O.
+// Returns Disabled=true when the file should be silently skipped.
+// Returns an error only on FIT decode failure; all other skip conditions
+// set Disabled or leave RouteHash empty.
+func decodeSegment(raw []byte) (parsedSegmentData, error) {
+	fileTS := time.Now().UTC()
+
+	dec := decoder.New(bytes.NewReader(raw), decoder.WithIgnoreChecksum())
 	fit, err := dec.Decode()
 	if err != nil {
-		return err
+		return parsedSegmentData{}, err
 	}
 
 	var (
@@ -48,6 +58,7 @@ func processSegmentFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowF
 		segUUID  string
 		segSport typedef.Sport
 		points   []segmentPointData
+		disabled bool
 	)
 
 	for i := range fit.Messages {
@@ -55,9 +66,8 @@ func processSegmentFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowF
 		switch msg.Num {
 		case typedef.MesgNumSegmentId:
 			seg := mesgdef.NewSegmentId(msg)
-			// CRITICAL: segment disabled on device — skip entire file
 			if seg.Enabled == typedef.BoolFalse {
-				return nil
+				disabled = true
 			}
 			segName = seg.Name
 			segUUID = seg.Uuid
@@ -83,9 +93,15 @@ func processSegmentFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowF
 		}
 	}
 
+	if disabled {
+		return parsedSegmentData{Disabled: true, FileTS: fileTS}, nil
+	}
+
 	if len(points) < 2 {
-		slog.Debug("processSegmentFIT: not enough points, skipping", "uuid", segUUID)
-		return nil
+		return parsedSegmentData{
+			UUID:   segUUID,
+			FileTS: fileTS,
+		}, nil
 	}
 
 	// Sort by MessageIndex
@@ -106,11 +122,54 @@ func processSegmentFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowF
 	h := sha256.Sum256([]byte(strings.Join(hashParts, "|")))
 	routeHash := hex.EncodeToString(h[:])
 
+	// Use UUID as name fallback
+	name := segName
+	if name == "" {
+		if segUUID != "" {
+			name = segUUID
+		} else {
+			name = "Imported Segment"
+		}
+	}
+
+	return parsedSegmentData{
+		Name:         name,
+		UUID:         segUUID,
+		SportGroup:   fitSportToSegmentGroup(segSport),
+		TrackGeoJSON: trackGeoJSON,
+		RouteHash:    routeHash,
+		FileTS:       fileTS,
+	}, nil
+}
+
+// processSegmentFIT parses a Garmin segment FIT file (FileType 34) and inserts
+// a new segment into the database if it is not already present.
+// If the SegmentId message has Enabled=false the file is silently skipped.
+func processSegmentFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
+	parsed, err := decodeSegment(data)
+	if err != nil {
+		return err
+	}
+
+	if _, err := storeHealthFIT(ctx, db, fs, data, userID, "segment",
+		fmt.Sprintf("segment_%s.fit", parsed.FileTS.Format("20060102_150405")), parsed.FileTS); err != nil {
+		slog.Warn("processSegmentFIT: storeHealthFIT failed", "error", err)
+	}
+
+	if parsed.Disabled {
+		return nil
+	}
+
+	if parsed.RouteHash == "" {
+		slog.Debug("processSegmentFIT: not enough points, skipping", "uuid", parsed.UUID)
+		return nil
+	}
+
 	// Exact duplicate check
 	var existingID string
 	err = db.Pool.QueryRow(ctx,
 		`SELECT id FROM segments WHERE route_hash = $1 LIMIT 1`,
-		routeHash,
+		parsed.RouteHash,
 	).Scan(&existingID)
 	if err == nil {
 		slog.Debug("processSegmentFIT: exact route_hash duplicate, skipping", "segment_id", existingID)
@@ -137,24 +196,11 @@ func processSegmentFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowF
 			ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326), 3857)
 		) < 30
 		LIMIT 1`,
-		trackGeoJSON,
+		parsed.TrackGeoJSON,
 	).Scan(&spatialID)
 	if err == nil {
 		slog.Debug("processSegmentFIT: spatial duplicate found, skipping", "segment_id", spatialID)
 		return nil
-	}
-
-	// Map FIT sport to sport_group
-	sportGroup := fitSportToSegmentGroup(segSport)
-
-	// Use UUID as name fallback
-	name := segName
-	if name == "" {
-		if segUUID != "" {
-			name = segUUID
-		} else {
-			name = "Imported Segment"
-		}
 	}
 
 	// Insert segment
@@ -169,7 +215,7 @@ func processSegmentFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowF
 		INSERT INTO segments (created_by, name, sport_group, segment_type, segment_type_meta, route_hash, visibility)
 		VALUES ($1, $2, $3, 'route', '{}', $4, 'private')
 		RETURNING id`,
-		userID, name, sportGroup, routeHash,
+		userID, parsed.Name, parsed.SportGroup, parsed.RouteHash,
 	).Scan(&segmentID)
 	if err != nil {
 		return fmt.Errorf("processSegmentFIT: insert segment: %w", err)
@@ -181,7 +227,7 @@ func processSegmentFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowF
 		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point, valid_from, created_by)
 		SELECT $1, 1, g.geom, ST_StartPoint(g.geom), ST_EndPoint(g.geom), CURRENT_DATE, $3
 		FROM g`,
-		segmentID, trackGeoJSON, userID,
+		segmentID, parsed.TrackGeoJSON, userID,
 	)
 	if err != nil {
 		return fmt.Errorf("processSegmentFIT: insert segment_version: %w", err)
@@ -201,7 +247,7 @@ func processSegmentFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowF
 		return fmt.Errorf("processSegmentFIT: commit: %w", err)
 	}
 
-	slog.Info("processSegmentFIT: segment imported", "id", segmentID, "name", name, "sport_group", sportGroup)
+	slog.Info("processSegmentFIT: segment imported", "id", segmentID, "name", parsed.Name, "sport_group", parsed.SportGroup)
 	return nil
 }
 
