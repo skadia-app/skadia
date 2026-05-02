@@ -48,65 +48,85 @@ type sourceAliasDef struct {
 	Patch    ModifierPatch
 }
 
-type legacySportAlias struct {
-	tuple Tuple
-	patch ModifierPatch
-}
-
-var legacySportAliases = map[string]legacySportAlias{
-	"bike":                 {tuple: Tuple{SportType: "cycling"}},
-	"biking":               {tuple: Tuple{SportType: "cycling"}},
-	"ride":                 {tuple: Tuple{SportType: "cycling"}},
-	"mountain_biking":      {tuple: Tuple{SportType: "cycling", SubType: "mountain"}},
-	"gravel_cycling":       {tuple: Tuple{SportType: "cycling", SubType: "gravel_cycling"}},
-	"indoor_cycling":       {tuple: Tuple{SportType: "cycling", SubType: "indoor_cycling"}, patch: ModifierPatch{IsIndoor: boolPtr(true)}},
-	"trail_running":        {tuple: Tuple{SportType: "running", SubType: "trail"}},
-	"treadmill_running":    {tuple: Tuple{SportType: "running", SubType: "treadmill"}, patch: ModifierPatch{IsIndoor: boolPtr(true)}},
-	"lap_swimming":         {tuple: Tuple{SportType: "swimming", SubType: "lap_swimming"}},
-	"open_water_swimming":  {tuple: Tuple{SportType: "swimming", SubType: "open_water"}},
-	"road_cycling":         {tuple: Tuple{SportType: "cycling", SubType: "road"}},
-	"roadcycling":          {tuple: Tuple{SportType: "cycling", SubType: "road"}},
-	"wheelchair_push_walk": {tuple: Tuple{SportType: "wheelchair_push", SubType: "walk_speed"}},
-	"wheelchair_push_run":  {tuple: Tuple{SportType: "wheelchair_push", SubType: "run_speed"}},
-	"strength":             {tuple: Tuple{SportType: "strength_training"}},
-	"e_mountain_biking":    {tuple: Tuple{SportType: "cycling", SubType: "mountain"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
-	"e_biking":             {tuple: Tuple{SportType: "cycling"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
-	"e_bike":               {tuple: Tuple{SportType: "cycling"}, patch: ModifierPatch{IsElectric: boolPtr(true)}},
-}
-
-var legacySubTypeAliases = map[Tuple]legacySportAlias{
-	{SportType: "wheelchair_push_walk", SubType: "indoor_wheelchair_walk"}: {
-		tuple: Tuple{SportType: "wheelchair_push", SubType: "walk_speed"},
-		patch: ModifierPatch{IsIndoor: boolPtr(true)},
-	},
-	{SportType: "wheelchair_push_run", SubType: "indoor_wheelchair_run"}: {
-		tuple: Tuple{SportType: "wheelchair_push", SubType: "run_speed"},
-		patch: ModifierPatch{IsIndoor: boolPtr(true)},
-	},
-}
-
 func NormalizeSportTuple(sportType, subType string) (Tuple, ModifierPatch, error) {
-	sportType = strings.TrimSpace(sportType)
-	subType = strings.TrimSpace(subType)
+	result, err := ResolveSport(ResolveInput{Source: SourceLegacy, RawSport: sportType, RawSub: subType})
+	if err != nil {
+		return Tuple{}, ModifierPatch{}, err
+	}
+	return result.Tuple, result.Patch, nil
+}
 
-	tuple := Tuple{SportType: sportType, SubType: subType}
-	var aliasPatch ModifierPatch
+func ResolveSport(input ResolveInput) (ResolveResult, error) {
+	rawSport := strings.TrimSpace(input.RawSport)
+	rawSub := strings.TrimSpace(input.RawSub)
 
-	if alias, ok := legacySubTypeAliases[Tuple{SportType: sportType, SubType: subType}]; ok {
-		tuple = alias.tuple
-		aliasPatch = mergeModifierPatch(aliasPatch, alias.patch)
-	} else if alias, ok := legacySportAliases[sportType]; ok {
-		tuple = alias.tuple
-		aliasPatch = mergeModifierPatch(aliasPatch, alias.patch)
-		if tuple.SubType == "" && subType != "" && subType != "generic" {
-			tuple.SubType = subType
+	if alias, ok := lookupSourceAlias(input.Source, rawSport, rawSub); ok {
+		tuple := alias.Tuple
+		if input.Source == SourceLegacy && alias.RawSub == "" && tuple.SubType == "" && rawSub != "" && rawSub != "generic" {
+			tuple.SubType = rawSub
 		}
+		normalized, defaults, err := normalizeCanonicalTuple(tuple.SportType, tuple.SubType)
+		if err != nil {
+			return ResolveResult{}, err
+		}
+		return ResolveResult{
+			Tuple:        normalized,
+			Patch:        mergeModifierPatch(defaults, alias.Patch),
+			AliasMatched: true,
+			Resolved:     true,
+		}, nil
 	}
 
+	switch input.Source {
+	case SourceLegacy:
+		tuple, patch, err := normalizeCanonicalTuple(rawSport, rawSub)
+		if err != nil {
+			return ResolveResult{}, err
+		}
+		return ResolveResult{Tuple: tuple, Patch: patch, Resolved: true}, nil
+	case SourceFITFile, SourceGarminCourse:
+		tuple, patch, err := normalizeCanonicalTuple(rawSport, rawSub)
+		if err == nil {
+			return ResolveResult{Tuple: tuple, Patch: patch, Resolved: true}, nil
+		}
+		if rawSub != "" {
+			fallbackTuple, fallbackPatch, fallbackErr := normalizeCanonicalTuple(rawSport, "")
+			if fallbackErr == nil {
+				return ResolveResult{Tuple: fallbackTuple, Patch: mergeModifierPatch(fallbackPatch, patch), Resolved: true}, nil
+			}
+		}
+		return ResolveResult{}, nil
+	case SourceGPXFile, SourceTCXFile, SourceStrava, SourceKomoot:
+		return ResolveResult{}, nil
+	default:
+		return ResolveResult{}, fmt.Errorf("unknown sport source %q", input.Source)
+	}
+}
+
+func lookupSourceAlias(source Source, rawSport, rawSub string) (sourceAliasDef, bool) {
+	aliases := generatedSourceAliases[source]
+	for _, alias := range aliases {
+		if alias.RawSport == rawSport && alias.RawSub == rawSub {
+			return alias, true
+		}
+	}
+	if rawSub == "" {
+		return sourceAliasDef{}, false
+	}
+	for _, alias := range aliases {
+		if alias.RawSport == rawSport && alias.RawSub == "" {
+			return alias, true
+		}
+	}
+	return sourceAliasDef{}, false
+}
+
+func normalizeCanonicalTuple(sportType, subType string) (Tuple, ModifierPatch, error) {
+	tuple := Tuple{SportType: strings.TrimSpace(sportType), SubType: strings.TrimSpace(subType)}
 	if tuple.SubType == "generic" {
 		tuple.SubType = ""
 	}
-	patch := mergeModifierPatch(modifierDefaultsToPatch(ModifierDefaultsForTuple(tuple.SportType, tuple.SubType)), aliasPatch)
+	patch := modifierDefaultsToPatch(ModifierDefaultsForTuple(tuple.SportType, tuple.SubType))
 
 	def, ok := registry[tuple.SportType]
 	if !ok {
@@ -163,6 +183,11 @@ func boolPtr(v bool) *bool {
 }
 
 func isLegacySportAlias(sportType string) bool {
-	_, ok := legacySportAliases[sportType]
-	return ok
+	sportType = strings.TrimSpace(sportType)
+	for _, alias := range generatedSourceAliases[SourceLegacy] {
+		if alias.RawSport == sportType && alias.RawSub == "" {
+			return true
+		}
+	}
+	return false
 }
