@@ -739,15 +739,14 @@ func normalizeImportedActivitySport(data *model.ActivityData) error {
 	}
 	data.SportType = tuple.SportType
 	data.SubType = tuple.SubType
-	if patch.IsElectric != nil {
-		data.IsElectric = *patch.IsElectric
-	}
-	if patch.IsIndoor != nil && *patch.IsIndoor {
-		data.IsIndoor = true
-	}
-	if sport.IsIndoor(data.SportType, data.SubType) {
-		data.IsIndoor = true
-	}
+	modifiers := sport.ApplyModifierPatch(sport.ModifierValues{
+		IsElectric: data.IsElectric,
+		IsIndoor:   data.IsIndoor,
+		IsVirtual:  data.IsVirtual,
+	}, patch)
+	data.IsElectric = modifiers.IsElectric
+	data.IsIndoor = modifiers.IsIndoor
+	data.IsVirtual = modifiers.IsVirtual
 	return nil
 }
 
