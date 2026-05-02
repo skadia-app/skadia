@@ -184,6 +184,8 @@ describe('sport taxonomy aliases', () => {
     expect(findSubtype('fitness_equipment', 'pilates')?.traits.movementFamilies).toEqual(['mind_body'])
     expect(findSubtype('fitness_equipment', 'elliptical')?.traits.activityForm).toBe('single')
     expect(findSubtype('running', 'treadmill')?.traits.environments).toEqual(['indoor'])
+    expect(findSubtype('rock_climbing', 'indoor_climbing')?.traits.environments).toEqual(['indoor'])
+    expect(findSubtype('rock_climbing', 'bouldering')?.traits.environments).toEqual(['land', 'indoor'])
   })
 
   it('keeps system taxonomy values selectable while exposing system traits', () => {

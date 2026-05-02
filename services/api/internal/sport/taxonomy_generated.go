@@ -469,7 +469,7 @@ var generatedSportDefs = []SportDef{
 		Traits: SportTraits{Environments: []string{"land", "indoor"}, MovementFamilies: []string{"climb"}, EquipmentFamilies: []string{"climbing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
 		SubTypes: map[string]SubTypeDef{
 			"bouldering":      {SubType: "bouldering", LabelDE: "Bouldern", DetailDE: "Bouldern", AutoTitleDE: "Bouldern", Selectable: true, Traits: SportTraits{Environments: []string{"land", "indoor"}, MovementFamilies: []string{"climb"}, EquipmentFamilies: []string{"climbing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"indoor_climbing": {SubType: "indoor_climbing", LabelDE: "Indoor", DetailDE: "Hallenklettern", AutoTitleDE: "Hallenklettern", Selectable: true, Traits: SportTraits{Environments: []string{"land", "indoor"}, MovementFamilies: []string{"climb"}, EquipmentFamilies: []string{"climbing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"indoor_climbing": {SubType: "indoor_climbing", LabelDE: "Indoor", DetailDE: "Hallenklettern", AutoTitleDE: "Hallenklettern", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"climb"}, EquipmentFamilies: []string{"climbing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
 	},
 	{

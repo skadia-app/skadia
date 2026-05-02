@@ -55,7 +55,7 @@
           "typically_has_gps": { "type": "boolean" },
           "moving_threshold": { "type": "number", "minimum": 0 },
           "is_indoor": { "type": "boolean" },
-          "traits": { "$ref": "#/$defs/traits" },
+          "traits": { "$ref": "#/$defs/topLevelTraits" },
           "lifecycle": {
             "type": "string",
             "enum": ["canonical", "broad_fallback", "deprecated"]
@@ -153,6 +153,20 @@
           }
         }
       }
+    },
+    "topLevelTraits": {
+      "allOf": [
+        { "$ref": "#/$defs/traits" },
+        {
+          "type": "object",
+          "properties": {
+            "activity_form": {
+              "type": "string",
+              "enum": ["single", "family", "composite", "transition", "fallback", "system"]
+            }
+          }
+        }
+      ]
     }
   }
 }

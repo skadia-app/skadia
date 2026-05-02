@@ -2065,6 +2065,12 @@ sports:
       de: Hallenklettern
     auto_titles:
       de: Hallenklettern
+    traits:
+      environments: [indoor]
+      movement_families: [climb]
+      equipment_families: [climbing_gear]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: bouldering
     labels:
       de: Bouldern
