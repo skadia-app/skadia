@@ -114,6 +114,7 @@ export default function WeightChart() {
             }
           : undefined,
         tooltip: {
+          confine: true,
           trigger: 'axis',
           axisPointer: { type: 'cross' },
           backgroundColor: 'rgba(17,24,39,0.92)',

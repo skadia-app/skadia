@@ -29,32 +29,17 @@ vi.mock('@/hooks/useECharts', () => ({
   useECharts: () => useRef<HTMLDivElement>(null),
 }))
 
-// ── Assert that useAnalyticsFilters is never called ───────────────────────────
+// ── Global filter mock — returns controllable params ──────────────────────────
 
-const mockUseAnalyticsFilters = vi.fn()
+const mockToQueryString = vi.fn(() => '')
+const mockSetFilters = vi.fn()
+
 vi.mock('@/lib/analyticsFilters', () => ({
-  useAnalyticsFilters: mockUseAnalyticsFilters,
-}))
-
-// ── PureAggregateRangePicker mock ─────────────────────────────────────────────
-
-const mockRangePickerOnChange = vi.fn()
-
-vi.mock('@/components/analytics/filters/PureAggregateRangePicker', () => ({
-  default: ({ onChange, defaultPreset }: { onChange: (r: { from: string; to: string }) => void; defaultPreset?: string }) => {
-    // Capture onChange so tests can invoke it.
-    mockRangePickerOnChange.mockImplementation(onChange)
-    return (
-      <div data-testid="pure-range-picker" data-default-preset={defaultPreset}>
-        <button
-          data-testid="set-range-7d"
-          onClick={() => onChange({ from: '2024-06-01', to: '2024-06-07' })}
-        >
-          7 Tage
-        </button>
-      </div>
-    )
-  },
+  useAnalyticsFilters: () => ({
+    toQueryString: mockToQueryString,
+    setFilters: mockSetFilters,
+    filters: {},
+  }),
 }))
 
 // ── API mocks ─────────────────────────────────────────────────────────────────
@@ -96,50 +81,53 @@ function renderWithProviders(url = '/analytics/stats') {
   )
 }
 
-describe('StreaksDisplay — career-exception filter isolation', () => {
+describe('StreaksDisplay — global filter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockToQueryString.mockReturnValue('')
     mockFetchStreaks.mockResolvedValue(makeStreaksResponse())
   })
 
-  it('never calls useAnalyticsFilters', () => {
-    renderWithProviders('/analytics/stats?tags=race&sport_type=cycling')
-    expect(mockUseAnalyticsFilters).not.toHaveBeenCalled()
-  })
-
-  it('renders local range picker with 1y default preset', async () => {
+  it('calls useAnalyticsFilters to obtain query params', () => {
     renderWithProviders()
-    // Range picker is rendered unconditionally, even during loading state.
-    const picker = await screen.findByTestId('pure-range-picker')
-    expect(picker).toBeInTheDocument()
-    expect(picker).toHaveAttribute('data-default-preset', '1y')
+    expect(mockToQueryString).toHaveBeenCalled()
   })
 
-  it('does NOT render a sport filter toggle', async () => {
+  it('does NOT render a local sport filter or range picker', async () => {
     renderWithProviders()
     await waitFor(() => expect(mockFetchStreaks).toHaveBeenCalled())
     expect(screen.queryByTestId('sport-only-filter-bar')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pure-range-picker')).not.toBeInTheDocument()
     expect(screen.queryByTestId('sport-filter')).not.toBeInTheDocument()
   })
 
-  it('range picker change propagates to API call', async () => {
+  it('global params are forwarded to the API call', async () => {
+    mockToQueryString.mockReturnValue('from=2024-01-01&to=2024-12-31')
     renderWithProviders()
 
-    // Wait for picker to be available
-    const btn = await screen.findByTestId('set-range-7d')
-
-    const callsBefore = mockFetchStreaks.mock.calls.length
-
-    // Trigger range change via mock picker button (rendered unconditionally)
-    btn.click()
-
-    await waitFor(() => expect(mockFetchStreaks.mock.calls.length).toBeGreaterThan(callsBefore))
+    await waitFor(() => expect(mockFetchStreaks).toHaveBeenCalled())
 
     const lastCall = mockFetchStreaks.mock.calls[mockFetchStreaks.mock.calls.length - 1]
     const params = new URLSearchParams(lastCall[0] as string)
-    expect(params.get('from')).toBe('2024-06-01')
-    expect(params.get('to')).toBe('2024-06-07')
-    // No sport_type in streaks queries — career-exception.
-    expect(params.has('sport_type')).toBe(false)
+    expect(params.get('from')).toBe('2024-01-01')
+    expect(params.get('to')).toBe('2024-12-31')
+  })
+
+  it('renders streak cards when data is loaded', async () => {
+    renderWithProviders()
+    await screen.findByText('Tages-Serie')
+    await screen.findByText('Wochen-Serie')
+  })
+
+  it('shows empty state when no streaks exist', async () => {
+    mockFetchStreaks.mockResolvedValue({
+      current_streak: 0,
+      max_streak: 0,
+      current_week_streak: 0,
+      max_week_streak: 0,
+      streak_history: [],
+    })
+    renderWithProviders()
+    await screen.findByText('Noch keine Serien')
   })
 })

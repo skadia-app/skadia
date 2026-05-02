@@ -102,13 +102,15 @@ export default function RangePresetBar({ presets, value, onChange, dense }: Prop
           </button>
 
           {showPicker && (
-            // DateRangePicker is rendered as a standalone trigger; we pass current
-            // custom range to keep it consistent if user re-opens.
+            // Render the picker popover directly — no intermediate "Zeitraum" trigger.
             <div data-testid="date-range-picker-wrapper" className="absolute top-full mt-1 right-0 z-30">
               <DateRangePicker
                 dateFrom={customFrom}
                 dateTo={customTo}
                 onChange={handleCustomChange}
+                defaultOpen
+                triggerless
+                onClose={() => setShowPicker(false)}
               />
             </div>
           )}

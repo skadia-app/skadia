@@ -30,45 +30,18 @@ vi.mock('@/hooks/useECharts', () => ({
   useECharts: () => useRef<HTMLDivElement>(null),
 }))
 
-// ── Assert that useAnalyticsFilters is never called ───────────────────────────
+// ── Global filter mock — returns controllable params ──────────────────────────
 
-const mockUseAnalyticsFilters = vi.fn()
+const mockToQueryString = vi.fn(() => '')
+const mockSetFilters = vi.fn()
+
 vi.mock('@/lib/analyticsFilters', () => ({
-  useAnalyticsFilters: mockUseAnalyticsFilters,
+  useAnalyticsFilters: () => ({
+    toQueryString: mockToQueryString,
+    setFilters: mockSetFilters,
+    filters: {},
+  }),
 }))
-
-// ── SportOnlyFilterBar mock ───────────────────────────────────────────────────
-
-vi.mock('@/components/analytics/filters/SportOnlyFilterBar', async () => {
-  const actual = await vi.importActual<typeof import('@/components/analytics/filters/SportOnlyFilterBar')>(
-    '@/components/analytics/filters/SportOnlyFilterBar',
-  )
-  return {
-    ...actual,
-    default: ({
-      value,
-      onChange,
-    }: {
-      value: { selectedSports: string[]; from: string; to: string }
-      onChange: (v: { selectedSports: string[]; from: string; to: string }) => void
-    }) => (
-      <div data-testid="sport-only-filter-bar">
-        <button
-          data-testid="select-cycling"
-          onClick={() => onChange({ ...value, selectedSports: ['cycling:road', 'cycling:mountain'] })}
-        >
-          Radfahren
-        </button>
-        <button
-          data-testid="set-range"
-          onClick={() => onChange({ ...value, from: '2024-01-01', to: '2024-12-31' })}
-        >
-          2024
-        </button>
-      </div>
-    ),
-  }
-})
 
 // ── API mocks ─────────────────────────────────────────────────────────────────
 
@@ -107,64 +80,56 @@ function renderWithProviders(url = '/analytics/stats') {
   )
 }
 
-describe('EddingtonChart — career-aggregate filter isolation', () => {
+describe('EddingtonChart — global filter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockToQueryString.mockReturnValue('')
     mockFetchEddington.mockResolvedValue(makeEddingtonResponse())
   })
 
-  it('never calls useAnalyticsFilters', () => {
-    renderWithProviders('/analytics/stats?tags=race&weather=sun')
-    expect(mockUseAnalyticsFilters).not.toHaveBeenCalled()
-  })
-
-  it('renders SportOnlyFilterBar', () => {
+  it('calls useAnalyticsFilters to obtain query params', () => {
     renderWithProviders()
-    expect(screen.getByTestId('sport-only-filter-bar')).toBeInTheDocument()
+    expect(mockToQueryString).toHaveBeenCalled()
   })
 
-  it('URL params tags and weather have no effect on the API call', async () => {
-    renderWithProviders('/analytics/stats?tags=foo&weather=rain')
-
-    await waitFor(() => expect(mockFetchEddington).toHaveBeenCalled())
-
-    for (const call of mockFetchEddington.mock.calls) {
-      const rawParams = (call[0] as string).split('?').pop() ?? (call[0] as string)
-      const params = new URLSearchParams(rawParams)
-      expect(params.has('tags')).toBe(false)
-      expect(params.has('weather')).toBe(false)
-    }
-  })
-
-  it('sport selection from local picker appears expanded in API call', async () => {
+  it('does NOT render a local SportOnlyFilterBar', () => {
     renderWithProviders()
+    expect(screen.queryByTestId('sport-only-filter-bar')).not.toBeInTheDocument()
+  })
 
-    // Wait for initial render to settle
-    await waitFor(() => expect(mockFetchEddington).toHaveBeenCalled())
-    vi.clearAllMocks()
-    mockFetchEddington.mockResolvedValue(makeEddingtonResponse())
-
-    // Trigger cycling selection via the mock sport filter button
-    fireEvent.click(screen.getByTestId('select-cycling'))
+  it('global sport_type param is forwarded to the API call', async () => {
+    mockToQueryString.mockReturnValue('sport_type=cycling%3Aroad')
+    renderWithProviders()
 
     await waitFor(() => expect(mockFetchEddington).toHaveBeenCalled())
 
     const lastCall = mockFetchEddington.mock.calls[mockFetchEddington.mock.calls.length - 1]
-    const rawParams = (lastCall[0] as string)
-    const params = new URLSearchParams(rawParams.includes('?') ? rawParams.split('?')[1] : rawParams)
-    const sportType = params.get('sport_type') ?? ''
-    expect(sportType).toContain('cycling:road')
-    expect(sportType).toContain('cycling:mountain')
+    expect(lastCall[0] as string).toContain('sport_type=cycling%3Aroad')
   })
 
-  it('initial API call has no sport_type when no sport is selected', async () => {
+  it('initial API call with empty global filter has no sport_type', async () => {
+    mockToQueryString.mockReturnValue('')
     renderWithProviders()
 
     await waitFor(() => expect(mockFetchEddington).toHaveBeenCalled())
 
     const firstCall = mockFetchEddington.mock.calls[0]
-    const rawParams = firstCall[0] as string
-    const params = new URLSearchParams(rawParams.includes('?') ? rawParams.split('?')[1] : rawParams)
+    const params = new URLSearchParams(firstCall[0] as string)
     expect(params.has('sport_type')).toBe(false)
+  })
+
+  it('metric toggle triggers a new API call', async () => {
+    renderWithProviders()
+
+    await waitFor(() => expect(mockFetchEddington).toHaveBeenCalled())
+    vi.clearAllMocks()
+    mockFetchEddington.mockResolvedValue(makeEddingtonResponse())
+
+    fireEvent.click(screen.getByText('Höhenmeter'))
+
+    await waitFor(() => expect(mockFetchEddington).toHaveBeenCalled())
+
+    const lastCall = mockFetchEddington.mock.calls[mockFetchEddington.mock.calls.length - 1]
+    expect(lastCall[0] as string).toContain('metric=elevation')
   })
 })

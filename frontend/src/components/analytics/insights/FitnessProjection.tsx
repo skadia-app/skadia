@@ -115,6 +115,7 @@ export default function FitnessProjection() {
           itemWidth: 12,
         },
         tooltip: {
+          confine: true,
           trigger: 'axis',
           axisPointer: { type: 'shadow' },
           backgroundColor: 'rgba(17,24,39,0.92)',

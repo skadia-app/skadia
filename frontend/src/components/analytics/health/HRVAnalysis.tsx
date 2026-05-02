@@ -84,6 +84,7 @@ export default function HRVAnalysisChart() {
           itemWidth: 14,
         },
         tooltip: {
+          confine: true,
           trigger: 'axis',
           axisPointer: { type: 'cross' },
           backgroundColor: 'rgba(17,24,39,0.92)',

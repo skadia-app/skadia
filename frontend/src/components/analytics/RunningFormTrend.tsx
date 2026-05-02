@@ -185,6 +185,7 @@ export default function RunningFormTrend() {
         yAxis: yAxes,
         series,
         tooltip: {
+          confine: true,
           trigger: 'axis',
           backgroundColor: theme.isDark ? '#1c1c1c' : '#fff',
           borderColor: theme.isDark ? '#404040' : '#e5e7eb',

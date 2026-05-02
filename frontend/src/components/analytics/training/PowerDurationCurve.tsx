@@ -97,6 +97,7 @@ export default function PowerDurationCurve() {
           itemHeight: 3,
         },
         tooltip: {
+          confine: true,
           trigger: 'axis',
           backgroundColor: 'rgba(17,24,39,0.92)',
           borderColor: '#374151',

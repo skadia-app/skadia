@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import { BarChart } from 'echarts/charts'
@@ -6,8 +5,7 @@ import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchStreaks } from '@/api/analytics'
 import type { StreaksResponse } from '@/api/analytics'
-import PureAggregateRangePicker from '@/components/analytics/filters/PureAggregateRangePicker'
-import type { DateRange } from '@/components/analytics/filters/RangePresetBar'
+import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer])
@@ -78,6 +76,7 @@ function StreakHistoryChart({ data }: MiniBarChartProps) {
     () => ({
       grid: { left: 8, right: 8, top: 8, bottom: 24 },
       tooltip: {
+        confine: true,
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
         formatter: (params: unknown) => {
@@ -129,18 +128,8 @@ function StreakHistoryChart({ data }: MiniBarChartProps) {
 }
 
 export default function StreaksDisplay() {
-  // Career-Exception: GetActiveDays has no sport param; sport filter is intentionally absent.
-  // Only a date range picker is shown.
-  const [range, setRange] = useState<DateRange>({ from: '', to: '' })
-
-  function buildParams(): string {
-    const p = new URLSearchParams()
-    if (range.from) p.set('from', range.from)
-    if (range.to) p.set('to', range.to)
-    return p.toString()
-  }
-
-  const params = buildParams()
+  const { toQueryString } = useAnalyticsFilters()
+  const params = toQueryString()
 
   const { data, isLoading, isError } = useQuery<StreaksResponse>({
     queryKey: ['streaks', params],
@@ -149,22 +138,13 @@ export default function StreaksDisplay() {
     staleTime: 5 * 60 * 1000,
   })
 
-  // Local range picker only — no sport filter (career-exception: backend has no sport param).
-  // Rendered unconditionally so it's always accessible regardless of loading/error state.
-  const rangePicker = (
-    <PureAggregateRangePicker defaultPreset="1y" onChange={setRange} />
-  )
-
   if (isLoading) {
     return (
-      <div className="space-y-3">
-        {rangePicker}
-        <div className="space-y-3 animate-pulse">
-          <div className="grid grid-cols-2 gap-3">
-            {[0, 1].map(i => (
-              <div key={i} className="h-32 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800" />
-            ))}
-          </div>
+      <div className="space-y-3 animate-pulse">
+        <div className="grid grid-cols-2 gap-3">
+          {[0, 1].map(i => (
+            <div key={i} className="h-32 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800" />
+          ))}
         </div>
       </div>
     )
@@ -172,11 +152,8 @@ export default function StreaksDisplay() {
 
   if (isError || !data) {
     return (
-      <div className="space-y-3">
-        {rangePicker}
-        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 text-center text-sm text-neutral-400">
-          Fehler beim Laden der Serien
-        </div>
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 text-center text-sm text-neutral-400">
+        Fehler beim Laden der Serien
       </div>
     )
   }
@@ -186,13 +163,10 @@ export default function StreaksDisplay() {
 
   if (!hasAnyStreak) {
     return (
-      <div className="space-y-4">
-        {rangePicker}
-        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-8 text-center">
-          <div className="text-3xl mb-3">🎯</div>
-          <div className="text-sm font-medium text-neutral-600 dark:text-neutral-400">Noch keine Serien</div>
-          <div className="text-xs text-neutral-400 mt-1">Trainiere an mehreren aufeinanderfolgenden Tagen, um Serien zu starten.</div>
-        </div>
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-8 text-center">
+        <div className="text-3xl mb-3">🎯</div>
+        <div className="text-sm font-medium text-neutral-600 dark:text-neutral-400">Noch keine Serien</div>
+        <div className="text-xs text-neutral-400 mt-1">Trainiere an mehreren aufeinanderfolgenden Tagen, um Serien zu starten.</div>
       </div>
     )
   }
@@ -202,7 +176,6 @@ export default function StreaksDisplay() {
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Serien</h3>
-      {rangePicker}
 
       <div className="grid grid-cols-2 gap-3">
         <StreakCard

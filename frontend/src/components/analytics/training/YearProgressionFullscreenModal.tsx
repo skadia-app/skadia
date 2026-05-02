@@ -8,6 +8,7 @@ import {
   DataZoomComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { HelpCircle } from 'lucide-react'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { useECharts } from '@/hooks/useECharts'
 import { useYearProgression } from '@/hooks/useYearProgression'
@@ -37,6 +38,30 @@ const METRIC_META: Record<MetricKey, { label: string; unit: string; factor: numb
 
 // Metrics shown as active toggles in the modal header (TSS and Kalorien are disabled/hidden).
 const METRIC_TOGGLE_KEYS: MetricKey[] = ['distance_m', 'elevation_gain_m', 'moving_time_s']
+
+// Inline hint icon — CSS-only hover tooltip with 500ms delay.
+// Cleaner look than a JS popover, no click-pin (hover only).
+function HelpHint({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <HelpCircle
+        className="w-3.5 h-3.5 text-neutral-400 dark:text-neutral-500 cursor-help"
+        aria-label={text}
+      />
+      <span
+        role="tooltip"
+        className="absolute left-1/2 top-full mt-3 z-50 -translate-x-1/2 w-64 rounded-md
+                   bg-neutral-900 dark:bg-neutral-100 text-neutral-100 dark:text-neutral-900
+                   text-xs leading-snug px-3 py-2 shadow-lg pointer-events-none normal-case
+                   opacity-0 invisible
+                   group-hover:opacity-100 group-hover:visible
+                   transition-[opacity,visibility] duration-100 delay-500"
+      >
+        {text}
+      </span>
+    </span>
+  )
+}
 
 type PeriodUnit = 'day' | 'week' | 'month'
 
@@ -92,7 +117,10 @@ function ModalStateContainer({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [granularity, _setGranularity] = useState<'day' | 'week'>('day')
   const [selectedYears, setSelectedYears] = useState<number[]>(initialYears ?? [])
-  const [selectedSports, setSelectedSports] = useState<string[]>([])
+  // null  = all sports (no filter), default
+  // []    = explicitly none selected (after 'Alle abwählen') — chart stays empty
+  // [...] = specific subset (already category-expanded)
+  const [selectedSports, setSelectedSports] = useState<string[] | null>(null)
   const [lockedDate, setLockedDate] = useState<Date | null>(null)
 
   // ── Rolling-mode period state ────────────────────────────────────────────────
@@ -109,11 +137,13 @@ function ModalStateContainer({
     setMode(next)
   }, [mode])
 
+  const sportsExplicitlyEmpty = Array.isArray(selectedSports) && selectedSports.length === 0
+
   // ── Query params ─────────────────────────────────────────────────────────────
   const queryParams = useMemo(() => {
     const params = new URLSearchParams()
     params.set('metric', metric)
-    if (selectedSports.length > 0) {
+    if (Array.isArray(selectedSports) && selectedSports.length > 0) {
       // WORKAROUND until sport-taxonomy-rework: bare-sport tokens collapse subtype
       // filter in backend (filter.go:165-218). We expand client-side.
       const expanded = expandSportSelection(selectedSports)
@@ -135,10 +165,16 @@ function ModalStateContainer({
   const activeResult = mode === 'progress' ? progressResult : rollingResult
   const { isLoading, isError } = activeResult
 
-  // ── Available years (mode-specific: rolling may cover fewer years than progress) ─
+  // ── Available years (mode-specific, only years that have non-zero data) ─────
   const availableYears = useMemo(() => {
-    const data = mode === 'progress' ? progressResult.data : rollingResult.data
-    return data?.years?.map(y => y.year) ?? []
+    if (mode === 'progress') {
+      return progressResult.data?.years
+        ?.filter(y => y.total > 0 || y.monthly?.some(v => v > 0))
+        .map(y => y.year) ?? []
+    }
+    return rollingResult.data?.years
+      ?.filter(y => y.points?.some(p => p.value > 0))
+      .map(y => y.year) ?? []
   }, [mode, progressResult.data?.years, rollingResult.data?.years]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Year-Set-Mismatch rule: trim selectedYears to available years on load / mode switch.
@@ -212,6 +248,7 @@ function ModalStateContainer({
         textStyle: { fontSize: 11, color: '#9ca3af' },
       },
       tooltip: {
+        confine: true,
         trigger: 'axis',
         backgroundColor: 'rgba(17,24,39,0.92)',
         borderColor: '#374151',
@@ -294,6 +331,7 @@ function ModalStateContainer({
         textStyle: { fontSize: 11, color: '#9ca3af' },
       },
       tooltip: {
+        confine: true,
         trigger: 'axis',
         backgroundColor: 'rgba(17,24,39,0.92)',
         borderColor: '#374151',
@@ -375,7 +413,7 @@ function ModalStateContainer({
   ]
 
   return (
-    <ModalShell onClose={onClose} maxWidth="max-w-7xl">
+    <ModalShell onClose={onClose} maxWidth="!max-w-[95vw] w-[95vw]">
       {/* ── Header row ── */}
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         {/* Left: title + mode toggle */}
@@ -401,7 +439,7 @@ function ModalStateContainer({
                     : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
                   }`}
               >
-                {m === 'progress' ? 'Progress' : 'Rolling'}
+                {m === 'progress' ? 'Verlauf' : 'Gleitend'}
               </button>
             ))}
           </div>
@@ -436,7 +474,11 @@ function ModalStateContainer({
           className="flex items-center gap-3 mb-3 flex-wrap text-xs"
           data-testid="period-selector"
         >
-          <span className="text-neutral-500 dark:text-neutral-400 font-medium">Vielfaches:</span>
+          <span className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 font-medium">
+            Zeitfenster
+            <HelpHint text="Größe des gleitenden Fensters — jeder Punkt im Diagramm zeigt die Summe der letzten N Tage. Beispiel: 30 Tage = wie viel Distanz hast du in den jeweils letzten 30 Tagen geschafft." />
+            :
+          </span>
           <input
             type="number"
             min={1}
@@ -446,7 +488,7 @@ function ModalStateContainer({
               const v = Math.max(1, Math.min(12, Number(e.target.value)))
               setPeriodMultiplier(v)
             }}
-            aria-label="Vielfaches"
+            aria-label="Zeitfenster-Anzahl"
             className="w-14 border border-neutral-200 dark:border-neutral-700 rounded px-2 py-1 text-xs
                        bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
                        focus:outline-none focus:ring-1 focus:ring-neutral-400"
@@ -475,13 +517,13 @@ function ModalStateContainer({
           </div>
           <span className="text-neutral-400 dark:text-neutral-600 italic">
             {/* Show computed period in days as a hint */}
-            {periodDays} {periodDays === 1 ? 'Tag' : 'Tage'} Fenster
+            ≈ {periodDays} {periodDays === 1 ? 'Tag' : 'Tage'}
           </span>
         </div>
       )}
 
       {/* ── Body: chart area + sidebar ── */}
-      <div className="flex gap-4" style={{ minHeight: '480px' }}>
+      <div className="flex gap-4" style={{ height: 'calc(90vh - 140px)', minHeight: '520px' }}>
         {/* ── Main chart area ── */}
         <div className="flex-1 min-w-0 flex flex-col gap-3">
           {/* Year-selection pills */}
@@ -514,7 +556,7 @@ function ModalStateContainer({
           )}
 
           {/* Chart */}
-          <div className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden relative" style={{ minHeight: '400px' }}>
+          <div className="flex-1 min-h-0 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden relative">
             {isLoading && (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
                 Lade Jahresvergleich…
@@ -525,7 +567,12 @@ function ModalStateContainer({
                 Fehler beim Laden
               </div>
             )}
-            {!isLoading && !isError && !activeOption && (
+            {!isLoading && !isError && sportsExplicitlyEmpty && (
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
+                Bitte mindestens eine Sportart auswählen
+              </div>
+            )}
+            {!isLoading && !isError && !sportsExplicitlyEmpty && !activeOption && (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
                 Keine Daten vorhanden
               </div>
@@ -534,7 +581,6 @@ function ModalStateContainer({
               ref={chartContainerRef}
               className="w-full h-full"
               data-testid="year-progression-chart"
-              style={{ minHeight: '400px' }}
             />
           </div>
         </div>
@@ -568,9 +614,9 @@ function ModalStateContainer({
           {/* Rolling-mode description */}
           {mode === 'rolling' && (
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 text-xs text-neutral-500 dark:text-neutral-400">
-              <p className="font-medium text-neutral-700 dark:text-neutral-300 mb-1">Rolling-Fenster</p>
+              <p className="font-medium text-neutral-700 dark:text-neutral-300 mb-1">Gleitendes Fenster</p>
               <p>
-                Jeder Punkt zeigt die Summe der letzten {periodDays} {periodDays === 1 ? 'Tages' : 'Tage'}.
+                Jeder Punkt zeigt die Summe {periodDays === 1 ? 'des letzten Tages' : `der letzten ${periodDays} Tage`}.
                 Die Kurven aller Jahre starten bei Tag&nbsp;1 (1.&nbsp;Januar).
               </p>
             </div>

@@ -8,23 +8,34 @@ import { expandSportSelection } from '@/components/analytics/filters/SportOnlyFi
 //
 // F002: expandSportSelection handles the bare-category → sport:subtype workaround.
 
+// Sentinel-aware value shape:
+// - null  = "all selected" (default, no filter applied)
+// - []    = "explicitly none selected" (after 'Alle abwählen')
+// - [...] = "specific subset"
+export type SportPickerValue = string[] | null
+
 interface SportHierarchyPickerProps {
-  value: string[]
-  onChange: (sports: string[]) => void
+  value: SportPickerValue
+  onChange: (sports: SportPickerValue) => void
   className?: string
 }
 
 export default function SportHierarchyPicker({ value, onChange, className }: SportHierarchyPickerProps) {
   const [filterValue, setFilterValue] = useState<SportFilterValue>({
-    sportTypes: value.length > 0 ? value : null,
+    sportTypes: value,
   })
 
   function handleChange(next: SportFilterValue) {
     setFilterValue(next)
-    // Extract only sportTypes, expand category-level tokens before passing up.
-    const raw = next.sportTypes ?? []
-    const expanded = expandSportSelection(raw)
-    onChange(expanded)
+    if (next.sportTypes === null) {
+      onChange(null)
+      return
+    }
+    if (next.sportTypes.length === 0) {
+      onChange([])
+      return
+    }
+    onChange(expandSportSelection(next.sportTypes))
   }
 
   return (

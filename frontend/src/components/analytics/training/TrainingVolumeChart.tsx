@@ -68,7 +68,10 @@ export default function TrainingVolumeChart() {
       const sportsSet = new Set<string>()
       for (const point of data) {
         periodsSet.add(point.period)
-        sportsSet.add(point.sport_type)
+        // Only register sports that actually have non-zero data — otherwise the
+        // legend pollutes with sports the backend returns as zero-rows for
+        // periods where no activity of that sport exists.
+        if (point.value > 0) sportsSet.add(point.sport_type)
       }
       const periods = Array.from(periodsSet).sort()
       const sports = Array.from(sportsSet).sort()
@@ -119,16 +122,17 @@ export default function TrainingVolumeChart() {
         tooltip: {
           trigger: 'axis',
           axisPointer: { type: 'shadow' },
+          confine: true,
           backgroundColor: 'rgba(17,24,39,0.92)',
           borderColor: '#374151',
           textStyle: { color: '#f3f4f6', fontSize: 12 },
           formatter: (params: unknown) => {
-            const items = params as Array<{ seriesName: string; value: number; axisValueLabel: string; color: string }>
+            const items = params as Array<{ seriesName: string; value: number | null; axisValueLabel: string; color: string }>
             if (!Array.isArray(items) || items.length === 0) return ''
             let html = `<div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${items[0].axisValueLabel}</div>`
             let total = 0
             for (const p of items) {
-              if (p.value <= 0) continue
+              if (p.value == null || p.value <= 0) continue
               const v = (p.value * metricFactor).toFixed(metricDecimals)
               html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
                 <span style="display:inline-block;width:8px;height:8px;background:${p.color}"></span>

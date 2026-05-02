@@ -37,46 +37,23 @@ vi.mock('echarts/renderers', () => ({ CanvasRenderer: {} }))
 vi.mock('@/hooks/useECharts', () => ({
   useECharts: (_buildOption: unknown, _deps: unknown, onMount?: (chart: unknown) => void) => {
     const ref = useRef<HTMLDivElement>(null)
-    // Register click handlers via the passed onMount callback, using our mock chart.
     if (onMount) onMount(mockChartInstance)
     return ref
   },
 }))
 
-// ── Assert that useAnalyticsFilters is never called ───────────────────────────
+// ── Global filter mock — returns controllable params ──────────────────────────
 
-const mockUseAnalyticsFilters = vi.fn()
+const mockToQueryString = vi.fn(() => '')
+const mockSetFilters = vi.fn()
+
 vi.mock('@/lib/analyticsFilters', () => ({
-  useAnalyticsFilters: mockUseAnalyticsFilters,
+  useAnalyticsFilters: () => ({
+    toQueryString: mockToQueryString,
+    setFilters: mockSetFilters,
+    filters: {},
+  }),
 }))
-
-// ── SportOnlyFilterBar mock ───────────────────────────────────────────────────
-
-vi.mock('@/components/analytics/filters/SportOnlyFilterBar', async () => {
-  const actual = await vi.importActual<typeof import('@/components/analytics/filters/SportOnlyFilterBar')>(
-    '@/components/analytics/filters/SportOnlyFilterBar',
-  )
-  return {
-    ...actual,
-    default: ({
-      value,
-      onChange,
-    }: {
-      value: { selectedSports: string[]; from: string; to: string }
-      onChange: (v: { selectedSports: string[]; from: string; to: string }) => void
-    }) => (
-      <div data-testid="sport-only-filter-bar">
-        <span data-testid="selected-sports">{value.selectedSports.join(',')}</span>
-        <button
-          data-testid="clear-sports"
-          onClick={() => onChange({ ...value, selectedSports: [] })}
-        >
-          Alle Sportarten
-        </button>
-      </div>
-    ),
-  }
-})
 
 // ── API mocks ─────────────────────────────────────────────────────────────────
 
@@ -114,59 +91,76 @@ function renderWithProviders(url = '/analytics/stats') {
   )
 }
 
-describe('DistributionCharts — career-aggregate filter isolation', () => {
+describe('DistributionCharts — global filter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     chartClickHandlers.clear()
+    mockToQueryString.mockReturnValue('')
     mockFetchDistributions.mockResolvedValue(makeDistributionResponse())
   })
 
-  it('never calls useAnalyticsFilters', () => {
-    renderWithProviders('/analytics/stats?tags=race&weather=sun')
-    expect(mockUseAnalyticsFilters).not.toHaveBeenCalled()
-  })
-
-  it('renders SportOnlyFilterBar', () => {
+  it('calls useAnalyticsFilters to obtain query params', () => {
     renderWithProviders()
-    expect(screen.getByTestId('sport-only-filter-bar')).toBeInTheDocument()
+    expect(mockToQueryString).toHaveBeenCalled()
   })
 
-  it('pie click on sport segment sets local sport state, not global setFilters', async () => {
+  it('does NOT render a local SportOnlyFilterBar', () => {
+    renderWithProviders()
+    expect(screen.queryByTestId('sport-only-filter-bar')).not.toBeInTheDocument()
+  })
+
+  it('pie click on sport segment calls global setFilters, not local state', async () => {
     renderWithProviders()
 
     await waitFor(() => expect(mockFetchDistributions).toHaveBeenCalled())
 
-    const selectedBefore = screen.getByTestId('selected-sports').textContent
-    expect(selectedBefore).toBe('')
-
-    // Simulate a pie click on a sport segment by invoking registered click handlers.
     const handlers = chartClickHandlers.get('click') ?? []
     expect(handlers.length).toBeGreaterThan(0)
 
-    // Invoke the first handler with a sport segment click event that carries the
-    // canonical sport_type token in data.sport_type (as set by the pie series builder).
+    // Simulate pie click on a sport segment carrying canonical sport_type token.
     handlers[0]({ name: 'cycling', data: { sport_type: 'cycling' } })
 
-    // The local selected-sports display should update — not the global URL.
-    await waitFor(() => {
-      const selected = screen.getByTestId('selected-sports').textContent
-      expect(selected).toContain('cycling')
-    })
-
-    // setFilters from useAnalyticsFilters must not have been called.
-    expect(mockUseAnalyticsFilters).not.toHaveBeenCalled()
+    expect(mockSetFilters).toHaveBeenCalledWith(
+      expect.objectContaining({ sportTypes: ['cycling'] }),
+    )
   })
 
-  it('URL params tags and weather have no effect on the API call', async () => {
-    renderWithProviders('/analytics/stats?tags=foo&weather=rain')
+  it('pie click on unknown sport label is ignored', async () => {
+    renderWithProviders()
+
+    await waitFor(() => expect(mockFetchDistributions).toHaveBeenCalled())
+
+    const handlers = chartClickHandlers.get('click') ?? []
+    handlers[0]({ name: 'Unknown', data: { sport_type: 'unknown' } })
+
+    expect(mockSetFilters).not.toHaveBeenCalled()
+  })
+
+  it('pie click on country segment calls setFilters for country', async () => {
+    renderWithProviders()
+
+    await waitFor(() => expect(mockFetchDistributions).toHaveBeenCalled())
+
+    // The second chart card is 'country'; click handlers are registered per-card.
+    // At least two handlers are expected (sport + country).
+    const handlers = chartClickHandlers.get('click') ?? []
+    expect(handlers.length).toBeGreaterThan(1)
+
+    handlers[1]({ name: 'Deutschland', data: {} })
+
+    expect(mockSetFilters).toHaveBeenCalledWith(
+      expect.objectContaining({ countries: ['Deutschland'] }),
+    )
+  })
+
+  it('global params are forwarded to the API call', async () => {
+    mockToQueryString.mockReturnValue('sport_type=cycling%3Aroad')
+    renderWithProviders()
 
     await waitFor(() => expect(mockFetchDistributions).toHaveBeenCalled())
 
     for (const call of mockFetchDistributions.mock.calls) {
-      const rawParams = call[0] as string
-      const params = new URLSearchParams(rawParams.includes('?') ? rawParams.split('?')[1] : rawParams)
-      expect(params.has('tags')).toBe(false)
-      expect(params.has('weather')).toBe(false)
+      expect(call[0] as string).toContain('sport_type=cycling%3Aroad')
     }
   })
 })

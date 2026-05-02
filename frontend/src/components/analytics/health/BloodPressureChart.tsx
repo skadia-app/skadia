@@ -75,6 +75,7 @@ export default function BloodPressureChart() {
           itemWidth: 14,
         },
         tooltip: {
+          confine: true,
           trigger: 'axis',
           backgroundColor: 'rgba(17,24,39,0.92)',
           borderColor: '#374151',
