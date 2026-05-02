@@ -157,8 +157,8 @@ func (db *DB) GetDistribution(ctx context.Context, userID string, distType strin
 			COUNT(*)                     AS count,
 			` + valueExpr + `            AS value,
 			ROUND(
-				(` + valueExpr + ` * 100.0) /
-				NULLIF(SUM(` + valueExpr + `) OVER (), 0),
+				((` + valueExpr + ` * 100.0) /
+				NULLIF(SUM(` + valueExpr + `) OVER (), 0))::numeric,
 				2
 			)                            AS percentage
 		FROM activities a
