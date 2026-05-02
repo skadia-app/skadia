@@ -1,42 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 
-// ── Assert that useAnalyticsFilters is never called ───────────────────────────
+// ── Global filter mock — returns controllable params ──────────────────────────
 
-const mockUseAnalyticsFilters = vi.fn()
+const mockToQueryString = vi.fn(() => '')
+const mockSetFilters = vi.fn()
+
 vi.mock('@/lib/analyticsFilters', () => ({
-  useAnalyticsFilters: mockUseAnalyticsFilters,
+  useAnalyticsFilters: () => ({
+    toQueryString: mockToQueryString,
+    setFilters: mockSetFilters,
+    filters: {},
+  }),
 }))
-
-// ── SportOnlyFilterBar mock ───────────────────────────────────────────────────
-
-vi.mock('@/components/analytics/filters/SportOnlyFilterBar', async () => {
-  const actual = await vi.importActual<typeof import('@/components/analytics/filters/SportOnlyFilterBar')>(
-    '@/components/analytics/filters/SportOnlyFilterBar',
-  )
-  return {
-    ...actual,
-    default: ({
-      value,
-      onChange,
-    }: {
-      value: { selectedSports: string[]; from: string; to: string }
-      onChange: (v: { selectedSports: string[]; from: string; to: string }) => void
-    }) => (
-      <div data-testid="sport-only-filter-bar">
-        <button
-          data-testid="select-running"
-          onClick={() => onChange({ ...value, selectedSports: ['running:trail', 'running:road'] })}
-        >
-          Laufen
-        </button>
-      </div>
-    ),
-  }
-})
 
 // ── API mocks ─────────────────────────────────────────────────────────────────
 
@@ -82,58 +61,36 @@ function renderWithProviders(url = '/analytics/stats') {
   )
 }
 
-describe('LifetimeStats — career-aggregate filter isolation', () => {
+describe('LifetimeStats — global filter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockToQueryString.mockReturnValue('')
     mockFetchLifetimeStats.mockResolvedValue(makeLifetimeResponse())
   })
 
-  it('never calls useAnalyticsFilters', () => {
-    renderWithProviders('/analytics/stats?tags=race&weather=sun')
-    expect(mockUseAnalyticsFilters).not.toHaveBeenCalled()
-  })
-
-  it('renders SportOnlyFilterBar', async () => {
+  it('calls useAnalyticsFilters to obtain query params', () => {
     renderWithProviders()
-    // Filter bar is rendered immediately, even during loading state.
-    expect(await screen.findByTestId('sport-only-filter-bar')).toBeInTheDocument()
+    expect(mockToQueryString).toHaveBeenCalled()
   })
 
-  it('URL params tags and weather have no effect on the API call', async () => {
-    renderWithProviders('/analytics/stats?tags=foo&weather=rain&gear_id=42')
-
-    await waitFor(() => expect(mockFetchLifetimeStats).toHaveBeenCalled())
-
-    for (const call of mockFetchLifetimeStats.mock.calls) {
-      const rawParams = call[0] as string
-      const params = new URLSearchParams(rawParams)
-      expect(params.has('tags')).toBe(false)
-      expect(params.has('weather')).toBe(false)
-      expect(params.has('gear_id')).toBe(false)
-    }
-  })
-
-  it('sport selection from local picker appears in API call', async () => {
+  it('does NOT render a local SportOnlyFilterBar', async () => {
     renderWithProviders()
-
-    // Wait for filter bar to be in DOM (rendered even during loading)
-    await screen.findByTestId('select-running')
     await waitFor(() => expect(mockFetchLifetimeStats).toHaveBeenCalled())
-    vi.clearAllMocks()
-    mockFetchLifetimeStats.mockResolvedValue(makeLifetimeResponse())
+    expect(screen.queryByTestId('sport-only-filter-bar')).not.toBeInTheDocument()
+  })
 
-    fireEvent.click(screen.getByTestId('select-running'))
+  it('global sport_type param is forwarded to the API call', async () => {
+    mockToQueryString.mockReturnValue('sport_type=running%3Atrail')
+    renderWithProviders()
 
     await waitFor(() => expect(mockFetchLifetimeStats).toHaveBeenCalled())
 
     const lastCall = mockFetchLifetimeStats.mock.calls[mockFetchLifetimeStats.mock.calls.length - 1]
-    const params = new URLSearchParams(lastCall[0] as string)
-    const sportType = params.get('sport_type') ?? ''
-    expect(sportType).toContain('running:trail')
-    expect(sportType).toContain('running:road')
+    expect(lastCall[0] as string).toContain('sport_type=running%3Atrail')
   })
 
-  it('initial API call has no sport_type when no sport is selected', async () => {
+  it('initial API call with empty global filter has no sport_type', async () => {
+    mockToQueryString.mockReturnValue('')
     renderWithProviders()
 
     await waitFor(() => expect(mockFetchLifetimeStats).toHaveBeenCalled())
@@ -141,5 +98,10 @@ describe('LifetimeStats — career-aggregate filter isolation', () => {
     const firstCall = mockFetchLifetimeStats.mock.calls[0]
     const params = new URLSearchParams(firstCall[0] as string)
     expect(params.has('sport_type')).toBe(false)
+  })
+
+  it('renders stat cards when data is loaded', async () => {
+    renderWithProviders()
+    await screen.findByText('500')
   })
 })

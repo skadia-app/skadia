@@ -195,9 +195,9 @@ describe('YearProgressionFullscreenModal', () => {
 
   it('renders Progress mode toggle as active by default', () => {
     wrapper(<YearProgressionFullscreenModal open={true} onClose={vi.fn()} />)
-    const progressBtn = screen.getByRole('button', { name: 'Progress' })
+    const progressBtn = screen.getByRole('button', { name: 'Verlauf' })
     expect(progressBtn).toHaveAttribute('aria-pressed', 'true')
-    const rollingBtn = screen.getByRole('button', { name: 'Rolling' })
+    const rollingBtn = screen.getByRole('button', { name: 'Gleitend' })
     expect(rollingBtn).toHaveAttribute('aria-pressed', 'false')
   })
 
@@ -208,39 +208,39 @@ describe('YearProgressionFullscreenModal', () => {
     expect(screen.queryByTestId('period-selector')).toBeNull()
 
     // Switch to rolling.
-    await userEvent.click(screen.getByRole('button', { name: 'Rolling' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gleitend' }))
     expect(screen.getByTestId('period-selector')).toBeInTheDocument()
 
     // Switch back to progress — period selector disappears.
-    await userEvent.click(screen.getByRole('button', { name: 'Progress' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Verlauf' }))
     expect(screen.queryByTestId('period-selector')).toBeNull()
   })
 
   it('period-selector: multiplier input updates period days hint', async () => {
     wrapper(<YearProgressionFullscreenModal open={true} onClose={vi.fn()} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Rolling' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gleitend' }))
 
     // Default: 1 × Monat = 30 Tage.
-    expect(screen.getByText('30 Tage Fenster')).toBeInTheDocument()
+    expect(screen.getByText('≈ 30 Tage')).toBeInTheDocument()
 
     // Change unit to Woche → 1 × 7 = 7 Tage.
     await userEvent.click(screen.getByRole('button', { name: 'Woche' }))
-    expect(screen.getByText('7 Tage Fenster')).toBeInTheDocument()
+    expect(screen.getByText('≈ 7 Tage')).toBeInTheDocument()
 
     // Change multiplier to 2 → 2 × 7 = 14.
     // Use fireEvent.change instead of userEvent.type to avoid the jsdom
     // number-input edge case where clear+type appends instead of replacing.
-    const input = screen.getByRole('spinbutton', { name: 'Vielfaches' })
+    const input = screen.getByRole('spinbutton', { name: 'Zeitfenster-Anzahl' })
     fireEvent.change(input, { target: { value: '2' } })
-    expect(screen.getByText('14 Tage Fenster')).toBeInTheDocument()
+    expect(screen.getByText('≈ 14 Tage')).toBeInTheDocument()
   })
 
   it('period-selector: Tag unit with multiplier 1 shows singular hint', async () => {
     wrapper(<YearProgressionFullscreenModal open={true} onClose={vi.fn()} />)
-    await userEvent.click(screen.getByRole('button', { name: 'Rolling' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gleitend' }))
     await userEvent.click(screen.getByRole('button', { name: 'Tag' }))
     // 1 × day = 1 → singular form "1 Tag Fenster"
-    expect(screen.getByText('1 Tag Fenster')).toBeInTheDocument()
+    expect(screen.getByText('≈ 1 Tag')).toBeInTheDocument()
   })
 
   it('metric toggle changes aria-pressed state', async () => {
@@ -271,7 +271,7 @@ describe('YearProgressionFullscreenModal', () => {
     expect(screen.getByRole('button', { name: 'Höhenmeter' })).toHaveAttribute('aria-pressed', 'true')
 
     // Switch to rolling.
-    await userEvent.click(screen.getByRole('button', { name: 'Rolling' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gleitend' }))
 
     // Metric is preserved.
     expect(screen.getByRole('button', { name: 'Höhenmeter' })).toHaveAttribute('aria-pressed', 'true')
@@ -295,7 +295,7 @@ describe('YearProgressionFullscreenModal', () => {
     wrapper(<YearProgressionFullscreenModal open={true} onClose={vi.fn()} />)
 
     // Switch to rolling mode.
-    await userEvent.click(screen.getByRole('button', { name: 'Rolling' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Gleitend' }))
 
     // Wait for rolling data to settle.
     await new Promise(r => setTimeout(r, 50))

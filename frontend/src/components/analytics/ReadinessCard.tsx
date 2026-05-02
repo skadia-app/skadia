@@ -66,7 +66,7 @@ const REFUSAL_TEXTS: Record<string, string> = {
   no_data:
     'Noch keine Gesundheitsdaten vorhanden — verbinde ein Wearable oder importiere FIT-Dateien.',
   service_unavailable:
-    'Berechnung läuft im Hintergrund. Seite in einer Minute aktualisieren.',
+    'Bereitschaft wird im Hintergrund berechnet. Falls keine HRV-, Schlaf- oder Trainingslastdaten vorhanden sind, bleibt diese Karte leer.',
 }
 
 // Single-line refusal hints for the compact/dashboard variant — must fit in ~1 line.

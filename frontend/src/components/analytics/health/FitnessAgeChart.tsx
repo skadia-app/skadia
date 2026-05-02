@@ -44,6 +44,7 @@ export default function FitnessAgeChart() {
         backgroundColor: 'transparent',
         grid: { left: 52, right: 20, top: 20, bottom: 40 },
         tooltip: {
+          confine: true,
           trigger: 'axis',
           backgroundColor: 'rgba(17,24,39,0.92)',
           borderColor: '#374151',

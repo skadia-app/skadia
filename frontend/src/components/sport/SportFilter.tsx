@@ -62,7 +62,20 @@ export function SportFilter({
   const allSelected = allKeys.length > 0 && allKeys.every((key) => selected.has(key))
 
   function emit(next: Set<string>) {
-    const sportTypes = next.size === 0 || allKeys.every((key) => next.has(key)) ? null : [...next]
+    // null = "all selected, no filter applied" (default state)
+    // []   = "explicitly none selected" (after Alle abwählen)
+    // [..] = "specific subset selected"
+    // Existing consumers (ActivityFilters, MapFilters, SportOnlyFilterBar)
+    // collapse null and [] to the same Set on input, so this distinction
+    // only matters for callers that treat empty as a real selection.
+    let sportTypes: string[] | null
+    if (allKeys.length > 0 && allKeys.every((key) => next.has(key))) {
+      sportTypes = null
+    } else if (next.size === 0) {
+      sportTypes = []
+    } else {
+      sportTypes = [...next]
+    }
     onChange({ ...value, sportTypes })
   }
 

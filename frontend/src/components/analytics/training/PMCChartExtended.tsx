@@ -413,6 +413,7 @@ export default function PMCChartExtended() {
           textStyle: { fontSize: 11, color: '#9ca3af' },
         },
         tooltip: {
+          confine: true,
           trigger: 'axis',
           axisPointer: { type: 'cross' },
           backgroundColor: 'rgba(17,24,39,0.92)',

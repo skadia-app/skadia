@@ -10,9 +10,9 @@ import { CanvasRenderer } from 'echarts/renderers'
 import * as echarts from 'echarts/core'
 import { fetchDistributions } from '@/api/analytics'
 import type { Distribution } from '@/api/analytics'
-import SportOnlyFilterBar, { expandSportSelection } from '@/components/analytics/filters/SportOnlyFilterBar'
-import type { SportOnlyFilterValue } from '@/components/analytics/filters/SportOnlyFilterBar'
+import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useECharts } from '@/hooks/useECharts'
+import { sportLabel } from '@/lib/sportTaxonomy'
 import { cn } from '@/lib/utils'
 
 echarts.use([PieChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
@@ -39,6 +39,21 @@ const CHART_COLORS = [
   '#EC4899', '#06B6D4', '#84CC16', '#EF4444', '#6366F1',
 ]
 
+// Backend returns raw English keys for label fields (sport_type column,
+// 'Unknown', 'No Gear', 'No distance' placeholders). Map them to the German
+// display strings the rest of the UI uses.
+const PLACEHOLDER_LABELS: Record<string, string> = {
+  Unknown: 'Unbekannt',
+  unknown: 'Unbekannt',
+  'No Gear': 'Keine Ausrüstung',
+  'No distance': 'Keine Distanz',
+}
+
+function displayLabel(raw: string, type: DistType): string {
+  if (type === 'sport') return sportLabel(raw)
+  return PLACEHOLDER_LABELS[raw] ?? raw
+}
+
 function fmtMetricValue(value: number, metric: MetricKey): string {
   if (metric === 'distance') {
     return `${(value / 1000).toFixed(0)} km`
@@ -55,10 +70,10 @@ interface DistChartProps {
   label: string
   metric: MetricKey
   params: string
-  onSportClick: (label: string) => void
+  onLabelClick: (label: string, type: DistType) => void
 }
 
-function DistChartCard({ type, label, metric, params, onSportClick }: DistChartProps) {
+function DistChartCard({ type, label, metric, params, onLabelClick }: DistChartProps) {
   const [chartType, setChartType] = useState<ChartType>('pie')
 
   const metricOption = METRIC_OPTIONS.find(o => o.value === metric)!
@@ -78,6 +93,7 @@ function DistChartCard({ type, label, metric, params, onSportClick }: DistChartP
       if (chartType === 'pie') {
         return {
           tooltip: {
+            confine: true,
             trigger: 'item',
             formatter: (params: unknown) => {
               const p = params as { name: string; value: number; percent: number }
@@ -102,12 +118,11 @@ function DistChartCard({ type, label, metric, params, onSportClick }: DistChartP
               radius: ['40%', '70%'],
               center: ['38%', '50%'],
               data: topData.map((d, i) => ({
-                name: d.label,
+                name: displayLabel(d.label, type),
                 value: d.value,
-                // sport_type carries the canonical backend token (= d.label for sport
-                // distributions, where the API returns the raw sport_type column value).
-                // The click handler reads this field so it never passes a display-only
-                // label string to the filter.
+                // sport_type carries the canonical backend token; the click handler
+                // reads this field so the filter receives the raw key, never the
+                // localized display label.
                 sport_type: d.label,
                 itemStyle: { color: CHART_COLORS[i % CHART_COLORS.length] },
               })),
@@ -123,6 +138,7 @@ function DistChartCard({ type, label, metric, params, onSportClick }: DistChartP
       return {
         grid: { left: 80, right: 16, top: 8, bottom: 24 },
         tooltip: {
+          confine: true,
           trigger: 'axis',
           axisPointer: { type: 'shadow' },
           formatter: (params: unknown) => {
@@ -142,7 +158,7 @@ function DistChartCard({ type, label, metric, params, onSportClick }: DistChartP
         },
         yAxis: {
           type: 'category',
-          data: [...topData].reverse().map(d => d.label),
+          data: [...topData].reverse().map(d => displayLabel(d.label, type)),
           axisLabel: {
             fontSize: 10,
             color: '#9ca3af',
@@ -154,6 +170,9 @@ function DistChartCard({ type, label, metric, params, onSportClick }: DistChartP
             type: 'bar',
             data: [...topData].reverse().map((d, i) => ({
               value: d.value,
+              // Canonical raw key — read by the click handler so the filter
+              // receives the backend token, not the localized display label.
+              sport_type: d.label,
               itemStyle: { color: CHART_COLORS[i % CHART_COLORS.length] },
             })),
             barCategoryGap: '30%',
@@ -165,12 +184,7 @@ function DistChartCard({ type, label, metric, params, onSportClick }: DistChartP
     (chart) => {
       const handler = (params: unknown) => {
         const p = params as { name?: string; data?: { sport_type?: string } }
-        // Pie clicks on sport segments redirect to the local sport filter.
-        // Other segment types (country, gear, distance_bucket) are not clickable.
-        // Use data.sport_type (canonical backend token) over p.name (display label).
-        if (type === 'sport' && p.name && p.name.toLowerCase() !== 'unknown') {
-          onSportClick(p.data?.sport_type ?? p.name)
-        }
+        if (p.name) onLabelClick(p.data?.sport_type ?? p.name, type)
       }
       chart.on('click', handler)
       return () => chart.off('click', handler)
@@ -208,17 +222,18 @@ function DistChartCard({ type, label, metric, params, onSportClick }: DistChartP
   )
 }
 
-const DEFAULT_FILTER: SportOnlyFilterValue = { selectedSports: [], from: '', to: '' }
-
 export default function DistributionCharts() {
+  const { toQueryString, setFilters } = useAnalyticsFilters()
   const [metric, setMetric] = useState<MetricKey>('count')
-  const [filter, setFilter] = useState<SportOnlyFilterValue>(DEFAULT_FILTER)
+  const params = toQueryString()
 
-  const params = buildParams(filter)
-
-  // Pie click on a sport label sets the local sport filter rather than the global URL state.
-  function handleSportClick(sportLabel: string) {
-    setFilter(prev => ({ ...prev, selectedSports: [sportLabel] }))
+  const handleLabelClick = (label: string, type: DistType) => {
+    if (type === 'sport') {
+      if (label.toLowerCase() === 'unknown') return
+      setFilters({ sportTypes: [label] })
+    } else if (type === 'country') {
+      setFilters({ countries: [label] })
+    }
   }
 
   return (
@@ -242,9 +257,6 @@ export default function DistributionCharts() {
         </div>
       </div>
 
-      {/* Local sport + range filter — career aggregate: no global filter */}
-      <SportOnlyFilterBar value={filter} onChange={setFilter} />
-
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {DISTRIBUTION_CARDS.map(card => (
           <DistChartCard
@@ -253,23 +265,14 @@ export default function DistributionCharts() {
             label={card.label}
             metric={metric}
             params={params}
-            onSportClick={handleSportClick}
+            onLabelClick={handleLabelClick}
           />
         ))}
       </div>
 
       <p className="text-xs text-neutral-400 text-center">
-        Klick auf ein Sport-Segment filtert die Sportart-Auswahl
+        Klick auf ein Segment filtert die Analytics-Ansicht
       </p>
     </div>
   )
-}
-
-function buildParams(filter: SportOnlyFilterValue): string {
-  const p = new URLSearchParams()
-  const expanded = expandSportSelection(filter.selectedSports)
-  if (expanded.length > 0) p.set('sport_type', expanded.join(','))
-  if (filter.from) p.set('from', filter.from)
-  if (filter.to) p.set('to', filter.to)
-  return p.toString()
 }

@@ -1,9 +1,7 @@
-import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchLifetimeStats } from '@/api/analytics'
 import type { LifetimeStats } from '@/api/analytics'
-import SportOnlyFilterBar, { expandSportSelection } from '@/components/analytics/filters/SportOnlyFilterBar'
-import type { SportOnlyFilterValue } from '@/components/analytics/filters/SportOnlyFilterBar'
+import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { fmtDuration } from '@/lib/format'
 
 function fmtNum(n: number): string {
@@ -82,12 +80,9 @@ function LoadingSkeleton() {
   )
 }
 
-const DEFAULT_FILTER: SportOnlyFilterValue = { selectedSports: [], from: '', to: '' }
-
 export default function LifetimeStats() {
-  const [filter, setFilter] = useState<SportOnlyFilterValue>(DEFAULT_FILTER)
-
-  const params = buildParams(filter)
+  const { toQueryString } = useAnalyticsFilters()
+  const params = toQueryString()
 
   const { data, isLoading, isError } = useQuery<LifetimeStats>({
     queryKey: ['lifetime-stats', params],
@@ -96,31 +91,18 @@ export default function LifetimeStats() {
     staleTime: 5 * 60 * 1000,
   })
 
-  const filterBar = <SportOnlyFilterBar value={filter} onChange={setFilter} />
-
-  if (isLoading) return (
-    <div className="space-y-6">
-      {filterBar}
-      <LoadingSkeleton />
-    </div>
-  )
+  if (isLoading) return <LoadingSkeleton />
 
   if (isError || !data) {
     return (
-      <div className="space-y-6">
-        {filterBar}
-        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 text-center text-sm text-neutral-400">
-          Fehler beim Laden der Lifetime-Statistiken
-        </div>
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 text-center text-sm text-neutral-400">
+        Fehler beim Laden der Lifetime-Statistiken
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* Local sport + range filter — career aggregate: no global filter */}
-      {filterBar}
-
       {/* Primary stats grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatCard
@@ -202,13 +184,4 @@ export default function LifetimeStats() {
       )}
     </div>
   )
-}
-
-function buildParams(filter: SportOnlyFilterValue): string {
-  const p = new URLSearchParams()
-  const expanded = expandSportSelection(filter.selectedSports)
-  if (expanded.length > 0) p.set('sport_type', expanded.join(','))
-  if (filter.from) p.set('from', filter.from)
-  if (filter.to) p.set('to', filter.to)
-  return p.toString()
 }

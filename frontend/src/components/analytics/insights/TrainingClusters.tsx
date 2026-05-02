@@ -67,6 +67,7 @@ export default function TrainingClusters() {
       return {
         backgroundColor: 'transparent',
         tooltip: {
+          confine: true,
           trigger: 'item',
           backgroundColor: 'rgba(17,24,39,0.92)',
           borderColor: '#374151',

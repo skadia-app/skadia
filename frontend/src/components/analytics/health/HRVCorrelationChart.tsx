@@ -83,6 +83,7 @@ export default function HRVCorrelationChart() {
         backgroundColor: 'transparent',
         grid: { left: 60, right: 20, top: 20, bottom: 50 },
         tooltip: {
+          confine: true,
           trigger: 'item',
           backgroundColor: 'rgba(17,24,39,0.92)',
           borderColor: '#374151',

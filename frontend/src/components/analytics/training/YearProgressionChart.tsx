@@ -162,6 +162,7 @@ export default function YearProgressionChart() {
         { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
       ],
       tooltip: {
+        confine: true,
         trigger: 'axis',
         backgroundColor: 'rgba(17,24,39,0.92)',
         borderColor: '#374151',

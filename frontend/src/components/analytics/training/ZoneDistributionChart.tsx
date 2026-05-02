@@ -83,6 +83,7 @@ export default function ZoneDistributionChart() {
         return {
           backgroundColor: 'transparent',
           tooltip: {
+            confine: true,
             trigger: 'item',
             backgroundColor: 'rgba(17,24,39,0.92)',
             borderColor: '#374151',
@@ -169,6 +170,7 @@ export default function ZoneDistributionChart() {
           itemHeight: 8,
         },
         tooltip: {
+          confine: true,
           trigger: 'axis',
           axisPointer: { type: 'shadow' },
           backgroundColor: 'rgba(17,24,39,0.92)',
