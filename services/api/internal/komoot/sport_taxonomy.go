@@ -1,9 +1,12 @@
 package komoot
 
+import "github.com/skadia-app/skadia/services/api/internal/sport"
+
 func komootRouteSportTuple(komootSport string) (string, string, bool) {
-	mapping, ok := KomootSportMapping[komootSport]
-	if !ok {
+	resolved, err := sport.ResolveSport(sport.ResolveInput{Source: sport.SourceKomoot, RawSport: komootSport})
+	if err != nil || !resolved.Resolved {
 		return "hiking", "", false
 	}
-	return mapping.SportType, mapping.SubType, mapping.IsElectric
+	modifiers := sport.ApplyModifierPatch(sport.ModifierValues{}, resolved.Patch)
+	return resolved.Tuple.SportType, resolved.Tuple.SubType, modifiers.IsElectric
 }
