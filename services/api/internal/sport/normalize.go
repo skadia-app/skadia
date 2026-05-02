@@ -57,28 +57,23 @@ func NormalizeSportTuple(sportType, subType string) (Tuple, ModifierPatch, error
 	subType = strings.TrimSpace(subType)
 
 	tuple := Tuple{SportType: sportType, SubType: subType}
-	var patch ModifierPatch
+	var aliasPatch ModifierPatch
 
 	if alias, ok := legacySubTypeAliases[Tuple{SportType: sportType, SubType: subType}]; ok {
 		tuple = alias.tuple
-		patch = mergeModifierPatch(patch, alias.patch)
+		aliasPatch = mergeModifierPatch(aliasPatch, alias.patch)
 	} else if alias, ok := legacySportAliases[sportType]; ok {
 		tuple = alias.tuple
-		patch = mergeModifierPatch(patch, alias.patch)
+		aliasPatch = mergeModifierPatch(aliasPatch, alias.patch)
 		if tuple.SubType == "" && subType != "" && subType != "generic" {
 			tuple.SubType = subType
 		}
 	}
 
-	switch {
-	case tuple.SportType == "cycling" && tuple.SubType == "indoor_cycling":
-		patch.IsIndoor = boolPtr(true)
-	case tuple.SportType == "running" && tuple.SubType == "treadmill":
-		patch.IsIndoor = boolPtr(true)
-	}
 	if tuple.SubType == "generic" {
 		tuple.SubType = ""
 	}
+	patch := mergeModifierPatch(modifierDefaultsToPatch(ModifierDefaultsForTuple(tuple.SportType, tuple.SubType)), aliasPatch)
 
 	def, ok := registry[tuple.SportType]
 	if !ok {
@@ -91,6 +86,14 @@ func NormalizeSportTuple(sportType, subType string) (Tuple, ModifierPatch, error
 		return Tuple{}, ModifierPatch{}, fmt.Errorf("unknown sub_type %q for sport_type %q", tuple.SubType, tuple.SportType)
 	}
 	return tuple, patch, nil
+}
+
+func modifierDefaultsToPatch(defaults ModifierDefaults) ModifierPatch {
+	var patch ModifierPatch
+	if defaults.IsIndoor != nil {
+		patch.IsIndoor = defaults.IsIndoor
+	}
+	return patch
 }
 
 // NormalizeSportTupleForImport normalizes importer-provided sport fields while

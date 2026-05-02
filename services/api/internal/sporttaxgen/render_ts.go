@@ -32,6 +32,9 @@ func RenderTS(t Taxonomy, source []byte) ([]byte, error) {
 		fmt.Fprintf(&buf, "    lifecycle: %s,\n", tsString(s.Lifecycle))
 		fmt.Fprintf(&buf, "    selectable: %t,\n", *s.Selectable)
 		fmt.Fprintf(&buf, "    traits: %s,\n", tsTraits(s.Traits))
+		if defaults := effectiveSportModifierDefaults(s); defaults != nil {
+			fmt.Fprintf(&buf, "    modifierDefaults: %s,\n", tsModifierDefaults(defaults))
+		}
 		if len(s.SubTypes) > 0 {
 			buf.WriteString("    subTypes: [\n")
 			for _, st := range s.SubTypes {
@@ -40,6 +43,9 @@ func RenderTS(t Taxonomy, source []byte) ([]byte, error) {
 					fmt.Fprintf(&buf, ", movingThreshold: %v", *st.MovingThreshold)
 				}
 				fmt.Fprintf(&buf, ", traits: %s", tsTraits(EffectiveSubTypeTraits(s, st)))
+				if st.ModifierDefaults != nil {
+					fmt.Fprintf(&buf, ", modifierDefaults: %s", tsModifierDefaults(st.ModifierDefaults))
+				}
 				buf.WriteString(" },\n")
 			}
 			buf.WriteString("    ],\n")
@@ -68,6 +74,17 @@ func tsTraits(traits Traits) string {
 		tsString(traits.ActivityForm),
 		tsStringArray(traits.PropulsionModes),
 	)
+}
+
+func tsModifierDefaults(defaults *ModifierDefaults) string {
+	if defaults == nil {
+		return "{}"
+	}
+	parts := []string{}
+	if defaults.IsIndoor != nil {
+		parts = append(parts, fmt.Sprintf("isIndoor: %t", *defaults.IsIndoor))
+	}
+	return "{ " + strings.Join(parts, ", ") + " }"
 }
 
 func tsStringArray(values []string) string {

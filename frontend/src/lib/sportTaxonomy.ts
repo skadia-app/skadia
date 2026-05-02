@@ -28,6 +28,14 @@ interface GeneratedTraits {
   readonly propulsionModes: readonly string[]
 }
 
+interface GeneratedModifierDefaults {
+  readonly isIndoor?: boolean
+}
+
+export interface ModifierDefaults {
+  isIndoor?: boolean
+}
+
 export interface SubTypeDef {
   subType: string
   label: string
@@ -35,6 +43,7 @@ export interface SubTypeDef {
   movingThreshold?: number
   selectable: boolean
   traits: SportTraits
+  modifierDefaults: ModifierDefaults
 }
 
 export interface SportDef {
@@ -47,6 +56,7 @@ export interface SportDef {
   lifecycle: 'canonical' | 'broad_fallback' | 'deprecated'
   selectable: boolean
   traits: SportTraits
+  modifierDefaults: ModifierDefaults
   subTypes: SubTypeDef[]
 }
 
@@ -188,7 +198,12 @@ export const SPORT_DEFS: SportDef[] = [
   lifecycle: s.lifecycle,
   selectable: s.selectable,
   traits: copyTraits(s.traits),
-  subTypes: s.subTypes.map((st) => ({ ...st, traits: copyTraits(st.traits) })),
+  modifierDefaults: copyModifierDefaults('modifierDefaults' in s ? s.modifierDefaults : undefined),
+  subTypes: s.subTypes.map((st) => ({
+    ...st,
+    traits: copyTraits(st.traits),
+    modifierDefaults: copyModifierDefaults('modifierDefaults' in st ? st.modifierDefaults : undefined),
+  })),
 }))
 
 function copyTraits(traits: GeneratedTraits): SportTraits {
@@ -199,6 +214,10 @@ function copyTraits(traits: GeneratedTraits): SportTraits {
     activityForm: traits.activityForm,
     propulsionModes: [...traits.propulsionModes],
   }
+}
+
+function copyModifierDefaults(defaults: GeneratedModifierDefaults | undefined): ModifierDefaults {
+  return defaults ? { ...defaults } : {}
 }
 
 const LEGACY_ALIASES = new Map<string, SportTuple>([
@@ -264,7 +283,7 @@ export function normalizeSportTuple(sportType: string, subType: string | null = 
     return {
       sportType: subtypeAlias.sportType,
       subType: subtypeAlias.subType,
-      modifiers: { ...subtypeAlias.modifiers },
+      modifiers: { ...modifierDefaultsForTuple(subtypeAlias.sportType, subtypeAlias.subType), ...subtypeAlias.modifiers },
     }
   }
   const alias = LEGACY_ALIASES.get(trimmedSport)
@@ -280,14 +299,26 @@ export function normalizeSportTuple(sportType: string, subType: string | null = 
         modifiers: {},
       }
 
-  if (tuple.sportType === 'running' && tuple.subType === 'treadmill') {
-    tuple.modifiers.isIndoor = true
-  }
   if (tuple.subType === 'generic') {
     tuple.subType = ''
   }
+  tuple.modifiers = { ...modifierDefaultsForTuple(tuple.sportType, tuple.subType), ...tuple.modifiers }
 
   return tuple
+}
+
+export function modifierDefaultsForTuple(sportType: string, subType = ''): ModifierDefaults {
+  const sport = sportMap.get(sportType.trim())
+  if (!sport) return {}
+
+  const defaults: ModifierDefaults = { ...sport.modifierDefaults }
+  const cleanSubType = subType.trim()
+  if (cleanSubType && cleanSubType !== 'generic') {
+    const subtype = sport.subTypes.find((st) => st.subType === cleanSubType)
+    if (!subtype) return {}
+    Object.assign(defaults, subtype.modifierDefaults)
+  }
+  return defaults
 }
 
 /**

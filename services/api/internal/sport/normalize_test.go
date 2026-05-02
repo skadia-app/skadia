@@ -46,6 +46,26 @@ func TestNormalizeSportTuple(t *testing.T) {
 			wantIndoor: &trueValue,
 		},
 		{
+			name:       "explicit diving apnea pool subtype sets indoor modifier",
+			sportType:  "diving",
+			subType:    "apnea_pool",
+			wantTuple:  Tuple{SportType: "diving", SubType: "apnea_pool"},
+			wantIndoor: &trueValue,
+		},
+		{
+			name:       "explicit indoor climbing subtype sets indoor modifier",
+			sportType:  "rock_climbing",
+			subType:    "indoor_climbing",
+			wantTuple:  Tuple{SportType: "rock_climbing", SubType: "indoor_climbing"},
+			wantIndoor: &trueValue,
+		},
+		{
+			name:      "explicit bouldering subtype does not set indoor modifier",
+			sportType: "rock_climbing",
+			subType:   "bouldering",
+			wantTuple: Tuple{SportType: "rock_climbing", SubType: "bouldering"},
+		},
+		{
 			name:      "generic subtype clears to no subtype",
 			sportType: "cycling",
 			subType:   "generic",
@@ -97,9 +117,10 @@ func TestNormalizeSportTuple(t *testing.T) {
 			wantIndoor: &trueValue,
 		},
 		{
-			name:      "strength maps to strength training",
-			sportType: "strength",
-			wantTuple: Tuple{SportType: "strength_training"},
+			name:       "strength maps to indoor strength training",
+			sportType:  "strength",
+			wantTuple:  Tuple{SportType: "strength_training"},
+			wantIndoor: &trueValue,
 		},
 		{
 			name:      "canoeing remains canonical",

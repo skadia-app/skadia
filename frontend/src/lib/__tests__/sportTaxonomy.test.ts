@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
 import { GENERATED_SPORT_TAXONOMY_SOURCE_SHA256 } from '../generatedSportTaxonomy'
-import { SPORT_DEFS, canonicalSportOptions, categoryForSport, normalizeSportTuple, routeSportOptions, selectableParentSportOptions, selectableSportTupleOptions, sportColor, sportLabel, sportsInCategory } from '../sportTaxonomy'
+import { SPORT_DEFS, canonicalSportOptions, categoryForSport, modifierDefaultsForTuple, normalizeSportTuple, routeSportOptions, selectableParentSportOptions, selectableSportTupleOptions, sportColor, sportLabel, sportsInCategory } from '../sportTaxonomy'
 
 describe('sport taxonomy aliases', () => {
   it('keeps the generated frontend taxonomy source hash in sync with sports.yaml', () => {
@@ -72,13 +72,40 @@ describe('sport taxonomy aliases', () => {
     expect(normalizeSportTuple('strength')).toEqual({
       sportType: 'strength_training',
       subType: '',
-      modifiers: {},
+      modifiers: { isIndoor: true },
     })
   })
 
   it('keeps broad canonical sport classes distinct from legacy aliases', () => {
     expect(normalizeSportTuple('skiing')).toEqual({ sportType: 'skiing', subType: '', modifiers: {} })
     expect(normalizeSportTuple('canoeing')).toEqual({ sportType: 'canoeing', subType: '', modifiers: {} })
+  })
+
+  it('applies generated indoor modifier defaults to canonical tuples', () => {
+    expect(modifierDefaultsForTuple('diving', 'apnea_pool').isIndoor).toBe(true)
+    expect(normalizeSportTuple('diving', 'apnea_pool').modifiers.isIndoor).toBe(true)
+    expect(normalizeSportTuple('rock_climbing', 'bouldering').modifiers.isIndoor).toBeUndefined()
+    expect(normalizeSportTuple('swimming', 'lap_swimming').modifiers.isIndoor).toBeUndefined()
+
+    for (const [sportType, subType] of [
+      ['running', 'indoor_running'],
+      ['running', 'treadmill'],
+      ['cycling', 'indoor_cycling'],
+      ['cycling', 'spin'],
+      ['rowing', 'indoor_rowing'],
+      ['alpine_skiing', 'indoor_skiing'],
+      ['walking', 'indoor_walking'],
+      ['rock_climbing', 'indoor_climbing'],
+    ]) {
+      expect(normalizeSportTuple(sportType, subType).modifiers.isIndoor).toBe(true)
+    }
+  })
+
+  it('returns a copy of generated modifier defaults', () => {
+    const first = modifierDefaultsForTuple('running', 'treadmill')
+    first.isIndoor = false
+
+    expect(modifierDefaultsForTuple('running', 'treadmill').isIndoor).toBe(true)
   })
 
   it('uses canonical subtype labels', () => {

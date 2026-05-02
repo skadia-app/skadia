@@ -272,12 +272,14 @@ func TestIsIndoor(t *testing.T) {
 		{"alpine_skiing", "indoor_skiing", true},
 		{"walking", "indoor_walking", true},
 		{"rock_climbing", "indoor_climbing", true},
+		{"diving", "apnea_pool", true},
 
 		// SubType: not indoor
 		{"running", "street", false},
 		{"running", "trail", false},
 		{"cycling", "road", false},
 		{"swimming", "open_water", false},
+		{"rock_climbing", "bouldering", false},
 
 		// Unknown sport
 		{"nonexistent_sport", "", false},
@@ -287,5 +289,25 @@ func TestIsIndoor(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("IsIndoor(%q, %q) = %v, want %v", tt.sport, tt.sub, got, tt.want)
 		}
+	}
+}
+
+func TestModifierDefaultsForTuple(t *testing.T) {
+	defaults := ModifierDefaultsForTuple("diving", "apnea_pool")
+	if defaults.IsIndoor == nil || !*defaults.IsIndoor {
+		t.Fatalf("diving/apnea_pool modifier defaults = %#v, want is_indoor true", defaults)
+	}
+
+	if got := ModifierDefaultsForTuple("rock_climbing", "bouldering"); got.IsIndoor != nil {
+		t.Fatalf("rock_climbing/bouldering defaults = %#v, want no indoor default", got)
+	}
+	if got := ModifierDefaultsForTuple("running", "treadmill"); got.IsIndoor == nil || !*got.IsIndoor {
+		t.Fatalf("running/treadmill defaults = %#v, want is_indoor true", got)
+	}
+	if got := ModifierDefaultsForTuple("yoga", ""); got.IsIndoor == nil || !*got.IsIndoor {
+		t.Fatalf("yoga defaults = %#v, want is_indoor true", got)
+	}
+	if got := ModifierDefaultsForTuple("nonexistent_sport", ""); got.IsIndoor != nil {
+		t.Fatalf("unknown sport defaults = %#v, want zero defaults", got)
 	}
 }
