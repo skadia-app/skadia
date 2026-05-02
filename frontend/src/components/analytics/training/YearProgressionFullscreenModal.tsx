@@ -6,6 +6,8 @@ import {
   TooltipComponent,
   LegendComponent,
   DataZoomComponent,
+  ToolboxComponent,
+  BrushComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { HelpCircle } from 'lucide-react'
@@ -16,8 +18,9 @@ import type { MetricKey, YearProgressionMode } from '@/hooks/useYearProgression'
 import YearComparisonTable from './YearComparisonTable'
 import SportHierarchyPicker from './SportHierarchyPicker'
 import { expandSportSelection } from '@/components/analytics/filters/SportOnlyFilterBar'
+import { bindLineXBrushZoom, lineXBrush, lineXBrushToolboxFeature } from './chartBrushZoom'
 
-echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer])
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, ToolboxComponent, BrushComponent, CanvasRenderer])
 
 // ECharts palette: must be identical to YearProgressionChart and YearComparisonTable.
 const YEAR_COLORS = [
@@ -254,6 +257,17 @@ function ModalStateContainer({
     return {
       backgroundColor: 'transparent',
       grid: { left: 56, right: 24, top: 36, bottom: 48 },
+      brush: lineXBrush,
+      toolbox: {
+        right: 8, top: 2,
+        feature: {
+          brush: lineXBrushToolboxFeature,
+          restore: { title: 'Zurücksetzen' },
+          saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+        },
+        iconStyle: { borderColor: '#6b7280' },
+        emphasis: { iconStyle: { borderColor: '#d1d5db' } },
+      },
       legend: {
         data: displayProgressYears.map(y => String(y.year)),
         top: 4,
@@ -338,6 +352,17 @@ function ModalStateContainer({
     return {
       backgroundColor: 'transparent',
       grid: { left: 56, right: 24, top: 36, bottom: 48 },
+      brush: lineXBrush,
+      toolbox: {
+        right: 8, top: 2,
+        feature: {
+          brush: lineXBrushToolboxFeature,
+          restore: { title: 'Zurücksetzen' },
+          saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+        },
+        iconStyle: { borderColor: '#6b7280' },
+        emphasis: { iconStyle: { borderColor: '#d1d5db' } },
+      },
       legend: {
         data: selected.map(y => String(y.year)),
         top: 4,
@@ -407,7 +432,25 @@ function ModalStateContainer({
   const chartContainerRef = useECharts(
     () => activeOption ?? { series: [] },
     [activeOption],
-    { enabled: !!activeOption, onChart: handleProgressChartClick },
+    {
+      enabled: !!activeOption,
+      onChart: (chart) => {
+        const cleanupClick = handleProgressChartClick(chart)
+        const maxValue = mode === 'progress'
+          ? MONTH_LABELS.length - 1
+          : Math.max(
+              0,
+              ...((rollingResult.data?.years ?? [])
+                .filter(y => selectedYears.includes(y.year))
+                .map(y => y.points.length - 1)),
+            )
+        const cleanupBrush = bindLineXBrushZoom(chart, { dataZoomIndexes: [0], maxValue })
+        return () => {
+          cleanupClick?.()
+          cleanupBrush()
+        }
+      },
+    },
   )
 
   // ── Toggle helpers ────────────────────────────────────────────────────────────

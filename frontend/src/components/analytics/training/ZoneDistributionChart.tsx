@@ -8,6 +8,7 @@ import {
   LegendComponent,
   DataZoomComponent,
   ToolboxComponent,
+  BrushComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchZoneDistributionSeries } from '@/api/analytics'
@@ -15,8 +16,9 @@ import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useECharts } from '@/hooks/useECharts'
 import { fmtDuration } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { bindLineXBrushZoom, lineXBrush, lineXBrushToolboxFeature } from './chartBrushZoom'
 
-echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, ToolboxComponent, CanvasRenderer])
+echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, ToolboxComponent, BrushComponent, CanvasRenderer])
 
 type ZoneType = 'hr' | 'power' | 'cadence'
 type Granularity = 'week' | 'month'
@@ -139,21 +141,13 @@ export default function ZoneDistributionChart() {
       return {
         backgroundColor: 'transparent',
         grid: { left: 52, right: 20, top: 36, bottom: 40 },
+        brush: lineXBrush,
         toolbox: {
           right: 8,
           top: 2,
           feature: {
-            dataZoom: {
-              yAxisIndex: 'none',
-              title: { zoom: 'Bereich zoomen (ziehen)', back: 'Zoom zurücksetzen' },
-              brushStyle: {
-                borderWidth: 1,
-                color: 'rgba(59,130,246,0.1)',
-                borderColor: 'rgba(59,130,246,0.6)',
-              },
-            },
+            brush: lineXBrushToolboxFeature,
             restore: { title: 'Zurücksetzen' },
-            brush: { show: false },
             saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
           },
           iconStyle: { borderColor: '#6b7280' },
@@ -222,6 +216,11 @@ export default function ZoneDistributionChart() {
       }
     },
     [data, chartView],
+    (chart) => {
+      if (chartView !== 'bar') return
+      const periodCount = new Set((data ?? []).map(point => point.period)).size
+      return bindLineXBrushZoom(chart, { dataZoomIndexes: [0], maxValue: Math.max(0, periodCount - 1) })
+    },
   )
 
   const hasData = data && data.length > 0

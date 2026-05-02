@@ -8,6 +8,7 @@ import {
   LegendComponent,
   DataZoomComponent,
   ToolboxComponent,
+  BrushComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchTrainingVolumeSeries } from '@/api/analytics'
@@ -16,7 +17,9 @@ import { useECharts } from '@/hooks/useECharts'
 import { sportChartColor } from '@/lib/sportColors'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { cn } from '@/lib/utils'
+import { bindLineXBrushZoom, lineXBrush, lineXBrushToolboxFeature } from './chartBrushZoom'
 
+// BrushComponent backs the line-brush toolbox action used for chart zoom.
 echarts.use([
   BarChart,
   LineChart,
@@ -25,6 +28,7 @@ echarts.use([
   LegendComponent,
   DataZoomComponent,
   ToolboxComponent,
+  BrushComponent,
   CanvasRenderer,
 ])
 
@@ -103,16 +107,12 @@ export default function TrainingVolumeChart() {
       return {
         backgroundColor: 'transparent',
         grid: { left: 52, right: 20, top: 36, bottom: 50 },
+        brush: lineXBrush,
         toolbox: {
           right: 8, top: 2,
           feature: {
-            dataZoom: {
-              yAxisIndex: 'none',
-              title: { zoom: 'Bereich zoomen (ziehen)', back: 'Zoom zurücksetzen' },
-              brushStyle: { borderWidth: 1, color: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.6)' },
-            },
+            brush: lineXBrushToolboxFeature,
             restore: { title: 'Zurücksetzen' },
-            brush: { show: false },
             saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
           },
           iconStyle: { borderColor: '#6b7280' },
@@ -169,6 +169,10 @@ export default function TrainingVolumeChart() {
       }
     },
     [data, volumeMetric, chartType],
+    (chart) => {
+      const periodCount = new Set((data ?? []).map(point => point.period)).size
+      return bindLineXBrushZoom(chart, { dataZoomIndexes: [0], maxValue: Math.max(0, periodCount - 1) })
+    },
   )
 
   const hasData = data && data.length > 0
