@@ -134,6 +134,7 @@ export default function StreaksDisplay() {
     queryKey: ['streaks', params],
     queryFn: () => fetchStreaks(params),
     retry: 1,
+    staleTime: 5 * 60 * 1000,
   })
 
   if (isLoading) {

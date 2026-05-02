@@ -53,14 +53,6 @@ export interface YearProgressionResponse {
   best_year: number  // year number of the best year
 }
 
-export interface TrainingVolumePoint {
-  date: string
-  distance_m: number
-  duration_s: number
-  elevation_m: number
-  tss: number
-  count: number
-}
 
 export interface ZoneDistribution {
   zone: number
@@ -387,9 +379,6 @@ export async function fetchYearProgression(params: string): Promise<YearProgress
   return apiClient(`/analytics/year-progression?${params}`)
 }
 
-export async function fetchTrainingVolume(params: string): Promise<TrainingVolumePoint[]> {
-  return apiClient(`/analytics/training-volume?${params}`)
-}
 
 export async function fetchZoneDistribution(params: string): Promise<ZoneDistribution[]> {
   return apiClient(`/analytics/zone-distribution?${params}`)

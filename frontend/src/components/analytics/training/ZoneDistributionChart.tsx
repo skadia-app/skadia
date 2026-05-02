@@ -14,6 +14,7 @@ import { fetchZoneDistributionSeries } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useECharts } from '@/hooks/useECharts'
 import { fmtDuration } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, ToolboxComponent, CanvasRenderer])
 
@@ -292,22 +293,25 @@ export default function ZoneDistributionChart() {
       </div>
 
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            Lade Zonenverteilung…
-          </div>
-        ) : isError ? (
-          <div className="flex items-center justify-center h-[280px] text-sm text-neutral-400">
-            Fehler beim Laden
-          </div>
-        ) : !hasData ? (
-          <div className="flex flex-col items-center justify-center h-[280px] gap-2 text-neutral-400">
-            <span className="text-sm">Keine Zonen-Daten vorhanden</span>
-            <span className="text-xs">Für {zoneTypeLabel[zoneType]}-Zonen werden Aktivitäten mit entsprechenden Messwerten benötigt</span>
-          </div>
-        ) : (
-          <div ref={containerRef} className="h-[280px] w-full" />
-        )}
+        <div className="relative h-[280px]">
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
+              Lade Zonenverteilung…
+            </div>
+          )}
+          {!isLoading && isError && (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-400">
+              Fehler beim Laden
+            </div>
+          )}
+          {!isLoading && !isError && !hasData && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-neutral-400">
+              <span className="text-sm">Keine Zonen-Daten vorhanden</span>
+              <span className="text-xs">Für {zoneTypeLabel[zoneType]}-Zonen werden Aktivitäten mit entsprechenden Messwerten benötigt</span>
+            </div>
+          )}
+          <div ref={containerRef} className={cn("w-full h-full", { invisible: isLoading || isError || !hasData })} />
+        </div>
       </div>
     </div>
   )

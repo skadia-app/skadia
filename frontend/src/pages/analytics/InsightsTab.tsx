@@ -1,11 +1,6 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import {
-  fetchInsightsWarnings,
-  fetchInsightsClusters,
-  refreshInsights,
-} from '@/api/analytics'
-import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import { refreshInsights } from '@/api/analytics'
 import WarningsPanel from '@/components/analytics/insights/WarningsPanel'
 import FitnessProjection from '@/components/analytics/insights/FitnessProjection'
 import TrainingClusters from '@/components/analytics/insights/TrainingClusters'
@@ -13,37 +8,8 @@ import CorrelationsPanel from '@/components/analytics/insights/CorrelationsPanel
 import ReadinessCardFull from '@/components/analytics/ReadinessCard'
 
 export default function InsightsTab() {
-  const { toQueryString } = useAnalyticsFilters()
-  const queryParams = toQueryString()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-
-  // Probe queries to determine if any data is available yet
-  const { data: warnings, isLoading: warningsLoading } = useQuery({
-    queryKey: ['analytics', 'insights', 'warnings', queryParams],
-    queryFn: async () => {
-      try {
-        return await fetchInsightsWarnings(queryParams)
-      } catch {
-        return null
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
-  })
-
-  const { data: clusters, isLoading: clustersLoading } = useQuery({
-    queryKey: ['analytics', 'insights', 'clusters', queryParams],
-    queryFn: async () => {
-      try {
-        return await fetchInsightsClusters(queryParams)
-      } catch {
-        return null
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
-  })
 
   const refreshMutation = useMutation({
     mutationFn: refreshInsights,
@@ -52,10 +18,6 @@ export default function InsightsTab() {
       queryClient.invalidateQueries({ queryKey: ['analytics', 'readiness'] })
     },
   })
-
-  // Empty-state only covers warnings + clusters — ReadinessCard manages its own state.
-  const isProbing = warningsLoading || clustersLoading
-  const hasNoInsightsData = !isProbing && (!warnings || warnings.length === 0) && (!clusters || clusters.length === 0)
 
   return (
     <div className="space-y-4">
@@ -122,68 +84,13 @@ export default function InsightsTab() {
         </button>
       </div>
 
-      {/* Warnings + clusters — show empty-state only when both are absent */}
-      {hasNoInsightsData ? (
-        <div className="flex flex-col items-center justify-center py-8 px-4">
-          <div className="rounded-xl border border-accent/30 bg-accent/5 p-8 max-w-md w-full text-center space-y-4">
-            <div className="flex justify-center">
-              <svg className="w-12 h-12 text-accent opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                  d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-              </svg>
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-base font-semibold text-neutral-800 dark:text-neutral-100">
-                Insights noch nicht verfügbar
-              </h3>
-              <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                Insights müssen einmalig berechnet werden. Jederzeit manuell neu berechnen über den ›Insights aktualisieren‹-Button oben rechts.
-              </p>
-            </div>
-            <button
-              onClick={() => refreshMutation.mutate()}
-              disabled={refreshMutation.isPending}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium
-                         hover:bg-accent/90 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {refreshMutation.isPending ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Berechne…
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Jetzt berechnen
-                </>
-              )}
-            </button>
-            {refreshMutation.isError && (
-              <p className="text-xs text-rose-500">Fehler beim Berechnen der Insights</p>
-            )}
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* Row 1: Warnings — full width */}
-          <WarningsPanel />
-
-          {/* Row 2: Fitness Projection (full width) */}
-          <FitnessProjection />
-
-          {/* Row 3: Training Clusters (left) | Correlations (right) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <TrainingClusters />
-            <CorrelationsPanel />
-          </div>
-        </>
-      )}
+      {/* Each panel manages its own loading/empty/error state — no shared probe gate. */}
+      <WarningsPanel />
+      <FitnessProjection />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <TrainingClusters />
+        <CorrelationsPanel />
+      </div>
     </div>
   )
 }
