@@ -38,7 +38,16 @@ type Sport struct {
 	Lifecycle             string                 `yaml:"lifecycle"`
 	Selectable            *bool                  `yaml:"selectable"`
 	ModifierApplicability *ModifierApplicability `yaml:"modifier_applicability"`
+	Traits                Traits                 `yaml:"traits"`
 	SubTypes              []SubType              `yaml:"sub_types"`
+}
+
+type Traits struct {
+	Environments      []string `yaml:"environments"`
+	MovementFamilies  []string `yaml:"movement_families"`
+	EquipmentFamilies []string `yaml:"equipment_families"`
+	ActivityForm      string   `yaml:"activity_form"`
+	PropulsionModes   []string `yaml:"propulsion_modes"`
 }
 
 type ModifierApplicability struct {
@@ -55,9 +64,16 @@ type SubType struct {
 	AutoTitles      LocaleMap `yaml:"auto_titles"`
 	MovingThreshold *float64  `yaml:"moving_threshold"`
 	Selectable      *bool     `yaml:"selectable"`
+	Traits          *Traits   `yaml:"traits"`
 }
 
 var validHex = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+
+var TraitEnvironmentValues = []string{"land", "water", "snow", "ice", "air", "indoor", "generic"}
+var TraitMovementFamilyValues = []string{"run", "walk", "roll", "pedal", "swim", "paddle", "row", "glide", "climb", "lift", "strike", "throw", "dance", "mind_body", "combat", "ride", "drive", "fly", "multi", "fish", "generic"}
+var TraitEquipmentFamilyValues = []string{"bike", "wheelchair", "skate", "ski", "snowboard", "sled", "board", "paddle", "boat", "sail", "breathing_gear", "fishing_gear", "machine", "weights", "rope", "ball", "racket", "stick", "disc", "climbing_gear", "aircraft", "animal", "vehicle", "weapon", "generic"}
+var TraitActivityFormValues = []string{"single", "family", "composite", "transition", "mode", "fallback", "system"}
+var TraitPropulsionModeValues = []string{"human", "gravity", "wind", "motor", "towed", "animal", "generic"}
 
 func LoadTaxonomy(r io.Reader) (Taxonomy, error) {
 	var taxonomy Taxonomy
@@ -152,6 +168,9 @@ func validateTaxonomy(t Taxonomy) error {
 			s.ModifierApplicability.IsCommute == nil {
 			return fmt.Errorf("sport %q: incomplete modifier_applicability", s.SportType)
 		}
+		if err := validateSportTraits(s); err != nil {
+			return err
+		}
 		subTypes := map[string]struct{}{}
 		for j, st := range s.SubTypes {
 			if st.SubType == "" {
@@ -176,9 +195,153 @@ func validateTaxonomy(t Taxonomy) error {
 			if st.Selectable == nil {
 				return fmt.Errorf("sport %q/%q: missing selectable default", s.SportType, st.SubType)
 			}
+			if err := validateSubTypeTraits(s, st); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func validateSportTraits(s Sport) error {
+	owner := fmt.Sprintf("sport %q", s.SportType)
+	if err := validateTraits(owner, s.Traits); err != nil {
+		return err
+	}
+	if s.Traits.ActivityForm == "mode" {
+		return fmt.Errorf("%s: activity_form mode is only valid for subtypes", owner)
+	}
+	if s.Traits.ActivityForm == "fallback" && s.Lifecycle != "broad_fallback" {
+		return fmt.Errorf("%s: activity_form fallback requires lifecycle broad_fallback", owner)
+	}
+	if s.Lifecycle == "broad_fallback" && s.Traits.ActivityForm != "fallback" {
+		return fmt.Errorf("%s: lifecycle broad_fallback requires activity_form fallback", owner)
+	}
+	if s.Traits.ActivityForm == "fallback" && (s.Selectable == nil || *s.Selectable) {
+		return fmt.Errorf("%s: activity_form fallback requires selectable false", owner)
+	}
+	if s.SportType == "generic" || s.SportType == "unknown" {
+		if s.Traits.ActivityForm != "system" {
+			return fmt.Errorf("%s: generic/unknown sport requires activity_form system", owner)
+		}
+		if !stringSlicesEqual(s.Traits.Environments, []string{"generic"}) {
+			return fmt.Errorf("%s: generic/unknown sport requires environments [generic]", owner)
+		}
+	}
+	if err := validateGenericTraitSemantics(owner, s.Traits); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateSubTypeTraits(parent Sport, subType SubType) error {
+	owner := fmt.Sprintf("sport %q/%q", parent.SportType, subType.SubType)
+	if subType.Traits != nil {
+		if err := validateTraits(owner, *subType.Traits); err != nil {
+			return err
+		}
+	}
+	effective := EffectiveSubTypeTraits(parent, subType)
+	if err := validateGenericTraitSemantics(owner, effective); err != nil {
+		return err
+	}
+	switch effective.ActivityForm {
+	case "fallback":
+		return fmt.Errorf("%s: effective activity_form fallback is invalid for subtypes", owner)
+	case "family":
+		return fmt.Errorf("%s: effective activity_form family is invalid for subtypes", owner)
+	}
+	return nil
+}
+
+func validateTraits(owner string, traits Traits) error {
+	if len(traits.Environments) == 0 {
+		return fmt.Errorf("%s: missing traits.environments", owner)
+	}
+	if len(traits.MovementFamilies) == 0 {
+		return fmt.Errorf("%s: missing traits.movement_families", owner)
+	}
+	if traits.ActivityForm == "" {
+		return fmt.Errorf("%s: missing traits.activity_form", owner)
+	}
+	if len(traits.PropulsionModes) == 0 {
+		return fmt.Errorf("%s: missing traits.propulsion_modes", owner)
+	}
+	if err := validateStringList(owner, "traits.environments", traits.Environments, TraitEnvironmentValues); err != nil {
+		return err
+	}
+	if err := validateStringList(owner, "traits.movement_families", traits.MovementFamilies, TraitMovementFamilyValues); err != nil {
+		return err
+	}
+	if err := validateStringList(owner, "traits.equipment_families", traits.EquipmentFamilies, TraitEquipmentFamilyValues); err != nil {
+		return err
+	}
+	if !containsString(TraitActivityFormValues, traits.ActivityForm) {
+		return fmt.Errorf("%s: invalid traits.activity_form %q", owner, traits.ActivityForm)
+	}
+	if err := validateStringList(owner, "traits.propulsion_modes", traits.PropulsionModes, TraitPropulsionModeValues); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateStringList(owner, field string, values, allowed []string) error {
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		if !containsString(allowed, value) {
+			return fmt.Errorf("%s: invalid %s value %q", owner, field, value)
+		}
+		if _, ok := seen[value]; ok {
+			return fmt.Errorf("%s: duplicate %s value %q", owner, field, value)
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
+}
+
+func validateGenericTraitSemantics(owner string, traits Traits) error {
+	if containsString(traits.Environments, "generic") && traits.ActivityForm != "system" {
+		return fmt.Errorf("%s: environments [generic] requires activity_form system", owner)
+	}
+	if traits.ActivityForm == "system" && !stringSlicesEqual(traits.Environments, []string{"generic"}) {
+		return fmt.Errorf("%s: activity_form system requires environments [generic]", owner)
+	}
+	if containsString(traits.PropulsionModes, "generic") {
+		switch traits.ActivityForm {
+		case "family", "fallback", "mode", "system":
+		default:
+			return fmt.Errorf("%s: propulsion_modes [generic] requires family, fallback, mode, or system activity_form", owner)
+		}
+	}
+	return nil
+}
+
+func EffectiveSubTypeTraits(parent Sport, subType SubType) Traits {
+	if subType.Traits != nil {
+		return *subType.Traits
+	}
+	return parent.Traits
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func isValidLifecycle(value string) bool {

@@ -5,60 +5,71 @@ categories:
   color:
     token: run
     light_hex: '#EF4444'
+
 - key: bike
   labels:
     de: Radfahrten
   color:
     token: bike
     light_hex: '#F97316'
+
 - key: winter
   labels:
     de: Wintersport
   color:
     token: winter
     light_hex: '#06B6D4'
+
 - key: water
   labels:
     de: Wassersport
   color:
     token: water
     light_hex: '#3B82F6'
+
 - key: fitness
   labels:
     de: Fitness
   color:
     token: fitness
     light_hex: '#8B5CF6'
+
 - key: game
   labels:
     de: Spiele
   color:
     token: game
     light_hex: '#10B981'
+
 - key: climb
   labels:
     de: Klettern
   color:
     token: climb
     light_hex: '#A855F7'
+
 - key: outdoor
   labels:
     de: Weitere Aktivitäten
   color:
     token: outdoor
     light_hex: '#84CC16'
+
 - key: multi
   labels:
     de: Multisport
   color:
     token: multi
     light_hex: '#F59E0B'
+
 - key: other
   labels:
     de: Sonstiges
   color:
     token: other
     light_hex: '#6B7280'
+
+
 sports:
 - sport_type: running
   category_key: run
@@ -70,6 +81,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.5
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
@@ -104,6 +121,12 @@ sports:
       de: Laufband
     auto_titles:
       de: Laufband
+    traits:
+      environments: [indoor]
+      movement_families: [run]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: indoor_running
     labels:
       de: Indoor
@@ -111,6 +134,12 @@ sports:
       de: Indoor-Lauf
     auto_titles:
       de: Indoor-Lauf
+    traits:
+      environments: [indoor]
+      movement_families: [run]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: ultra
     labels:
       de: Ultra
@@ -125,6 +154,7 @@ sports:
       de: Hindernislauf
     auto_titles:
       de: Hindernislauf
+
 - sport_type: walking
   category_key: run
   labels:
@@ -135,6 +165,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [walk]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
@@ -162,6 +198,13 @@ sports:
       de: Indoor-Gehen
     auto_titles:
       de: Indoor-Gehen
+    traits:
+      environments: [indoor]
+      movement_families: [walk]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
+
 - sport_type: hiking
   category_key: run
   labels:
@@ -172,11 +215,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [walk]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: true
     is_commute: true
+
 - sport_type: mountaineering
   category_key: run
   labels:
@@ -187,11 +237,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [land, snow]
+    movement_families: [walk, climb]
+    equipment_families: [climbing_gear]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: true
     is_commute: true
+
 - sport_type: snowshoeing
   category_key: winter
   labels:
@@ -202,11 +259,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [walk]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: true
     is_commute: true
+
 - sport_type: floor_climbing
   category_key: fitness
   labels:
@@ -217,11 +281,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [climb]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
     is_virtual: true
     is_commute: false
+
 - sport_type: wheelchair_push
   category_key: run
   labels:
@@ -232,6 +303,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [roll]
+    equipment_families: [wheelchair]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
@@ -254,6 +331,7 @@ sports:
     auto_titles:
       de: Rollstuhl (Lauftempo)
     moving_threshold: 0.5
+
 - sport_type: cycling
   category_key: bike
   labels:
@@ -264,6 +342,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.5
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [pedal]
+    equipment_families: [bike]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: true
     is_indoor: true
@@ -312,6 +396,12 @@ sports:
       de: Handbike
     auto_titles:
       de: Handbike-Tour
+    traits:
+      environments: [land]
+      movement_families: [pedal]
+      equipment_families: [bike, wheelchair]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: track_cycling
     labels:
       de: Bahnrad
@@ -326,6 +416,12 @@ sports:
       de: Indoor-Rad
     auto_titles:
       de: Indoor-Radfahrt
+    traits:
+      environments: [indoor]
+      movement_families: [pedal]
+      equipment_families: [bike, machine]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: spin
     labels:
       de: Spinning
@@ -333,6 +429,12 @@ sports:
       de: Spinning
     auto_titles:
       de: Spinning
+    traits:
+      environments: [indoor]
+      movement_families: [pedal]
+      equipment_families: [bike, machine]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: gravel_cycling
     labels:
       de: Gravel
@@ -361,6 +463,7 @@ sports:
       de: BMX
     auto_titles:
       de: BMX
+
 - sport_type: inline_skating
   category_key: outdoor
   labels:
@@ -371,11 +474,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.5
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [glide]
+    equipment_families: [skate]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: alpine_skiing
   category_key: winter
   labels:
@@ -386,6 +496,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.3
   is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [glide]
+    equipment_families: [ski]
+    activity_form: single
+    propulsion_modes: [human, gravity]
   modifier_applicability:
     is_electric: false
     is_indoor: true
@@ -413,6 +529,13 @@ sports:
       de: Indoor-Ski
     auto_titles:
       de: Indoor-Skifahrt
+    traits:
+      environments: [indoor]
+      movement_families: [glide]
+      equipment_families: [ski, machine]
+      activity_form: single
+      propulsion_modes: [human]
+
 - sport_type: backcountry_skiing
   category_key: winter
   labels:
@@ -423,11 +546,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.3
   is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [glide, walk]
+    equipment_families: [ski]
+    activity_form: single
+    propulsion_modes: [human, gravity]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: cross_country_skiing
   category_key: winter
   labels:
@@ -438,6 +568,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.3
   is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [glide]
+    equipment_families: [ski]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
@@ -451,6 +587,7 @@ sports:
       de: Skating-Stil
     auto_titles:
       de: Skating-Langlauf
+
 - sport_type: snowboarding
   category_key: winter
   labels:
@@ -461,6 +598,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.3
   is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [glide]
+    equipment_families: [snowboard]
+    activity_form: single
+    propulsion_modes: [human, gravity]
   modifier_applicability:
     is_electric: false
     is_indoor: false
@@ -481,6 +624,7 @@ sports:
       de: Pisten-Snowboard
     auto_titles:
       de: Snowboard
+
 - sport_type: ice_skating
   category_key: winter
   labels:
@@ -491,11 +635,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.3
   is_indoor: false
+  traits:
+    environments: [ice]
+    movement_families: [glide]
+    equipment_families: [skate]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: snowmobiling
   category_key: winter
   labels:
@@ -506,11 +657,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.5
   is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [drive]
+    equipment_families: [vehicle]
+    activity_form: single
+    propulsion_modes: [motor]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: sledding
   category_key: winter
   labels:
@@ -521,11 +679,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [glide]
+    equipment_families: [sled]
+    activity_form: single
+    propulsion_modes: [human, gravity]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: swimming
   category_key: water
   labels:
@@ -536,6 +701,12 @@ sports:
   typically_has_gps: false
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [swim]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
@@ -556,16 +727,23 @@ sports:
       de: Freiwasserschwimmen
     auto_titles:
       de: Freiwasserschwimmen
+
 - sport_type: paddling
   category_key: water
   labels:
-    de: Paddeln (Generisch)
+    de: Paddeln (allgemein)
   auto_titles:
     de: Wassersport-Tour
   segment_group: paddle
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [paddle]
+    equipment_families: [paddle]
+    activity_form: fallback
+    propulsion_modes: [human]
   lifecycle: broad_fallback
   selectable: false
   modifier_applicability:
@@ -573,6 +751,7 @@ sports:
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: kayaking
   category_key: water
   labels:
@@ -583,6 +762,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [paddle]
+    equipment_families: [boat, paddle]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
@@ -596,6 +781,7 @@ sports:
       de: Wildwasser-Kajak
     auto_titles:
       de: Wildwasser-Kajak
+
 - sport_type: stand_up_paddleboarding
   category_key: water
   labels:
@@ -606,11 +792,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [paddle]
+    equipment_families: [board, paddle]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: rowing
   category_key: water
   labels:
@@ -621,6 +814,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [row]
+    equipment_families: [boat]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
@@ -634,6 +833,13 @@ sports:
       de: Indoor-Rudern
     auto_titles:
       de: Indoor-Rudern
+    traits:
+      environments: [indoor]
+      movement_families: [row]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
+
 - sport_type: surfing
   category_key: water
   labels:
@@ -644,11 +850,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [board]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: kitesurfing
   category_key: water
   labels:
@@ -659,11 +872,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [board]
+    activity_form: single
+    propulsion_modes: [human, wind]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: windsurfing
   category_key: water
   labels:
@@ -674,11 +894,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [board, sail]
+    activity_form: single
+    propulsion_modes: [human, wind]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: wakeboarding
   category_key: water
   labels:
@@ -689,11 +916,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [board]
+    activity_form: single
+    propulsion_modes: [towed]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: wakesurfing
   category_key: water
   labels:
@@ -704,11 +938,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [board]
+    activity_form: single
+    propulsion_modes: [towed]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: water_skiing
   category_key: water
   labels:
@@ -719,11 +960,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [ski]
+    activity_form: single
+    propulsion_modes: [towed]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: water_tubing
   category_key: water
   labels:
@@ -734,11 +982,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [boat]
+    activity_form: single
+    propulsion_modes: [towed]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: diving
   category_key: water
   labels:
@@ -749,6 +1004,12 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [swim]
+    equipment_families: [breathing_gear]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
@@ -783,6 +1044,12 @@ sports:
       de: Apnoe-Tauchen
     auto_titles:
       de: Apnoe-Tauchen
+    traits:
+      environments: [water]
+      movement_families: [swim]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: apnea_hunting
     labels:
       de: Apnoe-Jagd
@@ -790,6 +1057,12 @@ sports:
       de: Apnoe-Jagdtauchen
     auto_titles:
       de: Apnoe-Tauchen
+    traits:
+      environments: [water]
+      movement_families: [swim]
+      equipment_families: [fishing_gear]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: ccr_diving
     labels:
       de: CCR
@@ -804,6 +1077,13 @@ sports:
       de: Apnoe-Tauchen (Pool)
     auto_titles:
       de: Apnoe-Tauchen
+    traits:
+      environments: [water, indoor]
+      movement_families: [swim]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
+
 - sport_type: snorkeling
   category_key: water
   labels:
@@ -814,11 +1094,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [swim]
+    equipment_families: [breathing_gear]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: boating
   category_key: water
   labels:
@@ -829,11 +1116,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [drive]
+    equipment_families: [boat]
+    activity_form: single
+    propulsion_modes: [motor]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: sailing
   category_key: water
   labels:
@@ -844,6 +1138,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [boat, sail]
+    activity_form: single
+    propulsion_modes: [wind]
   modifier_applicability:
     is_electric: false
     is_indoor: false
@@ -857,6 +1157,7 @@ sports:
       de: Segelregatta
     auto_titles:
       de: Regatta
+
 - sport_type: fishing
   category_key: water
   labels:
@@ -867,11 +1168,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [fish]
+    equipment_families: [fishing_gear]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: rafting
   category_key: water
   labels:
@@ -882,6 +1190,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [paddle]
+    equipment_families: [boat, paddle]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
@@ -895,6 +1209,7 @@ sports:
       de: Wildwasser-Rafting
     auto_titles:
       de: Wildwasser-Rafting
+
 - sport_type: training
   category_key: fitness
   labels:
@@ -905,6 +1220,12 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [generic]
+    equipment_families: [generic]
+    activity_form: fallback
+    propulsion_modes: [human]
   lifecycle: broad_fallback
   selectable: false
   modifier_applicability:
@@ -921,6 +1242,12 @@ sports:
     auto_titles:
       de: Krafttraining
     selectable: false
+    traits:
+      environments: [indoor]
+      movement_families: [lift]
+      equipment_families: [weights]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: flexibility_training
     labels:
       de: Stretching
@@ -928,6 +1255,12 @@ sports:
       de: Dehnungstraining
     auto_titles:
       de: Stretching
+    traits:
+      environments: [indoor]
+      movement_families: [generic]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: cardio_training
     labels:
       de: Cardio
@@ -935,6 +1268,12 @@ sports:
       de: Cardio-Training
     auto_titles:
       de: Cardio
+    traits:
+      environments: [indoor]
+      movement_families: [generic]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: yoga
     labels:
       de: Yoga
@@ -943,6 +1282,12 @@ sports:
     auto_titles:
       de: Yoga
     selectable: false
+    traits:
+      environments: [indoor]
+      movement_families: [mind_body]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: pilates
     labels:
       de: Pilates
@@ -951,6 +1296,12 @@ sports:
     auto_titles:
       de: Pilates
     selectable: false
+    traits:
+      environments: [indoor]
+      movement_families: [mind_body]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: breathing
     labels:
       de: Atemübung
@@ -958,6 +1309,12 @@ sports:
       de: Atemübung
     auto_titles:
       de: Atemübung
+    traits:
+      environments: [indoor]
+      movement_families: [mind_body]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: hiit
     labels:
       de: HIIT
@@ -966,6 +1323,13 @@ sports:
     auto_titles:
       de: HIIT
     selectable: false
+    traits:
+      environments: [indoor]
+      movement_families: [generic]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
+
 - sport_type: fitness_equipment
   category_key: fitness
   labels:
@@ -976,6 +1340,12 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [generic]
+    equipment_families: [machine]
+    activity_form: fallback
+    propulsion_modes: [human]
   lifecycle: broad_fallback
   selectable: false
   modifier_applicability:
@@ -991,6 +1361,12 @@ sports:
       de: Laufband
     auto_titles:
       de: Laufband
+    traits:
+      environments: [indoor]
+      movement_families: [run]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: indoor_cycling
     labels:
       de: Indoor-Rad
@@ -998,6 +1374,12 @@ sports:
       de: Indoor-Rad
     auto_titles:
       de: Indoor-Radfahrt
+    traits:
+      environments: [indoor]
+      movement_families: [pedal]
+      equipment_families: [bike, machine]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: indoor_rowing
     labels:
       de: Ruder-Ergometer
@@ -1005,6 +1387,12 @@ sports:
       de: Ruder-Ergometer
     auto_titles:
       de: Indoor-Rudern
+    traits:
+      environments: [indoor]
+      movement_families: [row]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: elliptical
     labels:
       de: Crosstrainer
@@ -1012,6 +1400,12 @@ sports:
       de: Crosstrainer
     auto_titles:
       de: Crosstrainer
+    traits:
+      environments: [indoor]
+      movement_families: [generic]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: stair_climbing
     labels:
       de: Treppensteiger
@@ -1019,6 +1413,12 @@ sports:
       de: Treppensteiger
     auto_titles:
       de: Treppensteiger
+    traits:
+      environments: [indoor]
+      movement_families: [climb]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: pilates
     labels:
       de: Pilates
@@ -1026,6 +1426,12 @@ sports:
       de: Pilates
     auto_titles:
       de: Pilates
+    traits:
+      environments: [indoor]
+      movement_families: [mind_body]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: indoor_skiing
     labels:
       de: Indoor-Ski
@@ -1033,6 +1439,12 @@ sports:
       de: Skimaschine
     auto_titles:
       de: Indoor-Ski
+    traits:
+      environments: [indoor]
+      movement_families: [glide]
+      equipment_families: [ski, machine]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: indoor_walking
     labels:
       de: Indoor-Gehen
@@ -1040,6 +1452,12 @@ sports:
       de: Indoor-Gehen
     auto_titles:
       de: Indoor-Gehen
+    traits:
+      environments: [indoor]
+      movement_families: [walk]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: indoor_hand_cycling
     labels:
       de: Handbike-Ergometer
@@ -1047,6 +1465,13 @@ sports:
       de: Handbike-Ergometer
     auto_titles:
       de: Indoor-Handbike
+    traits:
+      environments: [indoor]
+      movement_families: [pedal]
+      equipment_families: [bike, wheelchair, machine]
+      activity_form: single
+      propulsion_modes: [human]
+
 - sport_type: strength_training
   category_key: fitness
   labels:
@@ -1057,6 +1482,12 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [lift]
+    equipment_families: [weights]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
@@ -1077,6 +1508,7 @@ sports:
       de: Every Minute On the Minute
     auto_titles:
       de: EMOM
+
 - sport_type: hiit
   category_key: fitness
   labels:
@@ -1087,6 +1519,12 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [generic]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
@@ -1100,6 +1538,7 @@ sports:
       de: Tabata
     auto_titles:
       de: Tabata
+
 - sport_type: dance
   category_key: fitness
   labels:
@@ -1110,11 +1549,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [dance]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
     is_virtual: true
     is_commute: false
+
 - sport_type: jump_rope
   category_key: fitness
   labels:
@@ -1125,11 +1571,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [generic]
+    equipment_families: [rope]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
     is_virtual: true
     is_commute: false
+
 - sport_type: meditation
   category_key: fitness
   labels:
@@ -1140,11 +1593,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [mind_body]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
     is_virtual: true
     is_commute: false
+
 - sport_type: yoga
   category_key: fitness
   labels:
@@ -1155,11 +1615,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [mind_body]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
     is_virtual: true
     is_commute: false
+
 - sport_type: pilates
   category_key: fitness
   labels:
@@ -1170,11 +1637,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [mind_body]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
     is_virtual: true
     is_commute: false
+
 - sport_type: soccer
   category_key: game
   labels:
@@ -1185,11 +1659,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, strike]
+    equipment_families: [ball]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: basketball
   category_key: game
   labels:
@@ -1200,11 +1681,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, throw]
+    equipment_families: [ball]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: american_football
   category_key: game
   labels:
@@ -1215,11 +1703,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, throw]
+    equipment_families: [ball]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: rugby
   category_key: game
   labels:
@@ -1230,11 +1725,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, throw]
+    equipment_families: [ball]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: lacrosse
   category_key: game
   labels:
@@ -1245,11 +1747,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, throw]
+    equipment_families: [ball, stick]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: hockey
   category_key: game
   labels:
@@ -1260,11 +1769,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [ice, land]
+    movement_families: [glide, strike]
+    equipment_families: [stick]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: volleyball
   category_key: game
   labels:
@@ -1275,11 +1791,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [throw, strike]
+    equipment_families: [ball]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: tennis
   category_key: game
   labels:
@@ -1290,6 +1813,12 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [strike]
+    equipment_families: [racket, ball]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
@@ -1317,6 +1846,7 @@ sports:
       de: Tennis-Übung
     auto_titles:
       de: Tennis-Übung
+
 - sport_type: racket
   category_key: game
   labels:
@@ -1327,6 +1857,12 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [strike]
+    equipment_families: [racket, ball]
+    activity_form: family
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
@@ -1340,6 +1876,12 @@ sports:
       de: Pickleball
     auto_titles:
       de: Pickleball
+    traits:
+      environments: [land]
+      movement_families: [strike]
+      equipment_families: [racket, ball]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: padel
     labels:
       de: Padel
@@ -1347,6 +1889,12 @@ sports:
       de: Padel
     auto_titles:
       de: Padel
+    traits:
+      environments: [land]
+      movement_families: [strike]
+      equipment_families: [racket, ball]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: squash
     labels:
       de: Squash
@@ -1354,6 +1902,12 @@ sports:
       de: Squash
     auto_titles:
       de: Squash
+    traits:
+      environments: [land]
+      movement_families: [strike]
+      equipment_families: [racket, ball]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: badminton
     labels:
       de: Badminton
@@ -1361,6 +1915,12 @@ sports:
       de: Badminton
     auto_titles:
       de: Badminton
+    traits:
+      environments: [land]
+      movement_families: [strike]
+      equipment_families: [racket]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: racquetball
     labels:
       de: Racquetball
@@ -1368,6 +1928,12 @@ sports:
       de: Racquetball
     auto_titles:
       de: Racquetball
+    traits:
+      environments: [land]
+      movement_families: [strike]
+      equipment_families: [racket, ball]
+      activity_form: single
+      propulsion_modes: [human]
   - sub_type: table_tennis
     labels:
       de: Tischtennis
@@ -1375,6 +1941,13 @@ sports:
       de: Tischtennis
     auto_titles:
       de: Tischtennis
+    traits:
+      environments: [land]
+      movement_families: [strike]
+      equipment_families: [racket, ball]
+      activity_form: single
+      propulsion_modes: [human]
+
 - sport_type: cricket
   category_key: game
   labels:
@@ -1385,11 +1958,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, strike, throw]
+    equipment_families: [ball, stick]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: baseball
   category_key: game
   labels:
@@ -1400,11 +1980,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, strike, throw]
+    equipment_families: [ball, stick]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: golf
   category_key: game
   labels:
@@ -1415,11 +2002,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [strike, walk]
+    equipment_families: [ball, stick]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: disc_golf
   category_key: game
   labels:
@@ -1430,11 +2024,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [throw, walk]
+    equipment_families: [disc]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: rock_climbing
   category_key: climb
   labels:
@@ -1445,6 +2046,12 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [land, indoor]
+    movement_families: [climb]
+    equipment_families: [climbing_gear]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
@@ -1465,6 +2072,7 @@ sports:
       de: Bouldern
     auto_titles:
       de: Bouldern
+
 - sport_type: flying
   category_key: outdoor
   labels:
@@ -1475,6 +2083,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.5
   is_indoor: false
+  traits:
+    environments: [air]
+    movement_families: [fly]
+    equipment_families: [aircraft]
+    activity_form: family
+    propulsion_modes: [generic]
   modifier_applicability:
     is_electric: false
     is_indoor: false
@@ -1488,6 +2102,12 @@ sports:
       de: Drohnenflug
     auto_titles:
       de: Drohnenflug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: single
+      propulsion_modes: [motor]
   - sub_type: wingsuit
     labels:
       de: Wingsuit
@@ -1495,6 +2115,12 @@ sports:
       de: Wingsuit
     auto_titles:
       de: Wingsuit-Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: single
+      propulsion_modes: [human, gravity]
   - sub_type: fly_canopy
     labels:
       de: Fallschirm
@@ -1502,6 +2128,12 @@ sports:
       de: Fallschirmspringen
     auto_titles:
       de: Fallschirmsprung
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: single
+      propulsion_modes: [human, gravity]
   - sub_type: fly_paraglide
     labels:
       de: Gleitschirm
@@ -1509,6 +2141,12 @@ sports:
       de: Gleitschirmfliegen
     auto_titles:
       de: Gleitschirmflug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: single
+      propulsion_modes: [human, wind, gravity]
   - sub_type: fly_paramotor
     labels:
       de: Paramotor
@@ -1516,6 +2154,12 @@ sports:
       de: Paramotorfliegen
     auto_titles:
       de: Paramotorflug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: single
+      propulsion_modes: [motor]
   - sub_type: fly_pressurized
     labels:
       de: Druckkabine
@@ -1523,6 +2167,12 @@ sports:
       de: Druckkabinenflugzeug
     auto_titles:
       de: Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: single
+      propulsion_modes: [motor]
   - sub_type: fly_vfr
     labels:
       de: Sichtflug (VFR)
@@ -1530,6 +2180,12 @@ sports:
       de: Sichtflugregeln (VFR)
     auto_titles:
       de: VFR-Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: mode
+      propulsion_modes: [generic]
   - sub_type: fly_ifr
     labels:
       de: Instrumentenflug (IFR)
@@ -1537,6 +2193,12 @@ sports:
       de: Instrumentenflugregeln (IFR)
     auto_titles:
       de: IFR-Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: mode
+      propulsion_modes: [generic]
   - sub_type: fly_navigate
     labels:
       de: Navigation
@@ -1544,6 +2206,12 @@ sports:
       de: Luftfahrt-Navigation
     auto_titles:
       de: Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: mode
+      propulsion_modes: [generic]
   - sub_type: fly_timer
     labels:
       de: Timer
@@ -1551,6 +2219,12 @@ sports:
       de: Flug-Timer
     auto_titles:
       de: Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: mode
+      propulsion_modes: [generic]
   - sub_type: fly_altimeter
     labels:
       de: Höhenmesser
@@ -1558,6 +2232,12 @@ sports:
       de: Höhenmesser-Modus
     auto_titles:
       de: Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: mode
+      propulsion_modes: [generic]
   - sub_type: fly_wx
     labels:
       de: Wetter
@@ -1565,6 +2245,13 @@ sports:
       de: Flugwetter
     auto_titles:
       de: Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: mode
+      propulsion_modes: [generic]
+
 - sport_type: hang_gliding
   category_key: outdoor
   labels:
@@ -1575,11 +2262,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.5
   is_indoor: false
+  traits:
+    environments: [air]
+    movement_families: [fly]
+    equipment_families: [aircraft]
+    activity_form: single
+    propulsion_modes: [human, wind, gravity]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: sky_diving
   category_key: outdoor
   labels:
@@ -1590,11 +2284,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [air]
+    movement_families: [fly]
+    equipment_families: [aircraft]
+    activity_form: single
+    propulsion_modes: [human, gravity]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: jumpmaster
   category_key: outdoor
   labels:
@@ -1605,11 +2306,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [air]
+    movement_families: [fly]
+    equipment_families: [aircraft]
+    activity_form: single
+    propulsion_modes: [human, gravity]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: horseback_riding
   category_key: outdoor
   labels:
@@ -1620,11 +2328,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [ride]
+    equipment_families: [animal]
+    activity_form: single
+    propulsion_modes: [animal]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: hunting
   category_key: outdoor
   labels:
@@ -1635,11 +2350,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [walk]
+    equipment_families: [weapon]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: motorcycling
   category_key: outdoor
   labels:
@@ -1650,6 +2372,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.5
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [drive]
+    equipment_families: [vehicle]
+    activity_form: single
+    propulsion_modes: [motor]
   modifier_applicability:
     is_electric: true
     is_indoor: false
@@ -1670,6 +2398,7 @@ sports:
       de: Motocross
     auto_titles:
       de: Motocross
+
 - sport_type: driving
   category_key: outdoor
   labels:
@@ -1680,11 +2409,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.5
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [drive]
+    equipment_families: [vehicle]
+    activity_form: single
+    propulsion_modes: [motor]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: boxing
   category_key: fitness
   labels:
@@ -1695,11 +2431,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [combat, strike]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
     is_virtual: true
     is_commute: false
+
 - sport_type: mixed_martial_arts
   category_key: fitness
   labels:
@@ -1710,11 +2453,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [combat, strike]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: true
     is_virtual: true
     is_commute: false
+
 - sport_type: tactical
   category_key: outdoor
   labels:
@@ -1725,11 +2475,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.2
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [generic]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: true
+
 - sport_type: multisport
   category_key: multi
   labels:
@@ -1740,11 +2497,18 @@ sports:
   typically_has_gps: true
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [land, water]
+    movement_families: [multi]
+    equipment_families: []
+    activity_form: composite
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: transition
   category_key: multi
   labels:
@@ -1755,6 +2519,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [generic]
+    equipment_families: []
+    activity_form: transition
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false
@@ -1782,6 +2552,7 @@ sports:
       de: Wechsel Schwimmen zu Rad
     auto_titles:
       de: Wechselzone
+
 - sport_type: generic
   category_key: other
   labels:
@@ -1792,11 +2563,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [generic]
+    movement_families: [generic]
+    equipment_families: [generic]
+    activity_form: system
+    propulsion_modes: [generic]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: unknown
   category_key: other
   labels:
@@ -1807,11 +2585,18 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: false
+  traits:
+    environments: [generic]
+    movement_families: [generic]
+    equipment_families: [generic]
+    activity_form: system
+    propulsion_modes: [generic]
   modifier_applicability:
     is_electric: false
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: skiing
   category_key: winter
   labels:
@@ -1822,6 +2607,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.3
   is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [glide]
+    equipment_families: [ski]
+    activity_form: fallback
+    propulsion_modes: [human, gravity]
   lifecycle: broad_fallback
   selectable: false
   modifier_applicability:
@@ -1829,6 +2620,7 @@ sports:
     is_indoor: false
     is_virtual: false
     is_commute: false
+
 - sport_type: canoeing
   category_key: water
   labels:
@@ -1839,6 +2631,12 @@ sports:
   typically_has_gps: true
   moving_threshold: 0.1
   is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [paddle]
+    equipment_families: [boat, paddle]
+    activity_form: single
+    propulsion_modes: [human]
   modifier_applicability:
     is_electric: false
     is_indoor: false

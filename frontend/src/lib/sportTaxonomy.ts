@@ -12,12 +12,29 @@ export interface SportCategory {
   color: string
 }
 
+export interface SportTraits {
+  environments: string[]
+  movementFamilies: string[]
+  equipmentFamilies: string[]
+  activityForm: 'single' | 'family' | 'composite' | 'transition' | 'mode' | 'fallback' | 'system'
+  propulsionModes: string[]
+}
+
+interface GeneratedTraits {
+  readonly environments: readonly string[]
+  readonly movementFamilies: readonly string[]
+  readonly equipmentFamilies: readonly string[]
+  readonly activityForm: SportTraits['activityForm']
+  readonly propulsionModes: readonly string[]
+}
+
 export interface SubTypeDef {
   subType: string
   label: string
   detail: string
   movingThreshold?: number
   selectable: boolean
+  traits: SportTraits
 }
 
 export interface SportDef {
@@ -29,6 +46,7 @@ export interface SportDef {
   isIndoor: boolean
   lifecycle: 'canonical' | 'broad_fallback' | 'deprecated'
   selectable: boolean
+  traits: SportTraits
   subTypes: SubTypeDef[]
 }
 
@@ -169,8 +187,19 @@ export const SPORT_DEFS: SportDef[] = [
   isIndoor: s.isIndoor,
   lifecycle: s.lifecycle,
   selectable: s.selectable,
-  subTypes: s.subTypes.map((st) => ({ ...st })),
+  traits: copyTraits(s.traits),
+  subTypes: s.subTypes.map((st) => ({ ...st, traits: copyTraits(st.traits) })),
 }))
+
+function copyTraits(traits: GeneratedTraits): SportTraits {
+  return {
+    environments: [...traits.environments],
+    movementFamilies: [...traits.movementFamilies],
+    equipmentFamilies: [...traits.equipmentFamilies],
+    activityForm: traits.activityForm,
+    propulsionModes: [...traits.propulsionModes],
+  }
+}
 
 const LEGACY_ALIASES = new Map<string, SportTuple>([
   ['mountain_biking', { sportType: 'cycling', subType: 'mountain', modifiers: {} }],

@@ -31,6 +31,7 @@ func RenderTS(t Taxonomy, source []byte) ([]byte, error) {
 		fmt.Fprintf(&buf, "    isIndoor: %t,\n", s.IsIndoor)
 		fmt.Fprintf(&buf, "    lifecycle: %s,\n", tsString(s.Lifecycle))
 		fmt.Fprintf(&buf, "    selectable: %t,\n", *s.Selectable)
+		fmt.Fprintf(&buf, "    traits: %s,\n", tsTraits(s.Traits))
 		if len(s.SubTypes) > 0 {
 			buf.WriteString("    subTypes: [\n")
 			for _, st := range s.SubTypes {
@@ -38,6 +39,7 @@ func RenderTS(t Taxonomy, source []byte) ([]byte, error) {
 				if st.MovingThreshold != nil {
 					fmt.Fprintf(&buf, ", movingThreshold: %v", *st.MovingThreshold)
 				}
+				fmt.Fprintf(&buf, ", traits: %s", tsTraits(EffectiveSubTypeTraits(s, st)))
 				buf.WriteString(" },\n")
 			}
 			buf.WriteString("    ],\n")
@@ -56,4 +58,25 @@ func tsString(s string) string {
 	escaped = strings.ReplaceAll(escaped, `'`, `\'`)
 	escaped = strings.ReplaceAll(escaped, "\n", `\n`)
 	return "'" + escaped + "'"
+}
+
+func tsTraits(traits Traits) string {
+	return fmt.Sprintf("{ environments: %s, movementFamilies: %s, equipmentFamilies: %s, activityForm: %s, propulsionModes: %s }",
+		tsStringArray(traits.Environments),
+		tsStringArray(traits.MovementFamilies),
+		tsStringArray(traits.EquipmentFamilies),
+		tsString(traits.ActivityForm),
+		tsStringArray(traits.PropulsionModes),
+	)
+}
+
+func tsStringArray(values []string) string {
+	if len(values) == 0 {
+		return "[]"
+	}
+	encoded := make([]string, 0, len(values))
+	for _, value := range values {
+		encoded = append(encoded, tsString(value))
+	}
+	return "[" + strings.Join(encoded, ", ") + "]"
 }

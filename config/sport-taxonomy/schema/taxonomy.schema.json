@@ -40,6 +40,7 @@
           "typically_has_gps",
           "moving_threshold",
           "is_indoor",
+          "traits",
           "modifier_applicability"
         ],
         "properties": {
@@ -54,6 +55,7 @@
           "typically_has_gps": { "type": "boolean" },
           "moving_threshold": { "type": "number", "minimum": 0 },
           "is_indoor": { "type": "boolean" },
+          "traits": { "$ref": "#/$defs/traits" },
           "lifecycle": {
             "type": "string",
             "enum": ["canonical", "broad_fallback", "deprecated"]
@@ -82,7 +84,8 @@
                 "details": { "$ref": "#/$defs/localeMap" },
                 "auto_titles": { "$ref": "#/$defs/localeMap" },
                 "moving_threshold": { "type": "number", "minimum": 0 },
-                "selectable": { "type": "boolean" }
+                "selectable": { "type": "boolean" },
+                "traits": { "$ref": "#/$defs/traits" }
               }
             }
           }
@@ -97,6 +100,58 @@
       "required": ["de"],
       "properties": {
         "de": { "type": "string", "minLength": 1 }
+      }
+    },
+    "traits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "environments",
+        "movement_families",
+        "equipment_families",
+        "activity_form",
+        "propulsion_modes"
+      ],
+      "properties": {
+        "environments": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["land", "water", "snow", "ice", "air", "indoor", "generic"]
+          }
+        },
+        "movement_families": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["run", "walk", "roll", "pedal", "swim", "paddle", "row", "glide", "climb", "lift", "strike", "throw", "dance", "mind_body", "combat", "ride", "drive", "fly", "multi", "fish", "generic"]
+          }
+        },
+        "equipment_families": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["bike", "wheelchair", "skate", "ski", "snowboard", "sled", "board", "paddle", "boat", "sail", "breathing_gear", "fishing_gear", "machine", "weights", "rope", "ball", "racket", "stick", "disc", "climbing_gear", "aircraft", "animal", "vehicle", "weapon", "generic"]
+          }
+        },
+        "activity_form": {
+          "type": "string",
+          "enum": ["single", "family", "composite", "transition", "mode", "fallback", "system"]
+        },
+        "propulsion_modes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["human", "gravity", "wind", "motor", "towed", "animal", "generic"]
+          }
+        }
       }
     }
   }
