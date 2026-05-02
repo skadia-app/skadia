@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchInsightsCorrelations } from '@/api/analytics'
 import type { CorrelationInsight } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import FilterActiveBadge from '@/components/analytics/filters/FilterActiveBadge'
 
 function correlationColor(r: number): string {
   if (r >= 0.5) return '#10b981'
@@ -116,7 +117,10 @@ export default function CorrelationsPanel() {
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-4">
-      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">Korrelationen</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">Korrelationen</h3>
+        <FilterActiveBadge />
+      </div>
 
       {(isError || correlations.length === 0) && (
         <div className="flex flex-col items-center justify-center h-[150px] gap-2 text-neutral-400">

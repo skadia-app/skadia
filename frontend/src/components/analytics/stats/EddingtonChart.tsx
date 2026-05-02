@@ -10,7 +10,8 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchEddington } from '@/api/analytics'
 import type { EddingtonResult } from '@/api/analytics'
-import { useAnalyticsFilters } from '@/lib/analyticsFilters'
+import SportOnlyFilterBar, { expandSportSelection } from '@/components/analytics/filters/SportOnlyFilterBar'
+import type { SportOnlyFilterValue } from '@/components/analytics/filters/SportOnlyFilterBar'
 import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([BarChart, GridComponent, TooltipComponent, MarkLineComponent, CanvasRenderer])
@@ -22,11 +23,16 @@ const METRIC_OPTIONS: { value: MetricKey; label: string; apiValue: string; unit:
   { value: 'elevation_m', label: 'Höhenmeter', apiValue: 'elevation', unit: 'm' },
 ]
 
+const DEFAULT_FILTER: SportOnlyFilterValue = { selectedSports: [], from: '', to: '' }
+
 export default function EddingtonChart() {
-  const { toQueryString } = useAnalyticsFilters()
   const [metric, setMetric] = useState<MetricKey>('distance_km')
-  const params = toQueryString()
+  const [filter, setFilter] = useState<SportOnlyFilterValue>(DEFAULT_FILTER)
+
   const metricOption = METRIC_OPTIONS.find(o => o.value === metric)!
+
+  // Build query params: only sport_type + from/to — no global filter pollution.
+  const params = buildParams(filter)
 
   const { data, isLoading, isError } = useQuery<EddingtonResult>({
     queryKey: ['eddington', metric, params],
@@ -129,6 +135,9 @@ export default function EddingtonChart() {
         </div>
       </div>
 
+      {/* Local sport + range filter — career aggregate: no global filter */}
+      <SportOnlyFilterBar value={filter} onChange={setFilter} />
+
       {/* Info box */}
       {data && (
         <div className="rounded-lg border border-[var(--color-accent-DEFAULT)]/30 bg-[var(--color-accent-DEFAULT)]/5 dark:bg-[var(--color-accent-DEFAULT)]/10 p-3">
@@ -166,4 +175,13 @@ export default function EddingtonChart() {
       </div>
     </div>
   )
+}
+
+function buildParams(filter: SportOnlyFilterValue): string {
+  const p = new URLSearchParams()
+  const expanded = expandSportSelection(filter.selectedSports)
+  if (expanded.length > 0) p.set('sport_type', expanded.join(','))
+  if (filter.from) p.set('from', filter.from)
+  if (filter.to) p.set('to', filter.to)
+  return p.toString()
 }

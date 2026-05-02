@@ -14,7 +14,6 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchAnalyticsPMC, fetchAnalyticsPMCSplit, type PMCDay } from '@/api/analytics'
-import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { toLocalISO } from '@/lib/dateUtils'
 import { useChangepoints, changepointsToMarkLines } from '@/components/analytics/ChangepointMarkers'
 import { useECharts } from '@/hooks/useECharts'
@@ -159,8 +158,7 @@ function buildDateMap(days: PMCDay[]): Map<string, PMCDay> {
 }
 
 export default function PMCChartExtended() {
-  const { toQueryString } = useAnalyticsFilters()
-  const [range, setRange] = useState<TimeRange>('3m')
+  const [range, setRange] = useState<TimeRange>('6m')
   const changepoints = useChangepoints('ctl', 180)
   const [localFrom, setLocalFrom] = useState<string>('')
   const [localTo, setLocalTo] = useState<string>('')
@@ -209,19 +207,17 @@ export default function PMCChartExtended() {
     })
   }
 
-  // Build base params combining global filters + local date range
+  // Build base params with only from/to — pure aggregate, no activity filter.
   const baseQueryParams = useMemo(() => {
-    const base = toQueryString()
-    const params = new URLSearchParams(base)
+    const params = new URLSearchParams()
     if (!isCustomRange && range === 'all') {
-      params.delete('from')
-      params.delete('to')
+      // no from/to — backend returns all data
     } else {
       params.set('from', from)
       params.set('to', to)
     }
     return params.toString()
-  }, [toQueryString, from, to, isCustomRange, range])
+  }, [from, to, isCustomRange, range])
 
   // Standard fetch — only loaded when NO sport groups are active.
   // When sport groups are active the split response already contains __combined__

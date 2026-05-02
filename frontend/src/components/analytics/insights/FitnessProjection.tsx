@@ -11,6 +11,7 @@ import { fetchInsightsProjection } from '@/api/analytics'
 import type { Projection } from '@/api/analytics'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useECharts } from '@/hooks/useECharts'
+import FilterActiveBadge from '@/components/analytics/filters/FilterActiveBadge'
 
 echarts.use([BarChart, LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -165,7 +166,10 @@ export default function FitnessProjection() {
   if (isError || !data || !Array.isArray(data) || data.length === 0) {
     return (
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
-        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200 mb-3">Ziel-Projektionen</h3>
+        <div className="flex items-center gap-2 mb-3">
+          <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">Ziel-Projektionen</h3>
+          <FilterActiveBadge />
+        </div>
         <div className="flex flex-col items-center justify-center h-[120px] gap-2 text-neutral-400 text-sm">
           <svg className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -181,7 +185,10 @@ export default function FitnessProjection() {
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-4">
-      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">Ziel-Projektionen</h3>
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">Ziel-Projektionen</h3>
+        <FilterActiveBadge />
+      </div>
 
       {/* Overview chart */}
       <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">

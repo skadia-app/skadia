@@ -1,4 +1,3 @@
-import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
@@ -9,41 +8,13 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchHealthStress } from '@/api/analytics'
-import { toLocalISO } from '@/lib/dateUtils'
+import { useHealthRange } from '@/components/analytics/filters/HealthRangeContext'
 import { useECharts } from '@/hooks/useECharts'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, CanvasRenderer])
 
-type TimePreset = '7d' | '30d' | '90d' | '1y' | 'all'
-
-const presetLabels: Record<TimePreset, string> = {
-  '7d': '7T',
-  '30d': '30T',
-  '90d': '90T',
-  '1y': '1J',
-  'all': 'Alle',
-}
-
-function getDateRange(preset: TimePreset): { from: string; to: string } {
-  const to = new Date()
-  const from = new Date()
-  switch (preset) {
-    case '7d': from.setDate(from.getDate() - 7); break
-    case '30d': from.setDate(from.getDate() - 30); break
-    case '90d': from.setDate(from.getDate() - 90); break
-    case '1y': from.setFullYear(from.getFullYear() - 1); break
-    case 'all': return { from: '0001-01-01', to: toLocalISO(to) }
-  }
-  return {
-    from: toLocalISO(from),
-    to: toLocalISO(to),
-  }
-}
-
 export default function StressChart() {
-  const [preset, setPreset] = useState<TimePreset>('30d')
-
-  const { from, to } = useMemo(() => getDateRange(preset), [preset])
+  const { from, to } = useHealthRange()
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['health', 'stress', from, to],
@@ -137,21 +108,6 @@ export default function StressChart() {
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
           Stress-Verlauf
         </h2>
-        <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-xs">
-          {(Object.keys(presetLabels) as TimePreset[]).map(p => (
-            <button
-              key={p}
-              onClick={() => setPreset(p)}
-              className={
-                p === preset
-                  ? 'px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium cursor-pointer'
-                  : 'px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 cursor-pointer transition-colors'
-              }
-            >
-              {presetLabels[p]}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">

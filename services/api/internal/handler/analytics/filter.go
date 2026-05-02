@@ -49,6 +49,24 @@ type AnalyticsFilter struct {
 	ExcludeGear []uuid.UUID // activity must not use any of these gear items
 }
 
+// parseDateOnly reads only the "from" and "to" query params (YYYY-MM-DD).
+// All other query params are silently ignored. This is intentional for
+// pure-aggregate handlers whose DB queries do not apply activity filters.
+// from defaults to the zero value (no lower bound); to defaults to now.
+func parseDateOnly(r *http.Request) (from, to time.Time) {
+	q := r.URL.Query()
+	if v := q.Get("from"); v != "" {
+		from, _ = time.Parse(time.DateOnly, v)
+	}
+	to = time.Now()
+	if v := q.Get("to"); v != "" {
+		if t, err := time.Parse(time.DateOnly, v); err == nil {
+			to = t
+		}
+	}
+	return
+}
+
 func ParseFilters(r *http.Request) AnalyticsFilter {
 	q := r.URL.Query()
 	f := AnalyticsFilter{}

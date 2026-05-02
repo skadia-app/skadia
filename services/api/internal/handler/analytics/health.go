@@ -14,9 +14,9 @@ func (h *Handler) GetHRV(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	filter := ParseFilters(r)
+	from, to := parseDateOnly(r)
 
-	points, err := h.DB.GetHRVAnalysis(r.Context(), userID, filter.From, filter.To)
+	points, err := h.DB.GetHRVAnalysis(r.Context(), userID, from, to)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "HRV Query Failed",
 			err.Error(), r.URL.Path)
@@ -155,9 +155,9 @@ func (h *Handler) GetSleep(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	filter := ParseFilters(r)
+	from, to := parseDateOnly(r)
 
-	pts, err := h.DB.GetSleepAnalytics(r.Context(), userID, filter.From, filter.To)
+	pts, err := h.DB.GetSleepAnalytics(r.Context(), userID, from, to)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Sleep Query Failed",
 			err.Error(), r.URL.Path)
@@ -209,9 +209,9 @@ func (h *Handler) GetWeight(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	filter := ParseFilters(r)
+	from, to := parseDateOnly(r)
 
-	pts, err := h.DB.GetWeightAnalytics(r.Context(), userID, filter.From, filter.To)
+	pts, err := h.DB.GetWeightAnalytics(r.Context(), userID, from, to)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Weight Query Failed",
 			err.Error(), r.URL.Path)
