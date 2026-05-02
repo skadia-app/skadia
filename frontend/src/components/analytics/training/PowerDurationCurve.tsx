@@ -5,14 +5,18 @@ import {
   GridComponent,
   TooltipComponent,
   LegendComponent,
+  ToolboxComponent,
+  DataZoomComponent,
+  BrushComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { getPowerCurve } from '@/api/activities'
 import type { PDCParams } from '@/api/activities'
 import type { PowerCurvePoint } from '@/api/types'
 import { useECharts } from '@/hooks/useECharts'
+import { bindLineXBrushZoom, lineXBrush, lineXBrushToolboxFeature } from './chartBrushZoom'
 
-echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, ToolboxComponent, DataZoomComponent, BrushComponent, CanvasRenderer])
 
 const currentYear = new Date().getFullYear()
 
@@ -90,6 +94,18 @@ export default function PowerDurationCurve() {
       return {
         backgroundColor: 'transparent',
         grid: { left: 52, right: 20, top: 36, bottom: 40 },
+        brush: lineXBrush,
+        toolbox: {
+          right: 8, top: 2,
+          feature: {
+            brush: lineXBrushToolboxFeature,
+            restore: { title: 'Zurücksetzen' },
+            saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
+          },
+          iconStyle: { borderColor: '#6b7280' },
+          emphasis: { iconStyle: { borderColor: '#d1d5db' } },
+        },
+        dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
         legend: {
           top: 4,
           textStyle: { fontSize: 10, color: '#9ca3af' },
@@ -144,6 +160,10 @@ export default function PowerDurationCurve() {
       }
     },
     [query0.data, query1.data, query2.data, hasData], // eslint-disable-line react-hooks/exhaustive-deps
+    (chart) => {
+      const maxDuration = Math.max(3600, ...queries.flatMap(q => q.data?.points?.map((p: PowerCurvePoint) => p.duration_s) ?? []))
+      return bindLineXBrushZoom(chart, { dataZoomIndexes: [0], minValue: 1, maxValue: maxDuration, roundValues: false })
+    },
   )
 
   return (

@@ -8,12 +8,14 @@ import {
   LegendComponent,
   DataZoomComponent,
   ToolboxComponent,
+  BrushComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { Maximize2 } from 'lucide-react'
 import { useAnalyticsFilters } from '@/lib/analyticsFilters'
 import { useYearProgression } from '@/hooks/useYearProgression'
 import YearProgressionFullscreenModal from './YearProgressionFullscreenModal'
+import { bindLineXBrushZoom, lineXBrush, lineXBrushToolboxFeature } from './chartBrushZoom'
 
 echarts.use([
   LineChart,
@@ -23,6 +25,7 @@ echarts.use([
   LegendComponent,
   DataZoomComponent,
   ToolboxComponent,
+  BrushComponent,
   CanvasRenderer,
 ])
 
@@ -138,21 +141,13 @@ export default function YearProgressionChart() {
     const sharedConfig = {
       backgroundColor: 'transparent',
       grid: { left: 52, right: 20, top: 36, bottom: 40 },
+      brush: lineXBrush,
       toolbox: {
         right: 8,
         top: 2,
         feature: {
-          dataZoom: {
-            yAxisIndex: 'none',
-            title: { zoom: 'Bereich zoomen (ziehen)', back: 'Zoom zurücksetzen' },
-            brushStyle: {
-              borderWidth: 1,
-              color: 'rgba(59,130,246,0.1)',
-              borderColor: 'rgba(59,130,246,0.6)',
-            },
-          },
+          brush: lineXBrushToolboxFeature,
           restore: { title: 'Zurücksetzen' },
-          brush: { show: false },
           saveAsImage: { title: 'Als PNG speichern', pixelRatio: 2 },
         },
         iconStyle: { borderColor: '#6b7280' },
@@ -246,6 +241,15 @@ export default function YearProgressionChart() {
 
     monthlyChart.current.setOption(monthlyOption, { notMerge: true })
     cumulChart.current.setOption(cumulOption, { notMerge: true })
+
+    const brushOptions = { dataZoomIndexes: [0], maxValue: MONTH_LABELS.length - 1 }
+    const cleanupMonthlyBrush = bindLineXBrushZoom(monthlyChart.current, brushOptions)
+    const cleanupCumulBrush = bindLineXBrushZoom(cumulChart.current, brushOptions)
+
+    return () => {
+      cleanupMonthlyBrush()
+      cleanupCumulBrush()
+    }
   }, [data, selectedYears, chartType, metric])
 
   const toggleYear = (year: number) => {
