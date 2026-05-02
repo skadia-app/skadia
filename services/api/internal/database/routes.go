@@ -15,6 +15,13 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
+// ErrVersionMismatch is returned by UpdateRoute when the caller-supplied
+// expectedVersion does not match the row's current `version` column.
+// Handlers translate this into HTTP 412 Precondition Failed (RFC 7232).
+// Pass expectedVersion = 0 to skip the optimistic-concurrency check
+// (backwards-compatible path for clients that never observed an ETag).
+var ErrVersionMismatch = errors.New("planned route version mismatch")
+
 type RouteListFilters struct {
 	SportType       string
 	SubType         string
@@ -164,7 +171,7 @@ func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (strin
 			$21, $22, $23,
 			$24
 		)
-		RETURNING id
+		RETURNING id, version
 	`,
 		route.UserID, route.Name, route.Description, route.SportType, route.SubType,
 		route.IsElectric, route.IsIndoor, route.IsVirtual, route.IsCommute,
@@ -174,7 +181,7 @@ func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (strin
 		route.EstimatedTimeMin, route.TimeOverride, route.AutoTag,
 		route.ElevationProfile, route.Enrichment, route.RoutingEngine,
 		schemaVersion,
-	).Scan(&id)
+	).Scan(&id, &route.Version)
 	if err != nil {
 		return "", fmt.Errorf("create route: %w", err)
 	}
@@ -196,7 +203,7 @@ func (db *DB) GetRoute(ctx context.Context, id, userID string) (*model.PlannedRo
 			estimated_time_min, time_override, auto_tag,
 			created_at, updated_at,
 			elevation_profile, enrichment, routing_engine,
-			route_schema_version
+			route_schema_version, version
 		FROM planned_routes
 		WHERE id = $1 AND user_id = $2
 	`, id, userID).Scan(
@@ -210,7 +217,7 @@ func (db *DB) GetRoute(ctx context.Context, id, userID string) (*model.PlannedRo
 		&route.EstimatedTimeMin, &route.TimeOverride, &route.AutoTag,
 		&route.CreatedAt, &route.UpdatedAt,
 		&route.ElevationProfile, &route.Enrichment, &route.RoutingEngine,
-		&route.RouteSchemaVersion,
+		&route.RouteSchemaVersion, &route.Version,
 	)
 	if err != nil {
 		return nil, err // caller checks pgx.ErrNoRows
@@ -264,7 +271,7 @@ func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int, 
 			total_distance_m, total_elevation_gain, total_elevation_loss,
 			estimated_time_min, time_override, auto_tag,
 			created_at, updated_at,
-			route_schema_version
+			route_schema_version, version
 		FROM planned_routes
 		WHERE %s
 		ORDER BY %s
@@ -287,7 +294,7 @@ func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int, 
 			&r.TotalDistanceM, &r.TotalElevationGain, &r.TotalElevationLoss,
 			&r.EstimatedTimeMin, &r.TimeOverride, &r.AutoTag,
 			&r.CreatedAt, &r.UpdatedAt,
-			&r.RouteSchemaVersion,
+			&r.RouteSchemaVersion, &r.Version,
 		); err != nil {
 			return nil, fmt.Errorf("scan route: %w", err)
 		}
@@ -306,7 +313,18 @@ func (db *DB) ListRoutes(ctx context.Context, userID string, limit, offset int, 
 
 // UpdateRoute updates all mutable fields of a planned route.
 // Ownership is enforced via WHERE user_id = $2.
-func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error {
+//
+// Optimistic concurrency: when expectedVersion > 0 the WHERE clause adds
+// `version = expectedVersion`. A RowsAffected = 0 result then has two
+// possible causes — wrong owner / missing row, or version mismatch — which
+// the function disambiguates with a follow-up ownership probe so the
+// handler can return 404 vs. 412 correctly.
+//
+// Pass expectedVersion = 0 to skip the version check (legacy callers that
+// never observed an ETag) — the row is updated unconditionally.
+//
+// On success, route.Version is updated to the new (incremented) value.
+func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute, expectedVersion int64) error {
 	sportType, subType, patch, err := normalizePlannedRouteSportTuple(route.SportType, route.SubType)
 	if err != nil {
 		return fmt.Errorf("normalize route sport tuple: %w", err)
@@ -326,7 +344,26 @@ func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error 
 
 	schemaVersion := t0SchemaVersion(route.Segments, route.ElevationProfile)
 
-	tag, err := db.Pool.Exec(ctx, `
+	// Build the WHERE-clause tail conditionally so the legacy path (no
+	// ETag) keeps the previous semantics exactly.
+	whereTail := ""
+	args := []any{
+		route.ID, route.UserID,
+		route.Name, route.Description, route.SportType, route.SubType,
+		route.IsElectric, route.IsIndoor, route.IsVirtual, route.IsCommute,
+		route.Difficulty, route.Profile,
+		route.GeometryGeoJSON, waypointsJSON, segmentsJSON,
+		route.TotalDistanceM, route.TotalElevationGain, route.TotalElevationLoss,
+		route.EstimatedTimeMin, route.TimeOverride, route.AutoTag,
+		route.ElevationProfile, route.Enrichment, route.RoutingEngine,
+		schemaVersion,
+	}
+	if expectedVersion > 0 {
+		whereTail = " AND version = $26"
+		args = append(args, expectedVersion)
+	}
+
+	query := `
 		UPDATE planned_routes SET
 			name               = $3,
 			description        = $4,
@@ -350,25 +387,38 @@ func (db *DB) UpdateRoute(ctx context.Context, route *model.PlannedRoute) error 
 			elevation_profile  = $22,
 			enrichment         = $23,
 			routing_engine     = $24,
-			route_schema_version = $25
-		WHERE id = $1 AND user_id = $2
-	`,
-		route.ID, route.UserID,
-		route.Name, route.Description, route.SportType, route.SubType,
-		route.IsElectric, route.IsIndoor, route.IsVirtual, route.IsCommute,
-		route.Difficulty, route.Profile,
-		route.GeometryGeoJSON, waypointsJSON, segmentsJSON,
-		route.TotalDistanceM, route.TotalElevationGain, route.TotalElevationLoss,
-		route.EstimatedTimeMin, route.TimeOverride, route.AutoTag,
-		route.ElevationProfile, route.Enrichment, route.RoutingEngine,
-		schemaVersion,
-	)
+			route_schema_version = $25,
+			version            = version + 1
+		WHERE id = $1 AND user_id = $2` + whereTail + `
+		RETURNING version
+	`
+
+	var newVersion int64
+	err = db.Pool.QueryRow(ctx, query, args...).Scan(&newVersion)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Disambiguate version-mismatch from missing/foreign row when
+			// the optimistic path is in use. Without the probe a stale ETag
+			// would surface as 404 and confuse the client.
+			if expectedVersion > 0 {
+				var dummy string
+				probeErr := db.Pool.QueryRow(ctx,
+					`SELECT id FROM planned_routes WHERE id = $1 AND user_id = $2`,
+					route.ID, route.UserID,
+				).Scan(&dummy)
+				if probeErr == nil {
+					return ErrVersionMismatch
+				}
+				if errors.Is(probeErr, pgx.ErrNoRows) {
+					return pgx.ErrNoRows
+				}
+				return fmt.Errorf("update route ownership probe: %w", probeErr)
+			}
+			return pgx.ErrNoRows
+		}
 		return fmt.Errorf("update route: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return pgx.ErrNoRows
-	}
+	route.Version = newVersion
 	return nil
 }
 

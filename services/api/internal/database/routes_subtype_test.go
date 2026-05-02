@@ -83,7 +83,7 @@ func TestPlannedRouteSubTypeRoundTrip(t *testing.T) {
 	}
 
 	loaded.SubType = nil
-	if err := db.UpdateRoute(ctx, loaded); err != nil {
+	if err := db.UpdateRoute(ctx, loaded, 0); err != nil {
 		t.Fatalf("UpdateRoute clear subtype: %v", err)
 	}
 	cleared, err := db.GetRoute(ctx, id, userID)
@@ -159,7 +159,7 @@ func TestPlannedRouteMetadataAndModifiersRoundTrip(t *testing.T) {
 	loaded.IsIndoor = true
 	loaded.IsVirtual = false
 	loaded.IsCommute = false
-	if err := db.UpdateRoute(ctx, loaded); err != nil {
+	if err := db.UpdateRoute(ctx, loaded, 0); err != nil {
 		t.Fatalf("UpdateRoute: %v", err)
 	}
 	updated, err := db.GetRoute(ctx, id, userID)

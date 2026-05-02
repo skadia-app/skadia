@@ -241,7 +241,7 @@ func TestUpdateRoute_PersistElevationProfile(t *testing.T) {
 	route.ElevationProfile = profile
 	route.Enrichment = enrich
 
-	if err := db.UpdateRoute(ctx, route); err != nil {
+	if err := db.UpdateRoute(ctx, route, 0); err != nil {
 		t.Fatalf("UpdateRoute: %v", err)
 	}
 

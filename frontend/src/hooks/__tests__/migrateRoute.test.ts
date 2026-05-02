@@ -9,7 +9,8 @@
  *  M5: No DEM coverage → all-null profile, silent
  *  M6: Partial DEM coverage → some null points passed through
  *  Race: user edits during migration → stale result discarded (via token in useRoutePlanner)
- *  TwoTabs: skipped (optimistic-concurrency pre-existing bug)
+ *  TwoTabs: backend optimistic-concurrency now in place; the apiClient ETag cache
+ *           coordinates two parallel PATCHes — test reactivated, see below.
  *  JunctionVertex: approach-end equals next segment start → no double-drop
  *  ConcatHop: junction vertex in earlier segment, not duplicated
  *  Cache: second load with same id+updated_at hits session cache, no second DEM hop
@@ -494,17 +495,108 @@ describe('migrateRoute — Stage-2 legacyToRouteProfile gate', () => {
 })
 
 // ─── TestMigration_TwoTabsSameRoute_NoConflict ────────────────────────────────
-// Pre-existing architectural limitation: two concurrent tab migrations to the same
-// route cannot be coordinated without backend optimistic-concurrency support.
-// Self-tracked in docs/_internal/STATE.md.
-it.skip(
-  'TestMigration_TwoTabsSameRoute_NoConflict — optimistic-concurrency not implemented — see docs/_internal/STATE.md pre-existing bug',
-  () => {
-    // Would require: two parallel migrateRoute calls to same route ID →
-    // verify that both tabs end up with consistent segment profiles.
-    // Cannot be tested without backend session-level write coordination.
-  },
-)
+// Backend optimistic-concurrency landed via planned_routes.version + If-Match.
+// The previously-skipped scenario is now expressible: two tabs that hold the
+// same baseline ETag and PATCH in sequence — the second observes 412 instead
+// of silently overwriting the first. Migration itself stays pure (no HTTP),
+// so the coordination is exercised at the apiClient level. This test pins the
+// invariant for the migration code path: a migrateRoute caller that funnels
+// the result through the standard apiClient PATCH gets the conflict signal
+// rather than silently clobbering a parallel save.
+//
+// We exercise the apiClient itself (PATCH with auto-injected If-Match) and
+// assert that a stale-ETag second PATCH receives the 412 with the server's
+// current state. The migrateRoute function is unchanged — it produces
+// segments; the orchestration around it now has a working precondition.
+it('TestMigration_TwoTabsSameRoute_NoConflict — second tab observes 412 with current state', async () => {
+  const { apiClient, clearETagCache } = await import('@/api/client')
+  clearETagCache()
+
+  // Server-side bookkeeping: row starts at v=1; first PATCH bumps to v=2.
+  let serverVersion = 1
+  let serverName = 'orig'
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
+    (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const method = (init?.method ?? 'GET').toUpperCase()
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (!url.endsWith('/routes/r1')) {
+        return Promise.reject(new Error(`unexpected url: ${url}`))
+      }
+      if (method === 'GET') {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'r1', name: serverName, version: serverVersion }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json', ETag: `"${serverVersion}"` },
+          }),
+        )
+      }
+      if (method === 'PATCH') {
+        const ifMatch = (init?.headers as Record<string, string> | undefined)?.['If-Match']
+        if (ifMatch && ifMatch !== `"${serverVersion}"`) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ id: 'r1', name: serverName, version: serverVersion }), {
+              status: 412,
+              headers: { 'Content-Type': 'application/json', ETag: `"${serverVersion}"` },
+            }),
+          )
+        }
+        // Apply the patch.
+        const body = init?.body ? JSON.parse(init.body as string) : {}
+        if (typeof body.name === 'string') serverName = body.name
+        serverVersion += 1
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 'r1', name: serverName, version: serverVersion }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json', ETag: `"${serverVersion}"` },
+          }),
+        )
+      }
+      return Promise.reject(new Error(`unexpected method: ${method}`))
+    },
+  )
+
+  try {
+    // Tab A and Tab B both load the route — both observe v=1 in the cache.
+    const tabA = (await apiClient<{ version: number }>('/routes/r1')) as { version: number }
+    expect(tabA.version).toBe(1)
+
+    // Tab A writes first → v=2. Cache now holds "2".
+    const afterA = (await apiClient<{ version: number }>('/routes/r1', {
+      method: 'PATCH',
+      body: { name: 'from-A' },
+    })) as { version: number }
+    expect(afterA.version).toBe(2)
+
+    // Tab B simulates the parallel-tab scenario by forcing the stale ETag —
+    // the cache has been bumped by A, but B never observed the new value.
+    // Production code achieves the same with a per-tab snapshot; the test
+    // just pins the precondition contract.
+    let conflictBody: Record<string, unknown> | undefined
+    let conflictStatus: number | undefined
+    try {
+      await apiClient('/routes/r1', {
+        method: 'PATCH',
+        body: { name: 'from-B' },
+        headers: { 'If-Match': '"1"' },
+      })
+    } catch (err) {
+      const e = err as { status?: number; json?: Record<string, unknown> }
+      conflictStatus = e.status
+      conflictBody = e.json
+    }
+
+    expect(conflictStatus).toBe(412)
+    expect(conflictBody).toBeDefined()
+    expect((conflictBody as { name?: string }).name).toBe('from-A')
+    expect((conflictBody as { version?: number }).version).toBe(2)
+
+    // Server state untouched by Tab B's stale write.
+    expect(serverName).toBe('from-A')
+    expect(serverVersion).toBe(2)
+  } finally {
+    fetchSpy.mockRestore()
+  }
+})
 
 // ─── TestMigration_ApproachEndEqualsNextSplineStart_NoDoubleDrop ──────────────
 

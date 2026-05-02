@@ -157,7 +157,7 @@ func TestUpdateRoute_PostFixWritesV1(t *testing.T) {
 	}
 	loaded.ElevationProfile = t0Profile()
 
-	if err := db.UpdateRoute(ctx, loaded); err != nil {
+	if err := db.UpdateRoute(ctx, loaded, 0); err != nil {
 		t.Fatalf("UpdateRoute: %v", err)
 	}
 
@@ -205,7 +205,7 @@ func TestUpdateRoute_PostFixIncomplete_WritesV0(t *testing.T) {
 
 	// Mutate name but do NOT add profile — still Pre-T0.
 	loaded.Name = "Updated but still Pre-T0"
-	if err := db.UpdateRoute(ctx, loaded); err != nil {
+	if err := db.UpdateRoute(ctx, loaded, 0); err != nil {
 		t.Fatalf("UpdateRoute: %v", err)
 	}
 
