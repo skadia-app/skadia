@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/sporttaxgen"
 )
@@ -30,6 +32,8 @@ func run() error {
 	activityFilterSource := flag.String("activity-filter-source", "", "activity filter projection YAML source")
 	goProjectionsOut := flag.String("go-projections-out", "", "generated Go activity filter projection output path")
 	tsProjectionsOut := flag.String("ts-projections-out", "", "generated TypeScript activity filter projection output path")
+	aliasSourceDir := flag.String("alias-source-dir", "", "source-specific sport alias YAML directory")
+	goAliasesOut := flag.String("go-aliases-out", "", "generated Go source aliases output path")
 	check := flag.Bool("check", false, "verify generated outputs are current")
 	flag.Parse()
 
@@ -50,6 +54,12 @@ func run() error {
 	}
 	if *tsProjectionsOut == "" {
 		*tsProjectionsOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedSportFilterProjections.ts")
+	}
+	if *aliasSourceDir == "" {
+		*aliasSourceDir = filepath.Join(*repoRoot, "config", "sport-taxonomy", "aliases")
+	}
+	if *goAliasesOut == "" {
+		*goAliasesOut = filepath.Join(*repoRoot, "services", "api", "internal", "sport", "aliases_generated.go")
 	}
 
 	sourceBytes, err := os.ReadFile(*source)
@@ -88,6 +98,10 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("render TypeScript activity filter projection: %w", err)
 	}
+	renderedGoAliases, aliasesExist, err := renderGoAliasesFromDir(*aliasSourceDir, taxonomy)
+	if err != nil {
+		return err
+	}
 
 	if *check {
 		if err := checkFile(*goOut, renderedGo); err != nil {
@@ -99,7 +113,13 @@ func run() error {
 		if err := checkFile(*goProjectionsOut, renderedGoProjections); err != nil {
 			return err
 		}
-		return checkFile(*tsProjectionsOut, renderedTSProjections)
+		if err := checkFile(*tsProjectionsOut, renderedTSProjections); err != nil {
+			return err
+		}
+		if aliasesExist {
+			return checkFile(*goAliasesOut, renderedGoAliases)
+		}
+		return nil
 	}
 	if err := os.WriteFile(*goOut, renderedGo, 0o644); err != nil {
 		return fmt.Errorf("write Go taxonomy: %w", err)
@@ -113,7 +133,50 @@ func run() error {
 	if err := os.WriteFile(*tsProjectionsOut, renderedTSProjections, 0o644); err != nil {
 		return fmt.Errorf("write TypeScript activity filter projection: %w", err)
 	}
+	if aliasesExist {
+		if err := os.WriteFile(*goAliasesOut, renderedGoAliases, 0o644); err != nil {
+			return fmt.Errorf("write Go source aliases: %w", err)
+		}
+	}
 	return nil
+}
+
+func renderGoAliasesFromDir(dir string, taxonomy sporttaxgen.Taxonomy) ([]byte, bool, error) {
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("stat source alias directory: %w", err)
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
+	if err != nil {
+		return nil, false, fmt.Errorf("glob source alias files: %w", err)
+	}
+	files := make(map[string]io.Reader, len(matches))
+	opened := make([]*os.File, 0, len(matches))
+	defer func() {
+		for _, file := range opened {
+			_ = file.Close()
+		}
+	}()
+	for _, match := range matches {
+		file, err := os.Open(match)
+		if err != nil {
+			return nil, false, fmt.Errorf("open source alias file %s: %w", match, err)
+		}
+		opened = append(opened, file)
+		stem := strings.TrimSuffix(filepath.Base(match), filepath.Ext(match))
+		files[stem] = file
+	}
+	sources, err := sporttaxgen.LoadSourceAliasFiles(files, taxonomy)
+	if err != nil {
+		return nil, false, fmt.Errorf("load source aliases: %w", err)
+	}
+	rendered, err := sporttaxgen.RenderGoSourceAliases(sources)
+	if err != nil {
+		return nil, false, fmt.Errorf("render Go source aliases: %w", err)
+	}
+	return rendered, true, nil
 }
 
 func findRepoRoot(start string) (string, error) {

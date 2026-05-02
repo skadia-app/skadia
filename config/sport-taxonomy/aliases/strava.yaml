@@ -1,0 +1,262 @@
+source: strava
+aliases:
+- raw: Ride
+  sport_type: cycling
+- raw: Radfahrt
+  sport_type: cycling
+- raw: Radfahren
+  sport_type: cycling
+- raw: E-Bike Ride
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: E-Bike-Radfahrt
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: E-Bike
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: Mountain Bike Ride
+  sport_type: cycling
+  sub_type: mountain
+- raw: Mountainbiking
+  sport_type: cycling
+  sub_type: mountain
+- raw: Mountainbike-Fahrt
+  sport_type: cycling
+  sub_type: mountain
+- raw: E-Mountain Bike Ride
+  sport_type: cycling
+  sub_type: mountain
+  modifiers: {is_electric: true}
+- raw: Gravel Ride
+  sport_type: cycling
+  sub_type: gravel_cycling
+- raw: Gravelbike
+  sport_type: cycling
+  sub_type: gravel_cycling
+- raw: Gravel-Radfahrt
+  sport_type: cycling
+  sub_type: gravel_cycling
+- raw: Virtual Ride
+  sport_type: cycling
+  modifiers: {is_virtual: true}
+- raw: VirtualRide
+  sport_type: cycling
+  modifiers: {is_virtual: true}
+- raw: Virtuelles Radfahren
+  sport_type: cycling
+  modifiers: {is_virtual: true}
+- raw: Indoor Cycling
+  sport_type: cycling
+  sub_type: indoor_cycling
+  modifiers: {is_indoor: true}
+- raw: Indoor-Radfahren
+  sport_type: cycling
+  sub_type: indoor_cycling
+  modifiers: {is_indoor: true}
+- raw: Spinning
+  sport_type: cycling
+  sub_type: indoor_cycling
+  modifiers: {is_indoor: true}
+- raw: Handcycle
+  sport_type: cycling
+- raw: Velomobile
+  sport_type: cycling
+- raw: Run
+  sport_type: running
+- raw: Lauf
+  sport_type: running
+- raw: Laufen
+  sport_type: running
+- raw: Trail Run
+  sport_type: running
+  sub_type: trail
+- raw: Trailrunning
+  sport_type: running
+  sub_type: trail
+- raw: Trailrun
+  sport_type: running
+  sub_type: trail
+- raw: Treadmill
+  sport_type: running
+  sub_type: treadmill
+  modifiers: {is_indoor: true}
+- raw: Treadmill-Lauf
+  sport_type: running
+  sub_type: treadmill
+  modifiers: {is_indoor: true}
+- raw: Laufband
+  sport_type: running
+  sub_type: treadmill
+  modifiers: {is_indoor: true}
+- raw: Virtual Run
+  sport_type: running
+  modifiers: {is_virtual: true}
+- raw: VirtualRun
+  sport_type: running
+  modifiers: {is_virtual: true}
+- raw: Virtuelles Laufen
+  sport_type: running
+  modifiers: {is_virtual: true}
+- raw: Hike
+  sport_type: hiking
+- raw: Wandern
+  sport_type: hiking
+- raw: Wanderung
+  sport_type: hiking
+- raw: Walk
+  sport_type: walking
+- raw: Spaziergang
+  sport_type: walking
+- raw: Swim
+  sport_type: swimming
+- raw: Schwimmen
+  sport_type: swimming
+- raw: Open Water Swim
+  sport_type: swimming
+  sub_type: open_water
+- raw: Freiwasserschwimmen
+  sport_type: swimming
+  sub_type: open_water
+- raw: Stand Up Paddling
+  sport_type: stand_up_paddleboarding
+- raw: Stand-up-Paddeln
+  sport_type: stand_up_paddleboarding
+- raw: SUP
+  sport_type: stand_up_paddleboarding
+- raw: Kayaking
+  sport_type: kayaking
+- raw: Kajak fahren
+  sport_type: kayaking
+- raw: Kajak
+  sport_type: kayaking
+- raw: Rowing
+  sport_type: rowing
+- raw: Rudern
+  sport_type: rowing
+- raw: Canoeing
+  sport_type: kayaking
+- raw: Kanufahren
+  sport_type: kayaking
+- raw: Virtual Row
+  sport_type: rowing
+  modifiers: {is_virtual: true}
+- raw: VirtualRow
+  sport_type: rowing
+  modifiers: {is_virtual: true}
+- raw: Virtuelles Rudern
+  sport_type: rowing
+  modifiers: {is_virtual: true}
+- raw: Sail
+  sport_type: sailing
+- raw: Surfing
+  sport_type: surfing
+- raw: Kitesurf
+  sport_type: kitesurfing
+- raw: Windsurf
+  sport_type: windsurfing
+- raw: Alpine Ski
+  sport_type: alpine_skiing
+- raw: Skifahren
+  sport_type: alpine_skiing
+- raw: Ski alpin
+  sport_type: alpine_skiing
+- raw: Nordic Ski
+  sport_type: cross_country_skiing
+- raw: Langlauf
+  sport_type: cross_country_skiing
+- raw: Skilanglauf
+  sport_type: cross_country_skiing
+- raw: Backcountry Ski
+  sport_type: backcountry_skiing
+- raw: Snowboard
+  sport_type: snowboarding
+- raw: Snowboarden
+  sport_type: snowboarding
+- raw: Snowshoe
+  sport_type: snowshoeing
+- raw: Schneeschuhwandern
+  sport_type: snowshoeing
+- raw: Ice Skate
+  sport_type: ice_skating
+- raw: Roller Ski
+  sport_type: cross_country_skiing
+- raw: Weight Training
+  sport_type: strength_training
+- raw: Krafttraining
+  sport_type: strength_training
+- raw: Gewichtheben
+  sport_type: strength_training
+- raw: Yoga
+  sport_type: yoga
+- raw: Pilates
+  sport_type: pilates
+- raw: Crossfit
+  sport_type: training
+- raw: HIIT
+  sport_type: hiit
+- raw: Workout
+  sport_type: training
+- raw: Elliptical
+  sport_type: fitness_equipment
+  sub_type: elliptical
+- raw: Stair-Stepper
+  sport_type: fitness_equipment
+  sub_type: stair_climbing
+- raw: Dance
+  sport_type: dance
+- raw: Rock Climbing
+  sport_type: rock_climbing
+- raw: Klettern
+  sport_type: rock_climbing
+- raw: Felsenklettern
+  sport_type: rock_climbing
+- raw: Bouldern
+  sport_type: rock_climbing
+  sub_type: bouldering
+- raw: Tennis
+  sport_type: tennis
+- raw: Badminton
+  sport_type: racket
+  sub_type: badminton
+- raw: Table Tennis
+  sport_type: racket
+  sub_type: table_tennis
+- raw: Squash
+  sport_type: racket
+  sub_type: squash
+- raw: Pickleball
+  sport_type: racket
+  sub_type: pickleball
+- raw: Racquetball
+  sport_type: racket
+  sub_type: racquetball
+- raw: Padel
+  sport_type: racket
+  sub_type: padel
+- raw: Football (Soccer)
+  sport_type: soccer
+- raw: Soccer
+  sport_type: soccer
+- raw: Golf
+  sport_type: golf
+- raw: Basketball
+  sport_type: basketball
+- raw: Volleyball
+  sport_type: volleyball
+- raw: Cricket
+  sport_type: cricket
+- raw: Inline Skate
+  sport_type: inline_skating
+- raw: Skateboard
+  sport_type: inline_skating
+- raw: Wheelchair
+  sport_type: generic
+- raw: Triathlon
+  sport_type: multisport
+- raw: Multisport
+  sport_type: multisport
+- raw: Sonstiges
+  sport_type: generic
+- raw: Andere
+  sport_type: generic

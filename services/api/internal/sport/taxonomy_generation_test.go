@@ -2,7 +2,10 @@ package sport
 
 import (
 	"bytes"
+	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/sporttaxgen"
@@ -52,11 +55,56 @@ func TestGeneratedBackendActivityFilterProjectionsAreCurrent(t *testing.T) {
 	}
 }
 
+func TestGeneratedBackendSourceAliasesAreCurrent(t *testing.T) {
+	taxonomy := loadTestTaxonomy(t)
+	sources := loadTestSourceAliases(t, taxonomy)
+	got, err := sporttaxgen.RenderGoSourceAliases(sources)
+	if err != nil {
+		t.Fatalf("render Go source aliases: %v", err)
+	}
+	want, err := os.ReadFile("aliases_generated.go")
+	if err != nil {
+		t.Fatalf("read aliases_generated.go: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("aliases_generated.go is stale; run scripts/generate-sport-taxonomy.sh")
+	}
+}
+
 func TestCategoryForSportIncludesGeneratedColor(t *testing.T) {
 	cat := CategoryForSport("running")
 	if cat.Color != "#EF4444" {
 		t.Fatalf("running category color = %q, want #EF4444", cat.Color)
 	}
+}
+
+func loadTestSourceAliases(t *testing.T, taxonomy sporttaxgen.Taxonomy) []sporttaxgen.SourceAliases {
+	t.Helper()
+	matches, err := filepath.Glob("../../../../config/sport-taxonomy/aliases/*.yaml")
+	if err != nil {
+		t.Fatalf("glob aliases: %v", err)
+	}
+	files := make(map[string]io.Reader, len(matches))
+	opened := make([]*os.File, 0, len(matches))
+	defer func() {
+		for _, file := range opened {
+			_ = file.Close()
+		}
+	}()
+	for _, match := range matches {
+		file, err := os.Open(match)
+		if err != nil {
+			t.Fatalf("open alias file %s: %v", match, err)
+		}
+		opened = append(opened, file)
+		stem := strings.TrimSuffix(filepath.Base(match), filepath.Ext(match))
+		files[stem] = file
+	}
+	sources, err := sporttaxgen.LoadSourceAliasFiles(files, taxonomy)
+	if err != nil {
+		t.Fatalf("load source aliases: %v", err)
+	}
+	return sources
 }
 
 func loadTestTaxonomy(t *testing.T) sporttaxgen.Taxonomy {
