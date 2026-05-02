@@ -38,6 +38,7 @@ type Sport struct {
 	Lifecycle             string                 `yaml:"lifecycle"`
 	Selectable            *bool                  `yaml:"selectable"`
 	ModifierApplicability *ModifierApplicability `yaml:"modifier_applicability"`
+	ModifierDefaults      *ModifierDefaults      `yaml:"modifier_defaults"`
 	Traits                Traits                 `yaml:"traits"`
 	SubTypes              []SubType              `yaml:"sub_types"`
 }
@@ -57,14 +58,19 @@ type ModifierApplicability struct {
 	IsCommute  *bool `yaml:"is_commute"`
 }
 
+type ModifierDefaults struct {
+	IsIndoor *bool `yaml:"is_indoor"`
+}
+
 type SubType struct {
-	SubType         string    `yaml:"sub_type"`
-	Labels          LocaleMap `yaml:"labels"`
-	Details         LocaleMap `yaml:"details"`
-	AutoTitles      LocaleMap `yaml:"auto_titles"`
-	MovingThreshold *float64  `yaml:"moving_threshold"`
-	Selectable      *bool     `yaml:"selectable"`
-	Traits          *Traits   `yaml:"traits"`
+	SubType          string            `yaml:"sub_type"`
+	Labels           LocaleMap         `yaml:"labels"`
+	Details          LocaleMap         `yaml:"details"`
+	AutoTitles       LocaleMap         `yaml:"auto_titles"`
+	MovingThreshold  *float64          `yaml:"moving_threshold"`
+	Selectable       *bool             `yaml:"selectable"`
+	Traits           *Traits           `yaml:"traits"`
+	ModifierDefaults *ModifierDefaults `yaml:"modifier_defaults"`
 }
 
 var validHex = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
@@ -168,6 +174,9 @@ func validateTaxonomy(t Taxonomy) error {
 			s.ModifierApplicability.IsCommute == nil {
 			return fmt.Errorf("sport %q: incomplete modifier_applicability", s.SportType)
 		}
+		if err := validateModifierDefaults(s, s.ModifierDefaults, fmt.Sprintf("sport %q", s.SportType)); err != nil {
+			return err
+		}
 		if err := validateSportTraits(s); err != nil {
 			return err
 		}
@@ -195,10 +204,26 @@ func validateTaxonomy(t Taxonomy) error {
 			if st.Selectable == nil {
 				return fmt.Errorf("sport %q/%q: missing selectable default", s.SportType, st.SubType)
 			}
+			if err := validateModifierDefaults(s, st.ModifierDefaults, fmt.Sprintf("sport %q/%q", s.SportType, st.SubType)); err != nil {
+				return err
+			}
 			if err := validateSubTypeTraits(s, st); err != nil {
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+func validateModifierDefaults(s Sport, defaults *ModifierDefaults, context string) error {
+	if defaults == nil {
+		return nil
+	}
+	if defaults.IsIndoor == nil {
+		return fmt.Errorf("%s: empty modifier_defaults", context)
+	}
+	if s.ModifierApplicability == nil || s.ModifierApplicability.IsIndoor == nil || !*s.ModifierApplicability.IsIndoor {
+		return fmt.Errorf("%s: modifier_defaults.is_indoor requires modifier_applicability.is_indoor=true", context)
 	}
 	return nil
 }

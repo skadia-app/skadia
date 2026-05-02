@@ -21,31 +21,38 @@ type SportTraits struct {
 	PropulsionModes   []string `json:"propulsion_modes"`
 }
 
+// ModifierDefaults describes canonical tuple-level modifier defaults.
+type ModifierDefaults struct {
+	IsIndoor *bool `json:"is_indoor,omitempty"`
+}
+
 // SubTypeDef describes a sub-sport variation within a parent sport.
 type SubTypeDef struct {
-	SubType         string      `json:"sub_type"`
-	LabelDE         string      `json:"label_de"`
-	DetailDE        string      `json:"detail_de"`
-	AutoTitleDE     string      `json:"auto_title_de"`
-	MovingThreshold *float64    `json:"moving_threshold,omitempty"`
-	Selectable      bool        `json:"selectable"`
-	Traits          SportTraits `json:"traits"`
+	SubType          string           `json:"sub_type"`
+	LabelDE          string           `json:"label_de"`
+	DetailDE         string           `json:"detail_de"`
+	AutoTitleDE      string           `json:"auto_title_de"`
+	MovingThreshold  *float64         `json:"moving_threshold,omitempty"`
+	Selectable       bool             `json:"selectable"`
+	Traits           SportTraits      `json:"traits"`
+	ModifierDefaults ModifierDefaults `json:"modifier_defaults,omitempty"`
 }
 
 // SportDef holds every piece of metadata for a single sport type.
 type SportDef struct {
-	SportType       string                `json:"sport_type"`
-	CategoryKey     string                `json:"category_key"`
-	LabelDE         string                `json:"label_de"`
-	AutoTitleDE     string                `json:"auto_title_de"`
-	SegmentGroup    string                `json:"segment_group"`
-	TypicallyHasGPS bool                  `json:"typically_has_gps"`
-	MovingThreshold float64               `json:"moving_threshold"`
-	IsIndoor        bool                  `json:"is_indoor"`
-	Lifecycle       string                `json:"lifecycle"`
-	Selectable      bool                  `json:"selectable"`
-	Traits          SportTraits           `json:"traits"`
-	SubTypes        map[string]SubTypeDef `json:"sub_types,omitempty"`
+	SportType        string                `json:"sport_type"`
+	CategoryKey      string                `json:"category_key"`
+	LabelDE          string                `json:"label_de"`
+	AutoTitleDE      string                `json:"auto_title_de"`
+	SegmentGroup     string                `json:"segment_group"`
+	TypicallyHasGPS  bool                  `json:"typically_has_gps"`
+	MovingThreshold  float64               `json:"moving_threshold"`
+	IsIndoor         bool                  `json:"is_indoor"`
+	Lifecycle        string                `json:"lifecycle"`
+	Selectable       bool                  `json:"selectable"`
+	Traits           SportTraits           `json:"traits"`
+	ModifierDefaults ModifierDefaults      `json:"modifier_defaults,omitempty"`
+	SubTypes         map[string]SubTypeDef `json:"sub_types,omitempty"`
 }
 
 // ---- Categories ----
@@ -220,20 +227,37 @@ func titleCase(s string) string {
 	return strings.Join(parts, " ")
 }
 
-// IsIndoor returns true when the given sport/sub-type combination
-// represents an indoor activity. Three sources of truth:
-//  1. SportDef.IsIndoor flag (sport types that are always indoor)
-//  2. SubType name pattern (indoor_* prefix or explicit list)
-//
-// Indoor SubType patterns. New indoor sub-types MUST use "indoor_" prefix
-// or be added here explicitly. See SportDef.IsIndoor for sport-level defaults.
-func IsIndoor(sportType, subType string) bool {
-	if d, ok := registry[sportType]; ok && d.IsIndoor {
-		return true
+// ModifierDefaultsForTuple returns effective canonical modifier defaults for a
+// sport tuple. Unknown sports and subtypes return zero defaults.
+func ModifierDefaultsForTuple(sportType, subType string) ModifierDefaults {
+	d, ok := registry[sportType]
+	if !ok {
+		return ModifierDefaults{}
 	}
-	return strings.HasPrefix(subType, "indoor_") ||
-		subType == "treadmill" ||
-		subType == "spin"
+	defaults := d.ModifierDefaults
+	if subType != "" && subType != "generic" {
+		st, stOK := d.SubTypes[subType]
+		if !stOK {
+			return ModifierDefaults{}
+		}
+		defaults = mergeModifierDefaults(defaults, st.ModifierDefaults)
+	}
+	return defaults
+}
+
+func mergeModifierDefaults(parent, child ModifierDefaults) ModifierDefaults {
+	merged := parent
+	if child.IsIndoor != nil {
+		merged.IsIndoor = child.IsIndoor
+	}
+	return merged
+}
+
+// IsIndoor returns true when generated canonical modifier defaults mark the
+// given sport/sub-type combination as indoor.
+func IsIndoor(sportType, subType string) bool {
+	defaults := ModifierDefaultsForTuple(sportType, subType)
+	return defaults.IsIndoor != nil && *defaults.IsIndoor
 }
 
 func subTypeLabelCanStandAlone(d SportDef) bool {
@@ -246,5 +270,9 @@ func subTypeLabelCanStandAlone(d SportDef) bool {
 }
 
 func ptrFloat64(v float64) *float64 {
+	return &v
+}
+
+func ptrBool(v bool) *bool {
 	return &v
 }

@@ -25,6 +25,9 @@ func RenderGo(t Taxonomy) ([]byte, error) {
 		fmt.Fprintf(&buf, "\t\tSegmentGroup: %q, TypicallyHasGPS: %t, MovingThreshold: %v, IsIndoor: %t,\n", s.SegmentGroup, s.TypicallyHasGPS, s.MovingThreshold, s.IsIndoor)
 		fmt.Fprintf(&buf, "\t\tLifecycle: %q, Selectable: %t,\n", s.Lifecycle, *s.Selectable)
 		fmt.Fprintf(&buf, "\t\tTraits: %s,\n", renderGoTraits(s.Traits))
+		if defaults := effectiveSportModifierDefaults(s); defaults != nil {
+			fmt.Fprintf(&buf, "\t\tModifierDefaults: %s,\n", renderGoModifierDefaults(defaults))
+		}
 		if len(s.SubTypes) > 0 {
 			buf.WriteString("\t\tSubTypes: map[string]SubTypeDef{\n")
 			subTypes := append([]SubType(nil), s.SubTypes...)
@@ -35,6 +38,9 @@ func RenderGo(t Taxonomy) ([]byte, error) {
 					fmt.Fprintf(&buf, ", MovingThreshold: ptrFloat64(%v)", *st.MovingThreshold)
 				}
 				fmt.Fprintf(&buf, ", Traits: %s", renderGoTraits(EffectiveSubTypeTraits(s, st)))
+				if st.ModifierDefaults != nil {
+					fmt.Fprintf(&buf, ", ModifierDefaults: %s", renderGoModifierDefaults(st.ModifierDefaults))
+				}
 				buf.WriteString("},\n")
 			}
 			buf.WriteString("\t\t},\n")
@@ -58,4 +64,32 @@ func renderGoTraits(traits Traits) string {
 		traits.ActivityForm,
 		traits.PropulsionModes,
 	)
+}
+
+func effectiveSportModifierDefaults(s Sport) *ModifierDefaults {
+	if s.ModifierDefaults == nil && !s.IsIndoor {
+		return nil
+	}
+	defaults := ModifierDefaults{}
+	if s.ModifierDefaults != nil {
+		defaults = *s.ModifierDefaults
+	}
+	if s.IsIndoor && defaults.IsIndoor == nil {
+		isIndoor := true
+		defaults.IsIndoor = &isIndoor
+	}
+	return &defaults
+}
+
+func renderGoModifierDefaults(defaults *ModifierDefaults) string {
+	if defaults == nil {
+		return "ModifierDefaults{}"
+	}
+	var buf bytes.Buffer
+	buf.WriteString("ModifierDefaults{")
+	if defaults.IsIndoor != nil {
+		fmt.Fprintf(&buf, "IsIndoor: ptrBool(%t),", *defaults.IsIndoor)
+	}
+	buf.WriteString("}")
+	return buf.String()
 }

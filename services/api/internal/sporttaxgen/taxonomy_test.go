@@ -136,6 +136,41 @@ sports:
 	}
 }
 
+func TestLoadTaxonomyAcceptsModifierDefaults(t *testing.T) {
+	taxonomy, err := LoadTaxonomy(strings.NewReader(modifierDefaultsFixture()))
+	if err != nil {
+		t.Fatalf("LoadTaxonomy returned error: %v", err)
+	}
+	got := taxonomy.Sports[0].SubTypes[0].ModifierDefaults
+	if got == nil || got.IsIndoor == nil || !*got.IsIndoor {
+		t.Fatalf("subtype modifier defaults = %#v, want is_indoor true", got)
+	}
+}
+
+func TestLoadTaxonomyRejectsModifierDefaultWhenApplicabilityFalse(t *testing.T) {
+	src := strings.Replace(modifierDefaultsFixture(), "      is_indoor: true", "      is_indoor: false", 1)
+	_, err := LoadTaxonomy(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("LoadTaxonomy accepted modifier_defaults.is_indoor when modifier_applicability.is_indoor=false")
+	}
+}
+
+func TestLoadTaxonomyRejectsEmptyModifierDefaults(t *testing.T) {
+	src := strings.Replace(modifierDefaultsFixture(), "        modifier_defaults:\n          is_indoor: true", "        modifier_defaults: {}", 1)
+	_, err := LoadTaxonomy(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("LoadTaxonomy accepted empty modifier_defaults")
+	}
+}
+
+func TestLoadTaxonomyRejectsUnknownModifierDefaultField(t *testing.T) {
+	src := strings.Replace(modifierDefaultsFixture(), "        is_indoor: true", "        is_virtual: true", 1)
+	_, err := LoadTaxonomy(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("LoadTaxonomy accepted unknown modifier_defaults field")
+	}
+}
+
 func TestLoadTaxonomyAcceptsLifecycleSelectableAndSubtypeThreshold(t *testing.T) {
 	_, err := LoadTaxonomy(strings.NewReader(lifecycleFixture()))
 	if err != nil {
@@ -528,6 +563,7 @@ func TestTaxonomySchemaMentionsValidatedFields(t *testing.T) {
 		"lifecycle",
 		"selectable",
 		"modifier_applicability",
+		"modifier_defaults",
 		"traits",
 		"environments",
 		"movement_families",
@@ -545,6 +581,41 @@ func TestTaxonomySchemaMentionsValidatedFields(t *testing.T) {
 			t.Fatalf("taxonomy schema does not mention validated field %q", field)
 		}
 	}
+}
+
+func TestTaxonomySchemaSupportsOnlyIndoorModifierDefaults(t *testing.T) {
+	schema, err := os.ReadFile("../../../../config/sport-taxonomy/schema/taxonomy.schema.json")
+	if err != nil {
+		t.Fatalf("read taxonomy schema: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(schema, &decoded); err != nil {
+		t.Fatalf("taxonomy schema is not valid JSON: %v", err)
+	}
+
+	defs := decoded["$defs"].(map[string]any)
+	defaults := defs["modifierDefaults"].(map[string]any)
+	if got := defaults["additionalProperties"]; got != false {
+		t.Fatalf("modifierDefaults additionalProperties = %#v, want false", got)
+	}
+	properties := defaults["properties"].(map[string]any)
+	isIndoor := properties["is_indoor"].(map[string]any)
+	if got := isIndoor["type"]; got != "boolean" {
+		t.Fatalf("modifierDefaults.is_indoor type = %#v, want boolean", got)
+	}
+	if _, ok := properties["is_virtual"]; ok {
+		t.Fatal("modifierDefaults schema unexpectedly allows is_virtual")
+	}
+
+	sports := decoded["properties"].(map[string]any)["sports"].(map[string]any)
+	sportItems := sports["items"].(map[string]any)
+	sportProperties := sportItems["properties"].(map[string]any)
+	assertSchemaRef(t, sportProperties, "modifier_defaults", "#/$defs/modifierDefaults")
+
+	subTypes := sportProperties["sub_types"].(map[string]any)
+	subTypeItems := subTypes["items"].(map[string]any)
+	subTypeProperties := subTypeItems["properties"].(map[string]any)
+	assertSchemaRef(t, subTypeProperties, "modifier_defaults", "#/$defs/modifierDefaults")
 }
 
 func TestTaxonomySchemaTraitEnumsMatchLoaderVocabulary(t *testing.T) {
@@ -580,6 +651,14 @@ func TestTaxonomySchemaTraitEnumsMatchLoaderVocabulary(t *testing.T) {
 	}
 }
 
+func assertSchemaRef(t *testing.T, properties map[string]any, field, want string) {
+	t.Helper()
+	property := properties[field].(map[string]any)
+	if got := property["$ref"]; got != want {
+		t.Fatalf("schema property %s ref = %#v, want %q", field, got, want)
+	}
+}
+
 func assertSchemaEnum(t *testing.T, properties map[string]any, field string, want []string) {
 	t.Helper()
 	property := properties[field].(map[string]any)
@@ -597,6 +676,48 @@ func assertSchemaEnum(t *testing.T, properties map[string]any, field string, wan
 	if !stringSlicesEqual(got, want) {
 		t.Fatalf("schema enum %s = %#v, want %#v", field, got, want)
 	}
+}
+
+func modifierDefaultsFixture() string {
+	return `
+categories:
+  - key: water
+    labels: {de: Wasser}
+    color: {token: water, light_hex: "#3B82F6"}
+sports:
+  - sport_type: diving
+    category_key: water
+    labels: {de: Tauchen}
+    auto_titles: {de: Tauchgang}
+    segment_group: swim
+    typically_has_gps: false
+    moving_threshold: 0.1
+    is_indoor: false
+    traits:
+      environments: [water]
+      movement_families: [swim]
+      equipment_families: [breathing_gear]
+      activity_form: family
+      propulsion_modes: [human]
+    modifier_applicability:
+      is_electric: false
+      is_indoor: true
+      is_virtual: false
+      is_commute: false
+    sub_types:
+      - sub_type: apnea_pool
+        labels: {de: Apnoe Pool}
+        details: {de: Apnoe-Tauchen (Pool)}
+        auto_titles: {de: Apnoe-Tauchen}
+        traits:
+          environments: [water, indoor]
+          movement_families: [swim]
+          equipment_families: []
+          activity_form: single
+          propulsion_modes: [human]
+        modifier_defaults:
+          is_indoor: true
+`
 }
 
 func validTraitFixture() string {

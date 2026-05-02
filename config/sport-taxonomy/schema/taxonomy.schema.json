@@ -72,6 +72,7 @@
               "is_commute": { "type": "boolean" }
             }
           },
+          "modifier_defaults": { "$ref": "#/$defs/modifierDefaults" },
           "sub_types": {
             "type": "array",
             "items": {
@@ -85,7 +86,8 @@
                 "auto_titles": { "$ref": "#/$defs/localeMap" },
                 "moving_threshold": { "type": "number", "minimum": 0 },
                 "selectable": { "type": "boolean" },
-                "traits": { "$ref": "#/$defs/traits" }
+                "traits": { "$ref": "#/$defs/traits" },
+                "modifier_defaults": { "$ref": "#/$defs/modifierDefaults" }
               }
             }
           }
@@ -100,6 +102,14 @@
       "required": ["de"],
       "properties": {
         "de": { "type": "string", "minLength": 1 }
+      }
+    },
+    "modifierDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["is_indoor"],
+      "properties": {
+        "is_indoor": { "type": "boolean" }
       }
     },
     "traits": {
