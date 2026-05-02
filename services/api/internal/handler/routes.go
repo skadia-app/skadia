@@ -3,11 +3,13 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -16,6 +18,73 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
+
+// routeETag formats a planned-route version as a strong RFC 7232 ETag.
+// Strong validators are correct here because the body is a deterministic
+// projection of the row state — equal version implies byte-equal payload.
+func routeETag(version int64) string {
+	return `"` + strconv.FormatInt(version, 10) + `"`
+}
+
+// parseIfMatchResult is the outcome of parseIfMatchVersion.
+type parseIfMatchResult int
+
+const (
+	ifMatchAbsent   parseIfMatchResult = iota // header not sent or wildcard — use legacy path
+	ifMatchValid                              // header present and parseable — use concurrency check
+	ifMatchMalformed                          // header present but unparseable — caller must return 400
+)
+
+// parseIfMatchVersion extracts a numeric version from an If-Match header.
+//
+// Returns:
+//   - ifMatchAbsent   (0)  when the header is missing or the wildcard "*".
+//     Callers fall back to the legacy unconditional-update path.
+//   - ifMatchValid    (n)  when the header carries a single strong ("N") or
+//     weak (W/"N") ETag with a positive decimal integer. Callers use n for
+//     the optimistic-concurrency check.
+//   - ifMatchMalformed (0) when the header is present but does not conform to
+//     the above grammar (no quotes, non-numeric payload, multiple tags, …).
+//     Callers must reject the request with 400.
+//
+// OWS (optional whitespace) around the header value is stripped per RFC 7230.
+// Multi-tag values (comma-separated) are rejected as malformed because this
+// server sets exactly one ETag per resource and cannot meaningfully evaluate
+// a tag list.
+func parseIfMatchVersion(raw string) (int64, parseIfMatchResult) {
+	v := strings.TrimSpace(raw)
+	if v == "" || v == "*" {
+		// Absent header or wildcard: both treated as "no version constraint".
+		// Wildcard maps to legacy rather than unconditional-match-success
+		// because a buggy proxy injecting "*" would otherwise silently disable
+		// the concurrency guard.
+		return 0, ifMatchAbsent
+	}
+
+	// Reject multi-tag values (e.g. `"1", "2"`) — we set exactly one ETag.
+	if strings.Contains(v, ",") {
+		return 0, ifMatchMalformed
+	}
+
+	// Accept both strong `"N"` and weak `W/"N"` forms.
+	v = strings.TrimPrefix(v, "W/")
+
+	// The value must now be a quoted string.
+	if !strings.HasPrefix(v, `"`) || !strings.HasSuffix(v, `"`) || len(v) < 2 {
+		return 0, ifMatchMalformed
+	}
+	inner := v[1 : len(v)-1]
+	inner = strings.TrimSpace(inner)
+	if inner == "" {
+		return 0, ifMatchMalformed
+	}
+
+	n, err := strconv.ParseInt(inner, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, ifMatchMalformed
+	}
+	return n, ifMatchValid
+}
 
 // ListRoutes returns paginated planned routes for the authenticated user.
 // GET /api/v1/routes
@@ -89,6 +158,7 @@ func (h *Handler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	route.ID = id
+	w.Header().Set("ETag", routeETag(route.Version))
 	httputil.WriteJSON(w, http.StatusCreated, route)
 }
 
@@ -112,6 +182,7 @@ func (h *Handler) GetRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("ETag", routeETag(route.Version))
 	httputil.WriteJSON(w, http.StatusOK, route)
 }
 
@@ -263,10 +334,42 @@ func (h *Handler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	existing.ID = id
 	existing.UserID = userID
 
-	if err := h.DB.UpdateRoute(r.Context(), existing); httputil.HandleDBErr(w, r, err, "route not found", "id", id) {
+	// Optimistic-concurrency: parse If-Match.
+	//   absent   → legacy silent-overwrite path (backwards compat; emits Warn)
+	//   valid    → concurrency check; ErrVersionMismatch → 412
+	//   malformed → 400 so that a buggy proxy injecting a broken header does
+	//               not silently disable the guard
+	expectedVersion, ifMatchState := parseIfMatchVersion(r.Header.Get("If-Match"))
+	switch ifMatchState {
+	case ifMatchAbsent:
+		slog.Warn("PATCH /routes without If-Match header — silent overwrite path",
+			"route_id", id, "user_id", userID)
+	case ifMatchMalformed:
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid If-Match header", r.URL.Path)
 		return
 	}
 
+	err = h.DB.UpdateRoute(r.Context(), existing, expectedVersion)
+	if errors.Is(err, database.ErrVersionMismatch) {
+		// 412 body carries the current resource state so the client can
+		// diff/merge or reload without an extra GET roundtrip. Same shape
+		// as GET /routes/{id}.
+		current, getErr := h.DB.GetRoute(r.Context(), id, userID)
+		if getErr != nil {
+			// Race: row was deleted between the failed UPDATE and the
+			// follow-up GET. Surface as 404 — the entity is genuinely gone.
+			httputil.HandleDBErr(w, r, getErr, "route not found", "id", id)
+			return
+		}
+		w.Header().Set("ETag", routeETag(current.Version))
+		httputil.WriteJSON(w, http.StatusPreconditionFailed, current)
+		return
+	}
+	if httputil.HandleDBErr(w, r, err, "route not found", "id", id) {
+		return
+	}
+
+	w.Header().Set("ETag", routeETag(existing.Version))
 	httputil.WriteJSON(w, http.StatusOK, existing)
 }
 

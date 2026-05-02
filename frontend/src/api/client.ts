@@ -6,6 +6,46 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// ETag cache — strong validators emitted by GET /routes/{id} (and any future
+// resource that opts in) are stashed here per cache-key. PATCH / PUT calls to
+// the same key automatically inherit `If-Match`, giving the backend an
+// optimistic-concurrency token without each call site having to track it.
+//
+// The cache is in-memory and module-scoped — no persistence across reloads.
+// That is intentional: a stale ETag would cause a 412 false-positive after a
+// reload, and re-fetching the resource on mount yields a fresh token anyway.
+// ────────────────────────────────────────────────────────────────────────────
+
+const etagCache = new Map<string, string>()
+
+/** Cache key collapses the query string so `?sort=foo` GETs do not pollute the
+ *  resource's PATCH precondition. Resource identity lives in the path. */
+function etagCacheKey(path: string): string {
+  const qs = path.indexOf('?')
+  return qs >= 0 ? path.slice(0, qs) : path
+}
+
+/** Visible for tests / logout flows: drop all cached ETags. */
+export function clearETagCache(): void {
+  etagCache.clear()
+}
+
+/** Visible for tests: read the cached ETag for a path, if any. */
+export function getCachedETag(path: string): string | undefined {
+  return etagCache.get(etagCacheKey(path))
+}
+
+/**
+ * Explicitly store an ETag for a path. Called by higher-level code (e.g.
+ * useRoutePlanner) when the user explicitly accepts a conflict-response body
+ * and the cache must be advanced to the server's current version before the
+ * next write.
+ */
+export function storeETagForPath(path: string, etag: string): void {
+  etagCache.set(etagCacheKey(path), etag)
+}
+
 /** Authenticated API client with automatic token refresh on 401 */
 export async function apiClient<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const response = await doFetch(path, options)
@@ -15,6 +55,7 @@ export async function apiClient<T>(path: string, options: RequestOptions = {}): 
     if (refreshed) {
       const retry = await doFetch(path, options)
       if (!retry.ok) throw await apiErrorFromResponse(retry)
+      maybeStoreETag(path, retry, options)
       return retry.json() as Promise<T>
     }
     clearToken()
@@ -23,8 +64,15 @@ export async function apiClient<T>(path: string, options: RequestOptions = {}): 
   }
 
   if (!response.ok) {
-    throw await apiErrorFromResponse(response)
+    // 412: do NOT update the ETag cache. Updating it here would silently allow
+    // a second save attempt (with the stale local edits still in state) to pass
+    // the precondition check, overwriting the concurrent change. The caller
+    // must explicitly accept the conflict body and advance the cache via
+    // storeETagForPath() before the next write is permitted.
+    throw await apiErrorFrom412OrResponse(response)
   }
+
+  maybeStoreETag(path, response, options)
 
   if (response.status === 204) return null as unknown as T
   // 202 may or may not have a JSON body; only parse if Content-Type indicates JSON
@@ -34,6 +82,18 @@ export async function apiClient<T>(path: string, options: RequestOptions = {}): 
     return null as unknown as T
   }
   return response.json() as Promise<T>
+}
+
+/** Store a server-issued ETag against the resource path so a subsequent PATCH /
+ *  PUT can use it as `If-Match`. Only successful GET / PATCH / PUT / POST
+ *  responses with an ETag header populate the cache — DELETE 204s and other
+ *  empty responses are no-ops. */
+function maybeStoreETag(path: string, response: Response, options: RequestOptions): void {
+  const etag = response.headers.get('ETag')
+  if (!etag) return
+  const method = (options.method ?? 'GET').toUpperCase()
+  if (method !== 'GET' && method !== 'PATCH' && method !== 'PUT' && method !== 'POST') return
+  etagCache.set(etagCacheKey(path), etag)
 }
 
 function doFetch(path: string, options: RequestOptions): Promise<Response> {
@@ -48,6 +108,16 @@ function doFetch(path: string, options: RequestOptions): Promise<Response> {
 
   if (options.body !== undefined && options.body !== null) {
     headers['Content-Type'] = 'application/json'
+  }
+
+  // Inject If-Match for write methods that target a previously-cached
+  // resource. Caller-supplied If-Match always wins (covers explicit overrides
+  // and tests). The wildcard "*" cache value disables auto-injection without
+  // removing the entry — useful for forced overwrites.
+  const method = (options.method ?? 'GET').toUpperCase()
+  if ((method === 'PATCH' || method === 'PUT') && headers['If-Match'] === undefined) {
+    const cached = etagCache.get(etagCacheKey(path))
+    if (cached) headers['If-Match'] = cached
   }
 
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`
@@ -159,6 +229,12 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly body: string,
     public readonly json?: Record<string, unknown>,
+    /**
+     * For 412 responses only: the ETag the server returned alongside the
+     * current resource state. Callers that accept the conflict body must pass
+     * this to storeETagForPath() before the next write to advance the cache.
+     */
+    public readonly serverETag?: string,
   ) {
     super(`API error ${status}: ${body}`)
     this.name = 'ApiError'
@@ -181,6 +257,19 @@ async function apiErrorFromResponse(res: Response): Promise<ApiError> {
     }
   }
   return new ApiError(res.status, text)
+}
+
+/**
+ * Build an ApiError for a non-ok response, attaching the server's ETag header
+ * value for 412 responses. The ETag is NOT written to the cache here — the
+ * caller must explicitly call storeETagForPath() after accepting the conflict
+ * body, ensuring the cache only advances when the user deliberately reloads.
+ */
+async function apiErrorFrom412OrResponse(res: Response): Promise<ApiError> {
+  const base = await apiErrorFromResponse(res)
+  if (res.status !== 412) return base
+  const etag = res.headers.get('ETag') ?? undefined
+  return new ApiError(base.status, base.body, base.json, etag)
 }
 
 /** Build an ApiError from an XHR response, parsing JSON when possible. */

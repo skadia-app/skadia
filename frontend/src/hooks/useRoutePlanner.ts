@@ -28,6 +28,7 @@ import { getElevationAtVerticesChunked } from '@/api/elevation-chunked'
 import { needsMigration, migrateRouteCached } from './migrateRoute'
 import type { ProfileConfig } from '@/lib/routingProfiles'
 import { getProfileDefaults, cacheServerDefaults } from '@/lib/routingProfiles'
+import { storeETagForPath } from '@/api/client'
 import { useToast } from '@/lib/toast'
 import { catmullRom, polylineDistanceM } from '@/lib/catmull-rom'
 
@@ -1789,6 +1790,44 @@ export function useRoutePlanner() {
           type: 'success',
           title: 'Route aktualisiert',
           message: saved.name || undefined,
+        })
+      }
+    },
+    onError: err => {
+      // 412 Precondition Failed: another tab (or a concurrent backend flow)
+      // changed this route since we loaded it. The server returns the current
+      // resource state in the body so the user can reload without a separate
+      // GET — we surface a toast with a reload action that swaps the planner
+      // state to the server-side truth and discards local edits.
+      // v1: no merge UI; the user picks reload-or-keep-editing.
+      //
+      // The ETag cache is NOT updated here (apiClient no longer does it either).
+      // It is only advanced when the user explicitly accepts the conflict body by
+      // clicking "Neu laden". This prevents a second save of the stale local
+      // state from silently overwriting the concurrent change with the fresh ETag.
+      const apiErr = err as { status?: number; json?: Record<string, unknown>; serverETag?: string } | null
+      if (apiErr && apiErr.status === 412 && apiErr.json) {
+        const serverRoute = apiErr.json as unknown as PlannedRoute
+        const conflictETag = apiErr.serverETag
+        const conflictRouteId = savingRouteIdRef.current
+        addToast({
+          type: 'warning',
+          title: 'Route wurde anderswo geändert',
+          message:
+            'Diese Route wurde inzwischen anderswo bearbeitet. Bitte neu laden, um die aktuellen Änderungen zu sehen — lokale Änderungen gehen dabei verloren.',
+          duration: 0,
+          action: {
+            label: 'Neu laden',
+            onClick: () => {
+              // Advance the ETag cache to the server's current version so the
+              // next save (after the user edits the freshly loaded state) uses
+              // the correct precondition token.
+              if (conflictETag && conflictRouteId) {
+                storeETagForPath(`/routes/${conflictRouteId}`, conflictETag)
+              }
+              loadRoute(serverRoute)
+            },
+          },
         })
       }
     },

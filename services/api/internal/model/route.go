@@ -94,6 +94,10 @@ type PlannedRoute struct {
 	// 0 = approach-exclusive profile (legacy). 1 = approach-inclusive, full profile incl. VE-Tail/Approach/Spline.
 	// Default 0 (DB DEFAULT). Set to 1 by all user-triggered save paths. Migration 000334.
 	RouteSchemaVersion int16 `json:"route_schema_version"`
+	// Version is the optimistic-concurrency token (Migration 000345). Source of
+	// the HTTP strong ETag emitted on GET; PATCH callers send the last observed
+	// value via If-Match. Bumped by every successful UPDATE. Default 1 in DB.
+	Version int64 `json:"version"`
 }
 
 // RouteImportData is the input struct for importing routes from external sources.
