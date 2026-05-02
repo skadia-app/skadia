@@ -7,6 +7,7 @@ presets:
         label_ref: category:run
         entries:
           - category_key: run
+            label_mode: with_parent
             sport_order: [running, walking, hiking, mountaineering, wheelchair_push]
       - key: bike
         label_ref: category:bike
@@ -17,6 +18,7 @@ presets:
         label_ref: category:winter
         entries:
           - category_key: winter
+            label_mode: with_parent
             sport_order: [alpine_skiing, backcountry_skiing, cross_country_skiing, snowboarding, snowshoeing, ice_skating, snowmobiling, sledding]
           - sport_type: skiing
       - key: water_swim
@@ -28,9 +30,11 @@ presets:
         entries:
           - sport_type: paddling
           - sport_type: kayaking
+            label_mode: with_parent
           - sport_type: stand_up_paddleboarding
           - sport_type: rowing
           - sport_type: rafting
+            label_mode: with_parent
           - sport_type: canoeing
       - key: water_board
         labels: {de: Surfen/Board}
@@ -60,6 +64,7 @@ presets:
         label_ref: category:fitness
         entries:
           - category_key: fitness
+            label_mode: with_parent
             sport_order: [training, fitness_equipment, strength_training, hiit, yoga, pilates, floor_climbing, dance, jump_rope, meditation, boxing, mixed_martial_arts]
       - key: game
         label_ref: category:game
@@ -95,6 +100,7 @@ presets:
         label_ref: category:run
         entries:
           - category_key: run
+            label_mode: with_parent
             sport_order: [running, walking, hiking, mountaineering, wheelchair_push]
       - key: bike
         label_ref: category:bike
@@ -105,6 +111,7 @@ presets:
         label_ref: category:winter
         entries:
           - category_key: winter
+            label_mode: with_parent
             sport_order: [alpine_skiing, backcountry_skiing, cross_country_skiing, snowboarding, snowshoeing, ice_skating, snowmobiling, sledding]
           - sport_type: skiing
       - key: water_swim
@@ -116,9 +123,11 @@ presets:
         entries:
           - sport_type: paddling
           - sport_type: kayaking
+            label_mode: with_parent
           - sport_type: stand_up_paddleboarding
           - sport_type: rowing
           - sport_type: rafting
+            label_mode: with_parent
           - sport_type: canoeing
       - key: water_board
         labels: {de: Surfen/Board}
@@ -163,6 +172,7 @@ presets:
         labels: {de: Fitness & Sonstiges}
         entries:
           - category_key: fitness
+            label_mode: with_parent
             sport_order: [training, fitness_equipment, strength_training, hiit, yoga, pilates, floor_climbing, dance, jump_rope, meditation, boxing, mixed_martial_arts]
           - category_key: game
             sport_order: [soccer, basketball, american_football, rugby, lacrosse, hockey, volleyball, tennis, racket, cricket, baseball, golf, disc_golf]
