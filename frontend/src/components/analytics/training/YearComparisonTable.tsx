@@ -25,23 +25,33 @@ const MONTH_NAMES_DE = [
 // Months are 0-indexed throughout (Jan = 0).
 const MONTH_LAST_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
-// Returns month index (0-based) of the last fully completed month before `date`.
-// If date is the 1st of a month, returns the previous month.
-export function lockedMonthIndex(date: Date): number {
+// Returns month index (0-based) of the last fully completed month before `date`,
+// or null when no fully completed month exists (January with day <= 1 wraps into
+// the previous year which is outside the current year's data range).
+export function lockedMonthIndex(date: Date): number | null {
   const day = date.getDate()
   const month = date.getMonth()
-  if (day <= 1) {
-    // On the 1st, the current month has no full data yet — use previous month.
-    return month === 0 ? 11 : month - 1
+  if (month === 0 && day <= 1) {
+    // January 1st: no month of the current year is fully completed yet.
+    return null
   }
-  // On any later day, the previous month is fully completed.
-  return month === 0 ? 11 : month - 1
+  if (day <= 1) {
+    // First day of any other month: step back one month.
+    return month - 1
+  }
+  // After the first day: the previous month is fully completed.
+  // January (month === 0): wraps to December (11) of the prior year, but that is
+  // outside the current year's cumulative data — treat as "no lock" (null).
+  if (month === 0) return null
+  return month - 1
 }
 
 // Cumulative sum up to and including `upToMonth` (0-based, inclusive).
+// Returns 0 when upToMonth is null (no completed month in the lock window).
 // Uses the `cumulative` array from the API if available (avoids re-summing),
 // otherwise falls back to summing `monthly`.
-function cumulativeUpTo(yearData: YearProgressionYearData, upToMonth: number): number {
+function cumulativeUpTo(yearData: YearProgressionYearData, upToMonth: number | null): number {
+  if (upToMonth === null) return 0
   if (yearData.cumulative?.length > upToMonth) {
     return yearData.cumulative[upToMonth]
   }
@@ -68,10 +78,13 @@ function deltaColor(diff: number): string {
 }
 
 // Header date range: "1. Januar → 30. April" (German, day-granular names).
-function buildHeaderLabel(upToMonth: number | null): string {
-  if (upToMonth === null) {
-    // No lock — show full year range.
+// locked=true with upToMonth=null means January edge case: no completed month yet.
+function buildHeaderLabel(upToMonth: number | null, locked: boolean): string {
+  if (!locked) {
     return `1. Januar → 31. Dezember`
+  }
+  if (upToMonth === null) {
+    return `Kein abgeschlossener Monat`
   }
   const lastDay = MONTH_LAST_DAYS[upToMonth]
   return `1. Januar → ${lastDay}. ${MONTH_NAMES_DE[upToMonth]}`
@@ -100,32 +113,30 @@ export default function YearComparisonTable({
   const meta = METRIC_META[metric]
 
   // Determine up-to-month index (0-based) from lockedDate.
+  // null means either no lock or January edge case (no completed month available).
   const upToMonth: number | null = lockedDate !== null
     ? lockedMonthIndex(lockedDate)
     : null
 
   // Compute values for each year.
   const rows = years.map((yd) => {
-    const value = upToMonth !== null
+    const value = (lockedDate !== null && upToMonth !== null)
       ? cumulativeUpTo(yd, upToMonth)
-      : yd.total
+      : (lockedDate !== null && upToMonth === null)
+        ? 0
+        : yd.total
     return { year: yd.year, value }
   })
 
-  // Δ prev. year: diff to the chronologically prior year in the list.
+  // Δ prev. year: diff to the chronologically prior year (year - 1), not an
+  // array-index neighbour. Backend delivers rows ORDER BY year ASC; index-based
+  // access would compare against the next year, not the previous one.
+  // When there is no row for year - 1 (gap in data), deltaVsPrev is null.
   // Δ with current year: diff to the current calendar year's value.
-  const currentYearRow = rows.find(r => r.year === currentYear)
-  const currentYearValue = currentYearRow?.value ?? 0
+  const rowByYear = new Map(rows.map(r => [r.year, r.value]))
+  const currentYearValue = rowByYear.get(currentYear) ?? 0
 
-  const headerLabel = buildHeaderLabel(upToMonth)
-
-  function handleRowClick(month: number) {
-    // Row click locks to that month's end: use last day of the month.
-    const now = new Date()
-    const year = now.getFullYear()
-    const lastDay = MONTH_LAST_DAYS[month]
-    onLockedDateChange(new Date(year, month, lastDay))
-  }
+  const headerLabel = buildHeaderLabel(upToMonth, lockedDate !== null)
 
   return (
     <div className="flex flex-col gap-2">
@@ -150,7 +161,7 @@ export default function YearComparisonTable({
       {/* Hint when no lock is active */}
       {lockedDate === null && (
         <p className="text-[10px] text-neutral-400 dark:text-neutral-600 italic">
-          Klicke auf eine Zeile um einen Monatsstand zu sperren
+          Klicke auf einen Punkt im Diagramm um einen Monatsstand zu sperren
         </p>
       )}
 
@@ -170,10 +181,10 @@ export default function YearComparisonTable({
               const colorIdx = yearColorIndex.get(row.year) ?? idx
               const color = YEAR_COLORS[colorIdx % YEAR_COLORS.length]
 
-              // Δ prev year: compare to the next entry in the sorted-descending list.
-              // rows are assumed sorted descending (most recent first).
-              const prevRow = rows[idx + 1]
-              const deltaVsPrev = prevRow !== undefined ? row.value - prevRow.value : null
+              // Δ prev year: compare to the chronologically prior year (year - 1).
+              // Null when no data exists for that year (gap in history).
+              const prevValue = rowByYear.get(row.year - 1)
+              const deltaVsPrev = prevValue !== undefined ? row.value - prevValue : null
 
               // Δ with current year: show 'Ø' for the current year itself.
               const isCurrentYear = row.year === currentYear
@@ -181,19 +192,10 @@ export default function YearComparisonTable({
 
               const valueLabel = fmt(row.value, meta)
 
-              const monthLabel = upToMonth !== null
-                ? MONTH_NAMES_DE[upToMonth]
-                : 'gesamt'
-
               return (
                 <tr
                   key={row.year}
-                  onClick={() => upToMonth !== null
-                    ? onLockedDateChange(null)
-                    : handleRowClick((new Date().getMonth() + 11) % 12) // lock to prev month on click
-                  }
-                  title={`${monthLabel} anzeigen`}
-                  className="border-b border-neutral-100 dark:border-neutral-800/60 hover:bg-neutral-50 dark:hover:bg-neutral-800/40 cursor-pointer transition-colors"
+                  className="border-b border-neutral-100 dark:border-neutral-800/60"
                 >
                   {/* Year pill */}
                   <td className="py-1.5 pr-2">

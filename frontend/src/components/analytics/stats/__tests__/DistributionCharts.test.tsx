@@ -143,13 +143,14 @@ describe('DistributionCharts — career-aggregate filter isolation', () => {
     const handlers = chartClickHandlers.get('click') ?? []
     expect(handlers.length).toBeGreaterThan(0)
 
-    // Invoke the first handler with a sport-type segment click event.
-    handlers[0]({ name: 'Rennrad' })
+    // Invoke the first handler with a sport segment click event that carries the
+    // canonical sport_type token in data.sport_type (as set by the pie series builder).
+    handlers[0]({ name: 'cycling', data: { sport_type: 'cycling' } })
 
     // The local selected-sports display should update — not the global URL.
     await waitFor(() => {
       const selected = screen.getByTestId('selected-sports').textContent
-      expect(selected).toContain('Rennrad')
+      expect(selected).toContain('cycling')
     })
 
     // setFilters from useAnalyticsFilters must not have been called.

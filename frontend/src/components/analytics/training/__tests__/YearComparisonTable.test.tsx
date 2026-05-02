@@ -37,12 +37,16 @@ describe('lockedMonthIndex', () => {
     expect(lockedMonthIndex(new Date(2024, 4, 1))).toBe(3)
   })
 
-  it('wraps from January (Jan 15th → December = index 11)', () => {
-    expect(lockedMonthIndex(new Date(2024, 0, 15))).toBe(11)
+  it('returns null for January (Jan 15th — prior month is Dec of previous year, outside current year)', () => {
+    expect(lockedMonthIndex(new Date(2024, 0, 15))).toBeNull()
   })
 
-  it('wraps from January on the 1st (Jan 1st → December = index 11)', () => {
-    expect(lockedMonthIndex(new Date(2024, 0, 1))).toBe(11)
+  it('returns null for January 1st (no completed month in the current year)', () => {
+    expect(lockedMonthIndex(new Date(2024, 0, 1))).toBeNull()
+  })
+
+  it('returns 0 (January) for February 2nd', () => {
+    expect(lockedMonthIndex(new Date(2024, 1, 2))).toBe(0)
   })
 })
 
@@ -123,6 +127,33 @@ describe('YearComparisonTable — locked-date behaviour', () => {
     )
     // Header should say "1. Januar → 30. April"
     expect(screen.getByText(/1\. Januar.*30\. April/)).toBeInTheDocument()
+  })
+
+  it('shows "Kein abgeschlossener Monat" header when locked to January', () => {
+    // January lock: no completed month in the current year's data.
+    const lockedDate = new Date(2024, 0, 15) // January 15th
+    render(<YearComparisonTable {...defaultProps({ lockedDate })} />)
+    expect(screen.getByText('Kein abgeschlossener Monat')).toBeInTheDocument()
+  })
+
+  it('shows 0 m for all years when locked to January (no completed month)', () => {
+    const years = [
+      makeYear(2024, [100000, 200000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+    ]
+    const colorIndex = new Map([[2024, 0]])
+    render(
+      <YearComparisonTable
+        {...defaultProps({
+          years,
+          yearColorIndex: colorIndex,
+          lockedDate: new Date(2024, 0, 15), // January
+          currentYear: 2024,
+          metric: 'elevation_gain_m',
+        })}
+      />
+    )
+    // 0 m (no completed month, value should be 0)
+    expect(screen.getByText('0 m')).toBeInTheDocument()
   })
 
   it('shows full-year header when no lock', () => {

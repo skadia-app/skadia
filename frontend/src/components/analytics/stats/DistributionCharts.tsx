@@ -104,6 +104,11 @@ function DistChartCard({ type, label, metric, params, onSportClick }: DistChartP
               data: topData.map((d, i) => ({
                 name: d.label,
                 value: d.value,
+                // sport_type carries the canonical backend token (= d.label for sport
+                // distributions, where the API returns the raw sport_type column value).
+                // The click handler reads this field so it never passes a display-only
+                // label string to the filter.
+                sport_type: d.label,
                 itemStyle: { color: CHART_COLORS[i % CHART_COLORS.length] },
               })),
               label: { show: false },
@@ -159,11 +164,12 @@ function DistChartCard({ type, label, metric, params, onSportClick }: DistChartP
     [data, chartType, metric],
     (chart) => {
       const handler = (params: unknown) => {
-        const p = params as { name?: string }
+        const p = params as { name?: string; data?: { sport_type?: string } }
         // Pie clicks on sport segments redirect to the local sport filter.
         // Other segment types (country, gear, distance_bucket) are not clickable.
+        // Use data.sport_type (canonical backend token) over p.name (display label).
         if (type === 'sport' && p.name && p.name.toLowerCase() !== 'unknown') {
-          onSportClick(p.name)
+          onSportClick(p.data?.sport_type ?? p.name)
         }
       }
       chart.on('click', handler)

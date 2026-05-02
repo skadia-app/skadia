@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchYearProgression, fetchYearProgressionRolling } from '@/api/analytics'
 import type { YearProgressionResponse, YearProgressionRollingResponse } from '@/api/analytics'
@@ -30,9 +31,18 @@ export function useYearProgression(args: UseYearProgressionArgs & { mode: 'rolli
 export function useYearProgression(args: UseYearProgressionArgs): UseYearProgressionResult<unknown> {
   const { mode, metric, periodDays = 30, granularity = 'day', queryParams } = args
 
+  // Progress-mode params: ensure `metric` is always present in the query string.
+  // Callers may omit metric from queryParams (they pass it separately for cache
+  // keying); we normalise here so the API always receives it.
+  const progressParams = useMemo(() => {
+    const p = new URLSearchParams(queryParams)
+    p.set('metric', metric)
+    return p.toString()
+  }, [queryParams, metric])
+
   const progressResult = useQuery({
-    queryKey: ['analytics', 'year-progression', 'progress', queryParams],
-    queryFn: () => fetchYearProgression(queryParams),
+    queryKey: ['analytics', 'year-progression', 'progress', metric, queryParams],
+    queryFn: () => fetchYearProgression(progressParams),
     staleTime: 5 * 60 * 1000,
     retry: 1,
     enabled: mode === 'progress',

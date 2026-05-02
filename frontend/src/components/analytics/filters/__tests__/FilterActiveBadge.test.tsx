@@ -95,6 +95,22 @@ describe('FilterActiveBadge', () => {
     expect(mockScrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth' })
   })
 
+  it('clicking badge dispatches analytics:open-filter-panel custom event', () => {
+    mockFilters.from = '2024-01-01'
+
+    const receivedEvents: Event[] = []
+    const listener = (e: Event) => receivedEvents.push(e)
+    window.addEventListener('analytics:open-filter-panel', listener)
+
+    render(<FilterActiveBadge />)
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(receivedEvents).toHaveLength(1)
+    expect(receivedEvents[0].type).toBe('analytics:open-filter-panel')
+
+    window.removeEventListener('analytics:open-filter-panel', listener)
+  })
+
   it('does not throw when filter panel element is not in DOM', () => {
     mockFilters.from = '2024-01-01'
     vi.spyOn(document, 'getElementById').mockReturnValue(null)

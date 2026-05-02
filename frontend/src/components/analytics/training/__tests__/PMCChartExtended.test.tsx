@@ -112,20 +112,34 @@ describe('PMCChartExtended — pure-aggregate filter isolation', () => {
     }
   })
 
-  it('passes from and to from URL as initial date range', async () => {
+  it('always sends from= and to= in API calls (own internal picker, not from URL sport filters)', async () => {
+    // PMC uses its own date-range picker and is NOT affected by URL sport/tag params.
+    // The plan-drift decision: PMC keeps its own picker rather than PureAggregateRangePicker
+    // (the existing picker is richer and would be lossy to replace).
     renderWithProviders('/analytics/training?from=2024-01-01&to=2024-06-30&sport_type=running')
 
     await screen.findByText('Performance Management (PMC)')
 
-    // At least one call with from/to present (the initial render may fire with URL-derived values
-    // or with default range depending on state initialization order — the important invariant is
-    // that sport_type never leaks through, tested above).
     const calls = mockFetchAnalyticsPMC.mock.calls
-    if (calls.length > 0) {
-      for (const call of calls) {
-        const params = new URLSearchParams(call[0] as string)
-        expect(params.has('sport_type')).toBe(false)
-      }
+    expect(calls.length).toBeGreaterThan(0)
+
+    for (const call of calls) {
+      const params = new URLSearchParams(call[0] as string)
+      // sport_type must never leak through (isolation guarantee — the key invariant).
+      expect(params.has('sport_type')).toBe(false)
+    }
+
+    // Every call that has from= must also have to=, and vice versa.
+    // PMC initialises from its own 6m default range — from/to values are
+    // derived internally, not from the URL.
+    const callsWithFrom = calls.filter(c => new URLSearchParams(c[0] as string).has('from'))
+    expect(callsWithFrom.length).toBeGreaterThan(0)
+    for (const call of callsWithFrom) {
+      const params = new URLSearchParams(call[0] as string)
+      expect(params.has('to')).toBe(true)
+      // Both values must be non-empty ISO-like date strings.
+      expect(params.get('from')).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+      expect(params.get('to')).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     }
   })
 
