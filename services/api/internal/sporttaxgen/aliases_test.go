@@ -3,6 +3,8 @@ package sporttaxgen
 import (
 	"bytes"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -165,6 +167,26 @@ aliases:
 		if !bytes.Contains(got, []byte(want)) {
 			t.Fatalf("generated aliases missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestAliasesSchemaDocumentsSupportedModifierContract(t *testing.T) {
+	schemaPath := filepath.Join("..", "..", "..", "..", "config", "sport-taxonomy", "schema", "aliases.schema.json")
+	src, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatalf("read aliases schema: %v", err)
+	}
+	schema := string(src)
+	for _, want := range []string{
+		`"additionalProperties": false`,
+		`"is_virtual"`,
+	} {
+		if !strings.Contains(schema, want) {
+			t.Fatalf("aliases schema missing %s", want)
+		}
+	}
+	if strings.Contains(schema, `"is_commute"`) {
+		t.Fatal("aliases schema must not allow is_commute in this plan")
 	}
 }
 
