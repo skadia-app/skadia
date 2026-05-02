@@ -31,6 +31,7 @@ func (h *Handler) Routes() chi.Router {
 	// Training Tab
 	r.Get("/pmc", h.GetPMC)
 	r.Get("/year-progression", h.GetYearProgression)
+	r.Get("/year-progression-rolling", h.GetYearProgressionRolling)
 	r.Get("/training-volume", h.GetTrainingVolume)
 	r.Get("/zone-distribution", h.GetZoneDistribution)
 	r.Get("/personal-records", h.GetPersonalRecords)

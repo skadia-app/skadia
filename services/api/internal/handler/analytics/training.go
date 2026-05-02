@@ -597,3 +597,133 @@ func (h *Handler) GetPersonalRecords(w http.ResponseWriter, r *http.Request) {
 		"records": records,
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Year Progression — Rolling Window
+// ---------------------------------------------------------------------------
+
+// YearProgressionRollingDataPoint is a single date + rolling-aggregate value.
+type YearProgressionRollingDataPoint struct {
+	Date  string  `json:"date"`
+	Value float64 `json:"value"`
+}
+
+// YearProgressionRollingYearGroup groups rolling data points by calendar year.
+type YearProgressionRollingYearGroup struct {
+	Year   int                                `json:"year"`
+	Points []YearProgressionRollingDataPoint  `json:"points"`
+}
+
+// YearProgressionRollingResponse is the response shape for /analytics/year-progression-rolling.
+type YearProgressionRollingResponse struct {
+	Metric      string                             `json:"metric"`
+	PeriodDays  int                                `json:"period_days"`
+	Granularity string                             `json:"granularity"`
+	Years       []YearProgressionRollingYearGroup  `json:"years"`
+	BestYear    int                                `json:"best_year"`
+}
+
+func (h *Handler) GetYearProgressionRolling(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	q := r.URL.Query()
+
+	metric := q.Get("metric")
+	if metric == "" {
+		metric = "distance_m"
+	}
+	switch metric {
+	case "distance_m", "elevation_gain_m", "moving_time_s", "tss":
+		// allowed
+	default:
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "metric must be one of: distance_m, elevation_gain_m, moving_time_s, tss", r.URL.Path)
+		return
+	}
+
+	periodDays := 30
+	if v := q.Get("period_days"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 365 {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "period_days must be an integer between 1 and 365", r.URL.Path)
+			return
+		}
+		periodDays = n
+	}
+
+	granularity := q.Get("granularity")
+	if granularity == "" {
+		granularity = "day"
+	}
+	switch granularity {
+	case "day", "week":
+		// allowed
+	default:
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "granularity must be 'day' or 'week'", r.URL.Path)
+		return
+	}
+
+	filter := ParseFilters(r)
+	// $1 = userID is consumed by the DB method; filter args start at $2.
+	whereClause, filterArgs := filter.BuildWhereClause(2)
+
+	// Derive the series span from the filter's From/To dates.
+	fromDate := filter.From
+	if fromDate.IsZero() {
+		fromDate = time.Date(time.Now().Year()-5, 1, 1, 0, 0, 0, 0, time.UTC)
+	}
+	toDate := filter.To
+	if toDate.IsZero() {
+		toDate = time.Now()
+	}
+
+	rows, err := h.DB.GetYearProgressionRolling(ctx, userID, metric, periodDays, granularity, whereClause, filterArgs, fromDate, toDate)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", err.Error(), r.URL.Path)
+		return
+	}
+
+	// Group rows by year; preserve all years present in the data.
+	yearMap := make(map[int]*YearProgressionRollingYearGroup)
+	var yearOrder []int
+	for _, row := range rows {
+		if _, exists := yearMap[row.Year]; !exists {
+			yearMap[row.Year] = &YearProgressionRollingYearGroup{
+				Year:   row.Year,
+				Points: make([]YearProgressionRollingDataPoint, 0),
+			}
+			yearOrder = append(yearOrder, row.Year)
+		}
+		yearMap[row.Year].Points = append(yearMap[row.Year].Points, YearProgressionRollingDataPoint{
+			Date:  row.Date.Format("2006-01-02"),
+			Value: math.Round(row.Value*100) / 100,
+		})
+	}
+
+	// Build ordered slice and find best year by max single-point value.
+	years := make([]YearProgressionRollingYearGroup, 0, len(yearOrder))
+	bestYear := 0
+	bestPeak := -1.0
+	for _, yr := range yearOrder {
+		g := yearMap[yr]
+		for _, pt := range g.Points {
+			if pt.Value > bestPeak {
+				bestPeak = pt.Value
+				bestYear = yr
+			}
+		}
+		years = append(years, *g)
+	}
+
+	resp := YearProgressionRollingResponse{
+		Metric:      metric,
+		PeriodDays:  periodDays,
+		Granularity: granularity,
+		Years:       years,
+		BestYear:    bestYear,
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}

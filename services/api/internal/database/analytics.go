@@ -356,3 +356,89 @@ func (db *DB) GetPersonalRecords(ctx context.Context, userID string) ([]Personal
 	}
 	return records, nil
 }
+
+// YearProgressionRollingRow holds a single date/value pair for the rolling-window endpoint.
+type YearProgressionRollingRow struct {
+	Year  int
+	Date  time.Time
+	Value float64
+}
+
+// GetYearProgressionRolling returns rolling-window aggregated metric values for each
+// day (or week) in the requested span, grouped by year for multi-year overlay charts.
+//
+// periodDays is the width of the rolling window (1–365).
+// granularity must be "day" or "week" — any other value falls back to "day".
+// whereClause / filterArgs are produced by AnalyticsFilter.BuildWhereClause(2) and are
+// injected into the per-date subselect so activity filters apply correctly.
+// fromDate / toDate define the outer generate_series span.
+func (db *DB) GetYearProgressionRolling(
+	ctx context.Context,
+	userID string,
+	metric string,
+	periodDays int,
+	granularity string,
+	whereClause string,
+	filterArgs []any,
+	fromDate, toDate time.Time,
+) ([]YearProgressionRollingRow, error) {
+	col := safeMetricColumn(metric)
+
+	var step string
+	switch granularity {
+	case "week":
+		step = "1 week"
+	default:
+		step = "1 day"
+	}
+
+	// The subselect uses $1 (userID) and the filter args ($2..$N) that were
+	// already offset by BuildWhereClause(2). The generate_series bounds are
+	// appended after the filter args.
+	fromIdx := len(filterArgs) + 2 // $1=userID, $2..$N=filter; from is next
+	toIdx := fromIdx + 1
+
+	query := fmt.Sprintf(`
+		SELECT
+			EXTRACT(YEAR FROM d)::int AS year,
+			d::date                   AS date,
+			(
+				SELECT COALESCE(SUM(a.%s), 0)
+				FROM activities a
+				WHERE a.user_id = $1
+				  %s
+				  AND a.started_at >= d - INTERVAL '%d days'
+				  AND a.started_at < d
+			) AS value
+		FROM generate_series($%d::date, $%d::date, '%s'::interval) AS d
+		ORDER BY year, date`,
+		col, whereClause, periodDays, fromIdx, toIdx, step,
+	)
+
+	allArgs := make([]any, 0, 2+len(filterArgs))
+	allArgs = append(allArgs, userID)
+	allArgs = append(allArgs, filterArgs...)
+	allArgs = append(allArgs, fromDate, toDate)
+
+	rows, err := db.Pool.Query(ctx, query, allArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("get year progression rolling: %w", err)
+	}
+	defer rows.Close()
+
+	var result []YearProgressionRollingRow
+	for rows.Next() {
+		var row YearProgressionRollingRow
+		if err := rows.Scan(&row.Year, &row.Date, &row.Value); err != nil {
+			return nil, fmt.Errorf("scan year progression rolling: %w", err)
+		}
+		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get year progression rolling rows: %w", err)
+	}
+	if result == nil {
+		result = []YearProgressionRollingRow{}
+	}
+	return result, nil
+}

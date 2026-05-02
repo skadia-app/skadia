@@ -1,12 +1,14 @@
 package analytics
 
 import (
+	"context"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -150,6 +152,7 @@ func TestEarlyReturnOnNoUserID(t *testing.T) {
 		{"GetTrainingVolume", h.GetTrainingVolume},
 		{"GetZoneDistribution", h.GetZoneDistribution},
 		{"GetPersonalRecords", h.GetPersonalRecords},
+		{"GetYearProgressionRolling", h.GetYearProgressionRolling},
 	}
 
 	for _, hh := range handlers {
@@ -160,6 +163,40 @@ func TestEarlyReturnOnNoUserID(t *testing.T) {
 			hh.fn(rr, req)
 			if rr.Code != 401 {
 				t.Errorf("%s: expected 401, got %d", hh.name, rr.Code)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestGetYearProgressionRollingBadParams
+// Invalid query params must produce 400, not 500.
+// ---------------------------------------------------------------------------
+
+func TestGetYearProgressionRollingBadParams(t *testing.T) {
+	h := &Handler{DB: nil} // never reaches DB; param validation fires first.
+
+	cases := []struct {
+		name   string
+		params string
+	}{
+		{"bad metric", "metric=calories"},
+		{"period_days zero", "period_days=0"},
+		{"period_days negative", "period_days=-1"},
+		{"period_days too large", "period_days=366"},
+		{"period_days non-integer", "period_days=abc"},
+		{"bad granularity", "granularity=hour"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/analytics/year-progression-rolling?"+tc.params, nil)
+			// Inject a dummy user ID so auth passes and we reach param validation.
+			req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, "test-user"))
+			rr := httptest.NewRecorder()
+			h.GetYearProgressionRolling(rr, req)
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("[%s] expected 400, got %d", tc.name, rr.Code)
 			}
 		})
 	}
