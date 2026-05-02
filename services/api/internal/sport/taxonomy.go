@@ -12,14 +12,24 @@ type Category struct {
 	Color   string `json:"color"`
 }
 
+// SportTraits describes stable taxonomy dimensions for a sport tuple.
+type SportTraits struct {
+	Environments      []string `json:"environments"`
+	MovementFamilies  []string `json:"movement_families"`
+	EquipmentFamilies []string `json:"equipment_families"`
+	ActivityForm      string   `json:"activity_form"`
+	PropulsionModes   []string `json:"propulsion_modes"`
+}
+
 // SubTypeDef describes a sub-sport variation within a parent sport.
 type SubTypeDef struct {
-	SubType         string   `json:"sub_type"`
-	LabelDE         string   `json:"label_de"`
-	DetailDE        string   `json:"detail_de"`
-	AutoTitleDE     string   `json:"auto_title_de"`
-	MovingThreshold *float64 `json:"moving_threshold,omitempty"`
-	Selectable      bool     `json:"selectable"`
+	SubType         string      `json:"sub_type"`
+	LabelDE         string      `json:"label_de"`
+	DetailDE        string      `json:"detail_de"`
+	AutoTitleDE     string      `json:"auto_title_de"`
+	MovingThreshold *float64    `json:"moving_threshold,omitempty"`
+	Selectable      bool        `json:"selectable"`
+	Traits          SportTraits `json:"traits"`
 }
 
 // SportDef holds every piece of metadata for a single sport type.
@@ -34,6 +44,7 @@ type SportDef struct {
 	IsIndoor        bool                  `json:"is_indoor"`
 	Lifecycle       string                `json:"lifecycle"`
 	Selectable      bool                  `json:"selectable"`
+	Traits          SportTraits           `json:"traits"`
 	SubTypes        map[string]SubTypeDef `json:"sub_types,omitempty"`
 }
 

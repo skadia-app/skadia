@@ -24,6 +24,7 @@ func RenderGo(t Taxonomy) ([]byte, error) {
 		fmt.Fprintf(&buf, "\t\tSportType: %q, CategoryKey: %q, LabelDE: %q, AutoTitleDE: %q,\n", s.SportType, s.CategoryKey, s.Labels["de"], s.AutoTitles["de"])
 		fmt.Fprintf(&buf, "\t\tSegmentGroup: %q, TypicallyHasGPS: %t, MovingThreshold: %v, IsIndoor: %t,\n", s.SegmentGroup, s.TypicallyHasGPS, s.MovingThreshold, s.IsIndoor)
 		fmt.Fprintf(&buf, "\t\tLifecycle: %q, Selectable: %t,\n", s.Lifecycle, *s.Selectable)
+		fmt.Fprintf(&buf, "\t\tTraits: %s,\n", renderGoTraits(s.Traits))
 		if len(s.SubTypes) > 0 {
 			buf.WriteString("\t\tSubTypes: map[string]SubTypeDef{\n")
 			subTypes := append([]SubType(nil), s.SubTypes...)
@@ -33,6 +34,7 @@ func RenderGo(t Taxonomy) ([]byte, error) {
 				if st.MovingThreshold != nil {
 					fmt.Fprintf(&buf, ", MovingThreshold: ptrFloat64(%v)", *st.MovingThreshold)
 				}
+				fmt.Fprintf(&buf, ", Traits: %s", renderGoTraits(EffectiveSubTypeTraits(s, st)))
 				buf.WriteString("},\n")
 			}
 			buf.WriteString("\t\t},\n")
@@ -46,4 +48,14 @@ func RenderGo(t Taxonomy) ([]byte, error) {
 		return nil, fmt.Errorf("format generated Go: %w", err)
 	}
 	return formatted, nil
+}
+
+func renderGoTraits(traits Traits) string {
+	return fmt.Sprintf("SportTraits{Environments: %#v, MovementFamilies: %#v, EquipmentFamilies: %#v, ActivityForm: %q, PropulsionModes: %#v}",
+		traits.Environments,
+		traits.MovementFamilies,
+		traits.EquipmentFamilies,
+		traits.ActivityForm,
+		traits.PropulsionModes,
+	)
 }

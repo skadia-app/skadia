@@ -2,6 +2,7 @@ package sport
 
 import (
 	"os"
+	"reflect"
 	"sort"
 	"testing"
 
@@ -49,7 +50,8 @@ func TestSportsYAMLMatchesCurrentBackendRegistry(t *testing.T) {
 			got.IsIndoor != want.IsIndoor ||
 			got.Lifecycle != want.Lifecycle ||
 			got.Selectable == nil ||
-			*got.Selectable != want.Selectable {
+			*got.Selectable != want.Selectable ||
+			!sameTraits(got.Traits, want.Traits) {
 			t.Fatalf("sport[%d] %q does not match backend registry: got %#v want %#v", i, got.SportType, got, want)
 		}
 		if len(got.SubTypes) != len(want.SubTypes) {
@@ -70,7 +72,8 @@ func TestSportsYAMLMatchesCurrentBackendRegistry(t *testing.T) {
 				gotSub.AutoTitles["de"] != wantSub.AutoTitleDE ||
 				gotSub.Selectable == nil ||
 				*gotSub.Selectable != wantSub.Selectable ||
-				!sameOptionalFloat64(gotSub.MovingThreshold, wantSub.MovingThreshold) {
+				!sameOptionalFloat64(gotSub.MovingThreshold, wantSub.MovingThreshold) ||
+				!sameTraits(sporttaxgen.EffectiveSubTypeTraits(got, gotSub), wantSub.Traits) {
 				t.Fatalf("sport %q subtype[%d] = %#v, want %#v", got.SportType, j, gotSub, wantSub)
 			}
 		}
@@ -82,4 +85,12 @@ func sameOptionalFloat64(got, want *float64) bool {
 		return got == nil && want == nil
 	}
 	return *got == *want
+}
+
+func sameTraits(got sporttaxgen.Traits, want SportTraits) bool {
+	return reflect.DeepEqual(got.Environments, want.Environments) &&
+		reflect.DeepEqual(got.MovementFamilies, want.MovementFamilies) &&
+		reflect.DeepEqual(got.EquipmentFamilies, want.EquipmentFamilies) &&
+		got.ActivityForm == want.ActivityForm &&
+		reflect.DeepEqual(got.PropulsionModes, want.PropulsionModes)
 }

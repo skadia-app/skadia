@@ -85,7 +85,10 @@ describe('sport taxonomy aliases', () => {
     expect(sportLabel('cycling', 'mountain')).toBe('MTB')
     expect(sportLabel('running', 'indoor_running')).toBe('Indoor')
     expect(sportLabel('running', 'indoor_running', { mode: 'withParent' })).toBe('Laufen (Indoor)')
-    expect(sportLabel('paddling')).toBe('Paddeln (Generisch)')
+    expect(sportLabel('paddling')).toBe('Paddeln (allgemein)')
+    expect(sportLabel('skiing')).toBe('Skifahren')
+    expect(sportLabel('training')).toBe('Training')
+    expect(sportLabel('fitness_equipment')).toBe('Fitnessgerät')
   })
 
   it('keeps canonical sport options free of deprecated top-level sports', () => {
@@ -168,6 +171,31 @@ describe('sport taxonomy aliases', () => {
     expect(bySport.get('canoeing')?.lifecycle).toBe('canonical')
   })
 
+  it('exposes generated sport trait metadata', () => {
+    expect(findSport('surfing')?.traits.equipmentFamilies).toEqual(['board'])
+    expect(findSport('stand_up_paddleboarding')?.traits.equipmentFamilies).toEqual(['board', 'paddle'])
+    expect(findSport('swimming')?.traits.environments).toEqual(['water'])
+    expect(findSport('swimming')?.traits.movementFamilies).toEqual(['swim'])
+    expect(findSport('tennis')?.traits.equipmentFamilies).toEqual(['racket', 'ball'])
+    expect(findSport('golf')?.traits.equipmentFamilies).toEqual(['ball', 'stick'])
+    expect(findSport('golf')?.traits.equipmentFamilies).not.toContain('racket')
+    expect(findSubtype('racket', 'badminton')?.traits.equipmentFamilies).toEqual(['racket'])
+    expect(findSubtype('racket', 'badminton')?.traits.equipmentFamilies).not.toContain('ball')
+    expect(findSubtype('fitness_equipment', 'pilates')?.traits.movementFamilies).toEqual(['mind_body'])
+    expect(findSubtype('fitness_equipment', 'elliptical')?.traits.activityForm).toBe('single')
+    expect(findSubtype('running', 'treadmill')?.traits.environments).toEqual(['indoor'])
+  })
+
+  it('keeps system taxonomy values selectable while exposing system traits', () => {
+    const parentValues = selectableParentSportOptions().map((opt) => opt.value)
+
+    for (const sportType of ['generic', 'unknown']) {
+      expect(findSport(sportType)?.traits.activityForm).toBe('system')
+      expect(findSport(sportType)?.traits.environments).toEqual(['generic'])
+      expect(parentValues).toContain(sportType)
+    }
+  })
+
   it('keeps broad fallback parents out of selectable creation options while preserving selectable subtypes', () => {
     const parentValues = selectableParentSportOptions().map((opt) => opt.value)
     const tupleValues = selectableSportTupleOptions().map((opt) => `${opt.value}/${opt.subType ?? ''}`)
@@ -177,6 +205,23 @@ describe('sport taxonomy aliases', () => {
     expect(tupleValues).toContain('training/flexibility_training')
     expect(tupleValues).not.toContain('training/strength_training')
     expect(tupleValues).not.toContain('training/pilates')
+  })
+
+  it('keeps normal broad parent defaults selectable as tuple options', () => {
+    const tupleValues = selectableSportTupleOptions().map((opt) => `${opt.value}/${opt.subType ?? ''}`)
+
+    expect(tupleValues).toContain('running/')
+    expect(tupleValues).toContain('cycling/')
+    expect(tupleValues).toContain('swimming/')
+  })
+
+  it('keeps broad fallback parent tuples out of selectable tuple options', () => {
+    const tupleValues = selectableSportTupleOptions().map((opt) => `${opt.value}/${opt.subType ?? ''}`)
+
+    expect(tupleValues).not.toContain('paddling/')
+    expect(tupleValues).not.toContain('skiing/')
+    expect(tupleValues).not.toContain('training/')
+    expect(tupleValues).not.toContain('fitness_equipment/')
   })
 
   it('keeps generated category colors as hex defaults', () => {
@@ -267,3 +312,11 @@ describe('sport taxonomy aliases', () => {
     expect(cycling?.subTypes.map((s) => s.subType)).not.toContain('generic')
   })
 })
+
+function findSport(sportType: string) {
+  return SPORT_DEFS.find((s) => s.sportType === sportType)
+}
+
+function findSubtype(sportType: string, subType: string) {
+  return findSport(sportType)?.subTypes.find((s) => s.subType === subType)
+}

@@ -225,7 +225,7 @@ func TestSportDetailLabel(t *testing.T) {
 		{"training", "yoga", "Yoga"},
 		{"training", "pilates", "Pilates"},
 		{"training", "", "Training"},
-		{"paddling", "", "Paddeln (Generisch)"},
+		{"paddling", "", "Paddeln (allgemein)"},
 	}
 	for _, tc := range tests {
 		got := SportDetailLabel(tc.sport, tc.sub)
