@@ -1,10 +1,77 @@
 package komoot
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+func TestNormalizedKomootSportMappingUsesGeneratedAliases(t *testing.T) {
+	src, err := os.ReadFile("types.go")
+	if err != nil {
+		t.Fatalf("read types.go: %v", err)
+	}
+	if strings.Contains(string(src), "var KomootSportMapping") {
+		t.Fatal("KomootSportMapping should not be a handwritten runtime map")
+	}
+}
+
+func TestNormalizedKomootSportMappingGolden(t *testing.T) {
+	tests := []struct {
+		input        string
+		wantSport    string
+		wantSubType  string
+		wantElectric bool
+	}{
+		{input: "hike", wantSport: "hiking"},
+		{input: "mountaineering", wantSport: "mountaineering"},
+		{input: "jogging", wantSport: "running"},
+		{input: "racebike", wantSport: "cycling", wantSubType: "road"},
+		{input: "e_racebike", wantSport: "cycling", wantSubType: "road", wantElectric: true},
+		{input: "touringbicycle", wantSport: "cycling"},
+		{input: "e_touringbicycle", wantSport: "cycling", wantElectric: true},
+		{input: "mtb", wantSport: "cycling", wantSubType: "mountain"},
+		{input: "e_mtb", wantSport: "cycling", wantSubType: "mountain", wantElectric: true},
+		{input: "mtb_easy", wantSport: "cycling", wantSubType: "gravel_cycling"},
+		{input: "e_mtb_easy", wantSport: "cycling", wantSubType: "gravel_cycling", wantElectric: true},
+		{input: "mtb_advanced", wantSport: "cycling", wantSubType: "mountain"},
+		{input: "e_mtb_advanced", wantSport: "cycling", wantSubType: "mountain", wantElectric: true},
+		{input: "citybike", wantSport: "cycling"},
+		{input: "downhillbike", wantSport: "cycling", wantSubType: "downhill"},
+		{input: "climbing", wantSport: "rock_climbing"},
+		{input: "nordic", wantSport: "cross_country_skiing"},
+		{input: "nordicwalking", wantSport: "walking", wantSubType: "speed_walking"},
+		{input: "skaten", wantSport: "inline_skating"},
+		{input: "skialpin", wantSport: "alpine_skiing", wantSubType: "resort"},
+		{input: "skitour", wantSport: "backcountry_skiing"},
+		{input: "sled", wantSport: "sledding"},
+		{input: "snowboard", wantSport: "snowboarding"},
+		{input: "snowshoe", wantSport: "snowshoeing"},
+		{input: "unicycle", wantSport: "cycling", wantSubType: "unicycling"},
+		{input: "other", wantSport: "generic"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, ok := normalizedKomootSportMapping(tt.input)
+			if !ok {
+				t.Fatalf("normalizedKomootSportMapping(%q) not found", tt.input)
+			}
+			if got.SportType != tt.wantSport || got.SubType != tt.wantSubType || got.IsElectric != tt.wantElectric {
+				t.Fatalf("normalizedKomootSportMapping(%q) = %#v, want %s/%s electric=%v",
+					tt.input, got, tt.wantSport, tt.wantSubType, tt.wantElectric)
+			}
+		})
+	}
+}
+
+func TestNormalizedKomootSportMappingUnknownStaysUnmapped(t *testing.T) {
+	if got, ok := normalizedKomootSportMapping("definitely_unknown"); ok {
+		t.Fatalf("unknown Komoot sport mapped to %#v", got)
+	}
+}
 
 func TestApplyKomootSportMappingAdoptsSameParentSubtype(t *testing.T) {
 	data := &model.ActivityData{SportType: "cycling"}

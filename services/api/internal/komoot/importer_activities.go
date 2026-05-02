@@ -304,20 +304,16 @@ func tourToActivityData(tour Tour) *model.ActivityData {
 }
 
 func normalizedKomootSportMapping(komootSport string) (SportMapping, bool) {
-	mapping, ok := KomootSportMapping[komootSport]
-	if !ok {
+	resolved, err := sport.ResolveSport(sport.ResolveInput{Source: sport.SourceKomoot, RawSport: komootSport})
+	if err != nil || !resolved.Resolved {
 		return SportMapping{}, false
 	}
-	tuple, patch, err := sport.NormalizeSportTuple(mapping.SportType, mapping.SubType)
-	if err != nil {
-		return mapping, true
-	}
-	mapping.SportType = tuple.SportType
-	mapping.SubType = tuple.SubType
-	if patch.IsElectric != nil && *patch.IsElectric {
-		mapping.IsElectric = true
-	}
-	return mapping, true
+	modifiers := sport.ApplyModifierPatch(sport.ModifierValues{}, resolved.Patch)
+	return SportMapping{
+		SportType:  resolved.Tuple.SportType,
+		SubType:    resolved.Tuple.SubType,
+		IsElectric: modifiers.IsElectric,
+	}, true
 }
 
 func applyKomootSportMapping(data *model.ActivityData, mapping SportMapping) {

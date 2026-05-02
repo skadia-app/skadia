@@ -11,8 +11,10 @@ func TestKomootRouteSportTuplePreservesSubtypeAndElectricFlag(t *testing.T) {
 		wantElectric bool
 	}{
 		{name: "racebike", sport: "racebike", wantSport: "cycling", wantSub: "road"},
+		{name: "e racebike", sport: "e_racebike", wantSport: "cycling", wantSub: "road", wantElectric: true},
 		{name: "mtb", sport: "mtb", wantSport: "cycling", wantSub: "mountain"},
 		{name: "e mtb", sport: "e_mtb", wantSport: "cycling", wantSub: "mountain", wantElectric: true},
+		{name: "unknown fallback", sport: "definitely_unknown", wantSport: "hiking"},
 	}
 
 	for _, tt := range tests {
