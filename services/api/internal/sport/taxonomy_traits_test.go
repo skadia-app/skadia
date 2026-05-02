@@ -75,6 +75,14 @@ func TestGeneratedSportTraits(t *testing.T) {
 	if got := flying.SubTypes["fly_vfr"].Traits; got.ActivityForm != "mode" || !reflect.DeepEqual(got.PropulsionModes, []string{"generic"}) {
 		t.Fatalf("flying/fly_vfr traits = %#v, want mode/generic", got)
 	}
+
+	rockClimbing := mustSportDef(t, "rock_climbing")
+	if got := rockClimbing.SubTypes["indoor_climbing"].Traits.Environments; !reflect.DeepEqual(got, []string{"indoor"}) {
+		t.Fatalf("rock_climbing/indoor_climbing environments = %#v, want indoor", got)
+	}
+	if got := rockClimbing.SubTypes["bouldering"].Traits.Environments; !reflect.DeepEqual(got, []string{"land", "indoor"}) {
+		t.Fatalf("rock_climbing/bouldering environments = %#v, want inherited land+indoor", got)
+	}
 }
 
 func TestGeneratedTraitChangeDoesNotChangeSportLists(t *testing.T) {

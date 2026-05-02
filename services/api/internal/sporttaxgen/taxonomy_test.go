@@ -343,10 +343,17 @@ func TestLoadTaxonomyRejectsInheritedFamilyActivityFormOnSubtype(t *testing.T) {
 }
 
 func TestLoadTaxonomyAllowsModeActivityFormOnSubtype(t *testing.T) {
+	if _, err := LoadTaxonomy(strings.NewReader(flyingModeFixture("fly_vfr"))); err != nil {
+		t.Fatalf("LoadTaxonomy rejected mode subtype traits: %v", err)
+	}
+}
+
+func TestLoadTaxonomyRejectsModeActivityFormOnNormalSubtype(t *testing.T) {
 	src := strings.Replace(validTraitFixture(), "          activity_form: single", "          activity_form: mode", 1)
 	src = strings.Replace(src, "          propulsion_modes: [human]", "          propulsion_modes: [generic]", 1)
-	if _, err := LoadTaxonomy(strings.NewReader(src)); err != nil {
-		t.Fatalf("LoadTaxonomy rejected mode subtype traits: %v", err)
+	_, err := LoadTaxonomy(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("LoadTaxonomy accepted mode activity_form on a normal subtype")
 	}
 }
 
@@ -374,11 +381,53 @@ func TestLoadTaxonomyRequiresGenericEnvironmentOnSystemSport(t *testing.T) {
 	}
 }
 
+func TestLoadTaxonomyRejectsSystemActivityFormOnNormalSport(t *testing.T) {
+	src := strings.Replace(systemSportFixture("training"), "category_key: other", "category_key: other", 1)
+	_, err := LoadTaxonomy(strings.NewReader(src))
+	if err == nil {
+		t.Fatal("LoadTaxonomy accepted system activity_form on a normal sport")
+	}
+}
+
 func TestLoadTaxonomyRejectsGenericPropulsionOnSingleSport(t *testing.T) {
 	src := strings.Replace(validTraitFixture(), "propulsion_modes: [human]", "propulsion_modes: [generic]", 1)
 	_, err := LoadTaxonomy(strings.NewReader(src))
 	if err == nil {
 		t.Fatal("LoadTaxonomy accepted generic propulsion on single sport")
+	}
+}
+
+func TestTraitVocabularyRejectsDeferredValues(t *testing.T) {
+	for _, tc := range []struct {
+		field string
+		value string
+	}{
+		{field: "equipment_families", value: "snowshoe"},
+		{field: "movement_families", value: "jump"},
+		{field: "equipment_families", value: "shuttlecock"},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			if containsString(TraitMovementFamilyValues, tc.value) ||
+				containsString(TraitEquipmentFamilyValues, tc.value) ||
+				containsString(TraitEnvironmentValues, tc.value) ||
+				containsString(TraitPropulsionModeValues, tc.value) ||
+				containsString(TraitActivityFormValues, tc.value) {
+				t.Fatalf("deferred value %q is present in trait vocabulary", tc.value)
+			}
+			src := validTraitFixture()
+			switch tc.field {
+			case "movement_families":
+				src = strings.Replace(src, "movement_families: [run]", "movement_families: ["+tc.value+"]", 1)
+			case "equipment_families":
+				src = strings.Replace(src, "equipment_families: []", "equipment_families: ["+tc.value+"]", 1)
+			default:
+				t.Fatalf("unhandled field %q", tc.field)
+			}
+			_, err := LoadTaxonomy(strings.NewReader(src))
+			if err == nil {
+				t.Fatalf("LoadTaxonomy accepted deferred value %q in %s", tc.value, tc.field)
+			}
+		})
 	}
 }
 
@@ -517,6 +566,18 @@ func TestTaxonomySchemaTraitEnumsMatchLoaderVocabulary(t *testing.T) {
 	assertSchemaEnum(t, properties, "equipment_families", TraitEquipmentFamilyValues)
 	assertSchemaEnum(t, properties, "activity_form", TraitActivityFormValues)
 	assertSchemaEnum(t, properties, "propulsion_modes", TraitPropulsionModeValues)
+
+	topLevelTraits := defs["topLevelTraits"].(map[string]any)
+	allOf := topLevelTraits["allOf"].([]any)
+	topLevelOverride := allOf[1].(map[string]any)
+	topLevelProperties := topLevelOverride["properties"].(map[string]any)
+	topLevelActivityForm := topLevelProperties["activity_form"].(map[string]any)
+	topLevelEnumRaw := topLevelActivityForm["enum"].([]any)
+	for _, value := range topLevelEnumRaw {
+		if value.(string) == "mode" {
+			t.Fatal("top-level trait schema allows activity_form mode")
+		}
+	}
 }
 
 func assertSchemaEnum(t *testing.T, properties map[string]any, field string, want []string) {
@@ -690,5 +751,45 @@ sports:
       is_indoor: false
       is_virtual: false
       is_commute: false
+`
+}
+
+func flyingModeFixture(subType string) string {
+	return `
+categories:
+  - key: outdoor
+    labels: {de: Draußen}
+    color: {token: outdoor, light_hex: "#10B981"}
+sports:
+  - sport_type: flying
+    category_key: outdoor
+    labels: {de: Fliegen}
+    auto_titles: {de: Fliegen}
+    segment_group: generic
+    typically_has_gps: true
+    moving_threshold: 0.5
+    is_indoor: false
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: family
+      propulsion_modes: [generic]
+    modifier_applicability:
+      is_electric: false
+      is_indoor: false
+      is_virtual: false
+      is_commute: true
+    sub_types:
+      - sub_type: ` + subType + `
+        labels: {de: Modus}
+        details: {de: Modus}
+        auto_titles: {de: Flug}
+        traits:
+          environments: [air]
+          movement_families: [fly]
+          equipment_families: [aircraft]
+          activity_form: mode
+          propulsion_modes: [generic]
 `
 }

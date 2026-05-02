@@ -227,6 +227,8 @@ func validateSportTraits(s Sport) error {
 		if !stringSlicesEqual(s.Traits.Environments, []string{"generic"}) {
 			return fmt.Errorf("%s: generic/unknown sport requires environments [generic]", owner)
 		}
+	} else if s.Traits.ActivityForm == "system" {
+		return fmt.Errorf("%s: activity_form system is only valid for generic and unknown", owner)
 	}
 	if err := validateGenericTraitSemantics(owner, s.Traits); err != nil {
 		return err
@@ -250,8 +252,24 @@ func validateSubTypeTraits(parent Sport, subType SubType) error {
 		return fmt.Errorf("%s: effective activity_form fallback is invalid for subtypes", owner)
 	case "family":
 		return fmt.Errorf("%s: effective activity_form family is invalid for subtypes", owner)
+	case "mode":
+		if !isAllowedModeSubType(parent.SportType, subType.SubType) {
+			return fmt.Errorf("%s: activity_form mode is not allowed for this subtype", owner)
+		}
 	}
 	return nil
+}
+
+func isAllowedModeSubType(sportType, subType string) bool {
+	if sportType != "flying" {
+		return false
+	}
+	switch subType {
+	case "fly_vfr", "fly_ifr", "fly_navigate", "fly_timer", "fly_altimeter", "fly_wx":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateTraits(owner string, traits Traits) error {
