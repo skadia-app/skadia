@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useAnalyticsFilters, getPresets, savePreset, deletePreset } from '@/lib/analyticsFilters'
+import { useAnalyticsFilters, getPresets, savePreset, deletePreset, activeFilterCount } from '@/lib/analyticsFilters'
 import type { AnalyticsFilterState, FilterPreset } from '@/lib/analyticsFilters'
 import { generateActivityFilterOptions, getOptionKey, filterToExistingSports } from '@/lib/sportOptions'
 import type { SportOption } from '@/lib/sportOptions'
@@ -32,33 +32,6 @@ const DATE_PRESETS: { label: string; days: number | null }[] = [
 
 function toISODate(d: Date): string {
   return toLocalISO(d)
-}
-
-function activeFilterCount(filters: AnalyticsFilterState): number {
-  let count = 0
-  if (filters.from) count++
-  if (filters.to) count++
-  if (filters.sportTypes.length > 0) count++
-  if (filters.gearId) count++
-  if (filters.isCommute) count++
-  if (filters.isRace) count++
-  if (filters.isElectric !== null) count++
-  if (filters.isIndoor !== null) count++
-  if (filters.isVirtual !== null) count++
-  if (filters.distMin || filters.distMax) count++
-  if (filters.elevMin || filters.elevMax) count++
-  if (filters.hrMin || filters.hrMax) count++
-  if (filters.powerMin || filters.powerMax) count++
-  if (filters.paceMin || filters.paceMax) count++
-  if (filters.countries.length > 0) count++
-  if (filters.seasons.length > 0) count++
-  if (filters.weekdays.length > 0) count++
-  if (filters.tags.length > 0) count++
-  if (filters.includeTags.length > 0) count++
-  if (filters.excludeTags.length > 0) count++
-  if (filters.includeGear.length > 0) count++
-  if (filters.excludeGear.length > 0) count++
-  return count
 }
 
 // ── Sport Type Selector (checkbox tree — matches ActivityFilters layout) ─────
@@ -798,12 +771,14 @@ export default function AnalyticsPage() {
 
       {/* Collapsible filter panel — hidden on Records tab */}
       {!isRecordsTab && filterOpen && (
-        <FilterPanel
-          filters={filters}
-          onFilterChange={setFilters}
-          onReset={resetFilters}
-          onClose={() => setFilterOpen(false)}
-        />
+        <div id="analytics-filter-panel">
+          <FilterPanel
+            filters={filters}
+            onFilterChange={setFilters}
+            onReset={resetFilters}
+            onClose={() => setFilterOpen(false)}
+          />
+        </div>
       )}
 
       {/* Tab Content */}
