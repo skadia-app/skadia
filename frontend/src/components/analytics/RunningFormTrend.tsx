@@ -187,6 +187,7 @@ export default function RunningFormTrend() {
         tooltip: {
           confine: true,
           trigger: 'axis',
+          axisPointer: { type: 'cross' },
           backgroundColor: theme.isDark ? '#1c1c1c' : '#fff',
           borderColor: theme.isDark ? '#404040' : '#e5e7eb',
           textStyle: { color: theme.isDark ? '#e5e7eb' : '#111827', fontSize: 12 },

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -33,13 +34,18 @@ import (
 )
 
 // GetSportTypeStats returns activity counts grouped by sport_type for the authenticated user.
-// GET /api/v1/activities/sport-type-stats
+// GET /api/v1/activities/sport-type-stats[?from=YYYY-MM-DD&to=YYYY-MM-DD]
 func (h *Handler) GetSportTypeStats(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
 	}
-	stats, err := h.DB.GetSportTypeStats(r.Context(), userID)
+	from, to, err := parseSportStatsRange(r.URL.Query())
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	stats, err := h.DB.GetSportTypeStats(r.Context(), userID, from, to)
 	if err != nil {
 		slog.Error("get sport type stats failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get sport type stats", r.URL.Path)
@@ -49,6 +55,40 @@ func (h *Handler) GetSportTypeStats(w http.ResponseWriter, r *http.Request) {
 		stats = []database.SportTypeStatRow{}
 	}
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{"sport_types": stats})
+}
+
+// parseSportStatsRange parses optional from/to query params. Accepted formats:
+// YYYY-MM-DD (interpreted as UTC midnight) or RFC 3339 timestamp. `to` is
+// expanded to end-of-day when given as a date so the inclusive upper bound
+// covers the full day.
+func parseSportStatsRange(q url.Values) (*time.Time, *time.Time, error) {
+	parse := func(s string, endOfDay bool) (*time.Time, error) {
+		if s == "" {
+			return nil, nil
+		}
+		if t, err := time.Parse("2006-01-02", s); err == nil {
+			if endOfDay {
+				t = t.Add(24*time.Hour - time.Second)
+			}
+			return &t, nil
+		}
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			return &t, nil
+		}
+		return nil, fmt.Errorf("invalid date %q (want YYYY-MM-DD or RFC3339)", s)
+	}
+	from, err := parse(q.Get("from"), false)
+	if err != nil {
+		return nil, nil, err
+	}
+	to, err := parse(q.Get("to"), true)
+	if err != nil {
+		return nil, nil, err
+	}
+	if from != nil && to != nil && to.Before(*from) {
+		return nil, nil, fmt.Errorf("to is before from")
+	}
+	return from, to, nil
 }
 
 func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {

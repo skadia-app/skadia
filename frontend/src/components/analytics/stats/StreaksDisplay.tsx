@@ -78,7 +78,7 @@ function StreakHistoryChart({ data }: MiniBarChartProps) {
       tooltip: {
         confine: true,
         trigger: 'axis',
-        axisPointer: { type: 'shadow' },
+        axisPointer: { type: 'cross' },
         formatter: (params: unknown) => {
           const items = params as Array<{ dataIndex: number; value: number }>
           if (!Array.isArray(items) || items.length === 0) return ''

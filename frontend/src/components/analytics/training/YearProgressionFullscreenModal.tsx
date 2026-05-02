@@ -191,6 +191,18 @@ function ModalStateContainer({
     }
   }, [availableYears.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Picker date range (scopes the sport list to selected years) ────────────
+  // Derived from selectedYears — not from availableYears — so the picker
+  // stays in sync with what the user is actually comparing. Empty selection
+  // (e.g. before the available-years useEffect populates) falls back to
+  // unscoped all-time stats.
+  const pickerDateRange = useMemo(() => {
+    if (selectedYears.length === 0) return undefined
+    const min = Math.min(...selectedYears)
+    const max = Math.max(...selectedYears)
+    return { from: `${min}-01-01`, to: `${max}-12-31` }
+  }, [selectedYears])
+
   // ── Display data filtered to selected years ──────────────────────────────────
   const displayProgressYears = useMemo(() => {
     if (!progressResult.data?.years) return []
@@ -250,6 +262,7 @@ function ModalStateContainer({
       tooltip: {
         confine: true,
         trigger: 'axis',
+        axisPointer: { type: 'cross' },
         backgroundColor: 'rgba(17,24,39,0.92)',
         borderColor: '#374151',
         textStyle: { color: '#f3f4f6', fontSize: 12 },
@@ -333,6 +346,7 @@ function ModalStateContainer({
       tooltip: {
         confine: true,
         trigger: 'axis',
+        axisPointer: { type: 'cross' },
         backgroundColor: 'rgba(17,24,39,0.92)',
         borderColor: '#374151',
         textStyle: { color: '#f3f4f6', fontSize: 12 },
@@ -372,19 +386,19 @@ function ModalStateContainer({
   const activeOption = mode === 'progress' ? progressChartOption : rollingChartOption
 
   // Progress-mode click handler: converts the clicked month index (x-axis category index)
-  // into a Date set to the last day of that month, then locks the comparison table.
+  // into a Date in the year of the clicked series, then locks the comparison table.
   // Only active in progress mode; rolling mode has no monthly x-axis.
   const handleProgressChartClick = useCallback((chart: echarts.ECharts) => {
     if (mode !== 'progress') return
     const onClick = (params: unknown) => {
-      const p = params as { dataIndex?: number }
+      const p = params as { dataIndex?: number; seriesName?: string }
       if (p.dataIndex == null) return
       const monthIdx = p.dataIndex // 0-based month index from the category x-axis
-      const currentYear = new Date().getFullYear()
-      // Last day of the clicked month in the current year.
-      // new Date(year, month + 1, 0) gives the last day of `month`.
-      const lastDay = new Date(currentYear, monthIdx + 1, 0).getDate()
-      setLockedDate(new Date(currentYear, monthIdx, lastDay))
+      const year = p.seriesName ? Number(p.seriesName) : NaN
+      if (!Number.isFinite(year)) return
+      // Last day of the clicked month in the clicked series' year.
+      const lastDay = new Date(year, monthIdx + 1, 0).getDate()
+      setLockedDate(new Date(year, monthIdx, lastDay))
     }
     chart.on('click', onClick)
     return () => chart.off('click', onClick)
@@ -595,6 +609,7 @@ function ModalStateContainer({
             <SportHierarchyPicker
               value={selectedSports}
               onChange={setSelectedSports}
+              dateRange={pickerDateRange}
             />
           </div>
 
