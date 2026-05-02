@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func TestSportTaxonomyRewriteActions(t *testing.T) {
@@ -189,6 +191,17 @@ func TestSportTaxonomyRewriteRejectsUnsupportedSemantics(t *testing.T) {
 				t.Fatalf("error: got %v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestSportConditionNeedsTupleRewriteIncludesVirtualPatch(t *testing.T) {
+	virtual := true
+	if !sportConditionNeedsTupleRewrite(
+		"cycling",
+		sport.Tuple{SportType: "cycling"},
+		sport.ModifierPatch{IsVirtual: &virtual},
+	) {
+		t.Fatal("virtual modifier patch should require tuple rewrite handling")
 	}
 }
 

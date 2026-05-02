@@ -7,17 +7,74 @@ import (
 
 func TestMapTCXSportReturnsCanonicalSportTuple(t *testing.T) {
 	tests := []struct {
-		input       string
-		wantSport   string
-		wantSubType string
+		input        string
+		wantSport    string
+		wantSubType  string
+		wantElectric *bool
 	}{
-		{"road_cycling", "cycling", "road"},
-		{"roadcycling", "cycling", "road"},
-		{"trail_running", "running", "trail"},
-		{"mountain_biking", "cycling", "mountain"},
-		{"gravel_ride", "cycling", "gravel_cycling"},
-		{"other", "unknown", ""},
-		{"does_not_exist", "unknown", ""},
+		{"road_cycling", "cycling", "road", nil},
+		{"roadcycling", "cycling", "road", nil},
+		{"trail_running", "running", "trail", nil},
+		{"mountain_biking", "cycling", "mountain", nil},
+		{"gravel_ride", "cycling", "gravel_cycling", nil},
+		{"other", "unknown", "", nil},
+		{"does_not_exist", "unknown", "", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := mapTCXSport(tt.input)
+			if got.Tuple.SportType != tt.wantSport || got.Tuple.SubType != tt.wantSubType {
+				t.Fatalf("mapTCXSport(%q): got (%q, %q), want (%q, %q)",
+					tt.input, got.Tuple.SportType, got.Tuple.SubType, tt.wantSport, tt.wantSubType)
+			}
+			assertBoolPatch(t, "IsElectric", got.Patch.IsElectric, tt.wantElectric)
+		})
+	}
+}
+
+func TestMapTCXSportCoversAllConfiguredAliases(t *testing.T) {
+	tests := []struct {
+		input        string
+		wantSport    string
+		wantSubType  string
+		wantElectric *bool
+	}{
+		{"running", "running", "", nil},
+		{"run", "running", "", nil},
+		{"trail_running", "running", "trail", nil},
+		{"trailrunning", "running", "trail", nil},
+		{"biking", "cycling", "", nil},
+		{"cycling", "cycling", "", nil},
+		{"ride", "cycling", "", nil},
+		{"road_cycling", "cycling", "road", nil},
+		{"roadcycling", "cycling", "road", nil},
+		{"mountainbikeride", "cycling", "mountain", nil},
+		{"mountain_biking", "cycling", "mountain", nil},
+		{"ebikeride", "cycling", "", boolPtr(true)},
+		{"e_bike_ride", "cycling", "", boolPtr(true)},
+		{"ebike", "cycling", "", boolPtr(true)},
+		{"gravelride", "cycling", "gravel_cycling", nil},
+		{"gravel_ride", "cycling", "gravel_cycling", nil},
+		{"hiking", "hiking", "", nil},
+		{"hike", "hiking", "", nil},
+		{"walking", "walking", "", nil},
+		{"walk", "walking", "", nil},
+		{"swimming", "swimming", "", nil},
+		{"swim", "swimming", "", nil},
+		{"skiing", "alpine_skiing", "", nil},
+		{"alpine_skiing", "alpine_skiing", "", nil},
+		{"cross_country_skiing", "cross_country_skiing", "", nil},
+		{"snowboarding", "snowboarding", "", nil},
+		{"strength_training", "strength_training", "", nil},
+		{"strength", "strength_training", "", nil},
+		{"rowing", "rowing", "", nil},
+		{"kayaking", "kayaking", "", nil},
+		{"multisport", "multisport", "", nil},
+		{"other", "unknown", "", nil},
+	}
+	wantIndoorByInput := map[string]*bool{
+		"strength_training": boolPtr(true),
+		"strength":          boolPtr(true),
 	}
 
 	for _, tt := range tests {
@@ -27,17 +84,10 @@ func TestMapTCXSportReturnsCanonicalSportTuple(t *testing.T) {
 				t.Fatalf("mapTCXSport(%q): got (%q, %q), want (%q, %q)",
 					tt.input, got.Tuple.SportType, got.Tuple.SubType, tt.wantSport, tt.wantSubType)
 			}
+			assertBoolPatch(t, "IsElectric", got.Patch.IsElectric, tt.wantElectric)
+			assertBoolPatch(t, "IsIndoor", got.Patch.IsIndoor, wantIndoorByInput[tt.input])
+			assertBoolPatch(t, "IsVirtual", got.Patch.IsVirtual, nil)
 		})
-	}
-}
-
-func TestMapTCXSportReturnsElectricPatch(t *testing.T) {
-	got := mapTCXSport("ebike")
-	if got.Tuple.SportType != "cycling" {
-		t.Fatalf("sport = %q, want cycling", got.Tuple.SportType)
-	}
-	if got.Patch.IsElectric == nil || !*got.Patch.IsElectric {
-		t.Fatalf("IsElectric patch = %#v, want true", got.Patch.IsElectric)
 	}
 }
 
@@ -81,4 +131,21 @@ func minimalTCX(sport string) string {
     </Activity>
   </Activities>
 </TrainingCenterDatabase>`
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+func assertBoolPatch(t *testing.T, name string, got *bool, want *bool) {
+	t.Helper()
+	if want == nil {
+		if got != nil {
+			t.Fatalf("%s patch = %#v, want nil", name, *got)
+		}
+		return
+	}
+	if got == nil || *got != *want {
+		t.Fatalf("%s patch = %#v, want %v", name, got, *want)
+	}
 }

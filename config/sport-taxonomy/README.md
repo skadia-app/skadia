@@ -28,9 +28,9 @@ Edit workflow:
 2. Run `scripts/generate-sport-taxonomy.sh`.
 3. Run `scripts/generate-sport-taxonomy.sh --check`.
 4. Run the backend and frontend taxonomy tests for the touched surfaces.
-5. Run the final implementation Critic and fix accepted findings.
-6. Run the required documentation sync for any reader-facing or developer-facing
+5. Run the required documentation sync for any reader-facing or developer-facing
    surfaces that changed.
+6. Run the final implementation Critic and fix accepted findings.
 
 Do not review taxonomy changes only in generated source. The source YAML is the
 canonical input; generated tests and projections are the review surfaces for

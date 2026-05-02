@@ -216,6 +216,23 @@ func TestNormalizePlannedRouteSportTupleReturnsModifierPatch(t *testing.T) {
 	}
 }
 
+func TestRouteModifierPatchesApplyVirtual(t *testing.T) {
+	virtual := true
+	patch := sport.ModifierPatch{IsVirtual: &virtual}
+
+	planned := &model.PlannedRoute{}
+	applyPlannedRouteModifierPatch(planned, patch)
+	if !planned.IsVirtual {
+		t.Fatal("planned route IsVirtual = false, want true")
+	}
+
+	importData := &model.RouteImportData{}
+	applyRouteImportModifierPatch(importData, patch)
+	if !importData.IsVirtual {
+		t.Fatal("route import IsVirtual = false, want true")
+	}
+}
+
 func TestPlannedRouteCreateRejectsInvalidSubType(t *testing.T) {
 	db, userID := routeSubTypeTestDB(t)
 	ctx := context.Background()

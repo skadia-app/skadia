@@ -724,7 +724,7 @@ func mergeActivityData(base, parsed *model.ActivityData) {
 
 	// Sport type merge strategy:
 	// - Strava CSV "Aktivitätsart" is a lossy localized string that collapses specific
-	//   types into broad categories (e.g., mountain_biking → "Radfahren", bouldering → "Klettern")
+	//   types into broad categories (e.g., cycling/mountain → "Radfahren", bouldering → "Klettern")
 	// - FIT/GPX files contain precise sport/sub-sport IDs from the recording device
 	// - When Strava gave a broad category and the device has a more specific variant
 	//   in the same sport family, prefer the device data

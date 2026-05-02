@@ -183,7 +183,7 @@ func sportConditionListValues(value any) ([]string, error) {
 }
 
 func sportConditionNeedsTupleRewrite(value string, tuple sport.Tuple, patch sport.ModifierPatch) bool {
-	return value != tuple.SportType || tuple.SubType != "" || patch.IsElectric != nil || patch.IsIndoor != nil
+	return value != tuple.SportType || tuple.SubType != "" || patch.IsElectric != nil || patch.IsIndoor != nil || patch.IsVirtual != nil
 }
 
 func rewriteActionsRaw(raw json.RawMessage, surface string) (json.RawMessage, error) {
@@ -279,6 +279,19 @@ func rewriteActionMaps(actions []map[string]any, surface string) ([]map[string]a
 				rewritten = append(rewritten, map[string]any{
 					"action": "set_indoor",
 					"params": map[string]any{"indoor": *patch.IsIndoor},
+				})
+			}
+		}
+		if patch.IsVirtual != nil {
+			if previous, exists := modifierWrites["is_virtual"]; exists {
+				if previous.value != *patch.IsVirtual {
+					return nil, fmt.Errorf("%s[%d]: conflicting writes to is_virtual (previous action index %d)", surface, i, previous.index)
+				}
+			} else {
+				modifierWrites["is_virtual"] = modifierWriteState{index: i, value: *patch.IsVirtual}
+				rewritten = append(rewritten, map[string]any{
+					"action": "set_virtual",
+					"params": map[string]any{"virtual": *patch.IsVirtual},
 				})
 			}
 		}

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func TestNormalizeSportTaxonomyImportRowActivities(t *testing.T) {
@@ -31,6 +33,28 @@ func TestNormalizeSportTaxonomyImportRowActivities(t *testing.T) {
 	}
 	if got["is_indoor"] != true {
 		t.Fatalf("is_indoor should be set by parsed treadmill tuple, got %#v", got["is_indoor"])
+	}
+}
+
+func TestImportModifierPatchAppliesVirtual(t *testing.T) {
+	virtual := true
+	patch := sport.ModifierPatch{IsVirtual: &virtual}
+
+	row := map[string]any{"is_virtual": false}
+	applyModifierPatchToRow(row, patch)
+	if row["is_virtual"] != true {
+		t.Fatalf("is_virtual row patch = %#v, want true", row["is_virtual"])
+	}
+
+	merged := mergeImportModifierPatch(sport.ModifierPatch{}, patch)
+	if merged.IsVirtual == nil || !*merged.IsVirtual {
+		t.Fatalf("merged IsVirtual = %#v, want true", merged.IsVirtual)
+	}
+
+	filters := map[string]any{}
+	applyPatchToModifierFilters(filters, patch)
+	if filters["is_virtual"] != true {
+		t.Fatalf("is_virtual filter patch = %#v, want true", filters["is_virtual"])
 	}
 }
 
