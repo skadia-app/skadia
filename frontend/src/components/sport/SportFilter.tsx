@@ -25,6 +25,15 @@ interface SportFilterProps {
   showModifiers?: boolean
   modifierKeys?: ModifierKey[]
   className?: string
+  // Override for the global "hide unused sports" setting. When set, this
+  // takes precedence over useGlobalSportSettings — useful for context-bound
+  // pickers (e.g. analytics modals) where the user expects only the sports
+  // that produced data in the visible scope.
+  hideUnused?: boolean
+  // Optional date range that scopes the "unused" stats query. Without it,
+  // hideUnused filters against all-time activity counts; with it, only
+  // sports that produced data in [from, to] survive the filter.
+  dateRange?: { from?: string; to?: string }
 }
 
 const MODIFIER_LABELS: Record<ModifierKey, string> = {
@@ -41,12 +50,16 @@ export function SportFilter({
   showModifiers = true,
   modifierKeys = ['is_electric', 'is_indoor', 'is_virtual', 'is_commute'],
   className,
+  hideUnused: hideUnusedOverride,
+  dateRange,
 }: SportFilterProps) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
-  const { hideUnused } = useGlobalSportSettings()
+  const { hideUnused: hideUnusedGlobal } = useGlobalSportSettings()
+  const hideUnused = hideUnusedOverride ?? hideUnusedGlobal
+  const rangeKey = `${dateRange?.from ?? ''}|${dateRange?.to ?? ''}`
   const { data: statsData } = useQuery({
-    queryKey: ['sport-type-stats'],
-    queryFn: fetchSportTypeStats,
+    queryKey: ['sport-type-stats', rangeKey],
+    queryFn: () => fetchSportTypeStats(dateRange),
     enabled: hideUnused,
   })
   const baseOptions = useMemo(() => sportFilterOptionsForPreset(preset), [preset])

@@ -1188,7 +1188,7 @@ function SportSettingsSection() {
 
   const { data: statsData, isLoading: statsLoading } = useQuery({
     queryKey: ['sport-type-stats'],
-    queryFn: fetchSportTypeStats,
+    queryFn: () => fetchSportTypeStats(),
   })
 
   const existingSportTypes = useMemo<Set<string>>(() => {

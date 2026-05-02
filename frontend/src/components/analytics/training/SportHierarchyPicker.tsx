@@ -18,9 +18,12 @@ interface SportHierarchyPickerProps {
   value: SportPickerValue
   onChange: (sports: SportPickerValue) => void
   className?: string
+  // Optional date range that scopes "hideUnused" — only sports active in
+  // [from, to] are shown. Without it, falls back to all-time stats.
+  dateRange?: { from?: string; to?: string }
 }
 
-export default function SportHierarchyPicker({ value, onChange, className }: SportHierarchyPickerProps) {
+export default function SportHierarchyPicker({ value, onChange, className, dateRange }: SportHierarchyPickerProps) {
   const [filterValue, setFilterValue] = useState<SportFilterValue>({
     sportTypes: value,
   })
@@ -44,6 +47,8 @@ export default function SportHierarchyPicker({ value, onChange, className }: Spo
       value={filterValue}
       onChange={handleChange}
       showModifiers={false}
+      hideUnused
+      dateRange={dateRange}
       className={className}
     />
   )

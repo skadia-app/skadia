@@ -19,7 +19,17 @@ export interface SportTypeStatItem {
   count: number
 }
 
-export async function fetchSportTypeStats(): Promise<SportTypeStatItem[]> {
-  const data = await apiClient<{ sport_types: SportTypeStatItem[] }>('/activities/sport-type-stats')
+export interface SportTypeStatsRange {
+  from?: string  // YYYY-MM-DD or RFC 3339
+  to?: string
+}
+
+export async function fetchSportTypeStats(range?: SportTypeStatsRange): Promise<SportTypeStatItem[]> {
+  const params = new URLSearchParams()
+  if (range?.from) params.set('from', range.from)
+  if (range?.to)   params.set('to',   range.to)
+  const qs = params.toString()
+  const path = qs ? `/activities/sport-type-stats?${qs}` : '/activities/sport-type-stats'
+  const data = await apiClient<{ sport_types: SportTypeStatItem[] }>(path)
   return data.sport_types
 }

@@ -84,7 +84,7 @@ function SportTypeSelector({ selected, onChange }: SportTypeSelectorProps) {
   const { hideUnused } = useGlobalSportSettings()
   const { data: statsData } = useQuery({
     queryKey: ['sport-type-stats'],
-    queryFn: fetchSportTypeStats,
+    queryFn: () => fetchSportTypeStats(),
     enabled: hideUnused,
   })
   const existingSportKeys = useMemo<Set<string>>(() => {

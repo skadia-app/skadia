@@ -121,7 +121,7 @@ export default function TrainingVolumeChart() {
         legend: { data: sports.map(s => sportLabel(s)), top: 4, textStyle: { fontSize: 10, color: '#9ca3af' }, itemWidth: 12, itemHeight: 8 },
         tooltip: {
           trigger: 'axis',
-          axisPointer: { type: 'shadow' },
+          axisPointer: { type: 'cross' },
           confine: true,
           backgroundColor: 'rgba(17,24,39,0.92)',
           borderColor: '#374151',

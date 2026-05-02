@@ -51,7 +51,7 @@ export default function EddingtonChart() {
         tooltip: {
           confine: true,
           trigger: 'axis',
-          axisPointer: { type: 'shadow' },
+          axisPointer: { type: 'cross' },
           formatter: (params: unknown) => {
             const items = params as Array<{ name: string; value: number; dataIndex: number }>
             if (!Array.isArray(items) || items.length === 0) return ''

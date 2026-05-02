@@ -99,6 +99,7 @@ export default function PowerDurationCurve() {
         tooltip: {
           confine: true,
           trigger: 'axis',
+          axisPointer: { type: 'cross' },
           backgroundColor: 'rgba(17,24,39,0.92)',
           borderColor: '#374151',
           textStyle: { color: '#f3f4f6', fontSize: 12 },

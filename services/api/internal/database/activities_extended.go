@@ -168,16 +168,25 @@ type SportTypeStatRow struct {
 }
 
 // GetSportTypeStats returns the activity count per sport tuple for a user,
-// ordered by count descending.
-func (db *DB) GetSportTypeStats(ctx context.Context, userID string) ([]SportTypeStatRow, error) {
-	rows, err := db.Pool.Query(ctx,
-		`SELECT sport_type, sub_type, COUNT(*)::int AS count
-		 FROM activities
-		 WHERE user_id = $1
-		 GROUP BY sport_type, sub_type
-		 ORDER BY count DESC`,
-		userID,
-	)
+// ordered by count descending. When from/to are non-nil, restricts to activities
+// whose start_time falls in [from, to] (inclusive lower, inclusive upper).
+func (db *DB) GetSportTypeStats(ctx context.Context, userID string, from, to *time.Time) ([]SportTypeStatRow, error) {
+	args := []any{userID}
+	where := "user_id = $1"
+	if from != nil {
+		args = append(args, *from)
+		where += fmt.Sprintf(" AND start_time >= $%d", len(args))
+	}
+	if to != nil {
+		args = append(args, *to)
+		where += fmt.Sprintf(" AND start_time <= $%d", len(args))
+	}
+	q := `SELECT sport_type, sub_type, COUNT(*)::int AS count
+		FROM activities
+		WHERE ` + where + `
+		GROUP BY sport_type, sub_type
+		ORDER BY count DESC`
+	rows, err := db.Pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("get sport type stats: %w", err)
 	}
