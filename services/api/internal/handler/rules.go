@@ -650,6 +650,8 @@ func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule 
 	singleRule := []model.AutomationRule{rule}
 	var errorCount int
 	var pausedCount int
+	var firstFailedID string
+	var firstFailedErr error
 	for i, actID := range actIDs {
 		if err := automation.ApplyRulesToActivity(ctx, h.DB, actID, userID, singleRule, ""); err != nil {
 			if errors.Is(err, automation.ErrRulesEnginePaused) {
@@ -657,6 +659,10 @@ func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule 
 				slog.Warn("apply single rule skipped because rules engine is paused", "activity_id", actID, "rule_id", rule.ID, "error", err)
 			} else {
 				errorCount++
+				if firstFailedID == "" {
+					firstFailedID = actID
+					firstFailedErr = err
+				}
 				slog.Warn("apply single rule to activity", "activity_id", actID, "rule_id", rule.ID, "error", err)
 			}
 		}
@@ -668,7 +674,7 @@ func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule 
 	}
 	slog.Info("apply single rule: done", "user_id", userID, "rule_id", rule.ID, "total", len(actIDs), "errors", errorCount, "paused_skipped", pausedCount)
 	if errorCount > 0 {
-		return fmt.Errorf("%d errors processing %d activities", errorCount, len(actIDs))
+		return fmt.Errorf("%d errors processing %d activities (first failure: activity %s: %w)", errorCount, len(actIDs), firstFailedID, firstFailedErr)
 	}
 	return nil
 }
