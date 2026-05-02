@@ -12,6 +12,7 @@ func TestNormalizeSportTuple(t *testing.T) {
 		wantTuple    Tuple
 		wantElectric *bool
 		wantIndoor   *bool
+		wantVirtual  *bool
 		wantErr      bool
 	}{
 		{
@@ -151,7 +152,43 @@ func TestNormalizeSportTuple(t *testing.T) {
 			}
 			assertBoolPatch(t, "IsElectric", gotPatch.IsElectric, tt.wantElectric)
 			assertBoolPatch(t, "IsIndoor", gotPatch.IsIndoor, tt.wantIndoor)
+			assertBoolPatch(t, "IsVirtual", gotPatch.IsVirtual, tt.wantVirtual)
 		})
+	}
+}
+
+func TestNormalizeSportTupleUsesGeneratedLegacyAliases(t *testing.T) {
+	gotTuple, gotPatch, err := NormalizeSportTuple("e_mountain_biking", "")
+	if err != nil {
+		t.Fatalf("NormalizeSportTuple() error = %v", err)
+	}
+	if gotTuple != (Tuple{SportType: "cycling", SubType: "mountain"}) {
+		t.Fatalf("tuple = %#v, want cycling/mountain", gotTuple)
+	}
+	if gotPatch.IsElectric == nil || !*gotPatch.IsElectric {
+		t.Fatalf("IsElectric patch = %#v, want true", gotPatch.IsElectric)
+	}
+	if gotPatch.IsVirtual != nil {
+		t.Fatalf("IsVirtual patch = %#v, want nil for legacy alias", gotPatch.IsVirtual)
+	}
+}
+
+func TestNormalizeSportTupleLegacyRawSubAliasSetsIndoor(t *testing.T) {
+	gotTuple, gotPatch, err := NormalizeSportTuple("wheelchair_push_walk", "indoor_wheelchair_walk")
+	if err != nil {
+		t.Fatalf("NormalizeSportTuple() error = %v", err)
+	}
+	if gotTuple != (Tuple{SportType: "wheelchair_push", SubType: "walk_speed"}) {
+		t.Fatalf("tuple = %#v, want wheelchair_push/walk_speed", gotTuple)
+	}
+	if gotPatch.IsIndoor == nil || !*gotPatch.IsIndoor {
+		t.Fatalf("IsIndoor patch = %#v, want true", gotPatch.IsIndoor)
+	}
+}
+
+func TestNormalizeSportTupleStillRejectsUnknownSport(t *testing.T) {
+	if _, _, err := NormalizeSportTuple("totally_new_sport", ""); err == nil {
+		t.Fatal("NormalizeSportTuple accepted unknown sport")
 	}
 }
 
@@ -163,8 +200,18 @@ func TestNormalizeSportTupleForImportDropsDeviceModeSubTypes(t *testing.T) {
 	if gotTuple != (Tuple{SportType: "cycling"}) {
 		t.Fatalf("tuple = %#v, want broad cycling", gotTuple)
 	}
-	if gotPatch.IsElectric != nil || gotPatch.IsIndoor != nil {
+	if gotPatch.IsElectric != nil || gotPatch.IsIndoor != nil || gotPatch.IsVirtual != nil {
 		t.Fatalf("patch = %#v, want empty", gotPatch)
+	}
+}
+
+func TestNormalizeSportTupleForImportStillDropsDeviceModeSubTypes(t *testing.T) {
+	gotTuple, _, err := NormalizeSportTupleForImport("cycling", "commuting")
+	if err != nil {
+		t.Fatalf("NormalizeSportTupleForImport() error = %v", err)
+	}
+	if gotTuple != (Tuple{SportType: "cycling"}) {
+		t.Fatalf("tuple = %#v, want broad cycling", gotTuple)
 	}
 }
 
