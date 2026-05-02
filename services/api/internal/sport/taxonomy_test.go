@@ -307,7 +307,26 @@ func TestModifierDefaultsForTuple(t *testing.T) {
 	if got := ModifierDefaultsForTuple("yoga", ""); got.IsIndoor == nil || !*got.IsIndoor {
 		t.Fatalf("yoga defaults = %#v, want is_indoor true", got)
 	}
+	if got := ModifierDefaultsForTuple("fitness_equipment", "treadmill"); got.IsIndoor == nil || !*got.IsIndoor {
+		t.Fatalf("fitness_equipment/treadmill defaults = %#v, want inherited is_indoor true", got)
+	}
+	if got := ModifierDefaultsForTuple("fitness_equipment", "indoor_rowing"); got.IsIndoor == nil || !*got.IsIndoor {
+		t.Fatalf("fitness_equipment/indoor_rowing defaults = %#v, want inherited is_indoor true", got)
+	}
 	if got := ModifierDefaultsForTuple("nonexistent_sport", ""); got.IsIndoor != nil {
 		t.Fatalf("unknown sport defaults = %#v, want zero defaults", got)
+	}
+}
+
+func TestModifierDefaultsForTupleReturnsCopy(t *testing.T) {
+	first := ModifierDefaultsForTuple("running", "treadmill")
+	if first.IsIndoor == nil || !*first.IsIndoor {
+		t.Fatalf("running/treadmill defaults = %#v, want is_indoor true", first)
+	}
+	*first.IsIndoor = false
+
+	second := ModifierDefaultsForTuple("running", "treadmill")
+	if second.IsIndoor == nil || !*second.IsIndoor {
+		t.Fatalf("mutating returned defaults changed registry: %#v", second)
 	}
 }

@@ -229,6 +229,7 @@ const LEGACY_ALIASES = new Map<string, SportTuple>([
   ['lap_swimming', { sportType: 'swimming', subType: 'lap_swimming', modifiers: {} }],
   ['open_water_swimming', { sportType: 'swimming', subType: 'open_water', modifiers: {} }],
   ['road_cycling', { sportType: 'cycling', subType: 'road', modifiers: {} }],
+  ['roadcycling', { sportType: 'cycling', subType: 'road', modifiers: {} }],
   ['wheelchair_push_walk', { sportType: 'wheelchair_push', subType: 'walk_speed', modifiers: {} }],
   ['wheelchair_push_run', { sportType: 'wheelchair_push', subType: 'run_speed', modifiers: {} }],
   ['strength', { sportType: 'strength_training', subType: '', modifiers: {} }],
