@@ -16,6 +16,25 @@ type ModifierPatch struct {
 	IsVirtual  *bool
 }
 
+type ModifierValues struct {
+	IsElectric bool
+	IsIndoor   bool
+	IsVirtual  bool
+}
+
+func ApplyModifierPatch(values ModifierValues, patch ModifierPatch) ModifierValues {
+	if patch.IsElectric != nil {
+		values.IsElectric = *patch.IsElectric
+	}
+	if patch.IsIndoor != nil {
+		values.IsIndoor = *patch.IsIndoor
+	}
+	if patch.IsVirtual != nil {
+		values.IsVirtual = *patch.IsVirtual
+	}
+	return values
+}
+
 type Source string
 
 const (

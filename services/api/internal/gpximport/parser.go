@@ -97,20 +97,9 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	if err != nil {
 		return nil, err
 	}
-	patch = mergeGPXModifierPatch(patch, resolved.Patch)
+	modifiers := sporttax.ApplyModifierPatch(sporttax.ModifierValues{}, patch)
+	modifiers = sporttax.ApplyModifierPatch(modifiers, resolved.Patch)
 	sport, subType := tuple.SportType, tuple.SubType
-	isElectric := false
-	if patch.IsElectric != nil {
-		isElectric = *patch.IsElectric
-	}
-	isVirtual := false
-	if patch.IsVirtual != nil {
-		isVirtual = *patch.IsVirtual
-	}
-	isIndoorPatch := false
-	if patch.IsIndoor != nil {
-		isIndoorPatch = *patch.IsIndoor
-	}
 
 	// Prefer the track name; fall back to the metadata name (used e.g. by Bosch eBike).
 	activityTitle := strings.TrimSpace(trk.Name)
@@ -126,8 +115,8 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 		SourceDevice:    sourceDevice,
 		SportType:       sport,
 		SubType:         subType,
-		IsElectric:      isElectric,
-		IsVirtual:       isVirtual,
+		IsElectric:      modifiers.IsElectric,
+		IsVirtual:       modifiers.IsVirtual,
 		RecordingDevice: recordingDevice,
 	}
 
@@ -282,7 +271,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	data.Streams = streams
 	data.TrackPoints = trackPoints
 	data.HasGPS = len(trackPoints) >= 2
-	data.IsIndoor = isIndoorPatch || sporttax.IsIndoor(data.SportType, data.SubType)
+	data.IsIndoor = modifiers.IsIndoor
 
 	if data.HasGPS {
 		data.StartLat = trackPoints[0].Lat
@@ -306,19 +295,6 @@ func mapGPXType(gpxType string) sporttax.ResolveResult {
 		return sporttax.ResolveResult{Tuple: sporttax.Tuple{SportType: "unknown"}, Resolved: true}
 	}
 	return result
-}
-
-func mergeGPXModifierPatch(a, b sporttax.ModifierPatch) sporttax.ModifierPatch {
-	if b.IsElectric != nil {
-		a.IsElectric = b.IsElectric
-	}
-	if b.IsIndoor != nil {
-		a.IsIndoor = b.IsIndoor
-	}
-	if b.IsVirtual != nil {
-		a.IsVirtual = b.IsVirtual
-	}
-	return a
 }
 
 // parseGPXCreator extracts source app and device from the GPX creator attribute.
