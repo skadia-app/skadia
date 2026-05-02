@@ -37,10 +37,11 @@ type GeneratedActivityFilterGroup = GeneratedActivityFilterPreset['groups'][numb
 type GeneratedActivityFilterLeaf = GeneratedActivityFilterGroup['leaves'][number]
 
 function optionFromLeaf(leaf: GeneratedActivityFilterLeaf): SportOption {
+  const subType = 'subType' in leaf ? leaf.subType : undefined
   return {
     value: leaf.sportType,
     label: leaf.label,
-    ...(leaf.subType ? { subType: leaf.subType } : {}),
+    ...(subType ? { subType } : {}),
   }
 }
 
@@ -65,7 +66,6 @@ export function generateMapFilterOptions(): SportOption[] {
 
 /**
  * Sport filter options for activity list view.
- * All 10 categories as expandable groups.
  */
 export function generateActivityFilterOptions(): SportOption[] {
   return optionsForPreset('activity_all')

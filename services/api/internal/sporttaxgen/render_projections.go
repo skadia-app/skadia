@@ -46,6 +46,10 @@ func RenderTSActivityFilterProjections(presets []ExpandedActivityFilterPreset) (
 			fmt.Fprintf(&buf, "        label: %s,\n", tsString(group.Label["de"]))
 			buf.WriteString("        leaves: [\n")
 			for _, leaf := range group.Leaves {
+				if leaf.SubType == "" {
+					fmt.Fprintf(&buf, "          { sportType: %s, label: %s },\n", tsString(leaf.SportType), tsString(leaf.Label["de"]))
+					continue
+				}
 				fmt.Fprintf(&buf, "          { sportType: %s, subType: %s, label: %s },\n", tsString(leaf.SportType), tsString(leaf.SubType), tsString(leaf.Label["de"]))
 			}
 			buf.WriteString("        ],\n")

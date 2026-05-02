@@ -3,6 +3,48 @@ import { describe, expect, it } from 'vitest'
 import { filterToExistingSports, generateActivityFilterOptions, generateMapFilterOptions, getOptionKey, type SportOption } from '../sportOptions'
 
 describe('sport filter options', () => {
+  it('renders activity projection groups in deterministic order', () => {
+    const options = generateActivityFilterOptions()
+
+    expect(options.map((group) => group.groupKey)).toEqual([
+      'run',
+      'bike',
+      'winter',
+      'water_swim',
+      'water_paddle',
+      'water_board',
+      'water_boat',
+      'water_dive',
+      'water_other',
+      'fitness',
+      'game',
+      'climb',
+      'outdoor',
+      'multi',
+      'other',
+    ])
+  })
+
+  it('renders map projection groups in deterministic order', () => {
+    const options = generateMapFilterOptions()
+
+    expect(options.map((group) => group.groupKey)).toEqual([
+      'run',
+      'bike',
+      'winter',
+      'water_swim',
+      'water_paddle',
+      'water_board',
+      'water_boat',
+      'water_dive',
+      'water_other',
+      'climb',
+      'outdoor',
+      'multi',
+      'fitness_other',
+    ])
+  })
+
   it('renders six water groups from generated activity projection', () => {
     const options = generateActivityFilterOptions()
     const waterGroups = options.filter((group) => group.groupKey?.startsWith('water_'))
@@ -67,6 +109,57 @@ describe('sport filter options', () => {
     ]))
     expect(groupByKey(options, 'fitness_other').children?.map(getOptionKey)).not.toContain('racket')
     expect(options.map((group) => group.label)).not.toContain('Wassersport')
+  })
+
+  it('preserves representative non-water filter leaves', () => {
+    const options = generateActivityFilterOptions()
+
+    expect(keysInGroup(options, 'run').slice(0, 8)).toEqual([
+      'running',
+      'running:street',
+      'running:trail',
+      'running:track',
+      'running:treadmill',
+      'running:indoor_running',
+      'running:ultra',
+      'running:obstacle',
+    ])
+    expect(keysInGroup(options, 'winter')).toEqual(expect.arrayContaining([
+      'alpine_skiing',
+      'alpine_skiing:resort',
+      'snowboarding:resort',
+      'snowshoeing',
+      'skiing',
+    ]))
+    expect(keysInGroup(options, 'fitness')).toEqual(expect.arrayContaining([
+      'training:strength_training',
+      'fitness_equipment:treadmill',
+      'strength_training',
+      'hiit',
+      'yoga',
+      'pilates',
+    ]))
+    expect(keysInGroup(options, 'game')).toEqual(expect.arrayContaining([
+      'tennis',
+      'tennis:match',
+      'racket:squash',
+      'racket:badminton',
+      'golf',
+    ]))
+  })
+
+  it('preserves representative map compact leaves', () => {
+    const options = generateMapFilterOptions()
+
+    expect(keysInGroup(options, 'fitness_other')).toEqual(expect.arrayContaining([
+      'training:strength_training',
+      'fitness_equipment:treadmill',
+      'strength_training',
+      'racket:squash',
+      'racket:badminton',
+      'generic',
+      'unknown',
+    ]))
   })
 
   it('keeps explicitly projected broad fallback leaves filterable', () => {

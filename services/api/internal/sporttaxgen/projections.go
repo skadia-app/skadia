@@ -3,7 +3,6 @@ package sporttaxgen
 import (
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v2"
@@ -67,7 +66,6 @@ type pendingProjectionLeaf struct {
 	WithParentLabelDE string
 	ExplicitLabelDE   string
 	ForceParentLabel  bool
-	CanDisambiguate   bool
 }
 
 var promotedProjectionParents = map[string]struct{}{
@@ -77,13 +75,9 @@ var promotedProjectionParents = map[string]struct{}{
 }
 
 var parentContextSubTypes = map[string]struct{}{
-	"warm_up":           {},
-	"exercise":          {},
-	"match":             {},
-	"strength_training": {},
-	"yoga":              {},
-	"pilates":           {},
-	"hiit":              {},
+	"warm_up":  {},
+	"exercise": {},
+	"match":    {},
 }
 
 func LoadActivityFilterProjections(r io.Reader, taxonomy Taxonomy) (ActivityFilterProjections, error) {
@@ -139,6 +133,9 @@ func ExpandActivityFilterPresets(taxonomy Taxonomy, projections ActivityFilterPr
 
 func validateActivityFilterProjections(projections ActivityFilterProjections, taxonomy Taxonomy) error {
 	idx := newProjectionIndexes(taxonomy)
+	if len(projections.Presets) == 0 {
+		return fmt.Errorf("missing presets")
+	}
 	presetKeys := map[string]struct{}{}
 	for i, preset := range projections.Presets {
 		if preset.Key == "" {
@@ -150,6 +147,9 @@ func validateActivityFilterProjections(projections ActivityFilterProjections, ta
 		presetKeys[preset.Key] = struct{}{}
 		if preset.Labels["de"] == "" {
 			return fmt.Errorf("preset %q: missing labels.de", preset.Key)
+		}
+		if len(preset.Groups) == 0 {
+			return fmt.Errorf("preset %q: missing groups", preset.Key)
 		}
 		groupKeys := map[string]struct{}{}
 		for j, group := range preset.Groups {
@@ -176,6 +176,11 @@ func validateActivityFilterProjections(projections ActivityFilterProjections, ta
 					return fmt.Errorf("preset %q group %q entries[%d]: %w", preset.Key, group.Key, k, err)
 				}
 			}
+		}
+	}
+	for _, required := range []string{"activity_all", "map_panel_gps"} {
+		if _, ok := presetKeys[required]; !ok {
+			return fmt.Errorf("missing required preset %q", required)
 		}
 	}
 	return nil
@@ -308,38 +313,26 @@ func leafForSubType(sport Sport, subType SubType, entry ActivityFilterEntry) pen
 		WithParentLabelDE: sport.Labels["de"] + ": " + compact,
 		ExplicitLabelDE:   entry.Labels["de"],
 		ForceParentLabel:  forceParent,
-		CanDisambiguate:   true,
 	}
 }
 
 func disambiguateProjectionLeaves(pending []pendingProjectionLeaf) []ExpandedActivityFilterLeaf {
-	labelCounts := map[string]int{}
-	initial := make([]string, len(pending))
-	for i, leaf := range pending {
-		label := projectionLeafLabel(leaf, false)
-		initial[i] = label
-		labelCounts[label]++
-	}
 	out := make([]ExpandedActivityFilterLeaf, 0, len(pending))
-	for i, leaf := range pending {
-		label := initial[i]
-		if labelCounts[label] > 1 && leaf.CanDisambiguate {
-			label = projectionLeafLabel(leaf, true)
-		}
+	for _, leaf := range pending {
 		out = append(out, ExpandedActivityFilterLeaf{
 			SportType: leaf.SportType,
 			SubType:   leaf.SubType,
-			Label:     LocaleMap{"de": label},
+			Label:     LocaleMap{"de": projectionLeafLabel(leaf)},
 		})
 	}
 	return out
 }
 
-func projectionLeafLabel(leaf pendingProjectionLeaf, duplicateContext bool) string {
+func projectionLeafLabel(leaf pendingProjectionLeaf) string {
 	if leaf.ExplicitLabelDE != "" {
 		return leaf.ExplicitLabelDE
 	}
-	if leaf.SubType != "" && (leaf.ForceParentLabel || duplicateContext) {
+	if leaf.SubType != "" && leaf.ForceParentLabel {
 		return leaf.WithParentLabelDE
 	}
 	return leaf.CompactLabelDE
@@ -424,10 +417,4 @@ func projectionTupleKey(sportType, subType string) string {
 		return sportType
 	}
 	return sportType + ":" + subType
-}
-
-func SortExpandedActivityFilterPresets(presets []ExpandedActivityFilterPreset) {
-	sort.Slice(presets, func(i, j int) bool {
-		return presets[i].Key < presets[j].Key
-	})
 }

@@ -49,6 +49,48 @@ presets:
 	}
 }
 
+func TestLoadActivityFilterProjectionsRejectsMissingPresets(t *testing.T) {
+	_, err := loadProjectionFixture(t, `presets: []`)
+	if err == nil {
+		t.Fatal("LoadActivityFilterProjections accepted empty presets")
+	}
+}
+
+func TestLoadActivityFilterProjectionsRejectsMissingRequiredPreset(t *testing.T) {
+	_, err := loadProjectionFixture(t, `
+presets:
+  - key: activity_all
+    labels: {de: Aktivitätsfilter}
+    groups:
+      - key: run
+        label_ref: category:run
+        entries:
+          - category_key: run
+`)
+	if err == nil {
+		t.Fatal("LoadActivityFilterProjections accepted missing map_panel_gps preset")
+	}
+}
+
+func TestLoadActivityFilterProjectionsRejectsPresetWithoutGroups(t *testing.T) {
+	_, err := loadProjectionFixture(t, `
+presets:
+  - key: activity_all
+    labels: {de: Aktivitätsfilter}
+    groups: []
+  - key: map_panel_gps
+    labels: {de: Kartenfilter}
+    groups:
+      - key: run
+        label_ref: category:run
+        entries:
+          - category_key: run
+`)
+	if err == nil {
+		t.Fatal("LoadActivityFilterProjections accepted preset without groups")
+	}
+}
+
 func TestLoadActivityFilterProjectionsRejectsDanglingCategory(t *testing.T) {
 	_, err := loadProjectionFixture(t, strings.Replace(validProjectionFixture(), "category_key: run", "category_key: missing", 1))
 	if err == nil {
@@ -133,6 +175,14 @@ presets:
         labels: {de: B}
         entries:
           - sport_type: running
+  - key: map_panel_gps
+    labels: {de: Kartenfilter}
+    groups:
+      - key: run
+        label_ref: category:run
+        entries:
+          - category_key: run
+            label_mode: with_parent
 `)
 	if err != nil {
 		t.Fatalf("load projection fixture: %v", err)
@@ -154,6 +204,14 @@ presets:
         entries:
           - sport_type: duplicate_one
           - sport_type: duplicate_two
+  - key: map_panel_gps
+    labels: {de: Kartenfilter}
+    groups:
+      - key: run
+        label_ref: category:run
+        entries:
+          - category_key: run
+            label_mode: with_parent
 `)
 	if err != nil {
 		t.Fatalf("load projection fixture: %v", err)
@@ -161,6 +219,17 @@ presets:
 	_, err = ExpandActivityFilterPresets(testProjectionTaxonomy(), projection)
 	if err == nil {
 		t.Fatal("ExpandActivityFilterPresets accepted duplicate parent labels")
+	}
+}
+
+func TestExpandActivityFilterProjectionsRejectsDuplicateSubtypeLabelWithoutContext(t *testing.T) {
+	projection, err := loadProjectionFixture(t, strings.Replace(validProjectionFixture(), "label_mode: with_parent", "label_mode: compact", 1))
+	if err != nil {
+		t.Fatalf("load projection fixture: %v", err)
+	}
+	_, err = ExpandActivityFilterPresets(testProjectionTaxonomy(), projection)
+	if err == nil {
+		t.Fatal("ExpandActivityFilterPresets accepted duplicate subtype labels without explicit context")
 	}
 }
 
@@ -189,6 +258,14 @@ presets:
         label_ref: category:game
         entries:
           - category_key: game
+  - key: map_panel_gps
+    labels: {de: Kartenfilter}
+    groups:
+      - key: run
+        label_ref: category:run
+        entries:
+          - category_key: run
+            label_mode: with_parent
 `)
 	if err != nil {
 		t.Fatalf("load projection fixture: %v", err)
@@ -241,6 +318,9 @@ func TestProjectionSchemaMentionsValidatedFields(t *testing.T) {
 			t.Fatalf("schema does not mention %q", field)
 		}
 	}
+	if strings.Contains(string(schema), `"label_ref": { "type": "string" }`) {
+		t.Fatal("schema allows label_ref on projection entries")
+	}
 }
 
 func loadProjectionFixture(t *testing.T, src string) (ActivityFilterProjections, error) {
@@ -258,12 +338,21 @@ presets:
         label_ref: category:run
         entries:
           - category_key: run
+            label_mode: with_parent
       - key: fitness
         labels: {de: Fitness}
         entries:
           - sport_type: pilates
           - sport_type: fitness_equipment
             sub_type: pilates
+            label_mode: with_parent
+  - key: map_panel_gps
+    labels: {de: Kartenfilter}
+    groups:
+      - key: run
+        label_ref: category:run
+        entries:
+          - category_key: run
             label_mode: with_parent
 `
 }
@@ -278,7 +367,12 @@ func testProjectionTaxonomy() Taxonomy {
 			{Key: "dup", Labels: LocaleMap{"de": "Doppelt"}, Color: Color{Token: "dup", LightHex: "#6B7280"}},
 		},
 		Sports: []Sport{
-			testSport("running", "run", "Laufen", true, nil),
+			testSport("running", "run", "Laufen", true, []SubType{
+				testSubType("indoor_running", "Indoor", true),
+			}),
+			testSport("walking", "run", "Gehen", true, []SubType{
+				testSubType("indoor_walking", "Indoor", true),
+			}),
 			testSport("cycling", "bike", "Radfahren", true, nil),
 			testSport("pilates", "fitness", "Pilates", true, nil),
 			testSport("fitness_equipment", "fitness", "Fitnessgerät", false, []SubType{
