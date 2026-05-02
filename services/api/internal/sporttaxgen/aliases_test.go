@@ -1,6 +1,7 @@
 package sporttaxgen
 
 import (
+	"bytes"
 	"io"
 	"strings"
 	"testing"
@@ -128,6 +129,42 @@ aliases:
 	}
 	if len(sources) != 2 {
 		t.Fatalf("sources = %d, want 2", len(sources))
+	}
+}
+
+func TestRenderGoSourceAliasesIncludesSourcesAndPatches(t *testing.T) {
+	source, err := LoadSourceAliases(strings.NewReader(`
+source: strava
+aliases:
+- raw: Virtual Ride
+  sport_type: cycling
+  modifiers: {is_virtual: true}
+- raw: E-Bike Ride
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: Treadmill
+  sport_type: running
+  sub_type: treadmill
+  modifiers: {is_indoor: true}
+`), "strava", aliasTestTaxonomy())
+	if err != nil {
+		t.Fatalf("LoadSourceAliases() error = %v", err)
+	}
+	got, err := RenderGoSourceAliases([]SourceAliases{source})
+	if err != nil {
+		t.Fatalf("RenderGoSourceAliases() error = %v", err)
+	}
+	for _, want := range []string{
+		"SourceStrava",
+		`RawSport: "Virtual Ride"`,
+		`SportType: "running", SubType: "treadmill"`,
+		"IsVirtual: ptrBool(true)",
+		"IsElectric: ptrBool(true)",
+		"IsIndoor: ptrBool(true)",
+	} {
+		if !bytes.Contains(got, []byte(want)) {
+			t.Fatalf("generated aliases missing %q:\n%s", want, got)
+		}
 	}
 }
 

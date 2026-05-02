@@ -1,0 +1,65 @@
+source: legacy
+aliases:
+- raw: bike
+  sport_type: cycling
+- raw: biking
+  sport_type: cycling
+- raw: ride
+  sport_type: cycling
+- raw: mountain_biking
+  sport_type: cycling
+  sub_type: mountain
+- raw: gravel_cycling
+  sport_type: cycling
+  sub_type: gravel_cycling
+- raw: indoor_cycling
+  sport_type: cycling
+  sub_type: indoor_cycling
+  modifiers: {is_indoor: true}
+- raw: trail_running
+  sport_type: running
+  sub_type: trail
+- raw: treadmill_running
+  sport_type: running
+  sub_type: treadmill
+  modifiers: {is_indoor: true}
+- raw: lap_swimming
+  sport_type: swimming
+  sub_type: lap_swimming
+- raw: open_water_swimming
+  sport_type: swimming
+  sub_type: open_water
+- raw: road_cycling
+  sport_type: cycling
+  sub_type: road
+- raw: roadcycling
+  sport_type: cycling
+  sub_type: road
+- raw: wheelchair_push_walk
+  sport_type: wheelchair_push
+  sub_type: walk_speed
+- raw: wheelchair_push_run
+  sport_type: wheelchair_push
+  sub_type: run_speed
+- raw: strength
+  sport_type: strength_training
+- raw: e_mountain_biking
+  sport_type: cycling
+  sub_type: mountain
+  modifiers: {is_electric: true}
+- raw: e_biking
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: e_bike
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: wheelchair_push_walk
+  raw_sub: indoor_wheelchair_walk
+  sport_type: wheelchair_push
+  sub_type: walk_speed
+  modifiers: {is_indoor: true}
+- raw: wheelchair_push_run
+  raw_sub: indoor_wheelchair_run
+  sport_type: wheelchair_push
+  sub_type: run_speed
+  modifiers: {is_indoor: true}
