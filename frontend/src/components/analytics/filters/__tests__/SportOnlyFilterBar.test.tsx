@@ -53,7 +53,7 @@ vi.mock('@/components/DateRangePicker', () => ({
 }))
 
 const DEFAULT_VALUE: SportOnlyFilterValue = {
-  selectedSports: [],
+  selectedSports: null,
   from: '',
   to: '',
 }

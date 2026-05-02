@@ -13,7 +13,7 @@ const ACTIVITY_SPORT_OPTIONS = generateActivityFilterOptions()
 const ALL_SPORT_KEYS = getAllSportKeys(ACTIVITY_SPORT_OPTIONS)
 
 export interface ActivityFilterState {
-  sportTypes: Set<string>
+  sportTypes: Set<string> | null
   dateFrom: string
   dateTo: string
   isIndoor: boolean | null
@@ -29,7 +29,7 @@ export interface ActivityFilterState {
 }
 
 export const EMPTY_FILTERS: ActivityFilterState = {
-  sportTypes: new Set<string>(),
+  sportTypes: null,
   dateFrom: '',
   dateTo: '',
   isIndoor: null,
@@ -47,7 +47,7 @@ export const EMPTY_FILTERS: ActivityFilterState = {
 /** Serialize filter state to URL search params */
 export function filtersToParams(f: ActivityFilterState): URLSearchParams {
   const p = new URLSearchParams()
-  if (f.sportTypes.size > 0 && f.sportTypes.size < ALL_SPORT_KEYS.length) {
+  if (f.sportTypes !== null && f.sportTypes.size > 0 && f.sportTypes.size < ALL_SPORT_KEYS.length) {
     p.set('sports', [...f.sportTypes].join(','))
   }
   if (f.dateFrom) p.set('from', f.dateFrom)
@@ -125,7 +125,7 @@ export function filtersToApiParams(f: ActivityFilterState) {
     includeDevices: includeDevices.length ? includeDevices : undefined,
     excludeDevices: excludeDevices.length ? excludeDevices : undefined,
   }
-  if (f.sportTypes.size === 0 || f.sportTypes.size === ALL_SPORT_KEYS.length) {
+  if (f.sportTypes === null || f.sportTypes.size === ALL_SPORT_KEYS.length) {
     return { sportTypes: undefined, ...base }
   }
   return { sportTypes: [...f.sportTypes], ...base }
@@ -148,7 +148,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
 
   function countActive(f: ActivityFilterState): number {
     let n = 0
-    if (f.sportTypes.size > 0 && !ALL_SPORT_KEYS.every(k => f.sportTypes.has(k))) n++
+    if (f.sportTypes !== null && !ALL_SPORT_KEYS.every(k => f.sportTypes!.has(k))) n++
     if (f.dateFrom) n++
     if (f.dateTo) n++
     if (f.isIndoor !== null) n++
@@ -170,13 +170,13 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   // Active filter chips
   const chips: { label: string; onRemove: () => void }[] = []
 
-  if (filters.sportTypes.size > 0 && filters.sportTypes.size < ALL_SPORT_KEYS.length) {
+  if (filters.sportTypes !== null && filters.sportTypes.size < ALL_SPORT_KEYS.length) {
     const labels = [...filters.sportTypes].map(k => {
       const [sport, sub] = k.split(':')
       return sportLabel(sport, sub || undefined)
     })
     const display = labels.length <= 3 ? labels.join(', ') : `${labels.length} Sportarten`
-    chips.push({ label: display, onRemove: () => onChange({ ...filters, sportTypes: new Set<string>() }) })
+    chips.push({ label: display, onRemove: () => onChange({ ...filters, sportTypes: null }) })
   }
   if (filters.dateFrom) {
     chips.push({ label: `Ab ${filters.dateFrom}`, onRemove: () => onChange({ ...filters, dateFrom: '' }) })
@@ -239,7 +239,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               preset="ACTIVITY_ALL"
               modifierKeys={['is_electric', 'is_indoor', 'is_virtual', 'is_commute']}
               value={{
-                sportTypes: filters.sportTypes.size === 0 ? null : [...filters.sportTypes],
+                sportTypes: filters.sportTypes === null ? null : [...filters.sportTypes],
                 modifiers: {
                   is_electric: filters.isElectric ?? undefined,
                   is_indoor: filters.isIndoor ?? undefined,
@@ -249,7 +249,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
               }}
               onChange={(next) => onChange({
                 ...filters,
-                sportTypes: new Set(next.sportTypes ?? []),
+                sportTypes: next.sportTypes === null ? null : new Set(next.sportTypes),
                 isElectric: next.modifiers?.is_electric ?? null,
                 isIndoor: next.modifiers?.is_indoor ?? null,
                 isVirtual: next.modifiers?.is_virtual ?? null,
