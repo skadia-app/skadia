@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // GearImporter reads bikes, shoes, and components from a Strava export.
@@ -257,14 +258,16 @@ func mapStravaDefaultSports(sports string) []string {
 		sep = "|"
 	}
 	var result []string
+	seen := make(map[string]bool)
 	for s := range strings.SplitSeq(sports, sep) {
 		s = strings.TrimSpace(s)
 		if s == "" {
 			continue
 		}
-		mapped := mapStravaSportType(s)
-		if mapped != "" {
+		mapped, ok := sport.GearDefaultSportForSource(sport.SourceStrava, s)
+		if ok && mapped != "" && !seen[mapped] {
 			result = append(result, mapped)
+			seen[mapped] = true
 		}
 	}
 	return result

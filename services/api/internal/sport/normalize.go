@@ -122,6 +122,20 @@ func ResolveSport(input ResolveInput) (ResolveResult, error) {
 	}
 }
 
+func GearDefaultSportForSource(source Source, rawSport string) (string, bool) {
+	rawSport = strings.TrimSpace(rawSport)
+	if rawSport == "" {
+		return "", false
+	}
+	if alias, ok := lookupSourceAlias(source, rawSport, ""); ok {
+		return alias.Tuple.SportType, true
+	}
+	if source == SourceStrava {
+		return "generic", true
+	}
+	return "", false
+}
+
 func lookupSourceAlias(source Source, rawSport, rawSub string) (sourceAliasDef, bool) {
 	aliases := generatedSourceAliases[source]
 	for _, alias := range aliases {
