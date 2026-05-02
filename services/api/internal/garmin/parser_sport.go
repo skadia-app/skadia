@@ -3,6 +3,7 @@ package garmin
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"sort"
 	"time"
@@ -17,24 +18,35 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
-// processSportFIT parses a Garmin sport FIT file (type 3) and upserts training zone
-// definitions for HR, power and speed zones into the database.
-func processSportFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
-	if _, err := storeHealthFIT(ctx, db, fs, data, userID, "sport", "sport.fit", time.Now().UTC()); err != nil {
-		slog.Warn("processSportFIT: storeHealthFIT failed", "error", err)
-		// non-fatal — continue with parsing
-	}
+// sportZoneEntry holds a single zone boundary decoded from a FIT zone message.
+type sportZoneEntry struct {
+	index uint16
+	name  string
+	high  float64
+}
 
-	dec := decoder.New(bytes.NewReader(data), decoder.WithIgnoreChecksum())
+// parsedSportData holds the pure decode output of a sport FIT file.
+type parsedSportData struct {
+	Sport    int16
+	SubSport int16
+
+	MaxHeartRate             *int16
+	ThresholdHeartRate       *int16
+	FunctionalThresholdPower *int32
+	HrCalcType               *int16
+	PwrCalcType              *int16
+
+	HREntries    []sportZoneEntry
+	PowerEntries []sportZoneEntry
+	SpeedEntries []sportZoneEntry
+}
+
+// decodeSport decodes a raw sport FIT payload into zone data without any I/O.
+func decodeSport(raw []byte) (parsedSportData, error) {
+	dec := decoder.New(bytes.NewReader(raw), decoder.WithIgnoreChecksum())
 	fit, err := dec.Decode()
 	if err != nil {
-		return nil // undecodable file — skip silently
-	}
-
-	type zoneEntry struct {
-		index uint16
-		name  string
-		high  float64
+		return parsedSportData{}, fmt.Errorf("decode sport FIT: %w", err)
 	}
 
 	var (
@@ -43,9 +55,9 @@ func processSportFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 
 		zonesTarget *mesgdef.ZonesTarget
 
-		hrEntries    []zoneEntry
-		powerEntries []zoneEntry
-		speedEntries []zoneEntry
+		hrEntries    []sportZoneEntry
+		powerEntries []sportZoneEntry
+		speedEntries []sportZoneEntry
 	)
 
 	for i := range fit.Messages {
@@ -71,7 +83,7 @@ func processSportFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 			if z.HighBpm == basetype.Uint8Invalid {
 				continue
 			}
-			hrEntries = append(hrEntries, zoneEntry{
+			hrEntries = append(hrEntries, sportZoneEntry{
 				index: uint16(z.MessageIndex & typedef.MessageIndexMask),
 				name:  z.Name,
 				high:  float64(z.HighBpm),
@@ -85,7 +97,7 @@ func processSportFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 			if z.HighValue == basetype.Uint16Invalid {
 				continue
 			}
-			powerEntries = append(powerEntries, zoneEntry{
+			powerEntries = append(powerEntries, sportZoneEntry{
 				index: uint16(z.MessageIndex & typedef.MessageIndexMask),
 				name:  z.Name,
 				high:  float64(z.HighValue),
@@ -99,7 +111,7 @@ func processSportFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 			if z.HighValue == basetype.Uint16Invalid {
 				continue
 			}
-			speedEntries = append(speedEntries, zoneEntry{
+			speedEntries = append(speedEntries, sportZoneEntry{
 				index: uint16(z.MessageIndex & typedef.MessageIndexMask),
 				name:  z.Name,
 				high:  float64(z.HighValue) / 1000.0, // scale to m/s
@@ -107,41 +119,55 @@ func processSportFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 		}
 	}
 
-	sportI16 := int16(sport)
-	subSportI16 := int16(subSport)
+	out := parsedSportData{
+		Sport:        int16(sport),
+		SubSport:     int16(subSport),
+		HREntries:    hrEntries,
+		PowerEntries: powerEntries,
+		SpeedEntries: speedEntries,
+	}
 
-	// Build shared ZonesTarget thresholds.
-	var (
-		maxHR    *int16
-		thrHR    *int16
-		ftp      *int32
-		hrCalc   *int16
-		pwrCalc  *int16
-	)
 	if zonesTarget != nil {
 		if zonesTarget.MaxHeartRate != basetype.Uint8Invalid {
 			v := int16(zonesTarget.MaxHeartRate)
-			maxHR = &v
+			out.MaxHeartRate = &v
 		}
 		if zonesTarget.ThresholdHeartRate != basetype.Uint8Invalid {
 			v := int16(zonesTarget.ThresholdHeartRate)
-			thrHR = &v
+			out.ThresholdHeartRate = &v
 		}
 		if zonesTarget.FunctionalThresholdPower != basetype.Uint16Invalid {
 			v := int32(zonesTarget.FunctionalThresholdPower)
-			ftp = &v
+			out.FunctionalThresholdPower = &v
 		}
 		if zonesTarget.HrCalcType != typedef.HrZoneCalcInvalid {
 			v := int16(zonesTarget.HrCalcType)
-			hrCalc = &v
+			out.HrCalcType = &v
 		}
 		if zonesTarget.PwrCalcType != typedef.PwrZoneCalcInvalid {
 			v := int16(zonesTarget.PwrCalcType)
-			pwrCalc = &v
+			out.PwrCalcType = &v
 		}
 	}
 
-	sortEntries := func(entries []zoneEntry) ([]string, []float64) {
+	return out, nil
+}
+
+// processSportFIT parses a Garmin sport FIT file (type 3) and upserts training zone
+// definitions for HR, power and speed zones into the database.
+func processSportFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS, data []byte, userID string) error {
+	if _, err := storeHealthFIT(ctx, db, fs, data, userID, "sport", "sport.fit", time.Now().UTC()); err != nil {
+		slog.Warn("processSportFIT: storeHealthFIT failed", "error", err)
+		// non-fatal — continue with parsing
+	}
+
+	parsed, err := decodeSport(data)
+	if err != nil {
+		// undecodable file — skip silently (preserve original behaviour)
+		return nil
+	}
+
+	sortEntries := func(entries []sportZoneEntry) ([]string, []float64) {
 		sort.Slice(entries, func(i, j int) bool {
 			return entries[i].index < entries[j].index
 		})
@@ -157,14 +183,14 @@ func processSportFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 	upsert := func(zoneType string, names []string, highs []float64) {
 		zone := &model.TrainingZone{
 			UserID:                   userID,
-			Sport:                    sportI16,
-			SubSport:                 subSportI16,
+			Sport:                    parsed.Sport,
+			SubSport:                 parsed.SubSport,
 			ZoneType:                 zoneType,
-			MaxHeartRate:             maxHR,
-			ThresholdHeartRate:       thrHR,
-			FunctionalThresholdPower: ftp,
-			HrCalcType:               hrCalc,
-			PwrCalcType:              pwrCalc,
+			MaxHeartRate:             parsed.MaxHeartRate,
+			ThresholdHeartRate:       parsed.ThresholdHeartRate,
+			FunctionalThresholdPower: parsed.FunctionalThresholdPower,
+			HrCalcType:               parsed.HrCalcType,
+			PwrCalcType:              parsed.PwrCalcType,
 			ZoneNames:                names,
 			ZoneHighs:                highs,
 			SourceType:               "garmin_fit",
@@ -172,32 +198,32 @@ func processSportFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS,
 		if err := db.UpsertTrainingZones(ctx, zone); err != nil {
 			slog.Warn("processSportFIT: upsert training zones failed",
 				"zone_type", zoneType,
-				"sport", sportI16,
-				"sub_sport", subSportI16,
+				"sport", parsed.Sport,
+				"sub_sport", parsed.SubSport,
 				"error", err,
 			)
 		}
 	}
 
-	if len(hrEntries) > 0 {
-		names, highs := sortEntries(hrEntries)
+	if len(parsed.HREntries) > 0 {
+		names, highs := sortEntries(parsed.HREntries)
 		upsert("hr", names, highs)
 	}
 
-	if len(powerEntries) > 0 {
-		names, highs := sortEntries(powerEntries)
+	if len(parsed.PowerEntries) > 0 {
+		names, highs := sortEntries(parsed.PowerEntries)
 		upsert("power", names, highs)
 	}
 
-	if len(speedEntries) > 0 {
-		names, highs := sortEntries(speedEntries)
+	if len(parsed.SpeedEntries) > 0 {
+		names, highs := sortEntries(parsed.SpeedEntries)
 		upsert("speed", names, highs)
 	}
 
 	// If no zone messages were found but ZonesTarget has threshold values, store
 	// them as a standalone "thresholds" record so they are not silently discarded.
-	if len(hrEntries) == 0 && len(powerEntries) == 0 && len(speedEntries) == 0 &&
-		(maxHR != nil || thrHR != nil || ftp != nil) {
+	if len(parsed.HREntries) == 0 && len(parsed.PowerEntries) == 0 && len(parsed.SpeedEntries) == 0 &&
+		(parsed.MaxHeartRate != nil || parsed.ThresholdHeartRate != nil || parsed.FunctionalThresholdPower != nil) {
 		upsert("thresholds", nil, nil)
 	}
 
