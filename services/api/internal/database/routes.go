@@ -118,6 +118,9 @@ func applyPlannedRouteModifierPatch(route *model.PlannedRoute, patch sport.Modif
 	if patch.IsIndoor != nil && *patch.IsIndoor {
 		route.IsIndoor = true
 	}
+	if patch.IsVirtual != nil && *patch.IsVirtual {
+		route.IsVirtual = true
+	}
 }
 
 func applyRouteImportModifierPatch(route *model.RouteImportData, patch sport.ModifierPatch) {
@@ -126,6 +129,9 @@ func applyRouteImportModifierPatch(route *model.RouteImportData, patch sport.Mod
 	}
 	if patch.IsIndoor != nil && *patch.IsIndoor {
 		route.IsIndoor = true
+	}
+	if patch.IsVirtual != nil && *patch.IsVirtual {
+		route.IsVirtual = true
 	}
 }
 

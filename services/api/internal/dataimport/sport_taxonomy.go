@@ -96,6 +96,9 @@ func applyModifierPatchToRow(row map[string]any, patch sport.ModifierPatch) {
 	if patch.IsIndoor != nil && *patch.IsIndoor && !boolValue(row["is_indoor"]) {
 		row["is_indoor"] = true
 	}
+	if patch.IsVirtual != nil && *patch.IsVirtual && !boolValue(row["is_virtual"]) {
+		row["is_virtual"] = true
+	}
 }
 
 func mergeImportModifierPatch(a, b sport.ModifierPatch) sport.ModifierPatch {
@@ -104,6 +107,9 @@ func mergeImportModifierPatch(a, b sport.ModifierPatch) sport.ModifierPatch {
 	}
 	if b.IsIndoor != nil {
 		a.IsIndoor = b.IsIndoor
+	}
+	if b.IsVirtual != nil {
+		a.IsVirtual = b.IsVirtual
 	}
 	return a
 }
@@ -114,6 +120,9 @@ func applyPatchToModifierFilters(filters map[string]any, patch sport.ModifierPat
 	}
 	if patch.IsIndoor != nil {
 		filters["is_indoor"] = *patch.IsIndoor
+	}
+	if patch.IsVirtual != nil {
+		filters["is_virtual"] = *patch.IsVirtual
 	}
 }
 
