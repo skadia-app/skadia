@@ -65,6 +65,33 @@ export function deletePreset(name: string) {
   localStorage.setItem(PRESET_KEY, JSON.stringify(presets))
 }
 
+export function activeFilterCount(filters: AnalyticsFilterState): number {
+  let count = 0
+  if (filters.from) count++
+  if (filters.to) count++
+  if (filters.sportTypes.length > 0) count++
+  if (filters.gearId) count++
+  if (filters.isCommute) count++
+  if (filters.isRace) count++
+  if (filters.isElectric !== null) count++
+  if (filters.isIndoor !== null) count++
+  if (filters.isVirtual !== null) count++
+  if (filters.distMin || filters.distMax) count++
+  if (filters.elevMin || filters.elevMax) count++
+  if (filters.hrMin || filters.hrMax) count++
+  if (filters.powerMin || filters.powerMax) count++
+  if (filters.paceMin || filters.paceMax) count++
+  if (filters.countries.length > 0) count++
+  if (filters.seasons.length > 0) count++
+  if (filters.weekdays.length > 0) count++
+  if (filters.tags.length > 0) count++
+  if (filters.includeTags.length > 0) count++
+  if (filters.excludeTags.length > 0) count++
+  if (filters.includeGear.length > 0) count++
+  if (filters.excludeGear.length > 0) count++
+  return count
+}
+
 // Explizites Mapping camelCase → URL-Parameter (NICHT regex-basiert!)
 const PARAM_MAP: Record<string, string> = {
   from: 'from', to: 'to', sportTypes: 'sport_type', tags: 'tags',

@@ -1,0 +1,104 @@
+import { useState } from 'react'
+import { SportFilter } from '@/components/sport/SportFilter'
+import type { SportFilterValue } from '@/components/sport/SportFilter'
+import RangePresetBar from './RangePresetBar'
+import type { Preset, DateRange, PresetValue } from './RangePresetBar'
+import { sportsInCategory } from '@/lib/sportTaxonomy'
+import { CATEGORIES } from '@/lib/sportTaxonomy'
+
+export interface SportOnlyFilterValue {
+  selectedSports: string[]
+  from: string
+  to: string
+}
+
+interface Props {
+  value: SportOnlyFilterValue
+  onChange: (value: SportOnlyFilterValue) => void
+  rangePresets?: Preset[]
+}
+
+const DEFAULT_PRESETS: Preset[] = [
+  { value: '1y', label: '1 Jahr' },
+  { value: 'all', label: 'Alles' },
+  { value: 'custom', label: 'Benutzerdefiniert' },
+]
+
+/**
+ * Expands a mixed list of sport tokens (bare-category, sport:subtype, sport) into
+ * only `sport:subtype` tokens.
+ *
+ * // WORKAROUND bis sport-taxonomy-rework: bare-sport tokens kollabieren subtype filter im Backend (filter.go:165-218). Wir expandieren clients-side. Entfernen sobald Parallel-Session den Parser fixt.
+ */
+export function expandSportSelection(selectedSports: string[]): string[] {
+  const categoryKeys = new Set(CATEGORIES.map(c => c.key))
+  const result: string[] = []
+
+  for (const token of selectedSports) {
+    if (token.includes(':')) {
+      // Already a sport:subtype token — pass through.
+      result.push(token)
+      continue
+    }
+
+    if (categoryKeys.has(token)) {
+      // Bare category key — expand to all subtype tokens within the category.
+      const defs = sportsInCategory(token)
+      for (const def of defs) {
+        if (def.subTypes.length > 0) {
+          for (const sub of def.subTypes) {
+            result.push(`${def.sportType}:${sub.subType}`)
+          }
+        } else {
+          // Sports without subtypes can't be represented as sport:subtype tokens;
+          // emit the bare sport token as a fallback for this edge case.
+          result.push(def.sportType)
+        }
+      }
+      continue
+    }
+
+    // Bare sport type (e.g. "running" without a subtype token) — emit as-is.
+    // The caller is responsible for not sending these to the backend.
+    result.push(token)
+  }
+
+  return result
+}
+
+function sportFilterValueFromSelected(selected: string[]): SportFilterValue {
+  return { sportTypes: selected.length > 0 ? selected : null }
+}
+
+export default function SportOnlyFilterBar({ value, onChange, rangePresets }: Props) {
+  const presets = rangePresets ?? DEFAULT_PRESETS
+  const [rangePreset, setRangePreset] = useState<PresetValue>('all')
+
+  function handleSportChange(sfv: SportFilterValue) {
+    const sportTypes = sfv.sportTypes ?? []
+    onChange({ ...value, selectedSports: sportTypes })
+  }
+
+  function handleRangeChange(range: DateRange, preset: PresetValue) {
+    setRangePreset(preset)
+    onChange({ ...value, from: range.from, to: range.to })
+  }
+
+  const sportFilterValue = sportFilterValueFromSelected(value.selectedSports)
+
+  return (
+    <div className="space-y-3">
+      <RangePresetBar
+        presets={presets}
+        value={rangePreset}
+        onChange={handleRangeChange}
+      />
+      <SportFilter
+        preset="ACTIVITY_ALL"
+        value={sportFilterValue}
+        onChange={handleSportChange}
+        showModifiers={false}
+      />
+    </div>
+  )
+}
