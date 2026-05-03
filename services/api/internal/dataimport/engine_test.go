@@ -2254,7 +2254,7 @@ func TestFileRestoreTagsActivityFileFromExportedActivity(t *testing.T) {
 		columns: map[string][]string{
 			"activities": {
 				"id", "user_id", "title", "sport_type", "sub_type", "started_at", "file_id",
-				"original_file_format", "city", "country", "distance_m", "elapsed_time_s", "elevation_gain_m",
+				"original_file_format", "source", "start_city", "start_country", "distance_m", "elapsed_time_s", "elevation_gain_m",
 			},
 		},
 		activities: []map[string]any{
@@ -2266,8 +2266,9 @@ func TestFileRestoreTagsActivityFileFromExportedActivity(t *testing.T) {
 				"started_at":           now.Format(time.RFC3339),
 				"file_id":              fileOldID,
 				"original_file_format": "fit",
-				"city":                 "Augsburg",
-				"country":              "DE",
+				"source":               "strava",
+				"start_city":           "Beispielstadt West",
+				"start_country":        "DE",
 				"distance_m":           12345.0,
 				"elapsed_time_s":       5432,
 				"elevation_gain_m":     321.0,
@@ -2295,6 +2296,9 @@ func TestFileRestoreTagsActivityFileFromExportedActivity(t *testing.T) {
 	}
 	if entry.Tags["title"] != "Forest Ride" || entry.Tags["city"] != "Beispielstadt West" || entry.Tags["country"] != "DE" {
 		t.Fatalf("activity metadata tags = %#v", entry.Tags)
+	}
+	if entry.Tags["source"] != "strava" {
+		t.Fatalf("activity source tag = %#v, want strava", entry.Tags)
 	}
 }
 

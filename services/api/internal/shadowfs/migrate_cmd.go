@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -636,45 +635,34 @@ func extractTagsForFile(ctx context.Context, pool *pgxpool.Pool, fileType, paren
 	switch parentType {
 	case "activity":
 		var startedAt time.Time
-		var sportType, subType, title, city string
+		var format, source, sportType, subType, title, city, country string
 		var distanceM float64
 		var elapsedTimeS int
-		var format string
+		var elevationGainM float64
 		err := pool.QueryRow(ctx,
-			`SELECT started_at, sport_type,
+			`SELECT COALESCE(original_file_format, ''), COALESCE(source, ''),
+			        started_at, sport_type,
 			        COALESCE(sub_type, ''), COALESCE(title, ''),
-			        COALESCE(city, ''), COALESCE(distance_m, 0),
-			        COALESCE(elapsed_time_s, 0),
-			        COALESCE(original_file_format, '')
+			        COALESCE(start_city, ''), COALESCE(start_country, ''),
+			        COALESCE(distance_m, 0), COALESCE(elapsed_time_s, 0),
+			        COALESCE(elevation_gain_m, 0)
 			 FROM activities WHERE id = $1`, *parentID,
-		).Scan(&startedAt, &sportType, &subType, &title, &city,
-			&distanceM, &elapsedTimeS, &format)
+		).Scan(&format, &source, &startedAt, &sportType, &subType, &title, &city, &country,
+			&distanceM, &elapsedTimeS, &elevationGainM)
 		if err == nil {
-			tags["year"] = startedAt.Format("2006")
-			tags["month"] = startedAt.Format("01")
-			tags["day"] = startedAt.Format("02")
-			tags["time"] = startedAt.Format("1504")
-			tags["sport"] = sportType
-			if subType != "" {
-				tags["subCategory"] = subType
-			}
-			if title != "" {
-				tags["title"] = title
-			}
-			if city != "" {
-				tags["city"] = city
-			}
-			if distanceM > 0 {
-				tags["distance_km"] = strconv.FormatFloat(distanceM/1000.0, 'f', 1, 64)
-			}
-			if elapsedTimeS > 0 {
-				h := elapsedTimeS / 3600
-				m := (elapsedTimeS % 3600) / 60
-				tags["duration_h"] = strconv.Itoa(h) + "-" + strconv.Itoa(m)
-			}
-			if format != "" {
-				tags["format"] = format
-			}
+			tags = ActivitySchemaTags(ActivitySchemaTagsInput{
+				Format:         format,
+				Source:         source,
+				StartedAt:      startedAt,
+				SportType:      sportType,
+				SubType:        subType,
+				Title:          title,
+				City:           city,
+				Country:        country,
+				DistanceM:      distanceM,
+				ElapsedTimeS:   elapsedTimeS,
+				ElevationGainM: elevationGainM,
+			})
 		}
 
 	case "route":
