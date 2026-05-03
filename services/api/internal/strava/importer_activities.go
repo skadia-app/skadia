@@ -614,7 +614,7 @@ func buildStravaCSVSourceFile(userID string, stravaID int64, data *model.Activit
 		SourceFields:   csvRowToMap(row, hdr),
 		CreatedAt:      time.Now().UTC(),
 	}
-	detHash := sha256.Sum256(fmt.Appendf(nil, "strava_csv|%d|%s|%s", stravaID, data.StartedAt.Format(time.RFC3339), data.SportType))
+	detHash := sha256.Sum256(fmt.Appendf(nil, "strava_csv|%d|%s", stravaID, data.StartedAt.Format(time.RFC3339)))
 	hashStr := hex.EncodeToString(detHash[:])
 	jsonBytes, err := csvJSON.Marshal()
 	if err != nil {
