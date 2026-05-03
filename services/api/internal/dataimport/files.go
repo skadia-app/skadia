@@ -51,12 +51,13 @@ func loadUserFilesIndex(source Source) (map[string]userFileRecord, error) {
 type exportedActivityFileTags struct {
 	FileID             *string   `json:"file_id"`
 	OriginalFileFormat string    `json:"original_file_format"`
+	Source             string    `json:"source"`
 	SportType          string    `json:"sport_type"`
 	SubType            string    `json:"sub_type"`
 	StartedAt          time.Time `json:"started_at"`
 	Title              string    `json:"title"`
-	City               string    `json:"city"`
-	Country            string    `json:"country"`
+	StartCity          string    `json:"start_city"`
+	StartCountry       string    `json:"start_country"`
 	DistanceM          float64   `json:"distance_m"`
 	ElapsedTimeS       int       `json:"elapsed_time_s"`
 	ElevationGainM     float64   `json:"elevation_gain_m"`
@@ -81,12 +82,13 @@ func loadActivityFileTagIndex(source Source) (map[string]shadowfs.ActivitySchema
 		}
 		index[*row.FileID] = shadowfs.ActivitySchemaTagsInput{
 			Format:         row.OriginalFileFormat,
+			Source:         row.Source,
 			StartedAt:      row.StartedAt,
 			SportType:      row.SportType,
 			SubType:        row.SubType,
 			Title:          row.Title,
-			City:           row.City,
-			Country:        row.Country,
+			City:           row.StartCity,
+			Country:        row.StartCountry,
 			DistanceM:      row.DistanceM,
 			ElapsedTimeS:   row.ElapsedTimeS,
 			ElevationGainM: row.ElevationGainM,
