@@ -90,12 +90,13 @@ func currentSchemaMigration(t *testing.T, pool *pgxpool.Pool) int {
 // Put() stores file content and returns a synthetic FileRecord.
 // All other methods are no-ops or return reasonable zero values.
 type mockShadowFS struct {
-	mu    sync.Mutex
-	files map[string][]byte // fileID → content
+	mu      sync.Mutex
+	files   map[string][]byte // fileID → content
+	entries map[string]shadowfs.FileEntry
 }
 
 func newMockShadowFS() *mockShadowFS {
-	return &mockShadowFS{files: make(map[string][]byte)}
+	return &mockShadowFS{files: make(map[string][]byte), entries: make(map[string]shadowfs.FileEntry)}
 }
 
 func (m *mockShadowFS) Put(_ context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
@@ -106,6 +107,7 @@ func (m *mockShadowFS) Put(_ context.Context, entry shadowfs.FileEntry, data io.
 	id := uuid.New().String()
 	m.mu.Lock()
 	m.files[id] = content
+	m.entries[id] = entry
 	m.mu.Unlock()
 	return shadowfs.FileRecord{
 		ID:        id,
@@ -114,6 +116,17 @@ func (m *mockShadowFS) Put(_ context.Context, entry shadowfs.FileEntry, data io.
 		SizeBytes: int64(len(content)),
 		Status:    "active",
 	}, nil
+}
+
+func (m *mockShadowFS) entryByFileName(name string) (shadowfs.FileEntry, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, entry := range m.entries {
+		if entry.FileName == name {
+			return entry, true
+		}
+	}
+	return shadowfs.FileEntry{}, false
 }
 
 func (m *mockShadowFS) PutCompanion(_ context.Context, _, _, _ string, _ []byte) error {
@@ -2213,6 +2226,118 @@ func TestFileParentIDRemap(t *testing.T) {
 		if pid != nil && *pid == actOldID {
 			t.Errorf("ShadowFS.Put received old export activity UUID %q as ParentID — remap failed", actOldID)
 		}
+	}
+}
+
+func TestFileRestoreTagsActivityFileFromExportedActivity(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	actOldID := uuid.New().String()
+	fileOldID := uuid.New().String()
+	now := time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC)
+
+	userFilesJSON := mustMarshalJSON(t, []map[string]any{
+		{
+			"id":           fileOldID,
+			"file_type":    "activity",
+			"content_type": "application/octet-stream",
+			"file_name":    "legacy.fit",
+			"size_bytes":   4,
+			"status":       "active",
+		},
+	})
+
+	fs := newDBMockShadowFS(pool)
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"activities": {
+				"id", "user_id", "title", "sport_type", "sub_type", "started_at", "file_id",
+				"original_file_format", "city", "country", "distance_m", "elapsed_time_s", "elevation_gain_m",
+			},
+		},
+		activities: []map[string]any{
+			{
+				"id":                   actOldID,
+				"user_id":              srcUser,
+				"title":                "Forest Ride",
+				"sport_type":           "mountain_biking",
+				"started_at":           now.Format(time.RFC3339),
+				"file_id":              fileOldID,
+				"original_file_format": "fit",
+				"city":                 "Augsburg",
+				"country":              "DE",
+				"distance_m":           12345.0,
+				"elapsed_time_s":       5432,
+				"elevation_gain_m":     321.0,
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/user_files.json":      userFilesJSON,
+			"files/activity/legacy.fit": []byte("data"),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := &Engine{DB: pool, ShadowFS: fs, Config: EngineConfig{}}
+	_, err := eng.RunImport(context.Background(), ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	entry, ok := fs.mockShadowFS.entryByFileName("legacy.fit")
+	if !ok {
+		t.Fatal("restored activity file was not passed to ShadowFS")
+	}
+	if entry.Tags["sport"] != "cycling" || entry.Tags["subCategory"] != "mountain" {
+		t.Fatalf("activity tags = %#v, want canonical cycling/mountain", entry.Tags)
+	}
+	if entry.Tags["title"] != "Forest Ride" || entry.Tags["city"] != "Beispielstadt West" || entry.Tags["country"] != "DE" {
+		t.Fatalf("activity metadata tags = %#v", entry.Tags)
+	}
+}
+
+func TestFileRestoreWithoutActivityRowDoesNotWriteRawTaxonomyTags(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	fileOldID := uuid.New().String()
+	userFilesJSON := mustMarshalJSON(t, []map[string]any{
+		{
+			"id":           fileOldID,
+			"file_type":    "activity",
+			"content_type": "application/octet-stream",
+			"file_name":    "orphan.fit",
+			"size_bytes":   4,
+			"status":       "active",
+		},
+	})
+
+	fs := newDBMockShadowFS(pool)
+	zipPath := buildExportZip(t, zipBuildOpts{
+		extraFiles: map[string][]byte{
+			"data/user_files.json":      userFilesJSON,
+			"files/activity/orphan.fit": []byte("data"),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := &Engine{DB: pool, ShadowFS: fs, Config: EngineConfig{}}
+	_, err := eng.RunImport(context.Background(), ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	entry, ok := fs.mockShadowFS.entryByFileName("orphan.fit")
+	if !ok {
+		t.Fatal("orphan activity file was not passed to ShadowFS")
+	}
+	if _, ok := entry.Tags["sport"]; ok {
+		t.Fatalf("orphan activity file should not receive synthetic sport tag: %#v", entry.Tags)
+	}
+	if entry.Tags["format"] != "fit" {
+		t.Fatalf("orphan activity file format tag = %#v, want fit only", entry.Tags)
 	}
 }
 

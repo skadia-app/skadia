@@ -181,7 +181,11 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	if input.OnProgress != nil {
 		input.OnProgress(ProgressEvent{Phase: 0, PhaseName: "files", PhasesTotal: totalPhases, Message: "Importing files..."})
 	}
-	fileIndex, err := e.importAllFiles(ctx, input.Source, idMap, input.TargetUserID, result, input.OnProgress)
+	activityFileTags, err := loadActivityFileTagIndex(input.Source)
+	if err != nil {
+		return result, fmt.Errorf("RunImport phase 0 (activity file tags): %w", err)
+	}
+	fileIndex, err := e.importAllFiles(ctx, input.Source, idMap, input.TargetUserID, result, input.OnProgress, activityFileTags)
 	if err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Phase 0 partial failure: %v — orphaned files may exist, delete the account to clean up", err))
 		return result, fmt.Errorf("RunImport phase 0 (files): %w", err)
