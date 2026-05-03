@@ -102,6 +102,55 @@ func TestUpdateRuleRejectsIndoorSyncRule(t *testing.T) {
 	}
 }
 
+func TestListRulesUsesSystemTagCountsForReadonlySyncRules(t *testing.T) {
+	db, userID := ruleValidationDB(t)
+	ctx := context.Background()
+
+	for _, row := range []struct {
+		name       string
+		systemType string
+		count      int
+	}{
+		{name: "E-Bike", systemType: "electric_sync", count: 11},
+		{name: "Indoor", systemType: "indoor_sync", count: 22},
+		{name: "virtuell", systemType: "virtual_sync", count: 33},
+	} {
+		if _, err := db.Pool.Exec(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, category, is_system, activity_count)
+			VALUES ($1, $2, '#111111', '#ffffff', 'system', true, $3)
+			ON CONFLICT (user_id, name) DO UPDATE SET is_system = true, activity_count = EXCLUDED.activity_count
+		`, userID, row.name, row.count); err != nil {
+			t.Fatalf("insert tag %s: %v", row.name, err)
+		}
+		if _, err := db.Pool.Exec(ctx, `
+			INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions, times_applied)
+			VALUES ($1, $2, true, $3, true, -100, '[]'::jsonb, 'and', '[]'::jsonb, 0)
+		`, userID, row.name, row.systemType); err != nil {
+			t.Fatalf("insert rule %s: %v", row.systemType, err)
+		}
+	}
+
+	rules, err := db.ListRules(ctx, userID)
+	if err != nil {
+		t.Fatalf("ListRules: %v", err)
+	}
+	got := map[string]int{}
+	for _, rule := range rules {
+		if rule.SystemType != nil {
+			got[*rule.SystemType] = rule.TimesApplied
+		}
+	}
+	for systemType, want := range map[string]int{
+		"electric_sync": 11,
+		"indoor_sync":   22,
+		"virtual_sync":  33,
+	} {
+		if got[systemType] != want {
+			t.Fatalf("%s times_applied = %d, want %d (all counts: %#v)", systemType, got[systemType], want, got)
+		}
+	}
+}
+
 func ruleValidationDB(t *testing.T) (*DB, string) {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")

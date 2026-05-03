@@ -851,11 +851,12 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 	rows, err := db.Pool.Query(ctx,
 		`SELECT ar.id, ar.user_id, ar.name, ar.is_active, ar.priority,
 		        ar.conditions, ar.conditions_logic, ar.condition_groups, ar.actions,
-		        CASE
-		            WHEN ar.system_type = 'electric_sync'    THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'E-Bike'   LIMIT 1), 0)
-		            WHEN ar.system_type = 'virtual_sync'  THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'virtuell' LIMIT 1), 0)
-		            ELSE ar.times_applied
-		        END,
+			        CASE
+			            WHEN ar.system_type = 'electric_sync'    THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'E-Bike'   LIMIT 1), 0)
+			            WHEN ar.system_type = 'indoor_sync'      THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'Indoor'   LIMIT 1), 0)
+			            WHEN ar.system_type = 'virtual_sync'     THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'virtuell' LIMIT 1), 0)
+			            ELSE ar.times_applied
+			        END,
 		        ar.created_at, ar.is_system, ar.system_type,
 		        ar.trigger_event, ar.stop_on_match, ar.apply_retroactively,
 		        ar.last_evaluated_at, ar.last_matched_count, ar.branches
