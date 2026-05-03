@@ -145,6 +145,9 @@ func evalGroup(g ConditionGroup, activity map[string]any) bool {
 }
 
 func evalCondition(c Condition, activity map[string]any) bool {
+	if c.Field == "sport_tuple" {
+		return evalSportTupleIn(c, activity)
+	}
 	if c.Field == "geofence" {
 		return evalGeofence(c, activity)
 	}
