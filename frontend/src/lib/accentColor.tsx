@@ -60,9 +60,13 @@ export function deriveAccentEntry(hex500: string): AccentEntry {
   return {
     label: 'Benutzerdefiniert',
     shade500: hex500,
-    shade600: hslToHex(h, Math.min(s + 5, 100), Math.max(l - 12, 5)),
-    shade400: hslToHex(h, Math.max(s - 5, 0), Math.min(l + 10, 92)),
-    shade100: hslToHex(h, Math.max(s - 30, 10), Math.min(l + 40, 96)),
+    // shade600: darker hover shade — capped to max 65% lightness so it stays visible on white backgrounds
+    shade600: hslToHex(h, Math.min(s + 5, 100), Math.min(Math.max(l - 12, 5), 65)),
+    // shade400: lighter shade — clamped to 50–70% lightness so it's visible on dark backgrounds
+    // without becoming so light that white toggle thumbs/button text disappear on top of it
+    shade400: hslToHex(h, Math.max(s - 5, 0), Math.max(Math.min(l + 10, 70), 50)),
+    // shade100: light tint for icon containers — capped to max 88% so it stays visible on white page backgrounds
+    shade100: hslToHex(h, Math.max(s - 20, 8), Math.min(Math.max(l + 40, 82), 88)),
   }
 }
 
@@ -77,6 +81,54 @@ export function applyAccentColor(entry: AccentEntry) {
   root.style.setProperty('--color-accent-600', entry.shade600)
   root.style.setProperty('--color-accent-400', entry.shade400)
   root.style.setProperty('--color-accent-100', entry.shade100)
+
+  // Inject visibility safeguards that override the inline styles above via !important.
+  // - Light mode: if shade500 is too light (>60% HSL lightness), use shade600 as the default
+  //   interactive color so buttons/toggles don't disappear on white backgrounds.
+  // - Dark mode: always use shade400 (≥55% lightness) so elements don't disappear on dark backgrounds.
+  const [, , l500] = hexToHsl(entry.shade500)
+  const isLightAccent = l500 > 60
+  const lightDefault = isLightAccent ? entry.shade600 : entry.shade500
+  const lightHover = isLightAccent
+    ? (() => { const [hh, hs, hl] = hexToHsl(entry.shade600); return hslToHex(hh, hs, Math.max(hl - 15, 5)) })()
+    : entry.shade600
+
+  // Compute foreground colors: use dark text/thumb when background is too light for white
+  // Light-mode threshold 55%: covers shade600 ≈ l=65% for near-white accents
+  // Dark-mode threshold 65%: shade400 is capped at 70%, palette orange is 65% (exactly not > 65)
+  const [, , lLightDefault] = hexToHsl(lightDefault)
+  const [, , lDarkDefault] = hexToHsl(entry.shade400)
+  const lightFg = lLightDefault > 55 ? '#171717' : '#ffffff'
+  const darkFg  = lDarkDefault  > 65 ? '#171717' : '#ffffff'
+
+  let styleTag = document.getElementById('skadia-accent-override') as HTMLStyleElement | null
+  if (!styleTag) {
+    styleTag = document.createElement('style')
+    styleTag.id = 'skadia-accent-override'
+    document.head.appendChild(styleTag)
+  }
+  styleTag.textContent = [
+    // Light-mode overrides (noop for normal colors where lightDefault = shade500)
+    ':root {',
+    `  --color-accent-DEFAULT: ${lightDefault} !important;`,
+    `  --color-accent-600: ${lightHover} !important;`,
+    `  --color-orange-500: ${lightDefault} !important;`,
+    `  --color-orange-600: ${lightHover} !important;`,
+    '}',
+    // Light-mode foreground: button text + toggle thumb
+    `[class~="bg-accent-DEFAULT"], [class~="bg-orange-500"] { color: ${lightFg} !important; }`,
+    `[role="switch"][aria-checked="true"] span { background-color: ${lightFg} !important; }`,
+    // Dark-mode color overrides
+    '.dark {',
+    `  --color-accent-DEFAULT: ${entry.shade400} !important;`,
+    `  --color-accent-600: ${entry.shade500} !important;`,
+    `  --color-orange-500: ${entry.shade400} !important;`,
+    `  --color-orange-600: ${entry.shade500} !important;`,
+    '}',
+    // Dark-mode foreground: button text + toggle thumb
+    `.dark [class~="bg-accent-DEFAULT"], .dark [class~="bg-orange-500"] { color: ${darkFg} !important; }`,
+    `.dark [role="switch"][aria-checked="true"] span { background-color: ${darkFg} !important; }`,
+  ].join('\n')
 }
 
 interface AccentColorContextValue {
