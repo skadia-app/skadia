@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { formatBestEffortDisplay, categoryLabel } from '@/lib/bestEffortLabels'
 import { fmtDateMedium } from '@/lib/format'
 import type { BestEffortRanked } from '@/api/bestEfforts'
-import { POOL_BADGE, OW_BADGE } from '@/lib/recordsConstants'
+import { RECORD_GROUP_BADGES } from '@/lib/recordsConstants'
 import { cn } from '@/lib/utils'
 
 interface PRCellProps {
@@ -14,9 +14,7 @@ interface PRCellProps {
 }
 
 function groupBadge(sportGroup: string): string | null {
-  if (sportGroup === 'swim_pool') return POOL_BADGE
-  if (sportGroup === 'swim_ow') return OW_BADGE
-  return null
+  return RECORD_GROUP_BADGES[sportGroup] ?? null
 }
 
 const VALUE_COLOR: Record<string, string> = {

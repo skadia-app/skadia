@@ -367,8 +367,8 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 		h.DB.InvalidateTerraIncognitaCache(r.Context(), userID)
 	}
 
-	// Side-effect: recalc best efforts when sport_type changes (sport_group may differ).
-	if update.SportType != nil && *update.SportType != existing.SportType && h.BestEfforts != nil {
+	// Side-effect: recalc best efforts when Records grouping inputs change.
+	if bestEffortGroupingInputChanged(update, *existing) && h.BestEfforts != nil {
 		actID := id
 		svc := h.BestEfforts
 		// Cancel any in-flight job for this activity before re-dispatching.
@@ -382,6 +382,9 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if info == nil {
+				if err := h.DB.DeleteBestEffortsForActivity(ctx, actID); err != nil {
+					slog.Warn("update activity: delete ineligible best efforts failed", "id", actID, "error", err)
+				}
 				return
 			}
 			stream, err := h.DB.GetStreamPoints(ctx, actID)
@@ -420,6 +423,34 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, activity)
+}
+
+func bestEffortGroupingInputChanged(update model.ActivityUpdate, existing model.Activity) bool {
+	if update.SportType != nil && *update.SportType != existing.SportType {
+		return true
+	}
+	if update.SubType != nil {
+		existingSubType := ""
+		if existing.SubType != nil {
+			existingSubType = *existing.SubType
+		}
+		if *update.SubType != existingSubType {
+			return true
+		}
+	}
+	if update.IsIndoor != nil && *update.IsIndoor != existing.IsIndoor {
+		return true
+	}
+	if update.IsVirtual != nil && *update.IsVirtual != existing.IsVirtual {
+		return true
+	}
+	if update.IsElectric != nil && *update.IsElectric != existing.IsElectric {
+		return true
+	}
+	if update.ExcludeFromStats != nil && *update.ExcludeFromStats != existing.ExcludeFromStats {
+		return true
+	}
+	return false
 }
 
 func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {

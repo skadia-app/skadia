@@ -2,10 +2,8 @@ import React, { useMemo } from 'react'
 import type { BestEffortRanked } from '@/api/bestEfforts'
 import { PRCell } from './PRCell'
 import { CATEGORY_PREFIXES } from '@/lib/recordsConstants'
-import { CATEGORY_LABELS } from '@/lib/bestEffortLabels'
+import { CATEGORY_KEYS } from '@/lib/bestEffortLabels'
 import { pickBestPerCategory } from '@/lib/bestEffortRanking'
-
-const CATEGORY_KEYS = Object.keys(CATEGORY_LABELS)
 
 interface SectionDef {
   prefix: string

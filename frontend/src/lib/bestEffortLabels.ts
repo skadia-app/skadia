@@ -1,62 +1,15 @@
 import { fmtDuration, fmtDist } from '@/lib/format'
+import {
+  GENERATED_RECORD_CATEGORIES,
+  GENERATED_RECORD_CATEGORY_LABELS,
+  GENERATED_RECORD_CATEGORY_ORDER,
+  GENERATED_RECORD_POWER_CATEGORY_ORDER,
+} from '@/lib/generatedRecordProjections'
 
-// ── Category label mapping ─────────────────────────────────────────────────────
-// NOTE: dist_400m_pool / dist_800m_pool / dist_400m_swim / dist_800m_swim removed —
-// the backend uses dist_400m / dist_800m for pool and running alike, distinguished
-// by sport_group. These phantom keys never appear in the backend response.
-
-export const CATEGORY_LABELS: Record<string, string> = {
-  // Distance (running + pool shared keys)
-  dist_400m: '400 m',
-  dist_800m: '800 m',
-  dist_1km: '1 km',
-  dist_1mi: '1 Meile',
-  dist_2mi: '2 Meilen',
-  dist_5km: '5 km',
-  dist_10km: '10 km',
-  dist_15km: '15 km',
-  dist_10mi: '10 Meilen',
-  dist_20km: '20 km',
-  dist_hm: 'Halbmarathon',
-  dist_30km: '30 km',
-  dist_marathon: 'Marathon',
-  dist_50km: '50 km',
-  dist_100km: '100 km',
-  // Distance (cycling)
-  dist_25mi: '25 Meilen',
-  dist_40km: '40 km',
-  dist_50mi: '50 Meilen',
-  dist_100mi: '100 Meilen',
-  dist_150km: '150 km',
-  dist_200km: '200 km',
-  dist_300km: '300 km',
-  // Distance (swim)
-  dist_50m: '50 m',
-  dist_100m: '100 m',
-  dist_200m: '200 m',
-  dist_1500m: '1500 m',
-  dist_2km: '2 km',
-  // Elevation
-  elev_500hm: '500 Hm',
-  elev_1000hm: '1000 Hm',
-  elev_1500hm: '1500 Hm',
-  elev_2000hm: '2000 Hm',
-  // Power
-  power_5s: '5 Sek',
-  power_30s: '30 Sek',
-  power_1min: '1 Min',
-  power_5min: '5 Min',
-  power_10min: '10 Min',
-  power_20min: '20 Min',
-  power_30min: '30 Min',
-  power_1h: '1 Std',
-  power_2h: '2 Std',
-  // Superlatives
-  sup_longest_distance: 'Längste Distanz',
-  sup_most_elevation: 'Meiste Höhenmeter',
-  sup_biggest_climb: 'Größter Anstieg',
-  sup_longest_duration: 'Längste Dauer',
-}
+export const CATEGORY_LABELS: Record<string, string> = GENERATED_RECORD_CATEGORY_LABELS
+export const CATEGORY_METADATA = GENERATED_RECORD_CATEGORIES
+export const CATEGORY_KEYS: string[] = [...GENERATED_RECORD_CATEGORY_ORDER]
+export const POWER_DURATIONS: string[] = [...GENERATED_RECORD_POWER_CATEGORY_ORDER]
 
 export function categoryLabel(category: string): string {
   return CATEGORY_LABELS[category] ?? category.replace(/_/g, ' ')
@@ -105,22 +58,11 @@ export function formatBestEffortValue(
 
 // ── Distance lookup for speed calculation ─────────────────────────────────────
 
-export const DIST_METERS: Record<string, number> = {
-  // Running
-  dist_400m: 400, dist_800m: 800, dist_1km: 1000,
-  dist_1mi: 1609.34, dist_2mi: 3218.69,
-  dist_5km: 5000, dist_10km: 10000, dist_15km: 15000,
-  dist_10mi: 16093.4, dist_20km: 20000,
-  dist_hm: 21097.5, dist_30km: 30000,
-  dist_marathon: 42195, dist_50km: 50000, dist_100km: 100000,
-  // Cycling
-  dist_25mi: 40233.6, dist_40km: 40000,
-  dist_50mi: 80467.2, dist_100mi: 160934.4,
-  dist_150km: 150000, dist_200km: 200000, dist_300km: 300000,
-  // Swimming
-  dist_50m: 50, dist_100m: 100, dist_200m: 200,
-  dist_1500m: 1500, dist_2km: 2000,
-}
+export const DIST_METERS: Record<string, number> = Object.fromEntries(
+  CATEGORY_METADATA
+    .filter(category => 'distanceM' in category)
+    .map(category => [category.key, category.distanceM]),
+)
 
 export interface BestEffortDisplay {
   primary: string

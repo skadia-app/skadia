@@ -36,6 +36,9 @@ func run() error {
 	tsSegmentProjectionsOut := flag.String("ts-segment-projections-out", "", "generated TypeScript segment projection output path")
 	ruleProjectionSource := flag.String("rule-projection-source", "", "rule projection YAML source")
 	tsRuleProjectionsOut := flag.String("ts-rule-projections-out", "", "generated TypeScript rule projection output path")
+	recordsProjectionSource := flag.String("records-projection-source", "", "records projection YAML source")
+	goRecordsProjectionOut := flag.String("go-records-projection-out", "", "generated Go records projection output path")
+	tsRecordsProjectionOut := flag.String("ts-records-projection-out", "", "generated TypeScript records projection output path")
 	aliasSourceDir := flag.String("alias-source-dir", "", "source-specific sport alias YAML directory")
 	goAliasesOut := flag.String("go-aliases-out", "", "generated Go source aliases output path")
 	tsGearDefaultsOut := flag.String("ts-gear-defaults-out", "", "generated TypeScript gear default projection output path")
@@ -72,6 +75,15 @@ func run() error {
 	}
 	if *tsRuleProjectionsOut == "" {
 		*tsRuleProjectionsOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedRuleProjections.ts")
+	}
+	if *recordsProjectionSource == "" {
+		*recordsProjectionSource = filepath.Join(*repoRoot, "config", "sport-taxonomy", "projections", "records.yaml")
+	}
+	if *goRecordsProjectionOut == "" {
+		*goRecordsProjectionOut = filepath.Join(*repoRoot, "services", "api", "internal", "bestefforts", "records_projection_generated.go")
+	}
+	if *tsRecordsProjectionOut == "" {
+		*tsRecordsProjectionOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedRecordProjections.ts")
 	}
 	if *aliasSourceDir == "" {
 		*aliasSourceDir = filepath.Join(*repoRoot, "config", "sport-taxonomy", "aliases")
@@ -138,6 +150,18 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("expand rule projection: %w", err)
 	}
+	recordsProjectionBytes, err := os.ReadFile(*recordsProjectionSource)
+	if err != nil {
+		return fmt.Errorf("read records projection source: %w", err)
+	}
+	recordsProjection, err := sporttaxgen.LoadRecordsProjection(bytes.NewReader(recordsProjectionBytes), taxonomy)
+	if err != nil {
+		return fmt.Errorf("load records projection: %w", err)
+	}
+	expandedRecordsProjection, err := sporttaxgen.ExpandRecordsProjection(taxonomy, recordsProjection)
+	if err != nil {
+		return fmt.Errorf("expand records projection: %w", err)
+	}
 	renderedGoProjections, err := sporttaxgen.RenderGoProjections(expandedProjections, expandedSegmentProjection, expandedRuleProjection)
 	if err != nil {
 		return fmt.Errorf("render Go projections: %w", err)
@@ -153,6 +177,14 @@ func run() error {
 	renderedTSRuleProjections, err := sporttaxgen.RenderTSRuleProjection(expandedRuleProjection)
 	if err != nil {
 		return fmt.Errorf("render TypeScript rule projection: %w", err)
+	}
+	renderedGoRecordsProjection, err := sporttaxgen.RenderGoRecordsProjection(expandedRecordsProjection)
+	if err != nil {
+		return fmt.Errorf("render Go records projection: %w", err)
+	}
+	renderedTSRecordsProjection, err := sporttaxgen.RenderTSRecordsProjection(expandedRecordsProjection)
+	if err != nil {
+		return fmt.Errorf("render TypeScript records projection: %w", err)
 	}
 	renderedGoAliases, renderedTSGearDefaults, aliasesExist, err := renderAliasesFromDir(*aliasSourceDir, taxonomy)
 	if err != nil {
@@ -180,6 +212,12 @@ func run() error {
 			return err
 		}
 		if err := checkFile(*tsRuleProjectionsOut, renderedTSRuleProjections); err != nil {
+			return err
+		}
+		if err := checkFile(*goRecordsProjectionOut, renderedGoRecordsProjection); err != nil {
+			return err
+		}
+		if err := checkFile(*tsRecordsProjectionOut, renderedTSRecordsProjection); err != nil {
 			return err
 		}
 		if aliasesExist {
@@ -212,6 +250,12 @@ func run() error {
 	}
 	if err := os.WriteFile(*tsRuleProjectionsOut, renderedTSRuleProjections, 0o644); err != nil {
 		return fmt.Errorf("write TypeScript rule projection: %w", err)
+	}
+	if err := os.WriteFile(*goRecordsProjectionOut, renderedGoRecordsProjection, 0o644); err != nil {
+		return fmt.Errorf("write Go records projection: %w", err)
+	}
+	if err := os.WriteFile(*tsRecordsProjectionOut, renderedTSRecordsProjection, 0o644); err != nil {
+		return fmt.Errorf("write TypeScript records projection: %w", err)
 	}
 	if aliasesExist {
 		if err := os.WriteFile(*goAliasesOut, renderedGoAliases, 0o644); err != nil {

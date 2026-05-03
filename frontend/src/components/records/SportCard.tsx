@@ -1,6 +1,12 @@
 import type { BestEffortRanked } from '@/api/bestEfforts'
 import { CategoryGrid } from './CategoryGrid'
-import { MAIN_CATEGORIES, MAIN_CATEGORY_LABELS, type MainCategory } from '@/lib/recordsConstants'
+import {
+  MAIN_CATEGORIES,
+  MAIN_CATEGORY_LABELS,
+  SPORT_GROUP_BADGE_LABELS,
+  SPORT_GROUP_LABELS,
+  type MainCategory,
+} from '@/lib/recordsConstants'
 import { pickBestPerCategory } from '@/lib/bestEffortRanking'
 import { cn } from '@/lib/utils'
 
@@ -11,11 +17,11 @@ interface SportCardProps {
   onNavigate: () => void
 }
 
-const VARIANT_BADGES: Record<string, { label: string; className: string }> = {
-  cycling_electric: { label: 'E-Bike', className: 'bg-purple-500/15 text-purple-400 border-purple-500/20' },
-  cycling_virtual:  { label: 'Stationär', className: 'bg-neutral-200 dark:bg-neutral-800 text-neutral-500 border-neutral-300 dark:border-neutral-700' },
-  swim_ow:          { label: 'Freiwasser', className: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/20' },
-  swim_pool:        { label: 'Becken', className: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/15' },
+const VARIANT_BADGE_STYLES: Record<string, string> = {
+  cycling_electric: 'bg-purple-500/15 text-purple-400 border-purple-500/20',
+  cycling_virtual:  'bg-neutral-200 dark:bg-neutral-800 text-neutral-500 border-neutral-300 dark:border-neutral-700',
+  swim_ow:          'bg-cyan-500/15 text-cyan-400 border-cyan-500/20',
+  swim_pool:        'bg-cyan-500/10 text-cyan-300 border-cyan-500/15',
 }
 
 export function SportCard({ mainCategory, records, color, onNavigate }: SportCardProps) {
@@ -24,8 +30,12 @@ export function SportCard({ mainCategory, records, color, onNavigate }: SportCar
   const sportGroups = MAIN_CATEGORIES[mainCategory]
   const presentGroups = new Set(records.map((r) => r.sport_group))
   const badges = sportGroups
-    .filter((sg) => VARIANT_BADGES[sg] && presentGroups.has(sg))
-    .map((sg) => VARIANT_BADGES[sg])
+    .filter((sg) => VARIANT_BADGE_STYLES[sg] && presentGroups.has(sg))
+    .map((sg) => ({
+      key: sg,
+      label: SPORT_GROUP_BADGE_LABELS[sg] ?? SPORT_GROUP_LABELS[sg] ?? sg,
+      className: VARIANT_BADGE_STYLES[sg],
+    }))
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-hidden">
@@ -41,7 +51,7 @@ export function SportCard({ mainCategory, records, color, onNavigate }: SportCar
         {badges.length > 0 && (
           <div className="ml-auto flex items-center gap-1.5">
             {badges.map((b) => (
-              <span key={b.label} className={cn('text-[10px] px-1.5 py-0.5 rounded border', b.className)}>
+              <span key={b.key} className={cn('text-[10px] px-1.5 py-0.5 rounded border', b.className)}>
                 {b.label}
               </span>
             ))}
