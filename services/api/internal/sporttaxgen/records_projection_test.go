@@ -177,6 +177,25 @@ func TestRenderRecordsProjectionOutputsGoAndTypeScriptShapes(t *testing.T) {
 	}
 }
 
+func TestRenderGoRecordsProjectionRejectsUnknownCategoryType(t *testing.T) {
+	_, err := RenderGoRecordsProjection(ExpandedRecordsProjection{
+		Groups: []ExpandedRecordGroup{
+			{
+				Key: "running",
+				Label: LocaleMap{
+					"de": "Laufen",
+				},
+				Categories: []RecordCategory{
+					{Key: "bad", Type: "future_type", Labels: LocaleMap{"de": "Bad"}},
+				},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "future_type") {
+		t.Fatalf("error = %v, want unknown category type rejection", err)
+	}
+}
+
 func loadRecordsTestTaxonomy(t *testing.T) Taxonomy {
 	t.Helper()
 	file, err := os.Open("../../../../config/sport-taxonomy/sports.yaml")

@@ -16,7 +16,11 @@ func RenderGoRecordsProjection(expanded ExpandedRecordsProjection) ([]byte, erro
 	for _, group := range expanded.Groups {
 		fmt.Fprintf(&buf, "\t{Key: %q, LabelDE: %q, MainCategory: %q, Color: %q, Badge: %q, Categories: []Category{\n", group.Key, group.Label["de"], group.MainCategory, group.Color, group.Badge)
 		for _, category := range group.Categories {
-			fmt.Fprintf(&buf, "\t\t{Key: %q, Type: %s, DistanceM: %v, ElevationM: %v, DurationS: %d, Label: %q},\n", category.Key, goRecordCategoryType(category.Type), category.DistanceM, category.ElevationM, category.DurationS, category.Labels["de"])
+			categoryType, err := goRecordCategoryType(category.Type)
+			if err != nil {
+				return nil, err
+			}
+			fmt.Fprintf(&buf, "\t\t{Key: %q, Type: %s, DistanceM: %v, ElevationM: %v, DurationS: %d, Label: %q},\n", category.Key, categoryType, category.DistanceM, category.ElevationM, category.DurationS, category.Labels["de"])
 		}
 		buf.WriteString("\t}},\n")
 	}
@@ -132,16 +136,16 @@ func RenderTSRecordsProjection(expanded ExpandedRecordsProjection) ([]byte, erro
 	return buf.Bytes(), nil
 }
 
-func goRecordCategoryType(value string) string {
+func goRecordCategoryType(value string) (string, error) {
 	switch value {
 	case "time_lower":
-		return "TypeTimeLower"
+		return "TypeTimeLower", nil
 	case "value_higher":
-		return "TypeValueHigher"
+		return "TypeValueHigher", nil
 	case "value_superlative":
-		return "TypeValueSuperlative"
+		return "TypeValueSuperlative", nil
 	default:
-		return "TypeTimeLower"
+		return "", fmt.Errorf("unknown record category type %q", value)
 	}
 }
 
