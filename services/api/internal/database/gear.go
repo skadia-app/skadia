@@ -1049,7 +1049,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 }
 
 func validateAutomationRuleJSON(input rules.SportTaxonomyRuleJSON) error {
-	return rules.ValidateSportTaxonomyRuleJSON(input)
+	return rules.MarkSportTaxonomyValidationError(rules.ValidateSportTaxonomyRuleJSON(input))
 }
 
 func isReadonlySyncRuleType(systemType *string) bool {

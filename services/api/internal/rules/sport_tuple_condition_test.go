@@ -38,6 +38,12 @@ func TestEvaluateSportTupleInExplicitEmptySubTypeMeansParentOnly(t *testing.T) {
 	if !evalCondition(condition, map[string]any{"sport_type": "running", "sub_type": ""}) {
 		t.Fatal("explicit empty subtype should match parent-only activity")
 	}
+	if !evalCondition(condition, map[string]any{"sport_type": "running"}) {
+		t.Fatal("explicit empty subtype should match missing activity subtype")
+	}
+	if !evalCondition(condition, map[string]any{"sport_type": "running", "sub_type": nil}) {
+		t.Fatal("explicit empty subtype should match null activity subtype")
+	}
 	if evalCondition(condition, map[string]any{"sport_type": "running", "sub_type": "trail"}) {
 		t.Fatal("explicit empty subtype must not match trail")
 	}
@@ -74,6 +80,7 @@ func TestValidateSportTupleConditionRejectsInvalidShapes(t *testing.T) {
 		{"empty value", Condition{Field: "sport_tuple", Op: "in", Value: []any{}}, "non-empty"},
 		{"unknown sport", Condition{Field: "sport_tuple", Op: "in", Value: []any{map[string]any{"sport_type": "nope"}}}, "canonical sport"},
 		{"wrong subtype", Condition{Field: "sport_tuple", Op: "in", Value: []any{map[string]any{"sport_type": "running", "sub_type": "mountain"}}}, "sub_type"},
+		{"non selectable parent", Condition{Field: "sport_tuple", Op: "in", Value: []any{map[string]any{"sport_type": "training"}}}, "selectable"},
 		{"string modifier", Condition{Field: "sport_tuple", Op: "in", Value: []any{map[string]any{"sport_type": "cycling", "is_electric": "true"}}}, "boolean"},
 		{"extra key", Condition{Field: "sport_tuple", Op: "in", Value: []any{map[string]any{"sport_type": "cycling", "foo": true}}}, "unsupported key"},
 		{"duplicate tuple", Condition{Field: "sport_tuple", Op: "in", Value: []any{

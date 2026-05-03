@@ -25,6 +25,7 @@ describe('rule sport projection', () => {
     const cyclingElectric = ruleModifierControlsForTuple('cycling', 'mountain').find((modifier) => modifier.key === 'is_electric')
     const runningElectric = ruleModifierControlsForTuple('running', 'trail').find((modifier) => modifier.key === 'is_electric')
 
+    expect(cyclingElectric?.label).toBe('Elektrisch')
     expect(cyclingElectric?.conditionApplicable).toBe(true)
     expect(cyclingElectric?.actionApplicable).toBe(true)
     expect(runningElectric?.conditionApplicable).toBe(false)

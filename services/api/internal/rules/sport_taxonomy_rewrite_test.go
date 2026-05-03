@@ -226,6 +226,38 @@ func TestValidateSportTaxonomyRuleJSONRejectsInvalidSportTupleSubtype(t *testing
 	}
 }
 
+func TestValidateSportTaxonomyRuleJSONRejectsMalformedTopLevelJSONShapes(t *testing.T) {
+	tests := []struct {
+		name  string
+		input SportTaxonomyRuleJSON
+		want  string
+	}{
+		{
+			name:  "conditions object",
+			input: SportTaxonomyRuleJSON{Conditions: json.RawMessage(`{"field":"sport_tuple","op":"in","value":[{"sport_type":"cycling"}]}`)},
+			want:  "conditions must be a JSON array",
+		},
+		{
+			name:  "condition groups object",
+			input: SportTaxonomyRuleJSON{ConditionGroups: json.RawMessage(`{"logic":"and","conditions":[{"field":"sport_tuple","op":"in","value":[{"sport_type":"cycling"}]}]}`)},
+			want:  "condition_groups must be a JSON array",
+		},
+		{
+			name:  "branches object",
+			input: SportTaxonomyRuleJSON{Branches: json.RawMessage(`{"type":"if","condition_groups":[],"actions":[]}`)},
+			want:  "branches must be a JSON array",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := NormalizeAndValidateSportTaxonomyRuleJSON(tt.input)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestSportTaxonomyRewriteRejectsUnsupportedSemantics(t *testing.T) {
 	tests := []struct {
 		name  string

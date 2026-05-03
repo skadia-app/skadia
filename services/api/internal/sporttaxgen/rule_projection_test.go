@@ -18,7 +18,7 @@ tuple_selectors:
     source: selectable_sport_tuples
 modifiers:
   - key: is_electric
-    labels: {de: E-Bike}
+    labels: {de: Elektrisch}
     condition_applicable_from: modifier_applicability.is_electric
     action_applicable_from: modifier_applicability.is_electric
     render_existing: true
@@ -50,7 +50,7 @@ tuple_selectors:
     source: selectable_sport_tuples
 modifiers:
   - key: is_electric
-    labels: {de: E-Bike}
+    labels: {de: Elektrisch}
     condition_applicable_from: modifier_applicability.nope
     action_applicable_from: modifier_applicability.is_electric
     render_existing: true

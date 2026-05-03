@@ -376,7 +376,7 @@ const ACTION_TYPES = [
   { value: 'remove_tag',      label: 'Tag entfernen' },
   { value: 'set_visibility',  label: 'Sichtbarkeit setzen' },
   { value: 'set_sport_type',  label: 'Sportart setzen' },
-  { value: 'set_electric',    label: 'E-Bike setzen' },
+  { value: 'set_electric',    label: 'Elektrisch setzen' },
   { value: 'set_name',        label: 'Titel setzen' },
   { value: 'set_intensity',   label: 'Intensität setzen' },
   { value: 'set_indoor',      label: 'Indoor-Flag setzen' },
@@ -420,7 +420,7 @@ type ModifierChoice = '' | 'true' | 'false'
 
 const LEGACY_SPORT_TUPLE_ANCHOR_FIELDS = new Set(['sport_type', 'sub_type'])
 const LEGACY_SPORT_TUPLE_FIELDS = new Set(['sport_type', 'sub_type', 'is_electric', 'is_indoor', 'is_virtual', 'is_commute'])
-const SPORT_TUPLE_FIELDS = new Set(['sport_tuple', ...LEGACY_SPORT_TUPLE_FIELDS])
+const CANONICAL_SPORT_TUPLE_FIELDS = new Set(['sport_tuple'])
 
 function canUseSportTupleControl(conditions: RuleCondition[], groupLogic: RuleConditionGroup['logic'] = 'and') {
   const canonicalTupleConditions = conditions.filter((c) => c.field === 'sport_tuple')
@@ -435,6 +435,12 @@ function canUseSportTupleControl(conditions: RuleCondition[], groupLogic: RuleCo
   if (!sportCondition || String(sportCondition.value ?? '') === '') return false
   if (!tupleConditions.some((c) => LEGACY_SPORT_TUPLE_ANCHOR_FIELDS.has(c.field))) return false
   return tupleConditions.every((c) => String(c.op ?? 'eq').toLowerCase() === 'eq')
+}
+
+function sportTupleControlFields(conditions: RuleCondition[], groupLogic: RuleConditionGroup['logic'] = 'and'): Set<string> {
+  if (!canUseSportTupleControl(conditions, groupLogic)) return new Set()
+  if (conditions.some((c) => c.field === 'sport_tuple')) return CANONICAL_SPORT_TUPLE_FIELDS
+  return LEGACY_SPORT_TUPLE_FIELDS
 }
 
 function firstSelectableSubType(sportType: string): string {
@@ -555,9 +561,10 @@ function sportTupleRowsFromConditions(conditions: RuleCondition[]): SportTupleLi
 }
 
 function replaceSportTupleConditions(conditions: RuleCondition[], rows: SportTupleListRow[]): RuleCondition[] {
-  const rest = conditions.filter((c) => !SPORT_TUPLE_FIELDS.has(c.field))
+  const replacedFields = conditions.some((c) => c.field === 'sport_tuple') ? CANONICAL_SPORT_TUPLE_FIELDS : LEGACY_SPORT_TUPLE_FIELDS
+  const rest = conditions.filter((c) => !replacedFields.has(c.field))
   const value = rows.map((row) => {
-    const normalized = sanitizeTupleRow(normalizeTupleRow(row), 'condition')
+    const normalized = normalizeTupleRow(row)
     const out: Record<string, any> = { sport_type: normalized.sport_type }
     if (normalized.sub_type) out.sub_type = normalized.sub_type
     for (const key of RULE_TUPLE_MODIFIER_KEYS) {
@@ -1400,10 +1407,11 @@ function ConditionGroupBlock({
       conditions: group.conditions.map((c, idx) => idx === i ? { ...c, ...patch } : c),
     })
   }
-  const hasSportTuple = canUseSportTupleControl(group.conditions, group.logic)
+  const sportTupleFields = sportTupleControlFields(group.conditions, group.logic)
+  const hasSportTuple = sportTupleFields.size > 0
   const visibleConditions = group.conditions
     .map((cond, index) => ({ cond, index }))
-    .filter(({ cond }) => !(hasSportTuple && SPORT_TUPLE_FIELDS.has(cond.field)))
+    .filter(({ cond }) => !(hasSportTuple && sportTupleFields.has(cond.field)))
 
   return (
     <div className="border border-neutral-200 dark:border-neutral-700 rounded-lg p-3 space-y-2 bg-white dark:bg-neutral-900/30">
@@ -1445,7 +1453,7 @@ function ConditionGroupBlock({
             <SportTupleListConditionControl
               conditions={group.conditions}
               onChange={(conditions) => onChange({ ...group, conditions })}
-              onRemove={() => onChange({ ...group, conditions: group.conditions.filter((c) => !SPORT_TUPLE_FIELDS.has(c.field)) })}
+              onRemove={() => onChange({ ...group, conditions: group.conditions.filter((c) => !sportTupleFields.has(c.field)) })}
             />
           </div>
         )}
@@ -1626,8 +1634,8 @@ function ActionParams({
         onChange={(e) => onChange({ electric: e.target.value === 'true' })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="true">Ja (E-Bike)</option>
-        <option value="false">Nein (kein E-Bike)</option>
+        <option value="true">Ja (elektrisch)</option>
+        <option value="false">Nein (nicht elektrisch)</option>
       </select>
     )
   }
@@ -1785,13 +1793,6 @@ function denormaliseActions(raw: RuleAction[]): RuleAction[] {
       }
       if (tuple.modifiers.isIndoor !== undefined) {
         params.indoor = tuple.modifiers.isIndoor
-      }
-      while (i + 1 < raw.length) {
-        const next = raw[i + 1]
-        const spec = MODIFIER_ACTION_SPECS.find((s) => s.action === next.action)
-        if (!spec) break
-        params[spec.param] = next.params?.[spec.param] ?? next.params?.value ?? true
-        i++
       }
       out.push({ action: 'set_sport_type', params })
       continue
