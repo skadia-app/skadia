@@ -2,6 +2,7 @@ package shadowfs
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -46,14 +47,14 @@ func ActivitySchemaTags(input ActivitySchemaTagsInput) map[string]string {
 		}
 	}
 
-	if input.Title != "" {
-		tags["title"] = input.Title
+	if title := strings.TrimSpace(input.Title); title != "" {
+		tags["title"] = title
 	}
-	if input.City != "" {
-		tags["city"] = input.City
+	if city := strings.TrimSpace(input.City); city != "" {
+		tags["city"] = city
 	}
-	if input.Country != "" {
-		tags["country"] = input.Country
+	if country := strings.TrimSpace(input.Country); country != "" {
+		tags["country"] = country
 	}
 	if input.DistanceM > 0 {
 		tags["distance_km"] = strconv.FormatFloat(input.DistanceM/1000.0, 'f', 1, 64)

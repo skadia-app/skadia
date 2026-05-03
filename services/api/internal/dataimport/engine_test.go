@@ -2345,6 +2345,60 @@ func TestFileRestoreWithoutActivityRowDoesNotWriteRawTaxonomyTags(t *testing.T) 
 	}
 }
 
+func TestActivityFileRecordDetectionRequiresActivityFileType(t *testing.T) {
+	parentType := "activity"
+	tests := []struct {
+		name string
+		rec  userFileRecord
+		want bool
+	}{
+		{
+			name: "activity file type",
+			rec:  userFileRecord{FileType: "activity", ParentType: &parentType},
+			want: true,
+		},
+		{
+			name: "media attached to activity",
+			rec:  userFileRecord{FileType: "media", ParentType: &parentType},
+			want: false,
+		},
+		{
+			name: "original legacy activity export file",
+			rec:  userFileRecord{FileType: "original", FileName: "legacy.fit"},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isActivityFileRecord(tt.rec); got != tt.want {
+				t.Fatalf("isActivityFileRecord(%#v) = %v, want %v", tt.rec, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestInferFileFormatOnlyAcceptsActivityFormats(t *testing.T) {
+	tests := []struct {
+		fileName string
+		want     string
+	}{
+		{fileName: "track.FIT", want: "fit"},
+		{fileName: "route.gpx", want: "gpx"},
+		{fileName: "activity.tcx", want: "tcx"},
+		{fileName: "notes.txt", want: ""},
+		{fileName: "archive.zip", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.fileName, func(t *testing.T) {
+			if got := inferFileFormat(tt.fileName); got != tt.want {
+				t.Fatalf("inferFileFormat(%q) = %q, want %q", tt.fileName, got, tt.want)
+			}
+		})
+	}
+}
+
 // trackingMockShadowFS wraps dbMockShadowFS and records the ParentID passed to Put.
 type trackingMockShadowFS struct {
 	*dbMockShadowFS

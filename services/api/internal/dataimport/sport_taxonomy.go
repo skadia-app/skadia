@@ -94,7 +94,7 @@ func normalizeSingleSportType(row map[string]any, sportKey string) error {
 }
 
 func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []targetColumn) error {
-	if _, ok := row["default_for_sports"]; !ok && !targetHasColumn(targetCols, "default_for_sports") {
+	if _, ok := row["default_for_sports"]; !ok {
 		return nil
 	}
 	values, err := stringList(row["default_for_sports"])

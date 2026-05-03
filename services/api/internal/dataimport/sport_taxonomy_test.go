@@ -205,9 +205,10 @@ func TestNormalizeSportTaxonomyImportRowGearDefaultSportsEmpty(t *testing.T) {
 	tests := []struct {
 		name string
 		row  map[string]any
+		want any
 	}{
-		{name: "nil value", row: map[string]any{"default_for_sports": nil}},
-		{name: "missing target column", row: map[string]any{}},
+		{name: "nil value", row: map[string]any{"default_for_sports": nil}, want: []string{}},
+		{name: "missing export key", row: map[string]any{}, want: nil},
 	}
 
 	for _, tt := range tests {
@@ -216,9 +217,8 @@ func TestNormalizeSportTaxonomyImportRowGearDefaultSportsEmpty(t *testing.T) {
 			if err != nil {
 				t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
 			}
-			want := []string{}
-			if !reflect.DeepEqual(got["default_for_sports"], want) {
-				t.Fatalf("default_for_sports = %#v (%T), want %#v", got["default_for_sports"], got["default_for_sports"], want)
+			if !reflect.DeepEqual(got["default_for_sports"], tt.want) {
+				t.Fatalf("default_for_sports = %#v (%T), want %#v", got["default_for_sports"], got["default_for_sports"], tt.want)
 			}
 		})
 	}
