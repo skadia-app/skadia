@@ -55,7 +55,20 @@ func TestGeneratedBackendSegmentProjectionIsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expand segment projection: %v", err)
 	}
-	got, err := sporttaxgen.RenderGoProjections(activityExpanded, segmentExpanded)
+	ruleFile, err := os.Open("../../../../config/sport-taxonomy/projections/rules.yaml")
+	if err != nil {
+		t.Fatalf("open rules.yaml: %v", err)
+	}
+	defer ruleFile.Close()
+	ruleProjection, err := sporttaxgen.LoadRuleProjection(ruleFile, taxonomy)
+	if err != nil {
+		t.Fatalf("load rule projection: %v", err)
+	}
+	ruleExpanded, err := sporttaxgen.ExpandRuleProjection(taxonomy, ruleProjection)
+	if err != nil {
+		t.Fatalf("expand rule projection: %v", err)
+	}
+	got, err := sporttaxgen.RenderGoProjections(activityExpanded, segmentExpanded, ruleExpanded)
 	if err != nil {
 		t.Fatalf("render Go projections: %v", err)
 	}
@@ -65,6 +78,34 @@ func TestGeneratedBackendSegmentProjectionIsCurrent(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatal("projections_generated.go is stale; run scripts/generate-sport-taxonomy.sh")
+	}
+}
+
+func TestGeneratedFrontendRuleProjectionIsCurrent(t *testing.T) {
+	taxonomy := loadTestTaxonomy(t)
+	file, err := os.Open("../../../../config/sport-taxonomy/projections/rules.yaml")
+	if err != nil {
+		t.Fatalf("open rules.yaml: %v", err)
+	}
+	defer file.Close()
+	projection, err := sporttaxgen.LoadRuleProjection(file, taxonomy)
+	if err != nil {
+		t.Fatalf("load rule projection: %v", err)
+	}
+	expanded, err := sporttaxgen.ExpandRuleProjection(taxonomy, projection)
+	if err != nil {
+		t.Fatalf("expand rule projection: %v", err)
+	}
+	got, err := sporttaxgen.RenderTSRuleProjection(expanded)
+	if err != nil {
+		t.Fatalf("render TypeScript rule projection: %v", err)
+	}
+	want, err := os.ReadFile("../../../../frontend/src/lib/generatedRuleProjections.ts")
+	if err != nil {
+		t.Fatalf("read generatedRuleProjections.ts: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("generatedRuleProjections.ts is stale; run scripts/generate-sport-taxonomy.sh")
 	}
 }
 

@@ -70,6 +70,20 @@ type SegmentProjectionEntry struct {
 	SportGroup  string `json:"sport_group"`
 }
 
+type RuleTupleOption struct {
+	SportType string `json:"sport_type"`
+	SubType   string `json:"sub_type,omitempty"`
+	LabelDE   string `json:"label_de"`
+}
+
+type RuleModifierProjection struct {
+	Key                 string `json:"key"`
+	LabelDE             string `json:"label_de"`
+	ConditionApplicable bool   `json:"condition_applicable"`
+	ActionApplicable    bool   `json:"action_applicable"`
+	RenderExisting      bool   `json:"render_existing"`
+}
+
 // SubTypeDef describes a sub-sport variation within a parent sport.
 type SubTypeDef struct {
 	SubType          string           `json:"sub_type"`
@@ -319,6 +333,19 @@ func SegmentProjectionGroupForPredicates(preds []Predicate) string {
 	return group
 }
 
+func RuleTupleOptions() []RuleTupleOption {
+	return append([]RuleTupleOption(nil), generatedRuleTupleOptions...)
+}
+
+func RuleModifierProjectionForTuple(sportType, subType, key string) (RuleModifierProjection, bool) {
+	for _, modifier := range generatedRuleModifierProjections[projectionTupleKey(sportType, subType)] {
+		if modifier.Key == key {
+			return modifier, true
+		}
+	}
+	return RuleModifierProjection{}, false
+}
+
 // SportsInCategory returns all sport definitions belonging to a category,
 // sorted alphabetically by SportType.
 func SportsInCategory(categoryKey string) []SportDef {
@@ -397,6 +424,13 @@ func cloneActivityFilterProjectionPreset(in ActivityFilterProjectionPreset) Acti
 		out.Groups[i].Leaves = append([]ActivityFilterProjectionLeaf(nil), in.Groups[i].Leaves...)
 	}
 	return out
+}
+
+func projectionTupleKey(sportType, subType string) string {
+	if subType == "" {
+		return sportType
+	}
+	return sportType + ":" + subType
 }
 
 func segmentProjectionActiveDomains(segmentType string) map[string]struct{} {

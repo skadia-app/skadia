@@ -398,7 +398,7 @@ func TestProjectionSchemaMentionsValidatedFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read projections.schema.json: %v", err)
 	}
-	for _, field := range []string{"presets", "groups", "entries", "category_key", "sport_type", "sub_type", "sport_order", "labels", "label_ref", "label_mode", "domains", "segment_types", "active_domains", "compatibility_role", "eligible", "sport_group", "eligibility_role"} {
+	for _, field := range []string{"presets", "groups", "entries", "category_key", "sport_type", "sub_type", "sport_order", "labels", "label_ref", "label_mode", "domains", "segment_types", "active_domains", "compatibility_role", "eligible", "sport_group", "eligibility_role", "tuple_selectors", "modifiers", "source", "selectable_sport_tuples", "sport_tuple", "set_sport_type", "condition_applicable_from", "action_applicable_from", "render_existing"} {
 		if !strings.Contains(string(schema), field) {
 			t.Fatalf("schema does not mention %q", field)
 		}

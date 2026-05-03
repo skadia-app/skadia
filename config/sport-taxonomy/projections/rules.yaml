@@ -1,0 +1,32 @@
+tuple_selectors:
+  - key: condition_sport_tuple
+    labels: {de: Sportauswahl}
+    field: sport_tuple
+    operators: [in]
+    source: selectable_sport_tuples
+  - key: action_set_sport_type
+    labels: {de: Sportart setzen}
+    action: set_sport_type
+    source: selectable_sport_tuples
+
+modifiers:
+  - key: is_electric
+    labels: {de: E-Bike}
+    condition_applicable_from: modifier_applicability.is_electric
+    action_applicable_from: modifier_applicability.is_electric
+    render_existing: true
+  - key: is_indoor
+    labels: {de: Indoor}
+    condition_applicable_from: modifier_applicability.is_indoor
+    action_applicable_from: modifier_applicability.is_indoor
+    render_existing: true
+  - key: is_virtual
+    labels: {de: Virtuell}
+    condition_applicable_from: modifier_applicability.is_virtual
+    action_applicable_from: modifier_applicability.is_virtual
+    render_existing: true
+  - key: is_commute
+    labels: {de: Pendeln}
+    condition_applicable_from: modifier_applicability.is_commute
+    action_applicable_from: modifier_applicability.is_commute
+    render_existing: true
