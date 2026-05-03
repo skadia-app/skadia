@@ -191,7 +191,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     chips.push({ label: filters.isIndoor ? 'Nur Indoor' : 'Ohne Indoor', onRemove: () => onChange({ ...filters, isIndoor: null }) })
   }
   if (filters.isElectric !== null) {
-    chips.push({ label: filters.isElectric ? 'Nur E-Bike' : 'Ohne E-Bike', onRemove: () => onChange({ ...filters, isElectric: null }) })
+    chips.push({ label: filters.isElectric ? 'Nur E-Antrieb' : 'Ohne E-Antrieb', onRemove: () => onChange({ ...filters, isElectric: null }) })
   }
   if (filters.isVirtual !== null) {
     chips.push({ label: filters.isVirtual ? 'Nur Virtuell' : 'Ohne Virtuell', onRemove: () => onChange({ ...filters, isVirtual: null }) })

@@ -72,7 +72,7 @@ describe('SportFilter', () => {
 
   it('emits sport keys and modifier filters together', () => {
     const onChange = renderFilter({ sportTypes: null, modifiers: {} })
-    fireEvent.change(screen.getByLabelText(/E-Bike/), { target: { value: 'true' } })
+    fireEvent.change(screen.getByLabelText(/E-Antrieb/), { target: { value: 'true' } })
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
       modifiers: expect.objectContaining({ is_electric: true }),
     }))
