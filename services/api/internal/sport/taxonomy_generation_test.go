@@ -84,6 +84,21 @@ func TestGeneratedBackendSourceAliasesAreCurrent(t *testing.T) {
 	}
 }
 
+func TestGeneratedPredicateValidationSQLIsCurrent(t *testing.T) {
+	taxonomy := loadTestTaxonomy(t)
+	got, err := sporttaxgen.RenderPredicateValidationSQL(taxonomy)
+	if err != nil {
+		t.Fatalf("render predicate validation SQL: %v", err)
+	}
+	want, err := os.ReadFile("predicate_validation_generated.sql")
+	if err != nil {
+		t.Fatalf("read predicate_validation_generated.sql: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("predicate_validation_generated.sql is stale; run scripts/generate-sport-taxonomy.sh")
+	}
+}
+
 func TestCategoryForSportIncludesGeneratedColor(t *testing.T) {
 	cat := CategoryForSport("running")
 	if cat.Color != "#EF4444" {

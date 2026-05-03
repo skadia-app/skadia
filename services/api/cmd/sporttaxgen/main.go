@@ -36,6 +36,7 @@ func run() error {
 	tsSegmentProjectionsOut := flag.String("ts-segment-projections-out", "", "generated TypeScript segment projection output path")
 	aliasSourceDir := flag.String("alias-source-dir", "", "source-specific sport alias YAML directory")
 	goAliasesOut := flag.String("go-aliases-out", "", "generated Go source aliases output path")
+	predicateValidationSQLOut := flag.String("predicate-validation-sql-out", "", "generated SQL predicate validator output path")
 	check := flag.Bool("check", false, "verify generated outputs are current")
 	flag.Parse()
 
@@ -68,6 +69,9 @@ func run() error {
 	}
 	if *goAliasesOut == "" {
 		*goAliasesOut = filepath.Join(*repoRoot, "services", "api", "internal", "sport", "aliases_generated.go")
+	}
+	if *predicateValidationSQLOut == "" {
+		*predicateValidationSQLOut = filepath.Join(*repoRoot, "services", "api", "internal", "sport", "predicate_validation_generated.sql")
 	}
 
 	sourceBytes, err := os.ReadFile(*source)
@@ -126,6 +130,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	renderedPredicateValidationSQL, err := sporttaxgen.RenderPredicateValidationSQL(taxonomy)
+	if err != nil {
+		return fmt.Errorf("render predicate validation SQL: %w", err)
+	}
 
 	if *check {
 		if err := checkFile(*goOut, renderedGo); err != nil {
@@ -144,7 +152,12 @@ func run() error {
 			return err
 		}
 		if aliasesExist {
-			return checkFile(*goAliasesOut, renderedGoAliases)
+			if err := checkFile(*goAliasesOut, renderedGoAliases); err != nil {
+				return err
+			}
+		}
+		if err := checkFile(*predicateValidationSQLOut, renderedPredicateValidationSQL); err != nil {
+			return err
 		}
 		return nil
 	}
@@ -167,6 +180,9 @@ func run() error {
 		if err := os.WriteFile(*goAliasesOut, renderedGoAliases, 0o644); err != nil {
 			return fmt.Errorf("write Go source aliases: %w", err)
 		}
+	}
+	if err := os.WriteFile(*predicateValidationSQLOut, renderedPredicateValidationSQL, 0o644); err != nil {
+		return fmt.Errorf("write predicate validation SQL: %w", err)
 	}
 	return nil
 }
