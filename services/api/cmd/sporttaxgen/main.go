@@ -34,6 +34,8 @@ func run() error {
 	tsProjectionsOut := flag.String("ts-projections-out", "", "generated TypeScript activity filter projection output path")
 	segmentProjectionSource := flag.String("segment-projection-source", "", "segment eligibility projection YAML source")
 	tsSegmentProjectionsOut := flag.String("ts-segment-projections-out", "", "generated TypeScript segment projection output path")
+	ruleProjectionSource := flag.String("rule-projection-source", "", "rule projection YAML source")
+	tsRuleProjectionsOut := flag.String("ts-rule-projections-out", "", "generated TypeScript rule projection output path")
 	aliasSourceDir := flag.String("alias-source-dir", "", "source-specific sport alias YAML directory")
 	goAliasesOut := flag.String("go-aliases-out", "", "generated Go source aliases output path")
 	predicateValidationSQLOut := flag.String("predicate-validation-sql-out", "", "generated SQL predicate validator output path")
@@ -63,6 +65,12 @@ func run() error {
 	}
 	if *tsSegmentProjectionsOut == "" {
 		*tsSegmentProjectionsOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedSegmentProjections.ts")
+	}
+	if *ruleProjectionSource == "" {
+		*ruleProjectionSource = filepath.Join(*repoRoot, "config", "sport-taxonomy", "projections", "rules.yaml")
+	}
+	if *tsRuleProjectionsOut == "" {
+		*tsRuleProjectionsOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedRuleProjections.ts")
 	}
 	if *aliasSourceDir == "" {
 		*aliasSourceDir = filepath.Join(*repoRoot, "config", "sport-taxonomy", "aliases")
@@ -114,7 +122,19 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("expand segment projection: %w", err)
 	}
-	renderedGoProjections, err := sporttaxgen.RenderGoProjections(expandedProjections, expandedSegmentProjection)
+	ruleProjectionBytes, err := os.ReadFile(*ruleProjectionSource)
+	if err != nil {
+		return fmt.Errorf("read rule projection source: %w", err)
+	}
+	ruleProjection, err := sporttaxgen.LoadRuleProjection(bytes.NewReader(ruleProjectionBytes), taxonomy)
+	if err != nil {
+		return fmt.Errorf("load rule projection: %w", err)
+	}
+	expandedRuleProjection, err := sporttaxgen.ExpandRuleProjection(taxonomy, ruleProjection)
+	if err != nil {
+		return fmt.Errorf("expand rule projection: %w", err)
+	}
+	renderedGoProjections, err := sporttaxgen.RenderGoProjections(expandedProjections, expandedSegmentProjection, expandedRuleProjection)
 	if err != nil {
 		return fmt.Errorf("render Go projections: %w", err)
 	}
@@ -125,6 +145,10 @@ func run() error {
 	renderedTSSegmentProjections, err := sporttaxgen.RenderTSSegmentProjection(expandedSegmentProjection)
 	if err != nil {
 		return fmt.Errorf("render TypeScript segment projection: %w", err)
+	}
+	renderedTSRuleProjections, err := sporttaxgen.RenderTSRuleProjection(expandedRuleProjection)
+	if err != nil {
+		return fmt.Errorf("render TypeScript rule projection: %w", err)
 	}
 	renderedGoAliases, aliasesExist, err := renderGoAliasesFromDir(*aliasSourceDir, taxonomy)
 	if err != nil {
@@ -151,6 +175,9 @@ func run() error {
 		if err := checkFile(*tsSegmentProjectionsOut, renderedTSSegmentProjections); err != nil {
 			return err
 		}
+		if err := checkFile(*tsRuleProjectionsOut, renderedTSRuleProjections); err != nil {
+			return err
+		}
 		if aliasesExist {
 			if err := checkFile(*goAliasesOut, renderedGoAliases); err != nil {
 				return err
@@ -175,6 +202,9 @@ func run() error {
 	}
 	if err := os.WriteFile(*tsSegmentProjectionsOut, renderedTSSegmentProjections, 0o644); err != nil {
 		return fmt.Errorf("write TypeScript segment projection: %w", err)
+	}
+	if err := os.WriteFile(*tsRuleProjectionsOut, renderedTSRuleProjections, 0o644); err != nil {
+		return fmt.Errorf("write TypeScript rule projection: %w", err)
 	}
 	if aliasesExist {
 		if err := os.WriteFile(*goAliasesOut, renderedGoAliases, 0o644); err != nil {
