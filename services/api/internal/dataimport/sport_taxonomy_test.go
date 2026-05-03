@@ -2,6 +2,7 @@ package dataimport
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -182,6 +183,63 @@ func TestNormalizeSportTaxonomyImportRowRoutingProfiles(t *testing.T) {
 
 	if filters, ok := got["modifier_filters"].(map[string]any); !ok || filters["is_electric"] != true {
 		t.Fatalf("modifier_filters: %#v", got["modifier_filters"])
+	}
+}
+
+func TestNormalizeSportTaxonomyImportRowGearDefaultSports(t *testing.T) {
+	row := map[string]any{
+		"default_for_sports": []any{"mountain_biking", "e_mountain_biking", "cycling", "fitness_equipment"},
+	}
+
+	got, err := normalizeSportTaxonomyImportRow("gear", row, []targetColumn{{Name: "default_for_sports"}})
+	if err != nil {
+		t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
+	}
+	want := []string{"cycling", "fitness_equipment"}
+	if !reflect.DeepEqual(got["default_for_sports"], want) {
+		t.Fatalf("default_for_sports = %#v (%T), want %#v", got["default_for_sports"], got["default_for_sports"], want)
+	}
+}
+
+func TestNormalizeSportTaxonomyImportRowGearDefaultSportsEmpty(t *testing.T) {
+	tests := []struct {
+		name string
+		row  map[string]any
+	}{
+		{name: "nil value", row: map[string]any{"default_for_sports": nil}},
+		{name: "missing target column", row: map[string]any{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeSportTaxonomyImportRow("gear", tt.row, []targetColumn{{Name: "default_for_sports"}})
+			if err != nil {
+				t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
+			}
+			want := []string{}
+			if !reflect.DeepEqual(got["default_for_sports"], want) {
+				t.Fatalf("default_for_sports = %#v (%T), want %#v", got["default_for_sports"], got["default_for_sports"], want)
+			}
+		})
+	}
+}
+
+func TestNormalizeSportTaxonomyImportRowRejectsInvalidGearDefaultSport(t *testing.T) {
+	tests := []struct {
+		name string
+		row  map[string]any
+	}{
+		{name: "tuple shaped storage", row: map[string]any{"default_for_sports": []any{"cycling:mountain"}}},
+		{name: "unknown sport", row: map[string]any{"default_for_sports": []any{"not_a_sport"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := normalizeSportTaxonomyImportRow("gear", tt.row, []targetColumn{{Name: "default_for_sports"}})
+			if err == nil || !strings.Contains(err.Error(), "default_for_sports") {
+				t.Fatalf("error: got %v, want default_for_sports error", err)
+			}
+		})
 	}
 }
 
