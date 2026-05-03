@@ -53,6 +53,9 @@ export function isCategoryPartiallyActive(uiKey: string, active: string[] | null
   return types.some(t => active.includes(t)) && !types.every(t => active.includes(t))
 }
 
-export function whitelistForSegmentType(segType: SegType): readonly string[] {
-  return segmentEligibleSelectionKeys(segType)
+export function whitelistForSegmentType(segType: SegType): readonly string[] | undefined {
+  if (segType === 'wintersport' || segType === 'wassersport') {
+    return segmentEligibleSelectionKeys(segType)
+  }
+  return undefined
 }

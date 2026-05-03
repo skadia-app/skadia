@@ -591,6 +591,11 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 			return nil, err
 		}
 	}
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin segment update tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
 
 	setClauses := []string{}
 	args := []any{}
@@ -651,7 +656,7 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 				effectiveSegmentType = *update.SegmentType
 			} else {
 				var ok bool
-				effectiveSegmentType, ok, err = db.segmentTypeForUpdate(ctx, segmentID, userID, isAdmin)
+				effectiveSegmentType, ok, err = segmentTypeForUpdateTx(ctx, tx, segmentID, userID, isAdmin)
 				if err != nil {
 					return nil, err
 				}
@@ -696,24 +701,27 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 		args = append(args, segmentID, userID)
 	}
 
-	tag, err := db.Pool.Exec(ctx, query, args...)
+	tag, err := tx.Exec(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("update segment: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return nil, nil
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit segment update tx: %w", err)
+	}
 
 	return db.GetSegment(ctx, segmentID, userID, isAdmin, false)
 }
 
-func (db *DB) segmentTypeForUpdate(ctx context.Context, segmentID, userID string, isAdmin bool) (string, bool, error) {
+func segmentTypeForUpdateTx(ctx context.Context, tx pgx.Tx, segmentID, userID string, isAdmin bool) (string, bool, error) {
 	var segmentType string
 	var err error
 	if isAdmin {
-		err = db.Pool.QueryRow(ctx, `SELECT segment_type FROM segments WHERE id = $1`, segmentID).Scan(&segmentType)
+		err = tx.QueryRow(ctx, `SELECT segment_type FROM segments WHERE id = $1 FOR UPDATE`, segmentID).Scan(&segmentType)
 	} else {
-		err = db.Pool.QueryRow(ctx, `SELECT segment_type FROM segments WHERE id = $1 AND created_by = $2`, segmentID, userID).Scan(&segmentType)
+		err = tx.QueryRow(ctx, `SELECT segment_type FROM segments WHERE id = $1 AND created_by = $2 FOR UPDATE`, segmentID, userID).Scan(&segmentType)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
