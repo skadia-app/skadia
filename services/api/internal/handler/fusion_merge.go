@@ -1224,6 +1224,12 @@ func fusionActivitySchemaTagsInput(format, source string, activity *model.Activi
 	if activity.Title != nil {
 		input.Title = *activity.Title
 	}
+	if activity.StartCity != nil {
+		input.City = *activity.StartCity
+	}
+	if activity.StartCountry != nil {
+		input.Country = *activity.StartCountry
+	}
 	if activity.ElapsedTimeS != nil {
 		input.ElapsedTimeS = *activity.ElapsedTimeS
 	}
