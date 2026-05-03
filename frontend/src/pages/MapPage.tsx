@@ -29,8 +29,10 @@ import { mapLayerStackDiff } from '@/lib/mapLayerStackDiff'
 import { useMapLayersMerged } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import { useUserMapLayers, useUserMapLayersMutations } from '@/hooks/useUserMapLayers'
-import MapOverlayPicker from '@/components/MapOverlayPicker'
-import type { MapLayer } from '@/api/mapLayers'
+import { LayerPanel } from '@/components/LayerPanel'
+import { useLayerOrder } from '@/hooks/useLayerOrder'
+import type { MapLayer, UserMapLayer } from '@/api/mapLayers'
+import { useCurrentUserId } from '@/providers/UserProvider'
 import {
   HEATMAP_SOURCE_ID,
   addHeatmapLayers as addHeatmapGlowLayers,
@@ -38,7 +40,7 @@ import {
 } from '@/lib/mapHeatmap'
 import { useTheme } from '@/lib/theme'
 import { useAuthImage } from '@/hooks/useAuthImage'
-import { useCoverageOverlays } from '@/hooks/useCoverageOverlays'
+import { useCoverageOverlays, findFirstVectorOverlayLayer } from '@/hooks/useCoverageOverlays'
 import { useModal } from '@/lib/modal'
 import { getHeatmapSettings } from '@/api/settings'
 import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker, updateCustomMapMarker } from '@/api/customMaps'
@@ -285,6 +287,21 @@ export default function MapPage() {
   // for the overlay diff pipeline (mapLayerStackDiff) which keeps its own logic.
   const { data: userLayersData } = useUserMapLayers()
 
+  const {
+    layerEntries,
+    registerIds,
+    addUserEntry,
+    removeUserEntry,
+    moveTo: moveLayerTo,
+    changeZone: changeLayerZone,
+    applyOrder,
+  } = useLayerOrder()
+
+  // Ref-stable handle on applyOrder so effects can call it without taking
+  // applyOrder into their dep array (which would cause re-fire loops).
+  const applyOrderRef = useRef(applyOrder)
+  applyOrderRef.current = applyOrder
+
   const [baseStyle, setBaseStyle] = useState<BaseStyle>(
     savedViewport?.baseStyle ?? loadDefaultBaseStyle()
   )
@@ -359,6 +376,8 @@ export default function MapPage() {
     } catch { return {} }
   })
   const [segmentFilters, setSegmentFilters] = useState<SegmentsOverlayFilters>(DEFAULT_SEGMENT_FILTERS)
+  const handleSegmentFiltersChange = useCallback((f: SegmentsOverlayFilters) => setSegmentFilters(f), [])
+  const handleSegmentColorsChange = useCallback((c: Partial<SegmentColorConfig>) => setSegmentColors(c), [])
 
   // Terra Incognita
   const terraIncognitaRef = useRef<TerraIncognitaCoverage | null>(null)
@@ -417,6 +436,7 @@ export default function MapPage() {
   const { addToast } = useToast()
   const preT0HoverToastRouteRef = useRef<string | null>(null)
   const [layerMenuOpen, setLayerMenuOpen] = useState(false)
+  const [layerPanelOpen, setLayerPanelOpen] = useState(false)
 
   const topButtonsRef = useRef<HTMLDivElement>(null)
   const baseStylesFullRowRef = useRef<HTMLDivElement>(null)
@@ -437,6 +457,11 @@ export default function MapPage() {
   useEffect(() => {
     if (plannerActive) setPlannerPanelOpen(true)
   }, [plannerActive])
+
+  // Reset panel open state when layout switches between wide and collapsed variants
+  useEffect(() => {
+    setLayerPanelOpen(false)
+  }, [baseStylesCollapsed])
 
   // Load route planner state from navigation state (mount-only: reads initial location.state, then clears it)
   // Handles both editRouteId (from RoutesPage edit button) and plannerWaypoints (from ActivityDetailPage).
@@ -960,6 +985,14 @@ export default function MapPage() {
     function applyStackOp(op: import('@/lib/mapLayerStackDiff').StackDiffOp) {
       if (!map) return
       const l = op.layer
+      if (op.op === 'paint-update') {
+        if (map.getLayer(l.key)) {
+          try {
+            map.setPaintProperty(l.key, 'raster-opacity', opacityPercentToFloat(l.default_opacity ?? 100))
+          } catch { /* layer might be transient */ }
+        }
+        return
+      }
       if (op.op === 'remove' || op.op === 'replace') {
         if (map.getLayer(l.key)) map.removeLayer(l.key)
         if (map.getSource(l.key)) map.removeSource(l.key)
@@ -1023,6 +1056,20 @@ export default function MapPage() {
       applyStackOp(op)
     }
     prevOverlayStackRef.current = next
+
+    // Re-apply layer ordering whenever overlays were added or replaced.
+    // Without this, addLayer's BEFORE_ID anchor (gps-track-line-casing or top-of-stack)
+    // wins over the user-controlled order in layerEntries, and overlay positions
+    // drift to the top whenever userLayersData refetches (toggles, opacity, etc.).
+    // paint-update keeps the layer in place, so no reorder needed.
+    if (ops.some(op => op.op === 'add' || op.op === 'replace')) {
+      requestAnimationFrame(() => {
+        const m = mapRef.current
+        if (!m) return
+        applyOrderRef.current(m, findFirstVectorOverlayLayer(m))
+        enforceRouteLayersOnTop(m)
+      })
+    }
   }, [mapRef, styleVersion, rawLayers, userLayersData]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── parsedCoords: shared coordinate array for both overlay useMemos ───────
@@ -1201,6 +1248,13 @@ export default function MapPage() {
     styleVersion,
   )
 
+  useEffect(() => {
+    if (styleVersion === 0) return
+    registerIds('coverage-nature',  ['coverage-landuse-layer', 'coverage-forest-layer', 'coverage-water-layer', 'coverage-river_proximity-layer', 'coverage-protected-layer'])
+    registerIds('coverage-noise',   ['coverage-noise-layer'])
+    registerIds('coverage-traffic', ['coverage-urbanization-layer', 'coverage-traffic-layer'])
+  }, [styleVersion, registerIds])
+
   const queryClient = useQueryClient()
   const locationSyncTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
@@ -1295,12 +1349,35 @@ export default function MapPage() {
 
   // User layer mutations for the overlay picker
   const userLayerMutations = useUserMapLayersMutations()
+  const userMapLayersUserId = useCurrentUserId()
 
   const handlePatchUserLayerFromPicker = useCallback(
     (id: number, patch: Partial<{ enabled: boolean; default_opacity: number }>) => {
-      userLayerMutations.update.mutate({ id, body: patch })
+      const queryKey = ['user-map-layers', userMapLayersUserId] as const
+      void queryClient.cancelQueries({ queryKey })
+      const optimisticPrev = queryClient.getQueryData<UserMapLayer[]>(queryKey)
+      queryClient.setQueryData<UserMapLayer[]>(queryKey, (old) =>
+        (old ?? []).map((l) => (l.id === id ? { ...l, ...patch } : l)),
+      )
+      userLayerMutations.update.mutate({ id, body: patch, optimisticPrev })
     },
-    [userLayerMutations.update],
+    [userLayerMutations.update, queryClient, userMapLayersUserId],
+  )
+
+  // Live preview during drag — cache-only, NO network PATCH. The slider's
+  // pointer-up handler triggers the single committing PATCH via
+  // handlePatchUserLayerFromPicker. At step=5 a 0→100 drag fires 21 onChange
+  // events; one PATCH per step trips the backend rate limiter (HTTP 429),
+  // and each failed PATCH rolls the cache back to the pre-mutation value,
+  // which the controlled slider then visibly snaps to.
+  const handleLiveOpacityFromPicker = useCallback(
+    (id: number, opacity: number) => {
+      queryClient.setQueryData<UserMapLayer[]>(
+        ['user-map-layers', userMapLayersUserId],
+        (old) => (old ?? []).map((l) => (l.id === id ? { ...l, default_opacity: opacity } : l)),
+      )
+    },
+    [queryClient, userMapLayersUserId],
   )
 
   // location.state: activateSegmentsOverlay — z.B. von SegmentsPage aus
@@ -2382,9 +2459,6 @@ export default function MapPage() {
     localStorage.setItem('skadia-sport-colors', JSON.stringify({ ...next.colorConfig, heatmapColor: next.heatmapColor }))
   }, [])
 
-  const handleSegmentFiltersChange = useCallback((f: SegmentsOverlayFilters) => setSegmentFilters(f), [])
-  const handleSegmentColorsChange = useCallback((c: Partial<SegmentColorConfig>) => setSegmentColors(c), [])
-
   // Load activities for the selected location tag popup
   useEffect(() => {
     if (!selectedLocationTagId) {
@@ -2660,7 +2734,47 @@ export default function MapPage() {
     }
   }, [overlayState.showAmenities, styleVersion, currentUserId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-apply layer ordering after every style reload.
+  // rAF-defer ensures overlay-addition effects have run in the same tick.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || styleVersion === 0) return
+    const id = requestAnimationFrame(() => {
+      applyOrder(map, findFirstVectorOverlayLayer(map))
+      enforceRouteLayersOnTop(map)  // keep route on top after reorder
+    })
+    return () => cancelAnimationFrame(id)
+  }, [styleVersion, layerEntries, applyOrder])
+
   const plannerAvailable = planner.capabilities?.routing ?? false
+
+  // System overlay layers from the catalog (raster or vector_style, enabled).
+  const sysOverlaysForPicker = rawLayers.filter(
+    (l) => l.role === 'overlay' && l.enabled && l.is_system,
+  )
+  // User raster overlays only — vector_style overlays are out of scope for overlay use.
+  const userOverlaysForPicker = useMemo(
+    () => (userLayersData ?? []).filter(
+      (ul) => ul.role === 'overlay' && ul.source_kind === 'raster_tiles',
+    ),
+    [userLayersData],
+  )
+
+  // Sync user overlay entries into layerOrder
+  const layerEntriesRef = useRef(layerEntries)
+  layerEntriesRef.current = layerEntries
+
+  useEffect(() => {
+    const activeKeys = new Set(userOverlaysForPicker.map(ul => `user-${ul.id}`))
+    // Add new (idempotent — addUserEntry is no-op if key exists)
+    userOverlaysForPicker.forEach(ul => {
+      addUserEntry(`user-${ul.id}`, 'below', [`user-overlay-${ul.id}`])
+    })
+    // Remove stale entries
+    layerEntriesRef.current
+      .filter(e => e.key.startsWith('user-') && !activeKeys.has(e.key))
+      .forEach(e => removeUserEntry(e.key))
+  }, [userOverlaysForPicker, addUserEntry, removeUserEntry])
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col" style={{ top: '3.5rem' }}>
@@ -2791,55 +2905,81 @@ export default function MapPage() {
         <div
           ref={baseStylesFullRowRef}
           aria-hidden={baseStylesCollapsed || undefined}
-          className={`absolute bottom-4 left-4 z-10 max-w-[calc(100%-2rem)] rounded-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm shadow-md ${baseStylesCollapsed ? 'invisible pointer-events-none' : ''}`}
+          className={`absolute bottom-4 left-4 z-10 max-w-[calc(100%-2rem)] flex items-stretch shadow-md ${baseStylesCollapsed ? 'invisible pointer-events-none' : ''}`}
         >
-          <div className="flex overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {/* Active (capability-passing) base layers — includes user-owned base layers */}
-          {baseLayers.map((layer) => (
-            <button
-              key={layer.key}
-              onClick={() => setBaseStyle(layer.key)}
-              aria-label={layer.is_system ? layer.name : `${layer.name} (eigene Karte)`}
-              className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
-                baseStyle === layer.key
-                  ? 'bg-accent-DEFAULT text-white'
-                  : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
-              }`}
-            >
-              {!layer.is_system && (
-                /* User-layer indicator: small person silhouette (Lucide User outline) */
-                <svg
-                  className="w-3 h-3 flex-shrink-0 opacity-70"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="8" r="4" />
-                  <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
-                </svg>
-              )}
-              {layer.name}
-            </button>
-          ))}
-          {/* Capability-missing base layers: shown grayed-out so users know they exist */}
-          {disabledLayers.filter((d) => d.layer.role === 'base').map(({ layer, missingCapability }) => (
-            <button
-              key={layer.key}
-              disabled
-              title={`Benötigt: ${missingCapability}`}
-              className="flex-shrink-0 px-2.5 py-1 text-xs font-medium opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300"
-            >
-              {layer.name}
-            </button>
-          ))}
+          {/* Scrollable base-layer area — overflow-hidden kept here so LayerPanel can overflow upward */}
+          <div className="rounded-l-lg overflow-hidden border border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm flex-shrink min-w-0">
+            <div className="flex overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {/* Active (capability-passing) base layers — includes user-owned base layers */}
+            {baseLayers.map((layer) => (
+              <button
+                key={layer.key}
+                onClick={() => setBaseStyle(layer.key)}
+                aria-label={layer.is_system ? layer.name : `${layer.name} (eigene Karte)`}
+                className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                  baseStyle === layer.key
+                    ? 'bg-accent-DEFAULT text-white'
+                    : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700'
+                }`}
+              >
+                {!layer.is_system && (
+                  /* User-layer indicator: small person silhouette (Lucide User outline) */
+                  <svg
+                    className="w-3 h-3 flex-shrink-0 opacity-70"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="8" r="4" />
+                    <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
+                  </svg>
+                )}
+                {layer.name}
+              </button>
+            ))}
+            {/* Capability-missing base layers: shown grayed-out so users know they exist */}
+            {disabledLayers.filter((d) => d.layer.role === 'base').map(({ layer, missingCapability }) => (
+              <button
+                key={layer.key}
+                disabled
+                title={`Benötigt: ${missingCapability}`}
+                className="flex-shrink-0 px-2.5 py-1 text-xs font-medium opacity-40 cursor-not-allowed text-neutral-600 dark:text-neutral-300"
+              >
+                {layer.name}
+              </button>
+            ))}
+            </div>
+          </div>
+          {/* LayerPanel — sibling outside overflow-hidden so its dropdown can overflow upward */}
+          <div className="border border-l-0 border-neutral-300 dark:border-neutral-600 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-r-lg flex-shrink-0">
+            <LayerPanel
+              open={layerPanelOpen}
+              onOpenChange={setLayerPanelOpen}
+              overlayState={overlayState}
+              onOverlayChange={updateOverlay}
+              coverageState={coverageState}
+              onCoverageUpdate={updateComposite}
+              onCoverageToggleLayer={toggleCoverageLayer}
+              systemOverlays={sysOverlaysForPicker}
+              systemOverlayEnabled={sysOverlayEnabled}
+              systemOverlayOpacity={sysOverlayOpacity}
+              onToggleSystemOverlay={handleToggleSystemOverlay}
+              onSetSystemOverlayOpacity={handleSetSystemOverlayOpacity}
+              userOverlays={userOverlaysForPicker}
+              onPatchUserLayer={handlePatchUserLayerFromPicker}
+              onLiveOpacityPreview={handleLiveOpacityFromPicker}
+              layerEntries={layerEntries}
+              onMoveTo={moveLayerTo}
+              onChangeZone={changeLayerZone}
+            />
           </div>
         </div>
         {baseStylesCollapsed && (
-          <div className="absolute bottom-4 left-4 z-10">
+          <div className="absolute bottom-4 left-4 z-10 flex items-end gap-1">
             {layerMenuOpen && (
               <div
                 className="fixed inset-0 z-[9]"
@@ -2905,6 +3045,28 @@ export default function MapPage() {
                 </div>
               )}
             </div>
+            <LayerPanel
+              panelAlign="left"
+              buttonRounded
+              open={layerPanelOpen}
+              onOpenChange={setLayerPanelOpen}
+              overlayState={overlayState}
+              onOverlayChange={updateOverlay}
+              coverageState={coverageState}
+              onCoverageUpdate={updateComposite}
+              onCoverageToggleLayer={toggleCoverageLayer}
+              systemOverlays={sysOverlaysForPicker}
+              systemOverlayEnabled={sysOverlayEnabled}
+              systemOverlayOpacity={sysOverlayOpacity}
+              onToggleSystemOverlay={handleToggleSystemOverlay}
+              onSetSystemOverlayOpacity={handleSetSystemOverlayOpacity}
+              userOverlays={userOverlaysForPicker}
+              onPatchUserLayer={handlePatchUserLayerFromPicker}
+              onLiveOpacityPreview={handleLiveOpacityFromPicker}
+              layerEntries={layerEntries}
+              onMoveTo={moveLayerTo}
+              onChangeZone={changeLayerZone}
+            />
           </div>
         )}
 
@@ -3098,31 +3260,6 @@ export default function MapPage() {
             Eigene Karten
           </button>
           </div>
-
-        {/* Overlay Picker — floating panel top-right, below the button strip */}
-        {(() => {
-          // System overlay layers from the catalog (raster or vector_style, enabled).
-          const sysOverlaysForPicker = rawLayers.filter(
-            (l) => l.role === 'overlay' && l.enabled && l.is_system,
-          )
-          // User raster overlays only — vector_style overlays are out of scope for overlay use.
-          const userOverlaysForPicker = (userLayersData ?? []).filter(
-            (ul) => ul.role === 'overlay' && ul.source_kind === 'raster_tiles',
-          )
-          return (
-            <MapOverlayPicker
-              coverageState={coverageState}
-              onCoverageUpdate={updateComposite}
-              systemOverlays={sysOverlaysForPicker}
-              systemOverlayEnabled={sysOverlayEnabled}
-              systemOverlayOpacity={sysOverlayOpacity}
-              onToggleSystemOverlay={handleToggleSystemOverlay}
-              onSetSystemOverlayOpacity={handleSetSystemOverlayOpacity}
-              userOverlays={userOverlaysForPicker}
-              onPatchUserLayer={handlePatchUserLayerFromPicker}
-            />
-          )
-        })()}
 
         {/* Segments Overlay — Segment-Linien als Karten-Ebene */}
         <SegmentsOverlay
@@ -3689,16 +3826,12 @@ export default function MapPage() {
               onChange={handleFilterChange}
               forceDark={selectedBaseLayer?.key === 'dark' || (!selectedBaseLayer && baseStyle === 'dark')}
               viewMode={viewMode}
-              overlayState={overlayState}
-              onOverlayChange={updateOverlay}
+              docked
+              showSegmentsOverlay={overlayState.showSegmentsOverlay}
               segmentFilters={segmentFilters}
               onSegmentFiltersChange={handleSegmentFiltersChange}
               segmentColors={segmentColors}
               onSegmentColorsChange={handleSegmentColorsChange}
-              coverageState={coverageState}
-              onCoverageUpdate={updateComposite}
-              onCoverageToggleLayer={toggleCoverageLayer}
-              docked
             />
           </div>
         </div>

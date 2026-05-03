@@ -225,7 +225,7 @@ export function useCoverageOverlays(mapInstance: MaplibreMap | null, styleVersio
   return { coverageState: state, updateComposite, toggleLayer }
 }
 
-function findFirstVectorOverlayLayer(map: MaplibreMap): string | undefined {
+export function findFirstVectorOverlayLayer(map: MaplibreMap): string | undefined {
   // Coverage-Raster-Overlays sollen UNTER der Route-Linie liegen, damit der
   // Nutzer die Route immer klar über dem Hintergrund sieht.
   // route-planner-line-casing/-line werden von useRouteEditor via style.load
