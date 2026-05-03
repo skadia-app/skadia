@@ -12,6 +12,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/rules"
 )
 
 const (
@@ -21,13 +22,13 @@ const (
 )
 
 type commuteRuleRequest struct {
-	ActivityID  string   `json:"activity_id"`
-	StartZoneID string   `json:"start_zone_id"`
-	EndZoneID   string   `json:"end_zone_id"`
+	ActivityID  string `json:"activity_id"`
+	StartZoneID string `json:"start_zone_id"`
+	EndZoneID   string `json:"end_zone_id"`
 	// For roundtrip: user specifies the intermediate destination
-	DestLat     *float64 `json:"dest_lat,omitempty"`
-	DestLon     *float64 `json:"dest_lon,omitempty"`
-	DestZoneID  string   `json:"dest_zone_id"`
+	DestLat    *float64 `json:"dest_lat,omitempty"`
+	DestLon    *float64 `json:"dest_lon,omitempty"`
+	DestZoneID string   `json:"dest_zone_id"`
 }
 
 type commuteRuleResponse struct {
@@ -330,6 +331,9 @@ func makeCommuteBranches(branchType string, startLat, startLon, endLat, endLon, 
 // createCommuteRule inserts a new commute_auto system rule and returns its ID.
 func createCommuteRule(ctx context.Context, db *database.DB, userID string, startLat, startLon, endLat, endLon, radiusM float64, tagID string) (string, error) {
 	branches := makeCommuteBranches("if", startLat, startLon, endLat, endLon, radiusM, tagID)
+	if err := validateCommuteRuleBranches(branches); err != nil {
+		return "", err
+	}
 	var ruleID string
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO automation_rules
@@ -367,6 +371,9 @@ func extendCommuteRuleRaw(ctx context.Context, db *database.DB, rule *model.Auto
 	if err != nil {
 		return err
 	}
+	if err := validateCommuteRuleBranches(allJSON); err != nil {
+		return err
+	}
 	_, err = db.Pool.Exec(ctx,
 		`UPDATE automation_rules SET branches = $1::jsonb WHERE id = $2`,
 		allJSON, rule.ID)
@@ -375,6 +382,9 @@ func extendCommuteRuleRaw(ctx context.Context, db *database.DB, rule *model.Auto
 
 // createCommuteRuleRaw inserts a new commute_auto system rule with pre-built branches JSON.
 func createCommuteRuleRaw(ctx context.Context, db *database.DB, userID string, branches json.RawMessage) (string, error) {
+	if err := validateCommuteRuleBranches(branches); err != nil {
+		return "", err
+	}
 	var ruleID string
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO automation_rules
@@ -386,6 +396,18 @@ func createCommuteRuleRaw(ctx context.Context, db *database.DB, userID string, b
 		userID, branches,
 	).Scan(&ruleID)
 	return ruleID, err
+}
+
+func validateCommuteRuleBranches(branches json.RawMessage) error {
+	if err := rules.ValidateSportTaxonomyRuleJSON(rules.SportTaxonomyRuleJSON{
+		Conditions:      json.RawMessage(`[]`),
+		ConditionGroups: json.RawMessage(`[]`),
+		Actions:         json.RawMessage(`[]`),
+		Branches:        branches,
+	}); err != nil {
+		return fmt.Errorf("validate commute automation rule: %w", err)
+	}
+	return nil
 }
 
 // makeCommuteRoundtripBranches builds 3 branches for a roundtrip commute:

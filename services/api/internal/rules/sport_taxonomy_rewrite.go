@@ -44,6 +44,111 @@ func RewriteSportTaxonomyRuleJSON(input SportTaxonomyRuleJSON) (SportTaxonomyRul
 	return out, warnings, nil
 }
 
+func NormalizeAndValidateSportTaxonomyRuleJSON(input SportTaxonomyRuleJSON) (SportTaxonomyRuleJSON, []SportTaxonomyRewriteWarning, error) {
+	rewritten, warnings, err := RewriteSportTaxonomyRuleJSON(input)
+	if err != nil {
+		return SportTaxonomyRuleJSON{}, warnings, err
+	}
+	if err := ValidateSportTaxonomyRuleJSON(rewritten); err != nil {
+		return SportTaxonomyRuleJSON{}, warnings, err
+	}
+	return rewritten, warnings, nil
+}
+
+func ValidateSportTaxonomyRuleJSON(input SportTaxonomyRuleJSON) error {
+	state := sportTaxonomyRuleValidationState{}
+	if err := validateRuleConditionArrayRaw(input.Conditions, "conditions", &state); err != nil {
+		return err
+	}
+	if err := validateRuleConditionGroupsRaw(input.ConditionGroups, "condition_groups", &state); err != nil {
+		return err
+	}
+	if err := validateRuleBranchesRaw(input.Branches, &state); err != nil {
+		return err
+	}
+	if state.hasSportTupleIn && state.hasLegacySportTypeList {
+		return fmt.Errorf("mixed sport_type in and sport_tuple in conditions are not supported")
+	}
+	return nil
+}
+
+type sportTaxonomyRuleValidationState struct {
+	hasSportTupleIn        bool
+	hasLegacySportTypeList bool
+}
+
+func validateRuleConditionArrayRaw(raw json.RawMessage, surface string, state *sportTaxonomyRuleValidationState) error {
+	if isEmptyJSON(raw) {
+		return nil
+	}
+	if !startsWithJSONDelim(raw, '[') {
+		return nil
+	}
+	var conditions []Condition
+	if err := json.Unmarshal(raw, &conditions); err != nil {
+		return fmt.Errorf("%s: decode conditions: %w", surface, err)
+	}
+	return validateRuleConditions(conditions, surface, state)
+}
+
+func validateRuleConditionGroupsRaw(raw json.RawMessage, surface string, state *sportTaxonomyRuleValidationState) error {
+	if isEmptyJSON(raw) {
+		return nil
+	}
+	if !startsWithJSONDelim(raw, '[') {
+		return nil
+	}
+	var groups []ConditionGroup
+	if err := json.Unmarshal(raw, &groups); err != nil {
+		return fmt.Errorf("%s: decode condition groups: %w", surface, err)
+	}
+	for i, group := range groups {
+		if err := validateRuleConditions(group.Conditions, fmt.Sprintf("%s[%d].conditions", surface, i), state); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRuleBranchesRaw(raw json.RawMessage, state *sportTaxonomyRuleValidationState) error {
+	if isEmptyJSON(raw) {
+		return nil
+	}
+	if !startsWithJSONDelim(raw, '[') {
+		return nil
+	}
+	var branches []ParsedBranch
+	if err := json.Unmarshal(raw, &branches); err != nil {
+		return fmt.Errorf("branches: decode: %w", err)
+	}
+	for i, branch := range branches {
+		for j, group := range branch.ConditionGroups {
+			if err := validateRuleConditions(group.Conditions, fmt.Sprintf("branches[%d].condition_groups[%d].conditions", i, j), state); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateRuleConditions(conditions []Condition, surface string, state *sportTaxonomyRuleValidationState) error {
+	for i, condition := range conditions {
+		op := strings.ToLower(strings.TrimSpace(condition.Op))
+		switch condition.Field {
+		case "sport_tuple":
+			if err := ValidateSportTupleCondition(condition, fmt.Sprintf("%s[%d]", surface, i)); err != nil {
+				return err
+			}
+			state.hasSportTupleIn = true
+		case "sport_type":
+			if op == "in" || op == "not_in" {
+				state.hasLegacySportTypeList = true
+			}
+		}
+	}
+	return nil
+}
+
 func rewriteConditionArrayRaw(raw json.RawMessage, surface string, rejectLegacyInOR bool) (json.RawMessage, error) {
 	if isEmptyJSON(raw) {
 		return raw, nil
