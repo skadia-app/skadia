@@ -25,10 +25,7 @@ import (
 // it cannot be retrofitted to an existing pool connection.
 func captureNotices(t *testing.T, fn func(conn *pgx.Conn)) string {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping migration integration test")
-	}
+	dsn := requireSafeTestDSN(t)
 	var sb strings.Builder
 	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
@@ -249,17 +246,24 @@ func TestMigration000333DownRaisesNotice(t *testing.T) {
 		t.Fatalf("read down.sql: %v", err)
 	}
 
-	// We need the up migration applied first. Run in a separate connection so we
-	// can roll it back cleanly; the notice connection runs down.sql in isolation.
-	// This test verifies RAISE NOTICE fires before table drops; it does NOT need
-	// the tables to exist (the DO $$ block runs regardless of table existence).
+	// Wrap in a tx that gets rolled back so the DROP statements never persist.
+	// RAISE NOTICE fires during statement execution (before commit), so the notice
+	// is captured even though the DROPs are reverted on Rollback.
+	//
+	// History: an earlier version ran downSQL directly via conn.Exec without a tx.
+	// When TEST_DATABASE_URL pointed at the production DB, that path silently
+	// dropped map_layers / system_layer_visibility / user_map_layers — see the
+	// 2026-05-03 incident. The tx wrapper + the safety guard in captureNotices
+	// (refuses production DSNs) are the two layers that prevent recurrence.
 	noticed := captureNotices(t, func(conn *pgx.Conn) {
 		ctx := context.Background()
-		// Run just the DO $$ RAISE NOTICE ... $$ block from down.sql.
-		// We use the full SQL — DROP TABLE IF EXISTS is harmless for non-existent tables.
-		if _, err := conn.Exec(ctx, string(downSQL)); err != nil {
-			// Ignore: tables might not exist in this connection's schema state.
-			// We only care that the NOTICE was emitted before any error.
+		tx, err := conn.BeginTx(ctx, pgx.TxOptions{})
+		if err != nil {
+			t.Fatalf("begin tx for down.sql: %v", err)
+		}
+		defer tx.Rollback(ctx) //nolint:errcheck
+		if _, err := tx.Exec(ctx, string(downSQL)); err != nil {
+			t.Logf("down.sql exec inside tx returned error (non-fatal, NOTICE still captured): %v", err)
 		}
 	})
 
