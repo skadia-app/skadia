@@ -80,6 +80,10 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 
 	rule, err := h.DB.CreateRule(r.Context(), userID, &create)
 	if err != nil {
+		if rules.IsSportTaxonomyValidationError(err) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
 		slog.Error("create rule failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create rule", r.URL.Path)
 		return
