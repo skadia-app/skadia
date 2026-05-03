@@ -323,9 +323,9 @@ func defaultProfileForSport(sportType string) string {
 
 func defaultProfileForSportTuple(sportType string, subType *string) string {
 	switch sportType {
-	case "cycling", "gravel_cycling", "mountain_biking", "indoor_cycling":
+	case "cycling":
 		return "bike"
-	case "running", "trail_running", "hiking", "walking":
+	case "running", "hiking", "walking":
 		return "foot"
 	default:
 		return "outdoor"

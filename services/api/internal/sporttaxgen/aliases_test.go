@@ -170,6 +170,151 @@ aliases:
 	}
 }
 
+func TestRenderGoSourceAliasesSupportsRouteOnlyNamespace(t *testing.T) {
+	got, err := RenderGoSourceAliases([]SourceAliases{{
+		Source: "strava_route",
+		Aliases: []SourceAlias{
+			{Raw: "alpine ski", SportType: "alpine_skiing"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("RenderGoSourceAliases() error = %v", err)
+	}
+	if !bytes.Contains(got, []byte("SourceStravaRoute")) {
+		t.Fatalf("generated aliases missing SourceStravaRoute:\n%s", got)
+	}
+}
+
+func TestRenderGoSourceAliasesRejectsUnknownNamespace(t *testing.T) {
+	_, err := RenderGoSourceAliases([]SourceAliases{{
+		Source:  "not_a_source",
+		Aliases: []SourceAlias{{Raw: "Ride", SportType: "cycling"}},
+	}})
+	if err == nil {
+		t.Fatal("RenderGoSourceAliases accepted unknown namespace")
+	}
+}
+
+func TestBuildGearDefaultProjectionCollapsesAliasesToTopLevelSports(t *testing.T) {
+	projection, err := BuildGearDefaultProjection(aliasTestTaxonomy(), []SourceAliases{{
+		Source: "strava",
+		Aliases: []SourceAlias{
+			{Raw: "Mountain Bike Ride", SportType: "cycling", SubType: "mountain"},
+			{Raw: "E-Bike Ride", SportType: "cycling", Modifiers: &SourceAliasModifiers{IsElectric: ptrBoolForTest(true)}},
+			{Raw: "Virtual Ride", SportType: "cycling", Modifiers: &SourceAliasModifiers{IsVirtual: ptrBoolForTest(true)}},
+			{Raw: "Badminton", SportType: "racket", SubType: "badminton"},
+			{Raw: "Elliptical", SportType: "fitness_equipment", SubType: "elliptical"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
+	}
+	got := gearDefaultAliasesByRaw(t, projection, "strava")
+	for raw, want := range map[string]string{
+		"Mountain Bike Ride": "cycling",
+		"E-Bike Ride":        "cycling",
+		"Virtual Ride":       "cycling",
+		"Badminton":          "racket",
+		"Elliptical":         "fitness_equipment",
+	} {
+		if got[raw] != want {
+			t.Fatalf("gear default raw %q = %q, want %q; all aliases = %#v", raw, got[raw], want, got)
+		}
+	}
+}
+
+func TestBuildGearDefaultProjectionProjectsOnlyStrava(t *testing.T) {
+	projection, err := BuildGearDefaultProjection(aliasTestTaxonomy(), []SourceAliases{
+		{Source: "strava", Aliases: []SourceAlias{{Raw: "Ride", SportType: "cycling"}}},
+		{Source: "strava_route", Aliases: []SourceAlias{{Raw: "ride", SportType: "cycling"}}},
+		{Source: "tcx", Aliases: []SourceAlias{{Raw: "Biking", SportType: "cycling"}}},
+		{Source: "komoot", Aliases: []SourceAlias{{Raw: "bike_touring", SportType: "cycling"}}},
+	})
+	if err != nil {
+		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
+	}
+	if len(projection.Sources) != 1 || projection.Sources[0].Source != "strava" {
+		t.Fatalf("projected sources = %#v, want only strava", projection.Sources)
+	}
+}
+
+func TestBuildGearDefaultProjectionSkipsRawSubAliases(t *testing.T) {
+	projection, err := BuildGearDefaultProjection(aliasTestTaxonomy(), []SourceAliases{{
+		Source: "strava",
+		Aliases: []SourceAlias{
+			{Raw: "Workout", SportType: "running"},
+			{Raw: "Workout", RawSub: "trail", SportType: "running", SubType: "trail"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
+	}
+	got := gearDefaultAliasesByRaw(t, projection, "strava")
+	if len(got) != 1 || got["Workout"] != "running" {
+		t.Fatalf("gear default aliases = %#v, want only raw-only Workout", got)
+	}
+}
+
+func TestBuildGearDefaultProjectionRejectsConflictingRawMapping(t *testing.T) {
+	_, err := BuildGearDefaultProjection(aliasTestTaxonomy(), []SourceAliases{{
+		Source: "strava",
+		Aliases: []SourceAlias{
+			{Raw: "Workout", SportType: "cycling"},
+			{Raw: " Workout ", SportType: "running"},
+		},
+	}})
+	if err == nil {
+		t.Fatal("BuildGearDefaultProjection accepted conflicting raw mappings")
+	}
+	for _, want := range []string{"strava", "Workout", "cycling", "running"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err.Error(), want)
+		}
+	}
+}
+
+func TestBuildGearDefaultProjectionOptionsSeparateStorageAndManualChoices(t *testing.T) {
+	projection, err := BuildGearDefaultProjection(aliasTestTaxonomy(), nil)
+	if err != nil {
+		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
+	}
+	storage := gearDefaultOptionsBySportType(projection.StorageOptions)
+	manual := gearDefaultOptionsBySportType(projection.ManualOptions)
+	for _, want := range []string{"cycling", "generic", "fitness_equipment"} {
+		if _, ok := storage[want]; !ok {
+			t.Fatalf("storage options missing %q: %#v", want, storage)
+		}
+	}
+	if _, ok := storage["unknown"]; ok {
+		t.Fatalf("storage options include unknown: %#v", storage)
+	}
+	if _, ok := manual["cycling"]; !ok {
+		t.Fatalf("manual options missing cycling: %#v", manual)
+	}
+	for _, notWant := range []string{"unknown", "fitness_equipment"} {
+		if _, ok := manual[notWant]; ok {
+			t.Fatalf("manual options include %q: %#v", notWant, manual)
+		}
+	}
+}
+
+func TestBuildGearDefaultProjectionExcludesRouteOnlyAliases(t *testing.T) {
+	projection, err := BuildGearDefaultProjection(aliasTestTaxonomy(), []SourceAliases{
+		{Source: "strava", Aliases: []SourceAlias{{Raw: "Ride", SportType: "cycling"}}},
+		{Source: "strava_route", Aliases: []SourceAlias{{Raw: "alpine ski", SportType: "alpine_skiing"}}},
+	})
+	if err != nil {
+		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
+	}
+	got := gearDefaultAliasesByRaw(t, projection, "strava")
+	if len(got) != 1 || got["Ride"] != "cycling" {
+		t.Fatalf("gear default aliases = %#v, want only Strava Ride", got)
+	}
+	if len(projection.Sources) != 1 || projection.Sources[0].Source != "strava" {
+		t.Fatalf("projected sources = %#v, want only strava", projection.Sources)
+	}
+}
+
 func TestAliasesSchemaDocumentsSupportedModifierContract(t *testing.T) {
 	schemaPath := filepath.Join("..", "..", "..", "..", "config", "sport-taxonomy", "schema", "aliases.schema.json")
 	src, err := os.ReadFile(schemaPath)
@@ -191,11 +336,46 @@ func TestAliasesSchemaDocumentsSupportedModifierContract(t *testing.T) {
 }
 
 func aliasTestTaxonomy() Taxonomy {
+	selectable := true
+	notSelectable := false
 	return Taxonomy{
 		Sports: []Sport{
-			{SportType: "cycling", SubTypes: []SubType{{SubType: "mountain"}, {SubType: "indoor_cycling"}}},
-			{SportType: "running", SubTypes: []SubType{{SubType: "trail"}, {SubType: "treadmill"}}},
-			{SportType: "swimming", SubTypes: []SubType{{SubType: "open_water"}}},
+			{SportType: "cycling", Labels: LocaleMap{"de": "Radfahren"}, Selectable: &selectable, SubTypes: []SubType{{SubType: "mountain"}, {SubType: "indoor_cycling"}}},
+			{SportType: "running", Labels: LocaleMap{"de": "Laufen"}, Selectable: &selectable, SubTypes: []SubType{{SubType: "trail"}, {SubType: "treadmill"}}},
+			{SportType: "swimming", Labels: LocaleMap{"de": "Schwimmen"}, Selectable: &selectable, SubTypes: []SubType{{SubType: "open_water"}}},
+			{SportType: "racket", Labels: LocaleMap{"de": "Schlägersport"}, Selectable: &selectable, SubTypes: []SubType{{SubType: "badminton"}, {SubType: "squash"}}},
+			{SportType: "fitness_equipment", Labels: LocaleMap{"de": "Fitnessgerät"}, Selectable: &notSelectable, SubTypes: []SubType{{SubType: "elliptical"}}},
+			{SportType: "alpine_skiing", Labels: LocaleMap{"de": "Alpin-Ski"}, Selectable: &selectable},
+			{SportType: "generic", Labels: LocaleMap{"de": "Aktivität"}, Selectable: &selectable},
+			{SportType: "unknown", Labels: LocaleMap{"de": "Unbekannt"}, Selectable: &notSelectable},
 		},
 	}
+}
+
+func gearDefaultAliasesByRaw(t *testing.T, projection GearDefaultProjection, source string) map[string]string {
+	t.Helper()
+	for _, candidate := range projection.Sources {
+		if candidate.Source != source {
+			continue
+		}
+		out := make(map[string]string, len(candidate.Aliases))
+		for _, alias := range candidate.Aliases {
+			out[alias.Raw] = alias.SportType
+		}
+		return out
+	}
+	t.Fatalf("source %q not found in projection %#v", source, projection.Sources)
+	return nil
+}
+
+func gearDefaultOptionsBySportType(options []GearDefaultSportOption) map[string]GearDefaultSportOption {
+	out := make(map[string]GearDefaultSportOption, len(options))
+	for _, option := range options {
+		out[option.SportType] = option
+	}
+	return out
+}
+
+func ptrBoolForTest(v bool) *bool {
+	return &v
 }

@@ -26,6 +26,11 @@ type ModifierDefaults struct {
 	IsIndoor *bool `json:"is_indoor,omitempty"`
 }
 
+type GearDefaultSportOption struct {
+	SportType string `json:"sport_type"`
+	LabelDE   string `json:"label_de"`
+}
+
 // ActivityFilterProjectionPreset is the generated option tree used by activity
 // and map filters.
 type ActivityFilterProjectionPreset struct {

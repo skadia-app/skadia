@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { filterToExistingSports, generateActivityFilterOptions, generateMapFilterOptions, getOptionKey, type SportOption } from '../sportOptions'
+import { filterToExistingSports, generateActivityFilterOptions, generateGearSportOptions, generateMapFilterOptions, getOptionKey, type SportOption } from '../sportOptions'
 
 describe('sport filter options', () => {
   it('renders activity projection groups in deterministic order', () => {
@@ -236,6 +236,18 @@ describe('sport filter options', () => {
 
     expect(leaves.map((leaf) => getOptionKey(leaf))).toEqual(['generic', 'unknown'])
     expect(leaves.map((leaf) => leaf.label)).toEqual(['Aktivität', 'Unbekannt'])
+  })
+
+  it('renders generated manual gear default sport options', () => {
+    const options = generateGearSportOptions()
+    const values = options.map((option) => option.value)
+
+    expect(values).toContain('cycling')
+    expect(values).toContain('generic')
+    expect(values).not.toContain('fitness_equipment')
+    expect(values).not.toContain('training')
+    expect(values).not.toContain('unknown')
+    expect(values).not.toContain('cycling:mountain')
   })
 })
 

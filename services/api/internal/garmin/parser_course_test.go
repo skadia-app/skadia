@@ -97,11 +97,7 @@ func TestDefaultProfileForSport(t *testing.T) {
 		want      string
 	}{
 		{"cycling", "bike"},
-		{"gravel_cycling", "bike"},
-		{"mountain_biking", "bike"},
-		{"indoor_cycling", "bike"},
 		{"running", "foot"},
-		{"trail_running", "foot"},
 		{"hiking", "foot"},
 		{"walking", "foot"},
 		{"swimming", "outdoor"},
@@ -115,6 +111,38 @@ func TestDefaultProfileForSport(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("defaultProfileForSport(%q): got %q, want %q", tc.sportType, got, tc.want)
 		}
+	}
+}
+
+func TestDefaultProfileForSportTupleUsesCanonicalTuple(t *testing.T) {
+	tests := []struct {
+		name      string
+		sportType string
+		subType   string
+		want      string
+	}{
+		{name: "cycling", sportType: "cycling", want: "bike"},
+		{name: "road cycling", sportType: "cycling", subType: "road", want: "bike"},
+		{name: "mountain biking", sportType: "cycling", subType: "mountain", want: "bike"},
+		{name: "gravel cycling", sportType: "cycling", subType: "gravel_cycling", want: "bike"},
+		{name: "indoor cycling", sportType: "cycling", subType: "indoor_cycling", want: "bike"},
+		{name: "running", sportType: "running", want: "foot"},
+		{name: "trail running", sportType: "running", subType: "trail", want: "foot"},
+		{name: "hiking", sportType: "hiking", want: "foot"},
+		{name: "walking", sportType: "walking", want: "foot"},
+		{name: "unrelated", sportType: "rowing", want: "outdoor"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var subType *string
+			if tt.subType != "" {
+				subType = &tt.subType
+			}
+			got := defaultProfileForSportTuple(tt.sportType, subType)
+			if got != tt.want {
+				t.Fatalf("defaultProfileForSportTuple(%q, %q) = %q, want %q", tt.sportType, tt.subType, got, tt.want)
+			}
+		})
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/rules"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // gearSelectCols are the columns returned by gear queries.
@@ -130,9 +131,9 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 }
 
 func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearCreate) (*model.Gear, error) {
-	sports := create.DefaultForSports
-	if sports == nil {
-		sports = []string{}
+	sports, err := sport.NormalizeGearDefaultSports(create.DefaultForSports)
+	if err != nil {
+		return nil, fmt.Errorf("create gear: %w", err)
 	}
 
 	g, err := scanGear(db.Pool.QueryRow(ctx,
@@ -197,7 +198,11 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 		b.Set("is_retired", *update.IsRetired)
 	}
 	if update.DefaultForSports != nil {
-		b.Set("default_for_sports", update.DefaultForSports)
+		sports, err := sport.NormalizeGearDefaultSports(update.DefaultForSports)
+		if err != nil {
+			return nil, fmt.Errorf("update gear: %w", err)
+		}
+		b.Set("default_for_sports", sports)
 	}
 	if update.Notes != nil {
 		b.Set("notes", *update.Notes)

@@ -2,6 +2,7 @@ package garmin
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"strings"
 
@@ -31,6 +32,9 @@ func (g *GearImporter) Priority() int       { return 20 }
 // garminGearFile is the top-level wrapper returned by the gear JSON.
 type garminGearFile struct {
 	GearDTOS []garminGearDTO `json:"gearDTOS"`
+	// Garmin gear default sports are unsupported until a real fixture verifies
+	// both the sport field and the gear association key.
+	GearActivityTypeDTOS []json.RawMessage `json:"gearActivityTypeDTOS"`
 }
 
 type garminGearDTO struct {
@@ -85,12 +89,8 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			params.OnProgress(i+1, total, "gear: "+dto.CustomMakeModel)
 		}
 
-		// Map Garmin gear type to Skadia gear type
-		gearType := mapGearType(dto.GearTypeName)
-		gearName := dto.CustomMakeModel
-		if gearName == "" {
-			gearName = dto.GearTypeName
-		}
+		create := gearCreateFromGarminDTO(dto)
+		gearName := create.Name
 
 		status := "active"
 		if strings.EqualFold(dto.GearStatusName, "RETIRED") || strings.EqualFold(dto.GearStatusName, "NOT_ACTIVE") {
@@ -110,17 +110,6 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 		if exists {
 			result.Skipped++
 			continue
-		}
-
-		var purchasedAt *string
-		if dto.DateBegin != "" {
-			purchasedAt = &dto.DateBegin
-		}
-
-		create := &model.GearCreate{
-			Name:        gearName,
-			Type:        gearType,
-			PurchasedAt: purchasedAt,
 		}
 
 		gear, err := params.DB.CreateGear(ctx, params.UserID, create)
@@ -147,6 +136,22 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 	slog.Info("garmin gear import done", "imported", result.Imported, "skipped", result.Skipped)
 	return result, nil
+}
+
+func gearCreateFromGarminDTO(dto garminGearDTO) *model.GearCreate {
+	gearName := dto.CustomMakeModel
+	if gearName == "" {
+		gearName = dto.GearTypeName
+	}
+	var purchasedAt *string
+	if dto.DateBegin != "" {
+		purchasedAt = &dto.DateBegin
+	}
+	return &model.GearCreate{
+		Name:        gearName,
+		Type:        mapGearType(dto.GearTypeName),
+		PurchasedAt: purchasedAt,
+	}
 }
 
 // mapGearType converts Garmin gear type names to Skadia gear types.
