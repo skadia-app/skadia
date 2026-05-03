@@ -147,8 +147,8 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 				Sport:      mapping.SportType,
 				SubType:    mapping.SubType,
 				IsElectric: mapping.IsElectric,
-				IsIndoor:   sport.IsIndoor(mapping.SportType, mapping.SubType),
-				IsVirtual:  false,
+				IsIndoor:   mapping.IsIndoor,
+				IsVirtual:  mapping.IsVirtual,
 			}
 			fileSnapshot := komootSportConflictSnapshot{
 				Sport:      data.SportType,
@@ -290,10 +290,11 @@ func tourToActivityData(tour Tour) *model.ActivityData {
 		data.SportType = mapping.SportType
 		data.SubType = mapping.SubType
 		data.IsElectric = mapping.IsElectric
+		data.IsIndoor = mapping.IsIndoor
+		data.IsVirtual = mapping.IsVirtual
 	} else {
 		data.SportType = "generic"
 	}
-	data.IsIndoor = sport.IsIndoor(data.SportType, data.SubType)
 	if tour.Distance > 0 {
 		data.DistanceM = tour.Distance
 	}
@@ -320,6 +321,8 @@ func normalizedKomootSportMapping(komootSport string) (SportMapping, bool) {
 		SportType:  resolved.Tuple.SportType,
 		SubType:    resolved.Tuple.SubType,
 		IsElectric: modifiers.IsElectric,
+		IsIndoor:   modifiers.IsIndoor,
+		IsVirtual:  modifiers.IsVirtual,
 	}, true
 }
 
@@ -341,6 +344,12 @@ func applyKomootSportMapping(data *model.ActivityData, mapping SportMapping) {
 
 	if mapping.IsElectric {
 		data.IsElectric = true
+	}
+	if mapping.IsIndoor {
+		data.IsIndoor = true
+	}
+	if mapping.IsVirtual {
+		data.IsVirtual = true
 	}
 }
 
