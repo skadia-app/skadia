@@ -41,4 +41,7 @@ func TestGarminGearDecodeExposesUnsupportedActivityTypeDefaults(t *testing.T) {
 	if len(create.DefaultForSports) != 0 {
 		t.Fatalf("DefaultForSports = %#v, want empty unsupported Garmin defaults", create.DefaultForSports)
 	}
+	if got := logUnsupportedGearActivityTypeDefaults(wrapper[0]); got != 1 {
+		t.Fatalf("unsupported default count = %d, want 1", got)
+	}
 }

@@ -80,6 +80,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 	if len(wrapper) == 0 {
 		return result, nil
 	}
+	logUnsupportedGearActivityTypeDefaults(wrapper[0])
 
 	items := wrapper[0].GearDTOS
 	total := len(items)
@@ -136,6 +137,14 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 	slog.Info("garmin gear import done", "imported", result.Imported, "skipped", result.Skipped)
 	return result, nil
+}
+
+func logUnsupportedGearActivityTypeDefaults(file garminGearFile) int {
+	count := len(file.GearActivityTypeDTOS)
+	if count > 0 {
+		slog.Info("garmin gear: gearActivityTypeDTOS default sports unsupported", "count", count)
+	}
+	return count
 }
 
 func gearCreateFromGarminDTO(dto garminGearDTO) *model.GearCreate {
