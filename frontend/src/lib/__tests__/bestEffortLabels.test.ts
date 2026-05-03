@@ -5,6 +5,7 @@ import {
   CATEGORY_METADATA,
   DIST_METERS,
   POWER_DURATIONS,
+  categoryKeysForRecordGroup,
   categoryLabel,
 } from '../bestEffortLabels'
 import {
@@ -39,5 +40,12 @@ describe('bestEffortLabels generated metadata', () => {
     expect(DIST_METERS.dist_1mi).toBe(1609.34)
     expect(DIST_METERS.dist_hm).toBe(21097.5)
     expect(DIST_METERS.dist_100mi).toBe(160934.4)
+  })
+
+  it('uses record-group category order for cycling-only distances', () => {
+    const cycling = categoryKeysForRecordGroup('cycling')
+    expect(cycling.indexOf('dist_25mi')).toBeGreaterThan(cycling.indexOf('dist_20km'))
+    expect(cycling.indexOf('dist_25mi')).toBeLessThan(cycling.indexOf('elev_500hm'))
+    expect(cycling.indexOf('dist_100mi')).toBeLessThan(cycling.indexOf('elev_500hm'))
   })
 })
