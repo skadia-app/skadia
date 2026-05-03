@@ -43,6 +43,7 @@ import { useAuthImage } from '@/hooks/useAuthImage'
 import { useCoverageOverlays, findFirstVectorOverlayLayer } from '@/hooks/useCoverageOverlays'
 import { useModal } from '@/lib/modal'
 import { getHeatmapSettings } from '@/api/settings'
+import { applyMapModifierParams } from '@/lib/mapFilterUrl'
 import { listCustomMaps, listCustomMapMarkers, createCustomMapMarker, updateCustomMapMarker } from '@/api/customMaps'
 import { listMapPhotos, type MapPhotoEntry } from '@/api/activityPhotos'
 import { apiClient, apiDownload } from '@/api/client'
@@ -101,7 +102,7 @@ export interface MapFilterState {
   heatmapColor: string
   tagFilters: import('@/components/TagFilterInput').TagFilter[]
   gearFilters: import('@/components/GearFilterInput').GearFilter[]
-  isElectric: boolean | null  // null=neutral, true=only E-Bike, false=exclude E-Bike
+  isElectric: boolean | null  // null=neutral, true=only electric drive, false=exclude electric drive
   isCommute: boolean | null   // null=neutral, true=only commute, false=exclude commute
 }
 
@@ -213,8 +214,6 @@ function buildTileUrl(
   teleportThresholdM: number, // 0 = kein Filter
   samplingIntervalM?: number, // undefined = kein Filter (Standardwert aus DB)
   userId?: string, // privacy: filter by current user
-  electricTagId?: string, // ID of the E-Bike system tag (for tristate filter)
-  commuteTagId?: string, // ID of the commute system tag (for tristate filter)
 ): string {
   // Heatmap tiles are routed through the Go API for authentication + per-user isolation.
   // MapLibre v5 lädt Tiles in einem Web Worker. Worker können relative URLs
@@ -239,18 +238,7 @@ function buildTileUrl(
   }
   const effectiveIncludeTags = new Set((filters.tagFilters ?? []).filter(f => f.state === 'include').map(f => f.id))
   const effectiveExcludeTags = new Set((filters.tagFilters ?? []).filter(f => f.state === 'exclude').map(f => f.id))
-  const applySystemTagFilter = (tagID: string | undefined, state: boolean | null) => {
-    if (!tagID || state === null) return
-    if (state) {
-      effectiveIncludeTags.add(tagID)
-      effectiveExcludeTags.delete(tagID)
-    } else {
-      effectiveExcludeTags.add(tagID)
-      effectiveIncludeTags.delete(tagID)
-    }
-  }
-  applySystemTagFilter(electricTagId, filters.isElectric)
-  applySystemTagFilter(commuteTagId, filters.isCommute)
+  applyMapModifierParams(params, filters)
   const includeGear = (filters.gearFilters ?? []).filter(f => f.state === 'include').map(f => f.id)
   const excludeGear = (filters.gearFilters ?? []).filter(f => f.state === 'exclude').map(f => f.id)
   if (effectiveIncludeTags.size) params.set('include_tags', Array.from(effectiveIncludeTags).join(','))
@@ -1425,10 +1413,6 @@ export default function MapPage() {
   )
   locationTagsRef.current = locationTags
 
-  // E-Bike tag — resolved by name (includes non-system tags for users with pre-existing E-Bike tag)
-  const electricTag = allTags.find(t => t.name === 'E-Bike')
-  const commuteTag = allTags.find(t => t.name === 'Pendeln')
-
   // Derive selected tag from fresh query data to avoid stale state
   const selectedLocationTag = selectedLocationTagId
     ? (locationTags.find(t => t.id === selectedLocationTagId) ?? null)
@@ -1472,10 +1456,6 @@ export default function MapPage() {
   const prevBaseStyleRef = useRef<BaseStyle>(savedViewport?.baseStyle ?? loadDefaultBaseStyle())
   // Kamera-Zustand vor setStyle() sichern → persistenter style.load-Handler stellt ihn wieder her
   const pendingCameraRestoreRef = useRef<{ center: maplibregl.LngLat; zoom: number } | null>(null)
-  const electricTagIdRef = useRef<string | undefined>(electricTag?.id)
-  useEffect(() => { electricTagIdRef.current = electricTag?.id }, [electricTag])
-  const commuteTagIdRef = useRef<string | undefined>(commuteTag?.id)
-  useEffect(() => { commuteTagIdRef.current = commuteTag?.id }, [commuteTag])
   useEffect(() => { filtersRef.current = filters }, [filters])
   useEffect(() => {
     viewModeRef.current = viewMode
@@ -1620,11 +1600,11 @@ export default function MapPage() {
       removeOverlayLayers(map)
       removeTerraIncognitaLayers(map)
       if (filters.sportTypes === null || filters.sportTypes.size > 0) {
-        addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId, electricTag?.id, commuteTag?.id)
+        addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId)
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, filters.isElectric, filters.isCommute, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion, currentUserId, electricTag?.id, commuteTag?.id])
+  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, filters.isElectric, filters.isCommute, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion, currentUserId])
 
   // ── Terra Incognita Overlay Layer ────────────────────────────────────────
   // styleVersion in deps: nach Stilwechsel muss der Overlay neu aufgebaut werden,
@@ -2841,7 +2821,7 @@ export default function MapPage() {
                   removeTerraIncognitaLayers(map)
                   if (enabled) {
                     if (filtersRef.current.sportTypes === null || filtersRef.current.sportTypes.size > 0) {
-                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current, commuteTagIdRef.current)
+                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current)
                     }
                     setViewMode('heatmap')
                   } else {
@@ -3125,7 +3105,7 @@ export default function MapPage() {
                     removeOverlayLayers(map)
                     removeTerraIncognitaLayers(map)
                     if (filtersRef.current.sportTypes === null || filtersRef.current.sportTypes.size > 0) {
-                      addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current, commuteTagIdRef.current)
+                      addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current)
                     }
                   }
                   setViewMode('tracks')
@@ -3145,7 +3125,7 @@ export default function MapPage() {
                     removeOverlayLayers(map)
                     removeTerraIncognitaLayers(map)
                     if (filtersRef.current.sportTypes === null || filtersRef.current.sportTypes.size > 0) {
-                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, electricTagIdRef.current, commuteTagIdRef.current)
+                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current)
                     }
                   }
                   setViewMode('heatmap')
@@ -3875,14 +3855,12 @@ function addOverlayLayers(
   teleportThresholdM: number,
   samplingIntervalM?: number,
   userId?: string,
-  electricTagId?: string,
-  commuteTagId?: string,
 ) {
   // Layer und Source vollständig entfernen und neu aufbauen.
   // removeOverlayLayers() stellt sicher, dass kein "Source already exists"-Fehler entsteht.
   removeOverlayLayers(map)
 
-  const tileUrl = buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM, userId, electricTagId, commuteTagId)
+  const tileUrl = buildTileUrl('heatmap_lines', filters, teleportThresholdM, samplingIntervalM, userId)
 
   if (viewMode === 'tracks') {
     map.addSource(HEATMAP_SOURCE_ID, {

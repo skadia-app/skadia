@@ -9,6 +9,7 @@ import DuplicateReviewPanel from '@/components/DuplicateReviewPanel'
 import FusionGroupContextDialog from '@/components/fusion/FusionGroupContextDialog'
 import { fmtDateCompact } from '@/lib/format'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
+import { activityModifierLabels } from '@/lib/activityModifierLabels'
 
 function fmtDist(m: number): string {
   if (m < 1000) return `${Math.round(m)} m`
@@ -32,11 +33,7 @@ function CandidateRow({ c, onDismissed }: { c: FusionQueueEntry; onDismissed: ()
   }
 
   function sportMeta(sportType: string, subType: string, isElectric: boolean, isIndoor: boolean, isVirtual: boolean) {
-    const modifiers = [
-      isElectric ? 'E-Bike' : '',
-      isIndoor ? 'Indoor' : '',
-      isVirtual ? 'Virtuell' : '',
-    ].filter(Boolean)
+    const modifiers = activityModifierLabels({ isElectric, isIndoor, isVirtual })
     return [sportDetailLabel(sportType, subType || null), ...modifiers].join(' · ')
   }
 

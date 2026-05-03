@@ -4,6 +4,7 @@ import { apiFetch } from '@/lib/auth'
 import { resolveSportConflict, type ResolveSportConflictPayload } from '@/api/sportConflict'
 import { useToast } from '@/lib/toast'
 import { CATEGORIES, SPORT_DEFS, normalizeSportTuple, sportDetailLabel } from '@/lib/sportTaxonomy'
+import { activityModifierLabels } from '@/lib/activityModifierLabels'
 import { ModalShell } from '@/components/ui/ModalShell'
 
 interface SportConflictModalProps {
@@ -117,11 +118,7 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
   })
 
   const conflictLabel = (sportType: string, subType?: string, isElectric?: boolean, isIndoor?: boolean, isVirtual?: boolean) => {
-    const modifiers = [
-      isElectric ? 'E-Bike' : '',
-      isIndoor ? 'Indoor' : '',
-      isVirtual ? 'Virtuell' : '',
-    ].filter(Boolean)
+    const modifiers = activityModifierLabels({ isElectric, isIndoor, isVirtual })
     return [sportDetailLabel(sportType, subType || null), ...modifiers].join(' · ')
   }
 
