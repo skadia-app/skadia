@@ -130,6 +130,10 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusForbidden, "Forbidden", "this system rule is read-only", r.URL.Path)
 			return
 		}
+		if rules.IsSportTaxonomyValidationError(err) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
 		slog.Error("update rule failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update rule", r.URL.Path)
 		return

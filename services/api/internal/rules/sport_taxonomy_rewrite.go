@@ -2,6 +2,7 @@ package rules
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -18,6 +19,40 @@ type SportTaxonomyRuleJSON struct {
 	ConditionGroups json.RawMessage
 	Branches        json.RawMessage
 	Actions         json.RawMessage
+}
+
+type SportTaxonomyValidationError struct {
+	Err error
+}
+
+func (e *SportTaxonomyValidationError) Error() string {
+	if e == nil || e.Err == nil {
+		return "sport taxonomy validation failed"
+	}
+	return e.Err.Error()
+}
+
+func (e *SportTaxonomyValidationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func MarkSportTaxonomyValidationError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var validationErr *SportTaxonomyValidationError
+	if errors.As(err, &validationErr) {
+		return err
+	}
+	return &SportTaxonomyValidationError{Err: err}
+}
+
+func IsSportTaxonomyValidationError(err error) bool {
+	var validationErr *SportTaxonomyValidationError
+	return errors.As(err, &validationErr)
 }
 
 func RewriteSportTaxonomyRuleJSON(input SportTaxonomyRuleJSON) (SportTaxonomyRuleJSON, []SportTaxonomyRewriteWarning, error) {
@@ -82,7 +117,7 @@ func validateRuleConditionArrayRaw(raw json.RawMessage, surface string, state *s
 		return nil
 	}
 	if !startsWithJSONDelim(raw, '[') {
-		return nil
+		return fmt.Errorf("%s must be a JSON array", surface)
 	}
 	var conditions []Condition
 	if err := json.Unmarshal(raw, &conditions); err != nil {
@@ -96,7 +131,7 @@ func validateRuleConditionGroupsRaw(raw json.RawMessage, surface string, state *
 		return nil
 	}
 	if !startsWithJSONDelim(raw, '[') {
-		return nil
+		return fmt.Errorf("%s must be a JSON array", surface)
 	}
 	var groups []ConditionGroup
 	if err := json.Unmarshal(raw, &groups); err != nil {
@@ -115,7 +150,7 @@ func validateRuleBranchesRaw(raw json.RawMessage, state *sportTaxonomyRuleValida
 		return nil
 	}
 	if !startsWithJSONDelim(raw, '[') {
-		return nil
+		return fmt.Errorf("branches must be a JSON array")
 	}
 	var branches []ParsedBranch
 	if err := json.Unmarshal(raw, &branches); err != nil {

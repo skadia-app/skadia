@@ -109,7 +109,7 @@ function formatSportTupleConditionValue(value: unknown): string {
   return value.map((entry) => {
     const tuple = entry as RuleSportTupleConditionValue
     const parts = [sportDetailLabel(tuple.sport_type, tuple.sub_type ?? null)]
-    if (tuple.is_electric !== undefined) parts.push(`E-Bike=${tuple.is_electric ? 'Ja' : 'Nein'}`)
+    if (tuple.is_electric !== undefined) parts.push(`Elektrisch=${tuple.is_electric ? 'Ja' : 'Nein'}`)
     if (tuple.is_indoor !== undefined) parts.push(`Indoor=${tuple.is_indoor ? 'Ja' : 'Nein'}`)
     if (tuple.is_virtual !== undefined) parts.push(`Virtuell=${tuple.is_virtual ? 'Ja' : 'Nein'}`)
     if (tuple.is_commute !== undefined) parts.push(`Pendeln=${tuple.is_commute ? 'Ja' : 'Nein'}`)
@@ -750,7 +750,7 @@ function actionLabel(action: string): string {
     remove_tag: 'Tag entfernen',
     set_visibility: 'Sichtbarkeit',
     set_sport_type: 'Sportart',
-    set_electric: 'E-Bike',
+    set_electric: 'Elektrisch',
     set_name: 'Titel',
     set_intensity: 'Intensität',
     set_indoor: 'Indoor',

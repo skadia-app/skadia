@@ -103,7 +103,7 @@ describe('AutomationRulesPage rule summaries', () => {
     renderPage()
 
     await waitFor(() => expect(screen.getByText('MTB virtuell')).toBeInTheDocument())
-    expect(screen.getByText(/Sportauswahl in Radfahren \(MTB\), E-Bike=Ja/)).toBeInTheDocument()
+    expect(screen.getByText(/Sportauswahl in Radfahren \(MTB\), Elektrisch=Ja/)).toBeInTheDocument()
     expect(screen.getByText(/Virtuell\(Ja\)/)).toBeInTheDocument()
     expect(screen.queryByText(/\[object Object\]/)).not.toBeInTheDocument()
   })
