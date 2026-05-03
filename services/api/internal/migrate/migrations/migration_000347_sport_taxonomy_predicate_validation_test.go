@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -111,6 +112,7 @@ func TestMigration000347PredicateValidationDeclaresRequiredContracts(t *testing.
 		"SELECT pg_advisory_xact_lock(hashtext('sport_taxonomy_predicate_validation'), 1)",
 		"CREATE OR REPLACE FUNCTION fn_validate_predicates",
 		"routing_profiles_predicates_valid",
+		"ALTER TABLE routing_profiles VALIDATE CONSTRAINT routing_profiles_predicates_valid",
 		"planned_routes_sport_tuple_valid",
 		"activities_sport_type_canonical",
 		"segments_allowed_predicates_valid",
@@ -124,6 +126,7 @@ func TestMigration000347PredicateValidationDeclaresRequiredContracts(t *testing.
 		"Restore the fn_validate_predicates() body that existed before Plan E",
 		"CREATE OR REPLACE FUNCTION fn_validate_predicates",
 		"routing_profiles_predicates_valid",
+		"ALTER TABLE routing_profiles VALIDATE CONSTRAINT routing_profiles_predicates_valid",
 		"segments_allowed_predicates_valid",
 	} {
 		if !strings.Contains(downSQL, needle) {
@@ -135,6 +138,92 @@ func TestMigration000347PredicateValidationDeclaresRequiredContracts(t *testing.
 			t.Fatalf("up migration must be schema-only, found %q", forbidden)
 		}
 	}
+}
+
+func TestMigration000347FullUpDownOnRealTables(t *testing.T) {
+	upSQL, downSQL := readMigration000347PredicateValidationSQL(t)
+	planTUpSQL, _ := readMigration000346PlanTSQL(t)
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback: %v", err)
+		}
+	})
+
+	if _, err := tx.Exec(ctx, planTUpSQL); err != nil {
+		t.Fatalf("apply prerequisite 000346 up.sql: %v", err)
+	}
+	if _, err := tx.Exec(ctx, upSQL); err != nil {
+		t.Fatalf("apply 000347 up.sql: %v", err)
+	}
+	assertMigration000347RealTableConstraints(t, ctx, tx, "up")
+
+	if _, err := tx.Exec(ctx, downSQL); err != nil {
+		t.Fatalf("apply 000347 down.sql: %v", err)
+	}
+	assertMigration000347RealTableConstraints(t, ctx, tx, "down")
+}
+
+func assertMigration000347RealTableConstraints(t *testing.T, ctx context.Context, tx pgx.Tx, phase string) {
+	t.Helper()
+
+	userID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
+		VALUES ($1, $2, $3, true, 'test', false)
+	`, userID, "mig347_"+phase+"_"+userID[:8], "mig347_"+phase+"_"+userID[:8]+"@example.com"); err != nil {
+		t.Fatalf("%s: insert user: %v", phase, err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO routing_profiles (user_id, name, base_profile, sport_types, predicates, modifier_filters, config, source)
+		VALUES ($1, $2, 'cycling', ARRAY['cycling'], '[{"sport":"cycling","sub_type":"mountain"}]'::jsonb, '{}'::jsonb, '{}'::jsonb, 'user')
+	`, userID, "valid "+phase); err != nil {
+		t.Fatalf("%s: valid routing profile rejected: %v", phase, err)
+	}
+	expectConstraintFailure000347(t, ctx, tx, `
+		INSERT INTO routing_profiles (user_id, name, base_profile, sport_types, predicates, modifier_filters, config, source)
+		VALUES ($1, $2, 'cycling', ARRAY['cycling'], '[{"sport":"mountain_biking"}]'::jsonb, '{}'::jsonb, '{}'::jsonb, 'user')
+	`, userID, "invalid "+phase)
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO planned_routes (user_id, name, sport_type, sub_type, profile, geometry, waypoints, segments)
+		VALUES ($1, 'valid route', 'cycling', 'mountain', 'cycling', ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326), '[]'::jsonb, '[]'::jsonb)
+	`, userID); err != nil {
+		t.Fatalf("%s: valid planned route rejected: %v", phase, err)
+	}
+	expectConstraintFailure000347(t, ctx, tx, `
+		INSERT INTO planned_routes (user_id, name, sport_type, sub_type, profile, geometry, waypoints, segments)
+		VALUES ($1, 'invalid route', 'cycling', 'does_not_exist', 'cycling', ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326), '[]'::jsonb, '[]'::jsonb)
+	`, userID)
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, parsed_sport_type, parsed_sub_type, is_indoor, started_at)
+		VALUES (gen_random_uuid(), $1, 'valid activity', 'cycling', 'mountain', NULL, NULL, false, now())
+	`, userID); err != nil {
+		t.Fatalf("%s: valid activity rejected: %v", phase, err)
+	}
+	expectConstraintFailure000347(t, ctx, tx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, parsed_sport_type, parsed_sub_type, is_indoor, started_at)
+		VALUES (gen_random_uuid(), $1, 'invalid activity', 'cycling', 'does_not_exist', NULL, NULL, false, now())
+	`, userID)
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO segments (id, created_by, name, sport_group, allowed_predicates)
+		VALUES (gen_random_uuid(), $1, 'valid segment', 'foot', '[{"sport":"cycling","sub_type":"mountain"}]'::jsonb)
+	`, userID); err != nil {
+		t.Fatalf("%s: valid segment rejected: %v", phase, err)
+	}
+	expectConstraintFailure000347(t, ctx, tx, `
+		INSERT INTO segments (id, created_by, name, sport_group, allowed_predicates)
+		VALUES (gen_random_uuid(), $1, 'invalid segment', 'foot', '[{"sport":"mountain_biking"}]'::jsonb)
+	`, userID)
 }
 
 func TestMigration000347InstallsGeneratedFunctionBody(t *testing.T) {
