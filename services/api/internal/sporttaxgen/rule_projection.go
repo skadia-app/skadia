@@ -41,11 +41,12 @@ type RuleModifierConfig struct {
 }
 
 type RuleTraitConditionConfig struct {
-	Key       string    `yaml:"key"`
-	Labels    LocaleMap `yaml:"labels"`
-	Field     string    `yaml:"field"`
-	Operators []string  `yaml:"operators"`
-	Source    string    `yaml:"source"`
+	Key          string               `yaml:"key"`
+	Labels       LocaleMap            `yaml:"labels"`
+	Field        string               `yaml:"field"`
+	Operators    []string             `yaml:"operators"`
+	Source       string               `yaml:"source"`
+	OptionLabels map[string]LocaleMap `yaml:"option_labels"`
 }
 
 type ExpandedRuleProjection struct {
@@ -146,7 +147,7 @@ func ExpandRuleProjection(taxonomy Taxonomy, projection RuleProjection) (Expande
 			Field:     condition.Field,
 			Operators: append([]string(nil), condition.Operators...),
 			Source:    condition.Source,
-			Options:   expandRuleTraitOptions(taxonomy, condition.Source),
+			Options:   expandRuleTraitOptions(taxonomy, condition.Source, condition.OptionLabels),
 		})
 	}
 	return out, nil
@@ -195,6 +196,20 @@ func (p ExpandedRuleProjection) HasTraitValue(field, value string) bool {
 		}
 	}
 	return false
+}
+
+func (p ExpandedRuleProjection) TraitValueLabelDE(field, value string) string {
+	for _, condition := range p.TraitConditions {
+		if condition.Field != field {
+			continue
+		}
+		for _, option := range condition.Options {
+			if option.Key == value {
+				return option.Label["de"]
+			}
+		}
+	}
+	return ""
 }
 
 func validateRuleProjection(projection RuleProjection, taxonomy Taxonomy) error {
@@ -349,7 +364,7 @@ func ruleTraitSourceMatchesField(field, source string) bool {
 	}
 }
 
-func expandRuleTraitOptions(taxonomy Taxonomy, source string) []ExpandedRuleTraitOption {
+func expandRuleTraitOptions(taxonomy Taxonomy, source string, labels map[string]LocaleMap) []ExpandedRuleTraitOption {
 	seen := map[string]struct{}{}
 	out := []ExpandedRuleTraitOption{}
 	add := func(values []string) {
@@ -358,7 +373,11 @@ func expandRuleTraitOptions(taxonomy Taxonomy, source string) []ExpandedRuleTrai
 				continue
 			}
 			seen[value] = struct{}{}
-			out = append(out, ExpandedRuleTraitOption{Key: value, Label: LocaleMap{"de": value}})
+			label := labels[value]
+			if label == nil || label["de"] == "" {
+				label = LocaleMap{"de": value}
+			}
+			out = append(out, ExpandedRuleTraitOption{Key: value, Label: label})
 		}
 	}
 	for _, sport := range taxonomy.Sports {

@@ -223,6 +223,10 @@
               "source": {
                 "type": "string",
                 "enum": ["traits.environments", "traits.equipment_families", "traits.movement_families"]
+              },
+              "option_labels": {
+                "type": "object",
+                "additionalProperties": { "$ref": "#/$defs/localeMap" }
               }
             }
           }
