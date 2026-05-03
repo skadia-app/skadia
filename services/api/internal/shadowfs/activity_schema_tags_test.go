@@ -74,6 +74,22 @@ func TestActivitySchemaTagsMetadata(t *testing.T) {
 	}
 }
 
+func TestActivitySchemaTagsTrimsOptionalTextTags(t *testing.T) {
+	tags := ActivitySchemaTags(ActivitySchemaTagsInput{
+		SportType: "running",
+		Title:     "   ",
+		City:      "  Augsburg  ",
+		Country:   "  DE  ",
+	})
+
+	if _, ok := tags["title"]; ok {
+		t.Fatalf("whitespace-only title should be omitted: %#v", tags)
+	}
+	if tags["city"] != "Augsburg" || tags["country"] != "DE" {
+		t.Fatalf("city/country tags should be trimmed: %#v", tags)
+	}
+}
+
 func TestActivitySchemaTagsUnknownSportDoesNotLeakRawValue(t *testing.T) {
 	tags := ActivitySchemaTags(ActivitySchemaTagsInput{SportType: "not_a_sport", SubType: "raw_sub"})
 

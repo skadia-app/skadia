@@ -164,7 +164,7 @@ func (e *Engine) importFileByID(
 			}
 			entry.Tags = shadowfs.ActivitySchemaTags(input)
 		} else if format := inferFileFormat(rec.FileName); format != "" {
-			entry.Tags = map[string]string{"format": format}
+			entry.Tags = shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{Format: format})
 		}
 	}
 
@@ -266,7 +266,10 @@ func isActivityFileRecord(rec userFileRecord) bool {
 	if rec.FileType == "activity" {
 		return true
 	}
-	return rec.ParentType != nil && *rec.ParentType == "activity"
+	if rec.FileType == "original" || rec.FileType == "" {
+		return inferFileFormat(rec.FileName) != ""
+	}
+	return false
 }
 
 func inferFileFormat(fileName string) string {
@@ -275,7 +278,12 @@ func inferFileFormat(fileName string) string {
 	if idx < 0 || idx == len(fileName)-1 {
 		return ""
 	}
-	return strings.ToLower(fileName[idx+1:])
+	switch format := strings.ToLower(fileName[idx+1:]); format {
+	case "fit", "gpx", "tcx":
+		return format
+	default:
+		return ""
+	}
 }
 
 // importAllFiles imports ALL user files from the export into ShadowFS (Phase 0).

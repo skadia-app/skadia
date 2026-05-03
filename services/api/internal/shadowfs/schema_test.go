@@ -1,8 +1,10 @@
 package shadowfs
 
-import "strings"
-
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
 
 func TestRenderPath_Activity(t *testing.T) {
 	r := NewSchemaRenderer()
@@ -39,6 +41,19 @@ func TestRenderPath_Truncation(t *testing.T) {
 	got := r.RenderPath("route", "{title}", vars, "gpx")
 	if len(got) > 55 {
 		t.Errorf("path too long: %d chars", len(got))
+	}
+}
+
+func TestRenderPathTruncatesUTF8Safely(t *testing.T) {
+	r := NewSchemaRenderer()
+	var longTitle strings.Builder
+	for range 20 {
+		longTitle.WriteString("界")
+	}
+
+	got := r.RenderPath("route", "{title}", map[string]string{"title": longTitle.String()}, "gpx")
+	if !utf8.ValidString(got) {
+		t.Fatalf("rendered path is not valid UTF-8: %q", got)
 	}
 }
 

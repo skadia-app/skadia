@@ -43,9 +43,7 @@ func (r *SchemaRenderer) RenderPath(fileType, schema string, vars map[string]str
 	result := schema
 	for key, val := range vars {
 		rendered := sanitize(val)
-		if len(rendered) > 50 {
-			rendered = rendered[:50]
-		}
+		rendered = truncateRunes(rendered, 50)
 		result = strings.ReplaceAll(result, "{"+key+"}", rendered)
 	}
 	for i := 0; i < 20 && strings.Contains(result, "{"); i++ {
@@ -84,7 +82,8 @@ func (r *SchemaRenderer) ValidateSchema(fileType, schema string) (warnings []str
 	}
 	maxVars := map[string]string{
 		"year": "2024", "month": "03", "day": "15", "time": "14-30",
-		"sport": strings.Repeat("x", 30), "subCategory": strings.Repeat("x", 30),
+		"format": "fit",
+		"sport":  strings.Repeat("x", 30), "subCategory": strings.Repeat("x", 30),
 		"city": strings.Repeat("x", 50), "title": strings.Repeat("x", 50),
 		"distance_km": "9999.9", "duration_h": "99-59", "elevation_m": "99999",
 		"country":  strings.Repeat("x", 30),
@@ -116,4 +115,17 @@ func sanitize(s string) string {
 	// this service is Linux-only, so the additional complexity is not warranted.
 	s = strings.TrimLeft(s, ".")
 	return strings.TrimSpace(s)
+}
+
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	for idx := range s {
+		if max == 0 {
+			return s[:idx]
+		}
+		max--
+	}
+	return s
 }
