@@ -43,9 +43,17 @@ describe('mapLayerStackDiff', () => {
     expect(mapLayerStackDiff([a], [a])).toHaveLength(0)
   })
 
-  it('detects opacity change as replace', () => {
+  it('detects pure opacity change as paint-update (no tile refetch)', () => {
     const a1 = { ...L('a', 'https://t.example.org/{z}/{x}/{y}'), default_opacity: 100 }
     const a2 = { ...a1, default_opacity: 60 }
+    const ops = mapLayerStackDiff([a1], [a2])
+    expect(ops).toHaveLength(1)
+    expect(ops[0].op).toBe('paint-update')
+  })
+
+  it('treats opacity change combined with URL change as replace (recreate wins)', () => {
+    const a1 = { ...L('a', 'https://t1.example.org/{z}/{x}/{y}'), default_opacity: 100 }
+    const a2 = { ...a1, url_template: 'https://t2.example.org/{z}/{x}/{y}', default_opacity: 60 }
     const ops = mapLayerStackDiff([a1], [a2])
     expect(ops).toHaveLength(1)
     expect(ops[0].op).toBe('replace')

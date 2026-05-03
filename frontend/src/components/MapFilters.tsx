@@ -1,14 +1,11 @@
 import { memo, useMemo, useRef, useState } from 'react'
 import { useClickOutside } from '@/hooks/useClickOutside'
-import type { CoverageOverlayState, CoverageCompositeState } from '@/hooks/useCoverageOverlays'
-import { useSystemLayerVisibility } from '@/hooks/useSystemLayerVisibility'
-import { useNavigate } from 'react-router-dom'
 import { DayPicker } from 'react-day-picker'
 import 'react-day-picker/style.css'
 import type { DateRange } from 'react-day-picker'
 import { MonthYearCaption } from '@/components/DateRangePicker'
 import { de } from 'date-fns/locale'
-import type { MapFilterState, MapOverlayState } from '@/pages/MapPage'
+import type { MapFilterState } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
 import { SPORT_OPTIONS, getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { CATEGORIES } from '@/lib/sportTaxonomy'
@@ -18,9 +15,9 @@ import GearFilterInput, { gearTypeIcon } from '@/components/GearFilterInput'
 import type { TagFilter } from '@/components/TagFilterInput'
 import type { GearFilter, GearFilterState } from '@/components/GearFilterInput'
 import { toLocalISO } from '@/lib/dateUtils'
+import { SportFilter } from '@/components/sport/SportFilter'
 import type { SegmentColorConfig, SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
 import { DEFAULT_SEGMENT_COLORS } from '@/components/Map/SegmentsOverlay'
-import { SportFilter } from '@/components/sport/SportFilter'
 
 const ALL_SPORT_KEYS = getAllSportKeys()
 const USER_DEFAULT_KEY = 'skadia-sport-colors-user-default'
@@ -33,134 +30,21 @@ function loadUserDefaultColors(): Record<string, string> | null {
   return null
 }
 
-function CoverageCompositeToggle({
-  label,
-  color,
-  state,
-  compositeKey,
-  layerLabels,
-  onToggle,
-  onToggleLayer,
-}: {
-  label: string
-  color: string
-  state: CoverageCompositeState
-  compositeKey: keyof CoverageOverlayState
-  layerLabels: Record<string, string>
-  onToggle: (key: keyof CoverageOverlayState, update: Partial<CoverageCompositeState>) => void
-  onToggleLayer: (composite: keyof CoverageOverlayState, layer: string, enabled: boolean) => void
-}) {
-  const [expanded, setExpanded] = useState(false)
-  const hasSubLayers = Object.keys(layerLabels).length > 0
-
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-2">
-        {hasSubLayers && (
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="text-xs text-neutral-400 cursor-pointer w-3 text-center"
-          >
-            <svg
-              className={`w-3 h-3 transition-transform ${expanded ? '' : '-rotate-90'}`}
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <path
-                fillRule="evenodd"
-                d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </button>
-        )}
-        {!hasSubLayers && <span className="w-3" />}
-        <label className="flex items-center gap-2 text-xs cursor-pointer">
-          <input
-            type="checkbox"
-            checked={state.enabled}
-            onChange={(e) => onToggle(compositeKey, { enabled: e.target.checked })}
-            className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
-          />
-          <span className={`${color} font-medium`}>{label}</span>
-        </label>
-      </div>
-      {expanded && state.enabled && (
-        <div className="ml-7 space-y-1.5">
-          <label className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-            <span className="whitespace-nowrap">Deckkraft</span>
-            <input
-              type="range"
-              min={10}
-              max={100}
-              value={state.opacity}
-              onChange={(e) => onToggle(compositeKey, { opacity: Number(e.target.value) })}
-              className="flex-1 h-1 accent-neutral-500"
-            />
-            <span className="w-8 text-right tabular-nums">{state.opacity}%</span>
-          </label>
-          {Object.entries(layerLabels).map(([key, name]) => (
-            <label key={key} className="flex items-center gap-2 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                checked={state.layers[key] ?? true}
-                onChange={(e) => onToggleLayer(compositeKey, key, e.target.checked)}
-                className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
-              />
-              <span className="text-neutral-600 dark:text-neutral-400">{name}</span>
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 interface Props {
   filters: MapFilterState
   onChange: (filters: MapFilterState) => void
   forceDark?: boolean
   viewMode?: 'off' | 'tracks' | 'heatmap' | 'terra_incognita'
-  overlayState?: MapOverlayState
-  onOverlayChange?: (key: keyof MapOverlayState, value: boolean) => void
+  /** When true, renders as a flex column child (no absolute positioning). */
+  docked?: boolean
+  showSegmentsOverlay?: boolean
   segmentFilters?: SegmentsOverlayFilters
   onSegmentFiltersChange?: (filters: SegmentsOverlayFilters) => void
   segmentColors?: Partial<SegmentColorConfig>
   onSegmentColorsChange?: (colors: Partial<SegmentColorConfig>) => void
-  coverageState?: CoverageOverlayState
-  onCoverageUpdate?: (key: keyof CoverageOverlayState, update: Partial<CoverageCompositeState>) => void
-  onCoverageToggleLayer?: (composite: keyof CoverageOverlayState, layer: string, enabled: boolean) => void
-  /** When true, renders as a flex column child (no absolute positioning). */
-  docked?: boolean
 }
 
-function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlayState, onOverlayChange, segmentFilters, onSegmentFiltersChange, segmentColors, onSegmentColorsChange, coverageState, onCoverageUpdate, onCoverageToggleLayer, docked = false }: Props) {
-  const navigate = useNavigate()
-  const { visibility } = useSystemLayerVisibility()
-
-  // Visibility helpers for system-controlled vector overlay toggles.
-  // Falls back to enabled=true when no admin row exists (default-on).
-  const vis = {
-    summits: visibility('summits'),
-    waters: visibility('waters'),
-    forests: visibility('forests'),
-    visitedPois: visibility('visited_pois'),
-    amenitiesTiles: visibility('amenities_tiles'),
-    segmentsLines: visibility('segments_lines'),
-  }
-
-  // Coverage composite groups: show the composite toggle only when at least one
-  // sublayer is admin-enabled (prevents showing an empty toggle with nothing behind it).
-  const NATURE_SUBLAYERS = ['coverage_landuse', 'coverage_forest', 'coverage_water', 'coverage_river_proximity', 'coverage_protected']
-  const NOISE_SUBLAYERS = ['coverage_noise']
-  const TRAFFIC_SUBLAYERS = ['coverage_urbanization', 'coverage_traffic']
-  const anyEnabled = (keys: string[]) => keys.some((k) => visibility(k).enabled)
-  const coverageVis = {
-    nature: anyEnabled(NATURE_SUBLAYERS),
-    noise: anyEnabled(NOISE_SUBLAYERS),
-    trafficUrban: anyEnabled(TRAFFIC_SUBLAYERS),
-  }
-
+function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked = false, showSegmentsOverlay, segmentFilters, onSegmentFiltersChange, segmentColors, onSegmentColorsChange }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [expandedColorGroups, setExpandedColorGroups] = useState<Set<string>>(new Set())
   const [datePickerOpen, setDatePickerOpen] = useState(false)
@@ -462,6 +346,8 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
                                     next.has(opt.value) ? next.delete(opt.value) : next.add(opt.value)
                                     return next
                                   })}
+                                  aria-label={isExpanded ? 'Farbgruppe einklappen' : 'Farbgruppe ausklappen'}
+                                  aria-expanded={isExpanded}
                                   className="p-0.5 text-neutral-400 hover:text-neutral-600 cursor-pointer"
                                 >
                                   <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
@@ -532,203 +418,98 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', overlay
             </div>
             </> /* Ende: Aktivitäts-Filter */}
 
-            {/* Kartenebenen — Overlay-Toggles (Gipfel, Gewässer, Wälder, etc.) */}
-            {overlayState && onOverlayChange && (
+            {/* Segment-Konfiguration */}
+            {showSegmentsOverlay && segmentFilters && onSegmentFiltersChange && segmentColors && onSegmentColorsChange && (
               <div className="border-t border-neutral-100 dark:border-neutral-800 pt-3 space-y-2">
-                <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Kartenebenen</span>
-                <button
-                  onClick={() => navigate('/map/summits')}
-                  className="cursor-pointer w-full text-left text-xs text-accent-DEFAULT hover:underline mb-2"
-                >
-                  Gipfelsammlung öffnen →
-                </button>
-                {vis.summits.enabled && (
-                  <div className="space-y-1">
-                    <label className="flex items-center gap-2 text-xs cursor-pointer">
-                      <input type="checkbox" checked={overlayState.showSummits} onChange={e => onOverlayChange('showSummits', e.target.checked)} className="rounded" />
-                      <span>{vis.summits.label ?? 'Gipfel'}</span>
-                    </label>
-                    {overlayState.showSummits && (
-                      <label className="flex items-center gap-2 text-xs cursor-pointer ml-5 text-neutral-500 dark:text-neutral-400">
-                        <input type="checkbox" checked={overlayState.summitsOnlyVisited} onChange={e => onOverlayChange('summitsOnlyVisited', e.target.checked)} className="rounded" />
-                        <span>Nur besuchte</span>
-                      </label>
-                    )}
+                <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Segment-Konfiguration</span>
+                <div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Typ:</div>
+                  <div className="flex flex-wrap gap-1">
+                    {([
+                      { id: 'standard', label: 'Standard' },
+                      { id: 'trail', label: 'Trail' },
+                      { id: 'lift', label: 'Lift' },
+                    ] as const).map(({ id, label }) => (
+                      <button
+                        key={id}
+                        onClick={() => onSegmentFiltersChange({
+                          ...segmentFilters,
+                          terrainTypes: segmentFilters.terrainTypes.includes(id)
+                            ? segmentFilters.terrainTypes.filter(t => t !== id)
+                            : [...segmentFilters.terrainTypes, id],
+                        })}
+                        className={`px-1.5 py-0.5 text-xs rounded border cursor-pointer transition-colors ${
+                          segmentFilters.terrainTypes.includes(id)
+                            ? 'bg-accent-DEFAULT text-white border-transparent'
+                            : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
-                )}
-                {vis.waters.enabled && (
-                  <label className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input type="checkbox" checked={overlayState.showWaters} onChange={e => onOverlayChange('showWaters', e.target.checked)} className="rounded" />
-                    <span>{vis.waters.label ?? 'Gewässer'}</span>
-                  </label>
-                )}
-                {vis.forests.enabled && (
-                  <label className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input type="checkbox" checked={overlayState.showForests} onChange={e => onOverlayChange('showForests', e.target.checked)} className="rounded" />
-                    <span>{vis.forests.label ?? 'Wälder'}</span>
-                  </label>
-                )}
-                {vis.visitedPois.enabled && (
-                  <label className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input type="checkbox" checked={overlayState.showVisitedPois} onChange={e => onOverlayChange('showVisitedPois', e.target.checked)} className="rounded" />
-                    <span>{vis.visitedPois.label ?? 'Besuchte Einkehr'}</span>
-                  </label>
-                )}
-                {vis.amenitiesTiles.enabled && (
-                  <label className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input type="checkbox" checked={overlayState.showAmenities} onChange={e => onOverlayChange('showAmenities', e.target.checked)} className="rounded" />
-                    <span>{vis.amenitiesTiles.label ?? 'Einkehr (Tiles)'}</span>
-                  </label>
-                )}
-                {vis.segmentsLines.enabled && (
-                  <div className="space-y-1">
-                  <label className="flex items-center gap-2 text-xs cursor-pointer">
-                    <input type="checkbox" checked={overlayState.showSegmentsOverlay} onChange={e => onOverlayChange('showSegmentsOverlay', e.target.checked)} className="rounded" />
-                    <span>{vis.segmentsLines.label ?? 'Segmente (Linien)'}</span>
-                  </label>
-                  {overlayState.showSegmentsOverlay && segmentFilters && onSegmentFiltersChange && segmentColors && onSegmentColorsChange && (
-                    <div className="ml-5 space-y-2">
-                      <div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Typ:</div>
-                        <div className="flex flex-wrap gap-1">
-                          {([
-                            { id: 'standard', label: 'Standard' },
-                            { id: 'trail', label: 'Trail' },
-                            { id: 'lift', label: 'Lift' },
-                          ] as const).map(({ id, label }) => (
-                            <button
-                              key={id}
-                              onClick={() => onSegmentFiltersChange({
-                                ...segmentFilters,
-                                terrainTypes: segmentFilters.terrainTypes.includes(id)
-                                  ? segmentFilters.terrainTypes.filter(t => t !== id)
-                                  : [...segmentFilters.terrainTypes, id],
-                              })}
-                              className={`px-1.5 py-0.5 text-xs rounded border cursor-pointer transition-colors ${
-                                segmentFilters.terrainTypes.includes(id)
-                                  ? 'bg-accent-DEFAULT text-white border-transparent'
-                                  : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                        <input type="checkbox" checked={segmentFilters.riddenOnly} onChange={e => onSegmentFiltersChange({ ...segmentFilters, riddenOnly: e.target.checked })} className="rounded" />
-                        <span>Nur gefahrene</span>
-                      </label>
-                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                        <input type="checkbox" checked={segmentFilters.favoritesOnly} onChange={e => onSegmentFiltersChange({ ...segmentFilters, favoritesOnly: e.target.checked })} className="rounded" />
-                        <span>Nur Favoriten</span>
-                      </label>
-                      <div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Sportart:</div>
-                        <div className="flex flex-wrap gap-1">
-                          {([
-                            { id: 'bike', label: 'Rad' },
-                            { id: 'foot', label: 'Lauf' },
-                            { id: 'ski', label: 'Winter' },
-                            { id: 'paddle', label: 'Wasser' },
-                            { id: 'generic', label: 'Sonstig' },
-                          ] as const).map(({ id, label }) => (
-                            <button
-                              key={id}
-                              onClick={() => onSegmentFiltersChange({
-                                ...segmentFilters,
-                                sportGroups: segmentFilters.sportGroups.includes(id)
-                                  ? segmentFilters.sportGroups.filter(g => g !== id)
-                                  : [...segmentFilters.sportGroups, id],
-                              })}
-                              className={`px-1.5 py-0.5 text-xs rounded border cursor-pointer transition-colors ${
-                                segmentFilters.sportGroups.includes(id)
-                                  ? 'bg-accent-DEFAULT text-white border-transparent'
-                                  : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Farben:</div>
-                        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                          {([
-                            { key: 'standard', label: 'Standard' },
-                            { key: 'trail', label: 'Trail' },
-                            { key: 'lift', label: 'Lift' },
-                            { key: 'ridden', label: 'Gefahren' },
-                            { key: 'favorite', label: 'Favoriten' },
-                          ] as { key: keyof SegmentColorConfig; label: string }[]).map(({ key, label }) => (
-                            <div key={key} className="flex items-center gap-1.5 text-xs">
-                              <ColorPicker
-                                value={segmentColors[key] ?? DEFAULT_SEGMENT_COLORS[key]}
-                                onChange={hex => {
-                                  const next = { ...segmentColors, [key]: hex }
-                                  onSegmentColorsChange(next)
-                                  localStorage.setItem('skadia-segment-colors', JSON.stringify(next))
-                                }}
-                              />
-                              <span className="text-neutral-600 dark:text-neutral-300">{label}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
-                )}
-
-                {/* Coverage-Overlays */}
-                {coverageState && onCoverageUpdate && onCoverageToggleLayer && (
-                  <>
-                    <div className="border-t border-neutral-200 dark:border-neutral-700 my-2" />
-                    {coverageVis.nature && (
-                      <CoverageCompositeToggle
-                        label="Natur-Overlay"
-                        color="text-green-600 dark:text-green-400"
-                        state={coverageState.nature}
-                        compositeKey="nature"
-                        layerLabels={{
-                          forest: 'Wald',
-                          water: 'Gewaesser',
-                          riverProximity: 'Fluss-Naehe',
-                          protected: 'Schutzgebiete',
-                          landuse: 'Landnutzung',
-                        }}
-                        onToggle={onCoverageUpdate}
-                        onToggleLayer={onCoverageToggleLayer}
-                      />
-                    )}
-                    {coverageVis.noise && (
-                      <CoverageCompositeToggle
-                        label="Lärm-Overlay"
-                        color="text-purple-500 dark:text-purple-400"
-                        state={coverageState.noise}
-                        compositeKey="noise"
-                        layerLabels={{}}
-                        onToggle={onCoverageUpdate}
-                        onToggleLayer={onCoverageToggleLayer}
-                      />
-                    )}
-                    {coverageVis.trafficUrban && (
-                      <CoverageCompositeToggle
-                        label="Verkehr-Overlay"
-                        color="text-orange-500 dark:text-orange-400"
-                        state={coverageState.trafficUrban}
-                        compositeKey="trafficUrban"
-                        layerLabels={{
-                          traffic: 'Verkehr',
-                          urbanization: 'Urbanisierung',
-                        }}
-                        onToggle={onCoverageUpdate}
-                        onToggleLayer={onCoverageToggleLayer}
-                      />
-                    )}
-                  </>
-                )}
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input type="checkbox" checked={segmentFilters.riddenOnly} onChange={e => onSegmentFiltersChange({ ...segmentFilters, riddenOnly: e.target.checked })} className="rounded" />
+                  <span>Nur gefahrene</span>
+                </label>
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input type="checkbox" checked={segmentFilters.favoritesOnly} onChange={e => onSegmentFiltersChange({ ...segmentFilters, favoritesOnly: e.target.checked })} className="rounded" />
+                  <span>Nur Favoriten</span>
+                </label>
+                <div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Sportart:</div>
+                  <div className="flex flex-wrap gap-1">
+                    {([
+                      { id: 'bike', label: 'Rad' },
+                      { id: 'foot', label: 'Lauf' },
+                      { id: 'ski', label: 'Winter' },
+                      { id: 'paddle', label: 'Wasser' },
+                      { id: 'generic', label: 'Sonstig' },
+                    ] as const).map(({ id, label }) => (
+                      <button
+                        key={id}
+                        onClick={() => onSegmentFiltersChange({
+                          ...segmentFilters,
+                          sportGroups: segmentFilters.sportGroups.includes(id)
+                            ? segmentFilters.sportGroups.filter(g => g !== id)
+                            : [...segmentFilters.sportGroups, id],
+                        })}
+                        className={`px-1.5 py-0.5 text-xs rounded border cursor-pointer transition-colors ${
+                          segmentFilters.sportGroups.includes(id)
+                            ? 'bg-accent-DEFAULT text-white border-transparent'
+                            : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300 hover:border-neutral-400'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Farben:</div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                    {([
+                      { key: 'standard', label: 'Standard' },
+                      { key: 'trail', label: 'Trail' },
+                      { key: 'lift', label: 'Lift' },
+                      { key: 'ridden', label: 'Gefahren' },
+                      { key: 'favorite', label: 'Favoriten' },
+                    ] as { key: keyof SegmentColorConfig; label: string }[]).map(({ key, label }) => (
+                      <div key={key} className="flex items-center gap-1.5 text-xs">
+                        <ColorPicker
+                          value={segmentColors[key] ?? DEFAULT_SEGMENT_COLORS[key]}
+                          onChange={hex => {
+                            const next = { ...segmentColors, [key]: hex }
+                            onSegmentColorsChange(next)
+                            localStorage.setItem('skadia-segment-colors', JSON.stringify(next))
+                          }}
+                        />
+                        <span className="text-neutral-600 dark:text-neutral-300">{label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 

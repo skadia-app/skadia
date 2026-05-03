@@ -1,8 +1,9 @@
 import React from 'react'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useUserMapLayers, useUserMapLayersMutations } from './useUserMapLayers'
+import { patchUserMapLayer } from '@/api/mapLayers'
 
 // All mock implementations must live inside vi.mock factory (hoisting constraint).
 vi.mock('@/api/mapLayers', () => {
@@ -33,6 +34,14 @@ const makeWrapper = () => {
   )
   return { qc, Wrapper }
 }
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 describe('useUserMapLayers', () => {
   it('fetches user map layers and exposes them', async () => {
@@ -83,5 +92,48 @@ describe('useUserMapLayersMutations', () => {
       await result.current.sort.mutateAsync([{ id: 1, sort_order: 0 }])
     })
     expect(spy).toHaveBeenCalledWith({ queryKey: ['user-map-layers', 'anon'] })
+  })
+
+  it('coalesces debounced optimistic update patches for slider bursts', async () => {
+    vi.useFakeTimers()
+    const { Wrapper, qc } = makeWrapper()
+    qc.setQueryData(['user-map-layers', 'anon'], [
+      {
+        id: 1,
+        name: 'Mein Layer',
+        role: 'overlay',
+        source_kind: 'raster_tiles',
+        url_template: 'https://t.example.org/{z}/{x}/{y}.png',
+        default_opacity: 80,
+        enabled: true,
+        sort_order: 0,
+        created_at: '',
+        updated_at: '',
+      },
+    ])
+    const { result } = renderHook(() => useUserMapLayersMutations(), { wrapper: Wrapper })
+    const current = result.current as typeof result.current & {
+      updateOptimistic: (
+        id: number,
+        body: { default_opacity: number },
+        options: { debounceMs: number },
+      ) => void
+    }
+
+    act(() => {
+      current.updateOptimistic(1, { default_opacity: 55 }, { debounceMs: 250 })
+      current.updateOptimistic(1, { default_opacity: 60 }, { debounceMs: 250 })
+    })
+
+    expect(qc.getQueryData<{ default_opacity: number }[]>(['user-map-layers', 'anon'])![0].default_opacity).toBe(60)
+    expect(patchUserMapLayer).not.toHaveBeenCalled()
+
+    await act(async () => {
+      vi.advanceTimersByTime(250)
+    })
+
+    expect(patchUserMapLayer).toHaveBeenCalledTimes(1)
+    expect(patchUserMapLayer).toHaveBeenCalledWith(1, { default_opacity: 60 })
+    vi.useRealTimers()
   })
 })
