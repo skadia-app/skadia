@@ -47,6 +47,26 @@ func TestBuildStravaCSVSourceFileUsesCanonicalActivityTags(t *testing.T) {
 	}
 }
 
+func TestBuildStravaCSVSourceFileHashIgnoresCanonicalSportMapping(t *testing.T) {
+	startedAt := time.Date(2026, 5, 3, 9, 8, 0, 0, time.UTC)
+	hdr := map[string]int{"Name": 0, "Activity ID": 1}
+	row := []string{"Bouldern", "123"}
+	oldMapping := &model.ActivityData{SportType: "generic", StartedAt: startedAt}
+	newMapping := &model.ActivityData{SportType: "rock_climbing", SubType: "bouldering", StartedAt: startedAt}
+
+	oldFile, err := buildStravaCSVSourceFile("user-1", 123, oldMapping, "Bouldern", row, hdr)
+	if err != nil {
+		t.Fatalf("old mapping buildStravaCSVSourceFile: %v", err)
+	}
+	newFile, err := buildStravaCSVSourceFile("user-1", 123, newMapping, "Bouldern", row, hdr)
+	if err != nil {
+		t.Fatalf("new mapping buildStravaCSVSourceFile: %v", err)
+	}
+	if oldFile.hash != newFile.hash {
+		t.Fatalf("hash changed across canonical sport remap: %q != %q", oldFile.hash, newFile.hash)
+	}
+}
+
 func TestStravaCSVOnlyShadowFSWriteHappensAfterSkippedBranch(t *testing.T) {
 	src, err := os.ReadFile("importer_activities.go")
 	if err != nil {
