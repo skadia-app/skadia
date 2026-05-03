@@ -446,57 +446,15 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		// This prevents orphaned files in ShadowFS for duplicates/skipped activities.
 		var fileID string
 
-		// CSV-only activity (no file in Strava export, e.g. manually created in Strava).
-		// Store the CSV row as a JSON source file so every activity has a stored original.
+		var csvSourceFile *stravaCSVSourceFile
 		if len(fileBytes) == 0 {
-			csvJSON := &sidecar.ManualActivityFile{
-				SchemaVersion:  1,
-				FileFormat:     "strava_csv",
-				SportType:      data.SportType,
-				SubType:        data.SubType,
-				Title:          activityName,
-				StartedAt:      data.StartedAt,
-				ElapsedTimeS:   float64(data.ElapsedTimeS),
-				DistanceM:      data.DistanceM,
-				ElevationGainM: data.ElevationGainM,
-				Source:         "Strava",
-				SourceFields:   csvRowToMap(row, hdr),
-				CreatedAt:      time.Now().UTC(),
-			}
-			// Deterministic hash (not from JSON bytes which contain CreatedAt)
-			detHash := sha256.Sum256(fmt.Appendf(nil, "strava_csv|%d|%s|%s", stravaID, data.StartedAt.Format(time.RFC3339), data.SportType))
-			hashStr = hex.EncodeToString(detHash[:])
-			jsonBytes, jsonErr := csvJSON.Marshal()
-			if jsonErr == nil {
-				data.FileHash = hashStr
-				data.FileFormat = "strava_csv"
+			var csvErr error
+			csvSourceFile, csvErr = buildStravaCSVSourceFile(params.UserID, stravaID, data, activityName, row, hdr)
+			if csvErr != nil {
+				slog.Warn("strava activities: build CSV-only source file failed", "strava_id", stravaID, "error", csvErr)
+			} else {
+				hashStr = csvSourceFile.hash
 				format = "strava_csv"
-				if params.ShadowFS != nil {
-					rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
-						UserID:      params.UserID,
-						FileType:    "activity",
-						ContentType: "application/json",
-						FileName:    fmt.Sprintf("strava_%d.json", stravaID),
-						SizeBytes:   int64(len(jsonBytes)),
-						FileHash:    hashStr,
-						Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
-							Format:         "strava_csv",
-							Source:         "strava",
-							StartedAt:      data.StartedAt,
-							SportType:      data.SportType,
-							SubType:        data.SubType,
-							Title:          activityName,
-							DistanceM:      data.DistanceM,
-							ElapsedTimeS:   data.ElapsedTimeS,
-							ElevationGainM: data.ElevationGainM,
-						}),
-					}, bytes.NewReader(jsonBytes))
-					if putErr != nil {
-						slog.Warn("strava activities: ShadowFS.Put for CSV-only failed", "error", putErr)
-					} else {
-						fileID = rec.ID
-					}
-				}
 			}
 		}
 
@@ -562,6 +520,13 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					fileID = rec.ID
 				}
 			}
+		} else if csvSourceFile != nil && params.ShadowFS != nil {
+			rec, putErr := putStravaCSVSourceFile(ctx, params.ShadowFS, csvSourceFile)
+			if putErr != nil {
+				slog.Warn("strava activities: ShadowFS.Put for CSV-only failed", "error", putErr)
+			} else {
+				fileID = rec.ID
+			}
 		}
 
 		// New activity inserted: run PostProcess (streams, track, heatmap, Stage 1, NATS…)
@@ -626,6 +591,64 @@ func csvRowToMap(row []string, hdr map[string]int) map[string]string {
 		}
 	}
 	return m
+}
+
+type stravaCSVSourceFile struct {
+	entry shadowfs.FileEntry
+	data  []byte
+	hash  string
+}
+
+func buildStravaCSVSourceFile(userID string, stravaID int64, data *model.ActivityData, activityName string, row []string, hdr map[string]int) (*stravaCSVSourceFile, error) {
+	csvJSON := &sidecar.ManualActivityFile{
+		SchemaVersion:  1,
+		FileFormat:     "strava_csv",
+		SportType:      data.SportType,
+		SubType:        data.SubType,
+		Title:          activityName,
+		StartedAt:      data.StartedAt,
+		ElapsedTimeS:   float64(data.ElapsedTimeS),
+		DistanceM:      data.DistanceM,
+		ElevationGainM: data.ElevationGainM,
+		Source:         "Strava",
+		SourceFields:   csvRowToMap(row, hdr),
+		CreatedAt:      time.Now().UTC(),
+	}
+	detHash := sha256.Sum256(fmt.Appendf(nil, "strava_csv|%d|%s|%s", stravaID, data.StartedAt.Format(time.RFC3339), data.SportType))
+	hashStr := hex.EncodeToString(detHash[:])
+	jsonBytes, err := csvJSON.Marshal()
+	if err != nil {
+		return nil, err
+	}
+	data.FileHash = hashStr
+	data.FileFormat = "strava_csv"
+	return &stravaCSVSourceFile{
+		data: jsonBytes,
+		hash: hashStr,
+		entry: shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "activity",
+			ContentType: "application/json",
+			FileName:    fmt.Sprintf("strava_%d.json", stravaID),
+			SizeBytes:   int64(len(jsonBytes)),
+			FileHash:    hashStr,
+			Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
+				Format:         "strava_csv",
+				Source:         "strava",
+				StartedAt:      data.StartedAt,
+				SportType:      data.SportType,
+				SubType:        data.SubType,
+				Title:          activityName,
+				DistanceM:      data.DistanceM,
+				ElapsedTimeS:   data.ElapsedTimeS,
+				ElevationGainM: data.ElevationGainM,
+			}),
+		},
+	}, nil
+}
+
+func putStravaCSVSourceFile(ctx context.Context, fs shadowfs.ShadowFS, file *stravaCSVSourceFile) (shadowfs.FileRecord, error) {
+	return fs.Put(ctx, file.entry, bytes.NewReader(file.data))
 }
 
 // readStravaActivityFile reads and optionally decompresses an activity file.

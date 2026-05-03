@@ -499,7 +499,11 @@ func (h *Handler) postCommitFusionCleanup(ctx context.Context, p fusionFinalizeP
 
 	// FIT-level merge (non-DB, after commit, non-fatal).
 	if p.fitLevel && p.fitLevelTargetID != "" {
-		if err := h.fitLevelMerge(ctx, p.userID, p.fitLevelTargetID, p.merged.ID, p.fitLevelSourceIDs, p.fieldMap, p.activities); err != nil {
+		mergedForTags := freshMerged
+		if mergedForTags == nil {
+			mergedForTags = p.merged
+		}
+		if err := h.fitLevelMerge(ctx, p.userID, p.fitLevelTargetID, p.merged.ID, p.fitLevelSourceIDs, p.fieldMap, p.activities, mergedForTags); err != nil {
 			slog.Error("fusion-merge: FIT-level merge failed", "target", p.merged.ID, "error", err)
 		} else {
 			slog.Info("fusion-merge: FIT-level merge completed", "target", p.merged.ID)
@@ -1079,6 +1083,7 @@ func (h *Handler) fitLevelMerge(
 	sourceIDs []string,
 	fieldMap map[string]string,
 	activities map[string]*model.Activity,
+	mergedForTags *model.Activity,
 ) error {
 	if h.ShadowFS == nil {
 		return fmt.Errorf("ShadowFS not configured")
@@ -1172,25 +1177,9 @@ func (h *Handler) fitLevelMerge(
 	newHash := hex.EncodeToString(hashBytes[:])
 
 	// Zusammengeführte FIT-Datei via ShadowFS speichern.
-	subType := ""
-	if target.SubType != nil {
-		subType = *target.SubType
-	}
-	title := ""
-	if target.Title != nil {
-		title = *target.Title
-	}
-	elapsedTimeS := 0
-	if target.ElapsedTimeS != nil {
-		elapsedTimeS = *target.ElapsedTimeS
-	}
-	distanceM := 0.0
-	if target.DistanceM != nil {
-		distanceM = *target.DistanceM
-	}
-	elevationGainM := 0.0
-	if target.ElevationGainM != nil {
-		elevationGainM = *target.ElevationGainM
+	tagActivity := mergedForTags
+	if tagActivity == nil {
+		tagActivity = target
 	}
 	rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
 		UserID:      userID,
@@ -1199,17 +1188,7 @@ func (h *Handler) fitLevelMerge(
 		FileName:    fmt.Sprintf("%s.fit", newHash),
 		SizeBytes:   int64(len(result.Data)),
 		FileHash:    newHash,
-		Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
-			Format:         "fit",
-			Source:         "fusion_merge",
-			StartedAt:      target.StartedAt,
-			SportType:      target.SportType,
-			SubType:        subType,
-			Title:          title,
-			DistanceM:      distanceM,
-			ElapsedTimeS:   elapsedTimeS,
-			ElevationGainM: elevationGainM,
-		}),
+		Tags:        shadowfs.ActivitySchemaTags(fusionActivitySchemaTagsInput("fit", "fusion_merge", tagActivity)),
 	}, bytes.NewReader(result.Data))
 	if putErr != nil {
 		return fmt.Errorf("ShadowFS.Put merged FIT: %w", putErr)
@@ -1227,6 +1206,34 @@ func (h *Handler) fitLevelMerge(
 	}
 
 	return nil
+}
+
+func fusionActivitySchemaTagsInput(format, source string, activity *model.Activity) shadowfs.ActivitySchemaTagsInput {
+	input := shadowfs.ActivitySchemaTagsInput{
+		Format: format,
+		Source: source,
+	}
+	if activity == nil {
+		return input
+	}
+	input.StartedAt = activity.StartedAt
+	input.SportType = activity.SportType
+	if activity.SubType != nil {
+		input.SubType = *activity.SubType
+	}
+	if activity.Title != nil {
+		input.Title = *activity.Title
+	}
+	if activity.ElapsedTimeS != nil {
+		input.ElapsedTimeS = *activity.ElapsedTimeS
+	}
+	if activity.DistanceM != nil {
+		input.DistanceM = *activity.DistanceM
+	}
+	if activity.ElevationGainM != nil {
+		input.ElevationGainM = *activity.ElevationGainM
+	}
+	return input
 }
 
 // createMergedActivity erstellt eine neue Aktivität als Kopie von src mit einer neuen UUID.
