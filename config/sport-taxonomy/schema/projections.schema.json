@@ -4,7 +4,8 @@
   "oneOf": [
     { "$ref": "#/$defs/activityFilterProjection" },
     { "$ref": "#/$defs/segmentProjection" },
-    { "$ref": "#/$defs/ruleProjection" }
+    { "$ref": "#/$defs/ruleProjection" },
+    { "$ref": "#/$defs/recordsProjection" }
   ],
   "$defs": {
     "activityFilterProjection": {
@@ -225,6 +226,145 @@
               }
             }
           }
+        }
+      }
+    },
+    "recordsProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category_sets", "category_profiles", "record_groups", "main_categories"],
+      "properties": {
+        "category_sets": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "categories"],
+            "properties": {
+              "key": { "type": "string", "minLength": 1 },
+              "categories": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "$ref": "#/$defs/recordCategory" }
+              }
+            }
+          }
+        },
+        "category_profiles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "category_sets"],
+            "properties": {
+              "key": { "type": "string", "minLength": 1 },
+              "category_sets": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        },
+        "record_groups": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "labels", "main_category", "color", "category_profile", "match"],
+            "properties": {
+              "key": { "type": "string", "minLength": 1 },
+              "labels": { "$ref": "#/$defs/localeMap" },
+              "main_category": { "type": "string", "minLength": 1 },
+              "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+              "category_profile": { "type": "string", "minLength": 1 },
+              "badge": { "type": "string" },
+              "match": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "$ref": "#/$defs/recordMatchRule" }
+              }
+            }
+          }
+        },
+        "main_categories": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "labels", "color", "record_groups", "sub_filters"],
+            "properties": {
+              "key": { "type": "string", "minLength": 1 },
+              "labels": { "$ref": "#/$defs/localeMap" },
+              "color": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+              "record_groups": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "sub_filters": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/recordGroupCollection" }
+              },
+              "power_curve": { "$ref": "#/$defs/recordGroupCollection" }
+            }
+          }
+        }
+      }
+    },
+    "recordCategory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "type", "labels"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "enum": ["time_lower", "value_higher", "value_superlative"] },
+        "distance_m": { "type": "number" },
+        "elevation_m": { "type": "number" },
+        "duration_s": { "type": "integer" },
+        "labels": { "$ref": "#/$defs/localeMap" }
+      }
+    },
+    "recordMatchRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["priority", "sport_type"],
+      "properties": {
+        "priority": { "type": "integer" },
+        "sport_type": { "type": "string", "minLength": 1 },
+        "sub_types": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "exclude_sub_types": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "modifiers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "is_indoor": { "type": "boolean" },
+            "is_virtual": { "type": "boolean" },
+            "is_electric": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "recordGroupCollection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "record_groups"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "record_groups": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
         }
       }
     },

@@ -1,0 +1,254 @@
+category_sets:
+  - key: distances_running
+    categories:
+      - {key: dist_400m, type: time_lower, distance_m: 400, labels: {de: 400 m}}
+      - {key: dist_800m, type: time_lower, distance_m: 800, labels: {de: 800 m}}
+      - {key: dist_1km, type: time_lower, distance_m: 1000, labels: {de: 1 km}}
+      - {key: dist_1mi, type: time_lower, distance_m: 1609.34, labels: {de: 1 Meile}}
+      - {key: dist_2mi, type: time_lower, distance_m: 3218.69, labels: {de: 2 Meilen}}
+      - {key: dist_5km, type: time_lower, distance_m: 5000, labels: {de: 5 km}}
+      - {key: dist_10km, type: time_lower, distance_m: 10000, labels: {de: 10 km}}
+      - {key: dist_15km, type: time_lower, distance_m: 15000, labels: {de: 15 km}}
+      - {key: dist_10mi, type: time_lower, distance_m: 16093.4, labels: {de: 10 Meilen}}
+      - {key: dist_20km, type: time_lower, distance_m: 20000, labels: {de: 20 km}}
+      - {key: dist_hm, type: time_lower, distance_m: 21097.5, labels: {de: Halbmarathon}}
+      - {key: dist_30km, type: time_lower, distance_m: 30000, labels: {de: 30 km}}
+      - {key: dist_marathon, type: time_lower, distance_m: 42195, labels: {de: Marathon}}
+      - {key: dist_50km, type: time_lower, distance_m: 50000, labels: {de: 50 km}}
+      - {key: dist_100km, type: time_lower, distance_m: 100000, labels: {de: 100 km}}
+
+  - key: distances_cycling
+    categories:
+      - {key: dist_10km, type: time_lower, distance_m: 10000, labels: {de: 10 km}}
+      - {key: dist_20km, type: time_lower, distance_m: 20000, labels: {de: 20 km}}
+      - {key: dist_25mi, type: time_lower, distance_m: 40233.6, labels: {de: 25 Meilen}}
+      - {key: dist_40km, type: time_lower, distance_m: 40000, labels: {de: 40 km}}
+      - {key: dist_50km, type: time_lower, distance_m: 50000, labels: {de: 50 km}}
+      - {key: dist_50mi, type: time_lower, distance_m: 80467.2, labels: {de: 50 Meilen}}
+      - {key: dist_100km, type: time_lower, distance_m: 100000, labels: {de: 100 km}}
+      - {key: dist_100mi, type: time_lower, distance_m: 160934.4, labels: {de: 100 Meilen}}
+      - {key: dist_150km, type: time_lower, distance_m: 150000, labels: {de: 150 km}}
+      - {key: dist_200km, type: time_lower, distance_m: 200000, labels: {de: 200 km}}
+      - {key: dist_300km, type: time_lower, distance_m: 300000, labels: {de: 300 km}}
+
+  - key: distances_hiking
+    categories:
+      - {key: dist_5km, type: time_lower, distance_m: 5000, labels: {de: 5 km}}
+      - {key: dist_10km, type: time_lower, distance_m: 10000, labels: {de: 10 km}}
+      - {key: dist_20km, type: time_lower, distance_m: 20000, labels: {de: 20 km}}
+      - {key: dist_30km, type: time_lower, distance_m: 30000, labels: {de: 30 km}}
+      - {key: dist_50km, type: time_lower, distance_m: 50000, labels: {de: 50 km}}
+
+  - key: distances_swim_pool
+    categories:
+      - {key: dist_50m, type: time_lower, distance_m: 50, labels: {de: 50 m}}
+      - {key: dist_100m, type: time_lower, distance_m: 100, labels: {de: 100 m}}
+      - {key: dist_200m, type: time_lower, distance_m: 200, labels: {de: 200 m}}
+      - {key: dist_400m, type: time_lower, distance_m: 400, labels: {de: 400 m}}
+      - {key: dist_800m, type: time_lower, distance_m: 800, labels: {de: 800 m}}
+      - {key: dist_1500m, type: time_lower, distance_m: 1500, labels: {de: 1500 m}}
+
+  - key: distances_swim_open_water
+    categories:
+      - {key: dist_1km, type: time_lower, distance_m: 1000, labels: {de: 1 km}}
+      - {key: dist_2km, type: time_lower, distance_m: 2000, labels: {de: 2 km}}
+      - {key: dist_5km, type: time_lower, distance_m: 5000, labels: {de: 5 km}}
+
+  - key: elevation
+    categories:
+      - {key: elev_500hm, type: time_lower, elevation_m: 500, labels: {de: 500 Hm}}
+      - {key: elev_1000hm, type: time_lower, elevation_m: 1000, labels: {de: 1000 Hm}}
+      - {key: elev_1500hm, type: time_lower, elevation_m: 1500, labels: {de: 1500 Hm}}
+      - {key: elev_2000hm, type: time_lower, elevation_m: 2000, labels: {de: 2000 Hm}}
+
+  - key: power
+    categories:
+      - {key: power_5s, type: value_higher, duration_s: 5, labels: {de: 5 Sek}}
+      - {key: power_30s, type: value_higher, duration_s: 30, labels: {de: 30 Sek}}
+      - {key: power_1min, type: value_higher, duration_s: 60, labels: {de: 1 Min}}
+      - {key: power_5min, type: value_higher, duration_s: 300, labels: {de: 5 Min}}
+      - {key: power_10min, type: value_higher, duration_s: 600, labels: {de: 10 Min}}
+      - {key: power_20min, type: value_higher, duration_s: 1200, labels: {de: 20 Min}}
+      - {key: power_30min, type: value_higher, duration_s: 1800, labels: {de: 30 Min}}
+      - {key: power_1h, type: value_higher, duration_s: 3600, labels: {de: 1 Std}}
+      - {key: power_2h, type: value_higher, duration_s: 7200, labels: {de: 2 Std}}
+
+  - key: superlatives_with_elevation
+    categories:
+      - {key: sup_longest_distance, type: value_superlative, labels: {de: Längste Distanz}}
+      - {key: sup_most_elevation, type: value_superlative, labels: {de: Meiste Höhenmeter}}
+      - {key: sup_biggest_climb, type: value_superlative, labels: {de: Größter Anstieg}}
+      - {key: sup_longest_duration, type: value_superlative, labels: {de: Längste Dauer}}
+
+  - key: superlatives_basic
+    categories:
+      - {key: sup_longest_distance, type: value_superlative, labels: {de: Längste Distanz}}
+      - {key: sup_longest_duration, type: value_superlative, labels: {de: Längste Dauer}}
+
+category_profiles:
+  - {key: running_full, category_sets: [distances_running, elevation, power, superlatives_with_elevation]}
+  - {key: running_stationary, category_sets: [distances_running, power, superlatives_basic]}
+  - {key: cycling_full, category_sets: [distances_cycling, elevation, power, superlatives_with_elevation]}
+  - {key: cycling_electric, category_sets: [distances_cycling, elevation, superlatives_with_elevation]}
+  - {key: cycling_stationary, category_sets: [distances_cycling, superlatives_basic]}
+  - {key: hiking_full, category_sets: [distances_hiking, elevation, superlatives_with_elevation]}
+  - {key: swim_pool, category_sets: [distances_swim_pool, superlatives_basic]}
+  - {key: swim_open_water, category_sets: [distances_swim_open_water, superlatives_basic]}
+
+record_groups:
+  - key: running
+    labels: {de: Laufen}
+    main_category: laufen
+    color: "#3B82F6"
+    category_profile: running_full
+    match:
+      - priority: 10
+        sport_type: running
+        exclude_sub_types: [trail, indoor_running, treadmill]
+        modifiers: {is_indoor: false, is_virtual: false}
+
+  - key: running_trail
+    labels: {de: Laufen (Trail)}
+    main_category: laufen
+    color: "#3B82F6"
+    category_profile: running_full
+    match:
+      - priority: 80
+        sport_type: running
+        sub_types: [trail]
+
+  - key: running_indoor
+    labels: {de: Laufen (Indoor)}
+    main_category: laufen
+    color: "#3B82F6"
+    category_profile: running_stationary
+    match:
+      - priority: 90
+        sport_type: running
+        sub_types: [indoor_running, treadmill]
+      - priority: 89
+        sport_type: running
+        modifiers: {is_indoor: true}
+
+  - key: running_virtual
+    labels: {de: Laufen (Virtuell)}
+    main_category: laufen
+    color: "#3B82F6"
+    category_profile: running_stationary
+    match:
+      - priority: 100
+        sport_type: running
+        modifiers: {is_virtual: true}
+
+  - key: cycling
+    labels: {de: Radfahren}
+    main_category: radfahren
+    color: "#F97316"
+    category_profile: cycling_full
+    match:
+      - priority: 10
+        sport_type: cycling
+        exclude_sub_types: [indoor_cycling]
+        modifiers: {is_electric: false, is_indoor: false, is_virtual: false}
+
+  - key: cycling_electric
+    labels: {de: E-Bike}
+    main_category: radfahren
+    color: "#F97316"
+    category_profile: cycling_electric
+    match:
+      - priority: 80
+        sport_type: cycling
+        modifiers: {is_electric: true}
+
+  - key: cycling_virtual
+    labels: {de: Radfahren (Stationär)}
+    main_category: radfahren
+    color: "#F97316"
+    category_profile: cycling_stationary
+    match:
+      - priority: 100
+        sport_type: cycling
+        sub_types: [indoor_cycling]
+      - priority: 100
+        sport_type: cycling
+        sub_types: [spin]
+      - priority: 99
+        sport_type: cycling
+        modifiers: {is_virtual: true}
+      - priority: 98
+        sport_type: cycling
+        modifiers: {is_indoor: true}
+
+  - key: hiking
+    labels: {de: Wandern}
+    main_category: wandern
+    color: "#22C55E"
+    category_profile: hiking_full
+    match:
+      - priority: 10
+        sport_type: hiking
+      - priority: 10
+        sport_type: mountaineering
+      - priority: 10
+        sport_type: snowshoeing
+
+  - key: swim_pool
+    labels: {de: Schwimmen (Becken)}
+    main_category: schwimmen
+    color: "#06B6D4"
+    category_profile: swim_pool
+    badge: B
+    match:
+      - priority: 90
+        sport_type: swimming
+        sub_types: [lap_swimming]
+
+  - key: swim_ow
+    labels: {de: Schwimmen (Freiwasser)}
+    main_category: schwimmen
+    color: "#06B6D4"
+    category_profile: swim_open_water
+    badge: FW
+    match:
+      - priority: 10
+        sport_type: swimming
+        sub_types: ["", open_water]
+
+main_categories:
+  - key: laufen
+    labels: {de: Laufen}
+    color: "#3B82F6"
+    record_groups: [running, running_trail, running_indoor, running_virtual]
+    sub_filters:
+      - {label: Alle, record_groups: [running, running_trail, running_indoor, running_virtual]}
+      - {label: Straße, record_groups: [running]}
+      - {label: Trail, record_groups: [running_trail]}
+      - {label: Stationär, record_groups: [running_indoor, running_virtual]}
+    power_curve: {label: Laufen, record_groups: [running, running_trail, running_indoor, running_virtual]}
+
+  - key: radfahren
+    labels: {de: Radfahren}
+    color: "#F97316"
+    record_groups: [cycling, cycling_electric, cycling_virtual]
+    sub_filters:
+      - {label: Alle, record_groups: [cycling, cycling_electric, cycling_virtual]}
+      - {label: Radfahren, record_groups: [cycling]}
+      - {label: E-Bike, record_groups: [cycling_electric]}
+      - {label: Stationär, record_groups: [cycling_virtual]}
+    power_curve: {label: Radfahren, record_groups: [cycling]}
+
+  - key: wandern
+    labels: {de: Wandern}
+    color: "#22C55E"
+    record_groups: [hiking]
+    sub_filters: []
+
+  - key: schwimmen
+    labels: {de: Schwimmen}
+    color: "#06B6D4"
+    record_groups: [swim_ow, swim_pool]
+    sub_filters:
+      - {label: Alle, record_groups: [swim_ow, swim_pool]}
+      - {label: Freiwasser, record_groups: [swim_ow]}
+      - {label: Becken, record_groups: [swim_pool]}
