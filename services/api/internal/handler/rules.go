@@ -143,7 +143,7 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func rewriteCreateRuleSportTaxonomy(create *model.AutomationRuleCreate) error {
-	rewritten, _, err := rules.RewriteSportTaxonomyRuleJSON(rules.SportTaxonomyRuleJSON{
+	rewritten, _, err := rules.NormalizeAndValidateSportTaxonomyRuleJSON(rules.SportTaxonomyRuleJSON{
 		Conditions:      create.Conditions,
 		ConditionGroups: create.ConditionGroups,
 		Branches:        create.Branches,
@@ -170,7 +170,7 @@ func rewriteUpdateRuleSportTaxonomy(update *model.AutomationRuleUpdate) error {
 	if update.Actions != nil {
 		input.Actions = *update.Actions
 	}
-	rewritten, _, err := rules.RewriteSportTaxonomyRuleJSON(input)
+	rewritten, _, err := rules.NormalizeAndValidateSportTaxonomyRuleJSON(input)
 	if err != nil {
 		return err
 	}

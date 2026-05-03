@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/rules"
 )
 
 // tagSelectCols are the columns returned by tag queries.
@@ -465,6 +467,12 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 		default:
 			actions = fmt.Sprintf(`[{"action":"add_tag","params":{"tag_id":"%s"}}]`, tagID)
 		}
+		if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+			Conditions: json.RawMessage(tr.conditions),
+			Actions:    json.RawMessage(actions),
+		}); err != nil {
+			return fmt.Errorf("validate system rule %s: %w", tr.tagName, err)
+		}
 		_, _ = db.Pool.Exec(ctx, `
 			INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
 			VALUES ($1, $2, true, $3, true, $4, $5::jsonb, 'and', $6::jsonb)
@@ -472,6 +480,12 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 			userID, tr.tagName, tr.systemType, tr.priority, tr.conditions, actions)
 	}
 	// E-Bike rule (no conditions/actions — handled by import pipeline)
+	if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+		Conditions: json.RawMessage(`[]`),
+		Actions:    json.RawMessage(`[]`),
+	}); err != nil {
+		return fmt.Errorf("validate E-Bike system rule: %w", err)
+	}
 	_, _ = db.Pool.Exec(ctx, `
 		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
 		VALUES ($1, 'E-Bike', true, 'electric_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
@@ -479,6 +493,12 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 		userID)
 
 	// Indoor sync rule (no conditions/actions — handled by import pipeline + trigger)
+	if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+		Conditions: json.RawMessage(`[]`),
+		Actions:    json.RawMessage(`[]`),
+	}); err != nil {
+		return fmt.Errorf("validate Indoor system rule: %w", err)
+	}
 	_, _ = db.Pool.Exec(ctx, `
 		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
 		VALUES ($1, 'Indoor', true, 'indoor_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
@@ -486,6 +506,12 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 		userID)
 
 	// Virtual activity rule (no conditions/actions — synced via is_virtual column)
+	if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+		Conditions: json.RawMessage(`[]`),
+		Actions:    json.RawMessage(`[]`),
+	}); err != nil {
+		return fmt.Errorf("validate Virtuell system rule: %w", err)
+	}
 	_, _ = db.Pool.Exec(ctx, `
 		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
 		VALUES ($1, 'Virtuell', true, 'virtual_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
@@ -536,6 +562,13 @@ func (db *DB) SeedRecommendedRules(ctx context.Context, userID string) {
 
 	// Helper: insert a rule only if no rule with the same user_id + name + is_system=false exists yet.
 	createRule := func(name string, priority int, conditions, actions, triggerEvent string) {
+		if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+			Conditions: json.RawMessage(conditions),
+			Actions:    json.RawMessage(actions),
+		}); err != nil {
+			slog.Warn("recommended rule validation failed", "name", name, "error", err)
+			return
+		}
 		_, _ = db.Pool.Exec(ctx, `
 			INSERT INTO automation_rules
 				(user_id, name, is_active, priority, conditions, conditions_logic, actions,
@@ -558,7 +591,14 @@ func (db *DB) SeedRecommendedRules(ctx context.Context, userID string) {
 			`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":42000},{"field":"distance_m","op":"lt","value":50000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + maraID + `"}}]},` +
 			`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":21000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + halbID + `"}}]}` +
 			`]`
-		_, _ = db.Pool.Exec(ctx, `
+		if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+			Conditions: json.RawMessage(`[]`),
+			Actions:    json.RawMessage(`[]`),
+			Branches:   json.RawMessage(branches),
+		}); err != nil {
+			slog.Warn("recommended rule validation failed", "name", "Laufdistanz", "error", err)
+		} else {
+			_, _ = db.Pool.Exec(ctx, `
 			INSERT INTO automation_rules
 				(user_id, name, is_active, priority, conditions, conditions_logic, actions,
 				 branches, trigger_event, stop_on_match, apply_retroactively)
@@ -568,7 +608,8 @@ func (db *DB) SeedRecommendedRules(ctx context.Context, userID string) {
 				SELECT 1 FROM automation_rules
 				WHERE user_id = $1 AND name = 'Laufdistanz' AND is_system = false
 			)`,
-			userID, branches)
+				userID, branches)
+		}
 	}
 	// Intervalltraining: enrichment field has_structured_intervals = true
 	if id, ok := tagIDs["Intervalltraining"]; ok {

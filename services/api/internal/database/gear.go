@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -893,6 +894,14 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 	if triggerEvent == "" {
 		triggerEvent = "on_import"
 	}
+	if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+		Conditions:      create.Conditions,
+		ConditionGroups: create.ConditionGroups,
+		Actions:         create.Actions,
+		Branches:        create.Branches,
+	}); err != nil {
+		return nil, fmt.Errorf("validate rule: %w", err)
+	}
 	var r model.AutomationRule
 	err := db.Pool.QueryRow(ctx,
 		`INSERT INTO automation_rules (user_id, name, priority, conditions, conditions_logic, condition_groups, actions, trigger_event, stop_on_match, apply_retroactively, branches)
@@ -922,18 +931,19 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 }
 
 func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *model.AutomationRuleUpdate) (*model.AutomationRule, error) {
-	// Server-side guard: ebike_sync rules are fully read-only
+	// Server-side guard: sync rules are fully read-only.
 	var sysType *string
+	var currentConditions, currentConditionGroups, currentActions, currentBranches json.RawMessage
 	if err := db.Pool.QueryRow(ctx,
-		`SELECT system_type FROM automation_rules WHERE id = $1 AND user_id = $2`,
+		`SELECT system_type, conditions, condition_groups, actions, branches FROM automation_rules WHERE id = $1 AND user_id = $2`,
 		id, userID,
-	).Scan(&sysType); err != nil {
+	).Scan(&sysType, &currentConditions, &currentConditionGroups, &currentActions, &currentBranches); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	if sysType != nil && (*sysType == "electric_sync" || *sysType == "virtual_sync") {
+	if isReadonlySyncRuleType(sysType) {
 		return nil, fmt.Errorf("this system rule is read-only")
 	}
 
@@ -971,6 +981,28 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 	}
 	if update.Branches != nil {
 		b.Set("branches", update.Branches)
+	}
+
+	effective := rules.SportTaxonomyRuleJSON{
+		Conditions:      currentConditions,
+		ConditionGroups: currentConditionGroups,
+		Actions:         currentActions,
+		Branches:        currentBranches,
+	}
+	if update.Conditions != nil {
+		effective.Conditions = *update.Conditions
+	}
+	if update.ConditionGroups != nil {
+		effective.ConditionGroups = *update.ConditionGroups
+	}
+	if update.Actions != nil {
+		effective.Actions = *update.Actions
+	}
+	if update.Branches != nil {
+		effective.Branches = update.Branches
+	}
+	if err := validateAutomationRuleJSON(effective); err != nil {
+		return nil, fmt.Errorf("validate rule: %w", err)
 	}
 
 	if !b.HasSets() {
@@ -1014,6 +1046,22 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 			  AND (ar.actions::text LIKE '%' || t.id::text || '%' OR COALESCE(ar.branches::text, '') LIKE '%' || t.id::text || '%')
 		) WHERE t.user_id = $1`, userID) //nolint:errcheck
 	return &r, nil
+}
+
+func validateAutomationRuleJSON(input rules.SportTaxonomyRuleJSON) error {
+	return rules.ValidateSportTaxonomyRuleJSON(input)
+}
+
+func isReadonlySyncRuleType(systemType *string) bool {
+	if systemType == nil {
+		return false
+	}
+	switch *systemType {
+	case "electric_sync", "indoor_sync", "virtual_sync":
+		return true
+	default:
+		return false
+	}
 }
 
 func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {

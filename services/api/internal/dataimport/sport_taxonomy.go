@@ -282,7 +282,7 @@ func normalizeAutomationRuleSportJSON(row map[string]any) error {
 		input.Actions = raw
 	}
 
-	rewritten, _, err := rules.RewriteSportTaxonomyRuleJSON(input)
+	rewritten, _, err := rules.NormalizeAndValidateSportTaxonomyRuleJSON(input)
 	if err != nil {
 		return err
 	}
