@@ -10,9 +10,15 @@ per-activity execution states such as indoor, virtual, electric, or commute.
 
 `aliases/*.yaml` maps raw source/import sport labels to canonical sport tuples.
 Use aliases for importer labels, legacy spellings, file-format sport strings,
-and source-specific modifier patches when the raw source label itself carries
-that evidence. Do not use aliases to create new canonical sports or to encode
-parser/device evidence that is derived from numeric IDs or file metadata.
+route/course export labels, and source-specific modifier patches when the raw
+source label itself carries that evidence. Do not use aliases to create new
+canonical sports or to encode parser/device evidence that is derived from
+numeric IDs or file metadata.
+
+Source aliases also feed the generated top-level gear-default projection where a
+current gear importer has verified raw default-sport labels. Gear defaults remain
+stored as top-level `sport_type` strings. They do not store `sub_type` or
+modifier predicates until a dedicated gear predicate schema exists.
 
 `projections/*.yaml` defines consumer-specific groupings of canonical tuples.
 `projections/activity_filters.yaml` owns activity and map filter placement.
