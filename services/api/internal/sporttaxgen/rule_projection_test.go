@@ -43,16 +43,23 @@ trait_conditions:
     field: sport_environment
     operators: [in]
     source: traits.environments
+    option_labels:
+      water: {de: Wasser}
+      land: {de: Land}
   - key: sport_equipment_family
     labels: {de: Ausrüstungsart}
     field: sport_equipment_family
     operators: [in]
     source: traits.equipment_families
+    option_labels:
+      board: {de: Board}
   - key: sport_movement_family
     labels: {de: Bewegungsart}
     field: sport_movement_family
     operators: [in]
     source: traits.movement_families
+    option_labels:
+      paddle: {de: Paddeln}
 `
 
 func TestLoadRuleProjectionRejectsUnknownModifierSource(t *testing.T) {
@@ -136,11 +143,20 @@ func TestExpandRuleProjectionUsesSelectableTuplesAndModifierApplicability(t *tes
 	if !expanded.HasTraitValue("sport_environment", "water") {
 		t.Fatal("sport_environment should expose water")
 	}
+	if got := expanded.TraitValueLabelDE("sport_environment", "water"); got != "Wasser" {
+		t.Fatalf("sport_environment water label = %q, want Wasser", got)
+	}
 	if !expanded.HasTraitValue("sport_equipment_family", "board") {
 		t.Fatal("sport_equipment_family should expose board")
 	}
+	if got := expanded.TraitValueLabelDE("sport_equipment_family", "board"); got != "Board" {
+		t.Fatalf("sport_equipment_family board label = %q, want Board", got)
+	}
 	if !expanded.HasTraitValue("sport_movement_family", "paddle") {
 		t.Fatal("sport_movement_family should expose paddle")
+	}
+	if got := expanded.TraitValueLabelDE("sport_movement_family", "paddle"); got != "Paddeln" {
+		t.Fatalf("sport_movement_family paddle label = %q, want Paddeln", got)
 	}
 }
 

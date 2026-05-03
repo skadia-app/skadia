@@ -104,7 +104,7 @@ describe('RuleEditor sport tuple controls', () => {
 
     expect(screen.getByDisplayValue('Taxonomie')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Umgebung')).toBeInTheDocument()
-    expect(screen.getByText('water')).toBeInTheDocument()
+    expect(screen.getByText('Wasser')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
     await waitFor(() => expect(onSave).toHaveBeenCalled())
