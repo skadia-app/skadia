@@ -123,7 +123,17 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		FileName:    "manual.json",
 		SizeBytes:   int64(len(jsonBytes)),
 		FileHash:    hashStr,
-		Tags:        map[string]string{"format": "manual", "source": "manual"},
+		Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
+			Format:         "manual",
+			Source:         "manual",
+			StartedAt:      startedAt,
+			SportType:      req.SportType,
+			SubType:        req.SubType,
+			Title:          req.Title,
+			DistanceM:      req.DistanceM,
+			ElapsedTimeS:   int(req.ElapsedTimeS),
+			ElevationGainM: req.ElevationGainM,
+		}),
 	}, bytes.NewReader(jsonBytes))
 	if putErr != nil {
 		slog.Error("manual activity: ShadowFS.Put failed", "error", putErr)

@@ -1172,6 +1172,26 @@ func (h *Handler) fitLevelMerge(
 	newHash := hex.EncodeToString(hashBytes[:])
 
 	// Zusammengeführte FIT-Datei via ShadowFS speichern.
+	subType := ""
+	if target.SubType != nil {
+		subType = *target.SubType
+	}
+	title := ""
+	if target.Title != nil {
+		title = *target.Title
+	}
+	elapsedTimeS := 0
+	if target.ElapsedTimeS != nil {
+		elapsedTimeS = *target.ElapsedTimeS
+	}
+	distanceM := 0.0
+	if target.DistanceM != nil {
+		distanceM = *target.DistanceM
+	}
+	elevationGainM := 0.0
+	if target.ElevationGainM != nil {
+		elevationGainM = *target.ElevationGainM
+	}
 	rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
 		UserID:      userID,
 		FileType:    "activity",
@@ -1179,7 +1199,17 @@ func (h *Handler) fitLevelMerge(
 		FileName:    fmt.Sprintf("%s.fit", newHash),
 		SizeBytes:   int64(len(result.Data)),
 		FileHash:    newHash,
-		Tags:        map[string]string{"format": "fit", "source": "fusion_merge"},
+		Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
+			Format:         "fit",
+			Source:         "fusion_merge",
+			StartedAt:      target.StartedAt,
+			SportType:      target.SportType,
+			SubType:        subType,
+			Title:          title,
+			DistanceM:      distanceM,
+			ElapsedTimeS:   elapsedTimeS,
+			ElevationGainM: elevationGainM,
+		}),
 	}, bytes.NewReader(result.Data))
 	if putErr != nil {
 		return fmt.Errorf("ShadowFS.Put merged FIT: %w", putErr)
