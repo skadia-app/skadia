@@ -13,6 +13,8 @@ func TestFusionActivitySchemaTagsInputUsesFinalMergedTuple(t *testing.T) {
 	elapsed := 3600
 	distance := 25000.0
 	elevation := 800.0
+	startCity := "Augsburg"
+	startCountry := "DE"
 	startedAt := time.Date(2026, 5, 3, 14, 30, 0, 0, time.UTC)
 
 	input := fusionActivitySchemaTagsInput("fit", "fusion_merge", &model.Activity{
@@ -20,6 +22,8 @@ func TestFusionActivitySchemaTagsInputUsesFinalMergedTuple(t *testing.T) {
 		SportType:      "cycling",
 		SubType:        &subType,
 		Title:          &title,
+		StartCity:      &startCity,
+		StartCountry:   &startCountry,
 		ElapsedTimeS:   &elapsed,
 		DistanceM:      &distance,
 		ElevationGainM: &elevation,
@@ -42,5 +46,8 @@ func TestFusionActivitySchemaTagsInputUsesFinalMergedTuple(t *testing.T) {
 	}
 	if input.ElevationGainM != elevation {
 		t.Fatalf("ElevationGainM = %f, want %f", input.ElevationGainM, elevation)
+	}
+	if input.City != startCity || input.Country != startCountry {
+		t.Fatalf("location tags = %q/%q, want %q/%q", input.City, input.Country, startCity, startCountry)
 	}
 }
