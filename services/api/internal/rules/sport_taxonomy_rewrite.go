@@ -175,6 +175,10 @@ func validateRuleConditions(conditions []Condition, surface string, state *sport
 				return err
 			}
 			state.hasSportTupleIn = true
+		case "sport_environment", "sport_equipment_family", "sport_movement_family":
+			if err := ValidateSportTraitCondition(condition, fmt.Sprintf("%s[%d]", surface, i)); err != nil {
+				return err
+			}
 		case "sport_type":
 			if op == "in" || op == "not_in" {
 				state.hasLegacySportTypeList = true

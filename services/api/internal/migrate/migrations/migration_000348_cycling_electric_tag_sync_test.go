@@ -35,6 +35,8 @@ func TestMigration000348CyclingElectricTagSyncDeclaresRequiredContracts(t *testi
 		"is_system = true",
 		"UPDATE tags",
 		"is_electric = true",
+		"EXISTS (",
+		"v_tag_id IS NOT NULL AND",
 	} {
 		if !strings.Contains(upSQL, needle) {
 			t.Fatalf("up migration missing %q", needle)
@@ -118,6 +120,33 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	assertHasSystemEBikeLink000348(t, ctx, tx, runningID, false)
 	assertActivityElectric000348(t, ctx, tx, runningID, true)
 	assertActivityTagArrayHas000348(t, ctx, tx, runningID, "E-Bike", false)
+
+	customUserID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
+		VALUES ($1, $2, $3, true, 'test', false)
+	`, customUserID, "mig348_custom_"+customUserID[:8], "mig348_custom_"+customUserID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert custom user: %v", err)
+	}
+	customRunningID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+		VALUES ($1, 'E-Bike', '#111111', '#FFFFFF', 'custom', false, false, 'custom')
+	`, customUserID); err != nil {
+		t.Fatalf("insert custom E-Bike tag: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, tags, is_electric, started_at)
+		VALUES ($1, $2, 'custom e-bike text', 'running', NULL, ARRAY['E-Bike']::text[], true, now())
+	`, customRunningID, customUserID); err != nil {
+		t.Fatalf("insert custom E-Bike activity: %v", err)
+	}
+	assertActivityTagArrayHas000348(t, ctx, tx, customRunningID, "E-Bike", true)
+	if _, err := tx.Exec(ctx, `UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), 'Urlaub') WHERE id = $1`, customRunningID); err != nil {
+		t.Fatalf("add unrelated custom E-Bike activity tag: %v", err)
+	}
+	assertActivityTagArrayHas000348(t, ctx, tx, customRunningID, "E-Bike", true)
+	assertActivityElectric000348(t, ctx, tx, customRunningID, true)
 
 	if _, err := tx.Exec(ctx, `UPDATE activities SET sport_type = 'running' WHERE id = $1`, cyclingID); err != nil {
 		t.Fatalf("change cycling to running: %v", err)

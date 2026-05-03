@@ -7,7 +7,7 @@ import { fetchDevices } from '@/api/hardware'
 import type { Device } from '@/api/hardware'
 import type { AutomationRule, Gear, RuleCondition, RuleConditionGroup, RuleAction, RuleBranch } from '@/api/types'
 import { SPORT_DEFS, getSportDef, normalizeSportTuple } from '@/lib/sportTaxonomy'
-import { ruleModifierControlsForTuple, ruleTupleOptions } from '@/lib/ruleSportProjection'
+import { ruleModifierControlsForTuple, ruleTraitConditionFields, ruleTupleOptions } from '@/lib/ruleSportProjection'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import ZoneEditor, { type ZoneData } from '@/components/ZoneEditor'
@@ -23,6 +23,7 @@ const SPORT_OPTIONS = SPORT_DEFS.map(d => ({
 }))
 
 const RULE_TUPLE_OPTIONS = ruleTupleOptions()
+const RULE_TRAIT_CONDITION_FIELDS = ruleTraitConditionFields()
 
 const RULE_TUPLE_SPORT_OPTIONS = Array.from(
   new Map(RULE_TUPLE_OPTIONS.map((opt) => {
@@ -122,12 +123,22 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'sport_type', label: 'Sportart', inputType: 'enum', options: SPORT_OPTIONS },
     { field: 'sport_tuple', label: 'Sportauswahl', inputType: 'sportTupleList', operators: ['in'] },
   ]},
-  { key: 'activity', label: 'Aktivität', fields: [
-    { field: 'source', label: 'Quelle', inputType: 'enum', options: SOURCE_OPTIONS },
-    { field: 'intensity', label: 'Intensität', inputType: 'enum', options: INTENSITY_OPTIONS },
+  { key: 'taxonomy', label: 'Taxonomie', fields: RULE_TRAIT_CONDITION_FIELDS.map((field) => ({
+    field: field.field,
+    label: field.label,
+    inputType: 'enum',
+    options: field.options,
+    operators: ['in'],
+  })) },
+  { key: 'modifiers', label: 'Modifier', fields: [
+    { field: 'is_electric', label: 'E-Antrieb', inputType: 'bool' },
     { field: 'is_indoor', label: 'Indoor', inputType: 'bool' },
     { field: 'is_virtual', label: 'Virtuell', inputType: 'bool' },
     { field: 'is_commute', label: 'Pendeln', inputType: 'bool' },
+  ]},
+  { key: 'activity', label: 'Aktivität', fields: [
+    { field: 'source', label: 'Quelle', inputType: 'enum', options: SOURCE_OPTIONS },
+    { field: 'intensity', label: 'Intensität', inputType: 'enum', options: INTENSITY_OPTIONS },
     { field: 'has_gps', label: 'Hat GPS', inputType: 'bool' },
     { field: 'detected_lap_count', label: 'Anzahl Runden', inputType: 'number' },
   ]},
@@ -360,6 +371,7 @@ function opsForField(cf: ConditionField): string[] {
 function defaultValueForField(field: ConditionField): unknown {
   if (field.inputType === 'bool') return true
   if (field.inputType === 'sportTupleList') return [{ sport_type: RULE_TUPLE_SPORT_OPTIONS[0]?.value ?? 'running' }]
+  if (field.inputType === 'enum' && field.operators?.[0] === 'in') return field.options?.[0]?.value ? [field.options[0].value] : []
   return ''
 }
 
@@ -676,7 +688,6 @@ function SportTupleListConditionControl({
               type="button"
               onClick={() => removeRow(index)}
               className="text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer mb-2"
-              title="Sportart entfernen"
             >
               <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />

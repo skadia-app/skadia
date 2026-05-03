@@ -133,7 +133,7 @@
     "ruleProjection": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["tuple_selectors", "modifiers"],
+      "required": ["tuple_selectors", "modifiers", "trait_conditions"],
       "properties": {
         "tuple_selectors": {
           "type": "array",
@@ -193,6 +193,36 @@
                 ]
               },
               "render_existing": { "type": "boolean" }
+            }
+          }
+        },
+        "trait_conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "labels", "field", "operators", "source"],
+            "properties": {
+              "key": {
+                "type": "string",
+                "enum": ["sport_environment", "sport_equipment_family", "sport_movement_family"]
+              },
+              "labels": { "$ref": "#/$defs/localeMap" },
+              "field": {
+                "type": "string",
+                "enum": ["sport_environment", "sport_equipment_family", "sport_movement_family"]
+              },
+              "operators": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "type": "string", "enum": ["in"] }
+              },
+              "source": {
+                "type": "string",
+                "enum": ["traits.environments", "traits.equipment_families", "traits.movement_families"]
+              }
             }
           }
         }

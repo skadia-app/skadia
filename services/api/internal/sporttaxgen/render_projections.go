@@ -56,6 +56,15 @@ func RenderGoProjections(activityPresets []ExpandedActivityFilterPreset, segment
 		buf.WriteString("\t},\n")
 	}
 	buf.WriteString("}\n")
+	buf.WriteString("\nvar generatedRuleTraitProjections = []RuleTraitProjection{\n")
+	for _, condition := range ruleProjection.TraitConditions {
+		fmt.Fprintf(&buf, "\t{Key: %q, Field: %q, LabelDE: %q, Options: []RuleTraitOption{\n", condition.Key, condition.Field, condition.Label["de"])
+		for _, option := range condition.Options {
+			fmt.Fprintf(&buf, "\t\t{Key: %q, LabelDE: %q},\n", option.Key, option.Label["de"])
+		}
+		buf.WriteString("\t}},\n")
+	}
+	buf.WriteString("}\n")
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
@@ -115,7 +124,29 @@ func RenderTSRuleProjection(projection ExpandedRuleProjection) ([]byte, error) {
 		}
 		buf.WriteString("  ],\n")
 	}
-	buf.WriteString("} as const\n")
+	buf.WriteString("} as const\n\n")
+	buf.WriteString("export const GENERATED_RULE_TRAIT_PROJECTIONS = [\n")
+	for _, condition := range projection.TraitConditions {
+		buf.WriteString("  {\n")
+		fmt.Fprintf(&buf, "    key: %s,\n", tsString(condition.Key))
+		fmt.Fprintf(&buf, "    field: %s,\n", tsString(condition.Field))
+		fmt.Fprintf(&buf, "    label: %s,\n", tsString(condition.Label["de"]))
+		buf.WriteString("    operators: [")
+		for i, op := range condition.Operators {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			buf.WriteString(tsString(op))
+		}
+		buf.WriteString("],\n")
+		buf.WriteString("    options: [\n")
+		for _, option := range condition.Options {
+			fmt.Fprintf(&buf, "      { value: %s, label: %s },\n", tsString(option.Key), tsString(option.Label["de"]))
+		}
+		buf.WriteString("    ],\n")
+		buf.WriteString("  },\n")
+	}
+	buf.WriteString("] as const\n")
 	return buf.Bytes(), nil
 }
 

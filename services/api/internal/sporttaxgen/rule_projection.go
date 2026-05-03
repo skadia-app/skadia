@@ -18,8 +18,9 @@ var allowedRuleModifierSources = map[string]struct{}{
 }
 
 type RuleProjection struct {
-	TupleSelectors []RuleTupleSelectorConfig `yaml:"tuple_selectors"`
-	Modifiers      []RuleModifierConfig      `yaml:"modifiers"`
+	TupleSelectors  []RuleTupleSelectorConfig  `yaml:"tuple_selectors"`
+	Modifiers       []RuleModifierConfig       `yaml:"modifiers"`
+	TraitConditions []RuleTraitConditionConfig `yaml:"trait_conditions"`
 }
 
 type RuleTupleSelectorConfig struct {
@@ -39,10 +40,19 @@ type RuleModifierConfig struct {
 	RenderExisting          bool      `yaml:"render_existing"`
 }
 
+type RuleTraitConditionConfig struct {
+	Key       string    `yaml:"key"`
+	Labels    LocaleMap `yaml:"labels"`
+	Field     string    `yaml:"field"`
+	Operators []string  `yaml:"operators"`
+	Source    string    `yaml:"source"`
+}
+
 type ExpandedRuleProjection struct {
-	TupleSelectors []ExpandedRuleTupleSelector
-	TupleOptions   []ExpandedRuleTupleOption
-	Modifiers      []ExpandedRuleModifier
+	TupleSelectors  []ExpandedRuleTupleSelector
+	TupleOptions    []ExpandedRuleTupleOption
+	Modifiers       []ExpandedRuleModifier
+	TraitConditions []ExpandedRuleTraitCondition
 }
 
 type ExpandedRuleTupleSelector struct {
@@ -75,6 +85,20 @@ type ExpandedRuleModifierApplicability struct {
 	RenderExisting      bool
 }
 
+type ExpandedRuleTraitCondition struct {
+	Key       string
+	Label     LocaleMap
+	Field     string
+	Operators []string
+	Source    string
+	Options   []ExpandedRuleTraitOption
+}
+
+type ExpandedRuleTraitOption struct {
+	Key   string
+	Label LocaleMap
+}
+
 func LoadRuleProjection(r io.Reader, taxonomy Taxonomy) (RuleProjection, error) {
 	var projection RuleProjection
 	dec := yaml.NewDecoder(r)
@@ -93,9 +117,10 @@ func ExpandRuleProjection(taxonomy Taxonomy, projection RuleProjection) (Expande
 		return ExpandedRuleProjection{}, err
 	}
 	out := ExpandedRuleProjection{
-		TupleSelectors: make([]ExpandedRuleTupleSelector, 0, len(projection.TupleSelectors)),
-		TupleOptions:   expandSelectableRuleTupleOptions(taxonomy, projection.Modifiers),
-		Modifiers:      make([]ExpandedRuleModifier, 0, len(projection.Modifiers)),
+		TupleSelectors:  make([]ExpandedRuleTupleSelector, 0, len(projection.TupleSelectors)),
+		TupleOptions:    expandSelectableRuleTupleOptions(taxonomy, projection.Modifiers),
+		Modifiers:       make([]ExpandedRuleModifier, 0, len(projection.Modifiers)),
+		TraitConditions: make([]ExpandedRuleTraitCondition, 0, len(projection.TraitConditions)),
 	}
 	for _, selector := range projection.TupleSelectors {
 		out.TupleSelectors = append(out.TupleSelectors, ExpandedRuleTupleSelector{
@@ -112,6 +137,16 @@ func ExpandRuleProjection(taxonomy Taxonomy, projection RuleProjection) (Expande
 			Key:            modifier.Key,
 			Label:          cloneLocaleMap(modifier.Labels),
 			RenderExisting: modifier.RenderExisting,
+		})
+	}
+	for _, condition := range projection.TraitConditions {
+		out.TraitConditions = append(out.TraitConditions, ExpandedRuleTraitCondition{
+			Key:       condition.Key,
+			Label:     cloneLocaleMap(condition.Labels),
+			Field:     condition.Field,
+			Operators: append([]string(nil), condition.Operators...),
+			Source:    condition.Source,
+			Options:   expandRuleTraitOptions(taxonomy, condition.Source),
 		})
 	}
 	return out, nil
@@ -148,12 +183,29 @@ func (p ExpandedRuleProjection) ModifierApplicable(sportType, subType, key, surf
 	return false
 }
 
+func (p ExpandedRuleProjection) HasTraitValue(field, value string) bool {
+	for _, condition := range p.TraitConditions {
+		if condition.Field != field {
+			continue
+		}
+		for _, option := range condition.Options {
+			if option.Key == value {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func validateRuleProjection(projection RuleProjection, taxonomy Taxonomy) error {
 	if len(projection.TupleSelectors) == 0 {
 		return fmt.Errorf("missing tuple_selectors")
 	}
 	if len(projection.Modifiers) == 0 {
 		return fmt.Errorf("missing modifiers")
+	}
+	if len(projection.TraitConditions) == 0 {
+		return fmt.Errorf("missing trait_conditions")
 	}
 	selectorKeys := map[string]struct{}{}
 	for i, selector := range projection.TupleSelectors {
@@ -215,6 +267,9 @@ func validateRuleProjection(projection RuleProjection, taxonomy Taxonomy) error 
 	if len(selectableRuleTupleOptions(taxonomy)) == 0 {
 		return fmt.Errorf("rule projection requires at least one selectable sport tuple")
 	}
+	if err := validateRuleTraitConditions(projection.TraitConditions); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -245,6 +300,92 @@ func expandSelectableRuleTupleOptions(taxonomy Taxonomy, modifiers []RuleModifie
 		options[i].Modifiers = applicability
 	}
 	return options
+}
+
+func validateRuleTraitConditions(conditions []RuleTraitConditionConfig) error {
+	keys := map[string]struct{}{}
+	fields := map[string]struct{}{}
+	for i, condition := range conditions {
+		if condition.Key == "" {
+			return fmt.Errorf("trait_conditions[%d]: missing key", i)
+		}
+		if _, ok := keys[condition.Key]; ok {
+			return fmt.Errorf("duplicate trait condition key %q", condition.Key)
+		}
+		keys[condition.Key] = struct{}{}
+		if condition.Labels["de"] == "" {
+			return fmt.Errorf("trait condition %q: missing labels.de", condition.Key)
+		}
+		if condition.Field == "" {
+			return fmt.Errorf("trait condition %q: missing field", condition.Key)
+		}
+		if _, ok := fields[condition.Field]; ok {
+			return fmt.Errorf("duplicate trait condition field %q", condition.Field)
+		}
+		fields[condition.Field] = struct{}{}
+		if condition.Field != condition.Key {
+			return fmt.Errorf("trait condition %q: key must match field %q", condition.Key, condition.Field)
+		}
+		if !stringSlicesEqual(condition.Operators, []string{"in"}) {
+			return fmt.Errorf("trait condition %q: unsupported operators %v", condition.Key, condition.Operators)
+		}
+		if !ruleTraitSourceMatchesField(condition.Field, condition.Source) {
+			return fmt.Errorf("trait condition %q: unsupported source %q", condition.Key, condition.Source)
+		}
+	}
+	return nil
+}
+
+func ruleTraitSourceMatchesField(field, source string) bool {
+	switch field {
+	case "sport_environment":
+		return source == "traits.environments"
+	case "sport_equipment_family":
+		return source == "traits.equipment_families"
+	case "sport_movement_family":
+		return source == "traits.movement_families"
+	default:
+		return false
+	}
+}
+
+func expandRuleTraitOptions(taxonomy Taxonomy, source string) []ExpandedRuleTraitOption {
+	seen := map[string]struct{}{}
+	out := []ExpandedRuleTraitOption{}
+	add := func(values []string) {
+		for _, value := range values {
+			if _, ok := seen[value]; ok {
+				continue
+			}
+			seen[value] = struct{}{}
+			out = append(out, ExpandedRuleTraitOption{Key: value, Label: LocaleMap{"de": value}})
+		}
+	}
+	for _, sport := range taxonomy.Sports {
+		if sport.Selectable != nil && *sport.Selectable {
+			add(ruleTraitValuesForSource(sport.Traits, source))
+		}
+		for _, subType := range sport.SubTypes {
+			if subType.Selectable == nil || !*subType.Selectable {
+				continue
+			}
+			add(ruleTraitValuesForSource(EffectiveSubTypeTraits(sport, subType), source))
+		}
+	}
+	return out
+}
+
+func ruleTraitValuesForSource(traits Traits, source string) []string {
+	switch source {
+	case "traits.environments":
+		return traits.Environments
+	case "traits.equipment_families":
+		return traits.EquipmentFamilies
+	case "traits.movement_families":
+		return traits.MovementFamilies
+	default:
+		return nil
+	}
 }
 
 func selectableRuleTupleOptions(taxonomy Taxonomy) []ExpandedRuleTupleOption {

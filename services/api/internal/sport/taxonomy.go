@@ -84,6 +84,18 @@ type RuleModifierProjection struct {
 	RenderExisting      bool   `json:"render_existing"`
 }
 
+type RuleTraitProjection struct {
+	Key     string            `json:"key"`
+	Field   string            `json:"field"`
+	LabelDE string            `json:"label_de"`
+	Options []RuleTraitOption `json:"options"`
+}
+
+type RuleTraitOption struct {
+	Key     string `json:"key"`
+	LabelDE string `json:"label_de"`
+}
+
 // SubTypeDef describes a sub-sport variation within a parent sport.
 type SubTypeDef struct {
 	SubType          string           `json:"sub_type"`
@@ -344,6 +356,42 @@ func RuleModifierProjectionForTuple(sportType, subType, key string) (RuleModifie
 		}
 	}
 	return RuleModifierProjection{}, false
+}
+
+func RuleTraitProjections() []RuleTraitProjection {
+	out := make([]RuleTraitProjection, len(generatedRuleTraitProjections))
+	for i, projection := range generatedRuleTraitProjections {
+		out[i] = projection
+		out[i].Options = append([]RuleTraitOption(nil), projection.Options...)
+	}
+	return out
+}
+
+func RuleTraitValues(field string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, projection := range generatedRuleTraitProjections {
+		if projection.Field != field {
+			continue
+		}
+		for _, option := range projection.Options {
+			out[option.Key] = struct{}{}
+		}
+	}
+	return out
+}
+
+func EffectiveTraitsForTuple(sportType, subType string) (SportTraits, bool) {
+	def, ok := registry[sportType]
+	if !ok {
+		return SportTraits{}, false
+	}
+	if subType != "" && subType != "generic" {
+		if st, stOK := def.SubTypes[subType]; stOK {
+			return st.Traits, true
+		}
+		return SportTraits{}, false
+	}
+	return def.Traits, true
 }
 
 // SportsInCategory returns all sport definitions belonging to a category,

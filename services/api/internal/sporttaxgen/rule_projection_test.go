@@ -18,7 +18,7 @@ tuple_selectors:
     source: selectable_sport_tuples
 modifiers:
   - key: is_electric
-    labels: {de: Elektrisch}
+    labels: {de: E-Antrieb}
     condition_applicable_from: modifier_applicability.is_electric
     action_applicable_from: modifier_applicability.is_electric
     render_existing: true
@@ -37,6 +37,22 @@ modifiers:
     condition_applicable_from: modifier_applicability.is_commute
     action_applicable_from: modifier_applicability.is_commute
     render_existing: true
+trait_conditions:
+  - key: sport_environment
+    labels: {de: Umgebung}
+    field: sport_environment
+    operators: [in]
+    source: traits.environments
+  - key: sport_equipment_family
+    labels: {de: Ausrüstungsart}
+    field: sport_equipment_family
+    operators: [in]
+    source: traits.equipment_families
+  - key: sport_movement_family
+    labels: {de: Bewegungsart}
+    field: sport_movement_family
+    operators: [in]
+    source: traits.movement_families
 `
 
 func TestLoadRuleProjectionRejectsUnknownModifierSource(t *testing.T) {
@@ -50,10 +66,26 @@ tuple_selectors:
     source: selectable_sport_tuples
 modifiers:
   - key: is_electric
-    labels: {de: Elektrisch}
+    labels: {de: E-Antrieb}
     condition_applicable_from: modifier_applicability.nope
     action_applicable_from: modifier_applicability.is_electric
     render_existing: true
+trait_conditions:
+  - key: sport_environment
+    labels: {de: Umgebung}
+    field: sport_environment
+    operators: [in]
+    source: traits.environments
+  - key: sport_equipment_family
+    labels: {de: Ausrüstungsart}
+    field: sport_equipment_family
+    operators: [in]
+    source: traits.equipment_families
+  - key: sport_movement_family
+    labels: {de: Bewegungsart}
+    field: sport_movement_family
+    operators: [in]
+    source: traits.movement_families
 `)
 	_, err := LoadRuleProjection(src, taxonomy)
 	if err == nil || !strings.Contains(err.Error(), "modifier_applicability.nope") {
@@ -98,6 +130,18 @@ func TestExpandRuleProjectionUsesSelectableTuplesAndModifierApplicability(t *tes
 	if expanded.ModifierApplicable("running", "trail", "is_electric", "condition") {
 		t.Fatal("running/trail must not expose is_electric condition control")
 	}
+	if len(expanded.TraitConditions) != 3 {
+		t.Fatalf("trait conditions len = %d, want 3", len(expanded.TraitConditions))
+	}
+	if !expanded.HasTraitValue("sport_environment", "water") {
+		t.Fatal("sport_environment should expose water")
+	}
+	if !expanded.HasTraitValue("sport_equipment_family", "board") {
+		t.Fatal("sport_equipment_family should expose board")
+	}
+	if !expanded.HasTraitValue("sport_movement_family", "paddle") {
+		t.Fatal("sport_movement_family should expose paddle")
+	}
 }
 
 func minimalRuleProjectionTaxonomy(t *testing.T) Taxonomy {
@@ -107,6 +151,7 @@ func minimalRuleProjectionTaxonomy(t *testing.T) Taxonomy {
 		Categories: []Category{
 			{Key: "run", Labels: LocaleMap{"de": "Läufe"}, Color: Color{Token: "run", LightHex: "#EF4444"}},
 			{Key: "bike", Labels: LocaleMap{"de": "Radfahrten"}, Color: Color{Token: "bike", LightHex: "#10B981"}},
+			{Key: "water", Labels: LocaleMap{"de": "Wasser"}, Color: Color{Token: "water", LightHex: "#3B82F6"}},
 			{Key: "fitness", Labels: LocaleMap{"de": "Fitness"}, Color: Color{Token: "fitness", LightHex: "#8B5CF6"}},
 		},
 		Sports: []Sport{
@@ -144,6 +189,17 @@ func minimalRuleProjectionTaxonomy(t *testing.T) Taxonomy {
 				Lifecycle:             "broad_fallback",
 				Traits:                Traits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, ActivityForm: "fallback", PropulsionModes: []string{"human"}},
 				ModifierApplicability: &ModifierApplicability{IsElectric: boolPtr(false), IsIndoor: boolPtr(true), IsVirtual: boolPtr(false), IsCommute: boolPtr(false)},
+			},
+			{
+				SportType:             "stand_up_paddleboarding",
+				CategoryKey:           "water",
+				Labels:                LocaleMap{"de": "SUP"},
+				AutoTitles:            LocaleMap{"de": "SUP"},
+				SegmentGroup:          "paddle",
+				Selectable:            boolPtr(true),
+				Lifecycle:             "canonical",
+				Traits:                Traits{Environments: []string{"water"}, MovementFamilies: []string{"paddle"}, EquipmentFamilies: []string{"board", "paddle"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
+				ModifierApplicability: &ModifierApplicability{IsElectric: boolPtr(false), IsIndoor: boolPtr(false), IsVirtual: boolPtr(false), IsCommute: boolPtr(false)},
 			},
 		},
 	}
