@@ -11,7 +11,7 @@ tuple_selectors:
 
 modifiers:
   - key: is_electric
-    labels: {de: Elektrisch}
+    labels: {de: E-Antrieb}
     condition_applicable_from: modifier_applicability.is_electric
     action_applicable_from: modifier_applicability.is_electric
     render_existing: true
@@ -30,3 +30,20 @@ modifiers:
     condition_applicable_from: modifier_applicability.is_commute
     action_applicable_from: modifier_applicability.is_commute
     render_existing: true
+
+trait_conditions:
+  - key: sport_environment
+    labels: {de: Umgebung}
+    field: sport_environment
+    operators: [in]
+    source: traits.environments
+  - key: sport_equipment_family
+    labels: {de: Ausrüstungsart}
+    field: sport_equipment_family
+    operators: [in]
+    source: traits.equipment_families
+  - key: sport_movement_family
+    labels: {de: Bewegungsart}
+    field: sport_movement_family
+    operators: [in]
+    source: traits.movement_families

@@ -66,7 +66,7 @@ describe('RuleEditor sport tuple controls', () => {
 
     expect(screen.getByDisplayValue('Titel')).toBeInTheDocument()
     expect(screen.queryByLabelText('Sportart')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Elektrisch')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('E-Antrieb')).not.toBeInTheDocument()
   })
 
   it('keeps newly added conditions visible when a sport tuple already exists', () => {
@@ -87,6 +87,50 @@ describe('RuleEditor sport tuple controls', () => {
     expect(screen.getByRole('option', { name: 'Medien' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Aktivität' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Sichtbarkeit' })).toBeInTheDocument()
+  })
+
+  it('offers taxonomy trait and global modifier condition categories', () => {
+    renderNewEditor()
+
+    expect(screen.getByRole('option', { name: 'Taxonomie' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Modifier' })).toBeInTheDocument()
+  })
+
+  it('serializes taxonomy trait conditions without expanding them to sport tuples', async () => {
+    const onSave = renderNewEditor({
+      condition_groups: [{ logic: 'and', conditions: [{ field: 'sport_environment', op: 'in', value: ['water'] }] }],
+      actions: [{ action: 'set_sport_type', params: { sport_type: 'cycling' } }],
+    })
+
+    expect(screen.getByDisplayValue('Taxonomie')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Umgebung')).toBeInTheDocument()
+    expect(screen.getByText('water')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'sport_environment', op: 'in', value: ['water'] },
+    ])
+  })
+
+  it('serializes global modifier conditions separately from sport tuples', async () => {
+    const onSave = renderNewEditor({
+      condition_groups: [{ logic: 'and', conditions: [
+        { field: 'sport_tuple', op: 'in', value: [{ sport_type: 'cycling' }] },
+        { field: 'is_electric', op: 'eq', value: true },
+      ] }],
+      actions: [{ action: 'set_sport_type', params: { sport_type: 'cycling' } }],
+    })
+
+    expect(screen.getByDisplayValue('Modifier')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('E-Antrieb')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'sport_tuple', op: 'in', value: [{ sport_type: 'cycling' }] },
+      { field: 'is_electric', op: 'eq', value: true },
+    ])
   })
 
   it('shows active gear options in gear conditions without offering retired gear', async () => {
@@ -123,7 +167,7 @@ describe('RuleEditor sport tuple controls', () => {
   it('removes stale tuple modifiers when a sport no longer supports them', async () => {
     const onSave = renderEditor({})
 
-    fireEvent.change(screen.getByLabelText('Elektrisch'), { target: { value: 'true' } })
+    fireEvent.change(screen.getByLabelText('E-Antrieb'), { target: { value: 'true' } })
     fireEvent.change(screen.getByLabelText('Sportart'), { target: { value: 'running' } })
     fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
 
@@ -157,8 +201,8 @@ describe('RuleEditor sport tuple controls', () => {
 
     expect(screen.getByLabelText('Sportart')).toHaveValue('running')
     expect(screen.getAllByRole('option', { name: 'Trail' }).length).toBeGreaterThan(0)
-    expect(screen.queryByLabelText('Elektrisch')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Elektrisch setzen')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('E-Antrieb')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('E-Antrieb setzen')).not.toBeInTheDocument()
   })
 
   it('edits activity speed conditions in km/h while saving m/s', async () => {
@@ -200,9 +244,9 @@ describe('RuleEditor sport tuple controls', () => {
     const onSave = renderEditor({})
 
     fireEvent.change(screen.getByLabelText('Sub-Sportart'), { target: { value: 'mountain' } })
-    fireEvent.change(screen.getByLabelText('Elektrisch'), { target: { value: 'true' } })
+    fireEvent.change(screen.getByLabelText('E-Antrieb'), { target: { value: 'true' } })
     fireEvent.change(screen.getByLabelText('Sub-Sportart setzen'), { target: { value: 'mountain' } })
-    fireEvent.change(screen.getByLabelText('Elektrisch setzen'), { target: { value: 'true' } })
+    fireEvent.change(screen.getByLabelText('E-Antrieb setzen'), { target: { value: 'true' } })
     fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
 
     await waitFor(() => expect(onSave).toHaveBeenCalled())
@@ -223,7 +267,7 @@ describe('RuleEditor sport tuple controls', () => {
 
     expect(screen.getByLabelText('Sportart setzen')).toHaveValue('cycling')
     expect(screen.getByLabelText('Sub-Sportart setzen')).toHaveValue('mountain')
-    expect(screen.getByLabelText('Elektrisch setzen')).toHaveValue('true')
+    expect(screen.getByLabelText('E-Antrieb setzen')).toHaveValue('true')
 
     fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
     await waitFor(() => expect(onSave).toHaveBeenCalled())
@@ -334,7 +378,7 @@ describe('RuleEditor sport tuple controls', () => {
     })
 
     expect(screen.getByLabelText('Sportart setzen')).toHaveValue('running')
-    expect(screen.queryByLabelText('Elektrisch setzen')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('E-Antrieb setzen')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
     await waitFor(() => expect(onSave).toHaveBeenCalled())

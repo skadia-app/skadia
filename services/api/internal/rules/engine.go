@@ -148,6 +148,9 @@ func evalCondition(c Condition, activity map[string]any) bool {
 	if c.Field == "sport_tuple" {
 		return evalSportTupleIn(c, activity)
 	}
+	if isSportTraitConditionField(c.Field) {
+		return evalSportTraitIn(c, activity)
+	}
 	if c.Field == "geofence" {
 		return evalGeofence(c, activity)
 	}
