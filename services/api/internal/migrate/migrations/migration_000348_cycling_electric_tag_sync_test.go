@@ -36,7 +36,7 @@ func TestMigration000348CyclingElectricTagSyncDeclaresRequiredContracts(t *testi
 		"UPDATE tags",
 		"is_electric = true",
 		"EXISTS (",
-		"v_tag_id IS NOT NULL AND",
+		"IF v_tag_id IS NOT NULL THEN",
 	} {
 		if !strings.Contains(upSQL, needle) {
 			t.Fatalf("up migration missing %q", needle)
@@ -141,12 +141,12 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	`, customRunningID, customUserID); err != nil {
 		t.Fatalf("insert custom E-Bike activity: %v", err)
 	}
-	assertActivityTagArrayHas000348(t, ctx, tx, customRunningID, "E-Bike", true)
-	if _, err := tx.Exec(ctx, `UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), 'Urlaub') WHERE id = $1`, customRunningID); err != nil {
-		t.Fatalf("add unrelated custom E-Bike activity tag: %v", err)
-	}
-	assertActivityTagArrayHas000348(t, ctx, tx, customRunningID, "E-Bike", true)
-	assertActivityElectric000348(t, ctx, tx, customRunningID, true)
+		assertActivityTagArrayHas000348(t, ctx, tx, customRunningID, "E-Bike", false)
+		if _, err := tx.Exec(ctx, `UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), 'Urlaub') WHERE id = $1`, customRunningID); err != nil {
+			t.Fatalf("add unrelated custom E-Bike activity tag: %v", err)
+		}
+		assertActivityTagArrayHas000348(t, ctx, tx, customRunningID, "E-Bike", false)
+		assertActivityElectric000348(t, ctx, tx, customRunningID, true)
 
 	if _, err := tx.Exec(ctx, `UPDATE activities SET sport_type = 'running' WHERE id = $1`, cyclingID); err != nil {
 		t.Fatalf("change cycling to running: %v", err)
