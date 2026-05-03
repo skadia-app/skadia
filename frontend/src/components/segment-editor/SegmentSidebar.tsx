@@ -64,8 +64,10 @@ const SEG_TYPE_LABELS: Record<SegType, string> = {
   lift: 'Lift',
 }
 
-function eligibleKeys(segType: SegType): readonly string[] {
-  return segmentEligibleSelectionKeys(segType)
+function eligibleKeys(segType: SegType): readonly string[] | undefined {
+  return segType === 'wintersport' || segType === 'wassersport'
+    ? segmentEligibleSelectionKeys(segType)
+    : undefined
 }
 
 export function SegmentSidebar(props: SegmentSidebarProps) {
@@ -103,10 +105,10 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     if (!meta.userEditedBidirectional) {
       patch.bidirectional = BIDIRECTIONAL_DEFAULT[newType]
     }
-    const whitelist = eligibleKeys(newType)
-    if (meta.sportTypes) {
-      patch.sportTypes = filterSegmentSportSelection(meta.sportTypes, whitelist)
-    }
+	const whitelist = eligibleKeys(newType)
+	if (meta.sportTypes && whitelist) {
+	  patch.sportTypes = filterSegmentSportSelection(meta.sportTypes, whitelist)
+	}
     if (newType === 'wintersport' || newType === 'wassersport' || newType === 'lift') {
       patch.sacScale = null
       patch.mtbScale = null

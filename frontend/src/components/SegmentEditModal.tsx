@@ -90,9 +90,11 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
       setDiffColor(null)
     }
     const whitelist = whitelistForSegmentType(newType)
-    setAllowedSportTypes(prev => {
-      return filterSegmentSportSelection(prev, whitelist)
-    })
+    if (whitelist) {
+      setAllowedSportTypes(prev => {
+        return filterSegmentSportSelection(prev, whitelist)
+      })
+    }
   }
 
   const { openModal } = useModal()
