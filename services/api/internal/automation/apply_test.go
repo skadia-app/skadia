@@ -67,6 +67,11 @@ func TestShouldEvaluateRule(t *testing.T) {
 			"on_import", true,
 		},
 		{
+			"removed commute_sync system rule no longer special-cased",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: new("commute_sync")},
+			"on_import", true,
+		},
+		{
 			"frost system rule NOT skipped",
 			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: new("frost")},
 			"on_import", true,

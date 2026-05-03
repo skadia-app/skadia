@@ -86,7 +86,7 @@ func shouldEvaluateRule(rule model.AutomationRule, triggerEvent string) bool {
 	}
 	if rule.SystemType != nil {
 		switch *rule.SystemType {
-		case "electric_sync", "virtual_sync", "indoor_sync", "commute_sync":
+		case "electric_sync", "virtual_sync", "indoor_sync":
 			return false
 		}
 	}
