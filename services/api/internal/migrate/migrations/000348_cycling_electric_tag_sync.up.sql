@@ -19,12 +19,12 @@ BEGIN
         IF NEW.sport_type = 'cycling' THEN
             NEW.is_electric := 'E-Bike' = ANY(COALESCE(NEW.tags, '{}'));
         ELSIF 'E-Bike' = ANY(COALESCE(NEW.tags, '{}')) THEN
+            NEW.tags := array_remove(NEW.tags, 'E-Bike');
             SELECT id INTO v_tag_id
             FROM tags
             WHERE user_id = NEW.user_id AND name = 'E-Bike' AND is_system = true
             LIMIT 1;
             IF v_tag_id IS NOT NULL THEN
-                NEW.tags := array_remove(NEW.tags, 'E-Bike');
                 DELETE FROM activity_tags WHERE activity_id = NEW.id AND tag_id = v_tag_id;
                 UPDATE tags
                 SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id)
@@ -63,10 +63,12 @@ BEGIN
             NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'E-Bike');
             INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT DO NOTHING;
             UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
-        ELSIF v_tag_id IS NOT NULL AND (NEW.sport_type <> 'cycling' OR NOT NEW.is_electric) AND 'E-Bike' = ANY(COALESCE(NEW.tags, '{}')) THEN
+        ELSIF (NEW.sport_type <> 'cycling' OR NOT NEW.is_electric) AND 'E-Bike' = ANY(COALESCE(NEW.tags, '{}')) THEN
             NEW.tags := array_remove(NEW.tags, 'E-Bike');
-            DELETE FROM activity_tags WHERE activity_id = NEW.id AND tag_id = v_tag_id;
-            UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
+            IF v_tag_id IS NOT NULL THEN
+                DELETE FROM activity_tags WHERE activity_id = NEW.id AND tag_id = v_tag_id;
+                UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
+            END IF;
         ELSIF v_tag_id IS NOT NULL AND NEW.sport_type <> 'cycling' AND OLD.sport_type = 'cycling' THEN
             DELETE FROM activity_tags WHERE activity_id = NEW.id AND tag_id = v_tag_id;
             UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
@@ -113,13 +115,7 @@ WHERE at.activity_id = a.id
 UPDATE activities
 SET tags = array_remove(tags, 'E-Bike')
 WHERE sport_type <> 'cycling'
-  AND 'E-Bike' = ANY(COALESCE(tags, '{}'))
-  AND EXISTS (
-      SELECT 1 FROM tags t
-      WHERE t.user_id = activities.user_id
-        AND t.name = 'E-Bike'
-        AND t.is_system = true
-  );
+  AND 'E-Bike' = ANY(COALESCE(tags, '{}'));
 
 INSERT INTO activity_tags (activity_id, tag_id, assigned_by)
 SELECT a.id, t.id, 'migration'
@@ -153,13 +149,7 @@ UPDATE activities
 SET tags = array_remove(tags, 'E-Bike')
 WHERE sport_type = 'cycling'
   AND is_electric = false
-  AND 'E-Bike' = ANY(COALESCE(tags, '{}'))
-  AND EXISTS (
-      SELECT 1 FROM tags t
-      WHERE t.user_id = activities.user_id
-        AND t.name = 'E-Bike'
-        AND t.is_system = true
-  );
+  AND 'E-Bike' = ANY(COALESCE(tags, '{}'));
 
 UPDATE tags
 SET activity_count = (
