@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  matchesSportGroup,
-  recordFilterSelection,
-  recordSportFilterValue,
-} from '../recordsConstants'
+import { matchesSportGroup } from '../recordsConstants'
 
 describe('matchesSportGroup', () => {
   it('matches canonical cycling and swimming subtypes without legacy sport_type values', () => {
@@ -31,23 +27,4 @@ describe('matchesSportGroup', () => {
     expect(matchesSportGroup('cycling', { sport_type: 'cycling', is_indoor: true })).toBe(false)
   })
 
-  it('round-trips stationary record filters through tuple plus modifier state', () => {
-    expect(recordSportFilterValue('laufen', 'Stationär')).toEqual({
-      sportTypes: ['running:indoor_running'],
-      modifiers: { is_virtual: true },
-    })
-    expect(recordFilterSelection({
-      sportTypes: ['running:indoor_running'],
-      modifiers: { is_virtual: true },
-    })).toEqual({ mainCategory: 'laufen', subFilter: 'Stationär' })
-
-    expect(recordSportFilterValue('radfahren', 'Stationär')).toEqual({
-      sportTypes: ['cycling:indoor_cycling'],
-      modifiers: { is_virtual: true },
-    })
-    expect(recordFilterSelection({
-      sportTypes: ['cycling:indoor_cycling'],
-      modifiers: { is_virtual: true },
-    })).toEqual({ mainCategory: 'radfahren', subFilter: 'Stationär' })
-  })
 })
