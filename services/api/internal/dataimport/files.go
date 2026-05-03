@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
@@ -47,6 +48,53 @@ func loadUserFilesIndex(source Source) (map[string]userFileRecord, error) {
 	return index, nil
 }
 
+type exportedActivityFileTags struct {
+	FileID             *string   `json:"file_id"`
+	OriginalFileFormat string    `json:"original_file_format"`
+	SportType          string    `json:"sport_type"`
+	SubType            string    `json:"sub_type"`
+	StartedAt          time.Time `json:"started_at"`
+	Title              string    `json:"title"`
+	City               string    `json:"city"`
+	Country            string    `json:"country"`
+	DistanceM          float64   `json:"distance_m"`
+	ElapsedTimeS       int       `json:"elapsed_time_s"`
+	ElevationGainM     float64   `json:"elevation_gain_m"`
+}
+
+func loadActivityFileTagIndex(source Source) (map[string]shadowfs.ActivitySchemaTagsInput, error) {
+	rc, err := source.OpenData("data/activities.json")
+	if err != nil {
+		return map[string]shadowfs.ActivitySchemaTagsInput{}, nil
+	}
+	defer rc.Close()
+
+	var rows []exportedActivityFileTags
+	if err := json.NewDecoder(rc).Decode(&rows); err != nil {
+		return nil, fmt.Errorf("dataimport: decode activities.json for file tags: %w", err)
+	}
+
+	index := make(map[string]shadowfs.ActivitySchemaTagsInput, len(rows))
+	for _, row := range rows {
+		if row.FileID == nil || strings.TrimSpace(*row.FileID) == "" {
+			continue
+		}
+		index[*row.FileID] = shadowfs.ActivitySchemaTagsInput{
+			Format:         row.OriginalFileFormat,
+			StartedAt:      row.StartedAt,
+			SportType:      row.SportType,
+			SubType:        row.SubType,
+			Title:          row.Title,
+			City:           row.City,
+			Country:        row.Country,
+			DistanceM:      row.DistanceM,
+			ElapsedTimeS:   row.ElapsedTimeS,
+			ElevationGainM: row.ElevationGainM,
+		}
+	}
+	return index, nil
+}
+
 // importFileByID imports a single file from the export into ShadowFS and
 // updates the IDMap with the new ShadowFS-assigned file ID.
 func (e *Engine) importFileByID(
@@ -55,6 +103,7 @@ func (e *Engine) importFileByID(
 	idMap *IDMap,
 	userID, oldFileID string,
 	fileIndex map[string]userFileRecord,
+	activityTags map[string]shadowfs.ActivitySchemaTagsInput,
 	result *ImportResult,
 ) error {
 	rec, ok := fileIndex[oldFileID]
@@ -105,6 +154,16 @@ func (e *Engine) importFileByID(
 		ParentType:  parentType,
 		ParentID:    parentID,
 		HasSidecar:  rec.HasSidecar,
+	}
+	if isActivityFileRecord(rec) {
+		if input, ok := activityTags[oldFileID]; ok {
+			if input.Format == "" {
+				input.Format = inferFileFormat(rec.FileName)
+			}
+			entry.Tags = shadowfs.ActivitySchemaTags(input)
+		} else if format := inferFileFormat(rec.FileName); format != "" {
+			entry.Tags = map[string]string{"format": format}
+		}
 	}
 
 	fileRecord, err := e.ShadowFS.Put(ctx, entry, fileRC)
@@ -201,6 +260,22 @@ func findFilePath(source Source, rec userFileRecord) string {
 	return ""
 }
 
+func isActivityFileRecord(rec userFileRecord) bool {
+	if rec.FileType == "activity" {
+		return true
+	}
+	return rec.ParentType != nil && *rec.ParentType == "activity"
+}
+
+func inferFileFormat(fileName string) string {
+	fileName = strings.TrimSpace(fileName)
+	idx := strings.LastIndex(fileName, ".")
+	if idx < 0 || idx == len(fileName)-1 {
+		return ""
+	}
+	return strings.ToLower(fileName[idx+1:])
+}
+
 // importAllFiles imports ALL user files from the export into ShadowFS (Phase 0).
 // Edit-sidecars (file_type="edit") are skipped — they require ParentID=activity_id
 // which is not yet available. Use importEditSidecars after activities are imported.
@@ -212,6 +287,7 @@ func (e *Engine) importAllFiles(
 	userID string,
 	result *ImportResult,
 	onProgress func(ProgressEvent),
+	activityTags map[string]shadowfs.ActivitySchemaTagsInput,
 ) (map[string]userFileRecord, error) {
 	fileIndex, err := loadUserFilesIndex(source)
 	if err != nil {
@@ -232,7 +308,7 @@ func (e *Engine) importAllFiles(
 			continue
 		}
 
-		if err := e.importFileByID(ctx, source, idMap, userID, oldFileID, fileIndex, result); err != nil {
+		if err := e.importFileByID(ctx, source, idMap, userID, oldFileID, fileIndex, activityTags, result); err != nil {
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Phase 0 file %s (%s): %v", oldFileID, rec.FileName, err))
 			continue // Non-fatal: skip this file, continue with others.
@@ -275,7 +351,7 @@ func (e *Engine) importEditSidecars(
 		// importFileByID handles ParentID remapping via idMap.GetIfExists — no
 		// pre-remap needed here. The activity is in IDMap after Phase 5, so
 		// importFileByID will find actOldID → actNewID correctly.
-		if err := e.importFileByID(ctx, source, idMap, userID, oldFileID, fileIndex, result); err != nil {
+		if err := e.importFileByID(ctx, source, idMap, userID, oldFileID, fileIndex, nil, result); err != nil {
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Edit sidecar %s: %v", oldFileID, err))
 		}
