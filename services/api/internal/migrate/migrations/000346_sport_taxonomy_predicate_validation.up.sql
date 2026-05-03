@@ -1,4 +1,4 @@
--- 000999_sport_taxonomy_predicate_validation.up.sql
+-- 000346_sport_taxonomy_predicate_validation.up.sql
 -- Schema-only refresh of fn_validate_predicates() from generated sport taxonomy data.
 -- The migration runner wraps this file in one transaction; do not add concurrent index statements.
 

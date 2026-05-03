@@ -1,4 +1,4 @@
--- 000999_sport_taxonomy_predicate_validation.down.sql
+-- 000346_sport_taxonomy_predicate_validation.down.sql
 -- Restore the fn_validate_predicates() body that existed before Plan E.
 
 SELECT pg_advisory_xact_lock(hashtext('sport_taxonomy_predicate_validation'), 1);
