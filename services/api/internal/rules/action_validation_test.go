@@ -52,17 +52,17 @@ func TestNormalizeRuleActionsRejectsContradictorySystemTagActions(t *testing.T) 
 		{
 			name: "electric false plus e-bike add_tag",
 			raw:  json.RawMessage(`[{"action":"set_electric","params":{"electric":false}},{"action":"add_tag","params":{"tag_id":"tag-ebike"}}]`),
-			want: "set_electric(false)",
+			want: "E-Antrieb=false conflicts with add_tag(E-Bike)",
 		},
 		{
 			name: "electric true plus e-bike remove_tag",
 			raw:  json.RawMessage(`[{"action":"set_electric","params":{"electric":true}},{"action":"remove_tag","params":{"tag_id":"tag-ebike"}}]`),
-			want: "remove_tag(E-Bike)",
+			want: "E-Antrieb=true conflicts with remove_tag(E-Bike)",
 		},
 		{
 			name: "indoor false plus indoor add_tag",
 			raw:  json.RawMessage(`[{"action":"set_indoor","params":{"indoor":false}},{"action":"add_tag","params":{"tag_id":"tag-indoor"}}]`),
-			want: "set_indoor(false)",
+			want: "Indoor=false conflicts with add_tag(Indoor)",
 		},
 	}
 
@@ -112,5 +112,18 @@ func TestNormalizeRuleBranchesValidatesNestedActions(t *testing.T) {
 	_, err := NormalizeRuleBranches(raw, tagNames)
 	if err == nil || !strings.Contains(err.Error(), "branches[0].actions") {
 		t.Fatalf("error = %v, want branch action context", err)
+	}
+}
+
+func TestNormalizeRuleActionsUsesGenericElectricModifierNameInConflicts(t *testing.T) {
+	tagNames := map[string]string{"tag-ebike": "E-Bike"}
+	raw := json.RawMessage(`[
+		{"action":"set_electric","params":{"electric":false}},
+		{"action":"add_tag","params":{"tag_id":"tag-ebike"}}
+	]`)
+
+	_, err := NormalizeRuleActions(raw, tagNames)
+	if err == nil || !strings.Contains(err.Error(), "E-Antrieb=false conflicts with add_tag(E-Bike)") {
+		t.Fatalf("error = %v, want generic E-Antrieb conflict text", err)
 	}
 }

@@ -376,7 +376,7 @@ const ACTION_TYPES = [
   { value: 'remove_tag',      label: 'Tag entfernen' },
   { value: 'set_visibility',  label: 'Sichtbarkeit setzen' },
   { value: 'set_sport_type',  label: 'Sportart setzen' },
-  { value: 'set_electric',    label: 'Elektrisch setzen' },
+  { value: 'set_electric',    label: 'E-Antrieb setzen' },
   { value: 'set_name',        label: 'Titel setzen' },
   { value: 'set_intensity',   label: 'Intensität setzen' },
   { value: 'set_indoor',      label: 'Indoor-Flag setzen' },
@@ -1634,8 +1634,8 @@ function ActionParams({
         onChange={(e) => onChange({ electric: e.target.value === 'true' })}
         className={inputClass + ' flex-1 min-w-0'}
       >
-        <option value="true">Ja (elektrisch)</option>
-        <option value="false">Nein (nicht elektrisch)</option>
+        <option value="true">Ja (E-Antrieb)</option>
+        <option value="false">Nein (kein E-Antrieb)</option>
       </select>
     )
   }

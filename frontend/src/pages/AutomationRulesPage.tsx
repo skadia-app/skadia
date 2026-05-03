@@ -109,7 +109,7 @@ function formatSportTupleConditionValue(value: unknown): string {
   return value.map((entry) => {
     const tuple = entry as RuleSportTupleConditionValue
     const parts = [sportDetailLabel(tuple.sport_type, tuple.sub_type ?? null)]
-    if (tuple.is_electric !== undefined) parts.push(`Elektrisch=${tuple.is_electric ? 'Ja' : 'Nein'}`)
+    if (tuple.is_electric !== undefined) parts.push(`E-Antrieb=${tuple.is_electric ? 'Ja' : 'Nein'}`)
     if (tuple.is_indoor !== undefined) parts.push(`Indoor=${tuple.is_indoor ? 'Ja' : 'Nein'}`)
     if (tuple.is_virtual !== undefined) parts.push(`Virtuell=${tuple.is_virtual ? 'Ja' : 'Nein'}`)
     if (tuple.is_commute !== undefined) parts.push(`Pendeln=${tuple.is_commute ? 'Ja' : 'Nein'}`)
@@ -582,7 +582,7 @@ function RuleCard({
   const isReadonlySystem = isReadonlySyncRule(rule)
 
   const readonlyDescriptions: Record<string, string> = {
-    electric_sync: 'Wird automatisch aus Gerätedaten erkannt. Diese Regel kann nicht bearbeitet werden.',
+    electric_sync: 'Wird automatisch bei elektrischen Radfahrten gesetzt. Diese Regel kann nicht bearbeitet werden.',
     virtual_sync: 'Wird automatisch aus Importdaten und Aktivitätsmerkmalen erkannt. Diese Regel kann nicht bearbeitet werden.',
     indoor_sync: 'Wird automatisch anhand der Sportart und Sub-Sportart gesetzt. Diese Regel kann nicht bearbeitet werden.',
   }
@@ -750,7 +750,7 @@ function actionLabel(action: string): string {
     remove_tag: 'Tag entfernen',
     set_visibility: 'Sichtbarkeit',
     set_sport_type: 'Sportart',
-    set_electric: 'Elektrisch',
+    set_electric: 'E-Antrieb',
     set_name: 'Titel',
     set_intensity: 'Intensität',
     set_indoor: 'Indoor',

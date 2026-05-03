@@ -402,10 +402,10 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 		}
 	}
 
-	// E-Bike system tag (no conditions — synced via automation rule with is_electric column).
+	// E-Bike system tag for electric cycling. The is_electric flag remains generic.
 	if _, err := db.Pool.Exec(ctx, `
 		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-		VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_electric)')
+		VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false, 'Automatisch bei elektrischen Radfahrten')
 		ON CONFLICT (user_id, name) DO NOTHING`,
 		userID,
 	); err != nil {
@@ -479,7 +479,7 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 			ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
 			userID, tr.tagName, tr.systemType, tr.priority, tr.conditions, actions)
 	}
-	// E-Bike rule (no conditions/actions — handled by import pipeline)
+	// E-Bike rule (no conditions/actions — handled by import pipeline and cycling-only tag sync)
 	if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
 		Conditions: json.RawMessage(`[]`),
 		Actions:    json.RawMessage(`[]`),

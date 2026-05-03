@@ -16,7 +16,7 @@ type systemModifier struct {
 }
 
 var systemModifiers = []systemModifier{
-	{Action: "set_electric", Field: "is_electric", Param: "electric", TagName: "E-Bike", HumanName: "E-Bike"},
+	{Action: "set_electric", Field: "is_electric", Param: "electric", TagName: "E-Bike", HumanName: "E-Antrieb"},
 	{Action: "set_indoor", Field: "is_indoor", Param: "indoor", TagName: "Indoor", HumanName: "Indoor"},
 	{Action: "set_virtual", Field: "is_virtual", Param: "virtual", TagName: "virtuell", HumanName: "Virtuell"},
 	{Action: "set_commute", Field: "is_commute", Param: "commute", TagName: "Pendeln", HumanName: "Pendeln"},
@@ -119,10 +119,10 @@ func normalizeActionMaps(actions []ruleActionMap, tagNameByID map[string]string)
 						goto skipAction
 					}
 					if actionName == "add_tag" && state.seen && !state.value {
-						return nil, fmt.Errorf("%s(false) conflicts with add_tag(%s)", modifier.Action, modifier.HumanName)
+						return nil, fmt.Errorf("%s=false conflicts with add_tag(%s)", modifier.HumanName, modifier.TagName)
 					}
 					if actionName == "remove_tag" && state.seen && state.value {
-						return nil, fmt.Errorf("%s(true) conflicts with remove_tag(%s)", modifier.Action, modifier.HumanName)
+						return nil, fmt.Errorf("%s=true conflicts with remove_tag(%s)", modifier.HumanName, modifier.TagName)
 					}
 				}
 			}
@@ -208,10 +208,10 @@ func validateModifierAgainstExistingTags(modifier systemModifier, value bool, ac
 			continue
 		}
 		if actionName == "add_tag" && !value {
-			return fmt.Errorf("%s(false) conflicts with add_tag(%s)", modifier.Action, modifier.HumanName)
+			return fmt.Errorf("%s=false conflicts with add_tag(%s)", modifier.HumanName, modifier.TagName)
 		}
 		if actionName == "remove_tag" && value {
-			return fmt.Errorf("%s(true) conflicts with remove_tag(%s)", modifier.Action, modifier.HumanName)
+			return fmt.Errorf("%s=true conflicts with remove_tag(%s)", modifier.HumanName, modifier.TagName)
 		}
 	}
 	return nil

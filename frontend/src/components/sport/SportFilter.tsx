@@ -37,7 +37,7 @@ interface SportFilterProps {
 }
 
 const MODIFIER_LABELS: Record<ModifierKey, string> = {
-  is_electric: 'E-Bike',
+  is_electric: 'E-Antrieb',
   is_indoor: 'Indoor',
   is_virtual: 'Virtuell',
   is_commute: 'Pendeln',
