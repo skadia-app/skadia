@@ -24,6 +24,8 @@ func TestNormalizedKomootSportMappingGolden(t *testing.T) {
 		wantSport    string
 		wantSubType  string
 		wantElectric bool
+		wantIndoor   bool
+		wantVirtual  bool
 	}{
 		{input: "hike", wantSport: "hiking"},
 		{input: "mountaineering", wantSport: "mountaineering"},
@@ -59,9 +61,9 @@ func TestNormalizedKomootSportMappingGolden(t *testing.T) {
 			if !ok {
 				t.Fatalf("normalizedKomootSportMapping(%q) not found", tt.input)
 			}
-			if got.SportType != tt.wantSport || got.SubType != tt.wantSubType || got.IsElectric != tt.wantElectric {
-				t.Fatalf("normalizedKomootSportMapping(%q) = %#v, want %s/%s electric=%v",
-					tt.input, got, tt.wantSport, tt.wantSubType, tt.wantElectric)
+			if got.SportType != tt.wantSport || got.SubType != tt.wantSubType || got.IsElectric != tt.wantElectric || got.IsIndoor != tt.wantIndoor || got.IsVirtual != tt.wantVirtual {
+				t.Fatalf("normalizedKomootSportMapping(%q) = %#v, want %s/%s electric=%v indoor=%v virtual=%v",
+					tt.input, got, tt.wantSport, tt.wantSubType, tt.wantElectric, tt.wantIndoor, tt.wantVirtual)
 			}
 		})
 	}
@@ -92,6 +94,17 @@ func TestApplyKomootSportMappingKeepsSpecificFileSubtype(t *testing.T) {
 
 	if data.SubType != "gravel_cycling" {
 		t.Fatalf("SubType = %q, want existing gravel_cycling", data.SubType)
+	}
+}
+
+func TestApplyKomootSportMappingPromotesModifierSignals(t *testing.T) {
+	data := &model.ActivityData{SportType: "cycling"}
+	mapping := SportMapping{SportType: "cycling", IsElectric: true, IsIndoor: true, IsVirtual: true}
+
+	applyKomootSportMapping(data, mapping)
+
+	if !data.IsElectric || !data.IsIndoor || !data.IsVirtual {
+		t.Fatalf("modifiers = electric:%v indoor:%v virtual:%v, want all true", data.IsElectric, data.IsIndoor, data.IsVirtual)
 	}
 }
 

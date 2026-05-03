@@ -102,4 +102,6 @@ type SportMapping struct {
 	SportType  string
 	SubType    string
 	IsElectric bool
+	IsIndoor   bool
+	IsVirtual  bool
 }
