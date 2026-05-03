@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown, TrendingUp } from 'lucide-react'
-import { formatBestEffortDisplay, categoryLabel, CATEGORY_KEYS } from '@/lib/bestEffortLabels'
+import { formatBestEffortDisplay, categoryLabel, categoryKeysForRecordGroup } from '@/lib/bestEffortLabels'
 import { fmtDateMedium, fmtDuration } from '@/lib/format'
 import type { BestEffortRanked } from '@/api/bestEfforts'
 import { pickBestPerCategory } from '@/lib/bestEffortRanking'
@@ -58,9 +58,10 @@ export function DetailTable({
     return map
   }, [records])
 
+  const categoryOrder = categoryKeysForRecordGroup(sportGroup)
   const categories = Array.from(rank1ByCategory.keys()).sort((a, b) => {
-    const ia = CATEGORY_KEYS.indexOf(a)
-    const ib = CATEGORY_KEYS.indexOf(b)
+    const ia = categoryOrder.indexOf(a)
+    const ib = categoryOrder.indexOf(b)
     return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib)
   })
 

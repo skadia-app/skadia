@@ -3,6 +3,7 @@ import {
   GENERATED_RECORD_CATEGORIES,
   GENERATED_RECORD_CATEGORY_LABELS,
   GENERATED_RECORD_CATEGORY_ORDER,
+  GENERATED_RECORD_GROUPS,
   GENERATED_RECORD_POWER_CATEGORY_ORDER,
 } from '@/lib/generatedRecordProjections'
 
@@ -11,8 +12,17 @@ export const CATEGORY_METADATA = GENERATED_RECORD_CATEGORIES
 export const CATEGORY_KEYS: string[] = [...GENERATED_RECORD_CATEGORY_ORDER]
 export const POWER_DURATIONS: string[] = [...GENERATED_RECORD_POWER_CATEGORY_ORDER]
 
+const CATEGORY_KEYS_BY_RECORD_GROUP: Record<string, string[]> = Object.fromEntries(
+  GENERATED_RECORD_GROUPS.map(group => [group.key, group.categories.map(category => category.key)]),
+)
+
 export function categoryLabel(category: string): string {
   return CATEGORY_LABELS[category] ?? category.replace(/_/g, ' ')
+}
+
+export function categoryKeysForRecordGroup(recordGroup?: string): string[] {
+  if (!recordGroup) return CATEGORY_KEYS
+  return CATEGORY_KEYS_BY_RECORD_GROUP[recordGroup] ?? CATEGORY_KEYS
 }
 
 // ── Shared value formatter ─────────────────────────────────────────────────────
