@@ -20,6 +20,7 @@ interface GearFormProps {
 
 export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormProps) {
   const sportOptions = useMemo(() => generateGearSportOptions(), [])
+  const manualSportValues = useMemo(() => new Set(sportOptions.map((option) => option.value)), [sportOptions])
   const [name, setName] = useState(gear?.name ?? '')
   const [type, setType] = useState(gear?.type ?? '')
   const [subType, setSubType] = useState(gear?.sub_type ?? '')
@@ -46,7 +47,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
       brand: brand.trim() || null,
       model: model.trim() || null,
       purchased_at: purchasedAt || null,
-      default_for_sports: defaultForSports,
+      default_for_sports: defaultForSports.filter((sport) => manualSportValues.has(sport)),
       notes: notes.trim() || null,
       weight_g: weightG ? parseInt(weightG, 10) : null,
     })
