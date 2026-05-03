@@ -13,7 +13,6 @@ package migrations_test
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/google/uuid"
@@ -21,12 +20,14 @@ import (
 )
 
 // migrationTestPool returns a pgxpool connected to TEST_DATABASE_URL or skips.
+//
+// The DSN is run through requireSafeTestDSN — if it points at the production
+// database (DB name 'skadia' or matches DATABASE_URL), the test fatals before
+// any SQL runs. See the 2026-05-03 incident where a non-tx down.sql exec in
+// migration_000333_test.go dropped production map-layer tables.
 func migrationTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping migration integration test")
-	}
+	dsn := requireSafeTestDSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
