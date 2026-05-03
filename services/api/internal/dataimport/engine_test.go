@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -1802,6 +1803,50 @@ func TestDeferredFKGearDocument(t *testing.T) {
 	}
 	if !docExists {
 		t.Errorf("gear.source_document_id %q does not reference an existing gear_documents row", *srcDocID)
+	}
+}
+
+func TestImportGearNormalizesDefaultForSports(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	gearOldID := uuid.New().String()
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"gear": {"id", "user_id", "name", "type", "default_for_sports"},
+		},
+		gear: []map[string]any{
+			{
+				"id":                 gearOldID,
+				"user_id":            srcUser,
+				"name":               "Legacy MTB",
+				"type":               "bike",
+				"default_for_sports": []any{"mountain_biking", "e_mountain_biking", "fitness_equipment"},
+			},
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	var defaults []string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT default_for_sports FROM gear WHERE user_id = $1 AND name = 'Legacy MTB'`,
+		userID,
+	).Scan(&defaults); err != nil {
+		t.Fatalf("select gear default_for_sports: %v", err)
+	}
+	want := []string{"cycling", "fitness_equipment"}
+	if !reflect.DeepEqual(defaults, want) {
+		t.Fatalf("default_for_sports = %#v, want %#v", defaults, want)
 	}
 }
 

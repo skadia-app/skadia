@@ -29,6 +29,10 @@ func normalizeSportTaxonomyImportRow(table string, row map[string]any, targetCol
 		if err := normalizeAutomationRuleSportJSON(row); err != nil {
 			return nil, err
 		}
+	case "gear":
+		if err := normalizeGearDefaultSportsImportRow(row, targetCols); err != nil {
+			return nil, err
+		}
 	case "segments":
 		if err := normalizeSegmentSportFields(row); err != nil {
 			return nil, err
@@ -86,6 +90,33 @@ func normalizeSingleSportType(row map[string]any, sportKey string) error {
 		return err
 	}
 	row[sportKey] = tuple.SportType
+	return nil
+}
+
+func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []targetColumn) error {
+	if _, ok := row["default_for_sports"]; !ok && !targetHasColumn(targetCols, "default_for_sports") {
+		return nil
+	}
+	values, err := stringList(row["default_for_sports"])
+	if err != nil {
+		return fmt.Errorf("default_for_sports: %w", err)
+	}
+	canonicalTopLevel := make([]string, 0, len(values))
+	for _, raw := range values {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		tuple, _, err := sport.NormalizeSportTuple(raw, "")
+		if err != nil {
+			return fmt.Errorf("default_for_sports: %w", err)
+		}
+		canonicalTopLevel = append(canonicalTopLevel, tuple.SportType)
+	}
+	normalized, err := sport.NormalizeGearDefaultSports(canonicalTopLevel)
+	if err != nil {
+		return fmt.Errorf("default_for_sports: %w", err)
+	}
+	row["default_for_sports"] = normalized
 	return nil
 }
 
