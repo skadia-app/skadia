@@ -5,7 +5,10 @@ import { describe, expect, it, vi } from 'vitest'
 import RuleEditor from '../RuleEditor'
 import type { AutomationRule } from '@/api/types'
 
-vi.mock('@/api/gear', () => ({ fetchGear: vi.fn(async () => []) }))
+vi.mock('@/api/gear', () => ({ fetchGear: vi.fn(async () => [
+  { id: 'gear-active', name: 'Gravelbike', is_retired: false },
+  { id: 'gear-retired', name: 'Altes Rad', is_retired: true },
+]) }))
 vi.mock('@/api/hardware', () => ({ fetchDevices: vi.fn(async () => []) }))
 vi.mock('@/api/tags', () => ({
   fetchTags: vi.fn(async () => [
@@ -75,6 +78,77 @@ describe('RuleEditor sport tuple controls', () => {
     expect(screen.getByDisplayValue('Titel')).toBeInTheDocument()
   })
 
+  it('uses direct condition categories for gear, tags, media, activity and visibility', () => {
+    renderNewEditor()
+
+    expect(screen.queryByRole('option', { name: 'Kontext' })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Ausrüstung' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Tags' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Medien' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Aktivität' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Sichtbarkeit' })).toBeInTheDocument()
+  })
+
+  it('shows active gear options in gear conditions without offering retired gear', async () => {
+    renderEditor({
+      condition_groups: [{ logic: 'and', conditions: [{ field: 'gear_id', op: 'eq', value: '' }] }],
+    })
+
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Gravelbike' })).toBeInTheDocument())
+    expect(screen.queryByRole('option', { name: 'Altes Rad' })).not.toBeInTheDocument()
+  })
+
+  it('keeps stored missing gear ids visible without adding them as normal choices', async () => {
+    renderEditor({
+      condition_groups: [{ logic: 'and', conditions: [{ field: 'gear_id', op: 'eq', value: 'missing-gear' }] }],
+    })
+
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Nicht gelistete Ausrüstung (missing-gear)' })).toBeInTheDocument())
+    expect(screen.getByDisplayValue('Nicht gelistete Ausrüstung (missing-gear)')).toBeInTheDocument()
+  })
+
+  it('stores multiple selected sport tuples as one tuple-list condition', async () => {
+    const onSave = renderEditor({})
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sportart hinzufügen' }))
+    fireEvent.change(screen.getAllByLabelText('Sportart')[1], { target: { value: 'running' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'sport_tuple', op: 'in', value: [{ sport_type: 'cycling' }, { sport_type: 'running' }] },
+    ])
+  })
+
+  it('removes stale tuple modifiers when a sport no longer supports them', async () => {
+    const onSave = renderEditor({})
+
+    fireEvent.change(screen.getByLabelText('E-Bike'), { target: { value: 'true' } })
+    fireEvent.change(screen.getByLabelText('Sportart'), { target: { value: 'running' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'sport_tuple', op: 'in', value: [{ sport_type: 'running' }] },
+    ])
+  })
+
+  it('does not collapse OR sport alternatives into a tuple list', async () => {
+    const onSave = renderEditor({
+      condition_groups: [{ logic: 'or', conditions: [
+        { field: 'sport_type', op: 'eq', value: 'running' },
+        { field: 'sport_type', op: 'eq', value: 'cycling' },
+      ] }],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'sport_type', op: 'eq', value: 'running' },
+      { field: 'sport_type', op: 'eq', value: 'cycling' },
+    ])
+  })
+
   it('shows running subtypes and hides E-Bike modifiers for running sport tuples', () => {
     renderEditor({
       condition_groups: [{ logic: 'and', conditions: [{ field: 'sport_type', op: 'eq', value: 'running' }] }],
@@ -134,9 +208,7 @@ describe('RuleEditor sport tuple controls', () => {
     await waitFor(() => expect(onSave).toHaveBeenCalled())
     const saved = onSave.mock.calls[0][0]
     expect(saved.condition_groups[0].conditions).toEqual([
-      { field: 'sport_type', op: 'eq', value: 'cycling' },
-      { field: 'sub_type', op: 'eq', value: 'mountain' },
-      { field: 'is_electric', op: 'eq', value: true },
+      { field: 'sport_tuple', op: 'in', value: [{ sport_type: 'cycling', sub_type: 'mountain', is_electric: true }] },
     ])
     expect(saved.actions).toEqual([
       { action: 'set_sport_type', params: { sport_type: 'cycling', sub_type: 'mountain' } },
@@ -174,9 +246,7 @@ describe('RuleEditor sport tuple controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
     await waitFor(() => expect(onSave).toHaveBeenCalled())
     expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
-      { field: 'sport_type', op: 'eq', value: 'running' },
-      { field: 'sub_type', op: 'eq', value: 'treadmill' },
-      { field: 'is_indoor', op: 'eq', value: true },
+      { field: 'sport_tuple', op: 'in', value: [{ sport_type: 'running', sub_type: 'treadmill', is_indoor: true }] },
     ])
     expect(onSave.mock.calls[0][0].actions).toEqual([
       { action: 'set_sport_type', params: { sport_type: 'cycling', sub_type: 'indoor_cycling' } },
@@ -202,9 +272,7 @@ describe('RuleEditor sport tuple controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
     await waitFor(() => expect(onSave).toHaveBeenCalled())
     expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
-      { field: 'sport_type', op: 'eq', value: 'cycling' },
-      { field: 'is_virtual', op: 'eq', value: true },
-      { field: 'is_commute', op: 'eq', value: false },
+      { field: 'sport_tuple', op: 'in', value: [{ sport_type: 'cycling', is_virtual: true, is_commute: false }] },
     ])
     expect(onSave.mock.calls[0][0].actions).toEqual([
       { action: 'set_sport_type', params: { sport_type: 'cycling', sub_type: '' } },

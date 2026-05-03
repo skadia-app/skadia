@@ -772,6 +772,15 @@ export interface RuleConditionGroup {
   conditions: RuleCondition[]
 }
 
+export interface RuleSportTupleConditionValue {
+  sport_type: string
+  sub_type?: string
+  is_electric?: boolean
+  is_indoor?: boolean
+  is_virtual?: boolean
+  is_commute?: boolean
+}
+
 export interface RuleCondition {
   field: string
   op: string
