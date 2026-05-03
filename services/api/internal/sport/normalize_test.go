@@ -215,6 +215,130 @@ func TestNormalizeSportTupleForImportStillDropsDeviceModeSubTypes(t *testing.T) 
 	}
 }
 
+func TestGearDefaultProjectionIncludesBroadFallbackParentsForStorageOnly(t *testing.T) {
+	storage := gearDefaultOptionsBySportType(GearDefaultStorageSportOptions())
+	manual := gearDefaultOptionsBySportType(GearDefaultManualSportOptions())
+	for _, want := range []string{"fitness_equipment", "generic"} {
+		if _, ok := storage[want]; !ok {
+			t.Fatalf("storage options missing %q", want)
+		}
+	}
+	if _, ok := storage["unknown"]; ok {
+		t.Fatal("storage options include unknown")
+	}
+	if _, ok := manual["cycling"]; !ok {
+		t.Fatal("manual options missing cycling")
+	}
+	if _, ok := manual["fitness_equipment"]; ok {
+		t.Fatal("manual options include fitness_equipment")
+	}
+}
+
+func TestGearDefaultSportForSourceUsesGeneratedProjection(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want string
+	}{
+		{raw: "Mountain Bike Ride", want: "cycling"},
+		{raw: "Badminton", want: "racket"},
+		{raw: "Elliptical", want: "fitness_equipment"},
+		{raw: "Virtual Ride", want: "cycling"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			got, ok := GearDefaultSportForSource(SourceStrava, tt.raw)
+			if !ok || got != tt.want {
+				t.Fatalf("GearDefaultSportForSource(SourceStrava, %q) = %q, %v; want %q, true", tt.raw, got, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestGearDefaultSportForSourcePreservesStravaGenericFallback(t *testing.T) {
+	got, ok := GearDefaultSportForSource(SourceStrava, "Definitely Not A Known Sport")
+	if !ok || got != "generic" {
+		t.Fatalf("GearDefaultSportForSource unknown Strava = %q, %v; want generic, true", got, ok)
+	}
+}
+
+func TestGearDefaultSportForSourceDoesNotFallbackUnknownNonStravaSource(t *testing.T) {
+	for _, source := range []Source{SourceGPXFile, SourceKomoot} {
+		got, ok := GearDefaultSportForSource(source, "Definitely Not A Known Sport")
+		if ok || got != "" {
+			t.Fatalf("GearDefaultSportForSource(%q, unknown) = %q, %v; want empty, false", source, got, ok)
+		}
+	}
+}
+
+func TestNormalizeGearDefaultSports(t *testing.T) {
+	tests := []struct {
+		name    string
+		values  []string
+		want    []string
+		wantErr bool
+	}{
+		{name: "nil input", values: nil, want: []string{}},
+		{name: "empty input", values: []string{}, want: []string{}},
+		{name: "trims and dedupes", values: []string{" cycling ", "cycling", "running"}, want: []string{"cycling", "running"}},
+		{name: "rejects tuple", values: []string{"cycling:mountain"}, wantErr: true},
+		{name: "rejects unknown", values: []string{"unknown"}, wantErr: true},
+		{name: "accepts broad fallback storage parent", values: []string{"fitness_equipment"}, want: []string{"fitness_equipment"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NormalizeGearDefaultSports(tt.values)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("NormalizeGearDefaultSports() returned nil error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NormalizeGearDefaultSports() error = %v", err)
+			}
+			assertStringSlice(t, got, tt.want)
+			if got == nil {
+				t.Fatal("NormalizeGearDefaultSports() returned nil slice")
+			}
+		})
+	}
+}
+
+func TestNormalizeManualGearDefaultSports(t *testing.T) {
+	tests := []struct {
+		name    string
+		values  []string
+		want    []string
+		wantErr bool
+	}{
+		{name: "nil input", values: nil, want: []string{}},
+		{name: "empty input", values: []string{}, want: []string{}},
+		{name: "trims and dedupes", values: []string{" cycling ", "cycling", "running"}, want: []string{"cycling", "running"}},
+		{name: "rejects tuple", values: []string{"cycling:mountain"}, wantErr: true},
+		{name: "rejects unknown", values: []string{"unknown"}, wantErr: true},
+		{name: "rejects broad fallback storage parent", values: []string{"fitness_equipment"}, wantErr: true},
+		{name: "accepts selectable top-level sport", values: []string{"cycling"}, want: []string{"cycling"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NormalizeManualGearDefaultSports(tt.values)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("NormalizeManualGearDefaultSports() returned nil error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NormalizeManualGearDefaultSports() error = %v", err)
+			}
+			assertStringSlice(t, got, tt.want)
+			if got == nil {
+				t.Fatal("NormalizeManualGearDefaultSports() returned nil slice")
+			}
+		})
+	}
+}
+
 func assertBoolPatch(t *testing.T, field string, got, want *bool) {
 	t.Helper()
 	if want == nil {
@@ -228,5 +352,25 @@ func assertBoolPatch(t *testing.T, field string, got, want *bool) {
 	}
 	if *got != *want {
 		t.Fatalf("%s patch = %v, want %v", field, *got, *want)
+	}
+}
+
+func gearDefaultOptionsBySportType(options []GearDefaultSportOption) map[string]GearDefaultSportOption {
+	out := make(map[string]GearDefaultSportOption, len(options))
+	for _, option := range options {
+		out[option.SportType] = option
+	}
+	return out
+}
+
+func assertStringSlice(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("slice length = %d, want %d; got %#v want %#v", len(got), len(want), got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("slice[%d] = %q, want %q; got %#v want %#v", i, got[i], want[i], got, want)
+		}
 	}
 }

@@ -162,42 +162,21 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 
 // garminCourseTypeToSport maps Garmin courseType strings to Skadia route sport tuples.
 func garminCourseTypeToSport(courseType string) (string, *string) {
-	normalize := func(sportType, subType string) (string, *string) {
-		tuple, _, err := sporttax.NormalizeSportTuple(sportType, subType)
-		if err != nil {
-			return "generic", nil
-		}
-		if tuple.SubType == "" {
-			return tuple.SportType, nil
-		}
-		return tuple.SportType, &tuple.SubType
+	result, err := sporttax.ResolveSport(sporttax.ResolveInput{Source: sporttax.SourceGarminCourse, RawSport: courseType})
+	if err != nil || !result.Resolved {
+		return "generic", nil
 	}
-	switch courseType {
-	case "road_cycling":
-		return normalize("cycling", "road")
-	case "cycling":
-		return normalize("cycling", "")
-	case "mountain_biking":
-		return normalize("cycling", "mountain")
-	case "gravel_cycling":
-		return normalize("cycling", "gravel_cycling")
-	case "running":
-		return normalize("running", "")
-	case "trail_running":
-		return normalize("running", "trail")
-	case "hiking":
-		return normalize("hiking", "")
-	case "walking":
-		return normalize("walking", "")
-	case "swimming":
-		return normalize("swimming", "")
-	case "skiing":
-		return normalize("alpine_skiing", "")
-	case "cross_country_skiing":
-		return normalize("cross_country_skiing", "")
-	default:
-		return normalize("generic", "")
+	return sportTupleForRoute(result.Tuple, "generic")
+}
+
+func sportTupleForRoute(tuple sporttax.Tuple, fallback string) (string, *string) {
+	if tuple.SportType == "" {
+		return fallback, nil
 	}
+	if tuple.SubType == "" {
+		return tuple.SportType, nil
+	}
+	return tuple.SportType, &tuple.SubType
 }
 
 // geoPointsToGeoJSON converts Garmin GeoPoints to a GeoJSON LineString string.

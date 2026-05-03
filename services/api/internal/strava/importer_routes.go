@@ -159,30 +159,22 @@ func stravaCSVField(row []string, colIdx map[string]int, candidates ...string) s
 
 // stravaRouteTypeToSport maps Strava CSV sport/type values to Skadia route sport tuples.
 func stravaRouteTypeToSport(t string) (string, *string) {
-	normalize := func(sportType, subType string) (string, *string) {
-		tuple, _, err := sporttax.NormalizeSportTuple(sportType, subType)
-		if err != nil {
-			return "unknown", nil
-		}
-		if tuple.SubType == "" {
-			return tuple.SportType, nil
-		}
-		return tuple.SportType, &tuple.SubType
+	result, err := sporttax.ResolveSport(sporttax.ResolveInput{
+		Source:   sporttax.SourceStravaRoute,
+		RawSport: strings.ToLower(strings.TrimSpace(t)),
+	})
+	if err != nil || !result.Resolved {
+		return "unknown", nil
 	}
-	switch strings.ToLower(t) {
-	case "run", "running":
-		return normalize("running", "")
-	case "trail run", "trail running", "trailrun":
-		return normalize("running", "trail")
-	case "ride", "cycling", "bike":
-		return normalize("cycling", "")
-	case "hike", "hiking":
-		return normalize("hiking", "")
-	case "walk", "walking":
-		return normalize("walking", "")
-	case "alpine ski", "skiing":
-		return normalize("alpine_skiing", "")
-	default:
-		return normalize("unknown", "")
+	return sportTupleForRoute(result.Tuple, "unknown")
+}
+
+func sportTupleForRoute(tuple sporttax.Tuple, fallback string) (string, *string) {
+	if tuple.SportType == "" {
+		return fallback, nil
 	}
+	if tuple.SubType == "" {
+		return tuple.SportType, nil
+	}
+	return tuple.SportType, &tuple.SubType
 }

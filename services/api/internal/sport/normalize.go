@@ -44,6 +44,7 @@ const (
 	SourceTCXFile      Source = "tcx"
 	SourceGarminCourse Source = "garmin"
 	SourceStrava       Source = "strava"
+	SourceStravaRoute  Source = "strava_route"
 	SourceKomoot       Source = "komoot"
 )
 
@@ -115,7 +116,7 @@ func ResolveSport(input ResolveInput) (ResolveResult, error) {
 			}
 		}
 		return ResolveResult{}, nil
-	case SourceGPXFile, SourceTCXFile, SourceStrava, SourceKomoot:
+	case SourceGPXFile, SourceTCXFile, SourceStrava, SourceStravaRoute, SourceKomoot:
 		return ResolveResult{}, nil
 	default:
 		return ResolveResult{}, fmt.Errorf("unknown sport source %q", input.Source)
@@ -127,13 +128,64 @@ func GearDefaultSportForSource(source Source, rawSport string) (string, bool) {
 	if rawSport == "" {
 		return "", false
 	}
-	if alias, ok := lookupSourceAlias(source, rawSport, ""); ok {
-		return alias.Tuple.SportType, true
+	if byRaw, ok := generatedGearDefaultSportsBySource[source]; ok {
+		if mapped, ok := byRaw[rawSport]; ok {
+			return mapped, true
+		}
 	}
 	if source == SourceStrava {
 		return "generic", true
 	}
 	return "", false
+}
+
+func GearDefaultStorageSportOptions() []GearDefaultSportOption {
+	return append([]GearDefaultSportOption(nil), generatedGearDefaultStorageSportOptions...)
+}
+
+func GearDefaultManualSportOptions() []GearDefaultSportOption {
+	return append([]GearDefaultSportOption(nil), generatedGearDefaultManualSportOptions...)
+}
+
+func NormalizeGearDefaultSports(values []string) ([]string, error) {
+	return normalizeGearDefaultSports(values, generatedGearDefaultStorageSportOptions)
+}
+
+func NormalizeManualGearDefaultSports(values []string) ([]string, error) {
+	return normalizeGearDefaultSports(values, generatedGearDefaultManualSportOptions)
+}
+
+func normalizeGearDefaultSports(values []string, options []GearDefaultSportOption) ([]string, error) {
+	if len(values) == 0 {
+		return []string{}, nil
+	}
+	allowed := map[string]struct{}{}
+	for _, option := range options {
+		allowed[option.SportType] = struct{}{}
+	}
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		sportType := strings.TrimSpace(value)
+		if sportType == "" {
+			continue
+		}
+		if strings.Contains(sportType, ":") {
+			return nil, fmt.Errorf("gear default sport %q must be a top-level sport_type, not a tuple key", sportType)
+		}
+		if _, ok := allowed[sportType]; !ok {
+			return nil, fmt.Errorf("gear default sport %q is not allowed", sportType)
+		}
+		if _, ok := seen[sportType]; ok {
+			continue
+		}
+		seen[sportType] = struct{}{}
+		out = append(out, sportType)
+	}
+	if out == nil {
+		return []string{}, nil
+	}
+	return out, nil
 }
 
 func lookupSourceAlias(source Source, rawSport, rawSub string) (sourceAliasDef, bool) {

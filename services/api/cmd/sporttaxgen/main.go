@@ -38,6 +38,7 @@ func run() error {
 	tsRuleProjectionsOut := flag.String("ts-rule-projections-out", "", "generated TypeScript rule projection output path")
 	aliasSourceDir := flag.String("alias-source-dir", "", "source-specific sport alias YAML directory")
 	goAliasesOut := flag.String("go-aliases-out", "", "generated Go source aliases output path")
+	tsGearDefaultsOut := flag.String("ts-gear-defaults-out", "", "generated TypeScript gear default projection output path")
 	predicateValidationSQLOut := flag.String("predicate-validation-sql-out", "", "generated SQL predicate validator output path")
 	check := flag.Bool("check", false, "verify generated outputs are current")
 	flag.Parse()
@@ -77,6 +78,9 @@ func run() error {
 	}
 	if *goAliasesOut == "" {
 		*goAliasesOut = filepath.Join(*repoRoot, "services", "api", "internal", "sport", "aliases_generated.go")
+	}
+	if *tsGearDefaultsOut == "" {
+		*tsGearDefaultsOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedGearDefaultProjections.ts")
 	}
 	if *predicateValidationSQLOut == "" {
 		*predicateValidationSQLOut = filepath.Join(*repoRoot, "services", "api", "internal", "sport", "predicate_validation_generated.sql")
@@ -150,7 +154,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("render TypeScript rule projection: %w", err)
 	}
-	renderedGoAliases, aliasesExist, err := renderGoAliasesFromDir(*aliasSourceDir, taxonomy)
+	renderedGoAliases, renderedTSGearDefaults, aliasesExist, err := renderAliasesFromDir(*aliasSourceDir, taxonomy)
 	if err != nil {
 		return err
 	}
@@ -182,6 +186,9 @@ func run() error {
 			if err := checkFile(*goAliasesOut, renderedGoAliases); err != nil {
 				return err
 			}
+			if err := checkFile(*tsGearDefaultsOut, renderedTSGearDefaults); err != nil {
+				return err
+			}
 		}
 		if err := checkFile(*predicateValidationSQLOut, renderedPredicateValidationSQL); err != nil {
 			return err
@@ -210,6 +217,9 @@ func run() error {
 		if err := os.WriteFile(*goAliasesOut, renderedGoAliases, 0o644); err != nil {
 			return fmt.Errorf("write Go source aliases: %w", err)
 		}
+		if err := os.WriteFile(*tsGearDefaultsOut, renderedTSGearDefaults, 0o644); err != nil {
+			return fmt.Errorf("write TypeScript gear default projections: %w", err)
+		}
 	}
 	if err := os.WriteFile(*predicateValidationSQLOut, renderedPredicateValidationSQL, 0o644); err != nil {
 		return fmt.Errorf("write predicate validation SQL: %w", err)
@@ -217,16 +227,16 @@ func run() error {
 	return nil
 }
 
-func renderGoAliasesFromDir(dir string, taxonomy sporttaxgen.Taxonomy) ([]byte, bool, error) {
+func renderAliasesFromDir(dir string, taxonomy sporttaxgen.Taxonomy) ([]byte, []byte, bool, error) {
 	if _, err := os.Stat(dir); err != nil {
 		if os.IsNotExist(err) {
-			return nil, false, nil
+			return nil, nil, false, nil
 		}
-		return nil, false, fmt.Errorf("stat source alias directory: %w", err)
+		return nil, nil, false, fmt.Errorf("stat source alias directory: %w", err)
 	}
 	matches, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
 	if err != nil {
-		return nil, false, fmt.Errorf("glob source alias files: %w", err)
+		return nil, nil, false, fmt.Errorf("glob source alias files: %w", err)
 	}
 	files := make(map[string]io.Reader, len(matches))
 	opened := make([]*os.File, 0, len(matches))
@@ -238,7 +248,7 @@ func renderGoAliasesFromDir(dir string, taxonomy sporttaxgen.Taxonomy) ([]byte, 
 	for _, match := range matches {
 		file, err := os.Open(match)
 		if err != nil {
-			return nil, false, fmt.Errorf("open source alias file %s: %w", match, err)
+			return nil, nil, false, fmt.Errorf("open source alias file %s: %w", match, err)
 		}
 		opened = append(opened, file)
 		stem := strings.TrimSuffix(filepath.Base(match), filepath.Ext(match))
@@ -246,13 +256,21 @@ func renderGoAliasesFromDir(dir string, taxonomy sporttaxgen.Taxonomy) ([]byte, 
 	}
 	sources, err := sporttaxgen.LoadSourceAliasFiles(files, taxonomy)
 	if err != nil {
-		return nil, false, fmt.Errorf("load source aliases: %w", err)
+		return nil, nil, false, fmt.Errorf("load source aliases: %w", err)
 	}
-	rendered, err := sporttaxgen.RenderGoSourceAliases(sources)
+	gearDefaults, err := sporttaxgen.BuildGearDefaultProjection(taxonomy, sources)
 	if err != nil {
-		return nil, false, fmt.Errorf("render Go source aliases: %w", err)
+		return nil, nil, false, fmt.Errorf("build gear default projection: %w", err)
 	}
-	return rendered, true, nil
+	renderedGo, err := sporttaxgen.RenderGoSourceAliasesWithGearDefaults(sources, gearDefaults)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("render Go source aliases: %w", err)
+	}
+	renderedTSGearDefaults, err := sporttaxgen.RenderTSGearDefaultProjection(gearDefaults)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("render TypeScript gear default projection: %w", err)
+	}
+	return renderedGo, renderedTSGearDefaults, true, nil
 }
 
 func findRepoRoot(start string) (string, error) {

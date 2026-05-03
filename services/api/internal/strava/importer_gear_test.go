@@ -36,6 +36,26 @@ func TestMapStravaDefaultSportsUsesTopLevelCanonicalSports(t *testing.T) {
 			input: "Mystery Sport",
 			want:  []string{"generic"},
 		},
+		{
+			name:  "virtual labels collapse to top level sports",
+			input: "Virtual Ride|Virtual Run|Virtual Row",
+			want:  []string{"cycling", "running", "rowing"},
+		},
+		{
+			name:  "electric bike labels collapse to cycling",
+			input: "E-Bike Ride|E-Mountain Bike Ride",
+			want:  []string{"cycling"},
+		},
+		{
+			name:  "german comma separated labels map through projection",
+			input: "Radfahren,Lauf,Rudern",
+			want:  []string{"cycling", "running", "rowing"},
+		},
+		{
+			name:  "whitespace and duplicate labels preserve one top level value",
+			input: " Ride | Ride | Mountain Bike Ride ",
+			want:  []string{"cycling"},
+		},
 	}
 
 	for _, tt := range tests {

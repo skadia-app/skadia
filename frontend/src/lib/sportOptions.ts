@@ -4,9 +4,9 @@
 import {
   SPORT_DEFS,
   sportColor,
-  selectableParentSportOptions,
 } from '@/lib/sportTaxonomy'
 import { GENERATED_ACTIVITY_FILTER_PRESETS } from '@/lib/generatedSportFilterProjections'
+import { GENERATED_GEAR_DEFAULT_MANUAL_OPTIONS } from '@/lib/generatedGearDefaultProjections'
 
 export interface SportOption {
   value: string
@@ -122,9 +122,10 @@ export function getAllSportTypes(): string[] {
  * Generates sport options for GearForm (flat list of all sports, sorted by label).
  */
 export function generateGearSportOptions(): { value: string; label: string }[] {
-  return selectableParentSportOptions()
-    .filter((s) => s.value !== 'unknown')
-    .sort((a, b) => a.label.localeCompare(b.label, 'de'))
+  return GENERATED_GEAR_DEFAULT_MANUAL_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.label,
+  }))
 }
 
 /**

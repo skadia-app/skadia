@@ -112,7 +112,11 @@ func TestGeneratedFrontendRuleProjectionIsCurrent(t *testing.T) {
 func TestGeneratedBackendSourceAliasesAreCurrent(t *testing.T) {
 	taxonomy := loadTestTaxonomy(t)
 	sources := loadTestSourceAliases(t, taxonomy)
-	got, err := sporttaxgen.RenderGoSourceAliases(sources)
+	gearDefaults, err := sporttaxgen.BuildGearDefaultProjection(taxonomy, sources)
+	if err != nil {
+		t.Fatalf("build gear default projection: %v", err)
+	}
+	got, err := sporttaxgen.RenderGoSourceAliasesWithGearDefaults(sources, gearDefaults)
 	if err != nil {
 		t.Fatalf("render Go source aliases: %v", err)
 	}
@@ -122,6 +126,26 @@ func TestGeneratedBackendSourceAliasesAreCurrent(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatal("aliases_generated.go is stale; run scripts/generate-sport-taxonomy.sh")
+	}
+}
+
+func TestGeneratedFrontendGearDefaultProjectionIsCurrent(t *testing.T) {
+	taxonomy := loadTestTaxonomy(t)
+	sources := loadTestSourceAliases(t, taxonomy)
+	gearDefaults, err := sporttaxgen.BuildGearDefaultProjection(taxonomy, sources)
+	if err != nil {
+		t.Fatalf("build gear default projection: %v", err)
+	}
+	got, err := sporttaxgen.RenderTSGearDefaultProjection(gearDefaults)
+	if err != nil {
+		t.Fatalf("render TypeScript gear default projection: %v", err)
+	}
+	want, err := os.ReadFile("../../../../frontend/src/lib/generatedGearDefaultProjections.ts")
+	if err != nil {
+		t.Fatalf("read generatedGearDefaultProjections.ts: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("generatedGearDefaultProjections.ts is stale; run scripts/generate-sport-taxonomy.sh")
 	}
 }
 
