@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchTags } from '@/api/tags'
 import { routeSportOptions } from '@/lib/sportTaxonomy'
+import { ROUTE_MODIFIER_LABELS } from '@/lib/routeModifierLabels'
 import type { Tag } from '@/api/tags'
 
 // ─── BRouter profiles ─────────────────────────────────────────────────────────
@@ -208,10 +209,10 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
     checked: boolean
     setChecked: (value: boolean) => void
   }> = [
-    { key: 'is_electric', label: 'E-Bike', checked: isElectric, setChecked: setIsElectric },
-    { key: 'is_indoor', label: 'Indoor', checked: isIndoor, setChecked: setIsIndoor },
-    { key: 'is_virtual', label: 'Virtuell', checked: isVirtual, setChecked: setIsVirtual },
-    { key: 'is_commute', label: 'Pendeln', checked: isCommute, setChecked: setIsCommute },
+    { key: 'is_electric', label: ROUTE_MODIFIER_LABELS.is_electric, checked: isElectric, setChecked: setIsElectric },
+    { key: 'is_indoor', label: ROUTE_MODIFIER_LABELS.is_indoor, checked: isIndoor, setChecked: setIsIndoor },
+    { key: 'is_virtual', label: ROUTE_MODIFIER_LABELS.is_virtual, checked: isVirtual, setChecked: setIsVirtual },
+    { key: 'is_commute', label: ROUTE_MODIFIER_LABELS.is_commute, checked: isCommute, setChecked: setIsCommute },
   ]
 
   return (

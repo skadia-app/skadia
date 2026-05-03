@@ -13,6 +13,7 @@ import { useToast } from '@/lib/toast'
 import { fmtDist } from '@/lib/format'
 import { triggerBlobDownload } from '@/lib/utils'
 import { sportDetailLabel, normalizeSportTuple, routeSportOptions } from '@/lib/sportTaxonomy'
+import { ROUTE_MODIFIER_LABELS, type RouteModifierKey } from '@/lib/routeModifierLabels'
 
 // ── Sport type labels for filter dropdown ─────────────────────────────────────
 
@@ -557,15 +558,10 @@ export default function RoutesPage() {
           </div>
         )}
 
-        {[
-          ['is_electric', 'E-Bike'],
-          ['is_indoor', 'Indoor'],
-          ['is_virtual', 'Virtuell'],
-          ['is_commute', 'Pendeln'],
-        ].map(([key, label]) => (
+        {Object.entries(ROUTE_MODIFIER_LABELS).map(([key, label]) => (
           <select
             key={key}
-            value={modifierFilters[key as keyof typeof modifierFilters]}
+            value={modifierFilters[key as RouteModifierKey]}
             onChange={(e) => setModifierFilters(prev => ({ ...prev, [key]: e.target.value as ModifierFilter }))}
             className="border border-neutral-200 dark:border-neutral-700 rounded-lg px-2 py-1.5 text-sm
                        bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200
