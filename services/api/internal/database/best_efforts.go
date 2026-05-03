@@ -59,11 +59,19 @@ func (db *DB) TryAcquireBestEffortLock(ctx context.Context, userID string) (*pgx
 // all currently eligible activities to purge stale rows without ever leaving
 // the table empty.
 func (db *DB) DeleteOrphanedBestEfforts(ctx context.Context, userID string, keepActivityIDs []string) error {
+	recordGroups := bestefforts.RecordGroups()
+	validSportGroups := make([]string, 0, len(recordGroups))
+	for _, group := range recordGroups {
+		validSportGroups = append(validSportGroups, group.Key)
+	}
 	_, err := db.Pool.Exec(ctx,
 		`DELETE FROM best_efforts
 		 WHERE user_id = $1
-		   AND activity_id != ALL($2::uuid[])`,
-		userID, keepActivityIDs,
+		   AND (
+		       activity_id != ALL($2::uuid[])
+		       OR sport_group != ALL($3::text[])
+		   )`,
+		userID, keepActivityIDs, validSportGroups,
 	)
 	if err != nil {
 		return fmt.Errorf("delete orphaned best efforts: %w", err)
@@ -73,17 +81,17 @@ func (db *DB) DeleteOrphanedBestEfforts(ctx context.Context, userID string, keep
 
 // BestEffort represents a single computed best effort record.
 type BestEffort struct {
-	ID             string     `json:"id"`
-	UserID         string     `json:"user_id"`
-	ActivityID     string     `json:"activity_id"`
-	Category       string     `json:"category"`
-	SportGroup     string     `json:"sport_group"`
-	ElapsedTimeS   *int       `json:"elapsed_time_s,omitempty"`
-	ValueNumeric   *float64   `json:"value_numeric,omitempty"`
-	AchievedAt     time.Time  `json:"achieved_at"`
-	StreamStartIdx *int       `json:"stream_start_idx,omitempty"`
-	StreamEndIdx   *int       `json:"stream_end_idx,omitempty"`
-	Suspicious     bool       `json:"suspicious"`
+	ID             string    `json:"id"`
+	UserID         string    `json:"user_id"`
+	ActivityID     string    `json:"activity_id"`
+	Category       string    `json:"category"`
+	SportGroup     string    `json:"sport_group"`
+	ElapsedTimeS   *int      `json:"elapsed_time_s,omitempty"`
+	ValueNumeric   *float64  `json:"value_numeric,omitempty"`
+	AchievedAt     time.Time `json:"achieved_at"`
+	StreamStartIdx *int      `json:"stream_start_idx,omitempty"`
+	StreamEndIdx   *int      `json:"stream_end_idx,omitempty"`
+	Suspicious     bool      `json:"suspicious"`
 }
 
 // BestEffortRanked is a BestEffort with a rank within the user's sport group and category.
@@ -217,10 +225,11 @@ const rankingOrderExpr = `
 // each annotated with the user's rank (top-3 only) among eligible activities.
 //
 // Eligibility guards applied to ranked activities:
-//   (activities use hard delete — ON DELETE CASCADE handles cleanup)
-//   - NOT COALESCE(a.exclude_from_stats, false)
-//   - NOT COALESCE(a.is_group_secondary, false)
-//   - No active best_effort_exclusions for (user, activity, category OR '__all__')
+//
+//	(activities use hard delete — ON DELETE CASCADE handles cleanup)
+//	- NOT COALESCE(a.exclude_from_stats, false)
+//	- NOT COALESCE(a.is_group_secondary, false)
+//	- No active best_effort_exclusions for (user, activity, category OR '__all__')
 //
 // Only ranks 1–3 are returned; records outside the top-3 receive rank > 3.
 func (db *DB) GetBestEffortsForActivity(ctx context.Context, activityID, userID string) ([]BestEffortRanked, error) {
