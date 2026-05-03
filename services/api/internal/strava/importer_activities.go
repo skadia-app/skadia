@@ -314,10 +314,11 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 							FileName:    filepath.Base(filename), // L48: strip directory prefix
 							SizeBytes:   int64(len(fileBytes)),
 							FileHash:    msHash,
-							Tags: map[string]string{
-								"format": "fit",
-								"source": "strava",
-							},
+							Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
+								Format:    "fit",
+								Source:    "strava",
+								SportType: "multisport",
+							}),
 						}, bytes.NewReader(fileBytes))
 						if putErr != nil {
 							slog.Error("strava activities: ShadowFS.Put multisport failed — skipping activity", "file", filename, "error", putErr)
@@ -478,10 +479,17 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 						FileName:    fmt.Sprintf("strava_%d.json", stravaID),
 						SizeBytes:   int64(len(jsonBytes)),
 						FileHash:    hashStr,
-						Tags: map[string]string{
-							"format": "strava_csv",
-							"source": "strava",
-						},
+						Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
+							Format:         "strava_csv",
+							Source:         "strava",
+							StartedAt:      data.StartedAt,
+							SportType:      data.SportType,
+							SubType:        data.SubType,
+							Title:          activityName,
+							DistanceM:      data.DistanceM,
+							ElapsedTimeS:   data.ElapsedTimeS,
+							ElevationGainM: data.ElevationGainM,
+						}),
 					}, bytes.NewReader(jsonBytes))
 					if putErr != nil {
 						slog.Warn("strava activities: ShadowFS.Put for CSV-only failed", "error", putErr)
@@ -536,10 +544,17 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					FileName:    filepath.Base(filename), // L48: strip directory prefix
 					SizeBytes:   int64(len(fileBytes)),
 					FileHash:    hashStr,
-					Tags: map[string]string{
-						"format": format,
-						"source": "strava",
-					},
+					Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
+						Format:         format,
+						Source:         "strava",
+						StartedAt:      data.StartedAt,
+						SportType:      data.SportType,
+						SubType:        data.SubType,
+						Title:          data.Title,
+						DistanceM:      data.DistanceM,
+						ElapsedTimeS:   data.ElapsedTimeS,
+						ElevationGainM: data.ElevationGainM,
+					}),
 				}, bytes.NewReader(fileBytes))
 				if putErr != nil {
 					slog.Warn("strava activities: ShadowFS.Put failed", "file", filename, "error", putErr)

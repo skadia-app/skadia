@@ -181,10 +181,11 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 						FileName:    filepath.Base(ref.fileName), // L47: sanitize
 						SizeBytes:   int64(len(fileBytes)),
 						FileHash:    hashStr,
-						Tags: map[string]string{
-							"format": "fit",
-							"source": "garmin",
-						},
+						Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
+							Format:    "fit",
+							Source:    "garmin",
+							SportType: "multisport",
+						}),
 					}, bytes.NewReader(fileBytes))
 					if putErr != nil {
 						slog.Error("garmin activities: ShadowFS.Put multisport failed — skipping activity", "file", ref.fileName, "error", putErr)
@@ -306,10 +307,17 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				FileName:    safeFileName,
 				SizeBytes:   int64(len(fileBytes)),
 				FileHash:    hashStr,
-				Tags: map[string]string{
-					"format": format,
-					"source": "garmin",
-				},
+				Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
+					Format:         format,
+					Source:         "garmin",
+					StartedAt:      data.StartedAt,
+					SportType:      data.SportType,
+					SubType:        data.SubType,
+					Title:          data.Title,
+					DistanceM:      data.DistanceM,
+					ElapsedTimeS:   data.ElapsedTimeS,
+					ElevationGainM: data.ElevationGainM,
+				}),
 			}, bytes.NewReader(fileBytes))
 			if putErr != nil {
 				slog.Warn("garmin activities: ShadowFS.Put failed", "file", ref.fileName, "error", putErr)
@@ -475,4 +483,3 @@ func readFileFromZipCached(cache map[string]*zip.ReadCloser, zipPath, fileName s
 	}
 	return nil, fmt.Errorf("file %s not found in zip %s", fileName, zipPath)
 }
-
