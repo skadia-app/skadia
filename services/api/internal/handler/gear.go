@@ -134,9 +134,13 @@ func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if update.DefaultForSports != nil {
-		sports, ok := normalizeGearDefaultSportsForRequest(w, r, update.DefaultForSports)
-		if !ok {
+		sports, err := sport.NormalizeGearDefaultSports(update.DefaultForSports)
+		if err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 			return
+		}
+		if sports == nil {
+			sports = []string{}
 		}
 		update.DefaultForSports = sports
 	}
