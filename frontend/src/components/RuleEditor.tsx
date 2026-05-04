@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
+import { HelpCircle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchGear } from '@/api/gear'
 import { fetchTags } from '@/api/tags'
@@ -579,6 +580,24 @@ function SportTupleConditionControl({
 // ---------------------------------------------------------------------------
 
 const inputClass = 'border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1.5 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent'
+
+function HelpHint({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <HelpCircle className="w-3.5 h-3.5 text-neutral-400 dark:text-neutral-500 cursor-help" aria-label={text} />
+      <span
+        role="tooltip"
+        className="absolute left-1/2 top-full mt-3 z-50 -translate-x-1/2 w-64 rounded-md
+                   bg-neutral-900 dark:bg-neutral-100 text-neutral-100 dark:text-neutral-900
+                   text-xs leading-snug px-3 py-2 shadow-lg pointer-events-none normal-case
+                   opacity-0 invisible group-hover:opacity-100 group-hover:visible
+                   transition-[opacity,visibility] duration-100 delay-500"
+      >
+        {text}
+      </span>
+    </span>
+  )
+}
 
 const KPH_DISPLAY_SPEED_FIELDS = new Set(['avg_speed_ms', 'max_speed_ms', 'min_speed_ms'])
 
@@ -1163,21 +1182,37 @@ function ConditionRow({
           </select>
         )}
 
-        {/* Remove button */}
+        {/* Remove button for geofence rows (inside the header flex row, right-aligned) */}
+        {isGeofence && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer ml-auto"
+            title="Bedingung entfernen"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {/* Value editor — inline for normal fields, second row for geofence */}
+      <ConditionValueEditor fieldDef={safeField} cond={cond} onChange={onUpdate} tags={tags} recorders={recorders} sensors={sensors} />
+
+      {/* Remove button for normal rows — at the end of the flex row after the value editor */}
+      {!isGeofence && (
         <button
           type="button"
           onClick={onRemove}
-          className={`text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer${isGeofence ? ' ml-auto' : ''}`}
+          className="text-neutral-400 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer"
           title="Bedingung entfernen"
         >
           <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
           </svg>
         </button>
-      </div>
-
-      {/* Value editor — inline for normal fields, second row for geofence */}
-      <ConditionValueEditor fieldDef={safeField} cond={cond} onChange={onUpdate} tags={tags} recorders={recorders} sensors={sensors} />
+      )}
     </div>
   )
 }
@@ -1290,7 +1325,7 @@ function ConditionGroupBlock({
       <button
         type="button"
         onClick={addCondition}
-        className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
+        className="text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
       >
         + Bedingung hinzufügen
       </button>
@@ -1950,7 +1985,10 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Priorität</label>
+          <label className="flex items-center gap-1.5 text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+            Priorität
+            <HelpHint text="Höhere Werte werden zuerst ausgeführt. Bei gleicher Priorität entscheidet die Reihenfolge in der Liste. Mit 'Weitere Regeln stoppen' kannst du verhindern, dass nachfolgende Regeln greifen." />
+          </label>
           <input
             type="number"
             value={priority}
@@ -2000,7 +2038,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
           <button
             type="button"
             onClick={addGroup}
-            className="text-sm text-accent-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 cursor-pointer"
+            className="text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
           >
             + Gruppe hinzufügen
           </button>
@@ -2037,16 +2075,8 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
 
       {/* Actions */}
       <div>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Aktionen *</h3>
-          <button
-            type="button"
-            onClick={addAction}
-            className="text-sm text-accent-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 cursor-pointer"
-          >
-            + Aktion
-          </button>
-        </div>
+        <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">Aktionen *</h3>
+        <div className="border border-neutral-200 dark:border-neutral-700 rounded-lg p-3 space-y-2 bg-white dark:bg-neutral-900/30">
         {actions.length === 0 && (
           <p className="text-sm text-neutral-400 py-2">Mindestens eine Aktion erforderlich.</p>
         )}
@@ -2082,6 +2112,14 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
             </div>
           ))}
         </div>
+        <button
+          type="button"
+          onClick={addAction}
+          className="text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
+        >
+          + Aktion
+        </button>
+        </div>
       </div>
 
       {/* Branches (ELSE-IF / ELSE) */}
@@ -2109,7 +2147,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
                 <button
                   type="button"
                   onClick={() => addBranchGroup(branchIdx)}
-                  className="text-xs text-accent-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 cursor-pointer"
+                  className="text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
                 >
                   + Gruppe
                 </button>
@@ -2145,16 +2183,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
 
           {/* Actions for this branch */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Dann</span>
-              <button
-                type="button"
-                onClick={() => addBranchAction(branchIdx)}
-                className="text-xs text-accent-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 cursor-pointer"
-              >
-                + Aktion
-              </button>
-            </div>
+            <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Dann</span>
             {branch.actions.length === 0 && (
               <p className="text-xs text-neutral-400 italic">Keine Aktionen.</p>
             )}
@@ -2190,6 +2219,13 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
                 </div>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={() => addBranchAction(branchIdx)}
+              className="mt-1 text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
+            >
+              + Aktion
+            </button>
           </div>
         </div>
       ))}
@@ -2199,7 +2235,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
         <button
           type="button"
           onClick={() => addBranch('else_if')}
-          className="text-sm border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 cursor-pointer transition-colors"
+          className="text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
         >
           + Sonst wenn
         </button>
@@ -2207,7 +2243,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
           <button
             type="button"
             onClick={() => addBranch('else')}
-            className="text-sm border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 cursor-pointer transition-colors"
+            className="text-xs font-medium px-2.5 py-1 rounded border border-accent-DEFAULT/50 dark:border-orange-400/50 text-accent-600 dark:text-orange-400 hover:bg-accent-DEFAULT/10 dark:hover:bg-orange-400/10 transition-colors cursor-pointer"
           >
             + Sonst
           </button>
