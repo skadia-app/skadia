@@ -404,7 +404,7 @@ function readMetricValueForAggregation(s: StreamPoint, metric: Metric): number |
 
 // ─── Segment feature building ─────────────────────────────────────────────────
 
-function haversineMeters(a: [number, number], b: [number, number]): number {
+export function haversineMeters(a: [number, number], b: [number, number]): number {
   const R = 6371e3
   const [lng1, lat1] = a, [lng2, lat2] = b
   const φ1 = lat1 * Math.PI / 180
