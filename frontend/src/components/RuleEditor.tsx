@@ -1817,6 +1817,15 @@ function dedupeSystemTagActions(actions: RuleAction[], tagNameForAction: (action
   const out: RuleAction[] = []
   const modifierState = new Map<string, boolean>()
   const specs = MODIFIER_ACTION_SPECS
+  const cyclingActionContext = actions.some((action) =>
+    action.action === 'set_sport_type' && action.params?.sport_type === 'cycling'
+  )
+
+  function tagAppliesToModifier(spec: (typeof MODIFIER_ACTION_SPECS)[number], tagName: string): boolean {
+    if (spec.tag !== tagName) return false
+    if (spec.tag === 'E-Bike') return cyclingActionContext
+    return true
+  }
 
   for (const action of actions) {
     const spec = specs.find((s) => s.action === action.action)
@@ -1824,7 +1833,8 @@ function dedupeSystemTagActions(actions: RuleAction[], tagNameForAction: (action
       const value = action.params?.[spec.param] ?? action.params?.value ?? true
       for (let i = out.length - 1; i >= 0; i--) {
         const existing = out[i]
-        if (tagNameForAction(existing) !== spec.tag) continue
+        const tagName = tagNameForAction(existing)
+        if (!tagName || !tagAppliesToModifier(spec, tagName)) continue
         if (existing.action === 'add_tag' && value === true) {
           out.splice(i, 1)
         } else if (existing.action === 'add_tag' && value === false) {
@@ -1840,7 +1850,7 @@ function dedupeSystemTagActions(actions: RuleAction[], tagNameForAction: (action
 
     const tagName = tagNameForAction(action)
     if ((action.action === 'add_tag' || action.action === 'remove_tag') && tagName) {
-      const matchingSpec = specs.find((s) => s.tag === tagName)
+      const matchingSpec = specs.find((s) => tagAppliesToModifier(s, tagName))
       if (matchingSpec) {
         const state = modifierState.get(matchingSpec.action)
         if (action.action === 'add_tag' && state === true) {
