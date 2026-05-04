@@ -157,6 +157,10 @@ eligible:
     segment_types: [standard, trail, lap]
     domains: [real_world_gps]
     sport_group: generic
+  - sport_type: skateboarding
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
   - sport_type: flying
     segment_types: [standard, trail, lap]
     domains: [real_world_gps]

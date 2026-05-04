@@ -1,0 +1,40 @@
+source: fit
+aliases:
+- raw: archery
+  sport_type: unknown
+- raw: cycling
+  raw_sub: e_bike_enduro
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: cycling
+  raw_sub: e_bike_fitness
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: cycling
+  raw_sub: e_bike_mountain
+  sport_type: cycling
+  sub_type: mountain
+  modifiers: {is_electric: true}
+- raw: geocaching
+  sport_type: unknown
+- raw: grinding
+  sport_type: unknown
+- raw: mobility
+  sport_type: unknown
+- raw: motor_sports
+  sport_type: unknown
+- raw: para_sport
+  sport_type: unknown
+- raw: pool_apnea
+  sport_type: diving
+  sub_type: apnea_pool
+- raw: shooting
+  sport_type: unknown
+- raw: team_sport
+  sport_type: unknown
+- raw: video_gaming
+  sport_type: unknown
+- raw: water_sport
+  sport_type: unknown
+- raw: winter_sport
+  sport_type: unknown

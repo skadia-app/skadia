@@ -80,7 +80,7 @@ presets:
         label_ref: category:outdoor
         entries:
           - category_key: outdoor
-            sport_order: [inline_skating, flying, hang_gliding, sky_diving, jumpmaster, horseback_riding, hunting, motorcycling, driving, tactical]
+            sport_order: [inline_skating, skateboarding, flying, hang_gliding, sky_diving, jumpmaster, horseback_riding, hunting, motorcycling, driving, tactical]
       - key: multi
         label_ref: category:multi
         entries:
@@ -162,7 +162,7 @@ presets:
         label_ref: category:outdoor
         entries:
           - category_key: outdoor
-            sport_order: [inline_skating, flying, hang_gliding, sky_diving, jumpmaster, horseback_riding, hunting, motorcycling, driving, tactical]
+            sport_order: [inline_skating, skateboarding, flying, hang_gliding, sky_diving, jumpmaster, horseback_riding, hunting, motorcycling, driving, tactical]
       - key: multi
         label_ref: category:multi
         entries:

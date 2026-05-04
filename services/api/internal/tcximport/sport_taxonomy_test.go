@@ -17,7 +17,7 @@ func TestMapTCXSportReturnsCanonicalSportTuple(t *testing.T) {
 		{"trail_running", "running", "trail", nil},
 		{"mountain_biking", "cycling", "mountain", nil},
 		{"gravel_ride", "cycling", "gravel_cycling", nil},
-		{"other", "unknown", "", nil},
+		{"other", "generic", "", nil},
 		{"does_not_exist", "unknown", "", nil},
 	}
 	for _, tt := range tests {
@@ -70,7 +70,7 @@ func TestMapTCXSportCoversAllConfiguredAliases(t *testing.T) {
 		{"rowing", "rowing", "", nil},
 		{"kayaking", "kayaking", "", nil},
 		{"multisport", "multisport", "", nil},
-		{"other", "unknown", "", nil},
+		{"other", "generic", "", nil},
 	}
 	wantIndoorByInput := map[string]*bool{
 		"strength_training": boolPtr(true),

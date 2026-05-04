@@ -77,8 +77,12 @@ func TestFitSportToSportType(t *testing.T) {
 		{typedef.SportCrossCountrySkiing, typedef.SubSportGeneric, "cross_country_skiing", ""},
 		{typedef.SportPaddling, typedef.SubSportGeneric, "paddling", ""},
 		{typedef.SportRowing, typedef.SubSportGeneric, "rowing", ""},
-		{typedef.SportInvalid, typedef.SubSportGeneric, "generic", ""}, // unknown -> generic
-		{typedef.Sport(255), typedef.SubSportGeneric, "generic", ""},   // unknown -> generic
+		{typedef.SportCanoeing, typedef.SubSportGeneric, "canoeing", ""},
+		{typedef.SportPoolApnea, typedef.SubSportGeneric, "diving", "apnea_pool"},
+		{typedef.SportWaterSport, typedef.SubSportGeneric, "unknown", ""},
+		{typedef.SportWinterSport, typedef.SubSportGeneric, "unknown", ""},
+		{typedef.SportInvalid, typedef.SubSportGeneric, "unknown", ""}, // unknown -> unknown
+		{typedef.Sport(255), typedef.SubSportGeneric, "unknown", ""},   // unknown -> unknown
 	}
 
 	for _, tc := range cases {

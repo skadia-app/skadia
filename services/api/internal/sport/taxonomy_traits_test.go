@@ -87,7 +87,7 @@ func TestGeneratedSportTraits(t *testing.T) {
 
 func TestGeneratedTraitChangeDoesNotChangeSportLists(t *testing.T) {
 	wantAllSports := []string{
-		"alpine_skiing", "american_football", "backcountry_skiing", "baseball", "basketball", "boating", "boxing", "canoeing", "cricket", "cross_country_skiing", "cycling", "dance", "disc_golf", "diving", "driving", "fishing", "fitness_equipment", "floor_climbing", "flying", "generic", "golf", "hang_gliding", "hiit", "hiking", "hockey", "horseback_riding", "hunting", "ice_skating", "inline_skating", "jump_rope", "jumpmaster", "kayaking", "kitesurfing", "lacrosse", "meditation", "mixed_martial_arts", "motorcycling", "mountaineering", "multisport", "paddling", "pilates", "racket", "rafting", "rock_climbing", "rowing", "rugby", "running", "sailing", "skiing", "sky_diving", "sledding", "snorkeling", "snowboarding", "snowmobiling", "snowshoeing", "soccer", "stand_up_paddleboarding", "strength_training", "surfing", "swimming", "tactical", "tennis", "training", "transition", "unknown", "volleyball", "wakeboarding", "wakesurfing", "walking", "water_skiing", "water_tubing", "wheelchair_push", "windsurfing", "yoga",
+		"alpine_skiing", "american_football", "backcountry_skiing", "baseball", "basketball", "boating", "boxing", "canoeing", "cricket", "cross_country_skiing", "cycling", "dance", "disc_golf", "diving", "driving", "fishing", "fitness_equipment", "floor_climbing", "flying", "generic", "golf", "hang_gliding", "hiit", "hiking", "hockey", "horseback_riding", "hunting", "ice_skating", "inline_skating", "jump_rope", "jumpmaster", "kayaking", "kitesurfing", "lacrosse", "meditation", "mixed_martial_arts", "motorcycling", "mountaineering", "multisport", "paddling", "pilates", "racket", "rafting", "rock_climbing", "rowing", "rugby", "running", "sailing", "skateboarding", "skiing", "sky_diving", "sledding", "snorkeling", "snowboarding", "snowmobiling", "snowshoeing", "soccer", "stand_up_paddleboarding", "strength_training", "surfing", "swimming", "tactical", "tennis", "training", "transition", "unknown", "volleyball", "wakeboarding", "wakesurfing", "walking", "water_skiing", "water_tubing", "wheelchair_push", "windsurfing", "yoga",
 	}
 	if got := sportTypes(AllSports()); !reflect.DeepEqual(got, wantAllSports) {
 		t.Fatalf("AllSports() = %#v, want %#v", got, wantAllSports)
@@ -100,7 +100,7 @@ func TestGeneratedTraitChangeDoesNotChangeSportLists(t *testing.T) {
 		"game":    {"american_football", "baseball", "basketball", "cricket", "disc_golf", "golf", "hockey", "lacrosse", "racket", "rugby", "soccer", "tennis", "volleyball"},
 		"multi":   {"multisport", "transition"},
 		"other":   {"generic", "unknown"},
-		"outdoor": {"driving", "flying", "hang_gliding", "horseback_riding", "hunting", "inline_skating", "jumpmaster", "motorcycling", "sky_diving", "tactical"},
+		"outdoor": {"driving", "flying", "hang_gliding", "horseback_riding", "hunting", "inline_skating", "jumpmaster", "motorcycling", "skateboarding", "sky_diving", "tactical"},
 		"run":     {"hiking", "mountaineering", "running", "walking", "wheelchair_push"},
 		"water":   {"boating", "canoeing", "diving", "fishing", "kayaking", "kitesurfing", "paddling", "rafting", "rowing", "sailing", "snorkeling", "stand_up_paddleboarding", "surfing", "swimming", "wakeboarding", "wakesurfing", "water_skiing", "water_tubing", "windsurfing"},
 		"winter":  {"alpine_skiing", "backcountry_skiing", "cross_country_skiing", "ice_skating", "skiing", "sledding", "snowboarding", "snowmobiling", "snowshoeing"},

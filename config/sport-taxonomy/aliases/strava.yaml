@@ -9,6 +9,9 @@ aliases:
 - raw: E-Bike Ride
   sport_type: cycling
   modifiers: {is_electric: true}
+- raw: EBikeRide
+  sport_type: cycling
+  modifiers: {is_electric: true}
 - raw: E-Bike-Radfahrt
   sport_type: cycling
   modifiers: {is_electric: true}
@@ -16,6 +19,9 @@ aliases:
   sport_type: cycling
   modifiers: {is_electric: true}
 - raw: Mountain Bike Ride
+  sport_type: cycling
+  sub_type: mountain
+- raw: MountainBikeRide
   sport_type: cycling
   sub_type: mountain
 - raw: Mountainbiking
@@ -28,7 +34,14 @@ aliases:
   sport_type: cycling
   sub_type: mountain
   modifiers: {is_electric: true}
+- raw: EMountainBikeRide
+  sport_type: cycling
+  sub_type: mountain
+  modifiers: {is_electric: true}
 - raw: Gravel Ride
+  sport_type: cycling
+  sub_type: gravel_cycling
+- raw: GravelRide
   sport_type: cycling
   sub_type: gravel_cycling
 - raw: Gravelbike
@@ -69,6 +82,9 @@ aliases:
 - raw: Laufen
   sport_type: running
 - raw: Trail Run
+  sport_type: running
+  sub_type: trail
+- raw: TrailRun
   sport_type: running
   sub_type: trail
 - raw: Trailrunning
@@ -120,6 +136,8 @@ aliases:
   sub_type: open_water
 - raw: Stand Up Paddling
   sport_type: stand_up_paddleboarding
+- raw: StandUpPaddling
+  sport_type: stand_up_paddleboarding
 - raw: Stand-up-Paddeln
   sport_type: stand_up_paddleboarding
 - raw: SUP
@@ -157,17 +175,23 @@ aliases:
   sport_type: windsurfing
 - raw: Alpine Ski
   sport_type: alpine_skiing
+- raw: AlpineSki
+  sport_type: alpine_skiing
 - raw: Skifahren
   sport_type: alpine_skiing
 - raw: Ski alpin
   sport_type: alpine_skiing
 - raw: Nordic Ski
   sport_type: cross_country_skiing
+- raw: NordicSki
+  sport_type: cross_country_skiing
 - raw: Langlauf
   sport_type: cross_country_skiing
 - raw: Skilanglauf
   sport_type: cross_country_skiing
 - raw: Backcountry Ski
+  sport_type: backcountry_skiing
+- raw: BackcountrySki
   sport_type: backcountry_skiing
 - raw: Snowboard
   sport_type: snowboarding
@@ -179,9 +203,15 @@ aliases:
   sport_type: snowshoeing
 - raw: Ice Skate
   sport_type: ice_skating
+- raw: IceSkate
+  sport_type: ice_skating
 - raw: Roller Ski
   sport_type: cross_country_skiing
+- raw: RollerSki
+  sport_type: cross_country_skiing
 - raw: Weight Training
+  sport_type: strength_training
+- raw: WeightTraining
   sport_type: strength_training
 - raw: Krafttraining
   sport_type: strength_training
@@ -195,6 +225,8 @@ aliases:
   sport_type: training
 - raw: HIIT
   sport_type: hiit
+- raw: HighIntensityIntervalTraining
+  sport_type: hiit
 - raw: Workout
   sport_type: training
 - raw: Elliptical
@@ -203,9 +235,14 @@ aliases:
 - raw: Stair-Stepper
   sport_type: fitness_equipment
   sub_type: stair_climbing
+- raw: StairStepper
+  sport_type: fitness_equipment
+  sub_type: stair_climbing
 - raw: Dance
   sport_type: dance
 - raw: Rock Climbing
+  sport_type: rock_climbing
+- raw: RockClimbing
   sport_type: rock_climbing
 - raw: Klettern
   sport_type: rock_climbing
@@ -220,6 +257,9 @@ aliases:
   sport_type: racket
   sub_type: badminton
 - raw: Table Tennis
+  sport_type: racket
+  sub_type: table_tennis
+- raw: TableTennis
   sport_type: racket
   sub_type: table_tennis
 - raw: Squash
@@ -248,10 +288,12 @@ aliases:
   sport_type: cricket
 - raw: Inline Skate
   sport_type: inline_skating
-- raw: Skateboard
+- raw: InlineSkate
   sport_type: inline_skating
+- raw: Skateboard
+  sport_type: skateboarding
 - raw: Wheelchair
-  sport_type: generic
+  sport_type: wheelchair_push
 - raw: Triathlon
   sport_type: multisport
 - raw: Multisport

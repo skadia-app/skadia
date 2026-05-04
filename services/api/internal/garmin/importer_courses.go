@@ -164,9 +164,9 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 func garminCourseTypeToSport(courseType string) (string, *string) {
 	result, err := sporttax.ResolveSport(sporttax.ResolveInput{Source: sporttax.SourceGarminCourse, RawSport: courseType})
 	if err != nil || !result.Resolved {
-		return "generic", nil
+		return "unknown", nil
 	}
-	return sportTupleForRoute(result.Tuple, "generic")
+	return sportTupleForRoute(result.Tuple, "unknown")
 }
 
 func sportTupleForRoute(tuple sporttax.Tuple, fallback string) (string, *string) {
