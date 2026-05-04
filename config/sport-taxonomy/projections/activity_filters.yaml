@@ -65,7 +65,7 @@ presets:
         entries:
           - category_key: fitness
             label_mode: with_parent
-            sport_order: [training, fitness_equipment, strength_training, hiit, yoga, pilates, floor_climbing, dance, jump_rope, meditation, boxing, mixed_martial_arts]
+            sport_order: [training, fitness_equipment, strength_training, hiit, yoga, pilates, mobility, floor_climbing, dance, jump_rope, meditation, boxing, mixed_martial_arts]
       - key: game
         label_ref: category:game
         entries:
@@ -80,7 +80,7 @@ presets:
         label_ref: category:outdoor
         entries:
           - category_key: outdoor
-            sport_order: [inline_skating, skateboarding, flying, hang_gliding, sky_diving, jumpmaster, horseback_riding, hunting, motorcycling, driving, tactical]
+            sport_order: [inline_skating, skateboarding, geocaching, archery, shooting, flying, hang_gliding, sky_diving, jumpmaster, horseback_riding, hunting, motorcycling, driving, tactical]
       - key: multi
         label_ref: category:multi
         entries:
@@ -162,7 +162,7 @@ presets:
         label_ref: category:outdoor
         entries:
           - category_key: outdoor
-            sport_order: [inline_skating, skateboarding, flying, hang_gliding, sky_diving, jumpmaster, horseback_riding, hunting, motorcycling, driving, tactical]
+            sport_order: [inline_skating, skateboarding, geocaching, archery, shooting, flying, hang_gliding, sky_diving, jumpmaster, horseback_riding, hunting, motorcycling, driving, tactical]
       - key: multi
         label_ref: category:multi
         entries:
@@ -173,7 +173,7 @@ presets:
         entries:
           - category_key: fitness
             label_mode: with_parent
-            sport_order: [training, fitness_equipment, strength_training, hiit, yoga, pilates, floor_climbing, dance, jump_rope, meditation, boxing, mixed_martial_arts]
+            sport_order: [training, fitness_equipment, strength_training, hiit, yoga, pilates, mobility, floor_climbing, dance, jump_rope, meditation, boxing, mixed_martial_arts]
           - category_key: game
             sport_order: [soccer, basketball, american_football, rugby, lacrosse, hockey, volleyball, tennis, racket, cricket, baseball, golf, disc_golf]
           - category_key: other

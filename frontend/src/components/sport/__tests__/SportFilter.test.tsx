@@ -70,6 +70,24 @@ describe('SportFilter', () => {
     expect(screen.queryByText('mountain_biking')).not.toBeInTheDocument()
   })
 
+  it('renders newly canonical taxonomy sports in generated UI groups', () => {
+    renderFilter({ sportTypes: null })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Läufe' }))
+    expect(screen.getByText('Wandern: Rucking')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fitness' }))
+    expect(screen.getByText('Mobilität')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tauchen/Schnorcheln' }))
+    expect(screen.getByText('Dynamische Apnoe')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Weitere Aktivitäten' }))
+    expect(screen.getByText('Geocaching')).toBeInTheDocument()
+    expect(screen.getByText('Bogenschießen')).toBeInTheDocument()
+    expect(screen.getByText('Schießen')).toBeInTheDocument()
+  })
+
   it('emits sport keys and modifier filters together', () => {
     const onChange = renderFilter({ sportTypes: null, modifiers: {} })
     fireEvent.change(screen.getByLabelText(/E-Antrieb/), { target: { value: 'true' } })

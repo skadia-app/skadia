@@ -40,6 +40,15 @@ describe('segment projection helpers', () => {
     expect(segmentSportGroupForSelection('standard', ['skateboarding'])).toBe('generic')
   })
 
+  it('keeps new outdoor taxonomy sports available for standard segments', () => {
+    const standard = segmentEligibleSelectionKeys('standard')
+
+    expect(standard).toEqual(expect.arrayContaining(['geocaching', 'archery', 'shooting']))
+    expect(segmentSportGroupForSelection('standard', ['geocaching'])).toBe('foot')
+    expect(segmentSportGroupForSelection('standard', ['archery'])).toBe('generic')
+    expect(segmentSportGroupForSelection('standard', ['shooting'])).toBe('generic')
+  })
+
   it('does not expose non-selectable or system sports for new segment expansion', () => {
     const standard = segmentEligibleSelectionKeys('standard')
     expect(standard).not.toContain('training')

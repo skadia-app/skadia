@@ -161,6 +161,7 @@ describe('sport taxonomy aliases', () => {
       'hiit',
       'yoga',
       'pilates',
+      'mobility',
       'floor_climbing',
       'dance',
       'jump_rope',
@@ -168,6 +169,11 @@ describe('sport taxonomy aliases', () => {
       'boxing',
       'mixed_martial_arts',
     ])
+    expect(sportsInCategory('outdoor').map((s) => s.sportType)).toEqual(expect.arrayContaining([
+      'geocaching',
+      'archery',
+      'shooting',
+    ]))
     expect(sportsInCategory('winter').map((s) => s.sportType)).toContain('snowshoeing')
   })
 
@@ -193,6 +199,12 @@ describe('sport taxonomy aliases', () => {
     expect(sportLabel('water_tubing')).toBe('Wassertubing')
     expect(sportLabel('wheelchair_push', 'walk_speed')).toBe('Gehtempo')
     expect(sportLabel('wheelchair_push', 'run_speed')).toBe('Lauftempo')
+    expect(sportLabel('mobility')).toBe('Mobilität')
+    expect(sportLabel('hiking', 'rucking')).toBe('Rucking')
+    expect(sportLabel('diving', 'dynamic_apnea')).toBe('Dynamische Apnoe')
+    expect(sportLabel('archery')).toBe('Bogenschießen')
+    expect(sportLabel('shooting')).toBe('Schießen')
+    expect(sportLabel('geocaching')).toBe('Geocaching')
   })
 
   it('exposes lifecycle metadata for fallback taxonomy values', () => {
@@ -218,6 +230,12 @@ describe('sport taxonomy aliases', () => {
     expect(findSubtype('fitness_equipment', 'pilates')?.traits.movementFamilies).toEqual(['mind_body'])
     expect(findSubtype('fitness_equipment', 'elliptical')?.traits.activityForm).toBe('single')
     expect(findSubtype('running', 'treadmill')?.traits.environments).toEqual(['indoor'])
+    expect(findSubtype('hiking', 'rucking')?.traits.equipmentFamilies).toEqual(['weights'])
+    expect(findSubtype('diving', 'dynamic_apnea')?.traits.environments).toEqual(['water', 'indoor'])
+    expect(findSport('mobility')?.traits.movementFamilies).toEqual(['mind_body'])
+    expect(findSport('archery')?.traits.equipmentFamilies).toEqual(['weapon'])
+    expect(findSport('shooting')?.traits.equipmentFamilies).toEqual(['weapon'])
+    expect(findSport('geocaching')?.traits.movementFamilies).toEqual(['walk'])
     expect(findSubtype('rock_climbing', 'indoor_climbing')?.traits.environments).toEqual(['indoor'])
     expect(findSubtype('rock_climbing', 'bouldering')?.traits.environments).toEqual(['land', 'indoor'])
   })
@@ -273,6 +291,10 @@ describe('sport taxonomy aliases', () => {
     expect(values).toContain('cycling/gravel_cycling')
     expect(values).toContain('running/trail')
     expect(values).toContain('hiking/')
+    expect(values).toContain('hiking/rucking')
+    expect(values).toContain('geocaching/')
+    expect(values).toContain('archery/')
+    expect(values).toContain('shooting/')
     expect(values).toContain('wheelchair_push/')
     expect(values).toContain('wheelchair_push/walk_speed')
     expect(values).toContain('wheelchair_push/run_speed')
@@ -292,6 +314,7 @@ describe('sport taxonomy aliases', () => {
       'running/trail',
       'walking/',
       'hiking/',
+      'hiking/rucking',
       'mountaineering/',
       'snowshoeing/',
       'wheelchair_push/',
@@ -303,6 +326,9 @@ describe('sport taxonomy aliases', () => {
       'cycling/road',
       'inline_skating/',
       'skateboarding/',
+      'geocaching/',
+      'archery/',
+      'shooting/',
       'alpine_skiing/',
       'backcountry_skiing/',
       'cross_country_skiing/',

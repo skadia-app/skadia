@@ -1,7 +1,7 @@
 source: fit
 aliases:
 - raw: archery
-  sport_type: unknown
+  sport_type: archery
 - raw: cycling
   raw_sub: enduro
   sport_type: cycling
@@ -21,11 +21,11 @@ aliases:
   sub_type: mountain
   modifiers: {is_electric: true}
 - raw: geocaching
-  sport_type: unknown
+  sport_type: geocaching
 - raw: grinding
   sport_type: unknown
 - raw: mobility
-  sport_type: unknown
+  sport_type: mobility
 - raw: motor_sports
   sport_type: unknown
 - raw: para_sport
@@ -34,7 +34,7 @@ aliases:
   sport_type: diving
   sub_type: apnea_pool
 - raw: shooting
-  sport_type: unknown
+  sport_type: shooting
 - raw: team_sport
   sport_type: unknown
 - raw: video_gaming

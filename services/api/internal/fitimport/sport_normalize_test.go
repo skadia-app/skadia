@@ -48,14 +48,19 @@ func TestNormalizeParsedActivitySportHandlesFITProfileV21201Sports(t *testing.T)
 		wantSub   string
 	}{
 		{name: "ccr diving stays ccr diving", sport: typedef.SportDiving, subSport: typedef.SubSportCcrDiving, wantSport: "diving", wantSub: "ccr_diving"},
+		{name: "dynamic apnea stays dynamic apnea", sport: typedef.SportDiving, subSport: typedef.SubSportDynamicApnea, wantSport: "diving", wantSub: "dynamic_apnea"},
 		{name: "canoeing is canonical", sport: typedef.SportCanoeing, subSport: typedef.SubSportGeneric, wantSport: "canoeing"},
 		{name: "pool apnea maps to diving apnea pool", sport: typedef.SportPoolApnea, subSport: typedef.SubSportGeneric, wantSport: "diving", wantSub: "apnea_pool"},
+		{name: "mobility is canonical", sport: typedef.SportMobility, subSport: typedef.SubSportGeneric, wantSport: "mobility"},
+		{name: "archery is canonical", sport: typedef.SportArchery, subSport: typedef.SubSportGeneric, wantSport: "archery"},
+		{name: "shooting is canonical", sport: typedef.SportShooting, subSport: typedef.SubSportGeneric, wantSport: "shooting"},
+		{name: "geocaching is canonical", sport: typedef.SportGeocaching, subSport: typedef.SubSportGeneric, wantSport: "geocaching"},
+		{name: "rucking maps to hiking rucking", sport: typedef.SportHiking, subSport: typedef.SubSportRucking, wantSport: "hiking", wantSub: "rucking"},
 		{name: "winter sport broad bucket stays unknown", sport: typedef.SportWinterSport, subSport: typedef.SubSportGeneric, wantSport: "unknown"},
 		{name: "water sport broad bucket stays unknown", sport: typedef.SportWaterSport, subSport: typedef.SubSportGeneric, wantSport: "unknown"},
 		{name: "team sport broad bucket stays unknown", sport: typedef.SportTeamSport, subSport: typedef.SubSportGeneric, wantSport: "unknown"},
 		{name: "motor sports broad bucket stays unknown", sport: typedef.SportMotorSports, subSport: typedef.SubSportGeneric, wantSport: "unknown"},
 		{name: "para sport broad bucket stays unknown", sport: typedef.SportParaSport, subSport: typedef.SubSportGeneric, wantSport: "unknown"},
-		{name: "unsupported concrete FIT sport stays unknown", sport: typedef.SportArchery, subSport: typedef.SubSportGeneric, wantSport: "unknown"},
 		{name: "sailing grinder stays unknown until taxonomy decision", sport: typedef.SportGrinding, subSport: typedef.SubSportGeneric, wantSport: "unknown"},
 	}
 

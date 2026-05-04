@@ -47,6 +47,9 @@ var generatedSportDefs = []SportDef{
 		SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.2, IsIndoor: false,
 		Lifecycle: "canonical", Selectable: true,
 		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"walk"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}},
+		SubTypes: map[string]SubTypeDef{
+			"rucking": {SubType: "rucking", LabelDE: "Rucking", DetailDE: "Rucking", AutoTitleDE: "Rucking", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"walk"}, EquipmentFamilies: []string{"weights"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+		},
 	},
 	{
 		SportType: "mountaineering", CategoryKey: "run", LabelDE: "Bergsteigen", AutoTitleDE: "Bergtour",
@@ -256,6 +259,7 @@ var generatedSportDefs = []SportDef{
 			"apnea_hunting":     {SubType: "apnea_hunting", LabelDE: "Apnoe-Jagd", DetailDE: "Apnoe-Jagdtauchen", AutoTitleDE: "Apnoe-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"fishing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"apnea_pool":        {SubType: "apnea_pool", LabelDE: "Apnoe Pool", DetailDE: "Apnoe-Tauchen (Pool)", AutoTitleDE: "Apnoe-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water", "indoor"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
 			"ccr_diving":        {SubType: "ccr_diving", LabelDE: "CCR", DetailDE: "Kreislauftauchen (CCR)", AutoTitleDE: "CCR-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"breathing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"dynamic_apnea":     {SubType: "dynamic_apnea", LabelDE: "Dynamische Apnoe", DetailDE: "Dynamische Apnoe", AutoTitleDE: "Apnoe-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water", "indoor"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
 			"gauge_diving":      {SubType: "gauge_diving", LabelDE: "Gauge", DetailDE: "Gauge-Tauchen", AutoTitleDE: "Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"breathing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"multi_gas_diving":  {SubType: "multi_gas_diving", LabelDE: "Mehrgas", DetailDE: "Mehrgas-Tauchen", AutoTitleDE: "Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"breathing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"single_gas_diving": {SubType: "single_gas_diving", LabelDE: "Eingas", DetailDE: "Eingas-Tauchen", AutoTitleDE: "Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"breathing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
@@ -368,6 +372,13 @@ var generatedSportDefs = []SportDef{
 	},
 	{
 		SportType: "meditation", CategoryKey: "fitness", LabelDE: "Meditation", AutoTitleDE: "Meditation",
+		SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0, IsIndoor: true,
+		Lifecycle: "canonical", Selectable: true,
+		Traits:           SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"mind_body"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}},
+		ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)},
+	},
+	{
+		SportType: "mobility", CategoryKey: "fitness", LabelDE: "Mobilität", AutoTitleDE: "Mobilität",
 		SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0, IsIndoor: true,
 		Lifecycle: "canonical", Selectable: true,
 		Traits:           SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"mind_body"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}},
@@ -553,6 +564,24 @@ var generatedSportDefs = []SportDef{
 		SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5, IsIndoor: false,
 		Lifecycle: "canonical", Selectable: true,
 		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"drive"}, EquipmentFamilies: []string{"vehicle"}, ActivityForm: "single", PropulsionModes: []string{"motor"}},
+	},
+	{
+		SportType: "archery", CategoryKey: "outdoor", LabelDE: "Bogenschießen", AutoTitleDE: "Bogenschießen",
+		SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0, IsIndoor: false,
+		Lifecycle: "canonical", Selectable: true,
+		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{"weapon"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
+	},
+	{
+		SportType: "shooting", CategoryKey: "outdoor", LabelDE: "Schießen", AutoTitleDE: "Schießen",
+		SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0, IsIndoor: false,
+		Lifecycle: "canonical", Selectable: true,
+		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{"weapon"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
+	},
+	{
+		SportType: "geocaching", CategoryKey: "outdoor", LabelDE: "Geocaching", AutoTitleDE: "Geocaching",
+		SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.2, IsIndoor: false,
+		Lifecycle: "canonical", Selectable: true,
+		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"walk"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}},
 	},
 	{
 		SportType: "boxing", CategoryKey: "fitness", LabelDE: "Boxen", AutoTitleDE: "Boxen",

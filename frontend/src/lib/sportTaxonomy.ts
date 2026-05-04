@@ -148,6 +148,7 @@ const FRONTEND_SPORT_ORDER = [
   'hiit',
   'yoga',
   'pilates',
+  'mobility',
   'floor_climbing',
   'dance',
   'jump_rope',
@@ -167,6 +168,9 @@ const FRONTEND_SPORT_ORDER = [
   'disc_golf',
   'rock_climbing',
   'flying',
+  'geocaching',
+  'archery',
+  'shooting',
   'hang_gliding',
   'sky_diving',
   'jumpmaster',
@@ -440,6 +444,7 @@ export function selectableSportTupleOptions(): SportOption[] {
 
 const ROUTE_PROMOTED_SUBTYPES: Record<string, string[]> = {
   cycling: ['mountain', 'gravel_cycling', 'road'],
+  hiking: ['rucking'],
   running: ['trail'],
   wheelchair_push: ['walk_speed', 'run_speed'],
 }
@@ -454,6 +459,9 @@ const ROUTE_COMPATIBLE_SPORT_TYPES = [
   'cycling',
   'inline_skating',
   'skateboarding',
+  'geocaching',
+  'archery',
+  'shooting',
   'alpine_skiing',
   'backcountry_skiing',
   'cross_country_skiing',
