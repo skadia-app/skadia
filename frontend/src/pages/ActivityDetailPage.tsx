@@ -475,11 +475,6 @@ export default function ActivityDetailPage() {
     return pois.sort((a, b) => (a.distM ?? Number.MAX_SAFE_INTEGER) - (b.distM ?? Number.MAX_SAFE_INTEGER))
   }, [activity?.sport_type, gpsStreams, trackSummaryQuery.data])
 
-  const mapGeoTags = useMemo(() => {
-    if (!highlightedPois.some(p => p.category === 'summit' || p.category === 'pass')) return geoTags
-    return geoTags?.filter(t => t.category !== 'summit' && t.category !== 'pass')
-  }, [geoTags, highlightedPois])
-
   const handleTrackSummarySymbolHover = useCallback((kind: HighlightedPoiHoverKind) => {
     setHighlightedPoiHoverKind(kind)
   }, [])
@@ -932,7 +927,7 @@ export default function ActivityDetailPage() {
               hasGps={activity.has_gps}
               zoomRange={zoomRange}
               onMaximize={() => setMapFullscreen(true)}
-              geoTags={mapGeoTags}
+              geoTags={geoTags}
               stops={stops}
               highlightedPois={highlightedPois}
               highlightedPoiHoverKind={highlightedPoiHoverKind}

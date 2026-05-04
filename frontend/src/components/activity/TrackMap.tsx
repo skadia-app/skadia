@@ -76,12 +76,6 @@ interface TrackMapProps {
   hasUnknownVf?: boolean
 }
 
-const SUMMIT_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
-  '<path d="M2 20 L8 8 L12 14 L16 8 L22 20 Z" fill="#f97316" stroke="white" stroke-width="1.5"/>' +
-  '</svg>'
-)}`
-
 const SUMMARY_SUMMIT_SOURCE_ID = 'activity-track-summary-summits-source'
 const SUMMARY_SUMMIT_LAYER_ID = 'activity-track-summary-summits-layer'
 const SUMMARY_POI_SOURCE_ID = 'activity-track-summary-pois-source'
@@ -353,57 +347,6 @@ export default function TrackMap({
         })
       }
 
-      // Gipfel-Pins aus GeoTags (category: summit/pass)
-      const summitTags = (geoTags ?? []).filter(
-        (t) => (t.category === 'summit' || t.category === 'pass') && t.lat != null
-      )
-      if (summitTags.length > 0) {
-        const summitGeoJSON = {
-          type: 'FeatureCollection' as const,
-          features: summitTags.map((t) => ({
-            type: 'Feature' as const,
-            geometry: { type: 'Point' as const, coordinates: [t.lng!, t.lat!] },
-            properties: { name: t.name ?? '', ele: t.ele_m ?? t.ele ?? 0 },
-          })),
-        }
-        map.addSource('activity-summits', { type: 'geojson', data: summitGeoJSON })
-        const addSummitLayers = () => {
-          map.addLayer({
-            id: 'activity-summits-layer',
-            type: 'symbol',
-            source: 'activity-summits',
-            layout: {
-              'icon-image': 'summit-icon',
-              'icon-size': 0.9,
-              'icon-allow-overlap': true,
-              'text-field': ['concat', ['get', 'name'], '\n', ['to-string', ['get', 'ele']], ' m'] as maplibregl.ExpressionSpecification,
-              'text-font': ['Open Sans Regular'],
-              'text-size': 11,
-              'text-offset': [0, 1.4],
-              'text-anchor': 'top',
-              'text-optional': true,
-            },
-            paint: { 'text-color': '#374151', 'text-halo-color': 'white', 'text-halo-width': 1 },
-          })
-        }
-        if (map.hasImage('summit-icon')) {
-          addSummitLayers()
-        } else {
-          const img = new Image(24, 24)
-          img.onload = () => { map.addImage('summit-icon', img); addSummitLayers() }
-          img.onerror = () => {
-            // Fallback auf circle wenn Icon nicht ladbar
-            map.addLayer({
-              id: 'activity-summits-layer',
-              type: 'circle',
-              source: 'activity-summits',
-              paint: { 'circle-radius': 6, 'circle-color': '#f97316', 'circle-stroke-color': 'white', 'circle-stroke-width': 2 },
-            })
-          }
-          img.src = SUMMIT_ICON_SVG
-        }
-      }
-
       // Restaurant-Pins aus Stops (duration >= 900s) — Fallback ohne GeoTags
       const poiStops = (stops ?? []).filter(
         (s) => s.name && (s.duration_s ?? 0) >= 900 && s.lat != null
@@ -511,12 +454,6 @@ export default function TrackMap({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded || !hasTrack) return
-
-    // Note: previously this branch removed the geoTags-based `activity-summits-layer`
-    // when the track-summary POI source had summits, deferring rendering to the
-    // SUMMARY_SUMMIT_LAYER below. Removed 2026-04-26: the geoTags layer is the
-    // user-visible default (with permanent name + elevation labels) and is
-    // controlled via the toolbar's summit toggle.
 
     if (!map.getSource(SUMMARY_SUMMIT_SOURCE_ID)) {
       map.addSource(SUMMARY_SUMMIT_SOURCE_ID, {
@@ -684,9 +621,13 @@ export default function TrackMap({
           dimmed: highlightedPoiHoverKind != null && highlightedPoiHoverKind !== highlightedPoiKind(p.category),
         },
       }))
-    // Water/settlement features carry no active/dimmed flags — paint is static.
+    // Water features carry no active/dimmed flags — paint is static.
+    // Settlements (`category: 'settlement'`) are intentionally dropped from the
+    // map: they're areas, not points, so a single dot at the geocoded centre
+    // is misleading. The settlement count still surfaces via the StatsRow
+    // pill / popover list.
     const quietPoiFeatures = highlightedPois
-      .filter(p => p.category !== 'summit' && p.category !== 'pass')
+      .filter(p => p.category !== 'summit' && p.category !== 'pass' && p.category !== 'settlement')
       .map(p => ({
         type: 'Feature' as const,
         geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
@@ -713,7 +654,7 @@ export default function TrackMap({
       const name = escapeHtml(String(props.name || props.label || 'POI'))
       const label = escapeHtml(String(props.label || 'POI'))
       const ele = props.eleM != null ? ` · ${Math.round(Number(props.eleM)).toLocaleString('de-DE')} m` : ''
-      const dist = props.distM != null ? ` · ${(Number(props.distM) / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 })} km` : ''
+      const dist = props.distM != null ? ` · ${Math.round(Number(props.distM)).toLocaleString('de-DE')} m` : ''
       popup
         .setLngLat(e.lngLat)
         .setHTML(`<span style="font-size:12px;font-weight:600">${name}</span><br><span style="font-size:11px;color:#6b7280">${label}${ele}${dist}</span>`)
@@ -961,17 +902,11 @@ export default function TrackMap({
     }
   }, [positionedPhotos, mapLoaded, showPhotos]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Summit layer visibility — toggleable via toolbar button. Both the
-  // geoTags-based layer (with name + elevation labels) and the track-summary
-  // hover-highlight layer get hidden together so toggling off really hides
-  // everything related to summits.
+  // Summit layer visibility — toggleable via toolbar button.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapLoaded) return
     const visibility = showSummits ? 'visible' : 'none'
-    if (map.getLayer('activity-summits-layer')) {
-      map.setLayoutProperty('activity-summits-layer', 'visibility', visibility)
-    }
     if (map.getLayer(SUMMARY_SUMMIT_LAYER_ID)) {
       map.setLayoutProperty(SUMMARY_SUMMIT_LAYER_ID, 'visibility', visibility)
     }
@@ -1082,8 +1017,8 @@ export default function TrackMap({
           </button>
         )}
 
-        {/* Summit toggle — only shown when activity has any summits/passes in geoTags */}
-        {(geoTags ?? []).some(t => (t.category === 'summit' || t.category === 'pass') && t.lat != null) && (
+        {/* Summit toggle — only shown when track-summary surfaced any summits/passes. */}
+        {hasSummarySummitPois && (
           <button
             onClick={() => setShowSummits(p => !p)}
             className={`${btnBase} ${showSummits ? btnActive : btnDimmed}`}
