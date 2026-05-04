@@ -11,6 +11,7 @@ import {
   buildSegmentFeatures,
   applyInsideFlag,
   buildLineColorExpression,
+  haversineMeters,
   LINE_OPACITY_EXPRESSION,
   matchSportZones,
   type Metric,
@@ -28,6 +29,39 @@ const MAX_MAP_SEGMENTS_MOBILE_FACTOR = 1.5
 const VIEWPORT_RESAMPLE_DEBOUNCE_MS = 250
 const VIEWPORT_BOUNDS_DECIMALS = 4
 const VIEWPORT_MIN_RATIO_FOR_RESAMPLE = 0.8
+
+/**
+ * Splits a stream array into contiguous chunks at GPS teleport gaps — points
+ * where two consecutive valid GPS samples are more than `thresholdM` apart.
+ * Null-GPS samples stay attached to their surrounding chunk; only real
+ * geographical jumps split. With `thresholdM <= 0` returns the input as a
+ * single chunk (filter disabled).
+ *
+ * Exported for unit testing — see useMetricColoring.test.tsx.
+ */
+export function splitStreamsAtTeleports(streams: StreamPoint[], thresholdM: number): StreamPoint[][] {
+  if (thresholdM <= 0 || streams.length < 2) return [streams]
+  const chunks: StreamPoint[][] = []
+  let chunk: StreamPoint[] = []
+  let prev: { lat: number; lng: number } | null = null
+  for (const s of streams) {
+    if (s.lat == null || s.lng == null) {
+      chunk.push(s)
+      continue
+    }
+    if (prev != null) {
+      const d = haversineMeters([prev.lng, prev.lat], [s.lng, s.lat])
+      if (d > thresholdM) {
+        if (chunk.length > 0) chunks.push(chunk)
+        chunk = []
+      }
+    }
+    chunk.push(s)
+    prev = { lat: s.lat, lng: s.lng }
+  }
+  if (chunk.length > 0) chunks.push(chunk)
+  return chunks
+}
 
 export interface UseMetricColoringArgs {
   streams: StreamPoint[]
@@ -249,17 +283,33 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
     return viewportBounds
   }, [viewportBounds, streams])
 
-  // Downsample + build features — aggregation mode matches scale type
-  const downsampled = useMemo(() => {
-    const zoneHighs = scale && scale.type === 'zones' ? scale.zoneHighs : undefined
-    const aggMode: Mode = scale && scale.type === 'zones' ? 'zones' : 'linear'
-    return downsampleUniform(streams, metric, maxSegments, effectiveBounds, aggMode, zoneHighs)
-  }, [streams, metric, maxSegments, effectiveBounds, scale])
+  // Teleport-gap handling: splits the full GPS stream at points where two
+  // consecutive valid GPS samples are >teleportThresholdM apart. This is the
+  // correct semantic level for the user's `teleport_threshold_m` setting
+  // (typically tens to a few hundred metres — appropriate for raw GPS jumps,
+  // but far too small for downsampled segments).
+  //
+  // Memoised on [streams, teleportThresholdM] only — does NOT re-run on
+  // viewport changes, so map pan/resize doesn't pay for the O(N) haversine
+  // scan repeatedly.
+  const streamChunks = useMemo(
+    () => splitStreamsAtTeleports(streams, teleportThresholdM),
+    [streams, teleportThresholdM],
+  )
 
+  // Downsample + build features per chunk — aggregation mode matches scale type.
   const features = useMemo(() => {
     if (!scale) return []
-    return buildSegmentFeatures(downsampled, metric, scale, teleportThresholdM)
-  }, [downsampled, metric, scale, teleportThresholdM])
+    const zoneHighs = scale.type === 'zones' ? scale.zoneHighs : undefined
+    const aggMode: Mode = scale.type === 'zones' ? 'zones' : 'linear'
+    const out: GeoJSON.Feature[] = []
+    for (const chunk of streamChunks) {
+      if (chunk.length < 2) continue
+      const ds = downsampleUniform(chunk, metric, maxSegments, effectiveBounds, aggMode, zoneHighs)
+      out.push(...buildSegmentFeatures(ds, metric, scale))
+    }
+    return out
+  }, [streamChunks, metric, maxSegments, effectiveBounds, scale])
 
   const featuresWithInside = useMemo(() =>
     applyInsideFlag(features, zoomRange),
