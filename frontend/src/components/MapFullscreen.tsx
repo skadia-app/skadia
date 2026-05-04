@@ -260,6 +260,14 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
   useEffect(() => { selectedBaseLayerRef.current = selectedBaseLayer }, [selectedBaseLayer])
   useEffect(() => { capsRef.current = caps }, [caps])
 
+  // initMap is defined inside the mount-time useEffect (line ~337) and bails
+  // early when `selectedBaseLayer` or `caps` haven't loaded yet (both are async
+  // queries). The ResizeObserver only re-fires on container size changes — so
+  // without an explicit retry, late-arriving layer/caps data leaves the map
+  // permanently uninitialized (black screen until the user resizes the window).
+  // This ref exposes initMap so a separate effect can retry once the data is in.
+  const initMapRef = useRef<(() => void) | null>(null)
+
   const [showHeatmap, setShowHeatmap] = useState(false)
   const [heatmapColor, setHeatmapColor] = useState<string>(loadHeatmapColor)
   const [styleVersion, setStyleVersion] = useState(0)
@@ -373,8 +381,10 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
         paint: { 'line-color': sportColor, 'line-width': 3, 'line-opacity': 0.85 },
       })
 
-      // Summit/pass markers from geoTags — same data shape as TrackMap.
-      // Renders an SVG triangle icon with name + elevation label below.
+      // Summit/pass markers from geoTags — gray triangle, label-less. Style
+      // mirrors TrackMap's track-summary summit layer; no hover-grow here
+      // because MapFullscreen has no driving pill list. Click on the icon
+      // surfaces name + elevation via the existing popup handler below.
       const summitTags = (geoTags ?? []).filter(
         (t) => (t.category === 'summit' || t.category === 'pass') && t.lat != null,
       )
@@ -386,7 +396,13 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
             features: summitTags.map((t) => ({
               type: 'Feature' as const,
               geometry: { type: 'Point' as const, coordinates: [t.lng!, t.lat!] },
-              properties: { name: t.name ?? '', ele: t.ele_m ?? t.ele ?? 0 },
+              properties: {
+                name: t.name ?? '',
+                ele_m: t.ele_m ?? t.ele ?? null,
+                // 'pass' is the only non-summit category in this layer (filter
+                // above). Match TrackMap's popup wording verbatim.
+                categoryLabel: t.category === 'pass' ? 'Pass' : 'Gipfel',
+              },
             })),
           },
         })
@@ -398,16 +414,15 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
             source: 'fullscreen-summits',
             layout: {
               'icon-image': 'fullscreen-summit-icon',
+              // Slightly larger than TrackMap's default (0.6) — fullscreen has
+              // more screen real estate and benefits from more presence.
               'icon-size': 0.9,
               'icon-allow-overlap': true,
-              'text-field': ['concat', ['get', 'name'], '\n', ['to-string', ['get', 'ele']], ' m'] as maplibregl.ExpressionSpecification,
-              'text-font': ['Open Sans Regular'],
-              'text-size': 11,
-              'text-offset': [0, 1.4],
-              'text-anchor': 'top',
-              'text-optional': true,
+              'icon-ignore-placement': true,
             },
-            paint: { 'text-color': '#374151', 'text-halo-color': 'white', 'text-halo-width': 1 },
+            paint: {
+              'icon-opacity': 0.9,
+            },
           })
         }
         if (m.hasImage('fullscreen-summit-icon')) {
@@ -419,22 +434,52 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
           cvs.height = sz
           const ctx = cvs.getContext('2d')
           if (ctx) {
-            ctx.fillStyle = '#f97316'
-            ctx.strokeStyle = '#ffffff'
-            ctx.lineWidth = 1.5
+            // Outer gray triangle with white stroke
             ctx.beginPath()
-            ctx.moveTo(2, 20)
-            ctx.lineTo(8, 8)
-            ctx.lineTo(12, 14)
-            ctx.lineTo(16, 8)
-            ctx.lineTo(22, 20)
+            ctx.moveTo(sz / 2, 3)
+            ctx.lineTo(3, sz - 3)
+            ctx.lineTo(sz - 3, sz - 3)
             ctx.closePath()
+            ctx.fillStyle = '#475569'
             ctx.fill()
+            ctx.strokeStyle = '#ffffff'
+            ctx.lineWidth = 2
+            ctx.lineJoin = 'round'
             ctx.stroke()
+            // Inner white "snow cap" triangle
+            ctx.beginPath()
+            ctx.moveTo(sz / 2, 3)
+            ctx.lineTo(sz / 2 - 4, 11)
+            ctx.lineTo(sz / 2 + 4, 11)
+            ctx.closePath()
+            ctx.fillStyle = '#f8fafc'
+            ctx.fill()
             m.addImage('fullscreen-summit-icon', ctx.getImageData(0, 0, sz, sz))
           }
           addSummitLayer()
         }
+
+        // Click-popup with summit name + category + elevation — same HTML
+        // shape as TrackMap's track-summary popup so the two views look
+        // identical when the user clicks a triangle.
+        const summitPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: true, offset: 10 })
+        const escapeHtml = (s: string) =>
+          s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        m.on('click', 'fullscreen-summits-layer', (e) => {
+          const props = e.features?.[0]?.properties
+          if (!props) return
+          const name = escapeHtml(String(props.name || props.categoryLabel || 'POI'))
+          const label = escapeHtml(String(props.categoryLabel || 'POI'))
+          const ele = props.ele_m != null
+            ? ` · ${Math.round(Number(props.ele_m)).toLocaleString('de-DE')} m`
+            : ''
+          summitPopup
+            .setLngLat(e.lngLat)
+            .setHTML(`<span style="font-size:12px;font-weight:600">${name}</span><br><span style="font-size:11px;color:#6b7280">${label}${ele}</span>`)
+            .addTo(m)
+        })
+        m.on('mouseenter', 'fullscreen-summits-layer', () => { m.getCanvas().style.cursor = 'pointer' })
+        m.on('mouseleave', 'fullscreen-summits-layer', () => { m.getCanvas().style.cursor = '' })
       }
 
       if (!initialFitDoneRef.current) {
@@ -487,6 +532,9 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
       setMapInstance(map)
     }
 
+    // Expose initMap to the late-arrival retry effect below.
+    initMapRef.current = initMap
+
     // Observe container: init when sized, resize when dimensions change
     const ro = new ResizeObserver(() => {
       if (!map) {
@@ -503,6 +551,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
     return () => {
       disposed = true
       ro.disconnect()
+      initMapRef.current = null
       photoMarkersRef.current.forEach(m => m.remove())
       photoMarkersRef.current = []
       photoBlobUrlsRef.current.forEach(u => URL.revokeObjectURL(u))
@@ -512,6 +561,15 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
       setMapInstance(null)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Retry initMap when the async queries (useMapLayers / useCapabilities)
+  // resolve after mount. Without this, an empty `base[]` or missing `caps`
+  // at mount time leaves the map permanently un-initialised — the only
+  // existing trigger (ResizeObserver) doesn't fire on data changes.
+  useEffect(() => {
+    if (mapRef.current) return // already initialised — nothing to do
+    initMapRef.current?.()
+  }, [selectedBaseLayer, caps])
 
   // ── Style switcher effect ─────────────────────────────────────────────────
   useEffect(() => {
