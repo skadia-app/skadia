@@ -642,6 +642,26 @@ func main() {
 	importSvc := importer.NewService(db, store, nil)
 	importSvc.PMC = pmcService
 	importSvc.BestEfforts = bestEffortsService
+	importSvc.ActivityFileRefresher = func(refreshCtx context.Context, userID, activityID, fileID string) {
+		if cfg.LibraryBasePath == "" {
+			return
+		}
+		refreshed, refreshErr := shadowfs.RefreshActivityFilePath(refreshCtx, shadowfs.ActivityFileRefreshRequest{
+			Pool:       db.Pool,
+			Settings:   settingsStore,
+			BasePath:   cfg.LibraryBasePath,
+			UserID:     userID,
+			ActivityID: activityID,
+			FileID:     fileID,
+		})
+		if refreshErr != nil {
+			slog.Warn("activity file path refresh after import failed", "activity_id", activityID, "file_id", fileID, "error", refreshErr)
+			return
+		}
+		if refreshed {
+			slog.Info("activity file path refreshed after import", "activity_id", activityID, "file_id", fileID)
+		}
+	}
 	// Wire segregated publisher interfaces. When NATS is unavailable
 	// (pub == nil) we leave the interface fields as untyped nil so that
 	// `if s.X != nil` checks behave as expected.

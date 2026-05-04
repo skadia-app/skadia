@@ -1077,6 +1077,10 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
+	if doStage1 || doMetrics || doSportType || doDetails || doStreams || doSensors || doTags || doGeo {
+		h.refreshActivityFilePathBestEffort(ctx, userID, activityID, "")
+	}
+
 	// 9. Publish NATS event (triggers PMC recalculation).
 	// Im Bulk-Recompute (skipAnalyticsEvent=true) werden ALLE Events unterdrückt:
 	// PublishActivityUploaded löst eine vollständige PMC-Neuberechnung aus — bei 700+

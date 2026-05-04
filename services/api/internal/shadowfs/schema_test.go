@@ -98,3 +98,14 @@ func TestValidateSchema_TooLong(t *testing.T) {
 		t.Error("expected path-length warning")
 	}
 }
+
+func TestValidateSchema_ModifiersUseRealisticMaxLength(t *testing.T) {
+	r := NewSchemaRenderer()
+	warns, err := r.ValidateSchema("activity", strings.Repeat("{modifiers}/", 6)+"{modifiers}")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(warns) == 0 {
+		t.Fatal("expected path-length warning from expanded modifiers")
+	}
+}

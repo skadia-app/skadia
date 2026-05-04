@@ -691,7 +691,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		SELECT
 			a.id, a.user_id, a.file_hash, a.file_id, a.title, a.title_auto, a.description,
 			a.sport_type, a.sub_type, a.fit_sport_id, a.fit_sub_sport_id, a.is_electric,
-			a.is_virtual, a.exclude_from_heatmap, a.exclude_from_stats,
+			a.is_virtual, a.is_commute, a.exclude_from_heatmap, a.exclude_from_stats,
 			a.started_at, a.ended_at, a.elapsed_time_s, a.moving_time_s,
 				a.distance_m, a.elevation_gain_m, a.elevation_loss_m,
 				a.max_elevation_m, a.min_elevation_m,
@@ -792,7 +792,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 	).Scan(
 		&a.ID, &a.UserID, &a.FileHash, &a.FileID, &a.Title, &a.TitleAuto, &a.Description,
 		&a.SportType, &a.SubType, &a.FitSportID, &a.FitSubSportID, &a.IsElectric,
-		&a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats,
+		&a.IsVirtual, &a.IsCommute, &a.ExcludeFromHeatmap, &a.ExcludeFromStats,
 		&a.StartedAt, &a.EndedAt, &a.ElapsedTimeS, &a.MovingTimeS,
 		&a.DistanceM, &a.ElevationGainM, &a.ElevationLossM,
 		&a.MaxElevationM, &a.MinElevationM,

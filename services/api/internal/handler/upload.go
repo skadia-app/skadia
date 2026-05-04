@@ -244,6 +244,9 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 					DistanceM:      data.DistanceM,
 					ElapsedTimeS:   data.ElapsedTimeS,
 					ElevationGainM: data.ElevationGainM,
+					IsElectric:     data.IsElectric,
+					IsIndoor:       data.IsIndoor,
+					IsVirtual:      data.IsVirtual,
 				}),
 			}, bytes.NewReader(decompressed))
 			if putErr != nil {
@@ -388,6 +391,9 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 				DistanceM:      data.DistanceM,
 				ElapsedTimeS:   data.ElapsedTimeS,
 				ElevationGainM: data.ElevationGainM,
+				IsElectric:     data.IsElectric,
+				IsIndoor:       data.IsIndoor,
+				IsVirtual:      data.IsVirtual,
 			}),
 		}, bytes.NewReader(decompressed))
 		if putErr != nil {

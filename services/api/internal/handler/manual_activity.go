@@ -133,6 +133,9 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 			DistanceM:      req.DistanceM,
 			ElapsedTimeS:   int(req.ElapsedTimeS),
 			ElevationGainM: req.ElevationGainM,
+			IsElectric:     req.IsElectric,
+			IsIndoor:       req.IsIndoor,
+			IsVirtual:      req.IsVirtual,
 		}),
 	}, bytes.NewReader(jsonBytes))
 	if putErr != nil {

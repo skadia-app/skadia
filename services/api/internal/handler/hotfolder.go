@@ -212,6 +212,9 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 				DistanceM:      data.DistanceM,
 				ElapsedTimeS:   data.ElapsedTimeS,
 				ElevationGainM: data.ElevationGainM,
+				IsElectric:     data.IsElectric,
+				IsIndoor:       data.IsIndoor,
+				IsVirtual:      data.IsVirtual,
 			}),
 		}, bytes.NewReader(decompressed))
 		if putErr != nil {

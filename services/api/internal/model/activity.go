@@ -21,6 +21,7 @@ type Activity struct {
 	FitSubSportID      *int16     `json:"fit_sub_sport_id,omitempty"`
 	IsElectric         bool       `json:"is_electric"`
 	IsVirtual          bool       `json:"is_virtual"`
+	IsCommute          bool       `json:"is_commute"`
 	ExcludeFromHeatmap bool       `json:"exclude_from_heatmap"`
 	ExcludeFromStats   bool       `json:"exclude_from_stats"`
 	IsManualEntry      bool       `json:"is_manual_entry"`

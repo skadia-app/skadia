@@ -248,6 +248,9 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 					DistanceM:      data.DistanceM,
 					ElapsedTimeS:   data.ElapsedTimeS,
 					ElevationGainM: data.ElevationGainM,
+					IsElectric:     data.IsElectric,
+					IsIndoor:       data.IsIndoor,
+					IsVirtual:      data.IsVirtual,
 				}),
 			}, bytes.NewReader(fileBytes))
 			if putErr != nil {

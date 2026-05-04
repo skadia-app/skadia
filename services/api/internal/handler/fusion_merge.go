@@ -1221,6 +1221,10 @@ func fusionActivitySchemaTagsInput(format, source string, activity *model.Activi
 	if activity.SubType != nil {
 		input.SubType = *activity.SubType
 	}
+	input.IsElectric = activity.IsElectric
+	input.IsIndoor = activity.IsIndoor
+	input.IsVirtual = activity.IsVirtual
+	input.IsCommute = activity.IsCommute
 	if activity.Title != nil {
 		input.Title = *activity.Title
 	}

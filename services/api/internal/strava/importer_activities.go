@@ -512,6 +512,9 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 						DistanceM:      data.DistanceM,
 						ElapsedTimeS:   data.ElapsedTimeS,
 						ElevationGainM: data.ElevationGainM,
+						IsElectric:     data.IsElectric,
+						IsIndoor:       data.IsIndoor,
+						IsVirtual:      data.IsVirtual,
 					}),
 				}, bytes.NewReader(fileBytes))
 				if putErr != nil {
@@ -642,6 +645,9 @@ func buildStravaCSVSourceFile(userID string, stravaID int64, data *model.Activit
 				DistanceM:      data.DistanceM,
 				ElapsedTimeS:   data.ElapsedTimeS,
 				ElevationGainM: data.ElevationGainM,
+				IsElectric:     data.IsElectric,
+				IsIndoor:       data.IsIndoor,
+				IsVirtual:      data.IsVirtual,
 			}),
 		},
 	}, nil

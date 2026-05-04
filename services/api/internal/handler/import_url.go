@@ -357,6 +357,9 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 				DistanceM:      actData.DistanceM,
 				ElapsedTimeS:   actData.ElapsedTimeS,
 				ElevationGainM: actData.ElevationGainM,
+				IsElectric:     actData.IsElectric,
+				IsIndoor:       actData.IsIndoor,
+				IsVirtual:      actData.IsVirtual,
 			}),
 		}, bytes.NewReader(fileBytes))
 		if putErr != nil {
