@@ -148,11 +148,11 @@ describe('sport taxonomy aliases', () => {
       'wheelchair_push',
       'cycling',
       'inline_skating',
+      'skateboarding',
       'alpine_skiing',
       'backcountry_skiing',
       'cross_country_skiing',
       'snowboarding',
-      'snowshoeing',
     ])
     expect(sportsInCategory('fitness').map((s) => s.sportType)).toEqual([
       'training',
@@ -302,6 +302,7 @@ describe('sport taxonomy aliases', () => {
       'cycling/gravel_cycling',
       'cycling/road',
       'inline_skating/',
+      'skateboarding/',
       'alpine_skiing/',
       'backcountry_skiing/',
       'cross_country_skiing/',

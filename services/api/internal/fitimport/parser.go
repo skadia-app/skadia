@@ -477,6 +477,9 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	case "e_bike_mountain":
 		subType = "mountain"
 		isElectric = true
+	case "e_bike_enduro":
+		subType = "generic"
+		isElectric = true
 	}
 
 	// Virtual activity detection

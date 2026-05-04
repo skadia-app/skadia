@@ -213,6 +213,7 @@ export const GENERATED_ACTIVITY_FILTER_PRESETS = [
         label: 'Weitere Aktivitäten',
         leaves: [
           { sportType: 'inline_skating', label: 'Inline-Skaten' },
+          { sportType: 'skateboarding', label: 'Skateboard' },
           { sportType: 'flying', label: 'Fliegen' },
           { sportType: 'flying', subType: 'rc_drone', label: 'Drohne' },
           { sportType: 'flying', subType: 'wingsuit', label: 'Wingsuit' },
@@ -409,6 +410,7 @@ export const GENERATED_ACTIVITY_FILTER_PRESETS = [
         label: 'Weitere Aktivitäten',
         leaves: [
           { sportType: 'inline_skating', label: 'Inline-Skaten' },
+          { sportType: 'skateboarding', label: 'Skateboard' },
           { sportType: 'flying', label: 'Fliegen' },
           { sportType: 'flying', subType: 'rc_drone', label: 'Drohne' },
           { sportType: 'flying', subType: 'wingsuit', label: 'Wingsuit' },

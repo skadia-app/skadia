@@ -20,7 +20,7 @@ func TestGarminCourseTypeToSportTuple(t *testing.T) {
 		{name: "swimming", input: "swimming", wantSport: "swimming"},
 		{name: "skiing", input: "skiing", wantSport: "alpine_skiing"},
 		{name: "cross country skiing", input: "cross_country_skiing", wantSport: "cross_country_skiing"},
-		{name: "unknown", input: "definitely_unknown", wantSport: "generic"},
+		{name: "unknown", input: "definitely_unknown", wantSport: "unknown"},
 	}
 
 	for _, tt := range tests {

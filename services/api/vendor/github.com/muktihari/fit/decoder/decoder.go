@@ -51,7 +51,7 @@ const (
 type Decoder struct {
 	readBuffer  *readBuffer // read from io.Reader with buffer without extra copying.
 	n           int64       // n is a read bytes counter, always moving forward, do not reset (except on full reset).
-	accumulator *Accumulator
+	accumulator *accumulator
 	crc16       hash.Hash16
 	err         error // Any error occurs during process.
 
@@ -187,11 +187,7 @@ func WithReadBufferSize(size int) Option {
 // Note: Decoder already implements efficient io.Reader buffering, so there's no need to wrap 'r' using *bufio.Reader;
 // doing so will only reduce performance.
 func New(r io.Reader, opts ...Option) *Decoder {
-	d := &Decoder{
-		readBuffer:  new(readBuffer),
-		accumulator: NewAccumulator(),
-		crc16:       crc16.New(),
-	}
+	d := new(Decoder)
 	d.Reset(r, opts...)
 	return d
 }
@@ -201,6 +197,12 @@ func New(r io.Reader, opts ...Option) *Decoder {
 // It is similar to New() but it retains the underlying storage for use by
 // future decode to reduce memory allocs.
 func (d *Decoder) Reset(r io.Reader, opts ...Option) {
+	if d.readBuffer == nil {
+		d.readBuffer = new(readBuffer)
+		d.accumulator = new(accumulator)
+		d.crc16 = crc16.New()
+	}
+
 	d.reset()
 	d.n = 0 // Must reset bytes counter since it's a full reset.
 
@@ -742,7 +744,7 @@ func (d *Decoder) decodeFields(mesgDef *proto.MessageDefinition, mesg *proto.Mes
 		}
 
 		if field.Accumulate && d.options.shouldExpandComponent {
-			d.accumulator.CollectValue(mesg.Num, field.Num, field.Value)
+			d.accumulator.Collect(mesg.Num, field.Num, field.Value)
 		}
 
 		mesg.Fields = append(mesg.Fields, field)
@@ -798,8 +800,8 @@ func (d *Decoder) expandComponents(mesg *proto.Message, containingValue proto.Va
 		componentField.IsExpandedField = true
 
 		scaledValue := float64(val)/component.Scale - component.Offset
-		val = uint32((scaledValue + componentField.Offset) * componentField.Scale)
-		value := convertUint32ToValue(val, componentField.BaseType)
+		val = uint64((scaledValue + componentField.Offset) * componentField.Scale)
+		value := convertUint64ToValue(val, componentField.BaseType)
 
 		// All components fields are appended, so it makes more sense to search from the last order.
 		// Our goal is to create new or update existing expanded field. However, there is an edge case
@@ -1026,14 +1028,16 @@ func strcount(b []byte) (size byte) {
 				size++
 			}
 			last = i + 1
+		} else if i == len(b)-1 { // case: string is not terminated
+			size++
 		}
 	}
 	return size
 }
 
-// convertUint32ToValue val into proto.Value of targeted baseType.
+// convertUint64ToValue val into proto.Value of targeted baseType.
 // If targeted baseType is not supported, it returns proto.Value{}.
-func convertUint32ToValue(val uint32, baseType basetype.BaseType) proto.Value {
+func convertUint64ToValue(val uint64, baseType basetype.BaseType) proto.Value {
 	switch baseType {
 	case basetype.Sint8:
 		return proto.Int8(int8(val))

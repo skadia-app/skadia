@@ -146,6 +146,10 @@ describe('sport filter options', () => {
       'racket:badminton',
       'golf',
     ]))
+    expect(keysInGroup(options, 'outdoor')).toEqual(expect.arrayContaining([
+      'inline_skating',
+      'skateboarding',
+    ]))
   })
 
   it('preserves representative map compact leaves', () => {

@@ -74,4 +74,4 @@ aliases:
 - raw: multisport
   sport_type: multisport
 - raw: other
-  sport_type: unknown
+  sport_type: generic

@@ -271,7 +271,7 @@ func fitSportToSportType(sport typedef.Sport, subSport typedef.SubSport) (string
 	normalize := func(sportType, subType string) (string, *string) {
 		tuple, _, err := sporttax.NormalizeSportTuple(sportType, subType)
 		if err != nil {
-			return "generic", nil
+			return "unknown", nil
 		}
 		if tuple.SubType == "" {
 			return tuple.SportType, nil
@@ -311,8 +311,12 @@ func fitSportToSportType(sport typedef.Sport, subSport typedef.SubSport) (string
 		return normalize("paddling", "")
 	case typedef.SportRowing:
 		return normalize("rowing", "")
+	case typedef.SportCanoeing:
+		return normalize("canoeing", "")
+	case typedef.SportPoolApnea:
+		return normalize("diving", "apnea_pool")
 	default:
-		return normalize("generic", "")
+		return normalize("unknown", "")
 	}
 }
 

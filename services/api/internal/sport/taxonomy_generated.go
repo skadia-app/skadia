@@ -105,6 +105,12 @@ var generatedSportDefs = []SportDef{
 		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"skate"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
 	},
 	{
+		SportType: "skateboarding", CategoryKey: "outdoor", LabelDE: "Skateboard", AutoTitleDE: "Skateboarden",
+		SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5, IsIndoor: false,
+		Lifecycle: "canonical", Selectable: true,
+		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"board"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
+	},
+	{
 		SportType: "alpine_skiing", CategoryKey: "winter", LabelDE: "Alpin-Ski", AutoTitleDE: "Skifahrt",
 		SegmentGroup: "ski", TypicallyHasGPS: true, MovingThreshold: 0.3, IsIndoor: false,
 		Lifecycle: "canonical", Selectable: true,

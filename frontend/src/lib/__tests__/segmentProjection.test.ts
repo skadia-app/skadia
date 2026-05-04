@@ -35,6 +35,11 @@ describe('segment projection helpers', () => {
     expect(segmentPredicatesForSelection('standard', ['running:trail'])).toContainEqual({ sport: 'running', sub_type: 'trail' })
   })
 
+  it('keeps skateboarding available as its own outdoor segment sport', () => {
+    expect(segmentEligibleSelectionKeys('standard')).toContain('skateboarding')
+    expect(segmentSportGroupForSelection('standard', ['skateboarding'])).toBe('generic')
+  })
+
   it('does not expose non-selectable or system sports for new segment expansion', () => {
     const standard = segmentEligibleSelectionKeys('standard')
     expect(standard).not.toContain('training')

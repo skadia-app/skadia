@@ -849,7 +849,7 @@ func normalizeStravaSportFields(stravaSport string) (normalizedStravaSport, erro
 	}
 	if !resolved.Resolved {
 		slog.Debug("strava: unmapped sport type", "strava_type", strings.TrimSpace(stravaSport))
-		return normalizedStravaSport{SportType: "generic"}, nil
+		return normalizedStravaSport{SportType: "unknown"}, nil
 	}
 	modifiers := sport.ApplyModifierPatch(sport.ModifierValues{}, resolved.Patch)
 	out := normalizedStravaSport{

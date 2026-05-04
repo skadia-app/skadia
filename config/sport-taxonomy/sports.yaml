@@ -498,6 +498,28 @@ sports:
     is_virtual: false
     is_commute: true
 
+- sport_type: skateboarding
+  category_key: outdoor
+  labels:
+    de: Skateboard
+  auto_titles:
+    de: Skateboarden
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.5
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [glide]
+    equipment_families: [board]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: true
+    is_indoor: true
+    is_virtual: false
+    is_commute: true
+
 - sport_type: alpine_skiing
   category_key: winter
   labels:

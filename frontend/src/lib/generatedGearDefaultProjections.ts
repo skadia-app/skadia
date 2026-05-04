@@ -53,6 +53,7 @@ export const GENERATED_GEAR_DEFAULT_MANUAL_OPTIONS = [
   { value: "swimming", label: "Schwimmen" },
   { value: "sailing", label: "Segeln" },
   { value: "jump_rope", label: "Seilspringen" },
+  { value: "skateboarding", label: "Skateboard" },
   { value: "backcountry_skiing", label: "Skitour" },
   { value: "snowboarding", label: "Snowboard" },
   { value: "surfing", label: "Surfen" },
