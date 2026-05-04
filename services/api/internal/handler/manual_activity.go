@@ -250,6 +250,7 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 	if h.ShadowFS != nil && manualFileID != "" {
 		freshAct, _ := h.DB.GetActivity(r.Context(), activity.ID)
 		sidecar.WriteMetaCompanion(r.Context(), h.ShadowFS, h.DB, userID, activity.ID, manualFileID, nil, freshAct)
+		h.refreshActivityFilePathBestEffort(r.Context(), userID, activity.ID, manualFileID)
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, map[string]string{
