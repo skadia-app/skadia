@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"sort"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -44,16 +45,7 @@ func (h *Handler) GetSportsTaxonomy(w http.ResponseWriter, r *http.Request) {
 				TypicallyHasGPS: s.TypicallyHasGPS,
 				Color:           cat.Color,
 			}
-			for stKey, st := range s.SubTypes {
-				_ = stKey
-				sr.SubTypes = append(sr.SubTypes, subTypeResponse{
-					SubType: st.SubType,
-					Label:   st.LabelDE,
-				})
-			}
-			if sr.SubTypes == nil {
-				sr.SubTypes = []subTypeResponse{}
-			}
+			sr.SubTypes = subTypeResponses(s.SubTypes)
 			cr.Sports = append(cr.Sports, sr)
 		}
 		if cr.Sports == nil {
@@ -63,4 +55,18 @@ func (h *Handler) GetSportsTaxonomy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+func subTypeResponses(subTypes map[string]sport.SubTypeDef) []subTypeResponse {
+	out := make([]subTypeResponse, 0, len(subTypes))
+	for _, st := range subTypes {
+		out = append(out, subTypeResponse{
+			SubType: st.SubType,
+			Label:   st.LabelDE,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].SubType < out[j].SubType
+	})
+	return out
 }

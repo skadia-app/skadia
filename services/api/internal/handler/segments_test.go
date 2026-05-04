@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -44,6 +46,46 @@ func TestUpdateSegmentReturnsValidationErrorForIneligiblePredicate_DB(t *testing
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdateSegmentRejectsTypeChangeWithExistingIneligiblePredicate_DB(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	r := chi.NewRouter()
+	r.Put("/api/v1/segments/{id}", h.UpdateSegment)
+
+	userID := insertTestUser(t, pool)
+	segID := insertTestSegment(t, pool, userID, TestSegmentOpts{SegmentType: "standard"})
+	if _, err := pool.Exec(context.Background(), `
+		UPDATE segments
+		SET sport_group = 'bike',
+		    allowed_predicates = '[{"sport":"cycling","sub_type":"mountain"}]'::jsonb
+		WHERE id = $1`, segID); err != nil {
+		t.Fatalf("seed segment predicates: %v", err)
+	}
+
+	body := `{"segment_type":"wintersport"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/segments/"+segID, bytes.NewReader([]byte(body)))
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSubTypeResponsesAreDeterministic(t *testing.T) {
+	got := subTypeResponses(map[string]sport.SubTypeDef{
+		"z_last":  {SubType: "z_last", LabelDE: "Z"},
+		"a_first": {SubType: "a_first", LabelDE: "A"},
+	})
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].SubType != "a_first" || got[1].SubType != "z_last" {
+		t.Fatalf("subtype order = %#v, want sorted by sub_type", got)
 	}
 }
 

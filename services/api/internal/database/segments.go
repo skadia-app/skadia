@@ -90,6 +90,13 @@ func validateSegmentPredicatesForType(segmentType string, preds []sport.Predicat
 	return nil
 }
 
+func validateSegmentTypeChangePredicates(segmentType string, preds []sport.Predicate) error {
+	if len(preds) == 0 {
+		return nil
+	}
+	return validateSegmentPredicatesForType(segmentType, preds)
+}
+
 func (db *DB) ListSegments(ctx context.Context, p model.ListSegmentsParams) (*model.ListSegmentsResult, error) {
 	// args: $1 = userID (always used by CTE). $2 = isAdmin is appended ONLY when the
 	// visibility clause actually references it — otherwise pgx passes an orphan param
@@ -679,6 +686,18 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 		args = append(args, allowedPredicatesJSON)
 		argIdx++
 	}
+	if update.SegmentType != nil && len(update.AllowedPredicates) == 0 {
+		existingPredicates, ok, err := segmentPredicatesForUpdateTx(ctx, tx, segmentID, userID, isAdmin)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, nil
+		}
+		if err := validateSegmentTypeChangePredicates(*update.SegmentType, existingPredicates); err != nil {
+			return nil, err
+		}
+	}
 	if update.Bidirectional != nil {
 		setClauses = append(setClauses, fmt.Sprintf("bidirectional = $%d", argIdx))
 		args = append(args, *update.Bidirectional)
@@ -730,6 +749,27 @@ func segmentTypeForUpdateTx(ctx context.Context, tx pgx.Tx, segmentID, userID st
 		return "", false, fmt.Errorf("get segment type for update: %w", err)
 	}
 	return segmentType, true, nil
+}
+
+func segmentPredicatesForUpdateTx(ctx context.Context, tx pgx.Tx, segmentID, userID string, isAdmin bool) ([]sport.Predicate, bool, error) {
+	var raw []byte
+	var err error
+	if isAdmin {
+		err = tx.QueryRow(ctx, `SELECT allowed_predicates FROM segments WHERE id = $1 FOR UPDATE`, segmentID).Scan(&raw)
+	} else {
+		err = tx.QueryRow(ctx, `SELECT allowed_predicates FROM segments WHERE id = $1 AND created_by = $2 FOR UPDATE`, segmentID, userID).Scan(&raw)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("get segment predicates for update: %w", err)
+	}
+	preds, err := decodeSegmentPredicates(raw)
+	if err != nil {
+		return nil, false, fmt.Errorf("decode segment predicates for update: %w", err)
+	}
+	return preds, true, nil
 }
 
 // createNewSegmentVersion copies the latest segment_version into a new version row.

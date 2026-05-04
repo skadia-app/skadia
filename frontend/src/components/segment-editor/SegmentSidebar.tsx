@@ -15,7 +15,7 @@ import { SportCategoryChips } from './SportCategoryChips'
 import { isCategoryFullyActive, expandCategoryToSportTypes } from '@/lib/sportCategoryHelpers'
 import { cn } from '@/lib/utils'
 import { filterSegmentSportSelection, removeSegmentSportSelectionKeys } from './segmentSportSelection'
-import { segmentEligibleSelectionKeys } from '@/lib/segmentProjection'
+import { segmentEligibleSelectionKeys, segmentTypeLabel } from '@/lib/segmentProjection'
 
 export interface SegmentMetadata {
   name: string
@@ -53,15 +53,6 @@ export interface SegmentSidebarProps {
   onClearEnrichmentSource: (field: 'surface' | 'sac' | 'mtb') => void
   enrichmentDisabledReason?: string
   enrichmentStatus?: string
-}
-
-const SEG_TYPE_LABELS: Record<SegType, string> = {
-  standard: 'Standard',
-  trail: 'Trail',
-  lap: 'Runde',
-  wintersport: 'Winter',
-  wassersport: 'Wassersport',
-  lift: 'Lift',
 }
 
 function eligibleKeys(segType: SegType): readonly string[] | undefined {
@@ -205,7 +196,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
                 active={meta.segType === t}
                 onClick={() => handleSegTypeChange(t)}
               >
-                {SEG_TYPE_LABELS[t]}
+                {segmentTypeLabel(t)}
               </Pill>
             ))}
           </div>

@@ -4,6 +4,7 @@ import {
   segmentPredicatesForSelection,
   segmentProjectionEntriesForType,
   segmentSportGroupForSelection,
+  segmentTypeLabel,
 } from '../segmentProjection'
 
 describe('segment projection helpers', () => {
@@ -65,5 +66,10 @@ describe('segment projection helpers', () => {
   it('does not expose reserved virtual domains through active helpers', () => {
     const standard = segmentProjectionEntriesForType('standard')
     expect(standard.every(entry => entry.domain === 'real_world_gps')).toBe(true)
+  })
+
+  it('reads segment type labels from generated projection metadata', () => {
+    expect(segmentTypeLabel('wintersport')).toBe('Winter')
+    expect(segmentTypeLabel('lift')).toBe('Lift')
   })
 })

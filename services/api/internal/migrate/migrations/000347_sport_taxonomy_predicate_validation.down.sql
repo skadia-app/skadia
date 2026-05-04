@@ -7,6 +7,7 @@ ALTER TABLE routing_profiles DROP CONSTRAINT IF EXISTS routing_profiles_predicat
 ALTER TABLE planned_routes DROP CONSTRAINT IF EXISTS planned_routes_sport_tuple_valid;
 ALTER TABLE activities DROP CONSTRAINT IF EXISTS activities_sport_type_canonical;
 ALTER TABLE segments DROP CONSTRAINT IF EXISTS segments_allowed_predicates_valid;
+DROP FUNCTION IF EXISTS fn_validate_segment_predicates_for_type(TEXT, JSONB);
 
 CREATE OR REPLACE FUNCTION fn_validate_predicates(p JSONB)
 RETURNS BOOLEAN

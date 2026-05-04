@@ -93,3 +93,17 @@ func TestSegmentPredicatesForTypeUsesProjection(t *testing.T) {
 		t.Fatalf("validateSegmentPredicatesForType rejected lift predicate: %v", err)
 	}
 }
+
+func TestValidateSegmentTypeChangePredicatesUsesEffectiveSegmentType(t *testing.T) {
+	mountain := "mountain"
+	err := validateSegmentTypeChangePredicates("wintersport", []sport.Predicate{{Sport: "cycling", SubType: &mountain}})
+	if err == nil {
+		t.Fatal("validateSegmentTypeChangePredicates accepted cycling:mountain for wintersport")
+	}
+	if !errors.Is(err, ErrSegmentValidation) {
+		t.Fatalf("validateSegmentTypeChangePredicates error = %v, want ErrSegmentValidation", err)
+	}
+	if err := validateSegmentTypeChangePredicates("wintersport", []sport.Predicate{{Sport: "snowshoeing"}}); err != nil {
+		t.Fatalf("validateSegmentTypeChangePredicates rejected snowshoeing for wintersport: %v", err)
+	}
+}
