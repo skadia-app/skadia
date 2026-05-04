@@ -66,6 +66,8 @@ func TestFitSportToSportType(t *testing.T) {
 	}{
 		{typedef.SportCycling, typedef.SubSportGeneric, "cycling", ""},
 		{typedef.SportCycling, typedef.SubSportMountain, "cycling", "mountain"},
+		{typedef.SportCycling, typedef.SubSportEnduro, "cycling", "mountain"},
+		{typedef.SportCycling, typedef.SubSportEBikeEnduro, "cycling", "mountain"},
 		{typedef.SportCycling, typedef.SubSportGravelCycling, "cycling", "gravel_cycling"},
 		{typedef.SportCycling, typedef.SubSportIndoorCycling, "cycling", "indoor_cycling"},
 		{typedef.SportRunning, typedef.SubSportGeneric, "running", ""},
@@ -91,6 +93,16 @@ func TestFitSportToSportType(t *testing.T) {
 			t.Errorf("fitSportToSportType(sport=%d, subSport=%d): got %q/%q, want %q/%q",
 				tc.sport, tc.subSport, gotSport, ptrStringValue(gotSub), tc.wantSport, tc.wantSub)
 		}
+	}
+}
+
+func TestFitSportToRouteSportAppliesElectricModifier(t *testing.T) {
+	gotSport, gotSub, gotPatch := fitSportToRouteSport(typedef.SportCycling, typedef.SubSportEBikeEnduro)
+	if gotSport != "cycling" || ptrStringValue(gotSub) != "mountain" {
+		t.Fatalf("tuple = %s/%s, want cycling/mountain", gotSport, ptrStringValue(gotSub))
+	}
+	if gotPatch.IsElectric == nil || !*gotPatch.IsElectric {
+		t.Fatalf("IsElectric patch = %#v, want true", gotPatch.IsElectric)
 	}
 }
 

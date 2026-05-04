@@ -3,8 +3,13 @@ aliases:
 - raw: archery
   sport_type: unknown
 - raw: cycling
+  raw_sub: enduro
+  sport_type: cycling
+  sub_type: mountain
+- raw: cycling
   raw_sub: e_bike_enduro
   sport_type: cycling
+  sub_type: mountain
   modifiers: {is_electric: true}
 - raw: cycling
   raw_sub: e_bike_fitness

@@ -478,7 +478,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		subType = "mountain"
 		isElectric = true
 	case "e_bike_enduro":
-		subType = "generic"
+		subType = "mountain"
 		isElectric = true
 	}
 

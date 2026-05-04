@@ -164,7 +164,7 @@ func processCourseFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS
 	}
 
 	// --- Map FIT sport enum to taxonomy sport type ---
-	sportType, routeSubType := fitSportToSportType(sport, subSport)
+	sportType, routeSubType, modifierPatch := fitSportToRouteSport(sport, subSport)
 	profile := defaultProfileForSportTuple(sportType, routeSubType)
 
 	// --- SourceID: SHA256(name + sport string) for dedup ---
@@ -176,6 +176,7 @@ func processCourseFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS
 		Name:               courseName,
 		SportType:          sportType,
 		SubType:            routeSubType,
+		IsElectric:         modifierPatch.IsElectric != nil && *modifierPatch.IsElectric,
 		Profile:            profile,
 		GeometryGeoJSON:    geoJSON,
 		WaypointsJSON:      waypointsJSON,
@@ -268,6 +269,11 @@ func coursePointTypeName(t typedef.CoursePoint) string {
 
 // fitSportToSportType maps a FIT sport + sub-sport enum to a Skadia route sport tuple.
 func fitSportToSportType(sport typedef.Sport, subSport typedef.SubSport) (string, *string) {
+	sportType, subType, _ := fitSportToRouteSport(sport, subSport)
+	return sportType, subType
+}
+
+func fitSportToRouteSport(sport typedef.Sport, subSport typedef.SubSport) (string, *string, sporttax.ModifierPatch) {
 	normalize := func(sportType, subType string) (string, *string) {
 		tuple, _, err := sporttax.NormalizeSportTuple(sportType, subType)
 		if err != nil {
@@ -278,45 +284,64 @@ func fitSportToSportType(sport typedef.Sport, subSport typedef.SubSport) (string
 		}
 		return tuple.SportType, &tuple.SubType
 	}
+	resolve := func(sportType, subType string) (string, *string, sporttax.ModifierPatch) {
+		result, err := sporttax.ResolveSport(sporttax.ResolveInput{
+			Source:   sporttax.SourceFITFile,
+			RawSport: sportType,
+			RawSub:   subType,
+		})
+		if err != nil || !result.Resolved {
+			normalizedSport, normalizedSub := normalize(sportType, subType)
+			return normalizedSport, normalizedSub, sporttax.ModifierPatch{}
+		}
+		if result.Tuple.SubType == "" {
+			return result.Tuple.SportType, nil, result.Patch
+		}
+		return result.Tuple.SportType, &result.Tuple.SubType, result.Patch
+	}
 	switch sport {
 	case typedef.SportCycling:
 		switch subSport {
 		case typedef.SubSportMountain:
-			return normalize("cycling", "mountain")
+			return resolve("cycling", "mountain")
+		case typedef.SubSportEnduro:
+			return resolve("cycling", "enduro")
+		case typedef.SubSportEBikeEnduro:
+			return resolve("cycling", "e_bike_enduro")
 		case typedef.SubSportGravelCycling:
-			return normalize("cycling", "gravel_cycling")
+			return resolve("cycling", "gravel_cycling")
 		case typedef.SubSportIndoorCycling:
-			return normalize("cycling", "indoor_cycling")
+			return resolve("cycling", "indoor_cycling")
 		default:
-			return normalize("cycling", "")
+			return resolve("cycling", "")
 		}
 	case typedef.SportRunning:
 		switch subSport {
 		case typedef.SubSportTrail:
-			return normalize("running", "trail")
+			return resolve("running", "trail")
 		default:
-			return normalize("running", "")
+			return resolve("running", "")
 		}
 	case typedef.SportHiking:
-		return normalize("hiking", "")
+		return resolve("hiking", "")
 	case typedef.SportWalking:
-		return normalize("walking", "")
+		return resolve("walking", "")
 	case typedef.SportSwimming:
-		return normalize("swimming", "")
+		return resolve("swimming", "")
 	case typedef.SportAlpineSkiing:
-		return normalize("alpine_skiing", "")
+		return resolve("alpine_skiing", "")
 	case typedef.SportCrossCountrySkiing:
-		return normalize("cross_country_skiing", "")
+		return resolve("cross_country_skiing", "")
 	case typedef.SportPaddling:
-		return normalize("paddling", "")
+		return resolve("paddling", "")
 	case typedef.SportRowing:
-		return normalize("rowing", "")
+		return resolve("rowing", "")
 	case typedef.SportCanoeing:
-		return normalize("canoeing", "")
+		return resolve("canoeing", "")
 	case typedef.SportPoolApnea:
-		return normalize("diving", "apnea_pool")
+		return resolve("pool_apnea", "")
 	default:
-		return normalize("unknown", "")
+		return resolve("unknown", "")
 	}
 }
 
