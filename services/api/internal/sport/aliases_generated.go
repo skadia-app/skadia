@@ -5,9 +5,10 @@ package sport
 var generatedSourceAliases = map[Source][]sourceAliasDef{
 	SourceFITFile: {
 		{RawSport: "archery", Tuple: Tuple{SportType: "unknown"}},
-		{RawSport: "cycling", RawSub: "e_bike_enduro", Tuple: Tuple{SportType: "cycling"}, Patch: ModifierPatch{IsElectric: ptrBool(true)}},
+		{RawSport: "cycling", RawSub: "e_bike_enduro", Tuple: Tuple{SportType: "cycling", SubType: "mountain"}, Patch: ModifierPatch{IsElectric: ptrBool(true)}},
 		{RawSport: "cycling", RawSub: "e_bike_fitness", Tuple: Tuple{SportType: "cycling"}, Patch: ModifierPatch{IsElectric: ptrBool(true)}},
 		{RawSport: "cycling", RawSub: "e_bike_mountain", Tuple: Tuple{SportType: "cycling", SubType: "mountain"}, Patch: ModifierPatch{IsElectric: ptrBool(true)}},
+		{RawSport: "cycling", RawSub: "enduro", Tuple: Tuple{SportType: "cycling", SubType: "mountain"}},
 		{RawSport: "geocaching", Tuple: Tuple{SportType: "unknown"}},
 		{RawSport: "grinding", Tuple: Tuple{SportType: "unknown"}},
 		{RawSport: "mobility", Tuple: Tuple{SportType: "unknown"}},

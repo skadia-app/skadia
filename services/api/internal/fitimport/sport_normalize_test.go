@@ -83,7 +83,8 @@ func TestNormalizeParsedActivitySportKeepsFITEBikeScopedToCycling(t *testing.T) 
 		wantSub   string
 	}{
 		{name: "e-bike mountain", subSport: typedef.SubSportEBikeMountain, wantSport: "cycling", wantSub: "mountain"},
-		{name: "e-bike enduro falls back to broad cycling", subSport: typedef.SubSportEBikeEnduro, wantSport: "cycling"},
+		{name: "enduro is mountain biking", subSport: typedef.SubSportEnduro, wantSport: "cycling", wantSub: "mountain"},
+		{name: "e-bike enduro is electric mountain biking", subSport: typedef.SubSportEBikeEnduro, wantSport: "cycling", wantSub: "mountain"},
 	}
 
 	for _, tt := range tests {
@@ -98,8 +99,9 @@ func TestNormalizeParsedActivitySportKeepsFITEBikeScopedToCycling(t *testing.T) 
 			if data.SportType != tt.wantSport || data.SubType != tt.wantSub {
 				t.Fatalf("tuple = %s/%s, want %s/%s", data.SportType, data.SubType, tt.wantSport, tt.wantSub)
 			}
-			if !data.IsElectric {
-				t.Fatalf("IsElectric = false, want true")
+			wantElectric := tt.subSport == typedef.SubSportEBikeMountain || tt.subSport == typedef.SubSportEBikeEnduro
+			if data.IsElectric != wantElectric {
+				t.Fatalf("IsElectric = %v, want %v", data.IsElectric, wantElectric)
 			}
 		})
 	}
