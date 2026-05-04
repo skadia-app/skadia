@@ -639,16 +639,19 @@ func extractTagsForFile(ctx context.Context, pool *pgxpool.Pool, fileType, paren
 		var distanceM float64
 		var elapsedTimeS int
 		var elevationGainM float64
+		var isElectric, isIndoor, isVirtual, isCommute bool
 		err := pool.QueryRow(ctx,
 			`SELECT COALESCE(original_file_format, ''), COALESCE(source, ''),
 			        started_at, sport_type,
 			        COALESCE(sub_type, ''), COALESCE(title, ''),
 			        COALESCE(start_city, ''), COALESCE(start_country, ''),
 			        COALESCE(distance_m, 0), COALESCE(elapsed_time_s, 0),
-			        COALESCE(elevation_gain_m, 0)
+			        COALESCE(elevation_gain_m, 0),
+			        COALESCE(is_electric, false), COALESCE(is_indoor, false),
+			        COALESCE(is_virtual, false), COALESCE(is_commute, false)
 			 FROM activities WHERE id = $1`, *parentID,
 		).Scan(&format, &source, &startedAt, &sportType, &subType, &title, &city, &country,
-			&distanceM, &elapsedTimeS, &elevationGainM)
+			&distanceM, &elapsedTimeS, &elevationGainM, &isElectric, &isIndoor, &isVirtual, &isCommute)
 		if err == nil {
 			tags = ActivitySchemaTags(ActivitySchemaTagsInput{
 				Format:         format,
@@ -662,6 +665,10 @@ func extractTagsForFile(ctx context.Context, pool *pgxpool.Pool, fileType, paren
 				DistanceM:      distanceM,
 				ElapsedTimeS:   elapsedTimeS,
 				ElevationGainM: elevationGainM,
+				IsElectric:     isElectric,
+				IsIndoor:       isIndoor,
+				IsVirtual:      isVirtual,
+				IsCommute:      isCommute,
 			})
 		}
 

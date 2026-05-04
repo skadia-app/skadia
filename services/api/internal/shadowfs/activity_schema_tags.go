@@ -20,6 +20,10 @@ type ActivitySchemaTagsInput struct {
 	DistanceM      float64
 	ElapsedTimeS   int
 	ElevationGainM float64
+	IsElectric     bool
+	IsIndoor       bool
+	IsVirtual      bool
+	IsCommute      bool
 }
 
 func ActivitySchemaTags(input ActivitySchemaTagsInput) map[string]string {
@@ -67,5 +71,19 @@ func ActivitySchemaTags(input ActivitySchemaTagsInput) map[string]string {
 	if input.ElevationGainM > 0 {
 		tags["elevation_m"] = strconv.Itoa(int(input.ElevationGainM))
 	}
+	var modifiers []string
+	if input.IsElectric {
+		modifiers = append(modifiers, "electric")
+	}
+	if input.IsIndoor {
+		modifiers = append(modifiers, "indoor")
+	}
+	if input.IsVirtual {
+		modifiers = append(modifiers, "virtual")
+	}
+	if input.IsCommute {
+		modifiers = append(modifiers, "commute")
+	}
+	tags["modifiers"] = strings.Join(modifiers, "_")
 	return tags
 }

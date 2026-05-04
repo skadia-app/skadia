@@ -61,6 +61,10 @@ type exportedActivityFileTags struct {
 	DistanceM          float64   `json:"distance_m"`
 	ElapsedTimeS       int       `json:"elapsed_time_s"`
 	ElevationGainM     float64   `json:"elevation_gain_m"`
+	IsElectric         bool      `json:"is_electric"`
+	IsIndoor           bool      `json:"is_indoor"`
+	IsVirtual          bool      `json:"is_virtual"`
+	IsCommute          bool      `json:"is_commute"`
 }
 
 func loadActivityFileTagIndex(source Source) (map[string]shadowfs.ActivitySchemaTagsInput, error) {
@@ -92,6 +96,10 @@ func loadActivityFileTagIndex(source Source) (map[string]shadowfs.ActivitySchema
 			DistanceM:      row.DistanceM,
 			ElapsedTimeS:   row.ElapsedTimeS,
 			ElevationGainM: row.ElevationGainM,
+			IsElectric:     row.IsElectric,
+			IsIndoor:       row.IsIndoor,
+			IsVirtual:      row.IsVirtual,
+			IsCommute:      row.IsCommute,
 		}
 	}
 	return index, nil

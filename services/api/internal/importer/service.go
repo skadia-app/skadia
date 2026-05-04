@@ -30,6 +30,10 @@ import (
 // The handler package provides the concrete implementation.
 type SegmentMatcherFunc func(activityID, userID, sportType, subType string, gearID *string, activityDate time.Time)
 
+// ActivityFileRefresher refreshes a linked original activity file path after
+// post-processing has populated schema-relevant activity fields.
+type ActivityFileRefresher func(ctx context.Context, userID, activityID, fileID string)
+
 // Service holds shared dependencies needed to run post-insert processing steps
 // after an activity has been written to the database. It is used by the upload
 // handler and will be reused by the cross-platform import pipeline so that all
@@ -66,6 +70,10 @@ type Service struct {
 	// PostImportHook is called once after a successful activity import.
 	// Used to trigger fusion queue recompute. Optional — nil is safe.
 	PostImportHook func(ctx context.Context, userID string)
+
+	// ActivityFileRefresher updates local ShadowFS paths after enrichment/rules
+	// have finalized schema-relevant activity fields. Optional — nil is safe.
+	ActivityFileRefresher ActivityFileRefresher
 
 	// Stage1Deps overrides the external dependencies (WeatherFetcher,
 	// ReverseGeocoder) used by RunStage1 in PostProcess. When nil,
@@ -535,6 +543,9 @@ func (s *Service) PostProcess(
 			effectiveFileID = *activity.FileID
 		}
 		sidecar.WriteMetaCompanion(ctx, s.ShadowFS, s.DB, userID, activityID, effectiveFileID, data, activity)
+		if s.ActivityFileRefresher != nil {
+			s.ActivityFileRefresher(ctx, userID, activityID, effectiveFileID)
+		}
 	}
 
 	slog.Info("activity post-processed",

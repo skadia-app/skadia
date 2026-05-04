@@ -689,6 +689,7 @@ func (h *Handler) runGeocodingBackfill(ctx context.Context, userID, jobID string
 					"activity_id", c.ID, "error", upErr)
 				failed++
 			} else {
+				h.refreshActivityFilePathBestEffort(ctx, userID, c.ID, "")
 				filled++
 			}
 		}

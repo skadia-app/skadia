@@ -317,10 +317,14 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ApplyRulesToActivity is a thin wrapper around automation.ApplyRulesToActivity
-// for use in handler contexts.
+// ApplyRulesToActivity applies automation rules and refreshes any linked local
+// activity file path because rule actions can change schema-relevant fields.
 func (h *Handler) ApplyRulesToActivity(ctx context.Context, activityID, userID string, allRules []model.AutomationRule, triggerEvent string) error {
-	return automation.ApplyRulesToActivity(ctx, h.DB, activityID, userID, allRules, triggerEvent)
+	if err := automation.ApplyRulesToActivity(ctx, h.DB, activityID, userID, allRules, triggerEvent); err != nil {
+		return err
+	}
+	h.refreshActivityFilePathBestEffort(ctx, userID, activityID, "")
+	return nil
 }
 
 func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID string) {
@@ -661,7 +665,7 @@ func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule 
 	var firstFailedID string
 	var firstFailedErr error
 	for i, actID := range actIDs {
-		if err := automation.ApplyRulesToActivity(ctx, h.DB, actID, userID, singleRule, ""); err != nil {
+		if err := h.ApplyRulesToActivity(ctx, actID, userID, singleRule, ""); err != nil {
 			if errors.Is(err, automation.ErrRulesEnginePaused) {
 				pausedCount++
 				slog.Warn("apply single rule skipped because rules engine is paused", "activity_id", actID, "rule_id", rule.ID, "error", err)

@@ -351,6 +351,9 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 	if h.ShadowFS != nil && freshAct != nil && freshAct.FileID != nil && *freshAct.FileID != "" {
 		sidecar.WriteMetaCompanion(r.Context(), h.ShadowFS, h.DB, userID, id, *freshAct.FileID, nil, freshAct)
 	}
+	if activityUpdateAffectsFileSchema(&update) {
+		h.refreshActivityFilePathBestEffort(r.Context(), userID, id, "")
+	}
 
 	// Side-effect: toggle heatmap data when exclude_from_heatmap changes.
 	if update.ExcludeFromHeatmap != nil {

@@ -74,6 +74,25 @@ func TestActivitySchemaTagsMetadata(t *testing.T) {
 	}
 }
 
+func TestActivitySchemaTagsModifiersStableOrder(t *testing.T) {
+	tags := ActivitySchemaTags(ActivitySchemaTagsInput{
+		SportType:  "cycling",
+		IsElectric: true,
+		IsIndoor:   true,
+		IsVirtual:  true,
+		IsCommute:  true,
+	})
+
+	if tags["modifiers"] != "electric_indoor_virtual_commute" {
+		t.Fatalf("modifiers = %q, want electric_indoor_virtual_commute", tags["modifiers"])
+	}
+
+	tags = ActivitySchemaTags(ActivitySchemaTagsInput{SportType: "running"})
+	if got, ok := tags["modifiers"]; !ok || got != "" {
+		t.Fatalf("inactive modifiers tag = %q present=%v, want present empty string", got, ok)
+	}
+}
+
 func TestActivitySchemaTagsTrimsOptionalTextTags(t *testing.T) {
 	tags := ActivitySchemaTags(ActivitySchemaTagsInput{
 		SportType: "running",
