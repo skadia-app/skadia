@@ -17,6 +17,17 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
+// trackSummaryCacheControl: track-summary content depends on enrichment
+// progress — `activity_geo_tags` rows are added asynchronously. A long
+// max-age would let the browser serve stale "no summits yet" responses for
+// hours after enrichment completes. Force revalidation every request; the
+// SHA1 ETag short-circuits unchanged payloads to a 304 (no body), so the
+// cost is one round-trip per request.
+//
+// Regression-guarded by TestTrackSummaryCacheControl_RegressionGuard —
+// any change here without explicit reasoning will fail that test.
+const trackSummaryCacheControl = "private, no-cache, must-revalidate"
+
 type activityTrackSummaryResponse struct {
 	ForestPct       *float64                         `json:"forest_pct"`
 	ProtectedPct    *float64                         `json:"protected_pct"`
@@ -174,7 +185,7 @@ func (h *Handler) ActivityTrackSummary(w http.ResponseWriter, r *http.Request) {
 	etag := fmt.Sprintf(`"%x"`, sum[:])
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Header().Set("Cache-Control", trackSummaryCacheControl)
 	w.Header().Set("ETag", etag)
 	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)
