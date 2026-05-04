@@ -690,3 +690,8 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 		WHERE id = $1`, activityID)
 	return err
 }
+
+// RecomputeLiftStats is the exported entry-point for the enrichment adapter.
+func (db *DB) RecomputeLiftStats(ctx context.Context, activityID string) error {
+	return db.recomputeLiftStats(ctx, activityID)
+}
