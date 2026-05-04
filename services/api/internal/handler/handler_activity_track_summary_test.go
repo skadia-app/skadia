@@ -248,3 +248,31 @@ func TestBuildTrackSummary_ResampleSpacingMPresent(t *testing.T) {
 
 func ptrFloat64(v float64) *float64 { return &v }
 func ptrInt64(v int64) *int64       { return &v }
+
+// TestTrackSummaryCacheControl_RegressionGuard pins the Cache-Control header
+// for the track-summary endpoint.
+//
+// Background: an earlier `private, max-age=86400` setting let the browser
+// serve a stale empty-summits response for 24h after enrichment added
+// summits to activity_geo_tags. Hard refresh did not bypass it (sub-fetch
+// requests use the HTTP cache). The fix is `no-cache, must-revalidate`,
+// which forces ETag-based revalidation each request — the unchanged-payload
+// path returns 304 (no body), so the cost is one round-trip per request.
+//
+// If you change this constant, make sure that:
+//
+//  1. Cached responses are still invalidated when activity_geo_tags rows are
+//     written (e.g. via SSE-driven React Query invalidation), AND
+//  2. Either the new value still allows revalidation (no long max-age), OR
+//     the cache is invalidated server-side on enrichment completion.
+//
+// Otherwise the original bug returns: pill says "no summits", map shows them
+// (the geo-tags endpoint has no caching), users hit hard-refresh, nothing
+// changes.
+func TestTrackSummaryCacheControl_RegressionGuard(t *testing.T) {
+	const want = "private, no-cache, must-revalidate"
+	if trackSummaryCacheControl != want {
+		t.Errorf("trackSummaryCacheControl = %q, want %q — see test comment for context",
+			trackSummaryCacheControl, want)
+	}
+}
