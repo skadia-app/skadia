@@ -9,6 +9,12 @@ describe('rule sport projection', () => {
 
     expect(keys).toContain('cycling')
     expect(keys).toContain('cycling:mountain')
+    expect(keys).toContain('hiking:rucking')
+    expect(keys).toContain('diving:dynamic_apnea')
+    expect(keys).toContain('mobility')
+    expect(keys).toContain('archery')
+    expect(keys).toContain('shooting')
+    expect(keys).toContain('geocaching')
     expect(keys).toContain('running:trail')
     expect(keys).not.toContain('training')
   })
@@ -18,7 +24,20 @@ describe('rule sport projection', () => {
 
     expect(options.find((option) => option.value === 'cycling')?.label).toBe('Radfahren')
     expect(options.find((option) => option.value === 'cycling:mountain')?.label).toBe('MTB')
+    expect(options.find((option) => option.value === 'hiking:rucking')?.label).toBe('Rucking')
+    expect(options.find((option) => option.value === 'diving:dynamic_apnea')?.label).toBe('Dynamische Apnoe')
+    expect(options.find((option) => option.value === 'mobility')?.label).toBe('Mobilität')
+    expect(options.find((option) => option.value === 'archery')?.label).toBe('Bogenschießen')
+    expect(options.find((option) => option.value === 'shooting')?.label).toBe('Schießen')
+    expect(options.find((option) => option.value === 'geocaching')?.label).toBe('Geocaching')
     expect(options.find((option) => option.value === 'running:trail')?.label).toBe('Trail')
+  })
+
+  it('exposes modifier applicability for new taxonomy tuples', () => {
+    expect(ruleModifierControlsForTuple('mobility').find((modifier) => modifier.key === 'is_indoor')?.actionApplicable).toBe(true)
+    expect(ruleModifierControlsForTuple('diving', 'dynamic_apnea').find((modifier) => modifier.key === 'is_indoor')?.actionApplicable).toBe(true)
+    expect(ruleModifierControlsForTuple('archery').find((modifier) => modifier.key === 'is_indoor')?.actionApplicable).toBe(false)
+    expect(ruleModifierControlsForTuple('shooting').find((modifier) => modifier.key === 'is_electric')?.conditionApplicable).toBe(false)
   })
 
   it('exposes cycling electric applicability and running non-electric applicability', () => {
@@ -52,6 +71,8 @@ describe('rule sport projection', () => {
 
     expect(fields.find((field) => field.field === 'sport_environment')?.options.map((option) => option.value)).toContain('water')
     expect(fields.find((field) => field.field === 'sport_equipment_family')?.options.map((option) => option.value)).toContain('board')
+    expect(fields.find((field) => field.field === 'sport_equipment_family')?.options.map((option) => option.value)).toContain('weapon')
+    expect(fields.find((field) => field.field === 'sport_equipment_family')?.options.map((option) => option.value)).toContain('weights')
     expect(fields.find((field) => field.field === 'sport_movement_family')?.options.map((option) => option.value)).toContain('paddle')
 
     fields[0].options[0].label = 'Mutated'

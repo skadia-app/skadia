@@ -232,6 +232,20 @@ sports:
     is_indoor: false
     is_virtual: true
     is_commute: true
+  sub_types:
+  - sub_type: rucking
+    labels:
+      de: Rucking
+    details:
+      de: Rucking
+    auto_titles:
+      de: Rucking
+    traits:
+      environments: [land]
+      movement_families: [walk]
+      equipment_families: [weights]
+      activity_form: single
+      propulsion_modes: [human]
 
 - sport_type: mountaineering
   category_key: run
@@ -1088,6 +1102,21 @@ sports:
       equipment_families: []
       activity_form: single
       propulsion_modes: [human]
+  - sub_type: dynamic_apnea
+    labels:
+      de: Dynamische Apnoe
+    details:
+      de: Dynamische Apnoe
+    auto_titles:
+      de: Apnoe-Tauchen
+    traits:
+      environments: [water, indoor]
+      movement_families: [swim]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
+    modifier_defaults:
+      is_indoor: true
   - sub_type: apnea_hunting
     labels:
       de: Apnoe-Jagd
@@ -1643,6 +1672,30 @@ sports:
     de: Meditation
   auto_titles:
     de: Meditation
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [mind_body]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+
+- sport_type: mobility
+  category_key: fitness
+  labels:
+    de: Mobilität
+  auto_titles:
+    de: Mobilität
   segment_group: generic
   typically_has_gps: false
   moving_threshold: 0
@@ -2488,6 +2541,72 @@ sports:
     is_indoor: false
     is_virtual: false
     is_commute: true
+
+- sport_type: archery
+  category_key: outdoor
+  labels:
+    de: Bogenschießen
+  auto_titles:
+    de: Bogenschießen
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [generic]
+    equipment_families: [weapon]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: shooting
+  category_key: outdoor
+  labels:
+    de: Schießen
+  auto_titles:
+    de: Schießen
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [generic]
+    equipment_families: [weapon]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: geocaching
+  category_key: outdoor
+  labels:
+    de: Geocaching
+  auto_titles:
+    de: Geocaching
+  segment_group: foot
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [walk]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
 
 - sport_type: boxing
   category_key: fitness

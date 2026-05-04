@@ -138,6 +138,7 @@ describe('sport filter options', () => {
       'hiit',
       'yoga',
       'pilates',
+      'mobility',
     ]))
     expect(keysInGroup(options, 'game')).toEqual(expect.arrayContaining([
       'tennis',
@@ -149,16 +150,25 @@ describe('sport filter options', () => {
     expect(keysInGroup(options, 'outdoor')).toEqual(expect.arrayContaining([
       'inline_skating',
       'skateboarding',
+      'geocaching',
+      'archery',
+      'shooting',
     ]))
   })
 
   it('preserves representative map compact leaves', () => {
     const options = generateMapFilterOptions()
 
+    expect(keysInGroup(options, 'outdoor')).toEqual(expect.arrayContaining([
+      'geocaching',
+      'archery',
+      'shooting',
+    ]))
     expect(keysInGroup(options, 'fitness_other')).toEqual(expect.arrayContaining([
       'training:strength_training',
       'fitness_equipment:treadmill',
       'strength_training',
+      'mobility',
       'racket:squash',
       'racket:badminton',
       'generic',
@@ -246,8 +256,12 @@ describe('sport filter options', () => {
     const options = generateGearSportOptions()
     const values = options.map((option) => option.value)
 
+    expect(values).toContain('archery')
     expect(values).toContain('cycling')
+    expect(values).toContain('geocaching')
     expect(values).toContain('generic')
+    expect(values).toContain('mobility')
+    expect(values).toContain('shooting')
     expect(values).not.toContain('fitness_equipment')
     expect(values).not.toContain('training')
     expect(values).not.toContain('unknown')

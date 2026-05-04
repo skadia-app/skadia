@@ -108,6 +108,7 @@ func TestNormalizeStravaSportFields(t *testing.T) {
 		{input: "HIIT", wantSport: "hiit", wantIndoor: true},
 		{input: "HighIntensityIntervalTraining", wantSport: "hiit", wantIndoor: true},
 		{input: "Workout", wantSport: "training", wantIndoor: true},
+		{input: "PhysicalTherapy", wantSport: "mobility", wantIndoor: true},
 		{input: "Elliptical", wantSport: "fitness_equipment", wantSubType: "elliptical", wantIndoor: true},
 		{input: "Stair-Stepper", wantSport: "fitness_equipment", wantSubType: "stair_climbing", wantIndoor: true},
 		{input: "StairStepper", wantSport: "fitness_equipment", wantSubType: "stair_climbing", wantIndoor: true},

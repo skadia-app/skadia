@@ -229,6 +229,8 @@ aliases:
   sport_type: hiit
 - raw: Workout
   sport_type: training
+- raw: PhysicalTherapy
+  sport_type: mobility
 - raw: Elliptical
   sport_type: fitness_equipment
   sub_type: elliptical
