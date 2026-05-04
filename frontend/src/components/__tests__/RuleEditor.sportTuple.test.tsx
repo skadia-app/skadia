@@ -428,4 +428,34 @@ describe('RuleEditor sport tuple controls', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('set_electric(false)'))
     expect(blockedSave).not.toHaveBeenCalled()
   })
+
+  it('keeps explicit E-Bike tag actions next to generic electric actions without cycling action context', async () => {
+    const onSave = renderEditor({
+      actions: [
+        { action: 'set_electric', params: { electric: true } },
+        { action: 'add_tag', params: { tag_id: 'tag-ebike' } },
+      ],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].actions).toEqual([
+      { action: 'set_electric', params: { electric: true } },
+      { action: 'add_tag', params: { tag_id: 'tag-ebike' } },
+    ])
+
+    const falseSave = vi.fn()
+    renderEditor({
+      actions: [
+        { action: 'set_electric', params: { electric: false } },
+        { action: 'add_tag', params: { tag_id: 'tag-ebike' } },
+      ],
+    }, falseSave)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Speichern' }).at(-1)!)
+    await waitFor(() => expect(falseSave).toHaveBeenCalled())
+    expect(falseSave.mock.calls[0][0].actions).toEqual([
+      { action: 'set_electric', params: { electric: false } },
+      { action: 'add_tag', params: { tag_id: 'tag-ebike' } },
+    ])
+  })
 })
