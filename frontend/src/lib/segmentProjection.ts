@@ -3,6 +3,7 @@ import type { SegType } from '@/components/segment-editor/constants'
 import type { SportPredicate } from './sportSelection'
 
 type SegmentProjectionEntry = (typeof GENERATED_SEGMENT_PROJECTION)['eligible'][number]
+type SegmentProjectionSegmentType = (typeof GENERATED_SEGMENT_PROJECTION)['segmentTypes'][number]
 
 function keyFor(entry: Pick<SegmentProjectionEntry, 'sportType'> & { subType?: string }): string {
   return entry.subType ? `${entry.sportType}:${entry.subType}` : entry.sportType
@@ -15,6 +16,11 @@ function entrySubType(entry: SegmentProjectionEntry): string | undefined {
 
 export function segmentProjectionEntriesForType(segType: SegType): SegmentProjectionEntry[] {
   return GENERATED_SEGMENT_PROJECTION.eligible.filter(entry => entry.segmentType === segType)
+}
+
+export function segmentTypeLabel(segType: SegType): string {
+  const segmentType = GENERATED_SEGMENT_PROJECTION.segmentTypes.find((candidate: SegmentProjectionSegmentType) => candidate.key === segType)
+  return segmentType?.label ?? segType
 }
 
 export function segmentEligibleSelectionKeys(segType: SegType): string[] {

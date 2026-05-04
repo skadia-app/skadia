@@ -190,7 +190,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	renderedPredicateValidationSQL, err := sporttaxgen.RenderPredicateValidationSQL(taxonomy)
+	renderedPredicateValidationSQL, err := sporttaxgen.RenderPredicateValidationSQL(taxonomy, expandedSegmentProjection)
 	if err != nil {
 		return fmt.Errorf("render predicate validation SQL: %w", err)
 	}

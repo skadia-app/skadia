@@ -116,6 +116,8 @@ func TestMigration000347PredicateValidationDeclaresRequiredContracts(t *testing.
 		"planned_routes_sport_tuple_valid",
 		"activities_sport_type_canonical",
 		"segments_allowed_predicates_valid",
+		"CREATE OR REPLACE FUNCTION fn_validate_segment_predicates_for_type",
+		"fn_validate_segment_predicates_for_type(segment_type, allowed_predicates)",
 		"pred_keys.key NOT IN ('sport', 'sub_type')",
 	} {
 		if !strings.Contains(upSQL, needle) {
@@ -128,6 +130,7 @@ func TestMigration000347PredicateValidationDeclaresRequiredContracts(t *testing.
 		"routing_profiles_predicates_valid",
 		"ALTER TABLE routing_profiles VALIDATE CONSTRAINT routing_profiles_predicates_valid",
 		"segments_allowed_predicates_valid",
+		"DROP FUNCTION IF EXISTS fn_validate_segment_predicates_for_type(TEXT, JSONB)",
 	} {
 		if !strings.Contains(downSQL, needle) {
 			t.Fatalf("down migration missing %q", needle)
@@ -396,9 +399,10 @@ func TestMigration000347PredicateConstraintsRejectInvalidRows(t *testing.T) {
 				)))))
 		) ON COMMIT DROP;
 		CREATE TEMP TABLE predicate_segments_000347 (
+			segment_type TEXT NOT NULL DEFAULT 'standard',
 			allowed_predicates JSONB,
 			CONSTRAINT segments_allowed_predicates_valid
-				CHECK (allowed_predicates IS NULL OR fn_validate_predicates(allowed_predicates))
+				CHECK (allowed_predicates IS NULL OR fn_validate_segment_predicates_for_type(segment_type, allowed_predicates))
 		) ON COMMIT DROP;
 	`); err != nil {
 		t.Fatalf("create temp constraint tables: %v", err)
@@ -447,6 +451,16 @@ func TestMigration000347PredicateConstraintsRejectInvalidRows(t *testing.T) {
 		INSERT INTO predicate_segments_000347 (allowed_predicates)
 		VALUES ('[{"sport":"mountain_biking"}]'::jsonb)
 	`)
+	expectConstraintFailure000347(t, ctx, tx, `
+		INSERT INTO predicate_segments_000347 (segment_type, allowed_predicates)
+		VALUES ('wintersport', '[{"sport":"cycling","sub_type":"mountain"}]'::jsonb)
+	`)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO predicate_segments_000347 (segment_type, allowed_predicates)
+		VALUES ('wintersport', '[{"sport":"snowshoeing"}]'::jsonb)
+	`); err != nil {
+		t.Fatalf("valid winter segment predicate rejected: %v", err)
+	}
 }
 
 func TestMigration000347PredicateValidatorRejectsMalformedJSON(t *testing.T) {

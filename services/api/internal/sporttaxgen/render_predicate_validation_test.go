@@ -13,7 +13,7 @@ func TestRenderPredicateValidationSQLDeterministic(t *testing.T) {
 		},
 	}
 
-	got, err := RenderPredicateValidationSQL(taxonomy)
+	got, err := RenderPredicateValidationSQL(taxonomy, predicateValidationSegmentProjectionFixture())
 	if err != nil {
 		t.Fatalf("RenderPredicateValidationSQL() error = %v", err)
 	}
@@ -24,6 +24,8 @@ func TestRenderPredicateValidationSQLDeterministic(t *testing.T) {
 		"IMMUTABLE",
 		"('cycling'), ('running')",
 		"('cycling','mountain'), ('cycling','road'), ('running','trail')",
+		"CREATE OR REPLACE FUNCTION fn_validate_segment_predicates_for_type(seg_type TEXT, p JSONB)",
+		"('standard','cycling',''), ('standard','cycling','mountain'), ('standard','running','')",
 		"pred_keys.key NOT IN ('sport', 'sub_type')",
 		"pred->>'sub_type' = ''",
 	} {
@@ -45,12 +47,36 @@ func TestRenderPredicateValidationSQLEscapesValues(t *testing.T) {
 			{SportType: "odd'sport", SubTypes: []SubType{{SubType: "sub'value"}}},
 		},
 	}
-	got, err := RenderPredicateValidationSQL(taxonomy)
+	got, err := RenderPredicateValidationSQL(taxonomy, ExpandedSegmentProjection{
+		SegmentTypes: []ExpandedSegmentProjectionSegmentType{{Key: "standard", ActiveDomains: []string{"real_world_gps"}}},
+		Entries: []ExpandedSegmentProjectionEntry{
+			{SegmentType: "standard", Domain: "real_world_gps", SportType: "odd'sport", SubType: "sub'value"},
+		},
+	})
 	if err != nil {
 		t.Fatalf("RenderPredicateValidationSQL() error = %v", err)
 	}
 	src := string(got)
-	if !strings.Contains(src, "('odd''sport')") || !strings.Contains(src, "('odd''sport','sub''value')") {
+	if !strings.Contains(src, "('odd''sport')") ||
+		!strings.Contains(src, "('odd''sport','sub''value')") ||
+		!strings.Contains(src, "('standard','odd''sport','sub''value')") {
 		t.Fatalf("generated SQL did not SQL-escape values:\n%s", src)
+	}
+}
+
+func predicateValidationSegmentProjectionFixture() ExpandedSegmentProjection {
+	return ExpandedSegmentProjection{
+		SegmentTypes: []ExpandedSegmentProjectionSegmentType{
+			{Key: "standard", ActiveDomains: []string{"real_world_gps"}},
+			{Key: "wintersport", ActiveDomains: []string{"winter"}},
+			{Key: "lift"},
+		},
+		Entries: []ExpandedSegmentProjectionEntry{
+			{SegmentType: "standard", Domain: "real_world_gps", SportType: "running"},
+			{SegmentType: "standard", Domain: "real_world_gps", SportType: "cycling"},
+			{SegmentType: "standard", Domain: "real_world_gps", SportType: "cycling", SubType: "mountain"},
+			{SegmentType: "standard", Domain: "inactive", SportType: "cycling", SubType: "road"},
+			{SegmentType: "wintersport", Domain: "winter", SportType: "running"},
+		},
 	}
 }

@@ -151,7 +151,12 @@ func TestGeneratedFrontendGearDefaultProjectionIsCurrent(t *testing.T) {
 
 func TestGeneratedPredicateValidationSQLIsCurrent(t *testing.T) {
 	taxonomy := loadTestTaxonomy(t)
-	got, err := sporttaxgen.RenderPredicateValidationSQL(taxonomy)
+	segmentProjection := loadTestSegmentProjection(t, taxonomy)
+	expandedSegmentProjection, err := sporttaxgen.ExpandSegmentProjection(taxonomy, segmentProjection)
+	if err != nil {
+		t.Fatalf("expand segment projection: %v", err)
+	}
+	got, err := sporttaxgen.RenderPredicateValidationSQL(taxonomy, expandedSegmentProjection)
 	if err != nil {
 		t.Fatalf("render predicate validation SQL: %v", err)
 	}
@@ -198,6 +203,20 @@ func loadTestSourceAliases(t *testing.T, taxonomy sporttaxgen.Taxonomy) []sportt
 		t.Fatalf("load source aliases: %v", err)
 	}
 	return sources
+}
+
+func loadTestSegmentProjection(t *testing.T, taxonomy sporttaxgen.Taxonomy) sporttaxgen.SegmentProjection {
+	t.Helper()
+	file, err := os.Open("../../../../config/sport-taxonomy/projections/segments.yaml")
+	if err != nil {
+		t.Fatalf("open segments.yaml: %v", err)
+	}
+	defer file.Close()
+	projection, err := sporttaxgen.LoadSegmentProjection(file, taxonomy)
+	if err != nil {
+		t.Fatalf("load segment projection: %v", err)
+	}
+	return projection
 }
 
 func loadTestTaxonomy(t *testing.T) sporttaxgen.Taxonomy {
