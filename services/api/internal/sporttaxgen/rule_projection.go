@@ -3,6 +3,7 @@ package sporttaxgen
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v2"
@@ -366,18 +367,12 @@ func ruleTraitSourceMatchesField(field, source string) bool {
 
 func expandRuleTraitOptions(taxonomy Taxonomy, source string, labels map[string]LocaleMap) []ExpandedRuleTraitOption {
 	seen := map[string]struct{}{}
-	out := []ExpandedRuleTraitOption{}
 	add := func(values []string) {
 		for _, value := range values {
 			if _, ok := seen[value]; ok {
 				continue
 			}
 			seen[value] = struct{}{}
-			label := labels[value]
-			if label == nil || label["de"] == "" {
-				label = LocaleMap{"de": value}
-			}
-			out = append(out, ExpandedRuleTraitOption{Key: value, Label: label})
 		}
 	}
 	for _, sport := range taxonomy.Sports {
@@ -391,7 +386,46 @@ func expandRuleTraitOptions(taxonomy Taxonomy, source string, labels map[string]
 			add(ruleTraitValuesForSource(EffectiveSubTypeTraits(sport, subType), source))
 		}
 	}
+	ordered := orderedRuleTraitValues(source, seen)
+	out := make([]ExpandedRuleTraitOption, 0, len(ordered))
+	for _, value := range ordered {
+		label := labels[value]
+		if label == nil || label["de"] == "" {
+			label = LocaleMap{"de": value}
+		}
+		out = append(out, ExpandedRuleTraitOption{Key: value, Label: label})
+	}
 	return out
+}
+
+func orderedRuleTraitValues(source string, seen map[string]struct{}) []string {
+	allowed := ruleTraitVocabularyForSource(source)
+	out := make([]string, 0, len(seen))
+	for _, value := range allowed {
+		if _, ok := seen[value]; ok {
+			out = append(out, value)
+			delete(seen, value)
+		}
+	}
+	unknown := make([]string, 0, len(seen))
+	for value := range seen {
+		unknown = append(unknown, value)
+	}
+	sort.Strings(unknown)
+	return append(out, unknown...)
+}
+
+func ruleTraitVocabularyForSource(source string) []string {
+	switch source {
+	case "traits.environments":
+		return TraitEnvironmentValues
+	case "traits.equipment_families":
+		return TraitEquipmentFamilyValues
+	case "traits.movement_families":
+		return TraitMovementFamilyValues
+	default:
+		return nil
+	}
 }
 
 func ruleTraitValuesForSource(traits Traits, source string) []string {

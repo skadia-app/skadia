@@ -57,13 +57,26 @@ func RenderGo(t Taxonomy) ([]byte, error) {
 }
 
 func renderGoTraits(traits Traits) string {
-	return fmt.Sprintf("SportTraits{Environments: %#v, MovementFamilies: %#v, EquipmentFamilies: %#v, ActivityForm: %q, PropulsionModes: %#v}",
-		traits.Environments,
-		traits.MovementFamilies,
-		traits.EquipmentFamilies,
+	return fmt.Sprintf("SportTraits{Environments: %s, MovementFamilies: %s, EquipmentFamilies: %s, ActivityForm: %q, PropulsionModes: %s}",
+		goStringArray(traits.Environments),
+		goStringArray(traits.MovementFamilies),
+		goStringArray(traits.EquipmentFamilies),
 		traits.ActivityForm,
-		traits.PropulsionModes,
+		goStringArray(traits.PropulsionModes),
 	)
+}
+
+func goStringArray(values []string) string {
+	if len(values) == 0 {
+		return "[]string{}"
+	}
+	var buf bytes.Buffer
+	buf.WriteString("[]string{")
+	for _, value := range values {
+		fmt.Fprintf(&buf, "%q,", value)
+	}
+	buf.WriteString("}")
+	return buf.String()
 }
 
 func effectiveSportModifierDefaults(s Sport) *ModifierDefaults {

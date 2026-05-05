@@ -151,7 +151,8 @@ func TestRenderRecordsProjectionOutputsGoAndTypeScriptShapes(t *testing.T) {
 		"package bestefforts",
 		"var generatedRecordGroups = []RecordGroup",
 		"TypeTimeLower",
-		"generatedRecordBool(false)",
+		"recordBoolPtr(false)",
+		"SubTypes: []string{}",
 	} {
 		if !strings.Contains(goText, want) {
 			t.Fatalf("generated Go missing %q:\n%s", want, goText)
@@ -169,6 +170,9 @@ func TestRenderRecordsProjectionOutputsGoAndTypeScriptShapes(t *testing.T) {
 		"export const GENERATED_RECORD_MATCH_RULES",
 		"export const GENERATED_RECORD_CATEGORY_ORDER",
 		"export const GENERATED_RECORD_POWER_CATEGORY_ORDER",
+		"subTypes: []",
+		"excludeSubTypes: ['treadmill']",
+		"modifiers: { isIndoor: false }",
 		"durationS: 5",
 	} {
 		if !strings.Contains(tsText, want) {

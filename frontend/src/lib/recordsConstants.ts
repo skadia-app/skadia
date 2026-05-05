@@ -75,6 +75,12 @@ type RecordEffort = {
   is_virtual?: boolean
 }
 
+type RecordRuleModifiers = {
+  readonly isIndoor?: boolean
+  readonly isVirtual?: boolean
+  readonly isElectric?: boolean
+}
+
 export function matchesSportGroup(sportGroup: string, effort: RecordEffort): boolean {
   return recordGroupForEffort(effort) === sportGroup
 }
@@ -88,15 +94,14 @@ function recordGroupForEffort(effort: RecordEffort): string | null {
 
   for (const rule of GENERATED_RECORD_MATCH_RULES) {
     if (rule.sportType !== effort.sport_type) continue
-    const subTypes = 'subTypes' in rule ? rule.subTypes as readonly string[] : null
-    const excludeSubTypes = 'excludeSubTypes' in rule ? rule.excludeSubTypes as readonly string[] : null
-    if (subTypes && !subTypes.includes(subType)) continue
-    if (excludeSubTypes?.includes(subType)) continue
-    if ('modifiers' in rule) {
-      if ('isIndoor' in rule.modifiers && rule.modifiers.isIndoor !== isIndoor) continue
-      if ('isVirtual' in rule.modifiers && rule.modifiers.isVirtual !== isVirtual) continue
-      if ('isElectric' in rule.modifiers && rule.modifiers.isElectric !== isElectric) continue
-    }
+    const subTypes = rule.subTypes as readonly string[]
+    const excludeSubTypes = rule.excludeSubTypes as readonly string[]
+    const modifiers = rule.modifiers as RecordRuleModifiers
+    if (subTypes.length > 0 && !subTypes.includes(subType)) continue
+    if (excludeSubTypes.includes(subType)) continue
+    if (modifiers.isIndoor !== undefined && modifiers.isIndoor !== isIndoor) continue
+    if (modifiers.isVirtual !== undefined && modifiers.isVirtual !== isVirtual) continue
+    if (modifiers.isElectric !== undefined && modifiers.isElectric !== isElectric) continue
     return rule.recordGroup
   }
   return null

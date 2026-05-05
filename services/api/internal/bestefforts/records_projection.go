@@ -42,6 +42,10 @@ type RecordMatchRule struct {
 	IsElectric      *bool
 }
 
+func recordBoolPtr(v bool) *bool {
+	return &v
+}
+
 func RecordGroups() []RecordGroup {
 	return cloneRecordGroups(generatedRecordGroups)
 }

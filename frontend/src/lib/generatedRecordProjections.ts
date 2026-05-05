@@ -336,22 +336,22 @@ export const GENERATED_RECORD_MAIN_CATEGORIES = [
 ] as const
 
 export const GENERATED_RECORD_MATCH_RULES = [
-  { recordGroup: 'running_virtual', priority: 100, sequence: 4, sportType: 'running', modifiers: { isVirtual: true } },
-  { recordGroup: 'cycling_virtual', priority: 100, sequence: 7, sportType: 'cycling', subTypes: ['indoor_cycling'] },
-  { recordGroup: 'cycling_virtual', priority: 100, sequence: 8, sportType: 'cycling', subTypes: ['spin'] },
-  { recordGroup: 'cycling_virtual', priority: 99, sequence: 9, sportType: 'cycling', modifiers: { isVirtual: true } },
-  { recordGroup: 'cycling_virtual', priority: 98, sequence: 10, sportType: 'cycling', modifiers: { isIndoor: true } },
-  { recordGroup: 'running_indoor', priority: 90, sequence: 2, sportType: 'running', subTypes: ['indoor_running', 'treadmill'] },
-  { recordGroup: 'swim_pool', priority: 90, sequence: 14, sportType: 'swimming', subTypes: ['lap_swimming'] },
-  { recordGroup: 'running_indoor', priority: 89, sequence: 3, sportType: 'running', modifiers: { isIndoor: true } },
-  { recordGroup: 'running_trail', priority: 80, sequence: 1, sportType: 'running', subTypes: ['trail'] },
-  { recordGroup: 'cycling_electric', priority: 80, sequence: 6, sportType: 'cycling', modifiers: { isElectric: true } },
-  { recordGroup: 'running', priority: 10, sequence: 0, sportType: 'running', excludeSubTypes: ['trail', 'indoor_running', 'treadmill'], modifiers: { isIndoor: false, isVirtual: false } },
-  { recordGroup: 'cycling', priority: 10, sequence: 5, sportType: 'cycling', excludeSubTypes: ['indoor_cycling'], modifiers: { isIndoor: false, isVirtual: false, isElectric: false } },
-  { recordGroup: 'hiking', priority: 10, sequence: 11, sportType: 'hiking' },
-  { recordGroup: 'hiking', priority: 10, sequence: 12, sportType: 'mountaineering' },
-  { recordGroup: 'hiking', priority: 10, sequence: 13, sportType: 'snowshoeing' },
-  { recordGroup: 'swim_ow', priority: 10, sequence: 15, sportType: 'swimming', subTypes: ['', 'open_water'] },
+  { recordGroup: 'running_virtual', priority: 100, sequence: 4, sportType: 'running', subTypes: [], excludeSubTypes: [], modifiers: { isVirtual: true } },
+  { recordGroup: 'cycling_virtual', priority: 100, sequence: 7, sportType: 'cycling', subTypes: ['indoor_cycling'], excludeSubTypes: [], modifiers: {} },
+  { recordGroup: 'cycling_virtual', priority: 100, sequence: 8, sportType: 'cycling', subTypes: ['spin'], excludeSubTypes: [], modifiers: {} },
+  { recordGroup: 'cycling_virtual', priority: 99, sequence: 9, sportType: 'cycling', subTypes: [], excludeSubTypes: [], modifiers: { isVirtual: true } },
+  { recordGroup: 'cycling_virtual', priority: 98, sequence: 10, sportType: 'cycling', subTypes: [], excludeSubTypes: [], modifiers: { isIndoor: true } },
+  { recordGroup: 'running_indoor', priority: 90, sequence: 2, sportType: 'running', subTypes: ['indoor_running', 'treadmill'], excludeSubTypes: [], modifiers: {} },
+  { recordGroup: 'swim_pool', priority: 90, sequence: 14, sportType: 'swimming', subTypes: ['lap_swimming'], excludeSubTypes: [], modifiers: {} },
+  { recordGroup: 'running_indoor', priority: 89, sequence: 3, sportType: 'running', subTypes: [], excludeSubTypes: [], modifiers: { isIndoor: true } },
+  { recordGroup: 'running_trail', priority: 80, sequence: 1, sportType: 'running', subTypes: ['trail'], excludeSubTypes: [], modifiers: {} },
+  { recordGroup: 'cycling_electric', priority: 80, sequence: 6, sportType: 'cycling', subTypes: [], excludeSubTypes: [], modifiers: { isElectric: true } },
+  { recordGroup: 'running', priority: 10, sequence: 0, sportType: 'running', subTypes: [], excludeSubTypes: ['trail', 'indoor_running', 'treadmill'], modifiers: { isIndoor: false, isVirtual: false } },
+  { recordGroup: 'cycling', priority: 10, sequence: 5, sportType: 'cycling', subTypes: [], excludeSubTypes: ['indoor_cycling'], modifiers: { isIndoor: false, isVirtual: false, isElectric: false } },
+  { recordGroup: 'hiking', priority: 10, sequence: 11, sportType: 'hiking', subTypes: [], excludeSubTypes: [], modifiers: {} },
+  { recordGroup: 'hiking', priority: 10, sequence: 12, sportType: 'mountaineering', subTypes: [], excludeSubTypes: [], modifiers: {} },
+  { recordGroup: 'hiking', priority: 10, sequence: 13, sportType: 'snowshoeing', subTypes: [], excludeSubTypes: [], modifiers: {} },
+  { recordGroup: 'swim_ow', priority: 10, sequence: 15, sportType: 'swimming', subTypes: ['', 'open_water'], excludeSubTypes: [], modifiers: {} },
 ] as const
 
 export const GENERATED_RECORD_CATEGORIES = [

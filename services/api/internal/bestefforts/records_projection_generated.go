@@ -2,10 +2,6 @@
 
 package bestefforts
 
-func generatedRecordBool(v bool) *bool {
-	return &v
-}
-
 var generatedRecordGroups = []RecordGroup{
 	{Key: "running", LabelDE: "Laufen", MainCategory: "laufen", Color: "#3B82F6", Badge: "", Categories: []Category{
 		{Key: "dist_400m", Type: TypeTimeLower, DistanceM: 400, ElevationM: 0, DurationS: 0, Label: "400 m"},
@@ -253,20 +249,20 @@ var generatedRecordMainCategories = []RecordMainCategory{
 }
 
 var generatedRecordMatchRules = []RecordMatchRule{
-	{RecordGroup: "running_virtual", Priority: 100, Sequence: 4, SportType: "running", SubTypes: []string(nil), ExcludeSubTypes: []string(nil), IsVirtual: generatedRecordBool(true)},
-	{RecordGroup: "cycling_virtual", Priority: 100, Sequence: 7, SportType: "cycling", SubTypes: []string{"indoor_cycling"}, ExcludeSubTypes: []string(nil)},
-	{RecordGroup: "cycling_virtual", Priority: 100, Sequence: 8, SportType: "cycling", SubTypes: []string{"spin"}, ExcludeSubTypes: []string(nil)},
-	{RecordGroup: "cycling_virtual", Priority: 99, Sequence: 9, SportType: "cycling", SubTypes: []string(nil), ExcludeSubTypes: []string(nil), IsVirtual: generatedRecordBool(true)},
-	{RecordGroup: "cycling_virtual", Priority: 98, Sequence: 10, SportType: "cycling", SubTypes: []string(nil), ExcludeSubTypes: []string(nil), IsIndoor: generatedRecordBool(true)},
-	{RecordGroup: "running_indoor", Priority: 90, Sequence: 2, SportType: "running", SubTypes: []string{"indoor_running", "treadmill"}, ExcludeSubTypes: []string(nil)},
-	{RecordGroup: "swim_pool", Priority: 90, Sequence: 14, SportType: "swimming", SubTypes: []string{"lap_swimming"}, ExcludeSubTypes: []string(nil)},
-	{RecordGroup: "running_indoor", Priority: 89, Sequence: 3, SportType: "running", SubTypes: []string(nil), ExcludeSubTypes: []string(nil), IsIndoor: generatedRecordBool(true)},
-	{RecordGroup: "running_trail", Priority: 80, Sequence: 1, SportType: "running", SubTypes: []string{"trail"}, ExcludeSubTypes: []string(nil)},
-	{RecordGroup: "cycling_electric", Priority: 80, Sequence: 6, SportType: "cycling", SubTypes: []string(nil), ExcludeSubTypes: []string(nil), IsElectric: generatedRecordBool(true)},
-	{RecordGroup: "running", Priority: 10, Sequence: 0, SportType: "running", SubTypes: []string(nil), ExcludeSubTypes: []string{"trail", "indoor_running", "treadmill"}, IsIndoor: generatedRecordBool(false), IsVirtual: generatedRecordBool(false)},
-	{RecordGroup: "cycling", Priority: 10, Sequence: 5, SportType: "cycling", SubTypes: []string(nil), ExcludeSubTypes: []string{"indoor_cycling"}, IsIndoor: generatedRecordBool(false), IsVirtual: generatedRecordBool(false), IsElectric: generatedRecordBool(false)},
-	{RecordGroup: "hiking", Priority: 10, Sequence: 11, SportType: "hiking", SubTypes: []string(nil), ExcludeSubTypes: []string(nil)},
-	{RecordGroup: "hiking", Priority: 10, Sequence: 12, SportType: "mountaineering", SubTypes: []string(nil), ExcludeSubTypes: []string(nil)},
-	{RecordGroup: "hiking", Priority: 10, Sequence: 13, SportType: "snowshoeing", SubTypes: []string(nil), ExcludeSubTypes: []string(nil)},
-	{RecordGroup: "swim_ow", Priority: 10, Sequence: 15, SportType: "swimming", SubTypes: []string{"", "open_water"}, ExcludeSubTypes: []string(nil)},
+	{RecordGroup: "running_virtual", Priority: 100, Sequence: 4, SportType: "running", SubTypes: []string{}, ExcludeSubTypes: []string{}, IsVirtual: recordBoolPtr(true)},
+	{RecordGroup: "cycling_virtual", Priority: 100, Sequence: 7, SportType: "cycling", SubTypes: []string{"indoor_cycling"}, ExcludeSubTypes: []string{}},
+	{RecordGroup: "cycling_virtual", Priority: 100, Sequence: 8, SportType: "cycling", SubTypes: []string{"spin"}, ExcludeSubTypes: []string{}},
+	{RecordGroup: "cycling_virtual", Priority: 99, Sequence: 9, SportType: "cycling", SubTypes: []string{}, ExcludeSubTypes: []string{}, IsVirtual: recordBoolPtr(true)},
+	{RecordGroup: "cycling_virtual", Priority: 98, Sequence: 10, SportType: "cycling", SubTypes: []string{}, ExcludeSubTypes: []string{}, IsIndoor: recordBoolPtr(true)},
+	{RecordGroup: "running_indoor", Priority: 90, Sequence: 2, SportType: "running", SubTypes: []string{"indoor_running", "treadmill"}, ExcludeSubTypes: []string{}},
+	{RecordGroup: "swim_pool", Priority: 90, Sequence: 14, SportType: "swimming", SubTypes: []string{"lap_swimming"}, ExcludeSubTypes: []string{}},
+	{RecordGroup: "running_indoor", Priority: 89, Sequence: 3, SportType: "running", SubTypes: []string{}, ExcludeSubTypes: []string{}, IsIndoor: recordBoolPtr(true)},
+	{RecordGroup: "running_trail", Priority: 80, Sequence: 1, SportType: "running", SubTypes: []string{"trail"}, ExcludeSubTypes: []string{}},
+	{RecordGroup: "cycling_electric", Priority: 80, Sequence: 6, SportType: "cycling", SubTypes: []string{}, ExcludeSubTypes: []string{}, IsElectric: recordBoolPtr(true)},
+	{RecordGroup: "running", Priority: 10, Sequence: 0, SportType: "running", SubTypes: []string{}, ExcludeSubTypes: []string{"trail", "indoor_running", "treadmill"}, IsIndoor: recordBoolPtr(false), IsVirtual: recordBoolPtr(false)},
+	{RecordGroup: "cycling", Priority: 10, Sequence: 5, SportType: "cycling", SubTypes: []string{}, ExcludeSubTypes: []string{"indoor_cycling"}, IsIndoor: recordBoolPtr(false), IsVirtual: recordBoolPtr(false), IsElectric: recordBoolPtr(false)},
+	{RecordGroup: "hiking", Priority: 10, Sequence: 11, SportType: "hiking", SubTypes: []string{}, ExcludeSubTypes: []string{}},
+	{RecordGroup: "hiking", Priority: 10, Sequence: 12, SportType: "mountaineering", SubTypes: []string{}, ExcludeSubTypes: []string{}},
+	{RecordGroup: "hiking", Priority: 10, Sequence: 13, SportType: "snowshoeing", SubTypes: []string{}, ExcludeSubTypes: []string{}},
+	{RecordGroup: "swim_ow", Priority: 10, Sequence: 15, SportType: "swimming", SubTypes: []string{"", "open_water"}, ExcludeSubTypes: []string{}},
 }
