@@ -86,17 +86,26 @@ func DetectHeuristic(rows []StreamPoint, cfg DetectorConfig) []LiftRide {
 			// band) remain the hard discriminators against bike-trail
 			// false positives — those have sinuosity ≥1.20.
 			//
-			// Two-tier cap: pristine geometry (sinuosity ≤ 1.05) confirms a
-			// true lift cable so authoritatively that we tolerate up to CV=0.15
-			// — alpine bikepark ride[02] mountain station case 1 (sin 1.009, CV 0.119) and ride[04]
-			// (sin 1.018, CV 0.118) are exactly this shape: aerial tramways /
-			// gondolas where the cabin briefly accelerates from boarding speed
-			// to lift speed. A bike trail cannot reproduce sin ≤ 1.05 over
-			// 200+ samples, so the CV relaxation is safe.
+			// Three-tier cap on backward-extension:
+			//   sin ≤ 1.02 AND altRate ≥ 0.50 m/s — cable-perfect geometry
+			//     plus fast-lift class. Tolerate CV up to 0.40. Multi-section
+			//     gondolas with sector-boundary speed changes (multi-section case
+			//     Multi-C pass1: 48 s @ 4.85 m/s, 100 s @ 1.97 m/s, 17 s
+			//     @ 4.12 m/s — sin 1.000, altRate 0.77, CV 0.37) sit here.
+			//     Bike trails cannot reproduce sin ≤ 1.02 over 200+ samples
+			//     while also climbing > 0.50 m/s.
+			//   sin ≤ 1.05 — alpine bikepark ride[02] mountain station case 1 (sin 1.009,
+			//     CV 0.119) and ride[04] (sin 1.018, CV 0.118): aerial
+			//     tramways / gondolas where the cabin briefly accelerates
+			//     from boarding speed to lift speed. CV up to 0.15.
+			//   else — generic relaxation. CV up to 0.10.
 			relaxed := cfg
-			if extFinal.sinuosity <= 1.05 {
+			switch {
+			case extFinal.sinuosity <= 1.02 && math.Abs(extFinal.altRateMs) >= 0.50:
+				relaxed.MaxSpeedCV = 0.40
+			case extFinal.sinuosity <= 1.05:
 				relaxed.MaxSpeedCV = 0.15
-			} else {
+			default:
 				relaxed.MaxSpeedCV = 0.10
 			}
 			ok := validateRide(extFinal, kind, relaxed)
