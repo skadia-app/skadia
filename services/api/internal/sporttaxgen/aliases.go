@@ -3,6 +3,7 @@ package sporttaxgen
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v2"
@@ -78,7 +79,13 @@ func LoadSourceAliases(r io.Reader, filenameStem string, taxonomy Taxonomy) (Sou
 
 func LoadSourceAliasFiles(files map[string]io.Reader, taxonomy Taxonomy) ([]SourceAliases, error) {
 	sources := make([]SourceAliases, 0, len(files))
-	for filenameStem, file := range files {
+	filenameStems := make([]string, 0, len(files))
+	for filenameStem := range files {
+		filenameStems = append(filenameStems, filenameStem)
+	}
+	sort.Strings(filenameStems)
+	for _, filenameStem := range filenameStems {
+		file := files[filenameStem]
 		source, err := LoadSourceAliases(file, filenameStem, taxonomy)
 		if err != nil {
 			return nil, err

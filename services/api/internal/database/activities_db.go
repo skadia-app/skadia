@@ -156,7 +156,8 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- GPS quality
 			gps_accuracy_m,
 			-- Suunto Training Load
-			suunto_vo2max, suunto_peak_epoc, suunto_recovery_time_h
+			suunto_vo2max, suunto_peak_epoc, suunto_recovery_time_h,
+			is_commute
 		) VALUES (
 			-- Core ($1-$4, parsed reuses $3/$4)
 			$1, $2, $3, $4,
@@ -261,7 +262,9 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- GPS quality ($158)
 			$158,
 			-- Suunto Training Load ($159-$161)
-			$159, $160, $161
+			$159, $160, $161,
+			-- Importer/runtime modifier ($162)
+			$162
 		)
 		RETURNING id, is_electric, is_virtual, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
@@ -325,6 +328,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		data.Vo2MaxMlKgMin, data.Vo2MaxCalibrated, data.Vo2MaxHrSource, data.Vo2MaxSpeedSource, // $154-$157
 		nilIfZeroInt(data.GpsAccuracyM),                                  // $158
 		data.SuuntoVO2max, data.SuuntoPeakEPOC, data.SuuntoRecoveryTimeH, // $159-$161
+		data.IsCommute, // $162
 	).Scan(&id, &isElectric, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -343,6 +347,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		StartedAt:            data.StartedAt,
 		IsElectric:           isElectric,
 		IsVirtual:            isVirtual,
+		IsCommute:            data.IsCommute,
 		ExcludeFromHeatmap:   isVirtual,
 		ExcludeFromStats:     false,
 		IsIndoor:             data.IsIndoor,
@@ -2235,6 +2240,8 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, data.IsElectric)
 	sets = append(sets, fmt.Sprintf("is_virtual = %s", idx()))
 	args = append(args, data.IsVirtual)
+	sets = append(sets, fmt.Sprintf("is_commute = %s", idx()))
+	args = append(args, data.IsCommute)
 	sets = append(sets, fmt.Sprintf("has_gps = %s", idx()))
 	args = append(args, data.HasGPS)
 

@@ -161,35 +161,35 @@ var csvColumnAliases = map[string]string{
 	"Gear":                     "Ausrüstung",
 	"Training Load":            "Trainingsbelastung",
 	"Intensity":                "Intensität",
-	"Pool Length":               "Pool-Länge",
+	"Pool Length":              "Pool-Länge",
 	"Total Steps":              "Schritte insgesamt",
 	"Media":                    "Medien",
 	// ── bikes.csv ───────────────────────────────────────────────────────
-	"Bike Name":                 "Fahrradname",
-	"Bike Brand":                "Fahrradmarke",
-	"Bike Model":                "Fahrradmodell",
-	"Bike Default Sport Types":  "Fahrrad-Standardsportarten",
+	"Bike Name":                "Fahrradname",
+	"Bike Brand":               "Fahrradmarke",
+	"Bike Model":               "Fahrradmodell",
+	"Bike Default Sport Types": "Fahrrad-Standardsportarten",
 	// ── shoes.csv ───────────────────────────────────────────────────────
-	"Shoe Name":                 "Schuhname",
-	"Shoe Brand":                "Schuhmarke",
-	"Shoe Model":                "Schuhmodell",
-	"Shoe Default Sport Types":  "Schuh-Standardsportarten",
+	"Shoe Name":                "Schuhname",
+	"Shoe Brand":               "Schuhmarke",
+	"Shoe Model":               "Schuhmodell",
+	"Shoe Default Sport Types": "Schuh-Standardsportarten",
 	// ── components.csv ──────────────────────────────────────────────────
-	"Component Type":            "Komponentenart",
-	"Component Brand":           "Komponentenmarke",
-	"Component Model":           "Komponentenmodell",
+	"Component Type":  "Komponentenart",
+	"Component Brand": "Komponentenmarke",
+	"Component Model": "Komponentenmodell",
 	// ── profile.csv ─────────────────────────────────────────────────────
-	"Sex":                       "Geschlecht",
-	"Weight":                    "Gewicht",
+	"Sex":    "Geschlecht",
+	"Weight": "Gewicht",
 	// ── general_preferences.csv ─────────────────────────────────────────
-	"Date of Birth":                 "Geburtsdatum",
-	"Functional Threshold Power":    "Funktionale Schwellenleistung",
-	"Maximum Heartrate":             "Maximale Herzfrequenz",
+	"Date of Birth":              "Geburtsdatum",
+	"Functional Threshold Power": "Funktionale Schwellenleistung",
+	"Maximum Heartrate":          "Maximale Herzfrequenz",
 	// ── privacy_zones.csv ───────────────────────────────────────────────
-	"Address":                       "Adresse",
-	"Latitude & Longitude":          "Breitengrad & Längengrad",
+	"Address":              "Adresse",
+	"Latitude & Longitude": "Breitengrad & Längengrad",
 	// ── media.csv ───────────────────────────────────────────────────────
-	"Media Filename":                "Medien-Dateiname",
+	"Media Filename": "Medien-Dateiname",
 }
 
 // CSVHeader builds a column-name → column-index map from a header row.
@@ -268,7 +268,7 @@ func parseNumber(s string) (float64, bool) {
 			// Decimal comma (German)
 			s = strings.ReplaceAll(s, ",", ".")
 		}
-	// hasDot only: standard float, nothing to do
+		// hasDot only: standard float, nothing to do
 	}
 
 	var f float64
@@ -291,6 +291,20 @@ func parseInt(s string) (int, bool) {
 
 // parseGermanInt is an alias for parseInt.
 func parseGermanInt(s string) (int, bool) { return parseInt(s) }
+
+func parseBool(s string) (bool, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(s))
+	if normalized == "" || normalized == "--" {
+		return false, false
+	}
+	switch normalized {
+	case "1", "true", "t", "yes", "y", "ja", "j", "wahr":
+		return true, true
+	case "0", "false", "f", "no", "n", "nein", "falsch":
+		return false, true
+	}
+	return false, false
+}
 
 // findNthColMulti finds the nth (1-based) occurrence of any of the given column
 // names in the raw header row. Useful for columns that appear multiple times

@@ -67,6 +67,17 @@ func TestBuildStravaCSVSourceFileHashIgnoresCanonicalSportMapping(t *testing.T) 
 	}
 }
 
+func TestMergeActivityDataPreservesCommuteEvidence(t *testing.T) {
+	base := &model.ActivityData{SportType: "cycling"}
+	parsed := &model.ActivityData{SportType: "cycling", IsCommute: true}
+
+	mergeActivityData(base, parsed)
+
+	if !base.IsCommute {
+		t.Fatal("IsCommute = false, want true from parsed activity data")
+	}
+}
+
 func TestStravaCSVOnlyShadowFSWriteHappensAfterSkippedBranch(t *testing.T) {
 	src, err := os.ReadFile("importer_activities.go")
 	if err != nil {

@@ -79,6 +79,7 @@ type ActivityData struct {
 	IsIndoor             bool
 	IsElectric           bool
 	IsVirtual            bool
+	IsCommute            bool
 	IsManualEntry        bool
 	SportConflictPending bool
 	HasGPS               bool
