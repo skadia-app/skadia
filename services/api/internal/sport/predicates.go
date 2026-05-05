@@ -102,7 +102,7 @@ func PredicatesMatch(preds []Predicate, sportType string, subType *string) bool 
 	}
 	tuple, _, err := NormalizeSportTuple(sportType, inputSubType)
 	if err != nil {
-		tuple = Tuple{SportType: sportType, SubType: inputSubType}
+		return false
 	}
 
 	for _, pred := range preds {

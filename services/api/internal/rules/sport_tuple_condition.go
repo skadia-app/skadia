@@ -85,7 +85,10 @@ func sportTupleModifiersMatch(modifiers map[string]bool, activity map[string]any
 	for key, want := range modifiers {
 		raw, ok := activity[key]
 		if !ok {
-			return false
+			return !want
+		}
+		if raw == nil {
+			return !want
 		}
 		got, ok := raw.(bool)
 		if !ok || got != want {
