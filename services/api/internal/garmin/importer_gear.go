@@ -3,10 +3,12 @@ package garmin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // GearImporter reads gear data from DI_CONNECT/DI-Connect-Fitness/*_gear.json.
@@ -31,9 +33,7 @@ func (g *GearImporter) Priority() int       { return 20 }
 
 // garminGearFile is the top-level wrapper returned by the gear JSON.
 type garminGearFile struct {
-	GearDTOS []garminGearDTO `json:"gearDTOS"`
-	// Garmin gear default sports are unsupported until a real fixture verifies
-	// both the sport field and the gear association key.
+	GearDTOS             []garminGearDTO   `json:"gearDTOS"`
 	GearActivityTypeDTOS []json.RawMessage `json:"gearActivityTypeDTOS"`
 }
 
@@ -80,7 +80,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 	if len(wrapper) == 0 {
 		return result, nil
 	}
-	logUnsupportedGearActivityTypeDefaults(wrapper[0])
+	defaultSports := garminDefaultSportsByGear(wrapper[0])
 
 	items := wrapper[0].GearDTOS
 	total := len(items)
@@ -90,7 +90,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			params.OnProgress(i+1, total, "gear: "+dto.CustomMakeModel)
 		}
 
-		create := gearCreateFromGarminDTO(dto)
+		create := gearCreateFromGarminDTO(dto, defaultSports)
 		gearName := create.Name
 
 		status := "active"
@@ -139,15 +139,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 	return result, nil
 }
 
-func logUnsupportedGearActivityTypeDefaults(file garminGearFile) int {
-	count := len(file.GearActivityTypeDTOS)
-	if count > 0 {
-		slog.Info("garmin gear: gearActivityTypeDTOS default sports unsupported", "count", count)
-	}
-	return count
-}
-
-func gearCreateFromGarminDTO(dto garminGearDTO) *model.GearCreate {
+func gearCreateFromGarminDTO(dto garminGearDTO, defaultSports map[string][]string) *model.GearCreate {
 	gearName := dto.CustomMakeModel
 	if gearName == "" {
 		gearName = dto.GearTypeName
@@ -157,9 +149,123 @@ func gearCreateFromGarminDTO(dto garminGearDTO) *model.GearCreate {
 		purchasedAt = &dto.DateBegin
 	}
 	return &model.GearCreate{
-		Name:        gearName,
-		Type:        mapGearType(dto.GearTypeName),
-		PurchasedAt: purchasedAt,
+		Name:             gearName,
+		Type:             mapGearType(dto.GearTypeName),
+		PurchasedAt:      purchasedAt,
+		DefaultForSports: garminDefaultSportsForDTO(dto, defaultSports),
+	}
+}
+
+func garminDefaultSportsForDTO(dto garminGearDTO, defaults map[string][]string) []string {
+	for _, key := range garminGearDefaultKeys(dto.GearPk, dto.UUID) {
+		if sports, ok := defaults[key]; ok {
+			return append([]string(nil), sports...)
+		}
+	}
+	return nil
+}
+
+func garminDefaultSportsByGear(file garminGearFile) map[string][]string {
+	defaults := map[string][]string{}
+	seen := map[string]map[string]struct{}{}
+	for _, raw := range file.GearActivityTypeDTOS {
+		gearKeys, rawSport := parseGarminGearActivityTypeDefault(raw)
+		if len(gearKeys) == 0 || rawSport == "" {
+			continue
+		}
+		storageSport, ok := garminGearDefaultSport(rawSport)
+		if !ok {
+			continue
+		}
+		for _, key := range gearKeys {
+			if seen[key] == nil {
+				seen[key] = map[string]struct{}{}
+			}
+			if _, ok := seen[key][storageSport]; ok {
+				continue
+			}
+			seen[key][storageSport] = struct{}{}
+			defaults[key] = append(defaults[key], storageSport)
+		}
+	}
+	return defaults
+}
+
+func parseGarminGearActivityTypeDefault(raw json.RawMessage) ([]string, string) {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, ""
+	}
+	keys := garminGearDefaultKeys(numberAsInt64(obj["gearPk"], obj["gearId"], obj["gearID"]), stringValue(obj["gearUuid"], obj["gearUUID"], obj["uuid"]))
+	rawSport := stringValue(obj["activityTypeKey"], obj["typeKey"], obj["sportType"])
+	if rawSport == "" {
+		rawSport = stringFromNested(obj["activityType"], "typeKey", "activityTypeKey", "key", "sportType")
+	}
+	if rawSport == "" {
+		rawSport = stringFromNested(obj["activityTypeDTO"], "typeKey", "activityTypeKey", "key", "sportType")
+	}
+	return keys, rawSport
+}
+
+func garminGearDefaultKeys(gearPk int64, uuid string) []string {
+	var keys []string
+	if gearPk != 0 {
+		keys = append(keys, fmt.Sprintf("pk:%d", gearPk))
+	}
+	if strings.TrimSpace(uuid) != "" {
+		keys = append(keys, "uuid:"+strings.TrimSpace(uuid))
+	}
+	return keys
+}
+
+func garminGearDefaultSport(rawSport string) (string, bool) {
+	for _, source := range []sport.Source{sport.SourceGarminCourse, sport.SourceFITFile} {
+		result, err := sport.ResolveSport(sport.ResolveInput{Source: source, RawSport: strings.TrimSpace(rawSport)})
+		if err == nil && result.Resolved && result.Tuple.SportType != "" {
+			if _, err := sport.NormalizeGearDefaultSports([]string{result.Tuple.SportType}); err == nil {
+				return result.Tuple.SportType, true
+			}
+		}
+	}
+	return "", false
+}
+
+func numberAsInt64(values ...any) int64 {
+	for _, value := range values {
+		switch v := value.(type) {
+		case float64:
+			return int64(v)
+		case int64:
+			return v
+		case json.Number:
+			n, _ := v.Int64()
+			return n
+		}
+	}
+	return 0
+}
+
+func stringValue(values ...any) string {
+	for _, value := range values {
+		if s, ok := value.(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}
+
+func stringFromNested(value any, keys ...string) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case map[string]any:
+		values := make([]any, 0, len(keys))
+		for _, key := range keys {
+			values = append(values, v[key])
+		}
+		return stringValue(values...)
+	default:
+		return ""
 	}
 }
 

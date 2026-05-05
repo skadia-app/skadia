@@ -9,6 +9,7 @@ var generatedSourceAliases = map[Source][]sourceAliasDef{
 		{RawSport: "cycling", RawSub: "e_bike_fitness", Tuple: Tuple{SportType: "cycling"}, Patch: ModifierPatch{IsElectric: ptrBool(true)}},
 		{RawSport: "cycling", RawSub: "e_bike_mountain", Tuple: Tuple{SportType: "cycling", SubType: "mountain"}, Patch: ModifierPatch{IsElectric: ptrBool(true)}},
 		{RawSport: "cycling", RawSub: "enduro", Tuple: Tuple{SportType: "cycling", SubType: "mountain"}},
+		{RawSport: "e_biking", Tuple: Tuple{SportType: "cycling"}, Patch: ModifierPatch{IsElectric: ptrBool(true)}},
 		{RawSport: "geocaching", Tuple: Tuple{SportType: "geocaching"}},
 		{RawSport: "grinding", Tuple: Tuple{SportType: "unknown"}},
 		{RawSport: "mobility", Tuple: Tuple{SportType: "mobility"}},
@@ -19,6 +20,10 @@ var generatedSourceAliases = map[Source][]sourceAliasDef{
 		{RawSport: "team_sport", Tuple: Tuple{SportType: "unknown"}},
 		{RawSport: "video_gaming", Tuple: Tuple{SportType: "unknown"}},
 		{RawSport: "water_sport", Tuple: Tuple{SportType: "unknown"}},
+		{RawSport: "wheelchair_push_run", Tuple: Tuple{SportType: "wheelchair_push", SubType: "run_speed"}},
+		{RawSport: "wheelchair_push_run", RawSub: "indoor_wheelchair_run", Tuple: Tuple{SportType: "wheelchair_push", SubType: "run_speed"}, Patch: ModifierPatch{IsIndoor: ptrBool(true)}},
+		{RawSport: "wheelchair_push_walk", Tuple: Tuple{SportType: "wheelchair_push", SubType: "walk_speed"}},
+		{RawSport: "wheelchair_push_walk", RawSub: "indoor_wheelchair_walk", Tuple: Tuple{SportType: "wheelchair_push", SubType: "walk_speed"}, Patch: ModifierPatch{IsIndoor: ptrBool(true)}},
 		{RawSport: "winter_sport", Tuple: Tuple{SportType: "unknown"}},
 	},
 	SourceGarminCourse: {

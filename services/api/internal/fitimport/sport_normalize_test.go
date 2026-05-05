@@ -140,6 +140,9 @@ func TestNormalizeParsedActivitySportBeforeStreamMovingTimeKeepsWheelchairRunThr
 	if err := normalizeParsedActivitySport(data); err != nil {
 		t.Fatalf("normalizeParsedActivitySport: %v", err)
 	}
+	if data.SportType != "wheelchair_push" || data.SubType != "run_speed" {
+		t.Fatalf("tuple = %s/%s, want wheelchair_push/run_speed", data.SportType, data.SubType)
+	}
 	streamMoving := activityutil.CalcMovingTimeForTuple(data.Streams, data.SportType, data.SubType)
 	if streamMoving != 0 {
 		t.Fatalf("stream moving time = %d, want 0 with wheelchair run-speed threshold", streamMoving)
