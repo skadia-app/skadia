@@ -29,9 +29,11 @@ func TestMigration000348CyclingElectricTagSyncDeclaresRequiredContracts(t *testi
 		"SELECT pg_advisory_xact_lock(hashtext('cycling_electric_tag_sync'), 1)",
 		"INSERT INTO tags",
 		"CREATE OR REPLACE FUNCTION sync_system_flags_and_tags",
+		"CREATE OR REPLACE FUNCTION sync_system_flags_and_tags_insert_junction",
 		"NEW.sport_type = 'cycling'",
 		"OLD.sport_type = 'cycling'",
-		"BEFORE UPDATE OF tags, sport_type, is_indoor, is_electric, is_commute ON activities",
+		"BEFORE INSERT OR UPDATE OF tags, sport_type, is_indoor, is_electric, is_commute ON activities",
+		"AFTER INSERT ON activities",
 		"DELETE FROM activity_tags",
 		"name = 'E-Bike'",
 		"is_system = true",
@@ -58,6 +60,8 @@ func TestMigration000348CyclingElectricTagSyncDeclaresRequiredContracts(t *testi
 		"SELECT pg_advisory_xact_lock(hashtext('cycling_electric_tag_sync'), 1)",
 		"restore broad E-Bike",
 		"NEW.is_electric := 'E-Bike'",
+		"DROP TRIGGER IF EXISTS trg_sync_system_flags_and_tags_insert_junction",
+		"DROP FUNCTION IF EXISTS sync_system_flags_and_tags_insert_junction()",
 		"BEFORE UPDATE OF tags, is_indoor, is_electric, is_commute ON activities",
 		"INSERT INTO activity_tags",
 		"ON CONFLICT (activity_id, tag_id) DO NOTHING",
@@ -147,6 +151,35 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	assertActivityTagArrayHas000348(t, ctx, tx, missingTagCyclingID, "E-Bike", true)
 	assertActivityTagLinkCount000348(t, ctx, tx, missingTagCyclingID, 1)
 
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto)
+		VALUES
+			($1, 'Indoor', '#3B82F6', '#FFFFFF', 'system', true, false),
+			($1, 'Pendeln', '#6B7280', '#FFFFFF', 'system', true, false)
+		ON CONFLICT (user_id, name) DO UPDATE SET is_system = true
+	`, userID); err != nil {
+		t.Fatalf("insert insert-trigger system tags: %v", err)
+	}
+	insertCyclingID := uuid.NewString()
+	insertRunningID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, tags, is_indoor, is_electric, is_commute, started_at)
+		VALUES
+			($1, $3, 'insert cycling electric', 'cycling', NULL, ARRAY[]::text[], true, true, true, now()),
+			($2, $3, 'insert running electric', 'running', NULL, ARRAY['E-Bike']::text[], false, true, false, now())
+	`, insertCyclingID, insertRunningID, userID); err != nil {
+		t.Fatalf("insert post-migration activities: %v", err)
+	}
+	assertActivityTagArrayHas000348(t, ctx, tx, insertCyclingID, "Indoor", true)
+	assertActivityTagArrayHas000348(t, ctx, tx, insertCyclingID, "Pendeln", true)
+	assertActivityTagArrayHas000348(t, ctx, tx, insertCyclingID, "E-Bike", true)
+	assertHasSystemTagLink000348(t, ctx, tx, insertCyclingID, "Indoor", true)
+	assertHasSystemTagLink000348(t, ctx, tx, insertCyclingID, "Pendeln", true)
+	assertHasSystemTagLink000348(t, ctx, tx, insertCyclingID, "E-Bike", true)
+	assertActivityElectric000348(t, ctx, tx, insertRunningID, true)
+	assertActivityTagArrayHas000348(t, ctx, tx, insertRunningID, "E-Bike", false)
+	assertHasSystemEBikeLink000348(t, ctx, tx, insertRunningID, false)
+
 	customUserID := uuid.NewString()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
@@ -211,18 +244,25 @@ func assertHasSystemEBikeLink000348(t *testing.T, ctx context.Context, q interfa
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, activityID string, want bool) {
 	t.Helper()
+	assertHasSystemTagLink000348(t, ctx, q, activityID, "E-Bike", want)
+}
+
+func assertHasSystemTagLink000348(t *testing.T, ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, activityID string, tagName string, want bool) {
+	t.Helper()
 	var got bool
 	if err := q.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM activity_tags at
 			JOIN tags t ON t.id = at.tag_id
-			WHERE at.activity_id = $1 AND t.name = 'E-Bike' AND t.is_system = true
+			WHERE at.activity_id = $1 AND t.name = $2 AND t.is_system = true
 		)
-	`, activityID).Scan(&got); err != nil {
-		t.Fatalf("query E-Bike link: %v", err)
+	`, activityID, tagName).Scan(&got); err != nil {
+		t.Fatalf("query %s link: %v", tagName, err)
 	}
 	if got != want {
-		t.Fatalf("E-Bike link for %s = %v, want %v", activityID, got, want)
+		t.Fatalf("%s link for %s = %v, want %v", tagName, activityID, got, want)
 	}
 }
 

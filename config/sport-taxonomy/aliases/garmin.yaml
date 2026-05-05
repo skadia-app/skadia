@@ -1,5 +1,31 @@
 source: garmin
 aliases:
+- raw: e_biking
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: grinding
+  sport_type: unknown
+- raw: motor_sports
+  sport_type: unknown
+- raw: para_sport
+  sport_type: unknown
+- raw: pool_apnea
+  sport_type: diving
+  sub_type: apnea_pool
+- raw: team_sport
+  sport_type: unknown
+- raw: video_gaming
+  sport_type: unknown
+- raw: water_sport
+  sport_type: unknown
+- raw: wheelchair_push_run
+  sport_type: wheelchair_push
+  sub_type: run_speed
+- raw: wheelchair_push_walk
+  sport_type: wheelchair_push
+  sub_type: walk_speed
+- raw: winter_sport
+  sport_type: unknown
 - raw: cycling
   sport_type: cycling
 - raw: road_cycling

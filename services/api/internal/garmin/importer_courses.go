@@ -123,7 +123,7 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 				continue
 			}
 
-			sportType, subType := garminCourseTypeToSport(course.CourseType)
+			sportType, subType, modifierPatch := garminCourseTypeToSport(course.CourseType)
 			sourcePlatform := platform
 			sid := sourceID
 			elevGain := course.ElevationGain
@@ -134,6 +134,7 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 				Name:               course.CourseName,
 				SportType:          sportType,
 				SubType:            subType,
+				IsElectric:         modifierPatch.IsElectric != nil && *modifierPatch.IsElectric,
 				Profile:            "outdoor",
 				GeometryGeoJSON:    geojson,
 				WaypointsJSON:      "[]",
@@ -162,15 +163,16 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 }
 
 // garminCourseTypeToSport maps Garmin courseType strings to Skadia route sport tuples.
-func garminCourseTypeToSport(courseType string) (string, *string) {
+func garminCourseTypeToSport(courseType string) (string, *string, sporttax.ModifierPatch) {
 	result, err := sporttax.ResolveSport(sporttax.ResolveInput{
 		Source:   sporttax.SourceGarminCourse,
 		RawSport: strings.ToLower(strings.TrimSpace(courseType)),
 	})
 	if err != nil || !result.Resolved {
-		return "unknown", nil
+		return "unknown", nil, sporttax.ModifierPatch{}
 	}
-	return sporttax.RouteImportTuple(result.Tuple, "unknown")
+	sportType, subType := sporttax.RouteImportTuple(result.Tuple, "unknown")
+	return sportType, subType, result.Patch
 }
 
 // geoPointsToGeoJSON converts Garmin GeoPoints to a GeoJSON LineString string.

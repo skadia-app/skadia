@@ -430,6 +430,14 @@ func TestMigration000347PredicateConstraintsRejectInvalidRows(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("valid planned route rejected: %v", err)
 	}
+	for _, sportType := range []string{"generic", "unknown", "hiking"} {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO predicate_planned_routes_000347 (sport_type, sub_type)
+			VALUES ($1, NULL)
+		`, sportType); err != nil {
+			t.Fatalf("valid planned route fallback %q rejected: %v", sportType, err)
+		}
+	}
 	expectConstraintFailure000347(t, ctx, tx, `
 		INSERT INTO predicate_planned_routes_000347 (sport_type, sub_type)
 		VALUES ('cycling', 'does_not_exist')
