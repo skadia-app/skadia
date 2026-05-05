@@ -296,7 +296,7 @@ func tourToActivityData(tour Tour) *model.ActivityData {
 		data.IsIndoor = mapping.IsIndoor
 		data.IsVirtual = mapping.IsVirtual
 	} else {
-		data.SportType = "generic"
+		data.SportType = "unknown"
 	}
 	if tour.Distance > 0 {
 		data.DistanceM = tour.Distance

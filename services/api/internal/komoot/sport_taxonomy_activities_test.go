@@ -75,6 +75,13 @@ func TestNormalizedKomootSportMappingUnknownStaysUnmapped(t *testing.T) {
 	}
 }
 
+func TestTourToActivityDataUsesUnknownForUnmappedSport(t *testing.T) {
+	data := tourToActivityData(Tour{Sport: "definitely_unknown"})
+	if data.SportType != "unknown" || data.SubType != "" {
+		t.Fatalf("tourToActivityData unknown tuple = %s/%s, want unknown/", data.SportType, data.SubType)
+	}
+}
+
 func TestApplyKomootSportMappingAdoptsSameParentSubtype(t *testing.T) {
 	data := &model.ActivityData{SportType: "cycling"}
 	mapping := SportMapping{SportType: "cycling", SubType: "mountain"}

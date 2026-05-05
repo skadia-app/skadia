@@ -444,7 +444,7 @@ func ruleTraitValuesForSource(traits Traits, source string) []string {
 func selectableRuleTupleOptions(taxonomy Taxonomy) []ExpandedRuleTupleOption {
 	out := []ExpandedRuleTupleOption{}
 	for _, sport := range taxonomy.Sports {
-		if sport.Selectable != nil && *sport.Selectable {
+		if ruleTupleParentSelectable(sport) {
 			out = append(out, ExpandedRuleTupleOption{
 				SportType: sport.SportType,
 				Label:     LocaleMap{"de": sport.Labels["de"]},
@@ -462,6 +462,13 @@ func selectableRuleTupleOptions(taxonomy Taxonomy) []ExpandedRuleTupleOption {
 		}
 	}
 	return out
+}
+
+func ruleTupleParentSelectable(sport Sport) bool {
+	if sport.SportType == "unknown" {
+		return true
+	}
+	return sport.Selectable != nil && *sport.Selectable
 }
 
 func ruleTupleSubTypeLabel(sport Sport, subType SubType) string {

@@ -131,6 +131,9 @@ func TestExpandRuleProjectionUsesSelectableTuplesAndModifierApplicability(t *tes
 	if expanded.HasTupleOption("training", "") {
 		t.Fatalf("non-selectable broad fallback parent must not be an action/condition tuple option")
 	}
+	if !expanded.HasTupleOption("unknown", "") {
+		t.Fatalf("unknown must remain rule-addressable even though it is not a normal creation option")
+	}
 	if !expanded.ModifierApplicable("cycling", "mountain", "is_electric", "condition") {
 		t.Fatal("cycling/mountain should expose is_electric condition control")
 	}
@@ -215,6 +218,17 @@ func minimalRuleProjectionTaxonomy(t *testing.T) Taxonomy {
 				Selectable:            boolPtr(true),
 				Lifecycle:             "canonical",
 				Traits:                Traits{Environments: []string{"water"}, MovementFamilies: []string{"paddle"}, EquipmentFamilies: []string{"board", "paddle"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
+				ModifierApplicability: &ModifierApplicability{IsElectric: boolPtr(false), IsIndoor: boolPtr(false), IsVirtual: boolPtr(false), IsCommute: boolPtr(false)},
+			},
+			{
+				SportType:             "unknown",
+				CategoryKey:           "fitness",
+				Labels:                LocaleMap{"de": "Unbekannt"},
+				AutoTitles:            LocaleMap{"de": "Training"},
+				SegmentGroup:          "generic",
+				Selectable:            boolPtr(false),
+				Lifecycle:             "canonical",
+				Traits:                Traits{Environments: []string{"generic"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{"generic"}, ActivityForm: "system", PropulsionModes: []string{"generic"}},
 				ModifierApplicability: &ModifierApplicability{IsElectric: boolPtr(false), IsIndoor: boolPtr(false), IsVirtual: boolPtr(false), IsCommute: boolPtr(false)},
 			},
 		},

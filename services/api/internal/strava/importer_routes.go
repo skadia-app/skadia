@@ -69,7 +69,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 		routeID := stravaCSVField(row, colIdx, "route id", "routenid", "id")
 		gpxFile := stravaCSVField(row, colIdx, "filename", "routendateiname", "gpx filename")
 		csvSport := stravaCSVField(row, colIdx, "sport type", "sportart", "type", "activity type")
-		sportType, subType := stravaRouteTypeToSport(csvSport)
+		sportType, subType, isElectric := stravaRouteTypeToSport(csvSport)
 
 		if name == "" || gpxFile == "" {
 			result.Skipped++
@@ -127,6 +127,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 			Name:               name,
 			SportType:          sportType,
 			SubType:            subType,
+			IsElectric:         isElectric,
 			Profile:            "outdoor",
 			GeometryGeoJSON:    geojson,
 			WaypointsJSON:      "[]",
@@ -158,13 +159,15 @@ func stravaCSVField(row []string, colIdx map[string]int, candidates ...string) s
 }
 
 // stravaRouteTypeToSport maps Strava CSV sport/type values to Skadia route sport tuples.
-func stravaRouteTypeToSport(t string) (string, *string) {
+func stravaRouteTypeToSport(t string) (string, *string, bool) {
 	result, err := sporttax.ResolveSport(sporttax.ResolveInput{
 		Source:   sporttax.SourceStravaRoute,
 		RawSport: strings.ToLower(strings.TrimSpace(t)),
 	})
 	if err != nil || !result.Resolved {
-		return "unknown", nil
+		return "unknown", nil, false
 	}
-	return sporttax.RouteImportTuple(result.Tuple, "unknown")
+	sportType, subType := sporttax.RouteImportTuple(result.Tuple, "unknown")
+	modifiers := sporttax.ApplyModifierPatch(sporttax.ModifierValues{}, result.Patch)
+	return sportType, subType, modifiers.IsElectric
 }

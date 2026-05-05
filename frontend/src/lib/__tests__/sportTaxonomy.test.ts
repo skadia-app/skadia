@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
 import { GENERATED_SPORT_TAXONOMY_SOURCE_SHA256 } from '../generatedSportTaxonomy'
-import { SPORT_DEFS, canonicalSportOptions, categoryForSport, modifierDefaultsForTuple, normalizeSportTuple, routeSportOptions, selectableParentSportOptions, selectableSportTupleOptions, sportColor, sportLabel, sportsInCategory } from '../sportTaxonomy'
+import { SPORT_DEFS, canonicalSportOptions, categoryForSport, manualActivitySportOptions, modifierDefaultsForTuple, normalizeSportTuple, routeSportOptions, selectableParentSportOptions, selectableSportTupleOptions, sportColor, sportLabel, sportsInCategory } from '../sportTaxonomy'
 
 describe('sport taxonomy aliases', () => {
   it('keeps the generated frontend taxonomy source hash in sync with sports.yaml', () => {
@@ -251,14 +251,20 @@ describe('sport taxonomy aliases', () => {
     expect(findSubtype('rock_climbing', 'bouldering')?.traits.environments).toEqual(['land', 'indoor'])
   })
 
-  it('keeps system taxonomy values selectable while exposing system traits', () => {
-    const parentValues = selectableParentSportOptions().map((opt) => opt.value)
+  it('keeps system taxonomy values addressable while keeping unknown out of normal creation options', () => {
+	const parentValues = selectableParentSportOptions().map((opt) => opt.value)
+	const tupleValues = selectableSportTupleOptions().map((opt) => `${opt.value}/${opt.subType ?? ''}`)
+	const manualValues = manualActivitySportOptions().map((opt) => opt.sportType)
 
-    for (const sportType of ['generic', 'unknown']) {
-      expect(findSport(sportType)?.traits.activityForm).toBe('system')
-      expect(findSport(sportType)?.traits.environments).toEqual(['generic'])
-      expect(parentValues).toContain(sportType)
-    }
+	for (const sportType of ['generic', 'unknown']) {
+	  expect(findSport(sportType)?.traits.activityForm).toBe('system')
+	  expect(findSport(sportType)?.traits.environments).toEqual(['generic'])
+	}
+	expect(parentValues).toContain('generic')
+	expect(parentValues).not.toContain('unknown')
+	expect(tupleValues).not.toContain('unknown/')
+	expect(manualValues).toContain('generic')
+	expect(manualValues).not.toContain('unknown')
   })
 
   it('keeps broad fallback parents out of selectable creation options while preserving selectable subtypes', () => {

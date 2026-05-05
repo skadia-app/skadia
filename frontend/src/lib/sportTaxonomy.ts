@@ -426,14 +426,14 @@ export function canonicalSportOptions(): SportOption[] {
 
 export function selectableParentSportOptions(): SportOption[] {
   return SPORT_DEFS
-    .filter((s) => s.selectable)
+    .filter((s) => s.selectable && s.sportType !== 'unknown')
     .map((s) => ({ value: s.sportType, label: s.label }))
 }
 
 export function selectableSportTupleOptions(): SportOption[] {
   const options: SportOption[] = []
   for (const s of SPORT_DEFS) {
-    if (s.selectable) {
+    if (s.selectable && s.sportType !== 'unknown') {
       options.push({ value: s.sportType, label: s.label })
     }
     for (const st of s.subTypes) {
@@ -443,6 +443,10 @@ export function selectableSportTupleOptions(): SportOption[] {
     }
   }
   return options
+}
+
+export function manualActivitySportOptions(): SportDef[] {
+  return SPORT_DEFS.filter((s) => s.sportType !== 'unknown' && (s.selectable || s.subTypes.some((st) => st.selectable)))
 }
 
 const ROUTE_PROMOTED_SUBTYPES: Record<string, string[]> = {

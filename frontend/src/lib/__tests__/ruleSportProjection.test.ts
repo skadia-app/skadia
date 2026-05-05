@@ -13,10 +13,11 @@ describe('rule sport projection', () => {
     expect(keys).toContain('diving:dynamic_apnea')
     expect(keys).toContain('mobility')
     expect(keys).toContain('archery')
-    expect(keys).toContain('shooting')
-    expect(keys).toContain('geocaching')
-    expect(keys).toContain('running:trail')
-    expect(keys).not.toContain('training')
+	expect(keys).toContain('shooting')
+	expect(keys).toContain('geocaching')
+	expect(keys).toContain('running:trail')
+	expect(keys).toContain('unknown')
+	expect(keys).not.toContain('training')
   })
 
   it('uses selectable tuple labels from the generated taxonomy projection', () => {

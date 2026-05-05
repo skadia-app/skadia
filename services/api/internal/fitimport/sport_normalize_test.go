@@ -140,6 +140,27 @@ func TestApplyDiveGasDerivedSportNormalizesCCRSubType(t *testing.T) {
 	}
 }
 
+func TestApplyDiveGasDerivedSportClearsStalePoolIndoorDefault(t *testing.T) {
+	data := &model.ActivityData{
+		SportType: "diving",
+		SubType:   "apnea_pool",
+		IsIndoor:  true,
+		DiveGases: []model.DiveGas{
+			{Mode: "closed_circuit_diluent"},
+		},
+	}
+
+	if err := applyDiveGasDerivedSport(data); err != nil {
+		t.Fatalf("applyDiveGasDerivedSport: %v", err)
+	}
+	if data.SportType != "diving" || data.SubType != "ccr_diving" {
+		t.Fatalf("tuple = %s/%s, want diving/ccr_diving", data.SportType, data.SubType)
+	}
+	if data.IsIndoor {
+		t.Fatalf("IsIndoor = true, want false for CCR diving without independent indoor evidence")
+	}
+}
+
 func TestIndoorFITSubSportEvidence(t *testing.T) {
 	if !isIndoorFITSubSport(int16(typedef.SubSportIndoorCycling)) {
 		t.Fatalf("SubSportIndoorCycling should be indoor")

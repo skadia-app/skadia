@@ -1734,7 +1734,11 @@ func applyDiveGasDerivedSport(data *model.ActivityData) error {
 	for _, g := range data.DiveGases {
 		if g.Mode == "closed_circuit_diluent" {
 			data.SubType = "ccr_diving"
-			return normalizeParsedActivitySport(data)
+			if err := normalizeParsedActivitySport(data); err != nil {
+				return err
+			}
+			data.IsIndoor = sport.IsIndoor(data.SportType, data.SubType)
+			return nil
 		}
 	}
 	return nil

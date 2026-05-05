@@ -53,10 +53,8 @@ func normalizeActivitySportFields(row map[string]any) error {
 	} else {
 		applyModifierPatchToRow(row, patch)
 	}
-	if patch, err := normalizeSportPair(row, "parsed_sport_type", "parsed_sub_type"); err != nil {
+	if _, err := normalizeSportPair(row, "parsed_sport_type", "parsed_sub_type"); err != nil {
 		return err
-	} else {
-		applyModifierPatchToRow(row, patch)
 	}
 	return nil
 }

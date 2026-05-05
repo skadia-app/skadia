@@ -32,8 +32,33 @@ func TestNormalizeSportTaxonomyImportRowActivities(t *testing.T) {
 	if got["is_electric"] != true {
 		t.Fatalf("is_electric should preserve true, got %#v", got["is_electric"])
 	}
-	if got["is_indoor"] != true {
-		t.Fatalf("is_indoor should be set by parsed treadmill tuple, got %#v", got["is_indoor"])
+	if got["is_indoor"] != false {
+		t.Fatalf("is_indoor should preserve the effective activity modifier, got %#v", got["is_indoor"])
+	}
+}
+
+func TestNormalizeSportTaxonomyImportRowActivitiesDoesNotApplyParsedModifiersToEffectiveTuple(t *testing.T) {
+	row := map[string]any{
+		"sport_type":        "running",
+		"sub_type":          "trail",
+		"parsed_sport_type": "treadmill_running",
+		"parsed_sub_type":   "",
+		"is_indoor":         false,
+		"is_virtual":        false,
+	}
+
+	got, err := normalizeSportTaxonomyImportRow("activities", row, nil)
+	if err != nil {
+		t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
+	}
+	if got["sport_type"] != "running" || got["sub_type"] != "trail" {
+		t.Fatalf("effective tuple: got (%#v, %#v), want (running, trail)", got["sport_type"], got["sub_type"])
+	}
+	if got["parsed_sport_type"] != "running" || got["parsed_sub_type"] != "treadmill" {
+		t.Fatalf("parsed tuple: got (%#v, %#v), want (running, treadmill)", got["parsed_sport_type"], got["parsed_sub_type"])
+	}
+	if got["is_indoor"] != false {
+		t.Fatalf("is_indoor = %#v, want false from effective tuple/manual state", got["is_indoor"])
 	}
 }
 

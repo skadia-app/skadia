@@ -15,6 +15,13 @@ aliases:
   sub_type: trail
 - raw: ride
   sport_type: cycling
+- raw: e-bike ride
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: e-mountain bike ride
+  sport_type: cycling
+  sub_type: mountain
+  modifiers: {is_electric: true}
 - raw: cycling
   sport_type: cycling
 - raw: bike
