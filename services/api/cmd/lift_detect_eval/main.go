@@ -15,6 +15,7 @@ func main() {
 	root := flag.String("root", "LIFT_ERKENNUNG", "")
 	verbose := flag.Bool("v", false, "")
 	dump := flag.String("dump", "", "print CSV of stream points for the given file (relative to -root) and exit")
+	summary := flag.String("summary", "", "print 30s-bucket summary for the given file (relative to -root) and exit")
 	flag.Parse()
 
 	// --dump mode: parse one file, print CSV to stdout, exit.
@@ -38,6 +39,32 @@ func main() {
 			os.Exit(2)
 		}
 		if err := dumpCSV(os.Stdout, pts); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		return
+	}
+
+	if *summary != "" {
+		full := filepath.Join(*root, *summary)
+		var (
+			pts []lifts.StreamPoint
+			err error
+		)
+		switch strings.ToLower(filepath.Ext(*summary)) {
+		case ".fit":
+			pts, err = loadFITPoints(full)
+		case ".gpx":
+			pts, err = loadGPXPoints(full)
+		default:
+			fmt.Fprintf(os.Stderr, "unsupported extension: %s\n", *summary)
+			os.Exit(2)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if err := summarize(os.Stdout, pts, 30); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(2)
 		}
