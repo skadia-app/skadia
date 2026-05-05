@@ -38,7 +38,7 @@ func TestUnifiedShadowFS_PutGetDelete(t *testing.T) {
 		FileName:    "test.fit",
 		SizeBytes:   5,
 		FileHash:    "abc123",
-		Tags:        map[string]string{"year": "2024", "month": "03", "day": "15", "time": "10-00", "sport": "cycling"},
+		Tags:        map[string]string{"year": "2024", "month": "03", "day": "15", "time": "1000", "sport": "cycling"},
 	}
 	data := bytes.NewReader([]byte("hello"))
 

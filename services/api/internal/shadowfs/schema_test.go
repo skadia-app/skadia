@@ -10,10 +10,10 @@ func TestRenderPath_Activity(t *testing.T) {
 	r := NewSchemaRenderer()
 	vars := map[string]string{
 		"year": "2024", "month": "03", "day": "15",
-		"time": "14-30", "sport": "cycling",
+		"time": "1430", "sport": "cycling",
 	}
 	got := r.RenderPath("activity", "{year}/{month}/{day}_{time}_{sport}", vars, "fit")
-	want := "2024/03/15_14-30_cycling.fit"
+	want := "2024/03/15_1430_cycling.fit"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
