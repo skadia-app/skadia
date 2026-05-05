@@ -2,6 +2,8 @@
 
 -- restore broad E-Bike tag sync for every is_electric activity.
 
+SELECT pg_advisory_xact_lock(hashtext('cycling_electric_tag_sync'), 1);
+
 UPDATE tags
 SET description = 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_electric)'
 WHERE name = 'E-Bike' AND is_system = true;
@@ -23,7 +25,7 @@ BEGIN
             NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'Indoor');
             SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'Indoor' AND is_system = true LIMIT 1;
             IF v_tag_id IS NOT NULL THEN
-                INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT DO NOTHING;
+                INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
                 UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
             END IF;
         ELSIF NOT NEW.is_indoor AND 'Indoor' = ANY(COALESCE(NEW.tags, '{}')) THEN
@@ -42,7 +44,7 @@ BEGIN
             NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'E-Bike');
             SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'E-Bike' AND is_system = true LIMIT 1;
             IF v_tag_id IS NOT NULL THEN
-                INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT DO NOTHING;
+                INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
                 UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
             END IF;
         ELSIF NOT NEW.is_electric AND 'E-Bike' = ANY(COALESCE(NEW.tags, '{}')) THEN
@@ -61,7 +63,7 @@ BEGIN
             NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'Pendeln');
             SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'Pendeln' AND is_system = true LIMIT 1;
             IF v_tag_id IS NOT NULL THEN
-                INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT DO NOTHING;
+                INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
                 UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
             END IF;
         ELSIF NOT NEW.is_commute AND 'Pendeln' = ANY(COALESCE(NEW.tags, '{}')) THEN
@@ -89,7 +91,7 @@ SELECT a.id, t.id, 'migration'
 FROM activities a
 JOIN tags t ON t.user_id = a.user_id AND t.name = 'E-Bike' AND t.is_system = true
 WHERE a.is_electric = true
-ON CONFLICT DO NOTHING;
+ON CONFLICT (activity_id, tag_id) DO NOTHING;
 
 UPDATE activities
 SET tags = array_append(COALESCE(tags, '{}'), 'E-Bike')

@@ -128,13 +128,16 @@ func TestMigration000347PredicateValidationDeclaresRequiredContracts(t *testing.
 		"Restore the fn_validate_predicates() body that existed before Plan E",
 		"CREATE OR REPLACE FUNCTION fn_validate_predicates",
 		"routing_profiles_predicates_valid",
-		"ALTER TABLE routing_profiles VALIDATE CONSTRAINT routing_profiles_predicates_valid",
+		"CHECK (jsonb_array_length(predicates) > 0 AND fn_validate_predicates(predicates));",
 		"segments_allowed_predicates_valid",
 		"DROP FUNCTION IF EXISTS fn_validate_segment_predicates_for_type(TEXT, JSONB)",
 	} {
 		if !strings.Contains(downSQL, needle) {
 			t.Fatalf("down migration missing %q", needle)
 		}
+	}
+	if strings.Contains(downSQL, "ALTER TABLE routing_profiles VALIDATE CONSTRAINT routing_profiles_predicates_valid") {
+		t.Fatal("down migration must restore 000346 routing_profiles constraint shape without a separate VALIDATE")
 	}
 	for _, forbidden := range []string{"CREATE INDEX CONCURRENTLY", " UPDATE ", " DELETE ", " INSERT INTO "} {
 		if strings.Contains(" "+strings.ToUpper(upSQL)+" ", forbidden) {

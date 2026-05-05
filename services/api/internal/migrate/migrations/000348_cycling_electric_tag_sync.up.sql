@@ -3,6 +3,19 @@
 -- E-Bike is a cycling-specific system tag. is_electric remains a generic
 -- activity modifier and may be true for non-cycling activities.
 
+SELECT pg_advisory_xact_lock(hashtext('cycling_electric_tag_sync'), 1);
+
+INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+SELECT u.id, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false,
+       'Automatisch bei elektrischen Radfahrten'
+FROM users u
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM tags t
+    WHERE t.user_id = u.id
+      AND t.name = 'E-Bike'
+);
+
 UPDATE tags
 SET description = 'Automatisch bei elektrischen Radfahrten'
 WHERE name = 'E-Bike' AND is_system = true;
@@ -39,7 +52,7 @@ BEGIN
             NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'Indoor');
             SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'Indoor' AND is_system = true LIMIT 1;
             IF v_tag_id IS NOT NULL THEN
-                INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT DO NOTHING;
+                INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
                 UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
             END IF;
         ELSIF NOT NEW.is_indoor AND 'Indoor' = ANY(COALESCE(NEW.tags, '{}')) THEN
@@ -52,7 +65,7 @@ BEGIN
         END IF;
     END IF;
 
-    -- Direction C: is_electric or sport type changed directly -> cycling-only E-Bike tag sync.
+    -- Direction C: is_electric or sport_type changed directly -> cycling-only E-Bike tag sync.
     IF NEW.is_electric IS DISTINCT FROM OLD.is_electric OR NEW.sport_type IS DISTINCT FROM OLD.sport_type THEN
         SELECT id INTO v_tag_id
         FROM tags
@@ -61,7 +74,7 @@ BEGIN
 
         IF v_tag_id IS NOT NULL AND NEW.sport_type = 'cycling' AND NEW.is_electric AND NOT ('E-Bike' = ANY(COALESCE(NEW.tags, '{}'))) THEN
             NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'E-Bike');
-            INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT DO NOTHING;
+            INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
             UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
         ELSIF (NEW.sport_type <> 'cycling' OR NOT NEW.is_electric) AND 'E-Bike' = ANY(COALESCE(NEW.tags, '{}')) THEN
             NEW.tags := array_remove(NEW.tags, 'E-Bike');
@@ -81,7 +94,7 @@ BEGIN
             NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'Pendeln');
             SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'Pendeln' AND is_system = true LIMIT 1;
             IF v_tag_id IS NOT NULL THEN
-                INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT DO NOTHING;
+                INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
                 UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
             END IF;
         ELSIF NOT NEW.is_commute AND 'Pendeln' = ANY(COALESCE(NEW.tags, '{}')) THEN
@@ -122,7 +135,7 @@ SELECT a.id, t.id, 'migration'
 FROM activities a
 JOIN tags t ON t.user_id = a.user_id AND t.name = 'E-Bike' AND t.is_system = true
 WHERE a.sport_type = 'cycling' AND a.is_electric = true
-ON CONFLICT DO NOTHING;
+ON CONFLICT (activity_id, tag_id) DO NOTHING;
 
 UPDATE activities
 SET tags = array_append(COALESCE(tags, '{}'), 'E-Bike')
