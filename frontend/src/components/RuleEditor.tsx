@@ -24,6 +24,7 @@ const SPORT_OPTIONS = SPORT_DEFS.map(d => ({
 
 const RULE_TUPLE_OPTIONS = ruleTupleOptions()
 const RULE_TRAIT_CONDITION_FIELDS = ruleTraitConditionFields()
+const RULE_TRAIT_CONDITION_FIELD_KEYS = new Set(RULE_TRAIT_CONDITION_FIELDS.map((field) => field.field))
 
 const RULE_TUPLE_SPORT_OPTIONS = Array.from(
   new Map(RULE_TUPLE_OPTIONS.map((opt) => {
@@ -398,6 +399,7 @@ const ACTION_TYPES = [
   { value: 'set_exclude_from_heatmap', label: 'Aus Heatmap ausschließen' },
   { value: 'set_hide_map',             label: 'Karte verstecken' },
 ]
+const ACTION_LABEL_BY_VALUE = new Map(ACTION_TYPES.map((action) => [action.value, action.label]))
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -585,6 +587,40 @@ function replaceSportTupleConditions(conditions: RuleCondition[], rows: SportTup
     return out
   })
   return [{ field: 'sport_tuple', op: 'in', value }, ...rest]
+}
+
+function tupleStableKey(row: SportTupleListRow): string {
+  const normalized = normalizeTupleRow(row)
+  const modifiers = RULE_TUPLE_MODIFIER_KEYS
+    .filter((key) => normalized[key] !== undefined)
+    .map((key) => `${key}=${normalized[key]}`)
+    .join('|')
+  return [normalized.sport_type, normalized.sub_type ?? '', modifiers].join(':')
+}
+
+function findDuplicateSportTupleGroup(groups: RuleConditionGroup[]): number | null {
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i]
+    if (!canUseSportTupleControl(group.conditions, group.logic)) continue
+    const seen = new Set<string>()
+    for (const row of sportTupleRowsFromConditions(group.conditions)) {
+      const key = tupleStableKey(row)
+      if (seen.has(key)) return i
+      seen.add(key)
+    }
+  }
+  return null
+}
+
+function validateConditionGroupsForSubmit(groups: RuleConditionGroup[]) {
+  for (let groupIndex = 0; groupIndex < groups.length; groupIndex++) {
+    for (const condition of groups[groupIndex].conditions) {
+      if (!RULE_TRAIT_CONDITION_FIELD_KEYS.has(condition.field)) continue
+      if (!Array.isArray(condition.value) || condition.value.length === 0) {
+        throw new Error(`Taxonomie-Bedingung braucht mindestens einen Wert in Gruppe ${groupIndex + 1}`)
+      }
+    }
+  }
 }
 
 function normaliseSportTupleConditionGroup(group: RuleConditionGroup): RuleConditionGroup {
@@ -1129,6 +1165,9 @@ function ConditionValueEditor({
     if (cond.op === 'in' || cond.op === 'contains' || cond.op === 'not_contains') {
       const selected: string[] = Array.isArray(cond.value) ? cond.value : (cond.value ? [cond.value] : [])
       function toggle(v: string) {
+        if (RULE_TRAIT_CONDITION_FIELD_KEYS.has(cond.field) && selected.includes(v) && selected.length === 1) {
+          return
+        }
         onChange({ value: selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v] })
       }
       return (
@@ -1602,7 +1641,7 @@ function ActionParams({
               onChange={(e) => onChange(sanitizeSportActionParams({ ...params, sport_type: sportType, sub_type: e.target.value }))}
               className={inputClass + ' w-40'}
             >
-              {ruleTupleHasParentOption(sportType) && <option value="">beliebig</option>}
+              {ruleTupleHasParentOption(sportType) && <option value="">keine Sub-Sportart</option>}
               {subTypes.map((s) => <option key={s.subType} value={s.subType}>{s.label}</option>)}
             </select>
           </label>
@@ -1870,6 +1909,45 @@ function dedupeSystemTagActions(actions: RuleAction[], tagNameForAction: (action
   return out
 }
 
+function nonEmptyParam(params: Record<string, any> | undefined, key: string): boolean {
+  const value = params?.[key]
+  return typeof value === 'string' ? value.trim() !== '' : value !== undefined && value !== null
+}
+
+function validateRuleActionForSubmit(action: RuleAction): string | null {
+  switch (action.action) {
+    case 'set_gear':
+      return nonEmptyParam(action.params, 'gear_id') ? null : 'Ausrüstung wählen'
+    case 'add_tag':
+    case 'remove_tag':
+      return nonEmptyParam(action.params, 'tag_id') ? null : 'Tag wählen'
+    case 'set_visibility':
+      return nonEmptyParam(action.params, 'visibility') ? null : 'Sichtbarkeit wählen'
+    case 'set_sport_type':
+      return nonEmptyParam(action.params, 'sport_type') ? null : 'Sportart wählen'
+    case 'set_name':
+      return nonEmptyParam(action.params, 'template') ? null : 'Titel-Template eintragen'
+    case 'set_intensity':
+      return nonEmptyParam(action.params, 'intensity') ? null : 'Intensität wählen'
+    case 'set_exclude_from_stats':
+    case 'set_exclude_from_heatmap':
+    case 'set_hide_map':
+      return action.params?.value === true || action.params?.value === false ? null : 'Ja/Nein wählen'
+    default:
+      return null
+  }
+}
+
+function validateRuleActionsForSubmit(actions: RuleAction[], surface = 'Aktion') {
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i]
+    const missing = validateRuleActionForSubmit(action)
+    if (!missing) continue
+    const label = ACTION_LABEL_BY_VALUE.get(action.action) ?? action.action
+    throw new Error(`${surface} "${label}" ist unvollständig: ${missing}`)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main RuleEditor component
 // ---------------------------------------------------------------------------
@@ -2058,14 +2136,23 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
     let normalizedActions: RuleAction[]
     let normalizedBranches: RuleBranch[] | undefined
     try {
+      validateRuleActionsForSubmit(actions)
       normalizedActions = normaliseActions(actions)
       const normalizedGroups = groups.map(normaliseSportTupleConditionGroup)
+      validateConditionGroupsForSubmit(normalizedGroups)
+      const duplicateGroup = findDuplicateSportTupleGroup(normalizedGroups)
+      if (duplicateGroup !== null) {
+        throw new Error(`Sportauswahl enthält Duplikate in Gruppe ${duplicateGroup + 1}`)
+      }
       normalizedBranches = branches.length > 0 ? [
         { type: 'if' as const, condition_groups: normalizedGroups, actions: normalizedActions },
         ...branches.map(b => ({
           ...b,
           condition_groups: b.condition_groups.map(normaliseSportTupleConditionGroup),
-          actions: normaliseActions(b.actions),
+          actions: (() => {
+            validateRuleActionsForSubmit(b.actions, 'Branch-Aktion')
+            return normaliseActions(b.actions)
+          })(),
         })),
       ] : undefined
       const flat = flattenGroups(normalizedGroups)
