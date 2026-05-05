@@ -1873,6 +1873,76 @@ func TestImportGearNormalizesDefaultForSports(t *testing.T) {
 	}
 }
 
+func TestImportGearSkipsInvalidDefaultForSportsRow(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	badGearOldID := uuid.New().String()
+	goodGearOldID := uuid.New().String()
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"gear": {"id", "user_id", "name", "type", "default_for_sports"},
+		},
+		gear: []map[string]any{
+			{
+				"id":                 badGearOldID,
+				"user_id":            srcUser,
+				"name":               "Bad Gear",
+				"type":               "bike",
+				"default_for_sports": []any{"not_a_sport"},
+			},
+			{
+				"id":                 goodGearOldID,
+				"user_id":            srcUser,
+				"name":               "Good Gear",
+				"type":               "bike",
+				"default_for_sports": []any{"cycling"},
+			},
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	result, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	if result.EntitiesFailed != 1 {
+		t.Fatalf("EntitiesFailed = %d, want 1; errors = %#v", result.EntitiesFailed, result.Errors)
+	}
+	if len(result.Errors) != 1 || result.Errors[0].Table != "gear" || result.Errors[0].OldID != badGearOldID ||
+		!strings.Contains(result.Errors[0].Error, "default_for_sports") {
+		t.Fatalf("import errors = %#v, want one row-level gear default_for_sports error", result.Errors)
+	}
+
+	var names []string
+	rows, err := pool.Query(context.Background(),
+		`SELECT name FROM gear WHERE user_id = $1 ORDER BY name`,
+		userID,
+	)
+	if err != nil {
+		t.Fatalf("select gear names: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan gear name: %v", err)
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate gear names: %v", err)
+	}
+	if !reflect.DeepEqual(names, []string{"Good Gear"}) {
+		t.Fatalf("imported gear names = %#v, want only valid row", names)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Test 20: TestDeferredFKTagCoverFile
 // ---------------------------------------------------------------------------
