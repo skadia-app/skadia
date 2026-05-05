@@ -821,15 +821,35 @@ func extendCandidate(rows []StreamPoint, start, initialEnd int, kind string, ws 
 	if (kind == "high" || kind == "medium") && peakAdvanceIdx > start && peakAdvanceIdx < end && !endViaStopIndicator {
 		end = peakAdvanceIdx
 	}
-	// Trailing-chunk trim — applied to all kinds. After the loop close, the
-	// last few 10 s chunks often capture the disembark-zone slowdown
-	// (aerial tramway cabin braking from 8 m/s to walk pace in 30 s; chairlift
-	// rider stepping off). Those chunks pull dispersion / mean off-band
-	// even though the candidate is a real lift. We trim trailing chunks
-	// whose mean speed drops below 50 % of the median chunk-speed — speed
-	// scaling adapts the cut-off to lift class (aerial tramway median ~7 m/s
-	// → cut at 3.5; T-bar lift median ~1 m/s → cut at 0.5).
-	end = trimTrailingChunks(rows, start, end)
+	// Trailing trim (per-kind selection):
+	//   - Stop-indicator end + fast lift (rideAltRate ≥ 0.30 m/s): trim only
+	//     the truly stationary tail samples (speed < MinSpeedMs). The BREAK
+	//     already pinned end at stopStartIdx (FIRST low-speed sample); the
+	//     10–30 s of cable-decel just before it is part of the lift and must
+	//     be preserved. Chunk-trim removes those decel chunks because their
+	//     GPS-haversine speed (1.5–2 m/s) falls below 0.5 × median (1.95 m/s
+	//     for cruise=3.9), landing 30–65 m short of the bergstation. alpine ski-resort case
+	//     ride[03] (rideAltRate=0.92, BREAK disembark at 11:15:33, chunk-trim
+	//     cuts to 11:15:04 = 63 m short) is the calibrated case. Sample-level
+	//     trim walks back only while speed < MinSpeedMs, keeping the entire
+	//     decel zone in the ride.
+	//   - All other endings (slow chairlift OR natural-end): keep the chunk
+	//     trim. Slow chairlifts (slow-cable bikepark case Bahn 2, rideAltRate=0.20) need it
+	//     because BREAK fires LATE (preStopRate ≥ 0.40 discriminator unmet on
+	//     0.2 m/s cable) and end runs into 80+ s of bergstation walk-around;
+	//     chunk-trim correctly peels that back. Natural-end candidates rely
+	//     on it for aerial-tramway disembark coast (8 m/s → walk pace in 30 s).
+	rideDur := rows[end].Time.Sub(rows[start].Time).Seconds()
+	rideAltRate := 0.0
+	if rideDur > 0 && rows[start].AltitudeM != nil && rows[end].AltitudeM != nil {
+		rideAltRate = math.Abs(*rows[end].AltitudeM-*rows[start].AltitudeM) / rideDur
+	}
+	const fastLiftAltRate = 0.30
+	if endViaStopIndicator && rideAltRate >= fastLiftAltRate {
+		end = trimTrailingLowSpeedSamples(rows, start, end, cfg)
+	} else {
+		end = trimTrailingChunks(rows, start, end)
+	}
 	// Trailing-sinuosity trim: speed-based trim above misses bike-park trails
 	// that descend at lift-comparable speeds (5–10 m/s) but curve sharply —
 	// alpine ski-resort case ride[01] end[1] runs the lift-cable straight, then keeps going
@@ -1403,6 +1423,24 @@ func windowSinuosity(rows []StreamPoint, start, end int) float64 {
 // the index of the last sample inside the kept chunks. Conservative guards:
 // only trims when at least 6 chunks remain (so the median is meaningful) and
 // when the trim doesn't shrink below 6 chunks.
+// trimTrailingLowSpeedSamples walks end backward sample-by-sample while the
+// effective speed at end is below MinSpeedMs. Used as the alternative to
+// trimTrailingChunks for fast-lift stop-indicator endings: the cable's decel
+// zone (samples with speed ≥ MinSpeedMs but below cruise) stays in the ride,
+// while the truly stationary tail (speed < MinSpeedMs at the bergstation
+// arrival) gets peeled off. Conservative — never removes more than ~5 samples
+// in practice because BREAK disembark fires on the FIRST low-speed sample.
+func trimTrailingLowSpeedSamples(rows []StreamPoint, start, end int, cfg DetectorConfig) int {
+	for end > start+1 {
+		spd, ok := effectiveSpeedCfg(rows, end, cfg)
+		if !ok || spd >= cfg.MinSpeedMs {
+			return end
+		}
+		end--
+	}
+	return end
+}
+
 func trimTrailingChunks(rows []StreamPoint, start, end int) int {
 	const chunkSecs = 10.0
 	chunks, _ := chunkedSpeeds(rows, start, end, chunkSecs)
