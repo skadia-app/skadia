@@ -154,6 +154,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		sportType, subType := sportFields.SportType, sportFields.SubType
 		isElectric := sportFields.IsElectric
 		isVirtual := sportFields.IsVirtual
+		isCommute, _ := parseBool(colVal(row, hdr["Pendeln"]))
 
 		// Moving time (seconds)
 		movingTimeS, _ := parseGermanInt(colVal(row, hdr["Bewegungszeit"]))
@@ -224,6 +225,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			SubType:    subType,
 			IsElectric: isElectric,
 			IsVirtual:  isVirtual,
+			IsCommute:  isCommute,
 			StartedAt:  startedAt,
 			EndedAt:    endedAt,
 		}
@@ -793,6 +795,9 @@ func mergeActivityData(base, parsed *model.ActivityData) {
 	}
 	if parsed.IsVirtual {
 		base.IsVirtual = true
+	}
+	if parsed.IsCommute {
+		base.IsCommute = true
 	}
 
 	// UserProfileImport from FIT

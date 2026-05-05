@@ -278,7 +278,6 @@ func TestGearDefaultPredicateForSourcePreservesSubtypeAndModifiers(t *testing.T)
 		{raw: "Mountain Bike Ride", wantSport: "cycling", wantSubType: "mountain"},
 		{raw: "E-Mountain Bike Ride", wantSport: "cycling", wantSubType: "mountain", wantElectric: boolPtr(true)},
 		{raw: "Virtual Ride", wantSport: "cycling", wantVirtual: boolPtr(true)},
-		{raw: "Mystery Sport", wantSport: "generic"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.raw, func(t *testing.T) {
@@ -307,10 +306,14 @@ func TestGearDefaultPredicateForSourcePreservesSubtypeAndModifiers(t *testing.T)
 	}
 }
 
-func TestGearDefaultSportForSourcePreservesStravaGenericFallback(t *testing.T) {
+func TestGearDefaultSportForSourceSkipsUnknownStravaSource(t *testing.T) {
 	got, ok := GearDefaultSportForSource(SourceStrava, "Definitely Not A Known Sport")
-	if !ok || got != "generic" {
-		t.Fatalf("GearDefaultSportForSource unknown Strava = %q, %v; want generic, true", got, ok)
+	if ok || got != "" {
+		t.Fatalf("GearDefaultSportForSource unknown Strava = %q, %v; want empty, false", got, ok)
+	}
+	predicate, ok := GearDefaultPredicateForSource(SourceStrava, "Definitely Not A Known Sport")
+	if ok || predicate.SportType != "" {
+		t.Fatalf("GearDefaultPredicateForSource unknown Strava = %#v, %v; want empty, false", predicate, ok)
 	}
 }
 

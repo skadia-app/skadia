@@ -186,6 +186,26 @@ func TestNormalizeSportTaxonomyImportRowRoutingProfiles(t *testing.T) {
 	}
 }
 
+func TestNormalizeSportTaxonomyImportRowDropsParentOnlyPredicateSubType(t *testing.T) {
+	row := map[string]any{
+		"predicates": []any{map[string]any{"sport": "cycling", "sub_type": "generic"}},
+	}
+	targetCols := []targetColumn{
+		{Name: "predicates"},
+		{Name: "modifier_filters"},
+	}
+
+	got, err := normalizeSportTaxonomyImportRow("routing_profiles", row, targetCols)
+	if err != nil {
+		t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
+	}
+	predicates := got["predicates"].([]any)
+	predicate := predicates[0].(map[string]any)
+	if _, ok := predicate["sub_type"]; ok {
+		t.Fatalf("predicate kept parent-only sub_type: %#v", predicate)
+	}
+}
+
 func TestNormalizeSportTaxonomyImportRowGearDefaultSports(t *testing.T) {
 	row := map[string]any{
 		"default_for_sports": []any{"mountain_biking", "e_mountain_biking", "cycling", "fitness_equipment"},

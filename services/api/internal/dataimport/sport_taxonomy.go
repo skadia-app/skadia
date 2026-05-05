@@ -373,8 +373,6 @@ func normalizePredicateList(value any) ([]any, sport.ModifierPatch, error) {
 		normalized := map[string]any{"sport": tuple.SportType}
 		if tuple.SubType != "" {
 			normalized["sub_type"] = tuple.SubType
-		} else if _, ok := predicate["sub_type"]; ok {
-			normalized["sub_type"] = ""
 		}
 		modifierPatch = mergeImportModifierPatch(modifierPatch, patch)
 		out = append(out, normalized)

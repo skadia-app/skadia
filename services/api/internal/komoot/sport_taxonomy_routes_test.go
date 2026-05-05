@@ -14,6 +14,7 @@ func TestKomootRouteSportTuplePreservesSubtypeAndElectricFlag(t *testing.T) {
 		{name: "e racebike", sport: "e_racebike", wantSport: "cycling", wantSub: "road", wantElectric: true},
 		{name: "mtb", sport: "mtb", wantSport: "cycling", wantSub: "mountain"},
 		{name: "e mtb", sport: "e_mtb", wantSport: "cycling", wantSub: "mountain", wantElectric: true},
+		{name: "intentional broad other", sport: "other", wantSport: "generic"},
 		{name: "unknown fallback", sport: "definitely_unknown", wantSport: "unknown"},
 	}
 

@@ -185,9 +185,6 @@ func GearDefaultSportForSource(source Source, rawSport string) (string, bool) {
 			return mapped, true
 		}
 	}
-	if source == SourceStrava {
-		return GenericSportType, true
-	}
 	return "", false
 }
 
@@ -199,9 +196,6 @@ func GearDefaultPredicateForSource(source Source, rawSport string) (GearDefaultP
 	result, err := ResolveSport(ResolveInput{Source: source, RawSport: rawSport})
 	if err == nil && result.Resolved && result.Tuple.SportType != "" {
 		return gearDefaultPredicateFromResolved(result.Tuple, result.Patch), true
-	}
-	if source == SourceStrava {
-		return GearDefaultPredicate{SportType: GenericSportType}, true
 	}
 	return GearDefaultPredicate{}, false
 }

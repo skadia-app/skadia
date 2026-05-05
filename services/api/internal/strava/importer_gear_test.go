@@ -34,9 +34,9 @@ func TestMapStravaDefaultSportsUsesTopLevelCanonicalSports(t *testing.T) {
 			want:  []string{"fitness_equipment"},
 		},
 		{
-			name:  "unknown labels preserve generic fallback",
+			name:  "unknown labels do not create defaults",
 			input: "Mystery Sport",
-			want:  []string{"generic"},
+			want:  nil,
 		},
 		{
 			name:  "virtual labels collapse to top level sports",
