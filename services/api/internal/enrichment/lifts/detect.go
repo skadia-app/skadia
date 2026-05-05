@@ -1593,6 +1593,19 @@ func validateRide(ws stats, kind string, cfg DetectorConfig) bool {
 		if ws.meanSpeed < 2.0 && gradient < 0.15 {
 			return false
 		}
+		// Monotonicity check: real ascending lifts (T-bar, chairlift,
+		// gondola, aerial tramway) have a minor descent component from
+		// GPS jitter only — typically 0–5 % of ascent, never above ~6 %
+		// across the validated corpus (cycling-computer device ride[5] L05 sits at 5.3 %,
+		// the highest). A larger descent signals a hike/push/walk segment
+		// that happened to clear the speed/sin gates. multi-section case 1 ride[6]
+		// (asc 119 m, desc 21 m = 18 %, mean spd 1.1 m/s, sin 1.05) is the
+		// calibrated FP. Threshold 10 % + 5 m absolute keeps a margin to
+		// the L05-class real lifts. Bidir kind has its own paired
+		// validation; descent is required there, not rejected.
+		if ws.altNegDelta > 5.0 && ws.altNegDelta > 0.10*ws.altPosDelta {
+			return false
+		}
 		return true
 	case "bidir":
 		if ws.durationS < float64(cfg.BidirMinDurationS) {
