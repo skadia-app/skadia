@@ -1,24 +1,35 @@
-import { WATER_SPORT_UI_GROUPS, getSegmentGroup, sportsInCategory, type SportDef } from '@/lib/sportTaxonomy'
+import { sportsInCategory } from '@/lib/sportTaxonomy'
 import { type SegType } from '@/components/segment-editor/constants'
 import { segmentEligibleSelectionKeys } from '@/lib/segmentProjection'
+import { GENERATED_ACTIVITY_FILTER_PRESETS } from '@/lib/generatedSportFilterProjections'
 
 export interface UISportCategory {
   key: string
   label: string
   taxonomyKeys: string[]
-  segmentGroups?: SportDef['segmentGroup'][]
+  selectionKeys?: string[]
 }
+
+const activityAllPreset = GENERATED_ACTIVITY_FILTER_PRESETS.find(preset => preset.key === 'activity_all')
+
+const GENERATED_WATER_UI_CATEGORIES: UISportCategory[] =
+  activityAllPreset?.groups
+    .filter(group => group.key.startsWith('water_'))
+    .map(group => ({
+      key: group.key,
+      label: group.label,
+      taxonomyKeys: ['water'],
+      selectionKeys: Array.from(new Set(group.leaves.map(leaf => {
+        const subType = 'subType' in leaf ? leaf.subType : undefined
+        return subType ? `${leaf.sportType}:${subType}` : leaf.sportType
+      }))),
+    })) ?? []
 
 export const UI_SPORT_CATEGORIES: UISportCategory[] = [
   { key: 'run',          label: 'Laufen & Wandern', taxonomyKeys: ['run'] },
   { key: 'bike',         label: 'Rad',              taxonomyKeys: ['bike'] },
   { key: 'winter',       label: 'Wintersport',      taxonomyKeys: ['winter'] },
-  ...WATER_SPORT_UI_GROUPS.map(group => ({
-    key: group.key,
-    label: group.label,
-    taxonomyKeys: ['water'],
-    segmentGroups: group.segmentGroups,
-  })),
+  ...GENERATED_WATER_UI_CATEGORIES,
   { key: 'sonstige',     label: 'Sonstige',         taxonomyKeys: ['fitness', 'game', 'climb', 'outdoor', 'multi', 'other'] },
 ]
 
@@ -31,10 +42,7 @@ export function getVisibleCategories(segType: SegType) {
 export function expandCategoryToSportTypes(uiKey: string, whitelist?: readonly string[]): string[] {
   const cat = UI_SPORT_CATEGORIES.find(c => c.key === uiKey)
   if (!cat) return []
-  let types = cat.taxonomyKeys.flatMap(tk => sportsInCategory(tk).map(s => s.sportType))
-  if (cat.segmentGroups) {
-    types = types.filter(t => cat.segmentGroups?.includes(getSegmentGroup(t)))
-  }
+  let types = cat.selectionKeys ?? cat.taxonomyKeys.flatMap(tk => sportsInCategory(tk).map(s => s.sportType))
   if (whitelist) {
     types = types.filter(t => whitelist.includes(t))
   }

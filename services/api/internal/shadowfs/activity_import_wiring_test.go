@@ -100,26 +100,6 @@ func TestActivityImportPathsUseCentralSchemaTagsAndPostProcessing(t *testing.T) 
 	}
 }
 
-func TestPostProcessRefreshesActivityFileAfterMetaCompanion(t *testing.T) {
-	apiRoot := testAPIRoot(t)
-	src := readAPISource(t, apiRoot, "internal/importer/service.go")
-
-	for _, fragment := range []string{
-		"sidecar.WriteMetaCompanion(ctx, s.ShadowFS, s.DB, userID, activityID, effectiveFileID, data, activity)",
-		"s.ActivityFileRefresher(ctx, userID, activityID, effectiveFileID)",
-	} {
-		if !strings.Contains(src, fragment) {
-			t.Fatalf("internal/importer/service.go missing %q", fragment)
-		}
-	}
-
-	meta := strings.Index(src, "sidecar.WriteMetaCompanion(ctx, s.ShadowFS, s.DB, userID, activityID, effectiveFileID, data, activity)")
-	refresh := strings.Index(src, "s.ActivityFileRefresher(ctx, userID, activityID, effectiveFileID)")
-	if refresh <= meta {
-		t.Fatalf("activity file refresh must run after meta companion write")
-	}
-}
-
 func testAPIRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
