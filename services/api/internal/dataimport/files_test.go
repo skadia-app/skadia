@@ -40,6 +40,33 @@ func TestLoadActivityFileTagIndexWarnsAndContinuesForBadRows(t *testing.T) {
 	}
 }
 
+func TestLoadActivityFileTagIndexUsesAutoTitleFallback(t *testing.T) {
+	fileID := uuid.New().String()
+	zipPath := buildExportZip(t, zipBuildOpts{
+		activities: []map[string]any{
+			{
+				"id":         uuid.New().String(),
+				"file_id":    fileID,
+				"sport_type": "running",
+				"title":      "",
+				"title_auto": "Automatischer Lauf",
+			},
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	index, warnings, err := loadActivityFileTagIndex(src)
+	if err != nil {
+		t.Fatalf("loadActivityFileTagIndex: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if got := index[fileID].Title; got != "Automatischer Lauf" {
+		t.Fatalf("title = %q, want title_auto fallback", got)
+	}
+}
+
 func TestLoadActivityFileTagIndexMalformedJSONReturnsWarning(t *testing.T) {
 	zipPath := buildExportZip(t, zipBuildOpts{
 		extraFiles: map[string][]byte{"data/activities.json": []byte(`{"not":"an array"}`)},

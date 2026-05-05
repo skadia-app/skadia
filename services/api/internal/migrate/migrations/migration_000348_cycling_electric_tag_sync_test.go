@@ -28,6 +28,9 @@ func TestMigration000348CyclingElectricTagSyncDeclaresRequiredContracts(t *testi
 	for _, needle := range []string{
 		"SELECT pg_advisory_xact_lock(hashtext('cycling_electric_tag_sync'), 1)",
 		"INSERT INTO tags",
+		"ON CONFLICT (user_id, name) DO UPDATE SET",
+		"is_system = true",
+		"category = 'system'",
 		"CREATE OR REPLACE FUNCTION sync_system_flags_and_tags",
 		"CREATE OR REPLACE FUNCTION sync_system_flags_and_tags_insert_junction",
 		"NEW.sport_type = 'cycling'",
@@ -139,6 +142,27 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 		t.Fatalf("insert missing-tag cycling activity: %v", err)
 	}
 
+	customExistingUserID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
+		VALUES ($1, $2, $3, true, 'test', false)
+	`, customExistingUserID, "mig348_existing_"+customExistingUserID[:8], "mig348_existing_"+customExistingUserID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert custom-existing user: %v", err)
+	}
+	customExistingCyclingID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+		VALUES ($1, 'E-Bike', '#111111', '#FFFFFF', 'custom', false, false, 'custom')
+	`, customExistingUserID); err != nil {
+		t.Fatalf("insert pre-existing custom E-Bike tag: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, tags, is_electric, started_at)
+		VALUES ($1, $2, 'custom existing cycling electric', 'cycling', NULL, ARRAY[]::text[], true, now())
+	`, customExistingCyclingID, customExistingUserID); err != nil {
+		t.Fatalf("insert custom-existing cycling activity: %v", err)
+	}
+
 	if _, err := tx.Exec(ctx, upSQL); err != nil {
 		t.Fatalf("apply up.sql: %v", err)
 	}
@@ -150,6 +174,9 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	assertHasSystemEBikeLink000348(t, ctx, tx, missingTagCyclingID, true)
 	assertActivityTagArrayHas000348(t, ctx, tx, missingTagCyclingID, "E-Bike", true)
 	assertActivityTagLinkCount000348(t, ctx, tx, missingTagCyclingID, 1)
+	assertSystemEBikeTagCount000348(t, ctx, tx, customExistingUserID, 1)
+	assertHasSystemEBikeLink000348(t, ctx, tx, customExistingCyclingID, true)
+	assertActivityTagArrayHas000348(t, ctx, tx, customExistingCyclingID, "E-Bike", true)
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto)

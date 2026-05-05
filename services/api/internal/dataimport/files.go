@@ -56,6 +56,7 @@ type exportedActivityFileTags struct {
 	SubType            string    `json:"sub_type"`
 	StartedAt          time.Time `json:"started_at"`
 	Title              string    `json:"title"`
+	TitleAuto          string    `json:"title_auto"`
 	StartCity          string    `json:"start_city"`
 	StartCountry       string    `json:"start_country"`
 	DistanceM          float64   `json:"distance_m"`
@@ -115,7 +116,8 @@ func loadActivityFileTagIndex(source Source) (map[string]shadowfs.ActivitySchema
 			StartedAt:      row.StartedAt,
 			SportType:      row.SportType,
 			SubType:        row.SubType,
-			Title:          row.Title,
+			Title:          firstNonBlankActivityFileText(row.Title, row.TitleAuto),
+			TitleAuto:      row.TitleAuto,
 			City:           row.StartCity,
 			Country:        row.StartCountry,
 			DistanceM:      row.DistanceM,
@@ -131,6 +133,15 @@ func loadActivityFileTagIndex(source Source) (map[string]shadowfs.ActivitySchema
 		warnings = append(warnings, fmt.Sprintf("activity file tag index ended with malformed JSON: %v", err))
 	}
 	return index, warnings, nil
+}
+
+func firstNonBlankActivityFileText(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // importFileByID imports a single file from the export into ShadowFS and

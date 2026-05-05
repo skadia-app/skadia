@@ -26,7 +26,12 @@ func TestMigration000349GearDefaultPredicatesDeclaresRequiredContracts(t *testin
 	upSQL, downSQL := readMigration000349GearDefaultPredicatesSQL(t)
 	for _, needle := range []string{
 		"ADD COLUMN IF NOT EXISTS default_sport_predicates JSONB NOT NULL DEFAULT '[]'::jsonb",
-		"jsonb_agg(jsonb_build_object('sport_type', sport_type) ORDER BY ord)",
+		"jsonb_agg(predicate ORDER BY ord)",
+		"e_mountain_biking",
+		"e_biking",
+		"'is_electric', true",
+		"mountain_biking",
+		"WHERE predicate IS NOT NULL",
 		"WITH ORDINALITY",
 		"WHERE default_sport_predicates = '[]'::jsonb",
 	} {
@@ -66,7 +71,10 @@ func TestMigration000349GearDefaultPredicatesBackfillsLegacyDefaults(t *testing.
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO gear (user_id, name, type, default_for_sports)
-		VALUES ($1, 'Road', 'bike', ARRAY['cycling', 'running'])
+		VALUES
+			($1, 'Road', 'bike', ARRAY['cycling', 'running']),
+			($1, 'Legacy MTB', 'bike', ARRAY['mountain_biking', 'e_mountain_biking', 'e_biking']),
+			($1, 'Invalid Legacy', 'other', ARRAY['not_a_sport'])
 	`, userID); err != nil {
 		t.Fatalf("insert gear: %v", err)
 	}
@@ -86,6 +94,28 @@ func TestMigration000349GearDefaultPredicatesBackfillsLegacyDefaults(t *testing.
 		if !strings.Contains(predicates, want) {
 			t.Fatalf("predicates = %s, missing %s", predicates, want)
 		}
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT default_sport_predicates::text
+		FROM gear
+		WHERE user_id = $1 AND name = 'Legacy MTB'
+	`, userID).Scan(&predicates); err != nil {
+		t.Fatalf("select legacy mtb predicates: %v", err)
+	}
+	for _, want := range []string{`"sport_type": "cycling"`, `"sub_type": "mountain"`, `"is_electric": true`} {
+		if !strings.Contains(predicates, want) {
+			t.Fatalf("legacy predicates = %s, missing %s", predicates, want)
+		}
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT default_sport_predicates::text
+		FROM gear
+		WHERE user_id = $1 AND name = 'Invalid Legacy'
+	`, userID).Scan(&predicates); err != nil {
+		t.Fatalf("select invalid legacy predicates: %v", err)
+	}
+	if predicates != "[]" {
+		t.Fatalf("invalid legacy predicates = %s, want []", predicates)
 	}
 	if _, err := tx.Exec(ctx, downSQL); err != nil {
 		t.Fatalf("apply down.sql: %v", err)
