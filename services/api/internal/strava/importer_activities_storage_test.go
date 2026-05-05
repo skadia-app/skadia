@@ -42,8 +42,8 @@ func TestBuildStravaCSVSourceFileUsesCanonicalActivityTags(t *testing.T) {
 	if file.entry.Tags["sport"] != "cycling" || file.entry.Tags["subCategory"] != "mountain" {
 		t.Fatalf("taxonomy tags = %#v, want cycling/mountain", file.entry.Tags)
 	}
-	if data.FileHash != file.hash || data.FileFormat != "strava_csv" {
-		t.Fatalf("data file metadata = hash %q format %q, want %q/strava_csv", data.FileHash, data.FileFormat, file.hash)
+	if data.FileHash != "" || data.FileFormat != "" {
+		t.Fatalf("buildStravaCSVSourceFile mutated data file metadata: hash %q format %q", data.FileHash, data.FileFormat)
 	}
 }
 
@@ -64,6 +64,35 @@ func TestBuildStravaCSVSourceFileHashIgnoresCanonicalSportMapping(t *testing.T) 
 	}
 	if oldFile.hash != newFile.hash {
 		t.Fatalf("hash changed across canonical sport remap: %q != %q", oldFile.hash, newFile.hash)
+	}
+}
+
+func TestBuildStravaCSVSourceFileIsDeterministic(t *testing.T) {
+	startedAt := time.Date(2026, 5, 3, 9, 8, 0, 0, time.UTC)
+	hdr := map[string]int{"Name": 0, "Activity ID": 1}
+	row := []string{"Morning MTB", "123"}
+	data := &model.ActivityData{
+		SportType:      "cycling",
+		SubType:        "mountain",
+		StartedAt:      startedAt,
+		DistanceM:      12345,
+		ElapsedTimeS:   3661,
+		ElevationGainM: 321,
+	}
+
+	first, err := buildStravaCSVSourceFile("user-1", 123, data, "Morning MTB", row, hdr)
+	if err != nil {
+		t.Fatalf("first buildStravaCSVSourceFile: %v", err)
+	}
+	second, err := buildStravaCSVSourceFile("user-1", 123, data, "Morning MTB", row, hdr)
+	if err != nil {
+		t.Fatalf("second buildStravaCSVSourceFile: %v", err)
+	}
+	if first.hash != second.hash {
+		t.Fatalf("hash changed between identical builds: %q != %q", first.hash, second.hash)
+	}
+	if string(first.data) != string(second.data) {
+		t.Fatalf("CSV sidecar bytes changed between identical builds:\nfirst=%s\nsecond=%s", first.data, second.data)
 	}
 }
 

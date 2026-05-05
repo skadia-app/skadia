@@ -452,6 +452,8 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			} else {
 				hashStr = csvSourceFile.hash
 				format = "strava_csv"
+				data.FileHash = hashStr
+				data.FileFormat = format
 			}
 		}
 
@@ -610,7 +612,7 @@ func buildStravaCSVSourceFile(userID string, stravaID int64, data *model.Activit
 		ElevationGainM: data.ElevationGainM,
 		Source:         "Strava",
 		SourceFields:   csvRowToMap(row, hdr),
-		CreatedAt:      time.Now().UTC(),
+		CreatedAt:      data.StartedAt.UTC(),
 	}
 	detHash := sha256.Sum256(fmt.Appendf(nil, "strava_csv|%d|%s", stravaID, data.StartedAt.Format(time.RFC3339)))
 	hashStr := hex.EncodeToString(detHash[:])
@@ -618,8 +620,6 @@ func buildStravaCSVSourceFile(userID string, stravaID int64, data *model.Activit
 	if err != nil {
 		return nil, err
 	}
-	data.FileHash = hashStr
-	data.FileFormat = "strava_csv"
 	return &stravaCSVSourceFile{
 		data: jsonBytes,
 		hash: hashStr,

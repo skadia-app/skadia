@@ -123,6 +123,7 @@ func ResolveSport(input ResolveInput) (ResolveResult, error) {
 	if alias, ok := lookupSourceAlias(input.Source, rawSport, rawSub); ok {
 		tuple := alias.Tuple
 		if input.Source == SourceLegacy && alias.RawSub == "" && tuple.SubType == "" && hasConcreteSubType(rawSub) {
+			// Legacy callers may already store canonical parent + subtype pairs.
 			tuple.SubType = CanonicalSubTypeID(rawSub)
 		}
 		normalized, defaults, err := normalizeCanonicalTuple(tuple.SportType, tuple.SubType)

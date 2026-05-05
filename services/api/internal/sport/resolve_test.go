@@ -36,6 +36,20 @@ func TestResolveSportFallsBackToRawOnlyAliasAfterExactMiss(t *testing.T) {
 	}
 }
 
+func TestResolveSportLegacyRawOnlyAliasCarriesCanonicalSubType(t *testing.T) {
+	got, err := ResolveSport(ResolveInput{
+		Source:   SourceLegacy,
+		RawSport: "cycling",
+		RawSub:   "mountain",
+	})
+	if err != nil {
+		t.Fatalf("ResolveSport() error = %v", err)
+	}
+	if got.Tuple != (Tuple{SportType: "cycling", SubType: "mountain"}) {
+		t.Fatalf("tuple = %#v, want cycling/mountain", got.Tuple)
+	}
+}
+
 func TestResolveSportNoMatchForStrictSourceIsUnresolved(t *testing.T) {
 	got, err := ResolveSport(ResolveInput{Source: SourceStrava, RawSport: "Not A Known Label"})
 	if err != nil {

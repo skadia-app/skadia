@@ -1644,15 +1644,8 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		data.DiveGases = append(data.DiveGases, gas)
 	}
 
-	// CCR detection: if any gas is closed-circuit diluent, this is a CCR dive.
-	// The FIT SDK has no dedicated CCR sub-sport; Garmin encodes CCR via gas mode.
-	if data.SportType == "diving" {
-		for _, g := range data.DiveGases {
-			if g.Mode == "closed_circuit_diluent" {
-				data.SubType = "ccr_diving"
-				break
-			}
-		}
+	if err := applyDiveGasDerivedSport(data); err != nil {
+		return nil, err
 	}
 
 	// === FIT SDK — GPS Metadata: assign headings to stream points ===
@@ -1731,6 +1724,19 @@ func normalizeParsedActivitySport(data *model.ActivityData) error {
 	data.IsElectric = modifiers.IsElectric
 	data.IsIndoor = modifiers.IsIndoor
 	data.IsVirtual = modifiers.IsVirtual
+	return nil
+}
+
+func applyDiveGasDerivedSport(data *model.ActivityData) error {
+	if data == nil || data.SportType != "diving" {
+		return nil
+	}
+	for _, g := range data.DiveGases {
+		if g.Mode == "closed_circuit_diluent" {
+			data.SubType = "ccr_diving"
+			return normalizeParsedActivitySport(data)
+		}
+	}
 	return nil
 }
 
