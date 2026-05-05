@@ -291,7 +291,7 @@ func mapGPXType(gpxType string) sporttax.ResolveResult {
 	}
 
 	result, err := sporttax.ResolveSport(sporttax.ResolveInput{Source: sporttax.SourceGPXFile, RawSport: t})
-	if err != nil || !result.AliasMatched {
+	if err != nil || !result.Resolved {
 		return sporttax.ResolveResult{Tuple: sporttax.Tuple{SportType: "unknown"}, Resolved: true}
 	}
 	return result

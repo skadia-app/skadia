@@ -409,7 +409,7 @@ func mapTCXSport(sport string) sporttax.ResolveResult {
 	}
 
 	result, err := sporttax.ResolveSport(sporttax.ResolveInput{Source: sporttax.SourceTCXFile, RawSport: t})
-	if err != nil || !result.AliasMatched {
+	if err != nil || !result.Resolved {
 		return sporttax.ResolveResult{Tuple: sporttax.Tuple{SportType: "unknown"}, Resolved: true}
 	}
 	return result

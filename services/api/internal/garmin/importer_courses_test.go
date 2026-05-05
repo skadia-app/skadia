@@ -11,6 +11,7 @@ func TestGarminCourseTypeToSportTuple(t *testing.T) {
 	}{
 		{name: "cycling", input: "cycling", wantSport: "cycling"},
 		{name: "road cycling", input: "road_cycling", wantSport: "cycling", wantSub: "road"},
+		{name: "course type is normalized before alias lookup", input: " Mountain_Biking ", wantSport: "cycling", wantSub: "mountain"},
 		{name: "mountain biking", input: "mountain_biking", wantSport: "cycling", wantSub: "mountain"},
 		{name: "gravel cycling", input: "gravel_cycling", wantSport: "cycling", wantSub: "gravel_cycling"},
 		{name: "running", input: "running", wantSport: "running"},

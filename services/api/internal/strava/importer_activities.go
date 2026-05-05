@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -535,7 +534,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		tracker.Completed(ctx, actResult.ActivityID)
 
 		// Apply Strava-specific enrichment: activity name + weather from CSV
-		enrichFields := buildStravaEnrichFields(activityName, row, hdr)
+		enrichFields := buildStravaEnrichFields(activityName)
 		if len(enrichFields) > 0 {
 			if err := params.DB.UpdateEnrichmentFields(ctx, actResult.ActivityID, enrichFields); err != nil {
 				slog.Warn("strava activities: update enrichment fields failed", "error", err)
@@ -571,14 +570,12 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 	return result, nil
 }
 
-// buildStravaEnrichFields builds the enrichment field map for Strava-specific metadata:
-// the activity title and weather data from the CSV row.
-func buildStravaEnrichFields(activityName string, row []string, hdr map[string]int) map[string]any {
+// buildStravaEnrichFields builds the enrichment field map for CSV activity metadata.
+func buildStravaEnrichFields(activityName string) map[string]any {
 	fields := make(map[string]any)
 	if activityName != "" {
 		fields["title"] = activityName
 	}
-	maps.Copy(fields, extractWeatherFields(row, hdr))
 	return fields
 }
 
@@ -856,48 +853,6 @@ func normalizeStravaSportFields(stravaSport string) (normalizedStravaSport, erro
 		IsVirtual:  modifiers.IsVirtual,
 	}
 	return out, nil
-}
-
-// extractWeatherFields previously populated flat weather_* columns from Strava CSV.
-// TODO(weather-improvements Task 6): migrate to InsertWeatherReadings via activity_weather table.
-// Flat columns have been removed from activities table (migration 000167).
-func extractWeatherFields(row []string, hdr map[string]int) map[string]any {
-	// Strava weather data import is temporarily disabled pending migration to
-	// the new activity_weather table. Return empty map so no dead columns are written.
-	_, _ = row, hdr
-	return map[string]any{}
-}
-
-// mapStravaWeatherCondition maps Strava weather condition codes to descriptive strings.
-// Strava uses DarkSky-compatible condition codes.
-func mapStravaWeatherCondition(code int) string {
-	// DarkSky / Strava precipitation type codes:
-	// The "Wetterlage" field appears to be a general condition code
-	// Common mappings based on DarkSky icon names
-	switch code {
-	case 1:
-		return "clear-day"
-	case 2:
-		return "clear-night"
-	case 3:
-		return "rain"
-	case 4:
-		return "snow"
-	case 5:
-		return "sleet"
-	case 6:
-		return "wind"
-	case 7:
-		return "fog"
-	case 8:
-		return "cloudy"
-	case 9:
-		return "partly-cloudy-day"
-	case 10:
-		return "partly-cloudy-night"
-	default:
-		return ""
-	}
 }
 
 // isSportRefinement returns true when 'specific' is a known more-specific variant

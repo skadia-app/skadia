@@ -17,6 +17,7 @@ func TestMapTCXSportReturnsCanonicalSportTuple(t *testing.T) {
 		{"trail_running", "running", "trail", nil},
 		{"mountain_biking", "cycling", "mountain", nil},
 		{"gravel_ride", "cycling", "gravel_cycling", nil},
+		{"geocaching", "geocaching", "", nil},
 		{"other", "generic", "", nil},
 		{"does_not_exist", "unknown", "", nil},
 	}

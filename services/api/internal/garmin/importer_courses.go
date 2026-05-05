@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -162,21 +163,14 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 
 // garminCourseTypeToSport maps Garmin courseType strings to Skadia route sport tuples.
 func garminCourseTypeToSport(courseType string) (string, *string) {
-	result, err := sporttax.ResolveSport(sporttax.ResolveInput{Source: sporttax.SourceGarminCourse, RawSport: courseType})
+	result, err := sporttax.ResolveSport(sporttax.ResolveInput{
+		Source:   sporttax.SourceGarminCourse,
+		RawSport: strings.ToLower(strings.TrimSpace(courseType)),
+	})
 	if err != nil || !result.Resolved {
 		return "unknown", nil
 	}
-	return sportTupleForRoute(result.Tuple, "unknown")
-}
-
-func sportTupleForRoute(tuple sporttax.Tuple, fallback string) (string, *string) {
-	if tuple.SportType == "" {
-		return fallback, nil
-	}
-	if tuple.SubType == "" {
-		return tuple.SportType, nil
-	}
-	return tuple.SportType, &tuple.SubType
+	return sporttax.RouteImportTuple(result.Tuple, "unknown")
 }
 
 // geoPointsToGeoJSON converts Garmin GeoPoints to a GeoJSON LineString string.
