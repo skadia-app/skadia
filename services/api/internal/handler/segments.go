@@ -22,6 +22,23 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
+var validSegmentTypes = map[string]struct{}{
+	"standard":    {},
+	"trail":       {},
+	"lap":         {},
+	"wintersport": {},
+	"wassersport": {},
+	"lift":        {},
+}
+
+var enrichableSegmentTypes = map[string]struct{}{
+	"standard":    {},
+	"trail":       {},
+	"lap":         {},
+	"wintersport": {},
+	"wassersport": {},
+}
+
 func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -65,9 +82,8 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 
 	// Input-Validation (§5.3 Spec N2-6) — verhindert DoS via malformed Query
 	if params.SegmentTypes != "" {
-		valid := map[string]bool{"standard": true, "trail": true, "lap": true, "wintersport": true, "wassersport": true, "lift": true}
 		for _, t := range strings.Split(params.SegmentTypes, ",") {
-			if !valid[strings.TrimSpace(t)] {
+			if !isValidSegmentType(strings.TrimSpace(t)) {
 				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid segment_types parameter", r.URL.Path)
 				return
 			}
@@ -282,12 +298,13 @@ func stripIncompatibleMeta(m map[string]any, segType string) {
 }
 
 func isValidSegmentType(segType string) bool {
-	switch segType {
-	case "standard", "trail", "lap", "wintersport", "wassersport", "lift":
-		return true
-	default:
-		return false
-	}
+	_, ok := validSegmentTypes[segType]
+	return ok
+}
+
+func isEnrichableSegmentType(segType string) bool {
+	_, ok := enrichableSegmentTypes[segType]
+	return ok
 }
 
 func (h *Handler) UpdateSegment(w http.ResponseWriter, r *http.Request) {
@@ -1282,8 +1299,7 @@ func (h *Handler) EnrichmentSuggest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	validTypes := map[string]bool{"standard": true, "trail": true, "lap": true, "wintersport": true, "wassersport": true}
-	if !validTypes[req.SegType] {
+	if !isEnrichableSegmentType(req.SegType) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "seg_type must be one of standard|trail|lap|wintersport|wassersport", r.URL.Path)
 		return
 	}
