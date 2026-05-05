@@ -53,7 +53,7 @@ function optionsForPreset(presetKey: GeneratedActivityFilterPreset['key']): Spor
     label: group.label,
     groupKey: group.key,
     children: group.leaves.map(optionFromLeaf),
-  }))
+  })).filter((group) => group.children.length > 0)
 }
 
 /**

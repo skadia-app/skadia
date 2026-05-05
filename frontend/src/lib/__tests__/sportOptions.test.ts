@@ -190,6 +190,12 @@ describe('sport filter options', () => {
     }
   })
 
+  it('does not expose empty generated groups', () => {
+    for (const options of [generateActivityFilterOptions(), generateMapFilterOptions()]) {
+      expect(options.every((group) => (group.children ?? []).length > 0)).toBe(true)
+    }
+  })
+
   it('disambiguates duplicate subtype labels with parent context', () => {
     const options = generateActivityFilterOptions()
     const leaves = flattenLeaves(options)
