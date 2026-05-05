@@ -17,6 +17,7 @@ type ActivitySchemaTagsInput struct {
 	SportType      string
 	SubType        string
 	Title          string
+	TitleAuto      string
 	City           string
 	Country        string
 	DistanceM      float64
@@ -53,7 +54,7 @@ func ActivitySchemaTags(input ActivitySchemaTagsInput) map[string]string {
 		}
 	}
 
-	if title := strings.TrimSpace(input.Title); title != "" {
+	if title := firstNonBlank(input.Title, input.TitleAuto); title != "" {
 		tags["title"] = title
 	}
 	if city := strings.TrimSpace(input.City); city != "" {
@@ -88,6 +89,15 @@ func ActivitySchemaTags(input ActivitySchemaTagsInput) map[string]string {
 	}
 	tags["modifiers"] = strings.Join(modifiers, "_")
 	return tags
+}
+
+func firstNonBlank(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func isFinite(value float64) bool {

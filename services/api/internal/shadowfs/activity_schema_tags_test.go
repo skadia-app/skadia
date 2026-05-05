@@ -75,6 +75,19 @@ func TestActivitySchemaTagsMetadata(t *testing.T) {
 	}
 }
 
+func TestActivitySchemaTagsUsesAutoTitleFallback(t *testing.T) {
+	tags := ActivitySchemaTags(ActivitySchemaTagsInput{
+		SportType:  "running",
+		Title:      "  ",
+		TitleAuto:  "Abendlauf",
+		IsElectric: true,
+	})
+
+	if tags["title"] != "Abendlauf" {
+		t.Fatalf("title = %q, want auto title fallback", tags["title"])
+	}
+}
+
 func TestActivitySchemaTagsDurationSortsLexicographically(t *testing.T) {
 	short := ActivitySchemaTags(ActivitySchemaTagsInput{SportType: "running", ElapsedTimeS: 2 * 3600})
 	long := ActivitySchemaTags(ActivitySchemaTagsInput{SportType: "running", ElapsedTimeS: 10 * 3600})

@@ -67,6 +67,20 @@ func TestRenderPath_Sanitize(t *testing.T) {
 	}
 }
 
+func TestRenderPathCollapsesEmptyModifierSeparator(t *testing.T) {
+	r := NewSchemaRenderer()
+	got := r.RenderPath("activity", "{city}_{sport}_{modifiers}_{day}", map[string]string{
+		"city":      "Berlin",
+		"sport":     "running",
+		"modifiers": "",
+		"day":       "15",
+	}, "fit")
+	want := "Berlin_running_15.fit"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestDefaultSchemas(t *testing.T) {
 	r := NewSchemaRenderer()
 	for _, ft := range []string{"activity", "media", "document", "health", "route"} {

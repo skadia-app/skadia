@@ -9,12 +9,13 @@ INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto
 SELECT u.id, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false,
        'Automatisch bei elektrischen Radfahrten'
 FROM users u
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM tags t
-    WHERE t.user_id = u.id
-      AND t.name = 'E-Bike'
-);
+ON CONFLICT (user_id, name) DO UPDATE SET
+    color = EXCLUDED.color,
+    text_color = EXCLUDED.text_color,
+    category = 'system',
+    is_system = true,
+    is_auto = false,
+    description = EXCLUDED.description;
 
 UPDATE tags
 SET description = 'Automatisch bei elektrischen Radfahrten'

@@ -20,6 +20,68 @@ describe('GearForm', () => {
 
     expect(onSave).toHaveBeenCalledTimes(1)
     expect(onSave.mock.calls[0][0].default_for_sports).toEqual(['fitness_equipment', 'cycling'])
+    expect(onSave.mock.calls[0][0].default_sport_predicates).toEqual([
+      { sport_type: 'fitness_equipment' },
+      { sport_type: 'cycling' },
+    ])
+  })
+
+  it('edits precise sport predicate defaults including subtype and modifiers', () => {
+    const onSave = vi.fn()
+    render(
+      <GearForm
+        gear={gearFixture({
+          default_for_sports: ['cycling'],
+          default_sport_predicates: [
+            {
+              sport_type: 'cycling',
+              sub_type: 'mountain',
+              modifiers: { is_electric: true },
+            },
+          ],
+        })}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    )
+
+    expect(screen.getByLabelText('Standard 1 Sportart')).toHaveValue('cycling:mountain')
+    expect(screen.getByLabelText('Standard 1 E-Antrieb')).toHaveValue('true')
+
+    fireEvent.change(screen.getByLabelText('Standard 1 Sportart'), { target: { value: 'diving:ccr_diving' } })
+    fireEvent.change(screen.getByLabelText('Standard 1 E-Antrieb'), { target: { value: 'any' } })
+    fireEvent.change(screen.getByLabelText('Standard 1 Indoor'), { target: { value: 'false' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    expect(onSave.mock.calls[0][0].default_for_sports).toEqual(['diving'])
+    expect(onSave.mock.calls[0][0].default_sport_predicates).toEqual([
+      {
+        sport_type: 'diving',
+        sub_type: 'ccr_diving',
+        modifiers: { is_indoor: false },
+      },
+    ])
+  })
+
+  it('can clear imported predicate defaults explicitly', () => {
+    const onSave = vi.fn()
+    render(
+      <GearForm
+        gear={gearFixture({
+          default_for_sports: ['cycling'],
+          default_sport_predicates: [{ sport_type: 'cycling', sub_type: 'mountain' }],
+        })}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Standard 1 entfernen' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    expect(onSave.mock.calls[0][0].default_for_sports).toEqual([])
+    expect(onSave.mock.calls[0][0].default_sport_predicates).toEqual([])
   })
 })
 

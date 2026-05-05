@@ -9,6 +9,8 @@ import (
 )
 
 var illegalChars = regexp.MustCompile(`[/\\:*?"<>|{}]`)
+var repeatedUnderscores = regexp.MustCompile(`_{2,}`)
+var repeatedDashes = regexp.MustCompile(`-{2,}`)
 
 // SchemaRenderer renders file paths from templates and variables.
 type SchemaRenderer struct {
@@ -42,10 +44,16 @@ func (r *SchemaRenderer) RenderPath(fileType, schema string, vars map[string]str
 	}
 	result := schema
 	for key, val := range vars {
+		if val == "" {
+			result = collapseEmptyVariableSeparators(result, key)
+		}
+	}
+	for key, val := range vars {
 		rendered := sanitize(val)
 		rendered = truncateRunes(rendered, 50)
 		result = strings.ReplaceAll(result, "{"+key+"}", rendered)
 	}
+	result = cleanupRenderedSeparators(result)
 	for i := 0; i < 20 && strings.Contains(result, "{"); i++ {
 		start := strings.Index(result, "{")
 		end := strings.Index(result, "}")
@@ -61,6 +69,32 @@ func (r *SchemaRenderer) RenderPath(fileType, schema string, vars map[string]str
 		result += ext
 	}
 	return result
+}
+
+func collapseEmptyVariableSeparators(schema, key string) string {
+	token := "{" + key + "}"
+	for _, sep := range []string{"_", "-"} {
+		schema = strings.ReplaceAll(schema, sep+token+sep, sep)
+		schema = strings.ReplaceAll(schema, token+sep, "")
+		schema = strings.ReplaceAll(schema, sep+token, "")
+	}
+	schema = strings.ReplaceAll(schema, token+"/", "")
+	schema = strings.ReplaceAll(schema, "/"+token, "")
+	return strings.ReplaceAll(schema, token, "")
+}
+
+func cleanupRenderedSeparators(path string) string {
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		part = repeatedUnderscores.ReplaceAllString(part, "_")
+		part = repeatedDashes.ReplaceAllString(part, "-")
+		part = strings.Trim(part, "_-")
+		if part == "" {
+			part = "unknown"
+		}
+		parts[i] = part
+	}
+	return strings.Join(parts, "/")
 }
 
 // ValidateSchema checks a schema template for issues.
