@@ -1118,6 +1118,55 @@ func trimTrailingLowGradient(rows []StreamPoint, start, end int, kind string, cf
 		if gradient >= gradFloor && altRate >= altRateFloor {
 			return pos
 		}
+		// Cable-continuation bypass: a multi-section gondola (multi-section case
+		// "Arena Express" Tal→Mid1→Mid2→Berg) holds a quasi-horizontal cable
+		// segment for 60–120 s mid-ride, dropping tail altRate to 0.03–0.10
+		// m/s while the cabin still glides on the cable. The two-strikes
+		// gate then peels back through that segment until it meets the
+		// preceding steep phase. Geometric signature distinguishes mid-cable
+		// from a true bergstation/disembark tail:
+		//   - sinuosity stays at 1.00–1.02 (pylon-straight cable line); a
+		//     walk-around / disembark-schuss/skating departure produces
+		//     ≥ 1.05 within 60 s.
+		//   - speed CV stays low. Cable cruise is steady within the 60 s
+		//     window even when the cable itself decelerates for boarding
+		//     turbulence; walk-off collapses speed to walking pace and the
+		//     cable-decel into bergstation halt drops speed across the
+		//     window. CV ≤ 0.05 retains both classic gondolas and slow
+		//     chairlifts (slow-cable bikepark case Bahn 2 cable cruise CV ≈ 0.03).
+		// Both gates must pass — sinuosity alone misses linear walk-offs
+		// and CV alone misses slow walks on the cable line.
+		tailSinOK := false
+		if rows[tailStart].Lat != nil && rows[tailStart].Lng != nil &&
+			rows[pos].Lat != nil && rows[pos].Lng != nil {
+			cumDist := 0.0
+			for k := tailStart + 1; k <= pos; k++ {
+				if rows[k-1].Lat == nil || rows[k-1].Lng == nil ||
+					rows[k].Lat == nil || rows[k].Lng == nil {
+					continue
+				}
+				cumDist += Haversine(*rows[k-1].Lat, *rows[k-1].Lng, *rows[k].Lat, *rows[k].Lng)
+			}
+			straight := Haversine(*rows[tailStart].Lat, *rows[tailStart].Lng, *rows[pos].Lat, *rows[pos].Lng)
+			if straight > 1.0 && cumDist/straight <= 1.02 {
+				tailSinOK = true
+			}
+		}
+		if tailSinOK {
+			var sumSqDev float64
+			for k := tailStart; k <= pos; k++ {
+				if spd, ok := effectiveSpeedCfg(rows, k, cfg); ok {
+					d := spd - meanSpd
+					sumSqDev += d * d
+				}
+			}
+			cv := math.Sqrt(sumSqDev/cntSpd) / meanSpd
+			if cv <= 0.05 {
+				dprintf("TAIL-GRAD bypass cable-cont sin≈cable cv=%.3f tail=[%d..%d] pos=%d\n",
+					cv, tailStart, pos, pos)
+				return pos
+			}
+		}
 		cutBackT := rows[pos].Time.Add(-time.Duration(stepS) * time.Second)
 		newPos := pos
 		for k := pos - 1; k > start; k-- {
@@ -1454,18 +1503,37 @@ func trimTrailingLowSpeedSamples(rows []StreamPoint, start, end int, cfg Detecto
 }
 
 // trimTrailingAltPlateau walks end backward sample-by-sample while the
-// trailing 5 s altitude rate at end is essentially flat (< 0.15 m/s).
+// trailing 5 s altitude rate at end is essentially flat (< 0.15 m/s)
+// AND every sample in that window kept moving at cable-cruise speed.
 // Used after trimTrailingLowSpeedSamples for fast-lift stop-indicator
 // endings to catch walk-off zones where the rider walks 10–35 m past the
-// cable terminal at 1–3 m/s. The 0.15 m/s threshold sits well below
-// typical fast-lift cable cruise (0.30+ m/s) and below the natural
-// cable-decel slope (0.20–0.40 m/s on the alpine ski-resort case-class gondolas the
-// trim must preserve), so it only fires on true platform plateaus.
+// cable terminal at 1–3 m/s.
+//
+// Two gates, both required:
+//   1. alt-rate < 0.15 m/s — well below fast-lift cable cruise (0.30+) and
+//      below the natural cable-decel slope (0.20–0.40 m/s on alpine ski-resort case-class
+//      gondolas the trim must preserve).
+//   2. min speed in window ≥ 3.0 m/s — fast-lift cable cruise sits at
+//      3.5–9 m/s and stays steady through pylon transitions / mid-cable
+//      horizontal sections (multi-section case 1 multi-A 08:50:49–08:51:00: alt-rate
+//      0.05 m/s while every sample holds 4.85–4.95 m/s — that is mid-cable,
+//      NOT walk-off). A bergstation walk-off always contains at least one
+//      sub-3 m/s sample: pure walking (multi-resort case r9: min 0.69 m/s) or the
+//      bügel-jump-and-slide pattern of T-bar lifts (T-bar drag-lift case Lift A:
+//      min 2.45 m/s while the rider accelerates off the bar). Using the
+//      window minimum (not mean) is what discriminates those cases — the
+//      mean of the slide pattern climbs back above 3 m/s once the rider
+//      gains glide momentum, but the entry samples never do.
+// The fast-lift branch (rideAltRate ≥ 0.30) is the only caller, so the 3 m/s
+// floor sits comfortably above the slowest infrastructure that hits this
+// path; drag-lifts and slow chairs route through trimTrailingChunks instead.
+//
 // Bounded by MinDurationS so a heavily over-trimmed window does not
 // invalidate the ride downstream.
 func trimTrailingAltPlateau(rows []StreamPoint, start, end int) int {
 	const windowS = 5.0
 	const flatRateMs = 0.15
+	const cableSpeedFloorMs = 3.0
 	const minRideDurS = 60.0
 	startT := rows[start].Time
 	for end > start+5 {
@@ -1495,6 +1563,25 @@ func trimTrailingAltPlateau(rows []StreamPoint, start, end int) int {
 		}
 		rate := (*rows[end].AltitudeM - *rows[ref].AltitudeM) / dur
 		if rate >= flatRateMs {
+			return end
+		}
+		// Cable-cruise discriminator: if EVERY sample in the window held
+		// cable-cruise speed, the alt-flat is a mid-cable horizontal section,
+		// not a bergstation walk-off. The window is small (≈5 s, 5–6 samples
+		// at 1 Hz). Nil speed samples are skipped (medium-confidence rides
+		// without sensor speed); if the window has no usable speed at all,
+		// fall through to the original alt-only behaviour.
+		speedSeen := false
+		speedMin := math.Inf(1)
+		for k := ref; k <= end; k++ {
+			if rows[k].SpeedMs != nil {
+				speedSeen = true
+				if *rows[k].SpeedMs < speedMin {
+					speedMin = *rows[k].SpeedMs
+				}
+			}
+		}
+		if speedSeen && speedMin >= cableSpeedFloorMs {
 			return end
 		}
 		// Stop when peeling another sample would shrink the ride below
