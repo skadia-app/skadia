@@ -13,6 +13,7 @@ type DebugStats struct {
 	MeanSpeed   float64
 	SpeedCV     float64
 	SpeedsCount int
+	Speeds      []float64
 	AltsOK      bool
 }
 
@@ -31,6 +32,7 @@ func PublicComputeStats(rows []StreamPoint, start, end int, cfg DetectorConfig) 
 		MeanSpeed:   s.meanSpeed,
 		SpeedCV:     s.speedCV,
 		SpeedsCount: len(s.speeds),
+		Speeds:      append([]float64(nil), s.speeds...),
 		AltsOK:      s.altsOK,
 	}
 }
