@@ -22,6 +22,12 @@ type ModifierValues struct {
 	IsVirtual  bool
 }
 
+type GearDefaultPredicate struct {
+	SportType string         `json:"sport_type"`
+	SubType   *string        `json:"sub_type,omitempty"`
+	Modifiers *ModifierPatch `json:"modifiers,omitempty"`
+}
+
 const (
 	GenericSportType          = "generic"
 	UnknownSportType          = "unknown"
@@ -185,6 +191,21 @@ func GearDefaultSportForSource(source Source, rawSport string) (string, bool) {
 	return "", false
 }
 
+func GearDefaultPredicateForSource(source Source, rawSport string) (GearDefaultPredicate, bool) {
+	rawSport = strings.TrimSpace(rawSport)
+	if rawSport == "" {
+		return GearDefaultPredicate{}, false
+	}
+	result, err := ResolveSport(ResolveInput{Source: source, RawSport: rawSport})
+	if err == nil && result.Resolved && result.Tuple.SportType != "" {
+		return gearDefaultPredicateFromResolved(result.Tuple, result.Patch), true
+	}
+	if source == SourceStrava {
+		return GearDefaultPredicate{SportType: GenericSportType}, true
+	}
+	return GearDefaultPredicate{}, false
+}
+
 func GearDefaultStorageSportOptions() []GearDefaultSportOption {
 	return append([]GearDefaultSportOption(nil), generatedGearDefaultStorageSportOptions...)
 }
@@ -199,6 +220,75 @@ func NormalizeGearDefaultSports(values []string) ([]string, error) {
 
 func NormalizeManualGearDefaultSports(values []string) ([]string, error) {
 	return normalizeGearDefaultSports(values, generatedGearDefaultManualSportOptions)
+}
+
+func GearDefaultPredicatesFromSports(values []string) ([]GearDefaultPredicate, error) {
+	sports, err := NormalizeGearDefaultSports(values)
+	if err != nil {
+		return nil, err
+	}
+	predicates := make([]GearDefaultPredicate, 0, len(sports))
+	for _, sportType := range sports {
+		predicates = append(predicates, GearDefaultPredicate{SportType: sportType})
+	}
+	return predicates, nil
+}
+
+func NormalizeGearDefaultPredicates(predicates []GearDefaultPredicate) ([]GearDefaultPredicate, error) {
+	if len(predicates) == 0 {
+		return []GearDefaultPredicate{}, nil
+	}
+	out := make([]GearDefaultPredicate, 0, len(predicates))
+	seen := map[string]struct{}{}
+	for _, predicate := range predicates {
+		normalized, err := normalizeGearDefaultPredicate(predicate)
+		if err != nil {
+			return nil, err
+		}
+		if normalized.SportType == "" {
+			continue
+		}
+		key := gearDefaultPredicateKey(normalized)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, normalized)
+	}
+	if out == nil {
+		return []GearDefaultPredicate{}, nil
+	}
+	return out, nil
+}
+
+func GearDefaultPredicateMatchesActivity(predicate GearDefaultPredicate, sportType, subType string, modifiers ModifierValues) bool {
+	normalized, err := normalizeGearDefaultPredicate(predicate)
+	if err != nil || normalized.SportType == "" {
+		return false
+	}
+	activityTuple, _, err := NormalizeSportTuple(sportType, subType)
+	if err != nil {
+		return false
+	}
+	if normalized.SportType != activityTuple.SportType {
+		return false
+	}
+	if normalized.SubType != nil && *normalized.SubType != activityTuple.SubType {
+		return false
+	}
+	if normalized.Modifiers == nil {
+		return true
+	}
+	if normalized.Modifiers.IsElectric != nil && *normalized.Modifiers.IsElectric != modifiers.IsElectric {
+		return false
+	}
+	if normalized.Modifiers.IsIndoor != nil && *normalized.Modifiers.IsIndoor != modifiers.IsIndoor {
+		return false
+	}
+	if normalized.Modifiers.IsVirtual != nil && *normalized.Modifiers.IsVirtual != modifiers.IsVirtual {
+		return false
+	}
+	return true
 }
 
 func normalizeGearDefaultSports(values []string, options []GearDefaultSportOption) ([]string, error) {
@@ -232,6 +322,79 @@ func normalizeGearDefaultSports(values []string, options []GearDefaultSportOptio
 		return []string{}, nil
 	}
 	return out, nil
+}
+
+func normalizeGearDefaultPredicate(predicate GearDefaultPredicate) (GearDefaultPredicate, error) {
+	sportType := strings.TrimSpace(predicate.SportType)
+	if sportType == "" {
+		return GearDefaultPredicate{}, nil
+	}
+	subType := ""
+	if predicate.SubType != nil {
+		subType = strings.TrimSpace(*predicate.SubType)
+	}
+	tuple, _, err := NormalizeSportTuple(sportType, subType)
+	if err != nil {
+		return GearDefaultPredicate{}, err
+	}
+	if _, err := NormalizeGearDefaultSports([]string{tuple.SportType}); err != nil {
+		return GearDefaultPredicate{}, err
+	}
+	normalized := GearDefaultPredicate{SportType: tuple.SportType}
+	if tuple.SubType != "" {
+		sub := tuple.SubType
+		normalized.SubType = &sub
+	}
+	if patch := normalizeGearDefaultModifierPatch(predicate.Modifiers); patch != nil {
+		normalized.Modifiers = patch
+	}
+	return normalized, nil
+}
+
+func gearDefaultPredicateFromResolved(tuple Tuple, patch ModifierPatch) GearDefaultPredicate {
+	predicate := GearDefaultPredicate{SportType: tuple.SportType}
+	if tuple.SubType != "" {
+		subType := tuple.SubType
+		predicate.SubType = &subType
+	}
+	if normalizedPatch := normalizeGearDefaultModifierPatch(&patch); normalizedPatch != nil {
+		predicate.Modifiers = normalizedPatch
+	}
+	return predicate
+}
+
+func normalizeGearDefaultModifierPatch(patch *ModifierPatch) *ModifierPatch {
+	if patch == nil {
+		return nil
+	}
+	normalized := ModifierPatch{
+		IsElectric: patch.IsElectric,
+		IsIndoor:   patch.IsIndoor,
+		IsVirtual:  patch.IsVirtual,
+	}
+	if normalized.IsElectric == nil && normalized.IsIndoor == nil && normalized.IsVirtual == nil {
+		return nil
+	}
+	return &normalized
+}
+
+func gearDefaultPredicateKey(predicate GearDefaultPredicate) string {
+	key := predicate.SportType
+	if predicate.SubType != nil {
+		key += ":" + *predicate.SubType
+	}
+	if predicate.Modifiers != nil {
+		if predicate.Modifiers.IsElectric != nil {
+			key += fmt.Sprintf("|electric=%t", *predicate.Modifiers.IsElectric)
+		}
+		if predicate.Modifiers.IsIndoor != nil {
+			key += fmt.Sprintf("|indoor=%t", *predicate.Modifiers.IsIndoor)
+		}
+		if predicate.Modifiers.IsVirtual != nil {
+			key += fmt.Sprintf("|virtual=%t", *predicate.Modifiers.IsVirtual)
+		}
+	}
+	return key
 }
 
 func lookupSourceAlias(source Source, rawSport, rawSub string) (sourceAliasDef, bool) {

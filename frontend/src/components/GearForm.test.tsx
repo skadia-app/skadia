@@ -6,7 +6,7 @@ import GearForm from './GearForm'
 import type { Gear } from '@/api/types'
 
 describe('GearForm', () => {
-  it('does not submit storage-only gear default sports as manual choices', () => {
+  it('preserves storage-only gear default sports when saving an edited gear', () => {
     const onSave = vi.fn()
     render(
       <GearForm
@@ -19,7 +19,7 @@ describe('GearForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
 
     expect(onSave).toHaveBeenCalledTimes(1)
-    expect(onSave.mock.calls[0][0].default_for_sports).toEqual(['cycling'])
+    expect(onSave.mock.calls[0][0].default_for_sports).toEqual(['fitness_equipment', 'cycling'])
   })
 })
 
@@ -36,6 +36,7 @@ function gearFixture(overrides: Partial<Gear> = {}): Gear {
     is_retired: false,
     status: 'active',
     default_for_sports: [],
+    default_sport_predicates: [],
     created_at: '2026-05-03T00:00:00Z',
     ...overrides,
   }

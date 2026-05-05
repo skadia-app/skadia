@@ -94,30 +94,122 @@ func normalizeSingleSportType(row map[string]any, sportKey string) error {
 }
 
 func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []targetColumn) error {
-	if _, ok := row["default_for_sports"]; !ok {
+	rawValues, hasDefaultSports := row["default_for_sports"]
+	hasPredicates := targetHasColumn(targetCols, "default_sport_predicates")
+	if rawPredicateValue, ok := row["default_sport_predicates"]; ok {
+		predicates, err := gearDefaultPredicatesFromRowValue(rawPredicateValue)
+		if err != nil {
+			return fmt.Errorf("default_sport_predicates: %w", err)
+		}
+		normalized, err := sport.NormalizeGearDefaultPredicates(predicates)
+		if err != nil {
+			return fmt.Errorf("default_sport_predicates: %w", err)
+		}
+		row["default_sport_predicates"] = gearDefaultPredicatesRowValue(normalized)
+		hasPredicates = false
+	}
+	if !hasDefaultSports {
 		return nil
 	}
-	values, err := stringList(row["default_for_sports"])
+	values, err := stringList(rawValues)
 	if err != nil {
 		return fmt.Errorf("default_for_sports: %w", err)
 	}
 	canonicalTopLevel := make([]string, 0, len(values))
+	predicates := make([]sport.GearDefaultPredicate, 0, len(values))
 	for _, raw := range values {
 		if strings.TrimSpace(raw) == "" {
 			continue
 		}
-		tuple, _, err := sport.NormalizeSportTuple(raw, "")
+		tuple, patch, err := sport.NormalizeSportTuple(raw, "")
 		if err != nil {
 			return fmt.Errorf("default_for_sports: %w", err)
 		}
 		canonicalTopLevel = append(canonicalTopLevel, tuple.SportType)
+		predicate, ok := sport.GearDefaultPredicateForSource(sport.SourceLegacy, raw)
+		if ok {
+			predicate.Modifiers = mergeGearDefaultPredicateModifierPatch(predicate.Modifiers, patch)
+			predicates = append(predicates, predicate)
+		}
 	}
 	normalized, err := sport.NormalizeGearDefaultSports(canonicalTopLevel)
 	if err != nil {
 		return fmt.Errorf("default_for_sports: %w", err)
 	}
 	row["default_for_sports"] = normalized
+	if hasPredicates {
+		normalizedPredicates, err := sport.NormalizeGearDefaultPredicates(predicates)
+		if err != nil {
+			return fmt.Errorf("default_sport_predicates: %w", err)
+		}
+		row["default_sport_predicates"] = gearDefaultPredicatesRowValue(normalizedPredicates)
+	}
 	return nil
+}
+
+func gearDefaultPredicatesRowValue(predicates []sport.GearDefaultPredicate) []any {
+	out := make([]any, 0, len(predicates))
+	for _, predicate := range predicates {
+		obj := map[string]any{"sport_type": predicate.SportType}
+		if predicate.SubType != nil {
+			obj["sub_type"] = *predicate.SubType
+		}
+		if predicate.Modifiers != nil {
+			modifiers := map[string]any{}
+			if predicate.Modifiers.IsElectric != nil {
+				modifiers["is_electric"] = *predicate.Modifiers.IsElectric
+			}
+			if predicate.Modifiers.IsIndoor != nil {
+				modifiers["is_indoor"] = *predicate.Modifiers.IsIndoor
+			}
+			if predicate.Modifiers.IsVirtual != nil {
+				modifiers["is_virtual"] = *predicate.Modifiers.IsVirtual
+			}
+			if len(modifiers) > 0 {
+				obj["modifiers"] = modifiers
+			}
+		}
+		out = append(out, obj)
+	}
+	return out
+}
+
+func gearDefaultPredicatesFromRowValue(value any) ([]sport.GearDefaultPredicate, error) {
+	if value == nil {
+		return nil, nil
+	}
+	raw, ok, err := rawMessageFromRowValue(value)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || len(raw) == 0 || strings.TrimSpace(string(raw)) == "null" {
+		return nil, nil
+	}
+	var predicates []sport.GearDefaultPredicate
+	if err := json.Unmarshal(raw, &predicates); err != nil {
+		return nil, err
+	}
+	return predicates, nil
+}
+
+func mergeGearDefaultPredicateModifierPatch(existing *sport.ModifierPatch, patch sport.ModifierPatch) *sport.ModifierPatch {
+	if existing == nil {
+		existing = &sport.ModifierPatch{}
+	}
+	merged := *existing
+	if patch.IsElectric != nil {
+		merged.IsElectric = patch.IsElectric
+	}
+	if patch.IsIndoor != nil {
+		merged.IsIndoor = patch.IsIndoor
+	}
+	if patch.IsVirtual != nil {
+		merged.IsVirtual = patch.IsVirtual
+	}
+	if merged.IsElectric == nil && merged.IsIndoor == nil && merged.IsVirtual == nil {
+		return nil
+	}
+	return &merged
 }
 
 func applyModifierPatchToRow(row map[string]any, patch sport.ModifierPatch) {

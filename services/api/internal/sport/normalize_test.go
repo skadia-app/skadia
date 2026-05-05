@@ -267,6 +267,46 @@ func TestGearDefaultSportForSourceUsesGeneratedProjection(t *testing.T) {
 	}
 }
 
+func TestGearDefaultPredicateForSourcePreservesSubtypeAndModifiers(t *testing.T) {
+	tests := []struct {
+		raw          string
+		wantSport    string
+		wantSubType  string
+		wantElectric *bool
+		wantVirtual  *bool
+	}{
+		{raw: "Mountain Bike Ride", wantSport: "cycling", wantSubType: "mountain"},
+		{raw: "E-Mountain Bike Ride", wantSport: "cycling", wantSubType: "mountain", wantElectric: boolPtr(true)},
+		{raw: "Virtual Ride", wantSport: "cycling", wantVirtual: boolPtr(true)},
+		{raw: "Mystery Sport", wantSport: "generic"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			got, ok := GearDefaultPredicateForSource(SourceStrava, tt.raw)
+			if !ok {
+				t.Fatalf("GearDefaultPredicateForSource(SourceStrava, %q) returned ok=false", tt.raw)
+			}
+			if got.SportType != tt.wantSport {
+				t.Fatalf("SportType = %q, want %q", got.SportType, tt.wantSport)
+			}
+			gotSubType := ""
+			if got.SubType != nil {
+				gotSubType = *got.SubType
+			}
+			if gotSubType != tt.wantSubType {
+				t.Fatalf("SubType = %q, want %q", gotSubType, tt.wantSubType)
+			}
+			var gotElectric, gotVirtual *bool
+			if got.Modifiers != nil {
+				gotElectric = got.Modifiers.IsElectric
+				gotVirtual = got.Modifiers.IsVirtual
+			}
+			assertBoolPatch(t, "is_electric", gotElectric, tt.wantElectric)
+			assertBoolPatch(t, "is_virtual", gotVirtual, tt.wantVirtual)
+		})
+	}
+}
+
 func TestGearDefaultSportForSourcePreservesStravaGenericFallback(t *testing.T) {
 	got, ok := GearDefaultSportForSource(SourceStrava, "Definitely Not A Known Sport")
 	if !ok || got != "generic" {
@@ -280,6 +320,63 @@ func TestGearDefaultSportForSourceDoesNotFallbackUnknownNonStravaSource(t *testi
 		if ok || got != "" {
 			t.Fatalf("GearDefaultSportForSource(%q, unknown) = %q, %v; want empty, false", source, got, ok)
 		}
+	}
+}
+
+func TestNormalizeGearDefaultPredicates(t *testing.T) {
+	subType := "mountain"
+	got, err := NormalizeGearDefaultPredicates([]GearDefaultPredicate{
+		{
+			SportType: " cycling ",
+			SubType:   &subType,
+			Modifiers: &ModifierPatch{IsElectric: boolPtr(true)},
+		},
+		{
+			SportType: "cycling",
+			SubType:   &subType,
+			Modifiers: &ModifierPatch{IsElectric: boolPtr(true)},
+		},
+		{SportType: "fitness_equipment"},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeGearDefaultPredicates() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2: %#v", len(got), got)
+	}
+	if got[0].SportType != "cycling" || got[0].SubType == nil || *got[0].SubType != "mountain" {
+		t.Fatalf("first predicate = %#v, want cycling mountain", got[0])
+	}
+	if got[0].Modifiers == nil {
+		t.Fatal("first predicate modifiers = nil, want electric modifier")
+	}
+	assertBoolPatch(t, "is_electric", got[0].Modifiers.IsElectric, boolPtr(true))
+	if got[1].SportType != "fitness_equipment" || got[1].SubType != nil || got[1].Modifiers != nil {
+		t.Fatalf("second predicate = %#v, want broad fitness_equipment", got[1])
+	}
+}
+
+func TestNormalizeGearDefaultPredicatesRejectsUnknown(t *testing.T) {
+	if _, err := NormalizeGearDefaultPredicates([]GearDefaultPredicate{{SportType: "not_a_sport"}}); err == nil {
+		t.Fatal("NormalizeGearDefaultPredicates accepted unknown sport")
+	}
+}
+
+func TestGearDefaultPredicateMatchesActivity(t *testing.T) {
+	mountain := "mountain"
+	predicate := GearDefaultPredicate{
+		SportType: "cycling",
+		SubType:   &mountain,
+		Modifiers: &ModifierPatch{IsElectric: boolPtr(true)},
+	}
+	if !GearDefaultPredicateMatchesActivity(predicate, "cycling", "mountain", ModifierValues{IsElectric: true}) {
+		t.Fatal("predicate did not match electric mountain cycling")
+	}
+	if GearDefaultPredicateMatchesActivity(predicate, "cycling", "mountain", ModifierValues{IsElectric: false}) {
+		t.Fatal("predicate matched non-electric mountain cycling")
+	}
+	if GearDefaultPredicateMatchesActivity(predicate, "cycling", "road", ModifierValues{IsElectric: true}) {
+		t.Fatal("predicate matched road cycling")
 	}
 }
 
