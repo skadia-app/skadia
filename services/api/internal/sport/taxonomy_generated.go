@@ -623,7 +623,7 @@ var generatedSportDefs = []SportDef{
 	{
 		SportType: "unknown", CategoryKey: "other", LabelDE: "Unbekannt", AutoTitleDE: "Training",
 		SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0, IsIndoor: false,
-		Lifecycle: "canonical", Selectable: true,
+		Lifecycle: "canonical", Selectable: false,
 		Traits: SportTraits{Environments: []string{"generic"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{"generic"}, ActivityForm: "system", PropulsionModes: []string{"generic"}},
 	},
 	{

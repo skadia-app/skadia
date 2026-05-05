@@ -73,6 +73,7 @@ aliases:
   modifiers: {is_indoor: true}
 - raw: Handcycle
   sport_type: cycling
+  sub_type: hand_cycling
 - raw: Velomobile
   sport_type: cycling
 - raw: Run
@@ -153,9 +154,9 @@ aliases:
 - raw: Rudern
   sport_type: rowing
 - raw: Canoeing
-  sport_type: kayaking
+  sport_type: canoeing
 - raw: Kanufahren
-  sport_type: kayaking
+  sport_type: canoeing
 - raw: Virtual Row
   sport_type: rowing
   modifiers: {is_virtual: true}

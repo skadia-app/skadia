@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { createManualActivity } from '@/api/manualActivity'
 import { fetchGear } from '@/api/gear'
 import { fetchTags } from '@/api/tags'
-import { CATEGORIES, SPORT_DEFS, sportsInCategory } from '@/lib/sportTaxonomy'
+import { CATEGORIES, SPORT_DEFS, manualActivitySportOptions } from '@/lib/sportTaxonomy'
 import { useToast } from '@/lib/toast'
 import Toggle from '@/components/Toggle'
 import type { Gear } from '@/api/types'
@@ -88,6 +88,7 @@ export default function ManualActivityPage() {
 
   // ── Derived ─────────────────────────────────────────────────────────────────
   const selectedSportDef = SPORT_DEFS.find(d => d.sportType === sportType)
+  const manualSports = manualActivitySportOptions()
   const isBike = selectedSportDef?.categoryKey === 'bike'
 
   function handleSportChange(newSport: string) {
@@ -181,7 +182,7 @@ export default function ManualActivityPage() {
               <legend className="mb-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">Sportart</legend>
               <div className="overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900">
                 {CATEGORIES.map(cat => {
-                  const sports = sportsInCategory(cat.key).filter(s => s.selectable || s.subTypes.some(st => st.selectable))
+                  const sports = manualSports.filter(s => s.categoryKey === cat.key)
                   if (!sports.length) return null
                   return (
                     <details key={cat.key} open={sports.some(s => s.sportType === sportType)}>

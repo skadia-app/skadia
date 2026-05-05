@@ -540,7 +540,7 @@ func leavesForSport(sport Sport, entry ActivityFilterEntry, throughCategory bool
 	parentIsBroadFallback := sport.Lifecycle == "broad_fallback"
 	includeParent := false
 	if throughCategory {
-		includeParent = !parentIsPromoted && !parentIsBroadFallback && sport.Selectable != nil && *sport.Selectable
+		includeParent = !parentIsPromoted && !parentIsBroadFallback && ((sport.Selectable != nil && *sport.Selectable) || sport.Traits.ActivityForm == "system")
 	} else {
 		includeParent = (sport.Selectable != nil && *sport.Selectable) || parentIsBroadFallback || sport.Traits.ActivityForm == "transition"
 	}

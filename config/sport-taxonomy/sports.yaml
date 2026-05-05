@@ -2698,6 +2698,7 @@ sports:
   typically_has_gps: false
   moving_threshold: 0
   is_indoor: false
+  selectable: false
   traits:
     environments: [generic]
     movement_families: [generic]
