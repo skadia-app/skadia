@@ -26,6 +26,29 @@ func TestEvaluateSportTupleInMatchesSubtypeAndModifiersAtomically(t *testing.T) 
 	}
 }
 
+func TestEvaluateSportTupleInTreatsMissingModifierAsFalse(t *testing.T) {
+	falseCondition := Condition{
+		Field: "sport_tuple",
+		Op:    "in",
+		Value: []any{map[string]any{"sport_type": "cycling", "is_electric": false}},
+	}
+	if !evalCondition(falseCondition, map[string]any{"sport_type": "cycling"}) {
+		t.Fatal("missing activity modifier should match an explicit false sport_tuple modifier")
+	}
+	if !evalCondition(falseCondition, map[string]any{"sport_type": "cycling", "is_electric": nil}) {
+		t.Fatal("null activity modifier should match an explicit false sport_tuple modifier")
+	}
+
+	trueCondition := Condition{
+		Field: "sport_tuple",
+		Op:    "in",
+		Value: []any{map[string]any{"sport_type": "cycling", "is_electric": true}},
+	}
+	if evalCondition(trueCondition, map[string]any{"sport_type": "cycling"}) {
+		t.Fatal("missing activity modifier must not match an explicit true sport_tuple modifier")
+	}
+}
+
 func TestEvaluateSportTupleInSubTypeOmittedMeansAnySubtype(t *testing.T) {
 	condition := Condition{Field: "sport_tuple", Op: "in", Value: []any{map[string]any{"sport_type": "running"}}}
 	if !evalCondition(condition, map[string]any{"sport_type": "running", "sub_type": "trail"}) {

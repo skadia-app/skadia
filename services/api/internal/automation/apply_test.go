@@ -96,6 +96,31 @@ func TestShouldEvaluateRule(t *testing.T) {
 	}
 }
 
+func TestSystemRuleRetractionDefaultCoversBooleanRuleFields(t *testing.T) {
+	for _, field := range []string{
+		"is_round_trip",
+		"is_indoor",
+		"is_electric",
+		"is_virtual",
+		"is_commute",
+		"exclude_from_stats",
+		"exclude_from_heatmap",
+		"hide_map",
+	} {
+		got, ok := systemRuleRetractionDefault(field)
+		if !ok {
+			t.Fatalf("systemRuleRetractionDefault(%q) missing", field)
+		}
+		if got != false {
+			t.Fatalf("systemRuleRetractionDefault(%q) = %#v, want false", field, got)
+		}
+	}
+
+	if _, ok := systemRuleRetractionDefault("title"); ok {
+		t.Fatal("systemRuleRetractionDefault(\"title\") must not retract arbitrary fields")
+	}
+}
+
 func TestApplyRulesToActivityReturnsPausedBeforeActivityRead(t *testing.T) {
 	restore := setRulesEnginePauseProbeForTest(func(context.Context, *database.DB) (bool, error) {
 		return true, nil

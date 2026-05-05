@@ -96,7 +96,7 @@ func shouldEvaluateRule(rule model.AutomationRule, triggerEvent string) bool {
 // ApplyRulesToActivity evaluates rules against a single activity.
 // triggerEvent filters which rules to evaluate: "on_import", "on_enrichment_complete",
 // "on_manual_apply", or "" for all (used by "Regeln anwenden" button).
-// System rules (except electric_sync) have retraction semantics:
+// Evaluated system rules have retraction semantics:
 // - Match + no removal → add tag + set_field
 // - No match + tag present → remove tag + invert set_field (bool→false)
 // User rules only add, never retract.
@@ -206,13 +206,6 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 		} else if rule.IsSystem {
 			// Retraction: system rules reset tags/fields when conditions no longer match
 			changes := rules.Apply(actions)
-			setFieldDefaults := map[string]any{
-				"is_round_trip":        false,
-				"is_indoor":            false,
-				"exclude_from_stats":   false,
-				"exclude_from_heatmap": false,
-				"hide_map":             false,
-			}
 			for _, change := range changes {
 				switch change.Field {
 				case "add_tag":
@@ -221,7 +214,7 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 						db.ApplyRuleChange(ctx, activityID, "remove_tag", tagID)
 					}
 				default:
-					if defVal, ok := setFieldDefaults[change.Field]; ok {
+					if defVal, ok := systemRuleRetractionDefault(change.Field); ok {
 						db.ApplyRuleChange(ctx, activityID, change.Field, defVal)
 					}
 				}
@@ -248,6 +241,22 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 	}
 
 	return nil
+}
+
+func systemRuleRetractionDefault(field string) (any, bool) {
+	switch field {
+	case "is_round_trip",
+		"is_indoor",
+		"is_electric",
+		"is_virtual",
+		"is_commute",
+		"exclude_from_stats",
+		"exclude_from_heatmap",
+		"hide_map":
+		return false, true
+	default:
+		return nil, false
+	}
 }
 
 // EvaluateRule checks whether a rule's conditions match the given activity map.

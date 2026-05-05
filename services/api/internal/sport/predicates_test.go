@@ -28,6 +28,7 @@ func TestPredicatesMatchSubtypeStates(t *testing.T) {
 		{name: "empty subtype sentinel matches nil subtype", preds: []Predicate{{Sport: "cycling", SubType: &empty}}, sport: "cycling", expected: true},
 		{name: "empty subtype sentinel matches empty subtype", preds: []Predicate{{Sport: "cycling", SubType: &empty}}, sport: "cycling", subType: &empty, expected: true},
 		{name: "empty subtype sentinel rejects concrete subtype", preds: []Predicate{{Sport: "cycling", SubType: &empty}}, sport: "cycling", subType: &mountain, expected: false},
+		{name: "open sport predicate rejects unknown stored subtype", preds: []Predicate{{Sport: "cycling"}}, sport: "cycling", subType: strPtr("does_not_exist"), expected: false},
 		{name: "sport mismatch rejects", preds: []Predicate{{Sport: "cycling"}}, sport: "running", expected: false},
 	}
 
