@@ -79,6 +79,13 @@ describe('sport taxonomy aliases', () => {
       subType: '',
       modifiers: { isIndoor: true },
     })
+    for (const alias of ['bike', 'biking', 'ride']) {
+      expect(normalizeSportTuple(alias)).toEqual({
+        sportType: 'cycling',
+        subType: '',
+        modifiers: {},
+      })
+    }
   })
 
   it('keeps broad canonical sport classes distinct from legacy aliases', () => {
@@ -112,6 +119,11 @@ describe('sport taxonomy aliases', () => {
     first.isIndoor = false
 
     expect(modifierDefaultsForTuple('running', 'treadmill').isIndoor).toBe(true)
+  })
+
+  it('keeps parent modifier defaults for unknown stored subtypes', () => {
+    expect(modifierDefaultsForTuple('fitness_equipment', 'old_vendor_subtype').isIndoor).toBe(true)
+    expect(normalizeSportTuple('fitness_equipment', 'old_vendor_subtype').modifiers.isIndoor).toBe(true)
   })
 
   it('uses canonical subtype labels', () => {

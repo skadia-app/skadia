@@ -20,16 +20,8 @@ import { BIDIRECTIONAL_DEFAULT, type SegType } from './segment-editor/constants'
 import { Pill } from './ui/Pill'
 import { filterSegmentSportSelection, removeSegmentSportSelectionKeys } from './segment-editor/segmentSportSelection'
 import { SPORT_DEFS } from '@/lib/sportTaxonomy'
+import { segmentTypeLabel } from '@/lib/segmentProjection'
 import { buildExistingSegmentSportPatch } from './segment-editor/segmentSave'
-
-const SEG_TYPE_LABELS: Record<SegType, string> = {
-  standard: 'Standard',
-  trail: 'Trail',
-  lap: 'Runde',
-  wintersport: 'Winter',
-  wassersport: 'Wassersport',
-  lift: 'Lift',
-}
 
 interface Props {
   segment: Segment
@@ -231,7 +223,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
                 ariaChecked={segType === t}
                 disabled={isLoadingFull}
               >
-                {SEG_TYPE_LABELS[t]}
+                {segmentTypeLabel(t)}
               </Pill>
             ))}
           </div>

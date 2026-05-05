@@ -319,8 +319,8 @@ func validateRecordGroups(groups []RecordGroup, profiles map[string]RecordCatego
 		if group.MainCategory == "" {
 			return nil, fmt.Errorf("record_group %q: missing main_category", group.Key)
 		}
-		if group.Color == "" {
-			return nil, fmt.Errorf("record_group %q: missing color", group.Key)
+		if !validHex.MatchString(group.Color) {
+			return nil, fmt.Errorf("record_group %q: invalid color %q", group.Key, group.Color)
 		}
 		if _, ok := profiles[group.CategoryProfile]; !ok {
 			return nil, fmt.Errorf("record_group %q: unknown category_profile %q", group.Key, group.CategoryProfile)
@@ -380,8 +380,8 @@ func validateRecordMainCategories(categories []RecordMainCategory, groups map[st
 		if category.Labels["de"] == "" {
 			return fmt.Errorf("main_category %q: missing labels.de", category.Key)
 		}
-		if category.Color == "" {
-			return fmt.Errorf("main_category %q: missing color", category.Key)
+		if !validHex.MatchString(category.Color) {
+			return fmt.Errorf("main_category %q: invalid color %q", category.Key, category.Color)
 		}
 		if len(category.RecordGroups) == 0 {
 			return fmt.Errorf("main_category %q: missing record_groups", category.Key)
