@@ -24,6 +24,35 @@ CREATE OR REPLACE FUNCTION sync_system_flags_and_tags() RETURNS TRIGGER AS $$
 DECLARE
     v_tag_id UUID;
 BEGIN
+    IF TG_OP = 'INSERT' THEN
+        -- Direction A: supplied tags TEXT[] on INSERT derive boolean flags.
+        IF NEW.tags IS NOT NULL THEN
+            NEW.is_indoor := COALESCE(NEW.is_indoor, false) OR 'Indoor' = ANY(COALESCE(NEW.tags, '{}'));
+            NEW.is_commute := COALESCE(NEW.is_commute, false) OR 'Pendeln' = ANY(COALESCE(NEW.tags, '{}'));
+
+            IF NEW.sport_type = 'cycling' THEN
+                NEW.is_electric := COALESCE(NEW.is_electric, false) OR 'E-Bike' = ANY(COALESCE(NEW.tags, '{}'));
+            ELSIF 'E-Bike' = ANY(COALESCE(NEW.tags, '{}')) THEN
+                NEW.tags := array_remove(NEW.tags, 'E-Bike');
+            END IF;
+        END IF;
+
+        -- Direction B-D: directly set flags on INSERT sync denormalized tags[].
+        IF COALESCE(NEW.is_indoor, false) AND NOT ('Indoor' = ANY(COALESCE(NEW.tags, '{}'))) THEN
+            NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'Indoor');
+        END IF;
+        IF COALESCE(NEW.is_commute, false) AND NOT ('Pendeln' = ANY(COALESCE(NEW.tags, '{}'))) THEN
+            NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'Pendeln');
+        END IF;
+        IF NEW.sport_type = 'cycling' AND COALESCE(NEW.is_electric, false) AND NOT ('E-Bike' = ANY(COALESCE(NEW.tags, '{}'))) THEN
+            NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'E-Bike');
+        ELSIF NEW.sport_type <> 'cycling' AND 'E-Bike' = ANY(COALESCE(NEW.tags, '{}')) THEN
+            NEW.tags := array_remove(NEW.tags, 'E-Bike');
+        END IF;
+
+        RETURN NEW;
+    END IF;
+
     -- Direction A: tags TEXT[] changed -> derive boolean flags.
     IF NEW.tags IS DISTINCT FROM OLD.tags THEN
         NEW.is_indoor := 'Indoor' = ANY(COALESCE(NEW.tags, '{}'));
@@ -111,11 +140,49 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION sync_system_flags_and_tags_insert_junction() RETURNS TRIGGER AS $$
+DECLARE
+    v_tag_id UUID;
+BEGIN
+    IF COALESCE(NEW.is_indoor, false) THEN
+        SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'Indoor' AND is_system = true LIMIT 1;
+        IF v_tag_id IS NOT NULL THEN
+            INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
+            UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
+        END IF;
+    END IF;
+
+    IF NEW.sport_type = 'cycling' AND COALESCE(NEW.is_electric, false) THEN
+        SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'E-Bike' AND is_system = true LIMIT 1;
+        IF v_tag_id IS NOT NULL THEN
+            INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
+            UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
+        END IF;
+    END IF;
+
+    IF COALESCE(NEW.is_commute, false) THEN
+        SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'Pendeln' AND is_system = true LIMIT 1;
+        IF v_tag_id IS NOT NULL THEN
+            INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
+            UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
+        END IF;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
 DROP TRIGGER IF EXISTS trg_sync_system_flags_and_tags ON activities;
 CREATE TRIGGER trg_sync_system_flags_and_tags
-    BEFORE UPDATE OF tags, sport_type, is_indoor, is_electric, is_commute ON activities
+    BEFORE INSERT OR UPDATE OF tags, sport_type, is_indoor, is_electric, is_commute ON activities
     FOR EACH ROW
     EXECUTE FUNCTION sync_system_flags_and_tags();
+
+DROP TRIGGER IF EXISTS trg_sync_system_flags_and_tags_insert_junction ON activities;
+CREATE TRIGGER trg_sync_system_flags_and_tags_insert_junction
+    AFTER INSERT ON activities
+    FOR EACH ROW
+    EXECUTE FUNCTION sync_system_flags_and_tags_insert_junction();
 
 DELETE FROM activity_tags at
 USING activities a, tags t

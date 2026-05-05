@@ -81,6 +81,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_sync_system_flags_and_tags ON activities;
+DROP TRIGGER IF EXISTS trg_sync_system_flags_and_tags_insert_junction ON activities;
+DROP FUNCTION IF EXISTS sync_system_flags_and_tags_insert_junction();
 CREATE TRIGGER trg_sync_system_flags_and_tags
     BEFORE UPDATE OF tags, is_indoor, is_electric, is_commute ON activities
     FOR EACH ROW
