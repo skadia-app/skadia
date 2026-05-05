@@ -2,6 +2,9 @@ source: fit
 aliases:
 - raw: archery
   sport_type: archery
+- raw: e_biking
+  sport_type: cycling
+  modifiers: {is_electric: true}
 - raw: cycling
   raw_sub: enduro
   sport_type: cycling
@@ -41,5 +44,21 @@ aliases:
   sport_type: unknown
 - raw: water_sport
   sport_type: unknown
+- raw: wheelchair_push_run
+  sport_type: wheelchair_push
+  sub_type: run_speed
+- raw: wheelchair_push_run
+  raw_sub: indoor_wheelchair_run
+  sport_type: wheelchair_push
+  sub_type: run_speed
+  modifiers: {is_indoor: true}
+- raw: wheelchair_push_walk
+  sport_type: wheelchair_push
+  sub_type: walk_speed
+- raw: wheelchair_push_walk
+  raw_sub: indoor_wheelchair_walk
+  sport_type: wheelchair_push
+  sub_type: walk_speed
+  modifiers: {is_indoor: true}
 - raw: winter_sport
   sport_type: unknown

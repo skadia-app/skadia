@@ -299,50 +299,29 @@ func fitSportToRouteSport(sport typedef.Sport, subSport typedef.SubSport) (strin
 		}
 		return result.Tuple.SportType, &result.Tuple.SubType, result.Patch
 	}
-	switch sport {
-	case typedef.SportCycling:
-		switch subSport {
-		case typedef.SubSportMountain:
-			return resolve("cycling", "mountain")
-		case typedef.SubSportEnduro:
-			return resolve("cycling", "enduro")
-		case typedef.SubSportEBikeEnduro:
-			return resolve("cycling", "e_bike_enduro")
-		case typedef.SubSportGravelCycling:
-			return resolve("cycling", "gravel_cycling")
-		case typedef.SubSportIndoorCycling:
-			return resolve("cycling", "indoor_cycling")
-		default:
-			return resolve("cycling", "")
-		}
-	case typedef.SportRunning:
-		switch subSport {
-		case typedef.SubSportTrail:
-			return resolve("running", "trail")
-		default:
-			return resolve("running", "")
-		}
-	case typedef.SportHiking:
-		return resolve("hiking", "")
-	case typedef.SportWalking:
-		return resolve("walking", "")
-	case typedef.SportSwimming:
-		return resolve("swimming", "")
-	case typedef.SportAlpineSkiing:
-		return resolve("alpine_skiing", "")
-	case typedef.SportCrossCountrySkiing:
-		return resolve("cross_country_skiing", "")
-	case typedef.SportPaddling:
-		return resolve("paddling", "")
-	case typedef.SportRowing:
-		return resolve("rowing", "")
-	case typedef.SportCanoeing:
-		return resolve("canoeing", "")
-	case typedef.SportPoolApnea:
-		return resolve("pool_apnea", "")
-	default:
-		return resolve("unknown", "")
+	return resolve(fitSportRawName(sport), fitSubSportRawName(subSport))
+}
+
+func fitSportRawName(sport typedef.Sport) string {
+	if sport == typedef.SportInvalid {
+		return "unknown"
 	}
+	raw := sport.String()
+	if raw == "" || strings.HasPrefix(raw, "Sport(") {
+		return "unknown"
+	}
+	return strings.ToLower(raw)
+}
+
+func fitSubSportRawName(subSport typedef.SubSport) string {
+	if subSport == typedef.SubSportGeneric || subSport == typedef.SubSportInvalid {
+		return ""
+	}
+	raw := subSport.String()
+	if raw == "" || strings.HasPrefix(raw, "SubSport(") {
+		return ""
+	}
+	return strings.ToLower(raw)
 }
 
 // defaultProfileForSport returns a sensible routing profile for the given sport type.

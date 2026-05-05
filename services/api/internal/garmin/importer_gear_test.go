@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestGarminGearDecodeExposesUnsupportedActivityTypeDefaults(t *testing.T) {
+func TestGarminGearDecodeAppliesActivityTypeDefaults(t *testing.T) {
 	src := []byte(`[
 		{
 			"gearDTOS": [
@@ -18,7 +18,9 @@ func TestGarminGearDecodeExposesUnsupportedActivityTypeDefaults(t *testing.T) {
 				}
 			],
 			"gearActivityTypeDTOS": [
-				{"activityType": "cycling"}
+				{"gearPk": 123, "activityType": {"typeKey": "cycling"}},
+				{"gearPk": 123, "activityType": {"typeKey": "running"}},
+				{"gearPk": 123, "activityType": {"typeKey": "definitely_unknown"}}
 			]
 		}
 	]`)
@@ -30,18 +32,22 @@ func TestGarminGearDecodeExposesUnsupportedActivityTypeDefaults(t *testing.T) {
 	if len(wrapper) != 1 || len(wrapper[0].GearDTOS) != 1 {
 		t.Fatalf("decoded gearDTOS = %#v", wrapper)
 	}
-	if len(wrapper[0].GearActivityTypeDTOS) != 1 {
-		t.Fatalf("GearActivityTypeDTOS = %#v, want one raw message", wrapper[0].GearActivityTypeDTOS)
+	if len(wrapper[0].GearActivityTypeDTOS) != 3 {
+		t.Fatalf("GearActivityTypeDTOS = %#v, want three raw messages", wrapper[0].GearActivityTypeDTOS)
 	}
 	if got := string(wrapper[0].GearActivityTypeDTOS[0]); got == "" {
 		t.Fatal("GearActivityTypeDTOS raw message is empty")
 	}
 
-	create := gearCreateFromGarminDTO(wrapper[0].GearDTOS[0])
-	if len(create.DefaultForSports) != 0 {
-		t.Fatalf("DefaultForSports = %#v, want empty unsupported Garmin defaults", create.DefaultForSports)
+	defaults := garminDefaultSportsByGear(wrapper[0])
+	create := gearCreateFromGarminDTO(wrapper[0].GearDTOS[0], defaults)
+	want := []string{"cycling", "running"}
+	if len(create.DefaultForSports) != len(want) {
+		t.Fatalf("DefaultForSports = %#v, want %#v", create.DefaultForSports, want)
 	}
-	if got := logUnsupportedGearActivityTypeDefaults(wrapper[0]); got != 1 {
-		t.Fatalf("unsupported default count = %d, want 1", got)
+	for i := range want {
+		if create.DefaultForSports[i] != want[i] {
+			t.Fatalf("DefaultForSports = %#v, want %#v", create.DefaultForSports, want)
+		}
 	}
 }

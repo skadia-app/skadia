@@ -80,6 +80,11 @@ func TestFitSportToSportType(t *testing.T) {
 		{typedef.SportPaddling, typedef.SubSportGeneric, "paddling", ""},
 		{typedef.SportRowing, typedef.SubSportGeneric, "rowing", ""},
 		{typedef.SportCanoeing, typedef.SubSportGeneric, "canoeing", ""},
+		{typedef.SportGolf, typedef.SubSportGeneric, "golf", ""},
+		{typedef.SportSnowboarding, typedef.SubSportGeneric, "snowboarding", ""},
+		{typedef.SportStandUpPaddleboarding, typedef.SubSportGeneric, "stand_up_paddleboarding", ""},
+		{typedef.SportKayaking, typedef.SubSportGeneric, "kayaking", ""},
+		{typedef.SportEBiking, typedef.SubSportGeneric, "cycling", ""},
 		{typedef.SportPoolApnea, typedef.SubSportGeneric, "diving", "apnea_pool"},
 		{typedef.SportWaterSport, typedef.SubSportGeneric, "unknown", ""},
 		{typedef.SportWinterSport, typedef.SubSportGeneric, "unknown", ""},
@@ -100,6 +105,16 @@ func TestFitSportToRouteSportAppliesElectricModifier(t *testing.T) {
 	gotSport, gotSub, gotPatch := fitSportToRouteSport(typedef.SportCycling, typedef.SubSportEBikeEnduro)
 	if gotSport != "cycling" || ptrStringValue(gotSub) != "mountain" {
 		t.Fatalf("tuple = %s/%s, want cycling/mountain", gotSport, ptrStringValue(gotSub))
+	}
+	if gotPatch.IsElectric == nil || !*gotPatch.IsElectric {
+		t.Fatalf("IsElectric patch = %#v, want true", gotPatch.IsElectric)
+	}
+}
+
+func TestFitSportToRouteSportAppliesEBikingModifier(t *testing.T) {
+	gotSport, gotSub, gotPatch := fitSportToRouteSport(typedef.SportEBiking, typedef.SubSportGeneric)
+	if gotSport != "cycling" || ptrStringValue(gotSub) != "" {
+		t.Fatalf("tuple = %s/%s, want cycling/", gotSport, ptrStringValue(gotSub))
 	}
 	if gotPatch.IsElectric == nil || !*gotPatch.IsElectric {
 		t.Fatalf("IsElectric patch = %#v, want true", gotPatch.IsElectric)
