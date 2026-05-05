@@ -70,6 +70,24 @@ func TestLoadRecordsProjectionRejectsEmptyRequiredCollectionsAndLabels(t *testin
 	}
 }
 
+func TestLoadRecordsProjectionRejectsInvalidColorHex(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{name: "record group invalid color", src: strings.Replace(validRecordsProjectionFixture(), "color: \"#3B82F6\"", "color: \"blue\"", 1)},
+		{name: "main category invalid color", src: strings.Replace(validRecordsProjectionFixture(), "color: \"#3B82F6\"", "color: \"blue\"", 3)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := LoadRecordsProjection(strings.NewReader(tc.src), recordsProjectionTestTaxonomy())
+			if err == nil {
+				t.Fatalf("LoadRecordsProjection accepted %s", tc.name)
+			}
+		})
+	}
+}
+
 func TestLoadRecordsProjectionRejectsInvalidCategoryDefinitions(t *testing.T) {
 	cases := []struct {
 		name string

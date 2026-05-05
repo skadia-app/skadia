@@ -217,21 +217,21 @@ func run() error {
 		if err := checkFile(*goRecordsProjectionOut, renderedGoRecordsProjection); err != nil {
 			return err
 		}
-			if err := checkFile(*tsRecordsProjectionOut, renderedTSRecordsProjection); err != nil {
-				return err
-			}
-			if !aliasesExist {
-				return fmt.Errorf("source alias directory %s does not exist; generated alias artifacts cannot be checked", *aliasSourceDir)
-			}
-			if err := checkFile(*goAliasesOut, renderedGoAliases); err != nil {
-				return err
-			}
-			if err := checkFile(*tsGearDefaultsOut, renderedTSGearDefaults); err != nil {
-				return err
-			}
-			if err := checkFile(*predicateValidationSQLOut, renderedPredicateValidationSQL); err != nil {
-				return err
-			}
+		if err := checkFile(*tsRecordsProjectionOut, renderedTSRecordsProjection); err != nil {
+			return err
+		}
+		if !aliasesExist {
+			return fmt.Errorf("source alias directory %s does not exist; generated alias artifacts cannot be checked", *aliasSourceDir)
+		}
+		if err := checkFile(*goAliasesOut, renderedGoAliases); err != nil {
+			return err
+		}
+		if err := checkFile(*tsGearDefaultsOut, renderedTSGearDefaults); err != nil {
+			return err
+		}
+		if err := checkFile(*predicateValidationSQLOut, renderedPredicateValidationSQL); err != nil {
+			return err
+		}
 		return nil
 	}
 	if err := os.WriteFile(*goOut, renderedGo, 0o644); err != nil {
@@ -258,15 +258,15 @@ func run() error {
 	if err := os.WriteFile(*tsRecordsProjectionOut, renderedTSRecordsProjection, 0o644); err != nil {
 		return fmt.Errorf("write TypeScript records projection: %w", err)
 	}
-		if !aliasesExist {
-			return fmt.Errorf("source alias directory %s does not exist; generated alias artifacts cannot be written", *aliasSourceDir)
-		}
-		if err := os.WriteFile(*goAliasesOut, renderedGoAliases, 0o644); err != nil {
-			return fmt.Errorf("write Go source aliases: %w", err)
-		}
-		if err := os.WriteFile(*tsGearDefaultsOut, renderedTSGearDefaults, 0o644); err != nil {
-			return fmt.Errorf("write TypeScript gear default projections: %w", err)
-		}
+	if !aliasesExist {
+		return fmt.Errorf("source alias directory %s does not exist; generated alias artifacts cannot be written", *aliasSourceDir)
+	}
+	if err := os.WriteFile(*goAliasesOut, renderedGoAliases, 0o644); err != nil {
+		return fmt.Errorf("write Go source aliases: %w", err)
+	}
+	if err := os.WriteFile(*tsGearDefaultsOut, renderedTSGearDefaults, 0o644); err != nil {
+		return fmt.Errorf("write TypeScript gear default projections: %w", err)
+	}
 	if err := os.WriteFile(*predicateValidationSQLOut, renderedPredicateValidationSQL, 0o644); err != nil {
 		return fmt.Errorf("write predicate validation SQL: %w", err)
 	}

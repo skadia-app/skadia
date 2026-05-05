@@ -226,6 +226,9 @@ function copyModifierDefaults(defaults: GeneratedModifierDefaults | undefined): 
 }
 
 const LEGACY_ALIASES = new Map<string, SportTuple>([
+  ['bike', { sportType: 'cycling', subType: '', modifiers: {} }],
+  ['biking', { sportType: 'cycling', subType: '', modifiers: {} }],
+  ['ride', { sportType: 'cycling', subType: '', modifiers: {} }],
   ['mountain_biking', { sportType: 'cycling', subType: 'mountain', modifiers: {} }],
   ['gravel_cycling', { sportType: 'cycling', subType: 'gravel_cycling', modifiers: {} }],
   ['indoor_cycling', { sportType: 'cycling', subType: 'indoor_cycling', modifiers: { isIndoor: true } }],
@@ -321,7 +324,7 @@ export function modifierDefaultsForTuple(sportType: string, subType = ''): Modif
   const cleanSubType = subType.trim()
   if (cleanSubType && cleanSubType !== 'generic') {
     const subtype = sport.subTypes.find((st) => st.subType === cleanSubType)
-    if (!subtype) return {}
+    if (!subtype) return defaults
     Object.assign(defaults, subtype.modifierDefaults)
   }
   return defaults
