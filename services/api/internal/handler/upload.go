@@ -136,11 +136,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 				FileName:    filename,
 				SizeBytes:   int64(len(decompressed)),
 				FileHash:    hashStr,
-				Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
-					Format:    format,
-					Source:    "upload",
-					SportType: "multisport",
-				}),
+				Tags:        shadowfs.ActivitySchemaTags(importer.MultisportActivitySchemaTagsInput(format, "upload", activities)),
 			}, bytes.NewReader(decompressed))
 			if putErr != nil {
 				slog.Error("shadowfs upload for multisport failed", "error", putErr)

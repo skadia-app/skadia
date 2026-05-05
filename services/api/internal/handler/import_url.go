@@ -239,11 +239,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 				FileName:    filename,
 				SizeBytes:   int64(len(fileBytes)),
 				FileHash:    hashStr,
-				Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
-					Format:    format,
-					Source:    "url_import",
-					SportType: "multisport",
-				}),
+				Tags:        shadowfs.ActivitySchemaTags(importer.MultisportActivitySchemaTagsInput(format, "url_import", sessions)),
 			}, bytes.NewReader(fileBytes))
 			if putErr != nil {
 				slog.Error("import_url: ShadowFS.Put multisport failed", "error", putErr)

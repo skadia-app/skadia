@@ -114,11 +114,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 				FileName:    filename,
 				SizeBytes:   int64(len(decompressed)),
 				FileHash:    hashStr,
-				Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
-					Format:    format,
-					Source:    "hotfolder",
-					SportType: "multisport",
-				}),
+				Tags:        shadowfs.ActivitySchemaTags(importer.MultisportActivitySchemaTagsInput(format, "hotfolder", sessions)),
 			}, bytes.NewReader(decompressed))
 			if putErr != nil {
 				importErr := fmt.Errorf("ShadowFS upload: %w", putErr)
