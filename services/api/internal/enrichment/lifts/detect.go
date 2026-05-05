@@ -847,6 +847,18 @@ func extendCandidate(rows []StreamPoint, start, initialEnd int, kind string, ws 
 	const fastLiftAltRate = 0.30
 	if endViaStopIndicator && rideAltRate >= fastLiftAltRate {
 		end = trimTrailingLowSpeedSamples(rows, start, end, cfg)
+		// Walk-off trim: at fast-lift bergstations the cable's altitude
+		// plateaus 5–15 s before the rider disembarks, then the rider walks
+		// 10–35 m past the cable terminal at 1–3 m/s before BREAK disembark
+		// fires on the gate-stop. trimTrailingLowSpeedSamples does not catch
+		// it (walking speed is above MinSpeedMs=0.7), so end overshoots the
+		// bergstation by 30+ m on stations with longer disembark walks.
+		// multi-resort case r9 (Lift 4): 34 m past, r13 (Lift 8): 31 m past.
+		// Walk back while the trailing 5 s alt-rate at end is below 0.15 m/s
+		// — well under fast-lift cruise (0.30+ m/s) and under the natural
+		// cable-decel slope (0.20–0.40 m/s on alpine ski-resort case-class gondolas), so
+		// only the truly flat platform tail gets peeled.
+		end = trimTrailingAltPlateau(rows, start, end)
 	} else {
 		end = trimTrailingChunks(rows, start, end)
 	}
@@ -1434,6 +1446,60 @@ func trimTrailingLowSpeedSamples(rows []StreamPoint, start, end int, cfg Detecto
 	for end > start+1 {
 		spd, ok := effectiveSpeedCfg(rows, end, cfg)
 		if !ok || spd >= cfg.MinSpeedMs {
+			return end
+		}
+		end--
+	}
+	return end
+}
+
+// trimTrailingAltPlateau walks end backward sample-by-sample while the
+// trailing 5 s altitude rate at end is essentially flat (< 0.15 m/s).
+// Used after trimTrailingLowSpeedSamples for fast-lift stop-indicator
+// endings to catch walk-off zones where the rider walks 10–35 m past the
+// cable terminal at 1–3 m/s. The 0.15 m/s threshold sits well below
+// typical fast-lift cable cruise (0.30+ m/s) and below the natural
+// cable-decel slope (0.20–0.40 m/s on the alpine ski-resort case-class gondolas the
+// trim must preserve), so it only fires on true platform plateaus.
+// Bounded by MinDurationS so a heavily over-trimmed window does not
+// invalidate the ride downstream.
+func trimTrailingAltPlateau(rows []StreamPoint, start, end int) int {
+	const windowS = 5.0
+	const flatRateMs = 0.15
+	const minRideDurS = 60.0
+	startT := rows[start].Time
+	for end > start+5 {
+		if rows[end].AltitudeM == nil {
+			return end
+		}
+		cutoffT := rows[end].Time.Add(-time.Duration(windowS * float64(time.Second)))
+		if cutoffT.Before(startT) {
+			return end
+		}
+		ref := -1
+		for k := end - 1; k > start; k-- {
+			if !rows[k].Time.After(cutoffT) {
+				ref = k
+				break
+			}
+		}
+		if ref < 0 || rows[ref].AltitudeM == nil {
+			return end
+		}
+		dur := rows[end].Time.Sub(rows[ref].Time).Seconds()
+		// Sampling-gap guard: if the 5 s window only covers a fraction of
+		// the expected duration (e.g. smart-recording gap, FIT 1 Hz vs
+		// stationary), the rate becomes noisy. Require at least 3.5 s.
+		if dur < 3.5 {
+			return end
+		}
+		rate := (*rows[end].AltitudeM - *rows[ref].AltitudeM) / dur
+		if rate >= flatRateMs {
+			return end
+		}
+		// Stop when peeling another sample would shrink the ride below
+		// MinDurationS. Cheaper than trial-trim-then-validateRide.
+		if rows[end-1].Time.Sub(startT).Seconds() < minRideDurS {
 			return end
 		}
 		end--
