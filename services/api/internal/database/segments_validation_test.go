@@ -1,6 +1,7 @@
 package database
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -110,14 +111,67 @@ func TestValidateSegmentTypeChangePredicatesUsesEffectiveSegmentType(t *testing.
 	}
 }
 
+func TestSegmentPredicatesForCreateDerivesSpecializedTypeDefaults(t *testing.T) {
+	preds, err := segmentPredicatesForCreate("wintersport", nil)
+	if err != nil {
+		t.Fatalf("segmentPredicatesForCreate(winter): %v", err)
+	}
+	if len(preds) == 0 {
+		t.Fatal("wintersport defaults are empty")
+	}
+	if err := validateSegmentPredicatesForType("wintersport", preds); err != nil {
+		t.Fatalf("wintersport defaults are not valid: %v", err)
+	}
+	for _, pred := range preds {
+		if pred.Sport == "cycling" {
+			t.Fatalf("wintersport defaults include cycling: %#v", preds)
+		}
+	}
+
+	preds, err = segmentPredicatesForCreate("standard", nil)
+	if err != nil {
+		t.Fatalf("segmentPredicatesForCreate(standard): %v", err)
+	}
+	if preds != nil {
+		t.Fatalf("standard nil predicates = %#v, want nil legacy match-all", preds)
+	}
+}
+
+func TestSegmentPredicatesForUpdateDerivesSpecializedTypeDefaultsForNullAndOmitted(t *testing.T) {
+	nullRaw := json.RawMessage("null")
+	preds, shouldSet, err := segmentPredicatesForUpdate("wassersport", nullRaw)
+	if err != nil {
+		t.Fatalf("segmentPredicatesForUpdate(null): %v", err)
+	}
+	if !shouldSet {
+		t.Fatal("segmentPredicatesForUpdate(null) should set derived predicates")
+	}
+	if len(preds) == 0 {
+		t.Fatal("wassersport defaults are empty")
+	}
+	if err := validateSegmentPredicatesForType("wassersport", preds); err != nil {
+		t.Fatalf("wassersport defaults are not valid: %v", err)
+	}
+
+	preds, shouldSet, err = segmentPredicatesForUpdate("wintersport", nil)
+	if err != nil {
+		t.Fatalf("segmentPredicatesForUpdate(omitted): %v", err)
+	}
+	if !shouldSet || len(preds) == 0 {
+		t.Fatalf("omitted wintersport predicates = %#v, shouldSet=%v; want derived defaults", preds, shouldSet)
+	}
+}
+
 func TestSpatialCandidateSQLSkipsEmptyAllowedPredicates(t *testing.T) {
 	source, err := os.ReadFile("segments.go")
 	if err != nil {
 		t.Fatalf("read segments.go: %v", err)
 	}
 	sourceText := strings.Join(strings.Fields(string(source)), " ")
-	needle := "s.allowed_predicates IS NULL OR jsonb_array_length(s.allowed_predicates) > 0"
-	if !strings.Contains(sourceText, needle) {
+	if !strings.Contains(sourceText, "jsonb_array_length(s.allowed_predicates) > 0") {
 		t.Fatalf("GetSpatialCandidateSegments must prefilter allowed_predicates=[] before expanding predicates")
+	}
+	if !strings.Contains(sourceText, "AND s.segment_type NOT IN ('wintersport', 'wassersport')") {
+		t.Fatalf("GetSpatialCandidateSegments must not let specialized null-predicate segments match all sports")
 	}
 }

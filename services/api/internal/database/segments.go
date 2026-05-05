@@ -90,6 +90,87 @@ func validateSegmentPredicatesForType(segmentType string, preds []sport.Predicat
 	return nil
 }
 
+func segmentTypeUsesDerivedDefaultPredicates(segmentType string) bool {
+	switch segmentType {
+	case "wintersport", "wassersport":
+		return true
+	default:
+		return false
+	}
+}
+
+func defaultSegmentPredicatesForType(segmentType string) ([]sport.Predicate, error) {
+	if !segmentTypeUsesDerivedDefaultPredicates(segmentType) {
+		return nil, nil
+	}
+	entries := sport.SegmentProjectionEntriesForType(segmentType)
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("%w: segment_type %s has no default predicates", ErrSegmentValidation, segmentType)
+	}
+	preds := make([]sport.Predicate, 0, len(entries))
+	for _, entry := range entries {
+		pred := sport.Predicate{Sport: entry.SportType}
+		if entry.SubType != "" {
+			subType := entry.SubType
+			pred.SubType = &subType
+		}
+		preds = append(preds, pred)
+	}
+	normalized, err := normalizeSegmentPredicates(preds)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateSegmentPredicatesForType(segmentType, normalized); err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
+func segmentPredicatesForCreate(segmentType string, requested []sport.Predicate) ([]sport.Predicate, error) {
+	if requested == nil && segmentTypeUsesDerivedDefaultPredicates(segmentType) {
+		return defaultSegmentPredicatesForType(segmentType)
+	}
+	normalized, err := normalizeSegmentPredicates(requested)
+	if err != nil {
+		return nil, err
+	}
+	if requested != nil {
+		if err := validateSegmentPredicatesForType(segmentType, normalized); err != nil {
+			return nil, err
+		}
+	}
+	return normalized, nil
+}
+
+func segmentPredicatesForUpdate(segmentType string, raw json.RawMessage) ([]sport.Predicate, bool, error) {
+	if len(raw) == 0 {
+		if segmentTypeUsesDerivedDefaultPredicates(segmentType) {
+			preds, err := defaultSegmentPredicatesForType(segmentType)
+			return preds, true, err
+		}
+		return nil, false, nil
+	}
+	if string(raw) == "null" {
+		if segmentTypeUsesDerivedDefaultPredicates(segmentType) {
+			preds, err := defaultSegmentPredicatesForType(segmentType)
+			return preds, true, err
+		}
+		return nil, true, nil
+	}
+	var requested []sport.Predicate
+	if err := json.Unmarshal(raw, &requested); err != nil {
+		return nil, false, fmt.Errorf("decode segment predicates: %w", err)
+	}
+	normalized, err := normalizeSegmentPredicates(requested)
+	if err != nil {
+		return nil, false, fmt.Errorf("normalize segment predicates: %w", err)
+	}
+	if err := validateSegmentPredicatesForType(segmentType, normalized); err != nil {
+		return nil, false, err
+	}
+	return normalized, true, nil
+}
+
 func validateSegmentTypeChangePredicates(segmentType string, preds []sport.Predicate) error {
 	if len(preds) == 0 {
 		return nil
@@ -401,14 +482,9 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	if create.Bidirectional != nil {
 		bidirectional = *create.Bidirectional
 	}
-	allowedPredicates, err := normalizeSegmentPredicates(create.AllowedPredicates)
+	allowedPredicates, err := segmentPredicatesForCreate(create.SegmentType, create.AllowedPredicates)
 	if err != nil {
-		return nil, fmt.Errorf("normalize segment predicates: %w", err)
-	}
-	if create.AllowedPredicates != nil {
-		if err := validateSegmentPredicatesForType(create.SegmentType, allowedPredicates); err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 	allowedPredicatesJSON, err := marshalSegmentPredicates(allowedPredicates)
 	if err != nil {
@@ -418,7 +494,7 @@ func (db *DB) CreateSegment(ctx context.Context, userID string, create *model.Se
 	if segmentSportGroup == "" {
 		segmentSportGroup = "generic"
 	}
-	if create.AllowedPredicates != nil {
+	if allowedPredicates != nil {
 		segmentSportGroup = segmentSportGroupFromPredicates(allowedPredicates)
 	}
 
@@ -646,45 +722,37 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 		argIdx++
 	}
 	if len(update.AllowedPredicates) > 0 {
-		var allowedPredicatesJSON any
-		if string(update.AllowedPredicates) == "null" {
-			allowedPredicatesJSON = nil
+		effectiveSegmentType := ""
+		if update.SegmentType != nil {
+			effectiveSegmentType = *update.SegmentType
 		} else {
-			var requested []sport.Predicate
-			if err := json.Unmarshal(update.AllowedPredicates, &requested); err != nil {
-				return nil, fmt.Errorf("decode segment predicates: %w", err)
-			}
-			allowedPredicates, err := normalizeSegmentPredicates(requested)
+			var ok bool
+			effectiveSegmentType, ok, err = segmentTypeForUpdateTx(ctx, tx, segmentID, userID, isAdmin)
 			if err != nil {
-				return nil, fmt.Errorf("normalize segment predicates: %w", err)
-			}
-			effectiveSegmentType := ""
-			if update.SegmentType != nil {
-				effectiveSegmentType = *update.SegmentType
-			} else {
-				var ok bool
-				effectiveSegmentType, ok, err = segmentTypeForUpdateTx(ctx, tx, segmentID, userID, isAdmin)
-				if err != nil {
-					return nil, err
-				}
-				if !ok {
-					return nil, nil
-				}
-			}
-			if err := validateSegmentPredicatesForType(effectiveSegmentType, allowedPredicates); err != nil {
 				return nil, err
 			}
-			allowedPredicatesJSON, err = marshalSegmentPredicates(allowedPredicates)
+			if !ok {
+				return nil, nil
+			}
+		}
+		allowedPredicates, shouldSet, err := segmentPredicatesForUpdate(effectiveSegmentType, update.AllowedPredicates)
+		if err != nil {
+			return nil, err
+		}
+		if shouldSet {
+			allowedPredicatesJSON, err := marshalSegmentPredicates(allowedPredicates)
 			if err != nil {
 				return nil, fmt.Errorf("marshal segment predicates: %w", err)
 			}
-			setClauses = append(setClauses, fmt.Sprintf("sport_group = $%d", argIdx))
-			args = append(args, segmentSportGroupFromPredicates(allowedPredicates))
+			if allowedPredicates != nil {
+				setClauses = append(setClauses, fmt.Sprintf("sport_group = $%d", argIdx))
+				args = append(args, segmentSportGroupFromPredicates(allowedPredicates))
+				argIdx++
+			}
+			setClauses = append(setClauses, fmt.Sprintf("allowed_predicates = $%d", argIdx))
+			args = append(args, allowedPredicatesJSON)
 			argIdx++
 		}
-		setClauses = append(setClauses, fmt.Sprintf("allowed_predicates = $%d", argIdx))
-		args = append(args, allowedPredicatesJSON)
-		argIdx++
 	}
 	if update.SegmentType != nil && len(update.AllowedPredicates) == 0 {
 		existingPredicates, ok, err := segmentPredicatesForUpdateTx(ctx, tx, segmentID, userID, isAdmin)
@@ -693,6 +761,22 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 		}
 		if !ok {
 			return nil, nil
+		}
+		if existingPredicates == nil && segmentTypeUsesDerivedDefaultPredicates(*update.SegmentType) {
+			derivedPredicates, err := defaultSegmentPredicatesForType(*update.SegmentType)
+			if err != nil {
+				return nil, err
+			}
+			allowedPredicatesJSON, err := marshalSegmentPredicates(derivedPredicates)
+			if err != nil {
+				return nil, fmt.Errorf("marshal segment predicates: %w", err)
+			}
+			setClauses = append(setClauses, fmt.Sprintf("sport_group = $%d", argIdx))
+			args = append(args, segmentSportGroupFromPredicates(derivedPredicates))
+			argIdx++
+			setClauses = append(setClauses, fmt.Sprintf("allowed_predicates = $%d", argIdx))
+			args = append(args, allowedPredicatesJSON)
+			argIdx++
 		}
 		if err := validateSegmentTypeChangePredicates(*update.SegmentType, existingPredicates); err != nil {
 			return nil, err
@@ -871,7 +955,9 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 	query := `
 		SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
 		       se.user_id, se.started_at, se.elapsed_time_s,
-		       se.is_reverse, se.sport_type, se.sub_type, se.gear_id,
+		       se.is_reverse, se.sport_type, se.sub_type,
+		       COALESCE(act.is_indoor, false), COALESCE(act.is_virtual, false), COALESCE(act.is_electric, false),
+		       se.gear_id,
 		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
 		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
 		       se.in_leaderboard, se.created_at,
@@ -930,7 +1016,9 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		err := rows.Scan(
 			&e.ID, &e.SegmentID, &e.SegmentVersionID, &e.ActivityID,
 			&e.UserID, &e.StartedAt, &e.ElapsedTimeS,
-			&e.IsReverse, &e.SportType, &e.SubType, &e.GearID,
+			&e.IsReverse, &e.SportType, &e.SubType,
+			&e.IsIndoor, &e.IsVirtual, &e.IsElectric,
+			&e.GearID,
 			&e.AvgPowerW, &e.AvgHeartRate, &e.AvgSpeedMs,
 			&e.RankOverall, &e.IsPersonalBest, &e.PersonalRank, &e.IsSegmentRecord,
 			&e.InLeaderboard, &e.CreatedAt,
@@ -954,7 +1042,9 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 	rows, err := db.Pool.Query(ctx, `
 		SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
 		       se.user_id, se.started_at, se.elapsed_time_s,
-		       se.is_reverse, se.sport_type, se.sub_type, se.gear_id,
+		       se.is_reverse, se.sport_type, se.sub_type,
+		       COALESCE(a.is_indoor, false), COALESCE(a.is_virtual, false), COALESCE(a.is_electric, false),
+		       se.gear_id,
 		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
 		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
 		       se.in_leaderboard, se.created_at,
@@ -964,6 +1054,7 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 		       s.segment_type_meta
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
+		JOIN activities a ON a.id = se.activity_id
 		LEFT JOIN gear g ON g.id = se.gear_id
 		WHERE se.activity_id = $1
 		ORDER BY se.started_at ASC`, activityID)
@@ -978,7 +1069,9 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 		err := rows.Scan(
 			&e.ID, &e.SegmentID, &e.SegmentVersionID, &e.ActivityID,
 			&e.UserID, &e.StartedAt, &e.ElapsedTimeS,
-			&e.IsReverse, &e.SportType, &e.SubType, &e.GearID,
+			&e.IsReverse, &e.SportType, &e.SubType,
+			&e.IsIndoor, &e.IsVirtual, &e.IsElectric,
+			&e.GearID,
 			&e.AvgPowerW, &e.AvgHeartRate, &e.AvgSpeedMs,
 			&e.RankOverall, &e.IsPersonalBest, &e.PersonalRank, &e.IsSegmentRecord,
 			&e.InLeaderboard, &e.CreatedAt,
@@ -1125,7 +1218,7 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		WHERE (s.visibility = 'public' OR s.created_by = $2)
 		  AND (s.sport_group = $3 OR s.sport_group = 'generic')
 			  AND (
-			      s.allowed_predicates IS NULL
+			      (s.allowed_predicates IS NULL AND s.segment_type NOT IN ('wintersport', 'wassersport'))
 			      OR jsonb_array_length(s.allowed_predicates) > 0
 			  )
 			  AND (
@@ -1738,7 +1831,9 @@ func (db *DB) GetUserSegmentPRs(ctx context.Context, userID string) ([]model.Seg
 	rows, err := db.Pool.Query(ctx, `
 		SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
 		       se.user_id, se.started_at, se.elapsed_time_s,
-		       se.is_reverse, se.sport_type, se.sub_type, se.gear_id,
+		       se.is_reverse, se.sport_type, se.sub_type,
+		       COALESCE(a.is_indoor, false), COALESCE(a.is_virtual, false), COALESCE(a.is_electric, false),
+		       se.gear_id,
 		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
 		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
 		       se.in_leaderboard, se.created_at,
@@ -1747,6 +1842,7 @@ func (db *DB) GetUserSegmentPRs(ctx context.Context, userID string) ([]model.Seg
 		       NULL::text AS gear_name
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
+		JOIN activities a ON a.id = se.activity_id
 		WHERE se.user_id = $1
 		  AND se.personal_rank IS NOT NULL
 		  AND se.personal_rank <= 3
@@ -1763,7 +1859,9 @@ func (db *DB) GetUserSegmentPRs(ctx context.Context, userID string) ([]model.Seg
 		err := rows.Scan(
 			&e.ID, &e.SegmentID, &e.SegmentVersionID, &e.ActivityID,
 			&e.UserID, &e.StartedAt, &e.ElapsedTimeS,
-			&e.IsReverse, &e.SportType, &e.SubType, &e.GearID,
+			&e.IsReverse, &e.SportType, &e.SubType,
+			&e.IsIndoor, &e.IsVirtual, &e.IsElectric,
+			&e.GearID,
 			&e.AvgPowerW, &e.AvgHeartRate, &e.AvgSpeedMs,
 			&e.RankOverall, &e.IsPersonalBest, &e.PersonalRank, &e.IsSegmentRecord,
 			&e.InLeaderboard, &e.CreatedAt,
@@ -1797,7 +1895,9 @@ func (db *DB) GetUserGlobalTopSegmentEfforts(ctx context.Context, userID string)
 	rows, err := db.Pool.Query(ctx, `
 		SELECT se.id, se.segment_id, se.segment_version_id, se.activity_id,
 		       se.user_id, se.started_at, se.elapsed_time_s,
-		       se.is_reverse, se.sport_type, se.sub_type, se.gear_id,
+		       se.is_reverse, se.sport_type, se.sub_type,
+		       COALESCE(a.is_indoor, false), COALESCE(a.is_virtual, false), COALESCE(a.is_electric, false),
+		       se.gear_id,
 		       se.avg_power_w, se.avg_heart_rate, se.avg_speed_ms,
 		       se.rank_overall, se.is_personal_best, se.personal_rank, se.is_segment_record,
 		       se.in_leaderboard, se.created_at,
@@ -1807,6 +1907,7 @@ func (db *DB) GetUserGlobalTopSegmentEfforts(ctx context.Context, userID string)
 		       s.athlete_count
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
+		JOIN activities a ON a.id = se.activity_id
 		WHERE se.user_id = $1
 		  AND se.rank_overall IS NOT NULL
 		  AND se.rank_overall <= 10
@@ -1824,7 +1925,9 @@ func (db *DB) GetUserGlobalTopSegmentEfforts(ctx context.Context, userID string)
 		err := rows.Scan(
 			&e.ID, &e.SegmentID, &e.SegmentVersionID, &e.ActivityID,
 			&e.UserID, &e.StartedAt, &e.ElapsedTimeS,
-			&e.IsReverse, &e.SportType, &e.SubType, &e.GearID,
+			&e.IsReverse, &e.SportType, &e.SubType,
+			&e.IsIndoor, &e.IsVirtual, &e.IsElectric,
+			&e.GearID,
 			&e.AvgPowerW, &e.AvgHeartRate, &e.AvgSpeedMs,
 			&e.RankOverall, &e.IsPersonalBest, &e.PersonalRank, &e.IsSegmentRecord,
 			&e.InLeaderboard, &e.CreatedAt,

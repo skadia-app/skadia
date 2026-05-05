@@ -89,3 +89,86 @@ func TestDeleteOrphanedBestEffortsRemovesInvalidSportGroups(t *testing.T) {
 		t.Fatalf("sport_groups after cleanup = %#v, want [running]", sportGroups)
 	}
 }
+
+func insertBestEffortEligibilityActivity(t *testing.T, db *DB, userID, suffix string, overrides string) string {
+	t.Helper()
+	activityID := uuid.NewString()
+	query := `INSERT INTO activities (id, user_id, sport_type, title, started_at, file_hash, visibility, enrichment_status` + overrides + `)
+		VALUES ($1, $2, 'running', $3, $4, $5, 'private', 'complete'`
+	args := []any{
+		activityID,
+		userID,
+		"Eligibility Test " + suffix,
+		time.Now().UTC(),
+		"best-efforts-eligibility-" + suffix + "-" + activityID,
+	}
+	switch overrides {
+	case ", num_sessions":
+		query += `, 2`
+	case "":
+	default:
+		t.Fatalf("unsupported activity override %q", overrides)
+	}
+	query += `)`
+	if _, err := db.Pool.Exec(context.Background(), query, args...); err != nil {
+		t.Fatalf("insert activity %s: %v", suffix, err)
+	}
+	return activityID
+}
+
+func insertBestEffortEligibilityRow(t *testing.T, db *DB, userID, activityID string, elapsedS int) {
+	t.Helper()
+	if _, err := db.Pool.Exec(context.Background(),
+		`INSERT INTO best_efforts (user_id, activity_id, category, sport_group, elapsed_time_s, achieved_at)
+		 VALUES ($1, $2, 'dist_5km', 'running', $3, $4)`,
+		userID, activityID, elapsedS, time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("insert best_effort: %v", err)
+	}
+}
+
+func TestBestEffortRankingExcludesMultiSessionAndFusionSourceActivities(t *testing.T) {
+	db, userID, _ := bestEffortsCleanupDB(t)
+	ctx := context.Background()
+
+	eligibleID := insertBestEffortEligibilityActivity(t, db, userID, "eligible", "")
+	multiSessionID := insertBestEffortEligibilityActivity(t, db, userID, "multi", ", num_sessions")
+	fusionSourceID := insertBestEffortEligibilityActivity(t, db, userID, "source", "")
+	mergedID := insertBestEffortEligibilityActivity(t, db, userID, "merged", "")
+
+	if _, err := db.Pool.Exec(ctx,
+		`INSERT INTO activity_fusion_memberships (merged_id, source_id, field_key, user_id)
+		 VALUES ($1, $2, 'gps', $3)`,
+		mergedID, fusionSourceID, userID,
+	); err != nil {
+		t.Fatalf("insert fusion membership: %v", err)
+	}
+
+	insertBestEffortEligibilityRow(t, db, userID, eligibleID, 1200)
+	insertBestEffortEligibilityRow(t, db, userID, multiSessionID, 600)
+	insertBestEffortEligibilityRow(t, db, userID, fusionSourceID, 700)
+
+	records, err := db.GetBestEffortPersonalRecords(ctx, userID, "running", 3, nil, nil)
+	if err != nil {
+		t.Fatalf("GetBestEffortPersonalRecords: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records = %#v, want only eligible activity", records)
+	}
+	if records[0].ActivityID != eligibleID {
+		t.Fatalf("record activity = %s, want %s", records[0].ActivityID, eligibleID)
+	}
+}
+
+func TestGetBestEffortActivityInfoExcludesMultiSessionActivities(t *testing.T) {
+	db, userID, _ := bestEffortsCleanupDB(t)
+	activityID := insertBestEffortEligibilityActivity(t, db, userID, "single-info-multi", ", num_sessions")
+
+	info, err := db.GetBestEffortActivityInfo(context.Background(), activityID)
+	if err != nil {
+		t.Fatalf("GetBestEffortActivityInfo: %v", err)
+	}
+	if info != nil {
+		t.Fatalf("GetBestEffortActivityInfo returned %#v, want nil for multi-session activity", info)
+	}
+}

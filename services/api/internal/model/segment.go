@@ -84,6 +84,9 @@ type SegmentEffort struct {
 	IsReverse        bool      `json:"is_reverse"`
 	SportType        string    `json:"sport_type"`
 	SubType          string    `json:"sub_type"`
+	IsIndoor         bool      `json:"is_indoor"`
+	IsVirtual        bool      `json:"is_virtual"`
+	IsElectric       bool      `json:"is_electric"`
 	GearID           *string   `json:"gear_id,omitempty"`
 	AvgPowerW        *float64  `json:"avg_power_w,omitempty"`
 	AvgHeartRate     *float64  `json:"avg_heart_rate,omitempty"`

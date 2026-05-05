@@ -104,6 +104,9 @@ type Service struct {
 func computeForActivityInner[T model.BestEffortPoint](ctx context.Context, store Store, info ActivityInfo, stream []T) ([]BestEffortRankedRecord, error) {
 	sportGroup := DetermineSportGroup(info.SportType, info.SubType, info.IsIndoor, info.IsVirtual, info.IsElectric)
 	if sportGroup == "" {
+		if err := store.DeleteBestEffortsForActivity(ctx, info.ID); err != nil {
+			return nil, fmt.Errorf("delete stale best efforts for unsupported activity %s: %w", info.ID, err)
+		}
 		return nil, nil
 	}
 

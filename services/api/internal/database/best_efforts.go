@@ -229,6 +229,7 @@ const rankingOrderExpr = `
 //	(activities use hard delete — ON DELETE CASCADE handles cleanup)
 //	- NOT COALESCE(a.exclude_from_stats, false)
 //	- NOT COALESCE(a.is_group_secondary, false)
+//	- activity is not a fusion source and has at most one session
 //	- No active best_effort_exclusions for (user, activity, category OR '__all__')
 //
 // Only ranks 1–3 are returned; records outside the top-3 receive rank > 3.
@@ -257,6 +258,8 @@ func (db *DB) GetBestEffortsForActivity(ctx context.Context, activityID, userID 
 
 		      AND NOT COALESCE(a.exclude_from_stats, false)
 		      AND NOT COALESCE(a.is_group_secondary, false)
+		      AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
+		      AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions exc
 		          WHERE exc.user_id    = be.user_id
@@ -320,6 +323,8 @@ func (db *DB) GetBestEffortPersonalRecords(
 
 		      AND NOT COALESCE(a.exclude_from_stats, false)
 		      AND NOT COALESCE(a.is_group_secondary, false)
+		      AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
+		      AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions exc
 		          WHERE exc.user_id     = be.user_id
@@ -537,7 +542,8 @@ func (db *DB) GetBestEffortActivityInfo(ctx context.Context, activityID string) 
 		 WHERE a.id = $1
 		   AND NOT COALESCE(a.exclude_from_stats, false)
 		   AND NOT COALESCE(a.is_group_secondary, false)
-		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)`,
+		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
+		   AND (a.num_sessions IS NULL OR a.num_sessions <= 1)`,
 		activityID,
 	)
 	var info bestefforts.ActivityInfo
@@ -675,6 +681,8 @@ func (db *DB) GetNearMisses(ctx context.Context, activityID, userID string) ([]N
 
 		      AND NOT COALESCE(a.exclude_from_stats, false)
 		      AND NOT COALESCE(a.is_group_secondary, false)
+		      AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
+		      AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions exc
 		          WHERE exc.user_id     = be.user_id
@@ -694,8 +702,13 @@ func (db *DB) GetNearMisses(ctx context.Context, activityID, userID string) ([]N
 		        be.elapsed_time_s,
 		        be.value_numeric
 		    FROM best_efforts be
+		    JOIN activities a ON a.id = be.activity_id
 		    WHERE be.activity_id = $1
 		      AND be.user_id     = $2
+		      AND NOT COALESCE(a.exclude_from_stats, false)
+		      AND NOT COALESCE(a.is_group_secondary, false)
+		      AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
+		      AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions exc
 		          WHERE exc.user_id     = be.user_id
@@ -812,6 +825,8 @@ func (db *DB) GetEffortPercentiles(ctx context.Context, activityID, userID strin
 		      AND (be.elapsed_time_s IS NOT NULL OR be.value_numeric IS NOT NULL)
 		      AND NOT COALESCE(a.exclude_from_stats, false)
 		      AND NOT COALESCE(a.is_group_secondary, false)
+		      AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
+		      AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions ex
 		          WHERE ex.user_id     = be.user_id
@@ -886,6 +901,7 @@ type PRHistoryEntry struct {
 // Eligibility guards match GetBestEffortsForActivity:
 //   - NOT COALESCE(a.exclude_from_stats, false)
 //   - NOT COALESCE(a.is_group_secondary, false)
+//   - activity is not a fusion source and has at most one session
 //   - No active best_effort_exclusions for (user, activity, category OR '__all__')
 func (db *DB) GetPRHistory(ctx context.Context, userID, category, sportGroup string) ([]PRHistoryEntry, error) {
 	rows, err := db.Pool.Query(ctx,
@@ -905,6 +921,8 @@ func (db *DB) GetPRHistory(ctx context.Context, userID, category, sportGroup str
 		   AND be.sport_group = $3
 		   AND NOT COALESCE(a.exclude_from_stats, false)
 		   AND NOT COALESCE(a.is_group_secondary, false)
+		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
+		   AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
 		   AND NOT EXISTS (
 		       SELECT 1 FROM best_effort_exclusions exc
 		       WHERE exc.user_id     = be.user_id
