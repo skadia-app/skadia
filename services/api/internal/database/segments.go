@@ -1124,15 +1124,19 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 		JOIN activity_tracks at ON at.activity_id = $1
 		WHERE (s.visibility = 'public' OR s.created_by = $2)
 		  AND (s.sport_group = $3 OR s.sport_group = 'generic')
-		  AND (
-		      s.allowed_predicates IS NULL
-		      OR EXISTS (
-		          SELECT 1
-		          FROM jsonb_array_elements(s.allowed_predicates) pred
-		          WHERE pred->>'sport' = $5
-		            AND (NOT pred ? 'sub_type' OR pred->>'sub_type' = $6)
-		      )
-		  )
+			  AND (
+			      s.allowed_predicates IS NULL
+			      OR jsonb_array_length(s.allowed_predicates) > 0
+			  )
+			  AND (
+			      s.allowed_predicates IS NULL
+			      OR EXISTS (
+			          SELECT 1
+			          FROM jsonb_array_elements(s.allowed_predicates) pred
+			          WHERE pred->>'sport' = $5
+			            AND (NOT pred ? 'sub_type' OR pred->>'sub_type' = $6)
+			      )
+			  )
 		  AND at.track_full IS NOT NULL
 		  AND sv.track IS NOT NULL
 		  AND ST_DWithin(at.track_full::geography, sv.track::geography, 100)`,

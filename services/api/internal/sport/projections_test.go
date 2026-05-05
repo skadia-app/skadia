@@ -104,6 +104,17 @@ func TestSegmentProjectionEntriesForType(t *testing.T) {
 			t.Fatalf("standard active entries include reserved domain: %#v", entry)
 		}
 	}
+
+	original := SegmentProjectionEntriesForType("wintersport")
+	if len(original) == 0 {
+		t.Fatal("wintersport entries empty")
+	}
+	originalSport := original[0].SportType
+	original[0].SportType = "mutated"
+	again := SegmentProjectionEntriesForType("wintersport")
+	if again[0].SportType != originalSport {
+		t.Fatalf("SegmentProjectionEntriesForType returned mutable generated data: %#v", again[0])
+	}
 }
 
 func TestSegmentProjectionGroupForPredicates(t *testing.T) {
