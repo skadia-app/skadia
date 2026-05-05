@@ -177,24 +177,12 @@ func validateSportTupleConditionValue(tuple sportTupleConditionValue, surface st
 			return fmt.Errorf("%s.sub_type %q is unknown for sport_type %q", surface, tuple.SubType, tuple.SportType)
 		}
 	}
-	if !isSelectableRuleTuple(tuple.SportType, tuple.SubType) {
-		return fmt.Errorf("%s must reference a selectable sport tuple", surface)
-	}
 	for key := range tuple.Modifiers {
 		if _, ok := sportTupleModifierKeys[key]; !ok {
 			return fmt.Errorf("%s: unsupported modifier key %q", surface, key)
 		}
 	}
 	return nil
-}
-
-func isSelectableRuleTuple(sportType, subType string) bool {
-	for _, option := range sport.RuleTupleOptions() {
-		if option.SportType == sportType && option.SubType == subType {
-			return true
-		}
-	}
-	return false
 }
 
 func sportTupleConditionStableKey(tuple sportTupleConditionValue) string {
