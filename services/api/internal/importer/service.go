@@ -34,6 +34,8 @@ type SegmentMatcherFunc func(activityID, userID, sportType, subType string, gear
 // post-processing has populated schema-relevant activity fields.
 type ActivityFileRefresher func(ctx context.Context, userID, activityID, fileID string)
 
+type metaCompanionWriter func(ctx context.Context, userID, activityID, fileID string, data *model.ActivityData, activity *model.Activity)
+
 // Service holds shared dependencies needed to run post-insert processing steps
 // after an activity has been written to the database. It is used by the upload
 // handler and will be reused by the cross-platform import pipeline so that all
@@ -74,6 +76,8 @@ type Service struct {
 	// ActivityFileRefresher updates local ShadowFS paths after enrichment/rules
 	// have finalized schema-relevant activity fields. Optional — nil is safe.
 	ActivityFileRefresher ActivityFileRefresher
+
+	metaCompanionWriter metaCompanionWriter
 
 	// Stage1Deps overrides the external dependencies (WeatherFetcher,
 	// ReverseGeocoder) used by RunStage1 in PostProcess. When nil,
@@ -542,10 +546,7 @@ func (s *Service) PostProcess(
 		if effectiveFileID == "" && activity != nil && activity.FileID != nil {
 			effectiveFileID = *activity.FileID
 		}
-		sidecar.WriteMetaCompanion(ctx, s.ShadowFS, s.DB, userID, activityID, effectiveFileID, data, activity)
-		if s.ActivityFileRefresher != nil {
-			s.ActivityFileRefresher(ctx, userID, activityID, effectiveFileID)
-		}
+		s.writeMetaCompanionAndRefreshActivityFile(ctx, userID, activityID, effectiveFileID, data, activity)
 	}
 
 	slog.Info("activity post-processed",
@@ -557,6 +558,27 @@ func (s *Service) PostProcess(
 		"has_gps", data.HasGPS,
 	)
 	return nil
+}
+
+func (s *Service) writeMetaCompanionAndRefreshActivityFile(
+	ctx context.Context,
+	userID, activityID, effectiveFileID string,
+	data *model.ActivityData,
+	activity *model.Activity,
+) {
+	if effectiveFileID == "" && activity != nil && activity.FileID != nil {
+		effectiveFileID = *activity.FileID
+	}
+	writeMeta := s.metaCompanionWriter
+	if writeMeta == nil {
+		writeMeta = func(ctx context.Context, userID, activityID, effectiveFileID string, data *model.ActivityData, activity *model.Activity) {
+			sidecar.WriteMetaCompanion(ctx, s.ShadowFS, s.DB, userID, activityID, effectiveFileID, data, activity)
+		}
+	}
+	writeMeta(ctx, userID, activityID, effectiveFileID, data, activity)
+	if s.ActivityFileRefresher != nil {
+		s.ActivityFileRefresher(ctx, userID, activityID, effectiveFileID)
+	}
 }
 
 // runWeatherStreamRefinement re-fetches weather with summit/midpoint GPS after streams are inserted.
