@@ -2,6 +2,8 @@ package database
 
 import (
 	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -105,5 +107,17 @@ func TestValidateSegmentTypeChangePredicatesUsesEffectiveSegmentType(t *testing.
 	}
 	if err := validateSegmentTypeChangePredicates("wintersport", []sport.Predicate{{Sport: "snowshoeing"}}); err != nil {
 		t.Fatalf("validateSegmentTypeChangePredicates rejected snowshoeing for wintersport: %v", err)
+	}
+}
+
+func TestSpatialCandidateSQLSkipsEmptyAllowedPredicates(t *testing.T) {
+	source, err := os.ReadFile("segments.go")
+	if err != nil {
+		t.Fatalf("read segments.go: %v", err)
+	}
+	sourceText := strings.Join(strings.Fields(string(source)), " ")
+	needle := "s.allowed_predicates IS NULL OR jsonb_array_length(s.allowed_predicates) > 0"
+	if !strings.Contains(sourceText, needle) {
+		t.Fatalf("GetSpatialCandidateSegments must prefilter allowed_predicates=[] before expanding predicates")
 	}
 }

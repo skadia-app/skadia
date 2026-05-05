@@ -3,6 +3,7 @@ package sport
 import (
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Category groups related sport types into a UI-friendly bucket.
@@ -80,6 +81,14 @@ type RuleTupleOption struct {
 	SubType   string `json:"sub_type,omitempty"`
 	LabelDE   string `json:"label_de"`
 }
+
+var (
+	segmentProjectionIndexOnce      sync.Once
+	segmentProjectionEntriesByType  map[string][]SegmentProjectionEntry
+	segmentProjectionGroupsByTuple  map[string]string
+	segmentProjectionActiveByType   map[string]map[string]struct{}
+	segmentProjectionActiveByDomain map[string]struct{}
+)
 
 type RuleModifierProjection struct {
 	Key                 string `json:"key"`
@@ -296,33 +305,20 @@ func ActivityFilterProjectionPresetByKey(key string) (ActivityFilterProjectionPr
 }
 
 func SegmentProjectionEntriesForType(segmentType string) []SegmentProjectionEntry {
-	entries := make([]SegmentProjectionEntry, 0)
-	activeDomains := segmentProjectionActiveDomains(segmentType)
-	for _, entry := range generatedSegmentProjectionEntries {
-		if entry.SegmentType != segmentType {
-			continue
-		}
-		if _, ok := activeDomains[entry.Domain]; !ok {
-			continue
-		}
-		entries = append(entries, entry)
-	}
-	return entries
+	ensureSegmentProjectionIndex()
+	return append([]SegmentProjectionEntry(nil), segmentProjectionEntriesByType[segmentType]...)
 }
 
 func SegmentProjectionGroupForTuple(sportType, subType string) (string, bool) {
+	ensureSegmentProjectionIndex()
 	subType = CanonicalSubTypeID(subType)
 	if subType != "" {
-		for _, entry := range generatedSegmentProjectionEntries {
-			if entry.SportType == sportType && entry.SubType == subType && segmentProjectionEntryIsActive(entry) {
-				return entry.SportGroup, true
-			}
+		if group, ok := segmentProjectionGroupsByTuple[projectionTupleKey(sportType, subType)]; ok {
+			return group, true
 		}
 	}
-	for _, entry := range generatedSegmentProjectionEntries {
-		if entry.SportType == sportType && entry.SubType == "" && segmentProjectionEntryIsActive(entry) {
-			return entry.SportGroup, true
-		}
+	if group, ok := segmentProjectionGroupsByTuple[projectionTupleKey(sportType, "")]; ok {
+		return group, true
 	}
 	return "", false
 }
@@ -493,21 +489,47 @@ func projectionTupleKey(sportType, subType string) string {
 }
 
 func segmentProjectionActiveDomains(segmentType string) map[string]struct{} {
-	active := map[string]struct{}{}
-	for _, candidate := range generatedSegmentProjectionSegmentTypes {
-		if candidate.Key != segmentType {
-			continue
-		}
-		for _, domain := range candidate.ActiveDomains {
-			active[domain] = struct{}{}
-		}
-		break
-	}
-	return active
+	ensureSegmentProjectionIndex()
+	return segmentProjectionActiveByType[segmentType]
 }
 
 func segmentProjectionEntryIsActive(entry SegmentProjectionEntry) bool {
-	_, ok := segmentProjectionActiveDomains(entry.SegmentType)[entry.Domain]
+	ensureSegmentProjectionIndex()
+	_, ok := segmentProjectionActiveByDomain[entry.SegmentType+":"+entry.Domain]
+	return ok
+}
+
+func ensureSegmentProjectionIndex() {
+	segmentProjectionIndexOnce.Do(func() {
+		segmentProjectionEntriesByType = map[string][]SegmentProjectionEntry{}
+		segmentProjectionGroupsByTuple = map[string]string{}
+		segmentProjectionActiveByType = map[string]map[string]struct{}{}
+		segmentProjectionActiveByDomain = map[string]struct{}{}
+
+		for _, segmentType := range generatedSegmentProjectionSegmentTypes {
+			active := map[string]struct{}{}
+			for _, domain := range segmentType.ActiveDomains {
+				active[domain] = struct{}{}
+				segmentProjectionActiveByDomain[segmentType.Key+":"+domain] = struct{}{}
+			}
+			segmentProjectionActiveByType[segmentType.Key] = active
+		}
+
+		for _, entry := range generatedSegmentProjectionEntries {
+			if !segmentProjectionEntryIsActiveIndexed(entry) {
+				continue
+			}
+			segmentProjectionEntriesByType[entry.SegmentType] = append(segmentProjectionEntriesByType[entry.SegmentType], entry)
+			key := projectionTupleKey(entry.SportType, entry.SubType)
+			if _, exists := segmentProjectionGroupsByTuple[key]; !exists {
+				segmentProjectionGroupsByTuple[key] = entry.SportGroup
+			}
+		}
+	})
+}
+
+func segmentProjectionEntryIsActiveIndexed(entry SegmentProjectionEntry) bool {
+	_, ok := segmentProjectionActiveByDomain[entry.SegmentType+":"+entry.Domain]
 	return ok
 }
 
