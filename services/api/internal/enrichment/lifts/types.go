@@ -47,8 +47,9 @@ func (r LiftRide) Validate() error {
 type DetectorConfig struct {
 	MinSpeedMs           float64 // 2.0  — fast lift floor
 	MaxSpeedMs           float64 // 12.0 — fast lift ceiling
-	MaxSpeedCV           float64 // 0.05 — Coefficient of Variation, lifts run very stable
-	SpeedCVTrimSeconds   int     // 15   — trim leading/trailing seconds before CV (handles lift accel/brake ramp)
+	MaxSpeedCV           float64 // 0.05 — Coefficient of Variation, lifts run very stable (final validate)
+	InitialMaxSpeedCV    float64 // 0.10 — relaxed CV for the initial 30 s classify gate (3 chunks ≈ volatile MAD)
+	SpeedCVTrimSeconds   int     // 30   — trim leading/trailing seconds before CV. Active to let backward-extension absorb 30–60 s of boarding-phase samples (queue-shuffle, pylon-acceleration) without exploding the strict 0.04 final-CV gate. Window must be > 2*trim+30 s for the trim to kick in, otherwise full speed series is used.
 	MinGradient          float64 // 0.20 — vertical/horizontal speed ratio
 	MaxSinuosity         float64 // 1.15 — straight-line ratio
 	MinDurationS         int     // 60   — fast lift floor
@@ -83,9 +84,9 @@ type DetectorConfig struct {
 // Lift detection is sport-agnostic: a cable-car ride looks the same to the
 // stream regardless of whether the rider is skiing, biking, snowboarding,
 // or hiking up to the lift on foot. The MinSpeedMs floor is therefore
-// pinned to the slowest infrastructure class (Schlepplift ≈ 0.7 m/s) so
-// the same algorithm covers Sessellifte (0.85–4 m/s), Gondeln (4–8 m/s),
-// and Pendelbahnen (up to 12 m/s). The `sport` parameter is accepted for
+// pinned to the slowest infrastructure class (T-bar / drag lift ≈ 0.7 m/s)
+// so the same algorithm covers chairlifts (0.85–4 m/s), gondolas (4–8 m/s),
+// and aerial tramways (up to 12 m/s). The `sport` parameter is accepted for
 // API symmetry but ignored — it does not influence detection.
 func DefaultDetectorConfig(sport string) DetectorConfig {
 	_ = sport
@@ -93,13 +94,14 @@ func DefaultDetectorConfig(sport string) DetectorConfig {
 		MinSpeedMs:               0.7,
 		MaxSpeedMs:               15.0,
 		MaxSpeedCV:               0.04,
-		SpeedCVTrimSeconds:       0,
+		InitialMaxSpeedCV:        0.04,
+		SpeedCVTrimSeconds:       30,
 		MinGradient:              0.10,
 		MaxSinuosity:             1.08,
 		MinDurationS:             60,
 		NoSpeedMinAltRateMs:      0.6,
 		NoSpeedMinDurationS:      90,
-		BidirAltAbsM:             30.0,
+		BidirAltAbsM:             50.0,
 		BidirSinuosityMax:        1.05,
 		BidirMinDurationS:        120,
 		StopToleranceS:           120,
