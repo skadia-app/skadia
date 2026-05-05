@@ -118,6 +118,28 @@ func TestSubSportToStringUsesFITProfileV21201CcrDiving(t *testing.T) {
 	}
 }
 
+func TestApplyDiveGasDerivedSportNormalizesCCRSubType(t *testing.T) {
+	data := &model.ActivityData{
+		SportType:  "diving",
+		SubType:    "generic",
+		IsElectric: true,
+		DiveGases: []model.DiveGas{
+			{Mode: "open_circuit"},
+			{Mode: "closed_circuit_diluent"},
+		},
+	}
+
+	if err := applyDiveGasDerivedSport(data); err != nil {
+		t.Fatalf("applyDiveGasDerivedSport: %v", err)
+	}
+	if data.SportType != "diving" || data.SubType != "ccr_diving" {
+		t.Fatalf("tuple = %s/%s, want diving/ccr_diving", data.SportType, data.SubType)
+	}
+	if !data.IsElectric {
+		t.Fatalf("IsElectric = false, want existing parser evidence preserved")
+	}
+}
+
 func TestIndoorFITSubSportEvidence(t *testing.T) {
 	if !isIndoorFITSubSport(int16(typedef.SubSportIndoorCycling)) {
 		t.Fatalf("SubSportIndoorCycling should be indoor")

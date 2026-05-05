@@ -197,6 +197,26 @@ func TestMergeActivityDataPropagatesParsedModifiers(t *testing.T) {
 	}
 }
 
+func TestMergeActivityDataKeepsStravaElectricEvidence(t *testing.T) {
+	base := &model.ActivityData{
+		SportType:  "cycling",
+		IsElectric: true,
+	}
+	parsed := &model.ActivityData{
+		SportType: "cycling",
+		SubType:   "road",
+	}
+
+	mergeActivityData(base, parsed)
+
+	if base.SubType != "road" {
+		t.Fatalf("SubType = %q, want road from parsed file", base.SubType)
+	}
+	if !base.IsElectric {
+		t.Fatal("IsElectric = false, want Strava CSV electric evidence preserved")
+	}
+}
+
 func TestMergeActivityDataUsesTaxonomyBroadFallbackRefinements(t *testing.T) {
 	base := &model.ActivityData{
 		SportType: "paddling",
