@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { describe, expect, it, vi } from 'vitest'
 import RuleEditor from '../RuleEditor'
@@ -457,5 +457,66 @@ describe('RuleEditor sport tuple controls', () => {
       { action: 'set_electric', params: { electric: false } },
       { action: 'add_tag', params: { tag_id: 'tag-ebike' } },
     ])
+  })
+
+  it('labels parent-only sport actions as clearing the sub-sport, not wildcard matching', () => {
+    renderEditor({
+      actions: [{ action: 'set_sport_type', params: { sport_type: 'cycling', sub_type: '' } }],
+    })
+
+    const subtypeSelect = screen.getByLabelText('Sub-Sportart setzen')
+    expect(within(subtypeSelect).queryByRole('option', { name: 'beliebig' })).not.toBeInTheDocument()
+    expect(within(subtypeSelect).getByRole('option', { name: 'keine Sub-Sportart' })).toBeInTheDocument()
+  })
+
+  it('blocks duplicate sport tuple condition rows before submit', async () => {
+    const onSave = renderEditor({
+      condition_groups: [{ logic: 'and', conditions: [
+        { field: 'sport_tuple', op: 'in', value: [{ sport_type: 'cycling' }, { sport_type: 'cycling' }] },
+      ] }],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Sportauswahl enthält Duplikate'))
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
+  it('keeps the last selected trait value instead of submitting an empty trait condition', async () => {
+    const onSave = renderNewEditor({
+      condition_groups: [{ logic: 'and', conditions: [{ field: 'sport_environment', op: 'in', value: ['water'] }] }],
+      actions: [{ action: 'set_sport_type', params: { sport_type: 'cycling' } }],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Wasser' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].condition_groups[0].conditions).toEqual([
+      { field: 'sport_environment', op: 'in', value: ['water'] },
+    ])
+  })
+
+  it('blocks already-empty trait conditions before submit', async () => {
+    const onSave = renderNewEditor({
+      condition_groups: [{ logic: 'and', conditions: [{ field: 'sport_environment', op: 'in', value: [] }] }],
+      actions: [{ action: 'set_sport_type', params: { sport_type: 'cycling' } }],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Taxonomie-Bedingung braucht mindestens einen Wert'))
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
+  it('blocks actions with missing required params before submit', async () => {
+    const onSave = renderEditor({
+      actions: [{ action: 'add_tag', params: {} }],
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Aktion "Tag hinzufügen" ist unvollständig'))
+    expect(onSave).not.toHaveBeenCalled()
   })
 })
