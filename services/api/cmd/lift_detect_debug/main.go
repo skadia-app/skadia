@@ -68,8 +68,30 @@ func tracePts(rows []lifts.StreamPoint, cfg lifts.DetectorConfig, tStart, tEnd t
 	rides := lifts.DetectHeuristic(rows, cfg)
 	fmt.Printf("Total samples: %d, detected rides: %d\n", len(rows), len(rides))
 	for i, r := range rides {
-		fmt.Printf("  ride[%02d] start=%s dur=%ds asc=%.1f desc=%.1f conf=%s\n",
-			i, r.StartedAt.Format("15:04:05"), r.DurationS, r.AscentM, r.DescentM, r.Confidence)
+		// Find end-position by locating the row at EndedAt time.
+		var endLat, endLng, endAlt float64
+		for k := len(rows) - 1; k >= 0; k-- {
+			if !rows[k].Time.After(r.EndedAt) {
+				if rows[k].Lat != nil {
+					endLat = *rows[k].Lat
+				}
+				if rows[k].Lng != nil {
+					endLng = *rows[k].Lng
+				}
+				if rows[k].AltitudeM != nil {
+					endAlt = *rows[k].AltitudeM
+				}
+				break
+			}
+		}
+		// Mark mountain mountain station case arrivals (top station at ~46.7426, 9.5970, alt>2700).
+		marker := ""
+		if math.Abs(endLat-46.7426) < 0.005 && math.Abs(endLng-9.5970) < 0.005 && endAlt > 2700 {
+			marker = " ★mountain station case"
+		}
+		fmt.Printf("  ride[%02d] start=%s dur=%ds asc=%.1f desc=%.1f conf=%s end=(%.4f,%.4f,%.0fm)%s\n",
+			i, r.StartedAt.Format("15:04:05"), r.DurationS, r.AscentM, r.DescentM, r.Confidence,
+			endLat, endLng, endAlt, marker)
 	}
 	if !tStart.IsZero() {
 		fmt.Println("\nTrace at indices in [start, end]:")
