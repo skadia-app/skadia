@@ -4,9 +4,9 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Bike, Footprints, Package, Smartphone, Radio } from 'lucide-react'
 import { fetchGear, createGear, fetchGearDocuments, getGearDocumentUrl } from '@/api/gear'
 import { fetchDevices } from '@/api/hardware'
-import type { Gear, GearStatus } from '@/api/types'
+import type { Gear, GearDefaultSportPredicate, GearStatus } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
-import { sportLabel } from '@/lib/sportTaxonomy'
+import { sportDetailLabel, sportLabel } from '@/lib/sportTaxonomy'
 import GearForm from '@/components/GearForm'
 import MaintenanceAlerts from '@/components/MaintenanceAlerts'
 import GearMergePanel from '@/components/GearMergePanel'
@@ -326,14 +326,14 @@ function GearCard({ gear }: { gear: Gear }) {
           </div>
         </div>
 
-        {gear.default_for_sports.length > 0 && (
+        {gearDefaultLabels(gear).length > 0 && (
           <div className="flex flex-wrap gap-1 mt-3">
-            {gear.default_for_sports.map((sport) => (
+            {gearDefaultLabels(gear).map(({ key, label }) => (
               <span
-                key={sport}
+                key={key}
                 className="px-1.5 py-0.5 rounded text-xs bg-orange-50 text-accent-600 dark:bg-orange-900/20 dark:text-orange-400"
               >
-                {sportLabel(sport)}
+                {label}
               </span>
             ))}
           </div>
@@ -341,6 +341,41 @@ function GearCard({ gear }: { gear: Gear }) {
       </div>
     </Link>
   )
+}
+
+function gearDefaultLabels(gear: Gear): { key: string; label: string }[] {
+  const predicates = gear.default_sport_predicates ?? []
+  if (predicates.length > 0) {
+    return predicates.map((predicate, index) => ({
+      key: gearDefaultPredicateKey(predicate, index),
+      label: formatGearDefaultPredicate(predicate),
+    }))
+  }
+  return gear.default_for_sports.map((sport) => ({
+    key: sport,
+    label: sportLabel(sport),
+  }))
+}
+
+function formatGearDefaultPredicate(predicate: GearDefaultSportPredicate): string {
+  const parts = [sportDetailLabel(predicate.sport_type, predicate.sub_type)]
+  const modifiers = predicate.modifiers
+  if (modifiers?.is_electric === true) parts.push('E-Antrieb')
+  if (modifiers?.is_indoor === true) parts.push('Indoor')
+  if (modifiers?.is_virtual === true) parts.push('Virtuell')
+  return parts.join(' · ')
+}
+
+function gearDefaultPredicateKey(predicate: GearDefaultSportPredicate, index: number): string {
+  const modifiers = predicate.modifiers
+  return [
+    predicate.sport_type,
+    predicate.sub_type ?? '',
+    modifiers?.is_electric === true ? 'electric' : '',
+    modifiers?.is_indoor === true ? 'indoor' : '',
+    modifiers?.is_virtual === true ? 'virtual' : '',
+    index.toString(),
+  ].join(':')
 }
 
 function StatusBadge({ status }: { status: GearStatus }) {

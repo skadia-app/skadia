@@ -73,7 +73,12 @@ func (h *Handler) CreateGear(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	predicates, ok := normalizeGearDefaultPredicatesForRequest(w, r, create.DefaultSportPredicates)
+	if !ok {
+		return
+	}
 	create.DefaultForSports = sports
+	create.DefaultSportPredicates = predicates
 
 	gear, err := h.DB.CreateGear(r.Context(), userID, &create)
 	if err != nil {
@@ -144,6 +149,13 @@ func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
 		}
 		update.DefaultForSports = sports
 	}
+	if update.DefaultSportPredicates != nil {
+		predicates, ok := normalizeGearDefaultPredicatesForRequest(w, r, update.DefaultSportPredicates)
+		if !ok {
+			return
+		}
+		update.DefaultSportPredicates = predicates
+	}
 
 	gear, err := h.DB.UpdateGear(r.Context(), id, &update)
 	if err != nil {
@@ -166,6 +178,15 @@ func normalizeGearDefaultSportsForRequest(w http.ResponseWriter, r *http.Request
 		return nil, false
 	}
 	return sports, true
+}
+
+func normalizeGearDefaultPredicatesForRequest(w http.ResponseWriter, r *http.Request, values []sport.GearDefaultPredicate) ([]sport.GearDefaultPredicate, bool) {
+	predicates, err := sport.NormalizeGearDefaultPredicates(values)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return nil, false
+	}
+	return predicates, true
 }
 
 func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {

@@ -191,13 +191,28 @@ func TestNormalizeSportTaxonomyImportRowGearDefaultSports(t *testing.T) {
 		"default_for_sports": []any{"mountain_biking", "e_mountain_biking", "cycling", "fitness_equipment"},
 	}
 
-	got, err := normalizeSportTaxonomyImportRow("gear", row, []targetColumn{{Name: "default_for_sports"}})
+	got, err := normalizeSportTaxonomyImportRow("gear", row, []targetColumn{{Name: "default_for_sports"}, {Name: "default_sport_predicates"}})
 	if err != nil {
 		t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
 	}
 	want := []string{"cycling", "fitness_equipment"}
 	if !reflect.DeepEqual(got["default_for_sports"], want) {
 		t.Fatalf("default_for_sports = %#v (%T), want %#v", got["default_for_sports"], got["default_for_sports"], want)
+	}
+	predicates, ok := got["default_sport_predicates"].([]any)
+	if !ok {
+		t.Fatalf("default_sport_predicates = %#v (%T), want []any", got["default_sport_predicates"], got["default_sport_predicates"])
+	}
+	if len(predicates) != 4 {
+		t.Fatalf("predicate count = %d, want 4: %#v", len(predicates), predicates)
+	}
+	mountainElectric, ok := predicates[1].(map[string]any)
+	if !ok {
+		t.Fatalf("second predicate = %#v", predicates[1])
+	}
+	modifiers, ok := mountainElectric["modifiers"].(map[string]any)
+	if !ok || modifiers["is_electric"] != true {
+		t.Fatalf("second predicate modifiers = %#v", mountainElectric["modifiers"])
 	}
 }
 

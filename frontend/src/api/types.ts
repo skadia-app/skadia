@@ -17,6 +17,18 @@ export type Visibility = 'private' | 'bekannte' | 'instanz' | 'federation' | 'pu
 
 export type GearStatus = 'active' | 'stored' | 'retired'
 
+export interface GearDefaultModifiers {
+  is_electric?: boolean
+  is_indoor?: boolean
+  is_virtual?: boolean
+}
+
+export interface GearDefaultSportPredicate {
+  sport_type: string
+  sub_type?: string | null
+  modifiers?: GearDefaultModifiers | null
+}
+
 export interface WeatherReading {
   id: string
   reading_type: 'single' | 'start' | 'summit' | 'midpoint'
@@ -614,6 +626,7 @@ export interface Gear {
   is_retired: boolean
   status: GearStatus
   default_for_sports: string[]
+  default_sport_predicates: GearDefaultSportPredicate[]
   notes?: string | null
   weight_g?: number | null
   components?: GearComponent[]

@@ -17,11 +17,12 @@ func TestGarminGearDecodeAppliesActivityTypeDefaults(t *testing.T) {
 					"gearStatusName": "ACTIVE"
 				}
 			],
-			"gearActivityTypeDTOS": [
-				{"gearPk": 123, "activityType": {"typeKey": "cycling"}},
-				{"gearPk": 123, "activityType": {"typeKey": "running"}},
-				{"gearPk": 123, "activityType": {"typeKey": "definitely_unknown"}}
-			]
+				"gearActivityTypeDTOS": [
+					{"gearPk": 123, "activityType": {"typeKey": "cycling"}},
+					{"gearPk": 123, "activityType": {"typeKey": "mountain_biking"}},
+					{"gearPk": 123, "activityType": {"typeKey": "running"}},
+					{"gearPk": 123, "activityType": {"typeKey": "definitely_unknown"}}
+				]
 		}
 	]`)
 
@@ -32,8 +33,8 @@ func TestGarminGearDecodeAppliesActivityTypeDefaults(t *testing.T) {
 	if len(wrapper) != 1 || len(wrapper[0].GearDTOS) != 1 {
 		t.Fatalf("decoded gearDTOS = %#v", wrapper)
 	}
-	if len(wrapper[0].GearActivityTypeDTOS) != 3 {
-		t.Fatalf("GearActivityTypeDTOS = %#v, want three raw messages", wrapper[0].GearActivityTypeDTOS)
+	if len(wrapper[0].GearActivityTypeDTOS) != 4 {
+		t.Fatalf("GearActivityTypeDTOS = %#v, want four raw messages", wrapper[0].GearActivityTypeDTOS)
 	}
 	if got := string(wrapper[0].GearActivityTypeDTOS[0]); got == "" {
 		t.Fatal("GearActivityTypeDTOS raw message is empty")
@@ -49,5 +50,13 @@ func TestGarminGearDecodeAppliesActivityTypeDefaults(t *testing.T) {
 		if create.DefaultForSports[i] != want[i] {
 			t.Fatalf("DefaultForSports = %#v, want %#v", create.DefaultForSports, want)
 		}
+	}
+	if len(create.DefaultSportPredicates) != 3 {
+		t.Fatalf("DefaultSportPredicates = %#v, want three predicates", create.DefaultSportPredicates)
+	}
+	if create.DefaultSportPredicates[1].SportType != "cycling" ||
+		create.DefaultSportPredicates[1].SubType == nil ||
+		*create.DefaultSportPredicates[1].SubType != "mountain" {
+		t.Fatalf("mountain predicate = %#v", create.DefaultSportPredicates[1])
 	}
 }

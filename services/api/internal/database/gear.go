@@ -21,7 +21,7 @@ import (
 // gearSelectCols are the columns returned by gear queries.
 const gearSelectCols = `id, user_id, name, type, sub_type, brand, model,
 	total_distance_m, total_time_s, total_elevation_gain_m, total_activities,
-	purchased_at, retired_at, is_retired, status, default_for_sports, notes, created_at`
+	purchased_at, retired_at, is_retired, status, default_for_sports, default_sport_predicates, notes, created_at`
 
 // scanGear scans a gear row into a model.Gear.
 // pgx v5 uses binary protocol for dates (OID 1082) which cannot be scanned
@@ -29,10 +29,11 @@ const gearSelectCols = `id, user_id, name, type, sub_type, brand, model,
 func scanGear(row pgx.Row) (*model.Gear, error) {
 	var g model.Gear
 	var purchasedAt, retiredAt pgtype.Date
+	var predicateJSON []byte
 	err := row.Scan(
 		&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
 		&g.TotalDistanceM, &g.TotalTimeS, &g.TotalElevationGainM, &g.TotalActivities,
-		&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
+		&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &predicateJSON, &g.Notes, &g.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -50,6 +51,14 @@ func scanGear(row pgx.Row) (*model.Gear, error) {
 	}
 	if g.DefaultForSports == nil {
 		g.DefaultForSports = []string{}
+	}
+	if len(predicateJSON) > 0 {
+		if err := json.Unmarshal(predicateJSON, &g.DefaultSportPredicates); err != nil {
+			return nil, fmt.Errorf("scan gear default_sport_predicates: %w", err)
+		}
+	}
+	if g.DefaultSportPredicates == nil {
+		g.DefaultSportPredicates = []sport.GearDefaultPredicate{}
 	}
 	return &g, nil
 }
@@ -101,10 +110,11 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 	for rows.Next() {
 		var g model.Gear
 		var purchasedAt, retiredAt pgtype.Date
+		var predicateJSON []byte
 		if err := rows.Scan(
 			&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
 			&g.TotalDistanceM, &g.TotalTimeS, &g.TotalElevationGainM, &g.TotalActivities,
-			&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
+			&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &predicateJSON, &g.Notes, &g.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan gear: %w", err)
 		}
@@ -118,6 +128,14 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 		}
 		if g.DefaultForSports == nil {
 			g.DefaultForSports = []string{}
+		}
+		if len(predicateJSON) > 0 {
+			if err := json.Unmarshal(predicateJSON, &g.DefaultSportPredicates); err != nil {
+				return nil, fmt.Errorf("scan gear default_sport_predicates: %w", err)
+			}
+		}
+		if g.DefaultSportPredicates == nil {
+			g.DefaultSportPredicates = []sport.GearDefaultPredicate{}
 		}
 		items = append(items, g)
 	}
@@ -135,13 +153,21 @@ func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearC
 	if err != nil {
 		return nil, fmt.Errorf("create gear: %w", err)
 	}
+	predicates, err := sport.NormalizeGearDefaultPredicates(create.DefaultSportPredicates)
+	if err != nil {
+		return nil, fmt.Errorf("create gear: %w", err)
+	}
+	predicateJSON, err := json.Marshal(predicates)
+	if err != nil {
+		return nil, fmt.Errorf("create gear: %w", err)
+	}
 
 	g, err := scanGear(db.Pool.QueryRow(ctx,
-		`INSERT INTO gear (user_id, name, type, sub_type, brand, model, purchased_at, default_for_sports, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`INSERT INTO gear (user_id, name, type, sub_type, brand, model, purchased_at, default_for_sports, default_sport_predicates, notes)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
 		 RETURNING `+gearSelectCols,
 		userID, create.Name, create.Type, create.SubType, create.Brand, create.Model,
-		create.PurchasedAt, sports, create.Notes,
+		create.PurchasedAt, sports, string(predicateJSON), create.Notes,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create gear: %w", err)
@@ -203,6 +229,19 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 			return nil, fmt.Errorf("update gear: %w", err)
 		}
 		b.Set("default_for_sports", sports)
+	}
+	if update.DefaultSportPredicates != nil {
+		predicates, err := sport.NormalizeGearDefaultPredicates(update.DefaultSportPredicates)
+		if err != nil {
+			return nil, fmt.Errorf("update gear: %w", err)
+		}
+		predicateJSON, err := json.Marshal(predicates)
+		if err != nil {
+			return nil, fmt.Errorf("update gear: %w", err)
+		}
+		idx := b.NextIdx()
+		b.SetExpr(fmt.Sprintf("default_sport_predicates = $%d::jsonb", idx), string(predicateJSON))
+		b.idx++
 	}
 	if update.Notes != nil {
 		b.Set("notes", *update.Notes)
@@ -1130,18 +1169,20 @@ func (db *DB) UpdateGearStats(ctx context.Context, gearID string) error {
 }
 
 func (db *DB) AssignGearByRules(ctx context.Context, userID, activityID, sportType string) error {
-	// Find default gear for the sport type
-	var gearID string
-	err := db.Pool.QueryRow(ctx,
-		`SELECT id FROM gear
-		 WHERE user_id = $1 AND is_retired = false AND $2 = ANY(default_for_sports)
-		 ORDER BY created_at LIMIT 1`, userID, sportType,
-	).Scan(&gearID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // No default gear for this sport
-	}
+	return db.AssignGearByRulesForActivity(ctx, userID, activityID, sportType, "", sport.ModifierValues{})
+}
+
+func (db *DB) AssignGearByRulesForActivity(ctx context.Context, userID, activityID, sportType, subType string, modifiers sport.ModifierValues) error {
+	activityTuple, _, err := sport.NormalizeSportTuple(sportType, subType)
 	if err != nil {
-		return fmt.Errorf("find default gear: %w", err)
+		return fmt.Errorf("normalize activity sport for gear: %w", err)
+	}
+	gearID, err := db.findDefaultGearForActivity(ctx, userID, activityTuple, modifiers)
+	if err != nil {
+		return err
+	}
+	if gearID == "" {
+		return nil
 	}
 
 	_, err = db.Pool.Exec(ctx,
@@ -1152,6 +1193,56 @@ func (db *DB) AssignGearByRules(ctx context.Context, userID, activityID, sportTy
 		return fmt.Errorf("assign gear: %w", err)
 	}
 	return nil
+}
+
+func (db *DB) findDefaultGearForActivity(ctx context.Context, userID string, activityTuple sport.Tuple, modifiers sport.ModifierValues) (string, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, default_for_sports, default_sport_predicates
+		 FROM gear
+		 WHERE user_id = $1
+		   AND is_retired = false
+		   AND (
+		     COALESCE(cardinality(default_for_sports), 0) > 0
+		     OR jsonb_array_length(COALESCE(default_sport_predicates, '[]'::jsonb)) > 0
+		   )
+		 ORDER BY created_at`, userID,
+	)
+	if err != nil {
+		return "", fmt.Errorf("find default gear: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var gearID string
+		var defaultSports []string
+		var predicateJSON []byte
+		if err := rows.Scan(&gearID, &defaultSports, &predicateJSON); err != nil {
+			return "", fmt.Errorf("scan default gear: %w", err)
+		}
+		var predicates []sport.GearDefaultPredicate
+		if len(predicateJSON) > 0 {
+			if err := json.Unmarshal(predicateJSON, &predicates); err != nil {
+				return "", fmt.Errorf("scan default gear predicates: %w", err)
+			}
+		}
+		if len(predicates) > 0 {
+			for _, predicate := range predicates {
+				if sport.GearDefaultPredicateMatchesActivity(predicate, activityTuple.SportType, activityTuple.SubType, modifiers) {
+					return gearID, nil
+				}
+			}
+			continue
+		}
+		for _, defaultSport := range defaultSports {
+			if defaultSport == activityTuple.SportType {
+				return gearID, nil
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("find default gear: %w", err)
+	}
+	return "", nil
 }
 
 // GetActivityAsMap returns an activity as a map for rule evaluation.

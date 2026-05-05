@@ -4,9 +4,14 @@ import { generateGearSportOptions } from '@/lib/sportOptions'
 
 const GEAR_TYPES = [
   { value: 'bike', label: 'Fahrrad' },
+  { value: 'e_bike', label: 'E-Bike' },
   { value: 'shoes', label: 'Laufschuhe' },
   { value: 'goggles', label: 'Schwimmbrille' },
   { value: 'ski', label: 'Ski' },
+  { value: 'skis', label: 'Ski' },
+  { value: 'snowboard', label: 'Snowboard' },
+  { value: 'wetsuit', label: 'Neoprenanzug' },
+  { value: 'racket', label: 'Schläger' },
   { value: 'paddle', label: 'Paddel' },
   { value: 'other', label: 'Sonstiges' },
 ]

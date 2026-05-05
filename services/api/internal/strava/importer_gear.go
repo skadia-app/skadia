@@ -88,16 +88,18 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			}
 
 			var defaultSports []string
+			var defaultPredicates []sport.GearDefaultPredicate
 			if sports != "" {
-				defaultSports = mapStravaDefaultSports(sports)
+				defaultSports, defaultPredicates = mapStravaDefaultSportDefaults(sports)
 			}
 
 			create := &model.GearCreate{
-				Name:             displayName,
-				Type:             gearType,
-				Brand:            brandPtr,
-				Model:            modelPtr,
-				DefaultForSports: defaultSports,
+				Name:                   displayName,
+				Type:                   gearType,
+				Brand:                  brandPtr,
+				Model:                  modelPtr,
+				DefaultForSports:       defaultSports,
+				DefaultSportPredicates: defaultPredicates,
 			}
 
 			gear, err := params.DB.CreateGear(ctx, params.UserID, create)
@@ -147,16 +149,18 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			}
 
 			var defaultSports []string
+			var defaultPredicates []sport.GearDefaultPredicate
 			if sports != "" {
-				defaultSports = mapStravaDefaultSports(sports)
+				defaultSports, defaultPredicates = mapStravaDefaultSportDefaults(sports)
 			}
 
 			create := &model.GearCreate{
-				Name:             displayName,
-				Type:             "shoes",
-				Brand:            brandPtr,
-				Model:            modelPtr,
-				DefaultForSports: defaultSports,
+				Name:                   displayName,
+				Type:                   "shoes",
+				Brand:                  brandPtr,
+				Model:                  modelPtr,
+				DefaultForSports:       defaultSports,
+				DefaultSportPredicates: defaultPredicates,
 			}
 
 			gear, err := params.DB.CreateGear(ctx, params.UserID, create)
@@ -252,25 +256,71 @@ func buildGearName(name, brand, model string) string {
 // mapStravaDefaultSports converts Strava sport strings to Skadia sport types.
 // Handles both comma-separated (German export) and pipe-separated (English export).
 func mapStravaDefaultSports(sports string) []string {
+	defaultSports, _ := mapStravaDefaultSportDefaults(sports)
+	return defaultSports
+}
+
+func mapStravaDefaultSportPredicates(sports string) []sport.GearDefaultPredicate {
+	_, predicates := mapStravaDefaultSportDefaults(sports)
+	return predicates
+}
+
+func mapStravaDefaultSportDefaults(sports string) ([]string, []sport.GearDefaultPredicate) {
 	// Detect separator: pipe takes precedence (English export).
 	sep := ","
 	if strings.Contains(sports, "|") {
 		sep = "|"
 	}
-	var result []string
-	seen := make(map[string]bool)
+	var defaultSports []string
+	var predicates []sport.GearDefaultPredicate
+	seenSports := make(map[string]bool)
+	seenPredicates := make(map[string]bool)
 	for s := range strings.SplitSeq(sports, sep) {
 		s = strings.TrimSpace(s)
 		if s == "" {
 			continue
 		}
-		mapped, ok := sport.GearDefaultSportForSource(sport.SourceStrava, s)
-		if ok && mapped != "" && !seen[mapped] {
-			result = append(result, mapped)
-			seen[mapped] = true
+		predicate, ok := sport.GearDefaultPredicateForSource(sport.SourceStrava, s)
+		if !ok || predicate.SportType == "" {
+			continue
+		}
+		if !seenSports[predicate.SportType] {
+			defaultSports = append(defaultSports, predicate.SportType)
+			seenSports[predicate.SportType] = true
+		}
+		key := gearDefaultPredicateKey(predicate)
+		if !seenPredicates[key] {
+			predicates = append(predicates, predicate)
+			seenPredicates[key] = true
 		}
 	}
-	return result
+	return defaultSports, predicates
+}
+
+func gearDefaultPredicateKey(predicate sport.GearDefaultPredicate) string {
+	key := predicate.SportType
+	if predicate.SubType != nil {
+		key += ":" + *predicate.SubType
+	}
+	if predicate.Modifiers != nil {
+		if predicate.Modifiers.IsElectric != nil {
+			key += "|is_electric=" + boolString(*predicate.Modifiers.IsElectric)
+		}
+		if predicate.Modifiers.IsIndoor != nil {
+			key += "|is_indoor=" + boolString(*predicate.Modifiers.IsIndoor)
+		}
+		if predicate.Modifiers.IsVirtual != nil {
+			key += "|is_virtual=" + boolString(*predicate.Modifiers.IsVirtual)
+		}
+	}
+	return key
+}
+
+func boolString(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
 }
 
 // mapComponentType normalises German component type names.

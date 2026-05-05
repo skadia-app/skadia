@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -80,6 +81,30 @@ func TestCreateGearAllowsStorageOnlyBroadFallbackDefaultSport(t *testing.T) {
 	}
 }
 
+func TestCreateGearStoresDefaultSportPredicates(t *testing.T) {
+	db, userID := gearTestDB(t)
+	mountain := "mountain"
+	gear, err := db.CreateGear(context.Background(), userID, &model.GearCreate{
+		Name:             "E-MTB",
+		Type:             "bike",
+		DefaultForSports: []string{"cycling"},
+		DefaultSportPredicates: []sport.GearDefaultPredicate{{
+			SportType: "cycling",
+			SubType:   &mountain,
+			Modifiers: &sport.ModifierPatch{IsElectric: boolPtr(true)},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateGear: %v", err)
+	}
+	if len(gear.DefaultSportPredicates) != 1 {
+		t.Fatalf("DefaultSportPredicates = %#v, want one", gear.DefaultSportPredicates)
+	}
+	if gear.DefaultSportPredicates[0].SubType == nil || *gear.DefaultSportPredicates[0].SubType != "mountain" {
+		t.Fatalf("DefaultSportPredicates = %#v, want mountain subtype", gear.DefaultSportPredicates)
+	}
+}
+
 func TestUpdateGearRejectsUnknownDefaultSport(t *testing.T) {
 	db, userID := gearTestDB(t)
 	gear, err := db.CreateGear(context.Background(), userID, &model.GearCreate{
@@ -95,4 +120,48 @@ func TestUpdateGearRejectsUnknownDefaultSport(t *testing.T) {
 	if err == nil {
 		t.Fatal("UpdateGear accepted unknown default sport")
 	}
+}
+
+func TestFindDefaultGearPrefersPredicatesOverLegacyTopLevel(t *testing.T) {
+	db, userID := gearTestDB(t)
+	mountain := "mountain"
+	_, err := db.CreateGear(context.Background(), userID, &model.GearCreate{
+		Name:             "E-MTB",
+		Type:             "bike",
+		DefaultForSports: []string{"cycling"},
+		DefaultSportPredicates: []sport.GearDefaultPredicate{{
+			SportType: "cycling",
+			SubType:   &mountain,
+			Modifiers: &sport.ModifierPatch{IsElectric: boolPtr(true)},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateGear e-mtb: %v", err)
+	}
+	legacy, err := db.CreateGear(context.Background(), userID, &model.GearCreate{
+		Name:             "Road",
+		Type:             "bike",
+		DefaultForSports: []string{"cycling"},
+	})
+	if err != nil {
+		t.Fatalf("CreateGear road: %v", err)
+	}
+	got, err := db.findDefaultGearForActivity(context.Background(), userID, sport.Tuple{SportType: "cycling"}, sport.ModifierValues{})
+	if err != nil {
+		t.Fatalf("findDefaultGearForActivity road: %v", err)
+	}
+	if got != legacy.ID {
+		t.Fatalf("road match = %q, want legacy gear %q", got, legacy.ID)
+	}
+	got, err = db.findDefaultGearForActivity(context.Background(), userID, sport.Tuple{SportType: "cycling", SubType: "mountain"}, sport.ModifierValues{IsElectric: true})
+	if err != nil {
+		t.Fatalf("findDefaultGearForActivity e-mtb: %v", err)
+	}
+	if got == "" || got == legacy.ID {
+		t.Fatalf("e-mtb match = %q, want predicate gear", got)
+	}
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }

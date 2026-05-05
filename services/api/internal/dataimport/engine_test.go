@@ -1861,6 +1861,16 @@ func TestImportGearNormalizesDefaultForSports(t *testing.T) {
 	if !reflect.DeepEqual(defaults, want) {
 		t.Fatalf("default_for_sports = %#v, want %#v", defaults, want)
 	}
+	var predicatesJSON []byte
+	if err := pool.QueryRow(context.Background(),
+		`SELECT default_sport_predicates FROM gear WHERE user_id = $1 AND name = 'Legacy MTB'`,
+		userID,
+	).Scan(&predicatesJSON); err != nil {
+		t.Fatalf("select gear default_sport_predicates: %v", err)
+	}
+	if !strings.Contains(string(predicatesJSON), `"is_electric": true`) {
+		t.Fatalf("default_sport_predicates = %s, want preserved electric predicate", string(predicatesJSON))
+	}
 }
 
 // ---------------------------------------------------------------------------
