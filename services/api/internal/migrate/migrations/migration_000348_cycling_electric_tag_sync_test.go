@@ -26,6 +26,8 @@ func readMigration000348CyclingElectricTagSyncSQL(t *testing.T) (upSQL, downSQL 
 func TestMigration000348CyclingElectricTagSyncDeclaresRequiredContracts(t *testing.T) {
 	upSQL, downSQL := readMigration000348CyclingElectricTagSyncSQL(t)
 	for _, needle := range []string{
+		"SELECT pg_advisory_xact_lock(hashtext('cycling_electric_tag_sync'), 1)",
+		"INSERT INTO tags",
 		"CREATE OR REPLACE FUNCTION sync_system_flags_and_tags",
 		"NEW.sport_type = 'cycling'",
 		"OLD.sport_type = 'cycling'",
@@ -37,6 +39,7 @@ func TestMigration000348CyclingElectricTagSyncDeclaresRequiredContracts(t *testi
 		"is_electric = true",
 		"EXISTS (",
 		"IF v_tag_id IS NOT NULL THEN",
+		"ON CONFLICT (activity_id, tag_id) DO NOTHING",
 	} {
 		if !strings.Contains(upSQL, needle) {
 			t.Fatalf("up migration missing %q", needle)
@@ -52,10 +55,12 @@ func TestMigration000348CyclingElectricTagSyncDeclaresRequiredContracts(t *testi
 		}
 	}
 	for _, needle := range []string{
+		"SELECT pg_advisory_xact_lock(hashtext('cycling_electric_tag_sync'), 1)",
 		"restore broad E-Bike",
 		"NEW.is_electric := 'E-Bike'",
 		"BEFORE UPDATE OF tags, is_indoor, is_electric, is_commute ON activities",
 		"INSERT INTO activity_tags",
+		"ON CONFLICT (activity_id, tag_id) DO NOTHING",
 	} {
 		if !strings.Contains(downSQL, needle) {
 			t.Fatalf("down migration missing %q", needle)
@@ -97,20 +102,37 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 
 	cyclingID := uuid.NewString()
 	runningID := uuid.NewString()
+	cyclingClearID := uuid.NewString()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO activities (id, user_id, title, sport_type, sub_type, tags, is_electric, started_at)
 		VALUES
 			($1, $3, 'cycling electric', 'cycling', NULL, ARRAY[]::text[], true, now()),
-			($2, $3, 'running electric', 'running', NULL, ARRAY['E-Bike']::text[], true, now())
-	`, cyclingID, runningID, userID); err != nil {
+			($2, $3, 'running electric', 'running', NULL, ARRAY['E-Bike']::text[], true, now()),
+			($4, $3, 'cycling clear', 'cycling', NULL, ARRAY['E-Bike']::text[], true, now())
+	`, cyclingID, runningID, userID, cyclingClearID); err != nil {
 		t.Fatalf("insert activities: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO activity_tags (activity_id, tag_id, assigned_by)
-		VALUES ($1, $3, 'manual'), ($2, $3, 'auto')
+		VALUES ($1, $4, 'manual'), ($2, $4, 'auto'), ($3, $4, 'auto')
 		ON CONFLICT DO NOTHING
-	`, cyclingID, runningID, systemEBikeTagID); err != nil {
+	`, cyclingID, runningID, cyclingClearID, systemEBikeTagID); err != nil {
 		t.Fatalf("insert activity tag links: %v", err)
+	}
+
+	missingTagUserID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
+		VALUES ($1, $2, $3, true, 'test', false)
+	`, missingTagUserID, "mig348_missing_"+missingTagUserID[:8], "mig348_missing_"+missingTagUserID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert missing-tag user: %v", err)
+	}
+	missingTagCyclingID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, tags, is_electric, started_at)
+		VALUES ($1, $2, 'missing tag cycling electric', 'cycling', NULL, ARRAY[]::text[], true, now())
+	`, missingTagCyclingID, missingTagUserID); err != nil {
+		t.Fatalf("insert missing-tag cycling activity: %v", err)
 	}
 
 	if _, err := tx.Exec(ctx, upSQL); err != nil {
@@ -120,6 +142,10 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	assertHasSystemEBikeLink000348(t, ctx, tx, runningID, false)
 	assertActivityElectric000348(t, ctx, tx, runningID, true)
 	assertActivityTagArrayHas000348(t, ctx, tx, runningID, "E-Bike", false)
+	assertSystemEBikeTagCount000348(t, ctx, tx, missingTagUserID, 1)
+	assertHasSystemEBikeLink000348(t, ctx, tx, missingTagCyclingID, true)
+	assertActivityTagArrayHas000348(t, ctx, tx, missingTagCyclingID, "E-Bike", true)
+	assertActivityTagLinkCount000348(t, ctx, tx, missingTagCyclingID, 1)
 
 	customUserID := uuid.NewString()
 	if _, err := tx.Exec(ctx, `
@@ -141,12 +167,11 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	`, customRunningID, customUserID); err != nil {
 		t.Fatalf("insert custom E-Bike activity: %v", err)
 	}
-		assertActivityTagArrayHas000348(t, ctx, tx, customRunningID, "E-Bike", false)
-		if _, err := tx.Exec(ctx, `UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), 'Urlaub') WHERE id = $1`, customRunningID); err != nil {
-			t.Fatalf("add unrelated custom E-Bike activity tag: %v", err)
-		}
-		assertActivityTagArrayHas000348(t, ctx, tx, customRunningID, "E-Bike", false)
-		assertActivityElectric000348(t, ctx, tx, customRunningID, true)
+	if _, err := tx.Exec(ctx, `UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), 'Urlaub') WHERE id = $1`, customRunningID); err != nil {
+		t.Fatalf("add unrelated custom E-Bike activity tag: %v", err)
+	}
+	assertActivityTagArrayHas000348(t, ctx, tx, customRunningID, "E-Bike", false)
+	assertActivityElectric000348(t, ctx, tx, customRunningID, true)
 
 	if _, err := tx.Exec(ctx, `UPDATE activities SET sport_type = 'running' WHERE id = $1`, cyclingID); err != nil {
 		t.Fatalf("change cycling to running: %v", err)
@@ -154,11 +179,24 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	assertHasSystemEBikeLink000348(t, ctx, tx, cyclingID, false)
 	assertActivityElectric000348(t, ctx, tx, cyclingID, true)
 
+	if _, err := tx.Exec(ctx, `UPDATE activities SET is_electric = false WHERE id = $1`, cyclingClearID); err != nil {
+		t.Fatalf("clear cycling electric: %v", err)
+	}
+	assertHasSystemEBikeLink000348(t, ctx, tx, cyclingClearID, false)
+	assertActivityTagArrayHas000348(t, ctx, tx, cyclingClearID, "E-Bike", false)
+	assertActivityElectric000348(t, ctx, tx, cyclingClearID, false)
+
 	if _, err := tx.Exec(ctx, `UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), 'Urlaub') WHERE id = $1`, runningID); err != nil {
 		t.Fatalf("add unrelated running tag: %v", err)
 	}
 	assertHasSystemEBikeLink000348(t, ctx, tx, runningID, false)
 	assertActivityElectric000348(t, ctx, tx, runningID, true)
+
+	if _, err := tx.Exec(ctx, upSQL); err != nil {
+		t.Fatalf("reapply up.sql: %v", err)
+	}
+	assertSystemEBikeTagCount000348(t, ctx, tx, missingTagUserID, 1)
+	assertActivityTagLinkCount000348(t, ctx, tx, missingTagCyclingID, 1)
 
 	if _, err := tx.Exec(ctx, downSQL); err != nil {
 		t.Fatalf("apply down.sql: %v", err)
@@ -185,6 +223,40 @@ func assertHasSystemEBikeLink000348(t *testing.T, ctx context.Context, q interfa
 	}
 	if got != want {
 		t.Fatalf("E-Bike link for %s = %v, want %v", activityID, got, want)
+	}
+}
+
+func assertSystemEBikeTagCount000348(t *testing.T, ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, userID string, want int) {
+	t.Helper()
+	var got int
+	if err := q.QueryRow(ctx, `
+		SELECT COUNT(*) FROM tags
+		WHERE user_id = $1 AND name = 'E-Bike' AND is_system = true
+	`, userID).Scan(&got); err != nil {
+		t.Fatalf("query system E-Bike tag count: %v", err)
+	}
+	if got != want {
+		t.Fatalf("system E-Bike tag count for user %s = %d, want %d", userID, got, want)
+	}
+}
+
+func assertActivityTagLinkCount000348(t *testing.T, ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, activityID string, want int) {
+	t.Helper()
+	var got int
+	if err := q.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM activity_tags at
+		JOIN tags t ON t.id = at.tag_id
+		WHERE at.activity_id = $1 AND t.name = 'E-Bike' AND t.is_system = true
+	`, activityID).Scan(&got); err != nil {
+		t.Fatalf("query E-Bike link count: %v", err)
+	}
+	if got != want {
+		t.Fatalf("E-Bike link count for %s = %d, want %d", activityID, got, want)
 	}
 }
 

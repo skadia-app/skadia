@@ -109,8 +109,7 @@ $$;
 
 ALTER TABLE routing_profiles
     ADD CONSTRAINT routing_profiles_predicates_valid
-        CHECK (jsonb_array_length(predicates) > 0 AND fn_validate_predicates(predicates)) NOT VALID;
-ALTER TABLE routing_profiles VALIDATE CONSTRAINT routing_profiles_predicates_valid;
+        CHECK (jsonb_array_length(predicates) > 0 AND fn_validate_predicates(predicates));
 
 ALTER TABLE planned_routes
     ADD CONSTRAINT planned_routes_sport_tuple_valid
