@@ -80,30 +80,28 @@ type DetectorConfig struct {
 
 // DefaultDetectorConfig returns the calibrated defaults.
 //
-// Lift speeds are a property of the cable infrastructure (Schlepplift ≈ 1 m/s,
-// Sessellift 0.85–4 m/s, Gondel/Pendelbahn 4–8 m/s) — they do NOT depend on
-// the rider's discipline. The sport argument is therefore semantically
-// incorrect as a speed-floor input, but it is currently used as a calibration
-// fence: ski activities use a tighter floor (2.0 m/s) because casual walking
-// on a straight uphill road otherwise passes all heuristic gates and creates
-// false positives in the absence of OSM lift matches. mtb_downhill uses a
-// lower floor (0.7 m/s) to pick up Bikepark Schlepplifte. Once the
-// gradient/sinuosity/CV gates are tight enough to dismiss walking on their
-// own, this branch should disappear.
+// Lift detection is sport-agnostic: a cable-car ride looks the same to the
+// stream regardless of whether the rider is skiing, biking, snowboarding,
+// or hiking up to the lift on foot. The MinSpeedMs floor is therefore
+// pinned to the slowest infrastructure class (Schlepplift ≈ 0.7 m/s) so
+// the same algorithm covers Sessellifte (0.85–4 m/s), Gondeln (4–8 m/s),
+// and Pendelbahnen (up to 12 m/s). The `sport` parameter is accepted for
+// API symmetry but ignored — it does not influence detection.
 func DefaultDetectorConfig(sport string) DetectorConfig {
-	cfg := DetectorConfig{
-		MinSpeedMs:               2.0,
-		MaxSpeedMs:               12.0,
-		MaxSpeedCV:               0.10,
-		SpeedCVTrimSeconds:       15,
-		MinGradient:              0.15,
-		MaxSinuosity:             1.15,
+	_ = sport
+	return DetectorConfig{
+		MinSpeedMs:               0.7,
+		MaxSpeedMs:               15.0,
+		MaxSpeedCV:               0.04,
+		SpeedCVTrimSeconds:       0,
+		MinGradient:              0.10,
+		MaxSinuosity:             1.08,
 		MinDurationS:             60,
 		NoSpeedMinAltRateMs:      0.6,
 		NoSpeedMinDurationS:      90,
-		BidirAltAbsM:             8.0,
-		BidirSinuosityMax:        1.10,
-		BidirMinDurationS:        90,
+		BidirAltAbsM:             30.0,
+		BidirSinuosityMax:        1.05,
+		BidirMinDurationS:        120,
 		StopToleranceS:           120,
 		SmartRecMaxGapS:          75,
 		MinSamples:               4,
@@ -114,13 +112,4 @@ func DefaultDetectorConfig(sport string) DetectorConfig {
 		BoundarySpeedDropWindowS: 60,
 		AutoConfirmHeuristic:     false,
 	}
-	if sport == "mtb_downhill" || sport == "snowboarding" {
-		// Bikepark / downhill MTB activity — Schlepplifte (T-bar drag-lift case)
-		// and slow Sessellifte (slow-cable bikepark case's slowest sessel ≈ 0.85 m/s).
-		// Walking at bikeparks is virtually nil so the calibration fence
-		// at 0.7 m/s does not surface walking false positives in this
-		// dataset.
-		cfg.MinSpeedMs = 0.7
-	}
-	return cfg
 }

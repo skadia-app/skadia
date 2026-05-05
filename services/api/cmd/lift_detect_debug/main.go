@@ -81,9 +81,9 @@ func tracePts(rows []lifts.StreamPoint, cfg lifts.DetectorConfig, tStart, tEnd t
 			if !ok {
 				continue
 			}
-			fmt.Printf("  i=%d t=%s win=[%d→%d] kind=%q valid=%v dur=%.0fs alt=%+.1f mean=%.2f cv=%.3f sin=%.3f rate=%.3f\n",
+			fmt.Printf("  i=%d t=%s win=[%d→%d] kind=%q valid=%v dur=%.0fs alt=%+.1f mean=%.2f cv=%.3f sin=%.3f rate=%.3f speeds=%v\n",
 				i, rows[i].Time.Format("15:04:05"), st, fe, k, valid,
-				fin.DurationS, fin.AltPos-fin.AltNeg, fin.MeanSpeed, fin.SpeedCV, fin.Sinuosity, fin.AltRateMs)
+				fin.DurationS, fin.AltPos-fin.AltNeg, fin.MeanSpeed, fin.SpeedCV, fin.Sinuosity, fin.AltRateMs, fin.Speeds)
 			i = fe // skip ahead
 		}
 	}

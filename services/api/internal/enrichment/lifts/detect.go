@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sort"
 	"time"
 )
 
@@ -162,9 +163,43 @@ func computeStats(rows []StreamPoint, start, end int, cfg DetectorConfig) stats 
 		s.speeds = chunked
 		s.speedsOK = true
 		s.meanSpeed = mean(chunked)
-		s.speedCV = coeffOfVariation(chunked)
+		// Speed dispersion via robust MAD (median absolute deviation
+		// over median) instead of stddev/mean CV. Lift edges (boarding
+		// rampup, disembark rampdown) push 5-10 chunks per side off the
+		// stable core; mean-based CV would let those outliers dominate
+		// even on a perfectly steady gondola. MAD/median is unaffected
+		// by < 50% outliers.
+		s.speedCV = robustDispersion(chunked)
 	}
 	return s
+}
+
+func robustDispersion(xs []float64) float64 {
+	if len(xs) == 0 {
+		return 0
+	}
+	med := median(xs)
+	if med <= 0 {
+		return 0
+	}
+	devs := make([]float64, len(xs))
+	for i, x := range xs {
+		devs[i] = math.Abs(x - med)
+	}
+	return median(devs) / med
+}
+
+func median(xs []float64) float64 {
+	if len(xs) == 0 {
+		return 0
+	}
+	sorted := append([]float64(nil), xs...)
+	sort.Float64s(sorted)
+	n := len(sorted)
+	if n%2 == 1 {
+		return sorted[n/2]
+	}
+	return (sorted[n/2-1] + sorted[n/2]) / 2
 }
 
 // chunkedSpeeds slices [start, end] into chunks of approximately chunkSecs
@@ -333,10 +368,11 @@ func extendCandidate(rows []StreamPoint, start, initialEnd int, kind string, ws 
 	// risen above MinSpeedMs).
 	const peakDropThreshM = 5.0
 	const peakAdvanceMinM = 3.0 // robust to ±1 m barometer noise
-	const stallTimeoutS = 15.0
+	const stallTimeoutS = 20.0
+	const stallMinDropM = 3.0 // require ≥3m drop off peak (1m would trigger on barometer noise / mid-lift micro-plateaus that the 60s plateau check already catches)
 	lastAlt := math.NaN()
 	peakAlt := math.NaN()
-	peakAdvanceAlt := math.NaN() // last altitude that beat the prev advance by ≥ 1 m
+	peakAdvanceAlt := math.NaN()
 	peakAdvanceIdx := initialEnd
 	lastAdvanceTime := rows[initialEnd].Time
 	for k := initialEnd; k >= start; k-- {
@@ -374,14 +410,6 @@ func extendCandidate(rows []StreamPoint, start, initialEnd int, kind string, ws 
 				end = stopStartIdx
 				break
 			}
-			// Keep lastAdvanceTime fresh during BRIEF stops only — past
-			// `stopGraceS`, treat the pause as "lift effectively ended" and
-			// let the stall logic close the window. This separates short
-			// chairlift micro-stops from "rider waiting at lift top".
-			const stopGraceS = 30.0
-			if stopAccumS <= stopGraceS {
-				lastAdvanceTime = nxt.Time
-			}
 			end++
 			continue
 		}
@@ -401,38 +429,71 @@ func extendCandidate(rows []StreamPoint, start, initialEnd int, kind string, ws 
 			dprintf("BREAK over-band spd=%.1f at end=%d t=%s\n", spd, end, cur.Time.Format("15:04:05"))
 			break
 		}
-		// Direction continuation for high/medium — per-pair AND peak-reversal
-		// AND peak-stall.
-		if (kind == "high" || kind == "medium") && nxt.AltitudeM != nil && !math.IsNaN(lastAlt) {
-			altDelta := *nxt.AltitudeM - lastAlt
-			if goingUp {
-				if altDelta < -2 {
-					dprintf("BREAK altDelta < -2 (%.1f) at end=%d t=%s\n", altDelta, end, cur.Time.Format("15:04:05"))
+		// 60-second flat-plateau check: if altitude has barely changed
+		// over the past 60 s the lift is stationary or the rider has
+		// reached the top — close the window. This is a backstop that
+		// catches mid-tour station-to-station transfers (e.g. transfer case
+		// transfer-station case → secondary transfer station at 1334 m for 4 minutes) where
+		// altitude stays exactly flat so the drop-based stall does not
+		// fire, AND boarding-zone idle time longer than 60 s.
+		if (kind == "high" || kind == "medium") && nxt.AltitudeM != nil {
+			const plateauWinS = 60.0
+			const plateauMaxDeltaM = 2.0
+			cutoff := nxt.Time.Add(-time.Duration(plateauWinS) * time.Second)
+			var refAlt float64 = math.NaN()
+			refOK := false
+			for k := end; k >= start; k-- {
+				if rows[k].Time.Before(cutoff) {
 					break
 				}
+				if rows[k].AltitudeM != nil {
+					refAlt = *rows[k].AltitudeM
+					refOK = true
+				}
+			}
+			if refOK && nxt.Time.Sub(rows[start].Time).Seconds() >= plateauWinS {
+				if math.Abs(*nxt.AltitudeM-refAlt) < plateauMaxDeltaM {
+					dprintf("BREAK plateau60s ref=%.1f cur=%.1f at end=%d t=%s\n",
+						refAlt, *nxt.AltitudeM, end, cur.Time.Format("15:04:05"))
+					break
+				}
+			}
+		}
+
+		// Direction continuation for high/medium — peak-reversal only.
+		// Per-pair altDelta is too sensitive to barometer sample noise
+		// (Garmin streams routinely show ±2-3m single-sample jitter on a
+		// steadily climbing gondola); peakDropThreshM=5m catches sustained
+		// reversals robustly.
+		if (kind == "high" || kind == "medium") && nxt.AltitudeM != nil && !math.IsNaN(lastAlt) {
+			if goingUp {
 				if !math.IsNaN(peakAlt) && peakAlt-*nxt.AltitudeM > peakDropThreshM {
 					dprintf("BREAK peakDrop peak=%.1f cur=%.1f at end=%d t=%s\n", peakAlt, *nxt.AltitudeM, end, cur.Time.Format("15:04:05"))
 					break
 				}
-			} else {
-				if altDelta > 2 {
-					dprintf("BREAK altDelta > 2 at end=%d\n", end)
+				// Peak-stall: no upward advance for stallTimeoutS AND alt
+				// has dropped at least stallMinDropM off the peak. The drop
+				// requirement keeps mid-ride plateaus (gondola dwell at a
+				// turn-around / boarding-zone slowdown) from triggering a
+				// false close — those leave alt stagnant, not lower.
+				stalled := nxt.Time.Sub(lastAdvanceTime).Seconds() > stallTimeoutS
+				dropped := !math.IsNaN(peakAlt) && peakAlt-*nxt.AltitudeM >= stallMinDropM
+				if stalled && dropped {
+					dprintf("BREAK stall lastAdv=%s peak=%.1f cur=%.1f at end=%d\n",
+						lastAdvanceTime.Format("15:04:05"), peakAlt, *nxt.AltitudeM, end)
 					break
 				}
+			} else {
 				if !math.IsNaN(peakAlt) && *nxt.AltitudeM-peakAlt > peakDropThreshM {
 					dprintf("BREAK peakRise at end=%d\n", end)
 					break
 				}
-			}
-			// Peak-stall: lift top reached. We track the last time the
-			// altitude advanced by ≥ peakAdvanceMinM in the chosen
-			// direction. If more than `stallTimeoutS` seconds have passed
-			// without such an advance — and we are NOT inside a tolerated
-			// stop — the lift has effectively ended.
-			if nxt.Time.Sub(lastAdvanceTime).Seconds() > stallTimeoutS {
-				dprintf("BREAK stall lastAdv=%s cur=%s at end=%d\n",
-					lastAdvanceTime.Format("15:04:05"), nxt.Time.Format("15:04:05"), end)
-				break
+				stalled := nxt.Time.Sub(lastAdvanceTime).Seconds() > stallTimeoutS
+				risen := !math.IsNaN(peakAlt) && *nxt.AltitudeM-peakAlt >= stallMinDropM
+				if stalled && risen {
+					dprintf("BREAK stall(down) lastAdv=%s\n", lastAdvanceTime.Format("15:04:05"))
+					break
+				}
 			}
 		}
 		if nxt.AltitudeM != nil {
@@ -497,8 +558,23 @@ func validateRide(ws stats, kind string, cfg DetectorConfig) bool {
 		if ws.speedCV >= cfg.MaxSpeedCV {
 			return false
 		}
+		// Minimum total ascent: real lifts cover at least 40 m of vertical
+		// (the slowest Schlepplift in the corpus rises 110 m; the shortest
+		// Sessellift segment ~50 m). Anything below 40 m is a trail bump
+		// that happens to pass the speed/sin gates.
+		absAlt := math.Max(ws.altPosDelta, ws.altNegDelta)
+		if absAlt < 40 {
+			return false
+		}
 		absRate := math.Abs(ws.altRateMs)
 		if absRate < 0.05 {
+			return false
+		}
+		// Vertical-rate sanity: cable cars top out around 2.6 m/s
+		// vertical (steep modern gondolas like Crap Sogn Gion). Any
+		// candidate ride showing > 3 m/s vertical is a GPS/altimeter
+		// glitch — usually a sample-jump in the underlying stream.
+		if absRate > 3.0 {
 			return false
 		}
 		gradient := absRate / math.Max(ws.meanSpeed, 0.001)
@@ -508,6 +584,16 @@ func validateRide(ws stats, kind string, cfg DetectorConfig) bool {
 		return true
 	case "bidir":
 		if ws.durationS < float64(cfg.BidirMinDurationS) {
+			return false
+		}
+		// True bidirectional cable cars (bidirectional aerial tramway-class) drop AND rise
+		// within one ride. Reject "bidir" candidates that are pure
+		// ascents (asc>0, desc≈0) or pure descents (asc≈0, desc>0).
+		// The minimum-each-direction floor is asymmetric on purpose:
+		// a Pendelbahn passing through the dip carries the smaller
+		// direction by 10-30 m, never less.
+		minDir := math.Min(ws.altPosDelta, ws.altNegDelta)
+		if minDir < 10.0 {
 			return false
 		}
 		if ws.altPosDelta+ws.altNegDelta < cfg.BidirAltAbsM {
