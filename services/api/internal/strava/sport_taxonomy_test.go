@@ -196,3 +196,33 @@ func TestMergeActivityDataPropagatesParsedModifiers(t *testing.T) {
 		t.Error("IsVirtual was not propagated")
 	}
 }
+
+func TestMergeActivityDataUsesTaxonomyBroadFallbackRefinements(t *testing.T) {
+	base := &model.ActivityData{
+		SportType: "paddling",
+	}
+	parsed := &model.ActivityData{
+		SportType: "kayaking",
+	}
+
+	mergeActivityData(base, parsed)
+
+	if base.SportType != "kayaking" {
+		t.Fatalf("SportType = %q, want kayaking", base.SportType)
+	}
+}
+
+func TestMergeActivityDataKeepsUserCorrectedDifferentFamily(t *testing.T) {
+	base := &model.ActivityData{
+		SportType: "swimming",
+	}
+	parsed := &model.ActivityData{
+		SportType: "diving",
+	}
+
+	mergeActivityData(base, parsed)
+
+	if base.SportType != "swimming" {
+		t.Fatalf("SportType = %q, want swimming", base.SportType)
+	}
+}

@@ -314,11 +314,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 							FileName:    filepath.Base(filename), // L48: strip directory prefix
 							SizeBytes:   int64(len(fileBytes)),
 							FileHash:    msHash,
-							Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
-								Format:    "fit",
-								Source:    "strava",
-								SportType: "multisport",
-							}),
+							Tags:        shadowfs.ActivitySchemaTags(importer.MultisportActivitySchemaTagsInput("fit", "strava", sessions)),
 						}, bytes.NewReader(fileBytes))
 						if putErr != nil {
 							slog.Error("strava activities: ShadowFS.Put multisport failed — skipping activity", "file", filename, "error", putErr)
@@ -904,25 +900,46 @@ func mapStravaWeatherCondition(code int) string {
 	}
 }
 
-// sportRefinements maps broad Strava CSV sport types to the set of more specific
-// device-recorded types that should take precedence.
-var sportRefinements = map[string]map[string]bool{
-	"cycling":  {"cycling": true},
-	"running":  {"running": true},
-	"swimming": {"swimming": true},
-}
-
 // isSportRefinement returns true when 'specific' is a known more-specific variant
 // of 'broad' within the same sport family.
 func isSportRefinement(broad, specific string) bool {
 	if broad == specific {
 		return false
 	}
-	refinements, ok := sportRefinements[broad]
-	if !ok {
+	if broad == "" || specific == "" || broad == "generic" || broad == "unknown" || specific == "generic" || specific == "unknown" {
 		return false
 	}
-	return refinements[specific]
+	broadDef, broadOK := sport.GetSportDef(broad)
+	specificDef, specificOK := sport.GetSportDef(specific)
+	if !broadOK || !specificOK {
+		return false
+	}
+	if broadDef.Traits.ActivityForm != "fallback" && broadDef.Traits.ActivityForm != "family" {
+		return false
+	}
+	if specificDef.Traits.ActivityForm == "fallback" || specificDef.Traits.ActivityForm == "family" {
+		return false
+	}
+	if broadDef.CategoryKey != specificDef.CategoryKey {
+		return false
+	}
+	return traitsOverlap(broadDef.Traits.Environments, specificDef.Traits.Environments) ||
+		traitsOverlap(broadDef.Traits.MovementFamilies, specificDef.Traits.MovementFamilies) ||
+		traitsOverlap(broadDef.Traits.EquipmentFamilies, specificDef.Traits.EquipmentFamilies)
+}
+
+func traitsOverlap(a, b []string) bool {
+	for _, left := range a {
+		if left == "" || left == "generic" {
+			continue
+		}
+		for _, right := range b {
+			if left == right {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type sportConflictSnapshot struct {

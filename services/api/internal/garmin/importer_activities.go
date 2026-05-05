@@ -181,11 +181,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 						FileName:    filepath.Base(ref.fileName), // L47: sanitize
 						SizeBytes:   int64(len(fileBytes)),
 						FileHash:    hashStr,
-						Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
-							Format:    "fit",
-							Source:    "garmin",
-							SportType: "multisport",
-						}),
+						Tags:        shadowfs.ActivitySchemaTags(importer.MultisportActivitySchemaTagsInput("fit", "garmin", sessions)),
 					}, bytes.NewReader(fileBytes))
 					if putErr != nil {
 						slog.Error("garmin activities: ShadowFS.Put multisport failed — skipping activity", "file", ref.fileName, "error", putErr)
