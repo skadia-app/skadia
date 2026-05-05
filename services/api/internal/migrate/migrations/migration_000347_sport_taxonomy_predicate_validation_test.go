@@ -281,8 +281,10 @@ func TestMigration000347PredicateValidatorMatchesGoValidation(t *testing.T) {
 		name  string
 		preds []sport.Predicate
 	}{
+		{name: "empty predicate array", preds: []sport.Predicate{}},
 		{name: "cycling mountain", preds: []sport.Predicate{{Sport: "cycling", SubType: strPtr000347("mountain")}}},
 		{name: "cycling parent exactly", preds: []sport.Predicate{{Sport: "cycling", SubType: &empty}}},
+		{name: "canonical non selectable subtype is valid storage", preds: []sport.Predicate{{Sport: "transition", SubType: strPtr000347("bike_to_run_transition")}}},
 		{name: "wheelchair walk speed", preds: []sport.Predicate{{Sport: "wheelchair_push", SubType: strPtr000347("walk_speed")}}},
 		{name: "racket badminton", preds: []sport.Predicate{{Sport: "racket", SubType: strPtr000347("badminton")}}},
 		{name: "unknown sport", preds: []sport.Predicate{{Sport: "not_a_sport"}}},
