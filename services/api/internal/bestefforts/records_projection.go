@@ -104,11 +104,9 @@ func recordRuleMatches(rule RecordMatchRule, sportType, subType string, isIndoor
 }
 
 func recordSubTypeListMatches(values []string, subType string) bool {
-	if subType == "generic" {
-		subType = ""
-	}
+	subType = sport.CanonicalSubTypeID(subType)
 	for _, value := range values {
-		if value == subType {
+		if sport.CanonicalSubTypeID(value) == subType {
 			return true
 		}
 	}

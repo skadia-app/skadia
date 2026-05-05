@@ -168,7 +168,8 @@ func SportLabel(sportType, subType string) string {
 	if !ok {
 		return titleCase(sportType)
 	}
-	if subType != "" && subType != "generic" {
+	subType = CanonicalSubTypeID(subType)
+	if subType != "" {
 		if st, stOK := d.SubTypes[subType]; stOK {
 			return st.LabelDE
 		}
@@ -183,7 +184,8 @@ func SportDetailLabel(sportType, subType string) string {
 	if !ok {
 		return titleCase(sportType)
 	}
-	if subType == "" || subType == "generic" {
+	subType = CanonicalSubTypeID(subType)
+	if subType == "" {
 		return d.LabelDE
 	}
 	if st, stOK := d.SubTypes[subType]; stOK {
@@ -202,7 +204,8 @@ func AutoTitle(sportType, subType string) string {
 	if !ok {
 		return "Training"
 	}
-	if subType != "" && subType != "generic" {
+	subType = CanonicalSubTypeID(subType)
+	if subType != "" {
 		if st, stOK := d.SubTypes[subType]; stOK && st.AutoTitleDE != "" {
 			return st.AutoTitleDE
 		}
@@ -233,7 +236,8 @@ func MovingThresholdForTuple(sportType, subType string) float64 {
 	if !ok {
 		return 0.0
 	}
-	if subType != "" && subType != "generic" {
+	subType = CanonicalSubTypeID(subType)
+	if subType != "" {
 		if st, stOK := d.SubTypes[subType]; stOK && st.MovingThreshold != nil {
 			return *st.MovingThreshold
 		}
@@ -307,7 +311,8 @@ func SegmentProjectionEntriesForType(segmentType string) []SegmentProjectionEntr
 }
 
 func SegmentProjectionGroupForTuple(sportType, subType string) (string, bool) {
-	if subType != "" && subType != "generic" {
+	subType = CanonicalSubTypeID(subType)
+	if subType != "" {
 		for _, entry := range generatedSegmentProjectionEntries {
 			if entry.SportType == sportType && entry.SubType == subType && segmentProjectionEntryIsActive(entry) {
 				return entry.SportGroup, true
@@ -390,11 +395,11 @@ func EffectiveTraitsForTuple(sportType, subType string) (SportTraits, bool) {
 	if !ok {
 		return SportTraits{}, false
 	}
-	if subType != "" && subType != "generic" {
+	subType = CanonicalSubTypeID(subType)
+	if subType != "" {
 		if st, stOK := def.SubTypes[subType]; stOK {
 			return st.Traits, true
 		}
-		return SportTraits{}, false
 	}
 	return def.Traits, true
 }
@@ -428,17 +433,18 @@ func titleCase(s string) string {
 }
 
 // ModifierDefaultsForTuple returns effective canonical modifier defaults for a
-// sport tuple. Unknown sports and subtypes return zero defaults.
+// sport tuple. Unknown sports return zero defaults; unknown subtypes inherit the parent.
 func ModifierDefaultsForTuple(sportType, subType string) ModifierDefaults {
 	d, ok := registry[sportType]
 	if !ok {
 		return ModifierDefaults{}
 	}
 	defaults := cloneModifierDefaults(d.ModifierDefaults)
-	if subType != "" && subType != "generic" {
+	subType = CanonicalSubTypeID(subType)
+	if subType != "" {
 		st, stOK := d.SubTypes[subType]
 		if !stOK {
-			return ModifierDefaults{}
+			return defaults
 		}
 		defaults = mergeModifierDefaults(defaults, st.ModifierDefaults)
 	}

@@ -43,7 +43,7 @@ func evalSportTraitIn(condition Condition, activity map[string]any) bool {
 	if err != nil {
 		return false
 	}
-	traits, ok := sport.EffectiveTraitsForTuple(toStringValue(activity["sport_type"]), activitySubTypeValue(activity))
+	traits, ok := sport.EffectiveTraitsForTuple(sport.CanonicalSportTypeID(toStringValue(activity["sport_type"])), activitySubTypeValue(activity))
 	if !ok {
 		return false
 	}

@@ -36,6 +36,7 @@ func TestDetermineSportGroup(t *testing.T) {
 
 		// ── Cycling ──
 		{name: "cycling outdoor", sportType: "cycling", want: "cycling"},
+		{name: "cycling parent-only generic subtype", sportType: "cycling", subType: "generic", want: "cycling"},
 		{name: "mountain biking", sportType: "cycling", subType: "mountain", want: "cycling"},
 		{name: "gravel cycling", sportType: "cycling", subType: "gravel_cycling", want: "cycling"},
 		{name: "spin subtype uses taxonomy indoor default", sportType: "cycling", subType: "spin", want: "cycling_virtual"},

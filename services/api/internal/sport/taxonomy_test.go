@@ -234,6 +234,22 @@ func TestSportDetailLabel(t *testing.T) {
 	}
 }
 
+func TestEffectiveTraitsForTupleUsesParentForParentOnlyAndUnknownSubTypes(t *testing.T) {
+	parent, ok := EffectiveTraitsForTuple("cycling", "")
+	if !ok {
+		t.Fatal("EffectiveTraitsForTuple(cycling, \"\") returned false")
+	}
+	for _, subType := range []string{"generic", " Generic ", "device_private_mode"} {
+		got, ok := EffectiveTraitsForTuple("cycling", subType)
+		if !ok {
+			t.Fatalf("EffectiveTraitsForTuple(cycling, %q) returned false", subType)
+		}
+		if !reflect.DeepEqual(got, parent) {
+			t.Fatalf("EffectiveTraitsForTuple(cycling, %q) = %#v, want parent %#v", subType, got, parent)
+		}
+	}
+}
+
 func TestIsIndoor(t *testing.T) {
 	tests := []struct {
 		sport, sub string
@@ -308,6 +324,9 @@ func TestModifierDefaultsForTuple(t *testing.T) {
 	}
 	if got := ModifierDefaultsForTuple("fitness_equipment", "indoor_rowing"); got.IsIndoor == nil || !*got.IsIndoor {
 		t.Fatalf("fitness_equipment/indoor_rowing defaults = %#v, want inherited is_indoor true", got)
+	}
+	if got := ModifierDefaultsForTuple("fitness_equipment", "device_private_mode"); got.IsIndoor == nil || !*got.IsIndoor {
+		t.Fatalf("fitness_equipment unknown subtype defaults = %#v, want inherited is_indoor true", got)
 	}
 	if got := ModifierDefaultsForTuple("nonexistent_sport", ""); got.IsIndoor != nil {
 		t.Fatalf("unknown sport defaults = %#v, want zero defaults", got)

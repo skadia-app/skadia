@@ -57,7 +57,7 @@ func evalSportTupleIn(condition Condition, activity map[string]any) bool {
 	if err != nil {
 		return false
 	}
-	activitySport := toStringValue(activity["sport_type"])
+	activitySport := sport.CanonicalSportTypeID(toStringValue(activity["sport_type"]))
 	activitySubType := activitySubTypeValue(activity)
 	for _, tuple := range tuples {
 		if tuple.SportType != activitySport {
@@ -78,7 +78,7 @@ func activitySubTypeValue(activity map[string]any) string {
 	if !ok || raw == nil {
 		return ""
 	}
-	return toStringValue(raw)
+	return sport.CanonicalSubTypeID(toStringValue(raw))
 }
 
 func sportTupleModifiersMatch(modifiers map[string]bool, activity map[string]any) bool {
@@ -140,13 +140,13 @@ func parseSportTupleConditionValue(item map[string]any, surface string) (sportTu
 			if !ok || strings.TrimSpace(value) == "" {
 				return sportTupleConditionValue{}, fmt.Errorf("%s.sport_type must be a string", surface)
 			}
-			tuple.SportType = strings.TrimSpace(value)
+			tuple.SportType = sport.CanonicalSportTypeID(value)
 		case "sub_type":
 			value, ok := raw.(string)
 			if !ok {
 				return sportTupleConditionValue{}, fmt.Errorf("%s.sub_type must be a string", surface)
 			}
-			tuple.SubType = strings.TrimSpace(value)
+			tuple.SubType = sport.CanonicalSubTypeID(value)
 			tuple.SubTypePresent = true
 		case "is_electric", "is_indoor", "is_virtual", "is_commute":
 			value, ok := raw.(bool)
