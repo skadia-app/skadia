@@ -59,6 +59,30 @@ sports:
 	}
 }
 
+func TestCurrentTaxonomyUsesCanonicalFitnessIdentities(t *testing.T) {
+	taxonomyFile, err := os.Open("../../../../config/sport-taxonomy/sports.yaml")
+	if err != nil {
+		t.Fatalf("open sports.yaml: %v", err)
+	}
+	defer taxonomyFile.Close()
+	taxonomy, err := LoadTaxonomy(taxonomyFile)
+	if err != nil {
+		t.Fatalf("load sports.yaml: %v", err)
+	}
+
+	topLevel := map[string]struct{}{}
+	for _, sport := range taxonomy.Sports {
+		topLevel[sport.SportType] = struct{}{}
+	}
+	for _, sport := range taxonomy.Sports {
+		for _, subType := range sport.SubTypes {
+			if _, ok := topLevel[subType.SubType]; ok {
+				t.Fatalf("sport %q has sub_type %q that shadows a top-level sport_type", sport.SportType, subType.SubType)
+			}
+		}
+	}
+}
+
 func TestLoadTaxonomyRejectsDanglingCategory(t *testing.T) {
 	src := `
 categories:

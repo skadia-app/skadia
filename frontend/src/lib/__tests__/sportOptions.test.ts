@@ -132,8 +132,8 @@ describe('sport filter options', () => {
       'skiing',
     ]))
     expect(keysInGroup(options, 'fitness')).toEqual(expect.arrayContaining([
-      'training:strength_training',
-      'fitness_equipment:treadmill',
+      'training:flexibility_training',
+      'fitness_equipment:indoor_rowing',
       'strength_training',
       'hiit',
       'yoga',
@@ -165,8 +165,8 @@ describe('sport filter options', () => {
       'shooting',
     ]))
     expect(keysInGroup(options, 'fitness_other')).toEqual(expect.arrayContaining([
-      'training:strength_training',
-      'fitness_equipment:treadmill',
+      'training:flexibility_training',
+      'fitness_equipment:indoor_rowing',
       'strength_training',
       'mobility',
       'racket:squash',
@@ -200,12 +200,6 @@ describe('sport filter options', () => {
       expect(new Set(labels).size).toBe(labels.length)
     }
 
-    for (const key of ['training:strength_training', 'training:yoga', 'training:pilates', 'training:hiit']) {
-      const leaf = leaves.find((candidate) => getOptionKey(candidate) === key)
-      expect(leaf).toBeDefined()
-      expect(leaf?.label).not.toBe(leaves.find((candidate) => getOptionKey(candidate) === key.split(':')[1])?.label)
-    }
-    expect(leaves.find((leaf) => getOptionKey(leaf) === 'fitness_equipment:pilates')?.label).not.toBe('Pilates')
     expect(leaves.find((leaf) => getOptionKey(leaf) === 'running:indoor_running')?.label).not.toBe(
       leaves.find((leaf) => getOptionKey(leaf) === 'walking:indoor_walking')?.label,
     )
@@ -217,20 +211,18 @@ describe('sport filter options', () => {
     )
   })
 
-  it('keeps non-selectable stored subtype tuples filterable', () => {
+  it('keeps canonical fitness identities unique while preserving filter-only stored tuples', () => {
     const leaves = flattenLeaves(generateActivityFilterOptions())
     const keys = leaves.map(getOptionKey)
 
-    expect(keys).toEqual(expect.arrayContaining([
+    expect(keys).toEqual(expect.arrayContaining(['strength_training', 'yoga', 'pilates', 'hiit', 'transition']))
+    expect(keys).not.toEqual(expect.arrayContaining([
       'training:strength_training',
       'training:yoga',
       'training:pilates',
       'training:hiit',
+      'fitness_equipment:treadmill',
       'fitness_equipment:pilates',
-      'strength_training',
-      'yoga',
-      'pilates',
-      'hiit',
     ]))
   })
 

@@ -66,14 +66,13 @@ func TestSubTypeLabels(t *testing.T) {
 	}{
 		{"cycling", "mountain", "MTB"},
 		{"running", "indoor_running", "Indoor"},
-		{"training", "yoga", "Yoga"},
-		{"training", "pilates", "Pilates"},
-		{"training", "strength_training", "Krafttraining"},
+		{"yoga", "", "Yoga"},
+		{"pilates", "", "Pilates"},
+		{"strength_training", "", "Krafttraining"},
 		{"training", "cardio_training", "Cardio"},
 		{"training", "", "Training"},
 		{"training", "generic", "Training"},
 		{"fitness_equipment", "elliptical", "Crosstrainer"},
-		{"fitness_equipment", "treadmill", "Laufband"},
 		{"fitness_equipment", "", "Fitnessgerät"},
 	}
 	for _, tc := range tests {
@@ -222,8 +221,8 @@ func TestSportDetailLabel(t *testing.T) {
 		{"cycling", "", "Radfahren"},
 		{"cycling", "generic", "Radfahren"},
 		{"running", "indoor_running", "Laufen (Indoor)"},
-		{"training", "yoga", "Yoga"},
-		{"training", "pilates", "Pilates"},
+		{"yoga", "", "Yoga"},
+		{"pilates", "", "Pilates"},
 		{"training", "", "Training"},
 		{"paddling", "", "Paddeln (allgemein)"},
 	}
@@ -306,9 +305,6 @@ func TestModifierDefaultsForTuple(t *testing.T) {
 	}
 	if got := ModifierDefaultsForTuple("yoga", ""); got.IsIndoor == nil || !*got.IsIndoor {
 		t.Fatalf("yoga defaults = %#v, want is_indoor true", got)
-	}
-	if got := ModifierDefaultsForTuple("fitness_equipment", "treadmill"); got.IsIndoor == nil || !*got.IsIndoor {
-		t.Fatalf("fitness_equipment/treadmill defaults = %#v, want inherited is_indoor true", got)
 	}
 	if got := ModifierDefaultsForTuple("fitness_equipment", "indoor_rowing"); got.IsIndoor == nil || !*got.IsIndoor {
 		t.Fatalf("fitness_equipment/indoor_rowing defaults = %#v, want inherited is_indoor true", got)

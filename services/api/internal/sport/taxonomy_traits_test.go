@@ -59,8 +59,10 @@ func TestGeneratedSportTraits(t *testing.T) {
 	if got := fitnessEquipment.SubTypes["elliptical"].Traits.ActivityForm; got != "single" {
 		t.Fatalf("fitness_equipment/elliptical activity_form = %q, want single", got)
 	}
-	if got := fitnessEquipment.SubTypes["pilates"].Traits.MovementFamilies; !reflect.DeepEqual(got, []string{"mind_body"}) {
-		t.Fatalf("fitness_equipment/pilates movement = %#v, want mind_body", got)
+	for _, removed := range []string{"treadmill", "pilates"} {
+		if _, ok := fitnessEquipment.SubTypes[removed]; ok {
+			t.Fatalf("fitness_equipment/%s must not shadow canonical activity identities", removed)
+		}
 	}
 
 	diving := mustSportDef(t, "diving")
