@@ -65,6 +65,10 @@ func tsString(s string) string {
 	escaped := strings.ReplaceAll(s, `\`, `\\`)
 	escaped = strings.ReplaceAll(escaped, `'`, `\'`)
 	escaped = strings.ReplaceAll(escaped, "\n", `\n`)
+	escaped = strings.ReplaceAll(escaped, "\r", `\r`)
+	escaped = strings.ReplaceAll(escaped, "\t", `\t`)
+	escaped = strings.ReplaceAll(escaped, "\u2028", `\u2028`)
+	escaped = strings.ReplaceAll(escaped, "\u2029", `\u2029`)
 	return "'" + escaped + "'"
 }
 

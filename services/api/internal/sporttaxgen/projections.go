@@ -352,11 +352,11 @@ func validateSegmentProjection(projection SegmentProjection, taxonomy Taxonomy) 
 		if eligible.EligibilityRole != "" && eligible.EligibilityRole != "legacy_fallback_coverage" {
 			return fmt.Errorf("eligible[%d]: invalid eligibility_role %q", i, eligible.EligibilityRole)
 		}
-		if (sport.Selectable == nil || !*sport.Selectable) && !isAllowedSegmentFallbackSport(sport, eligible.SportGroup, eligible.EligibilityRole) {
-			return fmt.Errorf("eligible[%d]: sport_type %q is not selectable", i, eligible.SportType)
-		}
 		if eligible.EligibilityRole == "legacy_fallback_coverage" && !isAllowedSegmentFallbackSport(sport, eligible.SportGroup, eligible.EligibilityRole) {
 			return fmt.Errorf("eligible[%d]: eligibility_role legacy_fallback_coverage requires matching broad fallback sport_group", i)
+		}
+		if (sport.Selectable == nil || !*sport.Selectable) && !isAllowedSegmentFallbackSport(sport, eligible.SportGroup, eligible.EligibilityRole) {
+			return fmt.Errorf("eligible[%d]: sport_type %q is not selectable", i, eligible.SportType)
 		}
 		if sport.Traits.ActivityForm == "system" {
 			return fmt.Errorf("eligible[%d]: sport_type %q has system activity_form", i, eligible.SportType)

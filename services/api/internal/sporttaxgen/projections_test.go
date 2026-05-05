@@ -361,6 +361,17 @@ func TestLoadSegmentProjectionAllowsMarkedLegacyFallbackCoverage(t *testing.T) {
 	}
 }
 
+func TestLoadSegmentProjectionReportsFallbackGroupMismatchBeforeSelectable(t *testing.T) {
+	src := strings.Replace(validSegmentProjectionFixture(), "sport_type: running", "sport_type: paddling\n    eligibility_role: legacy_fallback_coverage", 1)
+	_, err := loadSegmentProjectionFixture(t, src)
+	if err == nil {
+		t.Fatal("LoadSegmentProjection accepted mismatched legacy fallback coverage")
+	}
+	if !strings.Contains(err.Error(), "legacy_fallback_coverage requires matching broad fallback sport_group") {
+		t.Fatalf("error = %v, want legacy fallback mismatch", err)
+	}
+}
+
 func TestLoadCurrentSegmentProjection(t *testing.T) {
 	taxonomyFile, err := os.Open("../../../../config/sport-taxonomy/sports.yaml")
 	if err != nil {
