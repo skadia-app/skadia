@@ -49,6 +49,15 @@ func TestEvaluateSportTupleInExplicitEmptySubTypeMeansParentOnly(t *testing.T) {
 	}
 }
 
+func TestEvaluateSportTupleInNormalizesActivityParentOnlySubType(t *testing.T) {
+	condition := Condition{Field: "sport_tuple", Op: "in", Value: []any{map[string]any{"sport_type": "cycling", "sub_type": ""}}}
+	for _, subType := range []any{"generic", " Generic ", "   "} {
+		if !evalCondition(condition, map[string]any{"sport_type": "cycling", "sub_type": subType}) {
+			t.Fatalf("explicit parent-only sport_tuple condition should match activity sub_type %#v", subType)
+		}
+	}
+}
+
 func TestEvaluateGroupsMatchesSportTupleCondition(t *testing.T) {
 	groups := []ConditionGroup{{
 		Logic: "and",

@@ -46,6 +46,13 @@ func TestEvaluateSportTraitConditionRejectsUnknownTupleAndNonIntersection(t *tes
 	}
 }
 
+func TestEvaluateSportTraitConditionFallsBackToParentTraitsForUnknownSubType(t *testing.T) {
+	condition := Condition{Field: "sport_environment", Op: "in", Value: []any{"land"}}
+	if !evalCondition(condition, map[string]any{"sport_type": "cycling", "sub_type": "device_private_mode"}) {
+		t.Fatal("unknown activity sub_type should fall back to parent traits")
+	}
+}
+
 func TestValidateSportTraitConditionRejectsInvalidShapes(t *testing.T) {
 	tests := []struct {
 		name string

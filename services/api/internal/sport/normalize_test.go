@@ -192,6 +192,19 @@ func TestNormalizeSportTupleStillRejectsUnknownSport(t *testing.T) {
 	}
 }
 
+func TestNormalizeSportTupleAcceptsCaseInsensitiveCanonicalLegacyIDs(t *testing.T) {
+	gotTuple, gotPatch, err := NormalizeSportTuple(" Cycling ", " Generic ")
+	if err != nil {
+		t.Fatalf("NormalizeSportTuple() error = %v", err)
+	}
+	if gotTuple != (Tuple{SportType: "cycling"}) {
+		t.Fatalf("tuple = %#v, want broad cycling", gotTuple)
+	}
+	if gotPatch != (ModifierPatch{}) {
+		t.Fatalf("patch = %#v, want empty", gotPatch)
+	}
+}
+
 func TestNormalizeSportTupleForImportDropsDeviceModeSubTypes(t *testing.T) {
 	gotTuple, gotPatch, err := NormalizeSportTupleForImport("cycling", "commuting")
 	if err != nil {

@@ -22,6 +22,30 @@ type ModifierValues struct {
 	IsVirtual  bool
 }
 
+const (
+	GenericSportType          = "generic"
+	UnknownSportType          = "unknown"
+	ParentOnlySubTypeSentinel = "generic"
+)
+
+// CanonicalSportTypeID normalizes internal taxonomy identifiers, not provider labels.
+func CanonicalSportTypeID(sportType string) string {
+	return strings.ToLower(strings.TrimSpace(sportType))
+}
+
+// CanonicalSubTypeID normalizes storage-level parent-only subtype sentinels to empty.
+func CanonicalSubTypeID(subType string) string {
+	subType = strings.ToLower(strings.TrimSpace(subType))
+	if subType == ParentOnlySubTypeSentinel {
+		return ""
+	}
+	return subType
+}
+
+func hasConcreteSubType(subType string) bool {
+	return CanonicalSubTypeID(subType) != ""
+}
+
 func ApplyModifierPatch(values ModifierValues, patch ModifierPatch) ModifierValues {
 	if patch.IsElectric != nil {
 		values.IsElectric = *patch.IsElectric
@@ -82,8 +106,8 @@ func ResolveSport(input ResolveInput) (ResolveResult, error) {
 
 	if alias, ok := lookupSourceAlias(input.Source, rawSport, rawSub); ok {
 		tuple := alias.Tuple
-		if input.Source == SourceLegacy && alias.RawSub == "" && tuple.SubType == "" && rawSub != "" && rawSub != "generic" {
-			tuple.SubType = rawSub
+		if input.Source == SourceLegacy && alias.RawSub == "" && tuple.SubType == "" && hasConcreteSubType(rawSub) {
+			tuple.SubType = CanonicalSubTypeID(rawSub)
 		}
 		normalized, defaults, err := normalizeCanonicalTuple(tuple.SportType, tuple.SubType)
 		if err != nil {
@@ -134,7 +158,7 @@ func GearDefaultSportForSource(source Source, rawSport string) (string, bool) {
 		}
 	}
 	if source == SourceStrava {
-		return "generic", true
+		return GenericSportType, true
 	}
 	return "", false
 }
@@ -207,17 +231,14 @@ func lookupSourceAlias(source Source, rawSport, rawSub string) (sourceAliasDef, 
 }
 
 func normalizeCanonicalTuple(sportType, subType string) (Tuple, ModifierPatch, error) {
-	tuple := Tuple{SportType: strings.TrimSpace(sportType), SubType: strings.TrimSpace(subType)}
-	if tuple.SubType == "generic" {
-		tuple.SubType = ""
-	}
+	tuple := Tuple{SportType: CanonicalSportTypeID(sportType), SubType: CanonicalSubTypeID(subType)}
 	patch := modifierDefaultsToPatch(ModifierDefaultsForTuple(tuple.SportType, tuple.SubType))
 
 	def, ok := registry[tuple.SportType]
 	if !ok {
 		return Tuple{}, ModifierPatch{}, fmt.Errorf("unknown sport_type %q", sportType)
 	}
-	if tuple.SubType == "" || tuple.SubType == "generic" {
+	if tuple.SubType == "" {
 		return tuple, patch, nil
 	}
 	if _, ok := def.SubTypes[tuple.SubType]; !ok {
