@@ -81,12 +81,12 @@ func (r *SchemaRenderer) ValidateSchema(fileType, schema string) (warnings []str
 		return nil, fmt.Errorf("schema exceeds maximum directory depth of 6")
 	}
 	maxVars := map[string]string{
-		"year": "2024", "month": "03", "day": "15", "time": "14-30",
+		"year": "2024", "month": "03", "day": "15", "time": "1430",
 		"format": "fit",
 		"sport":  strings.Repeat("x", 30), "subCategory": strings.Repeat("x", 30),
 		"modifiers": "electric_indoor_virtual_commute",
 		"city":      strings.Repeat("x", 50), "title": strings.Repeat("x", 50),
-		"distance_km": "9999.9", "duration_h": "99-59", "elevation_m": "99999",
+		"distance_km": "9999.9", "duration_h": "9999-59", "elevation_m": "99999",
 		"country":  strings.Repeat("x", 30),
 		"category": strings.Repeat("x", 30), "type": strings.Repeat("x", 20),
 		"parent_type": strings.Repeat("x", 20), "parent_name": strings.Repeat("x", 50),

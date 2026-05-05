@@ -4,7 +4,8 @@ import { EXAMPLE_VALUES, TYPE_VARIABLES } from '../libraryLabels'
 describe('schema preview examples', () => {
   it('matches backend ShadowFS activity schema tag formatting', () => {
     expect(EXAMPLE_VALUES['{time}']).toBe('1430')
-    expect(EXAMPLE_VALUES['{duration_h}']).toBe('2-0')
+    expect(EXAMPLE_VALUES['{duration_h}']).toBe('0002-00')
+    expect(EXAMPLE_VALUES['{country}']).toBe('DE')
   })
 
   it('offers file format for activity schemas because backend emits it', () => {

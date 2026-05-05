@@ -1,6 +1,8 @@
 package shadowfs
 
 import (
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -60,15 +62,15 @@ func ActivitySchemaTags(input ActivitySchemaTagsInput) map[string]string {
 	if country := strings.TrimSpace(input.Country); country != "" {
 		tags["country"] = country
 	}
-	if input.DistanceM > 0 {
+	if input.DistanceM > 0 && isFinite(input.DistanceM) {
 		tags["distance_km"] = strconv.FormatFloat(input.DistanceM/1000.0, 'f', 1, 64)
 	}
 	if input.ElapsedTimeS > 0 {
 		h := input.ElapsedTimeS / 3600
 		m := (input.ElapsedTimeS % 3600) / 60
-		tags["duration_h"] = strconv.Itoa(h) + "-" + strconv.Itoa(m)
+		tags["duration_h"] = fmt.Sprintf("%04d-%02d", h, m)
 	}
-	if input.ElevationGainM > 0 {
+	if input.ElevationGainM > 0 && isFinite(input.ElevationGainM) {
 		tags["elevation_m"] = strconv.Itoa(int(input.ElevationGainM))
 	}
 	var modifiers []string
@@ -86,4 +88,8 @@ func ActivitySchemaTags(input ActivitySchemaTagsInput) map[string]string {
 	}
 	tags["modifiers"] = strings.Join(modifiers, "_")
 	return tags
+}
+
+func isFinite(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }

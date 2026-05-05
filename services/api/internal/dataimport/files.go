@@ -67,24 +67,49 @@ type exportedActivityFileTags struct {
 	IsCommute          bool      `json:"is_commute"`
 }
 
-func loadActivityFileTagIndex(source Source) (map[string]shadowfs.ActivitySchemaTagsInput, error) {
+func loadActivityFileTagIndex(source Source) (map[string]shadowfs.ActivitySchemaTagsInput, []string, error) {
 	rc, err := source.OpenData("data/activities.json")
 	if err != nil {
-		return map[string]shadowfs.ActivitySchemaTagsInput{}, nil
+		return map[string]shadowfs.ActivitySchemaTagsInput{}, nil, nil
 	}
 	defer rc.Close()
 
-	var rows []exportedActivityFileTags
-	if err := json.NewDecoder(rc).Decode(&rows); err != nil {
-		return nil, fmt.Errorf("dataimport: decode activities.json for file tags: %w", err)
+	dec := json.NewDecoder(rc)
+	token, err := dec.Token()
+	if err != nil {
+		return map[string]shadowfs.ActivitySchemaTagsInput{}, []string{
+			fmt.Sprintf("activity file tag index skipped: decode activities.json: %v", err),
+		}, nil
+	}
+	if delim, ok := token.(json.Delim); !ok || delim != '[' {
+		return map[string]shadowfs.ActivitySchemaTagsInput{}, []string{
+			"activity file tag index skipped: data/activities.json is not a JSON array",
+		}, nil
 	}
 
-	index := make(map[string]shadowfs.ActivitySchemaTagsInput, len(rows))
-	for _, row := range rows {
-		if row.FileID == nil || strings.TrimSpace(*row.FileID) == "" {
+	index := make(map[string]shadowfs.ActivitySchemaTagsInput)
+	var warnings []string
+	rowNumber := 0
+	for dec.More() {
+		rowNumber++
+		var row exportedActivityFileTags
+		if err := dec.Decode(&row); err != nil {
+			warnings = append(warnings, fmt.Sprintf("activity file tag index skipped remaining rows after row %d: %v", rowNumber, err))
+			return index, warnings, nil
+		}
+		if row.FileID == nil {
 			continue
 		}
-		index[*row.FileID] = shadowfs.ActivitySchemaTagsInput{
+		fileID := strings.TrimSpace(*row.FileID)
+		if fileID == "" {
+			warnings = append(warnings, fmt.Sprintf("activity file tag index row %d has blank file_id and was skipped", rowNumber))
+			continue
+		}
+		if _, exists := index[fileID]; exists {
+			warnings = append(warnings, fmt.Sprintf("activity file tag index row %d has duplicate file_id %q and was skipped", rowNumber, fileID))
+			continue
+		}
+		index[fileID] = shadowfs.ActivitySchemaTagsInput{
 			Format:         row.OriginalFileFormat,
 			Source:         row.Source,
 			StartedAt:      row.StartedAt,
@@ -102,7 +127,10 @@ func loadActivityFileTagIndex(source Source) (map[string]shadowfs.ActivitySchema
 			IsCommute:      row.IsCommute,
 		}
 	}
-	return index, nil
+	if _, err := dec.Token(); err != nil {
+		warnings = append(warnings, fmt.Sprintf("activity file tag index ended with malformed JSON: %v", err))
+	}
+	return index, warnings, nil
 }
 
 // importFileByID imports a single file from the export into ShadowFS and
@@ -129,6 +157,9 @@ func (e *Engine) importFileByID(
 			"old_file_id", oldFileID,
 			"file_type", rec.FileType,
 			"file_name", rec.FileName)
+		if result != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Phase 0 file %s (%s): file blob not found in source", oldFileID, rec.FileName))
+		}
 		return nil
 	}
 

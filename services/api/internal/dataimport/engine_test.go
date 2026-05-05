@@ -2300,6 +2300,19 @@ func TestFileRestoreTagsActivityFileFromExportedActivity(t *testing.T) {
 	if entry.Tags["source"] != "strava" {
 		t.Fatalf("activity source tag = %#v, want strava", entry.Tags)
 	}
+	for key, want := range map[string]string{
+		"year":        "2024",
+		"month":       "03",
+		"day":         "15",
+		"time":        "1430",
+		"distance_km": "12.3",
+		"duration_h":  "0001-30",
+		"elevation_m": "321",
+	} {
+		if entry.Tags[key] != want {
+			t.Fatalf("activity tag %s = %q, want %q in %#v", key, entry.Tags[key], want, entry.Tags)
+		}
+	}
 }
 
 func TestFileRestoreWithoutActivityRowDoesNotWriteRawTaxonomyTags(t *testing.T) {

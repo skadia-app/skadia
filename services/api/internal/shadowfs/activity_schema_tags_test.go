@@ -1,6 +1,7 @@
 package shadowfs
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -64,13 +65,47 @@ func TestActivitySchemaTagsMetadata(t *testing.T) {
 		"city":        "Berlin",
 		"country":     "DE",
 		"distance_km": "12.3",
-		"duration_h":  "1-30",
+		"duration_h":  "0001-30",
 		"elevation_m": "321",
 	}
 	for key, wantValue := range want {
 		if tags[key] != wantValue {
 			t.Fatalf("%s = %q, want %q in tags %#v", key, tags[key], wantValue, tags)
 		}
+	}
+}
+
+func TestActivitySchemaTagsDurationSortsLexicographically(t *testing.T) {
+	short := ActivitySchemaTags(ActivitySchemaTagsInput{SportType: "running", ElapsedTimeS: 2 * 3600})
+	long := ActivitySchemaTags(ActivitySchemaTagsInput{SportType: "running", ElapsedTimeS: 10 * 3600})
+
+	if short["duration_h"] != "0002-00" {
+		t.Fatalf("short duration_h = %q, want 0002-00", short["duration_h"])
+	}
+	if long["duration_h"] != "0010-00" {
+		t.Fatalf("long duration_h = %q, want 0010-00", long["duration_h"])
+	}
+	if !(short["duration_h"] < long["duration_h"]) {
+		t.Fatalf("duration_h values do not sort lexicographically: %q >= %q", short["duration_h"], long["duration_h"])
+	}
+}
+
+func TestActivitySchemaTagsSkipsNonFiniteMetrics(t *testing.T) {
+	tags := ActivitySchemaTags(ActivitySchemaTagsInput{
+		SportType:      "running",
+		DistanceM:      math.Inf(1),
+		ElevationGainM: math.NaN(),
+		ElapsedTimeS:   3600,
+	})
+
+	if _, ok := tags["distance_km"]; ok {
+		t.Fatalf("non-finite distance should be omitted: %#v", tags)
+	}
+	if _, ok := tags["elevation_m"]; ok {
+		t.Fatalf("non-finite elevation should be omitted: %#v", tags)
+	}
+	if tags["duration_h"] != "0001-00" {
+		t.Fatalf("duration_h = %q, want finite duration to remain", tags["duration_h"])
 	}
 }
 
