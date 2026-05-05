@@ -36,6 +36,9 @@ export interface SegmentEffort {
   is_reverse: boolean
   sport_type: string
   sub_type?: string
+  is_indoor?: boolean
+  is_virtual?: boolean
+  is_electric?: boolean
   rank_overall?: number
   is_personal_best: boolean
   personal_rank?: number
