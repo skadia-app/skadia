@@ -19,6 +19,8 @@ func TestRenderPredicateValidationSQLDeterministic(t *testing.T) {
 	}
 	src := string(got)
 	for _, needle := range []string{
+		"Validates persisted sport.Predicate arrays only: sport/sub_type keys, no rule modifiers.",
+		"Empty arrays are valid here for explicit no-match segment predicates; table constraints add non-empty checks where needed.",
 		"CREATE OR REPLACE FUNCTION fn_validate_predicates(p JSONB)",
 		"LANGUAGE sql",
 		"IMMUTABLE",
