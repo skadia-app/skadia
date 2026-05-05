@@ -371,6 +371,8 @@ func TestAliasesSchemaDocumentsSupportedModifierContract(t *testing.T) {
 	schema := string(src)
 	for _, want := range []string{
 		`"additionalProperties": false`,
+		`"is_electric"`,
+		`"is_indoor"`,
 		`"is_virtual"`,
 	} {
 		if !strings.Contains(schema, want) {

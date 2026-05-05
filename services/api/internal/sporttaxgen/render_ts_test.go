@@ -44,3 +44,11 @@ func TestRenderTSEmitsTopLevelAutoTitleAndMovingThreshold(t *testing.T) {
 		}
 	}
 }
+
+func TestTSStringEscapesControlCharacters(t *testing.T) {
+	got := tsString("a\tb\rc\nd\u2028e\u2029f\\g'h")
+	want := `'a\tb\rc\nd\u2028e\u2029f\\g\'h'`
+	if got != want {
+		t.Fatalf("tsString() = %q, want %q", got, want)
+	}
+}
