@@ -17,6 +17,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
+	"gopkg.in/yaml.v3"
 )
 
 type trackPt struct {
@@ -43,8 +44,54 @@ type viewModel struct {
 	Banner    string
 	Track     template.JS // raw JSON for inline JS context — html/template would otherwise HTML-escape it
 	Rides     template.JS
+	GTLifts   template.JS
 	CenterLat float64
 	CenterLng float64
+}
+
+// gtLift mirrors the YAML schema in local-station-markers.yaml.
+// p1/p2 are [lat, lng]; alt_p1/alt_p2 optional (DEM-verified elevation).
+type gtLift struct {
+	ID    string    `yaml:"id" json:"id"`
+	P1    []float64 `yaml:"p1" json:"p1"`
+	P2    []float64 `yaml:"p2" json:"p2"`
+	AltP1 *float64  `yaml:"alt_p1" json:"alt_p1,omitempty"`
+	AltP2 *float64  `yaml:"alt_p2" json:"alt_p2,omitempty"`
+	Note  string    `yaml:"note" json:"note,omitempty"`
+}
+
+type gtCase struct {
+	File  string   `yaml:"file"`
+	Lifts []gtLift `yaml:"lifts"`
+}
+
+type gtRoot struct {
+	Cases []gtCase `yaml:"cases"`
+}
+
+// loadGT reads _gt_lifts.yaml and returns the lift entries for the given
+// activity file (matched by case.file). Empty slice if no entry or the YAML
+// file does not exist — the viz still renders, just without GT overlay.
+func loadGT(yamlPath, fileKey string) []gtLift {
+	if yamlPath == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(yamlPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "GT yaml unreadable (%s): %v — viz continues without GT overlay\n", yamlPath, err)
+		return nil
+	}
+	var r gtRoot
+	if err := yaml.Unmarshal(raw, &r); err != nil {
+		fmt.Fprintf(os.Stderr, "GT yaml parse error: %v — viz continues without GT overlay\n", err)
+		return nil
+	}
+	for _, c := range r.Cases {
+		if c.File == fileKey {
+			return c.Lifts
+		}
+	}
+	return nil
 }
 
 func main() {
@@ -52,6 +99,9 @@ func main() {
 	sport := flag.String("sport", "ski", "")
 	out := flag.String("out", "", "output HTML (default: <input>.viz.html)")
 	banner := flag.String("banner", "", "label rendered in title + corner overlay (e.g. 'PRE-C1' / 'POST-C1+C2')")
+	gtYAML := flag.String("gt", "local-station-markers.yaml", "GT lifts YAML (set to empty to disable overlay)")
+	gtKey := flag.String("gt-key", "", "case.file key in GT YAML (default: derived from -file relative to -gt-root)")
+	gtRoot := flag.String("gt-root", "LIFT_ERKENNUNG", "root used to derive -gt-key from -file")
 	flag.Parse()
 	if *file == "" {
 		fmt.Fprintln(os.Stderr, "need -file")
@@ -142,6 +192,18 @@ func main() {
 	trackJSON, _ := json.Marshal(track)
 	ridesJSON, _ := json.Marshal(rideSegs)
 
+	// GT overlay: derive case.file key (relative path) from -file unless -gt-key
+	// was given explicitly. With the default -gt-root, "LIFT_ERKENNUNG/
+	// 5_bikepark transfer case/bikepark transfer case-1.fit" resolves to key "5_bikepark transfer case/bikepark transfer case-1.fit".
+	key := *gtKey
+	if key == "" {
+		if rel, err := filepath.Rel(*gtRoot, *file); err == nil {
+			key = filepath.ToSlash(rel)
+		}
+	}
+	gtLifts := loadGT(*gtYAML, key)
+	gtJSON, _ := json.Marshal(gtLifts)
+
 	cLat, cLng := 0.0, 0.0
 	if nLatLng > 0 {
 		cLat = sumLat / float64(nLatLng)
@@ -157,6 +219,7 @@ func main() {
 		Banner:    *banner,
 		Track:     template.JS(trackJSON),
 		Rides:     template.JS(ridesJSON),
+		GTLifts:   template.JS(gtJSON),
 		CenterLat: cLat,
 		CenterLng: cLng,
 	}
@@ -210,7 +273,9 @@ var tpl = template.Must(template.New("viz").Parse(`<!doctype html>
       <span style="display:inline-block;width:20px;height:3px;background:#888;vertical-align:middle"></span> Track &nbsp;
       <span style="display:inline-block;width:20px;height:3px;background:#2a7e2a;vertical-align:middle"></span> high &nbsp;
       <span style="display:inline-block;width:20px;height:3px;background:#c98a14;vertical-align:middle"></span> medium &nbsp;
-      <span style="display:inline-block;width:20px;height:3px;background:#7a3aa8;vertical-align:middle"></span> bidir
+      <span style="display:inline-block;width:20px;height:3px;background:#7a3aa8;vertical-align:middle"></span> bidir &nbsp;
+      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#0aa;border:2px solid white;box-shadow:0 0 0 1px #0aa;vertical-align:middle"></span> GT-Tal &nbsp;
+      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#e63b94;border:2px solid white;box-shadow:0 0 0 1px #e63b94;vertical-align:middle"></span> GT-Berg
     </div>
     <div id="rides"></div>
   </div>
@@ -219,6 +284,7 @@ var tpl = template.Must(template.New("viz").Parse(`<!doctype html>
 <script>
   const TRACK = {{.Track}};
   const RIDES = {{.Rides}};
+  const GT_LIFTS = {{.GTLifts}};
   const map = L.map('map').setView([{{.CenterLat}}, {{.CenterLng}}], 13);
   // CARTO Voyager + OpenTopoMap allow direct file:// referer-less requests.
   // OSM main tiles return 403 because their volunteer policy requires a referer.
@@ -283,6 +349,28 @@ var tpl = template.Must(template.New("viz").Parse(`<!doctype html>
       }
     });
     ridesEl.appendChild(div);
+  });
+
+  // GT lift overlay: User-confirmed cable endpoints from _gt_lifts.yaml.
+  // p1 (cyan) = lower endpoint, p2 (magenta) = upper. Dashed line connects
+  // the two so the cable orientation is visible. Tooltip shows lift id +
+  // optional alt + note. If detector ride boundaries land more than ~30 m
+  // from the nearest GT marker, the deviation is the first thing to
+  // investigate (parking lot? boarding plattform? recording-late-start?).
+  GT_LIFTS.forEach(g => {
+    if (!g.p1 || g.p1.length < 2 || !g.p2 || g.p2.length < 2) return;
+    const tal = [g.p1[0], g.p1[1]];
+    const berg = [g.p2[0], g.p2[1]];
+    const altT = g.alt_p1 != null ? ' (alt ' + g.alt_p1 + 'm)' : '';
+    const altB = g.alt_p2 != null ? ' (alt ' + g.alt_p2 + 'm)' : '';
+    const note = g.note ? '<br><i>' + g.note + '</i>' : '';
+    L.polyline([tal, berg], { color: '#888', weight: 2, opacity: 0.6, dashArray: '6,6' }).addTo(map);
+    L.circleMarker(tal, { color: '#0aa', radius: 7, fillOpacity: 1, weight: 2, fillColor: '#0aa' }).addTo(map)
+      .bindTooltip('GT ' + g.id + ' · Tal' + altT, { permanent: false })
+      .bindPopup('<b>' + g.id + ' · Tal</b>' + altT + '<br>' + tal[0].toFixed(6) + ', ' + tal[1].toFixed(6) + note);
+    L.circleMarker(berg, { color: '#e63b94', radius: 7, fillOpacity: 1, weight: 2, fillColor: '#e63b94' }).addTo(map)
+      .bindTooltip('GT ' + g.id + ' · Berg' + altB, { permanent: false })
+      .bindPopup('<b>' + g.id + ' · Berg</b>' + altB + '<br>' + berg[0].toFixed(6) + ', ' + berg[1].toFixed(6) + note);
   });
 
   // Optional ?ride=N param: programmatic equivalent of clicking ride N in
