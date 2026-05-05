@@ -85,6 +85,16 @@ type ResolveResult struct {
 	Resolved     bool
 }
 
+func RouteImportTuple(tuple Tuple, fallback string) (string, *string) {
+	if tuple.SportType == "" {
+		return fallback, nil
+	}
+	if tuple.SubType == "" {
+		return tuple.SportType, nil
+	}
+	return tuple.SportType, &tuple.SubType
+}
+
 type sourceAliasDef struct {
 	RawSport string
 	RawSub   string
@@ -140,7 +150,19 @@ func ResolveSport(input ResolveInput) (ResolveResult, error) {
 			}
 		}
 		return ResolveResult{}, nil
-	case SourceGPXFile, SourceTCXFile, SourceStrava, SourceStravaRoute, SourceKomoot:
+	case SourceGPXFile, SourceTCXFile:
+		tuple, patch, err := normalizeCanonicalTuple(rawSport, rawSub)
+		if err == nil {
+			return ResolveResult{Tuple: tuple, Patch: patch, Resolved: true}, nil
+		}
+		if rawSub != "" {
+			fallbackTuple, fallbackPatch, fallbackErr := normalizeCanonicalTuple(rawSport, "")
+			if fallbackErr == nil {
+				return ResolveResult{Tuple: fallbackTuple, Patch: mergeModifierPatch(fallbackPatch, patch), Resolved: true}, nil
+			}
+		}
+		return ResolveResult{}, nil
+	case SourceStrava, SourceStravaRoute, SourceKomoot:
 		return ResolveResult{}, nil
 	default:
 		return ResolveResult{}, fmt.Errorf("unknown sport source %q", input.Source)

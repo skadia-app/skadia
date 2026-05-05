@@ -166,15 +166,5 @@ func stravaRouteTypeToSport(t string) (string, *string) {
 	if err != nil || !result.Resolved {
 		return "unknown", nil
 	}
-	return sportTupleForRoute(result.Tuple, "unknown")
-}
-
-func sportTupleForRoute(tuple sporttax.Tuple, fallback string) (string, *string) {
-	if tuple.SportType == "" {
-		return fallback, nil
-	}
-	if tuple.SubType == "" {
-		return tuple.SportType, nil
-	}
-	return tuple.SportType, &tuple.SubType
+	return sporttax.RouteImportTuple(result.Tuple, "unknown")
 }
