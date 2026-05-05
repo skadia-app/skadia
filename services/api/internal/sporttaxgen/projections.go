@@ -542,7 +542,7 @@ func leavesForSport(sport Sport, entry ActivityFilterEntry, throughCategory bool
 	if throughCategory {
 		includeParent = !parentIsPromoted && !parentIsBroadFallback && sport.Selectable != nil && *sport.Selectable
 	} else {
-		includeParent = (sport.Selectable != nil && *sport.Selectable) || parentIsBroadFallback
+		includeParent = (sport.Selectable != nil && *sport.Selectable) || parentIsBroadFallback || sport.Traits.ActivityForm == "transition"
 	}
 	if includeParent {
 		leaves = append(leaves, pendingProjectionLeaf{

@@ -72,7 +72,6 @@ export const GENERATED_GEAR_DEFAULT_MANUAL_OPTIONS = [
   { value: "hiking", label: "Wandern" },
   { value: "water_skiing", label: "Wasserski" },
   { value: "water_tubing", label: "Wassertubing" },
-  { value: "transition", label: "Wechselzone" },
   { value: "windsurfing", label: "Windsurfen" },
   { value: "yoga", label: "Yoga" },
 ] as const

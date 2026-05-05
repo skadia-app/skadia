@@ -23,7 +23,7 @@ WITH allowed_sports(sport) AS (
 ),
 allowed_subtypes(sport, sub_type) AS (
     VALUES
-        ('alpine_skiing','backcountry'), ('alpine_skiing','indoor_skiing'), ('alpine_skiing','resort'), ('cross_country_skiing','skate_skiing'), ('cycling','bmx'), ('cycling','cyclocross'), ('cycling','downhill'), ('cycling','gravel_cycling'), ('cycling','hand_cycling'), ('cycling','indoor_cycling'), ('cycling','mixed_surface'), ('cycling','mountain'), ('cycling','recumbent'), ('cycling','road'), ('cycling','spin'), ('cycling','track_cycling'), ('cycling','unicycling'), ('diving','apnea_diving'), ('diving','apnea_hunting'), ('diving','apnea_pool'), ('diving','ccr_diving'), ('diving','dynamic_apnea'), ('diving','gauge_diving'), ('diving','multi_gas_diving'), ('diving','single_gas_diving'), ('fitness_equipment','elliptical'), ('fitness_equipment','indoor_cycling'), ('fitness_equipment','indoor_hand_cycling'), ('fitness_equipment','indoor_rowing'), ('fitness_equipment','indoor_skiing'), ('fitness_equipment','indoor_walking'), ('fitness_equipment','pilates'), ('fitness_equipment','stair_climbing'), ('fitness_equipment','treadmill'), ('flying','fly_altimeter'), ('flying','fly_canopy'), ('flying','fly_ifr'), ('flying','fly_navigate'), ('flying','fly_paraglide'), ('flying','fly_paramotor'), ('flying','fly_pressurized'), ('flying','fly_timer'), ('flying','fly_vfr'), ('flying','fly_wx'), ('flying','rc_drone'), ('flying','wingsuit'), ('hiit','tabata'), ('hiking','rucking'), ('kayaking','whitewater'), ('motorcycling','atv'), ('motorcycling','motocross'), ('racket','badminton'), ('racket','padel'), ('racket','pickleball'), ('racket','racquetball'), ('racket','squash'), ('racket','table_tennis'), ('rafting','whitewater'), ('rock_climbing','bouldering'), ('rock_climbing','indoor_climbing'), ('rowing','indoor_rowing'), ('running','indoor_running'), ('running','obstacle'), ('running','street'), ('running','track'), ('running','trail'), ('running','treadmill'), ('running','ultra'), ('sailing','sail_race'), ('snowboarding','backcountry'), ('snowboarding','resort'), ('strength_training','amrap'), ('strength_training','emom'), ('swimming','lap_swimming'), ('swimming','open_water'), ('tennis','exercise'), ('tennis','match'), ('tennis','warm_up'), ('training','breathing'), ('training','cardio_training'), ('training','flexibility_training'), ('training','hiit'), ('training','pilates'), ('training','strength_training'), ('training','yoga'), ('transition','bike_to_run_transition'), ('transition','run_to_bike_transition'), ('transition','swim_to_bike_transition'), ('walking','casual_walking'), ('walking','indoor_walking'), ('walking','speed_walking'), ('wheelchair_push','run_speed'), ('wheelchair_push','walk_speed')
+        ('alpine_skiing','backcountry'), ('alpine_skiing','indoor_skiing'), ('alpine_skiing','resort'), ('cross_country_skiing','skate_skiing'), ('cycling','bmx'), ('cycling','cyclocross'), ('cycling','downhill'), ('cycling','gravel_cycling'), ('cycling','hand_cycling'), ('cycling','indoor_cycling'), ('cycling','mixed_surface'), ('cycling','mountain'), ('cycling','recumbent'), ('cycling','road'), ('cycling','spin'), ('cycling','track_cycling'), ('cycling','unicycling'), ('diving','apnea_diving'), ('diving','apnea_hunting'), ('diving','apnea_pool'), ('diving','ccr_diving'), ('diving','dynamic_apnea'), ('diving','gauge_diving'), ('diving','multi_gas_diving'), ('diving','single_gas_diving'), ('fitness_equipment','elliptical'), ('fitness_equipment','indoor_cycling'), ('fitness_equipment','indoor_hand_cycling'), ('fitness_equipment','indoor_rowing'), ('fitness_equipment','indoor_skiing'), ('fitness_equipment','indoor_walking'), ('fitness_equipment','stair_climbing'), ('flying','fly_altimeter'), ('flying','fly_canopy'), ('flying','fly_ifr'), ('flying','fly_navigate'), ('flying','fly_paraglide'), ('flying','fly_paramotor'), ('flying','fly_pressurized'), ('flying','fly_timer'), ('flying','fly_vfr'), ('flying','fly_wx'), ('flying','rc_drone'), ('flying','wingsuit'), ('hiit','tabata'), ('hiking','rucking'), ('kayaking','whitewater'), ('motorcycling','atv'), ('motorcycling','motocross'), ('racket','badminton'), ('racket','padel'), ('racket','pickleball'), ('racket','racquetball'), ('racket','squash'), ('racket','table_tennis'), ('rafting','whitewater'), ('rock_climbing','bouldering'), ('rock_climbing','indoor_climbing'), ('rowing','indoor_rowing'), ('running','indoor_running'), ('running','obstacle'), ('running','street'), ('running','track'), ('running','trail'), ('running','treadmill'), ('running','ultra'), ('sailing','sail_race'), ('snowboarding','backcountry'), ('snowboarding','resort'), ('strength_training','amrap'), ('strength_training','emom'), ('swimming','lap_swimming'), ('swimming','open_water'), ('tennis','exercise'), ('tennis','match'), ('tennis','warm_up'), ('training','breathing'), ('training','cardio_training'), ('training','flexibility_training'), ('transition','bike_to_run_transition'), ('transition','run_to_bike_transition'), ('transition','swim_to_bike_transition'), ('walking','casual_walking'), ('walking','indoor_walking'), ('walking','speed_walking'), ('wheelchair_push','run_speed'), ('wheelchair_push','walk_speed')
 ),
 items AS (
     SELECT value AS pred
@@ -67,7 +67,7 @@ IMMUTABLE
 AS $$
 WITH allowed_segment_tuples(segment_type, sport, sub_type) AS (
     VALUES
-        ('lap','american_football',''), ('lap','archery',''), ('lap','baseball',''), ('lap','basketball',''), ('lap','boxing',''), ('lap','cricket',''), ('lap','cycling',''), ('lap','dance',''), ('lap','disc_golf',''), ('lap','driving',''), ('lap','floor_climbing',''), ('lap','flying',''), ('lap','geocaching',''), ('lap','golf',''), ('lap','hang_gliding',''), ('lap','hiit',''), ('lap','hiking',''), ('lap','hockey',''), ('lap','horseback_riding',''), ('lap','hunting',''), ('lap','inline_skating',''), ('lap','jump_rope',''), ('lap','jumpmaster',''), ('lap','lacrosse',''), ('lap','meditation',''), ('lap','mixed_martial_arts',''), ('lap','motorcycling',''), ('lap','mountaineering',''), ('lap','multisport',''), ('lap','pilates',''), ('lap','racket',''), ('lap','rock_climbing',''), ('lap','rugby',''), ('lap','running',''), ('lap','shooting',''), ('lap','skateboarding',''), ('lap','sky_diving',''), ('lap','soccer',''), ('lap','strength_training',''), ('lap','tactical',''), ('lap','tennis',''), ('lap','transition',''), ('lap','volleyball',''), ('lap','walking',''), ('lap','wheelchair_push',''), ('lap','yoga',''), ('standard','american_football',''), ('standard','archery',''), ('standard','baseball',''), ('standard','basketball',''), ('standard','boxing',''), ('standard','cricket',''), ('standard','cycling',''), ('standard','dance',''), ('standard','disc_golf',''), ('standard','driving',''), ('standard','floor_climbing',''), ('standard','flying',''), ('standard','geocaching',''), ('standard','golf',''), ('standard','hang_gliding',''), ('standard','hiit',''), ('standard','hiking',''), ('standard','hockey',''), ('standard','horseback_riding',''), ('standard','hunting',''), ('standard','inline_skating',''), ('standard','jump_rope',''), ('standard','jumpmaster',''), ('standard','lacrosse',''), ('standard','meditation',''), ('standard','mixed_martial_arts',''), ('standard','motorcycling',''), ('standard','mountaineering',''), ('standard','multisport',''), ('standard','pilates',''), ('standard','racket',''), ('standard','rock_climbing',''), ('standard','rugby',''), ('standard','running',''), ('standard','shooting',''), ('standard','skateboarding',''), ('standard','sky_diving',''), ('standard','soccer',''), ('standard','strength_training',''), ('standard','tactical',''), ('standard','tennis',''), ('standard','transition',''), ('standard','volleyball',''), ('standard','walking',''), ('standard','wheelchair_push',''), ('standard','yoga',''), ('trail','american_football',''), ('trail','archery',''), ('trail','baseball',''), ('trail','basketball',''), ('trail','boxing',''), ('trail','cricket',''), ('trail','cycling',''), ('trail','dance',''), ('trail','disc_golf',''), ('trail','driving',''), ('trail','floor_climbing',''), ('trail','flying',''), ('trail','geocaching',''), ('trail','golf',''), ('trail','hang_gliding',''), ('trail','hiit',''), ('trail','hiking',''), ('trail','hockey',''), ('trail','horseback_riding',''), ('trail','hunting',''), ('trail','inline_skating',''), ('trail','jump_rope',''), ('trail','jumpmaster',''), ('trail','lacrosse',''), ('trail','meditation',''), ('trail','mixed_martial_arts',''), ('trail','motorcycling',''), ('trail','mountaineering',''), ('trail','multisport',''), ('trail','pilates',''), ('trail','racket',''), ('trail','rock_climbing',''), ('trail','rugby',''), ('trail','running',''), ('trail','shooting',''), ('trail','skateboarding',''), ('trail','sky_diving',''), ('trail','soccer',''), ('trail','strength_training',''), ('trail','tactical',''), ('trail','tennis',''), ('trail','transition',''), ('trail','volleyball',''), ('trail','walking',''), ('trail','wheelchair_push',''), ('trail','yoga',''), ('wassersport','boating',''), ('wassersport','canoeing',''), ('wassersport','fishing',''), ('wassersport','kayaking',''), ('wassersport','kitesurfing',''), ('wassersport','paddling',''), ('wassersport','rafting',''), ('wassersport','rowing',''), ('wassersport','sailing',''), ('wassersport','snorkeling',''), ('wassersport','stand_up_paddleboarding',''), ('wassersport','surfing',''), ('wassersport','swimming',''), ('wassersport','wakeboarding',''), ('wassersport','wakesurfing',''), ('wassersport','water_skiing',''), ('wassersport','water_tubing',''), ('wassersport','windsurfing',''), ('wintersport','alpine_skiing',''), ('wintersport','backcountry_skiing',''), ('wintersport','cross_country_skiing',''), ('wintersport','ice_skating',''), ('wintersport','sledding',''), ('wintersport','snowboarding',''), ('wintersport','snowmobiling',''), ('wintersport','snowshoeing','')
+        ('lap','american_football',''), ('lap','archery',''), ('lap','baseball',''), ('lap','basketball',''), ('lap','boxing',''), ('lap','cricket',''), ('lap','cycling',''), ('lap','dance',''), ('lap','disc_golf',''), ('lap','driving',''), ('lap','floor_climbing',''), ('lap','flying',''), ('lap','geocaching',''), ('lap','golf',''), ('lap','hang_gliding',''), ('lap','hiit',''), ('lap','hiking',''), ('lap','hockey',''), ('lap','horseback_riding',''), ('lap','hunting',''), ('lap','inline_skating',''), ('lap','jump_rope',''), ('lap','jumpmaster',''), ('lap','lacrosse',''), ('lap','meditation',''), ('lap','mixed_martial_arts',''), ('lap','motorcycling',''), ('lap','mountaineering',''), ('lap','multisport',''), ('lap','pilates',''), ('lap','racket',''), ('lap','rock_climbing',''), ('lap','rugby',''), ('lap','running',''), ('lap','shooting',''), ('lap','skateboarding',''), ('lap','sky_diving',''), ('lap','soccer',''), ('lap','strength_training',''), ('lap','tactical',''), ('lap','tennis',''), ('lap','volleyball',''), ('lap','walking',''), ('lap','wheelchair_push',''), ('lap','yoga',''), ('standard','american_football',''), ('standard','archery',''), ('standard','baseball',''), ('standard','basketball',''), ('standard','boxing',''), ('standard','cricket',''), ('standard','cycling',''), ('standard','dance',''), ('standard','disc_golf',''), ('standard','driving',''), ('standard','floor_climbing',''), ('standard','flying',''), ('standard','geocaching',''), ('standard','golf',''), ('standard','hang_gliding',''), ('standard','hiit',''), ('standard','hiking',''), ('standard','hockey',''), ('standard','horseback_riding',''), ('standard','hunting',''), ('standard','inline_skating',''), ('standard','jump_rope',''), ('standard','jumpmaster',''), ('standard','lacrosse',''), ('standard','meditation',''), ('standard','mixed_martial_arts',''), ('standard','motorcycling',''), ('standard','mountaineering',''), ('standard','multisport',''), ('standard','pilates',''), ('standard','racket',''), ('standard','rock_climbing',''), ('standard','rugby',''), ('standard','running',''), ('standard','shooting',''), ('standard','skateboarding',''), ('standard','sky_diving',''), ('standard','soccer',''), ('standard','strength_training',''), ('standard','tactical',''), ('standard','tennis',''), ('standard','volleyball',''), ('standard','walking',''), ('standard','wheelchair_push',''), ('standard','yoga',''), ('trail','american_football',''), ('trail','archery',''), ('trail','baseball',''), ('trail','basketball',''), ('trail','boxing',''), ('trail','cricket',''), ('trail','cycling',''), ('trail','dance',''), ('trail','disc_golf',''), ('trail','driving',''), ('trail','floor_climbing',''), ('trail','flying',''), ('trail','geocaching',''), ('trail','golf',''), ('trail','hang_gliding',''), ('trail','hiit',''), ('trail','hiking',''), ('trail','hockey',''), ('trail','horseback_riding',''), ('trail','hunting',''), ('trail','inline_skating',''), ('trail','jump_rope',''), ('trail','jumpmaster',''), ('trail','lacrosse',''), ('trail','meditation',''), ('trail','mixed_martial_arts',''), ('trail','motorcycling',''), ('trail','mountaineering',''), ('trail','multisport',''), ('trail','pilates',''), ('trail','racket',''), ('trail','rock_climbing',''), ('trail','rugby',''), ('trail','running',''), ('trail','shooting',''), ('trail','skateboarding',''), ('trail','sky_diving',''), ('trail','soccer',''), ('trail','strength_training',''), ('trail','tactical',''), ('trail','tennis',''), ('trail','volleyball',''), ('trail','walking',''), ('trail','wheelchair_push',''), ('trail','yoga',''), ('wassersport','boating',''), ('wassersport','canoeing',''), ('wassersport','fishing',''), ('wassersport','kayaking',''), ('wassersport','kitesurfing',''), ('wassersport','paddling',''), ('wassersport','rafting',''), ('wassersport','rowing',''), ('wassersport','sailing',''), ('wassersport','snorkeling',''), ('wassersport','stand_up_paddleboarding',''), ('wassersport','surfing',''), ('wassersport','swimming',''), ('wassersport','wakeboarding',''), ('wassersport','wakesurfing',''), ('wassersport','water_skiing',''), ('wassersport','water_tubing',''), ('wassersport','windsurfing',''), ('wintersport','alpine_skiing',''), ('wintersport','backcountry_skiing',''), ('wintersport','cross_country_skiing',''), ('wintersport','ice_skating',''), ('wintersport','sledding',''), ('wintersport','snowboarding',''), ('wintersport','snowmobiling',''), ('wintersport','snowshoeing','')
 ),
 items AS (
     SELECT value AS pred
@@ -94,6 +94,171 @@ SELECT
     );
 $$;
 -- END generated predicate validator
+
+CREATE OR REPLACE FUNCTION fp_000347_canonical_tuple(in_sport TEXT, in_sub_type TEXT)
+RETURNS TABLE(sport_type TEXT, sub_type TEXT, is_indoor BOOLEAN)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    raw_sport TEXT := btrim(COALESCE(in_sport, ''));
+    raw_sub_type TEXT := btrim(COALESCE(in_sub_type, ''));
+BEGIN
+    sport_type := raw_sport;
+    sub_type := raw_sub_type;
+    is_indoor := false;
+
+    IF raw_sport = 'training' AND raw_sub_type IN ('strength_training', 'yoga', 'pilates', 'hiit') THEN
+        sport_type := raw_sub_type;
+        sub_type := '';
+    ELSIF raw_sport = 'fitness_equipment' AND raw_sub_type = 'pilates' THEN
+        sport_type := 'pilates';
+        sub_type := '';
+    ELSIF raw_sport = 'fitness_equipment' AND raw_sub_type = 'treadmill' THEN
+        sport_type := 'running';
+        sub_type := 'treadmill';
+        is_indoor := true;
+    END IF;
+
+    RETURN NEXT;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION fp_000347_rewrite_predicates(predicates JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    pred JSONB;
+    n RECORD;
+    out JSONB := '[]'::jsonb;
+    rewritten JSONB;
+BEGIN
+    IF predicates IS NULL OR jsonb_typeof(predicates) <> 'array' THEN
+        RETURN predicates;
+    END IF;
+
+    FOR pred IN SELECT value FROM jsonb_array_elements(predicates) LOOP
+        IF jsonb_typeof(pred) <> 'object' OR NOT (pred ? 'sport') THEN
+            out := out || jsonb_build_array(pred);
+            CONTINUE;
+        END IF;
+        SELECT * INTO n FROM fp_000347_canonical_tuple(pred->>'sport', COALESCE(pred->>'sub_type', ''));
+        rewritten := pred || jsonb_build_object('sport', n.sport_type);
+        IF n.sub_type = '' THEN
+            rewritten := rewritten - 'sub_type';
+        ELSE
+            rewritten := rewritten || jsonb_build_object('sub_type', n.sub_type);
+        END IF;
+        out := out || jsonb_build_array(rewritten);
+    END LOOP;
+
+    RETURN out;
+END;
+$$;
+
+UPDATE activities a
+SET sport_type = n.sport_type,
+    sub_type = NULLIF(n.sub_type, ''),
+    is_indoor = CASE WHEN n.is_indoor THEN true ELSE a.is_indoor END
+FROM (
+    SELECT a.id, n.sport_type, n.sub_type, n.is_indoor
+    FROM activities a
+    CROSS JOIN LATERAL fp_000347_canonical_tuple(a.sport_type, COALESCE(a.sub_type, '')) n
+    WHERE a.sport_type IS DISTINCT FROM n.sport_type
+       OR COALESCE(a.sub_type, '') IS DISTINCT FROM n.sub_type
+       OR (n.is_indoor AND NOT a.is_indoor)
+) n
+WHERE a.id = n.id;
+
+UPDATE activities a
+SET parsed_sport_type = n.sport_type,
+    parsed_sub_type = NULLIF(n.sub_type, ''),
+    is_indoor = CASE WHEN n.is_indoor THEN true ELSE a.is_indoor END
+FROM (
+    SELECT a.id, n.sport_type, n.sub_type, n.is_indoor
+    FROM activities a
+    CROSS JOIN LATERAL fp_000347_canonical_tuple(a.parsed_sport_type, COALESCE(a.parsed_sub_type, '')) n
+    WHERE a.parsed_sport_type IS NOT NULL
+      AND (
+        a.parsed_sport_type IS DISTINCT FROM n.sport_type
+        OR COALESCE(a.parsed_sub_type, '') IS DISTINCT FROM n.sub_type
+        OR (n.is_indoor AND NOT a.is_indoor)
+      )
+) n
+WHERE a.id = n.id;
+
+UPDATE planned_routes pr
+SET sport_type = n.sport_type,
+    sub_type = NULLIF(n.sub_type, '')
+FROM (
+    SELECT pr.id, n.sport_type, n.sub_type
+    FROM planned_routes pr
+    CROSS JOIN LATERAL fp_000347_canonical_tuple(pr.sport_type, COALESCE(pr.sub_type, '')) n
+    WHERE pr.sport_type IS DISTINCT FROM n.sport_type
+       OR COALESCE(pr.sub_type, '') IS DISTINCT FROM n.sub_type
+) n
+WHERE pr.id = n.id;
+
+UPDATE recording_groups rg
+SET sport_type = n.sport_type,
+    sub_type = NULLIF(n.sub_type, ''),
+    is_indoor = CASE WHEN n.is_indoor THEN true ELSE rg.is_indoor END
+FROM (
+    SELECT rg.id, n.sport_type, n.sub_type, n.is_indoor
+    FROM recording_groups rg
+    CROSS JOIN LATERAL fp_000347_canonical_tuple(rg.sport_type, COALESCE(rg.sub_type, '')) n
+    WHERE rg.sport_type IS DISTINCT FROM n.sport_type
+       OR COALESCE(rg.sub_type, '') IS DISTINCT FROM n.sub_type
+       OR (n.is_indoor AND NOT rg.is_indoor)
+) n
+WHERE rg.id = n.id;
+
+UPDATE heatmap_lines h
+SET sport_type = n.sport_type,
+    sub_type = NULLIF(n.sub_type, '')
+FROM (
+    SELECT h.id, n.sport_type, n.sub_type
+    FROM heatmap_lines h
+    CROSS JOIN LATERAL fp_000347_canonical_tuple(h.sport_type, COALESCE(h.sub_type, '')) n
+    WHERE h.sport_type IS DISTINCT FROM n.sport_type
+       OR COALESCE(h.sub_type, '') IS DISTINCT FROM n.sub_type
+) n
+WHERE h.id = n.id;
+
+UPDATE heatmap_points h
+SET sport_type = n.sport_type,
+    sub_type = NULLIF(n.sub_type, '')
+FROM (
+    SELECT h.id, n.sport_type, n.sub_type
+    FROM heatmap_points h
+    CROSS JOIN LATERAL fp_000347_canonical_tuple(h.sport_type, COALESCE(h.sub_type, '')) n
+    WHERE h.sport_type IS DISTINCT FROM n.sport_type
+       OR COALESCE(h.sub_type, '') IS DISTINCT FROM n.sub_type
+) n
+WHERE h.id = n.id;
+
+UPDATE segment_efforts se
+SET sport_type = n.sport_type,
+    sub_type = COALESCE(NULLIF(n.sub_type, ''), 'generic')
+FROM (
+    SELECT se.id, n.sport_type, n.sub_type
+    FROM segment_efforts se
+    CROSS JOIN LATERAL fp_000347_canonical_tuple(se.sport_type, COALESCE(se.sub_type, '')) n
+    WHERE se.sport_type IS DISTINCT FROM n.sport_type
+       OR COALESCE(se.sub_type, '') IS DISTINCT FROM n.sub_type
+) n
+WHERE se.id = n.id;
+
+UPDATE routing_profiles
+SET predicates = fp_000347_rewrite_predicates(predicates)
+WHERE predicates IS NOT NULL;
+
+UPDATE segments
+SET allowed_predicates = fp_000347_rewrite_predicates(allowed_predicates)
+WHERE allowed_predicates IS NOT NULL;
+
+DROP FUNCTION IF EXISTS fp_000347_rewrite_predicates(JSONB);
+DROP FUNCTION IF EXISTS fp_000347_canonical_tuple(TEXT, TEXT);
 
 ALTER TABLE routing_profiles
     ADD CONSTRAINT routing_profiles_predicates_valid

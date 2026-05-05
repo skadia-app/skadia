@@ -1305,20 +1305,6 @@ sports:
     is_virtual: true
     is_commute: false
   sub_types:
-  - sub_type: strength_training
-    labels:
-      de: Krafttraining
-    details:
-      de: Krafttraining
-    auto_titles:
-      de: Krafttraining
-    selectable: false
-    traits:
-      environments: [indoor]
-      movement_families: [lift]
-      equipment_families: [weights]
-      activity_form: single
-      propulsion_modes: [human]
   - sub_type: flexibility_training
     labels:
       de: Stretching
@@ -1345,34 +1331,6 @@ sports:
       equipment_families: []
       activity_form: single
       propulsion_modes: [human]
-  - sub_type: yoga
-    labels:
-      de: Yoga
-    details:
-      de: Yoga
-    auto_titles:
-      de: Yoga
-    selectable: false
-    traits:
-      environments: [indoor]
-      movement_families: [mind_body]
-      equipment_families: []
-      activity_form: single
-      propulsion_modes: [human]
-  - sub_type: pilates
-    labels:
-      de: Pilates
-    details:
-      de: Pilates
-    auto_titles:
-      de: Pilates
-    selectable: false
-    traits:
-      environments: [indoor]
-      movement_families: [mind_body]
-      equipment_families: []
-      activity_form: single
-      propulsion_modes: [human]
   - sub_type: breathing
     labels:
       de: Atemübung
@@ -1383,20 +1341,6 @@ sports:
     traits:
       environments: [indoor]
       movement_families: [mind_body]
-      equipment_families: []
-      activity_form: single
-      propulsion_modes: [human]
-  - sub_type: hiit
-    labels:
-      de: HIIT
-    details:
-      de: High Intensity Interval Training
-    auto_titles:
-      de: HIIT
-    selectable: false
-    traits:
-      environments: [indoor]
-      movement_families: [generic]
       equipment_families: []
       activity_form: single
       propulsion_modes: [human]
@@ -1427,19 +1371,6 @@ sports:
     is_virtual: true
     is_commute: false
   sub_types:
-  - sub_type: treadmill
-    labels:
-      de: Laufband
-    details:
-      de: Laufband
-    auto_titles:
-      de: Laufband
-    traits:
-      environments: [indoor]
-      movement_families: [run]
-      equipment_families: [machine]
-      activity_form: single
-      propulsion_modes: [human]
   - sub_type: indoor_cycling
     labels:
       de: Indoor-Rad
@@ -1489,19 +1420,6 @@ sports:
     traits:
       environments: [indoor]
       movement_families: [climb]
-      equipment_families: [machine]
-      activity_form: single
-      propulsion_modes: [human]
-  - sub_type: pilates
-    labels:
-      de: Pilates
-    details:
-      de: Pilates
-    auto_titles:
-      de: Pilates
-    traits:
-      environments: [indoor]
-      movement_families: [mind_body]
       equipment_families: [machine]
       activity_form: single
       propulsion_modes: [human]
@@ -2710,6 +2628,7 @@ sports:
   typically_has_gps: true
   moving_threshold: 0
   is_indoor: false
+  selectable: false
   traits:
     environments: [land]
     movement_families: [generic]
@@ -2729,6 +2648,7 @@ sports:
       de: Wechsel Rad zu Lauf
     auto_titles:
       de: Wechselzone
+    selectable: false
   - sub_type: run_to_bike_transition
     labels:
       de: Lauf→Rad
@@ -2736,6 +2656,7 @@ sports:
       de: Wechsel Lauf zu Rad
     auto_titles:
       de: Wechselzone
+    selectable: false
   - sub_type: swim_to_bike_transition
     labels:
       de: Schwimmen→Rad
@@ -2743,6 +2664,7 @@ sports:
       de: Wechsel Schwimmen zu Rad
     auto_titles:
       de: Wechselzone
+    selectable: false
 
 - sport_type: generic
   category_key: other

@@ -28,8 +28,7 @@ aliases:
 - raw: "15"
   sport_type: strength_training
 - raw: "17"
-  sport_type: training
-  sub_type: yoga
+  sport_type: yoga
 - raw: running
   sport_type: running
 - raw: run
@@ -164,11 +163,9 @@ aliases:
 - raw: training
   sport_type: training
 - raw: yoga
-  sport_type: training
-  sub_type: yoga
+  sport_type: yoga
 - raw: pilates
-  sport_type: training
-  sub_type: pilates
+  sport_type: pilates
 - raw: hiit
   sport_type: hiit
 - raw: rock_climbing

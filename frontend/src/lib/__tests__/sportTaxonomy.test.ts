@@ -91,7 +91,6 @@ describe('sport taxonomy aliases', () => {
     expect(normalizeSportTuple('diving', 'apnea_pool').modifiers.isIndoor).toBe(true)
     expect(normalizeSportTuple('rock_climbing', 'bouldering').modifiers.isIndoor).toBeUndefined()
     expect(normalizeSportTuple('swimming', 'lap_swimming').modifiers.isIndoor).toBeUndefined()
-    expect(modifierDefaultsForTuple('fitness_equipment', 'treadmill').isIndoor).toBe(true)
     expect(normalizeSportTuple('fitness_equipment', 'indoor_rowing').modifiers.isIndoor).toBe(true)
 
     for (const [sportType, subType] of [
@@ -227,7 +226,7 @@ describe('sport taxonomy aliases', () => {
     expect(findSport('golf')?.traits.equipmentFamilies).not.toContain('racket')
     expect(findSubtype('racket', 'badminton')?.traits.equipmentFamilies).toEqual(['racket'])
     expect(findSubtype('racket', 'badminton')?.traits.equipmentFamilies).not.toContain('ball')
-    expect(findSubtype('fitness_equipment', 'pilates')?.traits.movementFamilies).toEqual(['mind_body'])
+    expect(findSubtype('fitness_equipment', 'pilates')).toBeUndefined()
     expect(findSubtype('fitness_equipment', 'elliptical')?.traits.activityForm).toBe('single')
     expect(findSubtype('running', 'treadmill')?.traits.environments).toEqual(['indoor'])
     expect(findSubtype('hiking', 'rucking')?.traits.equipmentFamilies).toEqual(['weights'])
@@ -254,11 +253,15 @@ describe('sport taxonomy aliases', () => {
     const parentValues = selectableParentSportOptions().map((opt) => opt.value)
     const tupleValues = selectableSportTupleOptions().map((opt) => `${opt.value}/${opt.subType ?? ''}`)
 
-    expect(parentValues).not.toEqual(expect.arrayContaining(['skiing', 'training', 'fitness_equipment', 'paddling']))
+    expect(parentValues).not.toEqual(expect.arrayContaining(['skiing', 'training', 'fitness_equipment', 'paddling', 'transition']))
     expect(tupleValues).toContain('fitness_equipment/stair_climbing')
     expect(tupleValues).toContain('training/flexibility_training')
     expect(tupleValues).not.toContain('training/strength_training')
     expect(tupleValues).not.toContain('training/pilates')
+    expect(tupleValues).not.toContain('transition/')
+    expect(tupleValues).not.toContain('transition/bike_to_run_transition')
+    expect(tupleValues).not.toContain('transition/run_to_bike_transition')
+    expect(tupleValues).not.toContain('transition/swim_to_bike_transition')
   })
 
   it('keeps normal broad parent defaults selectable as tuple options', () => {
@@ -366,7 +369,6 @@ describe('sport taxonomy aliases', () => {
       'motorcycling/',
       'driving/',
       'multisport/',
-      'transition/',
     ])
   })
 

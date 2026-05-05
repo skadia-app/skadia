@@ -315,6 +315,53 @@ func TestBuildGearDefaultProjectionExcludesRouteOnlyAliases(t *testing.T) {
 	}
 }
 
+func TestCurrentAliasesRouteFitnessActivitiesToCanonicalSports(t *testing.T) {
+	taxonomyFile, err := os.Open("../../../../config/sport-taxonomy/sports.yaml")
+	if err != nil {
+		t.Fatalf("open sports.yaml: %v", err)
+	}
+	defer taxonomyFile.Close()
+	taxonomy, err := LoadTaxonomy(taxonomyFile)
+	if err != nil {
+		t.Fatalf("load sports.yaml: %v", err)
+	}
+
+	for _, tc := range []struct {
+		source    string
+		raw       string
+		wantSport string
+	}{
+		{source: "gpx", raw: "yoga", wantSport: "yoga"},
+		{source: "gpx", raw: "pilates", wantSport: "pilates"},
+		{source: "gpx", raw: "hiit", wantSport: "hiit"},
+		{source: "strava", raw: "Yoga", wantSport: "yoga"},
+		{source: "strava", raw: "Pilates", wantSport: "pilates"},
+		{source: "strava", raw: "HIIT", wantSport: "hiit"},
+	} {
+		t.Run(tc.source+"/"+tc.raw, func(t *testing.T) {
+			path := filepath.Join("..", "..", "..", "..", "config", "sport-taxonomy", "aliases", tc.source+".yaml")
+			file, err := os.Open(path)
+			if err != nil {
+				t.Fatalf("open aliases: %v", err)
+			}
+			defer file.Close()
+			aliases, err := LoadSourceAliases(file, tc.source, taxonomy)
+			if err != nil {
+				t.Fatalf("LoadSourceAliases() error = %v", err)
+			}
+			for _, alias := range aliases.Aliases {
+				if alias.Raw == tc.raw {
+					if alias.SportType != tc.wantSport || alias.SubType != "" {
+						t.Fatalf("alias %q = %s/%s, want %s with no subtype", tc.raw, alias.SportType, alias.SubType, tc.wantSport)
+					}
+					return
+				}
+			}
+			t.Fatalf("alias %q not found in %s", tc.raw, tc.source)
+		})
+	}
+}
+
 func TestAliasesSchemaDocumentsSupportedModifierContract(t *testing.T) {
 	schemaPath := filepath.Join("..", "..", "..", "..", "config", "sport-taxonomy", "schema", "aliases.schema.json")
 	src, err := os.ReadFile(schemaPath)

@@ -84,8 +84,8 @@ presets:
       - key: multi
         label_ref: category:multi
         entries:
-          - category_key: multi
-            sport_order: [multisport, transition]
+          - sport_type: multisport
+          - sport_type: transition
       - key: other
         label_ref: category:other
         entries:
@@ -166,8 +166,8 @@ presets:
       - key: multi
         label_ref: category:multi
         entries:
-          - category_key: multi
-            sport_order: [multisport, transition]
+          - sport_type: multisport
+          - sport_type: transition
       - key: fitness_other
         labels: {de: Fitness & Sonstiges}
         entries:

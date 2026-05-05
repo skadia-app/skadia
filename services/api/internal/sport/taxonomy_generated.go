@@ -311,10 +311,6 @@ var generatedSportDefs = []SportDef{
 			"breathing":            {SubType: "breathing", LabelDE: "Atemübung", DetailDE: "Atemübung", AutoTitleDE: "Atemübung", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"mind_body"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"cardio_training":      {SubType: "cardio_training", LabelDE: "Cardio", DetailDE: "Cardio-Training", AutoTitleDE: "Cardio", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"flexibility_training": {SubType: "flexibility_training", LabelDE: "Stretching", DetailDE: "Dehnungstraining", AutoTitleDE: "Stretching", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"hiit":                 {SubType: "hiit", LabelDE: "HIIT", DetailDE: "High Intensity Interval Training", AutoTitleDE: "HIIT", Selectable: false, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"pilates":              {SubType: "pilates", LabelDE: "Pilates", DetailDE: "Pilates", AutoTitleDE: "Pilates", Selectable: false, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"mind_body"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"strength_training":    {SubType: "strength_training", LabelDE: "Krafttraining", DetailDE: "Krafttraining", AutoTitleDE: "Krafttraining", Selectable: false, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"lift"}, EquipmentFamilies: []string{"weights"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"yoga":                 {SubType: "yoga", LabelDE: "Yoga", DetailDE: "Yoga", AutoTitleDE: "Yoga", Selectable: false, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"mind_body"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
 	},
 	{
@@ -330,9 +326,7 @@ var generatedSportDefs = []SportDef{
 			"indoor_rowing":       {SubType: "indoor_rowing", LabelDE: "Ruder-Ergometer", DetailDE: "Ruder-Ergometer", AutoTitleDE: "Indoor-Rudern", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"row"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"indoor_skiing":       {SubType: "indoor_skiing", LabelDE: "Indoor-Ski", DetailDE: "Skimaschine", AutoTitleDE: "Indoor-Ski", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"ski", "machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"indoor_walking":      {SubType: "indoor_walking", LabelDE: "Indoor-Gehen", DetailDE: "Indoor-Gehen", AutoTitleDE: "Indoor-Gehen", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"walk"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"pilates":             {SubType: "pilates", LabelDE: "Pilates", DetailDE: "Pilates", AutoTitleDE: "Pilates", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"mind_body"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"stair_climbing":      {SubType: "stair_climbing", LabelDE: "Treppensteiger", DetailDE: "Treppensteiger", AutoTitleDE: "Treppensteiger", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"climb"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"treadmill":           {SubType: "treadmill", LabelDE: "Laufband", DetailDE: "Laufband", AutoTitleDE: "Laufband", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"run"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
 	},
 	{
@@ -612,12 +606,12 @@ var generatedSportDefs = []SportDef{
 	{
 		SportType: "transition", CategoryKey: "multi", LabelDE: "Wechselzone", AutoTitleDE: "Wechselzone",
 		SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0, IsIndoor: false,
-		Lifecycle: "canonical", Selectable: true,
+		Lifecycle: "canonical", Selectable: false,
 		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "transition", PropulsionModes: []string{"human"}},
 		SubTypes: map[string]SubTypeDef{
-			"bike_to_run_transition":  {SubType: "bike_to_run_transition", LabelDE: "Rad→Lauf", DetailDE: "Wechsel Rad zu Lauf", AutoTitleDE: "Wechselzone", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "transition", PropulsionModes: []string{"human"}}},
-			"run_to_bike_transition":  {SubType: "run_to_bike_transition", LabelDE: "Lauf→Rad", DetailDE: "Wechsel Lauf zu Rad", AutoTitleDE: "Wechselzone", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "transition", PropulsionModes: []string{"human"}}},
-			"swim_to_bike_transition": {SubType: "swim_to_bike_transition", LabelDE: "Schwimmen→Rad", DetailDE: "Wechsel Schwimmen zu Rad", AutoTitleDE: "Wechselzone", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "transition", PropulsionModes: []string{"human"}}},
+			"bike_to_run_transition":  {SubType: "bike_to_run_transition", LabelDE: "Rad→Lauf", DetailDE: "Wechsel Rad zu Lauf", AutoTitleDE: "Wechselzone", Selectable: false, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "transition", PropulsionModes: []string{"human"}}},
+			"run_to_bike_transition":  {SubType: "run_to_bike_transition", LabelDE: "Lauf→Rad", DetailDE: "Wechsel Lauf zu Rad", AutoTitleDE: "Wechselzone", Selectable: false, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "transition", PropulsionModes: []string{"human"}}},
+			"swim_to_bike_transition": {SubType: "swim_to_bike_transition", LabelDE: "Schwimmen→Rad", DetailDE: "Wechsel Schwimmen zu Rad", AutoTitleDE: "Wechselzone", Selectable: false, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "transition", PropulsionModes: []string{"human"}}},
 		},
 	},
 	{
