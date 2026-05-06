@@ -2,6 +2,7 @@ package lifts
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -70,6 +71,7 @@ type DetectorConfig struct {
 	BoundarySpeedDropEnabled bool
 	BoundarySpeedDropMs      float64 // 1.5  — walking pace floor
 	BoundarySpeedDropWindowS int     // 60   — flanking window each side
+	RoadClimbBoundaryGuard   bool    // cycling road-climb false-positive guard
 
 	// Confirm-gating: when true, recomputeLiftStats() in the API layer counts
 	// heuristic candidates regardless of confirmed-flag. Default false (current
@@ -81,15 +83,15 @@ type DetectorConfig struct {
 
 // DefaultDetectorConfig returns the calibrated defaults.
 //
-// Lift detection is sport-agnostic: a cable-car ride looks the same to the
-// stream regardless of whether the rider is skiing, biking, snowboarding,
-// or hiking up to the lift on foot. The MinSpeedMs floor is therefore
-// pinned to the slowest infrastructure class (T-bar / drag lift ≈ 0.7 m/s)
-// so the same algorithm covers chairlifts (0.85–4 m/s), gondolas (4–8 m/s),
-// and aerial tramways (up to 12 m/s). The `sport` parameter is accepted for
-// API symmetry but ignored — it does not influence detection.
+// Lift detection is mostly sport-agnostic: a cable-car ride looks the same to
+// the stream regardless of whether the rider is skiing, biking, snowboarding,
+// or hiking up to the lift on foot. The MinSpeedMs floor is therefore pinned
+// to the slowest infrastructure class (T-bar / drag lift ≈ 0.7 m/s) so the
+// same algorithm covers chairlifts (0.85–4 m/s), gondolas (4–8 m/s), and
+// aerial tramways (up to 12 m/s). Plain cycling enables an extra road-climb
+// boundary guard because steady paved climbs can otherwise mimic cable motion.
 func DefaultDetectorConfig(sport string) DetectorConfig {
-	_ = sport
+	roadClimbGuard := strings.EqualFold(sport, "cycling")
 	return DetectorConfig{
 		MinSpeedMs:               0.7,
 		MaxSpeedMs:               15.0,
@@ -112,6 +114,7 @@ func DefaultDetectorConfig(sport string) DetectorConfig {
 		BoundarySpeedDropEnabled: false,
 		BoundarySpeedDropMs:      1.5,
 		BoundarySpeedDropWindowS: 60,
+		RoadClimbBoundaryGuard:   roadClimbGuard,
 		AutoConfirmHeuristic:     false,
 	}
 }
