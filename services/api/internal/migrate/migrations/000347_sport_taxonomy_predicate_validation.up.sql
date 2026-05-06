@@ -1,5 +1,6 @@
 -- 000347_sport_taxonomy_predicate_validation.up.sql
--- Schema-only refresh of fn_validate_predicates() from generated sport taxonomy data.
+-- Refreshes fn_validate_predicates() from generated sport taxonomy data and
+-- repairs persisted tuples that became canonical top-level sport types.
 -- The migration runner wraps this file in one transaction; do not add concurrent index statements.
 
 SELECT pg_advisory_xact_lock(hashtext('sport_taxonomy_predicate_validation'), 1);
@@ -18,6 +19,7 @@ CREATE OR REPLACE FUNCTION fn_validate_predicates(p JSONB)
 RETURNS BOOLEAN
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public
 AS $$
 WITH allowed_sports(sport) AS (
     VALUES
@@ -66,6 +68,7 @@ CREATE OR REPLACE FUNCTION fn_validate_segment_predicates_for_type(seg_type TEXT
 RETURNS BOOLEAN
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public
 AS $$
 WITH allowed_segment_tuples(segment_type, sport, sub_type) AS (
     VALUES
@@ -100,6 +103,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_000347_canonical_tuple(in_sport TEXT, in_sub_type TEXT)
 RETURNS TABLE(sport_type TEXT, sub_type TEXT, is_indoor BOOLEAN)
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     raw_sport TEXT := btrim(COALESCE(in_sport, ''));
@@ -128,6 +132,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_000347_rewrite_predicates(predicates JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     pred JSONB;
@@ -241,13 +246,14 @@ UPDATE segment_efforts se
 SET sport_type = n.sport_type,
     sub_type = COALESCE(NULLIF(n.sub_type, ''), 'generic')
 FROM (
-    SELECT se.id, n.sport_type, n.sub_type
+    SELECT se.id, se.started_at, n.sport_type, n.sub_type
     FROM segment_efforts se
     CROSS JOIN LATERAL fp_000347_canonical_tuple(se.sport_type, COALESCE(se.sub_type, '')) n
     WHERE se.sport_type IS DISTINCT FROM n.sport_type
        OR COALESCE(se.sub_type, '') IS DISTINCT FROM n.sub_type
 ) n
-WHERE se.id = n.id;
+WHERE se.id = n.id
+  AND se.started_at = n.started_at;
 
 UPDATE routing_profiles
 SET predicates = fp_000347_rewrite_predicates(predicates)
@@ -260,6 +266,7 @@ WHERE allowed_predicates IS NOT NULL;
 CREATE OR REPLACE FUNCTION fp_000347_rewrite_sport_tuple_rows(rows JSONB, modifier_prefix TEXT)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     row_item JSONB;
@@ -302,6 +309,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_000347_rewrite_rule_conditions(conditions JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     condition_item JSONB;
@@ -327,6 +335,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_000347_rewrite_rule_condition_groups(groups JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     group_item JSONB;
@@ -350,6 +359,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_000347_rewrite_rule_actions(actions JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     action_item JSONB;
@@ -390,6 +400,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_000347_rewrite_rule_branches(branches JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     branch_item JSONB;

@@ -15,6 +15,7 @@ CREATE OR REPLACE FUNCTION fn_validate_predicates(p JSONB)
 RETURNS BOOLEAN
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public
 AS $$
 WITH allowed_sports(sport) AS (
     VALUES
@@ -103,6 +104,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_plan_t_down_predicates(predicates JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     pred JSONB;

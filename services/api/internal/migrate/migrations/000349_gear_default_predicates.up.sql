@@ -5,6 +5,7 @@ CREATE OR REPLACE FUNCTION fn_validate_gear_default_predicates(p JSONB)
 RETURNS BOOLEAN
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public
 AS $$
 WITH items AS (
   SELECT value AS predicate

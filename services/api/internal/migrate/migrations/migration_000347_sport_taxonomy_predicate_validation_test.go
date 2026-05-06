@@ -111,6 +111,7 @@ func TestMigration000347PredicateValidationDeclaresRequiredContracts(t *testing.
 	for _, needle := range []string{
 		"SELECT pg_advisory_xact_lock(hashtext('sport_taxonomy_predicate_validation'), 1)",
 		"CREATE OR REPLACE FUNCTION fn_validate_predicates",
+		"SET search_path = public",
 		"routing_profiles_predicates_valid",
 		"ALTER TABLE routing_profiles VALIDATE CONSTRAINT routing_profiles_predicates_valid",
 		"planned_routes_sport_tuple_valid",
@@ -127,6 +128,7 @@ func TestMigration000347PredicateValidationDeclaresRequiredContracts(t *testing.
 	for _, needle := range []string{
 		"Restore the fn_validate_predicates() body that existed before Plan E",
 		"CREATE OR REPLACE FUNCTION fn_validate_predicates",
+		"SET search_path = public",
 		"routing_profiles_predicates_valid",
 		"CHECK (jsonb_array_length(predicates) > 0 AND fn_validate_predicates(predicates));",
 		"segments_allowed_predicates_valid",
@@ -139,9 +141,19 @@ func TestMigration000347PredicateValidationDeclaresRequiredContracts(t *testing.
 	if strings.Contains(downSQL, "ALTER TABLE routing_profiles VALIDATE CONSTRAINT routing_profiles_predicates_valid") {
 		t.Fatal("down migration must restore 000346 routing_profiles constraint shape without a separate VALIDATE")
 	}
-	for _, forbidden := range []string{"CREATE INDEX CONCURRENTLY", " UPDATE ", " DELETE ", " INSERT INTO "} {
-		if strings.Contains(" "+strings.ToUpper(upSQL)+" ", forbidden) {
-			t.Fatalf("up migration must be schema-only, found %q", forbidden)
+	if strings.Contains(upSQL, "Schema-only") {
+		t.Fatal("up migration must not claim to be schema-only because it repairs persisted tuples")
+	}
+	if strings.Contains(upSQL, "CREATE INDEX CONCURRENTLY") {
+		t.Fatal("up migration must not use CREATE INDEX CONCURRENTLY")
+	}
+	for _, needle := range []string{
+		"SELECT se.id, se.started_at, n.sport_type",
+		"WHERE se.id = n.id",
+		"AND se.started_at = n.started_at",
+	} {
+		if !strings.Contains(upSQL, needle) {
+			t.Fatalf("segment_efforts update must use full hypertable key, missing %q", needle)
 		}
 	}
 }

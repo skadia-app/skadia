@@ -8,6 +8,7 @@ CREATE OR REPLACE FUNCTION skadia_heatmap_modifier_filter_matches(
 RETURNS BOOLEAN
 LANGUAGE sql
 STABLE
+SET search_path = public
 AS $$
     WITH filters AS (
         SELECT

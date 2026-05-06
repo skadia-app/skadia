@@ -36,6 +36,7 @@ func TestMigration000346PlanTDeclaresRequiredContracts(t *testing.T) {
 		"('training','pilates')",
 		"CREATE OR REPLACE FUNCTION fp_sport_taxonomy_normalize",
 		"CREATE OR REPLACE FUNCTION fn_validate_predicates",
+		"SET search_path = public",
 		"fp_plan_t_rewrite_predicates",
 		"fp_plan_t_rewrite_conditions",
 		"fp_plan_t_rewrite_actions",
@@ -54,6 +55,7 @@ func TestMigration000346PlanTDeclaresRequiredContracts(t *testing.T) {
 		"strength_training is not converted back to",
 		"wheelchair_push_walk",
 		"wheelchair_push_run",
+		"SET search_path = public",
 		"fp_plan_t_down_predicates",
 		"DROP FUNCTION IF EXISTS fp_sport_taxonomy_normalize(TEXT, TEXT)",
 	} {
@@ -72,6 +74,15 @@ func TestMigration000346PlanTDeclaresRequiredContracts(t *testing.T) {
 	}
 	if strings.Contains(upSQL, "CREATE INDEX CONCURRENTLY") {
 		t.Fatal("Plan T migration must not use CREATE INDEX CONCURRENTLY")
+	}
+	for _, needle := range []string{
+		"SELECT se.id, se.started_at, n.sport_type",
+		"WHERE se.id = n.id",
+		"AND se.started_at = n.started_at",
+	} {
+		if !strings.Contains(upSQL, needle) {
+			t.Fatalf("segment_efforts update must use full hypertable key, missing %q", needle)
+		}
 	}
 }
 

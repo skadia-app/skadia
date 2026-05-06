@@ -9,6 +9,7 @@ CREATE OR REPLACE FUNCTION fn_validate_predicates(p JSONB)
 RETURNS BOOLEAN
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public
 AS $$
 WITH allowed_sports(sport) AS (
     VALUES
@@ -108,6 +109,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_sport_taxonomy_normalize(in_sport TEXT, in_sub_type TEXT)
 RETURNS TABLE(sport_type TEXT, sub_type TEXT, is_indoor BOOLEAN, is_electric BOOLEAN)
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     raw_sport TEXT := btrim(COALESCE(in_sport, ''));
@@ -190,6 +192,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_plan_t_rewrite_predicates(predicates JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     pred JSONB;
@@ -221,6 +224,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_plan_t_modifier_filters_from_predicates(predicates JSONB, existing JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     pred JSONB;
@@ -248,6 +252,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_plan_t_predicates_from_sport_types(sports TEXT[])
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     raw_sport TEXT;
@@ -271,6 +276,7 @@ CREATE OR REPLACE FUNCTION fp_plan_t_sport_types_from_predicates(predicates JSON
 RETURNS TEXT[]
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public
 AS $$
     SELECT COALESCE(array_agg(DISTINCT pred->>'sport' ORDER BY pred->>'sport'), ARRAY[]::text[])
     FROM jsonb_array_elements(CASE WHEN jsonb_typeof(predicates) = 'array' THEN predicates ELSE '[]'::jsonb END) pred
@@ -280,6 +286,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_plan_t_rewrite_conditions(conditions JSONB, surface TEXT, reject_tuple_in_or BOOLEAN)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     cond JSONB;
@@ -362,6 +369,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_plan_t_rewrite_condition_groups(groups JSONB, surface TEXT)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     group_item JSONB;
@@ -387,6 +395,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_plan_t_rewrite_actions(actions JSONB, surface TEXT)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     action_item JSONB;
@@ -434,6 +443,7 @@ $$;
 CREATE OR REPLACE FUNCTION fp_plan_t_rewrite_branches(branches JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 DECLARE
     branch_item JSONB;
@@ -555,7 +565,7 @@ WHERE h.id = n.id
   );
 
 WITH normalized AS (
-    SELECT se.ctid AS row_id, n.sport_type, COALESCE(NULLIF(n.sub_type, ''), 'generic') AS sub_type
+    SELECT se.id, se.started_at, n.sport_type, COALESCE(NULLIF(n.sub_type, ''), 'generic') AS sub_type
     FROM segment_efforts se
     CROSS JOIN LATERAL fp_sport_taxonomy_normalize(se.sport_type, COALESCE(se.sub_type, '')) n
     WHERE se.sport_type IN (
@@ -570,7 +580,8 @@ UPDATE segment_efforts se
 SET sport_type = n.sport_type,
     sub_type = n.sub_type
 FROM normalized n
-WHERE se.ctid = n.row_id
+WHERE se.id = n.id
+  AND se.started_at = n.started_at
   AND (
     se.sport_type IS DISTINCT FROM n.sport_type
     OR COALESCE(se.sub_type, 'generic') IS DISTINCT FROM n.sub_type
@@ -668,6 +679,7 @@ CREATE OR REPLACE FUNCTION fn_validate_predicates(p JSONB)
 RETURNS BOOLEAN
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public
 AS $$
 WITH allowed_sports(sport) AS (
     VALUES

@@ -20,6 +20,7 @@ func TestMigration000350PatchesHeatmapModifierFilters(t *testing.T) {
 
 	for _, needle := range []string{
 		"CREATE OR REPLACE FUNCTION skadia_heatmap_modifier_filter_matches",
+		"SET search_path = public",
 		"query_params->>'is_electric'",
 		"query_params->>'is_commute'",
 		"activity_id UUID",

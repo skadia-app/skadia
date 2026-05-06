@@ -40,7 +40,7 @@ func RenderPredicateValidationSQL(taxonomy Taxonomy, segmentProjection ExpandedS
 	buf.WriteString("-- Validates persisted sport.Predicate arrays only: sport/sub_type keys, no rule modifiers.\n")
 	buf.WriteString("-- Empty arrays are valid here for explicit no-match segment predicates; table constraints add non-empty checks where needed.\n")
 	buf.WriteString("CREATE OR REPLACE FUNCTION fn_validate_predicates(p JSONB)\n")
-	buf.WriteString("RETURNS BOOLEAN\nLANGUAGE sql\nIMMUTABLE\nAS $$\n")
+	buf.WriteString("RETURNS BOOLEAN\nLANGUAGE sql\nIMMUTABLE\nSET search_path = public\nAS $$\n")
 	buf.WriteString("WITH allowed_sports(sport) AS (\n    VALUES\n")
 	writeSQLValueRows(&buf, renderSportRows(sports), 8)
 	buf.WriteString("\n),\nallowed_subtypes(sport, sub_type) AS (\n    VALUES\n")
@@ -84,7 +84,7 @@ SELECT
 $$;
 `)
 	buf.WriteString("CREATE OR REPLACE FUNCTION fn_validate_segment_predicates_for_type(seg_type TEXT, p JSONB)\n")
-	buf.WriteString("RETURNS BOOLEAN\nLANGUAGE sql\nIMMUTABLE\nAS $$\n")
+	buf.WriteString("RETURNS BOOLEAN\nLANGUAGE sql\nIMMUTABLE\nSET search_path = public\nAS $$\n")
 	buf.WriteString("WITH allowed_segment_tuples(segment_type, sport, sub_type) AS (\n    VALUES\n")
 	writeSQLValueRows(&buf, renderSegmentTupleRows(segmentTuples), 8)
 	buf.WriteString(`
