@@ -1,6 +1,8 @@
 package komoot
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -70,8 +72,17 @@ func TestNormalizedKomootSportMappingGolden(t *testing.T) {
 }
 
 func TestNormalizedKomootSportMappingUnknownStaysUnmapped(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
 	if got, ok := normalizedKomootSportMapping("definitely_unknown"); ok {
 		t.Fatalf("unknown Komoot sport mapped to %#v", got)
+	}
+	raw := logs.String()
+	if !strings.Contains(raw, "unmapped sport type") || !strings.Contains(raw, "komoot") {
+		t.Fatalf("warn log = %q, want unmapped komoot sport warning", raw)
 	}
 }
 

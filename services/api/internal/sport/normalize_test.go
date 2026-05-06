@@ -192,6 +192,38 @@ func TestNormalizeSportTupleStillRejectsUnknownSport(t *testing.T) {
 	}
 }
 
+func TestNormalizeSelectableSportTupleRejectsDisplayOnlyTuples(t *testing.T) {
+	tests := []struct {
+		name      string
+		sportType string
+		subType   string
+	}{
+		{name: "unknown sport", sportType: "unknown"},
+		{name: "training fallback", sportType: "training"},
+		{name: "transition subtype", sportType: "transition", subType: "swim_to_bike_transition"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, _, err := NormalizeSelectableSportTuple(tt.sportType, tt.subType); err == nil {
+				t.Fatalf("NormalizeSelectableSportTuple(%q, %q) accepted display-only tuple", tt.sportType, tt.subType)
+			}
+		})
+	}
+}
+
+func TestNormalizeSelectableSportTupleAcceptsSelectableCanonicalTuple(t *testing.T) {
+	tuple, patch, err := NormalizeSelectableSportTuple("mountain_biking", "")
+	if err != nil {
+		t.Fatalf("NormalizeSelectableSportTuple() error = %v", err)
+	}
+	if tuple != (Tuple{SportType: "cycling", SubType: "mountain"}) {
+		t.Fatalf("tuple = %#v, want cycling/mountain", tuple)
+	}
+	if patch.IsElectric != nil {
+		t.Fatalf("patch.IsElectric = %v, want nil for non-electric legacy mountain bike", *patch.IsElectric)
+	}
+}
+
 func TestNormalizeSportTupleAcceptsCaseInsensitiveCanonicalLegacyIDs(t *testing.T) {
 	gotTuple, gotPatch, err := NormalizeSportTuple(" Cycling ", " Generic ")
 	if err != nil {

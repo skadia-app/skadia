@@ -144,7 +144,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		activityName := colVal(row, hdr["Name der Aktivität"])
 		description := colVal(row, hdr["Aktivitätsbeschreibung"])
 		sportStr := colVal(row, hdr["Aktivitätsart"])
-		sportFields, err := normalizeStravaSportFields(sportStr)
+		sportFields, err := normalizeStravaSportFields(sportStr, "user_id", params.UserID, "strava_id", stravaID)
 		if err != nil {
 			slog.Warn("strava activities: cannot normalize sport type", "sport", sportStr, "error", err)
 			result.Skipped++
@@ -502,7 +502,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					FileName:    filepath.Base(filename), // L48: strip directory prefix
 					SizeBytes:   int64(len(fileBytes)),
 					FileHash:    hashStr,
-					Tags: shadowfs.ActivitySchemaTags(importer.ActivitySchemaTagsInputFromData(format, "strava", data)),
+					Tags:        shadowfs.ActivitySchemaTags(importer.ActivitySchemaTagsInputFromData(format, "strava", data)),
 				}, bytes.NewReader(fileBytes))
 				if putErr != nil {
 					slog.Warn("strava activities: ShadowFS.Put failed", "file", filename, "error", putErr)
@@ -802,13 +802,15 @@ type normalizedStravaSport struct {
 	IsVirtual  bool
 }
 
-func normalizeStravaSportFields(stravaSport string) (normalizedStravaSport, error) {
+func normalizeStravaSportFields(stravaSport string, logAttrs ...any) (normalizedStravaSport, error) {
 	resolved, err := sport.ResolveSport(sport.ResolveInput{Source: sport.SourceStrava, RawSport: stravaSport})
 	if err != nil {
 		return normalizedStravaSport{}, err
 	}
 	if !resolved.Resolved {
-		slog.Debug("strava: unmapped sport type", "strava_type", strings.TrimSpace(stravaSport))
+		attrs := []any{"source", "strava", "raw_sport", strings.TrimSpace(stravaSport)}
+		attrs = append(attrs, logAttrs...)
+		slog.Warn("strava: unmapped sport type", attrs...)
 		return normalizedStravaSport{SportType: "unknown"}, nil
 	}
 	modifiers := sport.ApplyModifierPatch(sport.ModifierValues{}, resolved.Patch)

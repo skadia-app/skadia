@@ -54,7 +54,7 @@ func (h *Handler) ResolveSportConflict(w http.ResponseWriter, r *http.Request) {
 			rawSportType = activity.SportType
 			rawSubType = derefSubType(activity.SubType)
 		}
-		tuple, patch, err := sport.NormalizeSportTuple(rawSportType, rawSubType)
+		tuple, patch, err := sport.NormalizeSelectableSportTuple(rawSportType, rawSubType)
 		if err != nil {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 			return

@@ -22,12 +22,15 @@ type sportResponse struct {
 	Label           string            `json:"label"`
 	TypicallyHasGPS bool              `json:"typically_has_gps"`
 	Color           string            `json:"color"`
+	Lifecycle       string            `json:"lifecycle"`
+	Selectable      bool              `json:"selectable"`
 	SubTypes        []subTypeResponse `json:"sub_types"`
 }
 
 type subTypeResponse struct {
-	SubType string `json:"sub_type"`
-	Label   string `json:"label"`
+	SubType    string `json:"sub_type"`
+	Label      string `json:"label"`
+	Selectable bool   `json:"selectable"`
 }
 
 func (h *Handler) GetSportsTaxonomy(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +46,8 @@ func (h *Handler) GetSportsTaxonomy(w http.ResponseWriter, r *http.Request) {
 				Label:           s.LabelDE,
 				TypicallyHasGPS: s.TypicallyHasGPS,
 				Color:           cat.Color,
+				Lifecycle:       s.Lifecycle,
+				Selectable:      s.Selectable,
 			}
 			sr.SubTypes = subTypeResponses(s)
 			cr.Sports = append(cr.Sports, sr)
@@ -61,8 +66,9 @@ func subTypeResponses(def sport.SportDef) []subTypeResponse {
 	out := make([]subTypeResponse, 0, len(subTypes))
 	for _, st := range subTypes {
 		out = append(out, subTypeResponse{
-			SubType: st.SubType,
-			Label:   st.LabelDE,
+			SubType:    st.SubType,
+			Label:      st.LabelDE,
+			Selectable: st.Selectable,
 		})
 	}
 	return out

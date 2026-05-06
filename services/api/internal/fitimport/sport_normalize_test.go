@@ -1,6 +1,9 @@
 package fitimport
 
 import (
+	"bytes"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,6 +80,28 @@ func TestNormalizeParsedActivitySportHandlesFITProfileV21201Sports(t *testing.T)
 				t.Fatalf("tuple = %s/%s, want %s/%s", data.SportType, data.SubType, tt.wantSport, tt.wantSub)
 			}
 		})
+	}
+}
+
+func TestNormalizeParsedActivitySportWarnsForUnmappedFITTuple(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	data := &model.ActivityData{
+		SportType: SportToString(typedef.SportWinterSport),
+		SubType:   SubSportToString(typedef.SubSportGeneric),
+	}
+	if err := normalizeParsedActivitySport(data); err != nil {
+		t.Fatalf("normalizeParsedActivitySport: %v", err)
+	}
+	if data.SportType != "unknown" {
+		t.Fatalf("SportType = %q, want unknown", data.SportType)
+	}
+	raw := logs.String()
+	if !strings.Contains(raw, "unmapped sport type") || !strings.Contains(raw, "fit") {
+		t.Fatalf("warn log = %q, want unmapped FIT sport warning", raw)
 	}
 }
 

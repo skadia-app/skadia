@@ -1,6 +1,9 @@
 package strava
 
 import (
+	"bytes"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -165,6 +168,25 @@ func TestNormalizeStravaSportFields(t *testing.T) {
 				t.Errorf("IsVirtual: got %v, want %v", got.IsVirtual, tt.wantVirtual)
 			}
 		})
+	}
+}
+
+func TestNormalizeStravaSportFieldsWarnsForUnmappedSport(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	got, err := normalizeStravaSportFields("Definitely Unknown Strava Label")
+	if err != nil {
+		t.Fatalf("normalizeStravaSportFields: %v", err)
+	}
+	if got.SportType != "unknown" {
+		t.Fatalf("SportType = %q, want unknown", got.SportType)
+	}
+	raw := logs.String()
+	if !strings.Contains(raw, "unmapped sport type") || !strings.Contains(raw, "strava") {
+		t.Fatalf("warn log = %q, want unmapped strava sport warning", raw)
 	}
 }
 

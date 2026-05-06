@@ -1381,7 +1381,7 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 		if update.SubType != nil {
 			rawSubType = *update.SubType
 		}
-		tuple, patch, err := sport.NormalizeSportTuple(rawSportType, rawSubType)
+		tuple, patch, err := sport.NormalizeSelectableSportTuple(rawSportType, rawSubType)
 		if err != nil {
 			return nil, err
 		}

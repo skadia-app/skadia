@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
@@ -142,7 +143,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		var conflictPlatformSnapshot komootSportConflictSnapshot
 		var conflictFileSnapshot komootSportConflictSnapshot
-		if mapping, ok := normalizedKomootSportMapping(tour.Sport); ok {
+		if mapping, ok := normalizedKomootSportMapping(tour.Sport, "user_id", p.UserID, "tour_id", tour.ID); ok {
 			platformSnapshot := komootSportConflictSnapshot{
 				Sport:      mapping.SportType,
 				SubType:    mapping.SubType,
@@ -238,8 +239,8 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 				FileName:    fmt.Sprintf("%d.%s", tour.ID, format),
 				SizeBytes:   int64(len(fileBytes)),
 				FileHash:    hashStr,
-					Tags: shadowfs.ActivitySchemaTags(importer.ActivitySchemaTagsInputFromData(format, "komoot", data)),
-				}, bytes.NewReader(fileBytes))
+				Tags:        shadowfs.ActivitySchemaTags(importer.ActivitySchemaTagsInputFromData(format, "komoot", data)),
+			}, bytes.NewReader(fileBytes))
 			if putErr != nil {
 				slog.Warn("komoot activities: ShadowFS.Put failed", "tour_id", tour.ID, "error", putErr)
 			} else {
@@ -276,7 +277,7 @@ func tourToActivityData(tour Tour) *model.ActivityData {
 		Source:    "Komoot",
 		StartedAt: tour.Date,
 	}
-	if mapping, ok := normalizedKomootSportMapping(tour.Sport); ok {
+	if mapping, ok := normalizedKomootSportMapping(tour.Sport, "tour_id", tour.ID); ok {
 		data.SportType = mapping.SportType
 		data.SubType = mapping.SubType
 		data.IsElectric = mapping.IsElectric
@@ -301,9 +302,12 @@ func tourToActivityData(tour Tour) *model.ActivityData {
 	return data
 }
 
-func normalizedKomootSportMapping(komootSport string) (SportMapping, bool) {
+func normalizedKomootSportMapping(komootSport string, logAttrs ...any) (SportMapping, bool) {
 	resolved, err := sport.ResolveSport(sport.ResolveInput{Source: sport.SourceKomoot, RawSport: komootSport})
 	if err != nil || !resolved.Resolved {
+		attrs := []any{"source", "komoot", "raw_sport", strings.TrimSpace(komootSport)}
+		attrs = append(attrs, logAttrs...)
+		slog.Warn("komoot: unmapped sport type", attrs...)
 		return SportMapping{}, false
 	}
 	modifiers := sport.ApplyModifierPatch(sport.ModifierValues{}, resolved.Patch)

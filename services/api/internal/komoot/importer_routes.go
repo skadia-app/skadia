@@ -77,7 +77,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 			continue
 		}
 
-		sportType, subType, isElectric := komootRouteSportTuple(tour.Sport)
+		sportType, subType, isElectric := komootRouteSportTuple(tour.Sport, "user_id", p.UserID, "tour_id", tour.ID)
 		var subTypePtr *string
 		if subType != "" {
 			subTypePtr = &subType

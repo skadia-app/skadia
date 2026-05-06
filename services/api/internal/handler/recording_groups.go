@@ -215,7 +215,7 @@ func (h *Handler) SetRecordingGroupSportType(w http.ResponseWriter, r *http.Requ
 		if body.SubType != nil {
 			rawSubType = *body.SubType
 		}
-		normalized, patch, err := sport.NormalizeSportTuple(body.SportType, rawSubType)
+		normalized, patch, err := sport.NormalizeSelectableSportTuple(body.SportType, rawSubType)
 		if err != nil {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 			return

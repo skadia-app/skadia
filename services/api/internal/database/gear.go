@@ -1803,13 +1803,21 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET visibility = $1 WHERE id = $2`, value, activityID)
 		return err
 	case "sport_type":
+		rawSportType, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("sport_type value must be a string")
+		}
+		tuple, _, err := sport.NormalizeSelectableSportTuple(rawSportType, "")
+		if err != nil {
+			return err
+		}
 		// Guard: don't override manually set sport types
 		var isManual bool
 		_ = db.Pool.QueryRow(ctx, `SELECT sport_type_is_manual FROM activities WHERE id = $1`, activityID).Scan(&isManual)
 		if isManual {
 			return nil // skip — user corrected this manually
 		}
-		_, err := db.Pool.Exec(ctx, `UPDATE activities SET sport_type = $1 WHERE id = $2`, value, activityID)
+		_, err = db.Pool.Exec(ctx, `UPDATE activities SET sport_type = $1, sub_type = NULL WHERE id = $2`, tuple.SportType, activityID)
 		return err
 	case "sub_type":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET sub_type = $1 WHERE id = $2`, value, activityID)
@@ -1824,9 +1832,13 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		if isManual {
 			return nil
 		}
-		_, err := db.Pool.Exec(ctx,
+		normalized, _, err := sport.NormalizeSelectableSportTuple(tuple.SportType, tuple.SubType)
+		if err != nil {
+			return err
+		}
+		_, err = db.Pool.Exec(ctx,
 			`UPDATE activities SET sport_type = $1, sub_type = NULLIF($2, '') WHERE id = $3`,
-			tuple.SportType, tuple.SubType, activityID)
+			normalized.SportType, normalized.SubType, activityID)
 		return err
 	case "intensity":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET intensity = $1 WHERE id = $2`, value, activityID)
