@@ -596,4 +596,13 @@ func TestSinuosityTailPeelAcceptsLeadingSubWindow(t *testing.T) {
 	if !validateRide(leading, "high", cfg) {
 		t.Fatal("leading sub-window should validate after a tail-peel retry")
 	}
+
+	rides := DetectHeuristic(b.rows, cfg)
+	if len(rides) != 1 {
+		t.Fatalf("DetectHeuristic returned %d rides, want 1", len(rides))
+	}
+	if rides[0].EndedAt.After(b.rows[validEnd].Time.Add(30 * time.Second)) {
+		t.Fatalf("tail-peel retry left too much invalid tail: ended at %s, leading end %s",
+			rides[0].EndedAt, b.rows[validEnd].Time)
+	}
 }
