@@ -3,10 +3,12 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 
+	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/dbutil"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
@@ -14,6 +16,24 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/rules"
 )
+
+// Phase 4b.A.2.1b — invariant gate against the commute_auto system_type.
+// If a future refactor accidentally removes "commute_auto" from
+// automation.OnDemandSystemTypes, the gate must abort BEFORE any INSERT
+// is attempted. Otherwise we'd produce a row with system_type='commute_auto'
+// that no sweep manages and no validation accepts.
+//
+// commuteSystemTypeValidator is a package variable so tests can swap it.
+var commuteSystemTypeValidator = automation.IsValidSystemType
+
+var errCommuteAutoNotInWhitelist = errors.New("commute_auto missing from automation.SystemRules / OnDemandSystemTypes — invariant breach")
+
+func validateCommuteAutoSystemType() error {
+	if !commuteSystemTypeValidator(commuteAutoSystemType) {
+		return errCommuteAutoNotInWhitelist
+	}
+	return nil
+}
 
 const (
 	commuteAutoSystemType = "commute_auto"
@@ -330,6 +350,9 @@ func makeCommuteBranches(branchType string, startLat, startLon, endLat, endLon, 
 
 // createCommuteRule inserts a new commute_auto system rule and returns its ID.
 func createCommuteRule(ctx context.Context, db *database.DB, userID string, startLat, startLon, endLat, endLon, radiusM float64, tagID string) (string, error) {
+	if err := validateCommuteAutoSystemType(); err != nil {
+		return "", err
+	}
 	branches := makeCommuteBranches("if", startLat, startLon, endLat, endLon, radiusM, tagID)
 	if err := validateCommuteRuleBranches(branches); err != nil {
 		return "", err
@@ -382,6 +405,9 @@ func extendCommuteRuleRaw(ctx context.Context, db *database.DB, rule *model.Auto
 
 // createCommuteRuleRaw inserts a new commute_auto system rule with pre-built branches JSON.
 func createCommuteRuleRaw(ctx context.Context, db *database.DB, userID string, branches json.RawMessage) (string, error) {
+	if err := validateCommuteAutoSystemType(); err != nil {
+		return "", err
+	}
 	if err := validateCommuteRuleBranches(branches); err != nil {
 		return "", err
 	}
