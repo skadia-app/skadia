@@ -137,7 +137,7 @@ func TestSegmentPredicatesForCreateDerivesSpecializedTypeDefaults(t *testing.T) 
 	}
 }
 
-func TestSegmentPredicatesForUpdateDerivesSpecializedTypeDefaultsForNullAndOmitted(t *testing.T) {
+func TestSegmentPredicatesForUpdateDerivesSpecializedTypeDefaultsForNullOnly(t *testing.T) {
 	nullRaw := json.RawMessage("null")
 	preds, shouldSet, err := segmentPredicatesForUpdate("wassersport", nullRaw)
 	if err != nil {
@@ -157,8 +157,8 @@ func TestSegmentPredicatesForUpdateDerivesSpecializedTypeDefaultsForNullAndOmitt
 	if err != nil {
 		t.Fatalf("segmentPredicatesForUpdate(omitted): %v", err)
 	}
-	if !shouldSet || len(preds) == 0 {
-		t.Fatalf("omitted wintersport predicates = %#v, shouldSet=%v; want derived defaults", preds, shouldSet)
+	if shouldSet || preds != nil {
+		t.Fatalf("omitted wintersport predicates = %#v, shouldSet=%v; want no update", preds, shouldSet)
 	}
 }
 

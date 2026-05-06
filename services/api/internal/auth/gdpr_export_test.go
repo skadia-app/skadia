@@ -74,6 +74,7 @@ func TestBuildExportQuery_NoSpecialCols(t *testing.T) {
 		{Name: "id", UDTName: "uuid"},
 		{Name: "name", UDTName: "text"},
 		{Name: "color", UDTName: "text"},
+		{Name: "default_sport_predicates", UDTName: "jsonb"},
 	}
 
 	query, activeCols := buildExportQuery(cols, "gear", "user_id = $1")
@@ -81,11 +82,14 @@ func TestBuildExportQuery_NoSpecialCols(t *testing.T) {
 	if strings.Contains(query, "ST_AsGeoJSON") {
 		t.Errorf("expected plain SELECT without ST_AsGeoJSON, got: %s", query)
 	}
-	if !strings.HasPrefix(query, `SELECT "id", "name", "color" FROM "gear"`) {
+	if !strings.HasPrefix(query, `SELECT "id", "name", "color", "default_sport_predicates" FROM "gear"`) {
 		t.Errorf("expected plain SELECT with all cols, got: %s", query)
 	}
-	if len(activeCols) != 3 {
-		t.Errorf("expected 3 active cols, got %d", len(activeCols))
+	if len(activeCols) != 4 {
+		t.Errorf("expected 4 active cols, got %d", len(activeCols))
+	}
+	if activeCols[3].Name != "default_sport_predicates" {
+		t.Errorf("expected default_sport_predicates to remain exported, got active cols: %#v", activeCols)
 	}
 }
 
@@ -141,7 +145,7 @@ func TestIsDenied(t *testing.T) {
 		want   bool
 	}{
 		{"users", "password_hash", true},
-		{"users", "totp_secret", false},   // not in schema yet, not in deny-list
+		{"users", "totp_secret", false},    // not in schema yet, not in deny-list
 		{"users", "recovery_codes", false}, // not in schema yet, not in deny-list
 		{"users", "username", false},
 		{"oauth_connections", "access_token", true},

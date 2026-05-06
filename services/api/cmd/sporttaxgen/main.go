@@ -196,40 +196,25 @@ func run() error {
 	}
 
 	if *check {
-		if err := checkFile(*goOut, renderedGo); err != nil {
-			return err
-		}
-		if err := checkFile(*tsOut, renderedTS); err != nil {
-			return err
-		}
-		if err := checkFile(*goProjectionsOut, renderedGoProjections); err != nil {
-			return err
-		}
-		if err := checkFile(*tsProjectionsOut, renderedTSProjections); err != nil {
-			return err
-		}
-		if err := checkFile(*tsSegmentProjectionsOut, renderedTSSegmentProjections); err != nil {
-			return err
-		}
-		if err := checkFile(*tsRuleProjectionsOut, renderedTSRuleProjections); err != nil {
-			return err
-		}
-		if err := checkFile(*goRecordsProjectionOut, renderedGoRecordsProjection); err != nil {
-			return err
-		}
-		if err := checkFile(*tsRecordsProjectionOut, renderedTSRecordsProjection); err != nil {
-			return err
+		outputs := []generatedOutput{
+			{path: *goOut, want: renderedGo},
+			{path: *tsOut, want: renderedTS},
+			{path: *goProjectionsOut, want: renderedGoProjections},
+			{path: *tsProjectionsOut, want: renderedTSProjections},
+			{path: *tsSegmentProjectionsOut, want: renderedTSSegmentProjections},
+			{path: *tsRuleProjectionsOut, want: renderedTSRuleProjections},
+			{path: *goRecordsProjectionOut, want: renderedGoRecordsProjection},
+			{path: *tsRecordsProjectionOut, want: renderedTSRecordsProjection},
 		}
 		if !aliasesExist {
 			return fmt.Errorf("source alias directory %s does not exist; generated alias artifacts cannot be checked", *aliasSourceDir)
 		}
-		if err := checkFile(*goAliasesOut, renderedGoAliases); err != nil {
-			return err
-		}
-		if err := checkFile(*tsGearDefaultsOut, renderedTSGearDefaults); err != nil {
-			return err
-		}
-		if err := checkFile(*predicateValidationSQLOut, renderedPredicateValidationSQL); err != nil {
+		outputs = append(outputs,
+			generatedOutput{path: *goAliasesOut, want: renderedGoAliases},
+			generatedOutput{path: *tsGearDefaultsOut, want: renderedTSGearDefaults},
+			generatedOutput{path: *predicateValidationSQLOut, want: renderedPredicateValidationSQL},
+		)
+		if err := checkGeneratedFiles(outputs); err != nil {
 			return err
 		}
 		return nil
@@ -343,7 +328,70 @@ func checkFile(path string, want []byte) error {
 		return fmt.Errorf("read generated file %s: %w", path, err)
 	}
 	if !bytes.Equal(got, want) {
-		return fmt.Errorf("%s is stale; run scripts/generate-sport-taxonomy.sh", path)
+		return fmt.Errorf("%s is stale; run scripts/generate-sport-taxonomy.sh\n%s", path, unifiedGeneratedDiff(path, got, want))
 	}
 	return nil
+}
+
+type generatedOutput struct {
+	path string
+	want []byte
+}
+
+func checkGeneratedFiles(outputs []generatedOutput) error {
+	var failures []string
+	for _, output := range outputs {
+		if err := checkFile(output.path, output.want); err != nil {
+			failures = append(failures, err.Error())
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("generated files are stale:\n\n%s", strings.Join(failures, "\n\n"))
+	}
+	return nil
+}
+
+func unifiedGeneratedDiff(path string, got, want []byte) string {
+	gotLines := diffLines(got)
+	wantLines := diffLines(want)
+
+	prefix := 0
+	for prefix < len(gotLines) && prefix < len(wantLines) && gotLines[prefix] == wantLines[prefix] {
+		prefix++
+	}
+	suffix := 0
+	for suffix < len(gotLines)-prefix &&
+		suffix < len(wantLines)-prefix &&
+		gotLines[len(gotLines)-1-suffix] == wantLines[len(wantLines)-1-suffix] {
+		suffix++
+	}
+
+	gotChangeEnd := len(gotLines) - suffix
+	wantChangeEnd := len(wantLines) - suffix
+	contextStart := max(0, prefix-3)
+	contextEnd := min(len(wantLines), wantChangeEnd+3)
+
+	var diff strings.Builder
+	fmt.Fprintf(&diff, "--- %s\n+++ expected\n@@\n", path)
+	for _, line := range gotLines[contextStart:prefix] {
+		fmt.Fprintf(&diff, " %s\n", line)
+	}
+	for _, line := range gotLines[prefix:gotChangeEnd] {
+		fmt.Fprintf(&diff, "-%s\n", line)
+	}
+	for _, line := range wantLines[prefix:wantChangeEnd] {
+		fmt.Fprintf(&diff, "+%s\n", line)
+	}
+	for _, line := range wantLines[wantChangeEnd:contextEnd] {
+		fmt.Fprintf(&diff, " %s\n", line)
+	}
+	return strings.TrimRight(diff.String(), "\n")
+}
+
+func diffLines(data []byte) []string {
+	text := strings.TrimSuffix(string(data), "\n")
+	if text == "" {
+		return nil
+	}
+	return strings.Split(text, "\n")
 }

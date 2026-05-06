@@ -221,15 +221,30 @@ const rankingOrderExpr = `
 	CASE WHEN be.elapsed_time_s IS NOT NULL THEN be.elapsed_time_s END ASC NULLS LAST,
 	CASE WHEN be.value_numeric  IS NOT NULL THEN be.value_numeric  END DESC NULLS LAST`
 
+const sharedBestEffortActivityEligibilitySQL = `
+		      AND NOT COALESCE(%s.exclude_from_stats, false)
+		      AND NOT COALESCE(%s.is_group_secondary, false)
+		      AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = %s.id)
+		      AND (%s.num_sessions IS NULL OR %s.num_sessions <= 1)`
+
+func bestEffortActivityEligibilitySQL(activityAlias string) string {
+	return fmt.Sprintf(
+		sharedBestEffortActivityEligibilitySQL,
+		activityAlias,
+		activityAlias,
+		activityAlias,
+		activityAlias,
+		activityAlias,
+	)
+}
+
 // GetBestEffortsForActivity returns all best effort records for an activity,
 // each annotated with the user's rank (top-3 only) among eligible activities.
 //
 // Eligibility guards applied to ranked activities:
 //
 //	(activities use hard delete — ON DELETE CASCADE handles cleanup)
-//	- NOT COALESCE(a.exclude_from_stats, false)
-//	- NOT COALESCE(a.is_group_secondary, false)
-//	- activity is not a fusion source and has at most one session
+//	- sharedBestEffortActivityEligibilitySQL
 //	- No active best_effort_exclusions for (user, activity, category OR '__all__')
 //
 // Only ranks 1–3 are returned; records outside the top-3 receive rank > 3.
@@ -255,11 +270,7 @@ func (db *DB) GetBestEffortsForActivity(ctx context.Context, activityID, userID 
 		    FROM best_efforts be
 		    JOIN activities a ON a.id = be.activity_id
 		    WHERE be.user_id = $2
-
-		      AND NOT COALESCE(a.exclude_from_stats, false)
-		      AND NOT COALESCE(a.is_group_secondary, false)
-		      AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
-		      AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
+`+bestEffortActivityEligibilitySQL("a")+`
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions exc
 		          WHERE exc.user_id    = be.user_id
@@ -320,11 +331,7 @@ func (db *DB) GetBestEffortPersonalRecords(
 		      AND ($2::text = '' OR be.sport_group = $2)
 		      AND ($4::timestamptz IS NULL OR be.achieved_at >= $4)
 		      AND ($5::timestamptz IS NULL OR be.achieved_at <  $5)
-
-		      AND NOT COALESCE(a.exclude_from_stats, false)
-		      AND NOT COALESCE(a.is_group_secondary, false)
-		      AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
-		      AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
+`+bestEffortActivityEligibilitySQL("a")+`
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions exc
 		          WHERE exc.user_id     = be.user_id
@@ -425,10 +432,7 @@ func (db *DB) GetBestEffortRecalcIDs(ctx context.Context, userID string) ([]stri
 	rows, err := db.Pool.Query(ctx,
 		`SELECT id FROM activities
 		 WHERE user_id = $1
-		   AND NOT COALESCE(exclude_from_stats, false)
-		   AND NOT COALESCE(is_group_secondary, false)
-		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = activities.id)
-		   AND (num_sessions IS NULL OR num_sessions <= 1)
+`+bestEffortActivityEligibilitySQL("activities")+`
 		 ORDER BY started_at ASC`,
 		userID,
 	)
@@ -477,10 +481,7 @@ func (db *DB) GetBestEffortRecalcActivities(ctx context.Context, userID string) 
 		     WHERE activity_id = a.id
 		 ) cl ON true
 		 WHERE a.user_id = $1
-		   AND NOT COALESCE(a.exclude_from_stats, false)
-		   AND NOT COALESCE(a.is_group_secondary, false)
-		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
-		   AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
+`+bestEffortActivityEligibilitySQL("a")+`
 		 ORDER BY a.started_at ASC`,
 		userID,
 	)
@@ -540,10 +541,7 @@ func (db *DB) GetBestEffortActivityInfo(ctx context.Context, activityID string) 
 		     WHERE activity_id = a.id
 		 ) cl ON true
 		 WHERE a.id = $1
-		   AND NOT COALESCE(a.exclude_from_stats, false)
-		   AND NOT COALESCE(a.is_group_secondary, false)
-		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
-		   AND (a.num_sessions IS NULL OR a.num_sessions <= 1)`,
+`+bestEffortActivityEligibilitySQL("a")+``,
 		activityID,
 	)
 	var info bestefforts.ActivityInfo
@@ -678,11 +676,7 @@ func (db *DB) GetNearMisses(ctx context.Context, activityID, userID string) ([]N
 		    JOIN activities a ON a.id = be.activity_id
 		    WHERE be.user_id = $2
 		      AND be.activity_id <> $1
-
-		      AND NOT COALESCE(a.exclude_from_stats, false)
-		      AND NOT COALESCE(a.is_group_secondary, false)
-		      AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
-		      AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
+`+bestEffortActivityEligibilitySQL("a")+`
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions exc
 		          WHERE exc.user_id     = be.user_id
@@ -705,10 +699,7 @@ func (db *DB) GetNearMisses(ctx context.Context, activityID, userID string) ([]N
 		    JOIN activities a ON a.id = be.activity_id
 		    WHERE be.activity_id = $1
 		      AND be.user_id     = $2
-		      AND NOT COALESCE(a.exclude_from_stats, false)
-		      AND NOT COALESCE(a.is_group_secondary, false)
-		      AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
-		      AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
+`+bestEffortActivityEligibilitySQL("a")+`
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions exc
 		          WHERE exc.user_id     = be.user_id
@@ -823,10 +814,7 @@ func (db *DB) GetEffortPercentiles(ctx context.Context, activityID, userID strin
 		    JOIN activities a ON a.id = be.activity_id
 		    WHERE be.user_id = $1
 		      AND (be.elapsed_time_s IS NOT NULL OR be.value_numeric IS NOT NULL)
-		      AND NOT COALESCE(a.exclude_from_stats, false)
-		      AND NOT COALESCE(a.is_group_secondary, false)
-		      AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
-		      AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
+`+bestEffortActivityEligibilitySQL("a")+`
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions ex
 		          WHERE ex.user_id     = be.user_id
@@ -899,9 +887,7 @@ type PRHistoryEntry struct {
 // computed via a window function over the full eligible pool.
 //
 // Eligibility guards match GetBestEffortsForActivity:
-//   - NOT COALESCE(a.exclude_from_stats, false)
-//   - NOT COALESCE(a.is_group_secondary, false)
-//   - activity is not a fusion source and has at most one session
+//   - sharedBestEffortActivityEligibilitySQL
 //   - No active best_effort_exclusions for (user, activity, category OR '__all__')
 func (db *DB) GetPRHistory(ctx context.Context, userID, category, sportGroup string) ([]PRHistoryEntry, error) {
 	rows, err := db.Pool.Query(ctx,
@@ -919,10 +905,7 @@ func (db *DB) GetPRHistory(ctx context.Context, userID, category, sportGroup str
 		 WHERE be.user_id    = $1
 		   AND be.category   = $2
 		   AND be.sport_group = $3
-		   AND NOT COALESCE(a.exclude_from_stats, false)
-		   AND NOT COALESCE(a.is_group_secondary, false)
-		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
-		   AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
+`+bestEffortActivityEligibilitySQL("a")+`
 		   AND NOT EXISTS (
 		       SELECT 1 FROM best_effort_exclusions exc
 		       WHERE exc.user_id     = be.user_id

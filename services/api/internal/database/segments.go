@@ -144,10 +144,6 @@ func segmentPredicatesForCreate(segmentType string, requested []sport.Predicate)
 
 func segmentPredicatesForUpdate(segmentType string, raw json.RawMessage) ([]sport.Predicate, bool, error) {
 	if len(raw) == 0 {
-		if segmentTypeUsesDerivedDefaultPredicates(segmentType) {
-			preds, err := defaultSegmentPredicatesForType(segmentType)
-			return preds, true, err
-		}
 		return nil, false, nil
 	}
 	if string(raw) == "null" {
