@@ -83,6 +83,25 @@ describe('GearForm', () => {
     expect(onSave.mock.calls[0][0].default_for_sports).toEqual([])
     expect(onSave.mock.calls[0][0].default_sport_predicates).toEqual([])
   })
+
+  it('preserves the complete stored subtype when a legacy predicate key contains a colon', () => {
+    const onSave = vi.fn()
+    render(
+      <GearForm
+        gear={gearFixture({
+          default_sport_predicates: [{ sport_type: 'cycling', sub_type: 'legacy:subtype' }],
+        })}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    expect(onSave.mock.calls[0][0].default_sport_predicates).toEqual([
+      { sport_type: 'cycling', sub_type: 'legacy:subtype' },
+    ])
+  })
 })
 
 function gearFixture(overrides: Partial<Gear> = {}): Gear {

@@ -171,6 +171,21 @@ func GetSportDef(sportType string) (SportDef, bool) {
 	return d, ok
 }
 
+// IsSelectableTuple reports whether a canonical sport tuple is available for
+// new user-authored activity choices.
+func IsSelectableTuple(sportType, subType string) bool {
+	d, ok := registry[CanonicalSportTypeID(sportType)]
+	if !ok {
+		return false
+	}
+	subType = CanonicalSubTypeID(subType)
+	if subType == "" {
+		return d.Selectable
+	}
+	st, ok := d.SubTypes[subType]
+	return ok && st.Selectable
+}
+
 // SportLabel returns the compact German display label for a sport tuple.
 func SportLabel(sportType, subType string) string {
 	d, ok := registry[sportType]

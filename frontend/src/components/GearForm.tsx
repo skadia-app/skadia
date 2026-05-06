@@ -365,7 +365,10 @@ function sportTupleKey(sportType: string, subType?: string | null): string {
 }
 
 function splitSportTupleKey(key: string): { sportType: string; subType?: string } {
-  const [sportType, subType] = key.split(':', 2)
+  const separator = key.indexOf(':')
+  if (separator < 0) return { sportType: key }
+  const sportType = key.slice(0, separator)
+  const subType = key.slice(separator + 1)
   return subType ? { sportType, subType } : { sportType }
 }
 

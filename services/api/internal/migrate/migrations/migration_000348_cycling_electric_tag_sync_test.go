@@ -175,6 +175,7 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	assertActivityTagArrayHas000348(t, ctx, tx, missingTagCyclingID, "E-Bike", true)
 	assertActivityTagLinkCount000348(t, ctx, tx, missingTagCyclingID, 1)
 	assertSystemEBikeTagCount000348(t, ctx, tx, customExistingUserID, 1)
+	assertSystemEBikeTagStyle000348(t, ctx, tx, customExistingUserID, "#111111", "#FFFFFF", "custom")
 	assertHasSystemEBikeLink000348(t, ctx, tx, customExistingCyclingID, true)
 	assertActivityTagArrayHas000348(t, ctx, tx, customExistingCyclingID, "E-Bike", true)
 
@@ -258,6 +259,26 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	assertSystemEBikeTagCount000348(t, ctx, tx, missingTagUserID, 1)
 	assertActivityTagLinkCount000348(t, ctx, tx, missingTagCyclingID, 1)
 
+	cascadeUserID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
+		VALUES ($1, $2, $3, true, 'test', false)
+	`, cascadeUserID, "mig348_cascade_"+cascadeUserID[:8], "mig348_cascade_"+cascadeUserID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert cascade user: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+		VALUES
+			($1, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false, 'test'),
+			($1, 'Indoor', '#3B82F6', '#FFFFFF', 'system', true, false, 'test')
+		ON CONFLICT (user_id, name) DO UPDATE SET is_system = true
+	`, cascadeUserID); err != nil {
+		t.Fatalf("insert cascade system tags: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, cascadeUserID); err != nil {
+		t.Fatalf("delete user with system tags should cascade: %v", err)
+	}
+
 	if _, err := tx.Exec(ctx, downSQL); err != nil {
 		t.Fatalf("apply down.sql: %v", err)
 	}
@@ -306,6 +327,23 @@ func assertSystemEBikeTagCount000348(t *testing.T, ctx context.Context, q interf
 	}
 	if got != want {
 		t.Fatalf("system E-Bike tag count for user %s = %d, want %d", userID, got, want)
+	}
+}
+
+func assertSystemEBikeTagStyle000348(t *testing.T, ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, userID string, wantColor string, wantTextColor string, wantDescription string) {
+	t.Helper()
+	var gotColor, gotTextColor, gotDescription string
+	if err := q.QueryRow(ctx, `
+		SELECT color, text_color, description
+		FROM tags
+		WHERE user_id = $1 AND name = 'E-Bike' AND is_system = true
+	`, userID).Scan(&gotColor, &gotTextColor, &gotDescription); err != nil {
+		t.Fatalf("query system E-Bike style: %v", err)
+	}
+	if gotColor != wantColor || gotTextColor != wantTextColor || gotDescription != wantDescription {
+		t.Fatalf("system E-Bike style = %q/%q/%q, want %q/%q/%q", gotColor, gotTextColor, gotDescription, wantColor, wantTextColor, wantDescription)
 	}
 }
 

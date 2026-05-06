@@ -303,21 +303,8 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				FileName:    safeFileName,
 				SizeBytes:   int64(len(fileBytes)),
 				FileHash:    hashStr,
-				Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
-					Format:         format,
-					Source:         "garmin",
-					StartedAt:      data.StartedAt,
-					SportType:      data.SportType,
-					SubType:        data.SubType,
-					Title:          data.Title,
-					DistanceM:      data.DistanceM,
-					ElapsedTimeS:   data.ElapsedTimeS,
-					ElevationGainM: data.ElevationGainM,
-					IsElectric:     data.IsElectric,
-					IsIndoor:       data.IsIndoor,
-					IsVirtual:      data.IsVirtual,
-				}),
-			}, bytes.NewReader(fileBytes))
+					Tags: shadowfs.ActivitySchemaTags(importer.ActivitySchemaTagsInputFromData(format, "garmin", data)),
+				}, bytes.NewReader(fileBytes))
 			if putErr != nil {
 				slog.Warn("garmin activities: ShadowFS.Put failed", "file", ref.fileName, "error", putErr)
 			} else {

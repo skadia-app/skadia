@@ -100,17 +100,21 @@ func TestMigration000346PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
 
 	activityWalk := uuid.NewString()
 	activityRun := uuid.NewString()
+	parsedIndoorOnly := uuid.NewString()
+	parsedElectricOnly := uuid.NewString()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO activities (id, user_id, title, sport_type, sub_type, parsed_sport_type, parsed_sub_type, is_indoor, started_at)
 		VALUES
 			($1, $3, 'wheel walk', 'wheelchair_push_walk', '', NULL, NULL, false, now()),
 			($2, $3, 'wheel run', 'wheelchair_push_run', 'indoor_wheelchair_run', 'wheelchair_push_run', 'indoor_wheelchair_run', false, now()),
+			($4, $3, 'parsed treadmill only', 'running', 'street', 'treadmill_running', '', false, now()),
+			($5, $3, 'parsed ebike only', 'cycling', 'road', 'e_bike', '', false, now()),
 			(gen_random_uuid(), $3, 'strength legacy', 'strength', NULL, NULL, NULL, false, now()),
 			(gen_random_uuid(), $3, 'generic legacy subtype', 'running', 'generic', 'running', 'generic', false, now()),
 			(gen_random_uuid(), $3, 'hiking legacy subtype', 'hiking', 'trail', 'hiking', 'trail', false, now()),
 			(gen_random_uuid(), $3, 'cycling legacy subtype', 'cycling', 'commuting', NULL, NULL, false, now()),
 			(gen_random_uuid(), $3, 'diving legacy subtype', 'diving', 'subsportinvalid(63)', NULL, NULL, false, now())
-	`, activityWalk, activityRun, userID); err != nil {
+	`, activityWalk, activityRun, userID, parsedIndoorOnly, parsedElectricOnly); err != nil {
 		t.Fatalf("insert activities: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -194,6 +198,26 @@ func TestMigration000346PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
 	}
 	if sportType != "wheelchair_push" || subType != "run_speed" || !isIndoor {
 		t.Fatalf("run activity tuple = (%s,%s), indoor=%v", sportType, subType, isIndoor)
+	}
+	var parsedSport, parsedSubType string
+	var parsedOnlyIndoor, parsedOnlyElectric bool
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(parsed_sport_type, ''), COALESCE(parsed_sub_type, ''), is_indoor, is_electric
+		FROM activities WHERE id = $1
+	`, parsedIndoorOnly).Scan(&parsedSport, &parsedSubType, &parsedOnlyIndoor, &parsedOnlyElectric); err != nil {
+		t.Fatalf("query parsed indoor-only activity: %v", err)
+	}
+	if parsedSport != "running" || parsedSubType != "treadmill" || parsedOnlyIndoor || parsedOnlyElectric {
+		t.Fatalf("parsed-only treadmill rewrite = (%s,%s), indoor=%v electric=%v; want parsed tuple only", parsedSport, parsedSubType, parsedOnlyIndoor, parsedOnlyElectric)
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(parsed_sport_type, ''), COALESCE(parsed_sub_type, ''), is_indoor, is_electric
+		FROM activities WHERE id = $1
+	`, parsedElectricOnly).Scan(&parsedSport, &parsedSubType, &parsedOnlyIndoor, &parsedOnlyElectric); err != nil {
+		t.Fatalf("query parsed electric-only activity: %v", err)
+	}
+	if parsedSport != "cycling" || parsedSubType != "" || parsedOnlyIndoor || parsedOnlyElectric {
+		t.Fatalf("parsed-only electric rewrite = (%s,%s), indoor=%v electric=%v; want parsed tuple only", parsedSport, parsedSubType, parsedOnlyIndoor, parsedOnlyElectric)
 	}
 
 	var routingSports []string

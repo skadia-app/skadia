@@ -238,21 +238,8 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 				FileName:    fmt.Sprintf("%d.%s", tour.ID, format),
 				SizeBytes:   int64(len(fileBytes)),
 				FileHash:    hashStr,
-				Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
-					Format:         format,
-					Source:         "komoot",
-					StartedAt:      data.StartedAt,
-					SportType:      data.SportType,
-					SubType:        data.SubType,
-					Title:          data.Title,
-					DistanceM:      data.DistanceM,
-					ElapsedTimeS:   data.ElapsedTimeS,
-					ElevationGainM: data.ElevationGainM,
-					IsElectric:     data.IsElectric,
-					IsIndoor:       data.IsIndoor,
-					IsVirtual:      data.IsVirtual,
-				}),
-			}, bytes.NewReader(fileBytes))
+					Tags: shadowfs.ActivitySchemaTags(importer.ActivitySchemaTagsInputFromData(format, "komoot", data)),
+				}, bytes.NewReader(fileBytes))
 			if putErr != nil {
 				slog.Warn("komoot activities: ShadowFS.Put failed", "tour_id", tour.ID, "error", putErr)
 			} else {

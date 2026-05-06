@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ActivityQuickEditModal from '../ActivityQuickEditModal'
+import { fetchActivity } from '@/api/activities'
 import type { Activity } from '@/api/types'
 
 vi.mock('@/api/activities', () => ({
@@ -75,11 +77,35 @@ function renderModal(activityValue: Activity) {
 }
 
 describe('ActivityQuickEditModal', () => {
+  beforeEach(() => {
+    vi.mocked(fetchActivity).mockImplementation(() => new Promise(() => {}))
+  })
+
   it('does not render editable fields until the full activity is loaded', () => {
     renderModal(activity())
 
     expect(screen.getByText('Aktivität wird geladen...')).toBeInTheDocument()
     expect(screen.queryByText('Titel')).not.toBeInTheDocument()
     expect(screen.queryByText('Tags')).not.toBeInTheDocument()
+  })
+
+  it('preserves typed draft fields when the full activity refresh resolves mid-edit', async () => {
+    const user = userEvent.setup()
+    let resolveActivity: (value: Activity) => void = () => {}
+    vi.mocked(fetchActivity).mockImplementation(() => new Promise<Activity>((resolve) => {
+      resolveActivity = resolve
+    }))
+
+    renderModal(activity({ title: 'List row' }))
+    resolveActivity(activity({ title: 'Full row' }))
+
+    const titleInput = await screen.findByLabelText('Titel')
+    await user.clear(titleInput)
+    await user.type(titleInput, 'User typed')
+
+    resolveActivity(activity({ title: 'Later full row' }))
+
+    expect(await screen.findByDisplayValue('User typed')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('Later full row')).not.toBeInTheDocument()
   })
 })

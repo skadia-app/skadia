@@ -162,6 +162,9 @@ export function quickEditTagDraftAfterModifier(
   modifier: 'isIndoor' | 'isElectric' | 'isVirtual',
   selected: boolean,
 ): ActivityQuickEditDraft {
+  if (modifier === 'isElectric' && draft.sportType !== 'cycling') {
+    return { ...draft, isElectric: selected }
+  }
   const tagByModifier = {
     isIndoor: 'Indoor',
     isElectric: 'E-Bike',

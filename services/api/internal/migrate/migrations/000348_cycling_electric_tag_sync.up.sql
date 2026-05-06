@@ -10,16 +10,25 @@ SELECT u.id, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false,
        'Automatisch bei elektrischen Radfahrten'
 FROM users u
 ON CONFLICT (user_id, name) DO UPDATE SET
-    color = EXCLUDED.color,
-    text_color = EXCLUDED.text_color,
+    color = CASE WHEN tags.is_system THEN EXCLUDED.color ELSE tags.color END,
+    text_color = CASE WHEN tags.is_system THEN EXCLUDED.text_color ELSE tags.text_color END,
     category = 'system',
     is_system = true,
     is_auto = false,
-    description = EXCLUDED.description;
+    description = CASE WHEN tags.is_system THEN EXCLUDED.description ELSE tags.description END;
 
 UPDATE tags
 SET description = 'Automatisch bei elektrischen Radfahrten'
-WHERE name = 'E-Bike' AND is_system = true;
+WHERE name = 'E-Bike' AND is_system = true AND COALESCE(description, '') = '';
+
+CREATE OR REPLACE FUNCTION prevent_system_tag_delete() RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.is_system = true AND EXISTS (SELECT 1 FROM users WHERE id = OLD.user_id) THEN
+        RAISE EXCEPTION 'System-Tags können nicht gelöscht werden: %', OLD.name;
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION sync_system_flags_and_tags() RETURNS TRIGGER AS $$
 DECLARE

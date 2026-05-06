@@ -70,6 +70,25 @@ func TestNormalizeRuleActionsOnlyDedupesEBikeTagWithCyclingContext(t *testing.T)
 	}
 }
 
+func TestRemoveSystemTagActionsDoesNotMutateInputBackingArray(t *testing.T) {
+	actions := []ruleActionMap{
+		{"action": "add_tag", "params": map[string]any{"tag_id": "tag-indoor"}},
+		{"action": "add_tag", "params": map[string]any{"tag_id": "tag-other"}},
+	}
+
+	got := removeSystemTagActions(actions, "Indoor", map[string]string{
+		"tag-indoor": "Indoor",
+		"tag-other":  "Urlaub",
+	}, "add_tag")
+
+	if len(got) != 1 {
+		t.Fatalf("filtered actions len = %d, want 1", len(got))
+	}
+	if actions[0]["params"].(map[string]any)["tag_id"] != "tag-indoor" {
+		t.Fatalf("input slice was mutated: %#v", actions)
+	}
+}
+
 func TestNormalizeRuleActionsRejectsMissingRequiredParams(t *testing.T) {
 	cases := []struct {
 		name string

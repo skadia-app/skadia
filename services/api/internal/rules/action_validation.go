@@ -306,7 +306,7 @@ func validateModifierAgainstExistingTags(modifier systemModifier, value bool, ac
 }
 
 func removeSystemTagActions(actions []ruleActionMap, tagName string, tagNameByID map[string]string, actionName string) []ruleActionMap {
-	out := actions[:0]
+	out := make([]ruleActionMap, 0, len(actions))
 	for _, action := range actions {
 		name, _ := action["action"].(string)
 		if name == actionName && tagNameForAction(action, tagNameByID) == tagName {
