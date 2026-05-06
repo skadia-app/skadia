@@ -137,7 +137,13 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
     return getTagBadgeStyle(tag?.color || FALLBACK_TAG_COLORS[index % FALLBACK_TAG_COLORS.length])
   }
 
-  async function syncTagDiffs(currentTags: string[], nextTags: string[], latestActivity: Activity, knownTags: Tag[]): Promise<Activity> {
+  async function syncTagDiffs(
+    currentTags: string[],
+    nextTags: string[],
+    latestActivity: Activity,
+    knownTags: Tag[],
+    onMutated?: () => void,
+  ): Promise<Activity> {
     const diff = diffQuickEditTags(currentTags, nextTags)
     let updated = latestActivity
 
@@ -145,15 +151,22 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
       const tag = tagByName(knownTags, tagName)
       if (tag?.id) {
         await unassignActivitiesFromTag(tag.id, [activity.id])
+        onMutated?.()
       } else {
         const remaining = updated.tags.filter(tagValue => tagValue.toLowerCase() !== tagName.toLowerCase())
         updated = await updateActivity(activity.id, { tags: remaining })
+        onMutated?.()
       }
     }
 
     for (const tagName of diff.add) {
-      const tag = tagByName(knownTags, tagName) ?? await createTag({ name: tagName })
+      let tag = tagByName(knownTags, tagName)
+      if (!tag) {
+        tag = await createTag({ name: tagName })
+        onMutated?.()
+      }
       await assignActivitiesToTag(tag.id, [activity.id])
+      onMutated?.()
     }
 
     if (diff.add.length > 0 || diff.remove.length > 0) {
@@ -166,18 +179,38 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
   async function handleSave() {
     setSaving(true)
     setError(null)
+    let savedAny = false
     try {
       const patch = buildActivityQuickEditPatch(baseActivity, draft)
-      const afterPatch = hasPatchValues(patch) ? await updateActivity(activity.id, patch) : baseActivity
       const knownTags: Tag[] = allTags ?? await queryClient.fetchQuery<Tag[]>({ queryKey: ['tags'], queryFn: fetchTags })
-      const updated = await syncTagDiffs(baseActivity.tags ?? [], draft.tags, afterPatch, knownTags)
+      const tagDiff = diffQuickEditTags(baseActivity.tags ?? [], draft.tags)
+      const tagsChanged = tagDiff.add.length > 0 || tagDiff.remove.length > 0
+      let updated = await syncTagDiffs(baseActivity.tags ?? [], draft.tags, baseActivity, knownTags, () => { savedAny = true })
+      if (tagsChanged) savedAny = true
+      if (hasPatchValues(patch)) {
+        updated = await updateActivity(activity.id, patch)
+        savedAny = true
+      }
       queryClient.setQueryData(['activity', activity.id], updated)
       queryClient.invalidateQueries({ queryKey: ['activities'] })
       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
       onSaved(updated)
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen')
+      if (savedAny) {
+        try {
+          const current = await fetchActivity(activity.id)
+          queryClient.setQueryData(['activity', activity.id], current)
+          queryClient.invalidateQueries({ queryKey: ['activities'] })
+          onSaved(current)
+        } catch {
+          queryClient.invalidateQueries({ queryKey: ['activities'] })
+          queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+        }
+        setError('Teilweise gespeichert. Bitte prüfe die Aktivität und speichere fehlende Änderungen erneut.')
+      } else {
+        setError(err instanceof Error ? err.message : 'Speichern fehlgeschlagen')
+      }
     } finally {
       setSaving(false)
     }
@@ -298,9 +331,10 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                 <div key={key} className="flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
                   <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
                   <Toggle
-                    checked={draft[key]}
+                    checked={key === 'excludeFromHeatmap' && draft.isVirtual ? true : draft[key]}
                     onChange={checked => patchDraft({ [key]: checked })}
                     size="sm"
+                    disabled={key === 'excludeFromHeatmap' && draft.isVirtual}
                     aria-label={label}
                   />
                 </div>

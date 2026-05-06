@@ -337,6 +337,10 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 
 	activity, err := h.DB.UpdateActivity(r.Context(), id, userID, &update)
 	if err != nil {
+		if errors.Is(err, database.ErrVirtualHeatmapRequired) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
 		slog.Error("update activity failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity", r.URL.Path)
 		return
@@ -355,9 +359,9 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 		h.refreshActivityFilePathBestEffort(r.Context(), userID, id, "")
 	}
 
-	// Side-effect: toggle heatmap data when exclude_from_heatmap changes.
-	if update.ExcludeFromHeatmap != nil {
-		if *update.ExcludeFromHeatmap {
+	// Side-effect: toggle heatmap data when the effective exclusion changes.
+	if existing.ExcludeFromHeatmap != activity.ExcludeFromHeatmap {
+		if activity.ExcludeFromHeatmap {
 			_ = h.DB.DeleteHeatmapData(r.Context(), id)
 		} else {
 			interval, _ := h.DB.GetUserHeatmapInterval(r.Context(), userID)
