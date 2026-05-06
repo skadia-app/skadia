@@ -3084,6 +3084,10 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	m["has_structured_intervals"] = hasStructuredIntervals
 	m["interval_count"] = intervalCount
 	m["has_hc_climb"] = hasHCClimb
+	// Phase 4b.B.2 — boolean flag for the "Lift erkannt" rule condition.
+	// lift_count is already exposed above via setNN(); has_lift is the
+	// derived boolean used by automation.SystemRules' lift_detected entry.
+	m["has_lift"] = liftCount != nil && *liftCount > 0
 	m["surface_paved_pct"] = surfacePavedPct
 	m["surface_gravel_pct"] = surfaceGravelPct
 	m["surface_trail_pct"] = surfaceTrailPct
