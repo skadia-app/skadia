@@ -118,6 +118,14 @@ func TestLoadRecordsProjectionRejectsInvalidSubtypeSentinelUse(t *testing.T) {
 	}
 }
 
+func TestRecordsProjectionRejectsModifierWithoutRecordGroupingCapability(t *testing.T) {
+	src := strings.Replace(validRecordsProjectionFixture(), "modifiers: {is_indoor: false}", "modifiers: {is_commute: true}", 1)
+	_, err := LoadRecordsProjection(strings.NewReader(src), recordsProjectionTestTaxonomy())
+	if err == nil {
+		t.Fatal("LoadRecordsProjection accepted record_grouping-disabled is_commute modifier")
+	}
+}
+
 func TestExpandRecordsProjectionSortsRulesAndExpandsCategories(t *testing.T) {
 	projection, err := LoadRecordsProjection(strings.NewReader(validRecordsProjectionFixture()), recordsProjectionTestTaxonomy())
 	if err != nil {

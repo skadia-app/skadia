@@ -3,23 +3,41 @@ package rules
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 type ruleActionMap map[string]any
 
 type systemModifier struct {
-	Action    string
-	Field     string
-	Param     string
-	TagName   string
-	HumanName string
+	Action        string
+	Field         string
+	Param         string
+	TagName       string
+	HumanName     string
+	OnlySportType string
 }
 
-var systemModifiers = []systemModifier{
-	{Action: "set_electric", Field: "is_electric", Param: "electric", TagName: "E-Bike", HumanName: "E-Antrieb"},
-	{Action: "set_indoor", Field: "is_indoor", Param: "indoor", TagName: "Indoor", HumanName: "Indoor"},
-	{Action: "set_virtual", Field: "is_virtual", Param: "virtual", TagName: "virtuell", HumanName: "Virtuell"},
-	{Action: "set_commute", Field: "is_commute", Param: "commute", TagName: "Pendeln", HumanName: "Pendeln"},
+func systemModifiers() []systemModifier {
+	out := make([]systemModifier, 0)
+	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+		def, ok := sport.SportModifierByKey(key)
+		if !ok {
+			continue
+		}
+		modifier := systemModifier{
+			Action:    def.ActionName,
+			Field:     def.JSONKey,
+			Param:     def.ActionParam,
+			HumanName: def.LabelDE,
+		}
+		if def.TagSync != nil {
+			modifier.TagName = def.TagSync.SystemTag
+			modifier.OnlySportType = def.TagSync.OnlySportType
+		}
+		out = append(out, modifier)
+	}
+	return out
 }
 
 // NormalizeRuleActions validates and normalizes an automation-rule action array.
@@ -111,7 +129,7 @@ func normalizeActionMaps(actions []ruleActionMap, tagNameByID map[string]string)
 		if actionName == "add_tag" || actionName == "remove_tag" {
 			tagName := tagNameForAction(action, tagNameByID)
 			if tagName != "" {
-				for _, modifier := range systemModifiers {
+				for _, modifier := range systemModifiers() {
 					if !systemTagAppliesToModifier(modifier, tagName, cyclingActionContext) {
 						continue
 					}
@@ -217,14 +235,14 @@ func systemTagAppliesToModifier(modifier systemModifier, tagName string, cycling
 	if modifier.TagName != tagName {
 		return false
 	}
-	if modifier.TagName == "E-Bike" {
+	if modifier.OnlySportType == "cycling" {
 		return cyclingActionContext
 	}
 	return true
 }
 
 func modifierForAction(action string) (systemModifier, bool) {
-	for _, modifier := range systemModifiers {
+	for _, modifier := range systemModifiers() {
 		if modifier.Action == action {
 			return modifier, true
 		}
@@ -233,7 +251,7 @@ func modifierForAction(action string) (systemModifier, bool) {
 }
 
 func modifierForField(field string) (systemModifier, bool) {
-	for _, modifier := range systemModifiers {
+	for _, modifier := range systemModifiers() {
 		if modifier.Field == field {
 			return modifier, true
 		}

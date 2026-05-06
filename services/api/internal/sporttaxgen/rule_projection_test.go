@@ -1,6 +1,7 @@
 package sporttaxgen
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -97,6 +98,38 @@ trait_conditions:
 	_, err := LoadRuleProjection(src, taxonomy)
 	if err == nil || !strings.Contains(err.Error(), "modifier_applicability.nope") {
 		t.Fatalf("LoadRuleProjection error = %v, want unknown source error", err)
+	}
+}
+
+func TestRuleProjectionModifierKeysMustMatchRegistry(t *testing.T) {
+	file, err := os.Open("../../../../config/sport-taxonomy/modifiers.yaml")
+	if err != nil {
+		t.Fatalf("open modifiers.yaml: %v", err)
+	}
+	defer file.Close()
+	registry, err := LoadModifiers(file)
+	if err != nil {
+		t.Fatalf("LoadModifiers: %v", err)
+	}
+	projection, err := LoadRuleProjection(strings.NewReader(validRuleProjectionYAMLForTest), minimalRuleProjectionTaxonomy(t))
+	if err != nil {
+		t.Fatalf("LoadRuleProjection: %v", err)
+	}
+	gotKeys := make([]string, 0, len(projection.Modifiers))
+	gotLabels := map[string]string{}
+	for _, modifier := range projection.Modifiers {
+		gotKeys = append(gotKeys, modifier.Key)
+		gotLabels[modifier.Key] = modifier.Labels["de"]
+	}
+	wantKeys := registry.ModifierKeysWithCapability("rule_condition")
+	if !stringSlicesEqual(gotKeys, wantKeys) {
+		t.Fatalf("rule projection modifier keys = %v, want %v", gotKeys, wantKeys)
+	}
+	for _, key := range wantKeys {
+		def, _ := registry.ModifierByKey(key)
+		if gotLabels[key] != def.Labels["de"] {
+			t.Fatalf("rule projection label for %q = %q, want %q", key, gotLabels[key], def.Labels["de"])
+		}
 	}
 }
 

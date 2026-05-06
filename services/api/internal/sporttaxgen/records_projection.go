@@ -56,6 +56,7 @@ type RecordModifiers struct {
 	IsIndoor   *bool `yaml:"is_indoor"`
 	IsVirtual  *bool `yaml:"is_virtual"`
 	IsElectric *bool `yaml:"is_electric"`
+	IsCommute  *bool `yaml:"is_commute"`
 }
 
 type RecordMainCategory struct {
@@ -362,6 +363,9 @@ func validateRecordMatchRule(rule RecordMatchRule, idx projectionIndexes) error 
 			return fmt.Errorf("sport %q has no excluded sub_type %q", rule.SportType, subType)
 		}
 	}
+	if rule.Modifiers.IsCommute != nil {
+		return fmt.Errorf("modifier is_commute is not enabled for record grouping")
+	}
 	return nil
 }
 
@@ -465,6 +469,7 @@ func cloneRecordModifiers(modifiers RecordModifiers) RecordModifiers {
 		IsIndoor:   cloneBoolPtr(modifiers.IsIndoor),
 		IsVirtual:  cloneBoolPtr(modifiers.IsVirtual),
 		IsElectric: cloneBoolPtr(modifiers.IsElectric),
+		IsCommute:  cloneBoolPtr(modifiers.IsCommute),
 	}
 }
 
