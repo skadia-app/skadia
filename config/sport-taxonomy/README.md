@@ -23,7 +23,8 @@ modifier predicates until a dedicated gear predicate schema exists.
 `projections/*.yaml` defines consumer-specific groupings of canonical tuples.
 `projections/activity_filters.yaml` owns activity and map filter placement.
 `projections/segments.yaml` defines which sport tuples are eligible for segment
-creation and which matcher segment group each eligible tuple uses.
+creation, which route-planner sport options are exposed, and which matcher
+segment group each eligible tuple uses.
 `projections/rules.yaml` defines automation-rule tuple selectors, tuple-scoped
 modifier controls, and rule-visible trait condition fields. Projections do not
 own taxonomy identity and should not duplicate source/import alias rules.
@@ -43,6 +44,24 @@ Edit workflow:
 4. Run the backend and frontend taxonomy tests for the touched surfaces.
 5. Run the required documentation sync for any reader-facing or developer-facing
    surfaces that changed.
+
+Adding a top-level sport:
+
+1. Add the sport once in `sports.yaml` with labels, auto title, category,
+   segment group, GPS behavior, lifecycle/selectability, modifier applicability,
+   traits, and any sub-types.
+2. Add import/source aliases in `aliases/*.yaml` only for raw external or legacy
+   labels that should normalize to the new tuple.
+3. Add user-facing filter placement in `projections/activity_filters.yaml`.
+   Frontend `SPORT_DEFS` display order is derived from the `activity_all`
+   projection, not from a hand-maintained TypeScript list.
+4. Add route-planner exposure in `projections/segments.yaml` `route_options`
+   only if the tuple should be selectable for routes; add segment eligibility in
+   `eligible` only if it should participate in segment matching.
+5. Add records, rules, or segment projections only when those consumers need the
+   tuple. Do not add empty projection rows just to mirror `sports.yaml`.
+6. Regenerate and review generated Go/TypeScript diffs instead of editing them
+   by hand.
 
 Do not review taxonomy changes only in generated source. The source YAML is the
 canonical input; generated tests and projections are the review surfaces for

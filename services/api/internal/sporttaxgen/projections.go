@@ -37,6 +37,7 @@ type ActivityFilterEntry struct {
 type SegmentProjection struct {
 	Domains      []SegmentProjectionDomain      `yaml:"domains"`
 	SegmentTypes []SegmentProjectionSegmentType `yaml:"segment_types"`
+	RouteOptions []SegmentProjectionRouteOption `yaml:"route_options"`
 	Eligible     []SegmentProjectionEligible    `yaml:"eligible"`
 }
 
@@ -62,6 +63,11 @@ type SegmentProjectionEligible struct {
 	EligibilityRole string   `yaml:"eligibility_role"`
 }
 
+type SegmentProjectionRouteOption struct {
+	SportType        string   `yaml:"sport_type"`
+	PromotedSubTypes []string `yaml:"promoted_sub_types"`
+}
+
 type ExpandedActivityFilterPreset struct {
 	Key    string
 	Label  LocaleMap
@@ -83,6 +89,7 @@ type ExpandedActivityFilterLeaf struct {
 type ExpandedSegmentProjection struct {
 	Domains      []ExpandedSegmentProjectionDomain
 	SegmentTypes []ExpandedSegmentProjectionSegmentType
+	RouteOptions []ExpandedRouteSportOption
 	Entries      []ExpandedSegmentProjectionEntry
 }
 
@@ -105,6 +112,11 @@ type ExpandedSegmentProjectionEntry struct {
 	SportType   string
 	SubType     string
 	SportGroup  string
+}
+
+type ExpandedRouteSportOption struct {
+	SportType string
+	SubType   string
 }
 
 type projectionIndexes struct {
@@ -222,6 +234,7 @@ func ExpandSegmentProjection(taxonomy Taxonomy, projection SegmentProjection) (E
 			CompatibilityRole: segmentType.CompatibilityRole,
 		})
 	}
+	out.RouteOptions = expandRouteOptions(projection)
 	out.Entries = expandSegmentProjectionEntries(projection)
 	return out, nil
 }
@@ -339,6 +352,9 @@ func validateSegmentProjection(projection SegmentProjection, taxonomy Taxonomy) 
 	if len(projection.Eligible) == 0 {
 		return fmt.Errorf("missing eligible")
 	}
+	if err := validateRouteOptions(projection.RouteOptions, idx); err != nil {
+		return err
+	}
 	seenRows := map[string]struct{}{}
 	activeTupleGroups := map[string]string{}
 	for i, eligible := range projection.Eligible {
@@ -404,6 +420,40 @@ func validateSegmentProjection(projection SegmentProjection, taxonomy Taxonomy) 
 					}
 					activeTupleGroups[tupleKey] = eligible.SportGroup
 				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateRouteOptions(routeOptions []SegmentProjectionRouteOption, idx projectionIndexes) error {
+	seenSports := map[string]struct{}{}
+	for i, option := range routeOptions {
+		if option.SportType == "" {
+			return fmt.Errorf("route_options[%d]: missing sport_type", i)
+		}
+		sport, ok := idx.sports[option.SportType]
+		if !ok {
+			return fmt.Errorf("route_options[%d]: unknown sport_type %q", i, option.SportType)
+		}
+		if sport.Selectable == nil || !*sport.Selectable {
+			return fmt.Errorf("route_options[%d]: sport_type %q is not selectable", i, option.SportType)
+		}
+		if _, ok := seenSports[option.SportType]; ok {
+			return fmt.Errorf("route_options[%d]: duplicate sport_type %q", i, option.SportType)
+		}
+		seenSports[option.SportType] = struct{}{}
+		seenSubTypes := map[string]struct{}{}
+		for _, subType := range option.PromotedSubTypes {
+			if subType == "" {
+				return fmt.Errorf("route_options[%d]: empty promoted_sub_type", i)
+			}
+			if _, ok := seenSubTypes[subType]; ok {
+				return fmt.Errorf("route_options[%d]: duplicate promoted_sub_type %q", i, subType)
+			}
+			seenSubTypes[subType] = struct{}{}
+			if !sportHasSelectableSubType(sport, subType) {
+				return fmt.Errorf("route_options[%d]: sport %q has no selectable sub_type %q", i, option.SportType, subType)
 			}
 		}
 	}
@@ -477,6 +527,17 @@ func expandSegmentProjectionEntries(projection SegmentProjection) []ExpandedSegm
 		}
 	}
 	return entries
+}
+
+func expandRouteOptions(projection SegmentProjection) []ExpandedRouteSportOption {
+	options := []ExpandedRouteSportOption{}
+	for _, option := range projection.RouteOptions {
+		options = append(options, ExpandedRouteSportOption{SportType: option.SportType})
+		for _, subType := range option.PromotedSubTypes {
+			options = append(options, ExpandedRouteSportOption{SportType: option.SportType, SubType: subType})
+		}
+	}
+	return options
 }
 
 func segmentProjectionSubTypes(entry SegmentProjectionEligible) []string {
@@ -657,6 +718,15 @@ func sportHasSubType(sport Sport, subType string) bool {
 	for _, candidate := range sport.SubTypes {
 		if candidate.SubType == subType {
 			return true
+		}
+	}
+	return false
+}
+
+func sportHasSelectableSubType(sport Sport, subType string) bool {
+	for _, candidate := range sport.SubTypes {
+		if candidate.SubType == subType {
+			return candidate.Selectable != nil && *candidate.Selectable
 		}
 	}
 	return false

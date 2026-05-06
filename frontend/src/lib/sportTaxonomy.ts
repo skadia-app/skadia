@@ -2,7 +2,10 @@
 // in the frontend. Must match the backend Go taxonomy exactly (same sport_type
 // keys, category keys).
 
+import { GENERATED_ACTIVITY_FILTER_PRESETS } from './generatedSportFilterProjections'
+import { GENERATED_LEGACY_ALIASES, GENERATED_LEGACY_SUBTYPE_ALIASES } from './generatedSportAliases'
 import { GENERATED_CATEGORIES, GENERATED_SPORT_DEFS } from './generatedSportTaxonomy'
+import { GENERATED_SEGMENT_PROJECTION } from './generatedSegmentProjections'
 
 // ── Types ────────────────────────────────────────────────────────────────────────
 
@@ -66,6 +69,7 @@ export interface SportTuple {
   modifiers: {
     isElectric?: boolean
     isIndoor?: boolean
+    isVirtual?: boolean
   }
 }
 
@@ -93,94 +97,13 @@ const categoryMap = new Map<string, SportCategory>(CATEGORIES.map((c) => [c.key,
 
 // ── Sport Definitions ───────────────────────────────────────────────────────────
 
-const FRONTEND_SPORT_ORDER = [
-  'running',
-  'walking',
-  'hiking',
-  'mountaineering',
-  'wheelchair_push',
-  'cycling',
-  'inline_skating',
-  'skateboarding',
-  'alpine_skiing',
-  'backcountry_skiing',
-  'cross_country_skiing',
-  'snowboarding',
-  'snowshoeing',
-  'ice_skating',
-  'snowmobiling',
-  'sledding',
-  'skiing',
-  'swimming',
-  'paddling',
-  'kayaking',
-  'stand_up_paddleboarding',
-  'rowing',
-  'rafting',
-  'canoeing',
-  'surfing',
-  'kitesurfing',
-  'windsurfing',
-  'wakeboarding',
-  'wakesurfing',
-  'water_skiing',
-  'water_tubing',
-  'diving',
-  'snorkeling',
-  'boating',
-  'sailing',
-  'fishing',
-  'training',
-  'fitness_equipment',
-  'strength_training',
-  'hiit',
-  'yoga',
-  'pilates',
-  'mobility',
-  'floor_climbing',
-  'dance',
-  'jump_rope',
-  'meditation',
-  'soccer',
-  'basketball',
-  'american_football',
-  'rugby',
-  'lacrosse',
-  'hockey',
-  'volleyball',
-  'tennis',
-  'racket',
-  'cricket',
-  'baseball',
-  'golf',
-  'disc_golf',
-  'rock_climbing',
-  'flying',
-  'geocaching',
-  'archery',
-  'shooting',
-  'hang_gliding',
-  'sky_diving',
-  'jumpmaster',
-  'horseback_riding',
-  'hunting',
-  'motorcycling',
-  'driving',
-  'boxing',
-  'mixed_martial_arts',
-  'tactical',
-  'multisport',
-  'transition',
-  'generic',
-  'unknown',
-]
-
 const generatedSportDefs = new Map<string, (typeof GENERATED_SPORT_DEFS)[number]>(GENERATED_SPORT_DEFS.map((s) => [s.sportType, s]))
-const frontendSportOrderSet = new Set<string>(FRONTEND_SPORT_ORDER)
+const projectedSportOrder = sportOrderFromActivityFilterProjection()
+const projectedSportOrderSet = new Set<string>(projectedSportOrder)
 
 export const SPORT_DEFS: SportDef[] = [
-  ...FRONTEND_SPORT_ORDER.map((sportType) => generatedSportDefs.get(sportType)).filter((s): s is (typeof GENERATED_SPORT_DEFS)[number] => Boolean(s)),
-  ...GENERATED_SPORT_DEFS.filter((s) => !frontendSportOrderSet.has(s.sportType)),
+  ...projectedSportOrder.map((sportType) => generatedSportDefs.get(sportType)).filter((s): s is (typeof GENERATED_SPORT_DEFS)[number] => Boolean(s)),
+  ...GENERATED_SPORT_DEFS.filter((s) => !projectedSportOrderSet.has(s.sportType)),
 ].map((s) => ({
   sportType: s.sportType,
   categoryKey: s.categoryKey,
@@ -213,31 +136,37 @@ function copyModifierDefaults(defaults: GeneratedModifierDefaults | undefined): 
   return defaults ? { ...defaults } : {}
 }
 
-const LEGACY_ALIASES = new Map<string, SportTuple>([
-  ['bike', { sportType: 'cycling', subType: '', modifiers: {} }],
-  ['biking', { sportType: 'cycling', subType: '', modifiers: {} }],
-  ['ride', { sportType: 'cycling', subType: '', modifiers: {} }],
-  ['mountain_biking', { sportType: 'cycling', subType: 'mountain', modifiers: {} }],
-  ['gravel_cycling', { sportType: 'cycling', subType: 'gravel_cycling', modifiers: {} }],
-  ['indoor_cycling', { sportType: 'cycling', subType: 'indoor_cycling', modifiers: { isIndoor: true } }],
-  ['trail_running', { sportType: 'running', subType: 'trail', modifiers: {} }],
-  ['treadmill_running', { sportType: 'running', subType: 'treadmill', modifiers: { isIndoor: true } }],
-  ['lap_swimming', { sportType: 'swimming', subType: 'lap_swimming', modifiers: {} }],
-  ['open_water_swimming', { sportType: 'swimming', subType: 'open_water', modifiers: {} }],
-  ['road_cycling', { sportType: 'cycling', subType: 'road', modifiers: {} }],
-  ['roadcycling', { sportType: 'cycling', subType: 'road', modifiers: {} }],
-  ['wheelchair_push_walk', { sportType: 'wheelchair_push', subType: 'walk_speed', modifiers: {} }],
-  ['wheelchair_push_run', { sportType: 'wheelchair_push', subType: 'run_speed', modifiers: {} }],
-  ['strength', { sportType: 'strength_training', subType: '', modifiers: {} }],
-  ['e_mountain_biking', { sportType: 'cycling', subType: 'mountain', modifiers: { isElectric: true } }],
-  ['e_biking', { sportType: 'cycling', subType: '', modifiers: { isElectric: true } }],
-  ['e_bike', { sportType: 'cycling', subType: '', modifiers: { isElectric: true } }],
-])
+function sportOrderFromActivityFilterProjection(): string[] {
+  const preset = GENERATED_ACTIVITY_FILTER_PRESETS.find((candidate) => candidate.key === 'activity_all')
+  const order: string[] = []
+  const seen = new Set<string>()
+  for (const group of preset?.groups ?? []) {
+    for (const leaf of group.leaves) {
+      if (seen.has(leaf.sportType)) continue
+      seen.add(leaf.sportType)
+      order.push(leaf.sportType)
+    }
+  }
+  return order
+}
 
-const LEGACY_SUBTYPE_ALIASES = new Map<string, SportTuple>([
-  [tupleKey('wheelchair_push_walk', 'indoor_wheelchair_walk'), { sportType: 'wheelchair_push', subType: 'walk_speed', modifiers: { isIndoor: true } }],
-  [tupleKey('wheelchair_push_run', 'indoor_wheelchair_run'), { sportType: 'wheelchair_push', subType: 'run_speed', modifiers: { isIndoor: true } }],
-])
+type GeneratedLegacyAlias = (typeof GENERATED_LEGACY_ALIASES)[number] | (typeof GENERATED_LEGACY_SUBTYPE_ALIASES)[number]
+
+function tupleFromGeneratedAlias(alias: GeneratedLegacyAlias): SportTuple {
+  return {
+    sportType: alias.sportType,
+    subType: 'subType' in alias ? alias.subType : '',
+    modifiers: 'modifiers' in alias ? { ...alias.modifiers } : {},
+  }
+}
+
+const legacyAliasMap = new Map<string, SportTuple>(
+  GENERATED_LEGACY_ALIASES.map((alias) => [alias.raw, tupleFromGeneratedAlias(alias)])
+)
+
+const legacySubtypeAliasMap = new Map<string, SportTuple>(
+  GENERATED_LEGACY_SUBTYPE_ALIASES.map((alias) => [tupleKey(alias.raw, alias.rawSub), tupleFromGeneratedAlias(alias)])
+)
 
 function tupleKey(sportType: string, subType: string): string {
   return `${sportType}\u0000${subType}`
@@ -275,7 +204,7 @@ function humanize(raw: string): string {
 export function normalizeSportTuple(sportType: string, subType: string | null = null): SportTuple {
   const trimmedSport = sportType.trim()
   const trimmedSub = subType?.trim() ?? ''
-  const subtypeAlias = LEGACY_SUBTYPE_ALIASES.get(tupleKey(trimmedSport, trimmedSub))
+  const subtypeAlias = legacySubtypeAliasMap.get(tupleKey(trimmedSport, trimmedSub))
   if (subtypeAlias) {
     return {
       sportType: subtypeAlias.sportType,
@@ -283,7 +212,7 @@ export function normalizeSportTuple(sportType: string, subType: string | null = 
       modifiers: { ...modifierDefaultsForTuple(subtypeAlias.sportType, subtypeAlias.subType), ...subtypeAlias.modifiers },
     }
   }
-  const alias = LEGACY_ALIASES.get(trimmedSport)
+  const alias = legacyAliasMap.get(trimmedSport)
   const tuple: SportTuple = alias
     ? {
         sportType: alias.sportType,
@@ -346,7 +275,7 @@ export function getSegmentGroup(sportType: string): 'bike' | 'foot' | 'swim' | '
  */
 export function sportLabel(sportType: string, subType?: string | null, opts?: SportLabelOptions): string {
   const trimmedSport = sportType.trim()
-  if (LEGACY_ALIASES.has(trimmedSport)) {
+  if (legacyAliasMap.has(trimmedSport)) {
     return `Veraltete Sportart (${humanize(trimmedSport)})`
   }
   const tuple = { sportType: trimmedSport, subType: subType?.trim() ?? '' }
@@ -437,79 +366,11 @@ export function manualActivitySportOptions(): SportDef[] {
   return SPORT_DEFS.filter((s) => s.sportType !== 'unknown' && (s.selectable || s.subTypes.some((st) => st.selectable)))
 }
 
-const ROUTE_PROMOTED_SUBTYPES: Record<string, string[]> = {
-  cycling: ['mountain', 'gravel_cycling', 'road'],
-  hiking: ['rucking'],
-  running: ['trail'],
-  wheelchair_push: ['walk_speed', 'run_speed'],
-}
-
-const ROUTE_COMPATIBLE_SPORT_TYPES = [
-  'running',
-  'walking',
-  'hiking',
-  'mountaineering',
-  'snowshoeing',
-  'wheelchair_push',
-  'cycling',
-  'inline_skating',
-  'skateboarding',
-  'geocaching',
-  'archery',
-  'shooting',
-  'alpine_skiing',
-  'backcountry_skiing',
-  'cross_country_skiing',
-  'snowboarding',
-  'ice_skating',
-  'snowmobiling',
-  'sledding',
-  'skiing',
-  'swimming',
-  'paddling',
-  'kayaking',
-  'stand_up_paddleboarding',
-  'rowing',
-  'rafting',
-  'canoeing',
-  'surfing',
-  'kitesurfing',
-  'windsurfing',
-  'wakeboarding',
-  'wakesurfing',
-  'water_skiing',
-  'water_tubing',
-  'snorkeling',
-  'boating',
-  'sailing',
-  'fishing',
-  'cricket',
-  'golf',
-  'disc_golf',
-  'rock_climbing',
-  'flying',
-  'hang_gliding',
-  'sky_diving',
-  'jumpmaster',
-  'horseback_riding',
-  'hunting',
-  'motorcycling',
-  'driving',
-  'multisport',
-  'transition',
-]
-
 export function routeSportOptions(): RouteSportOption[] {
-  return ROUTE_COMPATIBLE_SPORT_TYPES
-    .map((sportType) => sportMap.get(sportType))
-    .filter((s): s is SportDef => Boolean(s))
-    .flatMap((s) => {
-      const options: RouteSportOption[] = s.selectable ? [{ sportType: s.sportType, label: s.label }] : []
-      for (const subType of ROUTE_PROMOTED_SUBTYPES[s.sportType] ?? []) {
-        if (s.subTypes.some((st) => st.subType === subType && st.selectable)) {
-          options.push({ sportType: s.sportType, subType, label: sportLabel(s.sportType, subType) })
-        }
-      }
-      return options
-    })
+  return GENERATED_SEGMENT_PROJECTION.routeOptions
+    .map((option) => ({
+      sportType: option.sportType,
+      subType: 'subType' in option ? option.subType : undefined,
+      label: sportLabel(option.sportType, 'subType' in option ? option.subType : undefined),
+    }))
 }

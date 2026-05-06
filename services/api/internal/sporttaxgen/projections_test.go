@@ -404,12 +404,65 @@ func TestLoadCurrentSegmentProjection(t *testing.T) {
 	}
 }
 
+func TestLoadSegmentProjectionAcceptsRouteOptions(t *testing.T) {
+	_, err := LoadSegmentProjection(strings.NewReader(strings.Replace(validSegmentProjectionFixture(), "eligible:", `
+route_options:
+  - sport_type: running
+    promoted_sub_types: [indoor_running]
+
+eligible:`, 1)), testProjectionTaxonomy())
+	if err != nil {
+		t.Fatalf("LoadSegmentProjection rejected route_options: %v", err)
+	}
+}
+
+func TestLoadSegmentProjectionRejectsDanglingRouteOptionSubtype(t *testing.T) {
+	_, err := LoadSegmentProjection(strings.NewReader(strings.Replace(validSegmentProjectionFixture(), "eligible:", `
+route_options:
+  - sport_type: running
+    promoted_sub_types: [missing]
+
+eligible:`, 1)), testProjectionTaxonomy())
+	if err == nil {
+		t.Fatal("LoadSegmentProjection accepted dangling route option subtype")
+	}
+}
+
+func TestRenderTSSegmentProjectionEmitsRouteOptions(t *testing.T) {
+	projection, err := LoadSegmentProjection(strings.NewReader(strings.Replace(validSegmentProjectionFixture(), "eligible:", `
+route_options:
+  - sport_type: running
+    promoted_sub_types: [indoor_running]
+
+eligible:`, 1)), testProjectionTaxonomy())
+	if err != nil {
+		t.Fatalf("LoadSegmentProjection() error = %v", err)
+	}
+	expanded, err := ExpandSegmentProjection(testProjectionTaxonomy(), projection)
+	if err != nil {
+		t.Fatalf("ExpandSegmentProjection() error = %v", err)
+	}
+	got, err := RenderTSSegmentProjection(expanded)
+	if err != nil {
+		t.Fatalf("RenderTSSegmentProjection() error = %v", err)
+	}
+	for _, want := range []string{
+		"routeOptions: [",
+		"{ sportType: 'running' }",
+		"{ sportType: 'running', subType: 'indoor_running' }",
+	} {
+		if !strings.Contains(string(got), want) {
+			t.Fatalf("generated TS segment projection missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestProjectionSchemaMentionsValidatedFields(t *testing.T) {
 	schema, err := os.ReadFile("../../../../config/sport-taxonomy/schema/projections.schema.json")
 	if err != nil {
 		t.Fatalf("read projections.schema.json: %v", err)
 	}
-	for _, field := range []string{"presets", "groups", "entries", "category_key", "sport_type", "sub_type", "sport_order", "labels", "label_ref", "label_mode", "domains", "segment_types", "active_domains", "compatibility_role", "eligible", "sport_group", "eligibility_role", "tuple_selectors", "modifiers", "source", "selectable_sport_tuples", "sport_tuple", "set_sport_type", "condition_applicable_from", "action_applicable_from", "render_existing"} {
+	for _, field := range []string{"presets", "groups", "entries", "category_key", "sport_type", "sub_type", "sport_order", "labels", "label_ref", "label_mode", "domains", "segment_types", "active_domains", "compatibility_role", "route_options", "promoted_sub_types", "eligible", "sport_group", "eligibility_role", "tuple_selectors", "modifiers", "source", "selectable_sport_tuples", "sport_tuple", "set_sport_type", "condition_applicable_from", "action_applicable_from", "render_existing"} {
 		if !strings.Contains(string(schema), field) {
 			t.Fatalf("schema does not mention %q", field)
 		}

@@ -185,6 +185,31 @@ func TestRenderGoSourceAliasesSupportsRouteOnlyNamespace(t *testing.T) {
 	}
 }
 
+func TestRenderTSSourceAliasesEmitsLegacyAliases(t *testing.T) {
+	got, err := RenderTSSourceAliases([]SourceAliases{{
+		Source: "legacy",
+		Aliases: []SourceAlias{
+			{Raw: "mountain_biking", SportType: "cycling", SubType: "mountain"},
+			{Raw: "e_bike", SportType: "cycling", Modifiers: &SourceAliasModifiers{IsElectric: ptrBoolForTest(true)}},
+			{Raw: "wheelchair_push_walk", RawSub: "indoor_wheelchair_walk", SportType: "wheelchair_push", SubType: "walk_speed", Modifiers: &SourceAliasModifiers{IsIndoor: ptrBoolForTest(true)}},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("RenderTSSourceAliases() error = %v", err)
+	}
+	for _, want := range []string{
+		"GENERATED_LEGACY_ALIASES",
+		"{ raw: 'mountain_biking', sportType: 'cycling', subType: 'mountain' }",
+		"{ raw: 'e_bike', sportType: 'cycling', modifiers: { isElectric: true } }",
+		"GENERATED_LEGACY_SUBTYPE_ALIASES",
+		"{ raw: 'wheelchair_push_walk', rawSub: 'indoor_wheelchair_walk', sportType: 'wheelchair_push', subType: 'walk_speed', modifiers: { isIndoor: true } }",
+	} {
+		if !bytes.Contains(got, []byte(want)) {
+			t.Fatalf("generated TS aliases missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderGoSourceAliasesRejectsUnknownNamespace(t *testing.T) {
 	_, err := RenderGoSourceAliases([]SourceAliases{{
 		Source:  "not_a_source",
