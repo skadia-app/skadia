@@ -24,6 +24,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/auth"
+	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/config"
@@ -413,6 +414,15 @@ func main() {
 	if err := shadowfs.CanonicalizeParentTypes(ctx, db.Pool); err != nil {
 		slog.Error("failed to canonicalize parent_type values", "error", err)
 		os.Exit(1)
+	}
+
+	// Phase 4b.A.4: idempotent system-artifact backfill. Replaces the previous
+	// pattern of writing a one-shot migration for each new system rule. Safe
+	// to call on every startup — gated by users.system_artifacts_version
+	// (per-user) and pg_try_advisory_lock(sweepAdvisoryLockKey) across pods.
+	// Per-user failures log but do not abort startup.
+	if err := automation.EnsureSystemArtifactsForAllUsers(ctx, db); err != nil {
+		slog.Warn("system-artifacts backfill at startup failed (non-fatal)", "error", err)
 	}
 
 	// Ensure TimescaleDB Continuous Aggregates exist (cannot be created inside
