@@ -29,3 +29,23 @@ func TestWriteMetaCompanionAndRefreshActivityFileRunsRefreshAfterSidecar(t *test
 		t.Fatalf("calls = %#v, want %#v", calls, want)
 	}
 }
+
+func TestWriteMetaCompanionAndRefreshActivityFileSkipsWithoutResolvedFile(t *testing.T) {
+	ctx := context.Background()
+	var calls []string
+
+	s := &Service{
+		metaCompanionWriter: func(ctx context.Context, userID, activityID, effectiveFileID string, data *model.ActivityData, activity *model.Activity) {
+			calls = append(calls, "meta:"+effectiveFileID)
+		},
+		ActivityFileRefresher: func(ctx context.Context, userID, activityID, effectiveFileID string) {
+			calls = append(calls, "refresh:"+effectiveFileID)
+		},
+	}
+
+	s.writeMetaCompanionAndRefreshActivityFile(ctx, "user-1", "activity-1", "", &model.ActivityData{}, &model.Activity{})
+
+	if len(calls) != 0 {
+		t.Fatalf("calls = %#v, want no sidecar or refresh call without resolved file_id", calls)
+	}
+}

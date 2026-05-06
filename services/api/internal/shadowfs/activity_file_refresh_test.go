@@ -48,7 +48,7 @@ func TestRefreshActivityFilePathUsesCurrentActivityFieldsAndMovesSidecar(t *test
 		t.Fatalf("write old meta: %v", err)
 	}
 
-	collisionRel := filepath.Join(userID, DirForType("activity"), "2024", "Berlin_running_.fit")
+	collisionRel := filepath.Join(userID, DirForType("activity"), "2024", "Berlin_running.fit")
 	collisionFull := filepath.Join(basePath, collisionRel)
 	if err := os.MkdirAll(filepath.Dir(collisionFull), 0o755); err != nil {
 		t.Fatalf("mkdir collision: %v", err)
@@ -107,7 +107,7 @@ func TestRefreshActivityFilePathUsesCurrentActivityFieldsAndMovesSidecar(t *test
 		t.Fatal("RefreshActivityFilePath refreshed=false, want true")
 	}
 
-	wantRel := filepath.Join(userID, DirForType("activity"), "2024", "Berlin_running__1.fit")
+	wantRel := filepath.Join(userID, DirForType("activity"), "2024", "Berlin_running_1.fit")
 	if _, err := os.Stat(filepath.Join(basePath, wantRel)); err != nil {
 		t.Fatalf("renamed file missing: %v", err)
 	}

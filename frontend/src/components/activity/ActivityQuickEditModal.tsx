@@ -116,6 +116,16 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
   }, [allTags, draft.tags, tagSearch])
 
   if (!open) return null
+  if (!fullActivity) {
+    return (
+      <ModalShell onClose={onClose} maxWidth="max-w-5xl" className="w-[calc(100vw-2rem)]">
+        <div className="flex min-h-48 items-center justify-center gap-3 text-sm text-neutral-600 dark:text-neutral-300">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Aktivität wird geladen...</span>
+        </div>
+      </ModalShell>
+    )
+  }
 
   function patchDraft(patch: Partial<ActivityQuickEditDraft>) {
     setDraftDirty(true)

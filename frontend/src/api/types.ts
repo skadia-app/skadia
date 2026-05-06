@@ -87,6 +87,7 @@ export interface Activity {
   fit_sport_id?: number
   is_electric: boolean
   is_virtual: boolean
+  is_commute: boolean
   exclude_from_heatmap: boolean
   exclude_from_stats: boolean
   started_at: string
