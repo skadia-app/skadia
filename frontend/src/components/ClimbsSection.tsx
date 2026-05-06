@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { CircleHelp } from 'lucide-react'
 import { fetchActivityClimbs } from '@/api/enrichment'
 import type { Climb } from '@/api/types'
 
@@ -129,7 +130,17 @@ export default function ClimbsSection({ activityId, onClimbHover }: Props) {
                 <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Länge</th>
                 <th className="text-right px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Höhengewinn</th>
                 <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Steigung</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Max. Steigung</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                  <span className="inline-flex items-center gap-1">
+                    Max. Steigung
+                    <span
+                      aria-label="Hinweis zur maximalen Steigung"
+                      title="Max. Steigung ist der steilste geglättete 50-m-Abschnitt innerhalb des Anstiegs."
+                    >
+                      <CircleHelp className="h-3.5 w-3.5 text-neutral-400" aria-hidden="true" />
+                    </span>
+                  </span>
+                </th>
                 <th className="text-center px-3 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Kategorie</th>
               </tr>
             </thead>
