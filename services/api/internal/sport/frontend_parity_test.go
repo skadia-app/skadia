@@ -34,3 +34,26 @@ func TestGeneratedFrontendTaxonomyIsCurrent(t *testing.T) {
 		t.Fatal("generatedSportTaxonomy.ts is stale; run scripts/generate-sport-taxonomy.sh")
 	}
 }
+
+func TestGeneratedFrontendModifiersAreCurrent(t *testing.T) {
+	file, err := os.Open("../../../../config/sport-taxonomy/modifiers.yaml")
+	if err != nil {
+		t.Fatalf("open modifiers.yaml: %v", err)
+	}
+	defer file.Close()
+	modifiers, err := sporttaxgen.LoadModifiers(file)
+	if err != nil {
+		t.Fatalf("load modifiers.yaml: %v", err)
+	}
+	got, err := sporttaxgen.RenderTSModifiers(modifiers)
+	if err != nil {
+		t.Fatalf("render generated frontend modifiers: %v", err)
+	}
+	want, err := os.ReadFile("../../../../frontend/src/lib/generatedSportModifiers.ts")
+	if err != nil {
+		t.Fatalf("read generatedSportModifiers.ts: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("generatedSportModifiers.ts is stale; run scripts/generate-sport-taxonomy.sh")
+	}
+}

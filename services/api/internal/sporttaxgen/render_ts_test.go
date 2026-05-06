@@ -52,3 +52,28 @@ func TestTSStringEscapesControlCharacters(t *testing.T) {
 		t.Fatalf("tsString() = %q, want %q", got, want)
 	}
 }
+
+func TestRenderTSModifiersEmitsMetadata(t *testing.T) {
+	registry, err := LoadModifiers(strings.NewReader(validModifierRegistryFixture()))
+	if err != nil {
+		t.Fatalf("LoadModifiers() error = %v", err)
+	}
+	rendered, err := RenderTSModifiers(registry)
+	if err != nil {
+		t.Fatalf("RenderTSModifiers() error = %v", err)
+	}
+	got := string(rendered)
+	for _, want := range []string{
+		"GENERATED_SPORT_MODIFIERS",
+		"export type SportModifierKey = typeof GENERATED_SPORT_MODIFIER_KEYS[number]",
+		"actionName: 'set_electric'",
+		"actionParam: 'electric'",
+		"shadowFSToken: 'electric'",
+		"systemTag: 'E-Bike'",
+		"onlySportType: 'cycling'",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("RenderTSModifiers() missing %q:\n%s", want, got)
+		}
+	}
+}

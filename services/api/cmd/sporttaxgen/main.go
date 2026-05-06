@@ -30,6 +30,8 @@ func run() error {
 	modifierSource := flag.String("modifier-source", "", "modifier registry YAML source")
 	goOut := flag.String("go-out", "", "generated Go output path")
 	tsOut := flag.String("ts-out", "", "generated TypeScript output path")
+	goModifiersOut := flag.String("go-modifiers-out", "", "generated Go modifier output path")
+	tsModifiersOut := flag.String("ts-modifiers-out", "", "generated TypeScript modifier output path")
 	activityFilterSource := flag.String("activity-filter-source", "", "activity filter projection YAML source")
 	goProjectionsOut := flag.String("go-projections-out", "", "generated Go activity filter projection output path")
 	tsProjectionsOut := flag.String("ts-projections-out", "", "generated TypeScript activity filter projection output path")
@@ -59,6 +61,12 @@ func run() error {
 	}
 	if *tsOut == "" {
 		*tsOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedSportTaxonomy.ts")
+	}
+	if *goModifiersOut == "" {
+		*goModifiersOut = filepath.Join(*repoRoot, "services", "api", "internal", "sport", "modifiers_generated.go")
+	}
+	if *tsModifiersOut == "" {
+		*tsModifiersOut = filepath.Join(*repoRoot, "frontend", "src", "lib", "generatedSportModifiers.ts")
 	}
 	if *activityFilterSource == "" {
 		*activityFilterSource = filepath.Join(*repoRoot, "config", "sport-taxonomy", "projections", "activity_filters.yaml")
@@ -122,7 +130,14 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load modifier registry: %w", err)
 	}
-	_ = modifierRegistry
+	renderedGoModifiers, err := sporttaxgen.RenderGoModifiers(modifierRegistry)
+	if err != nil {
+		return fmt.Errorf("render Go modifiers: %w", err)
+	}
+	renderedTSModifiers, err := sporttaxgen.RenderTSModifiers(modifierRegistry)
+	if err != nil {
+		return fmt.Errorf("render TypeScript modifiers: %w", err)
+	}
 	renderedGo, err := sporttaxgen.RenderGo(taxonomy)
 	if err != nil {
 		return fmt.Errorf("render Go taxonomy: %w", err)
@@ -216,6 +231,8 @@ func run() error {
 		outputs := []generatedOutput{
 			{path: *goOut, want: renderedGo},
 			{path: *tsOut, want: renderedTS},
+			{path: *goModifiersOut, want: renderedGoModifiers},
+			{path: *tsModifiersOut, want: renderedTSModifiers},
 			{path: *goProjectionsOut, want: renderedGoProjections},
 			{path: *tsProjectionsOut, want: renderedTSProjections},
 			{path: *tsSegmentProjectionsOut, want: renderedTSSegmentProjections},
@@ -242,6 +259,12 @@ func run() error {
 	}
 	if err := os.WriteFile(*tsOut, renderedTS, 0o644); err != nil {
 		return fmt.Errorf("write TypeScript taxonomy: %w", err)
+	}
+	if err := os.WriteFile(*goModifiersOut, renderedGoModifiers, 0o644); err != nil {
+		return fmt.Errorf("write Go modifiers: %w", err)
+	}
+	if err := os.WriteFile(*tsModifiersOut, renderedTSModifiers, 0o644); err != nil {
+		return fmt.Errorf("write TypeScript modifiers: %w", err)
 	}
 	if err := os.WriteFile(*goProjectionsOut, renderedGoProjections, 0o644); err != nil {
 		return fmt.Errorf("write Go activity filter projection: %w", err)

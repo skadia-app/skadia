@@ -51,6 +51,23 @@ type ModifierTagSync struct {
 
 var shadowFSTokenPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+func modifierCapabilityNames() []string {
+	return []string{
+		"source_alias",
+		"modifier_patch",
+		"activity_state",
+		"modifier_filter",
+		"rule_condition",
+		"rule_action",
+		"route_filter",
+		"heatmap_filter",
+		"gear_default",
+		"record_grouping",
+		"shadowfs_label",
+		"quick_edit",
+	}
+}
+
 func LoadModifiers(r io.Reader) (ModifierRegistry, error) {
 	var registry ModifierRegistry
 	dec := yaml.NewDecoder(r)
@@ -206,25 +223,9 @@ func validateModifierRegistry(registry ModifierRegistry) error {
 }
 
 func validateModifierCapabilities(modifier ModifierDefinition) error {
-	for _, capability := range []struct {
-		name  string
-		value *bool
-	}{
-		{"source_alias", modifier.Capabilities.SourceAlias},
-		{"modifier_patch", modifier.Capabilities.ModifierPatch},
-		{"activity_state", modifier.Capabilities.ActivityState},
-		{"modifier_filter", modifier.Capabilities.ModifierFilter},
-		{"rule_condition", modifier.Capabilities.RuleCondition},
-		{"rule_action", modifier.Capabilities.RuleAction},
-		{"route_filter", modifier.Capabilities.RouteFilter},
-		{"heatmap_filter", modifier.Capabilities.HeatmapFilter},
-		{"gear_default", modifier.Capabilities.GearDefault},
-		{"record_grouping", modifier.Capabilities.RecordGrouping},
-		{"shadowfs_label", modifier.Capabilities.ShadowFSLabel},
-		{"quick_edit", modifier.Capabilities.QuickEdit},
-	} {
-		if capability.value == nil {
-			return fmt.Errorf("modifier %q: missing capabilities.%s", modifier.Key, capability.name)
+	for _, capability := range modifierCapabilityNames() {
+		if modifier.Capabilities.pointer(capability) == nil {
+			return fmt.Errorf("modifier %q: missing capabilities.%s", modifier.Key, capability)
 		}
 	}
 	if boolValue(modifier.Capabilities.RuleCondition) != boolValue(modifier.Capabilities.RuleAction) {
@@ -243,6 +244,37 @@ func validateModifierCapabilities(modifier ModifierDefinition) error {
 		return fmt.Errorf("modifier %q: heatmap_filter requires modifier_filter", modifier.Key)
 	}
 	return nil
+}
+
+func (c ModifierCapabilities) pointer(capability string) *bool {
+	switch capability {
+	case "source_alias":
+		return c.SourceAlias
+	case "modifier_patch":
+		return c.ModifierPatch
+	case "activity_state":
+		return c.ActivityState
+	case "modifier_filter":
+		return c.ModifierFilter
+	case "rule_condition":
+		return c.RuleCondition
+	case "rule_action":
+		return c.RuleAction
+	case "route_filter":
+		return c.RouteFilter
+	case "heatmap_filter":
+		return c.HeatmapFilter
+	case "gear_default":
+		return c.GearDefault
+	case "record_grouping":
+		return c.RecordGrouping
+	case "shadowfs_label":
+		return c.ShadowFSLabel
+	case "quick_edit":
+		return c.QuickEdit
+	default:
+		return nil
+	}
 }
 
 func validateModifierTagSync(modifier ModifierDefinition) error {
