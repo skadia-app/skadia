@@ -19,6 +19,11 @@ export interface ActivityQuickEditDraft {
 
 const COUPLED_TAGS = new Set(['indoor', 'e-bike', 'virtuell'])
 
+export interface QuickEditTagCandidate {
+  name: string
+  activity_count?: number
+}
+
 function sameNullableString(a: string | null | undefined, b: string | null | undefined): boolean {
   return (a ?? '') === (b ?? '')
 }
@@ -87,6 +92,21 @@ export function diffQuickEditTags(currentTags: string[], draftTags: string[]): {
     add: next.filter(tag => !currentKeys.has(normalizedTagName(tag))),
     remove: current.filter(tag => !nextKeys.has(normalizedTagName(tag))),
   }
+}
+
+export function quickEditTagSuggestions(
+  allTags: QuickEditTagCandidate[],
+  draftTags: string[],
+  search: string,
+): QuickEditTagCandidate[] {
+  const selected = new Set(draftTags.map(normalizedTagName))
+  const q = search.trim().toLowerCase()
+  const limit = q ? 30 : 18
+  return allTags
+    .filter(tag => !selected.has(normalizedTagName(tag.name)))
+    .filter(tag => !q || tag.name.toLowerCase().includes(q))
+    .sort((a, b) => (b.activity_count ?? 0) - (a.activity_count ?? 0))
+    .slice(0, limit)
 }
 
 export function quickEditTagDraftAfterToggle(

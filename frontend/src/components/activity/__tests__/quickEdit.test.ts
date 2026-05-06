@@ -3,6 +3,7 @@ import {
   buildActivityQuickEditPatch,
   diffQuickEditTags,
   quickEditTagDraftAfterToggle,
+  quickEditTagSuggestions,
 } from '../quickEdit'
 import type { ActivityQuickEditDraft } from '../quickEdit'
 import type { Activity } from '@/api/types'
@@ -79,5 +80,27 @@ describe('activity quick edit helpers', () => {
     const noElectric = quickEditTagDraftAfterToggle(draft({ isElectric: true, tags: ['E-Bike'] }), 'E-Bike', false)
     expect(noElectric.isElectric).toBe(false)
     expect(noElectric.tags).not.toContain('E-Bike')
+  })
+
+  it('limits tag suggestions and orders them by usage when search is empty', () => {
+    const tags = Array.from({ length: 40 }, (_, i) => ({
+      name: `Tag ${i}`,
+      activity_count: i,
+    }))
+
+    const suggestions = quickEditTagSuggestions(tags, ['Tag 39'], '')
+
+    expect(suggestions).toHaveLength(18)
+    expect(suggestions[0].name).toBe('Tag 38')
+    expect(suggestions.at(-1)?.name).toBe('Tag 21')
+  })
+
+  it('allows more filtered tag suggestions while still capping the list', () => {
+    const tags = Array.from({ length: 40 }, (_, i) => ({
+      name: `Urlaub ${i}`,
+      activity_count: i,
+    }))
+
+    expect(quickEditTagSuggestions(tags, [], 'urlaub')).toHaveLength(30)
   })
 })
