@@ -11,6 +11,8 @@ export interface ActivityQuickEditDraft {
   isIndoor: boolean
   isElectric: boolean
   isVirtual: boolean
+  excludeFromHeatmap: boolean
+  excludeFromStats: boolean
   visibility: Activity['visibility']
   workoutRpe: number | null
   workoutFeel: number | null
@@ -55,6 +57,8 @@ export function activityQuickEditDraftFromActivity(activity: Activity): Activity
     isIndoor: activity.is_indoor,
     isElectric: activity.is_electric,
     isVirtual: activity.is_virtual,
+    excludeFromHeatmap: activity.exclude_from_heatmap,
+    excludeFromStats: activity.exclude_from_stats,
     visibility: activity.visibility,
     workoutRpe: activity.workout_rpe ?? null,
     workoutFeel: activity.workout_feel ?? null,
@@ -75,6 +79,8 @@ export function buildActivityQuickEditPatch(activity: Activity, draft: ActivityQ
   if (activity.is_indoor !== draft.isIndoor) patch.is_indoor = draft.isIndoor
   if (activity.is_electric !== draft.isElectric) patch.is_electric = draft.isElectric
   if (activity.is_virtual !== draft.isVirtual) patch.is_virtual = draft.isVirtual
+  if (activity.exclude_from_heatmap !== draft.excludeFromHeatmap) patch.exclude_from_heatmap = draft.excludeFromHeatmap
+  if (activity.exclude_from_stats !== draft.excludeFromStats) patch.exclude_from_stats = draft.excludeFromStats
   if (activity.visibility !== draft.visibility) patch.visibility = draft.visibility
   if ((activity.workout_rpe ?? null) !== draft.workoutRpe) patch.workout_rpe = draft.workoutRpe
   if ((activity.workout_feel ?? null) !== draft.workoutFeel) patch.workout_feel = draft.workoutFeel
