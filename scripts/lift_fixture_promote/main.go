@@ -111,8 +111,8 @@ func runResynthesize(args []string) error {
 	description := fs.String("description", "", "generic description")
 	seed := fs.String("seed", "", "repo seed hex")
 	privacyList := fs.String("privacy-list", "", "privacy replacement list")
-	_ = fs.String("tolerance-spec", "", "tolerance spec")
-	_ = fs.Bool("trace-diff", false, "show debug trace diff")
+	toleranceSpec := fs.String("tolerance-spec", "", "tolerance spec")
+	traceDiff := fs.Bool("trace-diff", false, "show debug trace diff")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -135,10 +135,23 @@ func runResynthesize(args []string) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	var tolerance RideTolerance
+	if *toleranceSpec != "" {
+		tolerance, err = LoadToleranceSpec(*toleranceSpec)
+		if err != nil {
+			return err
+		}
+	}
+	var traceWriter *os.File
+	if *traceDiff {
+		traceWriter = os.Stderr
+	}
 	fixture, gt, err := ResynthesizeWindow(raw, ResynthesizeOptions{
 		RepoSeedHex:  repoSeed,
 		ScenarioKind: *scenarioKind,
 		Description:  *description,
+		Tolerance:    tolerance,
+		TraceWriter:  traceWriter,
 	})
 	if err != nil {
 		return err

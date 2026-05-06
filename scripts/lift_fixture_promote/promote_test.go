@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,6 +141,58 @@ func TestResynthesizeWindowIsDeterministicAndIgnoresSourceSeed(t *testing.T) {
 	}
 	if !bytes.Equal(firstBytes, secondBytes) {
 		t.Fatal("resynthesis output changed when only SKADIA_ANON_SOURCE_SEED changed")
+	}
+}
+
+func TestResynthesizeWindowDoesNotPreserveSourceTurnGeometry(t *testing.T) {
+	raw := RawWindow{FormatVersion: FormatVersion, Samples: []RawSample{
+		{DtMS: 0, XM: 0, YM: 0, AltM: ptrFloat(1000), SpeedMS: ptrFloat(1), DistanceM: ptrFloat(0)},
+		{DtMS: 1000, XM: 10, YM: 0, AltM: ptrFloat(1000), SpeedMS: ptrFloat(1), DistanceM: ptrFloat(10)},
+		{DtMS: 2000, XM: 20, YM: 0, AltM: ptrFloat(1000), SpeedMS: ptrFloat(1), DistanceM: ptrFloat(20)},
+		{DtMS: 3000, XM: 20, YM: 10, AltM: ptrFloat(1000), SpeedMS: ptrFloat(1), DistanceM: ptrFloat(30)},
+		{DtMS: 4000, XM: 20, YM: 20, AltM: ptrFloat(1000), SpeedMS: ptrFloat(1), DistanceM: ptrFloat(40)},
+	}}
+
+	fixture, _, err := ResynthesizeWindow(raw, ResynthesizeOptions{
+		RepoSeedHex:  "00112233445566778899aabbccddeeff",
+		ScenarioKind: "geometry_privacy",
+		Description:  "generic geometry privacy fixture",
+	})
+	if err != nil {
+		t.Fatalf("ResynthesizeWindow returned error: %v", err)
+	}
+
+	turnAngle := sampleTurnAngle(fixture.Samples[0], fixture.Samples[1], fixture.Samples[2], fixture.Samples[3])
+	if math.Abs(turnAngle-math.Pi/2) < 0.10 {
+		t.Fatalf("resynthesis preserved a right-angle source turn: angle=%.3f rad", turnAngle)
+	}
+}
+
+func TestDetectorEquivalenceRejectsRideMismatch(t *testing.T) {
+	source := []lifts.RideWithIndices{{
+		Ride: lifts.LiftRide{
+			DurationS:  120,
+			AscentM:    80,
+			DistanceM:  300,
+			Confidence: "high",
+		},
+	}}
+	resynth := []lifts.RideWithIndices{{
+		Ride: lifts.LiftRide{
+			DurationS:  120,
+			AscentM:    80,
+			DistanceM:  380,
+			Confidence: "high",
+		},
+	}}
+
+	err := AssertDetectorEquivalent(source, resynth, defaultRideTolerance())
+	if err == nil {
+		t.Fatal("detector equivalence accepted a distance drift beyond tolerance")
+	}
+	diff := DetectorTraceDiff(source, resynth)
+	if !strings.Contains(diff, "distance") {
+		t.Fatalf("trace diff did not mention the changed metric: %s", diff)
 	}
 }
 
@@ -349,6 +402,58 @@ func TestRunResynthesizeWritesCanonicalAndGT(t *testing.T) {
 	}
 }
 
+func TestRunResynthesizeAppliesToleranceSpec(t *testing.T) {
+	dir := t.TempDir()
+	rawPath := filepath.Join(dir, "raw_window.json")
+	tolerancePath := filepath.Join(dir, "tolerance.yaml")
+	canonicalPath := filepath.Join(dir, "case.canonical.json")
+	gtPath := filepath.Join(dir, "case.gt.yaml")
+	rawBytes, err := json.Marshal(rawCableWindowWithStations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rawPath, rawBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tolerancePath, []byte(`
+start_distance_growth_m: 9
+end_distance_growth_m: 11
+ascent_m: 3
+descent_m: 4
+distance_m: 5
+duration_s: 6
+confidence: exact
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err = run([]string{
+		"resynthesize",
+		"--input", rawPath,
+		"--output-canonical", canonicalPath,
+		"--output-gt", gtPath,
+		"--scenario-kind", "slow_chairlift",
+		"--seed", "00112233445566778899aabbccddeeff",
+		"--tolerance-spec", tolerancePath,
+	})
+	if err != nil {
+		t.Fatalf("resynthesize command returned error: %v", err)
+	}
+	_, gt, err := LoadCanonicalPair(canonicalPath, gtPath)
+	if err != nil {
+		t.Fatalf("generated fixture pair did not load: %v", err)
+	}
+	if len(gt.Rides) != 1 {
+		t.Fatalf("ride count = %d, want 1", len(gt.Rides))
+	}
+	got := gt.Rides[0].Tolerance
+	if got.StartDistanceGrowthM != 9 || got.EndDistanceGrowthM != 11 ||
+		got.AscentM != 3 || got.DescentM != 4 || got.DistanceM != 5 ||
+		got.DurationS != 6 || got.Confidence != "exact" {
+		t.Fatalf("tolerance spec was not applied: %+v", got)
+	}
+}
+
 func TestResynthesizeWindowWritesRideGTWithStationDistanceBaseline(t *testing.T) {
 	raw := rawCableWindowWithStations()
 	fixture, gt, err := ResynthesizeWindow(raw, ResynthesizeOptions{
@@ -426,6 +531,26 @@ func tinyFixtureGT() FixtureGT {
 }
 
 func ptrFloat(v float64) *float64 { return &v }
+
+func sampleTurnAngle(a, b, c, d CanonicalSample) float64 {
+	v1x := b.XM - a.XM
+	v1y := b.YM - a.YM
+	v2x := d.XM - c.XM
+	v2y := d.YM - c.YM
+	dot := v1x*v2x + v1y*v2y
+	mag := math.Hypot(v1x, v1y) * math.Hypot(v2x, v2y)
+	if mag == 0 {
+		return 0
+	}
+	cos := dot / mag
+	if cos < -1 {
+		cos = -1
+	}
+	if cos > 1 {
+		cos = 1
+	}
+	return math.Acos(cos)
+}
 
 func rawCableWindowWithStations() RawWindow {
 	const (

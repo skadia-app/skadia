@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -115,16 +116,8 @@ type ResynthesizeOptions struct {
 	RepoSeedHex  string
 	ScenarioKind string
 	Description  string
-}
-
-type rawFrame struct {
-	originLat float64
-	originLng float64
-	originXM  float64
-	originYM  float64
-	useLatLng bool
-	cos       float64
-	sin       float64
+	Tolerance    RideTolerance
+	TraceWriter  io.Writer
 }
 
 func LoadCanonicalPair(canonicalPath, gtPath string) (CanonicalFixture, FixtureGT, error) {
@@ -402,38 +395,40 @@ func privacyTerms(listPath string) ([]string, error) {
 	return terms, nil
 }
 
+func LoadToleranceSpec(path string) (RideTolerance, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return RideTolerance{}, err
+	}
+	var doc struct {
+		RideTolerance `yaml:",inline"`
+		Default       RideTolerance `yaml:"default"`
+		Defaults      RideTolerance `yaml:"defaults"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return RideTolerance{}, err
+	}
+	tol := defaultRideTolerance()
+	tol = mergeRideTolerance(tol, doc.RideTolerance)
+	tol = mergeRideTolerance(tol, doc.Default)
+	tol = mergeRideTolerance(tol, doc.Defaults)
+	return tol, nil
+}
+
 func ResynthesizeWindow(raw RawWindow, opts ResynthesizeOptions) (CanonicalFixture, FixtureGT, error) {
 	seed, err := effectiveSeed(raw, opts.RepoSeedHex)
 	if err != nil {
 		return CanonicalFixture{}, FixtureGT{}, err
 	}
-	frame, err := newRawFrame(raw, seed)
+	tolerance := normalizeRideTolerance(opts.Tolerance)
+	sourceRows, err := RawToStream(raw)
 	if err != nil {
 		return CanonicalFixture{}, FixtureGT{}, err
 	}
-	samples := make([]CanonicalSample, 0, len(raw.Samples))
-	var totalDist float64
-	for i, s := range raw.Samples {
-		if i > 0 {
-			totalDist += rawSegmentDistance(raw.Samples[i-1], s)
-		}
-		x, y, err := frame.sampleXY(s)
-		if err != nil {
-			return CanonicalFixture{}, FixtureGT{}, fmt.Errorf("sample %d: %w", i, err)
-		}
-		dist := s.DistanceM
-		if dist == nil {
-			d := totalDist
-			dist = &d
-		}
-		samples = append(samples, CanonicalSample{
-			DtMS:      s.DtMS,
-			XM:        roundMeters(x),
-			YM:        roundMeters(y),
-			AltM:      copyFloat(s.AltM),
-			SpeedMS:   copyFloat(s.SpeedMS),
-			DistanceM: copyFloat(dist),
-		})
+	sourceRides := lifts.DetectHeuristicWithIndices(sourceRows, lifts.DefaultDetectorConfig(""))
+	samples, err := buildSyntheticSamples(raw, seed)
+	if err != nil {
+		return CanonicalFixture{}, FixtureGT{}, err
 	}
 	fixture := CanonicalFixture{
 		FormatVersion: FormatVersion,
@@ -446,7 +441,13 @@ func ResynthesizeWindow(raw RawWindow, opts ResynthesizeOptions) (CanonicalFixtu
 		return CanonicalFixture{}, FixtureGT{}, err
 	}
 	rides := lifts.DetectHeuristicWithIndices(rows, lifts.DefaultDetectorConfig(""))
-	anchors, err := buildFixtureAnchors(raw, frame, samples)
+	if err := AssertDetectorEquivalent(sourceRides, rides, tolerance); err != nil {
+		return CanonicalFixture{}, FixtureGT{}, fmt.Errorf("detector equivalence failed: %w\n%s", err, DetectorTraceDiff(sourceRides, rides))
+	}
+	if opts.TraceWriter != nil {
+		fmt.Fprintln(opts.TraceWriter, DetectorTraceDiff(sourceRides, rides))
+	}
+	anchors, rideGT, err := buildSyntheticRideGT(raw, sourceRows, sourceRides, rides, samples, tolerance, seed)
 	if err != nil {
 		return CanonicalFixture{}, FixtureGT{}, err
 	}
@@ -455,7 +456,7 @@ func ResynthesizeWindow(raw RawWindow, opts ResynthesizeOptions) (CanonicalFixtu
 		FormatVersion: FormatVersion,
 		ScenarioKind:  opts.ScenarioKind,
 		RidesExpected: len(rides),
-		Rides:         buildRideGT(rides, samples, anchors),
+		Rides:         rideGT,
 		Anchors:       anchors,
 	}
 	hash, err := ComputeFixtureContentHash(fixture, gt)
@@ -501,97 +502,116 @@ func effectiveSeed(raw RawWindow, repoSeedHex string) ([32]byte, error) {
 	return out, nil
 }
 
-func newRawFrame(raw RawWindow, seed [32]byte) (rawFrame, error) {
+func RawToStream(raw RawWindow) ([]lifts.StreamPoint, error) {
 	if len(raw.Samples) == 0 {
-		return rawFrame{}, fmt.Errorf("raw window contains no samples")
+		return nil, fmt.Errorf("raw window contains no samples")
 	}
-	angle := seedAngle(seed)
-	frame := rawFrame{
-		cos: math.Cos(angle),
-		sin: math.Sin(angle),
-	}
-	first := raw.Samples[0]
-	if first.Lat != nil && first.Lng != nil {
-		frame.originLat = *first.Lat
-		frame.originLng = *first.Lng
-		frame.useLatLng = true
-		return frame, nil
-	}
-	frame.originXM = first.XM
-	frame.originYM = first.YM
-	return frame, nil
-}
-
-func seedAngle(seed [32]byte) float64 {
-	const maxUint64Float = float64(^uint64(0))
-	return (float64(binary.BigEndian.Uint64(seed[8:16])) / maxUint64Float) * 2 * math.Pi
-}
-
-func (f rawFrame) sampleXY(sample RawSample) (float64, float64, error) {
-	var x, y float64
-	if f.useLatLng {
-		if sample.Lat == nil || sample.Lng == nil {
-			return 0, 0, fmt.Errorf("sample is missing lat/lng in lat/lng-backed raw frame")
+	base := time.Unix(0, 0).UTC()
+	rows := make([]lifts.StreamPoint, 0, len(raw.Samples))
+	for i, sample := range raw.Samples {
+		if i > 0 && sample.DtMS < raw.Samples[i-1].DtMS {
+			return nil, fmt.Errorf("sample %d dt_ms is not monotonic", i)
 		}
-		x, y = latLngToMeters(f.originLat, f.originLng, *sample.Lat, *sample.Lng)
-	} else {
-		x = sample.XM - f.originXM
-		y = sample.YM - f.originYM
-	}
-	x, y = rotateXY(x, y, f.cos, f.sin)
-	return x, y, nil
-}
-
-func (f rawFrame) stationXY(station StationAnchor) (float64, float64, error) {
-	if !f.useLatLng {
-		return 0, 0, fmt.Errorf("station anchors require lat/lng-backed raw samples")
-	}
-	x, y := latLngToMeters(f.originLat, f.originLng, station.Lat, station.Lng)
-	x, y = rotateXY(x, y, f.cos, f.sin)
-	return x, y, nil
-}
-
-func rotateXY(x, y, cosAngle, sinAngle float64) (float64, float64) {
-	return roundMeters(x*cosAngle - y*sinAngle), roundMeters(x*sinAngle + y*cosAngle)
-}
-
-func buildFixtureAnchors(raw RawWindow, frame rawFrame, samples []CanonicalSample) (map[string]Anchor, error) {
-	anchors := make(map[string]Anchor)
-	if len(raw.StationAnchors) > 0 {
-		for i, station := range raw.StationAnchors {
-			if station.Name == "" {
-				station.Name = fmt.Sprintf("station_%02d", i)
-			}
-			x, y, err := frame.stationXY(station)
+		var lat, lng float64
+		if sample.Lat != nil && sample.Lng != nil {
+			lat = *sample.Lat
+			lng = *sample.Lng
+		} else {
+			var err error
+			lat, lng, err = ProjectToWGS84(sample.XM, sample.YM)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("sample %d: %w", i, err)
 			}
-			anchors[station.Name] = Anchor{XM: x, YM: y}
 		}
+		rows = append(rows, lifts.StreamPoint{
+			Time:      base.Add(time.Duration(sample.DtMS) * time.Millisecond),
+			Lat:       &lat,
+			Lng:       &lng,
+			AltitudeM: sample.AltM,
+			SpeedMs:   sample.SpeedMS,
+			DistanceM: sample.DistanceM,
+		})
 	}
-	if len(anchors) == 0 && len(samples) > 0 {
-		anchors["start"] = Anchor{XM: 0, YM: 0}
-		end := samples[len(samples)-1]
-		anchors["end"] = Anchor{XM: end.XM, YM: end.YM}
-	}
-	return anchors, nil
+	return rows, nil
 }
 
-func buildRideGT(rides []lifts.RideWithIndices, samples []CanonicalSample, anchors map[string]Anchor) []RideGT {
+func buildSyntheticSamples(raw RawWindow, seed [32]byte) ([]CanonicalSample, error) {
+	if len(raw.Samples) == 0 {
+		return nil, fmt.Errorf("raw window contains no samples")
+	}
+	samples := make([]CanonicalSample, 0, len(raw.Samples))
+	var x, y float64
+	var totalDist float64
+	for i, sample := range raw.Samples {
+		if i > 0 {
+			if sample.DtMS < raw.Samples[i-1].DtMS {
+				return nil, fmt.Errorf("sample %d dt_ms is not monotonic", i)
+			}
+			segmentDist := rawMetricSegmentDistance(raw.Samples[i-1], sample)
+			totalDist += segmentDist
+			heading := syntheticSegmentHeading(seed, i)
+			x += segmentDist * math.Cos(heading)
+			y += segmentDist * math.Sin(heading)
+		}
+		dist := sample.DistanceM
+		if dist == nil {
+			d := totalDist
+			dist = &d
+		}
+		samples = append(samples, CanonicalSample{
+			DtMS:      sample.DtMS,
+			XM:        roundMeters(x),
+			YM:        roundMeters(y),
+			AltM:      copyFloat(sample.AltM),
+			SpeedMS:   copyFloat(sample.SpeedMS),
+			DistanceM: copyFloat(dist),
+		})
+	}
+	return samples, nil
+}
+
+func buildSyntheticRideGT(raw RawWindow, sourceRows []lifts.StreamPoint, sourceRides, rides []lifts.RideWithIndices, samples []CanonicalSample, tolerance RideTolerance, seed [32]byte) (map[string]Anchor, []RideGT, error) {
+	anchors := make(map[string]Anchor)
+	if len(rides) == 0 {
+		if len(samples) > 0 {
+			anchors["start"] = Anchor{XM: samples[0].XM, YM: samples[0].YM}
+			end := samples[len(samples)-1]
+			anchors["end"] = Anchor{XM: end.XM, YM: end.YM}
+		}
+		return anchors, nil, nil
+	}
 	out := make([]RideGT, 0, len(rides))
 	for i, ride := range rides {
+		if ride.StartSampleIdx < 0 || ride.StartSampleIdx >= len(samples) {
+			return nil, nil, fmt.Errorf("ride %d start sample index %d out of range", i, ride.StartSampleIdx)
+		}
+		if ride.EndSampleIdx < 0 || ride.EndSampleIdx >= len(samples) {
+			return nil, nil, fmt.Errorf("ride %d end sample index %d out of range", i, ride.EndSampleIdx)
+		}
 		startSample := samples[ride.StartSampleIdx]
 		endSample := samples[ride.EndSampleIdx]
-		startAnchor, startDistance := nearestAnchor(startSample, anchors)
-		endAnchor, endDistance := nearestAnchor(endSample, anchors)
+		startDistance, err := sourcePromotionDistance(raw, sourceRows, sourceRides[i].StartSampleIdx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("ride %d start anchor: %w", i, err)
+		}
+		endDistance, err := sourcePromotionDistance(raw, sourceRows, sourceRides[i].EndSampleIdx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("ride %d end anchor: %w", i, err)
+		}
+		startAnchorName := fmt.Sprintf("ride_%02d_start", i)
+		endAnchorName := fmt.Sprintf("ride_%02d_end", i)
+		startAnchor := syntheticAnchor(startSample, startDistance, seed, i, 0)
+		endAnchor := syntheticAnchor(endSample, endDistance, seed, i, 1)
+		anchors[startAnchorName] = startAnchor
+		anchors[endAnchorName] = endAnchor
 		out = append(out, RideGT{
 			RideIndex:   i,
 			Confidence:  ride.Ride.Confidence,
-			StartAnchor: startAnchor,
-			EndAnchor:   endAnchor,
+			StartAnchor: startAnchorName,
+			EndAnchor:   endAnchorName,
 			PromotionDistance: PromotionDistance{
-				StartM: roundMeters(startDistance),
-				EndM:   roundMeters(endDistance),
+				StartM: roundMeters(math.Hypot(startSample.XM-startAnchor.XM, startSample.YM-startAnchor.YM)),
+				EndM:   roundMeters(math.Hypot(endSample.XM-endAnchor.XM, endSample.YM-endAnchor.YM)),
 			},
 			Expected: RideExpected{
 				DurationS: ride.Ride.DurationS,
@@ -599,29 +619,10 @@ func buildRideGT(rides []lifts.RideWithIndices, samples []CanonicalSample, ancho
 				DescentM:  roundMeters(ride.Ride.DescentM),
 				DistanceM: roundMeters(ride.Ride.DistanceM),
 			},
-			Tolerance: defaultRideTolerance(),
+			Tolerance: tolerance,
 		})
 	}
-	return out
-}
-
-func nearestAnchor(sample CanonicalSample, anchors map[string]Anchor) (string, float64) {
-	keys := make([]string, 0, len(anchors))
-	for key := range anchors {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	bestName := ""
-	bestDistance := math.Inf(1)
-	for _, key := range keys {
-		anchor := anchors[key]
-		distance := math.Hypot(sample.XM-anchor.XM, sample.YM-anchor.YM)
-		if distance < bestDistance {
-			bestName = key
-			bestDistance = distance
-		}
-	}
-	return bestName, bestDistance
+	return anchors, out, nil
 }
 
 func defaultRideTolerance() RideTolerance {
@@ -636,11 +637,149 @@ func defaultRideTolerance() RideTolerance {
 	}
 }
 
-func latLngToMeters(originLat, originLng, lat, lng float64) (x, y float64) {
-	const metersPerDegree = 111320.0
-	y = (lat - originLat) * metersPerDegree
-	x = (lng - originLng) * metersPerDegree * math.Cos(originLat*math.Pi/180.0)
-	return x, y
+func normalizeRideTolerance(tol RideTolerance) RideTolerance {
+	return mergeRideTolerance(defaultRideTolerance(), tol)
+}
+
+func mergeRideTolerance(base, override RideTolerance) RideTolerance {
+	if override.StartDistanceGrowthM != 0 {
+		base.StartDistanceGrowthM = override.StartDistanceGrowthM
+	}
+	if override.EndDistanceGrowthM != 0 {
+		base.EndDistanceGrowthM = override.EndDistanceGrowthM
+	}
+	if override.AscentM != 0 {
+		base.AscentM = override.AscentM
+	}
+	if override.DescentM != 0 {
+		base.DescentM = override.DescentM
+	}
+	if override.DistanceM != 0 {
+		base.DistanceM = override.DistanceM
+	}
+	if override.DurationS != 0 {
+		base.DurationS = override.DurationS
+	}
+	if override.Confidence != "" {
+		base.Confidence = override.Confidence
+	}
+	return base
+}
+
+func AssertDetectorEquivalent(source, resynth []lifts.RideWithIndices, tolerance RideTolerance) error {
+	tolerance = normalizeRideTolerance(tolerance)
+	if len(source) != len(resynth) {
+		return fmt.Errorf("ride count drifted from %d to %d", len(source), len(resynth))
+	}
+	for i := range source {
+		want := source[i].Ride
+		got := resynth[i].Ride
+		if !confidenceAllowed(got.Confidence, want.Confidence, tolerance.Confidence) {
+			return fmt.Errorf("ride %d confidence drifted from %q to %q", i, want.Confidence, got.Confidence)
+		}
+		if !withinAbs(got.AscentM, want.AscentM, tolerance.AscentM) {
+			return fmt.Errorf("ride %d ascent drifted from %.3fm to %.3fm", i, want.AscentM, got.AscentM)
+		}
+		if !withinAbs(got.DescentM, want.DescentM, tolerance.DescentM) {
+			return fmt.Errorf("ride %d descent drifted from %.3fm to %.3fm", i, want.DescentM, got.DescentM)
+		}
+		if !withinAbs(got.DistanceM, want.DistanceM, tolerance.DistanceM) {
+			return fmt.Errorf("ride %d distance drifted from %.3fm to %.3fm", i, want.DistanceM, got.DistanceM)
+		}
+		if absInt(got.DurationS-want.DurationS) > tolerance.DurationS {
+			return fmt.Errorf("ride %d duration drifted from %ds to %ds", i, want.DurationS, got.DurationS)
+		}
+	}
+	return nil
+}
+
+func DetectorTraceDiff(source, resynth []lifts.RideWithIndices) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "source_rides=%d resynth_rides=%d", len(source), len(resynth))
+	limit := len(source)
+	if len(resynth) < limit {
+		limit = len(resynth)
+	}
+	for i := 0; i < limit; i++ {
+		want := source[i].Ride
+		got := resynth[i].Ride
+		fmt.Fprintf(&b, "\nride[%d] confidence=%s/%s duration_s=%d/%d ascent_m=%.3f/%.3f descent_m=%.3f/%.3f distance_m=%.3f/%.3f",
+			i,
+			want.Confidence, got.Confidence,
+			want.DurationS, got.DurationS,
+			want.AscentM, got.AscentM,
+			want.DescentM, got.DescentM,
+			want.DistanceM, got.DistanceM,
+		)
+	}
+	return b.String()
+}
+
+func sourcePromotionDistance(raw RawWindow, sourceRows []lifts.StreamPoint, sampleIdx int) (float64, error) {
+	if len(raw.StationAnchors) == 0 {
+		return 0, nil
+	}
+	if sampleIdx < 0 || sampleIdx >= len(sourceRows) || sampleIdx >= len(raw.Samples) {
+		return 0, fmt.Errorf("source sample index %d out of range", sampleIdx)
+	}
+	sample := raw.Samples[sampleIdx]
+	if sample.Lat == nil || sample.Lng == nil {
+		return 0, fmt.Errorf("station-anchor baselines require lat/lng-backed raw samples")
+	}
+	best := math.Inf(1)
+	for _, station := range raw.StationAnchors {
+		distance := lifts.Haversine(*sample.Lat, *sample.Lng, station.Lat, station.Lng)
+		if distance < best {
+			best = distance
+		}
+	}
+	if math.IsInf(best, 1) {
+		return 0, nil
+	}
+	return best, nil
+}
+
+func syntheticAnchor(sample CanonicalSample, distance float64, seed [32]byte, rideIndex int, endpoint byte) Anchor {
+	if distance <= 0 {
+		return Anchor{XM: sample.XM, YM: sample.YM}
+	}
+	angle := syntheticAnchorAngle(seed, rideIndex, endpoint)
+	return Anchor{
+		XM: roundMeters(sample.XM + distance*math.Cos(angle)),
+		YM: roundMeters(sample.YM + distance*math.Sin(angle)),
+	}
+}
+
+func syntheticAnchorAngle(seed [32]byte, rideIndex int, endpoint byte) float64 {
+	h := sha256.New()
+	h.Write(seed[:])
+	var buf [9]byte
+	binary.BigEndian.PutUint64(buf[:8], uint64(rideIndex))
+	buf[8] = endpoint
+	h.Write(buf[:])
+	sum := h.Sum(nil)
+	return seedUnit(sum[:8]) * 2 * math.Pi
+}
+
+func syntheticSegmentHeading(seed [32]byte, sampleIndex int) float64 {
+	base := seedUnit(seed[:8]) * 2 * math.Pi
+	phase := seedUnit(seed[16:24]) * 2 * math.Pi
+	return base + 0.025*math.Sin(float64(sampleIndex)*0.67+phase)
+}
+
+func seedUnit(b []byte) float64 {
+	const maxUint64Float = float64(^uint64(0))
+	return float64(binary.BigEndian.Uint64(b)) / maxUint64Float
+}
+
+func rawMetricSegmentDistance(a, b RawSample) float64 {
+	if a.DistanceM != nil && b.DistanceM != nil {
+		delta := *b.DistanceM - *a.DistanceM
+		if delta >= 0 {
+			return delta
+		}
+	}
+	return rawSegmentDistance(a, b)
 }
 
 func rawSegmentDistance(a, b RawSample) float64 {

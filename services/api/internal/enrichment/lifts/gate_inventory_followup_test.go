@@ -178,12 +178,12 @@ func TestValidateHighRejectsSlowBandLowGradient(t *testing.T) {
 	ws := stats{
 		altsOK:      true,
 		speedsOK:    true,
-		meanSpeed:   1.5,
+		meanSpeed:   0.9,
 		speedCV:     0.01,
 		sinuosity:   1.0,
-		altRateMs:   0.20,
-		altPosDelta: 70,
-		durationS:   300,
+		altRateMs:   0.10,
+		altPosDelta: 50,
+		durationS:   500,
 	}
 	if validateRide(ws, "high", cfg) {
 		t.Fatal("validateRide accepted a slow-band low-gradient candidate")

@@ -2199,7 +2199,7 @@ func trimTrailingLowSpeedSamples(rows []StreamPoint, start, end int, cfg Detecto
 //     0.05 m/s while every sample holds 4.85–4.95 m/s — that is mid-cable,
 //     NOT walk-off). A bergstation walk-off always contains at least one
 //     sub-3 m/s sample: pure walking (multi-resort case r9: min 0.69 m/s) or the
-//     bar-release jump-and-slide pattern of T-bar lifts (T-bar drag-lift case Lift A:
+//     bar-release jump-and-slide pattern of surface lifts (calibration class:
 //     min 2.45 m/s while the rider accelerates off the bar). Using the
 //     window minimum (not mean) is what discriminates those cases — the
 //     mean of the slide pattern climbs back above 3 m/s once the rider
@@ -2405,8 +2405,8 @@ func validateRide(ws stats, kind string, cfg DetectorConfig) bool {
 		// lift but run on a flat hang (~5–7°, gradient < 0.15). FL-1
 		// ride[03] (242 s/40 m, gradient 0.136) and bikepark transfer case-2 ride[01]
 		// (368 s/52 m, gradient 0.116) are exactly this shape. The check
-		// does not endanger genuine slow lifts: T-bar drag-lift case's T-bar lifts
-		// run at the same 1.9–2.1 m/s but on a 15–18° hang
+		// does not endanger genuine slow surface lifts: the calibrated class
+		// runs at the same 1.9–2.1 m/s but on a 15–18° hang
 		// (gradient ≈ 0.30), well above the 0.15 floor.
 		if ws.meanSpeed < 2.0 && gradient < 0.15 {
 			return false
