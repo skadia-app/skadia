@@ -63,6 +63,29 @@ Adding a top-level sport:
 6. Regenerate and review generated Go/TypeScript diffs instead of editing them
    by hand.
 
+Adding a modifier:
+
+1. Add the modifier to `modifiers.yaml` with stable key, German label, Go field,
+   TypeScript field, JSON key, activity column, action names, ShadowFS token,
+   capability flags, and optional tag-sync metadata.
+2. If the modifier is stored on activities, add the storage migration and update
+   all SQL contracts for the enabled capabilities. The parity tests cover
+   modifier filters, gear-default predicates, heatmap filters, and tag-sync SQL.
+3. Decide every capability explicitly. Do not enable a surface just because a
+   neighboring modifier has it; each consumer has different semantics.
+4. Add or update `modifier_applicability` and `modifier_defaults` in
+   `sports.yaml` only for sports where the modifier can actually apply.
+5. Update source aliases only when a raw source label itself carries modifier
+   evidence. Parser/device evidence belongs in importer code, not aliases.
+6. Regenerate with `scripts/generate-sport-taxonomy.sh`, then run
+   `scripts/generate-sport-taxonomy.sh --check`.
+7. Run the modifier parity matrix for generated Go/TypeScript metadata,
+   SQL validators, rule projections, route filters, records, ShadowFS, sidecar
+   metadata, import metadata, and frontend modifier consumers.
+8. Check importer precedence: source evidence must not be overwritten by
+   taxonomy defaults, explicit false patches must remain possible, and tag sync
+   must keep context-specific labels such as `E-Bike` scoped to their sport.
+
 Do not review taxonomy changes only in generated source. The source YAML is the
 canonical input; generated tests and projections are the review surfaces for
 concrete consumers.
