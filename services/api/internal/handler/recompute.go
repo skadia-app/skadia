@@ -925,18 +925,12 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			}
 		}
 
-		// Emit Stage-2 event only for ML modules in the selection (currently: lifts).
-		// Stage-2 handles lift detection; all other geo modules are Go-native.
-		if doLifts && h.Stage2ReadyPublisher != nil {
-			stage2Modules := []string{"lifts"}
-			if err := h.Stage2ReadyPublisher.PublishStage2Ready(event.Stage2ReadyEvent{
-				ActivityID:     activityID,
-				UserID:         userID,
-				EnabledModules: stage2Modules,
-			}); err != nil {
-				slog.Warn("reprocess: per-submodule stage2 publish failed (non-fatal)", "id", activityID, "error", err)
-			}
-		}
+		// Phase 4: lift detection runs in-process inside RunStreamEnrichment
+		// (called by RunStage1 above when doStage1=true; doLifts always sets
+		// doGeo→doStage1 via the same submodule wiring). No Stage-2 NATS
+		// publish needed; Python's enrich_lifts is no longer triggered for
+		// recompute scopes. Embeddings remain Stage-2-dispatched but are
+		// handled by the Stage-1 publisher path, not this per-submodule block.
 	}
 
 	// 8b. Apply automation rules (all activities — not just GPS, since Frost/Nacht/etc. apply to indoor too).
