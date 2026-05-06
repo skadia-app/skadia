@@ -164,6 +164,15 @@ func RenderTSSegmentProjection(projection ExpandedSegmentProjection) ([]byte, er
 		fmt.Fprintf(&buf, "    { key: %s, label: %s, activeDomains: %s, compatibilityRole: %s },\n", tsString(segmentType.Key), tsString(segmentType.Label["de"]), tsStringArray(segmentType.ActiveDomains), tsString(segmentType.CompatibilityRole))
 	}
 	buf.WriteString("  ],\n")
+	buf.WriteString("  routeOptions: [\n")
+	for _, option := range projection.RouteOptions {
+		if option.SubType == "" {
+			fmt.Fprintf(&buf, "    { sportType: %s },\n", tsString(option.SportType))
+			continue
+		}
+		fmt.Fprintf(&buf, "    { sportType: %s, subType: %s },\n", tsString(option.SportType), tsString(option.SubType))
+	}
+	buf.WriteString("  ],\n")
 	buf.WriteString("  eligible: [\n")
 	activeDomainsBySegmentType := map[string]map[string]struct{}{}
 	for _, segmentType := range projection.SegmentTypes {

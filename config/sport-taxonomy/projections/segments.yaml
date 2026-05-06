@@ -32,6 +32,61 @@ segment_types:
     active_domains: []
     compatibility_role: legacy_lift
 
+route_options:
+  - sport_type: running
+    promoted_sub_types: [trail]
+  - sport_type: walking
+  - sport_type: hiking
+    promoted_sub_types: [rucking]
+  - sport_type: mountaineering
+  - sport_type: snowshoeing
+  - sport_type: wheelchair_push
+    promoted_sub_types: [walk_speed, run_speed]
+  - sport_type: cycling
+    promoted_sub_types: [mountain, gravel_cycling, road]
+  - sport_type: inline_skating
+  - sport_type: skateboarding
+  - sport_type: geocaching
+  - sport_type: archery
+  - sport_type: shooting
+  - sport_type: alpine_skiing
+  - sport_type: backcountry_skiing
+  - sport_type: cross_country_skiing
+  - sport_type: snowboarding
+  - sport_type: ice_skating
+  - sport_type: snowmobiling
+  - sport_type: sledding
+  - sport_type: swimming
+  - sport_type: kayaking
+  - sport_type: stand_up_paddleboarding
+  - sport_type: rowing
+  - sport_type: rafting
+  - sport_type: canoeing
+  - sport_type: surfing
+  - sport_type: kitesurfing
+  - sport_type: windsurfing
+  - sport_type: wakeboarding
+  - sport_type: wakesurfing
+  - sport_type: water_skiing
+  - sport_type: water_tubing
+  - sport_type: snorkeling
+  - sport_type: boating
+  - sport_type: sailing
+  - sport_type: fishing
+  - sport_type: cricket
+  - sport_type: golf
+  - sport_type: disc_golf
+  - sport_type: rock_climbing
+  - sport_type: flying
+  - sport_type: hang_gliding
+  - sport_type: sky_diving
+  - sport_type: jumpmaster
+  - sport_type: horseback_riding
+  - sport_type: hunting
+  - sport_type: motorcycling
+  - sport_type: driving
+  - sport_type: multisport
+
 eligible:
   - sport_type: running
     segment_types: [standard, trail, lap]

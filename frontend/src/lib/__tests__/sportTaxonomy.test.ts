@@ -18,6 +18,16 @@ describe('sport taxonomy aliases', () => {
     execFileSync('../scripts/generate-sport-taxonomy.sh', ['--check'], { stdio: 'pipe' })
   })
 
+  it('does not keep hand-maintained frontend taxonomy sister tables', () => {
+    const source = readFileSync('src/lib/sportTaxonomy.ts', 'utf8')
+
+    expect(source).not.toContain('FRONTEND_SPORT_ORDER')
+    expect(source).not.toContain('const LEGACY_ALIASES')
+    expect(source).not.toContain('const LEGACY_SUBTYPE_ALIASES')
+    expect(source).not.toContain('ROUTE_PROMOTED_SUBTYPES')
+    expect(source).not.toContain('ROUTE_COMPATIBLE_SPORT_TYPES')
+  })
+
   it('normalizes legacy sport types to canonical tuples', () => {
     expect(normalizeSportTuple('mountain_biking')).toEqual({
       sportType: 'cycling',
@@ -155,7 +165,7 @@ describe('sport taxonomy aliases', () => {
     expect(sportTypes).not.toContain('strength')
   })
 
-  it('keeps frontend option order stable while generated source order is backend-owned', () => {
+  it('derives frontend option order from the activity filter projection', () => {
     expect(canonicalSportOptions().slice(0, 12).map((opt) => opt.value)).toEqual([
       'running',
       'walking',
@@ -163,12 +173,12 @@ describe('sport taxonomy aliases', () => {
       'mountaineering',
       'wheelchair_push',
       'cycling',
-      'inline_skating',
-      'skateboarding',
       'alpine_skiing',
       'backcountry_skiing',
       'cross_country_skiing',
       'snowboarding',
+      'snowshoeing',
+      'ice_skating',
     ])
     expect(sportsInCategory('fitness').map((s) => s.sportType)).toEqual([
       'training',
