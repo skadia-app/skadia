@@ -248,11 +248,6 @@ export default function GeoTagsList({ activityId, hiddenModules }: GeoTagsListPr
                               </span>
                             )}
                           </span>
-                          {groupKey === 'settlement' && tag.source === 'boundary' && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
-                              Gemeinde
-                            </span>
-                          )}
                         </div>
                         <div className="flex flex-wrap gap-3 text-xs text-neutral-500 dark:text-neutral-400">
                           {poiType && (

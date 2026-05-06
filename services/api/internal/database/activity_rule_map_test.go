@@ -58,6 +58,42 @@ func TestGetActivityAsMapIncludesBooleanRuleModifiers(t *testing.T) {
 	assertMapBool(t, m, "is_commute", true)
 }
 
+func TestGetActivityAsMapCountsOnlyCountryBordersForRuleConditions(t *testing.T) {
+	db, userID := activitiesParentTestDB(t)
+	ctx := context.Background()
+
+	act, err := db.InsertActivity(ctx, userID, &model.ActivityData{
+		SportType: "cycling",
+		StartedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("InsertActivity: %v", err)
+	}
+
+	for _, border := range []struct {
+		name       string
+		adminLevel int
+	}{
+		{"Bundeslandgrenze", 4},
+		{"Landesgrenze", 2},
+	} {
+		if _, err := db.Pool.Exec(ctx, `
+			INSERT INTO activity_geo_tags (activity_id, category, name, admin_level)
+			VALUES ($1, 'border', $2, $3)
+		`, act.ID, border.name, border.adminLevel); err != nil {
+			t.Fatalf("insert border %s: %v", border.name, err)
+		}
+	}
+
+	m, err := db.GetActivityAsMap(ctx, act.ID)
+	if err != nil {
+		t.Fatalf("GetActivityAsMap: %v", err)
+	}
+	if got, _ := m["border_crossing_count"].(int); got != 1 {
+		t.Fatalf("border_crossing_count = %v, want 1 country border only", m["border_crossing_count"])
+	}
+}
+
 func assertMapBool(t *testing.T, m map[string]any, key string, want bool) {
 	t.Helper()
 	got, ok := m[key]

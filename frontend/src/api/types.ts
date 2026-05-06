@@ -492,7 +492,7 @@ export interface GeoTag {
   ele_m?: number
   created_at: string
   source?: string | null      // poi, boundary
-  admin_level?: number | null // 8 for municipalities
+  admin_level?: number | null // OSM administrative level; country-specific
 }
 
 export interface EnrichmentSettings {

@@ -20,3 +20,16 @@ func TestGeoSettingsFromModel_CopiesSummitRadius(t *testing.T) {
 		t.Fatalf("got %v, want 42.0", got.SummitDetectionRadiusM)
 	}
 }
+
+func TestBorderCrossingAdminLevels_IncludesCountryAndRegionalBoundaries(t *testing.T) {
+	got := borderCrossingAdminLevels()
+	want := []int32{2, 4, 5}
+	if len(got) != len(want) {
+		t.Fatalf("borderCrossingAdminLevels = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("borderCrossingAdminLevels = %v, want %v", got, want)
+		}
+	}
+}

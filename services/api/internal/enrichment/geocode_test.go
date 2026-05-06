@@ -3,8 +3,6 @@ package enrichment
 import (
 	"context"
 	"errors"
-	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -152,22 +150,15 @@ func TestCheckOsmBoundariesExists_ConcurrentCallersDoNotStampede(t *testing.T) {
 	}
 }
 
-// TestBorderAdminLevels_IncludesGreekRegions verifies the SQL constant in
-// enrichGeoTagsBorders includes admin_level 5 (Greek Περιφέρεια), finding #61.
-//
-// We don't execute the query against a real DB (the package tests run without
-// PostGIS). Instead we pin the literal so a regression in geo_enrich.go
-// (e.g. someone reverting to `IN (2, 4)`) trips this test.
-func TestBorderAdminLevels_IncludesGreekRegions(t *testing.T) {
-	// The enrichGeoTagsBorders query must include admin_level 5 for Greek
-	// regions. Expected substring in the SQL source:
-	expected := "b.admin_level IN (2, 4, 5)"
-
-	src, err := os.ReadFile("geo_enrich.go")
-	if err != nil {
-		t.Fatalf("read source: %v", err)
+func TestBorderAdminLevels_IncludeCountryAndRegionalBoundaries(t *testing.T) {
+	got := borderCrossingAdminLevels()
+	want := []int32{2, 4, 5}
+	if len(got) != len(want) {
+		t.Fatalf("borderCrossingAdminLevels = %v, want %v", got, want)
 	}
-	if !strings.Contains(string(src), expected) {
-		t.Fatalf("enrichGeoTagsBorders: missing %q — Greek regions (admin_level 5) would be skipped", expected)
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("borderCrossingAdminLevels = %v, want %v", got, want)
+		}
 	}
 }
