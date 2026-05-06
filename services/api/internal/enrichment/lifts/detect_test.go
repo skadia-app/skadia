@@ -112,6 +112,43 @@ func TestNegativePassRoad(t *testing.T) {
 	}
 }
 
+func TestContinuousRoadClimbWithoutBoundaryCueRejected(t *testing.T) {
+	cfg := DefaultDetectorConfig("cycling")
+	now := time.Date(2024, 6, 1, 10, 0, 0, 0, time.UTC)
+	rows := make([]StreamPoint, 0, 441)
+	tcur := now
+	lat := 47.0
+	lng := 12.0
+	alt := 900.0
+	appendPoint := func(speed float64) {
+		la, ln, al, spd := lat, lng, alt, speed
+		rows = append(rows, StreamPoint{
+			Time:      tcur,
+			Lat:       &la,
+			Lng:       &ln,
+			AltitudeM: &al,
+			SpeedMs:   &spd,
+		})
+	}
+	appendSegment := func(seconds int, altStepM, speed float64) {
+		for range seconds {
+			tcur = tcur.Add(time.Second)
+			lat += 3.1e-5
+			alt += altStepM
+			appendPoint(speed)
+		}
+	}
+	appendPoint(3.4)
+	appendSegment(120, 0.00, 3.4)
+	appendSegment(240, 0.52, 3.4)
+	appendSegment(80, 0.10, 3.4)
+
+	rides := DetectHeuristic(rows, cfg)
+	if len(rides) != 0 {
+		t.Fatalf("expected no ride for steady uphill road motion, got %+v", rides)
+	}
+}
+
 // TestEffectiveSpeedFloor — when SpeedMs is below GPSDeltaSpeedFloorMs,
 // effectiveSpeed must fall through to GPS-delta even on a single sample.
 func TestEffectiveSpeedFloor(t *testing.T) {
