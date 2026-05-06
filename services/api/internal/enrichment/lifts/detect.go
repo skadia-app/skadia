@@ -134,6 +134,24 @@ func DetectHeuristic(rows []StreamPoint, cfg DetectorConfig) []LiftRide {
 				final = extFinal
 			}
 		}
+		// Post-extension lift-mass floor: every real lift in the corpus
+		// covers ≥66 m of vertical (slow-cable bikepark case T-bar A asc 66 m / 309 s
+		// is the calibrated minimum). After backward-extension has had a
+		// chance to capture the cable lift-off, anything still below 60 m
+		// is a hike segment that incidentally cleared the speed/sin gates
+		// (high-end cycling computer hike at asc 47 m, GPS-corrupt sample case stationary
+		// jitter at asc 42 m). The 6 m headroom over the Wb T-bar floor
+		// shields against ±5 m barometer noise on a real ride end.
+		// validateRide's initial 40 m floor stays loose so multi-section
+		// gondolas (multi-section case multi-C: forward window asc 56 m → after
+		// backward-ext asc 224 m) survive the first gate.
+		finalAbsAlt := math.Max(final.altPosDelta, final.altNegDelta)
+		if finalAbsAlt < 60 {
+			dprintf("REJECT-POST absAlt=%.1f < 60 mean=%.2f rate=%.2f sin=%.3f dur=%.0f\n",
+				finalAbsAlt, final.meanSpeed, final.altRateMs, final.sinuosity, final.durationS)
+			i = finalEnd + 1
+			continue
+		}
 		raw = append(raw, rideWithIdx{
 			ride: LiftRide{
 				StartedAt:  rows[start].Time,
@@ -1189,8 +1207,20 @@ func trimTrailingLowGradient(rows []StreamPoint, start, end int, kind string, cf
 		// chairlifts run terminal cable at ~0.15 m/s — fixed 0.15 absolute
 		// over-trims them). Absolute floor 0.05 keeps the gate active for
 		// edge-case low-altRate rides where 0.5 × rideAltRate falls below
-		// disembark schuss (~0.05–0.10 m/s).
+		// disembark schuss (~0.05–0.10 m/s). Upper cap 0.20 prevents over-
+		// trimming the cable-decel zone of fast lifts: at the bergstation a
+		// gondola/aerial-tramway brakes from cruise to ~0 m/s over the last
+		// 60 s, dropping tail altRate to 0.25–0.30 m/s while still on the
+		// cable. smartphone-GPS recording ride 7 calibrated case: cable run alt 1247 →
+		// 1923 over 9 min (rideAltRate 1.26 m/s) but the last 60 s only
+		// rises 16 m (0.27 m/s) approaching L06a — without the cap the floor
+		// sits at 0.63 and trims 51 s of real cable. Above 0.20 the gate
+		// stops triggering on cable-decel; walk-off still falls below
+		// (alt-flat at the cable terminal yields altRate ≈ 0).
 		altRateFloor := 0.5 * rideAltRate
+		if altRateFloor > 0.20 {
+			altRateFloor = 0.20
+		}
 		if altRateFloor < 0.05 {
 			altRateFloor = 0.05
 		}
@@ -1343,6 +1373,26 @@ func trimLeadingLowGradient(rows []StreamPoint, start, end int, kind string) int
 			return pos
 		}
 		leadRate := math.Abs(*leadAltEnd-*leadAltStart) / leadDt
+		// Cable-cruise bypass: when the lead window's haversine mean speed
+		// is clearly in cable-cruise band (≥2.5 m/s), the segment is not a
+		// boarding plateau (those run at walking pace 0.5–1.5 m/s). A
+		// horizontal cable section between pylons / through a station can
+		// have low alt-rate while still moving at full cable speed —
+		// trimming it discards the cable lift-off. smartphone-GPS recording ride[2] @
+		// 10:06 calibrated case: lead 10:06:06–10:06:16 alt-rate 0.39 m/s
+		// (would trip the abs cap), haversine speed 4.0 m/s — cable cruise
+		// through L08-Tal pylon, must not trim.
+		var leadDist float64
+		for k := pos + 1; k <= leadEnd; k++ {
+			if rows[k-1].Lat == nil || rows[k-1].Lng == nil ||
+				rows[k].Lat == nil || rows[k].Lng == nil {
+				continue
+			}
+			leadDist += Haversine(*rows[k-1].Lat, *rows[k-1].Lng, *rows[k].Lat, *rows[k].Lng)
+		}
+		if leadDist/leadDt >= 2.5 {
+			return pos
+		}
 		var restAltStart, restAltEnd *float64
 		for k := leadEnd; k <= end; k++ {
 			if rows[k].AltitudeM == nil {
@@ -1618,12 +1668,34 @@ func extendCandidateBackward(rows []StreamPoint, oldStart, end int, kind string,
 				}
 			}
 			if !advanced && lastAdvanceTime.Sub(prv.Time).Seconds() > altAdvanceStallBackS {
-				dprintf("BACK BREAK alt-stall extreme=%.1f prv=%.1f stall=%.1fs at start=%d pin->lastAdvIdx=%d\n",
-					extremeAlt, *prv.AltitudeM, lastAdvanceTime.Sub(prv.Time).Seconds(), start, lastAdvanceIdx)
-				if lastAdvanceIdx > start && lastAdvanceIdx <= oldStart {
-					start = lastAdvanceIdx
+				// Cable-plateau bypass: a real lift can hold a horizontal
+				// cable section for 30–60 s mid-route (multi-section gondola
+				// passing through a station, sag-cable approaching the pylon
+				// near a turn-around). During that section alt stays flat but
+				// the cable moves the rider at full cable speed (3–8 m/s),
+				// well above any boarding-queue shuffle (0.1–1.5 m/s). The
+				// alt-stall gate is meant for the boarding-queue case: walk
+				// further back through the plateau iff mean speed clearly
+				// stays in cable-cruise band. smartphone-GPS recording ride 2 calibrated
+				// case: 38 s alt-flat plateau at 1842 m between 10:05:30 and
+				// 10:06:08 with chunked-mean speed 4.0 m/s — the cable was
+				// running through a horizontal section at L08-Tal pylon.
+				stallSpdMean := backwardStallMeanSpeed(rows, start-1, lastAdvanceIdx, cfg)
+				if stallSpdMean >= 2.5 {
+					dprintf("BACK skip alt-stall mean=%.2f≥2.5 (cable-plateau) at start=%d\n",
+						stallSpdMean, start)
+					// Reset the stall counter so the loop keeps walking back
+					// without re-firing the gate on the same plateau.
+					lastAdvanceTime = prv.Time
+					lastAdvanceIdx = start - 1
+				} else {
+					dprintf("BACK BREAK alt-stall extreme=%.1f prv=%.1f stall=%.1fs spdMean=%.2f at start=%d pin->lastAdvIdx=%d\n",
+						extremeAlt, *prv.AltitudeM, lastAdvanceTime.Sub(prv.Time).Seconds(), stallSpdMean, start, lastAdvanceIdx)
+					if lastAdvanceIdx > start && lastAdvanceIdx <= oldStart {
+						start = lastAdvanceIdx
+					}
+					break
 				}
-				break
 			}
 		}
 		sinCheckCounter++
@@ -1642,6 +1714,36 @@ func extendCandidateBackward(rows []StreamPoint, oldStart, end int, kind string,
 		start--
 	}
 	return start
+}
+
+// backwardStallMeanSpeed returns the mean effective speed across the alt-
+// stall window [lo, hi] inclusive. Walks `lo`→`hi` and averages every
+// sample whose effective speed (sensor or haversine fallback) is reported.
+// Returns 0 when fewer than 5 valid samples — a small window cannot
+// reliably distinguish boarding queue from cable plateau, so the caller
+// treats it as if mean were below the cable threshold.
+func backwardStallMeanSpeed(rows []StreamPoint, lo, hi int, cfg DetectorConfig) float64 {
+	if lo < 0 {
+		lo = 0
+	}
+	if hi >= len(rows) {
+		hi = len(rows) - 1
+	}
+	if lo >= hi {
+		return 0
+	}
+	var sum float64
+	var n int
+	for k := lo; k <= hi; k++ {
+		if spd, ok := effectiveSpeedCfg(rows, k, cfg); ok {
+			sum += spd
+			n++
+		}
+	}
+	if n < 5 {
+		return 0
+	}
+	return sum / float64(n)
 }
 
 // windowSinuosity returns cumulative-distance / straight-line-distance for
@@ -1847,9 +1949,14 @@ func validateRide(ws stats, kind string, cfg DetectorConfig) bool {
 			return false
 		}
 		// Minimum total ascent: real lifts cover at least 40 m of vertical
-		// (the slowest T-bar lift in the corpus rises 110 m; the shortest
-		// chairlift segment ~50 m). Anything below 40 m is a trail bump
-		// that happens to pass the speed/sin gates.
+		// in the candidate's forward-extended window. The floor stays loose
+		// at this stage because extendCandidateBackward routinely walks
+		// start back through the cable lift-off and doubles asc — requiring
+		// full-ride asc here would discard candidates whose forward window
+		// only saw the upper 60 s of the cable run (multi-section case 1 multi-C
+		// first @ 09:00–09:04: forward window asc 56 m, backward extension
+		// reveals true asc 224 m). The post-extension asc floor in
+		// DetectHeuristic enforces the lift-vs-hike discriminator.
 		absAlt := math.Max(ws.altPosDelta, ws.altNegDelta)
 		if absAlt < 40 {
 			return false
@@ -1868,6 +1975,37 @@ func validateRide(ws stats, kind string, cfg DetectorConfig) bool {
 		}
 		gradient := absRate / math.Max(ws.meanSpeed, 0.001)
 		if gradient <= cfg.MinGradient {
+			return false
+		}
+		// Implausible-gradient cap. Real cable angles in the corpus top
+		// out at 0.50 (alpine bikepark mountain station case II: 925 m alt over 270 s with
+		// haversine-mean ~6.86 m/s → gradient 0.50). Above 0.65 the
+		// candidate is GPS-spike-induced altitude noise on a near-
+		// stationary track: GPS-corrupt sample case (GPS-corrupt) ride[3] shows a
+		// 60 m alt jump on a 70 m straight-line window → gradient 0.81;
+		// ride[0] has cumDist≈0 with a 85 m alt-spike → gradient ~1400.
+		// Real gradient 0.50 + 30 % headroom = 0.65 keeps mountain station case safe.
+		if gradient > 0.65 {
+			return false
+		}
+		// Hike-band gate: walking/jogging speeds (1.0–2.4 m/s) with low
+		// vertical rate (<0.40 m/s) match a slow-cable signature on chunk
+		// mean and CV but fail the actual climb work a cable does. The
+		// (mean, altRate) plane has a clear gap between real lifts and
+		// hikes:
+		//   slow-cable bikepark case T-bar (slowest real): mean 0.74–0.88 m/s, altRate
+		//     0.20–0.25 m/s → mean below 1.0 floor, gate spares.
+		//   T-bar drag-lift case T-bar:     mean 1.91–2.17 m/s, altRate
+		//     0.48–0.59 m/s → altRate above 0.40 floor, gate spares.
+		//   slow-cable bikepark case slow chairlift class: mean 2.47–2.82 m/s, altRate
+		//     0.32–0.39 m/s → mean above 2.4 ceiling, gate spares.
+		//   Hike FPs (high-end cycling computer ride[0] @ alt 1380 m): mean 1.97 m/s,
+		//     altRate 0.22 m/s → both inside the gate, rejected.
+		//   Stationary GPS-jitter (GPS-corrupt sample case ride[4]): mean 1.07 m/s,
+		//     altRate 0.22 m/s → both inside, rejected.
+		// The 1.0–2.4 m/s band is the zone where humans walk uphill but
+		// cables do not cruise (T-bars sit below it, chairlifts above).
+		if ws.meanSpeed >= 1.0 && ws.meanSpeed < 2.4 && math.Abs(ws.altRateMs) < 0.40 {
 			return false
 		}
 		// Slow-band tightening: catch push/walking phases between proper
