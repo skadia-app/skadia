@@ -1679,7 +1679,7 @@ func applyFusionSportSelection(ctx context.Context, q database.Querier, db *data
 	if selection == nil {
 		return nil
 	}
-	tuple, patch, err := sporttax.NormalizeSportTuple(selection.SportType, selection.SubType)
+	tuple, patch, err := sporttax.NormalizeSelectableSportTuple(selection.SportType, selection.SubType)
 	if err != nil {
 		return err
 	}

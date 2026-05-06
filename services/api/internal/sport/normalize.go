@@ -1,6 +1,7 @@
 package sport
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -33,6 +34,8 @@ const (
 	UnknownSportType          = "unknown"
 	ParentOnlySubTypeSentinel = "generic"
 )
+
+var ErrNonSelectableTuple = errors.New("sport tuple is not selectable")
 
 // CanonicalSportTypeID normalizes internal taxonomy identifiers, not provider labels.
 func CanonicalSportTypeID(sportType string) string {
@@ -114,6 +117,17 @@ func NormalizeSportTuple(sportType, subType string) (Tuple, ModifierPatch, error
 		return Tuple{}, ModifierPatch{}, err
 	}
 	return result.Tuple, result.Patch, nil
+}
+
+func NormalizeSelectableSportTuple(sportType, subType string) (Tuple, ModifierPatch, error) {
+	tuple, patch, err := NormalizeSportTuple(sportType, subType)
+	if err != nil {
+		return Tuple{}, ModifierPatch{}, err
+	}
+	if !IsSelectableTuple(tuple.SportType, tuple.SubType) {
+		return Tuple{}, ModifierPatch{}, fmt.Errorf("%w: %s/%s", ErrNonSelectableTuple, tuple.SportType, tuple.SubType)
+	}
+	return tuple, patch, nil
 }
 
 func ResolveSport(input ResolveInput) (ResolveResult, error) {

@@ -384,7 +384,7 @@ func rewriteActionMaps(actions []map[string]any, surface string) ([]map[string]a
 			continue
 		}
 		rawSubType, _ := params["sub_type"].(string)
-		tuple, patch, err := sport.NormalizeSportTuple(rawSport, rawSubType)
+		tuple, patch, err := sport.NormalizeSelectableSportTuple(rawSport, rawSubType)
 		if err != nil {
 			return nil, fmt.Errorf("%s[%d]: %w", surface, i, err)
 		}

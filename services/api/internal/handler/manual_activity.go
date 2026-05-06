@@ -53,13 +53,9 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "sport_type is required", r.URL.Path)
 		return
 	}
-	tuple, patch, err := sport.NormalizeSportTuple(req.SportType, req.SubType)
+	tuple, patch, err := sport.NormalizeSelectableSportTuple(req.SportType, req.SubType)
 	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
-		return
-	}
-	if !sport.IsSelectableTuple(tuple.SportType, tuple.SubType) {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", fmt.Sprintf("sport tuple %q/%q is not selectable", tuple.SportType, tuple.SubType), r.URL.Path)
 		return
 	}
 	req.SportType = tuple.SportType

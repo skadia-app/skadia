@@ -341,6 +341,10 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 			return
 		}
+		if errors.Is(err, sport.ErrNonSelectableTuple) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
 		slog.Error("update activity failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity", r.URL.Path)
 		return

@@ -50,6 +50,43 @@ func TestGetSportsTaxonomyUsesTaxonomyOrder(t *testing.T) {
 	}
 }
 
+func TestGetSportsTaxonomyExposesLifecycleAndSelectableFlags(t *testing.T) {
+	h := &Handler{}
+	r := chi.NewRouter()
+	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sports/taxonomy", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	var got taxonomyResponse
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	other := findCategoryResponse(t, got.Categories, "other")
+	unknown := findSportResponse(t, other.Sports, "unknown")
+	if unknown.Selectable {
+		t.Fatal("unknown selectable = true, want false")
+	}
+
+	winter := findCategoryResponse(t, got.Categories, "winter")
+	skiing := findSportResponse(t, winter.Sports, "skiing")
+	if skiing.Lifecycle != "broad_fallback" {
+		t.Fatalf("skiing lifecycle = %q, want broad_fallback", skiing.Lifecycle)
+	}
+
+	multi := findCategoryResponse(t, got.Categories, "multi")
+	transition := findSportResponse(t, multi.Sports, "transition")
+	swimToBike := findSubTypeResponse(t, transition.SubTypes, "swim_to_bike_transition")
+	if swimToBike.Selectable {
+		t.Fatal("transition/swim_to_bike_transition selectable = true, want false")
+	}
+}
+
 func responseCategoryKeys(categories []categoryResponse) []string {
 	keys := make([]string, 0, len(categories))
 	for _, category := range categories {
@@ -94,4 +131,15 @@ func findSportResponse(t *testing.T, sports []sportResponse, sportType string) s
 	}
 	t.Fatalf("response missing sport %q", sportType)
 	return sportResponse{}
+}
+
+func findSubTypeResponse(t *testing.T, subTypes []subTypeResponse, subType string) subTypeResponse {
+	t.Helper()
+	for _, item := range subTypes {
+		if item.SubType == subType {
+			return item
+		}
+	}
+	t.Fatalf("response missing sub_type %q", subType)
+	return subTypeResponse{}
 }

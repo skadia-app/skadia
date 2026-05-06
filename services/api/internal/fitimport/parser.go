@@ -1707,12 +1707,18 @@ func normalizeParsedActivitySport(data *model.ActivityData) error {
 	}
 	tuple := resolved.Tuple
 	patch := resolved.Patch
+	loggedUnmapped := false
 	if !resolved.Resolved {
+		slog.Warn("fit import: unmapped sport type", "source", "fit", "raw_sport", strings.TrimSpace(data.SportType), "raw_sub_type", strings.TrimSpace(data.SubType))
+		loggedUnmapped = true
 		var fallbackErr error
 		tuple, patch, fallbackErr = sport.NormalizeSportTupleForImport(data.SportType, data.SubType)
 		if fallbackErr != nil {
 			return fallbackErr
 		}
+	}
+	if tuple.SportType == sport.UnknownSportType && !loggedUnmapped {
+		slog.Warn("fit import: unmapped sport type", "source", "fit", "raw_sport", strings.TrimSpace(data.SportType), "raw_sub_type", strings.TrimSpace(data.SubType))
 	}
 	data.SportType = tuple.SportType
 	data.SubType = tuple.SubType

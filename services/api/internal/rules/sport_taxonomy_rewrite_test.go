@@ -95,6 +95,19 @@ func TestSportTaxonomyRewriteActionsRejectsModifierWriteConflict(t *testing.T) {
 	}
 }
 
+func TestSportTaxonomyRewriteActionsRejectsNonSelectableSetSportType(t *testing.T) {
+	input := SportTaxonomyRuleJSON{
+		Actions: json.RawMessage(`[
+			{"action":"set_sport_type","params":{"sport_type":"unknown"}}
+		]`),
+	}
+
+	_, _, err := NormalizeAndValidateSportTaxonomyRuleJSON(input)
+	if err == nil || !strings.Contains(err.Error(), "not selectable") {
+		t.Fatalf("error = %v, want not selectable rejection", err)
+	}
+}
+
 func TestSportTaxonomyRewriteSetFieldSportType(t *testing.T) {
 	input := SportTaxonomyRuleJSON{
 		Actions: json.RawMessage(`[

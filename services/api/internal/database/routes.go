@@ -101,7 +101,7 @@ func normalizePlannedRouteSportTuple(sportType string, subType *string) (string,
 	if subType != nil {
 		rawSubType = *subType
 	}
-	tuple, patch, err := sport.NormalizeSportTuple(sportType, rawSubType)
+	tuple, patch, err := sport.NormalizeSelectableSportTuple(sportType, rawSubType)
 	if err != nil {
 		return "", nil, sport.ModifierPatch{}, err
 	}
