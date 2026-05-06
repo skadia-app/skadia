@@ -352,6 +352,81 @@ func TestMergeMultiRideForOSM_PreservesStage1Snaps(t *testing.T) {
 	}
 }
 
+// --- Stage 3: MethodACoverageGap tests ---
+
+// TestMethodACoverageGap_PlansUncoveredOSMLifts: an OSM lift that no Stage-1
+// or Stage-2 ride snapped to is returned as a Stage-3 plan entry — caller
+// then runs the per-lift time-window SQL.
+func TestMethodACoverageGap_PlansUncoveredOSMLifts(t *testing.T) {
+	osmA := osmLiftCandidate{OSMID: 100, SegmentID: "seg-A", LengthM: 600.0, BearingDeg: 90.0}
+	osmB := osmLiftCandidate{OSMID: 101, SegmentID: "seg-B", LengthM: 200.0, BearingDeg: 180.0}
+
+	// Stage 1+2 produced a snap for osmA only.
+	finalResults := []SnapResult{
+		{RideIdx: 0, Action: SnapActionSnap, OSMCandidateIdx: 0, SegmentID: "seg-A"},
+	}
+	plan := MethodACoverageGap(finalResults, []osmLiftCandidate{osmA, osmB})
+	if len(plan) != 1 {
+		t.Fatalf("plan len = %d, want 1 (only osmB uncovered)", len(plan))
+	}
+	if plan[0].OSMCandidateIdx != 1 {
+		t.Errorf("plan[0].OSMCandidateIdx = %d, want 1 (osmB)", plan[0].OSMCandidateIdx)
+	}
+	if !plan[0].IsMethodAOnly {
+		t.Error("plan[0].IsMethodAOnly must be true (Stage 3 is by definition Method-A-only)")
+	}
+	if !plan[0].IsLiftSegmentMatch {
+		t.Error("plan[0].IsLiftSegmentMatch must be true")
+	}
+}
+
+// TestMethodACoverageGap_NoPlanWhenAllSnapped: when every OSM lift was
+// covered (single ride per lift, both at >=70%) Stage 3 returns nothing.
+func TestMethodACoverageGap_NoPlanWhenAllSnapped(t *testing.T) {
+	osmA := osmLiftCandidate{OSMID: 100, SegmentID: "seg-A", LengthM: 600.0}
+	osmB := osmLiftCandidate{OSMID: 101, SegmentID: "seg-B", LengthM: 200.0}
+	finalResults := []SnapResult{
+		{RideIdx: 0, Action: SnapActionSnap, OSMCandidateIdx: 0, SegmentID: "seg-A"},
+		{RideIdx: 1, Action: SnapActionSnap, OSMCandidateIdx: 1, SegmentID: "seg-B"},
+	}
+	plan := MethodACoverageGap(finalResults, []osmLiftCandidate{osmA, osmB})
+	if len(plan) != 0 {
+		t.Errorf("plan len = %d, want 0", len(plan))
+	}
+}
+
+// TestMethodACoverageGap_PassthroughDoesNotCoverOSMLift: a ride that fell
+// through to passthrough (no snap) does NOT count as covering an OSM lift,
+// so Stage 3 should still propose the lift.
+func TestMethodACoverageGap_PassthroughDoesNotCoverOSMLift(t *testing.T) {
+	osmA := osmLiftCandidate{OSMID: 100, SegmentID: "seg-A", LengthM: 600.0}
+	finalResults := []SnapResult{
+		{RideIdx: 0, Action: SnapActionPassthrough},
+	}
+	plan := MethodACoverageGap(finalResults, []osmLiftCandidate{osmA})
+	if len(plan) != 1 {
+		t.Fatalf("plan len = %d, want 1 (passthrough does not cover the lift)", len(plan))
+	}
+}
+
+// TestMethodACoverageGap_SuppressedSiblingsAlsoCount: when Stage 2 merges
+// rideA+rideB into one snap on OSM idx 0, both the canonical and the
+// SuppressedByMerge sibling reference OSMCandidateIdx=0 — Stage 3 should
+// see the lift as covered exactly once.
+func TestMethodACoverageGap_SuppressedSiblingsAlsoCount(t *testing.T) {
+	osmA := osmLiftCandidate{OSMID: 100, SegmentID: "seg-merge", LengthM: 600.0}
+	finalResults := []SnapResult{
+		{RideIdx: 0, Action: SnapActionSnap, OSMCandidateIdx: 0, IsCableHoldMerge: true,
+			MergedRideIndices: []int{0, 1}, SegmentID: "seg-merge"},
+		{RideIdx: 1, Action: SnapActionSnap, OSMCandidateIdx: 0, IsCableHoldMerge: true,
+			SuppressedByMerge: true, SegmentID: "seg-merge"},
+	}
+	plan := MethodACoverageGap(finalResults, []osmLiftCandidate{osmA})
+	if len(plan) != 0 {
+		t.Errorf("plan len = %d, want 0 (lift covered by the merged group)", len(plan))
+	}
+}
+
 // --- helpers ---
 
 type syntheticRide struct {
