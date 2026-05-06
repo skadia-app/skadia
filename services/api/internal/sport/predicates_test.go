@@ -3,6 +3,7 @@ package sport
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -131,6 +132,19 @@ func TestModifiersMatch(t *testing.T) {
 				t.Fatalf("ModifiersMatch() = %v, want %v", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestModifiersMatchUsesGeneratedKeys(t *testing.T) {
+	want := []string{"is_electric", "is_indoor", "is_virtual", "is_commute"}
+	got := SportModifierKeysWithCapability("modifier_filter")
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("modifier_filter keys = %v, want %v", got, want)
+	}
+
+	falseValue := false
+	if ModifiersMatch(ModifierFilters{IsCommute: &falseValue}, ActivityModifierState{IsCommute: true}) {
+		t.Fatal("ModifiersMatch ignored generated is_commute filter")
 	}
 }
 

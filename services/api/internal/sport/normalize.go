@@ -12,15 +12,17 @@ type Tuple struct {
 }
 
 type ModifierPatch struct {
-	IsElectric *bool
-	IsIndoor   *bool
-	IsVirtual  *bool
+	IsElectric *bool `json:"is_electric,omitempty" yaml:"is_electric,omitempty"`
+	IsIndoor   *bool `json:"is_indoor,omitempty" yaml:"is_indoor,omitempty"`
+	IsVirtual  *bool `json:"is_virtual,omitempty" yaml:"is_virtual,omitempty"`
+	IsCommute  *bool `json:"is_commute,omitempty" yaml:"is_commute,omitempty"`
 }
 
 type ModifierValues struct {
 	IsElectric bool
 	IsIndoor   bool
 	IsVirtual  bool
+	IsCommute  bool
 }
 
 type GearDefaultPredicate struct {
@@ -65,7 +67,22 @@ func ApplyModifierPatch(values ModifierValues, patch ModifierPatch) ModifierValu
 	if patch.IsVirtual != nil {
 		values.IsVirtual = *patch.IsVirtual
 	}
+	if patch.IsCommute != nil {
+		values.IsCommute = *patch.IsCommute
+	}
 	return values
+}
+
+func ModifierPatchIsEmpty(patch *ModifierPatch) bool {
+	if patch == nil {
+		return true
+	}
+	for _, key := range SportModifierKeysWithCapability("modifier_patch") {
+		if modifierPatchValue(*patch, key) != nil {
+			return false
+		}
+	}
+	return true
 }
 
 type Source string
@@ -354,7 +371,11 @@ func normalizeGearDefaultPredicate(predicate GearDefaultPredicate) (GearDefaultP
 		sub := tuple.SubType
 		normalized.SubType = &sub
 	}
-	if patch := normalizeGearDefaultModifierPatch(predicate.Modifiers); patch != nil {
+	patch, err := normalizeGearDefaultModifierPatch(predicate.Modifiers)
+	if err != nil {
+		return GearDefaultPredicate{}, err
+	}
+	if patch != nil {
 		normalized.Modifiers = patch
 	}
 	return normalized, nil
@@ -366,15 +387,18 @@ func gearDefaultPredicateFromResolved(tuple Tuple, patch ModifierPatch) GearDefa
 		subType := tuple.SubType
 		predicate.SubType = &subType
 	}
-	if normalizedPatch := normalizeGearDefaultModifierPatch(&patch); normalizedPatch != nil {
+	if normalizedPatch, err := normalizeGearDefaultModifierPatch(&patch); err == nil && normalizedPatch != nil {
 		predicate.Modifiers = normalizedPatch
 	}
 	return predicate
 }
 
-func normalizeGearDefaultModifierPatch(patch *ModifierPatch) *ModifierPatch {
+func normalizeGearDefaultModifierPatch(patch *ModifierPatch) (*ModifierPatch, error) {
 	if patch == nil {
-		return nil
+		return nil, nil
+	}
+	if patch.IsCommute != nil {
+		return nil, fmt.Errorf("gear default modifier %q is not allowed", "is_commute")
 	}
 	normalized := ModifierPatch{
 		IsElectric: patch.IsElectric,
@@ -382,9 +406,9 @@ func normalizeGearDefaultModifierPatch(patch *ModifierPatch) *ModifierPatch {
 		IsVirtual:  patch.IsVirtual,
 	}
 	if normalized.IsElectric == nil && normalized.IsIndoor == nil && normalized.IsVirtual == nil {
-		return nil
+		return nil, nil
 	}
-	return &normalized
+	return &normalized, nil
 }
 
 func gearDefaultPredicateKey(predicate GearDefaultPredicate) string {
@@ -475,7 +499,25 @@ func mergeModifierPatch(a, b ModifierPatch) ModifierPatch {
 	if b.IsVirtual != nil {
 		a.IsVirtual = b.IsVirtual
 	}
+	if b.IsCommute != nil {
+		a.IsCommute = b.IsCommute
+	}
 	return a
+}
+
+func modifierPatchValue(patch ModifierPatch, key string) *bool {
+	switch key {
+	case "is_electric":
+		return patch.IsElectric
+	case "is_indoor":
+		return patch.IsIndoor
+	case "is_virtual":
+		return patch.IsVirtual
+	case "is_commute":
+		return patch.IsCommute
+	default:
+		return nil
+	}
 }
 
 func boolPtr(v bool) *bool {

@@ -118,10 +118,58 @@ func PredicatesMatch(preds []Predicate, sportType string, subType *string) bool 
 }
 
 func ModifiersMatch(filters ModifierFilters, state ActivityModifierState) bool {
-	return boolFilterMatches(filters.IsElectric, state.IsElectric) &&
-		boolFilterMatches(filters.IsIndoor, state.IsIndoor) &&
-		boolFilterMatches(filters.IsVirtual, state.IsVirtual) &&
-		boolFilterMatches(filters.IsCommute, state.IsCommute)
+	for _, key := range SportModifierKeysWithCapability("modifier_filter") {
+		if !boolFilterMatches(modifierFilterValue(filters, key), modifierStateValue(state, key)) {
+			return false
+		}
+	}
+	return true
+}
+
+func SetModifierFilter(filters *ModifierFilters, key string, value *bool) bool {
+	switch key {
+	case "is_electric":
+		filters.IsElectric = value
+	case "is_indoor":
+		filters.IsIndoor = value
+	case "is_virtual":
+		filters.IsVirtual = value
+	case "is_commute":
+		filters.IsCommute = value
+	default:
+		return false
+	}
+	return true
+}
+
+func modifierFilterValue(filters ModifierFilters, key string) *bool {
+	switch key {
+	case "is_electric":
+		return filters.IsElectric
+	case "is_indoor":
+		return filters.IsIndoor
+	case "is_virtual":
+		return filters.IsVirtual
+	case "is_commute":
+		return filters.IsCommute
+	default:
+		return nil
+	}
+}
+
+func modifierStateValue(state ActivityModifierState, key string) bool {
+	switch key {
+	case "is_electric":
+		return state.IsElectric
+	case "is_indoor":
+		return state.IsIndoor
+	case "is_virtual":
+		return state.IsVirtual
+	case "is_commute":
+		return state.IsCommute
+	default:
+		return false
+	}
 }
 
 func PredicatesFromSportTypes(sportTypes []string) ([]Predicate, error) {
