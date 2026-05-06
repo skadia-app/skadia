@@ -2110,8 +2110,22 @@ func validateRide(ws stats, kind string, cfg DetectorConfig) bool {
 		//     altRate 0.22 m/s → both inside, rejected.
 		// The 1.0–2.4 m/s band is the zone where humans walk uphill but
 		// cables do not cruise (T-bars sit below it, chairlifts above).
+		//
+		// Cable-lock-step bypass: a real cable run holds sin ≤ 1.02 AND
+		// chunked CV ≤ 0.05 over its full duration even on slow chair-
+		// lift class. Hikes/walks with similar (mean, altRate) sit at
+		// sin ≥ 1.05 OR CV ≥ 0.10 — the calibrated FPs in the Hike-Band
+		// gate's comment block (high-end cycling computer hike ride[0]: sin 1.06,
+		// CV 0.18; GPS-corrupt sample case GPS-jitter ride[4]: sin 1.05, CV 0.21)
+		// both clear it. The slow chairlift case old chairlift sits inside the
+		// Hike-Band by mean+altRate (mean 2.35 m/s, altRate 0.32 m/s)
+		// but presents textbook cable-lock-step geometry (sin 1.009,
+		// CV 0.013) — admit it explicitly.
 		if ws.meanSpeed >= 1.0 && ws.meanSpeed < 2.4 && math.Abs(ws.altRateMs) < 0.40 {
-			return false
+			cableLockStep := ws.sinuosity <= 1.02 && ws.speedCV <= 0.05
+			if !cableLockStep {
+				return false
+			}
 		}
 		// Slow-band tightening: catch push/walking phases between proper
 		// lifts. They share the slow-speed signature (1–2 m/s) with a real
