@@ -235,8 +235,8 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'hide_map', label: 'Karte verborgen', inputType: 'bool' },
   ]},
   { key: 'lift', label: 'Lift', fields: [
-    { field: 'has_lift', label: 'Lift genutzt', inputType: 'bool' },
-    { field: 'lift_count', label: 'Anzahl Lifte', inputType: 'number' },
+    { field: 'has_lift', label: 'Lift erkannt', inputType: 'bool' },
+    { field: 'lift_count', label: 'Anzahl Liftfahrten', inputType: 'number' },
     { field: 'lift_ascent_m', label: 'Lift-Aufstieg', inputType: 'number', unit: 'm' },
     { field: 'lift_descent_m', label: 'Lift-Abstieg', inputType: 'number', unit: 'm' },
     { field: 'lift_distance_m', label: 'Lift-Distanz', inputType: 'number', unit: 'm' },
