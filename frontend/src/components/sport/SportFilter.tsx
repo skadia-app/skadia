@@ -4,6 +4,7 @@ import { fetchSportTypeStats } from '@/api/stats'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 import { filterToExistingSports, getAllSportKeys, getOptionKey, type SportOption } from '@/lib/sportOptions'
 import { sportFilterOptionsForPreset, type SportFilterPreset } from '@/lib/sportFilterPresets'
+import { modifierKeysForCapability, modifierLabel } from '@/lib/sportModifiers'
 
 export interface SportFilterValue {
   sportTypes: string[] | null
@@ -36,19 +37,16 @@ interface SportFilterProps {
   dateRange?: { from?: string; to?: string }
 }
 
-const MODIFIER_LABELS: Record<ModifierKey, string> = {
-  is_electric: 'E-Antrieb',
-  is_indoor: 'Indoor',
-  is_virtual: 'Virtuell',
-  is_commute: 'Pendeln',
-}
+const MODIFIER_LABELS: Record<ModifierKey, string> = Object.fromEntries(
+  modifierKeysForCapability('modifier_filter').map((key) => [key, modifierLabel(key)]),
+) as Record<ModifierKey, string>
 
 export function SportFilter({
   preset,
   value,
   onChange,
   showModifiers = true,
-  modifierKeys = ['is_electric', 'is_indoor', 'is_virtual', 'is_commute'],
+  modifierKeys = modifierKeysForCapability('modifier_filter') as ModifierKey[],
   className,
   hideUnused: hideUnusedOverride,
   dateRange,

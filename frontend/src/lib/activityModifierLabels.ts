@@ -1,3 +1,5 @@
+import { modifierKeysForCapability, modifierLabel, modifierTSField, type SportModifierKey } from './sportModifiers'
+
 export interface ActivityModifierLabelState {
   isElectric?: boolean
   isIndoor?: boolean
@@ -5,9 +7,8 @@ export interface ActivityModifierLabelState {
 }
 
 export function activityModifierLabels(state: ActivityModifierLabelState): string[] {
-  return [
-    state.isElectric ? 'E-Antrieb' : '',
-    state.isIndoor ? 'Indoor' : '',
-    state.isVirtual ? 'Virtuell' : '',
-  ].filter(Boolean)
+  return modifierKeysForCapability('activity_state')
+    .filter((key) => key !== 'is_commute')
+    .filter((key) => Boolean(state[modifierTSField(key) as keyof ActivityModifierLabelState]))
+    .map((key) => modifierLabel(key as SportModifierKey))
 }

@@ -1,8 +1,7 @@
-export const ROUTE_MODIFIER_LABELS = {
-  is_electric: 'E-Antrieb',
-  is_indoor: 'Indoor',
-  is_virtual: 'Virtuell',
-  is_commute: 'Pendeln',
-} as const
+import { modifierKeysForCapability, modifierLabel } from './sportModifiers'
 
-export type RouteModifierKey = keyof typeof ROUTE_MODIFIER_LABELS
+export const ROUTE_MODIFIER_LABELS = Object.fromEntries(
+  modifierKeysForCapability('route_filter').map((key) => [key, modifierLabel(key)]),
+) as Record<RouteModifierKey, string>
+
+export type RouteModifierKey = 'is_electric' | 'is_indoor' | 'is_virtual' | 'is_commute'
