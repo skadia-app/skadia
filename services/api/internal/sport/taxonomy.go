@@ -136,6 +136,7 @@ type SportDef struct {
 	Selectable       bool                  `json:"selectable"`
 	Traits           SportTraits           `json:"traits"`
 	ModifierDefaults ModifierDefaults      `json:"modifier_defaults,omitempty"`
+	SubTypeOrder     []string              `json:"-"`
 	SubTypes         map[string]SubTypeDef `json:"sub_types,omitempty"`
 }
 
@@ -168,7 +169,10 @@ var registry map[string]SportDef
 // The second return value is false when the sport type is unknown.
 func GetSportDef(sportType string) (SportDef, bool) {
 	d, ok := registry[sportType]
-	return d, ok
+	if !ok {
+		return SportDef{}, false
+	}
+	return cloneSportDef(d), true
 }
 
 // IsSelectableTuple reports whether a canonical sport tuple is available for
@@ -290,15 +294,12 @@ func AllCategories() []Category {
 	return result
 }
 
-// AllSports returns all registered sport definitions, sorted alphabetically by SportType.
+// AllSports returns all registered sport definitions in taxonomy display order.
 func AllSports() []SportDef {
-	result := make([]SportDef, 0, len(registry))
-	for _, d := range registry {
-		result = append(result, d)
+	result := make([]SportDef, len(generatedSportDefs))
+	for i, def := range generatedSportDefs {
+		result[i] = cloneSportDef(def)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].SportType < result[j].SportType
-	})
 	return result
 }
 
@@ -415,18 +416,44 @@ func EffectiveTraitsForTuple(sportType, subType string) (SportTraits, bool) {
 	return def.Traits, true
 }
 
-// SportsInCategory returns all sport definitions belonging to a category,
-// sorted alphabetically by SportType.
+// SportsInCategory returns all sport definitions belonging to a category in
+// taxonomy display order.
 func SportsInCategory(categoryKey string) []SportDef {
 	var result []SportDef
-	for _, d := range registry {
+	for _, d := range generatedSportDefs {
 		if d.CategoryKey == categoryKey {
-			result = append(result, d)
+			result = append(result, cloneSportDef(d))
 		}
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].SportType < result[j].SportType
-	})
+	return result
+}
+
+// OrderedSubTypes returns a sport's sub-types in taxonomy display order.
+func OrderedSubTypes(def SportDef) []SubTypeDef {
+	if len(def.SubTypes) == 0 {
+		return nil
+	}
+	result := make([]SubTypeDef, 0, len(def.SubTypes))
+	seen := make(map[string]struct{}, len(def.SubTypes))
+	for _, key := range def.SubTypeOrder {
+		if st, ok := def.SubTypes[key]; ok {
+			result = append(result, st)
+			seen[key] = struct{}{}
+		}
+	}
+	if len(result) == len(def.SubTypes) {
+		return result
+	}
+	fallbackKeys := make([]string, 0, len(def.SubTypes)-len(result))
+	for key := range def.SubTypes {
+		if _, ok := seen[key]; !ok {
+			fallbackKeys = append(fallbackKeys, key)
+		}
+	}
+	sort.Strings(fallbackKeys)
+	for _, key := range fallbackKeys {
+		result = append(result, def.SubTypes[key])
+	}
 	return result
 }
 
@@ -441,6 +468,47 @@ func titleCase(s string) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func cloneSportDef(def SportDef) SportDef {
+	def.Traits = cloneSportTraits(def.Traits)
+	def.ModifierDefaults = cloneModifierDefaults(def.ModifierDefaults)
+	def.SubTypeOrder = append([]string(nil), def.SubTypeOrder...)
+	if def.SubTypes != nil {
+		subTypes := make(map[string]SubTypeDef, len(def.SubTypes))
+		for key, subType := range def.SubTypes {
+			subTypes[key] = cloneSubTypeDef(subType)
+		}
+		def.SubTypes = subTypes
+	}
+	return def
+}
+
+func cloneSubTypeDef(def SubTypeDef) SubTypeDef {
+	def.Traits = cloneSportTraits(def.Traits)
+	def.ModifierDefaults = cloneModifierDefaults(def.ModifierDefaults)
+	if def.MovingThreshold != nil {
+		value := *def.MovingThreshold
+		def.MovingThreshold = &value
+	}
+	return def
+}
+
+func cloneSportTraits(traits SportTraits) SportTraits {
+	traits.Environments = cloneStringSlice(traits.Environments)
+	traits.MovementFamilies = cloneStringSlice(traits.MovementFamilies)
+	traits.EquipmentFamilies = cloneStringSlice(traits.EquipmentFamilies)
+	traits.PropulsionModes = cloneStringSlice(traits.PropulsionModes)
+	return traits
+}
+
+func cloneStringSlice(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	out := make([]string, len(values))
+	copy(out, values)
+	return out
 }
 
 // ModifierDefaultsForTuple returns effective canonical modifier defaults for a

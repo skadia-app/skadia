@@ -3,7 +3,6 @@ package sport
 import (
 	"os"
 	"reflect"
-	"sort"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/sporttaxgen"
@@ -32,8 +31,7 @@ func TestSportsYAMLMatchesCurrentBackendRegistry(t *testing.T) {
 		}
 	}
 
-	gotSports := append([]sporttaxgen.Sport(nil), taxonomy.Sports...)
-	sort.Slice(gotSports, func(i, j int) bool { return gotSports[i].SportType < gotSports[j].SportType })
+	gotSports := taxonomy.Sports
 	wantSports := AllSports()
 	if len(gotSports) != len(wantSports) {
 		t.Fatalf("sport count = %d, want %d", len(gotSports), len(wantSports))
@@ -57,15 +55,9 @@ func TestSportsYAMLMatchesCurrentBackendRegistry(t *testing.T) {
 		if len(got.SubTypes) != len(want.SubTypes) {
 			t.Fatalf("sport %q subtype count = %d, want %d", got.SportType, len(got.SubTypes), len(want.SubTypes))
 		}
-		gotSubTypes := append([]sporttaxgen.SubType(nil), got.SubTypes...)
-		sort.Slice(gotSubTypes, func(i, j int) bool { return gotSubTypes[i].SubType < gotSubTypes[j].SubType })
-		wantKeys := make([]string, 0, len(want.SubTypes))
-		for key := range want.SubTypes {
-			wantKeys = append(wantKeys, key)
-		}
-		sort.Strings(wantKeys)
-		for j, gotSub := range gotSubTypes {
-			wantSub := want.SubTypes[wantKeys[j]]
+		wantSubTypes := OrderedSubTypes(want)
+		for j, gotSub := range got.SubTypes {
+			wantSub := wantSubTypes[j]
 			if gotSub.SubType != wantSub.SubType ||
 				gotSub.Labels["de"] != wantSub.LabelDE ||
 				gotSub.Details["de"] != wantSub.DetailDE ||

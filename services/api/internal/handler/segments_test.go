@@ -77,15 +77,35 @@ func TestUpdateSegmentRejectsTypeChangeWithExistingIneligiblePredicate_DB(t *tes
 }
 
 func TestSubTypeResponsesAreDeterministic(t *testing.T) {
-	got := subTypeResponses(map[string]sport.SubTypeDef{
-		"z_last":  {SubType: "z_last", LabelDE: "Z"},
-		"a_first": {SubType: "a_first", LabelDE: "A"},
+	got := subTypeResponses(sport.SportDef{
+		SportType: "test",
+		SubTypes: map[string]sport.SubTypeDef{
+			"z_last":  {SubType: "z_last", LabelDE: "Z"},
+			"a_first": {SubType: "a_first", LabelDE: "A"},
+		},
 	})
 	if len(got) != 2 {
 		t.Fatalf("len = %d, want 2", len(got))
 	}
 	if got[0].SubType != "a_first" || got[1].SubType != "z_last" {
 		t.Fatalf("subtype order = %#v, want sorted by sub_type", got)
+	}
+}
+
+func TestSubTypeResponsesUseTaxonomyOrder(t *testing.T) {
+	cycling, ok := sport.GetSportDef("cycling")
+	if !ok {
+		t.Fatal("missing cycling sport definition")
+	}
+	got := subTypeResponses(cycling)
+	want := []string{"road", "mountain", "downhill", "recumbent", "cyclocross", "hand_cycling", "track_cycling", "indoor_cycling", "spin", "gravel_cycling", "unicycling", "mixed_surface", "bmx"}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d", len(got), len(want))
+	}
+	for i, wantSubType := range want {
+		if got[i].SubType != wantSubType {
+			t.Fatalf("subtype[%d] = %q, want taxonomy order %q", i, got[i].SubType, wantSubType)
+		}
 	}
 }
 

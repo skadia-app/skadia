@@ -1,32 +1,36 @@
 package sport
 
 import (
+	"bytes"
 	"os"
-	"strings"
 	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/sporttaxgen"
 )
 
-func TestFrontendTaxonomyContainsBackendLabels(t *testing.T) {
-	data, err := os.ReadFile("../../../../frontend/src/lib/generatedSportTaxonomy.ts")
+func TestGeneratedFrontendTaxonomyIsCurrent(t *testing.T) {
+	source, err := os.ReadFile("../../../../config/sport-taxonomy/sports.yaml")
 	if err != nil {
-		t.Fatalf("read generated frontend taxonomy: %v", err)
+		t.Fatalf("read sports.yaml: %v", err)
 	}
-	src := string(data)
-
-	for _, def := range AllSports() {
-		if !strings.Contains(src, "'"+def.SportType+"'") {
-			t.Errorf("frontend taxonomy missing sport_type %q", def.SportType)
-		}
-		if !strings.Contains(src, "'"+def.LabelDE+"'") {
-			t.Errorf("frontend taxonomy missing label %q for sport_type %q", def.LabelDE, def.SportType)
-		}
-		for _, sub := range def.SubTypes {
-			if !strings.Contains(src, "'"+sub.SubType+"'") {
-				t.Errorf("frontend taxonomy missing sub_type %q for sport_type %q", sub.SubType, def.SportType)
-			}
-			if !strings.Contains(src, "'"+sub.LabelDE+"'") {
-				t.Errorf("frontend taxonomy missing label %q for %q/%q", sub.LabelDE, def.SportType, sub.SubType)
-			}
-		}
+	file, err := os.Open("../../../../config/sport-taxonomy/sports.yaml")
+	if err != nil {
+		t.Fatalf("open sports.yaml: %v", err)
+	}
+	defer file.Close()
+	taxonomy, err := sporttaxgen.LoadTaxonomy(file)
+	if err != nil {
+		t.Fatalf("load sports.yaml: %v", err)
+	}
+	got, err := sporttaxgen.RenderTS(taxonomy, source)
+	if err != nil {
+		t.Fatalf("render generated frontend taxonomy: %v", err)
+	}
+	want, err := os.ReadFile("../../../../frontend/src/lib/generatedSportTaxonomy.ts")
+	if err != nil {
+		t.Fatalf("read generatedSportTaxonomy.ts: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("generatedSportTaxonomy.ts is stale; run scripts/generate-sport-taxonomy.sh")
 	}
 }

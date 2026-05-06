@@ -143,6 +143,19 @@ func TestAllSports(t *testing.T) {
 	}
 }
 
+func TestAllSportsUsesTaxonomyOrder(t *testing.T) {
+	all := AllSports()
+	wantPrefix := []string{"running", "walking", "hiking", "mountaineering", "snowshoeing", "floor_climbing", "wheelchair_push", "cycling"}
+	if len(all) < len(wantPrefix) {
+		t.Fatalf("AllSports() returned %d sports, want at least %d", len(all), len(wantPrefix))
+	}
+	for i, want := range wantPrefix {
+		if all[i].SportType != want {
+			t.Fatalf("AllSports()[%d] = %q, want taxonomy order %q", i, all[i].SportType, want)
+		}
+	}
+}
+
 func TestSportsInCategory(t *testing.T) {
 	bike := SportsInCategory("bike")
 	if len(bike) == 0 {
@@ -151,6 +164,28 @@ func TestSportsInCategory(t *testing.T) {
 	for _, s := range bike {
 		if s.CategoryKey != "bike" {
 			t.Errorf("SportsInCategory('bike') returned sport %q with category %q", s.SportType, s.CategoryKey)
+		}
+	}
+}
+
+func TestSportsInCategoryUsesTaxonomyOrder(t *testing.T) {
+	run := SportsInCategory("run")
+	want := []string{"running", "walking", "hiking", "mountaineering", "wheelchair_push"}
+	if got := sportTypesInOrder(run); !reflect.DeepEqual(got, want) {
+		t.Fatalf("SportsInCategory(run) = %#v, want taxonomy order %#v", got, want)
+	}
+}
+
+func TestSportsInCategoryOrderMatchesAllSportsFiltering(t *testing.T) {
+	for _, category := range AllCategories() {
+		want := make([]string, 0)
+		for _, def := range AllSports() {
+			if def.CategoryKey == category.Key {
+				want = append(want, def.SportType)
+			}
+		}
+		if got := sportTypesInOrder(SportsInCategory(category.Key)); !reflect.DeepEqual(got, want) {
+			t.Fatalf("SportsInCategory(%q) = %#v, want taxonomy order %#v", category.Key, got, want)
 		}
 	}
 }
@@ -166,6 +201,53 @@ func TestGetSportDef(t *testing.T) {
 	_, ok = GetSportDef("nonexistent")
 	if ok {
 		t.Error("GetSportDef('nonexistent') should return false")
+	}
+}
+
+func TestOrderedSubTypesUsesTaxonomyOrder(t *testing.T) {
+	cycling, ok := GetSportDef("cycling")
+	if !ok {
+		t.Fatal("GetSportDef(cycling) returned false")
+	}
+	want := []string{
+		"road",
+		"mountain",
+		"downhill",
+		"recumbent",
+		"cyclocross",
+		"hand_cycling",
+		"track_cycling",
+		"indoor_cycling",
+		"spin",
+		"gravel_cycling",
+		"unicycling",
+		"mixed_surface",
+		"bmx",
+	}
+	if got := subTypesInOrder(OrderedSubTypes(cycling)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("OrderedSubTypes(cycling) = %#v, want taxonomy order %#v", got, want)
+	}
+}
+
+func TestReturnedSportDefsDoNotShareSubTypeOrder(t *testing.T) {
+	cycling, ok := GetSportDef("cycling")
+	if !ok {
+		t.Fatal("GetSportDef(cycling) returned false")
+	}
+	cycling.SubTypeOrder[0] = "mutated"
+	cyclingAgain, ok := GetSportDef("cycling")
+	if !ok {
+		t.Fatal("GetSportDef(cycling) second call returned false")
+	}
+	if cyclingAgain.SubTypeOrder[0] != "road" {
+		t.Fatalf("GetSportDef returned shared SubTypeOrder backing array, got first subtype %q", cyclingAgain.SubTypeOrder[0])
+	}
+
+	all := AllSports()
+	all[7].SubTypeOrder[0] = "mutated"
+	allAgain := AllSports()
+	if allAgain[7].SubTypeOrder[0] != "road" {
+		t.Fatalf("AllSports returned shared SubTypeOrder backing array, got first cycling subtype %q", allAgain[7].SubTypeOrder[0])
 	}
 }
 
@@ -362,4 +444,20 @@ func TestModifierDefaultsForTupleReturnsCopy(t *testing.T) {
 	if second.IsIndoor == nil || !*second.IsIndoor {
 		t.Fatalf("mutating returned defaults changed registry: %#v", second)
 	}
+}
+
+func sportTypesInOrder(defs []SportDef) []string {
+	result := make([]string, 0, len(defs))
+	for _, def := range defs {
+		result = append(result, def.SportType)
+	}
+	return result
+}
+
+func subTypesInOrder(defs []SubTypeDef) []string {
+	result := make([]string, 0, len(defs))
+	for _, def := range defs {
+		result = append(result, def.SubType)
+	}
+	return result
 }

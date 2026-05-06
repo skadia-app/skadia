@@ -22,14 +22,15 @@ var generatedSportDefs = []SportDef{
 		Lifecycle: "canonical", Selectable: true,
 		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"run"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}},
 		SubTypes: map[string]SubTypeDef{
-			"indoor_running": {SubType: "indoor_running", LabelDE: "Indoor", DetailDE: "Indoor-Lauf", AutoTitleDE: "Indoor-Lauf", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"run"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
-			"obstacle":       {SubType: "obstacle", LabelDE: "Hindernislauf", DetailDE: "Hindernislauf", AutoTitleDE: "Hindernislauf", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"run"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"street":         {SubType: "street", LabelDE: "Straße", DetailDE: "Straßenlauf", AutoTitleDE: "Lauf", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"run"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"track":          {SubType: "track", LabelDE: "Bahn", DetailDE: "Bahnlauf", AutoTitleDE: "Bahnlauf", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"run"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"trail":          {SubType: "trail", LabelDE: "Trail", DetailDE: "Trailrun", AutoTitleDE: "Trailrun", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"run"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"track":          {SubType: "track", LabelDE: "Bahn", DetailDE: "Bahnlauf", AutoTitleDE: "Bahnlauf", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"run"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"treadmill":      {SubType: "treadmill", LabelDE: "Laufband", DetailDE: "Laufband", AutoTitleDE: "Laufband", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"run"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
+			"indoor_running": {SubType: "indoor_running", LabelDE: "Indoor", DetailDE: "Indoor-Lauf", AutoTitleDE: "Indoor-Lauf", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"run"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
 			"ultra":          {SubType: "ultra", LabelDE: "Ultra", DetailDE: "Ultramarathon", AutoTitleDE: "Ultramarathon", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"run"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"obstacle":       {SubType: "obstacle", LabelDE: "Hindernislauf", DetailDE: "Hindernislauf", AutoTitleDE: "Hindernislauf", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"run"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"street", "trail", "track", "treadmill", "indoor_running", "ultra", "obstacle"},
 	},
 	{
 		SportType: "walking", CategoryKey: "run", LabelDE: "Gehen", AutoTitleDE: "Spaziergang",
@@ -38,9 +39,10 @@ var generatedSportDefs = []SportDef{
 		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"walk"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}},
 		SubTypes: map[string]SubTypeDef{
 			"casual_walking": {SubType: "casual_walking", LabelDE: "Spaziergang", DetailDE: "Spaziergang", AutoTitleDE: "Spaziergang", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"walk"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"indoor_walking": {SubType: "indoor_walking", LabelDE: "Indoor", DetailDE: "Indoor-Gehen", AutoTitleDE: "Indoor-Gehen", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"walk"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
 			"speed_walking":  {SubType: "speed_walking", LabelDE: "Speed Walking", DetailDE: "Speed Walking", AutoTitleDE: "Speed Walking", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"walk"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"indoor_walking": {SubType: "indoor_walking", LabelDE: "Indoor", DetailDE: "Indoor-Gehen", AutoTitleDE: "Indoor-Gehen", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"walk"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
 		},
+		SubTypeOrder: []string{"casual_walking", "speed_walking", "indoor_walking"},
 	},
 	{
 		SportType: "hiking", CategoryKey: "run", LabelDE: "Wandern", AutoTitleDE: "Wanderung",
@@ -50,6 +52,7 @@ var generatedSportDefs = []SportDef{
 		SubTypes: map[string]SubTypeDef{
 			"rucking": {SubType: "rucking", LabelDE: "Rucking", DetailDE: "Rucking", AutoTitleDE: "Rucking", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"walk"}, EquipmentFamilies: []string{"weights"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"rucking"},
 	},
 	{
 		SportType: "mountaineering", CategoryKey: "run", LabelDE: "Bergsteigen", AutoTitleDE: "Bergtour",
@@ -76,9 +79,10 @@ var generatedSportDefs = []SportDef{
 		Lifecycle: "canonical", Selectable: true,
 		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"roll"}, EquipmentFamilies: []string{"wheelchair"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
 		SubTypes: map[string]SubTypeDef{
-			"run_speed":  {SubType: "run_speed", LabelDE: "Lauftempo", DetailDE: "Rollstuhl (Lauftempo)", AutoTitleDE: "Rollstuhl (Lauftempo)", Selectable: true, MovingThreshold: ptrFloat64(0.5), Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"roll"}, EquipmentFamilies: []string{"wheelchair"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"walk_speed": {SubType: "walk_speed", LabelDE: "Gehtempo", DetailDE: "Rollstuhl (Gehtempo)", AutoTitleDE: "Rollstuhl (Gehtempo)", Selectable: true, MovingThreshold: ptrFloat64(0.2), Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"roll"}, EquipmentFamilies: []string{"wheelchair"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"run_speed":  {SubType: "run_speed", LabelDE: "Lauftempo", DetailDE: "Rollstuhl (Lauftempo)", AutoTitleDE: "Rollstuhl (Lauftempo)", Selectable: true, MovingThreshold: ptrFloat64(0.5), Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"roll"}, EquipmentFamilies: []string{"wheelchair"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"walk_speed", "run_speed"},
 	},
 	{
 		SportType: "cycling", CategoryKey: "bike", LabelDE: "Radfahren", AutoTitleDE: "Radfahrt",
@@ -86,20 +90,21 @@ var generatedSportDefs = []SportDef{
 		Lifecycle: "canonical", Selectable: true,
 		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
 		SubTypes: map[string]SubTypeDef{
-			"bmx":            {SubType: "bmx", LabelDE: "BMX", DetailDE: "BMX", AutoTitleDE: "BMX", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"cyclocross":     {SubType: "cyclocross", LabelDE: "Cyclocross", DetailDE: "Cyclocross", AutoTitleDE: "Cyclocross", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"downhill":       {SubType: "downhill", LabelDE: "Downhill", DetailDE: "Downhill", AutoTitleDE: "Downhill", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"gravel_cycling": {SubType: "gravel_cycling", LabelDE: "Gravel", DetailDE: "Gravel", AutoTitleDE: "Gravel-Tour", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"hand_cycling":   {SubType: "hand_cycling", LabelDE: "Handbike", DetailDE: "Handbike", AutoTitleDE: "Handbike-Tour", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike", "wheelchair"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"indoor_cycling": {SubType: "indoor_cycling", LabelDE: "Indoor", DetailDE: "Indoor-Rad", AutoTitleDE: "Indoor-Radfahrt", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike", "machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
-			"mixed_surface":  {SubType: "mixed_surface", LabelDE: "Mixed", DetailDE: "Mixed Surface", AutoTitleDE: "Mixed-Tour", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"mountain":       {SubType: "mountain", LabelDE: "MTB", DetailDE: "Mountainbike", AutoTitleDE: "MTB-Tour", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"recumbent":      {SubType: "recumbent", LabelDE: "Liegerad", DetailDE: "Liegerad", AutoTitleDE: "Liegerad-Tour", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"road":           {SubType: "road", LabelDE: "Rennrad", DetailDE: "Rennrad", AutoTitleDE: "Rennradfahrt", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"spin":           {SubType: "spin", LabelDE: "Spinning", DetailDE: "Spinning", AutoTitleDE: "Spinning", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike", "machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
+			"mountain":       {SubType: "mountain", LabelDE: "MTB", DetailDE: "Mountainbike", AutoTitleDE: "MTB-Tour", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"downhill":       {SubType: "downhill", LabelDE: "Downhill", DetailDE: "Downhill", AutoTitleDE: "Downhill", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"recumbent":      {SubType: "recumbent", LabelDE: "Liegerad", DetailDE: "Liegerad", AutoTitleDE: "Liegerad-Tour", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"cyclocross":     {SubType: "cyclocross", LabelDE: "Cyclocross", DetailDE: "Cyclocross", AutoTitleDE: "Cyclocross", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"hand_cycling":   {SubType: "hand_cycling", LabelDE: "Handbike", DetailDE: "Handbike", AutoTitleDE: "Handbike-Tour", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike", "wheelchair"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"track_cycling":  {SubType: "track_cycling", LabelDE: "Bahnrad", DetailDE: "Bahnrad", AutoTitleDE: "Bahnrad", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"indoor_cycling": {SubType: "indoor_cycling", LabelDE: "Indoor", DetailDE: "Indoor-Rad", AutoTitleDE: "Indoor-Radfahrt", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike", "machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
+			"spin":           {SubType: "spin", LabelDE: "Spinning", DetailDE: "Spinning", AutoTitleDE: "Spinning", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike", "machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
+			"gravel_cycling": {SubType: "gravel_cycling", LabelDE: "Gravel", DetailDE: "Gravel", AutoTitleDE: "Gravel-Tour", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"unicycling":     {SubType: "unicycling", LabelDE: "Einrad", DetailDE: "Einrad", AutoTitleDE: "Einradfahrt", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"mixed_surface":  {SubType: "mixed_surface", LabelDE: "Mixed", DetailDE: "Mixed Surface", AutoTitleDE: "Mixed-Tour", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"bmx":            {SubType: "bmx", LabelDE: "BMX", DetailDE: "BMX", AutoTitleDE: "BMX", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"road", "mountain", "downhill", "recumbent", "cyclocross", "hand_cycling", "track_cycling", "indoor_cycling", "spin", "gravel_cycling", "unicycling", "mixed_surface", "bmx"},
 	},
 	{
 		SportType: "inline_skating", CategoryKey: "outdoor", LabelDE: "Inline-Skaten", AutoTitleDE: "Inline-Skaten",
@@ -120,9 +125,10 @@ var generatedSportDefs = []SportDef{
 		Traits: SportTraits{Environments: []string{"snow"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"ski"}, ActivityForm: "single", PropulsionModes: []string{"human", "gravity"}},
 		SubTypes: map[string]SubTypeDef{
 			"backcountry":   {SubType: "backcountry", LabelDE: "Freeride", DetailDE: "Freeride/Backcountry", AutoTitleDE: "Freeride", Selectable: true, Traits: SportTraits{Environments: []string{"snow"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"ski"}, ActivityForm: "single", PropulsionModes: []string{"human", "gravity"}}},
-			"indoor_skiing": {SubType: "indoor_skiing", LabelDE: "Indoor-Ski", DetailDE: "Indoor-Ski", AutoTitleDE: "Indoor-Skifahrt", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"ski", "machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
 			"resort":        {SubType: "resort", LabelDE: "Piste", DetailDE: "Pisten-Ski", AutoTitleDE: "Skifahrt", Selectable: true, Traits: SportTraits{Environments: []string{"snow"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"ski"}, ActivityForm: "single", PropulsionModes: []string{"human", "gravity"}}},
+			"indoor_skiing": {SubType: "indoor_skiing", LabelDE: "Indoor-Ski", DetailDE: "Indoor-Ski", AutoTitleDE: "Indoor-Skifahrt", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"ski", "machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
 		},
+		SubTypeOrder: []string{"backcountry", "resort", "indoor_skiing"},
 	},
 	{
 		SportType: "backcountry_skiing", CategoryKey: "winter", LabelDE: "Skitour", AutoTitleDE: "Skitour",
@@ -138,6 +144,7 @@ var generatedSportDefs = []SportDef{
 		SubTypes: map[string]SubTypeDef{
 			"skate_skiing": {SubType: "skate_skiing", LabelDE: "Skating", DetailDE: "Skating-Stil", AutoTitleDE: "Skating-Langlauf", Selectable: true, Traits: SportTraits{Environments: []string{"snow"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"ski"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"skate_skiing"},
 	},
 	{
 		SportType: "snowboarding", CategoryKey: "winter", LabelDE: "Snowboard", AutoTitleDE: "Snowboard",
@@ -148,6 +155,7 @@ var generatedSportDefs = []SportDef{
 			"backcountry": {SubType: "backcountry", LabelDE: "Backcountry", DetailDE: "Backcountry-Snowboard", AutoTitleDE: "Backcountry-Snowboard", Selectable: true, Traits: SportTraits{Environments: []string{"snow"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"snowboard"}, ActivityForm: "single", PropulsionModes: []string{"human", "gravity"}}},
 			"resort":      {SubType: "resort", LabelDE: "Piste", DetailDE: "Pisten-Snowboard", AutoTitleDE: "Snowboard", Selectable: true, Traits: SportTraits{Environments: []string{"snow"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"snowboard"}, ActivityForm: "single", PropulsionModes: []string{"human", "gravity"}}},
 		},
+		SubTypeOrder: []string{"backcountry", "resort"},
 	},
 	{
 		SportType: "ice_skating", CategoryKey: "winter", LabelDE: "Eislaufen", AutoTitleDE: "Eislaufen",
@@ -176,6 +184,7 @@ var generatedSportDefs = []SportDef{
 			"lap_swimming": {SubType: "lap_swimming", LabelDE: "Bahnschwimmen", DetailDE: "Bahnschwimmen", AutoTitleDE: "Bahnschwimmen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"open_water":   {SubType: "open_water", LabelDE: "Freiwasser", DetailDE: "Freiwasserschwimmen", AutoTitleDE: "Freiwasserschwimmen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"lap_swimming", "open_water"},
 	},
 	{
 		SportType: "paddling", CategoryKey: "water", LabelDE: "Paddeln (allgemein)", AutoTitleDE: "Wassersport-Tour",
@@ -191,6 +200,7 @@ var generatedSportDefs = []SportDef{
 		SubTypes: map[string]SubTypeDef{
 			"whitewater": {SubType: "whitewater", LabelDE: "Wildwasser", DetailDE: "Wildwasser-Kajak", AutoTitleDE: "Wildwasser-Kajak", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"paddle"}, EquipmentFamilies: []string{"boat", "paddle"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"whitewater"},
 	},
 	{
 		SportType: "stand_up_paddleboarding", CategoryKey: "water", LabelDE: "SUP", AutoTitleDE: "SUP-Tour",
@@ -206,6 +216,7 @@ var generatedSportDefs = []SportDef{
 		SubTypes: map[string]SubTypeDef{
 			"indoor_rowing": {SubType: "indoor_rowing", LabelDE: "Indoor-Rudern", DetailDE: "Indoor-Rudern", AutoTitleDE: "Indoor-Rudern", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"row"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
 		},
+		SubTypeOrder: []string{"indoor_rowing"},
 	},
 	{
 		SportType: "surfing", CategoryKey: "water", LabelDE: "Surfen", AutoTitleDE: "Surfen",
@@ -255,15 +266,16 @@ var generatedSportDefs = []SportDef{
 		Lifecycle: "canonical", Selectable: true,
 		Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"breathing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
 		SubTypes: map[string]SubTypeDef{
-			"apnea_diving":      {SubType: "apnea_diving", LabelDE: "Apnoe", DetailDE: "Apnoe-Tauchen", AutoTitleDE: "Apnoe-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"apnea_hunting":     {SubType: "apnea_hunting", LabelDE: "Apnoe-Jagd", DetailDE: "Apnoe-Jagdtauchen", AutoTitleDE: "Apnoe-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"fishing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"apnea_pool":        {SubType: "apnea_pool", LabelDE: "Apnoe Pool", DetailDE: "Apnoe-Tauchen (Pool)", AutoTitleDE: "Apnoe-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water", "indoor"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
-			"ccr_diving":        {SubType: "ccr_diving", LabelDE: "CCR", DetailDE: "Kreislauftauchen (CCR)", AutoTitleDE: "CCR-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"breathing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"dynamic_apnea":     {SubType: "dynamic_apnea", LabelDE: "Dynamische Apnoe", DetailDE: "Dynamische Apnoe", AutoTitleDE: "Apnoe-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water", "indoor"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
-			"gauge_diving":      {SubType: "gauge_diving", LabelDE: "Gauge", DetailDE: "Gauge-Tauchen", AutoTitleDE: "Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"breathing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"multi_gas_diving":  {SubType: "multi_gas_diving", LabelDE: "Mehrgas", DetailDE: "Mehrgas-Tauchen", AutoTitleDE: "Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"breathing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"single_gas_diving": {SubType: "single_gas_diving", LabelDE: "Eingas", DetailDE: "Eingas-Tauchen", AutoTitleDE: "Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"breathing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"multi_gas_diving":  {SubType: "multi_gas_diving", LabelDE: "Mehrgas", DetailDE: "Mehrgas-Tauchen", AutoTitleDE: "Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"breathing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"gauge_diving":      {SubType: "gauge_diving", LabelDE: "Gauge", DetailDE: "Gauge-Tauchen", AutoTitleDE: "Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"breathing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"apnea_diving":      {SubType: "apnea_diving", LabelDE: "Apnoe", DetailDE: "Apnoe-Tauchen", AutoTitleDE: "Apnoe-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"dynamic_apnea":     {SubType: "dynamic_apnea", LabelDE: "Dynamische Apnoe", DetailDE: "Dynamische Apnoe", AutoTitleDE: "Apnoe-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water", "indoor"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
+			"apnea_hunting":     {SubType: "apnea_hunting", LabelDE: "Apnoe-Jagd", DetailDE: "Apnoe-Jagdtauchen", AutoTitleDE: "Apnoe-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"fishing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"ccr_diving":        {SubType: "ccr_diving", LabelDE: "CCR", DetailDE: "Kreislauftauchen (CCR)", AutoTitleDE: "CCR-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{"breathing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"apnea_pool":        {SubType: "apnea_pool", LabelDE: "Apnoe Pool", DetailDE: "Apnoe-Tauchen (Pool)", AutoTitleDE: "Apnoe-Tauchen", Selectable: true, Traits: SportTraits{Environments: []string{"water", "indoor"}, MovementFamilies: []string{"swim"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
 		},
+		SubTypeOrder: []string{"single_gas_diving", "multi_gas_diving", "gauge_diving", "apnea_diving", "dynamic_apnea", "apnea_hunting", "ccr_diving", "apnea_pool"},
 	},
 	{
 		SportType: "snorkeling", CategoryKey: "water", LabelDE: "Schnorcheln", AutoTitleDE: "Schnorcheln",
@@ -285,6 +297,7 @@ var generatedSportDefs = []SportDef{
 		SubTypes: map[string]SubTypeDef{
 			"sail_race": {SubType: "sail_race", LabelDE: "Regatta", DetailDE: "Segelregatta", AutoTitleDE: "Regatta", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"boat", "sail"}, ActivityForm: "single", PropulsionModes: []string{"wind"}}},
 		},
+		SubTypeOrder: []string{"sail_race"},
 	},
 	{
 		SportType: "fishing", CategoryKey: "water", LabelDE: "Angeln", AutoTitleDE: "Angeln",
@@ -300,6 +313,7 @@ var generatedSportDefs = []SportDef{
 		SubTypes: map[string]SubTypeDef{
 			"whitewater": {SubType: "whitewater", LabelDE: "Wildwasser", DetailDE: "Wildwasser-Rafting", AutoTitleDE: "Wildwasser-Rafting", Selectable: true, Traits: SportTraits{Environments: []string{"water"}, MovementFamilies: []string{"paddle"}, EquipmentFamilies: []string{"boat", "paddle"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"whitewater"},
 	},
 	{
 		SportType: "training", CategoryKey: "fitness", LabelDE: "Training", AutoTitleDE: "Training",
@@ -308,10 +322,11 @@ var generatedSportDefs = []SportDef{
 		Traits:           SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{"generic"}, ActivityForm: "fallback", PropulsionModes: []string{"human"}},
 		ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)},
 		SubTypes: map[string]SubTypeDef{
-			"breathing":            {SubType: "breathing", LabelDE: "Atemübung", DetailDE: "Atemübung", AutoTitleDE: "Atemübung", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"mind_body"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"cardio_training":      {SubType: "cardio_training", LabelDE: "Cardio", DetailDE: "Cardio-Training", AutoTitleDE: "Cardio", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"flexibility_training": {SubType: "flexibility_training", LabelDE: "Stretching", DetailDE: "Dehnungstraining", AutoTitleDE: "Stretching", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"cardio_training":      {SubType: "cardio_training", LabelDE: "Cardio", DetailDE: "Cardio-Training", AutoTitleDE: "Cardio", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"breathing":            {SubType: "breathing", LabelDE: "Atemübung", DetailDE: "Atemübung", AutoTitleDE: "Atemübung", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"mind_body"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"flexibility_training", "cardio_training", "breathing"},
 	},
 	{
 		SportType: "fitness_equipment", CategoryKey: "fitness", LabelDE: "Fitnessgerät", AutoTitleDE: "Fitnessgerät",
@@ -320,14 +335,15 @@ var generatedSportDefs = []SportDef{
 		Traits:           SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "fallback", PropulsionModes: []string{"human"}},
 		ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)},
 		SubTypes: map[string]SubTypeDef{
-			"elliptical":          {SubType: "elliptical", LabelDE: "Crosstrainer", DetailDE: "Crosstrainer", AutoTitleDE: "Crosstrainer", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"indoor_cycling":      {SubType: "indoor_cycling", LabelDE: "Indoor-Rad", DetailDE: "Indoor-Rad", AutoTitleDE: "Indoor-Radfahrt", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike", "machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"indoor_hand_cycling": {SubType: "indoor_hand_cycling", LabelDE: "Handbike-Ergometer", DetailDE: "Handbike-Ergometer", AutoTitleDE: "Indoor-Handbike", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike", "wheelchair", "machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
 			"indoor_rowing":       {SubType: "indoor_rowing", LabelDE: "Ruder-Ergometer", DetailDE: "Ruder-Ergometer", AutoTitleDE: "Indoor-Rudern", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"row"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"elliptical":          {SubType: "elliptical", LabelDE: "Crosstrainer", DetailDE: "Crosstrainer", AutoTitleDE: "Crosstrainer", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"stair_climbing":      {SubType: "stair_climbing", LabelDE: "Treppensteiger", DetailDE: "Treppensteiger", AutoTitleDE: "Treppensteiger", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"climb"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"indoor_skiing":       {SubType: "indoor_skiing", LabelDE: "Indoor-Ski", DetailDE: "Skimaschine", AutoTitleDE: "Indoor-Ski", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"glide"}, EquipmentFamilies: []string{"ski", "machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"indoor_walking":      {SubType: "indoor_walking", LabelDE: "Indoor-Gehen", DetailDE: "Indoor-Gehen", AutoTitleDE: "Indoor-Gehen", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"walk"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"stair_climbing":      {SubType: "stair_climbing", LabelDE: "Treppensteiger", DetailDE: "Treppensteiger", AutoTitleDE: "Treppensteiger", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"climb"}, EquipmentFamilies: []string{"machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"indoor_hand_cycling": {SubType: "indoor_hand_cycling", LabelDE: "Handbike-Ergometer", DetailDE: "Handbike-Ergometer", AutoTitleDE: "Indoor-Handbike", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"pedal"}, EquipmentFamilies: []string{"bike", "wheelchair", "machine"}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
 		},
+		SubTypeOrder: []string{"indoor_cycling", "indoor_rowing", "elliptical", "stair_climbing", "indoor_skiing", "indoor_walking", "indoor_hand_cycling"},
 	},
 	{
 		SportType: "strength_training", CategoryKey: "fitness", LabelDE: "Krafttraining", AutoTitleDE: "Krafttraining",
@@ -339,6 +355,7 @@ var generatedSportDefs = []SportDef{
 			"amrap": {SubType: "amrap", LabelDE: "AMRAP", DetailDE: "As Many Reps As Possible", AutoTitleDE: "AMRAP", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"lift"}, EquipmentFamilies: []string{"weights"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"emom":  {SubType: "emom", LabelDE: "EMOM", DetailDE: "Every Minute On the Minute", AutoTitleDE: "EMOM", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"lift"}, EquipmentFamilies: []string{"weights"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"amrap", "emom"},
 	},
 	{
 		SportType: "hiit", CategoryKey: "fitness", LabelDE: "HIIT", AutoTitleDE: "HIIT",
@@ -349,6 +366,7 @@ var generatedSportDefs = []SportDef{
 		SubTypes: map[string]SubTypeDef{
 			"tabata": {SubType: "tabata", LabelDE: "Tabata", DetailDE: "Tabata", AutoTitleDE: "Tabata", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"tabata"},
 	},
 	{
 		SportType: "dance", CategoryKey: "fitness", LabelDE: "Tanzen", AutoTitleDE: "Tanzen",
@@ -440,10 +458,11 @@ var generatedSportDefs = []SportDef{
 		Lifecycle: "canonical", Selectable: true,
 		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
 		SubTypes: map[string]SubTypeDef{
-			"exercise": {SubType: "exercise", LabelDE: "Übung", DetailDE: "Tennis-Übung", AutoTitleDE: "Tennis-Übung", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"match":    {SubType: "match", LabelDE: "Match", DetailDE: "Tennis-Match", AutoTitleDE: "Tennis-Match", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"warm_up":  {SubType: "warm_up", LabelDE: "Aufwärmen", DetailDE: "Aufwärmen", AutoTitleDE: "Tennis-Aufwärmen", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"match":    {SubType: "match", LabelDE: "Match", DetailDE: "Tennis-Match", AutoTitleDE: "Tennis-Match", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"exercise": {SubType: "exercise", LabelDE: "Übung", DetailDE: "Tennis-Übung", AutoTitleDE: "Tennis-Übung", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"warm_up", "match", "exercise"},
 	},
 	{
 		SportType: "racket", CategoryKey: "game", LabelDE: "Schlägersport", AutoTitleDE: "Schlägersport",
@@ -451,13 +470,14 @@ var generatedSportDefs = []SportDef{
 		Lifecycle: "canonical", Selectable: true,
 		Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "family", PropulsionModes: []string{"human"}},
 		SubTypes: map[string]SubTypeDef{
-			"badminton":    {SubType: "badminton", LabelDE: "Badminton", DetailDE: "Badminton", AutoTitleDE: "Badminton", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"padel":        {SubType: "padel", LabelDE: "Padel", DetailDE: "Padel", AutoTitleDE: "Padel", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"pickleball":   {SubType: "pickleball", LabelDE: "Pickleball", DetailDE: "Pickleball", AutoTitleDE: "Pickleball", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
-			"racquetball":  {SubType: "racquetball", LabelDE: "Racquetball", DetailDE: "Racquetball", AutoTitleDE: "Racquetball", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"padel":        {SubType: "padel", LabelDE: "Padel", DetailDE: "Padel", AutoTitleDE: "Padel", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"squash":       {SubType: "squash", LabelDE: "Squash", DetailDE: "Squash", AutoTitleDE: "Squash", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"badminton":    {SubType: "badminton", LabelDE: "Badminton", DetailDE: "Badminton", AutoTitleDE: "Badminton", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
+			"racquetball":  {SubType: "racquetball", LabelDE: "Racquetball", DetailDE: "Racquetball", AutoTitleDE: "Racquetball", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"table_tennis": {SubType: "table_tennis", LabelDE: "Tischtennis", DetailDE: "Tischtennis", AutoTitleDE: "Tischtennis", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"strike"}, EquipmentFamilies: []string{"racket", "ball"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"pickleball", "padel", "squash", "badminton", "racquetball", "table_tennis"},
 	},
 	{
 		SportType: "cricket", CategoryKey: "game", LabelDE: "Cricket", AutoTitleDE: "Cricket",
@@ -489,9 +509,10 @@ var generatedSportDefs = []SportDef{
 		Lifecycle: "canonical", Selectable: true,
 		Traits: SportTraits{Environments: []string{"land", "indoor"}, MovementFamilies: []string{"climb"}, EquipmentFamilies: []string{"climbing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
 		SubTypes: map[string]SubTypeDef{
-			"bouldering":      {SubType: "bouldering", LabelDE: "Bouldern", DetailDE: "Bouldern", AutoTitleDE: "Bouldern", Selectable: true, Traits: SportTraits{Environments: []string{"land", "indoor"}, MovementFamilies: []string{"climb"}, EquipmentFamilies: []string{"climbing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 			"indoor_climbing": {SubType: "indoor_climbing", LabelDE: "Indoor", DetailDE: "Hallenklettern", AutoTitleDE: "Hallenklettern", Selectable: true, Traits: SportTraits{Environments: []string{"indoor"}, MovementFamilies: []string{"climb"}, EquipmentFamilies: []string{"climbing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}, ModifierDefaults: ModifierDefaults{IsIndoor: ptrBool(true)}},
+			"bouldering":      {SubType: "bouldering", LabelDE: "Bouldern", DetailDE: "Bouldern", AutoTitleDE: "Bouldern", Selectable: true, Traits: SportTraits{Environments: []string{"land", "indoor"}, MovementFamilies: []string{"climb"}, EquipmentFamilies: []string{"climbing_gear"}, ActivityForm: "single", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"indoor_climbing", "bouldering"},
 	},
 	{
 		SportType: "flying", CategoryKey: "outdoor", LabelDE: "Fliegen", AutoTitleDE: "Fliegen",
@@ -499,19 +520,20 @@ var generatedSportDefs = []SportDef{
 		Lifecycle: "canonical", Selectable: true,
 		Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "family", PropulsionModes: []string{"generic"}},
 		SubTypes: map[string]SubTypeDef{
-			"fly_altimeter":   {SubType: "fly_altimeter", LabelDE: "Höhenmesser", DetailDE: "Höhenmesser-Modus", AutoTitleDE: "Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "mode", PropulsionModes: []string{"generic"}}},
+			"rc_drone":        {SubType: "rc_drone", LabelDE: "Drohne", DetailDE: "Drohnenflug", AutoTitleDE: "Drohnenflug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "single", PropulsionModes: []string{"motor"}}},
+			"wingsuit":        {SubType: "wingsuit", LabelDE: "Wingsuit", DetailDE: "Wingsuit", AutoTitleDE: "Wingsuit-Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "single", PropulsionModes: []string{"human", "gravity"}}},
 			"fly_canopy":      {SubType: "fly_canopy", LabelDE: "Fallschirm", DetailDE: "Fallschirmspringen", AutoTitleDE: "Fallschirmsprung", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "single", PropulsionModes: []string{"human", "gravity"}}},
-			"fly_ifr":         {SubType: "fly_ifr", LabelDE: "Instrumentenflug (IFR)", DetailDE: "Instrumentenflugregeln (IFR)", AutoTitleDE: "IFR-Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "mode", PropulsionModes: []string{"generic"}}},
-			"fly_navigate":    {SubType: "fly_navigate", LabelDE: "Navigation", DetailDE: "Luftfahrt-Navigation", AutoTitleDE: "Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "mode", PropulsionModes: []string{"generic"}}},
 			"fly_paraglide":   {SubType: "fly_paraglide", LabelDE: "Gleitschirm", DetailDE: "Gleitschirmfliegen", AutoTitleDE: "Gleitschirmflug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "single", PropulsionModes: []string{"human", "wind", "gravity"}}},
 			"fly_paramotor":   {SubType: "fly_paramotor", LabelDE: "Paramotor", DetailDE: "Paramotorfliegen", AutoTitleDE: "Paramotorflug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "single", PropulsionModes: []string{"motor"}}},
 			"fly_pressurized": {SubType: "fly_pressurized", LabelDE: "Druckkabine", DetailDE: "Druckkabinenflugzeug", AutoTitleDE: "Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "single", PropulsionModes: []string{"motor"}}},
-			"fly_timer":       {SubType: "fly_timer", LabelDE: "Timer", DetailDE: "Flug-Timer", AutoTitleDE: "Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "mode", PropulsionModes: []string{"generic"}}},
 			"fly_vfr":         {SubType: "fly_vfr", LabelDE: "Sichtflug (VFR)", DetailDE: "Sichtflugregeln (VFR)", AutoTitleDE: "VFR-Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "mode", PropulsionModes: []string{"generic"}}},
+			"fly_ifr":         {SubType: "fly_ifr", LabelDE: "Instrumentenflug (IFR)", DetailDE: "Instrumentenflugregeln (IFR)", AutoTitleDE: "IFR-Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "mode", PropulsionModes: []string{"generic"}}},
+			"fly_navigate":    {SubType: "fly_navigate", LabelDE: "Navigation", DetailDE: "Luftfahrt-Navigation", AutoTitleDE: "Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "mode", PropulsionModes: []string{"generic"}}},
+			"fly_timer":       {SubType: "fly_timer", LabelDE: "Timer", DetailDE: "Flug-Timer", AutoTitleDE: "Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "mode", PropulsionModes: []string{"generic"}}},
+			"fly_altimeter":   {SubType: "fly_altimeter", LabelDE: "Höhenmesser", DetailDE: "Höhenmesser-Modus", AutoTitleDE: "Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "mode", PropulsionModes: []string{"generic"}}},
 			"fly_wx":          {SubType: "fly_wx", LabelDE: "Wetter", DetailDE: "Flugwetter", AutoTitleDE: "Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "mode", PropulsionModes: []string{"generic"}}},
-			"rc_drone":        {SubType: "rc_drone", LabelDE: "Drohne", DetailDE: "Drohnenflug", AutoTitleDE: "Drohnenflug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "single", PropulsionModes: []string{"motor"}}},
-			"wingsuit":        {SubType: "wingsuit", LabelDE: "Wingsuit", DetailDE: "Wingsuit", AutoTitleDE: "Wingsuit-Flug", Selectable: true, Traits: SportTraits{Environments: []string{"air"}, MovementFamilies: []string{"fly"}, EquipmentFamilies: []string{"aircraft"}, ActivityForm: "single", PropulsionModes: []string{"human", "gravity"}}},
 		},
+		SubTypeOrder: []string{"rc_drone", "wingsuit", "fly_canopy", "fly_paraglide", "fly_paramotor", "fly_pressurized", "fly_vfr", "fly_ifr", "fly_navigate", "fly_timer", "fly_altimeter", "fly_wx"},
 	},
 	{
 		SportType: "hang_gliding", CategoryKey: "outdoor", LabelDE: "Gleitschirmfliegen", AutoTitleDE: "Gleitschirmflug",
@@ -552,6 +574,7 @@ var generatedSportDefs = []SportDef{
 			"atv":       {SubType: "atv", LabelDE: "Quad/ATV", DetailDE: "Quad/ATV", AutoTitleDE: "Quad-Tour", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"drive"}, EquipmentFamilies: []string{"vehicle"}, ActivityForm: "single", PropulsionModes: []string{"motor"}}},
 			"motocross": {SubType: "motocross", LabelDE: "Motocross", DetailDE: "Motocross", AutoTitleDE: "Motocross", Selectable: true, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"drive"}, EquipmentFamilies: []string{"vehicle"}, ActivityForm: "single", PropulsionModes: []string{"motor"}}},
 		},
+		SubTypeOrder: []string{"atv", "motocross"},
 	},
 	{
 		SportType: "driving", CategoryKey: "outdoor", LabelDE: "Autofahren", AutoTitleDE: "Autofahrt",
@@ -613,6 +636,7 @@ var generatedSportDefs = []SportDef{
 			"run_to_bike_transition":  {SubType: "run_to_bike_transition", LabelDE: "Lauf→Rad", DetailDE: "Wechsel Lauf zu Rad", AutoTitleDE: "Wechselzone", Selectable: false, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "transition", PropulsionModes: []string{"human"}}},
 			"swim_to_bike_transition": {SubType: "swim_to_bike_transition", LabelDE: "Schwimmen→Rad", DetailDE: "Wechsel Schwimmen zu Rad", AutoTitleDE: "Wechselzone", Selectable: false, Traits: SportTraits{Environments: []string{"land"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{}, ActivityForm: "transition", PropulsionModes: []string{"human"}}},
 		},
+		SubTypeOrder: []string{"bike_to_run_transition", "run_to_bike_transition", "swim_to_bike_transition"},
 	},
 	{
 		SportType: "generic", CategoryKey: "other", LabelDE: "Aktivität", AutoTitleDE: "Training",
