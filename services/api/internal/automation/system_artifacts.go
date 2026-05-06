@@ -71,6 +71,11 @@ var SystemTags = []SystemTagSpec{
 		Description: "Automatisch bei Temperaturen unter 0 Grad C"},
 	{Name: "Nacht", Color: "#1E293B", TextColor: "#E2E8F0",
 		Description: "Automatisch bei Aktivitaeten die in die astronomische Nacht fallen"},
+	// Phase 4b.B.1 — Lift tag for activities with detected lift rides
+	// (Method A: OSM-matched, auto-confirmed; Method B: heuristic, gated
+	// by user confirm via the lift-candidate UI).
+	{Name: "Lift", Color: "#6366F1", TextColor: "#FFFFFF",
+		Description: "Automatisch bei Aktivitäten mit erkannten Liftfahrten"},
 }
 
 // SystemRules is the matching automation-rule list. Empty conditions/actions =
@@ -127,6 +132,16 @@ var SystemRules = []SystemRuleSpec{
 			{"action": "add_tag", "params": map[string]any{"tag_id": "{{TAG_ID}}"}},
 		},
 		TriggerEvent: "on_import"},
+	// Phase 4b.B.1 — lift_detected. Trigger 'on_enrichment_complete' because
+	// lift_count is populated during enrichment, not at import. Re-fired by
+	// handler/lift_candidates.go after recomputeLiftStats so heuristic
+	// (Method B) confirms also reach the rule (Phase 4b.B.4).
+	{TagName: "Lift", SystemType: "lift_detected", Priority: -96,
+		Conditions: `[{"field":"has_lift","op":"eq","value":true}]`,
+		Actions: []map[string]any{
+			{"action": "add_tag", "params": map[string]any{"tag_id": "{{TAG_ID}}"}},
+		},
+		TriggerEvent: "on_enrichment_complete"},
 }
 
 // SystemArtifactsVersion gates the EnsureSystemArtifactsForAllUsers sweep.
@@ -134,12 +149,17 @@ var SystemRules = []SystemRuleSpec{
 // users.system_artifacts_version equals this value are skipped on subsequent
 // sweeps — O(changed users) rather than O(all users) per pod start.
 //
-// Numbering policy: monotonically increasing integer. Version 1 = the initial
-// 7 system tags + 6 default-seeded rules (after Phase 4b.A). Future PRs that
-// add or alter a spec MUST bump this constant in the same commit that changes
-// the spec list — otherwise the sweep silently no-ops and existing users
-// never receive the new artefact.
-const SystemArtifactsVersion = 1
+// Numbering policy: monotonically increasing integer.
+//   - Version 1 = the initial snapshot (7 system tags + 6 default-seeded rules,
+//     Phase 4b.A).
+//   - Version 2 = adds the "Lift" SystemTag + lift_detected SystemRule
+//     (Phase 4b.B). Bumping is REQUIRED — otherwise the startup sweep would
+//     skip every existing user and only freshly-registered users would receive
+//     the new artefact.
+//
+// Future PRs that add or alter a spec MUST bump this constant in the same
+// commit that changes the spec list.
+const SystemArtifactsVersion = 2
 
 // sweepAdvisoryLockKey serialises EnsureSystemArtifactsForAllUsers across
 // multiple API instances via pg_try_advisory_lock. Today the deployment is
