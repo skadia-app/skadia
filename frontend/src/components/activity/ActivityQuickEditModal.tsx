@@ -2,22 +2,24 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Save, X } from 'lucide-react'
-import { fetchActivityStreams, updateActivity } from '@/api/activities'
+import { fetchActivity, fetchActivityStreams, updateActivity } from '@/api/activities'
 import { assignActivitiesToTag, createTag, fetchTags, unassignActivitiesFromTag, type Tag } from '@/api/tags'
-import type { Activity, StreamPoint } from '@/api/types'
+import type { Activity } from '@/api/types'
 import { ModalShell } from '@/components/ui/ModalShell'
 import Toggle from '@/components/Toggle'
 import SportTuplePicker from './SportTuplePicker'
+import ActivityQuickEditMiniMap, { trackCoordsFromStreams } from './ActivityQuickEditMiniMap'
 import {
   activityQuickEditDraftFromActivity,
   buildActivityQuickEditPatch,
   diffQuickEditTags,
   quickEditTagDraftAfterModifier,
   quickEditTagDraftAfterToggle,
+  quickEditTagSuggestions,
   type ActivityQuickEditDraft,
 } from './quickEdit'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
-import { lineStringToSvgPoints } from '@/lib/trackSvg'
+import { getTagBadgeStyle } from '@/lib/tagUtils'
 
 interface ActivityQuickEditModalProps {
   activity: Activity
@@ -35,18 +37,18 @@ const VISIBILITY_OPTIONS: Array<{ value: Activity['visibility']; label: string }
   { value: 'public', label: 'Öffentlich' },
 ]
 
-const FEEL_LABELS = ['Schlecht', 'Mäßig', 'Okay', 'Gut', 'Super']
+const FEEL_OPTIONS = [
+  ['😫', 'Schlecht'],
+  ['😕', 'Mäßig'],
+  ['😐', 'Okay'],
+  ['🙂', 'Gut'],
+  ['😄', 'Super'],
+] as const
+
+const FALLBACK_TAG_COLORS = ['#F97316', '#3B82F6', '#22C55E', '#A855F7', '#F43F5E', '#06B6D4']
 
 function tagByName(tags: Tag[], name: string): Tag | undefined {
   return tags.find(tag => tag.name.toLowerCase() === name.toLowerCase())
-}
-
-function pointsFromStreams(streams: StreamPoint[]): string | null {
-  const coords = streams
-    .filter(s => s.lat != null && s.lng != null)
-    .map(s => [s.lng!, s.lat!] as [number, number])
-  if (coords.length < 2) return null
-  return lineStringToSvgPoints(JSON.stringify({ type: 'LineString', coordinates: coords }), 200, 12)
 }
 
 function hasPatchValues(patch: Record<string, unknown>): boolean {
@@ -60,14 +62,30 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
   const [tagSearch, setTagSearch] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [draftDirty, setDraftDirty] = useState(false)
 
   useEffect(() => {
     if (open) {
       setDraft(activityQuickEditDraftFromActivity(activity))
+      setDraftDirty(false)
       setTagSearch('')
       setError(null)
     }
-  }, [activity, open])
+  }, [activity.id, open])
+
+  const { data: fullActivity } = useQuery({
+    queryKey: ['activity', activity.id],
+    queryFn: () => fetchActivity(activity.id),
+    enabled: open,
+  })
+
+  const baseActivity = fullActivity ?? activity
+
+  useEffect(() => {
+    if (open && fullActivity && !draftDirty) {
+      setDraft(activityQuickEditDraftFromActivity(fullActivity))
+    }
+  }, [draftDirty, fullActivity, open])
 
   const { data: allTags } = useQuery({
     queryKey: ['tags'],
@@ -82,24 +100,32 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
     enabled: open,
   })
 
-  const minimapPoints = useMemo(() => pointsFromStreams(streams), [streams])
+  const trackCoords = useMemo(() => trackCoordsFromStreams(streams), [streams])
+  const hasLoadedGpsTrack = trackCoords.length >= 2
   const visibleSuggestions = useMemo(() => {
-    const selected = new Set(draft.tags.map(tag => tag.toLowerCase()))
-    const q = tagSearch.trim().toLowerCase()
-    return (allTags ?? [])
-      .filter(tag => !selected.has(tag.name.toLowerCase()))
-      .filter(tag => !q || tag.name.toLowerCase().includes(q))
-      .slice(0, 20)
+    return quickEditTagSuggestions(allTags ?? [], draft.tags, tagSearch)
   }, [allTags, draft.tags, tagSearch])
 
   if (!open) return null
 
   function patchDraft(patch: Partial<ActivityQuickEditDraft>) {
+    setDraftDirty(true)
     setDraft(prev => ({ ...prev, ...patch }))
   }
 
   function toggleTag(tagName: string, selected: boolean) {
+    setDraftDirty(true)
     setDraft(prev => quickEditTagDraftAfterToggle(prev, tagName, selected))
+  }
+
+  function toggleModifier(modifier: 'isIndoor' | 'isElectric' | 'isVirtual', selected: boolean) {
+    setDraftDirty(true)
+    setDraft(prev => quickEditTagDraftAfterModifier(prev, modifier, selected))
+  }
+
+  function tagStyle(tagName: string, index: number) {
+    const tag = (allTags ?? []).find(t => t.name.toLowerCase() === tagName.toLowerCase())
+    return getTagBadgeStyle(tag?.color || FALLBACK_TAG_COLORS[index % FALLBACK_TAG_COLORS.length])
   }
 
   async function syncTagDiffs(currentTags: string[], nextTags: string[], latestActivity: Activity, knownTags: Tag[]): Promise<Activity> {
@@ -132,10 +158,10 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
     setSaving(true)
     setError(null)
     try {
-      const patch = buildActivityQuickEditPatch(activity, draft)
-      const afterPatch = hasPatchValues(patch) ? await updateActivity(activity.id, patch) : activity
+      const patch = buildActivityQuickEditPatch(baseActivity, draft)
+      const afterPatch = hasPatchValues(patch) ? await updateActivity(activity.id, patch) : baseActivity
       const knownTags: Tag[] = allTags ?? await queryClient.fetchQuery<Tag[]>({ queryKey: ['tags'], queryFn: fetchTags })
-      const updated = await syncTagDiffs(activity.tags ?? [], draft.tags, afterPatch, knownTags)
+      const updated = await syncTagDiffs(baseActivity.tags ?? [], draft.tags, afterPatch, knownTags)
       queryClient.setQueryData(['activity', activity.id], updated)
       queryClient.invalidateQueries({ queryKey: ['activities'] })
       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
@@ -217,7 +243,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                   <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
                   <Toggle
                     checked={draft[key]}
-                    onChange={checked => setDraft(prev => quickEditTagDraftAfterModifier(prev, key, checked))}
+                    onChange={checked => toggleModifier(key, checked)}
                     color={color}
                     size="sm"
                     aria-label={label}
@@ -233,10 +259,10 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                   {draft.tags.map(tag => {
                     const locked = tag.toLowerCase() === 'virtuell' && draft.isVirtual
                     return (
-                      <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                      <span key={tag} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium" style={tagStyle(tag, draft.tags.indexOf(tag))}>
                         {tag}
                         {!locked && (
-                          <button type="button" onClick={() => toggleTag(tag, false)} className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-100" aria-label={`${tag} entfernen`}>
+                          <button type="button" onClick={() => toggleTag(tag, false)} className="opacity-70 hover:opacity-100" aria-label={`${tag} entfernen`}>
                             <X className="h-3 w-3" />
                           </button>
                         )}
@@ -261,12 +287,14 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                   )}
                 </div>
                 {visibleSuggestions.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {visibleSuggestions.map(tag => (
-                      <button key={tag.id || tag.name} type="button" onClick={() => { toggleTag(tag.name, true); setTagSearch('') }} className="rounded-full bg-neutral-100 px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700">
-                        {tag.name}
-                      </button>
-                    ))}
+                  <div className="mt-2 max-h-28 overflow-y-auto pr-1">
+                    <div className="flex flex-wrap gap-1.5">
+                      {visibleSuggestions.map(tag => (
+                        <button key={tag.name} type="button" onClick={() => { toggleTag(tag.name, true); setTagSearch('') }} className="rounded-full bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700">
+                          {tag.name}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -297,21 +325,28 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                   <span>{draft.workoutRpe == null ? 'Nicht gesetzt' : `${draft.workoutRpe}/10`}</span>
                   <button type="button" onClick={() => patchDraft({ workoutRpe: null })} className="hover:text-neutral-600 dark:hover:text-neutral-200">Entfernen</button>
                 </div>
+                <div className="mt-1 flex justify-between text-[10px] text-neutral-400 dark:text-neutral-500">
+                  <span>1 Leicht</span>
+                  <span>5 Mittel</span>
+                  <span>10 Maximum</span>
+                </div>
               </label>
               <div>
                 <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Gefühl</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {FEEL_LABELS.map((label, index) => (
+                <div className="grid grid-cols-5 gap-1.5">
+                  {FEEL_OPTIONS.map(([emoji, label], index) => (
                     <button
                       key={label}
                       type="button"
                       onClick={() => patchDraft({ workoutFeel: draft.workoutFeel === index ? null : index })}
-                      className={`rounded-lg border px-2.5 py-1.5 text-xs ${draft.workoutFeel === index
+                      title={label}
+                      className={`flex min-w-0 flex-col items-center gap-0.5 rounded-lg border px-1.5 py-2 text-xs ${draft.workoutFeel === index
                         ? 'border-accent-DEFAULT bg-accent-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
                         : 'border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800'
                       }`}
                     >
-                      {label}
+                      <span className="text-lg">{emoji}</span>
+                      <span className="w-full truncate text-[10px]">{label}</span>
                     </button>
                   ))}
                 </div>
@@ -323,22 +358,14 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
             <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
               <div className="mb-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">Minimap</div>
               <div className="flex aspect-video items-center justify-center overflow-hidden rounded bg-neutral-100 dark:bg-neutral-800">
-                {streamsLoading ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
-                ) : minimapPoints ? (
-                  <svg viewBox="0 0 200 200" className="h-full w-full">
-                    <polyline points={minimapPoints} fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" className="text-accent-DEFAULT" />
-                  </svg>
-                ) : (
-                  <span className="text-sm text-neutral-400">Kein GPS-Track</span>
-                )}
+                <ActivityQuickEditMiniMap key={activity.id} streams={streams} loading={streamsLoading} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm">
-              <Stat label="Distanz" value={formatDistance(activity.distance_m)} />
-              <Stat label="Zeit" value={formatDuration(activity.elapsed_time_s ?? 0)} />
-              <Stat label="Höhenmeter" value={formatElevationGain(activity.elevation_gain_m) ?? '—'} />
-              <Stat label="GPS" value={activity.has_gps ? 'Ja' : 'Nein'} />
+              <Stat label="Distanz" value={formatDistance(baseActivity.distance_m)} />
+              <Stat label="Zeit" value={formatDuration(baseActivity.elapsed_time_s ?? 0)} />
+              <Stat label="Höhenmeter" value={formatElevationGain(baseActivity.elevation_gain_m) ?? '—'} />
+              <Stat label="GPS" value={baseActivity.has_gps ? 'Ja' : hasLoadedGpsTrack ? 'Nein / Track ja' : streamsLoading ? 'Lädt...' : 'Nein'} />
             </div>
           </aside>
         </div>
