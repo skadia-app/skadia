@@ -142,6 +142,12 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 	if hasStream && len(stream) > 0 && !isWaterSport {
 		for _, m := range modules {
 			switch m {
+			case "lifts":
+				if streamSettings.EnableLiftDetection {
+					if err := enrichStreamLifts(ctx, db, userID, activityID, stream); err != nil {
+						slog.Warn("re-enrich: lifts failed", "activity_id", activityID, "error", err)
+					}
+				}
 			case "stops":
 				if streamSettings.EnableStopDetection {
 					if err := enrichStreamStops(ctx, db, userID, activityID, stream); err != nil {

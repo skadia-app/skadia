@@ -67,6 +67,7 @@ func GetEnrichmentStream(ctx context.Context, db *database.DB, activityID string
 // stream-enrichment modules. Pass allStreamEnabled() to run every module
 // regardless of user preferences.
 type StreamEnrichmentSettings struct {
+	EnableLiftDetection     bool
 	EnableStopDetection     bool
 	EnableAscentDetection   bool
 	EnableIntervalDetection bool
@@ -76,6 +77,7 @@ type StreamEnrichmentSettings struct {
 // StreamEnrichmentSettings struct used by RunStreamEnrichment.
 func StreamSettingsFromModel(s *model.EnrichmentSettings) StreamEnrichmentSettings {
 	return StreamEnrichmentSettings{
+		EnableLiftDetection:     s.EnableLiftDetection,
 		EnableStopDetection:     s.EnableStopDetection,
 		EnableAscentDetection:   s.EnableAscentDetection,
 		EnableIntervalDetection: s.EnableIntervalDetection,
@@ -91,6 +93,7 @@ func streamSettingsFromModel(s *model.EnrichmentSettings) StreamEnrichmentSettin
 // true, used as a fallback when no user settings are available.
 func AllStreamEnabled() StreamEnrichmentSettings {
 	return StreamEnrichmentSettings{
+		EnableLiftDetection:     true,
 		EnableStopDetection:     true,
 		EnableAscentDetection:   true,
 		EnableIntervalDetection: true,
@@ -110,9 +113,17 @@ func allStreamEnabled() StreamEnrichmentSettings {
 // shared across all modules to avoid repeated decompression overhead.
 //
 // Modules:
+//   - lifts     → enrichStreamLifts     (Method-A OSM-snap + Method-B heuristic)
 //   - stops     → enrichStreamStops     (stop detection + POI matching)
 //   - ascents   → enrichStreamAscents   (climb detection)
 //   - intervals → enrichStreamIntervals (interval detection)
+//
+// Lift detection runs first because its output (lift time-windows) can serve
+// as hint context for downstream stop/ascent modules — a cable-car ride is
+// neither a "stop" nor an "ascent" even though it superficially resembles
+// both. Cross-module suppression is out of scope for Phase 4 (the slot is
+// reserved here so module ordering becomes a deliberate choice rather than
+// list-append happenstance).
 func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityID string, settings StreamEnrichmentSettings) error {
 	slog.Info("running stream enrichment (Go SQL)", "activity_id", activityID)
 
@@ -154,6 +165,7 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 		fn      func(context.Context, *database.DB, string, string, []EnrichmentStreamPoint) error
 	}
 	modules := []module{
+		{"lifts", settings.EnableLiftDetection, enrichStreamLifts},
 		{"stops", settings.EnableStopDetection, enrichStreamStops},
 		{"ascents", settings.EnableAscentDetection, enrichStreamAscents},
 		{"intervals", settings.EnableIntervalDetection, enrichStreamIntervals},
