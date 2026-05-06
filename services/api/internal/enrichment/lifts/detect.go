@@ -35,7 +35,25 @@ type rideWithIdx struct {
 	startIdx, endIdx int
 }
 
+type RideWithIndices struct {
+	Ride           LiftRide
+	StartSampleIdx int
+	EndSampleIdx   int
+}
+
 func DetectHeuristic(rows []StreamPoint, cfg DetectorConfig) []LiftRide {
+	indexed := DetectHeuristicWithIndices(rows, cfg)
+	if indexed == nil {
+		return nil
+	}
+	out := make([]LiftRide, len(indexed))
+	for k, r := range indexed {
+		out[k] = r.Ride
+	}
+	return out
+}
+
+func DetectHeuristicWithIndices(rows []StreamPoint, cfg DetectorConfig) []RideWithIndices {
 	if len(rows) < cfg.MinSamples {
 		return nil
 	}
@@ -249,9 +267,13 @@ func DetectHeuristic(rows []StreamPoint, cfg DetectorConfig) []LiftRide {
 	//     two ascends is never the right merge)
 	//   - merged window still validateRide()s under the original kind
 	merged := mergeMidLiftSplits(raw, rows, cfg)
-	out := make([]LiftRide, len(merged))
+	out := make([]RideWithIndices, len(merged))
 	for k, r := range merged {
-		out[k] = r.ride
+		out[k] = RideWithIndices{
+			Ride:           r.ride,
+			StartSampleIdx: r.startIdx,
+			EndSampleIdx:   r.endIdx,
+		}
 	}
 	return out
 }
@@ -2177,7 +2199,7 @@ func trimTrailingLowSpeedSamples(rows []StreamPoint, start, end int, cfg Detecto
 //     0.05 m/s while every sample holds 4.85–4.95 m/s — that is mid-cable,
 //     NOT walk-off). A bergstation walk-off always contains at least one
 //     sub-3 m/s sample: pure walking (multi-resort case r9: min 0.69 m/s) or the
-//     bügel-jump-and-slide pattern of T-bar lifts (T-bar drag-lift case Lift A:
+//     bar-release jump-and-slide pattern of T-bar lifts (T-bar drag-lift case Lift A:
 //     min 2.45 m/s while the rider accelerates off the bar). Using the
 //     window minimum (not mean) is what discriminates those cases — the
 //     mean of the slide pattern climbs back above 3 m/s once the rider
