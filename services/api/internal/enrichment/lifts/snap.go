@@ -42,11 +42,11 @@ const (
 	cableHoldBearingMaxDeg = 90.0 // signal 3: no direction reversal
 )
 
-// osmLiftCandidate is one OSM lift in the activity's PostGIS neighbourhood,
+// OSMLiftCandidate is one OSM lift in the activity's PostGIS neighbourhood,
 // already enriched with segment ids and length/bearing. It mirrors the SQL
 // `osmCandidatesSQL` in lift_enrich.go (legacy Method A) plus the segment
 // version lookup. Length is in metres, bearing in degrees [0, 360).
-type osmLiftCandidate struct {
+type OSMLiftCandidate struct {
 	OSMID            int64
 	SegmentID        string
 	SegmentVersionID string
@@ -55,10 +55,10 @@ type osmLiftCandidate struct {
 	BearingDeg       float64
 }
 
-// rideOSMOverlap is one (ride, lift) match the SQL pre-filter produced —
+// RideOSMOverlap is one (ride, lift) match the SQL pre-filter produced —
 // hausdorff distance and the length of the intersection between the ride
 // buffer and the lift geometry. Coverage is intersection/lift-length.
-type rideOSMOverlap struct {
+type RideOSMOverlap struct {
 	RideIdx         int     // index into rides slice
 	OSMIdx          int     // index into osmCandidates slice
 	HausdorffM      float64 // ride-buffer ↔ lift hausdorff
@@ -108,13 +108,13 @@ type SnapResult struct {
 // itself only needs them for the per-ride bearing → IsReverse calculation.
 func SnapToOSMLifts(
 	rides []RideWithIndices,
-	osmCandidates []osmLiftCandidate,
-	overlaps []rideOSMOverlap,
+	osmCandidates []OSMLiftCandidate,
+	overlaps []RideOSMOverlap,
 	samples []StreamPoint,
 	_unused []float64, // reserved for future use; keeps the signature stable for Stage 2
 ) []SnapResult {
 	// Index overlaps by ride so we can scan them per-ride O(1).
-	byRide := make(map[int][]rideOSMOverlap, len(rides))
+	byRide := make(map[int][]RideOSMOverlap, len(rides))
 	for _, ov := range overlaps {
 		byRide[ov.RideIdx] = append(byRide[ov.RideIdx], ov)
 	}
@@ -144,8 +144,8 @@ func SnapToOSMLifts(
 func snapOneRide(
 	rideIdx int,
 	ride RideWithIndices,
-	overlaps []rideOSMOverlap,
-	osmCandidates []osmLiftCandidate,
+	overlaps []RideOSMOverlap,
+	osmCandidates []OSMLiftCandidate,
 	ridesPerOSM map[int]int,
 	samples []StreamPoint,
 ) SnapResult {
@@ -223,8 +223,8 @@ func snapOneRide(
 func MergeMultiRideForOSM(
 	stage1 []SnapResult,
 	rides []RideWithIndices,
-	osmCandidates []osmLiftCandidate,
-	overlaps []rideOSMOverlap,
+	osmCandidates []OSMLiftCandidate,
+	overlaps []RideOSMOverlap,
 	samples []StreamPoint,
 ) []SnapResult {
 	out := make([]SnapResult, len(stage1))
@@ -415,7 +415,7 @@ func computeIsReverseFromSamples(samples []StreamPoint, ride RideWithIndices, li
 // are below the heuristic 60s minimum) lives in the time-window SQL the
 // caller runs, not in this planning function — Stage 3 only decides which
 // lifts to process.
-func MethodACoverageGap(finalResults []SnapResult, osmCandidates []osmLiftCandidate) []Stage3PlanEntry {
+func MethodACoverageGap(finalResults []SnapResult, osmCandidates []OSMLiftCandidate) []Stage3PlanEntry {
 	covered := make(map[int]bool, len(osmCandidates))
 	for _, r := range finalResults {
 		if r.Action != SnapActionSnap {

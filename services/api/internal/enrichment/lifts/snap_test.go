@@ -13,14 +13,14 @@ func TestSnapToOSMLifts_FullSnap(t *testing.T) {
 	startTime := time.Unix(0, 0).UTC()
 	ride := newSyntheticRide(t, startTime, 0 /*startX*/, 600 /*endX*/, 0 /*startY*/, 1000.0, 1100.0)
 
-	osmLift := osmLiftCandidate{
+	osmLift := OSMLiftCandidate{
 		SegmentID:        "seg-A",
 		SegmentVersionID: "ver-A",
 		LengthM:          600.0,
 		BearingDeg:       90.0, // east
 	}
 	// Matchable: hausdorff 5m, intersection covers all 600m of C → coverage = 1.0
-	matches := []rideOSMOverlap{
+	matches := []RideOSMOverlap{
 		{
 			RideIdx:        0,
 			OSMIdx:         0,
@@ -29,7 +29,7 @@ func TestSnapToOSMLifts_FullSnap(t *testing.T) {
 		},
 	}
 
-	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []osmLiftCandidate{osmLift}, matches, nil, nil)
+	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []OSMLiftCandidate{osmLift}, matches, nil, nil)
 
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
@@ -58,17 +58,17 @@ func TestSnapToOSMLifts_NoSnapWhenCoverageBelow30(t *testing.T) {
 	startTime := time.Unix(0, 0).UTC()
 	ride := newSyntheticRide(t, startTime, 0, 600, 0, 1000.0, 1100.0)
 
-	osmLift := osmLiftCandidate{
+	osmLift := OSMLiftCandidate{
 		SegmentID:        "seg-B",
 		SegmentVersionID: "ver-B",
 		LengthM:          5000.0, // very long lift, ride only covers tiny fraction
 		BearingDeg:       90.0,
 	}
-	matches := []rideOSMOverlap{
+	matches := []RideOSMOverlap{
 		{RideIdx: 0, OSMIdx: 0, HausdorffM: 200.0 /*too far*/, IntersectionLen: 100.0},
 	}
 
-	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []osmLiftCandidate{osmLift}, matches, nil, nil)
+	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []OSMLiftCandidate{osmLift}, matches, nil, nil)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -86,19 +86,19 @@ func TestSnapToOSMLifts_PartialCoverageMarksMultiRideGroup(t *testing.T) {
 	rideA := newSyntheticRide(t, startTime, 0, 300, 0, 1000.0, 1050.0)
 	rideB := newSyntheticRide(t, startTime.Add(180*time.Second), 320, 600, 0, 1052.0, 1100.0)
 
-	osmLift := osmLiftCandidate{
+	osmLift := OSMLiftCandidate{
 		SegmentID:        "seg-C",
 		SegmentVersionID: "ver-C",
 		LengthM:          600.0,
 		BearingDeg:       90.0,
 	}
 	// Each ride covers 300m of a 600m lift = 0.50 coverage individually.
-	matches := []rideOSMOverlap{
+	matches := []RideOSMOverlap{
 		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
 		{RideIdx: 1, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
 	}
 
-	results := SnapToOSMLifts([]RideWithIndices{rideA.indexed, rideB.indexed}, []osmLiftCandidate{osmLift}, matches, nil, nil)
+	results := SnapToOSMLifts([]RideWithIndices{rideA.indexed, rideB.indexed}, []OSMLiftCandidate{osmLift}, matches, nil, nil)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -118,16 +118,16 @@ func TestSnapToOSMLifts_SinglePartialNoSibling(t *testing.T) {
 	startTime := time.Unix(0, 0).UTC()
 	ride := newSyntheticRide(t, startTime, 0, 300, 0, 1000.0, 1050.0)
 
-	osmLift := osmLiftCandidate{
+	osmLift := OSMLiftCandidate{
 		SegmentID:  "seg-D",
 		LengthM:    600.0,
 		BearingDeg: 90.0,
 	}
-	matches := []rideOSMOverlap{
+	matches := []RideOSMOverlap{
 		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0}, // 0.5 coverage, single ride
 	}
 
-	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []osmLiftCandidate{osmLift}, matches, nil, nil)
+	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []OSMLiftCandidate{osmLift}, matches, nil, nil)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -142,14 +142,14 @@ func TestSnapToOSMLifts_PicksHighestCoverage(t *testing.T) {
 	startTime := time.Unix(0, 0).UTC()
 	ride := newSyntheticRide(t, startTime, 0, 600, 0, 1000.0, 1100.0)
 
-	liftA := osmLiftCandidate{SegmentID: "seg-A", SegmentVersionID: "ver-A", LengthM: 800.0, BearingDeg: 90.0}
-	liftB := osmLiftCandidate{SegmentID: "seg-B", SegmentVersionID: "ver-B", LengthM: 600.0, BearingDeg: 90.0}
-	matches := []rideOSMOverlap{
+	liftA := OSMLiftCandidate{SegmentID: "seg-A", SegmentVersionID: "ver-A", LengthM: 800.0, BearingDeg: 90.0}
+	liftB := OSMLiftCandidate{SegmentID: "seg-B", SegmentVersionID: "ver-B", LengthM: 600.0, BearingDeg: 90.0}
+	matches := []RideOSMOverlap{
 		{RideIdx: 0, OSMIdx: 0, HausdorffM: 30.0, IntersectionLen: 600.0}, // 0.75 coverage on liftA (but parallel)
 		{RideIdx: 0, OSMIdx: 1, HausdorffM: 5.0, IntersectionLen: 600.0},  // 1.00 coverage on liftB
 	}
 
-	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []osmLiftCandidate{liftA, liftB}, matches, nil, nil)
+	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []OSMLiftCandidate{liftA, liftB}, matches, nil, nil)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -164,12 +164,12 @@ func TestSnapToOSMLifts_RejectsHighHausdorff(t *testing.T) {
 	startTime := time.Unix(0, 0).UTC()
 	ride := newSyntheticRide(t, startTime, 0, 600, 0, 1000.0, 1100.0)
 
-	osm := osmLiftCandidate{SegmentID: "seg-X", LengthM: 600.0, BearingDeg: 90.0}
-	matches := []rideOSMOverlap{
+	osm := OSMLiftCandidate{SegmentID: "seg-X", LengthM: 600.0, BearingDeg: 90.0}
+	matches := []RideOSMOverlap{
 		{RideIdx: 0, OSMIdx: 0, HausdorffM: 60.0 /* > 50m cap */, IntersectionLen: 600.0},
 	}
 
-	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []osmLiftCandidate{osm}, matches, nil, nil)
+	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []OSMLiftCandidate{osm}, matches, nil, nil)
 	if results[0].Action != SnapActionPassthrough {
 		t.Errorf("expected passthrough for hausdorff>50m, got %q", results[0].Action)
 	}
@@ -197,20 +197,20 @@ func TestMergeMultiRideForOSM_CableHoldMerge(t *testing.T) {
 	rideBIndexed.StartSampleIdx = rideBOffset
 	rideBIndexed.EndSampleIdx = rideBOffset + len(rideB.samples) - 1
 
-	osmLift := osmLiftCandidate{
+	osmLift := OSMLiftCandidate{
 		SegmentID:        "seg-merge",
 		SegmentVersionID: "ver-merge",
 		LengthM:          600.0,
 		BearingDeg:       90.0,
 	}
-	matches := []rideOSMOverlap{
+	matches := []RideOSMOverlap{
 		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
 		{RideIdx: 1, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
 	}
 
 	stage1 := SnapToOSMLifts(
 		[]RideWithIndices{rideA.indexed, rideBIndexed},
-		[]osmLiftCandidate{osmLift},
+		[]OSMLiftCandidate{osmLift},
 		matches, allSamples, nil,
 	)
 	// Sanity: Stage 1 marked both as multi-ride-group.
@@ -223,7 +223,7 @@ func TestMergeMultiRideForOSM_CableHoldMerge(t *testing.T) {
 	stage2 := MergeMultiRideForOSM(
 		stage1,
 		[]RideWithIndices{rideA.indexed, rideBIndexed},
-		[]osmLiftCandidate{osmLift},
+		[]OSMLiftCandidate{osmLift},
 		matches, allSamples,
 	)
 
@@ -265,23 +265,23 @@ func TestMergeMultiRideForOSM_RejectsMergeWhenInterRideTooFar(t *testing.T) {
 	rideBIndexed.StartSampleIdx = rideBOffset
 	rideBIndexed.EndSampleIdx = rideBOffset + len(rideB.samples) - 1
 
-	osmLift := osmLiftCandidate{
+	osmLift := OSMLiftCandidate{
 		SegmentID: "seg-mid", LengthM: 600.0, BearingDeg: 90.0,
 	}
-	matches := []rideOSMOverlap{
+	matches := []RideOSMOverlap{
 		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
 		{RideIdx: 1, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
 	}
 
 	stage1 := SnapToOSMLifts(
 		[]RideWithIndices{rideA.indexed, rideBIndexed},
-		[]osmLiftCandidate{osmLift},
+		[]OSMLiftCandidate{osmLift},
 		matches, allSamples, nil,
 	)
 	stage2 := MergeMultiRideForOSM(
 		stage1,
 		[]RideWithIndices{rideA.indexed, rideBIndexed},
-		[]osmLiftCandidate{osmLift},
+		[]OSMLiftCandidate{osmLift},
 		matches, allSamples,
 	)
 	for i, r := range stage2 {
@@ -310,20 +310,20 @@ func TestMergeMultiRideForOSM_RejectsMergeOnDirectionReversal(t *testing.T) {
 	rideBIndexed.StartSampleIdx = rideBOffset
 	rideBIndexed.EndSampleIdx = rideBOffset + len(rideB.samples) - 1
 
-	osmLift := osmLiftCandidate{SegmentID: "seg-rev", LengthM: 600.0, BearingDeg: 90.0}
-	matches := []rideOSMOverlap{
+	osmLift := OSMLiftCandidate{SegmentID: "seg-rev", LengthM: 600.0, BearingDeg: 90.0}
+	matches := []RideOSMOverlap{
 		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
 		{RideIdx: 1, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
 	}
 	stage1 := SnapToOSMLifts(
 		[]RideWithIndices{rideA.indexed, rideBIndexed},
-		[]osmLiftCandidate{osmLift},
+		[]OSMLiftCandidate{osmLift},
 		matches, allSamples, nil,
 	)
 	stage2 := MergeMultiRideForOSM(
 		stage1,
 		[]RideWithIndices{rideA.indexed, rideBIndexed},
-		[]osmLiftCandidate{osmLift},
+		[]OSMLiftCandidate{osmLift},
 		matches, allSamples,
 	)
 	for i, r := range stage2 {
@@ -338,12 +338,12 @@ func TestMergeMultiRideForOSM_RejectsMergeOnDirectionReversal(t *testing.T) {
 func TestMergeMultiRideForOSM_PreservesStage1Snaps(t *testing.T) {
 	startTime := time.Unix(0, 0).UTC()
 	ride := newSyntheticRide(t, startTime, 0, 600, 0, 1000.0, 1100.0)
-	osm := osmLiftCandidate{SegmentID: "seg-A", LengthM: 600.0, BearingDeg: 90.0}
-	matches := []rideOSMOverlap{
+	osm := OSMLiftCandidate{SegmentID: "seg-A", LengthM: 600.0, BearingDeg: 90.0}
+	matches := []RideOSMOverlap{
 		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 600.0},
 	}
-	stage1 := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []osmLiftCandidate{osm}, matches, ride.samples, nil)
-	stage2 := MergeMultiRideForOSM(stage1, []RideWithIndices{ride.indexed}, []osmLiftCandidate{osm}, matches, ride.samples)
+	stage1 := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []OSMLiftCandidate{osm}, matches, ride.samples, nil)
+	stage2 := MergeMultiRideForOSM(stage1, []RideWithIndices{ride.indexed}, []OSMLiftCandidate{osm}, matches, ride.samples)
 	if stage2[0].Action != SnapActionSnap {
 		t.Errorf("Stage 2 must preserve Stage 1 snap; got %q", stage2[0].Action)
 	}
@@ -358,14 +358,14 @@ func TestMergeMultiRideForOSM_PreservesStage1Snaps(t *testing.T) {
 // or Stage-2 ride snapped to is returned as a Stage-3 plan entry — caller
 // then runs the per-lift time-window SQL.
 func TestMethodACoverageGap_PlansUncoveredOSMLifts(t *testing.T) {
-	osmA := osmLiftCandidate{OSMID: 100, SegmentID: "seg-A", LengthM: 600.0, BearingDeg: 90.0}
-	osmB := osmLiftCandidate{OSMID: 101, SegmentID: "seg-B", LengthM: 200.0, BearingDeg: 180.0}
+	osmA := OSMLiftCandidate{OSMID: 100, SegmentID: "seg-A", LengthM: 600.0, BearingDeg: 90.0}
+	osmB := OSMLiftCandidate{OSMID: 101, SegmentID: "seg-B", LengthM: 200.0, BearingDeg: 180.0}
 
 	// Stage 1+2 produced a snap for osmA only.
 	finalResults := []SnapResult{
 		{RideIdx: 0, Action: SnapActionSnap, OSMCandidateIdx: 0, SegmentID: "seg-A"},
 	}
-	plan := MethodACoverageGap(finalResults, []osmLiftCandidate{osmA, osmB})
+	plan := MethodACoverageGap(finalResults, []OSMLiftCandidate{osmA, osmB})
 	if len(plan) != 1 {
 		t.Fatalf("plan len = %d, want 1 (only osmB uncovered)", len(plan))
 	}
@@ -383,13 +383,13 @@ func TestMethodACoverageGap_PlansUncoveredOSMLifts(t *testing.T) {
 // TestMethodACoverageGap_NoPlanWhenAllSnapped: when every OSM lift was
 // covered (single ride per lift, both at >=70%) Stage 3 returns nothing.
 func TestMethodACoverageGap_NoPlanWhenAllSnapped(t *testing.T) {
-	osmA := osmLiftCandidate{OSMID: 100, SegmentID: "seg-A", LengthM: 600.0}
-	osmB := osmLiftCandidate{OSMID: 101, SegmentID: "seg-B", LengthM: 200.0}
+	osmA := OSMLiftCandidate{OSMID: 100, SegmentID: "seg-A", LengthM: 600.0}
+	osmB := OSMLiftCandidate{OSMID: 101, SegmentID: "seg-B", LengthM: 200.0}
 	finalResults := []SnapResult{
 		{RideIdx: 0, Action: SnapActionSnap, OSMCandidateIdx: 0, SegmentID: "seg-A"},
 		{RideIdx: 1, Action: SnapActionSnap, OSMCandidateIdx: 1, SegmentID: "seg-B"},
 	}
-	plan := MethodACoverageGap(finalResults, []osmLiftCandidate{osmA, osmB})
+	plan := MethodACoverageGap(finalResults, []OSMLiftCandidate{osmA, osmB})
 	if len(plan) != 0 {
 		t.Errorf("plan len = %d, want 0", len(plan))
 	}
@@ -399,11 +399,11 @@ func TestMethodACoverageGap_NoPlanWhenAllSnapped(t *testing.T) {
 // through to passthrough (no snap) does NOT count as covering an OSM lift,
 // so Stage 3 should still propose the lift.
 func TestMethodACoverageGap_PassthroughDoesNotCoverOSMLift(t *testing.T) {
-	osmA := osmLiftCandidate{OSMID: 100, SegmentID: "seg-A", LengthM: 600.0}
+	osmA := OSMLiftCandidate{OSMID: 100, SegmentID: "seg-A", LengthM: 600.0}
 	finalResults := []SnapResult{
 		{RideIdx: 0, Action: SnapActionPassthrough},
 	}
-	plan := MethodACoverageGap(finalResults, []osmLiftCandidate{osmA})
+	plan := MethodACoverageGap(finalResults, []OSMLiftCandidate{osmA})
 	if len(plan) != 1 {
 		t.Fatalf("plan len = %d, want 1 (passthrough does not cover the lift)", len(plan))
 	}
@@ -414,14 +414,14 @@ func TestMethodACoverageGap_PassthroughDoesNotCoverOSMLift(t *testing.T) {
 // SuppressedByMerge sibling reference OSMCandidateIdx=0 — Stage 3 should
 // see the lift as covered exactly once.
 func TestMethodACoverageGap_SuppressedSiblingsAlsoCount(t *testing.T) {
-	osmA := osmLiftCandidate{OSMID: 100, SegmentID: "seg-merge", LengthM: 600.0}
+	osmA := OSMLiftCandidate{OSMID: 100, SegmentID: "seg-merge", LengthM: 600.0}
 	finalResults := []SnapResult{
 		{RideIdx: 0, Action: SnapActionSnap, OSMCandidateIdx: 0, IsCableHoldMerge: true,
 			MergedRideIndices: []int{0, 1}, SegmentID: "seg-merge"},
 		{RideIdx: 1, Action: SnapActionSnap, OSMCandidateIdx: 0, IsCableHoldMerge: true,
 			SuppressedByMerge: true, SegmentID: "seg-merge"},
 	}
-	plan := MethodACoverageGap(finalResults, []osmLiftCandidate{osmA})
+	plan := MethodACoverageGap(finalResults, []OSMLiftCandidate{osmA})
 	if len(plan) != 0 {
 		t.Errorf("plan len = %d, want 0 (lift covered by the merged group)", len(plan))
 	}
