@@ -309,10 +309,19 @@ var tpl = template.Must(template.New("viz").Parse(`<!doctype html>
 
   const confColor = c => ({ high: '#2a7e2a', medium: '#c98a14', bidir: '#7a3aa8', low: '#888' })[c] || '#444';
 
+  // Per-ride visual layer: polyline + start (white fill) + end (colored fill).
+  // Tooltips are hover-only (S<idx>, E<idx>) so the map stays clean.
+  // setActiveRide() thick-highlights the active ride in a contrast color
+  // (magenta) so the segment length is immediately visible.
+  const ACTIVE_COLOR = '#ff007f'; // magenta — sticks out against any base layer
   const rideLayers = [];
+  const rideBaseColors = [];
+  const rideMarkers = []; // [{start, end}, ...]
   RIDES.forEach((r, i) => {
     const ll = r.path.map(p => [p.lat, p.lng]);
-    const line = L.polyline(ll, { color: confColor(r.conf), weight: 5, opacity: 0.85 }).addTo(map);
+    const baseColor = confColor(r.conf);
+    rideBaseColors.push(baseColor);
+    const line = L.polyline(ll, { color: baseColor, weight: 5, opacity: 0.85 }).addTo(map);
     line.bindPopup(
       '<b>ride[' + r.idx + ']</b> ' + r.conf + '<br>' +
       'start ' + r.start.replace('T', ' ').slice(11, 19) + '<br>' +
@@ -321,14 +330,46 @@ var tpl = template.Must(template.New("viz").Parse(`<!doctype html>
       'asc ' + r.asc.toFixed(1) + ' m, desc ' + r.desc.toFixed(1) + ' m<br>' +
       'dist ' + r.dist.toFixed(0) + ' m'
     );
+    let startMarker = null, endMarker = null;
     if (ll.length) {
-      const startMarker = L.circleMarker(ll[0], { color: confColor(r.conf), radius: 6, fillOpacity: 1, weight: 2, fillColor: 'white' }).addTo(map);
-      startMarker.bindTooltip('start[' + r.idx + ']');
-      const endMarker = L.circleMarker(ll[ll.length - 1], { color: confColor(r.conf), radius: 6, fillOpacity: 1, weight: 2, fillColor: confColor(r.conf) }).addTo(map);
-      endMarker.bindTooltip('end[' + r.idx + ']');
+      startMarker = L.circleMarker(ll[0], { color: baseColor, radius: 6, fillOpacity: 1, weight: 2, fillColor: 'white' }).addTo(map);
+      startMarker.bindTooltip('S' + r.idx);
+      endMarker = L.circleMarker(ll[ll.length - 1], { color: baseColor, radius: 6, fillOpacity: 1, weight: 2, fillColor: baseColor }).addTo(map);
+      endMarker.bindTooltip('E' + r.idx);
     }
     rideLayers.push(line);
+    rideMarkers.push({ start: startMarker, end: endMarker });
   });
+
+  // setActiveRide: paint the chosen ride magenta + thick on top of all the
+  // others; non-active rides keep their default weight/opacity/colour, they
+  // just lose any prior magenta-highlight. The magenta layer sits in front
+  // (bringToFront) so the active segment is easy to follow even where it
+  // overlaps other rides. activeIdx === -1 resets all rides to default.
+  let currentActiveIdx = -1;
+  function setActiveRide(activeIdx) {
+    currentActiveIdx = activeIdx;
+    rideLayers.forEach((l, i) => {
+      if (i === activeIdx) {
+        l.setStyle({ color: ACTIVE_COLOR, weight: 9, opacity: 1.0 });
+        l.bringToFront();
+      } else {
+        l.setStyle({ color: rideBaseColors[i], weight: 5, opacity: 0.85 });
+      }
+    });
+    rideMarkers.forEach((m, i) => {
+      if (i === activeIdx) {
+        if (m.start) m.start.setStyle({ color: ACTIVE_COLOR, radius: 10, weight: 3, fillColor: 'white' });
+        if (m.end)   m.end.setStyle({   color: ACTIVE_COLOR, radius: 10, weight: 3, fillColor: ACTIVE_COLOR });
+        if (m.start) m.start.bringToFront();
+        if (m.end)   m.end.bringToFront();
+      } else {
+        const c = rideBaseColors[i];
+        if (m.start) m.start.setStyle({ color: c, radius: 6, weight: 2, fillColor: 'white' });
+        if (m.end)   m.end.setStyle({   color: c, radius: 6, weight: 2, fillColor: c });
+      }
+    });
+  }
 
   const ridesEl = document.getElementById('rides');
   RIDES.forEach((r, i) => {
@@ -340,8 +381,18 @@ var tpl = template.Must(template.New("viz").Parse(`<!doctype html>
       '<div class="meta">' + r.start.slice(11, 19) + ' &rarr; ' + r.end.slice(11, 19) + ' &nbsp;|&nbsp; ' + r.dur + 's</div>' +
       '<div class="meta">+' + r.asc.toFixed(0) + 'm / &minus;' + r.desc.toFixed(0) + 'm &nbsp;|&nbsp; ' + r.dist.toFixed(0) + 'm</div>';
     div.addEventListener('click', () => {
+      // Toggle: clicking the already-active ride resets the highlight and
+      // closes any open popup. Switching to a different ride deactivates the
+      // previous one implicitly via setActiveRide.
+      if (currentActiveIdx === i) {
+        document.querySelectorAll('.ride').forEach(x => x.classList.remove('active'));
+        setActiveRide(-1);
+        map.closePopup();
+        return;
+      }
       document.querySelectorAll('.ride').forEach(x => x.classList.remove('active'));
       div.classList.add('active');
+      setActiveRide(i);
       const ll = rideLayers[i].getLatLngs();
       if (ll.length) {
         map.fitBounds(rideLayers[i].getBounds(), { padding: [40, 40] });
@@ -381,6 +432,7 @@ var tpl = template.Must(template.New("viz").Parse(`<!doctype html>
   if (rideParam !== null && rideLayers[+rideParam]) {
     const i = +rideParam;
     document.querySelectorAll('.ride')[i].classList.add('active');
+    setActiveRide(i);
     map.fitBounds(rideLayers[i].getBounds(), { padding: [40, 40] });
   }
 </script>
