@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
-	"sort"
 )
 
 func RenderGo(t Taxonomy) ([]byte, error) {
@@ -30,9 +29,7 @@ func RenderGo(t Taxonomy) ([]byte, error) {
 		}
 		if len(s.SubTypes) > 0 {
 			buf.WriteString("\t\tSubTypes: map[string]SubTypeDef{\n")
-			subTypes := append([]SubType(nil), s.SubTypes...)
-			sort.Slice(subTypes, func(i, j int) bool { return subTypes[i].SubType < subTypes[j].SubType })
-			for _, st := range subTypes {
+			for _, st := range s.SubTypes {
 				fmt.Fprintf(&buf, "\t\t\t%q: {SubType: %q, LabelDE: %q, DetailDE: %q, AutoTitleDE: %q, Selectable: %t", st.SubType, st.SubType, st.Labels["de"], st.Details["de"], st.AutoTitles["de"], *st.Selectable)
 				if st.MovingThreshold != nil {
 					fmt.Fprintf(&buf, ", MovingThreshold: ptrFloat64(%v)", *st.MovingThreshold)
@@ -44,6 +41,7 @@ func RenderGo(t Taxonomy) ([]byte, error) {
 				buf.WriteString("},\n")
 			}
 			buf.WriteString("\t\t},\n")
+			fmt.Fprintf(&buf, "\t\tSubTypeOrder: %s,\n", goSubTypeOrder(s.SubTypes))
 		}
 		fmt.Fprintf(&buf, "\t},\n")
 	}
@@ -54,6 +52,14 @@ func RenderGo(t Taxonomy) ([]byte, error) {
 		return nil, fmt.Errorf("format generated Go: %w", err)
 	}
 	return formatted, nil
+}
+
+func goSubTypeOrder(subTypes []SubType) string {
+	values := make([]string, 0, len(subTypes))
+	for _, subType := range subTypes {
+		values = append(values, subType.SubType)
+	}
+	return goStringArray(values)
 }
 
 func renderGoTraits(traits Traits) string {
