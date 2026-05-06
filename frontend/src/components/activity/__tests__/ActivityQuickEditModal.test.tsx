@@ -5,7 +5,8 @@ import '@testing-library/jest-dom'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ActivityQuickEditModal from '../ActivityQuickEditModal'
-import { fetchActivity } from '@/api/activities'
+import { fetchActivity, updateActivity } from '@/api/activities'
+import { fetchTags, unassignActivitiesFromTag, type Tag } from '@/api/tags'
 import type { Activity } from '@/api/types'
 
 vi.mock('@/api/activities', () => ({
@@ -76,9 +77,30 @@ function renderModal(activityValue: Activity) {
   )
 }
 
+function tag(overrides: Partial<Tag> = {}): Tag {
+  return {
+    id: 'tag-1',
+    name: 'Custom',
+    color: '#F97316',
+    text_color: '#ffffff',
+    category: 'user',
+    description: '',
+    is_system: false,
+    is_auto: false,
+    conditions: null,
+    conditions_logic: 'and',
+    activity_count: 1,
+    created_at: '2026-05-01T10:00:00Z',
+    ...overrides,
+  }
+}
+
 describe('ActivityQuickEditModal', () => {
   beforeEach(() => {
     vi.mocked(fetchActivity).mockImplementation(() => new Promise(() => {}))
+    vi.mocked(updateActivity).mockReset()
+    vi.mocked(fetchTags).mockResolvedValue([])
+    vi.mocked(unassignActivitiesFromTag).mockReset()
   })
 
   it('does not render editable fields until the full activity is loaded', () => {
@@ -107,5 +129,29 @@ describe('ActivityQuickEditModal', () => {
 
     expect(await screen.findByDisplayValue('User typed')).toBeInTheDocument()
     expect(screen.queryByDisplayValue('Later full row')).not.toBeInTheDocument()
+  })
+
+  it('resets the draft to the refreshed activity after a partial save error', async () => {
+    const user = userEvent.setup()
+    const initial = activity({ title: 'Initial', tags: ['Custom'] })
+    const refreshed = activity({ title: 'Server after partial save', tags: [] })
+    vi.mocked(fetchActivity)
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(refreshed)
+    vi.mocked(fetchTags).mockResolvedValue([tag({ id: 'tag-1', name: 'Custom' })])
+    vi.mocked(unassignActivitiesFromTag).mockResolvedValue(undefined)
+    vi.mocked(updateActivity).mockRejectedValue(new Error('refresh failed'))
+
+    renderModal(initial)
+
+    const titleInput = await screen.findByLabelText('Titel')
+    await user.clear(titleInput)
+    await user.type(titleInput, 'Unsaved draft')
+    await user.click(screen.getByRole('button', { name: 'Custom entfernen' }))
+    await user.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    expect(await screen.findByText('Teilweise gespeichert. Bitte prüfe die Aktivität und speichere fehlende Änderungen erneut.')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Server after partial save')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('Unsaved draft')).not.toBeInTheDocument()
   })
 })

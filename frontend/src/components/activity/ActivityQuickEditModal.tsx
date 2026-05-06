@@ -208,12 +208,14 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
       onClose()
     } catch (err) {
       if (savedAny) {
-        try {
-          const current = await fetchActivity(activity.id)
-          queryClient.setQueryData(['activity', activity.id], current)
-          queryClient.invalidateQueries({ queryKey: ['activities'] })
-          onSaved(current)
-        } catch {
+	        try {
+	          const current = await fetchActivity(activity.id)
+	          queryClient.setQueryData(['activity', activity.id], current)
+	          queryClient.invalidateQueries({ queryKey: ['activities'] })
+	          setDraft(activityQuickEditDraftFromActivity(current))
+	          setDraftDirty(false)
+	          onSaved(current)
+	        } catch {
           queryClient.invalidateQueries({ queryKey: ['activities'] })
           queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
         }
@@ -355,15 +357,20 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
               <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Tags</span>
               <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
                 <div className="mb-2 flex flex-wrap gap-2">
-                  {draft.tags.map(tag => {
-                    const locked = tag.toLowerCase() === 'virtuell' && draft.isVirtual
-                    return (
-                      <span key={tag} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium" style={tagStyle(tag, draft.tags.indexOf(tag))}>
-                        {tag}
-                        {!locked && (
-                          <button type="button" onClick={() => toggleTag(tag, false)} className="opacity-70 hover:opacity-100" aria-label={`${tag} entfernen`}>
-                            <X className="h-3 w-3" />
-                          </button>
+	                  {draft.tags.map(tag => {
+	                    const locked = tag.toLowerCase() === 'virtuell' && draft.isVirtual
+	                    const removalLabel = tag.toLowerCase() === 'indoor' && draft.isIndoor
+	                      ? 'Indoor entfernen (setzt Indoor aus)'
+	                      : tag.toLowerCase() === 'e-bike' && draft.isElectric
+	                        ? 'E-Bike entfernen (setzt E-Antrieb aus)'
+	                        : `${tag} entfernen`
+	                    return (
+	                      <span key={tag} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium" style={tagStyle(tag, draft.tags.indexOf(tag))}>
+	                        {tag}
+	                        {!locked && (
+	                          <button type="button" onClick={() => toggleTag(tag, false)} className="opacity-70 hover:opacity-100" aria-label={removalLabel} title={removalLabel}>
+	                            <X className="h-3 w-3" />
+	                          </button>
                         )}
                       </span>
                     )

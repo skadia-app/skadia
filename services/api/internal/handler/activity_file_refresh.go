@@ -9,6 +9,12 @@ import (
 )
 
 func activityUpdateAffectsFileSchema(update *model.ActivityUpdate) bool {
+	if update == nil {
+		return false
+	}
+	if activityUpdateIsEmpty(update) {
+		return true
+	}
 	return update.Title != nil ||
 		(update.ClearTitle != nil && *update.ClearTitle) ||
 		update.SportType != nil ||
@@ -17,6 +23,32 @@ func activityUpdateAffectsFileSchema(update *model.ActivityUpdate) bool {
 		update.IsIndoor != nil ||
 		update.IsVirtual != nil ||
 		update.Tags != nil
+}
+
+func activityUpdateIsEmpty(update *model.ActivityUpdate) bool {
+	return update.Title == nil &&
+		update.ClearTitle == nil &&
+		update.Description == nil &&
+		update.ClearDescription == nil &&
+		update.SportType == nil &&
+		update.SubType == nil &&
+		update.IsElectric == nil &&
+		update.IsIndoor == nil &&
+		update.IsVirtual == nil &&
+		update.Tags == nil &&
+		update.Visibility == nil &&
+		update.HideMap == nil &&
+		update.DataVisibility == nil &&
+		update.GearID == nil &&
+		update.LocationLat == nil &&
+		update.LocationLng == nil &&
+		update.ExcludeLiftSubtraction == nil &&
+		update.WorkoutFeel == nil &&
+		update.ClearWorkoutFeel == nil &&
+		update.WorkoutRpe == nil &&
+		update.ClearWorkoutRpe == nil &&
+		update.ExcludeFromHeatmap == nil &&
+		update.ExcludeFromStats == nil
 }
 
 func (h *Handler) refreshActivityFilePathBestEffort(ctx context.Context, userID, activityID, fileID string) {
