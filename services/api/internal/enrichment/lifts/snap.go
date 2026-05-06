@@ -65,6 +65,17 @@ type rideOSMOverlap struct {
 	IntersectionLen float64 // metres of lift covered by the ride buffer
 }
 
+// Stage3PlanEntry is one OSM lift the consumer must process via the legacy
+// per-lift time-window SQL (extract samples within 75m of the lift, derive
+// duration/ascent/bearing, INSERT one segment_efforts + one audit
+// activity_lift_candidates row). Emitted only for lifts no Stage-1 or
+// Stage-2 ride snapped to.
+type Stage3PlanEntry struct {
+	OSMCandidateIdx    int
+	IsLiftSegmentMatch bool // always true (Stage 3 always produces a snap-equivalent row)
+	IsMethodAOnly      bool // always true (this is the heuristic-miss safety net)
+}
+
 // SnapResult is the per-ride decision produced by SnapToOSMLifts and refined
 // by MergeMultiRideForOSM. Stage 3 produces additional Stage3Result rows for
 // OSM lifts that no ride covered.
@@ -388,4 +399,40 @@ func computeIsReverseFromSamples(samples []StreamPoint, ride RideWithIndices, li
 	}
 	rideBearing := BearingDeg(*s.Lat, *s.Lng, *e.Lat, *e.Lng)
 	return IsReverseHeading(rideBearing, liftBearingDeg)
+}
+
+// MethodACoverageGap is Stage 3: for every OSM lift no Stage-1 or Stage-2
+// snap referenced (whether canonical or SuppressedByMerge sibling), emit a
+// Stage3PlanEntry. The caller is responsible for running the per-lift
+// time-window SQL and inserting one segment_efforts row plus one audit-only
+// activity_lift_candidates row (source='osm', confirmed=true).
+//
+// Stage 3 deliberately ignores SnapActionPassthrough rides — they are
+// heuristic-only candidates that did NOT cover the OSM lift; if the lift
+// exists in the neighbourhood it should still be filled in here.
+//
+// Min-duration enforcement (the legacy 30s floor for very short lifts that
+// are below the heuristic 60s minimum) lives in the time-window SQL the
+// caller runs, not in this planning function — Stage 3 only decides which
+// lifts to process.
+func MethodACoverageGap(finalResults []SnapResult, osmCandidates []osmLiftCandidate) []Stage3PlanEntry {
+	covered := make(map[int]bool, len(osmCandidates))
+	for _, r := range finalResults {
+		if r.Action != SnapActionSnap {
+			continue
+		}
+		covered[r.OSMCandidateIdx] = true
+	}
+	plan := make([]Stage3PlanEntry, 0, len(osmCandidates))
+	for i := range osmCandidates {
+		if covered[i] {
+			continue
+		}
+		plan = append(plan, Stage3PlanEntry{
+			OSMCandidateIdx:    i,
+			IsLiftSegmentMatch: true,
+			IsMethodAOnly:      true,
+		})
+	}
+	return plan
 }
