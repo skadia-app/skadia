@@ -43,6 +43,33 @@ func TestResolverVirtualPatchAppliesThroughSharedHelper(t *testing.T) {
 	}
 }
 
+func TestResolverElectricPatchSetsGenericElectricFlag(t *testing.T) {
+	resolved, err := sport.ResolveSport(sport.ResolveInput{Source: sport.SourceStrava, RawSport: "E-Bike Ride"})
+	if err != nil {
+		t.Fatalf("ResolveSport: %v", err)
+	}
+	if resolved.Tuple.SportType != "cycling" {
+		t.Fatalf("tuple sport = %q, want cycling", resolved.Tuple.SportType)
+	}
+	values := sport.ApplyModifierPatch(sport.ModifierValues{}, resolved.Patch)
+	if !values.IsElectric {
+		t.Fatal("IsElectric = false, want generic electric flag from source alias")
+	}
+}
+
+func TestNormalizeImportedActivitySportPreservesExplicitModifierEvidence(t *testing.T) {
+	data := &model.ActivityData{SportType: "running", SubType: "trail", IsIndoor: true, IsVirtual: true}
+	if err := normalizeImportedActivitySport(data); err != nil {
+		t.Fatalf("normalizeImportedActivitySport: %v", err)
+	}
+	if data.SportType != "running" || data.SubType != "trail" {
+		t.Fatalf("tuple = %s/%s, want running/trail", data.SportType, data.SubType)
+	}
+	if !data.IsIndoor || !data.IsVirtual {
+		t.Fatalf("modifiers indoor=%v virtual=%v, want explicit true values preserved", data.IsIndoor, data.IsVirtual)
+	}
+}
+
 func TestSharedModifierPatchAppliesExplicitIndoorFalse(t *testing.T) {
 	falseValue := false
 	values := sport.ApplyModifierPatch(

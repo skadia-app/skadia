@@ -26,6 +26,7 @@ type ManualActivityFile struct {
 	IsElectric     bool              `json:"is_electric,omitempty"`
 	IsIndoor       bool              `json:"is_indoor,omitempty"`
 	IsVirtual      bool              `json:"is_virtual,omitempty"`
+	IsCommute      bool              `json:"is_commute,omitempty"`
 	Source         string            `json:"source,omitempty"`
 	SourceFields   map[string]string `json:"source_fields,omitempty"`
 	CreatedAt      time.Time         `json:"created_at"`
