@@ -1,13 +1,48 @@
 package handler
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
+
+// reapplyRulesAfterLiftChange re-fires the rules engine with the narrow
+// trigger 'on_enrichment_complete' so the lift_detected SystemRule (and any
+// user rule that depends on has_lift / lift_count and chose that trigger)
+// re-evaluates against the new lift_count. Phase 4b.B.4.
+//
+// We intentionally do NOT pass "" (= match every trigger) — that would also
+// re-fire Frost/Nacht/Rundtour with retraction semantics and could strip
+// those tags as a side-effect of confirming a single lift candidate.
+//
+// Errors are logged-and-swallowed because the user-facing 204 response is
+// already correct (the DB write succeeded); the rules re-fire is a
+// best-effort secondary effect.
+func (h *Handler) reapplyRulesAfterLiftChange(r *http.Request, activityID, userID string) {
+	allRules, listErr := h.DB.ListRules(r.Context(), userID)
+	if listErr != nil {
+		slog.Warn("lift confirm/reject: list rules failed",
+			"activity_id", activityID, "error", listErr)
+		return
+	}
+	if rulesErr := automation.ApplyRulesToActivity(
+		r.Context(), h.DB, activityID, userID, allRules,
+		"on_enrichment_complete",
+	); rulesErr != nil {
+		if errors.Is(rulesErr, automation.ErrRulesEnginePaused) {
+			slog.Warn("lift confirm/reject: rules skipped — engine paused",
+				"activity_id", activityID)
+		} else {
+			slog.Warn("lift confirm/reject: rules failed",
+				"activity_id", activityID, "error", rulesErr)
+		}
+	}
+}
 
 // GetLiftCandidates returns lift ride candidates for an activity.
 // GET /api/v1/activities/{id}/lift-candidates
@@ -60,6 +95,7 @@ func (h *Handler) ConfirmLiftCandidate(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
 	}
+	h.reapplyRulesAfterLiftChange(r, activityID, userID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -87,5 +123,6 @@ func (h *Handler) RejectLiftCandidate(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
 	}
+	h.reapplyRulesAfterLiftChange(r, activityID, userID)
 	w.WriteHeader(http.StatusNoContent)
 }
