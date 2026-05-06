@@ -66,8 +66,55 @@ func DetectHeuristic(rows []StreamPoint, cfg DetectorConfig) []LiftRide {
 		start = trimLeadingLowGradient(rows, start, finalEnd, kind)
 		final := computeStats(rows, start, finalEnd, cfg)
 		if !validateRide(final, kind, cfg) {
-			i++
-			continue
+			// Sinuosity-fail tail-peel retry. ONLY runs when the full-window
+			// failure is sinuosity above MaxSinuosity by a small margin —
+			// the "stitched-pair" signature where extendCandidate captured
+			// two adjacent lift segments connected by a top↔base walk
+			// (alpine bikepark L02-Berg → L01-Tal at mid-platform: 88 m walk on
+			// alt-flat 1745–1750, the merged path turns ~120° at the
+			// transit and pushes sin from L02-only 1.00 to merged 1.083).
+			//
+			// Restricting to sin failure (and a tight upper band 1.30) keeps
+			// the retry from accepting a shorter version of an intrinsically
+			// invalid ride: alt-mass / hike-band / monotonicity / CV
+			// failures are not stitched-window artifacts and peeling would
+			// fabricate spurious shorter rides.
+			peeled := false
+			sinStitched := final.sinuosity > cfg.MaxSinuosity && final.sinuosity <= 1.30
+			if sinStitched && (kind == "high" || kind == "medium") {
+				const peelStepS = 30.0
+				const peelMaxS = 900.0
+				for stepS := peelStepS; stepS <= peelMaxS; stepS += peelStepS {
+					cutoffT := rows[finalEnd].Time.Add(-time.Duration(stepS) * time.Second)
+					if !cutoffT.After(rows[start].Time.Add(60 * time.Second)) {
+						break
+					}
+					retryEnd := -1
+					for k := finalEnd - 1; k > start; k-- {
+						if !rows[k].Time.After(cutoffT) {
+							retryEnd = k
+							break
+						}
+					}
+					if retryEnd < 0 || retryEnd-start < cfg.MinSamples {
+						break
+					}
+					retryStats := computeStats(rows, start, retryEnd, cfg)
+					if validateRide(retryStats, kind, cfg) {
+						dprintf("PEEL-OK step=%.0fs new finalEnd=%d t=%s sin=%.3f cv=%.3f rate=%.2f\n",
+							stepS, retryEnd, rows[retryEnd].Time.Format("15:04:05"),
+							retryStats.sinuosity, retryStats.speedCV, retryStats.altRateMs)
+						finalEnd = retryEnd
+						final = retryStats
+						peeled = true
+						break
+					}
+				}
+			}
+			if !peeled {
+				i++
+				continue
+			}
 		}
 		if cfg.BoundarySpeedDropEnabled && !boundarySpeedDropOK(rows, start, finalEnd, cfg) {
 			i++
@@ -206,7 +253,23 @@ func mergeMidLiftSplits(in []rideWithIdx, rows []StreamPoint, cfg DetectorConfig
 	// mid-station walk (alpine bikepark L03→L04 at the shared platform, where
 	// the rider walks ≥30 m across to board the next lift in 25–60 s).
 	const cableHoldGapS = 240.0
-	const cableHoldEndDriftM = 5.0
+	// cableHoldEndDriftM raised 5 → 15 m. Two effects accumulate:
+	//   1. Trim peels trailing cable-decel from prev's end and trailing
+	//      cable-accel from cur's start, so the trimmed boundaries sit a
+	//      few metres inside the cable line on each side.
+	//   2. The continuous-stream gap may end with a no-sample sub-window
+	//      (cycling-computer device auto-pause): GPS jitter during the no-sample
+	//      portion adds another 3–5 m drift between the last gap sample
+	//      and cur.startIdx.
+	// cycling-computer device ride 2/3 calibrated case: prev.endIdx (12:03:13) vs
+	// cur.startIdx (12:06:43) sit 14.2 m apart — every gap sample stays
+	// ≤ 10 m from the anchor (cableHoldSampleDriftM still 10), so the per-
+	// sample drift gate keeps a true mid-station walk (rider crosses ≥ 30 m
+	// to the next lift's boarding line, drift > 15 m within the gap) from
+	// sneaking through. 15 m is safely below adjacent-lift platform
+	// distances in the corpus (alpine bikepark L03→L04 ≈ 30 m, FL-1 multi-A→B
+	// ≈ 165 m, L09↔L10b ≈ 36 m).
+	const cableHoldEndDriftM = 15.0
 	const cableHoldSampleDriftM = 10.0
 	out := make([]rideWithIdx, 0, len(in))
 	out = append(out, in[0])
@@ -799,6 +862,15 @@ func extendCandidate(rows []StreamPoint, start, initialEnd int, kind string, ws 
 			// are recorded as separate rides.
 			const plateauWinS = 65.0
 			const plateauMaxDeltaM = 2.0
+			// Cable-cruise gate for the tight (2 m) plateau. A multi-section
+			// gondola's mid-cable horizontal hand-off (multi-section case 1 multi-A
+			// approach to Mid1: 39 s of alt-flat 1628–1631 m at cable-cruise
+			// 4.9 m/s before the cabin actually parks) keeps median speed at
+			// full cable cruise. The unconditional 2 m gate closed there too
+			// eagerly, ending ride0 200 m short of Mid1. Speed-gated tier
+			// closes only when the rider has actually disembarked / cable
+			// has stopped (median drops below cable cruise band).
+			const cableCruiseMinSpd = 2.5
 			cutoff := nxt.Time.Add(-time.Duration(plateauWinS) * time.Second)
 			var refAlt float64 = math.NaN()
 			refOK := false
@@ -812,11 +884,17 @@ func extendCandidate(rows []StreamPoint, start, initialEnd int, kind string, ws 
 				}
 			}
 			if refOK && nxt.Time.Sub(rows[start].Time).Seconds() >= plateauWinS {
-				if math.Abs(*nxt.AltitudeM-refAlt) < plateauMaxDeltaM {
-					dprintf("BREAK plateau60s ref=%.1f cur=%.1f at end=%d t=%s\n",
-						refAlt, *nxt.AltitudeM, end, cur.Time.Format("15:04:05"))
-					endViaStopIndicator = true
-					break
+				altDelta := math.Abs(*nxt.AltitudeM - refAlt)
+				if altDelta < plateauMaxDeltaM {
+					medSpd := medianEffectiveSpeedLastSeconds(rows, end, plateauWinS, cfg)
+					if medSpd < cableCruiseMinSpd {
+						dprintf("BREAK plateau60s ref=%.1f cur=%.1f medSpd=%.2f at end=%d t=%s\n",
+							refAlt, *nxt.AltitudeM, medSpd, end, cur.Time.Format("15:04:05"))
+						endViaStopIndicator = true
+						break
+					}
+					dprintf("plateau60s skip cable-cruise ref=%.1f cur=%.1f medSpd=%.2f at end=%d t=%s\n",
+						refAlt, *nxt.AltitudeM, medSpd, end, cur.Time.Format("15:04:05"))
 				}
 			}
 		}
@@ -1051,6 +1129,33 @@ func trimTrailingDisembarkDiscontinuity(rows []StreamPoint, start, end int, kind
 		pos = newPos
 	}
 	return pos
+}
+
+// medianEffectiveSpeedLastSeconds returns the median effective speed over the
+// last `seconds` of [0, hi]. Median is robust to per-sample GPS noise (Strava-
+// App alternates 1–5 m/s at 1 Hz on the same cable) and to skater-push spikes
+// (5–8 m/s 1 Hz bursts when the rider pushes off into the next lift line) —
+// mean would be biased by those outliers, median tracks the underlying foot or
+// cable cadence. Returns 0 if fewer than 5 samples have a valid speed.
+func medianEffectiveSpeedLastSeconds(rows []StreamPoint, hi int, seconds float64, cfg DetectorConfig) float64 {
+	if hi <= 0 || hi >= len(rows) {
+		return 0
+	}
+	cutoff := rows[hi].Time.Add(-time.Duration(seconds) * time.Second)
+	speeds := make([]float64, 0, 64)
+	for k := hi; k >= 0; k-- {
+		if rows[k].Time.Before(cutoff) {
+			break
+		}
+		if spd, ok := effectiveSpeedCfg(rows, k, cfg); ok {
+			speeds = append(speeds, spd)
+		}
+	}
+	if len(speeds) < 5 {
+		return 0
+	}
+	sort.Float64s(speeds)
+	return speeds[len(speeds)/2]
 }
 
 // altRateLastSeconds returns |Δalt|/duration over the last `seconds` of the
