@@ -1348,6 +1348,8 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 
 func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *model.ActivityUpdate) (*model.Activity, error) {
 	b := newSetBuilder(3)
+	clearSportConflict := update.SportType != nil || update.SubType != nil ||
+		update.IsIndoor != nil || update.IsElectric != nil || update.IsVirtual != nil
 
 	if update.Title != nil {
 		b.Set("title", *update.Title)
@@ -1473,6 +1475,9 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	if update.ExcludeFromStats != nil {
 		b.Set("exclude_from_stats", *update.ExcludeFromStats)
 	}
+	if clearSportConflict {
+		b.Set("sport_conflict_pending", false)
+	}
 
 	if !b.HasSets() {
 		return db.GetActivity(ctx, id)
@@ -1483,6 +1488,11 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	_, err := db.Pool.Exec(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("update activity: %w", err)
+	}
+	if clearSportConflict {
+		if err := db.ResolveImportQueueByActivity(ctx, userID, id); err != nil {
+			slog.Warn("update activity: failed to resolve sport conflict queue", "activity_id", id, "user_id", userID, "error", err)
+		}
 	}
 
 	return db.GetActivity(ctx, id)

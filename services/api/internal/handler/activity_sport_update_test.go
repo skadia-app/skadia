@@ -70,3 +70,54 @@ func TestUpdateActivityClearsHeatmapExclusionWhenVirtualCleared(t *testing.T) {
 		t.Fatalf("virtual=%v heatmap=%v, want false/false", activity.IsVirtual, activity.ExcludeFromHeatmap)
 	}
 }
+
+func TestUpdateActivityClearsPendingSportConflictOnManualSportPatch(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	h := &Handler{DB: db}
+	userID := insertTestUser(t, pool)
+	activityID := insertMinimalActivity(t, db, userID)
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE activities SET sport_conflict_pending = true WHERE id = $1`, activityID); err != nil {
+		t.Fatalf("seed sport conflict: %v", err)
+	}
+	queueID, err := db.CreateImportQueueItem(context.Background(), database.ImportQueueItem{
+		UserID:           userID,
+		QueueType:        "sport_conflict",
+		OriginalFilename: "activity.fit",
+		ContentType:      "application/octet-stream",
+		Metadata:         map[string]any{"activity_id": activityID},
+	})
+	if err != nil {
+		t.Fatalf("seed sport conflict queue: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/activities/"+activityID, bytes.NewReader([]byte(`{"sport_type":"cycling","sub_type":"mountain","is_electric":true}`)))
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", activityID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	w := httptest.NewRecorder()
+	h.UpdateActivity(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PATCH status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	activity, err := db.GetActivity(context.Background(), activityID)
+	if err != nil {
+		t.Fatalf("GetActivity: %v", err)
+	}
+	if activity.SportConflictPending {
+		t.Fatal("sport_conflict_pending = true, want false after manual sport patch")
+	}
+	var queueStatus string
+	var queueResolved bool
+	if err := pool.QueryRow(context.Background(),
+		`SELECT status, resolved_at IS NOT NULL FROM import_queue WHERE id = $1`, queueID).Scan(&queueStatus, &queueResolved); err != nil {
+		t.Fatalf("query sport conflict queue: %v", err)
+	}
+	if queueStatus != "resolved" || !queueResolved {
+		t.Fatalf("queue status/resolved = %s/%v, want resolved/true", queueStatus, queueResolved)
+	}
+}
