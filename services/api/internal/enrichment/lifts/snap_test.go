@@ -175,6 +175,183 @@ func TestSnapToOSMLifts_RejectsHighHausdorff(t *testing.T) {
 	}
 }
 
+// --- Stage 2: MergeMultiRideForOSM tests ---
+
+// TestMergeMultiRideForOSM_CableHoldMerge: two short rides whose union covers
+// >=70% of an OSM lift, with all three cable-hold signals positive
+// (inter-ride distance <= 15m, all gap samples <= 10m from anchor, no
+// bearing reversal) → one Snap (canonical, IsCableHoldMerge=true) plus one
+// SuppressedByMerge sibling pointing at the same OSM lift.
+func TestMergeMultiRideForOSM_CableHoldMerge(t *testing.T) {
+	startTime := time.Unix(0, 0).UTC()
+	rideA := newSyntheticRide(t, startTime, 0, 300, 0, 1000.0, 1050.0)
+	// Cable-hold: rideB starts ~10m past rideA's end, with no samples in
+	// between (smart-recording paused) — same direction (east).
+	rideB := newSyntheticRide(t, startTime.Add(180*time.Second), 310, 600, 0, 1052.0, 1100.0)
+
+	// Concatenate samples; remap rideB's indices to point past rideA.
+	allSamples := append([]StreamPoint{}, rideA.samples...)
+	rideBOffset := len(allSamples)
+	allSamples = append(allSamples, rideB.samples...)
+	rideBIndexed := rideB.indexed
+	rideBIndexed.StartSampleIdx = rideBOffset
+	rideBIndexed.EndSampleIdx = rideBOffset + len(rideB.samples) - 1
+
+	osmLift := osmLiftCandidate{
+		SegmentID:        "seg-merge",
+		SegmentVersionID: "ver-merge",
+		LengthM:          600.0,
+		BearingDeg:       90.0,
+	}
+	matches := []rideOSMOverlap{
+		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
+		{RideIdx: 1, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
+	}
+
+	stage1 := SnapToOSMLifts(
+		[]RideWithIndices{rideA.indexed, rideBIndexed},
+		[]osmLiftCandidate{osmLift},
+		matches, allSamples, nil,
+	)
+	// Sanity: Stage 1 marked both as multi-ride-group.
+	for i, r := range stage1 {
+		if r.Action != SnapActionMultiRideGroup {
+			t.Fatalf("ride[%d] Stage 1 action = %q, want multi_ride_group", i, r.Action)
+		}
+	}
+
+	stage2 := MergeMultiRideForOSM(
+		stage1,
+		[]RideWithIndices{rideA.indexed, rideBIndexed},
+		[]osmLiftCandidate{osmLift},
+		matches, allSamples,
+	)
+
+	if len(stage2) != 2 {
+		t.Fatalf("stage2 len = %d, want 2", len(stage2))
+	}
+	canonical := stage2[0]
+	suppressed := stage2[1]
+	if canonical.Action != SnapActionSnap {
+		t.Errorf("canonical Action = %q, want snap", canonical.Action)
+	}
+	if !canonical.IsCableHoldMerge {
+		t.Error("expected canonical.IsCableHoldMerge = true")
+	}
+	if canonical.SegmentID != "seg-merge" {
+		t.Errorf("canonical SegmentID = %q, want seg-merge", canonical.SegmentID)
+	}
+	if len(canonical.MergedRideIndices) != 2 {
+		t.Errorf("canonical MergedRideIndices = %v, want [0,1]", canonical.MergedRideIndices)
+	}
+	if !suppressed.SuppressedByMerge {
+		t.Error("expected suppressed.SuppressedByMerge = true")
+	}
+}
+
+// TestMergeMultiRideForOSM_RejectsMergeWhenInterRideTooFar: two rides
+// 30m apart at the join → fails inter-ride-distance signal → both fall
+// through as heuristic-only (Action=Passthrough).
+func TestMergeMultiRideForOSM_RejectsMergeWhenInterRideTooFar(t *testing.T) {
+	startTime := time.Unix(0, 0).UTC()
+	rideA := newSyntheticRide(t, startTime, 0, 300, 0, 1000.0, 1050.0)
+	// rideB starts 50m past rideA's end (mid-station-style platform walk).
+	rideB := newSyntheticRide(t, startTime.Add(180*time.Second), 350, 600, 0, 1052.0, 1100.0)
+
+	allSamples := append([]StreamPoint{}, rideA.samples...)
+	rideBOffset := len(allSamples)
+	allSamples = append(allSamples, rideB.samples...)
+	rideBIndexed := rideB.indexed
+	rideBIndexed.StartSampleIdx = rideBOffset
+	rideBIndexed.EndSampleIdx = rideBOffset + len(rideB.samples) - 1
+
+	osmLift := osmLiftCandidate{
+		SegmentID: "seg-mid", LengthM: 600.0, BearingDeg: 90.0,
+	}
+	matches := []rideOSMOverlap{
+		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
+		{RideIdx: 1, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
+	}
+
+	stage1 := SnapToOSMLifts(
+		[]RideWithIndices{rideA.indexed, rideBIndexed},
+		[]osmLiftCandidate{osmLift},
+		matches, allSamples, nil,
+	)
+	stage2 := MergeMultiRideForOSM(
+		stage1,
+		[]RideWithIndices{rideA.indexed, rideBIndexed},
+		[]osmLiftCandidate{osmLift},
+		matches, allSamples,
+	)
+	for i, r := range stage2 {
+		if r.Action != SnapActionPassthrough {
+			t.Errorf("ride[%d] action=%q, want passthrough (mid-station distance)", i, r.Action)
+		}
+		if r.IsCableHoldMerge {
+			t.Errorf("ride[%d] should NOT be merged", i)
+		}
+	}
+}
+
+// TestMergeMultiRideForOSM_RejectsMergeOnDirectionReversal: same rides
+// geometrically close but rideB heads west (reversed). Mid-station with
+// direction change → not a cable hold.
+func TestMergeMultiRideForOSM_RejectsMergeOnDirectionReversal(t *testing.T) {
+	startTime := time.Unix(0, 0).UTC()
+	rideA := newSyntheticRide(t, startTime, 0, 300, 0, 1000.0, 1050.0)
+	// rideB heads west: startX > endX
+	rideB := newSyntheticRide(t, startTime.Add(180*time.Second), 310, 10, 0, 1052.0, 1100.0)
+
+	allSamples := append([]StreamPoint{}, rideA.samples...)
+	rideBOffset := len(allSamples)
+	allSamples = append(allSamples, rideB.samples...)
+	rideBIndexed := rideB.indexed
+	rideBIndexed.StartSampleIdx = rideBOffset
+	rideBIndexed.EndSampleIdx = rideBOffset + len(rideB.samples) - 1
+
+	osmLift := osmLiftCandidate{SegmentID: "seg-rev", LengthM: 600.0, BearingDeg: 90.0}
+	matches := []rideOSMOverlap{
+		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
+		{RideIdx: 1, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
+	}
+	stage1 := SnapToOSMLifts(
+		[]RideWithIndices{rideA.indexed, rideBIndexed},
+		[]osmLiftCandidate{osmLift},
+		matches, allSamples, nil,
+	)
+	stage2 := MergeMultiRideForOSM(
+		stage1,
+		[]RideWithIndices{rideA.indexed, rideBIndexed},
+		[]osmLiftCandidate{osmLift},
+		matches, allSamples,
+	)
+	for i, r := range stage2 {
+		if r.IsCableHoldMerge {
+			t.Errorf("ride[%d] should NOT be merged on direction reversal", i)
+		}
+	}
+}
+
+// TestMergeMultiRideForOSM_PreservesStage1Snaps: a ride that Stage 1 already
+// snapped (Action=Snap) must come out unchanged from Stage 2.
+func TestMergeMultiRideForOSM_PreservesStage1Snaps(t *testing.T) {
+	startTime := time.Unix(0, 0).UTC()
+	ride := newSyntheticRide(t, startTime, 0, 600, 0, 1000.0, 1100.0)
+	osm := osmLiftCandidate{SegmentID: "seg-A", LengthM: 600.0, BearingDeg: 90.0}
+	matches := []rideOSMOverlap{
+		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 600.0},
+	}
+	stage1 := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []osmLiftCandidate{osm}, matches, ride.samples, nil)
+	stage2 := MergeMultiRideForOSM(stage1, []RideWithIndices{ride.indexed}, []osmLiftCandidate{osm}, matches, ride.samples)
+	if stage2[0].Action != SnapActionSnap {
+		t.Errorf("Stage 2 must preserve Stage 1 snap; got %q", stage2[0].Action)
+	}
+	if stage2[0].IsCableHoldMerge {
+		t.Error("Stage 1 snap must NOT be marked as cable-hold-merge")
+	}
+}
+
 // --- helpers ---
 
 type syntheticRide struct {
