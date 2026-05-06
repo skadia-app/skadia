@@ -126,6 +126,11 @@ describe('sport taxonomy aliases', () => {
     expect(normalizeSportTuple('fitness_equipment', 'old_vendor_subtype').modifiers.isIndoor).toBe(true)
   })
 
+  it('keeps parent modifier defaults for known subtypes without subtype defaults', () => {
+    expect(modifierDefaultsForTuple('fitness_equipment', 'elliptical').isIndoor).toBe(true)
+    expect(normalizeSportTuple('fitness_equipment', 'elliptical').modifiers.isIndoor).toBe(true)
+  })
+
   it('uses canonical subtype labels', () => {
     expect(sportLabel('cycling', 'mountain')).toBe('MTB')
     expect(sportLabel('running', 'indoor_running')).toBe('Indoor')

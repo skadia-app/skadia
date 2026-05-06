@@ -102,6 +102,27 @@ describe('GearForm', () => {
       { sport_type: 'cycling', sub_type: 'legacy:subtype' },
     ])
   })
+
+  it('blocks duplicate precise predicate defaults instead of silently dropping one', () => {
+    const onSave = vi.fn()
+    render(
+      <GearForm
+        gear={gearFixture({
+          default_sport_predicates: [
+            { sport_type: 'cycling', sub_type: 'mountain', modifiers: { is_electric: true } },
+            { sport_type: 'cycling', sub_type: 'mountain', modifiers: { is_electric: true } },
+          ],
+        })}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    )
+
+    expect(screen.getAllByText('Doppelter Standard: gleiche Sportart und Modifier bereits vorhanden.')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    expect(onSave).not.toHaveBeenCalled()
+  })
 })
 
 function gearFixture(overrides: Partial<Gear> = {}): Gear {

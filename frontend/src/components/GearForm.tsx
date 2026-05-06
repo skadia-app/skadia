@@ -62,6 +62,11 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
     () => optionsIncludingCurrentRows(baseSportOptions, defaultPredicateRows),
     [baseSportOptions, defaultPredicateRows],
   )
+  const duplicateDefaultRowIds = useMemo(
+    () => duplicatePredicateRowIds(defaultPredicateRows),
+    [defaultPredicateRows],
+  )
+  const hasDuplicateDefaultPredicates = duplicateDefaultRowIds.size > 0
 
   function addDefaultPredicate() {
     const sportKey = sportOptions[0]?.value ?? 'generic'
@@ -81,6 +86,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim() || !type) return
+    if (hasDuplicateDefaultPredicates) return
     const defaultSportPredicates = predicatesFromRows(defaultPredicateRows)
     onSave({
       name: name.trim(),
@@ -205,54 +211,62 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
           Standard für Sportarten
         </label>
         <div className="space-y-2">
-          {defaultPredicateRows.map((row, index) => (
-            <div
-              key={row.id}
-              className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(7rem,0.8fr))_auto] gap-2 items-end"
-            >
-              <label className="block">
-                <span className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">
-                  Sportart
-                </span>
-                <select
-                  aria-label={`Standard ${index + 1} Sportart`}
-                  value={row.sportKey}
-                  onChange={(e) => updateDefaultPredicate(index, { sportKey: e.target.value })}
-                  className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
-                >
-                  {sportOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-              <ModifierSelect
-                label="E-Antrieb"
-                ariaLabel={`Standard ${index + 1} E-Antrieb`}
-                value={row.isElectric}
-                onChange={(value) => updateDefaultPredicate(index, { isElectric: value })}
-              />
-              <ModifierSelect
-                label="Indoor"
-                ariaLabel={`Standard ${index + 1} Indoor`}
-                value={row.isIndoor}
-                onChange={(value) => updateDefaultPredicate(index, { isIndoor: value })}
-              />
-              <ModifierSelect
-                label="Virtuell"
-                ariaLabel={`Standard ${index + 1} Virtuell`}
-                value={row.isVirtual}
-                onChange={(value) => updateDefaultPredicate(index, { isVirtual: value })}
-              />
-              <button
-                type="button"
-                aria-label={`Standard ${index + 1} entfernen`}
-                onClick={() => removeDefaultPredicate(index)}
-                className="h-10 px-3 rounded-lg text-sm text-neutral-600 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
-              >
-                Entfernen
-              </button>
-            </div>
-          ))}
+          {defaultPredicateRows.map((row, index) => {
+            const duplicated = duplicateDefaultRowIds.has(row.id)
+            return (
+              <div key={row.id} className="space-y-1">
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(7rem,0.8fr))_auto] gap-2 items-end">
+                  <label className="block">
+                    <span className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">
+                      Sportart
+                    </span>
+                    <select
+                      aria-label={`Standard ${index + 1} Sportart`}
+                      value={row.sportKey}
+                      onChange={(e) => updateDefaultPredicate(index, { sportKey: e.target.value })}
+                      aria-invalid={duplicated}
+                      className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
+                    >
+                      {sportOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <ModifierSelect
+                    label="E-Antrieb"
+                    ariaLabel={`Standard ${index + 1} E-Antrieb`}
+                    value={row.isElectric}
+                    onChange={(value) => updateDefaultPredicate(index, { isElectric: value })}
+                  />
+                  <ModifierSelect
+                    label="Indoor"
+                    ariaLabel={`Standard ${index + 1} Indoor`}
+                    value={row.isIndoor}
+                    onChange={(value) => updateDefaultPredicate(index, { isIndoor: value })}
+                  />
+                  <ModifierSelect
+                    label="Virtuell"
+                    ariaLabel={`Standard ${index + 1} Virtuell`}
+                    value={row.isVirtual}
+                    onChange={(value) => updateDefaultPredicate(index, { isVirtual: value })}
+                  />
+                  <button
+                    type="button"
+                    aria-label={`Standard ${index + 1} entfernen`}
+                    onClick={() => removeDefaultPredicate(index)}
+                    className="h-10 px-3 rounded-lg text-sm text-neutral-600 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
+                  >
+                    Entfernen
+                  </button>
+                </div>
+                {duplicated && (
+                  <p className="text-xs text-rose-600 dark:text-rose-400">
+                    Doppelter Standard: gleiche Sportart und Modifier bereits vorhanden.
+                  </p>
+                )}
+              </div>
+            )
+          })}
           <button
             type="button"
             onClick={addDefaultPredicate}
@@ -287,7 +301,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
         </button>
         <button
           type="submit"
-          disabled={isSaving || !name.trim() || !type}
+          disabled={isSaving || !name.trim() || !type || hasDuplicateDefaultPredicates}
           className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
         >
           {isSaving ? 'Speichert...' : 'Speichern'}
@@ -376,18 +390,42 @@ function predicatesFromRows(rows: GearPredicateRow[]): GearDefaultSportPredicate
   const predicates: GearDefaultSportPredicate[] = []
   const seen = new Set<string>()
   for (const row of rows) {
-    const tuple = splitSportTupleKey(row.sportKey)
-    if (!tuple.sportType) continue
-    const predicate: GearDefaultSportPredicate = { sport_type: tuple.sportType }
-    if (tuple.subType) predicate.sub_type = tuple.subType
-    const modifiers = modifiersFromRow(row)
-    if (modifiers) predicate.modifiers = modifiers
+    const predicate = predicateFromRow(row)
+    if (!predicate) continue
     const key = stablePredicateKey(predicate)
     if (seen.has(key)) continue
     seen.add(key)
     predicates.push(predicate)
   }
   return predicates
+}
+
+function duplicatePredicateRowIds(rows: GearPredicateRow[]): Set<string> {
+  const firstByKey = new Map<string, string>()
+  const duplicates = new Set<string>()
+  for (const row of rows) {
+    const predicate = predicateFromRow(row)
+    if (!predicate) continue
+    const key = stablePredicateKey(predicate)
+    const first = firstByKey.get(key)
+    if (first) {
+      duplicates.add(first)
+      duplicates.add(row.id)
+    } else {
+      firstByKey.set(key, row.id)
+    }
+  }
+  return duplicates
+}
+
+function predicateFromRow(row: GearPredicateRow): GearDefaultSportPredicate | null {
+  const tuple = splitSportTupleKey(row.sportKey)
+  if (!tuple.sportType) return null
+  const predicate: GearDefaultSportPredicate = { sport_type: tuple.sportType }
+  if (tuple.subType) predicate.sub_type = tuple.subType
+  const modifiers = modifiersFromRow(row)
+  if (modifiers) predicate.modifiers = modifiers
+  return predicate
 }
 
 function modifiersFromRow(row: GearPredicateRow): GearDefaultModifiers | null {
