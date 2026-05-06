@@ -160,7 +160,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
     for (const tagName of diff.remove) {
       const tag = tagByName(knownTags, tagName)
       if (tag?.id) {
-        await unassignActivitiesFromTag(tag.id, [activity.id])
+        await unassignActivitiesFromTag(tag.id, [activity.id], { deferActivityFileRefresh: true })
         onMutated?.()
       } else {
         const remaining = updated.tags.filter(tagValue => tagValue.toLowerCase() !== tagName.toLowerCase())
@@ -175,7 +175,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
         tag = await createTag({ name: tagName })
         onMutated?.()
       }
-      await assignActivitiesToTag(tag.id, [activity.id])
+      await assignActivitiesToTag(tag.id, [activity.id], { deferActivityFileRefresh: true })
       onMutated?.()
     }
 

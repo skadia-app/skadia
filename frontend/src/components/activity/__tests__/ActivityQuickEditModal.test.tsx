@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ActivityQuickEditModal from '../ActivityQuickEditModal'
 import { fetchActivity, updateActivity } from '@/api/activities'
-import { fetchTags, unassignActivitiesFromTag, type Tag } from '@/api/tags'
+import { assignActivitiesToTag, fetchTags, unassignActivitiesFromTag, type Tag } from '@/api/tags'
 import type { Activity } from '@/api/types'
 
 vi.mock('@/api/activities', () => ({
@@ -100,6 +100,7 @@ describe('ActivityQuickEditModal', () => {
     vi.mocked(fetchActivity).mockImplementation(() => new Promise(() => {}))
     vi.mocked(updateActivity).mockReset()
     vi.mocked(fetchTags).mockResolvedValue([])
+    vi.mocked(assignActivitiesToTag).mockReset()
     vi.mocked(unassignActivitiesFromTag).mockReset()
   })
 
@@ -153,5 +154,23 @@ describe('ActivityQuickEditModal', () => {
     expect(await screen.findByText('Teilweise gespeichert. Bitte prüfe die Aktivität und speichere fehlende Änderungen erneut.')).toBeInTheDocument()
     expect(screen.getByDisplayValue('Server after partial save')).toBeInTheDocument()
     expect(screen.queryByDisplayValue('Unsaved draft')).not.toBeInTheDocument()
+  })
+
+  it('defers tag endpoint path refresh and relies on one final activity refresh', async () => {
+    const user = userEvent.setup()
+    const initial = activity({ title: 'Initial', tags: ['Custom'] })
+    vi.mocked(fetchActivity).mockResolvedValue(initial)
+    vi.mocked(fetchTags).mockResolvedValue([tag({ id: 'tag-1', name: 'Custom' })])
+    vi.mocked(unassignActivitiesFromTag).mockResolvedValue(undefined)
+    vi.mocked(updateActivity).mockResolvedValue(activity({ title: 'Initial', tags: [] }))
+
+    renderModal(initial)
+
+    await screen.findByLabelText('Titel')
+    await user.click(screen.getByRole('button', { name: 'Custom entfernen' }))
+    await user.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    expect(unassignActivitiesFromTag).toHaveBeenCalledWith('tag-1', ['act-1'], { deferActivityFileRefresh: true })
+    expect(updateActivity).toHaveBeenCalledWith('act-1', {})
   })
 })
