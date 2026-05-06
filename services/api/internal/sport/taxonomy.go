@@ -410,10 +410,10 @@ func EffectiveTraitsForTuple(sportType, subType string) (SportTraits, bool) {
 	subType = CanonicalSubTypeID(subType)
 	if subType != "" {
 		if st, stOK := def.SubTypes[subType]; stOK {
-			return st.Traits, true
+			return cloneSportTraits(st.Traits), true
 		}
 	}
-	return def.Traits, true
+	return cloneSportTraits(def.Traits), true
 }
 
 // SportsInCategory returns all sport definitions belonging to a category in
