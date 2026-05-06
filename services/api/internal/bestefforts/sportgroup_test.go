@@ -3,6 +3,8 @@ package bestefforts
 import (
 	"reflect"
 	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func TestDetermineSportGroup(t *testing.T) {
@@ -75,6 +77,19 @@ func TestRecordGroupForActivityWithMissingModifierBooleansUsesTaxonomyDefaults(t
 	}
 	if got != "cycling_virtual" {
 		t.Fatalf("recordGroupForActivityWithModifierPresence(cycling, spin) = %q, want cycling_virtual", got)
+	}
+}
+
+func TestRecordsRuntimeRejectsRecordGroupingDisabledModifier(t *testing.T) {
+	if sport.SportModifierHasCapability("is_commute", "record_grouping") {
+		t.Fatal("is_commute must not be a record_grouping modifier")
+	}
+	got, ok := RecordGroupForActivity("cycling", "", false, false, false)
+	if !ok {
+		t.Fatal("RecordGroupForActivity(cycling) returned no group")
+	}
+	if got != "cycling" {
+		t.Fatalf("RecordGroupForActivity(cycling) = %q, want cycling", got)
 	}
 }
 

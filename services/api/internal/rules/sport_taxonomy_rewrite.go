@@ -259,12 +259,7 @@ func rewriteConditions(conditions []Condition, surface string, rejectLegacyInOR 
 		if tuple.SubType != "" {
 			rewritten = append(rewritten, Condition{Field: "sub_type", Op: "eq", Value: tuple.SubType})
 		}
-		if patch.IsElectric != nil {
-			rewritten = append(rewritten, Condition{Field: "is_electric", Op: "eq", Value: *patch.IsElectric})
-		}
-		if patch.IsIndoor != nil {
-			rewritten = append(rewritten, Condition{Field: "is_indoor", Op: "eq", Value: *patch.IsIndoor})
-		}
+		rewritten = append(rewritten, modifierPatchConditions(patch)...)
 	}
 	return rewritten, nil
 }
@@ -327,7 +322,7 @@ func sportConditionListValues(value any) ([]string, error) {
 }
 
 func sportConditionNeedsTupleRewrite(value string, tuple sport.Tuple, patch sport.ModifierPatch) bool {
-	return value != tuple.SportType || tuple.SubType != "" || patch.IsElectric != nil || patch.IsIndoor != nil || patch.IsVirtual != nil
+	return value != tuple.SportType || tuple.SubType != "" || !sport.ModifierPatchIsEmpty(&patch)
 }
 
 func rewriteActionsRaw(raw json.RawMessage, surface string) (json.RawMessage, error) {
@@ -400,45 +395,11 @@ func rewriteActionMaps(actions []map[string]any, surface string) ([]map[string]a
 		delete(newAction, "type")
 		newAction["params"] = newParams
 		rewritten = append(rewritten, newAction)
-		if patch.IsElectric != nil {
-			if previous, exists := modifierWrites["is_electric"]; exists {
-				if previous.value != *patch.IsElectric {
-					return nil, fmt.Errorf("%s[%d]: conflicting writes to is_electric (previous action index %d)", surface, i, previous.index)
-				}
-			} else {
-				modifierWrites["is_electric"] = modifierWriteState{index: i, value: *patch.IsElectric}
-				rewritten = append(rewritten, map[string]any{
-					"action": "set_electric",
-					"params": map[string]any{"electric": *patch.IsElectric},
-				})
-			}
+		patchActions, err := modifierPatchActions(patch, modifierWrites, surface, i)
+		if err != nil {
+			return nil, err
 		}
-		if patch.IsIndoor != nil {
-			if previous, exists := modifierWrites["is_indoor"]; exists {
-				if previous.value != *patch.IsIndoor {
-					return nil, fmt.Errorf("%s[%d]: conflicting writes to is_indoor (previous action index %d)", surface, i, previous.index)
-				}
-			} else {
-				modifierWrites["is_indoor"] = modifierWriteState{index: i, value: *patch.IsIndoor}
-				rewritten = append(rewritten, map[string]any{
-					"action": "set_indoor",
-					"params": map[string]any{"indoor": *patch.IsIndoor},
-				})
-			}
-		}
-		if patch.IsVirtual != nil {
-			if previous, exists := modifierWrites["is_virtual"]; exists {
-				if previous.value != *patch.IsVirtual {
-					return nil, fmt.Errorf("%s[%d]: conflicting writes to is_virtual (previous action index %d)", surface, i, previous.index)
-				}
-			} else {
-				modifierWrites["is_virtual"] = modifierWriteState{index: i, value: *patch.IsVirtual}
-				rewritten = append(rewritten, map[string]any{
-					"action": "set_virtual",
-					"params": map[string]any{"virtual": *patch.IsVirtual},
-				})
-			}
-		}
+		rewritten = append(rewritten, patchActions...)
 	}
 	return rewritten, nil
 }
@@ -472,25 +433,63 @@ func rewriteSetFieldSportType(action map[string]any, surface string, index int) 
 }
 
 func modifierWrite(action map[string]any) (string, bool, bool) {
-	switch actionName(action) {
-	case "set_electric":
-		return "is_electric", boolParam(action, "electric", true), true
-	case "set_indoor":
-		return "is_indoor", boolParam(action, "indoor", true), true
-	case "set_virtual":
-		return "is_virtual", boolParam(action, "virtual", true), true
-	case "set_commute":
-		return "is_commute", boolParam(action, "commute", true), true
-	case "set_field":
+	name := actionName(action)
+	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+		def, ok := sport.SportModifierByKey(key)
+		if !ok {
+			continue
+		}
+		if name == def.ActionName {
+			return def.JSONKey, boolParam(action, def.ActionParam, true), true
+		}
+	}
+	if name == "set_field" {
 		params, _ := action["params"].(map[string]any)
 		field, _ := params["field"].(string)
-		switch field {
-		case "is_electric", "is_indoor", "is_virtual", "is_commute":
+		if sport.SportModifierHasCapability(field, "rule_action") {
 			value, ok := params["value"].(bool)
 			return field, value, ok
 		}
 	}
 	return "", false, false
+}
+
+func modifierPatchConditions(patch sport.ModifierPatch) []Condition {
+	conditions := []Condition{}
+	for _, key := range sport.SportModifierKeysWithCapability("rule_condition") {
+		value := sport.ModifierPatchValue(patch, key)
+		if value == nil {
+			continue
+		}
+		conditions = append(conditions, Condition{Field: key, Op: "eq", Value: *value})
+	}
+	return conditions
+}
+
+func modifierPatchActions(patch sport.ModifierPatch, modifierWrites map[string]modifierWriteState, surface string, index int) ([]map[string]any, error) {
+	actions := []map[string]any{}
+	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+		value := sport.ModifierPatchValue(patch, key)
+		if value == nil {
+			continue
+		}
+		if previous, exists := modifierWrites[key]; exists {
+			if previous.value != *value {
+				return nil, fmt.Errorf("%s[%d]: conflicting writes to %s (previous action index %d)", surface, index, key, previous.index)
+			}
+			continue
+		}
+		def, ok := sport.SportModifierByKey(key)
+		if !ok {
+			continue
+		}
+		modifierWrites[key] = modifierWriteState{index: index, value: *value}
+		actions = append(actions, map[string]any{
+			"action": def.ActionName,
+			"params": map[string]any{def.ActionParam: *value},
+		})
+	}
+	return actions, nil
 }
 
 func boolParam(action map[string]any, name string, fallback bool) bool {

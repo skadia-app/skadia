@@ -520,6 +520,10 @@ func modifierPatchValue(patch ModifierPatch, key string) *bool {
 	}
 }
 
+func ModifierPatchValue(patch ModifierPatch, key string) *bool {
+	return modifierPatchValue(patch, key)
+}
+
 func boolPtr(v bool) *bool {
 	return &v
 }

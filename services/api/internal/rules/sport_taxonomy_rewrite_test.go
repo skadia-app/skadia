@@ -95,6 +95,32 @@ func TestSportTaxonomyRewriteActionsRejectsModifierWriteConflict(t *testing.T) {
 	}
 }
 
+func TestRuleTaxonomyRewriteDeduplicatesGeneratedModifierWrites(t *testing.T) {
+	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+		def, ok := sport.SportModifierByKey(key)
+		if !ok {
+			t.Fatalf("missing generated modifier %q", key)
+		}
+		input := SportTaxonomyRuleJSON{
+			Actions: json.RawMessage(`[
+				{"action":"set_field","params":{"field":"` + def.JSONKey + `","value":true}},
+				{"action":"` + def.ActionName + `","params":{"` + def.ActionParam + `":true}}
+			]`),
+		}
+		got, _, err := RewriteSportTaxonomyRuleJSON(input)
+		if err != nil {
+			t.Fatalf("RewriteSportTaxonomyRuleJSON(%q): %v", key, err)
+		}
+		var actions []map[string]any
+		if err := json.Unmarshal(got.Actions, &actions); err != nil {
+			t.Fatalf("unmarshal actions: %v", err)
+		}
+		if len(actions) != 2 {
+			t.Fatalf("actions len for %q = %d, want 2 preserved idempotent writes: %#v", key, len(actions), actions)
+		}
+	}
+}
+
 func TestSportTaxonomyRewriteActionsRejectsNonSelectableSetSportType(t *testing.T) {
 	input := SportTaxonomyRuleJSON{
 		Actions: json.RawMessage(`[

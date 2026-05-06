@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func TestNormalizeRuleActionsDedupesSystemTagsWhenModifierContextMatches(t *testing.T) {
@@ -198,5 +200,21 @@ func TestNormalizeRuleActionsUsesGenericElectricModifierNameInConflicts(t *testi
 	_, err := NormalizeRuleActions(raw, tagNames)
 	if err == nil || !strings.Contains(err.Error(), "E-Antrieb=false conflicts with add_tag(E-Bike)") {
 		t.Fatalf("error = %v, want generic E-Antrieb conflict text", err)
+	}
+}
+
+func TestRuleActionValidationUsesGeneratedModifierActions(t *testing.T) {
+	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+		def, ok := sport.SportModifierByKey(key)
+		if !ok {
+			t.Fatalf("missing generated modifier %q", key)
+		}
+		modifier, ok := modifierForAction(def.ActionName)
+		if !ok {
+			t.Fatalf("modifierForAction(%q) missing", def.ActionName)
+		}
+		if modifier.Field != def.JSONKey || modifier.Param != def.ActionParam || modifier.HumanName != def.LabelDE {
+			t.Fatalf("modifierForAction(%q) = %#v, want generated metadata %#v", def.ActionName, modifier, def)
+		}
 	}
 }

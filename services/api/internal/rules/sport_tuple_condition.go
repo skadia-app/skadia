@@ -10,13 +10,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
-var sportTupleModifierKeys = map[string]struct{}{
-	"is_electric": {},
-	"is_indoor":   {},
-	"is_virtual":  {},
-	"is_commute":  {},
-}
-
 type sportTupleConditionValue struct {
 	SportType      string
 	SubType        string
@@ -151,14 +144,15 @@ func parseSportTupleConditionValue(item map[string]any, surface string) (sportTu
 			}
 			tuple.SubType = sport.CanonicalSubTypeID(value)
 			tuple.SubTypePresent = true
-		case "is_electric", "is_indoor", "is_virtual", "is_commute":
+		default:
+			if !sport.SportModifierHasCapability(key, "rule_condition") {
+				return sportTupleConditionValue{}, fmt.Errorf("%s: unsupported key %q in sport_tuple object", surface, key)
+			}
 			value, ok := raw.(bool)
 			if !ok {
 				return sportTupleConditionValue{}, fmt.Errorf("%s.%s must be a boolean", surface, key)
 			}
 			tuple.Modifiers[key] = value
-		default:
-			return sportTupleConditionValue{}, fmt.Errorf("%s: unsupported key %q in sport_tuple object", surface, key)
 		}
 	}
 	if tuple.SportType == "" {
@@ -178,7 +172,7 @@ func validateSportTupleConditionValue(tuple sportTupleConditionValue, surface st
 		}
 	}
 	for key := range tuple.Modifiers {
-		if _, ok := sportTupleModifierKeys[key]; !ok {
+		if !sport.SportModifierHasCapability(key, "rule_condition") {
 			return fmt.Errorf("%s: unsupported modifier key %q", surface, key)
 		}
 	}
