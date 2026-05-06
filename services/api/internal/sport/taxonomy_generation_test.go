@@ -26,6 +26,45 @@ func TestGeneratedBackendTaxonomyIsCurrent(t *testing.T) {
 	}
 }
 
+func TestGeneratedBackendModifiersAreCurrent(t *testing.T) {
+	modifiers := loadTestModifiers(t)
+	got, err := sporttaxgen.RenderGoModifiers(modifiers)
+	if err != nil {
+		t.Fatalf("render Go modifiers: %v", err)
+	}
+	want, err := os.ReadFile("modifiers_generated.go")
+	if err != nil {
+		t.Fatalf("read modifiers_generated.go: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("modifiers_generated.go is stale; run scripts/generate-sport-taxonomy.sh")
+	}
+}
+
+func TestGeneratedModifierRegistryExposesMetadata(t *testing.T) {
+	keys := SportModifierKeys()
+	want := []string{"is_electric", "is_indoor", "is_virtual", "is_commute"}
+	if strings.Join(keys, ",") != strings.Join(want, ",") {
+		t.Fatalf("SportModifierKeys() = %v, want %v", keys, want)
+	}
+	electric, ok := SportModifierByKey("is_electric")
+	if !ok {
+		t.Fatal("SportModifierByKey(is_electric) missing")
+	}
+	if electric.LabelDE != "E-Antrieb" || electric.ActionName != "set_electric" || electric.ActionParam != "electric" || electric.ShadowFSToken != "electric" {
+		t.Fatalf("is_electric metadata = %#v", electric)
+	}
+	if electric.TagSync == nil || electric.TagSync.SystemTag != "E-Bike" || electric.TagSync.OnlySportType != "cycling" {
+		t.Fatalf("is_electric tag sync = %#v, want cycling-scoped E-Bike", electric.TagSync)
+	}
+	if got := SportModifierKeysWithCapability("record_grouping"); strings.Join(got, ",") != "is_electric,is_indoor,is_virtual" {
+		t.Fatalf("record_grouping keys = %v", got)
+	}
+	if SportModifierHasCapability("is_commute", "record_grouping") {
+		t.Fatal("is_commute unexpectedly has record_grouping capability")
+	}
+}
+
 func TestGeneratedBackendSegmentProjectionIsCurrent(t *testing.T) {
 	taxonomy := loadTestTaxonomy(t)
 	activityFile, err := os.Open("../../../../config/sport-taxonomy/projections/activity_filters.yaml")
@@ -232,4 +271,19 @@ func loadTestTaxonomy(t *testing.T) sporttaxgen.Taxonomy {
 		t.Fatalf("load taxonomy: %v", err)
 	}
 	return taxonomy
+}
+
+func loadTestModifiers(t *testing.T) sporttaxgen.ModifierRegistry {
+	t.Helper()
+	file, err := os.Open("../../../../config/sport-taxonomy/modifiers.yaml")
+	if err != nil {
+		t.Fatalf("open modifiers.yaml: %v", err)
+	}
+	defer file.Close()
+
+	modifiers, err := sporttaxgen.LoadModifiers(file)
+	if err != nil {
+		t.Fatalf("load modifiers: %v", err)
+	}
+	return modifiers
 }
