@@ -3,6 +3,7 @@ package shadowfs
 import (
 	"fmt"
 	"math"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -74,21 +75,36 @@ func ActivitySchemaTags(input ActivitySchemaTagsInput) map[string]string {
 	if input.ElevationGainM > 0 && isFinite(input.ElevationGainM) {
 		tags["elevation_m"] = strconv.Itoa(int(input.ElevationGainM))
 	}
-	var modifiers []string
-	if input.IsElectric {
-		modifiers = append(modifiers, "electric")
-	}
-	if input.IsIndoor {
-		modifiers = append(modifiers, "indoor")
-	}
-	if input.IsVirtual {
-		modifiers = append(modifiers, "virtual")
-	}
-	if input.IsCommute {
-		modifiers = append(modifiers, "commute")
-	}
-	tags["modifiers"] = strings.Join(modifiers, "_")
+	tags["modifiers"] = strings.Join(activitySchemaModifierTokens(input), "_")
 	return tags
+}
+
+func activitySchemaModifierTokens(input ActivitySchemaTagsInput) []string {
+	modifiers := []string{}
+	for _, key := range sport.SportModifierKeysWithCapability("shadowfs_label") {
+		modifier, ok := sport.SportModifierByKey(key)
+		if !ok || !activitySchemaModifierActive(input, modifier.GoField) {
+			continue
+		}
+		modifiers = append(modifiers, modifier.ShadowFSToken)
+	}
+	return modifiers
+}
+
+func maxActivitySchemaModifiersTag() string {
+	tokens := []string{}
+	for _, key := range sport.SportModifierKeysWithCapability("shadowfs_label") {
+		modifier, ok := sport.SportModifierByKey(key)
+		if ok {
+			tokens = append(tokens, modifier.ShadowFSToken)
+		}
+	}
+	return strings.Join(tokens, "_")
+}
+
+func activitySchemaModifierActive(input ActivitySchemaTagsInput, goField string) bool {
+	field := reflect.ValueOf(input).FieldByName(goField)
+	return field.IsValid() && field.Kind() == reflect.Bool && field.Bool()
 }
 
 func firstNonBlank(values ...string) string {

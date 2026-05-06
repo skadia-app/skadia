@@ -118,7 +118,7 @@ func (r *SchemaRenderer) ValidateSchema(fileType, schema string) (warnings []str
 		"year": "2024", "month": "03", "day": "15", "time": "1430",
 		"format": "fit",
 		"sport":  strings.Repeat("x", 30), "subCategory": strings.Repeat("x", 30),
-		"modifiers": "electric_indoor_virtual_commute",
+		"modifiers": maxActivitySchemaModifiersTag(),
 		"city":      strings.Repeat("x", 50), "title": strings.Repeat("x", 50),
 		"distance_km": "9999.9", "duration_h": "9999-59", "elevation_m": "99999",
 		"country":  strings.Repeat("x", 30),

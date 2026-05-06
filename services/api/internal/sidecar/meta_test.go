@@ -1,10 +1,12 @@
 package sidecar
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func TestGenerateMetaFullUsesFinalActivityTupleAndCommuteFlag(t *testing.T) {
@@ -43,5 +45,32 @@ func TestGenerateMetaFullUsesFinalActivityTupleAndCommuteFlag(t *testing.T) {
 	}
 	if !meta.IsIndoor || !meta.IsElectric {
 		t.Fatalf("meta modifiers indoor/electric = %v/%v, want true/true", meta.IsIndoor, meta.IsElectric)
+	}
+}
+
+func TestSidecarModifierFieldsMatchGeneratedActivityStateMetadata(t *testing.T) {
+	metaType := reflect.TypeOf(MetaFile{})
+	manualType := reflect.TypeOf(ManualActivityFile{})
+	for _, key := range sport.SportModifierKeysWithCapability("activity_state") {
+		modifier, ok := sport.SportModifierByKey(key)
+		if !ok {
+			t.Fatalf("missing modifier %s", key)
+		}
+		assertSidecarModifierField(t, metaType, modifier.GoField, modifier.JSONKey)
+		assertSidecarModifierField(t, manualType, modifier.GoField, modifier.JSONKey)
+	}
+}
+
+func assertSidecarModifierField(t *testing.T, typ reflect.Type, fieldName, jsonKey string) {
+	t.Helper()
+	field, ok := typ.FieldByName(fieldName)
+	if !ok {
+		t.Fatalf("%s missing field %s", typ.Name(), fieldName)
+	}
+	if field.Type.Kind() != reflect.Bool {
+		t.Fatalf("%s.%s type = %s, want bool", typ.Name(), fieldName, field.Type)
+	}
+	if got := field.Tag.Get("json"); got == "" || len(got) < len(jsonKey) || got[:len(jsonKey)] != jsonKey {
+		t.Fatalf("%s.%s json tag = %q, want %q", typ.Name(), fieldName, got, jsonKey)
 	}
 }

@@ -2,8 +2,11 @@ package shadowfs
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func TestActivitySchemaTagsNormalizesLegacySportTuple(t *testing.T) {
@@ -131,13 +134,31 @@ func TestActivitySchemaTagsModifiersStableOrder(t *testing.T) {
 		IsCommute:  true,
 	})
 
-	if tags["modifiers"] != "electric_indoor_virtual_commute" {
-		t.Fatalf("modifiers = %q, want electric_indoor_virtual_commute", tags["modifiers"])
+	want := maxActivitySchemaModifiersTag()
+	if tags["modifiers"] != want {
+		t.Fatalf("modifiers = %q, want %q", tags["modifiers"], want)
 	}
 
 	tags = ActivitySchemaTags(ActivitySchemaTagsInput{SportType: "running"})
 	if got, ok := tags["modifiers"]; !ok || got != "" {
 		t.Fatalf("inactive modifiers tag = %q present=%v, want present empty string", got, ok)
+	}
+}
+
+func TestActivitySchemaTagsModifierTokensFollowGeneratedShadowFSMetadata(t *testing.T) {
+	tokens := strings.Split(maxActivitySchemaModifiersTag(), "_")
+	keys := sport.SportModifierKeysWithCapability("shadowfs_label")
+	if len(tokens) != len(keys) {
+		t.Fatalf("tokens = %#v, keys = %#v", tokens, keys)
+	}
+	for i, key := range keys {
+		modifier, ok := sport.SportModifierByKey(key)
+		if !ok {
+			t.Fatalf("missing modifier %s", key)
+		}
+		if tokens[i] != modifier.ShadowFSToken {
+			t.Fatalf("token[%d] = %q, want %q for %s", i, tokens[i], modifier.ShadowFSToken, key)
+		}
 	}
 }
 
