@@ -441,6 +441,12 @@ func (s *Service) PostProcess(
 		}
 	}
 
+	if freshActivity, err := s.DB.GetActivity(ctx, activityID); err == nil && freshActivity != nil {
+		activity = freshActivity
+	} else if err != nil {
+		slog.Warn("postprocess: refresh activity snapshot failed before sidecar write", "activity_id", activityID, "error", err)
+	}
+
 	// Compute TSS immediately after import so computed_tss is populated
 	// without requiring a manual recompute. Runs after InsertStreams (Phase 1)
 	// so power/HR/speed streams are available for stream-based TSS methods.
@@ -568,6 +574,9 @@ func (s *Service) writeMetaCompanionAndRefreshActivityFile(
 ) {
 	if effectiveFileID == "" && activity != nil && activity.FileID != nil {
 		effectiveFileID = *activity.FileID
+	}
+	if effectiveFileID == "" {
+		return
 	}
 	writeMeta := s.metaCompanionWriter
 	if writeMeta == nil {

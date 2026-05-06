@@ -231,6 +231,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		}
 		if activityName != "" {
 			data.OriginalName = activityName
+			data.Title = activityName
 		}
 		if description != "" {
 			slog.Debug("strava activities: activity description (not yet stored)", "description", description)
@@ -537,14 +538,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		}
 		tracker.Completed(ctx, actResult.ActivityID)
 
-		// Apply Strava-specific enrichment: activity name + weather from CSV
-		enrichFields := buildStravaEnrichFields(activityName)
-		if len(enrichFields) > 0 {
-			if err := params.DB.UpdateEnrichmentFields(ctx, actResult.ActivityID, enrichFields); err != nil {
-				slog.Warn("strava activities: update enrichment fields failed", "error", err)
-			}
-		}
-
 		// Create sport conflict queue entry if detected
 		if data.SportConflictPending {
 			if conflictPlatformSnapshot.Sport == "" {
@@ -572,15 +565,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		"errors", len(result.Errors),
 	)
 	return result, nil
-}
-
-// buildStravaEnrichFields builds the enrichment field map for CSV activity metadata.
-func buildStravaEnrichFields(activityName string) map[string]any {
-	fields := make(map[string]any)
-	if activityName != "" {
-		fields["title"] = activityName
-	}
-	return fields
 }
 
 func csvRowToMap(row []string, hdr map[string]int) map[string]string {

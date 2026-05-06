@@ -69,6 +69,9 @@ func insertTestUser(t *testing.T, pool *pgxpool.Pool, opts ...TestUserOpt) strin
 		if _, err := pool.Exec(ctx, "DELETE FROM activities WHERE user_id = $1", userID); err != nil {
 			t.Logf("cleanup activities: %v", err)
 		}
+		if _, err := pool.Exec(ctx, "UPDATE tags SET is_system = false WHERE user_id = $1", userID); err != nil {
+			t.Logf("cleanup system tags: %v", err)
+		}
 		if _, err := pool.Exec(ctx, "DELETE FROM users WHERE id = $1", userID); err != nil {
 			t.Logf("cleanup user: %v", err)
 		}

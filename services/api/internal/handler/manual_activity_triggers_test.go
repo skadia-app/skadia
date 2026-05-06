@@ -10,6 +10,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -19,6 +22,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -27,13 +31,18 @@ import (
 // row into user_files so that the activities.file_id FK constraint is satisfied.
 // It is used only in handler integration tests.
 type handlerTestShadowFS struct {
-	mu    sync.Mutex
-	blobs map[string][]byte // key → content (file ID or arbitrary path)
-	pool  *pgxpool.Pool
+	mu       sync.Mutex
+	blobs    map[string][]byte // key -> content (file ID or arbitrary path)
+	pool     *pgxpool.Pool
+	basePath string
 }
 
 func newHandlerTestShadowFS(pool *pgxpool.Pool) *handlerTestShadowFS {
 	return &handlerTestShadowFS{blobs: make(map[string][]byte), pool: pool}
+}
+
+func newHandlerTestShadowFSWithBasePath(pool *pgxpool.Pool, basePath string) *handlerTestShadowFS {
+	return &handlerTestShadowFS{blobs: make(map[string][]byte), pool: pool, basePath: basePath}
 }
 
 func (m *handlerTestShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
@@ -52,6 +61,17 @@ func (m *handlerTestShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry,
 		SizeBytes: int64(len(content)),
 		Status:    "active",
 	}
+	storagePath := "/mock/" + rec.ID
+	if m.basePath != "" {
+		storagePath = filepath.Join(rec.UserID, shadowfs.DirForType(entry.FileType), entry.FileName)
+		fullPath := filepath.Join(m.basePath, storagePath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			return shadowfs.FileRecord{}, err
+		}
+		if err := os.WriteFile(fullPath, content, 0o644); err != nil {
+			return shadowfs.FileRecord{}, err
+		}
+	}
 	// Insert a minimal user_files row so FK constraints are satisfied.
 	_, dbErr := m.pool.Exec(ctx, `
 		INSERT INTO user_files
@@ -60,7 +80,7 @@ func (m *handlerTestShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry,
 		VALUES ($1, $2, $3, 'local', $4, $5, $6, $7, false, false, 'active')
 		ON CONFLICT (id) DO NOTHING
 	`, rec.ID, rec.UserID, entry.FileType,
-		"/mock/"+rec.ID,
+		storagePath,
 		entry.ContentType, entry.FileName, rec.SizeBytes)
 	if dbErr != nil {
 		return shadowfs.FileRecord{}, dbErr
@@ -71,8 +91,8 @@ func (m *handlerTestShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry,
 func (m *handlerTestShadowFS) Get(_ context.Context, _, _ string) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(nil)), nil
 }
-func (m *handlerTestShadowFS) Delete(_ context.Context, _, _ string) error          { return nil }
-func (m *handlerTestShadowFS) DeleteAllForUser(_ context.Context, _ string) error   { return nil }
+func (m *handlerTestShadowFS) Delete(_ context.Context, _, _ string) error           { return nil }
+func (m *handlerTestShadowFS) DeleteAllForUser(_ context.Context, _ string) error    { return nil }
 func (m *handlerTestShadowFS) DeleteCompanions(_ context.Context, _, _ string) error { return nil }
 func (m *handlerTestShadowFS) List(_ context.Context, _ string, _ *string) ([]shadowfs.FileRecord, error) {
 	return nil, nil
@@ -84,8 +104,27 @@ func (m *handlerTestShadowFS) Resolve(_ context.Context, _, _ string) (shadowfs.
 	return shadowfs.ResolvedFile{}, nil
 }
 func (m *handlerTestShadowFS) DiskUsage(_ context.Context, _ string) (int64, error) { return 0, nil }
-func (m *handlerTestShadowFS) Archive(_ context.Context, _, _, _ string) error       { return nil }
-func (m *handlerTestShadowFS) PutCompanion(_ context.Context, _, _, _ string, data []byte) error {
+func (m *handlerTestShadowFS) Archive(_ context.Context, _, _, _ string) error      { return nil }
+func (m *handlerTestShadowFS) PutCompanion(ctx context.Context, userID, fileID, suffix string, data []byte) error {
+	if m.basePath != "" && fileID != "" {
+		var storagePath string
+		if err := m.pool.QueryRow(ctx,
+			`SELECT storage_path FROM user_files WHERE id = $1 AND user_id = $2`,
+			fileID, userID,
+		).Scan(&storagePath); err != nil {
+			return err
+		}
+		companionPath := filepath.Join(m.basePath, storagePath+suffix)
+		if err := os.MkdirAll(filepath.Dir(companionPath), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(companionPath, data, 0o644); err != nil {
+			return err
+		}
+		if _, err := m.pool.Exec(ctx, `UPDATE user_files SET has_sidecar = true WHERE id = $1 AND user_id = $2`, fileID, userID); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 func (m *handlerTestShadowFS) GetCompanion(_ context.Context, _, _, _ string) ([]byte, error) {
@@ -133,9 +172,9 @@ func fakeStage1Deps() *enrichment.Stage1Deps {
 func manualActivityBody(t *testing.T) []byte {
 	t.Helper()
 	b, err := json.Marshal(map[string]any{
-		"sport_type":      "cycling",
-		"started_at":      "2026-05-01T10:00:00Z",
-		"elapsed_time_s":  3600.0,
+		"sport_type":     "cycling",
+		"started_at":     "2026-05-01T10:00:00Z",
+		"elapsed_time_s": 3600.0,
 	})
 	if err != nil {
 		t.Fatalf("manualActivityBody: marshal: %v", err)
@@ -210,5 +249,74 @@ func TestCreateManualActivity_InvalidBody_NoInvalidate(t *testing.T) {
 	}
 	if got := fake.CallsCopy(); len(got) != 0 {
 		t.Errorf("FakeInvalidator.Calls = %v, want [] (no write should have occurred)", got)
+	}
+}
+
+func TestCreateManualActivity_RefreshesLibraryPathAfterFinalFields(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+	basePath := t.TempDir()
+	store := settings.NewStoreForTest(map[string]string{
+		"library.default_schema.activity": "{year}/{title}_{sport}_{modifiers}",
+	})
+
+	h := &Handler{
+		DB:         &database.DB{Pool: pool},
+		ShadowFS:   newHandlerTestShadowFSWithBasePath(pool, basePath),
+		Settings:   store,
+		Config:     &HandlerConfig{LibraryBasePath: basePath},
+		Stage1Deps: fakeStage1Deps(),
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"sport_type":     "running",
+		"title":          "MorningRun",
+		"started_at":     "2026-05-01T10:00:00Z",
+		"elapsed_time_s": 3600.0,
+		"is_indoor":      true,
+	})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/activities/manual", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withUserAndAdmin(req.Context(), uid, false))
+	rec := httptest.NewRecorder()
+
+	h.CreateManualActivity(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("CreateManualActivity: code = %d body = %s, want 201", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.ID == "" {
+		t.Fatal("response id is empty")
+	}
+	var storagePath string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT uf.storage_path
+		FROM user_files uf
+		JOIN activities a ON a.file_id = uf.id
+		WHERE a.id = $1 AND a.user_id = $2`,
+		response.ID, uid).Scan(&storagePath); err != nil {
+		t.Fatalf("query refreshed storage_path: %v", err)
+	}
+
+	if !strings.HasPrefix(storagePath, filepath.Join(uid, shadowfs.DirForType("activity"), "2026")+string(os.PathSeparator)) {
+		t.Fatalf("storage_path = %q, want user activity path under 2026", storagePath)
+	}
+	if !strings.Contains(storagePath, "MorningRun_running_indoor") {
+		t.Fatalf("storage_path = %q, want final title, sport, and modifier", storagePath)
+	}
+	if _, err := os.Stat(filepath.Join(basePath, storagePath)); err != nil {
+		t.Fatalf("refreshed file missing on disk: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(basePath, storagePath+".meta")); err != nil {
+		t.Fatalf("refreshed sidecar missing on disk: %v", err)
 	}
 }

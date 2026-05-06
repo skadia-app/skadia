@@ -527,6 +527,9 @@ func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) 
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to assign activities", r.URL.Path)
 		return
 	}
+	for _, actID := range req.ActivityIDs {
+		h.refreshActivityFilePathBestEffort(r.Context(), userID, actID, "")
+	}
 
 	// Location-Pin-Trigger: fetch weather/sun-times for indoor activities that now have a location via this tag.
 	// recompute=false: only fill activities that have no data yet (newly assigned).
@@ -798,6 +801,9 @@ func (h *Handler) UnassignActivitiesFromTag(w http.ResponseWriter, r *http.Reque
 				slog.Warn("record tag removal", "err", err, "activity", actID, "tag", tagID)
 			}
 		}
+	}
+	for _, actID := range req.ActivityIDs {
+		h.refreshActivityFilePathBestEffort(r.Context(), userID, actID, "")
 	}
 
 	w.WriteHeader(http.StatusNoContent)
