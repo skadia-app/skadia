@@ -11,8 +11,8 @@ import (
 )
 
 func main() {
-	manifestPath := flag.String("manifest", "LIFT_ERKENNUNG/ground_truth.yaml", "")
-	root := flag.String("root", "LIFT_ERKENNUNG", "")
+	manifestPath := flag.String("manifest", "", "local evaluation manifest")
+	root := flag.String("root", "", "directory used to resolve manifest case files; default: manifest directory")
 	verbose := flag.Bool("v", false, "")
 	dump := flag.String("dump", "", "print CSV of stream points for the given file (relative to -root) and exit")
 	summary := flag.String("summary", "", "print 30s-bucket summary for the given file (relative to -root) and exit")
@@ -131,6 +131,14 @@ func main() {
 			os.Exit(2)
 		}
 		return
+	}
+
+	if *manifestPath == "" {
+		fmt.Fprintln(os.Stderr, "need -manifest for aggregate eval")
+		os.Exit(2)
+	}
+	if *root == "" {
+		*root = filepath.Dir(*manifestPath)
 	}
 
 	gt, err := loadManifest(*manifestPath)

@@ -1,7 +1,7 @@
 // lift_detect_viz renders an interactive HTML map showing the full activity
 // track plus the detected lift segments as colored overlays. Used to validate
 // detector behaviour visually — does the segment cover the right start/end
-// stations? does an "Umstieg" really transition between two distinct lifts?
+// stations? does a transfer really transition between two distinct lifts?
 package main
 
 import (
@@ -49,7 +49,7 @@ type viewModel struct {
 	CenterLng float64
 }
 
-// gtLift mirrors the YAML schema in local-station-markers.yaml.
+// gtLift mirrors the optional local station-marker YAML schema.
 // p1/p2 are [lat, lng]; alt_p1/alt_p2 optional (DEM-verified elevation).
 type gtLift struct {
 	ID    string    `yaml:"id" json:"id"`
@@ -69,9 +69,9 @@ type gtRoot struct {
 	Cases []gtCase `yaml:"cases"`
 }
 
-// loadGT reads _gt_lifts.yaml and returns the lift entries for the given
-// activity file (matched by case.file). Empty slice if no entry or the YAML
-// file does not exist — the viz still renders, just without GT overlay.
+// loadGT reads optional local station markers for the given activity file
+// matched by case.file. Empty slice if no entry or the YAML file does not
+// exist — the viz still renders, just without GT overlay.
 func loadGT(yamlPath, fileKey string) []gtLift {
 	if yamlPath == "" {
 		return nil
@@ -99,9 +99,9 @@ func main() {
 	sport := flag.String("sport", "ski", "")
 	out := flag.String("out", "", "output HTML (default: <input>.viz.html)")
 	banner := flag.String("banner", "", "label rendered in title + corner overlay (e.g. 'PRE-C1' / 'POST-C1+C2')")
-	gtYAML := flag.String("gt", "local-station-markers.yaml", "GT lifts YAML (set to empty to disable overlay)")
+	gtYAML := flag.String("gt", "", "optional local station-marker YAML")
 	gtKey := flag.String("gt-key", "", "case.file key in GT YAML (default: derived from -file relative to -gt-root)")
-	gtRoot := flag.String("gt-root", "LIFT_ERKENNUNG", "root used to derive -gt-key from -file")
+	gtRoot := flag.String("gt-root", "", "root used to derive -gt-key from -file; default: directory of -gt")
 	flag.Parse()
 	if *file == "" {
 		fmt.Fprintln(os.Stderr, "need -file")
@@ -193,12 +193,20 @@ func main() {
 	ridesJSON, _ := json.Marshal(rideSegs)
 
 	// GT overlay: derive case.file key (relative path) from -file unless -gt-key
-	// was given explicitly. The key is the input file's path relative to -gt-root,
-	// e.g. "<region>/<recording>.fit" → key "<region>/<recording>.fit".
+	// was given explicitly.
 	key := *gtKey
+	gtBase := *gtRoot
+	if gtBase == "" && *gtYAML != "" {
+		gtBase = filepath.Dir(*gtYAML)
+	}
 	if key == "" {
-		if rel, err := filepath.Rel(*gtRoot, *file); err == nil {
-			key = filepath.ToSlash(rel)
+		if gtBase != "" {
+			if rel, err := filepath.Rel(gtBase, *file); err == nil {
+				key = filepath.ToSlash(rel)
+			}
+		}
+		if key == "" {
+			key = filepath.ToSlash(*file)
 		}
 	}
 	gtLifts := loadGT(*gtYAML, key)
@@ -402,12 +410,12 @@ var tpl = template.Must(template.New("viz").Parse(`<!doctype html>
     ridesEl.appendChild(div);
   });
 
-  // GT lift overlay: User-confirmed cable endpoints from _gt_lifts.yaml.
+  // GT lift overlay: user-confirmed cable endpoints from optional local YAML.
   // p1 (cyan) = lower endpoint, p2 (magenta) = upper. Dashed line connects
   // the two so the cable orientation is visible. Tooltip shows lift id +
   // optional alt + note. If detector ride boundaries land more than ~30 m
   // from the nearest GT marker, the deviation is the first thing to
-  // investigate (parking lot? boarding plattform? recording-late-start?).
+  // investigate (parking lot, boarding platform, or late recording start).
   GT_LIFTS.forEach(g => {
     if (!g.p1 || g.p1.length < 2 || !g.p2 || g.p2.length < 2) return;
     const tal = [g.p1[0], g.p1[1]];
