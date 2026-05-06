@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Save, X } from 'lucide-react'
 import { fetchActivity, fetchActivityStreams, updateActivity } from '@/api/activities'
@@ -18,8 +18,9 @@ import {
   quickEditTagSuggestions,
   type ActivityQuickEditDraft,
 } from './quickEdit'
-import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
+import { formatDistance, formatDuration, formatElevationGain, formatElevationLoss } from '@/lib/utils'
 import { getTagBadgeStyle } from '@/lib/tagUtils'
+import { fmtTime } from '@/lib/format'
 
 interface ActivityQuickEditModalProps {
   activity: Activity
@@ -53,6 +54,14 @@ function tagByName(tags: Tag[], name: string): Tag | undefined {
 
 function hasPatchValues(patch: Record<string, unknown>): boolean {
   return Object.keys(patch).length > 0
+}
+
+function activityLocationText(activity: Activity): string | null {
+  const { start_city, end_city, start_state, start_country } = activity
+  if (!start_city) return null
+  const region = [start_state, start_country].filter(Boolean).join(', ')
+  const place = end_city && end_city !== start_city ? `${start_city} → ${end_city}` : start_city
+  return region ? `${place} · ${region}` : place
 }
 
 export default function ActivityQuickEditModal({ activity, open, onClose, onSaved, showMoreEdit = true }: ActivityQuickEditModalProps) {
@@ -178,25 +187,55 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
   const canCreateTag = tagSearchTrimmed.length > 0 &&
     !(allTags ?? []).some(tag => tag.name.toLowerCase() === tagSearchTrimmed.toLowerCase()) &&
     !draft.tags.some(tag => tag.toLowerCase() === tagSearchTrimmed.toLowerCase())
+  const recordingDeviceName = baseActivity.recording_device_name || baseActivity.source_device
+  const locationText = activityLocationText(baseActivity)
+  const hasMapContext = Boolean(baseActivity.sunrise_at || baseActivity.sunset_at || locationText)
+  const elevationValue = [formatElevationGain(baseActivity.elevation_gain_m), formatElevationLoss(baseActivity.elevation_loss_m)]
+    .filter(Boolean)
+    .join(' / ') || '—'
+  const heartRateValue = [formatHeartRate(baseActivity.avg_heart_rate), formatHeartRate(baseActivity.max_heart_rate)]
+    .filter(Boolean)
+    .join(' / ')
+  const powerValue = [formatPower(baseActivity.avg_power_w), formatPower(baseActivity.max_power_w)]
+    .filter(Boolean)
+    .join(' / ')
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-5xl" className="max-h-[92vh] w-[calc(100vw-2rem)] overflow-y-auto">
       <div className="space-y-5">
         <div className="flex items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Aktivität bearbeiten</h2>
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
               Änderungen werden erst beim Speichern übernommen.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-            aria-label="Schnellbearbeitung schließen"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex min-w-0 items-start gap-3">
+            {recordingDeviceName && (
+              <div className="hidden max-w-[18rem] text-right text-sm sm:block">
+                <div className="text-[11px] text-neutral-400 dark:text-neutral-500">Aufzeichnungsgerät</div>
+                {baseActivity.recording_device_id ? (
+                  <Link
+                    to={`/hardware/detail/${baseActivity.recording_device_id}`}
+                    className="block truncate text-neutral-600 transition-colors hover:text-accent-DEFAULT dark:text-neutral-400"
+                    title={recordingDeviceName}
+                  >
+                    {recordingDeviceName}
+                  </Link>
+                ) : (
+                  <span className="block truncate text-neutral-600 dark:text-neutral-400" title={recordingDeviceName}>{recordingDeviceName}</span>
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+              aria-label="Schnellbearbeitung schließen"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-[1.4fr_0.8fr]">
@@ -235,16 +274,32 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
 
             <div className="grid gap-3 md:grid-cols-3">
               {([
-                ['isIndoor', 'Indoor', '#3B82F6'],
-                ['isVirtual', 'Virtuell', '#8B5CF6'],
-                ['isElectric', 'E-Antrieb', '#16A34A'],
-              ] as const).map(([key, label, color]) => (
+                ['isIndoor', 'Indoor'],
+                ['isVirtual', 'Virtuell'],
+                ['isElectric', 'E-Antrieb'],
+              ] as const).map(([key, label]) => (
                 <div key={key} className="flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
                   <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
                   <Toggle
                     checked={draft[key]}
                     onChange={checked => toggleModifier(key, checked)}
-                    color={color}
+                    size="sm"
+                    aria-label={label}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              {([
+                ['excludeFromHeatmap', 'Von Heatmap ausschließen'],
+                ['excludeFromStats', 'Von Statistik ausschließen'],
+              ] as const).map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
+                  <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
+                  <Toggle
+                    checked={draft[key]}
+                    onChange={checked => patchDraft({ [key]: checked })}
                     size="sm"
                     aria-label={label}
                   />
@@ -360,12 +415,36 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
               <div className="flex aspect-video items-center justify-center overflow-hidden rounded bg-neutral-100 dark:bg-neutral-800">
                 <ActivityQuickEditMiniMap key={activity.id} streams={streams} loading={streamsLoading} />
               </div>
+              {hasMapContext && (
+                <div className="mt-3 space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                  {locationText && (
+                    <ActivityContextRow icon={<span className="text-base leading-none text-red-500" aria-hidden>&#x1F4CD;</span>}>
+                      {locationText}
+                    </ActivityContextRow>
+                  )}
+                  {(baseActivity.sunrise_at || baseActivity.sunset_at) && (
+                    <ActivityContextRow icon={<span className="text-base leading-none text-amber-500" aria-hidden>&#9728;</span>}>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                        {baseActivity.sunrise_at && <span>{fmtTime(baseActivity.sunrise_at, baseActivity.timezone)}</span>}
+                        {baseActivity.sunset_at && (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="text-accent-600" aria-hidden>&#9790;</span>
+                            <span>{fmtTime(baseActivity.sunset_at, baseActivity.timezone)}</span>
+                          </span>
+                        )}
+                      </div>
+                    </ActivityContextRow>
+                  )}
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm">
               <Stat label="Distanz" value={formatDistance(baseActivity.distance_m)} />
               <Stat label="Zeit" value={formatDuration(baseActivity.elapsed_time_s ?? 0)} />
-              <Stat label="Höhenmeter" value={formatElevationGain(baseActivity.elevation_gain_m) ?? '—'} />
+              <Stat label="Höhenmeter" value={elevationValue} />
               <Stat label="GPS" value={baseActivity.has_gps ? 'Ja' : hasLoadedGpsTrack ? 'Nein / Track ja' : streamsLoading ? 'Lädt...' : 'Nein'} />
+              {heartRateValue && <Stat label="Herzfrequenz" value={heartRateValue} />}
+              {powerValue && <Stat label="Leistung" value={powerValue} />}
             </div>
           </aside>
         </div>
@@ -399,6 +478,25 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
       </div>
     </ModalShell>
   )
+}
+
+function ActivityContextRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[1rem_minmax(0,1fr)] items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+      <span className="flex h-4 w-4 items-center justify-center">{icon}</span>
+      <div className="min-w-0">{children}</div>
+    </div>
+  )
+}
+
+function formatHeartRate(value: number | null | undefined): string | null {
+  if (value == null || !Number.isFinite(value) || value <= 0) return null
+  return `${Math.round(value)} bpm`
+}
+
+function formatPower(value: number | null | undefined): string | null {
+  if (value == null || !Number.isFinite(value) || value <= 0) return null
+  return `${Math.round(value)} W`
 }
 
 function Stat({ label, value }: { label: string; value: string | null | undefined }) {
