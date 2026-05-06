@@ -31,30 +31,7 @@ import { UserCustomLayersSection } from '@/components/UserCustomLayersSection'
 import { useMapLayers } from '@/hooks/useMapLayers'
 import Toggle from '@/components/Toggle'
 import { SettingsSection } from '@/components/ui/SettingsSection'
-
-// Analysis module configuration — enrichment toggles for the Analysen tab.
-interface AnalysisModule {
-  label: string
-  description: string
-  field: keyof EnrichmentSettings
-  requiresML: boolean
-}
-
-const ANALYSIS_MODULES: AnalysisModule[] = [
-  { label: 'Automatische Benennung',  description: 'Generiert automatisch einen Titel basierend auf Route und Aktivitätstyp.',        field: 'enable_auto_naming',         requiresML: false },
-  { label: 'Gipfel & Pässe',          description: 'Erkennt besuchte Gipfel und Bergsättel.',                                          field: 'enable_summit_detection',    requiresML: false },
-  { label: 'Wälder',                  description: 'Erkennt durchquerte Waldgebiete.',                                                 field: 'enable_forest_detection',    requiresML: false },
-  { label: 'Gewässer',                description: 'Erkennt Seen und Fließgewässer entlang der Route.',                               field: 'enable_water_detection',     requiresML: false },
-  { label: 'Ortschaften',             description: 'Erkennt durchquerte Siedlungen.',                                                  field: 'enable_settlement_detection',requiresML: false },
-  { label: 'Grenzüberquerungen',      description: 'Erkennt überquerte Ländergrenzen.',                                               field: 'enable_border_detection',    requiresML: false },
-  { label: 'Stopps & Einkehr',        description: 'Erkennt Aufenthalte und Restaurantbesuche (≥10 min).',                            field: 'enable_stop_detection',      requiresML: false },
-  { label: 'Lifte / Seilbahnen',      description: 'Erkennt Gondelbahnen und Sessellifte.',                                           field: 'enable_lift_detection',      requiresML: true  },
-  { label: 'Untergrundtypen',         description: 'Erkennt Wegtypen, Oberflächen und Wald-/Schutzgebietsanteile sowie Wege-Schwierigkeiten (SAC/MTB/Klettersteig).',         field: 'enable_surface_detection',   requiresML: false },
-  { label: 'Anstiege',                description: 'Erkennt und klassifiziert Anstiege.',                                             field: 'enable_ascent_detection',    requiresML: false },
-  { label: 'Intervalltraining',       description: 'Erkennt Trainingsintervalle automatisch.',                                        field: 'enable_interval_detection',  requiresML: false },
-  { label: 'Rundenerkennung',         description: 'Erkennt automatisch Runden/Laps bei Aktivitäten auf Rundkursen.',                 field: 'enable_lap_detection',       requiresML: false },
-  { label: 'Embeddings',              description: 'Berechnet semantische Vektoren für Ähnlichkeitssuche.',                           field: 'enable_embeddings',          requiresML: true  },
-]
+import { ANALYSIS_MODULES } from '@/lib/enrichmentModuleCatalog'
 
 function AutomatischeAnalysenSection() {
   const { addToast } = useToast()

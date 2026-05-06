@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation } from '@tanstack/react-query'
 import { useToast } from '@/lib/toast'
 import { Link } from 'react-router-dom'
 import { fmtDateCompact } from '@/lib/format'
@@ -7,10 +7,11 @@ import { fetchActivities, reprocessAllActivities, isReprocessAccepted } from '@/
 import type { ReprocessFilter, ReprocessCompleted } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import { sportLabel } from '@/lib/sportTaxonomy'
-import { REPROCESS_SCOPES, GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, DEFAULT_SCOPES, toBackendScope, toggleScopeKey, type AnyReprocessKey } from '@/lib/reprocessScopes'
+import { ALL_REPROCESS_SCOPE_KEYS, DEFAULT_SCOPES, scopeLabel, toBackendScope, toggleScopeKey, type AnyReprocessKey } from '@/lib/reprocessScopes'
 import { ScopeCheckboxList } from '@/components/ScopeCheckboxList'
 
 type ReprocessMode = 'all' | 'selection'
+const SELECTION_PAGE_SIZE = 100
 
 export default function WorkshopReprocessPage() {
   const [mode, setMode] = useState<ReprocessMode>('all')
@@ -23,10 +24,25 @@ export default function WorkshopReprocessPage() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [result, setResult] = useState<ReprocessCompleted | null>(null)
   const [scope, setScope] = useState<Set<AnyReprocessKey>>(new Set(DEFAULT_SCOPES))
+  const searchQuery = search.trim()
 
-  const { data: activitiesData } = useQuery({
-    queryKey: ['activities-for-reprocess'],
-    queryFn: () => fetchActivities(undefined, 100),
+  const {
+    data: activitiesData,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading: activitiesLoading,
+  } = useInfiniteQuery({
+    queryKey: ['activities-for-reprocess', searchQuery],
+    queryFn: ({ pageParam }) => fetchActivities(
+      pageParam as string | undefined,
+      SELECTION_PAGE_SIZE,
+      undefined,
+      undefined,
+      searchQuery ? { search: searchQuery } : undefined,
+    ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: lastPage => lastPage.next_cursor ?? undefined,
     enabled: mode === 'selection',
   })
 
@@ -55,8 +71,7 @@ export default function WorkshopReprocessPage() {
   }
 
   function buildFilter(): ReprocessFilter | undefined {
-    const allScopes = REPROCESS_SCOPES.length + GEO_SCOPE_KEYS.length
-    const converted = scope.size > 0 && scope.size < allScopes ? toBackendScope(scope) : undefined
+    const converted = scope.size > 0 && scope.size < ALL_REPROCESS_SCOPE_KEYS.length ? toBackendScope(scope) : undefined
     const scopeArr = converted && converted.length > 0 ? converted : undefined
 
     if (mode === 'selection') {
@@ -111,13 +126,8 @@ export default function WorkshopReprocessPage() {
     }
   }
 
-  const activities = activitiesData?.activities ?? []
-  const searchLower = search.toLowerCase()
-  const filteredActivities = search
-    ? activities.filter(a =>
-        (a.title ?? '').toLowerCase().includes(searchLower) ||
-        sportLabel(a.sport_type, a.sub_type).toLowerCase().includes(searchLower))
-    : activities
+  const activities = activitiesData?.pages.flatMap(page => page.activities) ?? []
+  const filteredActivities = activities
 
   return (
     <div className="space-y-6">
@@ -238,7 +248,11 @@ export default function WorkshopReprocessPage() {
             </div>
 
             <div className="max-h-64 overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
-              {filteredActivities.length === 0 ? (
+              {activitiesLoading ? (
+                <div className="p-4 text-center text-sm text-neutral-400">
+                  Lädt Aktivitäten...
+                </div>
+              ) : filteredActivities.length === 0 ? (
                 <div className="p-4 text-center text-sm text-neutral-400">
                   {activities.length === 0 ? 'Keine Aktivitäten vorhanden' : 'Keine Treffer'}
                 </div>
@@ -295,6 +309,17 @@ export default function WorkshopReprocessPage() {
                   {selectedIds.size} ausgewählt
                 </div>
               )}
+              {hasNextPage && (
+                <div className="px-3 py-2 border-t border-neutral-200 dark:border-neutral-700">
+                  <button
+                    onClick={() => fetchNextPage()}
+                    disabled={isFetchingNextPage}
+                    className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isFetchingNextPage ? 'Lädt...' : 'Weitere laden'}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -341,8 +366,7 @@ export default function WorkshopReprocessPage() {
               </p>
               <p className="text-sm text-neutral-500 dark:text-neutral-400">
                 Umfang: {scope.size === 0 ? 'Nichts ausgewählt' : [
-                  ...REPROCESS_SCOPES.filter(([key]) => scope.has(key)).map(([, label]) => label),
-                  ...GEO_SCOPE_KEYS.filter(k => scope.has(k)).map(k => GEO_SCOPE_LABELS[k]),
+                  ...ALL_REPROCESS_SCOPE_KEYS.filter(key => scope.has(key)).map(key => scopeLabel(key)),
                 ].join(', ')}
               </p>
               <p className="text-sm text-neutral-500 dark:text-neutral-400">

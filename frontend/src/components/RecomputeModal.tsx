@@ -29,9 +29,9 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
   const mutation = useMutation({
     mutationFn: () =>
       // Routes to /admin/activities/recompute-all (handler/recompute.go), which
-      // accepts the full GEO_SCOPE_KEYS vocabulary including 'lifts' and 'stops'.
+      // accepts the full reprocess vocabulary including 'lifts' and stream modules.
       // Do NOT redirect this scope set to /activities/re-enrich — re_enrich rejects
-      // 'lifts'/'stops' (they require the Stage-1 FIT reparse).
+      // 'lifts' because it requires the Stage-1 FIT reparse.
       reprocessAllActivities({
         ids: activityIds,
         scope: mode === 'all' ? undefined : toBackendScope(selected),
