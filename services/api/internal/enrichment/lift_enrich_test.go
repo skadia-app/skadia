@@ -116,6 +116,45 @@ func TestEnrichStreamLifts_NoOSM(t *testing.T) {
 	}
 }
 
+// TestEnrichStreamLifts_HeuristicCandidateHasSourceHeuristic asserts the
+// Phase 4c contract: a heuristic candidate inserted via the integrated
+// pipeline carries source='heuristic' and segment_effort_id IS NULL. The
+// test bypasses the heuristic detector path (which needs a lengthy
+// realistic stream) by inserting a candidate via the same SQL the adapter
+// uses. The unit-level coverage of the snap pipeline lives in snap_test.go;
+// the integration test here only verifies the column wiring + default.
+func TestEnrichStreamLifts_HeuristicCandidateHasSourceHeuristic(t *testing.T) {
+	pool := liftTestPool(t)
+	ctx := context.Background()
+	userID := liftTestUser(t, pool)
+	activityID := liftTestActivity(t, pool, userID)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	_, err := pool.Exec(ctx, `
+		INSERT INTO activity_lift_candidates
+			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m, confidence, confirmed)
+		VALUES ($1, $2, $3, 60, 100, 0, 600, 'high', false)
+	`, activityID, now, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("insert candidate: %v", err)
+	}
+
+	var source string
+	var segEffortID *string
+	if err := pool.QueryRow(ctx, `
+		SELECT source, segment_effort_id
+		FROM activity_lift_candidates WHERE activity_id = $1
+	`, activityID).Scan(&source, &segEffortID); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if source != "heuristic" {
+		t.Errorf("source = %q, want 'heuristic' (default value contract)", source)
+	}
+	if segEffortID != nil {
+		t.Errorf("segment_effort_id = %q, want NULL (default contract)", *segEffortID)
+	}
+}
+
 // TestEnrichStreamLifts_IrrelevantSport verifies that a non-lift sport (running)
 // causes an early return without any DB writes.
 func TestEnrichStreamLifts_IrrelevantSport(t *testing.T) {
