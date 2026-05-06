@@ -1737,7 +1737,7 @@ func applyDiveGasDerivedSport(data *model.ActivityData) error {
 			if err := normalizeParsedActivitySport(data); err != nil {
 				return err
 			}
-			data.IsIndoor = sport.IsIndoor(data.SportType, data.SubType)
+			data.IsIndoor = data.IsIndoor || sport.IsIndoor(data.SportType, data.SubType)
 			return nil
 		}
 	}
