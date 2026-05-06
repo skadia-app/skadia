@@ -45,13 +45,16 @@ func enrichStreamLifts(
 		return nil
 	}
 
-	// Skip if no OSM lift data is loaded at all.
+	// Phase 4c.5.1: when osm_lifts is empty the snap stages cannot run, but
+	// the heuristic detector still does — its rides land as unsegmented
+	// heuristic candidates (the user-confirm flow takes over from there).
 	var hasOSM bool
 	if err := db.Pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM osm_lifts LIMIT 1)").Scan(&hasOSM); err != nil {
 		return fmt.Errorf("enrichStreamLifts: check osm_lifts: %w", err)
 	}
 	if !hasOSM {
-		return nil
+		slog.Warn("enrichStreamLifts: osm_lifts is empty — running heuristic detector without snap pipeline",
+			"activity_id", activityID)
 	}
 
 	// Verify track exists (user_id guard prevents cross-user reads).
@@ -108,19 +111,24 @@ func enrichStreamLifts(
 
 	// 2. Pre-fetch OSM-lift candidates in the activity neighbourhood with
 	//    their resolved segment_id + segment_version_id, length and bearing.
-	osmCandidates, err := loadOSMLiftCandidates(ctx, db, activityID, userID)
-	if err != nil {
-		return fmt.Errorf("enrichStreamLifts: load osm candidates: %w", err)
+	//    When osm_lifts is empty (no OSM data globally) the pipeline
+	//    short-circuits to "all rides are heuristic-only".
+	var osmCandidates []lifts.OSMLiftCandidate
+	var overlaps []lifts.RideOSMOverlap
+	if hasOSM {
+		osmCandidates, err = loadOSMLiftCandidates(ctx, db, activityID, userID)
+		if err != nil {
+			return fmt.Errorf("enrichStreamLifts: load osm candidates: %w", err)
+		}
+		overlaps, err = computeRideOSMOverlaps(ctx, db, streamPts, rides, osmCandidates)
+		if err != nil {
+			return fmt.Errorf("enrichStreamLifts: compute overlaps: %w", err)
+		}
 	}
 
-	// 3. For each ride × osm-candidate pair, compute (hausdorff,
-	//    intersection_len). Pure PostGIS, one round-trip per ride.
-	overlaps, err := computeRideOSMOverlaps(ctx, db, streamPts, rides, osmCandidates)
-	if err != nil {
-		return fmt.Errorf("enrichStreamLifts: compute overlaps: %w", err)
-	}
-
-	// 4. Pipeline.
+	// 4. Pipeline. With no OSM candidates Stage 1 + 2 emit Passthrough
+	//    for every ride, Stage 3 plans nothing — every ride lands as a
+	//    heuristic-only candidate, which is the Phase 4c.5.1 contract.
 	stage1 := lifts.SnapToOSMLifts(rides, osmCandidates, overlaps, streamPts, nil)
 	stage2 := lifts.MergeMultiRideForOSM(stage1, rides, osmCandidates, overlaps, streamPts)
 	stage3 := lifts.MethodACoverageGap(stage2, osmCandidates)
