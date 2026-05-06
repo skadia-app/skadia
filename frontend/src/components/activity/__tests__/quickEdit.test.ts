@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  activityQuickEditDraftFromActivity,
   buildActivityQuickEditPatch,
   diffQuickEditTags,
+  quickEditTagDraftAfterModifier,
   quickEditTagDraftAfterToggle,
   quickEditTagSuggestions,
 } from '../quickEdit'
@@ -17,7 +19,7 @@ const baseActivity = {
   is_indoor: false,
   is_electric: false,
   is_virtual: true,
-  exclude_from_heatmap: false,
+  exclude_from_heatmap: true,
   exclude_from_stats: true,
   visibility: 'private',
   workout_rpe: null,
@@ -34,7 +36,7 @@ function draft(overrides: Partial<ActivityQuickEditDraft> = {}): ActivityQuickEd
     isIndoor: true,
     isElectric: true,
     isVirtual: false,
-    excludeFromHeatmap: true,
+    excludeFromHeatmap: false,
     excludeFromStats: false,
     visibility: 'public',
     workoutRpe: 7,
@@ -50,19 +52,58 @@ describe('activity quick edit helpers', () => {
 
     expect(patch).toEqual({
       title: 'New title',
-      description: null,
+      clear_description: true,
       sport_type: 'cycling',
       sub_type: 'mountain',
       is_indoor: true,
       is_electric: true,
       is_virtual: false,
-      exclude_from_heatmap: true,
+      exclude_from_heatmap: false,
       exclude_from_stats: false,
       visibility: 'public',
       workout_rpe: 7,
       workout_feel: 4,
     })
     expect(patch).not.toHaveProperty('tags')
+  })
+
+  it('clears nullable quick-edit fields through explicit clear operations', () => {
+    const patch = buildActivityQuickEditPatch(
+      { ...baseActivity, title: 'Manual title', workout_rpe: 6, workout_feel: 2 },
+      draft({ title: '', description: '', workoutRpe: null, workoutFeel: null }),
+    )
+
+    expect(patch).toMatchObject({
+      clear_title: true,
+      clear_description: true,
+      clear_workout_rpe: true,
+      clear_workout_feel: true,
+    })
+    expect(patch).not.toHaveProperty('title')
+    expect(patch).not.toHaveProperty('description')
+    expect(patch).not.toHaveProperty('workout_rpe')
+    expect(patch).not.toHaveProperty('workout_feel')
+  })
+
+  it('shows the auto title without saving it back unchanged', () => {
+    const activity = { ...baseActivity, title: null, title_auto: 'Auto title' }
+    const initial = activityQuickEditDraftFromActivity(activity)
+
+    expect(initial.title).toBe('Auto title')
+    expect(buildActivityQuickEditPatch(activity, { ...initial })).not.toHaveProperty('title')
+  })
+
+  it('keeps virtual activities heatmap-excluded in the draft', () => {
+    const initial = activityQuickEditDraftFromActivity({ ...baseActivity, is_virtual: true, exclude_from_heatmap: false })
+    expect(initial.excludeFromHeatmap).toBe(true)
+
+    const virtual = quickEditTagDraftAfterModifier(draft({ isVirtual: false, excludeFromHeatmap: false, tags: [] }), 'isVirtual', true)
+    expect(virtual.isVirtual).toBe(true)
+    expect(virtual.excludeFromHeatmap).toBe(true)
+
+    const outdoor = quickEditTagDraftAfterModifier(virtual, 'isVirtual', false)
+    expect(outdoor.isVirtual).toBe(false)
+    expect(outdoor.excludeFromHeatmap).toBe(false)
   })
 
   it('diffs only normal tag assignments so coupled modifier tags stay trigger-owned', () => {

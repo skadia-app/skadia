@@ -50,14 +50,14 @@ function uniqueTags(tags: string[]): string[] {
 
 export function activityQuickEditDraftFromActivity(activity: Activity): ActivityQuickEditDraft {
   return {
-    title: activity.title ?? '',
+    title: activity.title ?? activity.title_auto ?? '',
     description: activity.description ?? '',
     sportType: activity.sport_type,
     subType: activity.sub_type ?? '',
     isIndoor: activity.is_indoor,
     isElectric: activity.is_electric,
     isVirtual: activity.is_virtual,
-    excludeFromHeatmap: activity.exclude_from_heatmap,
+    excludeFromHeatmap: activity.is_virtual || activity.exclude_from_heatmap,
     excludeFromStats: activity.exclude_from_stats,
     visibility: activity.visibility,
     workoutRpe: activity.workout_rpe ?? null,
@@ -71,19 +71,35 @@ export function buildActivityQuickEditPatch(activity: Activity, draft: ActivityQ
   const title = draft.title.trim()
   const description = draft.description.trim()
   const subType = draft.subType.trim()
+  const originalTitle = activity.title ?? activity.title_auto ?? ''
+  const effectiveExcludeFromHeatmap = draft.isVirtual ? true : draft.excludeFromHeatmap
 
-  if ((activity.title ?? '') !== title) patch.title = title
-  if ((activity.description ?? '') !== description) patch.description = description || null
+  if (title) {
+    if (originalTitle !== title) patch.title = title
+  } else if (activity.title != null) {
+    patch.clear_title = true
+  }
+  if (description) {
+    if ((activity.description ?? '') !== description) patch.description = description
+  } else if (activity.description) {
+    patch.clear_description = true
+  }
   if (activity.sport_type !== draft.sportType) patch.sport_type = draft.sportType
   if (!sameNullableString(activity.sub_type, subType)) patch.sub_type = subType || null
   if (activity.is_indoor !== draft.isIndoor) patch.is_indoor = draft.isIndoor
   if (activity.is_electric !== draft.isElectric) patch.is_electric = draft.isElectric
   if (activity.is_virtual !== draft.isVirtual) patch.is_virtual = draft.isVirtual
-  if (activity.exclude_from_heatmap !== draft.excludeFromHeatmap) patch.exclude_from_heatmap = draft.excludeFromHeatmap
+  if (activity.exclude_from_heatmap !== effectiveExcludeFromHeatmap) patch.exclude_from_heatmap = effectiveExcludeFromHeatmap
   if (activity.exclude_from_stats !== draft.excludeFromStats) patch.exclude_from_stats = draft.excludeFromStats
   if (activity.visibility !== draft.visibility) patch.visibility = draft.visibility
-  if ((activity.workout_rpe ?? null) !== draft.workoutRpe) patch.workout_rpe = draft.workoutRpe
-  if ((activity.workout_feel ?? null) !== draft.workoutFeel) patch.workout_feel = draft.workoutFeel
+  if ((activity.workout_rpe ?? null) !== draft.workoutRpe) {
+    if (draft.workoutRpe == null) patch.clear_workout_rpe = true
+    else patch.workout_rpe = draft.workoutRpe
+  }
+  if ((activity.workout_feel ?? null) !== draft.workoutFeel) {
+    if (draft.workoutFeel == null) patch.clear_workout_feel = true
+    else patch.workout_feel = draft.workoutFeel
+  }
 
   return patch
 }
@@ -133,7 +149,10 @@ export function quickEditTagDraftAfterToggle(
 
   if (key === 'indoor') next.isIndoor = selected
   if (key === 'e-bike') next.isElectric = selected
-  if (key === 'virtuell') next.isVirtual = selected
+  if (key === 'virtuell') {
+    next.isVirtual = selected
+    next.excludeFromHeatmap = selected
+  }
 
   return next
 }
@@ -148,5 +167,7 @@ export function quickEditTagDraftAfterModifier(
     isElectric: 'E-Bike',
     isVirtual: 'virtuell',
   } as const
-  return quickEditTagDraftAfterToggle({ ...draft, [modifier]: selected }, tagByModifier[modifier], selected)
+  const next = quickEditTagDraftAfterToggle({ ...draft, [modifier]: selected }, tagByModifier[modifier], selected)
+  if (modifier === 'isVirtual') next.excludeFromHeatmap = selected
+  return next
 }

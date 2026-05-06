@@ -1351,11 +1351,16 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	clearSportConflict := update.SportType != nil || update.SubType != nil ||
 		update.IsIndoor != nil || update.IsElectric != nil || update.IsVirtual != nil
 
-	if update.Title != nil {
+	if update.ClearTitle != nil && *update.ClearTitle {
+		b.SetExpr("title = NULL")
+		b.SetExpr("title_is_manual = false")
+	} else if update.Title != nil {
 		b.Set("title", *update.Title)
 		b.SetExpr("title_is_manual = true")
 	}
-	if update.Description != nil {
+	if update.ClearDescription != nil && *update.ClearDescription {
+		b.SetExpr("description = NULL")
+	} else if update.Description != nil {
 		b.Set("description", *update.Description)
 	}
 	if update.SportType != nil || update.SubType != nil {
@@ -1447,25 +1452,33 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	if update.ExcludeLiftSubtraction != nil {
 		b.Set("exclude_lift_subtraction", *update.ExcludeLiftSubtraction)
 	}
-	if update.WorkoutFeel != nil {
+	if update.ClearWorkoutFeel != nil && *update.ClearWorkoutFeel {
+		b.SetExpr("workout_feel = NULL")
+	} else if update.WorkoutFeel != nil {
 		b.Set("workout_feel", *update.WorkoutFeel)
 	}
-	if update.WorkoutRpe != nil {
+	if update.ClearWorkoutRpe != nil && *update.ClearWorkoutRpe {
+		b.SetExpr("workout_rpe = NULL")
+	} else if update.WorkoutRpe != nil {
 		b.Set("workout_rpe", *update.WorkoutRpe)
 	}
 	if update.ExcludeFromHeatmap != nil {
 		skipExplicitHeatmap := false
 		if update.IsVirtual != nil && *update.IsVirtual {
 			if !*update.ExcludeFromHeatmap {
-				return nil, fmt.Errorf("cannot disable heatmap exclusion for virtual activities")
+				return nil, ErrVirtualHeatmapRequired
 			}
 			skipExplicitHeatmap = true
 		}
 		if !skipExplicitHeatmap && !*update.ExcludeFromHeatmap {
-			var isVirtual bool
-			_ = db.Pool.QueryRow(ctx, "SELECT is_virtual FROM activities WHERE id = $1 AND user_id = $2", id, userID).Scan(&isVirtual)
-			if isVirtual {
-				return nil, fmt.Errorf("cannot disable heatmap exclusion for virtual activities")
+			effectiveVirtual := false
+			if update.IsVirtual != nil {
+				effectiveVirtual = *update.IsVirtual
+			} else {
+				_ = db.Pool.QueryRow(ctx, "SELECT is_virtual FROM activities WHERE id = $1 AND user_id = $2", id, userID).Scan(&effectiveVirtual)
+			}
+			if effectiveVirtual {
+				return nil, ErrVirtualHeatmapRequired
 			}
 		}
 		if !skipExplicitHeatmap {

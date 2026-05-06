@@ -10,6 +10,7 @@ import (
 
 func activityUpdateAffectsFileSchema(update *model.ActivityUpdate) bool {
 	return update.Title != nil ||
+		(update.ClearTitle != nil && *update.ClearTitle) ||
 		update.SportType != nil ||
 		update.SubType != nil ||
 		update.IsElectric != nil ||
