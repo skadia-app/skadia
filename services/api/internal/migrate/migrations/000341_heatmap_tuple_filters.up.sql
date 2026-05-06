@@ -24,31 +24,6 @@ AS $$
     );
 $$;
 
-CREATE OR REPLACE FUNCTION skadia_heatmap_modifier_filter_matches(
-    query_params JSON,
-    activity_id UUID
-)
-RETURNS BOOLEAN
-LANGUAGE sql
-STABLE
-AS $$
-    WITH filters AS (
-        SELECT
-            NULLIF(TRIM(query_params->>'is_electric'), '') AS is_electric,
-            NULLIF(TRIM(query_params->>'is_commute'), '') AS is_commute
-    )
-    SELECT
-        (filters.is_electric IS NULL AND filters.is_commute IS NULL)
-        OR EXISTS (
-            SELECT 1
-            FROM activities a
-            WHERE a.id = activity_id
-              AND (filters.is_electric IS NULL OR a.is_electric = filters.is_electric::BOOLEAN)
-              AND (filters.is_commute IS NULL OR a.is_commute = filters.is_commute::BOOLEAN)
-        )
-    FROM filters;
-$$;
-
 DO $$
 DECLARE
     fn TEXT;
@@ -58,8 +33,7 @@ BEGIN
     patched := replace(
         fn,
         'AND (sport_filter     IS NULL OR hl.sport_type = ANY(string_to_array(sport_filter,    '','')))',
-        'AND skadia_sport_tuple_filter_matches(sport_filter, hl.sport_type, hl.sub_type)
-          AND skadia_heatmap_modifier_filter_matches(query_params, hl.activity_id)'
+        'AND skadia_sport_tuple_filter_matches(sport_filter, hl.sport_type, hl.sub_type)'
     );
     IF patched = fn THEN
         RAISE EXCEPTION '000341 could not patch heatmap_lines_mvt sport_filter predicate';
@@ -70,8 +44,7 @@ BEGIN
     patched := replace(
         fn,
         'AND (sport_filter     IS NULL OR hp.sport_type = ANY(string_to_array(sport_filter,    '','')))',
-        'AND skadia_sport_tuple_filter_matches(sport_filter, hp.sport_type, hp.sub_type)
-          AND skadia_heatmap_modifier_filter_matches(query_params, hp.activity_id)'
+        'AND skadia_sport_tuple_filter_matches(sport_filter, hp.sport_type, hp.sub_type)'
     );
     IF patched = fn THEN
         RAISE EXCEPTION '000341 could not patch heatmap_points_mvt sport_filter predicate';

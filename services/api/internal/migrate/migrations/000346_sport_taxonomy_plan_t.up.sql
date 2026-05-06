@@ -500,16 +500,12 @@ WITH normalized AS (
 )
 UPDATE activities a
 SET parsed_sport_type = n.sport_type,
-    parsed_sub_type = NULLIF(n.sub_type, ''),
-    is_indoor = a.is_indoor OR n.is_indoor,
-    is_electric = a.is_electric OR n.is_electric
+    parsed_sub_type = NULLIF(n.sub_type, '')
 FROM normalized n
 WHERE a.id = n.id
   AND (
     a.parsed_sport_type IS DISTINCT FROM n.sport_type
     OR COALESCE(a.parsed_sub_type, '') IS DISTINCT FROM n.sub_type
-    OR (n.is_indoor AND NOT a.is_indoor)
-    OR (n.is_electric AND NOT a.is_electric)
   );
 
 WITH normalized AS (

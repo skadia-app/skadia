@@ -5,6 +5,28 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
+func ActivitySchemaTagsInputFromData(format, source string, data *model.ActivityData) shadowfs.ActivitySchemaTagsInput {
+	input := shadowfs.ActivitySchemaTagsInput{
+		Format: format,
+		Source: source,
+	}
+	if data == nil {
+		return input
+	}
+	input.StartedAt = data.StartedAt
+	input.SportType = data.SportType
+	input.SubType = data.SubType
+	input.Title = data.Title
+	input.DistanceM = data.DistanceM
+	input.ElapsedTimeS = data.ElapsedTimeS
+	input.ElevationGainM = data.ElevationGainM
+	input.IsElectric = data.IsElectric
+	input.IsIndoor = data.IsIndoor
+	input.IsVirtual = data.IsVirtual
+	input.IsCommute = data.IsCommute
+	return input
+}
+
 func MultisportActivitySchemaTagsInput(format, source string, sessions []*model.ActivityData) shadowfs.ActivitySchemaTagsInput {
 	input := shadowfs.ActivitySchemaTagsInput{
 		Format:    format,

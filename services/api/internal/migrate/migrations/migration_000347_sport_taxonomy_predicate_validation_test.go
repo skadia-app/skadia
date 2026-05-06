@@ -165,9 +165,70 @@ func TestMigration000347FullUpDownOnRealTables(t *testing.T) {
 	if _, err := tx.Exec(ctx, planTUpSQL); err != nil {
 		t.Fatalf("apply prerequisite 000346 up.sql: %v", err)
 	}
+
+	userID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
+		VALUES ($1, $2, $3, true, 'test', false)
+	`, userID, "mig347_rewrite_"+userID[:8], "mig347_rewrite_"+userID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert rewrite user: %v", err)
+	}
+	parsedOnlyActivityID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, parsed_sport_type, parsed_sub_type, is_indoor, started_at)
+		VALUES ($1, $2, 'parsed treadmill only', 'running', 'street', 'fitness_equipment', 'treadmill', false, now())
+	`, parsedOnlyActivityID, userID); err != nil {
+		t.Fatalf("insert parsed-only rewrite activity: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO automation_rules (user_id, name, conditions, condition_groups, actions, branches)
+		VALUES (
+			$1,
+			'projection duplicate rule',
+			'[{"field":"sport_tuple","op":"in","value":[{"sport_type":"training","sub_type":"strength_training"},{"sport_type":"fitness_equipment","sub_type":"treadmill"}]}]'::jsonb,
+			'[{"logic":"and","conditions":[{"field":"sport_tuple","op":"in","value":[{"sport_type":"fitness_equipment","sub_type":"pilates"}]}]}]'::jsonb,
+			'[{"action":"set_sport_type","params":{"sport_type":"training","sub_type":"hiit"}}]'::jsonb,
+			'[{"type":"if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_tuple","op":"in","value":[{"sport_type":"training","sub_type":"yoga"}]}]}],"actions":[{"action":"set_sport_type","params":{"sport_type":"fitness_equipment","sub_type":"treadmill"}}]}]'::jsonb
+		)
+	`, userID); err != nil {
+		t.Fatalf("insert automation rewrite rule: %v", err)
+	}
+
 	if _, err := tx.Exec(ctx, upSQL); err != nil {
 		t.Fatalf("apply 000347 up.sql: %v", err)
 	}
+
+	var parsedSport, parsedSubType string
+	var isIndoor bool
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(parsed_sport_type, ''), COALESCE(parsed_sub_type, ''), is_indoor
+		FROM activities WHERE id = $1
+	`, parsedOnlyActivityID).Scan(&parsedSport, &parsedSubType, &isIndoor); err != nil {
+		t.Fatalf("query parsed-only rewrite activity: %v", err)
+	}
+	if parsedSport != "running" || parsedSubType != "treadmill" || isIndoor {
+		t.Fatalf("parsed-only 000347 rewrite = (%s,%s), indoor=%v; want parsed tuple only", parsedSport, parsedSubType, isIndoor)
+	}
+
+	var automationJSON string
+	if err := tx.QueryRow(ctx, `
+		SELECT conditions::text || condition_groups::text || actions::text || branches::text
+		FROM automation_rules
+		WHERE user_id = $1 AND name = 'projection duplicate rule'
+	`, userID).Scan(&automationJSON); err != nil {
+		t.Fatalf("query automation rewrite rule: %v", err)
+	}
+	for _, forbidden := range []string{`"sport_type": "training"`, `"sport_type": "fitness_equipment"`, `"sub_type": "strength_training"`, `"sub_type": "pilates"`, `"sub_type": "hiit"`, `"sub_type": "yoga"`} {
+		if strings.Contains(automationJSON, forbidden) {
+			t.Fatalf("automation JSON still contains %s: %s", forbidden, automationJSON)
+		}
+	}
+	for _, required := range []string{`"sport_type": "strength_training"`, `"sport_type": "running"`, `"sub_type": "treadmill"`, `"sport_type": "pilates"`, `"sport_type": "hiit"`, `"sport_type": "yoga"`, `"indoor": true`} {
+		if !strings.Contains(automationJSON, required) {
+			t.Fatalf("automation JSON missing %s: %s", required, automationJSON)
+		}
+	}
+
 	assertMigration000347RealTableConstraints(t, ctx, tx, "up")
 
 	if _, err := tx.Exec(ctx, downSQL); err != nil {

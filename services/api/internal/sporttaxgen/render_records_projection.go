@@ -121,7 +121,7 @@ func RenderTSRecordsProjection(expanded ExpandedRecordsProjection) ([]byte, erro
 	fmt.Fprintf(&buf, "export const GENERATED_RECORD_CATEGORY_ORDER = %s as const\n", tsStringArray(categoryOrder))
 	buf.WriteString("export const GENERATED_RECORD_CATEGORY_LABELS = {\n")
 	for _, key := range categoryOrder {
-		fmt.Fprintf(&buf, "  %s: %s,\n", key, tsString(categoryLabels[key]))
+		fmt.Fprintf(&buf, "  %s: %s,\n", tsString(key), tsString(categoryLabels[key]))
 	}
 	buf.WriteString("} as const\n")
 	fmt.Fprintf(&buf, "export const GENERATED_RECORD_POWER_CATEGORY_ORDER = %s as const\n", tsStringArray(powerOrder))

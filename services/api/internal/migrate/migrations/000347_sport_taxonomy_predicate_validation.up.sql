@@ -174,8 +174,7 @@ WHERE a.id = n.id;
 
 UPDATE activities a
 SET parsed_sport_type = n.sport_type,
-    parsed_sub_type = NULLIF(n.sub_type, ''),
-    is_indoor = CASE WHEN n.is_indoor THEN true ELSE a.is_indoor END
+    parsed_sub_type = NULLIF(n.sub_type, '')
 FROM (
     SELECT a.id, n.sport_type, n.sub_type, n.is_indoor
     FROM activities a
@@ -184,7 +183,6 @@ FROM (
       AND (
         a.parsed_sport_type IS DISTINCT FROM n.sport_type
         OR COALESCE(a.parsed_sub_type, '') IS DISTINCT FROM n.sub_type
-        OR (n.is_indoor AND NOT a.is_indoor)
       )
 ) n
 WHERE a.id = n.id;
@@ -259,6 +257,173 @@ UPDATE segments
 SET allowed_predicates = fp_000347_rewrite_predicates(allowed_predicates)
 WHERE allowed_predicates IS NOT NULL;
 
+CREATE OR REPLACE FUNCTION fp_000347_rewrite_sport_tuple_rows(rows JSONB, modifier_prefix TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_item JSONB;
+    n RECORD;
+    out JSONB := '[]'::jsonb;
+    rewritten JSONB;
+BEGIN
+    IF rows IS NULL OR jsonb_typeof(rows) <> 'array' THEN
+        RETURN rows;
+    END IF;
+
+    FOR row_item IN SELECT value FROM jsonb_array_elements(rows) LOOP
+        IF jsonb_typeof(row_item) <> 'object' OR NOT (row_item ? 'sport_type') THEN
+            out := out || jsonb_build_array(row_item);
+            CONTINUE;
+        END IF;
+
+        SELECT * INTO n FROM fp_000347_canonical_tuple(row_item->>'sport_type', COALESCE(row_item->>'sub_type', ''));
+        rewritten := row_item || jsonb_build_object('sport_type', n.sport_type);
+        IF n.sub_type = '' THEN
+            rewritten := rewritten - 'sub_type';
+        ELSE
+            rewritten := rewritten || jsonb_build_object('sub_type', n.sub_type);
+        END IF;
+        IF n.is_indoor THEN
+            IF modifier_prefix = 'action' THEN
+                rewritten := rewritten || jsonb_build_object('indoor', true);
+            ELSE
+                rewritten := rewritten || jsonb_build_object('is_indoor', true);
+            END IF;
+        END IF;
+
+        out := out || jsonb_build_array(rewritten);
+    END LOOP;
+
+    RETURN out;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION fp_000347_rewrite_rule_conditions(conditions JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    condition_item JSONB;
+    out JSONB := '[]'::jsonb;
+BEGIN
+    IF conditions IS NULL OR jsonb_typeof(conditions) <> 'array' THEN
+        RETURN conditions;
+    END IF;
+
+    FOR condition_item IN SELECT value FROM jsonb_array_elements(conditions) LOOP
+        IF jsonb_typeof(condition_item) = 'object'
+           AND condition_item->>'field' = 'sport_tuple'
+           AND jsonb_typeof(condition_item->'value') = 'array' THEN
+            condition_item := jsonb_set(condition_item, '{value}', fp_000347_rewrite_sport_tuple_rows(condition_item->'value', 'condition'), true);
+        END IF;
+        out := out || jsonb_build_array(condition_item);
+    END LOOP;
+
+    RETURN out;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION fp_000347_rewrite_rule_condition_groups(groups JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    group_item JSONB;
+    out JSONB := '[]'::jsonb;
+BEGIN
+    IF groups IS NULL OR jsonb_typeof(groups) <> 'array' THEN
+        RETURN groups;
+    END IF;
+
+    FOR group_item IN SELECT value FROM jsonb_array_elements(groups) LOOP
+        IF jsonb_typeof(group_item) = 'object' AND group_item ? 'conditions' THEN
+            group_item := jsonb_set(group_item, '{conditions}', fp_000347_rewrite_rule_conditions(group_item->'conditions'), true);
+        END IF;
+        out := out || jsonb_build_array(group_item);
+    END LOOP;
+
+    RETURN out;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION fp_000347_rewrite_rule_actions(actions JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    action_item JSONB;
+    params JSONB;
+    n RECORD;
+    out JSONB := '[]'::jsonb;
+BEGIN
+    IF actions IS NULL OR jsonb_typeof(actions) <> 'array' THEN
+        RETURN actions;
+    END IF;
+
+    FOR action_item IN SELECT value FROM jsonb_array_elements(actions) LOOP
+        IF jsonb_typeof(action_item) = 'object'
+           AND action_item->>'action' = 'set_sport_type'
+           AND jsonb_typeof(action_item->'params') = 'object'
+           AND action_item->'params' ? 'sport_type' THEN
+            params := action_item->'params';
+            SELECT * INTO n FROM fp_000347_canonical_tuple(params->>'sport_type', COALESCE(params->>'sub_type', ''));
+            params := params || jsonb_build_object('sport_type', n.sport_type);
+            IF n.sub_type = '' THEN
+                params := params - 'sub_type';
+            ELSE
+                params := params || jsonb_build_object('sub_type', n.sub_type);
+            END IF;
+            IF n.is_indoor THEN
+                params := params || jsonb_build_object('indoor', true);
+            END IF;
+            action_item := jsonb_set(action_item, '{params}', params, true);
+        END IF;
+
+        out := out || jsonb_build_array(action_item);
+    END LOOP;
+
+    RETURN out;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION fp_000347_rewrite_rule_branches(branches JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    branch_item JSONB;
+    out JSONB := '[]'::jsonb;
+BEGIN
+    IF branches IS NULL OR jsonb_typeof(branches) <> 'array' THEN
+        RETURN branches;
+    END IF;
+
+    FOR branch_item IN SELECT value FROM jsonb_array_elements(branches) LOOP
+        IF jsonb_typeof(branch_item) = 'object' AND branch_item ? 'condition_groups' THEN
+            branch_item := jsonb_set(branch_item, '{condition_groups}', fp_000347_rewrite_rule_condition_groups(branch_item->'condition_groups'), true);
+        END IF;
+        IF jsonb_typeof(branch_item) = 'object' AND branch_item ? 'actions' THEN
+            branch_item := jsonb_set(branch_item, '{actions}', fp_000347_rewrite_rule_actions(branch_item->'actions'), true);
+        END IF;
+        out := out || jsonb_build_array(branch_item);
+    END LOOP;
+
+    RETURN out;
+END;
+$$;
+
+UPDATE automation_rules
+SET conditions = fp_000347_rewrite_rule_conditions(conditions),
+    condition_groups = fp_000347_rewrite_rule_condition_groups(condition_groups),
+    actions = fp_000347_rewrite_rule_actions(actions),
+    branches = fp_000347_rewrite_rule_branches(branches);
+
+DROP FUNCTION IF EXISTS fp_000347_rewrite_rule_branches(JSONB);
+DROP FUNCTION IF EXISTS fp_000347_rewrite_rule_actions(JSONB);
+DROP FUNCTION IF EXISTS fp_000347_rewrite_rule_condition_groups(JSONB);
+DROP FUNCTION IF EXISTS fp_000347_rewrite_rule_conditions(JSONB);
+DROP FUNCTION IF EXISTS fp_000347_rewrite_sport_tuple_rows(JSONB, TEXT);
 DROP FUNCTION IF EXISTS fp_000347_rewrite_predicates(JSONB);
 DROP FUNCTION IF EXISTS fp_000347_canonical_tuple(TEXT, TEXT);
 

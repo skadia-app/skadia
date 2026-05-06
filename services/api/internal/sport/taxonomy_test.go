@@ -182,6 +182,24 @@ func TestSportDefLifecycleDefaults(t *testing.T) {
 	}
 }
 
+func TestIsSelectableTupleHonorsParentAndSubtypeFlags(t *testing.T) {
+	if !IsSelectableTuple("cycling", "") {
+		t.Fatal("cycling parent tuple should be selectable")
+	}
+	if !IsSelectableTuple("fitness_equipment", "elliptical") {
+		t.Fatal("fitness_equipment/elliptical subtype should be selectable")
+	}
+	if IsSelectableTuple("fitness_equipment", "") {
+		t.Fatal("fitness_equipment parent tuple should not be selectable")
+	}
+	if IsSelectableTuple("unknown", "") {
+		t.Fatal("unknown should not be selectable for user-authored activity creation")
+	}
+	if IsSelectableTuple("cycling", "does_not_exist") {
+		t.Fatal("unknown subtype should not be selectable")
+	}
+}
+
 func TestLegacyAliasesAreNotRuntimeSports(t *testing.T) {
 	for _, sportType := range []string{
 		"mountain_biking",

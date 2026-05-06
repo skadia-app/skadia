@@ -20,18 +20,12 @@ func TestMigration000341PatchesHeatmapTupleFilters(t *testing.T) {
 
 	for _, needle := range []string{
 		"CREATE OR REPLACE FUNCTION skadia_sport_tuple_filter_matches",
-		"CREATE OR REPLACE FUNCTION skadia_heatmap_modifier_filter_matches",
 		"position(':' in raw_token)",
 		"COALESCE(row_sub_type, '')",
-		"query_params->>'is_electric'",
-		"query_params->>'is_commute'",
-		"activity_id UUID",
 		"heatmap_lines_mvt(integer,integer,integer,json)",
 		"heatmap_points_mvt(integer,integer,integer,json)",
 		"skadia_sport_tuple_filter_matches(sport_filter, hl.sport_type, hl.sub_type)",
 		"skadia_sport_tuple_filter_matches(sport_filter, hp.sport_type, hp.sub_type)",
-		"skadia_heatmap_modifier_filter_matches(query_params, hl.activity_id)",
-		"skadia_heatmap_modifier_filter_matches(query_params, hp.activity_id)",
 		"could not patch heatmap_lines_mvt",
 		"could not patch heatmap_points_mvt",
 	} {
@@ -41,8 +35,5 @@ func TestMigration000341PatchesHeatmapTupleFilters(t *testing.T) {
 	}
 	if !strings.Contains(downSQL, "DROP FUNCTION IF EXISTS skadia_sport_tuple_filter_matches") {
 		t.Fatalf("000341 down migration must drop tuple filter helper")
-	}
-	if !strings.Contains(downSQL, "DROP FUNCTION IF EXISTS skadia_heatmap_modifier_filter_matches") {
-		t.Fatalf("000341 down migration must drop modifier filter helper")
 	}
 }

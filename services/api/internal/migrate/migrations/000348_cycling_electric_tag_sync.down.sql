@@ -6,7 +6,16 @@ SELECT pg_advisory_xact_lock(hashtext('cycling_electric_tag_sync'), 1);
 
 UPDATE tags
 SET description = 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_electric)'
-WHERE name = 'E-Bike' AND is_system = true;
+WHERE name = 'E-Bike' AND is_system = true AND COALESCE(description, '') = '';
+
+CREATE OR REPLACE FUNCTION prevent_system_tag_delete() RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.is_system = true AND EXISTS (SELECT 1 FROM users WHERE id = OLD.user_id) THEN
+        RAISE EXCEPTION 'System-Tags können nicht gelöscht werden: %', OLD.name;
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION sync_system_flags_and_tags() RETURNS TRIGGER AS $$
 DECLARE

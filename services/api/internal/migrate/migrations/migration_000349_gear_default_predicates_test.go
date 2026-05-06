@@ -26,6 +26,8 @@ func TestMigration000349GearDefaultPredicatesDeclaresRequiredContracts(t *testin
 	upSQL, downSQL := readMigration000349GearDefaultPredicatesSQL(t)
 	for _, needle := range []string{
 		"ADD COLUMN IF NOT EXISTS default_sport_predicates JSONB NOT NULL DEFAULT '[]'::jsonb",
+		"CREATE OR REPLACE FUNCTION fn_validate_gear_default_predicates",
+		"gear_default_sport_predicates_valid",
 		"jsonb_agg(predicate ORDER BY ord)",
 		"e_mountain_biking",
 		"e_biking",
@@ -41,6 +43,9 @@ func TestMigration000349GearDefaultPredicatesDeclaresRequiredContracts(t *testin
 	}
 	if !strings.Contains(downSQL, "DROP COLUMN IF EXISTS default_sport_predicates") {
 		t.Fatal("down migration must drop default_sport_predicates")
+	}
+	if !strings.Contains(downSQL, "DROP FUNCTION IF EXISTS fn_validate_gear_default_predicates(JSONB)") {
+		t.Fatal("down migration must drop fn_validate_gear_default_predicates")
 	}
 }
 
@@ -82,6 +87,14 @@ func TestMigration000349GearDefaultPredicatesBackfillsLegacyDefaults(t *testing.
 	if _, err := tx.Exec(ctx, upSQL); err != nil {
 		t.Fatalf("apply up.sql: %v", err)
 	}
+	expectConstraintFailure000347(t, ctx, tx, `
+		INSERT INTO gear (user_id, name, type, default_sport_predicates)
+		VALUES ($1, 'Invalid Predicate', 'other', '[{"sport_type":"cycling","sub_type":"does_not_exist"}]'::jsonb)
+	`, userID)
+	expectConstraintFailure000347(t, ctx, tx, `
+		INSERT INTO gear (user_id, name, type, default_sport_predicates)
+		VALUES ($1, 'Invalid Modifier', 'other', '[{"sport_type":"cycling","modifiers":{"is_electric":"yes"}}]'::jsonb)
+	`, userID)
 	var predicates string
 	if err := tx.QueryRow(ctx, `
 		SELECT default_sport_predicates::text

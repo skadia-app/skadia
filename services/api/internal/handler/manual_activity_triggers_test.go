@@ -252,6 +252,41 @@ func TestCreateManualActivity_InvalidBody_NoInvalidate(t *testing.T) {
 	}
 }
 
+func TestCreateManualActivityRejectsNonSelectableSportTuple(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+
+	h := &Handler{
+		DB:         &database.DB{Pool: pool},
+		ShadowFS:   newHandlerTestShadowFS(pool),
+		Stage1Deps: fakeStage1Deps(),
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"sport_type":       "unknown",
+		"started_at":       "2026-05-01T10:00:00Z",
+		"elapsed_time_s":   3600.0,
+		"distance_m":       1000.0,
+		"elevation_gain_m": 10.0,
+	})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/activities/manual", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withUserAndAdmin(req.Context(), uid, false))
+	rec := httptest.NewRecorder()
+
+	h.CreateManualActivity(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("CreateManualActivity: code = %d body = %s, want 400", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "not selectable") {
+		t.Fatalf("CreateManualActivity body = %s, want not selectable error", rec.Body.String())
+	}
+}
+
 func TestCreateManualActivity_RefreshesLibraryPathAfterFinalFields(t *testing.T) {
 	pool := fusionTestPool(t)
 	uid := insertTestUser(t, pool)

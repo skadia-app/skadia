@@ -502,20 +502,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					FileName:    filepath.Base(filename), // L48: strip directory prefix
 					SizeBytes:   int64(len(fileBytes)),
 					FileHash:    hashStr,
-					Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
-						Format:         format,
-						Source:         "strava",
-						StartedAt:      data.StartedAt,
-						SportType:      data.SportType,
-						SubType:        data.SubType,
-						Title:          data.Title,
-						DistanceM:      data.DistanceM,
-						ElapsedTimeS:   data.ElapsedTimeS,
-						ElevationGainM: data.ElevationGainM,
-						IsElectric:     data.IsElectric,
-						IsIndoor:       data.IsIndoor,
-						IsVirtual:      data.IsVirtual,
-					}),
+					Tags: shadowfs.ActivitySchemaTags(importer.ActivitySchemaTagsInputFromData(format, "strava", data)),
 				}, bytes.NewReader(fileBytes))
 				if putErr != nil {
 					slog.Warn("strava activities: ShadowFS.Put failed", "file", filename, "error", putErr)
@@ -614,20 +601,11 @@ func buildStravaCSVSourceFile(userID string, stravaID int64, data *model.Activit
 			FileName:    fmt.Sprintf("strava_%d.json", stravaID),
 			SizeBytes:   int64(len(jsonBytes)),
 			FileHash:    hashStr,
-			Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
-				Format:         "strava_csv",
-				Source:         "strava",
-				StartedAt:      data.StartedAt,
-				SportType:      data.SportType,
-				SubType:        data.SubType,
-				Title:          activityName,
-				DistanceM:      data.DistanceM,
-				ElapsedTimeS:   data.ElapsedTimeS,
-				ElevationGainM: data.ElevationGainM,
-				IsElectric:     data.IsElectric,
-				IsIndoor:       data.IsIndoor,
-				IsVirtual:      data.IsVirtual,
-			}),
+			Tags: shadowfs.ActivitySchemaTags(func() shadowfs.ActivitySchemaTagsInput {
+				input := importer.ActivitySchemaTagsInputFromData("strava_csv", "strava", data)
+				input.Title = activityName
+				return input
+			}()),
 		},
 	}, nil
 }

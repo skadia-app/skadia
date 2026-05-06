@@ -129,6 +129,24 @@ describe('activity quick edit helpers', () => {
     expect(noElectric.tags).not.toContain('E-Bike')
   })
 
+  it('adds the E-Bike tag only for cycling drafts when toggling the electric modifier', () => {
+    const cyclingElectric = quickEditTagDraftAfterModifier(
+      draft({ sportType: 'cycling', tags: [], isElectric: false }),
+      'isElectric',
+      true,
+    )
+    expect(cyclingElectric.isElectric).toBe(true)
+    expect(cyclingElectric.tags).toContain('E-Bike')
+
+    const runningElectric = quickEditTagDraftAfterModifier(
+      draft({ sportType: 'running', subType: '', tags: [], isElectric: false }),
+      'isElectric',
+      true,
+    )
+    expect(runningElectric.isElectric).toBe(true)
+    expect(runningElectric.tags).not.toContain('E-Bike')
+  })
+
   it('limits tag suggestions and orders them by usage when search is empty', () => {
     const tags = Array.from({ length: 40 }, (_, i) => ({
       name: `Tag ${i}`,

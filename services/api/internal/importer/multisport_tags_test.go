@@ -57,3 +57,35 @@ func TestMultisportActivitySchemaTagsInputAggregatesSessionFields(t *testing.T) 
 		t.Fatalf("modifiers = electric:%v indoor:%v virtual:%v, want all true", got.IsElectric, got.IsIndoor, got.IsVirtual)
 	}
 }
+
+func TestActivitySchemaTagsInputFromDataCopiesCommuteAndCoreFields(t *testing.T) {
+	start := time.Date(2026, 5, 6, 8, 15, 0, 0, time.UTC)
+	data := &model.ActivityData{
+		SportType:      "cycling",
+		SubType:        "mountain",
+		Title:          "Morning commute",
+		StartedAt:      start,
+		DistanceM:      12345,
+		ElapsedTimeS:   3600,
+		ElevationGainM: 320,
+		IsElectric:     true,
+		IsIndoor:       true,
+		IsVirtual:      true,
+		IsCommute:      true,
+	}
+
+	got := ActivitySchemaTagsInputFromData("fit", "garmin", data)
+
+	if got.Format != "fit" || got.Source != "garmin" {
+		t.Fatalf("format/source = %q/%q, want fit/garmin", got.Format, got.Source)
+	}
+	if got.SportType != "cycling" || got.SubType != "mountain" || got.Title != "Morning commute" {
+		t.Fatalf("activity identity = %#v", got)
+	}
+	if !got.StartedAt.Equal(start) || got.DistanceM != 12345 || got.ElapsedTimeS != 3600 || got.ElevationGainM != 320 {
+		t.Fatalf("activity metrics = %#v", got)
+	}
+	if !got.IsElectric || !got.IsIndoor || !got.IsVirtual || !got.IsCommute {
+		t.Fatalf("modifiers = electric:%v indoor:%v virtual:%v commute:%v, want all true", got.IsElectric, got.IsIndoor, got.IsVirtual, got.IsCommute)
+	}
+}

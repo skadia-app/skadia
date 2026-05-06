@@ -188,6 +188,7 @@ func TestRenderRecordsProjectionOutputsGoAndTypeScriptShapes(t *testing.T) {
 		"export const GENERATED_RECORD_MATCH_RULES",
 		"export const GENERATED_RECORD_CATEGORY_ORDER",
 		"export const GENERATED_RECORD_POWER_CATEGORY_ORDER",
+		"'dist_1km': '1 km'",
 		"subTypes: []",
 		"excludeSubTypes: ['treadmill']",
 		"modifiers: { isIndoor: false }",
