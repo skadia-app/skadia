@@ -20,6 +20,7 @@ func TestActivityUpdateAffectsFileSchema(t *testing.T) {
 		update model.ActivityUpdate
 		want   bool
 	}{
+		{name: "empty patch refreshes after external tag writes", update: model.ActivityUpdate{}, want: true},
 		{name: "title", update: model.ActivityUpdate{Title: &title}, want: true},
 		{name: "sport type", update: model.ActivityUpdate{SportType: &sportType}, want: true},
 		{name: "sub type", update: model.ActivityUpdate{SubType: &subType}, want: true},
