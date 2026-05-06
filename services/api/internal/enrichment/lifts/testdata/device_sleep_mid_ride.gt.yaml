@@ -1,0 +1,33 @@
+format_version: 1
+scenario_kind: device_sleep_mid_ride
+rides_expected: 1
+rides:
+  - ride_index: 0
+    confidence: high
+    start_anchor: valley_a
+    end_anchor: upper_a
+    promotion_distance:
+      start_m: 200
+      end_m: 2
+    expected:
+      duration_s: 330
+      ascent_m: 105.6
+      descent_m: 0
+      distance_m: 726
+    tolerance:
+      start_distance_growth_m: 30
+      end_distance_growth_m: 30
+      ascent_m: 8
+      descent_m: 5
+      distance_m: 30
+      duration_s: 20
+      confidence: class_match
+anchors:
+  valley_a:
+    x_m: 0
+    y_m: 0
+  upper_a:
+    x_m: 924
+    y_m: 0
+fixture_content_hash: 18260c7008f17142d00cab37c382f5f954c519955a38e3dda111882a66b40cdc
+detector_verdict_hash: c545edf99f919abe
