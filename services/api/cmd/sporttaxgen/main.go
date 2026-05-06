@@ -27,6 +27,7 @@ func run() error {
 
 	repoRoot := flag.String("repo-root", defaultRoot, "repository root")
 	source := flag.String("source", "", "taxonomy YAML source")
+	modifierSource := flag.String("modifier-source", "", "modifier registry YAML source")
 	goOut := flag.String("go-out", "", "generated Go output path")
 	tsOut := flag.String("ts-out", "", "generated TypeScript output path")
 	activityFilterSource := flag.String("activity-filter-source", "", "activity filter projection YAML source")
@@ -49,6 +50,9 @@ func run() error {
 
 	if *source == "" {
 		*source = filepath.Join(*repoRoot, "config", "sport-taxonomy", "sports.yaml")
+	}
+	if *modifierSource == "" {
+		*modifierSource = filepath.Join(*repoRoot, "config", "sport-taxonomy", "modifiers.yaml")
 	}
 	if *goOut == "" {
 		*goOut = filepath.Join(*repoRoot, "services", "api", "internal", "sport", "taxonomy_generated.go")
@@ -110,6 +114,15 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load taxonomy: %w", err)
 	}
+	modifierBytes, err := os.ReadFile(*modifierSource)
+	if err != nil {
+		return fmt.Errorf("read modifier registry source: %w", err)
+	}
+	modifierRegistry, err := sporttaxgen.LoadModifiers(bytes.NewReader(modifierBytes))
+	if err != nil {
+		return fmt.Errorf("load modifier registry: %w", err)
+	}
+	_ = modifierRegistry
 	renderedGo, err := sporttaxgen.RenderGo(taxonomy)
 	if err != nil {
 		return fmt.Errorf("render Go taxonomy: %w", err)
