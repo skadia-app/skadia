@@ -157,6 +157,23 @@ func mergeMidLiftSplits(in []rideWithIdx, rows []StreamPoint, cfg DetectorConfig
 	}
 	const maxGapS = 20.0
 	const maxPosDistM = 25.0
+	// Cable-hold tier: a chairlift / gondola operator stops the cable mid-ride
+	// when someone needs help boarding or disembarking at a station. The rider
+	// hangs in the air at the same GPS position for 30–210 s, then the cable
+	// resumes. Calibrated cases — both user-confirmed as a single physical
+	// lift ride (no mid-station, same lift as adjacent un-split rides):
+	//   Suunto alpine bikepark ride 9/10: L03 mid-cable chairlift case, 70 s halt @ alt 1715
+	//   cycling-computer device ride 2/3:            L08, 210 s halt @ alt 2336
+	// Distinguishing cable-hold from a true mid-station boarding-transfer:
+	//   - drift between gap.start and gap.end ≤ 5 m (cabin held in place)
+	//   - max sample drift inside the gap ≤ 10 m (rider not walking around)
+	// Together these gates allow up to 240 s gap to merge — long enough for a
+	// realistic cable hold plus disembark-help, short enough to refuse a true
+	// mid-station walk (alpine bikepark L03→L04 at the shared platform, where
+	// the rider walks ≥30 m across to board the next lift in 25–60 s).
+	const cableHoldGapS = 240.0
+	const cableHoldEndDriftM = 5.0
+	const cableHoldSampleDriftM = 10.0
 	out := make([]rideWithIdx, 0, len(in))
 	out = append(out, in[0])
 	for i := 1; i < len(in); i++ {
@@ -167,7 +184,7 @@ func mergeMidLiftSplits(in []rideWithIdx, rows []StreamPoint, cfg DetectorConfig
 			continue
 		}
 		gap := cur.ride.StartedAt.Sub(prev.ride.EndedAt).Seconds()
-		if gap > maxGapS || gap < 0 {
+		if gap < 0 {
 			out = append(out, cur)
 			continue
 		}
@@ -177,7 +194,44 @@ func mergeMidLiftSplits(in []rideWithIdx, rows []StreamPoint, cfg DetectorConfig
 			continue
 		}
 		dist := Haversine(*pe.Lat, *pe.Lng, *cs.Lat, *cs.Lng)
-		if dist > maxPosDistM {
+		// Three acceptance tiers:
+		//   standard merge: gap ≤20 s, dist ≤25 m — covers pylon-stop and
+		//     recording-glitch splits in continuous streams.
+		//   cable-hold continuous-stream: gap ≤240 s, every sample inside
+		//     the gap stays within 10 m of the prev-end coord (cabin pinned
+		//     in place by the cable). Suunto alpine bikepark ride 9/10.
+		//   cable-hold smart-recording: gap ≤240 s, no samples in the gap
+		//     (Garmin smart-record drops points while stationary), endpoint
+		//     distance ≤25 m to allow for trim-induced cable-decel/accel
+		//     offset. cycling-computer device ride 2/3 (14 m endpoint offset across a
+		//     203 s no-sample gap).
+		gapHasSamples := cur.startIdx > prev.endIdx+1
+		switch {
+		case gap <= maxGapS && dist <= maxPosDistM:
+			// standard merge — keep going
+		case gap <= cableHoldGapS && gapHasSamples && dist <= cableHoldEndDriftM:
+			anchorLat, anchorLng := *pe.Lat, *pe.Lng
+			holdOK := true
+			for k := prev.endIdx + 1; k < cur.startIdx; k++ {
+				if rows[k].Lat == nil || rows[k].Lng == nil {
+					continue
+				}
+				if Haversine(anchorLat, anchorLng, *rows[k].Lat, *rows[k].Lng) > cableHoldSampleDriftM {
+					holdOK = false
+					break
+				}
+			}
+			if !holdOK {
+				out = append(out, cur)
+				continue
+			}
+		case gap <= cableHoldGapS && !gapHasSamples && dist <= maxPosDistM:
+			// smart-recording cable-hold — no samples to verify drift, but
+			// the SmartRecMaxGapS-tripped gap with endpoints within one
+			// cabin-length is the calibrated signature. The 240 s ceiling
+			// still excludes a true mid-station walk (rider would walk
+			// 30+m to the next lift's boarding line, dist > 25 m).
+		default:
 			out = append(out, cur)
 			continue
 		}
