@@ -402,34 +402,16 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 		}
 	}
 
-	// E-Bike system tag for electric cycling. The is_electric flag remains generic.
-	if _, err := db.Pool.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-		VALUES ($1, $2, '#16A34A', '#FFFFFF', 'system', true, false, 'Automatisch bei elektrischen Radfahrten')
-		ON CONFLICT (user_id, name) DO NOTHING`,
-		userID, systemTagNameEBike,
-	); err != nil {
-		return fmt.Errorf("seed E-Bike tag: %w", err)
-	}
-
-	// Pendeln system tag (synced via is_commute column, analogous to E-Bike/Indoor).
-	if _, err := db.Pool.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-		VALUES ($1, 'Pendeln', '#6B7280', '#FFFFFF', 'system', true, false, 'Automatisch bei Pendel-Aktivitäten (Sync mit is_commute)')
-		ON CONFLICT (user_id, name) DO NOTHING`,
-		userID,
-	); err != nil {
-		return fmt.Errorf("seed Pendeln tag: %w", err)
-	}
-
-	// Indoor system tag (synced via is_indoor column, analogous to E-Bike).
-	if _, err := db.Pool.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-		VALUES ($1, $2, '#3B82F6', '#FFFFFF', 'system', true, false, 'Automatisch bei Indoor-Aktivitäten (Sync mit is_indoor)')
-		ON CONFLICT (user_id, name) DO NOTHING`,
-		userID, systemTagNameIndoor,
-	); err != nil {
-		return fmt.Errorf("seed Indoor tag: %w", err)
+	for _, sync := range systemModifierTagSyncs() {
+		color, description := systemModifierTagStyle(sync.ModifierKey)
+		if _, err := db.Pool.Exec(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+			VALUES ($1, $2, $3, '#FFFFFF', 'system', true, false, $4)
+			ON CONFLICT (user_id, name) DO NOTHING`,
+			userID, sync.SystemTagName, color, description,
+		); err != nil {
+			return fmt.Errorf("seed %s tag: %w", sync.SystemTagName, err)
+		}
 	}
 
 	// Migrate existing tags from activities.tags TEXT[] to tags table
@@ -479,53 +461,18 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 			ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
 			userID, tr.tagName, tr.systemType, tr.priority, tr.conditions, actions)
 	}
-	// E-Bike rule (no conditions/actions — handled by import pipeline and cycling-only tag sync)
-	if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
-		Conditions: json.RawMessage(`[]`),
-		Actions:    json.RawMessage(`[]`),
-	}); err != nil {
-		return fmt.Errorf("validate E-Bike system rule: %w", err)
-	}
-	_, _ = db.Pool.Exec(ctx, `
-		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
-		VALUES ($1, $2, true, 'electric_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
-		ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
-		userID, systemTagNameEBike)
-
-	// Indoor sync rule (no conditions/actions — handled by import pipeline + trigger)
-	if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
-		Conditions: json.RawMessage(`[]`),
-		Actions:    json.RawMessage(`[]`),
-	}); err != nil {
-		return fmt.Errorf("validate Indoor system rule: %w", err)
-	}
-	_, _ = db.Pool.Exec(ctx, `
-		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
-		VALUES ($1, $2, true, 'indoor_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
-		ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
-		userID, systemTagNameIndoor)
-
-	// Virtual activity rule (no conditions/actions — synced via is_virtual column)
-	if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
-		Conditions: json.RawMessage(`[]`),
-		Actions:    json.RawMessage(`[]`),
-	}); err != nil {
-		return fmt.Errorf("validate Virtuell system rule: %w", err)
-	}
-	_, _ = db.Pool.Exec(ctx, `
-		INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
-		VALUES ($1, $2, true, 'virtual_sync', true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
-		ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
-		userID, systemRuleNameVirtual)
-
-	// Virtual system tag
-	if _, err := db.Pool.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-		VALUES ($1, $2, '#8B5CF6', '#FFFFFF', 'system', true, false, 'Automatisch bei virtuellen Aktivitäten (Sync mit is_virtual)')
-		ON CONFLICT (user_id, name) DO NOTHING`,
-		userID, systemTagNameVirtual,
-	); err != nil {
-		return fmt.Errorf("seed virtuell tag: %w", err)
+	for _, sync := range readonlySystemModifierTagSyncs() {
+		if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+			Conditions: json.RawMessage(`[]`),
+			Actions:    json.RawMessage(`[]`),
+		}); err != nil {
+			return fmt.Errorf("validate %s system rule: %w", sync.RuleName, err)
+		}
+		_, _ = db.Pool.Exec(ctx, `
+			INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
+			VALUES ($1, $2, true, $3, true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
+			ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
+			userID, sync.RuleName, sync.SystemType)
 	}
 
 	db.SeedRecommendedRules(ctx, userID)
