@@ -347,41 +347,22 @@ func (db *DB) GetTagActivities(ctx context.Context, tagID, userID string) ([]mod
 	return activities, nil
 }
 
-// SeedSystemDefaults creates the default system tags and automation rules for a new user.
+// SeedSystemDefaults seeds non-system-registry defaults for a user: weather
+// tags, recommended user rules, and the legacy migrate-existing-tags step.
+//
+// As of Phase 4b.A.3 the system tags + automation rules (Rundtour, E-Bike,
+// Pendeln, Indoor, virtuell, Frost, Nacht and their matching rules) are NO
+// LONGER seeded here — they live in automation.SystemTags / SystemRules and
+// are seeded via automation.EnsureSystemArtifacts. The handler that calls
+// SeedSystemDefaults must call EnsureSystemArtifacts first.
+//
+// Why split the call into two: package automation already imports database;
+// having database call into automation would create an import cycle.
 func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
-	nachtDesc := "Automatisch bei Aktivitaeten die in die astronomische Nacht fallen"
-	frostDesc := "Automatisch bei Temperaturen unter 0 Grad C"
-
-	// System tags (is_auto=false — now driven by automation rules, not the old autotag engine)
-	seeds := []struct {
-		name, color, textColor string
-		desc                   string
-	}{
-		{"Nacht", "#1E293B", "#E2E8F0", nachtDesc},
-		{"Frost", "#38BDF8", "#0C4A6E", frostDesc},
-	}
-	for _, s := range seeds {
-		if _, err := db.Pool.Exec(ctx, `
-			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-			VALUES ($1, $2, $3, $4, 'system', true, false, $5)
-			ON CONFLICT (user_id, name) DO NOTHING`,
-			userID, s.name, s.color, s.textColor, s.desc,
-		); err != nil {
-			return fmt.Errorf("seed %s tag: %w", s.name, err)
-		}
-	}
-
-	// Rundtour — rule-managed (set_field + add_tag via automation rule)
-	if _, err := db.Pool.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-		VALUES ($1, 'Rundtour', '#10B981', '#1a1a1a', 'system', true, false, 'Automatisch bei Aktivitaeten die als Rundtour erkannt wurden (Sync mit is_round_trip)')
-		ON CONFLICT (user_id, name) DO UPDATE SET category = 'system', is_auto = false, conditions = NULL, condition_groups = NULL, conditions_logic = NULL`,
-		userID,
-	); err != nil {
-		return fmt.Errorf("seed Rundtour tag: %w", err)
-	}
-
-	// Weather system tags
+	// Weather system tags (category='weather' — distinct from category='system'
+	// covered by the central registry; weather tags do not have matching
+	// automation rules, they are populated directly by the weather enrichment
+	// pipeline).
 	weatherTags := []struct{ name, color string }{
 		{"sonnig", "#FCD34D"},
 		{"bewölkt", "#9CA3AF"},
@@ -413,53 +394,16 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 		}
 	}
 
-	// Migrate existing tags from activities.tags TEXT[] to tags table
-	// This ensures all previously used tags appear in the Tags overview
+	// Migrate existing tags from activities.tags TEXT[] to tags table —
+	// ensures previously-used free-form tags appear in the Tags overview
+	// for users created before the typed tags table existed.
 	if err := db.migrateExistingTagsToTable(ctx, userID); err != nil {
 		slog.Warn("seed: migrate existing tags failed (non-fatal)", "user_id", userID, "error", err)
 	}
 
-	// System automation rules for new users
-	// (existing users get them via migration 000176)
-	type tagRule struct {
-		tagName    string
-		systemType string
-		priority   int
-		conditions string
-	}
-	tagRules := []tagRule{
-		{"Rundtour", "round_trip", -99, `[{"field":"start_end_distance_m","op":"lte","value":200}]`},
-		{"Frost", "frost", -98, `[{"field":"min_temperature_c","op":"lte","value":0}]`},
-		{"Nacht", "nacht", -97, `[{"field":"sun_elevation","op":"lte","value":-6}]`},
-	}
-	for _, tr := range tagRules {
-		var tagID string
-		err := db.Pool.QueryRow(ctx,
-			`SELECT id FROM tags WHERE user_id = $1 AND name = $2 AND is_system = true`,
-			userID, tr.tagName,
-		).Scan(&tagID)
-		if err != nil {
-			continue
-		}
-		var actions string
-		switch tr.tagName {
-		case "Rundtour":
-			actions = fmt.Sprintf(`[{"action":"add_tag","params":{"tag_id":"%s"}},{"action":"set_field","params":{"field":"is_round_trip","value":true}}]`, tagID)
-		default:
-			actions = fmt.Sprintf(`[{"action":"add_tag","params":{"tag_id":"%s"}}]`, tagID)
-		}
-		if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
-			Conditions: json.RawMessage(tr.conditions),
-			Actions:    json.RawMessage(actions),
-		}); err != nil {
-			return fmt.Errorf("validate system rule %s: %w", tr.tagName, err)
-		}
-		_, _ = db.Pool.Exec(ctx, `
-			INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
-			VALUES ($1, $2, true, $3, true, $4, $5::jsonb, 'and', $6::jsonb)
-			ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
-			userID, tr.tagName, tr.systemType, tr.priority, tr.conditions, actions)
-	}
+	// Modifier-tag system rules — orthogonal to the SystemTags/SystemRules
+	// registry that automation.EnsureSystemArtifacts owns (Rundtour, E-Bike,
+	// Pendeln, Indoor, virtuell, Frost, Nacht are seeded there).
 	for _, sync := range readonlySystemModifierTagSyncs() {
 		if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
 			Conditions: json.RawMessage(`[]`),
