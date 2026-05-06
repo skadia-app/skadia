@@ -67,7 +67,7 @@ func effectiveSpeedCfg(rows []StreamPoint, k int, cfg DetectorConfig) (float64, 
 	if dt <= 0 {
 		return 0, false
 	}
-	// A recording-gap (Garmin Auto-Pause / Smart-Recording) makes
+	// A recording-gap (device auto-pause / smart recording) makes
 	// haversine/dt meaningless: the rider was usually stationary or in a
 	// cabin and the GPS-delta blends "pre-pause stop" with "post-pause
 	// motion" into a single fictitious low-speed reading. Skip it.
