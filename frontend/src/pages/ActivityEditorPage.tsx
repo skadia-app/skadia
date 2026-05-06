@@ -8,6 +8,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { fetchActivity, fetchActivityStreams, updateActivity } from '@/api/activities'
 import { EditorMap } from '@/components/editor/EditorMap'
 import { TrimSplitControls } from '@/components/editor/TrimSplitControls'
+import ActivityQuickEditModal from '@/components/activity/ActivityQuickEditModal'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 import { apiClient } from '@/api/client'
@@ -218,6 +219,7 @@ export default function ActivityEditorPage() {
   const [editFeel, setEditFeel] = useState<number | null>(null)
   const [isSavingMeta, setIsSavingMeta] = useState(false)
   const [metaDirty, setMetaDirty] = useState(false)
+  const [quickEditOpen, setQuickEditOpen] = useState(false)
 
   // ── Track / Trim / Split State ────────────────────────────────────────────
   const [trimStart, setTrimStart] = useState(0)
@@ -554,7 +556,29 @@ export default function ActivityEditorPage() {
             Bearbeitet
           </span>
         )}
+        <button
+          onClick={() => setQuickEditOpen(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+        >
+          Metadaten bearbeiten
+        </button>
       </div>
+
+      {quickEditOpen && (
+        <ActivityQuickEditModal
+          activity={activity}
+          open={quickEditOpen}
+          showMoreEdit={false}
+          onClose={() => setQuickEditOpen(false)}
+          onSaved={(updated) => {
+            queryClient.setQueryData(['activity', activity.id], updated)
+            setEditDescription(updated.description ?? '')
+            setEditRpe(updated.workout_rpe ?? null)
+            setEditFeel(updated.workout_feel ?? null)
+            setMetaDirty(false)
+          }}
+        />
+      )}
 
       {/* Status message */}
       {statusMsg && (
@@ -988,4 +1012,3 @@ function CheckCircleIcon({ className }: { className?: string }) {
     </svg>
   )
 }
-
