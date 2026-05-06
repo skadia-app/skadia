@@ -193,8 +193,8 @@ func main() {
 	ridesJSON, _ := json.Marshal(rideSegs)
 
 	// GT overlay: derive case.file key (relative path) from -file unless -gt-key
-	// was given explicitly. With the default -gt-root, "LIFT_ERKENNUNG/
-	// 5_bikepark transfer case/bikepark transfer case-1.fit" resolves to key "5_bikepark transfer case/bikepark transfer case-1.fit".
+	// was given explicitly. The key is the input file's path relative to -gt-root,
+	// e.g. "<region>/<recording>.fit" → key "<region>/<recording>.fit".
 	key := *gtKey
 	if key == "" {
 		if rel, err := filepath.Rel(*gtRoot, *file); err == nil {

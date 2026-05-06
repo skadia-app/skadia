@@ -84,14 +84,9 @@ func tracePts(rows []lifts.StreamPoint, cfg lifts.DetectorConfig, tStart, tEnd t
 				break
 			}
 		}
-		// Mark mountain mountain station case arrivals (top station at ~46.7426, 9.5970, alt>2700).
-		marker := ""
-		if math.Abs(endLat-46.7426) < 0.005 && math.Abs(endLng-9.5970) < 0.005 && endAlt > 2700 {
-			marker = " ★mountain station case"
-		}
-		fmt.Printf("  ride[%02d] start=%s dur=%ds asc=%.1f desc=%.1f conf=%s end=(%.4f,%.4f,%.0fm)%s\n",
+		fmt.Printf("  ride[%02d] start=%s dur=%ds asc=%.1f desc=%.1f conf=%s end=(%.4f,%.4f,%.0fm)\n",
 			i, r.StartedAt.Format("15:04:05"), r.DurationS, r.AscentM, r.DescentM, r.Confidence,
-			endLat, endLng, endAlt, marker)
+			endLat, endLng, endAlt)
 	}
 	if !tStart.IsZero() {
 		fmt.Println("\nTrace at indices in [start, end]:")

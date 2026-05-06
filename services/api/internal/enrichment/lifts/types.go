@@ -20,8 +20,8 @@ type StreamPoint struct {
 
 // LiftRide is one detected lift segment in the stream. Distance/ascent/descent
 // are direction-agnostic totals (a downhill cable car contributes DescentM > 0
-// and AscentM == 0; an upward gondola the inverse; a bidirectional ride like
-// the bidirectional aerial tramway yields both > 0).
+// and AscentM == 0; an upward gondola the inverse; a bidirectional aerial
+// tramway crossing a saddle yields both > 0).
 type LiftRide struct {
 	StartedAt time.Time
 	EndedAt   time.Time
@@ -56,7 +56,7 @@ type DetectorConfig struct {
 	MinDurationS         int     // 60   — fast lift floor
 	NoSpeedMinAltRateMs  float64 // 0.6  — fallback when speed unusable
 	NoSpeedMinDurationS  int     // 90
-	BidirAltAbsM         float64 // 8.0  — bidirectional aerial tramway case: sum of |delta_alt| over window
+	BidirAltAbsM         float64 // 8.0  — bidirectional aerial tramway: sum of |delta_alt| over window
 	BidirSinuosityMax    float64 // 1.10 — bidir lifts MUST be very straight
 	BidirMinDurationS    int     // 90  — bidir candidate min duration (FP-shield against MTB flow waves)
 	StopToleranceS       int     // 120  — stop ≤ this preserves segment

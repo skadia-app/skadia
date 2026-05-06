@@ -322,7 +322,7 @@ func mergeMidLiftSplits(in []rideWithIdx, rows []StreamPoint, cfg DetectorConfig
 		//     the gap stays within 10 m of the prev-end coord (cabin pinned
 		//     in place by the cable). Wrist-device ride 9/10.
 		//   cable-hold smart-recording: gap ≤240 s, no samples in the gap
-		//     (Garmin smart-record drops points while stationary), endpoint
+		//     (cycling-computer device smart-record drops points while stationary), endpoint
 		//     distance ≤25 m to allow for trim-induced cable-decel/accel
 		//     offset. Cycling head-unit ride 2/3 (14 m endpoint offset across a
 		//     203 s no-sample gap).
@@ -881,7 +881,7 @@ func extendCandidate(rows []StreamPoint, start, initialEnd int, kind string, ws 
 			// climb-segments and stay above the 2 m delta cap. Real station-
 			// to-station transfers — transfer case transfer-station case → secondary transfer station
 			// (~4 min walk), wrist-device sample (~83 s inter-lift transfer),
-			// multi-section case bikepark transfer casel-Anschluss (~3 min) — all stretch alt-flat
+			// multi-section connector station (~3 min) — all stretch alt-flat
 			// past the 65 s window and still trip the check, so the two lifts
 			// are recorded as separate rides.
 			const plateauWinS = 65.0
@@ -925,7 +925,7 @@ func extendCandidate(rows []StreamPoint, start, initialEnd int, kind string, ws 
 
 		// Direction continuation for high/medium — peak-reversal only.
 		// Per-pair altDelta is too sensitive to barometer sample noise
-		// (Garmin streams routinely show ±2-3m single-sample jitter on a
+		// (cycling-computer device streams routinely show ±2-3m single-sample jitter on a
 		// steadily climbing gondola); peakDropThreshM=5m catches sustained
 		// reversals robustly.
 		if (kind == "high" || kind == "medium") && nxt.AltitudeM != nil && !math.IsNaN(lastAlt) {
@@ -1156,7 +1156,7 @@ func trimTrailingDisembarkDiscontinuity(rows []StreamPoint, start, end int, kind
 }
 
 // medianEffectiveSpeedLastSeconds returns the median effective speed over the
-// last `seconds` of [0, hi]. Median is robust to per-sample GPS noise (Strava-
+// last `seconds` of [0, hi]. Median is robust to per-sample GPS noise (smartphone GPS-
 // App alternates 1–5 m/s at 1 Hz on the same cable) and to skater-push spikes
 // (5–8 m/s 1 Hz bursts when the rider pushes off into the next lift line) —
 // mean would be biased by those outliers, median tracks the underlying foot or
