@@ -56,6 +56,14 @@ func DetectHeuristic(rows []StreamPoint, cfg DetectorConfig) []LiftRide {
 			continue
 		}
 		finalEnd := extendCandidate(rows, start, end, kind, ws, cfg)
+		// Leading-low-gradient trim: when the initial classify window happens
+		// to align by chance over a boarding-plateau (gate-shuffle into the
+		// gondola, T-bar wait-line foot approach), the ride latches onto
+		// 30–120 s of foot-pace movement before the actual cable lift-off.
+		// Mirror of the trailing-trim chain — see trimLeadingLowGradient.
+		// boarding-plateau case.gpx ride[1]: 83 m → 13 m start drift.
+		preTrimStart := start
+		start = trimLeadingLowGradient(rows, start, finalEnd, kind)
 		final := computeStats(rows, start, finalEnd, cfg)
 		if !validateRide(final, kind, cfg) {
 			i++
@@ -72,9 +80,17 @@ func DetectHeuristic(rows []StreamPoint, cfg DetectorConfig) []LiftRide {
 		// the same stop set extendCandidate uses going forward, then keep the
 		// extension iff computeStats+validateRide still pass — that guards
 		// against pulling in pre-boarding bike-track samples.
+		//
+		// Once trimLeadingLowGradient moved start forward, the backward pass
+		// must not re-absorb the trimmed boarding-plateau samples — clamp
+		// lowerBound to the trimmed start in that case. If trim did nothing
+		// (start == preTrimStart), backward keeps its prevFinalEnd+1 floor.
 		lowerBound := prevFinalEnd + 1
 		if lowerBound < 0 {
 			lowerBound = 0
+		}
+		if start > preTrimStart && lowerBound < start {
+			lowerBound = start
 		}
 		if newStart := extendCandidateBackward(rows, start, finalEnd, kind, final, cfg, lowerBound); newStart < start {
 			extFinal := computeStats(rows, newStart, finalEnd, cfg)
@@ -1244,6 +1260,128 @@ func trimTrailingLowGradient(rows []StreamPoint, start, end int, kind string, cf
 		dprintf("TAIL-GRAD trim grad=%.3f<floor=%.3f tail=[%d..%d] pos %d->%d\n",
 			gradient, gradFloor, tailStart, pos, pos, newPos)
 		pos = newPos
+	}
+	return pos
+}
+
+// trimLeadingLowGradient walks start forward in 10 s steps while the leading
+// 30 s window's altitude rate sits markedly below the rest of the ride.
+// Mirror of trimTrailingLowGradient for the boarding-phase boundary.
+//
+// Boarding plateaus (ski-resort gondola gate-shuffle, T-bar wait-line foot
+// approach) tag 30–120 s of foot-pace movement (1–2 m/s, alt-rate 0.1–
+// 0.3 m/s) onto the front of an otherwise valid lift window. The 30 s
+// initial-classify window happens to sample a stretch where mean speed,
+// CV, sinuosity, and gradient all clear by chance — boarding-plateau case.gpx ride[1]
+// @ 11:47:27 is the calibrated case (init mean=2.01, cv=0.017, sin=1.044,
+// rate=0.27) while the actual cable lift-off is 87 s later at 11:48:54
+// (mean=5.07, cv=0.011, sin=1.031, rate=1.05). Dist to the Tal GT shrinks
+// from 83 m to 13 m.
+//
+// Two-strikes gate (must trip both):
+//   - leading 30 s alt-rate below leadAbsCapMs = 0.40 m/s — absolute
+//     boarding-flat ceiling. Slow chairlifts cruise above this even at
+//     start (slow-cable bikepark case Bahn 2 cable-cruise alt-rate ≈ 0.20 m/s — but the
+//     SECOND gate spares it; see below).
+//   - leading rate below 0.5 × rest-of-ride alt-rate — the relative
+//     contrast that distinguishes a flat boarding plateau from a uniformly
+//     low-gradient lift. A genuine 0.20 m/s slow lift has rest-rate ≈
+//     0.20 too → ratio = 1.0, gate refuses to trim. boarding-plateau case rest-rate
+//     1.05 m/s vs leading 0.27 → ratio 0.26 << 0.5, trim fires.
+//
+// Hard ceiling maxTotalTrimS = 120 s: longer than that the candidate is
+// structurally suspect and the trailing-trim chain or validateRide should
+// take over. Bidir kinds are skipped — bidir crosses both directions and
+// has no clean boarding-vs-cable boundary in altRate.
+func trimLeadingLowGradient(rows []StreamPoint, start, end int, kind string) int {
+	if kind != "high" && kind != "medium" {
+		return start
+	}
+	if end <= start {
+		return start
+	}
+	const leadWindowS = 30.0
+	const leadStepS = 10.0
+	const leadAbsCapMs = 0.40
+	const leadRelativeRatio = 0.5
+	const maxTotalTrimS = 120.0
+	const minRestSecs = 60.0
+	pos := start
+	elapsedTrim := 0.0
+	for elapsedTrim < maxTotalTrimS {
+		// Find leadEnd such that rows[leadEnd].Time - rows[pos].Time >=
+		// leadWindowS. Bail out if the leading window can't be measured.
+		leadEnd := pos
+		for leadEnd < end && rows[leadEnd].Time.Sub(rows[pos].Time).Seconds() < leadWindowS {
+			leadEnd++
+		}
+		if leadEnd >= end {
+			return pos
+		}
+		// Need at least minRestSecs of rest-of-ride to compare against —
+		// otherwise we'd be trimming on noise.
+		if rows[end].Time.Sub(rows[leadEnd].Time).Seconds() < minRestSecs {
+			return pos
+		}
+		var leadAltStart, leadAltEnd *float64
+		for k := pos; k <= leadEnd; k++ {
+			if rows[k].AltitudeM == nil {
+				continue
+			}
+			if leadAltStart == nil {
+				v := *rows[k].AltitudeM
+				leadAltStart = &v
+			}
+			v := *rows[k].AltitudeM
+			leadAltEnd = &v
+		}
+		if leadAltStart == nil || leadAltEnd == nil {
+			return pos
+		}
+		leadDt := rows[leadEnd].Time.Sub(rows[pos].Time).Seconds()
+		if leadDt <= 0 {
+			return pos
+		}
+		leadRate := math.Abs(*leadAltEnd-*leadAltStart) / leadDt
+		var restAltStart, restAltEnd *float64
+		for k := leadEnd; k <= end; k++ {
+			if rows[k].AltitudeM == nil {
+				continue
+			}
+			if restAltStart == nil {
+				v := *rows[k].AltitudeM
+				restAltStart = &v
+			}
+			v := *rows[k].AltitudeM
+			restAltEnd = &v
+		}
+		if restAltStart == nil || restAltEnd == nil {
+			return pos
+		}
+		restDt := rows[end].Time.Sub(rows[leadEnd].Time).Seconds()
+		if restDt <= 0 {
+			return pos
+		}
+		restRate := math.Abs(*restAltEnd-*restAltStart) / restDt
+		if leadRate >= leadAbsCapMs {
+			return pos
+		}
+		if restRate <= 0 || leadRate >= leadRelativeRatio*restRate {
+			return pos
+		}
+		// Step forward by leadStepS — find the first sample whose time is
+		// >= pos + leadStepS, capped at leadEnd.
+		nextPos := pos + 1
+		for nextPos < leadEnd && rows[nextPos].Time.Sub(rows[pos].Time).Seconds() < leadStepS {
+			nextPos++
+		}
+		if nextPos == pos {
+			return pos
+		}
+		dprintf("LEAD-GRAD trim leadRate=%.3f restRate=%.3f start %d->%d t=%s\n",
+			leadRate, restRate, pos, nextPos, rows[nextPos].Time.Format("15:04:05"))
+		elapsedTrim += rows[nextPos].Time.Sub(rows[pos].Time).Seconds()
+		pos = nextPos
 	}
 	return pos
 }
