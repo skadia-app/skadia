@@ -410,12 +410,11 @@ func parseRouteModifierFilters(r *http.Request) sport.ModifierFilters {
 		}
 		return &value
 	}
-	return sport.ModifierFilters{
-		IsElectric: parse("is_electric"),
-		IsIndoor:   parse("is_indoor"),
-		IsVirtual:  parse("is_virtual"),
-		IsCommute:  parse("is_commute"),
+	filters := sport.ModifierFilters{}
+	for _, key := range sport.SportModifierKeysWithCapability("route_filter") {
+		sport.SetModifierFilter(&filters, key, parse(key))
 	}
+	return filters
 }
 
 // DeleteRoute removes a planned route, enforcing ownership.

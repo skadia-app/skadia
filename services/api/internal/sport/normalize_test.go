@@ -1,6 +1,10 @@
 package sport
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestNormalizeSportTuple(t *testing.T) {
 	trueValue := true
@@ -349,6 +353,38 @@ func TestGearDefaultSportForSourceSkipsUnknownStravaSource(t *testing.T) {
 	}
 }
 
+func TestModifierPatchJSONUsesSnakeCaseKeys(t *testing.T) {
+	var patch ModifierPatch
+	data := []byte(`{"is_electric":true,"is_indoor":false,"is_virtual":true,"is_commute":false}`)
+	if err := json.Unmarshal(data, &patch); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	assertBoolPatch(t, "is_electric", patch.IsElectric, boolPtr(true))
+	assertBoolPatch(t, "is_indoor", patch.IsIndoor, boolPtr(false))
+	assertBoolPatch(t, "is_virtual", patch.IsVirtual, boolPtr(true))
+	assertBoolPatch(t, "is_commute", patch.IsCommute, boolPtr(false))
+
+	rendered, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	for _, want := range []string{`"is_electric":true`, `"is_indoor":false`, `"is_virtual":true`, `"is_commute":false`} {
+		if !strings.Contains(string(rendered), want) {
+			t.Fatalf("rendered JSON %s missing %s", rendered, want)
+		}
+	}
+}
+
+func TestApplyModifierPatchHandlesCommute(t *testing.T) {
+	got := ApplyModifierPatch(ModifierValues{IsCommute: true}, ModifierPatch{IsCommute: boolPtr(false)})
+	if got.IsCommute {
+		t.Fatal("ApplyModifierPatch did not apply is_commute=false")
+	}
+	if ModifierPatchIsEmpty(&ModifierPatch{IsCommute: boolPtr(false)}) {
+		t.Fatal("ModifierPatchIsEmpty treated is_commute patch as empty")
+	}
+}
+
 func TestGearDefaultSportForSourceDoesNotFallbackUnknownNonStravaSource(t *testing.T) {
 	for _, source := range []Source{SourceGPXFile, SourceKomoot} {
 		got, ok := GearDefaultSportForSource(source, "Definitely Not A Known Sport")
@@ -394,6 +430,15 @@ func TestNormalizeGearDefaultPredicates(t *testing.T) {
 func TestNormalizeGearDefaultPredicatesRejectsUnknown(t *testing.T) {
 	if _, err := NormalizeGearDefaultPredicates([]GearDefaultPredicate{{SportType: "not_a_sport"}}); err == nil {
 		t.Fatal("NormalizeGearDefaultPredicates accepted unknown sport")
+	}
+}
+
+func TestNormalizeGearDefaultPredicatesRejectsCommuteModifier(t *testing.T) {
+	if _, err := NormalizeGearDefaultPredicates([]GearDefaultPredicate{{
+		SportType: "cycling",
+		Modifiers: &ModifierPatch{IsCommute: boolPtr(true)},
+	}}); err == nil {
+		t.Fatal("NormalizeGearDefaultPredicates accepted commute modifier")
 	}
 }
 
