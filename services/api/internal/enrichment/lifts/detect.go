@@ -17,7 +17,6 @@ func dprintf(format string, args ...any) {
 	}
 }
 
-
 // DetectHeuristic is the Method-B fallback that flags lift-like ride windows
 // in the activity stream without consulting OSM data. It uses three confidence
 // classes:
@@ -25,7 +24,7 @@ func dprintf(format string, args ...any) {
 //   - "high"   — speed-stable + gradient-strict unidirectional ride
 //   - "medium" — no usable speed but altitude-rate strong unidirectional ride
 //   - "bidir"  — speed-stable, low-sinuosity ride whose net altitude change is
-//                small but cumulative |delta_alt| is large (bidirectional aerial tramway-class)
+//     small but cumulative |delta_alt| is large (bidirectional aerial tramway-class)
 //
 // The detector mirrors services/ml/enrichment/lifts.py with edge-case fixes
 // for: GPS-delta-speed fallback when the speed sensor reports zero on a
@@ -63,8 +62,22 @@ func DetectHeuristic(rows []StreamPoint, cfg DetectorConfig) []LiftRide {
 		// Mirror of the trailing-trim chain — see trimLeadingLowGradient.
 		// boarding-plateau case.gpx ride[1]: 83 m → 13 m start drift.
 		preTrimStart := start
+		trailAnchor := findTrailApproachStopAnchor(rows, start, finalEnd, kind, cfg)
 		start = trimLeadingLowGradient(rows, start, finalEnd, kind)
 		final := computeStats(rows, start, finalEnd, cfg)
+		applyTrailAnchor := func() bool {
+			if trailAnchor <= start {
+				return true
+			}
+			anchorFinal := computeStats(rows, trailAnchor, finalEnd, cfg)
+			if !validateRide(anchorFinal, kind, cfg) {
+				return false
+			}
+			dprintf("TRAIL-ANCHOR start %d->%d t=%s\n", start, trailAnchor, rows[trailAnchor].Time.Format("15:04:05"))
+			start = trailAnchor
+			final = anchorFinal
+			return true
+		}
 		if !validateRide(final, kind, cfg) {
 			// Sinuosity-fail tail-peel retry. ONLY runs when the full-window
 			// failure is sinuosity above MaxSinuosity by a small margin —
@@ -112,9 +125,15 @@ func DetectHeuristic(rows []StreamPoint, cfg DetectorConfig) []LiftRide {
 				}
 			}
 			if !peeled {
-				i++
-				continue
+				if trailAnchor <= start || !applyTrailAnchor() {
+					i++
+					continue
+				}
 			}
+		}
+		if !applyTrailAnchor() {
+			i++
+			continue
 		}
 		if cfg.BoundarySpeedDropEnabled && !boundarySpeedDropOK(rows, start, finalEnd, cfg) {
 			i++
@@ -597,8 +616,8 @@ func trimSpeeds(rows []StreamPoint, start, end int, speeds []float64, cfg Detect
 		return speeds
 	}
 	// Determine sample indices that lie inside [start+trim, end-trim] in time.
-	trimStartT := rows[start].Time.Add(time.Duration(cfg.SpeedCVTrimSeconds)*time.Second)
-	trimEndT := rows[end].Time.Add(-time.Duration(cfg.SpeedCVTrimSeconds)*time.Second)
+	trimStartT := rows[start].Time.Add(time.Duration(cfg.SpeedCVTrimSeconds) * time.Second)
+	trimEndT := rows[end].Time.Add(-time.Duration(cfg.SpeedCVTrimSeconds) * time.Second)
 	out := make([]float64, 0, len(speeds))
 	idx := 0
 	for k := start; k <= end; k++ {
@@ -670,10 +689,10 @@ func classify(ws stats, cfg DetectorConfig) string {
 // rule depends on the kind:
 //
 //   - high / medium — altitude direction continues (Python rule, ±2 m tolerance)
-//                     plus stop-tolerance with altitude-reversal-on-resume check.
+//     plus stop-tolerance with altitude-reversal-on-resume check.
 //   - bidir         — extend while effective speed stays in lift band; close on
-//                     the same stop-tolerance + altitude-reversal-on-resume check.
-//                     No per-step direction check (the whole point of bidir).
+//     the same stop-tolerance + altitude-reversal-on-resume check.
+//     No per-step direction check (the whole point of bidir).
 func extendCandidate(rows []StreamPoint, start, initialEnd int, kind string, ws stats, cfg DetectorConfig) int {
 	end := initialEnd
 	stopStartIdx := -1
@@ -1241,7 +1260,6 @@ func altitudeRate(rows []StreamPoint, start, end int) float64 {
 // to clearly-not-on-cable rates (bergstation walking ≈ 0.0 m/s, schuss off
 // disembark ≈ 0.05 m/s). Absolute floor 0.05 m/s prevents the gate from
 // vanishing on edge-case low-altRate rides.
-//
 func trimTrailingLowGradient(rows []StreamPoint, start, end int, kind string, cfg DetectorConfig) int {
 	if kind == "bidir" {
 		return end
@@ -1397,6 +1415,92 @@ func trimTrailingLowGradient(rows []StreamPoint, start, end int, kind string, cf
 		pos = newPos
 	}
 	return pos
+}
+
+// findTrailApproachStopAnchor handles lift candidates that begin on a
+// straight rolling approach after a fast downhill segment. The initial 30 s
+// window can look lift-like, but the station boundary is the first sustained
+// stop after that approach.
+func findTrailApproachStopAnchor(rows []StreamPoint, start, end int, kind string, cfg DetectorConfig) int {
+	if kind != "high" && kind != "medium" {
+		return start
+	}
+	if start <= 0 || end <= start {
+		return start
+	}
+	if !hasFastDescentBefore(rows, start, cfg) {
+		return start
+	}
+	anchor := firstSustainedStopAfter(rows, start, end, cfg)
+	if anchor <= start {
+		return start
+	}
+	return anchor
+}
+
+func hasFastDescentBefore(rows []StreamPoint, start int, cfg DetectorConfig) bool {
+	const lookbackS = 120.0
+	const fastSpeedMs = 8.0
+	const minDropM = 12.0
+	cutoff := rows[start].Time.Add(-time.Duration(lookbackS) * time.Second)
+	lo := start
+	for lo > 0 && !rows[lo-1].Time.Before(cutoff) {
+		lo--
+	}
+	if lo >= start {
+		return false
+	}
+	maxAlt := math.NaN()
+	maxDrop := 0.0
+	maxSpeed := 0.0
+	for k := lo; k < start; k++ {
+		if spd, ok := effectiveSpeedCfg(rows, k, cfg); ok && spd > maxSpeed {
+			maxSpeed = spd
+		}
+		if rows[k].AltitudeM == nil {
+			continue
+		}
+		alt := *rows[k].AltitudeM
+		if math.IsNaN(maxAlt) || alt > maxAlt {
+			maxAlt = alt
+			continue
+		}
+		if drop := maxAlt - alt; drop > maxDrop {
+			maxDrop = drop
+		}
+	}
+	return maxSpeed >= fastSpeedMs && maxDrop >= minDropM
+}
+
+func firstSustainedStopAfter(rows []StreamPoint, start, end int, cfg DetectorConfig) int {
+	const maxSearchS = 240.0
+	const stopSpeedMs = 1.0
+	const stopDurS = 5.0
+	limit := rows[start].Time.Add(time.Duration(maxSearchS) * time.Second)
+	stopStart := -1
+	stopDur := 0.0
+	for k := start + 1; k <= end && !rows[k].Time.After(limit); k++ {
+		dt := rows[k].Time.Sub(rows[k-1].Time).Seconds()
+		if dt <= 0 || dt > float64(cfg.SmartRecMaxGapS) {
+			stopStart = -1
+			stopDur = 0
+			continue
+		}
+		spd, ok := effectiveSpeedCfg(rows, k, cfg)
+		if !ok || spd > stopSpeedMs {
+			stopStart = -1
+			stopDur = 0
+			continue
+		}
+		if stopStart < 0 {
+			stopStart = k
+		}
+		stopDur += dt
+		if stopDur >= stopDurS {
+			return stopStart
+		}
+	}
+	return start
 }
 
 // trimLeadingLowGradient walks start forward in 10 s steps while the leading
@@ -1918,20 +2022,21 @@ func trimTrailingLowSpeedSamples(rows []StreamPoint, start, end int, cfg Detecto
 // cable terminal at 1–3 m/s.
 //
 // Two gates, both required:
-//   1. alt-rate < 0.15 m/s — well below fast-lift cable cruise (0.30+) and
-//      below the natural cable-decel slope (0.20–0.40 m/s on alpine ski-resort case-class
-//      gondolas the trim must preserve).
-//   2. min speed in window ≥ 3.0 m/s — fast-lift cable cruise sits at
-//      3.5–9 m/s and stays steady through pylon transitions / mid-cable
-//      horizontal sections (multi-section case 1 multi-A 08:50:49–08:51:00: alt-rate
-//      0.05 m/s while every sample holds 4.85–4.95 m/s — that is mid-cable,
-//      NOT walk-off). A bergstation walk-off always contains at least one
-//      sub-3 m/s sample: pure walking (multi-resort case r9: min 0.69 m/s) or the
-//      bügel-jump-and-slide pattern of T-bar lifts (T-bar drag-lift case Lift A:
-//      min 2.45 m/s while the rider accelerates off the bar). Using the
-//      window minimum (not mean) is what discriminates those cases — the
-//      mean of the slide pattern climbs back above 3 m/s once the rider
-//      gains glide momentum, but the entry samples never do.
+//  1. alt-rate < 0.15 m/s — well below fast-lift cable cruise (0.30+) and
+//     below the natural cable-decel slope (0.20–0.40 m/s on alpine ski-resort case-class
+//     gondolas the trim must preserve).
+//  2. min speed in window ≥ 3.0 m/s — fast-lift cable cruise sits at
+//     3.5–9 m/s and stays steady through pylon transitions / mid-cable
+//     horizontal sections (multi-section case 1 multi-A 08:50:49–08:51:00: alt-rate
+//     0.05 m/s while every sample holds 4.85–4.95 m/s — that is mid-cable,
+//     NOT walk-off). A bergstation walk-off always contains at least one
+//     sub-3 m/s sample: pure walking (multi-resort case r9: min 0.69 m/s) or the
+//     bügel-jump-and-slide pattern of T-bar lifts (T-bar drag-lift case Lift A:
+//     min 2.45 m/s while the rider accelerates off the bar). Using the
+//     window minimum (not mean) is what discriminates those cases — the
+//     mean of the slide pattern climbs back above 3 m/s once the rider
+//     gains glide momentum, but the entry samples never do.
+//
 // The fast-lift branch (rideAltRate ≥ 0.30) is the only caller, so the 3 m/s
 // floor sits comfortably above the slowest infrastructure that hits this
 // path; drag-lifts and slow chairs route through trimTrailingChunks instead.
@@ -2315,4 +2420,3 @@ func signWithThresh(x, thresh float64) float64 {
 	}
 	return 0
 }
-

@@ -132,3 +132,74 @@ func TestEffectiveSpeedFloor(t *testing.T) {
 		t.Errorf("expected GPS-delta speed ~5 m/s, got %.2f", v)
 	}
 }
+
+func TestTrailApproachBeforeBoardingStopStartsAtStop(t *testing.T) {
+	cfg := DefaultDetectorConfig("mtb_downhill")
+	now := time.Date(2023, 7, 16, 14, 25, 0, 0, time.UTC)
+	rows := makeSyntheticLiftApproach(now)
+
+	var boardingStop time.Time
+	for _, p := range rows {
+		if p.SpeedMs != nil && *p.SpeedMs < 0.7 && p.Time.After(now.Add(3*time.Minute)) {
+			boardingStop = p.Time
+			break
+		}
+	}
+	if boardingStop.IsZero() {
+		t.Fatal("synthetic stream missing boarding stop")
+	}
+
+	rides := DetectHeuristic(rows, cfg)
+	if len(rides) != 1 {
+		t.Fatalf("expected 1 ride, got %d", len(rides))
+	}
+	if rides[0].StartedAt.Before(boardingStop) {
+		t.Fatalf("expected ride start at or after boarding stop %s, got %s",
+			boardingStop.Format("15:04:05"), rides[0].StartedAt.Format("15:04:05"))
+	}
+}
+
+func makeSyntheticLiftApproach(start time.Time) []StreamPoint {
+	type builder struct {
+		rows []StreamPoint
+		t    time.Time
+		lat  float64
+		lng  float64
+		alt  float64
+	}
+	b := builder{
+		t:   start,
+		lat: 46.728,
+		lng: 9.553,
+		alt: 1550,
+	}
+	appendPoint := func(speed float64) {
+		lat, lng, alt, spd := b.lat, b.lng, b.alt, speed
+		b.rows = append(b.rows, StreamPoint{
+			Time:      b.t,
+			Lat:       &lat,
+			Lng:       &lng,
+			AltitudeM: &alt,
+			SpeedMs:   &spd,
+		})
+	}
+	appendPoint(0)
+	appendSegment := func(seconds int, lngRateDeg, altRateM, speed float64) {
+		for i := 0; i < seconds; i++ {
+			b.t = b.t.Add(time.Second)
+			b.lng += lngRateDeg
+			b.alt += altRateM
+			appendPoint(speed)
+		}
+	}
+
+	// Fast MTB trail descent immediately before the lift approach.
+	appendSegment(90, -0.00013, -0.8, 10.0)
+	// Straight rolling approach: lift-like enough to fool the initial window.
+	appendSegment(180, -0.00004, 0.34, 3.0)
+	// Sustained boarding stop at the valley station.
+	appendSegment(20, -0.000001, 0.02, 0.3)
+	// Actual slow cable climb.
+	appendSegment(620, -0.00003, 0.35, 2.3)
+	return b.rows
+}
