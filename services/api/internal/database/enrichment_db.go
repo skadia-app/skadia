@@ -639,9 +639,18 @@ func (db *DB) RejectLiftCandidate(ctx context.Context, candidateID, activityID s
 	return db.recomputeLiftStats(ctx, returnedActivityID)
 }
 
-// recomputeLiftStats recomputes activities.lift_* columns from both sources:
-//   - segment_efforts with segment_type='lift' (Method A: OSM-matched, auto-confirmed)
-//   - activity_lift_candidates where confirmed=true (Method B: heuristic, user-confirmed)
+// recomputeLiftStats recomputes activities.lift_* columns. Phase 4c
+// dedup contract: every lift counted exactly once across the two storage
+// layers — segment_efforts (Stage 1/2/3 of the snap pipeline, auto-counted)
+// + activity_lift_candidates (heuristic-only, user-confirmed).
+//
+// The dedup discriminator is `segment_effort_id IS NULL`: heuristic
+// candidates that were also snapped to OSM in Stage 1/2 carry
+// segment_effort_id pointing at the corresponding segment_efforts row, so
+// the heuristic-only sub-query excludes them and they are counted only via
+// the segment_efforts arm. Same goes for Stage 2 cable-hold merges (N audit
+// candidates → 1 segment_effort) and Stage 3 method-A-only inserts
+// (1 audit candidate → 1 segment_effort).
 func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 	_, err := db.Pool.Exec(ctx, `
 		UPDATE activities SET
@@ -651,7 +660,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
 			) + (
 				SELECT COUNT(*) FROM activity_lift_candidates
-				WHERE activity_id = $1 AND confirmed = true
+				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
 			),
 			lift_duration_s = (
 				SELECT COALESCE(SUM(se.elapsed_time_s), 0) FROM segment_efforts se
@@ -659,7 +668,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
 			) + (
 				SELECT COALESCE(SUM(duration_s), 0) FROM activity_lift_candidates
-				WHERE activity_id = $1 AND confirmed = true
+				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
 			),
 			lift_ascent_m = (
 				SELECT COALESCE(SUM(CASE WHEN NOT se.is_reverse THEN se.elevation_gain_m ELSE 0 END), 0)
@@ -668,7 +677,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
 			) + (
 				SELECT COALESCE(SUM(ascent_m), 0) FROM activity_lift_candidates
-				WHERE activity_id = $1 AND confirmed = true
+				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
 			),
 			lift_descent_m = (
 				SELECT COALESCE(SUM(CASE WHEN se.is_reverse THEN se.elevation_gain_m ELSE 0 END), 0)
@@ -677,7 +686,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
 			) + (
 				SELECT COALESCE(SUM(descent_m), 0) FROM activity_lift_candidates
-				WHERE activity_id = $1 AND confirmed = true
+				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
 			),
 			lift_distance_m = (
 				SELECT COALESCE(SUM(se.distance_m), 0) FROM segment_efforts se
@@ -685,7 +694,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
 			) + (
 				SELECT COALESCE(SUM(distance_m), 0) FROM activity_lift_candidates
-				WHERE activity_id = $1 AND confirmed = true
+				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
 			)
 		WHERE id = $1`, activityID)
 	return err
