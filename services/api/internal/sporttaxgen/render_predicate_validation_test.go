@@ -24,6 +24,7 @@ func TestRenderPredicateValidationSQLDeterministic(t *testing.T) {
 		"CREATE OR REPLACE FUNCTION fn_validate_predicates(p JSONB)",
 		"LANGUAGE sql",
 		"IMMUTABLE",
+		"SET search_path = public",
 		"('cycling'), ('running')",
 		"('cycling','mountain'), ('cycling','road'), ('running','trail')",
 		"CREATE OR REPLACE FUNCTION fn_validate_segment_predicates_for_type(seg_type TEXT, p JSONB)",

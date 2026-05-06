@@ -12,25 +12,31 @@ FROM users u
 ON CONFLICT (user_id, name) DO UPDATE SET
     color = CASE WHEN tags.is_system THEN EXCLUDED.color ELSE tags.color END,
     text_color = CASE WHEN tags.is_system THEN EXCLUDED.text_color ELSE tags.text_color END,
-    category = 'system',
+    category = CASE WHEN tags.is_system THEN 'system' ELSE tags.category END,
     is_system = true,
-    is_auto = false,
+    is_auto = CASE WHEN tags.is_system THEN false ELSE tags.is_auto END,
     description = CASE WHEN tags.is_system THEN EXCLUDED.description ELSE tags.description END;
 
 UPDATE tags
 SET description = 'Automatisch bei elektrischen Radfahrten'
 WHERE name = 'E-Bike' AND is_system = true AND COALESCE(description, '') = '';
 
-CREATE OR REPLACE FUNCTION prevent_system_tag_delete() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION prevent_system_tag_delete() RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
 BEGIN
     IF OLD.is_system = true AND EXISTS (SELECT 1 FROM users WHERE id = OLD.user_id) THEN
         RAISE EXCEPTION 'System-Tags können nicht gelöscht werden: %', OLD.name;
     END IF;
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
-CREATE OR REPLACE FUNCTION sync_system_flags_and_tags() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION sync_system_flags_and_tags() RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
 DECLARE
     v_tag_id UUID;
 BEGIN
@@ -148,9 +154,12 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
-CREATE OR REPLACE FUNCTION sync_system_flags_and_tags_insert_junction() RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION sync_system_flags_and_tags_insert_junction() RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
 DECLARE
     v_tag_id UUID;
 BEGIN
@@ -180,7 +189,7 @@ BEGIN
 
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 DROP TRIGGER IF EXISTS trg_sync_system_flags_and_tags ON activities;
 CREATE TRIGGER trg_sync_system_flags_and_tags

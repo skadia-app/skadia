@@ -27,6 +27,7 @@ func TestMigration000349GearDefaultPredicatesDeclaresRequiredContracts(t *testin
 	for _, needle := range []string{
 		"ADD COLUMN IF NOT EXISTS default_sport_predicates JSONB NOT NULL DEFAULT '[]'::jsonb",
 		"CREATE OR REPLACE FUNCTION fn_validate_gear_default_predicates",
+		"SET search_path = public",
 		"gear_default_sport_predicates_valid",
 		"jsonb_agg(predicate ORDER BY ord)",
 		"e_mountain_biking",
@@ -43,6 +44,9 @@ func TestMigration000349GearDefaultPredicatesDeclaresRequiredContracts(t *testin
 	}
 	if !strings.Contains(downSQL, "DROP COLUMN IF EXISTS default_sport_predicates") {
 		t.Fatal("down migration must drop default_sport_predicates")
+	}
+	if !strings.Contains(downSQL, "Destructive rollback") {
+		t.Fatal("down migration must document that direct default_sport_predicates values are lost")
 	}
 	if !strings.Contains(downSQL, "DROP FUNCTION IF EXISTS fn_validate_gear_default_predicates(JSONB)") {
 		t.Fatal("down migration must drop fn_validate_gear_default_predicates")

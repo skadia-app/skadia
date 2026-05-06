@@ -13,6 +13,7 @@ CREATE OR REPLACE FUNCTION fn_validate_predicates(p JSONB)
 RETURNS BOOLEAN
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public
 AS $$
 WITH allowed_sports(sport) AS (
     VALUES

@@ -6,6 +6,7 @@ CREATE OR REPLACE FUNCTION fn_validate_predicates(p JSONB)
 RETURNS BOOLEAN
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public
 AS $$
 WITH allowed_sports(sport) AS (
     VALUES
@@ -54,6 +55,7 @@ CREATE OR REPLACE FUNCTION fn_validate_segment_predicates_for_type(seg_type TEXT
 RETURNS BOOLEAN
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public
 AS $$
 WITH allowed_segment_tuples(segment_type, sport, sub_type) AS (
     VALUES

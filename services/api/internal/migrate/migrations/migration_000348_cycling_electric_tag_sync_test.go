@@ -2,7 +2,9 @@ package migrations_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -30,7 +32,8 @@ func TestMigration000348CyclingElectricTagSyncDeclaresRequiredContracts(t *testi
 		"INSERT INTO tags",
 		"ON CONFLICT (user_id, name) DO UPDATE SET",
 		"is_system = true",
-		"category = 'system'",
+		"category = CASE WHEN tags.is_system THEN 'system' ELSE tags.category END",
+		"is_auto = CASE WHEN tags.is_system THEN false ELSE tags.is_auto END",
 		"CREATE OR REPLACE FUNCTION sync_system_flags_and_tags",
 		"CREATE OR REPLACE FUNCTION sync_system_flags_and_tags_insert_junction",
 		"NEW.sport_type = 'cycling'",
@@ -58,6 +61,9 @@ func TestMigration000348CyclingElectricTagSyncDeclaresRequiredContracts(t *testi
 		if strings.Contains(upSQL, forbidden) {
 			t.Fatalf("up migration must not touch virtual triggers or clear generic electric state, found %q", forbidden)
 		}
+	}
+	if got := strings.Count(upSQL, "SET search_path = public"); got < 3 {
+		t.Fatalf("up migration must set search_path on trigger functions, got %d occurrences", got)
 	}
 	for _, needle := range []string{
 		"SELECT pg_advisory_xact_lock(hashtext('cycling_electric_tag_sync'), 1)",
@@ -151,8 +157,8 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	}
 	customExistingCyclingID := uuid.NewString()
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-		VALUES ($1, 'E-Bike', '#111111', '#FFFFFF', 'custom', false, false, 'custom')
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, conditions, conditions_logic, description)
+		VALUES ($1, 'E-Bike', '#111111', '#FFFFFF', 'custom', false, true, '[{"field":"sport_type","op":"eq","value":"cycling"}]'::jsonb, 'and', 'custom')
 	`, customExistingUserID); err != nil {
 		t.Fatalf("insert pre-existing custom E-Bike tag: %v", err)
 	}
@@ -176,6 +182,7 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	assertActivityTagLinkCount000348(t, ctx, tx, missingTagCyclingID, 1)
 	assertSystemEBikeTagCount000348(t, ctx, tx, customExistingUserID, 1)
 	assertSystemEBikeTagStyle000348(t, ctx, tx, customExistingUserID, "#111111", "#FFFFFF", "custom")
+	assertSystemEBikeTagAutomation000348(t, ctx, tx, customExistingUserID, "custom", true, `[{"field": "sport_type", "op": "eq", "value": "cycling"}]`, "and")
 	assertHasSystemEBikeLink000348(t, ctx, tx, customExistingCyclingID, true)
 	assertActivityTagArrayHas000348(t, ctx, tx, customExistingCyclingID, "E-Bike", true)
 
@@ -345,6 +352,39 @@ func assertSystemEBikeTagStyle000348(t *testing.T, ctx context.Context, q interf
 	if gotColor != wantColor || gotTextColor != wantTextColor || gotDescription != wantDescription {
 		t.Fatalf("system E-Bike style = %q/%q/%q, want %q/%q/%q", gotColor, gotTextColor, gotDescription, wantColor, wantTextColor, wantDescription)
 	}
+}
+
+func assertSystemEBikeTagAutomation000348(t *testing.T, ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, userID string, wantCategory string, wantIsAuto bool, wantConditions string, wantLogic string) {
+	t.Helper()
+	var gotCategory, gotConditions, gotLogic string
+	var gotIsAuto bool
+	if err := q.QueryRow(ctx, `
+		SELECT category, is_auto, COALESCE(conditions::text, ''), COALESCE(conditions_logic, '')
+		FROM tags
+		WHERE user_id = $1 AND name = 'E-Bike' AND is_system = true
+	`, userID).Scan(&gotCategory, &gotIsAuto, &gotConditions, &gotLogic); err != nil {
+		t.Fatalf("query system E-Bike automation fields: %v", err)
+	}
+	if gotCategory != wantCategory || gotIsAuto != wantIsAuto || gotLogic != wantLogic {
+		t.Fatalf("system E-Bike automation fields = category %q is_auto %v logic %q, want %q/%v/%q", gotCategory, gotIsAuto, gotLogic, wantCategory, wantIsAuto, wantLogic)
+	}
+	if !jsonEqual000348(gotConditions, wantConditions) {
+		t.Fatalf("system E-Bike conditions = %s, want JSON-equal %s", gotConditions, wantConditions)
+	}
+}
+
+func jsonEqual000348(got string, want string) bool {
+	var gotAny any
+	var wantAny any
+	if err := json.Unmarshal([]byte(got), &gotAny); err != nil {
+		return false
+	}
+	if err := json.Unmarshal([]byte(want), &wantAny); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(gotAny, wantAny)
 }
 
 func assertActivityTagLinkCount000348(t *testing.T, ctx context.Context, q interface {
