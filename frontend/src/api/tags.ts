@@ -160,8 +160,17 @@ export async function fetchTagActivities(tagId: string): Promise<TagActivity[]> 
   return apiClient<TagActivity[]>(`/tags/${tagId}/activities`)
 }
 
-export async function assignActivitiesToTag(tagId: string, activityIds: string[]): Promise<void> {
-  await apiClient<void>(`/tags/${tagId}/assign-activities`, {
+export interface TagActivityAssignmentOptions {
+  deferActivityFileRefresh?: boolean
+}
+
+function tagAssignmentPath(path: string, options?: TagActivityAssignmentOptions): string {
+  if (!options?.deferActivityFileRefresh) return path
+  return `${path}?defer_activity_file_refresh=true`
+}
+
+export async function assignActivitiesToTag(tagId: string, activityIds: string[], options?: TagActivityAssignmentOptions): Promise<void> {
+  await apiClient<void>(tagAssignmentPath(`/tags/${tagId}/assign-activities`, options), {
     method: 'POST',
     body: { activity_ids: activityIds },
   })
@@ -213,8 +222,8 @@ export async function mergeTags(targetId: string, sourceId: string): Promise<Tag
   return normaliseTag(result as Tag)
 }
 
-export async function unassignActivitiesFromTag(tagId: string, activityIds: string[]): Promise<void> {
-  await apiClient<void>(`/tags/${tagId}/activities`, {
+export async function unassignActivitiesFromTag(tagId: string, activityIds: string[], options?: TagActivityAssignmentOptions): Promise<void> {
+  await apiClient<void>(tagAssignmentPath(`/tags/${tagId}/activities`, options), {
     method: 'DELETE',
     body: { activity_ids: activityIds },
   })

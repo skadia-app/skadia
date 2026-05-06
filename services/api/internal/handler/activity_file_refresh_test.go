@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http/httptest"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -37,6 +38,27 @@ func TestActivityUpdateAffectsFileSchema(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := activityUpdateAffectsFileSchema(&tc.update); got != tc.want {
 				t.Fatalf("activityUpdateAffectsFileSchema() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDeferActivityFileRefresh(t *testing.T) {
+	cases := []struct {
+		rawQuery string
+		want     bool
+	}{
+		{rawQuery: "", want: false},
+		{rawQuery: "defer_activity_file_refresh=false", want: false},
+		{rawQuery: "defer_activity_file_refresh=true", want: true},
+		{rawQuery: "defer_activity_file_refresh=TRUE", want: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.rawQuery, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/tags/tag-1/assign-activities?"+tc.rawQuery, nil)
+			if got := deferActivityFileRefresh(req); got != tc.want {
+				t.Fatalf("deferActivityFileRefresh() = %v, want %v", got, tc.want)
 			}
 		})
 	}
