@@ -137,12 +137,10 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse optional scope from query string: ?scope=speed_smooth&scope=streams
-	var scope map[string]bool
-	if scopes := r.URL.Query()["scope"]; len(scopes) > 0 {
-		scope = make(map[string]bool, len(scopes))
-		for _, s := range scopes {
-			scope[s] = true
-		}
+	scope, scopeErr := parseRecomputeScopeValues(r.URL.Query()["scope"])
+	if scopeErr != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", scopeErr.Error(), r.URL.Path)
+		return
 	}
 
 	// Parse optional smooth_window as half-radius (1-3, default 2).
@@ -212,6 +210,17 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		filter = &f
 	}
 
+	// Validate and build scope set before listing IDs or starting a job.
+	var scope map[string]bool
+	if filter != nil && len(filter.Scope) > 0 {
+		var scopeErr error
+		scope, scopeErr = parseRecomputeScopeValues(filter.Scope)
+		if scopeErr != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", scopeErr.Error(), r.URL.Path)
+			return
+		}
+	}
+
 	// Prevent double execution.
 	h.recomputeJob.mu.Lock()
 	if h.recomputeJob.running {
@@ -227,15 +236,6 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 		slog.Error("reprocess-all: list ids failed", "user_id", userID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
 		return
-	}
-
-	// Build scope set from filter.
-	var scope map[string]bool
-	if filter != nil && len(filter.Scope) > 0 {
-		scope = make(map[string]bool, len(filter.Scope))
-		for _, s := range filter.Scope {
-			scope[s] = true
-		}
 	}
 
 	// Initialize job state.
@@ -457,9 +457,8 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 //     RunStage1 because auto-title depends on sport type.
 //   - "tags":         re-evaluate autotag rules and update tags. Triggers RunStage1
 //     (Stage 1 writes base tags like "Commute", "Indoor").
-//   - "geo":          Stage 2 geo enrichment (summits, forests, water, stops, lifts,
-//     surfaces, borders). Triggers RunStage1 with `!doGeo==false` so
-//     Stage 1 kicks off Stage 2 via NATS.
+//   - "geo":          Legacy aggregate for geo enrichment (summits, settlements,
+//     forests, water, borders, surfaces, lifts) plus stops for backwards compat.
 //   - "segments":     segment efforts + lap detection. Works purely on streams +
 //     activity metadata that already exists — does NOT trigger
 //     RunStage1 (no dependency on start_city / title_auto / tags).
@@ -479,31 +478,32 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 // IDs are collected into segColl instead of ranked immediately. The caller is
 // responsible for ranking them after all workers complete.
 func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string, scope map[string]bool, smoothWindow int, skipAnalyticsEvent bool, segColl *segCollector) error {
-	allScope := len(scope) == 0 // nil/empty = reprocess everything
-	doStreams := allScope || scope["streams"]
-	doSensors := allScope || scope["sensors"]
-	doMetrics := allScope || scope["metrics"]
-	doSportType := allScope || scope["sport_type"]
-	doTags := allScope || scope["tags"]
-	doDetails := allScope || scope["details"]
-	doSegments := allScope || scope["segments"]
-	doBestEfforts := allScope || scope["best_efforts"]
-	doRunningForm := allScope || scope["running_form"]
-	doSpeedSmooth := scope["speed_smooth"] // opt-in only, never part of "all"
+	scopeFlags := buildRecomputeScopeFlags(scope)
+	allScope := scopeFlags.allScope // nil/empty = reprocess everything
+	doStreams := scopeFlags.doStreams
+	doSensors := scopeFlags.doSensors
+	doMetrics := scopeFlags.doMetrics
+	doSportType := scopeFlags.doSportType
+	doTags := scopeFlags.doTags
+	doDetails := scopeFlags.doDetails
+	doSegments := scopeFlags.doSegments
+	doBestEfforts := scopeFlags.doBestEfforts
+	doRunningForm := scopeFlags.doRunningForm
+	doSpeedSmooth := scopeFlags.doSpeedSmooth
 
-	// Individual geo submodule flags. The legacy "geo" aggregate key activates all
-	// submodules for backwards compatibility. When the frontend sends individual keys
-	// (e.g. "surfaces"), only those modules run — enabling true per-submodule selectivity.
-	geoAll := scope["geo"] // legacy aggregate: treat as all submodules
-	doSummits := allScope || geoAll || scope["summits"]
-	doForests := allScope || geoAll || scope["forests"]
-	doWater := allScope || geoAll || scope["water"]
-	doStops := allScope || geoAll || scope["stops"]
-	doLifts := allScope || geoAll || scope["lifts"]
-	doSurfaces := allScope || geoAll || scope["surfaces"]
-	doBorders := allScope || geoAll || scope["borders"]
-	// doGeo is the aggregate: true if any geo submodule is requested.
-	doGeo := doSummits || doForests || doWater || doStops || doLifts || doSurfaces || doBorders
+	doSummits := scopeFlags.doSummits
+	doSettlements := scopeFlags.doSettlements
+	doForests := scopeFlags.doForests
+	doWater := scopeFlags.doWater
+	doBorders := scopeFlags.doBorders
+	doSurfaces := scopeFlags.doSurfaces
+	doLifts := scopeFlags.doLifts
+	doGeo := scopeFlags.doGeo
+
+	doStops := scopeFlags.doStops
+	doAscents := scopeFlags.doAscents
+	doIntervals := scopeFlags.doIntervals
+	doStreamEnrichment := scopeFlags.doStreamEnrichment
 
 	// 1. Load reprocess info (S3 key, format, manual sport flag, file_id).
 	info, err := h.DB.GetActivityReprocessInfo(ctx, activityID)
@@ -782,7 +782,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		sidecar.WriteMetaCompanion(ctx, h.ShadowFS, h.DB, userID, activityID, *activity.FileID, data, activity)
 	}
 
-	// 7d. Geo Stage-2 data cleanup (summits, forests, water, stops, lifts, track analysis, borders).
+	// 7d. Geo Stage-2 data cleanup (summits, settlements, forests, water, lifts, track analysis, borders).
 	// Stage 2 ML modules self-clean on re-run, but an explicit delete here ensures a clean
 	// slate before re-enrichment. Deletes are per-submodule so only selected data is cleared.
 	if doGeo {
@@ -804,13 +804,8 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			geoBatch.Queue("DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category = 'border'", activityID)
 			n++
 		}
-		// settlements share the borders/geo scope via the "borders" key (borders+settlements)
-		if doBorders {
+		if doSettlements {
 			geoBatch.Queue("DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category = 'settlement'", activityID)
-			n++
-		}
-		if doStops {
-			geoBatch.Queue("DELETE FROM activity_stops WHERE activity_id = $1", activityID)
 			n++
 		}
 		if doLifts {
@@ -853,7 +848,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	// If any of those scopes ever grows a dependency on Stage-1 output
 	// (start_city, title_auto, is_commute, base tags, etc.), add it to the
 	// expression below.
-	doStage1 := allScope || doStreams || doMetrics || doSportType || doTags || doDetails || doSensors || doGeo
+	doStage1 := scopeFlags.doStage1
 
 	// geoViaStage1: when true, RunStage1 handles all geo modules (allScope path).
 	// When false, geo is handled here per-submodule after RunStage1 (skipGeo=true).
@@ -865,6 +860,19 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			gr = h.GraphManager.Reader()
 		}
 		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Stage2ReadyPublisher, false, false, gr, !geoViaStage1, h.Stage1Deps)
+	}
+
+	// Scoped stream enrichment: stops, ascents, and intervals are derived from
+	// activity_streams and are not geo modules. allScope delegates to RunStage1.
+	if !allScope && doStreamEnrichment && data.HasGPS {
+		streamSettings := enrichment.StreamEnrichmentSettings{
+			EnableStopDetection:     doStops,
+			EnableAscentDetection:   doAscents,
+			EnableIntervalDetection: doIntervals,
+		}
+		if err := enrichment.RunStreamEnrichment(ctx, h.DB, userID, activityID, streamSettings); err != nil {
+			slog.Warn("reprocess: stream enrichment failed (non-fatal)", "id", activityID, "error", err)
+		}
 	}
 
 	// Per-submodule geo enrichment: runs when geo is requested but not as part of allScope.
@@ -879,7 +887,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		// User-configured radius is preserved by loading enrichment settings.
 		geoSettings := enrichment.GeoEnrichmentSettings{
 			EnableSummitDetection:     doSummits,
-			EnableSettlementDetection: doBorders, // settlements share the borders scope
+			EnableSettlementDetection: doSettlements,
 			EnableForestDetection:     doForests,
 			EnableWaterDetection:      doWater,
 			EnableBorderDetection:     doBorders,

@@ -2,25 +2,10 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchEnrichmentStatus, fetchEnrichmentSettings, type EnrichmentModuleStatus } from '@/api/enrichment'
-import { apiClient } from '@/api/client'
+import { reprocessActivity } from '@/api/activities'
 import { useToast } from '@/lib/toast'
 import type { EnrichmentSettings } from '@/api/types'
-
-// Maps module names (Go backend) to the corresponding API field in EnrichmentSettings.
-// A module is globally disabled when the field is explicitly false (default: true/absent = enabled).
-const MODULE_API_FIELD: Partial<Record<string, keyof EnrichmentSettings>> = {
-  summits:     'enable_summit_detection',
-  forests:     'enable_forest_detection',
-  water:       'enable_water_detection',
-  settlements: 'enable_settlement_detection',
-  borders:     'enable_border_detection',
-  stops:       'enable_stop_detection',
-  lifts:       'enable_lift_detection',
-  surfaces:    'enable_surface_detection',
-  ascents:     'enable_ascent_detection',
-  intervals:   'enable_interval_detection',
-  embeddings:  'enable_embeddings',
-}
+import { MODULE_API_FIELD, MODULE_META, reprocessScopeForModule } from '@/lib/enrichmentModuleCatalog'
 
 function buildGloballyDisabled(settings: EnrichmentSettings | undefined): Set<string> {
   if (!settings) return new Set()
@@ -38,20 +23,6 @@ interface Props {
   enrichmentStatus: string
   hiddenModules: Set<string>
   onToggleModule: (name: string) => void
-}
-
-const MODULE_META: Record<string, { label: string; icon: string }> = {
-  summits:     { label: 'Gipfel & Pässe', icon: 'M3 17l4-8 4 4 4-4 4 8H3z' },
-  lifts:       { label: 'Lifte',          icon: 'M4 4v16h2V4H4zm14 0v16h2V4h-2zM8 8l4-4 4 4M12 4v12' },
-  settlements: { label: 'Siedlungen',     icon: 'M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6' },
-  borders:     { label: 'Grenzen',        icon: 'M4 4v16M4 4h4v4H4M4 12h4v4H4M12 4h4v4h-4M12 12h4v4h-4M20 4v16' },
-  water:       { label: 'Gewässer',       icon: 'M2 12c2-3 4-3 6 0s4 3 6 0 4-3 6 0M2 17c2-3 4-3 6 0s4 3 6 0 4-3 6 0' },
-  forests:     { label: 'Wälder',         icon: 'M12 2L7 10h3l-4 6h4l-3 4h10l-3-4h4l-4-6h3L12 2z' },
-  surfaces:    { label: 'Oberflächen',    icon: 'M2 20h20M4 20V10l4-4 4 6 4-8 4 6v10' },
-  stops:       { label: 'Stopps',         icon: 'M12 2a7 7 0 00-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 00-7-7zm0 10a3 3 0 110-6 3 3 0 010 6z' },
-  intervals:   { label: 'Intervalle',     icon: 'M4 18V6M8 18v-8M12 18V4M16 18v-6M20 18v-10' },
-  ascents:     { label: 'Anstiege',       icon: 'M3 17l5-10 4 6 4-8 5 12' },
-  embeddings:  { label: 'Embeddings',     icon: 'M12 2a10 10 0 100 20 10 10 0 000-20zm0 4a3 3 0 110 6 3 3 0 010-6z' },
 }
 
 export default function EnrichmentStatusSection({ activityId, enrichmentStatus, hiddenModules, onToggleModule }: Props) {
@@ -73,19 +44,21 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
   })
 
   const recomputeMutation = useMutation({
-    mutationFn: (_moduleName?: string) =>
-      apiClient(`/activities/${activityId}/recompute`, {
-        method: 'POST',
-        body: { scope: ['geo'] },
-      }),
-    onSuccess: (_data, _moduleName) => {
+    mutationFn: (moduleName: string) => {
+      const scope = reprocessScopeForModule(moduleName)
+      if (!scope) throw new Error('module_not_reprocessable')
+      return reprocessActivity(activityId, scope)
+    },
+    onSuccess: (_data, moduleName) => {
       queryClient.invalidateQueries({ queryKey: ['enrichment-status', activityId] })
       queryClient.invalidateQueries({ queryKey: ['activity', activityId] })
       queryClient.invalidateQueries({ queryKey: ['geo-tags', activityId] })
-      queryClient.invalidateQueries({ queryKey: ['stops', activityId] })
+      queryClient.invalidateQueries({ queryKey: ['activity-stops', activityId] })
       queryClient.invalidateQueries({ queryKey: ['activity-track-summary', activityId] })
-      queryClient.invalidateQueries({ queryKey: ['climbs', activityId] })
-      addToast({ type: 'success', title: 'Geo-Enrichment gestartet' })
+      queryClient.invalidateQueries({ queryKey: ['activity-climbs', activityId] })
+      queryClient.invalidateQueries({ queryKey: ['activity-intervals', activityId] })
+      const label = MODULE_META[moduleName]?.label ?? moduleName
+      addToast({ type: 'success', title: `${label} neu berechnet` })
     },
     onError: () => {
       addToast({ type: 'error', title: 'Fehler beim Starten', duration: 0 })
@@ -102,6 +75,10 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
       onToggleModule(module.name)
     } else {
       // no_data or error: trigger recompute
+      if (!reprocessScopeForModule(module.name)) {
+        addToast({ type: 'info', title: 'Nicht manuell neu berechenbar' })
+        return
+      }
       recomputeMutation.mutate(module.name)
     }
   }
