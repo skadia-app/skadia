@@ -85,4 +85,23 @@ describe('GeoTagsList', () => {
     const { container } = render(<GeoTagsList activityId="act-1" />)
     expect(container.firstChild).toBeNull()
   })
+
+  it('does not label every boundary settlement as Gemeinde', () => {
+    mockTags = [{
+      id: 'geo-settlement-1',
+      activity_id: 'act-1',
+      category: 'settlement',
+      name: 'Affing',
+      osm_id: 42,
+      created_at: '2026-01-01T00:00:00Z',
+      source: 'boundary',
+      admin_level: 8,
+    }]
+
+    render(<GeoTagsList activityId="act-1" />)
+    fireEvent.click(screen.getByText('Geo-Tags'))
+
+    expect(screen.getByText('Affing')).toBeInTheDocument()
+    expect(screen.queryByText('Gemeinde')).not.toBeInTheDocument()
+  })
 })

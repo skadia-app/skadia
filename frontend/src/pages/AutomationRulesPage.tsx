@@ -52,7 +52,7 @@ const FIELD_LABELS: Record<string, string> = {
   has_lift: 'Lift', lift_count: 'Lifte',
   climb_count: 'Anstiege', climb_category_max: 'Härteste Kategorie',
   has_summit: 'Gipfel', summit_count: 'Anz. Gipfel',
-  has_pass: 'Pass', border_crossing_count: 'Grenzquerungen',
+  has_pass: 'Pass', border_crossing_count: 'Ländergrenzquerungen',
   has_gastronomy_stop: 'Einkehr',
   has_structured_intervals: 'Intervalle', has_hc_climb: 'HC-Anstieg',
   surface_paved_pct: 'Asphalt %', surface_gravel_pct: 'Gravel %',

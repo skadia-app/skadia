@@ -1176,7 +1176,7 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 			SELECT
 				COUNT(*) FILTER (WHERE category = 'summit')::int AS summit_count,
 				(COUNT(*) FILTER (WHERE category = 'pass') > 0) AS has_pass,
-				COUNT(*) FILTER (WHERE category = 'border')::int AS border_crossing_count
+				COUNT(*) FILTER (WHERE category = 'border' AND admin_level = 2)::int AS border_crossing_count
 			FROM activity_geo_tags WHERE activity_id = a.id
 		) gt ON true
 		LEFT JOIN LATERAL (

@@ -174,10 +174,11 @@ func enrichGeoTagsSummits(ctx context.Context, db *database.DB, activityID strin
 }
 
 // enrichGeoTagsSettlements finds settlements using a hybrid approach:
-// 1. Boundaries (admin_level=8, ST_Intersects with >=200m track) for cities/municipalities
-// 2. POI fallback (500m ST_DWithin) for hamlets/isolated dwellings not covered by boundaries
-// Deduplication is geometry-based: a POI is excluded if its centroid falls inside
-// any admin_level=8 boundary (handles same-named cities in different regions correctly).
+// 1. Administrative boundaries currently indexed at admin_level=8 with >=200m track overlap.
+// 2. POI fallback (500m ST_DWithin) for places not covered by those boundaries.
+// Deduplication is geometry-based: a POI is excluded if its centroid falls inside an
+// admin_level=8 boundary. Do not derive a user-facing type label from this level:
+// OSM admin_level semantics are country-specific.
 func enrichGeoTagsSettlements(ctx context.Context, db *database.DB, activityID string) error {
 	if _, err := db.Pool.Exec(ctx,
 		"DELETE FROM activity_geo_tags WHERE activity_id = $1 AND category = 'settlement'",
@@ -471,7 +472,7 @@ func enrichGeoTagsWater(ctx context.Context, db *database.DB, activityID string)
 	return nil
 }
 
-// enrichGeoTagsBorders detects country/state border crossings along the track.
+// enrichGeoTagsBorders detects country/state/region border crossings along the track.
 // Category: 'border'. Mirrors borders.py.
 func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID string) error {
 	if _, err := db.Pool.Exec(ctx,
@@ -507,12 +508,8 @@ func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID strin
 	//   → 17× fewer buffers, 1.7× faster on cold/hot mix. Absolute gain grows
 	//   with osm_boundaries size (EU-wide imports have 10k+ level-4 rows).
 	//
-	// admin_level coverage (finding #61):
-	//   2 = country, 4 = state/Bundesland/région.
-	//   5 = DE Leitungsbezirk / GR Region (Περιφέρεια) — included so GR borders
-	//       produce tags. Greek regions are the primary political subdivision.
-	//   The existing DISTINCT ON (b.name, b.admin_level) prevents duplicates
-	//   when both a level-4 and level-5 boundary share the same name.
+	// Store regional boundaries for the activity detail UI. Rule evaluation
+	// narrows border_crossing_count to admin_level=2 in GetActivityAsMap.
 	rows, err := db.Pool.Query(ctx, `
 		WITH route AS (
 			SELECT ST_Simplify(track_full, 0.00005) AS geom
@@ -523,9 +520,9 @@ func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID strin
 		FROM osm_boundaries b, route
 		WHERE route.geom && b.geom
 		  AND ST_Intersects(route.geom, ST_Boundary(b.geom))
-		  AND b.admin_level IN (2, 4, 5)
+		  AND b.admin_level = ANY($2::int[])
 		ORDER BY b.name, b.admin_level
-	`, activityID)
+	`, activityID, borderCrossingAdminLevels())
 	if err != nil {
 		return fmt.Errorf("borders: query: %w", err)
 	}
@@ -548,9 +545,9 @@ func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID strin
 
 		batch.Queue(`
 			INSERT INTO activity_geo_tags
-			    (activity_id, category, name, map_type, map_section)
-			VALUES ($1, 'border', $2, 'section', ST_GeomFromWKB($3, 4326))
-		`, activityID, displayName, crossingGeom)
+			    (activity_id, category, name, map_type, map_section, source, admin_level)
+			VALUES ($1, 'border', $2, 'section', ST_GeomFromWKB($3, 4326), 'boundary', $4)
+		`, activityID, displayName, crossingGeom, adminLevel)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("borders: rows iteration: %w", err)
@@ -562,4 +559,8 @@ func enrichGeoTagsBorders(ctx context.Context, db *database.DB, activityID strin
 		}
 	}
 	return nil
+}
+
+func borderCrossingAdminLevels() []int32 {
+	return []int32{2, 4, 5}
 }
