@@ -165,15 +165,31 @@ func (e *Engine) importTable(
 		}
 		insertCols, geometryCols = augmentInsertColumnsForRow(insertCols, geometryCols, targetCols, rawRow)
 
-		// Collect deferred FKs locally, then merge under mutex.
+		rowIDMap := idMap.Clone()
 		var localDeferred []deferredFK
-		prepared := e.prepareRow(spec, rawRow, idMap, userID, insertCols, &localDeferred)
+		prepared := e.prepareRow(spec, rawRow, rowIDMap, userID, insertCols, &localDeferred)
 
-		res, insertErr := e.insertRow(ctx, tx, spec, prepared, idMap, oldID, userID, insertCols, geometryCols)
+		if _, err := tx.Exec(ctx, "SAVEPOINT import_row"); err != nil {
+			return fmt.Errorf("importTable %s row %d: savepoint: %w", spec.Name, rowIndex, err)
+		}
+		res, insertErr := e.insertRow(ctx, tx, spec, prepared, rowIDMap, oldID, userID, insertCols, geometryCols)
 
-		// Merge deferred FKs.
-		if len(localDeferred) > 0 {
-			*deferredFKs = append(*deferredFKs, localDeferred...)
+		if res == failed {
+			if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT import_row"); err != nil {
+				return fmt.Errorf("importTable %s row %d: rollback savepoint after %v: %w", spec.Name, rowIndex, insertErr, err)
+			}
+			if _, err := tx.Exec(ctx, "RELEASE SAVEPOINT import_row"); err != nil {
+				return fmt.Errorf("importTable %s row %d: release failed savepoint: %w", spec.Name, rowIndex, err)
+			}
+		} else if _, err := tx.Exec(ctx, "RELEASE SAVEPOINT import_row"); err != nil {
+			return fmt.Errorf("importTable %s row %d: release savepoint: %w", spec.Name, rowIndex, err)
+		}
+
+		if shouldCommitRowState(spec, res) {
+			idMap.MergeFrom(rowIDMap)
+			if len(localDeferred) > 0 {
+				*deferredFKs = append(*deferredFKs, localDeferred...)
+			}
 		}
 
 		switch res {
@@ -219,6 +235,13 @@ func (e *Engine) importTable(
 	}
 
 	return nil
+}
+
+func shouldCommitRowState(spec tableSpec, res insertResult) bool {
+	if res == inserted {
+		return true
+	}
+	return res == skipped && spec.Conflict == cmMergeID
 }
 
 // exportColumnsForTable reads columns.json from source and returns the column
@@ -318,7 +341,11 @@ func (e *Engine) prepareRow(
 	// 5. file_attachments: remap entity_id.
 	if spec.Name == "file_attachments" {
 		if oldEntityID, ok := stringVal(out["entity_id"]); ok && oldEntityID != "" {
-			out["entity_id"] = idMap.Get(oldEntityID)
+			if newEntityID, exists := idMap.GetIfExists(oldEntityID); exists {
+				out["entity_id"] = newEntityID
+			} else {
+				out["entity_id"] = nil
+			}
 		}
 	}
 
@@ -401,6 +428,10 @@ func (e *Engine) insertRow(
 	insertCols []string,
 	geometryCols map[string]bool,
 ) (insertResult, error) {
+	if spec.Name == "file_attachments" && (row["file_id"] == nil || row["entity_id"] == nil) {
+		return skippedWithWarning, nil
+	}
+
 	switch spec.Conflict {
 	case cmMergeID:
 		existingID, found, err := findByNaturalKey(ctx, tx, spec, userID, row)
@@ -459,6 +490,12 @@ func (e *Engine) doInsert(
 		}
 		colParts = append(colParts, pgx.Identifier{col}.Sanitize())
 		if geometryCols[col] {
+			if val == nil {
+				valParts = append(valParts, fmt.Sprintf("$%d", n))
+				args = append(args, nil)
+				n++
+				continue
+			}
 			// Value is a GeoJSON string/object from export.
 			b, err := marshalGeoJSON(val)
 			if err != nil {
@@ -685,6 +722,10 @@ func (e *Engine) runJSONBRemap(ctx context.Context, idMap *IDMap, userID string)
 			args := make([]any, 0, len(jsonbCols)+1)
 			for i, col := range jsonbCols {
 				setClauses[i] = fmt.Sprintf("%s = $%d", pgx.Identifier{col}.Sanitize(), i+1)
+				if upd.values[i] == nil {
+					args = append(args, nil)
+					continue
+				}
 				// Marshal back to JSON bytes for pgx JSONB binding.
 				b, err := json.Marshal(upd.values[i])
 				if err != nil {

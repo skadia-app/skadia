@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -27,16 +28,7 @@ import (
 
 func testDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		t.Skip("DATABASE_URL not set")
-	}
-	pool, err := pgxpool.New(context.Background(), dbURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { pool.Close() })
-	return pool
+	return testdb.Open(t)
 }
 
 // createTestUser inserts a minimal user row and returns its UUID.
@@ -131,8 +123,8 @@ func (m *mockShadowFS) Get(_ context.Context, _, _ string) (io.ReadCloser, error
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
-func (m *mockShadowFS) Delete(_ context.Context, _, _ string) error         { return nil }
-func (m *mockShadowFS) DeleteAllForUser(_ context.Context, _ string) error  { return nil }
+func (m *mockShadowFS) Delete(_ context.Context, _, _ string) error           { return nil }
+func (m *mockShadowFS) DeleteAllForUser(_ context.Context, _ string) error    { return nil }
 func (m *mockShadowFS) DeleteCompanions(_ context.Context, _, _ string) error { return nil }
 
 func (m *mockShadowFS) List(_ context.Context, _ string, _ *string) ([]shadowfs.FileRecord, error) {
@@ -336,6 +328,38 @@ func openZipSource(t *testing.T, path string) *ZipSource {
 // ---------------------------------------------------------------------------
 // Test 1: TestProfileAllowList
 // ---------------------------------------------------------------------------
+
+func TestDecodeProfileAcceptsObjectAndExportRows(t *testing.T) {
+	t.Run("object", func(t *testing.T) {
+		profile, err := decodeProfile([]byte(`{"display_name":"Imported Name","timezone":"Europe/Berlin"}`))
+		if err != nil {
+			t.Fatalf("decodeProfile: %v", err)
+		}
+		if profile["display_name"] != "Imported Name" {
+			t.Fatalf("display_name: got %v", profile["display_name"])
+		}
+	})
+
+	t.Run("export_rows", func(t *testing.T) {
+		profile, err := decodeProfile([]byte(`[{"display_name":"Imported Name","timezone":"Europe/Berlin"}]`))
+		if err != nil {
+			t.Fatalf("decodeProfile: %v", err)
+		}
+		if profile["timezone"] != "Europe/Berlin" {
+			t.Fatalf("timezone: got %v", profile["timezone"])
+		}
+	})
+
+	t.Run("too_many_rows", func(t *testing.T) {
+		_, err := decodeProfile([]byte(`[{"display_name":"One"},{"display_name":"Two"}]`))
+		if err == nil {
+			t.Fatal("decodeProfile should reject multiple profile rows")
+		}
+		if !strings.Contains(err.Error(), "expected one user row") {
+			t.Fatalf("decodeProfile error: %v", err)
+		}
+	})
+}
 
 // TestProfileAllowList verifies that profile import overwrites only allow-listed
 // fields and leaves protected fields (email, username) unchanged.
@@ -1081,11 +1105,11 @@ func TestGeometryRoundtrip(t *testing.T) {
 		extraFiles: map[string][]byte{
 			"data/user_privacy_zones.json": mustMarshalJSON(t, []map[string]any{
 				{
-					"id":       zoneOldID,
-					"user_id":  srcUser,
-					"name":     "GeomZone",
-					"center":   geoPoint,
-					"radius_m": 200,
+					"id":        zoneOldID,
+					"user_id":   srcUser,
+					"name":      "GeomZone",
+					"center":    geoPoint,
+					"radius_m":  200,
 					"is_active": true,
 					"zone_type": "home",
 				},
@@ -1131,6 +1155,57 @@ func TestGeometryRoundtrip(t *testing.T) {
 	}
 	if lat < 47.264 || lat > 47.266 {
 		t.Errorf("latitude: want ~47.265, got %v", lat)
+	}
+}
+
+func TestNullableActivityGeometryImport(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	actOldID := uuid.New().String()
+	srcUser := uuid.New().String()
+	startedAt := time.Date(2024, 5, 7, 10, 0, 0, 0, time.UTC)
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"activities": {"id", "user_id", "title", "sport_type", "started_at", "start_location", "end_location"},
+		},
+		activities: []map[string]any{
+			{
+				"id":             actOldID,
+				"user_id":        srcUser,
+				"title":          "No GPS",
+				"sport_type":     "running",
+				"started_at":     startedAt.Format(time.RFC3339),
+				"start_location": nil,
+				"end_location":   nil,
+			},
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	result, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	if len(result.Errors) > 0 {
+		t.Fatalf("RunImport errors: %+v", result.Errors)
+	}
+
+	var startIsNull, endIsNull bool
+	if err := pool.QueryRow(context.Background(), `
+		SELECT start_location IS NULL, end_location IS NULL
+		FROM activities
+		WHERE user_id = $1 AND title = 'No GPS'
+	`, userID).Scan(&startIsNull, &endIsNull); err != nil {
+		t.Fatalf("select imported nullable geometry: %v", err)
+	}
+	if !startIsNull || !endIsNull {
+		t.Fatalf("nullable geometry not preserved: startIsNull=%v endIsNull=%v", startIsNull, endIsNull)
 	}
 }
 
@@ -2067,8 +2142,8 @@ func TestFileParentIDRemap(t *testing.T) {
 			},
 		},
 		extraFiles: map[string][]byte{
-			"data/user_files.json":            userFilesJSON,
-			"files/original/remap_test.fit":   fileContent,
+			"data/user_files.json":          userFilesJSON,
+			"files/original/remap_test.fit": fileContent,
 		},
 	})
 	src := openZipSource(t, zipPath)
@@ -2299,8 +2374,8 @@ func TestEditSidecarPhase6(t *testing.T) {
 			},
 		},
 		extraFiles: map[string][]byte{
-			"data/user_files.json":    userFilesJSON,
-			"files/edit/edit.json":    []byte(`{"edits":[]}`),
+			"data/user_files.json": userFilesJSON,
+			"files/edit/edit.json": []byte(`{"edits":[]}`),
 		},
 	})
 	src := openZipSource(t, zipPath)
@@ -2496,6 +2571,138 @@ func TestJSONBRemapNullColumn(t *testing.T) {
 	_ = result
 }
 
+func TestJSONBRemapPreservesNullWhenSiblingColumnChanges(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+
+	tagOldID := uuid.New().String()
+	srcUser := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		columns: map[string][]string{
+			"tags": {"id", "user_id", "name", "color", "text_color", "category"},
+			"automation_rules": {"id", "user_id", "name", "is_active", "priority",
+				"conditions", "condition_groups", "actions"},
+		},
+		tags: []map[string]any{
+			{
+				"id":         tagOldID,
+				"user_id":    srcUser,
+				"name":       "SiblingTag",
+				"color":      "#000",
+				"text_color": "#FFF",
+				"category":   "custom",
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/automation_rules.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":               uuid.New().String(),
+					"user_id":          srcUser,
+					"name":             "NullSiblingColumn",
+					"is_active":        true,
+					"priority":         1,
+					"conditions":       map[string]any{},
+					"condition_groups": nil,
+					"actions":          []map[string]any{{"type": "add_tag", "params": map[string]any{"tag_id": tagOldID}}},
+				},
+			}),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := newEngine(pool)
+	if _, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID}); err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	var actionsRaw []byte
+	var conditionGroupsRaw *[]byte
+	if err := pool.QueryRow(ctx,
+		"SELECT actions, condition_groups FROM automation_rules WHERE user_id = $1 AND name = 'NullSiblingColumn' LIMIT 1",
+		userID,
+	).Scan(&actionsRaw, &conditionGroupsRaw); err != nil {
+		t.Fatalf("query rule: %v", err)
+	}
+	if conditionGroupsRaw != nil {
+		t.Fatalf("condition_groups should remain SQL NULL when actions is remapped, got %s", string(*conditionGroupsRaw))
+	}
+	if bytes.Contains(actionsRaw, []byte(tagOldID)) {
+		t.Fatal("actions still contain old tag_id")
+	}
+}
+
+func TestFileAttachmentMissingEntityDoesNotCreatePhantomMapping(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+
+	srcUser := uuid.New().String()
+	fileOldID := uuid.New().String()
+	missingEntityID := uuid.New().String()
+	content := []byte("attachment payload")
+	sum := sha256.Sum256(content)
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		columns: map[string][]string{
+			"user_files":       {"id", "user_id", "file_type", "storage_backend", "storage_key", "file_hash", "size_bytes", "status"},
+			"file_attachments": {"id", "file_id", "user_id", "entity_type", "entity_id"},
+		},
+		extraFiles: map[string][]byte{
+			"data/user_files.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":           fileOldID,
+					"user_id":      srcUser,
+					"file_type":    "original",
+					"content_type": "application/octet-stream",
+					"file_name":    "original.bin",
+					"file_hash":    hex.EncodeToString(sum[:]),
+					"size_bytes":   len(content),
+					"status":       "active",
+				},
+			}),
+			"files/original/original.bin": content,
+			"data/file_attachments.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":          uuid.New().String(),
+					"file_id":     fileOldID,
+					"user_id":     srcUser,
+					"entity_type": "activities",
+					"entity_id":   missingEntityID,
+				},
+			}),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := &Engine{
+		DB:       pool,
+		ShadowFS: newDBMockShadowFS(pool),
+		Config:   EngineConfig{},
+	}
+	if _, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID}); err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM file_attachments WHERE user_id = $1",
+		userID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count file_attachments: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("file attachment with missing polymorphic entity should be skipped, got %d row(s)", count)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Test: TestPhase0MissingFileBlob (Finding #19)
 // ---------------------------------------------------------------------------
@@ -2566,6 +2773,69 @@ func TestPhase0MissingFileBlob(t *testing.T) {
 		t.Errorf("activity file_id should be NULL when file blob is missing, got %q", *fileID)
 	}
 	_ = result
+}
+
+func TestFailedActivityDoesNotLeakIDMapForDeferredFK(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+
+	srcUser := uuid.New().String()
+	failedActivityID := uuid.New().String()
+	segmentID := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		columns: map[string][]string{
+			"segments":   {"id", "created_by", "name", "source_activity_id"},
+			"activities": {"id", "user_id", "sport_type", "started_at", "title", "start_location"},
+		},
+		segments: []map[string]any{
+			{
+				"id":                 segmentID,
+				"created_by":         srcUser,
+				"name":               "Deferred Failed Activity",
+				"source_activity_id": failedActivityID,
+			},
+		},
+		activities: []map[string]any{
+			{
+				"id":         failedActivityID,
+				"user_id":    srcUser,
+				"sport_type": "running",
+				"started_at": "2026-01-01T10:00:00Z",
+				"title":      "Invalid Geometry",
+				"start_location": map[string]any{
+					"type":        "NotAGeometry",
+					"coordinates": []any{13.4, 52.5},
+				},
+			},
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := newEngine(pool)
+	result, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport should preserve deferred FK NULL when referenced row fails: %v", err)
+	}
+	if result.EntitiesFailed == 0 {
+		t.Fatal("expected the invalid activity row to be counted as failed")
+	}
+
+	var sourceActivityID *string
+	err = pool.QueryRow(ctx,
+		"SELECT source_activity_id FROM segments WHERE created_by = $1 AND name = 'Deferred Failed Activity'",
+		userID,
+	).Scan(&sourceActivityID)
+	if err != nil {
+		t.Fatalf("query segment: %v", err)
+	}
+	if sourceActivityID != nil {
+		t.Fatalf("source_activity_id should remain NULL for failed referenced activity, got %q", *sourceActivityID)
+	}
 }
 
 // ---------------------------------------------------------------------------
