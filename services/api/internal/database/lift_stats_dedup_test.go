@@ -128,7 +128,7 @@ func TestRecomputeLiftStats_SnapDoesNotDoubleCount(t *testing.T) {
 	}
 
 	db := &database.DB{Pool: fx.pool}
-	if err := db.RecomputeLiftStats(ctx, fx.activityID); err != nil {
+	if err := db.RecomputeLiftStats(ctx, fx.userID, fx.activityID); err != nil {
 		t.Fatalf("recompute: %v", err)
 	}
 
@@ -172,7 +172,7 @@ func TestRecomputeLiftStats_HeuristicOnlyConfirmed(t *testing.T) {
 	}
 
 	db := &database.DB{Pool: fx.pool}
-	if err := db.RecomputeLiftStats(ctx, fx.activityID); err != nil {
+	if err := db.RecomputeLiftStats(ctx, fx.userID, fx.activityID); err != nil {
 		t.Fatalf("recompute: %v", err)
 	}
 
@@ -215,7 +215,7 @@ func TestRecomputeLiftStats_HeuristicOnlyUnconfirmedDoesNotCount(t *testing.T) {
 	}
 
 	db := &database.DB{Pool: fx.pool}
-	if err := db.RecomputeLiftStats(ctx, fx.activityID); err != nil {
+	if err := db.RecomputeLiftStats(ctx, fx.userID, fx.activityID); err != nil {
 		t.Fatalf("recompute: %v", err)
 	}
 	var liftCount int
@@ -264,7 +264,7 @@ func TestRecomputeLiftStats_CableHoldMergedRideCountsOnce(t *testing.T) {
 	}
 
 	db := &database.DB{Pool: fx.pool}
-	if err := db.RecomputeLiftStats(ctx, fx.activityID); err != nil {
+	if err := db.RecomputeLiftStats(ctx, fx.userID, fx.activityID); err != nil {
 		t.Fatalf("recompute: %v", err)
 	}
 	var liftCount int

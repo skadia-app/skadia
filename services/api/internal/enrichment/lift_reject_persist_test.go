@@ -72,7 +72,7 @@ func TestRejectLiftCandidate_SoftDeletePersistsAcrossReEnrichment(t *testing.T) 
 
 	// Soft-reject it via the DB method under test.
 	db := &database.DB{Pool: pool}
-	if err := db.RejectLiftCandidate(ctx, candidateID, activityID); err != nil {
+	if err := db.RejectLiftCandidate(ctx, userID, candidateID, activityID); err != nil {
 		t.Fatalf("RejectLiftCandidate: %v", err)
 	}
 
@@ -129,7 +129,7 @@ func TestRejectLiftCandidate_SoftDeletePersistsAcrossReEnrichment(t *testing.T) 
 	); err != nil {
 		t.Fatalf("set confirmed=true for filter assertion: %v", err)
 	}
-	if err := db.RecomputeLiftStats(ctx, activityID); err != nil {
+	if err := db.RecomputeLiftStats(ctx, userID, activityID); err != nil {
 		t.Fatalf("recompute after confirm: %v", err)
 	}
 	if err := pool.QueryRow(ctx,

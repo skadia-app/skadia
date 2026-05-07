@@ -19,11 +19,11 @@ import (
 // pair from services/ml/enrichment/lifts.py.
 //
 // Pipeline (must run in this order — see snap.go header):
-//   1. DetectHeuristic     — rides from the in-memory stream
-//   2. SnapToOSMLifts      — Stage 1, conservative snap
-//   3. MergeMultiRideForOSM — Stage 2, cable-hold recovery
-//   4. MethodACoverageGap  — Stage 3, OSM-only safety net
-//   5. RecomputeLiftStats  — recount activities.lift_* with the dedup query
+//  1. DetectHeuristic     — rides from the in-memory stream
+//  2. SnapToOSMLifts      — Stage 1, conservative snap
+//  3. MergeMultiRideForOSM — Stage 2, cable-hold recovery
+//  4. MethodACoverageGap  — Stage 3, OSM-only safety net
+//  5. RecomputeLiftStats  — recount activities.lift_* with the dedup query
 func enrichStreamLifts(
 	ctx context.Context,
 	db *database.DB,
@@ -216,7 +216,7 @@ func enrichStreamLifts(
 		}
 	}
 
-	if err := db.RecomputeLiftStats(ctx, activityID); err != nil {
+	if err := db.RecomputeLiftStats(ctx, userID, activityID); err != nil {
 		return fmt.Errorf("enrichStreamLifts: recompute lift stats: %w", err)
 	}
 

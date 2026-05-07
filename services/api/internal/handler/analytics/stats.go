@@ -197,8 +197,8 @@ type lifetimeResponse struct {
 	// Fun metrics use net distance/elevation totals from the database.
 	EarthLaps        float64 `json:"earth_laps"`
 	MoonTrips        float64 `json:"moon_trips"`
-	EverestCount     float64 `json:"everest_count"`
-	EverestCountDown float64 `json:"everest_count_down"`
+	EverestCount     float64 `json:"everest_count"`      // ascent divided by Everest height
+	EverestCountDown float64 `json:"everest_count_down"` // descent divided by Everest height
 	// Streaks
 	CurrentDayStreak int `json:"current_day_streak"`
 	MaxDayStreak     int `json:"max_day_streak"`

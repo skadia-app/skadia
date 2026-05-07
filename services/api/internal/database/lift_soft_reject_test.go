@@ -55,7 +55,7 @@ func TestRecomputeLiftStats_RejectedCandidatesExcluded(t *testing.T) {
 	}
 
 	db := &database.DB{Pool: fx.pool}
-	if err := db.RecomputeLiftStats(ctx, fx.activityID); err != nil {
+	if err := db.RecomputeLiftStats(ctx, fx.userID, fx.activityID); err != nil {
 		t.Fatalf("recompute: %v", err)
 	}
 
@@ -142,4 +142,3 @@ func TestRejectLiftCandidate_DriftTolerance(t *testing.T) {
 		t.Errorf("candidate count = %d, want 1 (re-detection must not add row)", count)
 	}
 }
-
