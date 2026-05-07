@@ -466,11 +466,10 @@ func (s *SettingsStore) GetInt(key string) (int, error) {
 	return n, nil
 }
 
-// waitForRebuildCompleteForTest blocks until at least one rebuild has
-// completed after the call started, or timeout fires. Used by tests to
-// avoid racy assertions on fire-and-forget triggerRebuild goroutines.
-func (s *SettingsStore) waitForRebuildCompleteForTest(timeout time.Duration) error {
-	start := atomic.LoadUint64(&s.rebuildCount)
+// waitForRebuildAfterForTest blocks until at least one rebuild has completed
+// after the provided baseline counter, or timeout fires. Tests must capture the
+// baseline before the Get call that triggers the fire-and-forget rebuild.
+func (s *SettingsStore) waitForRebuildAfterForTest(start uint64, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if atomic.LoadUint64(&s.rebuildCount) > start {

@@ -226,6 +226,7 @@ func (h *Handler) PostAdminRenameBulk(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"status":          "ok",
 		"candidate_count": len(snaps),
+		"user_count":      len(snaps),
 	})
 
 	basePath := h.Config.LibraryBasePath
