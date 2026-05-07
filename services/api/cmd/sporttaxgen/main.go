@@ -174,11 +174,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("read rule projection source: %w", err)
 	}
-	ruleProjection, err := sporttaxgen.LoadRuleProjection(bytes.NewReader(ruleProjectionBytes), taxonomy)
+	ruleProjection, err := sporttaxgen.LoadRuleProjection(bytes.NewReader(ruleProjectionBytes), taxonomy, modifierRegistry)
 	if err != nil {
 		return fmt.Errorf("load rule projection: %w", err)
 	}
-	expandedRuleProjection, err := sporttaxgen.ExpandRuleProjection(taxonomy, ruleProjection)
+	expandedRuleProjection, err := sporttaxgen.ExpandRuleProjection(taxonomy, ruleProjection, modifierRegistry)
 	if err != nil {
 		return fmt.Errorf("expand rule projection: %w", err)
 	}
@@ -186,11 +186,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("read records projection source: %w", err)
 	}
-	recordsProjection, err := sporttaxgen.LoadRecordsProjection(bytes.NewReader(recordsProjectionBytes), taxonomy)
+	recordsProjection, err := sporttaxgen.LoadRecordsProjection(bytes.NewReader(recordsProjectionBytes), taxonomy, modifierRegistry)
 	if err != nil {
 		return fmt.Errorf("load records projection: %w", err)
 	}
-	expandedRecordsProjection, err := sporttaxgen.ExpandRecordsProjection(taxonomy, recordsProjection)
+	expandedRecordsProjection, err := sporttaxgen.ExpandRecordsProjection(taxonomy, recordsProjection, modifierRegistry)
 	if err != nil {
 		return fmt.Errorf("expand records projection: %w", err)
 	}
@@ -210,15 +210,15 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("render TypeScript rule projection: %w", err)
 	}
-	renderedGoRecordsProjection, err := sporttaxgen.RenderGoRecordsProjection(expandedRecordsProjection)
+	renderedGoRecordsProjection, err := sporttaxgen.RenderGoRecordsProjection(expandedRecordsProjection, modifierRegistry)
 	if err != nil {
 		return fmt.Errorf("render Go records projection: %w", err)
 	}
-	renderedTSRecordsProjection, err := sporttaxgen.RenderTSRecordsProjection(expandedRecordsProjection)
+	renderedTSRecordsProjection, err := sporttaxgen.RenderTSRecordsProjection(expandedRecordsProjection, modifierRegistry)
 	if err != nil {
 		return fmt.Errorf("render TypeScript records projection: %w", err)
 	}
-	renderedGoAliases, renderedTSAliases, renderedTSGearDefaults, aliasesExist, err := renderAliasesFromDir(*aliasSourceDir, taxonomy)
+	renderedGoAliases, renderedTSAliases, renderedTSGearDefaults, aliasesExist, err := renderAliasesFromDir(*aliasSourceDir, taxonomy, modifierRegistry)
 	if err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func run() error {
 	return nil
 }
 
-func renderAliasesFromDir(dir string, taxonomy sporttaxgen.Taxonomy) ([]byte, []byte, []byte, bool, error) {
+func renderAliasesFromDir(dir string, taxonomy sporttaxgen.Taxonomy, modifiers sporttaxgen.ModifierRegistry) ([]byte, []byte, []byte, bool, error) {
 	if _, err := os.Stat(dir); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil, nil, false, nil
@@ -329,7 +329,7 @@ func renderAliasesFromDir(dir string, taxonomy sporttaxgen.Taxonomy) ([]byte, []
 		stem := strings.TrimSuffix(filepath.Base(match), filepath.Ext(match))
 		files[stem] = file
 	}
-	sources, err := sporttaxgen.LoadSourceAliasFiles(files, taxonomy)
+	sources, err := sporttaxgen.LoadSourceAliasFiles(files, taxonomy, modifiers)
 	if err != nil {
 		return nil, nil, nil, false, fmt.Errorf("load source aliases: %w", err)
 	}
@@ -337,11 +337,11 @@ func renderAliasesFromDir(dir string, taxonomy sporttaxgen.Taxonomy) ([]byte, []
 	if err != nil {
 		return nil, nil, nil, false, fmt.Errorf("build gear default projection: %w", err)
 	}
-	renderedGo, err := sporttaxgen.RenderGoSourceAliasesWithGearDefaults(sources, gearDefaults)
+	renderedGo, err := sporttaxgen.RenderGoSourceAliasesWithGearDefaults(sources, gearDefaults, modifiers)
 	if err != nil {
 		return nil, nil, nil, false, fmt.Errorf("render Go source aliases: %w", err)
 	}
-	renderedTSAliases, err := sporttaxgen.RenderTSSourceAliases(sources)
+	renderedTSAliases, err := sporttaxgen.RenderTSSourceAliases(sources, modifiers)
 	if err != nil {
 		return nil, nil, nil, false, fmt.Errorf("render TypeScript source aliases: %w", err)
 	}

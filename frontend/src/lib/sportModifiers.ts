@@ -24,6 +24,12 @@ export function modifierTagSync(key: SportModifierKey) {
   return modifierByKey(key)?.tagSync
 }
 
+export function modifierTagSyncOnlySportType(key: SportModifierKey): string | null {
+  const sync = modifierTagSync(key)
+  if (!sync || !('onlySportType' in sync)) return null
+  return sync.onlySportType
+}
+
 export function modifierActionName(key: SportModifierKey): string {
   return modifierByKey(key)?.actionName ?? key
 }

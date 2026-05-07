@@ -17,27 +17,6 @@ tuple_selectors:
     labels: {de: Sportart setzen}
     action: set_sport_type
     source: selectable_sport_tuples
-modifiers:
-  - key: is_electric
-    labels: {de: E-Antrieb}
-    condition_applicable_from: modifier_applicability.is_electric
-    action_applicable_from: modifier_applicability.is_electric
-    render_existing: true
-  - key: is_indoor
-    labels: {de: Indoor}
-    condition_applicable_from: modifier_applicability.is_indoor
-    action_applicable_from: modifier_applicability.is_indoor
-    render_existing: true
-  - key: is_virtual
-    labels: {de: Virtuell}
-    condition_applicable_from: modifier_applicability.is_virtual
-    action_applicable_from: modifier_applicability.is_virtual
-    render_existing: true
-  - key: is_commute
-    labels: {de: Pendeln}
-    condition_applicable_from: modifier_applicability.is_commute
-    action_applicable_from: modifier_applicability.is_commute
-    render_existing: true
 trait_conditions:
   - key: sport_environment
     labels: {de: Umgebung}
@@ -63,7 +42,7 @@ trait_conditions:
       paddle: {de: Paddeln}
 `
 
-func TestLoadRuleProjectionRejectsUnknownModifierSource(t *testing.T) {
+func TestLoadRuleProjectionRejectsLocalModifierList(t *testing.T) {
 	taxonomy := minimalRuleProjectionTaxonomy(t)
 	src := strings.NewReader(`
 tuple_selectors:
@@ -95,9 +74,9 @@ trait_conditions:
     operators: [in]
     source: traits.movement_families
 `)
-	_, err := LoadRuleProjection(src, taxonomy)
-	if err == nil || !strings.Contains(err.Error(), "modifier_applicability.nope") {
-		t.Fatalf("LoadRuleProjection error = %v, want unknown source error", err)
+	_, err := LoadRuleProjection(src, taxonomy, modifierRegistryForTest())
+	if err == nil || !strings.Contains(err.Error(), "modifiers are derived") {
+		t.Fatalf("LoadRuleProjection error = %v, want local modifier list error", err)
 	}
 }
 
@@ -111,7 +90,7 @@ func TestRuleProjectionModifierKeysMustMatchRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadModifiers: %v", err)
 	}
-	projection, err := LoadRuleProjection(strings.NewReader(validRuleProjectionYAMLForTest), minimalRuleProjectionTaxonomy(t))
+	projection, err := LoadRuleProjection(strings.NewReader(validRuleProjectionYAMLForTest), minimalRuleProjectionTaxonomy(t), modifierRegistryForTest())
 	if err != nil {
 		t.Fatalf("LoadRuleProjection: %v", err)
 	}
@@ -136,7 +115,7 @@ func TestRuleProjectionModifierKeysMustMatchRegistry(t *testing.T) {
 func TestLoadRuleProjectionRejectsDuplicateSelectorKey(t *testing.T) {
 	taxonomy := minimalRuleProjectionTaxonomy(t)
 	src := strings.Replace(validRuleProjectionYAMLForTest, "key: action_set_sport_type", "key: condition_sport_tuple", 1)
-	_, err := LoadRuleProjection(strings.NewReader(src), taxonomy)
+	_, err := LoadRuleProjection(strings.NewReader(src), taxonomy, modifierRegistryForTest())
 	if err == nil || !strings.Contains(err.Error(), "duplicate tuple selector key") {
 		t.Fatalf("LoadRuleProjection error = %v, want duplicate selector key", err)
 	}
@@ -144,11 +123,11 @@ func TestLoadRuleProjectionRejectsDuplicateSelectorKey(t *testing.T) {
 
 func TestExpandRuleProjectionUsesSelectableTuplesAndModifierApplicability(t *testing.T) {
 	taxonomy := minimalRuleProjectionTaxonomy(t)
-	projection, err := LoadRuleProjection(strings.NewReader(validRuleProjectionYAMLForTest), taxonomy)
+	projection, err := LoadRuleProjection(strings.NewReader(validRuleProjectionYAMLForTest), taxonomy, modifierRegistryForTest())
 	if err != nil {
 		t.Fatalf("LoadRuleProjection: %v", err)
 	}
-	expanded, err := ExpandRuleProjection(taxonomy, projection)
+	expanded, err := ExpandRuleProjection(taxonomy, projection, modifierRegistryForTest())
 	if err != nil {
 		t.Fatalf("ExpandRuleProjection: %v", err)
 	}

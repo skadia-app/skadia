@@ -2,6 +2,7 @@ package migrations_test
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
@@ -13,25 +14,25 @@ import (
 
 func TestMigrationSQLModifierContractsMatchGeneratedRegistry(t *testing.T) {
 	t.Run("routing profile modifier filters", func(t *testing.T) {
-		upSQL, _, _ := readMigration000339SQL(t)
+		upSQL := latestUpMigrationSQLContaining(t, "CREATE OR REPLACE FUNCTION fn_validate_modifier_filters")
 		block := sqlSectionBetween(t, upSQL,
 			"CREATE OR REPLACE FUNCTION fn_validate_modifier_filters",
 			"CREATE OR REPLACE FUNCTION fp_modifier_filters_from_sport_types",
 		)
-		assertSameStringSet(t, quotedModifierKeys(block), sport.SportModifierKeysWithCapability("modifier_filter"))
+		assertSameStringSet(t, modifierKeysAllowedBySQLValidator(block), sport.SportModifierKeysWithCapability("modifier_filter"))
 	})
 
 	t.Run("gear default predicates", func(t *testing.T) {
-		upSQL, _ := readMigration000349GearDefaultPredicatesSQL(t)
+		upSQL := latestUpMigrationSQLContaining(t, "CREATE OR REPLACE FUNCTION fn_validate_gear_default_predicates")
 		block := sqlSectionBetween(t, upSQL,
 			"CREATE OR REPLACE FUNCTION fn_validate_gear_default_predicates",
 			"ALTER TABLE gear",
 		)
-		assertSameStringSet(t, quotedModifierKeys(block), sport.SportModifierKeysWithCapability("gear_default"))
+		assertSameStringSet(t, modifierKeysAllowedBySQLValidator(block), sport.SportModifierKeysWithCapability("gear_default"))
 	})
 
 	t.Run("heatmap filters", func(t *testing.T) {
-		upSQL := readMigrationSQLFile(t, "000350_heatmap_modifier_filters.up.sql")
+		upSQL := latestUpMigrationSQLContaining(t, "CREATE OR REPLACE FUNCTION skadia_heatmap_modifier_filter_matches")
 		block := sqlSectionBetween(t, upSQL,
 			"CREATE OR REPLACE FUNCTION skadia_heatmap_modifier_filter_matches",
 			"DO $$",
@@ -77,6 +78,23 @@ func readMigrationSQLFile(t *testing.T, path string) string {
 	return string(bytes)
 }
 
+func latestUpMigrationSQLContaining(t *testing.T, marker string) string {
+	t.Helper()
+	matches, err := filepath.Glob("*.up.sql")
+	if err != nil {
+		t.Fatalf("glob migrations: %v", err)
+	}
+	sort.Strings(matches)
+	for i := len(matches) - 1; i >= 0; i-- {
+		sql := readMigrationSQLFile(t, matches[i])
+		if strings.Contains(sql, marker) {
+			return sql
+		}
+	}
+	t.Fatalf("no up migration contains marker %q", marker)
+	return ""
+}
+
 func sqlSectionBetween(t *testing.T, sql, startMarker, endMarker string) string {
 	t.Helper()
 	start := strings.Index(sql, startMarker)
@@ -91,8 +109,12 @@ func sqlSectionBetween(t *testing.T, sql, startMarker, endMarker string) string 
 	return rest[:end]
 }
 
-func quotedModifierKeys(sql string) []string {
-	return uniqueRegexMatches(sql, regexp.MustCompile(`'((?:is)_[a-z_]+)'`))
+func modifierKeysAllowedBySQLValidator(sql string) []string {
+	matches := regexp.MustCompile(`(?:kv\.)?key\s+NOT\s+IN\s*\(([^)]*)\)`).FindAllStringSubmatch(sql, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	return uniqueRegexMatches(matches[len(matches)-1][1], regexp.MustCompile(`'((?:is)_[a-z_]+)'`))
 }
 
 func queryParamModifierKeys(sql string) []string {

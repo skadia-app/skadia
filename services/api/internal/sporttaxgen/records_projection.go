@@ -52,12 +52,7 @@ type RecordMatchRule struct {
 	Modifiers       RecordModifiers `yaml:"modifiers"`
 }
 
-type RecordModifiers struct {
-	IsIndoor   *bool `yaml:"is_indoor"`
-	IsVirtual  *bool `yaml:"is_virtual"`
-	IsElectric *bool `yaml:"is_electric"`
-	IsCommute  *bool `yaml:"is_commute"`
-}
+type RecordModifiers map[string]*bool
 
 type RecordMainCategory struct {
 	Key          string            `yaml:"key"`
@@ -112,21 +107,21 @@ type ExpandedRecordMatchRule struct {
 	Modifiers       RecordModifiers
 }
 
-func LoadRecordsProjection(r io.Reader, taxonomy Taxonomy) (RecordsProjection, error) {
+func LoadRecordsProjection(r io.Reader, taxonomy Taxonomy, modifiers ModifierRegistry) (RecordsProjection, error) {
 	var projection RecordsProjection
 	dec := yaml.NewDecoder(r)
 	dec.SetStrict(true)
 	if err := dec.Decode(&projection); err != nil {
 		return RecordsProjection{}, err
 	}
-	if err := validateRecordsProjection(projection, taxonomy); err != nil {
+	if err := validateRecordsProjection(projection, taxonomy, modifiers); err != nil {
 		return RecordsProjection{}, err
 	}
 	return projection, nil
 }
 
-func ExpandRecordsProjection(taxonomy Taxonomy, projection RecordsProjection) (ExpandedRecordsProjection, error) {
-	if err := validateRecordsProjection(projection, taxonomy); err != nil {
+func ExpandRecordsProjection(taxonomy Taxonomy, projection RecordsProjection, modifiers ModifierRegistry) (ExpandedRecordsProjection, error) {
+	if err := validateRecordsProjection(projection, taxonomy, modifiers); err != nil {
 		return ExpandedRecordsProjection{}, err
 	}
 	categorySets := make(map[string]RecordCategorySet, len(projection.CategorySets))
@@ -192,7 +187,7 @@ func ExpandRecordsProjection(taxonomy Taxonomy, projection RecordsProjection) (E
 	return out, nil
 }
 
-func validateRecordsProjection(projection RecordsProjection, taxonomy Taxonomy) error {
+func validateRecordsProjection(projection RecordsProjection, taxonomy Taxonomy, modifiers ModifierRegistry) error {
 	idx := newProjectionIndexes(taxonomy)
 	categorySets, err := validateRecordCategorySets(projection.CategorySets)
 	if err != nil {
@@ -202,7 +197,7 @@ func validateRecordsProjection(projection RecordsProjection, taxonomy Taxonomy) 
 	if err != nil {
 		return err
 	}
-	recordGroups, err := validateRecordGroups(projection.RecordGroups, categoryProfiles, idx)
+	recordGroups, err := validateRecordGroups(projection.RecordGroups, categoryProfiles, idx, modifiers)
 	if err != nil {
 		return err
 	}
@@ -302,7 +297,7 @@ func validateRecordCategoryProfiles(profiles []RecordCategoryProfile, categorySe
 	return byKey, nil
 }
 
-func validateRecordGroups(groups []RecordGroup, profiles map[string]RecordCategoryProfile, idx projectionIndexes) (map[string]RecordGroup, error) {
+func validateRecordGroups(groups []RecordGroup, profiles map[string]RecordCategoryProfile, idx projectionIndexes, modifiers ModifierRegistry) (map[string]RecordGroup, error) {
 	if len(groups) == 0 {
 		return nil, fmt.Errorf("missing record_groups")
 	}
@@ -330,7 +325,7 @@ func validateRecordGroups(groups []RecordGroup, profiles map[string]RecordCatego
 			return nil, fmt.Errorf("record_group %q: missing match", group.Key)
 		}
 		for j, rule := range group.Match {
-			if err := validateRecordMatchRule(rule, idx); err != nil {
+			if err := validateRecordMatchRule(rule, idx, modifiers); err != nil {
 				return nil, fmt.Errorf("record_group %q match[%d]: %w", group.Key, j, err)
 			}
 		}
@@ -339,7 +334,7 @@ func validateRecordGroups(groups []RecordGroup, profiles map[string]RecordCatego
 	return byKey, nil
 }
 
-func validateRecordMatchRule(rule RecordMatchRule, idx projectionIndexes) error {
+func validateRecordMatchRule(rule RecordMatchRule, idx projectionIndexes, modifiers ModifierRegistry) error {
 	if rule.SportType == "" {
 		return fmt.Errorf("missing sport_type")
 	}
@@ -363,8 +358,13 @@ func validateRecordMatchRule(rule RecordMatchRule, idx projectionIndexes) error 
 			return fmt.Errorf("sport %q has no excluded sub_type %q", rule.SportType, subType)
 		}
 	}
-	if rule.Modifiers.IsCommute != nil {
-		return fmt.Errorf("modifier is_commute is not enabled for record grouping")
+	for key, value := range rule.Modifiers {
+		if value == nil {
+			return fmt.Errorf("modifier %q must be true or false", key)
+		}
+		if err := modifiers.ValidateModifierKeyForCapability(key, "record_grouping", "records projection"); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -465,12 +465,14 @@ func cloneRecordCategory(category RecordCategory) RecordCategory {
 }
 
 func cloneRecordModifiers(modifiers RecordModifiers) RecordModifiers {
-	return RecordModifiers{
-		IsIndoor:   cloneBoolPtr(modifiers.IsIndoor),
-		IsVirtual:  cloneBoolPtr(modifiers.IsVirtual),
-		IsElectric: cloneBoolPtr(modifiers.IsElectric),
-		IsCommute:  cloneBoolPtr(modifiers.IsCommute),
+	if len(modifiers) == 0 {
+		return RecordModifiers{}
 	}
+	values := make(map[string]*bool, len(modifiers))
+	for key, value := range modifiers {
+		values[key] = cloneBoolPtr(value)
+	}
+	return RecordModifiers(values)
 }
 
 func cloneBoolPtr(value *bool) *bool {

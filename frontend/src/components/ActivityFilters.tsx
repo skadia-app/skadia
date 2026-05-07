@@ -6,11 +6,13 @@ import { Pill } from '@/components/ui/Pill'
 import { SportFilter } from '@/components/sport/SportFilter'
 import TagFilterInput from '@/components/TagFilterInput'
 import GearFilterInput, { gearTypeIcon } from '@/components/GearFilterInput'
+import { modifierKeysForCapability, modifierLabel } from '@/lib/sportModifiers'
 import type { TagFilter, TagFilterState } from '@/components/TagFilterInput'
 import type { GearFilter, GearFilterState, DeviceFilter } from '@/components/GearFilterInput'
 
 const ACTIVITY_SPORT_OPTIONS = generateActivityFilterOptions()
 const ALL_SPORT_KEYS = getAllSportKeys(ACTIVITY_SPORT_OPTIONS)
+const ACTIVITY_MODIFIER_KEYS = modifierKeysForCapability('modifier_filter')
 
 export interface ActivityFilterState {
   sportTypes: Set<string> | null
@@ -188,16 +190,16 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     chips.push({ label: filters.hasGPS ? 'Mit GPS' : 'Ohne GPS', onRemove: () => onChange({ ...filters, hasGPS: null }) })
   }
   if (filters.isIndoor !== null) {
-    chips.push({ label: filters.isIndoor ? 'Nur Indoor' : 'Ohne Indoor', onRemove: () => onChange({ ...filters, isIndoor: null }) })
+    chips.push({ label: filters.isIndoor ? `Nur ${modifierLabel('is_indoor')}` : `Ohne ${modifierLabel('is_indoor')}`, onRemove: () => onChange({ ...filters, isIndoor: null }) })
   }
   if (filters.isElectric !== null) {
-    chips.push({ label: filters.isElectric ? 'Nur E-Antrieb' : 'Ohne E-Antrieb', onRemove: () => onChange({ ...filters, isElectric: null }) })
+    chips.push({ label: filters.isElectric ? `Nur ${modifierLabel('is_electric')}` : `Ohne ${modifierLabel('is_electric')}`, onRemove: () => onChange({ ...filters, isElectric: null }) })
   }
   if (filters.isVirtual !== null) {
-    chips.push({ label: filters.isVirtual ? 'Nur Virtuell' : 'Ohne Virtuell', onRemove: () => onChange({ ...filters, isVirtual: null }) })
+    chips.push({ label: filters.isVirtual ? `Nur ${modifierLabel('is_virtual')}` : `Ohne ${modifierLabel('is_virtual')}`, onRemove: () => onChange({ ...filters, isVirtual: null }) })
   }
   if (filters.isCommute !== null) {
-    chips.push({ label: filters.isCommute ? 'Nur Pendeln' : 'Ohne Pendeln', onRemove: () => onChange({ ...filters, isCommute: null }) })
+    chips.push({ label: filters.isCommute ? `Nur ${modifierLabel('is_commute')}` : `Ohne ${modifierLabel('is_commute')}`, onRemove: () => onChange({ ...filters, isCommute: null }) })
   }
   if (filters.gearId) {
     chips.push({ label: 'Ausrüstung', onRemove: () => onChange({ ...filters, gearId: '' }) })
@@ -237,7 +239,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
 
             <SportFilter
               preset="ACTIVITY_ALL"
-              modifierKeys={['is_electric', 'is_indoor', 'is_virtual', 'is_commute']}
+              modifierKeys={ACTIVITY_MODIFIER_KEYS}
               value={{
                 sportTypes: filters.sportTypes === null ? null : [...filters.sportTypes],
                 modifiers: {

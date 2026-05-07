@@ -21,6 +21,7 @@ import {
 import { formatDistance, formatDuration, formatElevationGain, formatElevationLoss } from '@/lib/utils'
 import { getTagBadgeStyle } from '@/lib/tagUtils'
 import { fmtTime } from '@/lib/format'
+import { modifierKeysForCapability, modifierLabel, modifierTSField, type SportModifierKey } from '@/lib/sportModifiers'
 
 interface ActivityQuickEditModalProps {
   activity: Activity
@@ -114,6 +115,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
   const visibleSuggestions = useMemo(() => {
     return quickEditTagSuggestions(allTags ?? [], draft.tags, tagSearch)
   }, [allTags, draft.tags, tagSearch])
+  const quickEditModifierKeys = useMemo(() => modifierKeysForCapability('quick_edit'), [])
 
   if (!open) return null
   if (!fullActivity) {
@@ -137,7 +139,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
     setDraft(prev => quickEditTagDraftAfterToggle(prev, tagName, selected))
   }
 
-  function toggleModifier(modifier: 'isIndoor' | 'isElectric' | 'isVirtual', selected: boolean) {
+  function toggleModifier(modifier: SportModifierKey, selected: boolean) {
     setDraftDirty(true)
     setDraft(prev => quickEditTagDraftAfterModifier(prev, modifier, selected))
   }
@@ -318,21 +320,22 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
             </div>
 
             <div className="grid gap-3 md:grid-cols-3">
-              {([
-                ['isIndoor', 'Indoor'],
-                ['isVirtual', 'Virtuell'],
-                ['isElectric', 'E-Antrieb'],
-              ] as const).map(([key, label]) => (
+              {quickEditModifierKeys.map((key) => {
+                const field = modifierTSField(key) as keyof Pick<ActivityQuickEditDraft, 'isIndoor' | 'isElectric' | 'isVirtual'>
+                if (field !== 'isIndoor' && field !== 'isElectric' && field !== 'isVirtual') return null
+                const label = modifierLabel(key)
+                return (
                 <div key={key} className="flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
                   <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
                   <Toggle
-                    checked={draft[key]}
+                    checked={draft[field]}
                     onChange={checked => toggleModifier(key, checked)}
                     size="sm"
                     aria-label={label}
                   />
                 </div>
-              ))}
+                )
+              })}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
