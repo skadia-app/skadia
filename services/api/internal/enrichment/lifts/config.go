@@ -19,6 +19,8 @@ package lifts
 //
 // When the toggle is flipped to true a DB backfill is required: existing
 // heuristic candidates with confirmed=false would suddenly count toward
-// activities.lift_*. Run /lifts/recalculate-all to recompute aggregates
-// across the corpus before the change becomes user-visible.
+// activities.lift_*. Trigger re-enrichment of affected activities through the
+// regular enrichment pipeline (e.g. by re-queuing them) before the change
+// becomes user-visible. /lifts/recalculate-all only resets soft-reject flags
+// and does not recompute aggregates.
 var AutoConfirmHeuristic = false

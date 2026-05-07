@@ -13,8 +13,9 @@ import (
 // the authenticated user so that candidates hidden by a previous soft-reject
 // become visible again on the next enrichment pass.
 //
-// Query parameter: ?recompute=true triggers a re-enrichment of affected
-// activities after clearing (default: false — clear only).
+// This endpoint only resets the soft-reject flag; it does not trigger
+// re-enrichment or recompute aggregate statistics. Lift aggregates are
+// refreshed on the next regular enrichment pass for each affected activity.
 //
 // Response on success:
 //
