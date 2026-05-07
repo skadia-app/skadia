@@ -8,6 +8,7 @@ import {
 export type { SportModifierKey, SportModifierTSField }
 
 export type SportModifierCapability = keyof (typeof GENERATED_SPORT_MODIFIERS)[number]['capabilities']
+export type SportModifierState = Partial<Record<SportModifierTSField, boolean>>
 
 export const SPORT_MODIFIER_KEYS = [...GENERATED_SPORT_MODIFIER_KEYS] as SportModifierKey[]
 
@@ -51,9 +52,9 @@ export function modifierFromTSField(field: string): SportModifierKey | null {
   return modifierByTSField.get(field) ?? null
 }
 
-export function sportModifierSuffix(state: { isElectric?: boolean; isIndoor?: boolean; isVirtual?: boolean; isCommute?: boolean }): string {
+export function sportModifierSuffix(state: SportModifierState): string {
   return modifierKeysForCapability('activity_state')
-    .filter((key) => Boolean(state[modifierTSField(key) as keyof typeof state]))
+    .filter((key) => Boolean(state[modifierTSField(key)]))
     .map((key) => modifierLabel(key).slice(0, 1).toUpperCase())
     .join('/')
 }

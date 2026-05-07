@@ -16,6 +16,8 @@ import {
   quickEditTagDraftAfterModifier,
   quickEditTagDraftAfterToggle,
   quickEditModifierSelected,
+  quickEditTagRemovalLabel,
+  quickEditTagRemovalLocked,
   quickEditTagSuggestions,
   type ActivityQuickEditDraft,
 } from './quickEdit'
@@ -359,20 +361,16 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
               <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Tags</span>
               <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
                 <div className="mb-2 flex flex-wrap gap-2">
-		                  {draft.tags.map(tag => {
-		                    const locked = tag.toLowerCase() === 'virtuell' && quickEditModifierSelected(draft, 'is_virtual')
-		                    const removalLabel = tag.toLowerCase() === 'indoor' && quickEditModifierSelected(draft, 'is_indoor')
-		                      ? 'Indoor entfernen (setzt Indoor aus)'
-		                      : tag.toLowerCase() === 'e-bike' && quickEditModifierSelected(draft, 'is_electric')
-		                        ? 'E-Bike entfernen (setzt E-Antrieb aus)'
-	                        : `${tag} entfernen`
-	                    return (
-	                      <span key={tag} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium" style={tagStyle(tag, draft.tags.indexOf(tag))}>
-	                        {tag}
-	                        {!locked && (
-	                          <button type="button" onClick={() => toggleTag(tag, false)} className="opacity-70 hover:opacity-100" aria-label={removalLabel} title={removalLabel}>
-	                            <X className="h-3 w-3" />
-	                          </button>
+                  {draft.tags.map(tag => {
+                    const locked = quickEditTagRemovalLocked(draft, tag)
+                    const removalLabel = quickEditTagRemovalLabel(draft, tag)
+                    return (
+                      <span key={tag} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium" style={tagStyle(tag, draft.tags.indexOf(tag))}>
+                        {tag}
+                        {!locked && (
+                          <button type="button" onClick={() => toggleTag(tag, false)} className="opacity-70 hover:opacity-100" aria-label={removalLabel} title={removalLabel}>
+                            <X className="h-3 w-3" />
+                          </button>
                         )}
                       </span>
                     )
