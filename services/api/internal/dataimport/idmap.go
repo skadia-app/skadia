@@ -60,6 +60,38 @@ func (m *IDMap) Set(oldID, newID string) {
 	m.mu.Unlock()
 }
 
+// Clone returns an isolated copy of the current mapping state. Callers can use
+// it for speculative row preparation and merge it only after the row is durable.
+func (m *IDMap) Clone() *IDMap {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := &IDMap{
+		m:            make(map[string]string, len(m.m)),
+		sourceUserID: m.sourceUserID,
+		targetUserID: m.targetUserID,
+	}
+	for oldID, newID := range m.m {
+		out.m[oldID] = newID
+	}
+	return out
+}
+
+// MergeFrom copies mappings from other into m.
+func (m *IDMap) MergeFrom(other *IDMap) {
+	other.mu.RLock()
+	snapshot := make(map[string]string, len(other.m))
+	for oldID, newID := range other.m {
+		snapshot[oldID] = newID
+	}
+	other.mu.RUnlock()
+
+	m.mu.Lock()
+	for oldID, newID := range snapshot {
+		m.m[oldID] = newID
+	}
+	m.mu.Unlock()
+}
+
 // GetIfExists returns the mapping for oldID only if it already exists.
 // sourceUserID always resolves to (targetUserID, true).
 func (m *IDMap) GetIfExists(oldID string) (string, bool) {
