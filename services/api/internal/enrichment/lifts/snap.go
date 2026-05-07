@@ -310,6 +310,12 @@ func MergeMultiRideForOSM(
 			MergedRideIndices: append([]int(nil), members...),
 		}
 		for _, m := range members[1:] {
+			// MergedRideIndices on a suppressed member is a single-element
+			// slice pointing at the canonical ride. The persistence loop in
+			// lift_enrich.go uses res.MergedRideIndices[0] to look up the
+			// canonical Stage-2 segment_effort by (activity_id, started_at);
+			// without this slot the loop panics index-out-of-range before
+			// the audit row can be written. (Phase-4 critic finding F1.)
 			out[m] = SnapResult{
 				RideIdx:           m,
 				Action:            SnapActionSnap,
@@ -319,6 +325,7 @@ func MergeMultiRideForOSM(
 				IsReverse:         out[canonical].IsReverse,
 				IsCableHoldMerge:  true,
 				SuppressedByMerge: true,
+				MergedRideIndices: []int{canonical},
 			}
 		}
 	}
