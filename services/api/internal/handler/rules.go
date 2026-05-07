@@ -235,6 +235,10 @@ func (h *Handler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "rule not found", r.URL.Path)
 			return
 		}
+		if err.Error() == "system rules cannot be deleted" {
+			httputil.WriteError(w, http.StatusConflict, "Conflict", "system rules cannot be deleted", r.URL.Path)
+			return
+		}
 		slog.Error("delete rule failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete rule", r.URL.Path)
 		return
