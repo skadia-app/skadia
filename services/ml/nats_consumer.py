@@ -13,9 +13,6 @@ from nats.js.api import ConsumerConfig, DeliverPolicy, AckPolicy
 
 from db import get_pool
 from progress import publish_progress
-from enrichment import (
-    enrich_lifts,
-)
 from enrichment.document_vlm import convert_to_markdown, process_document, upload_to_s3
 from analytics import (
     cluster_activities,
@@ -178,10 +175,12 @@ async def _decode_or_ack(msg, label: str) -> "dict | None":
         return None
 
 
-# Mapping of NATS subjects to enrichment functions
-HIGH_PRIORITY_STEPS = [
-    ("lifts", enrich_lifts),
-]
+# Mapping of NATS subjects to enrichment functions.
+# "lifts" subject removed: lift detection moved to Go pipeline (Phase 4,
+# RunStreamEnrichment). Python entry-point deleted to prevent double-execution
+# if anything publishes to that subject. Cleanup of enrichment/lifts.py itself
+# is deferred to Phase 7 (Python-Lift-Cleanup).
+HIGH_PRIORITY_STEPS: list = []
 
 NORMAL_PRIORITY_STEPS = []
 
