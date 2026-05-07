@@ -2,7 +2,6 @@ package enrichment
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -10,15 +9,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 )
 
-// liftTestPool opens a pgxpool from TEST_DATABASE_URL; skips if not set.
+// liftTestPool opens a pgxpool from the per-worktree test DB via testdb.RequireSafeDSN; skips if unset.
 func liftTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connect to test DB: %v", err)

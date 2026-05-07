@@ -7,7 +7,6 @@ package automation
 
 import (
 	"context"
-	"os"
 	"sync"
 	"testing"
 
@@ -15,15 +14,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 )
 
-// systemArtifactsTestPool returns a pgxpool to TEST_DATABASE_URL or skips.
+// systemArtifactsTestPool returns a pgxpool to the per-worktree test DB via testdb.RequireSafeDSN.
 func systemArtifactsTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
