@@ -771,9 +771,13 @@ func (db *DB) InsertHeuristicCandidateIfNotRejected(
 	userID, activityID string,
 	in HeuristicCandidateInput,
 ) (bool, error) {
-	const toleranceS = 5
-
 	// Check for a rejected row whose window overlaps (with ±5s slack on each edge).
+	// Two windows [A, B] and [C, D] overlap when A <= D and B >= C.
+	// With tolerance t: rejected overlaps new when
+	//   rejected.started_at <= new.ended_at + t
+	//   rejected.ended_at   >= new.started_at - t
+	// The tolerance is baked in as a literal interval ('5 seconds') to avoid
+	// pgx type-inference issues with make_interval(secs => $N).
 	var conflictExists bool
 	if err := db.Pool.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -782,11 +786,11 @@ func (db *DB) InsertHeuristicCandidateIfNotRejected(
 			WHERE alc.activity_id = $1
 			  AND a.user_id = $2
 			  AND alc.rejected_by_user = true
-			  AND alc.started_at <= $3 + make_interval(secs => $5)
-			  AND alc.ended_at   >= $4 - make_interval(secs => $5)
+			  AND alc.started_at <= $3::timestamptz + interval '5 seconds'
+			  AND alc.ended_at   >= $4::timestamptz - interval '5 seconds'
 		)
 	`, activityID, userID,
-		in.EndedAt, in.StartedAt, toleranceS,
+		in.EndedAt, in.StartedAt,
 	).Scan(&conflictExists); err != nil {
 		return false, fmt.Errorf("check reject overlap: %w", err)
 	}
