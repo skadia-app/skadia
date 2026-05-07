@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { FusionCandidate, FusionQueueEntry } from '../importWizard'
-import { modifierKeysForCapability } from '@/lib/sportModifiers'
+import { modifierJSONKey, modifierKeysForCapability } from '@/lib/sportModifiers'
 
 const fusionCandidateModifierKeys = [
   'is_electric',
@@ -20,5 +20,13 @@ describe('import wizard modifier wire shape', () => {
     const expected = modifierKeysForCapability('activity_state').filter((key) => key !== 'is_commute')
     expect(fusionCandidateModifierKeys).toEqual(expected)
     expect(fusionQueueModifierPairs.map(([left]) => left.replace(/_a$/, ''))).toEqual(expected)
+
+    const candidatePayload = Object.fromEntries(fusionCandidateModifierKeys.map((key) => [modifierJSONKey(key), true]))
+    const queuePayload = Object.fromEntries(fusionQueueModifierPairs.flatMap(([left, right]) => [[left, true], [right, false]]))
+    for (const key of expected) {
+      expect(candidatePayload).toHaveProperty(modifierJSONKey(key))
+      expect(queuePayload).toHaveProperty(`${modifierJSONKey(key)}_a`)
+      expect(queuePayload).toHaveProperty(`${modifierJSONKey(key)}_b`)
+    }
   })
 })

@@ -1,5 +1,5 @@
 import type { Activity } from '@/api/types'
-import { modifierFromTSField, modifierJSONKey, modifierKeysForCapability, modifierTagSync, modifierTagSyncOnlySportType, modifierTSField, type SportModifierKey, type SportModifierTSField } from '@/lib/sportModifiers'
+import { modifierFromTSField, modifierJSONKey, modifierKeysForCapability, modifierLabel, modifierTagSync, modifierTagSyncOnlySportType, modifierTSField, type SportModifierKey, type SportModifierTSField } from '@/lib/sportModifiers'
 import type { updateActivity } from '@/api/activities'
 
 export type ActivityQuickEditPatch = Parameters<typeof updateActivity>[1]
@@ -25,6 +25,8 @@ const COUPLED_TAGS = new Set(
       return tag ? [normalizedTagName(tag)] : []
     }),
 )
+
+const HEATMAP_LOCKING_MODIFIER: SportModifierKey = 'is_virtual'
 
 export interface QuickEditTagCandidate {
   name: string
@@ -148,7 +150,7 @@ export function quickEditTagDraftAfterToggle(
   const tag = tagName.trim()
   if (!tag) return draft
   const key = normalizedTagName(tag)
-  if (key === 'virtuell' && quickEditModifierSelected(draft, 'is_virtual') && !selected) {
+  if (quickEditTagRemovalLocked(draft, tag) && !selected) {
     return draft
   }
 
@@ -196,11 +198,36 @@ function setQuickEditModifier(draft: ActivityQuickEditDraft, modifier: SportModi
   if (!modifierKeysForCapability('quick_edit').includes(modifier)) return
   const field = modifierTSField(modifier)
   draft.modifiers = { ...draft.modifiers, [field]: selected }
-  if (modifier === 'is_virtual') draft.excludeFromHeatmap = selected
+  if (modifier === HEATMAP_LOCKING_MODIFIER) draft.excludeFromHeatmap = selected
 }
 
 export function quickEditModifierSelected(draft: ActivityQuickEditDraft, modifier: SportModifierKey): boolean {
   return Boolean(draft.modifiers[modifierTSField(modifier)])
+}
+
+export function quickEditSyncedModifierForTag(draft: ActivityQuickEditDraft, tagName: string): SportModifierKey | null {
+  const tagKey = normalizedTagName(tagName)
+  for (const modifierKey of modifierKeysForCapability('quick_edit')) {
+    const sync = modifierTagSync(modifierKey)
+    if (!sync || normalizedTagName(sync.systemTag) !== tagKey) continue
+    const onlySportType = modifierTagSyncOnlySportType(modifierKey)
+    if (onlySportType && onlySportType !== draft.sportType) continue
+    return modifierKey
+  }
+  return null
+}
+
+export function quickEditTagRemovalLocked(draft: ActivityQuickEditDraft, tagName: string): boolean {
+  return quickEditSyncedModifierForTag(draft, tagName) === HEATMAP_LOCKING_MODIFIER &&
+    quickEditModifierSelected(draft, HEATMAP_LOCKING_MODIFIER)
+}
+
+export function quickEditTagRemovalLabel(draft: ActivityQuickEditDraft, tagName: string): string {
+  const modifierKey = quickEditSyncedModifierForTag(draft, tagName)
+  if (modifierKey && quickEditModifierSelected(draft, modifierKey)) {
+    return `${tagName} entfernen (setzt ${modifierLabel(modifierKey)} aus)`
+  }
+  return `${tagName} entfernen`
 }
 
 function quickEditModifiersFromActivity(activity: Activity): Partial<Record<SportModifierTSField, boolean>> {

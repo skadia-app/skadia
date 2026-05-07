@@ -4,6 +4,8 @@ import {
   buildActivityQuickEditPatch,
   diffQuickEditTags,
   quickEditModifierSelected,
+  quickEditTagRemovalLabel,
+  quickEditTagRemovalLocked,
   quickEditTagDraftAfterModifier,
   quickEditTagDraftAfterToggle,
   quickEditTagSuggestions,
@@ -137,6 +139,19 @@ describe('activity quick edit helpers', () => {
     const noElectric = quickEditTagDraftAfterToggle(draft({ modifiers: { isElectric: true }, tags: ['E-Bike'] }), 'E-Bike', false)
     expect(quickEditModifierSelected(noElectric, 'is_electric')).toBe(false)
     expect(noElectric.tags).not.toContain('E-Bike')
+  })
+
+  it('derives synced tag removal affordances from generated modifier metadata', () => {
+    const state = draft({
+      sportType: 'cycling',
+      modifiers: { isIndoor: true, isElectric: true, isVirtual: true },
+      tags: ['Indoor', 'E-Bike', 'virtuell'],
+    })
+
+    expect(quickEditTagRemovalLabel(state, 'Indoor')).toBe('Indoor entfernen (setzt Indoor aus)')
+    expect(quickEditTagRemovalLabel(state, 'E-Bike')).toBe('E-Bike entfernen (setzt E-Antrieb aus)')
+    expect(quickEditTagRemovalLocked(state, 'virtuell')).toBe(true)
+    expect(quickEditTagRemovalLocked(state, 'Indoor')).toBe(false)
   })
 
   it('adds the E-Bike tag only for cycling drafts when toggling the electric modifier', () => {
