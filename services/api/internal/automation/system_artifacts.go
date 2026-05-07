@@ -173,7 +173,8 @@ const SystemArtifactsVersion = 2
 const sweepAdvisoryLockKey int64 = 0x5c46c1f770b0 // "SCA L1FT" mnemonic
 
 // IsValidSystemType replaces the SQL CHECK constraint that migration
-// 000999 dropped. Verified callsites that write automation_rules.system_type
+// 000348_drop_system_type_check_for_code_validation dropped. Verified
+// callsites that write automation_rules.system_type
 // (grep at plan time, services/api/internal/):
 //
 //  1. system_artifacts.go::EnsureSystemArtifacts — iterates SystemRules whose
