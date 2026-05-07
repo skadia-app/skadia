@@ -113,6 +113,9 @@ func DetectHeuristicWithIndices(rows []StreamPoint, cfg DetectorConfig) []RideWi
 			peeled := false
 			sinStitched := final.sinuosity > cfg.MaxSinuosity && final.sinuosity <= 1.30
 			if sinStitched && (kind == "high" || kind == "medium") {
+				// peelStepS / peelMaxS: walk back 30 s at a time up to 900 s (15 min). 30 s matches
+				// the segment granularity of the stitched-pair case (L02→L01 walk ≈ 30–120 s);
+				// 900 s is the longest observed single-lift ride in the corpus.
 				const peelStepS = 30.0
 				const peelMaxS = 900.0
 				for stepS := peelStepS; stepS <= peelMaxS; stepS += peelStepS {
@@ -282,6 +285,8 @@ func mergeMidLiftSplits(in []rideWithIdx, rows []StreamPoint, cfg DetectorConfig
 	if len(in) < 2 {
 		return in
 	}
+	// maxGapS / maxPosDistM: standard merge tier — pylon-stop and recording-glitch splits
+	// produce gaps < 20 s with endpoints < one cabin-length (25 m) apart.
 	const maxGapS = 20.0
 	const maxPosDistM = 25.0
 	// Cable-hold tier: a chairlift / gondola operator stops the cable mid-ride
@@ -749,8 +754,8 @@ func extendCandidate(rows []StreamPoint, start, initialEnd int, kind string, ws 
 	// while still firing on real disembarks — stepping off the chair drops
 	// alt 20–30 m within the first 30 s of skiing.
 	const peakDropThreshM = 12.0
-	const peakAdvanceMinM = 3.0 // robust to ±1 m barometer noise
-	const stallTimeoutS = 20.0
+	const peakAdvanceMinM = 3.0  // m; robust to ±1 m barometer noise — only a real advance counts
+	const stallTimeoutS = 20.0  // s; seconds with no altitude advance before declaring a stall; short enough to fire before the rider walks far off the lift top
 	// stallMinDropM aligned with peakDropThreshM = 12 — both gate the same
 	// physical event (sustained altitude reversal); the difference is only
 	// the time aspect (stall = drop + 20 s without advance, peakDrop =
@@ -1120,9 +1125,9 @@ func trimTrailingDisembarkDiscontinuity(rows []StreamPoint, start, end int, kind
 	const midWindowS = 60.0
 	const tailWindowS = 30.0
 	const stepS = 10.0
-	const maxScanBackS = 180.0 // never scan more than 3 min from initial end
-	const midAltRateFloor = 0.30
-	const tailRatioMax = 0.25
+	const maxScanBackS = 180.0   // s; never scan more than 3 min from initial end
+	const midAltRateFloor = 0.30 // m/s; must be clearly on-cable (lift floor is 0.10 m/s; 0.30 is safely above noise from walking post-disembark)
+	const tailRatioMax = 0.25    // tail/mid ratio below which the tail counts as disembarked; 0.25 keeps genuine braking zones (cabin-brake ≈ 0.50) intact
 	scanLimitT := rows[end].Time.Add(-time.Duration(maxScanBackS) * time.Second)
 	pos := end
 	for pos > start+30 {
@@ -1291,8 +1296,8 @@ func trimTrailingLowGradient(rows []StreamPoint, start, end int, kind string, cf
 	if kind == "bidir" {
 		return end
 	}
-	const tailWindowS = 60.0
-	const stepS = 10.0
+	const tailWindowS = 60.0 // s; long enough to span cable-decel (15–30 s) plus walk-off (10–30 s) as a unit
+	const stepS = 10.0       // s; step aligns with chunkedSpeeds boundaries
 	gradFloor := 0.5 * cfg.MinGradient
 	// Compute the candidate's overall altRate so the floor scales with the
 	// natural lift class. altDelta uses end-start direction-agnostic absolute.
@@ -1466,8 +1471,11 @@ func findTrailApproachStopAnchor(rows []StreamPoint, start, end int, kind string
 }
 
 func hasFastDescentBefore(rows []StreamPoint, start int, cfg DetectorConfig) bool {
+	// lookbackS: 2 min covers a full fast-MTB descent run from bergstation to talstation before queuing.
 	const lookbackS = 120.0
+	// fastSpeedMs: 8 m/s — MTB descents and fast skiers; cable cars never reach this in descent.
 	const fastSpeedMs = 8.0
+	// minDropM: same as peakDropThreshM — requires the descent to be substantial (not GPS jitter).
 	const minDropM = 12.0
 	cutoff := rows[start].Time.Add(-time.Duration(lookbackS) * time.Second)
 	lo := start
@@ -1500,8 +1508,11 @@ func hasFastDescentBefore(rows []StreamPoint, start int, cfg DetectorConfig) boo
 }
 
 func firstSustainedStopAfter(rows []StreamPoint, start, end int, cfg DetectorConfig) int {
+	// maxSearchS: 4 min search window — talstation boarding queues are typically resolved within this time.
 	const maxSearchS = 240.0
+	// stopSpeedMs: 1.0 m/s — slow walking pace; below this the rider is queuing at the gate.
 	const stopSpeedMs = 1.0
+	// stopDurS: 5 s sustained below stopSpeedMs confirms a genuine queue-stop vs a momentary GPS dip.
 	const stopDurS = 5.0
 	limit := rows[start].Time.Add(time.Duration(maxSearchS) * time.Second)
 	stopStart := -1
@@ -1545,8 +1556,12 @@ func roadClimbBoundaryOK(rows []StreamPoint, start, boundaryStart, end int, kind
 			return false
 		}
 	}
+	// lookbackS: 75 s context before start — enough to detect a boarding-line stop without
+	// reaching back into the previous lift ride (lift rides typically ≥ 60 s apart).
 	const lookbackS = 75.0
+	// minContextS: need at least 30 s of pre-ride data to say anything about the approach.
 	const minContextS = 30.0
+	// afterStartS: include samples up to 8 s after start to capture the cabin's first clear motion.
 	const afterStartS = 8.0
 	if start <= 0 || start >= len(rows) {
 		return true
@@ -1576,8 +1591,11 @@ func roadClimbExitBoundaryOK(rows []StreamPoint, end int, cfg DetectorConfig) bo
 	if end < 0 || end >= len(rows)-1 {
 		return true
 	}
+	// lookaheadS / minContextS: mirror of roadClimbBoundaryOK's lookbackS/minContextS — 75 s is enough
+	// to observe the post-ride departure signature without reaching into the next lift ride.
 	const lookaheadS = 75.0
 	const minContextS = 30.0
+	// fastDepartureMs: 8 m/s — MTB / ski speed after disembarking signals the ride ended at a real bergstation.
 	const fastDepartureMs = 8.0
 	limit := rows[end].Time.Add(time.Duration(lookaheadS) * time.Second)
 	hi := end
@@ -1608,7 +1626,7 @@ func sustainedStopInRange(rows []StreamPoint, lo, hi int, cfg DetectorConfig) bo
 	if hi <= lo {
 		return false
 	}
-	const stopDurS = 5.0
+	const stopDurS = 5.0 // s; same as firstSustainedStopAfter — 5 s is the minimum to distinguish a queue from a GPS dip
 	stopSpeedMs := cfg.BoundarySpeedDropMs
 	if stopSpeedMs <= 0 {
 		stopSpeedMs = 1.5
@@ -1691,12 +1709,12 @@ func trimLeadingLowGradient(rows []StreamPoint, start, end int, kind string) int
 	if end <= start {
 		return start
 	}
-	const leadWindowS = 30.0
-	const leadStepS = 10.0
-	const leadAbsCapMs = 0.40
-	const leadRelativeRatio = 0.5
-	const maxTotalTrimS = 120.0
-	const minRestSecs = 60.0
+	const leadWindowS = 30.0       // s; matches buildInitialWindow width — one classify-window at a time
+	const leadStepS = 10.0         // s; step ≈ one chunk so the trim aligns with chunkedSpeeds boundaries
+	const leadAbsCapMs = 0.40      // m/s; boarding-plateau absolute ceiling — see function comment
+	const leadRelativeRatio = 0.5  // lead/rest ratio — see function comment
+	const maxTotalTrimS = 120.0    // s; hard ceiling — see function comment
+	const minRestSecs = 60.0       // s; at least one classify-window worth of cable ride must remain
 	pos := start
 	elapsedTrim := 0.0
 	for elapsedTrim < maxTotalTrimS {
@@ -1897,8 +1915,8 @@ func extendCandidateBackward(rows []StreamPoint, oldStart, end int, kind string,
 		}
 	}
 
-	const peakDropThreshM = 12.0
-	const overBandBreakSpdMs = 22.0
+	const peakDropThreshM = 12.0     // m; mirrors extendCandidate — altitude past this off the ride-start anchor means we have crossed into different terrain
+	const overBandBreakSpdMs = 22.0  // m/s; mirrors extendCandidate — GPS spike above this is pre-boarding bike descent, not lift
 	// backwardStopToleranceS is intentionally tighter than the forward
 	// cfg.StopToleranceS (120 s). The forward pass tolerates long mid-lift
 	// halts (mtb-park case 30 s tower-stop, multi-resort case pylon wobble). Backward,
@@ -1922,7 +1940,7 @@ func extendCandidateBackward(rows []StreamPoint, oldStart, end int, kind string,
 	// (with the relaxed CV cap on the backward extension) is the
 	// downstream check that keeps over-reach in line.
 	const altAdvanceStallBackS = 45.0
-	const altAdvanceMinM = 3.0
+	const altAdvanceMinM = 3.0 // m; mirrors peakAdvanceMinM — altitude must advance by this much to count as cable-direction progress
 
 	stopAccumS := 0.0
 	stopStartIdx := -1
@@ -1951,6 +1969,9 @@ func extendCandidateBackward(rows []StreamPoint, oldStart, end int, kind string,
 	// values typical of queue zigzag.
 	const backwardSinCheckEvery = 30
 	const backwardSinMiniMax = 1.20
+	// maxCablePlateauBackS: once the cable-plateau bypass fires, limit how long the plateau can extend
+	// backward (45 s ≈ two probed windows). Prevents the bypass from absorbing an entire boarding queue
+	// whose horizontal speed happens to match cable cruise.
 	const maxCablePlateauBackS = 45.0
 	sliceTopIdx := oldStart
 	sinCheckCounter := 0
@@ -2276,7 +2297,7 @@ func trimTrailingAltPlateau(rows []StreamPoint, start, end int) int {
 }
 
 func trimTrailingChunks(rows []StreamPoint, start, end int) int {
-	const chunkSecs = 10.0
+	const chunkSecs = 10.0 // s; matches computeStats chunk size — trims at the same granularity used for CV
 	chunks, _ := chunkedSpeeds(rows, start, end, chunkSecs)
 	if len(chunks) < 6 {
 		return end

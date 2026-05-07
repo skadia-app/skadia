@@ -46,22 +46,22 @@ func (r LiftRide) Validate() error {
 // The defaults are calibrated against the LIFT_ERKENNUNG training corpus
 // (9 regions, 13 activities, ski + mtb_downhill).
 type DetectorConfig struct {
-	MinSpeedMs           float64 // 2.0  — fast lift floor
-	MaxSpeedMs           float64 // 12.0 — fast lift ceiling
-	MaxSpeedCV           float64 // 0.05 — Coefficient of Variation, lifts run very stable (final validate)
-	InitialMaxSpeedCV    float64 // 0.10 — relaxed CV for the initial 30 s classify gate (3 chunks ≈ volatile MAD)
-	SpeedCVTrimSeconds   int     // 30   — trim leading/trailing seconds before CV. Active to let backward-extension absorb 30–60 s of boarding-phase samples (queue-shuffle, pylon-acceleration) without exploding the strict 0.04 final-CV gate. Window must be > 2*trim+30 s for the trim to kick in, otherwise full speed series is used.
-	MinGradient          float64 // 0.20 — vertical/horizontal speed ratio
-	MaxSinuosity         float64 // 1.15 — straight-line ratio
-	MinDurationS         int     // 60   — fast lift floor
-	NoSpeedMinAltRateMs  float64 // 0.6  — fallback when speed unusable
-	NoSpeedMinDurationS  int     // 90
-	BidirAltAbsM         float64 // 8.0  — bidirectional aerial tramway: sum of |delta_alt| over window
-	BidirSinuosityMax    float64 // 1.10 — bidir lifts MUST be very straight
-	BidirMinDurationS    int     // 90  — bidir candidate min duration (FP-shield against MTB flow waves)
-	StopToleranceS       int     // 120  — stop ≤ this preserves segment
-	SmartRecMaxGapS      int     // 35   — gap above this counts as recording-paused
-	MinSamples           int     // 10
+	MinSpeedMs           float64 // m/s; default 0.7 — slowest lift class floor (T-bar / drag lift ≈ 0.7 m/s)
+	MaxSpeedMs           float64 // m/s; default 15.0 — aerial tramway ceiling (real max ≈ 12 m/s; 15 gives headroom for GPS haversine over-speed)
+	MaxSpeedCV           float64 // MAD/median; default 0.04 — Coefficient of Variation, lifts run very stable (final validate)
+	InitialMaxSpeedCV    float64 // MAD/median; default 0.04 — relaxed CV for the initial 30 s classify gate (3 chunks ≈ volatile MAD)
+	SpeedCVTrimSeconds   int     // s; default 30 — trim leading/trailing seconds before CV. Active to let backward-extension absorb 30–60 s of boarding-phase samples (queue-shuffle, pylon-acceleration) without exploding the strict 0.04 final-CV gate. Window must be > 2*trim+30 s for the trim to kick in, otherwise full speed series is used.
+	MinGradient          float64 // vertical/horizontal ratio; default 0.10 — lift floor (T-bar ≈ 0.15, gondola ≈ 0.30)
+	MaxSinuosity         float64 // cumDist/straight; default 1.08 — straight-line ratio
+	MinDurationS         int     // s; default 60 — fast lift floor
+	NoSpeedMinAltRateMs  float64 // m/s; default 0.6 — fallback when speed unusable
+	NoSpeedMinDurationS  int     // s; default 90
+	BidirAltAbsM         float64 // m; default 50.0 — bidirectional aerial tramway: sum of |delta_alt| over window
+	BidirSinuosityMax    float64 // cumDist/straight; default 1.05 — bidir lifts MUST be very straight
+	BidirMinDurationS    int     // s; default 120 — bidir candidate min duration (FP-shield against rapid alternating MTB descent oscillations)
+	StopToleranceS       int     // s; default 120 — stop ≤ this preserves segment
+	SmartRecMaxGapS      int     // s; default 75 — gap above this counts as recording-paused
+	MinSamples           int     // samples; default 4
 	WindowDurationS      int     // 30 — initial window for the candidate test
 	GPSDeltaSpeedFloorMs float64 // 0.5  — below this we ignore the SpeedMs field
 
