@@ -2,4 +2,23 @@ package lifts
 
 // AutoConfirmHeuristic controls whether heuristic lift candidates count before
 // user confirmation. Keep false until false-positive rates are known.
-const AutoConfirmHeuristic = false
+//
+// Declared as `var` rather than `const` so the gate in recomputeLiftStats does
+// not collapse into an unreachable branch at compile time — a Go const here
+// would let staticcheck/unparam flag the SQL-filter switch as dead code, and
+// flipping the gate today still requires recompile+redeploy regardless. A
+// runtime variable preserves the same on-paper toggle ergonomics without the
+// linter friction.
+//
+// Future: this should be lifted to a system-wide setting key (e.g.
+// "lifts.auto_confirm_heuristic" in services/api/internal/settings) so an
+// admin can flip it without a rebuild. That requires plumbing the
+// SettingsStore into database.DB (currently held only by the handler layer)
+// and is intentionally deferred to its own plan — see F11/F40 in the
+// 2026-05-04 lift-detection plan critic notes.
+//
+// When the toggle is flipped to true a DB backfill is required: existing
+// heuristic candidates with confirmed=false would suddenly count toward
+// activities.lift_*. Run /lifts/recalculate-all to recompute aggregates
+// across the corpus before the change becomes user-visible.
+var AutoConfirmHeuristic = false

@@ -73,12 +73,6 @@ type DetectorConfig struct {
 	BoundarySpeedDropWindowS int     // 60   — flanking window each side
 	RoadClimbBoundaryGuard   bool    // cycling road-climb false-positive guard
 
-	// Confirm-gating: when true, recomputeLiftStats() in the API layer counts
-	// heuristic candidates regardless of confirmed-flag. Default false (current
-	// product decision: heuristic stats only count after user confirm). Lives
-	// in this struct so the algorithm tests can compile-time-check the flag,
-	// but the actual gate sits in the SQL of recomputeLiftStats — see Phase 5b.
-	AutoConfirmHeuristic bool // false
 }
 
 // DefaultDetectorConfig returns the calibrated defaults.
@@ -115,6 +109,5 @@ func DefaultDetectorConfig(sport string) DetectorConfig {
 		BoundarySpeedDropMs:      1.5,
 		BoundarySpeedDropWindowS: 60,
 		RoadClimbBoundaryGuard:   roadClimbGuard,
-		AutoConfirmHeuristic:     false,
 	}
 }
