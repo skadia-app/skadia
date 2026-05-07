@@ -66,6 +66,11 @@ export function invalidateQueriesForCompletedJob(queryClient: QueryClient, job: 
     return
   }
 
+  if (job.job_type === 'gdpr_export') {
+    queryClient.invalidateQueries({ queryKey: ['data-export-latest'] })
+    return
+  }
+
   if (job.job_type === 'data_import') {
     queryClient.invalidateQueries({ queryKey: ['activities'] })
     queryClient.invalidateQueries({ queryKey: ['tags'] })

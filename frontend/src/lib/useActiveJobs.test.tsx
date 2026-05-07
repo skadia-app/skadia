@@ -52,4 +52,13 @@ describe('invalidateQueriesForCompletedJob', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['activity-track-summary'] })
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['activities'] })
   })
+
+  it('invalidates the latest data export lookup after GDPR exports finish', async () => {
+    const queryClient = new QueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    invalidateQueriesForCompletedJob(queryClient, makeJob({ job_type: 'gdpr_export' }))
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['data-export-latest'] })
+  })
 })

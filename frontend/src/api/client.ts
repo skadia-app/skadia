@@ -296,13 +296,31 @@ export function parseContentDisposition(header: string | null): string | undefin
   return match?.[1] ? decodeURIComponent(match[1]) : undefined
 }
 
+function resolveDownloadUrl(path: string): string {
+  const url = path.startsWith('http') || path.startsWith('/api/') ? path : `${API_BASE}${path}`
+  const browserOrigin = window.location.origin
+  const candidate = new URL(url, browserOrigin)
+  const apiBase = new URL(API_BASE, browserOrigin)
+  const apiBasePath = apiBase.pathname.endsWith('/') ? apiBase.pathname : `${apiBase.pathname}/`
+
+  const sameOriginApiPath = candidate.origin === browserOrigin && candidate.pathname.startsWith('/api/')
+  const configuredApiPath =
+    candidate.origin === apiBase.origin &&
+    (candidate.pathname === apiBase.pathname || candidate.pathname.startsWith(apiBasePath))
+
+  if (!sameOriginApiPath && !configuredApiPath) {
+    throw new ApiError(400, 'Invalid download URL')
+  }
+  return url
+}
+
 /** Authenticated binary download: fetches a protected URL with auth header and returns a Blob */
 export async function apiDownload(
   path: string,
   options?: { method?: string; body?: unknown },
 ): Promise<{ blob: Blob; filename?: string }> {
   const token = getToken()
-  const url = path.startsWith('http') ? path : `${API_BASE}${path}`
+  const url = resolveDownloadUrl(path)
   const method = options?.method ?? 'GET'
   const headers: Record<string, string> = {}
   if (token) headers['Authorization'] = `Bearer ${token}`

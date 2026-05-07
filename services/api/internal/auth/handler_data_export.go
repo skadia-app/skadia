@@ -37,6 +37,23 @@ func isValidExportPath(path string) bool {
 
 var staleCleanupOnce sync.Once
 
+const dataExportDownloadTTL = 24 * time.Hour
+
+func dataExportExpiresAt(updatedAt time.Time) time.Time {
+	return updatedAt.Add(dataExportDownloadTTL)
+}
+
+func dataExportDownloadExpired(now, updatedAt time.Time) bool {
+	return !now.Before(dataExportExpiresAt(updatedAt))
+}
+
+func clearDataExportFilePath(ctx context.Context, pool *pgxpool.Pool, jobID string) {
+	if _, err := pool.Exec(ctx,
+		`UPDATE background_jobs SET metadata = metadata - 'file_path' WHERE id = $1`, jobID); err != nil {
+		slog.Warn("gdpr export cleanup: clear file_path failed", "job_id", jobID, "error", err)
+	}
+}
+
 // startStaleExportCleanup runs the stale export job cleanup every 5 minutes.
 // Safe to call multiple times — only starts once.
 func startStaleExportCleanup(ctx context.Context, pool *pgxpool.Pool) {
@@ -124,10 +141,7 @@ func cleanupStaleExportJobs(ctx context.Context, pool *pgxpool.Pool) {
 			os.Remove(e.path)
 		}
 		// Strip file_path from metadata so we don't keep retrying.
-		if _, err := pool.Exec(ctx,
-			`UPDATE background_jobs SET metadata = metadata - 'file_path' WHERE id = $1`, e.id); err != nil {
-			slog.Warn("gdpr export cleanup: clear file_path failed", "job_id", e.id, "error", err)
-		}
+		clearDataExportFilePath(ctx, pool, e.id)
 	}
 }
 
@@ -217,6 +231,41 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		"job_id": jobID,
 		"status": "queued",
 	})
+}
+
+// DataExportLatest handles GET /auth/data-export/latest — returns the latest export job for the current user.
+func (h *Handler) DataExportLatest(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+
+	var jobID, status, startedAt string
+	var updatedAt time.Time
+	var errText *string
+	var metadata []byte
+
+	err := h.DB.Pool.QueryRow(r.Context(),
+		`SELECT id::text, status, started_at::text, COALESCE(updated_at, started_at), error, COALESCE(metadata, '{}'::jsonb)
+		 FROM background_jobs
+		 WHERE user_id = $1 AND job_type = 'gdpr_export'
+		   AND (
+		     status IN ('queued', 'running')
+		     OR COALESCE(updated_at, started_at) > NOW() - INTERVAL '25 hours'
+		   )
+		 ORDER BY started_at DESC
+		 LIMIT 1`,
+		userID).Scan(&jobID, &status, &startedAt, &updatedAt, &errText, &metadata)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	if err != nil {
+		slog.Error("gdpr export latest: query failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+
+	resp := buildDataExportStatusResponse(jobID, status, updatedAt, errText, metadata, time.Now())
+	resp["started_at"] = startedAt
+	httputil.WriteJSONNoCache(w, http.StatusOK, resp)
 }
 
 // runExportJob transitions the job to running, executes the export, and marks it failed on error.
@@ -639,12 +688,13 @@ func (h *Handler) DataExportStatus(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	jobID := chi.URLParam(r, "jobID")
 
-	var status, startedAt, updatedAt string
+	var status, startedAt string
+	var updatedAt time.Time
 	var errText *string
 	var metadata []byte
 
 	err := h.DB.Pool.QueryRow(r.Context(),
-		`SELECT status, started_at::text, updated_at::text, error, metadata
+		`SELECT status, started_at::text, COALESCE(updated_at, started_at), error, COALESCE(metadata, '{}'::jsonb)
 		 FROM background_jobs
 		 WHERE id = $1 AND user_id = $2 AND job_type = 'gdpr_export'`,
 		jobID, userID).Scan(&status, &startedAt, &updatedAt, &errText, &metadata)
@@ -653,11 +703,22 @@ func (h *Handler) DataExportStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resp := buildDataExportStatusResponse(jobID, status, updatedAt, errText, metadata, time.Now())
+	resp["started_at"] = startedAt
+	httputil.WriteJSONNoCache(w, http.StatusOK, resp)
+}
+
+func buildDataExportStatusResponse(
+	jobID, status string,
+	updatedAt time.Time,
+	errText *string,
+	metadata []byte,
+	now time.Time,
+) map[string]any {
 	resp := map[string]any{
 		"job_id":     jobID,
 		"status":     status,
-		"started_at": startedAt,
-		"updated_at": updatedAt,
+		"updated_at": updatedAt.Format(time.RFC3339),
 	}
 
 	// Surface metadata for both completed AND failed (partial-export) jobs.
@@ -673,9 +734,13 @@ func (h *Handler) DataExportStatus(w http.ResponseWriter, r *http.Request) {
 				resp["size_bytes"] = v
 			}
 			if filePath, ok := meta["file_path"].(string); ok && filePath != "" {
-				resp["download_url"] = fmt.Sprintf("/api/v1/auth/data-export/%s/download", jobID)
-				if status == "failed" {
-					resp["partial"] = true
+				expiresAt := dataExportExpiresAt(updatedAt)
+				resp["expires_at"] = expiresAt.Format(time.RFC3339)
+				if !dataExportDownloadExpired(now, updatedAt) {
+					resp["download_url"] = fmt.Sprintf("/api/v1/auth/data-export/%s/download", jobID)
+					if status == "failed" {
+						resp["partial"] = true
+					}
 				}
 			}
 			if v, ok := meta["incomplete_tables"]; ok {
@@ -691,7 +756,7 @@ func (h *Handler) DataExportStatus(w http.ResponseWriter, r *http.Request) {
 		resp["error"] = "export_failed"
 	}
 
-	httputil.WriteJSONNoCache(w, http.StatusOK, resp)
+	return resp
 }
 
 // DataExportDownload handles GET /auth/data-export/{jobID}/download — streams the export ZIP.
@@ -714,11 +779,13 @@ func (h *Handler) DataExportDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var status string
+	var updatedAt time.Time
 	var metadata []byte
 	err := h.DB.Pool.QueryRow(ctx,
-		`SELECT status, metadata FROM background_jobs
+		`SELECT status, COALESCE(updated_at, started_at), COALESCE(metadata, '{}'::jsonb)
+		 FROM background_jobs
 		 WHERE id = $1 AND user_id = $2 AND job_type = 'gdpr_export'`,
-		jobID, userID).Scan(&status, &metadata)
+		jobID, userID).Scan(&status, &updatedAt, &metadata)
 	if err != nil {
 		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 		return
@@ -740,6 +807,13 @@ func (h *Handler) DataExportDownload(w http.ResponseWriter, r *http.Request) {
 	filePath, _ := meta["file_path"].(string)
 	if filePath == "" || !isValidExportPath(filePath) {
 		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+
+	if dataExportDownloadExpired(time.Now(), updatedAt) {
+		os.Remove(filePath)
+		clearDataExportFilePath(ctx, h.DB.Pool, jobID)
+		httputil.WriteJSONNoCache(w, http.StatusGone, map[string]string{"error": "file_expired"})
 		return
 	}
 

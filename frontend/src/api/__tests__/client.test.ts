@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { apiClient, clearETagCache, getCachedETag, storeETagForPath } from '@/api/client'
+import { apiClient, apiDownload, clearETagCache, getCachedETag, storeETagForPath } from '@/api/client'
+import { clearToken, setToken } from '@/lib/auth'
 
 // ────────────────────────────────────────────────────────────────────────────
 // apiClient ETag-cache + If-Match auto-injection.
@@ -31,6 +32,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  clearToken()
   vi.restoreAllMocks()
 })
 
@@ -277,5 +279,40 @@ describe('apiClient ETag cache', () => {
     clearETagCache()
     expect(getCachedETag('/routes/r1')).toBeUndefined()
     expect(getCachedETag('/routes/r2')).toBeUndefined()
+  })
+})
+
+describe('apiDownload', () => {
+  it('downloads backend-provided /api/v1 URLs with the bearer token', async () => {
+    setToken('download-token')
+    let observedUrl: string | undefined
+    let observedAuthorization: string | undefined
+    makeFetchSpy(({ url, init }) => {
+      observedUrl = url
+      observedAuthorization = (init?.headers as Record<string, string> | undefined)?.Authorization
+      return new Response('zip-bytes', {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': 'attachment; filename="skadia-export-2026-05-07.zip"',
+        },
+      })
+    })
+
+    const result = await apiDownload('/api/v1/auth/data-export/job-1/download')
+
+    expect(observedUrl).toBe('/api/v1/auth/data-export/job-1/download')
+    expect(observedAuthorization).toBe('Bearer download-token')
+    expect(result.filename).toBe('skadia-export-2026-05-07.zip')
+    await expect(result.blob.text()).resolves.toBe('zip-bytes')
+  })
+
+  it('rejects external absolute URLs before sending the bearer token', async () => {
+    setToken('download-token')
+    const fetchSpy = makeFetchSpy(() => new Response('leaked', { status: 200 }))
+
+    await expect(apiDownload('https://example.invalid/api/v1/auth/data-export/job-1/download'))
+      .rejects.toMatchObject({ status: 400 })
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })
