@@ -1,5 +1,14 @@
 -- 1. Neue Spalten hinzufügen (IF NOT EXISTS für Idempotenz)
 -- Tabelle existiert bereits mit PK (activity_id, zone_type, zone_index)
+CREATE TABLE IF NOT EXISTS activity_time_in_zone (
+    activity_id UUID NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+    zone_type TEXT NOT NULL,
+    zone_index INTEGER NOT NULL,
+    zone_high DOUBLE PRECISION,
+    seconds INTEGER NOT NULL,
+    PRIMARY KEY (activity_id, zone_type, zone_index)
+);
+
 ALTER TABLE activity_time_in_zone ADD COLUMN IF NOT EXISTS lap_id UUID REFERENCES activity_laps(id) ON DELETE CASCADE;
 ALTER TABLE activity_time_in_zone ADD COLUMN IF NOT EXISTS segment_lap_id UUID REFERENCES activity_segment_laps(id) ON DELETE CASCADE;
 
