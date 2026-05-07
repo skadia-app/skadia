@@ -64,6 +64,7 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   account_inactive: 'Dein Account ist deaktiviert.', // context: deactivated account login attempt
   account_pending_approval: 'Dein Konto wartet auf Freischaltung durch einen Administrator.', // context: approval-mode registration, pending admin activation
   export_already_running: 'Ein Datenexport läuft bereits.', // context: concurrent export request
+  export_daily_limit: 'Tägliches Datenexport-Limit erreicht. Bitte versuche es morgen erneut.', // context: data export abuse protection
   server_busy: 'Server ist ausgelastet. Bitte versuche es später erneut.', // context: server overloaded
   already_verified: 'Deine E-Mail-Adresse ist bereits bestätigt.', // context: re-verification attempt
   smtp_not_configured: 'E-Mail-Versand ist nicht konfiguriert.', // context: email-dependent action without SMTP
