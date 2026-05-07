@@ -13,8 +13,8 @@ package handler_test
 import (
 	"context"
 	"fmt"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"math/rand/v2"
-	"os"
 	"sort"
 	"testing"
 
@@ -26,16 +26,13 @@ import (
 
 // groupPair represents one pair of activities from the same recording group.
 type groupPair struct {
-	GroupID    string
-	ActivityA  string
-	ActivityB  string
+	GroupID   string
+	ActivityA string
+	ActivityB string
 }
 
 func TestWorkshopGate(t *testing.T) {
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping workshop gate test")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 
 	ctx := context.Background()
 

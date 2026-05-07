@@ -2,7 +2,7 @@ package handler_test
 
 import (
 	"context"
-	"os"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -13,10 +13,7 @@ import (
 // This pool is used for lightweight consistency checks that only read the seed data.
 func systemLayersTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping system layers consistency test")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connect to test DB: %v", err)

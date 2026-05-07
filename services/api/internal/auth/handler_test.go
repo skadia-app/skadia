@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -43,9 +43,9 @@ func testHandler(t *testing.T, cfg *config.Config) *Handler {
 	// from Settings (registration.mode, social.*, smtp.*) see the same
 	// values the test set on cfg.
 	testSettings := settings.NewStoreForTest(map[string]string{
-		"registration.mode":         cfg.RegistrationMode,
-		"social.strava_client_id":   cfg.StravaClientID,
-		"social.google_client_id":   cfg.GoogleClientID,
+		"registration.mode":       cfg.RegistrationMode,
+		"social.strava_client_id": cfg.StravaClientID,
+		"social.google_client_id": cfg.GoogleClientID,
 	})
 	return NewHandler(nil, cfg, testSettings, &Mailer{}, middleware.NewRateLimiter(context.Background()), context.Background())
 }
@@ -1059,10 +1059,7 @@ func TestAdminCannotDeactivateSelf(t *testing.T) {
 //
 // Requires TEST_DATABASE_URL to be set; skipped otherwise.
 func TestListMySessionsIsCurrent(t *testing.T) {
-	dbURL := os.Getenv("TEST_DATABASE_URL")
-	if dbURL == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
-	}
+	dbURL := testdb.RequireSafeDSN(t)
 
 	ctx := context.Background()
 
