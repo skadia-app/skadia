@@ -22,9 +22,9 @@ func TestSnapToOSMLifts_FullSnap(t *testing.T) {
 	// Matchable: hausdorff 5m, intersection covers all 600m of C → coverage = 1.0
 	matches := []RideOSMOverlap{
 		{
-			RideIdx:        0,
-			OSMIdx:         0,
-			HausdorffM:     5.0,
+			RideIdx:         0,
+			OSMIdx:          0,
+			HausdorffM:      5.0,
 			IntersectionLen: 600.0,
 		},
 	}
@@ -427,6 +427,153 @@ func TestMethodACoverageGap_SuppressedSiblingsAlsoCount(t *testing.T) {
 	}
 }
 
+// --- Snap-pipeline corpus contract tests ---
+
+func TestSnapCorpus_FullSnapStage1(t *testing.T) {
+	start := time.Unix(0, 0).UTC()
+	ride := newSyntheticRide(t, start, 0, 600, 0, 1000, 1120)
+	osm := OSMLiftCandidate{OSMID: 1, SegmentID: "seg-full", SegmentVersionID: "ver-full", LengthM: 600, BearingDeg: 90}
+	overlaps := []RideOSMOverlap{{RideIdx: 0, OSMIdx: 0, HausdorffM: 5, IntersectionLen: 600}}
+
+	stage1 := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []OSMLiftCandidate{osm}, overlaps, ride.samples, nil)
+	stage2 := MergeMultiRideForOSM(stage1, []RideWithIndices{ride.indexed}, []OSMLiftCandidate{osm}, overlaps, ride.samples)
+	stage3 := MethodACoverageGap(stage2, []OSMLiftCandidate{osm})
+
+	if stage2[0].Action != SnapActionSnap {
+		t.Fatalf("Stage 1 full snap action=%q, want snap", stage2[0].Action)
+	}
+	if stage2[0].IsCableHoldMerge {
+		t.Fatalf("Stage 1 full snap must not be a cable-hold merge")
+	}
+	if len(stage3) != 0 {
+		t.Fatalf("Stage 3 plan len=%d, want 0 for covered OSM lift", len(stage3))
+	}
+}
+
+func TestSnapCorpus_MultiSectionSplitNoMerge(t *testing.T) {
+	start := time.Unix(0, 0).UTC()
+	rideA := newSyntheticRide(t, start, 0, 200, 0, 1000, 1040)
+	rideB := newSyntheticRide(t, start.Add(5*time.Minute), 250, 450, 0, 1040, 1080)
+	rideC := newSyntheticRide(t, start.Add(10*time.Minute), 500, 700, 0, 1080, 1120)
+	rides, samples := combineSyntheticRides(rideA, rideB, rideC)
+	osm := []OSMLiftCandidate{
+		{OSMID: 10, SegmentID: "seg-a", SegmentVersionID: "ver-a", LengthM: 200, BearingDeg: 90},
+		{OSMID: 11, SegmentID: "seg-b", SegmentVersionID: "ver-b", LengthM: 200, BearingDeg: 90},
+		{OSMID: 12, SegmentID: "seg-c", SegmentVersionID: "ver-c", LengthM: 200, BearingDeg: 90},
+	}
+	overlaps := []RideOSMOverlap{
+		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5, IntersectionLen: 200},
+		{RideIdx: 1, OSMIdx: 1, HausdorffM: 5, IntersectionLen: 200},
+		{RideIdx: 2, OSMIdx: 2, HausdorffM: 5, IntersectionLen: 200},
+	}
+
+	stage1 := SnapToOSMLifts(rides, osm, overlaps, samples, nil)
+	stage2 := MergeMultiRideForOSM(stage1, rides, osm, overlaps, samples)
+	stage3 := MethodACoverageGap(stage2, osm)
+
+	for i, res := range stage2 {
+		if res.Action != SnapActionSnap {
+			t.Fatalf("ride[%d] action=%q, want snap to its own section", i, res.Action)
+		}
+		if res.IsCableHoldMerge {
+			t.Fatalf("ride[%d] unexpectedly marked as cable-hold merge", i)
+		}
+		if res.OSMCandidateIdx != i {
+			t.Fatalf("ride[%d] OSMCandidateIdx=%d, want %d", i, res.OSMCandidateIdx, i)
+		}
+	}
+	if len(stage3) != 0 {
+		t.Fatalf("Stage 3 plan len=%d, want 0 for three covered sections", len(stage3))
+	}
+}
+
+func TestSnapCorpus_CableHoldMerge(t *testing.T) {
+	start := time.Unix(0, 0).UTC()
+	rideA := newSyntheticRide(t, start, 0, 300, 0, 1000, 1060)
+	rideB := newSyntheticRide(t, start.Add(5*time.Minute), 310, 600, 0, 1060, 1120)
+	rides, samples := combineSyntheticRides(rideA, rideB)
+	osm := OSMLiftCandidate{OSMID: 20, SegmentID: "seg-hold", SegmentVersionID: "ver-hold", LengthM: 600, BearingDeg: 90}
+	overlaps := []RideOSMOverlap{
+		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5, IntersectionLen: 300},
+		{RideIdx: 1, OSMIdx: 0, HausdorffM: 5, IntersectionLen: 300},
+	}
+
+	stage1 := SnapToOSMLifts(rides, []OSMLiftCandidate{osm}, overlaps, samples, nil)
+	stage2 := MergeMultiRideForOSM(stage1, rides, []OSMLiftCandidate{osm}, overlaps, samples)
+	stage3 := MethodACoverageGap(stage2, []OSMLiftCandidate{osm})
+
+	if stage2[0].Action != SnapActionSnap || !stage2[0].IsCableHoldMerge {
+		t.Fatalf("canonical action/merge=%q/%v, want snap/true", stage2[0].Action, stage2[0].IsCableHoldMerge)
+	}
+	if !stage2[1].SuppressedByMerge {
+		t.Fatalf("second ride must be an audit-only suppressed merge sibling")
+	}
+	if len(stage3) != 0 {
+		t.Fatalf("Stage 3 plan len=%d, want 0 for merged OSM lift", len(stage3))
+	}
+}
+
+func TestSnapCorpus_MidStationFalseMergeDoesNotSnap(t *testing.T) {
+	start := time.Unix(0, 0).UTC()
+	rideA := newSyntheticRide(t, start, 0, 300, 0, 1000, 1060)
+	rideB := newSyntheticRide(t, start.Add(5*time.Minute), 360, 60, 0, 1060, 1120)
+	rides, samples := combineSyntheticRides(rideA, rideB)
+	osm := OSMLiftCandidate{OSMID: 30, SegmentID: "seg-mid", SegmentVersionID: "ver-mid", LengthM: 600, BearingDeg: 90}
+	overlaps := []RideOSMOverlap{
+		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5, IntersectionLen: 300},
+		{RideIdx: 1, OSMIdx: 0, HausdorffM: 5, IntersectionLen: 300},
+	}
+
+	stage1 := SnapToOSMLifts(rides, []OSMLiftCandidate{osm}, overlaps, samples, nil)
+	stage2 := MergeMultiRideForOSM(stage1, rides, []OSMLiftCandidate{osm}, overlaps, samples)
+	stage3 := MethodACoverageGap(stage2, []OSMLiftCandidate{osm})
+
+	for i, res := range stage2 {
+		if res.Action != SnapActionPassthrough {
+			t.Fatalf("ride[%d] action=%q, want passthrough after mid-station rejection", i, res.Action)
+		}
+		if res.IsCableHoldMerge {
+			t.Fatalf("ride[%d] must not be marked as cable-hold merge", i)
+		}
+	}
+	if len(stage3) != 0 {
+		t.Fatalf("Stage 3 plan len=%d, want 0: Stage 2 mid-station rejection must not re-snap", len(stage3))
+	}
+}
+
+func TestSnapCorpus_OSMOnlyCatchStage3(t *testing.T) {
+	osm := OSMLiftCandidate{OSMID: 40, SegmentID: "seg-osm-only", SegmentVersionID: "ver-osm-only", LengthM: 120, BearingDeg: 90}
+
+	stage3 := MethodACoverageGap(nil, []OSMLiftCandidate{osm})
+
+	if len(stage3) != 1 {
+		t.Fatalf("Stage 3 plan len=%d, want 1 for OSM-only catch", len(stage3))
+	}
+	if !stage3[0].IsLiftSegmentMatch || !stage3[0].IsMethodAOnly {
+		t.Fatalf("Stage 3 flags = lift_match:%v method_a_only:%v, want both true",
+			stage3[0].IsLiftSegmentMatch, stage3[0].IsMethodAOnly)
+	}
+}
+
+func TestSnapCorpus_HeuristicOnlyNoOSM(t *testing.T) {
+	start := time.Unix(0, 0).UTC()
+	ride := newSyntheticRide(t, start, 0, 600, 0, 1000, 1120)
+
+	stage1 := SnapToOSMLifts([]RideWithIndices{ride.indexed}, nil, nil, ride.samples, nil)
+	stage2 := MergeMultiRideForOSM(stage1, []RideWithIndices{ride.indexed}, nil, nil, ride.samples)
+	stage3 := MethodACoverageGap(stage2, nil)
+
+	if len(stage2) != 1 {
+		t.Fatalf("stage2 len=%d, want 1 passthrough ride", len(stage2))
+	}
+	if stage2[0].Action != SnapActionPassthrough {
+		t.Fatalf("no-OSM action=%q, want passthrough", stage2[0].Action)
+	}
+	if len(stage3) != 0 {
+		t.Fatalf("Stage 3 plan len=%d, want 0 without OSM candidates", len(stage3))
+	}
+}
+
 // --- helpers ---
 
 type syntheticRide struct {
@@ -477,4 +624,18 @@ func newSyntheticRide(t *testing.T, start time.Time, startX, endX, y, startAlt, 
 		},
 		samples: samples,
 	}
+}
+
+func combineSyntheticRides(rides ...syntheticRide) ([]RideWithIndices, []StreamPoint) {
+	outRides := make([]RideWithIndices, 0, len(rides))
+	outSamples := []StreamPoint{}
+	for _, ride := range rides {
+		offset := len(outSamples)
+		indexed := ride.indexed
+		indexed.StartSampleIdx += offset
+		indexed.EndSampleIdx += offset
+		outRides = append(outRides, indexed)
+		outSamples = append(outSamples, ride.samples...)
+	}
+	return outRides, outSamples
 }
