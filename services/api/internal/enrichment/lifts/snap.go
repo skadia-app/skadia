@@ -95,6 +95,9 @@ type SnapResult struct {
 	// they should produce only an audit-only candidate row pointing at the
 	// canonical merge's segment_effort_id.
 	SuppressedByMerge bool
+	// BlocksStage3 marks an OSM lift that Stage 2 explicitly rejected as
+	// mid-station-like or under-covered. Stage 3 must not re-snap it.
+	BlocksStage3 bool
 }
 
 // SnapToOSMLifts is Stage 1: for each heuristic ride, find the highest-
@@ -201,11 +204,11 @@ func snapOneRide(
 // decide per-group whether to merge (cable-hold) or split (mid-station).
 //
 // Cable-hold signals (all three must hold):
-//   1. Inter-ride distance: haversine(R_i.endCoord, R_{i+1}.startCoord) <= 15m
-//   2. Gap-sample-pattern: the samples between R_i.endIdx+1 and
-//      R_{i+1}.startIdx-1 are either absent (smart-recording paused) or all
-//      <= 10m from the anchor R_i.endCoord (continuous-stream cable hold).
-//   3. No direction reversal: |bearing(R_i) - bearing(R_{i+1})| <= 90°.
+//  1. Inter-ride distance: haversine(R_i.endCoord, R_{i+1}.startCoord) <= 15m
+//  2. Gap-sample-pattern: the samples between R_i.endIdx+1 and
+//     R_{i+1}.startIdx-1 are either absent (smart-recording paused) or all
+//     <= 10m from the anchor R_i.endCoord (continuous-stream cable hold).
+//  3. No direction reversal: |bearing(R_i) - bearing(R_{i+1})| <= 90°.
 //
 // And union-coverage of the merged ride must reach >= 0.70 of the OSM lift.
 //
@@ -287,9 +290,10 @@ func MergeMultiRideForOSM(
 			// Mid-station-like or under-covered → all rides become heuristic-only.
 			for _, m := range members {
 				out[m].Action = SnapActionPassthrough
-				out[m].OSMCandidateIdx = 0
+				out[m].OSMCandidateIdx = osmIdx
 				out[m].SegmentID = ""
 				out[m].SegmentVersionID = ""
+				out[m].BlocksStage3 = true
 			}
 			continue
 		}
@@ -418,7 +422,7 @@ func computeIsReverseFromSamples(samples []StreamPoint, ride RideWithIndices, li
 func MethodACoverageGap(finalResults []SnapResult, osmCandidates []OSMLiftCandidate) []Stage3PlanEntry {
 	covered := make(map[int]bool, len(osmCandidates))
 	for _, r := range finalResults {
-		if r.Action != SnapActionSnap {
+		if r.Action != SnapActionSnap && !r.BlocksStage3 {
 			continue
 		}
 		covered[r.OSMCandidateIdx] = true
