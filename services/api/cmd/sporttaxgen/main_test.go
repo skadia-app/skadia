@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/sporttaxgen"
 )
 
 func TestCheckFileReportsDiffForStaleGeneratedOutput(t *testing.T) {
@@ -62,4 +65,55 @@ func TestCheckGeneratedFilesReportsEveryStaleFile(t *testing.T) {
 			t.Fatalf("checkGeneratedFiles error missing %q:\n%s", want, message)
 		}
 	}
+}
+
+func TestRenderAliasesFromDirUsesGearDefaultProjectionSource(t *testing.T) {
+	taxonomy := loadMainTestTaxonomy(t)
+	modifiers := loadMainTestModifiers(t)
+	configPath := filepath.Join(t.TempDir(), "gear_defaults.yaml")
+	if err := os.WriteFile(configPath, []byte("projection_sources: [garmin]\n"), 0o644); err != nil {
+		t.Fatalf("write gear defaults config: %v", err)
+	}
+
+	goAliases, _, _, aliasesExist, err := renderAliasesFromDir("../../../../config/sport-taxonomy/aliases", configPath, taxonomy, modifiers)
+	if err != nil {
+		t.Fatalf("renderAliasesFromDir() error = %v", err)
+	}
+	if !aliasesExist {
+		t.Fatal("renderAliasesFromDir() aliasesExist = false")
+	}
+	if !bytes.Contains(goAliases, []byte("var generatedGearDefaultSportsBySource = map[Source]map[string]string{\n\tSourceGarminCourse:")) {
+		t.Fatalf("generated gear default source map does not include configured garmin source:\n%s", goAliases)
+	}
+	if bytes.Contains(goAliases, []byte("var generatedGearDefaultSportsBySource = map[Source]map[string]string{\n\tSourceStrava:")) {
+		t.Fatalf("generated gear default source map includes unconfigured strava source:\n%s", goAliases)
+	}
+}
+
+func loadMainTestTaxonomy(t *testing.T) sporttaxgen.Taxonomy {
+	t.Helper()
+	file, err := os.Open("../../../../config/sport-taxonomy/sports.yaml")
+	if err != nil {
+		t.Fatalf("open sports.yaml: %v", err)
+	}
+	defer file.Close()
+	taxonomy, err := sporttaxgen.LoadTaxonomy(file)
+	if err != nil {
+		t.Fatalf("load taxonomy: %v", err)
+	}
+	return taxonomy
+}
+
+func loadMainTestModifiers(t *testing.T) sporttaxgen.ModifierRegistry {
+	t.Helper()
+	file, err := os.Open("../../../../config/sport-taxonomy/modifiers.yaml")
+	if err != nil {
+		t.Fatalf("open modifiers.yaml: %v", err)
+	}
+	defer file.Close()
+	modifiers, err := sporttaxgen.LoadModifiers(file)
+	if err != nil {
+		t.Fatalf("load modifiers: %v", err)
+	}
+	return modifiers
 }

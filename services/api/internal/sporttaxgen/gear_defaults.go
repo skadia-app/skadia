@@ -2,9 +2,16 @@ package sporttaxgen
 
 import (
 	"fmt"
+	"io"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v2"
 )
+
+type GearDefaultProjectionConfig struct {
+	ProjectionSources []string `yaml:"projection_sources"`
+}
 
 type GearDefaultProjection struct {
 	StorageOptions []GearDefaultSportOption
@@ -27,11 +34,46 @@ type GearDefaultAlias struct {
 	SportType string
 }
 
-var gearDefaultProjectionSources = map[string]struct{}{
-	"strava": {},
+func LoadGearDefaultProjectionConfig(r io.Reader, sources []SourceAliases) (GearDefaultProjectionConfig, error) {
+	var config GearDefaultProjectionConfig
+	dec := yaml.NewDecoder(r)
+	dec.SetStrict(true)
+	if err := dec.Decode(&config); err != nil {
+		return GearDefaultProjectionConfig{}, err
+	}
+	if len(config.ProjectionSources) == 0 {
+		return GearDefaultProjectionConfig{}, fmt.Errorf("gear default projection: projection_sources must not be empty")
+	}
+	knownSources := make(map[string]struct{}, len(sources))
+	for _, source := range sources {
+		knownSources[source.Source] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(config.ProjectionSources))
+	for i, source := range config.ProjectionSources {
+		source = strings.TrimSpace(source)
+		if source == "" {
+			return GearDefaultProjectionConfig{}, fmt.Errorf("gear default projection: projection_sources[%d] is empty", i)
+		}
+		if _, ok := seen[source]; ok {
+			return GearDefaultProjectionConfig{}, fmt.Errorf("gear default projection: duplicate projection source %q", source)
+		}
+		seen[source] = struct{}{}
+		if _, ok := knownSources[source]; !ok {
+			return GearDefaultProjectionConfig{}, fmt.Errorf("gear default projection: unknown projection source %q", source)
+		}
+		config.ProjectionSources[i] = source
+	}
+	return config, nil
 }
 
-func BuildGearDefaultProjection(taxonomy Taxonomy, sources []SourceAliases) (GearDefaultProjection, error) {
+func BuildGearDefaultProjection(taxonomy Taxonomy, sources []SourceAliases, config GearDefaultProjectionConfig) (GearDefaultProjection, error) {
+	if len(config.ProjectionSources) == 0 {
+		return GearDefaultProjection{}, fmt.Errorf("gear default projection: projection_sources must not be empty")
+	}
+	projectionSources := make(map[string]struct{}, len(config.ProjectionSources))
+	for _, source := range config.ProjectionSources {
+		projectionSources[source] = struct{}{}
+	}
 	sports := taxonomySportIndex(taxonomy)
 	storageOptions := make([]GearDefaultSportOption, 0, len(taxonomy.Sports))
 	manualOptions := make([]GearDefaultSportOption, 0, len(taxonomy.Sports))
@@ -53,7 +95,7 @@ func BuildGearDefaultProjection(taxonomy Taxonomy, sources []SourceAliases) (Gea
 
 	projectedSources := make([]GearDefaultSourceProjection, 0, len(sources))
 	for _, source := range sources {
-		if _, ok := gearDefaultProjectionSources[source.Source]; !ok {
+		if _, ok := projectionSources[source.Source]; !ok {
 			continue
 		}
 		seen := map[string]string{}

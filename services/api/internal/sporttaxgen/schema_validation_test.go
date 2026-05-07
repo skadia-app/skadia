@@ -41,6 +41,11 @@ func TestSportTaxonomyRepositoryFixturesValidateAgainstSchemas(t *testing.T) {
 			schemaPath: "config/sport-taxonomy/schema/projections.schema.json",
 		},
 		{
+			name:       "gear defaults",
+			fixture:    "config/sport-taxonomy/projections/gear_defaults.yaml",
+			schemaPath: "config/sport-taxonomy/schema/gear_defaults.schema.json",
+		},
+		{
 			name:       "modifiers",
 			fixture:    "config/sport-taxonomy/modifiers.yaml",
 			schemaPath: "config/sport-taxonomy/schema/modifiers.schema.json",
