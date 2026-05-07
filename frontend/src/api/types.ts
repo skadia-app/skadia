@@ -467,6 +467,7 @@ export interface LiftCandidate {
   distance_m?: number | null
   confidence: string
   confirmed: boolean
+  rejected_by_user: boolean
   source: LiftCandidateSource
   segment_effort_id: string | null
 }

@@ -26,6 +26,7 @@ type unifiedLiftCandidateResponse struct {
 	DistanceM       *float64  `json:"distance_m"`
 	Confidence      string    `json:"confidence"`
 	Confirmed       bool      `json:"confirmed"`
+	RejectedByUser  bool      `json:"rejected_by_user"`
 	Source          string    `json:"source"`
 	SegmentEffortID *string   `json:"segment_effort_id"`
 }
@@ -201,5 +202,123 @@ func TestGetUnifiedLiftCandidates_RLSIsolationBetweenUsers(t *testing.T) {
 	}
 	if got := len(decodeUnifiedLiftCandidates(t, rec)); got != 1 {
 		t.Fatalf("owner candidate count=%d, want 1", got)
+	}
+}
+
+// insertRejectedLiftCandidate inserts a lift candidate with rejected_by_user=true.
+func insertRejectedLiftCandidate(
+	t *testing.T,
+	db *database.DB,
+	activityID string,
+	startedAt time.Time,
+) string {
+	t.Helper()
+	var id string
+	err := db.Pool.QueryRow(context.Background(), `
+		INSERT INTO activity_lift_candidates
+			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
+			 confidence, confirmed, source, rejected_by_user)
+		VALUES ($1, $2, $3, 180, 120, 0, 700, 'high', false, 'heuristic', true)
+		RETURNING id::text
+	`, activityID, startedAt, startedAt.Add(3*time.Minute)).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert rejected lift candidate: %v", err)
+	}
+	return id
+}
+
+// TestGetLiftCandidates_DefaultHidesRejected: a rejected candidate must not
+// appear in the default response (include_rejected defaults to false).
+func TestGetLiftCandidates_DefaultHidesRejected(t *testing.T) {
+	h, db := liftCandidatesHandlerSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	start := time.Now().UTC().Truncate(time.Second)
+	insertRejectedLiftCandidate(t, db, activityID, start)
+
+	rec := callUnifiedLiftCandidates(t, h, userID, activityID, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	candidates := decodeUnifiedLiftCandidates(t, rec)
+	if len(candidates) != 0 {
+		t.Fatalf("default response returned %d candidates with rejected row, want 0", len(candidates))
+	}
+}
+
+// TestGetLiftCandidates_IncludeRejectedReturnsAll: with include_rejected=true the
+// rejected candidate must be included.
+func TestGetLiftCandidates_IncludeRejectedReturnsAll(t *testing.T) {
+	h, db := liftCandidatesHandlerSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	start := time.Now().UTC().Truncate(time.Second)
+	insertRejectedLiftCandidate(t, db, activityID, start)
+	// Also insert one non-rejected candidate.
+	insertUnifiedLiftCandidate(t, db, activityID, start.Add(10*time.Minute), "heuristic", false, nil)
+
+	rec := callUnifiedLiftCandidates(t, h, userID, activityID, "?include_rejected=true")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	candidates := decodeUnifiedLiftCandidates(t, rec)
+	if len(candidates) != 2 {
+		t.Fatalf("include_rejected=true returned %d candidates, want 2", len(candidates))
+	}
+}
+
+// TestGetLiftCandidates_DTOExposesRejectedFlag: the rejected_by_user field must
+// be present and correctly set in the JSON response.
+func TestGetLiftCandidates_DTOExposesRejectedFlag(t *testing.T) {
+	h, db := liftCandidatesHandlerSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	start := time.Now().UTC().Truncate(time.Second)
+	insertRejectedLiftCandidate(t, db, activityID, start)
+	// Insert a normal (non-rejected) candidate for comparison.
+	insertUnifiedLiftCandidate(t, db, activityID, start.Add(10*time.Minute), "heuristic", false, nil)
+
+	rec := callUnifiedLiftCandidates(t, h, userID, activityID, "?include_rejected=true")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	candidates := decodeUnifiedLiftCandidates(t, rec)
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d", len(candidates))
+	}
+	// candidates are ordered by started_at: rejected first, normal second.
+	if !candidates[0].RejectedByUser {
+		t.Errorf("candidates[0].RejectedByUser = false, want true")
+	}
+	if candidates[1].RejectedByUser {
+		t.Errorf("candidates[1].RejectedByUser = true, want false")
+	}
+}
+
+// TestGetUnifiedLiftCandidates_DefaultReturnsOnlyNonRejected: non-rejected
+// candidates are returned while rejected ones remain hidden by default.
+func TestGetUnifiedLiftCandidates_DefaultReturnsOnlyNonRejected(t *testing.T) {
+	h, db := liftCandidatesHandlerSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	start := time.Now().UTC().Truncate(time.Second)
+	insertRejectedLiftCandidate(t, db, activityID, start)
+	insertUnifiedLiftCandidate(t, db, activityID, start.Add(10*time.Minute), "heuristic", false, nil)
+
+	rec := callUnifiedLiftCandidates(t, h, userID, activityID, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	candidates := decodeUnifiedLiftCandidates(t, rec)
+	// Default must return only the non-rejected one.
+	if len(candidates) != 1 {
+		t.Fatalf("default response returned %d candidates (rejected+non-rejected mix), want 1", len(candidates))
+	}
+	if candidates[0].RejectedByUser {
+		t.Errorf("default response returned a rejected candidate")
 	}
 }
