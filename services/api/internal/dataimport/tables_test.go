@@ -2,24 +2,14 @@ package dataimport
 
 import (
 	"context"
-	"os"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 )
 
 func TestFKMapCompleteness(t *testing.T) {
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		t.Skip("DATABASE_URL not set")
-	}
-
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	pool := testdb.Open(t)
 
 	// Query all FK columns from the public schema.
 	rows, err := pool.Query(ctx, `
@@ -133,17 +123,8 @@ func TestJSONBRemapKeysCompleteness(t *testing.T) {
 }
 
 func TestFileRefColumnsCompleteness(t *testing.T) {
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		t.Skip("DATABASE_URL not set")
-	}
-
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	pool := testdb.Open(t)
 
 	// Find all FK columns that reference user_files.
 	rows, err := pool.Query(ctx, `

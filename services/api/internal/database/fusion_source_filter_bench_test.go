@@ -11,10 +11,10 @@ package database
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -24,10 +24,7 @@ import (
 // in environments that don't have the integration DB.
 func benchFusionPool(b *testing.B) *pgxpool.Pool {
 	b.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		b.Skip("TEST_DATABASE_URL not set")
-	}
+	dsn := testdb.RequireSafeDSN(b)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		b.Fatalf("benchFusionPool: connect: %v", err)
@@ -167,7 +164,11 @@ func seedFusionFixture(b *testing.B, ctx context.Context, pool *pgxpool.Pool, n 
 
 // drainRows reads all rows in the result set to prevent the query-prepare
 // optimizer from masking the real cost of stream-fetching.
-func drainRows(b *testing.B, rows interface{ Next() bool; Err() error; Close() }) {
+func drainRows(b *testing.B, rows interface {
+	Next() bool
+	Err() error
+	Close()
+}) {
 	b.Helper()
 	defer rows.Close()
 	var scanned int

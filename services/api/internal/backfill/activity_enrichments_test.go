@@ -3,7 +3,7 @@ package backfill
 import (
 	"context"
 	"errors"
-	"os"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"testing"
 	"time"
 
@@ -14,10 +14,7 @@ import (
 func activityEnrichmentsTestDB(t *testing.T) *database.DB {
 	t.Helper()
 
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 
 	db, err := database.New(context.Background(), dsn)
 	if err != nil {

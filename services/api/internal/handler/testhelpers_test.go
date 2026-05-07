@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"os"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"testing"
 	"time"
 
@@ -17,10 +17,7 @@ import (
 
 func fusionTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping DB-integration test")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)
@@ -82,7 +79,7 @@ func insertTestUser(t *testing.T, pool *pgxpool.Pool, opts ...TestUserOpt) strin
 type TestSegmentOpts struct {
 	Track         string // WKT
 	SegmentType   string
-	Bidirectional *bool  // nil = default true; use boolPtr(false) to explicitly disable
+	Bidirectional *bool // nil = default true; use boolPtr(false) to explicitly disable
 }
 
 // boolPtr returns a pointer to the given bool value.

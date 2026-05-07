@@ -4,29 +4,39 @@ package database
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/google/uuid"
 )
 
-// newTestDB opens a DB pool from DATABASE_URL, skips if not set.
+// newTestDB opens a DB pool from TEST_DATABASE_URL, skips if not set.
 func newTestDB(t *testing.T) *DB {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set — skipping integration test")
-	}
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatalf("pgxpool.New: %v", err)
-	}
-	t.Cleanup(func() { pool.Close() })
+	pool := testdb.Open(t)
 	return &DB{Pool: pool}
+}
+
+func createMonitoringTestUser(t *testing.T, db *DB) string {
+	t.Helper()
+	userID := uuid.New().String()
+	suffix := userID[:8]
+	_, err := db.Pool.Exec(context.Background(),
+		`INSERT INTO users (id, username, email, email_verified, registration_source)
+		 VALUES ($1, $2, $3, true, 'test')`,
+		userID,
+		"healthmon_"+suffix,
+		"healthmon_"+suffix+"@example.com",
+	)
+	if err != nil {
+		t.Fatalf("create monitoring test user: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID)
+	})
+	return userID
 }
 
 // cleanupMonitoring deletes all monitoring samples for a test user.
@@ -49,7 +59,7 @@ func TestStagingTableMerge(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
-	userID := fmt.Sprintf("test-merge-%d", time.Now().UnixNano())
+	userID := createMonitoringTestUser(t, db)
 	t.Cleanup(func() { cleanupMonitoring(t, db, userID) })
 
 	base := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
@@ -118,7 +128,7 @@ func TestCOALESCEPreservesExisting(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
-	userID := fmt.Sprintf("test-coalesce-%d", time.Now().UnixNano())
+	userID := createMonitoringTestUser(t, db)
 	t.Cleanup(func() { cleanupMonitoring(t, db, userID) })
 
 	ts := time.Date(2024, 1, 15, 11, 0, 0, 0, time.UTC)
@@ -162,7 +172,7 @@ func TestStressCheckConstraint(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
-	userID := fmt.Sprintf("test-stress-check-%d", time.Now().UnixNano())
+	userID := createMonitoringTestUser(t, db)
 	t.Cleanup(func() { cleanupMonitoring(t, db, userID) })
 
 	ts := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)

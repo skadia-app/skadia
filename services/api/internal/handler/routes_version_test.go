@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -153,9 +152,6 @@ func getRouteRequest(t *testing.T, h *Handler, userID, routeID string) *httptest
 }
 
 func TestGetRoute_EmitsStrongETag_Integration(t *testing.T) {
-	if os.Getenv("TEST_DATABASE_URL") == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
 	userID := insertTestUser(t, pool)
@@ -175,9 +171,6 @@ func TestGetRoute_EmitsStrongETag_Integration(t *testing.T) {
 }
 
 func TestUpdateRoute_IfMatchHappyPath_BumpsVersion_Integration(t *testing.T) {
-	if os.Getenv("TEST_DATABASE_URL") == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
 	userID := insertTestUser(t, pool)
@@ -206,9 +199,6 @@ func TestUpdateRoute_IfMatchHappyPath_BumpsVersion_Integration(t *testing.T) {
 }
 
 func TestUpdateRoute_IfMatchStaleReturns412WithCurrent_Integration(t *testing.T) {
-	if os.Getenv("TEST_DATABASE_URL") == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
 	userID := insertTestUser(t, pool)
@@ -244,9 +234,6 @@ func TestUpdateRoute_IfMatchStaleReturns412WithCurrent_Integration(t *testing.T)
 }
 
 func TestUpdateRoute_NoIfMatchHeaderStillWorks_Integration(t *testing.T) {
-	if os.Getenv("TEST_DATABASE_URL") == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
 	userID := insertTestUser(t, pool)
@@ -268,9 +255,6 @@ func TestUpdateRoute_NoIfMatchHeaderStillWorks_Integration(t *testing.T) {
 // unparseable If-Match header is rejected with 400 (not silently treated as
 // absent, which would disable the concurrency guard).
 func TestRoutesPATCH_400OnMalformedIfMatch(t *testing.T) {
-	if os.Getenv("TEST_DATABASE_URL") == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
 	userID := insertTestUser(t, pool)
@@ -295,9 +279,6 @@ func TestRoutesPATCH_400OnMalformedIfMatch(t *testing.T) {
 }
 
 func TestUpdateRoute_SequentialPatchesIncrementVersion_Integration(t *testing.T) {
-	if os.Getenv("TEST_DATABASE_URL") == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
 	userID := insertTestUser(t, pool)
