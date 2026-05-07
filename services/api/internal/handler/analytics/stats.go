@@ -183,18 +183,22 @@ func calculateWeekStreaks(days []time.Time) (currentWeekStreak, maxWeekStreak in
 type lifetimeResponse struct {
 	TotalActivities     int64   `json:"total_activities"`
 	TotalDistanceM      float64 `json:"total_distance_m"`
-	TotalElevationM     float64 `json:"total_elevation_m"`      // gain
-	TotalElevationLossM float64 `json:"total_elevation_loss_m"` // descent
+	TotalElevationM     float64 `json:"total_elevation_m"`
+	TotalElevationLossM float64 `json:"total_elevation_loss_m"`
 	TotalMovingTimeS    int64   `json:"total_moving_time_s"`
 	TotalElapsedTimeS   int64   `json:"total_elapsed_time_s"`
 	TotalCalories       int64   `json:"total_calories"`
 	ActiveDays          int64   `json:"active_days"`
 	Countries           int64   `json:"countries"`
-	// Fun metrics
+	LiftRideCount       int64   `json:"lift_ride_count"`
+	LiftAscentM         float64 `json:"lift_ascent_m"`
+	LiftDescentM        float64 `json:"lift_descent_m"`
+	LiftDistanceM       float64 `json:"lift_distance_m"`
+	// Fun metrics use net distance/elevation totals from the database.
 	EarthLaps        float64 `json:"earth_laps"`
 	MoonTrips        float64 `json:"moon_trips"`
-	EverestCount     float64 `json:"everest_count"`      // ascent ÷ Everest height
-	EverestCountDown float64 `json:"everest_count_down"` // descent ÷ Everest height
+	EverestCount     float64 `json:"everest_count"`
+	EverestCountDown float64 `json:"everest_count_down"`
 	// Streaks
 	CurrentDayStreak int `json:"current_day_streak"`
 	MaxDayStreak     int `json:"max_day_streak"`
@@ -234,6 +238,10 @@ func (h *Handler) GetLifetimeStats(w http.ResponseWriter, r *http.Request) {
 		TotalCalories:       stats.TotalCalories,
 		ActiveDays:          stats.ActiveDays,
 		Countries:           stats.Countries,
+		LiftRideCount:       stats.LiftRideCount,
+		LiftAscentM:         stats.LiftAscentM,
+		LiftDescentM:        stats.LiftDescentM,
+		LiftDistanceM:       stats.LiftDistanceM,
 		EarthLaps:           stats.TotalDistanceM / 40_075_000,
 		MoonTrips:           stats.TotalDistanceM / 768_800_000,
 		EverestCount:        stats.TotalElevationM / 8849,

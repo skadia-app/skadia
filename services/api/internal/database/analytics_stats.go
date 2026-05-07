@@ -8,15 +8,21 @@ import (
 
 // LifetimeStats holds aggregated lifetime statistics for a user.
 type LifetimeStats struct {
-	TotalActivities     int64   `json:"total_activities"`
+	TotalActivities int64 `json:"total_activities"`
+	// TotalDistanceM, TotalElevationM, and TotalElevationLossM are net of lift
+	// distance/ascent/descent unless an activity explicitly opts out.
 	TotalDistanceM      float64 `json:"total_distance_m"`
-	TotalElevationM     float64 `json:"total_elevation_m"`      // gain
-	TotalElevationLossM float64 `json:"total_elevation_loss_m"` // descent — relevant for ski/downhill gear
+	TotalElevationM     float64 `json:"total_elevation_m"`
+	TotalElevationLossM float64 `json:"total_elevation_loss_m"`
 	TotalMovingTimeS    int64   `json:"total_moving_time_s"`
 	TotalElapsedTimeS   int64   `json:"total_elapsed_time_s"`
 	TotalCalories       int64   `json:"total_calories"`
 	ActiveDays          int64   `json:"active_days"`
 	Countries           int64   `json:"countries"`
+	LiftRideCount       int64   `json:"lift_ride_count"`
+	LiftAscentM         float64 `json:"lift_ascent_m"`
+	LiftDescentM        float64 `json:"lift_descent_m"`
+	LiftDistanceM       float64 `json:"lift_distance_m"`
 }
 
 // GetLifetimeStats returns aggregated lifetime statistics for a user.
@@ -25,15 +31,28 @@ type LifetimeStats struct {
 func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause string, args []any) (*LifetimeStats, error) {
 	query := `
 		SELECT
-			COUNT(*)                                  AS total_activities,
-			COALESCE(SUM(distance_m), 0)              AS total_distance_m,
-			COALESCE(SUM(elevation_gain_m), 0)        AS total_elevation_m,
-			COALESCE(SUM(elevation_loss_m), 0)        AS total_elevation_loss_m,
-			COALESCE(SUM(moving_time_s), 0)           AS total_moving_time_s,
-			COALESCE(SUM(elapsed_time_s), 0)          AS total_elapsed_time_s,
-			COALESCE(SUM(total_calories), 0)          AS total_calories,
+			COUNT(*)                                                   AS total_activities,
+			COALESCE(SUM(GREATEST(0,
+				COALESCE(distance_m, 0) -
+				CASE WHEN exclude_lift_subtraction THEN 0
+				     ELSE COALESCE(lift_distance_m, 0) END)), 0)       AS total_distance_m,
+			COALESCE(SUM(GREATEST(0,
+				COALESCE(elevation_gain_m, 0) -
+				CASE WHEN exclude_lift_subtraction THEN 0
+				     ELSE COALESCE(lift_ascent_m, 0) END)), 0)         AS total_elevation_m,
+			COALESCE(SUM(GREATEST(0,
+				COALESCE(elevation_loss_m, 0) -
+				CASE WHEN exclude_lift_subtraction THEN 0
+				     ELSE COALESCE(lift_descent_m, 0) END)), 0)        AS total_elevation_loss_m,
+			COALESCE(SUM(moving_time_s), 0)                            AS total_moving_time_s,
+			COALESCE(SUM(elapsed_time_s), 0)                           AS total_elapsed_time_s,
+			COALESCE(SUM(total_calories), 0)                           AS total_calories,
 			COUNT(DISTINCT (a.started_at AT TIME ZONE COALESCE(a.timezone, 'UTC'))::date) AS active_days,
-			COUNT(DISTINCT start_country)              AS countries
+			COUNT(DISTINCT start_country)                              AS countries,
+			COALESCE(SUM(COALESCE(lift_count, 0)), 0)                  AS lift_ride_count,
+			COALESCE(SUM(COALESCE(lift_ascent_m, 0)), 0)               AS lift_ascent_m,
+			COALESCE(SUM(COALESCE(lift_descent_m, 0)), 0)              AS lift_descent_m,
+			COALESCE(SUM(COALESCE(lift_distance_m, 0)), 0)             AS lift_distance_m
 		FROM activities a
 		WHERE a.user_id = $1` + whereClause
 
@@ -49,6 +68,10 @@ func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause s
 		&s.TotalCalories,
 		&s.ActiveDays,
 		&s.Countries,
+		&s.LiftRideCount,
+		&s.LiftAscentM,
+		&s.LiftDescentM,
+		&s.LiftDistanceM,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get lifetime stats: %w", err)
@@ -58,19 +81,25 @@ func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause s
 
 // GetEddingtonData returns per-day aggregated values sorted descending for
 // Eddington number calculation.
-// metric: "km" → SUM(distance_m)/1000, "elevation" → SUM(elevation_gain_m),
-//         "descent" → SUM(elevation_loss_m)
+// metric: "km" returns net distance, "elevation" returns net ascent, and
+// "descent" returns net descent.
 func (db *DB) GetEddingtonData(ctx context.Context, userID string, metric string, whereClause string, args []any) ([]float64, error) {
 	// Use whitelisted metric to avoid injection.
 	var aggExpr string
 	switch metric {
 	case "elevation":
-		aggExpr = "COALESCE(SUM(elevation_gain_m), 0)"
+		aggExpr = `GREATEST(0,
+				COALESCE(SUM(elevation_gain_m), 0) -
+				COALESCE(SUM(CASE WHEN exclude_lift_subtraction THEN 0 ELSE COALESCE(lift_ascent_m, 0) END), 0))`
 	case "descent":
-		aggExpr = "COALESCE(SUM(elevation_loss_m), 0)"
+		aggExpr = `GREATEST(0,
+				COALESCE(SUM(elevation_loss_m), 0) -
+				COALESCE(SUM(CASE WHEN exclude_lift_subtraction THEN 0 ELSE COALESCE(lift_descent_m, 0) END), 0))`
 	default:
 		// default: km
-		aggExpr = "COALESCE(SUM(distance_m), 0) / 1000.0"
+		aggExpr = `GREATEST(0,
+				COALESCE(SUM(distance_m), 0) -
+				COALESCE(SUM(CASE WHEN exclude_lift_subtraction THEN 0 ELSE COALESCE(lift_distance_m, 0) END), 0)) / 1000.0`
 	}
 
 	query := `
