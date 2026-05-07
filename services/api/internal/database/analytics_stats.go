@@ -54,7 +54,8 @@ func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause s
 			COALESCE(SUM(COALESCE(lift_descent_m, 0)), 0)              AS lift_descent_m,
 			COALESCE(SUM(COALESCE(lift_distance_m, 0)), 0)             AS lift_distance_m
 		FROM activities a
-		WHERE a.user_id = $1` + whereClause
+		WHERE a.user_id = $1
+		  AND NOT a.is_group_secondary` + whereClause
 
 	allArgs := append([]any{userID}, args...)
 	var s LifetimeStats
@@ -88,24 +89,30 @@ func (db *DB) GetEddingtonData(ctx context.Context, userID string, metric string
 	var aggExpr string
 	switch metric {
 	case "elevation":
-		aggExpr = `GREATEST(0,
-				COALESCE(SUM(elevation_gain_m), 0) -
-				COALESCE(SUM(CASE WHEN exclude_lift_subtraction THEN 0 ELSE COALESCE(lift_ascent_m, 0) END), 0))`
+		// Per-row floor before SUM so a single bad row cannot produce a negative day total.
+		aggExpr = `COALESCE(SUM(GREATEST(0,
+				COALESCE(elevation_gain_m, 0) -
+				CASE WHEN exclude_lift_subtraction THEN 0
+				     ELSE COALESCE(lift_ascent_m, 0) END)), 0)`
 	case "descent":
-		aggExpr = `GREATEST(0,
-				COALESCE(SUM(elevation_loss_m), 0) -
-				COALESCE(SUM(CASE WHEN exclude_lift_subtraction THEN 0 ELSE COALESCE(lift_descent_m, 0) END), 0))`
+		// Per-row floor before SUM so a single bad row cannot produce a negative day total.
+		aggExpr = `COALESCE(SUM(GREATEST(0,
+				COALESCE(elevation_loss_m, 0) -
+				CASE WHEN exclude_lift_subtraction THEN 0
+				     ELSE COALESCE(lift_descent_m, 0) END)), 0)`
 	default:
-		// default: km
-		aggExpr = `GREATEST(0,
-				COALESCE(SUM(distance_m), 0) -
-				COALESCE(SUM(CASE WHEN exclude_lift_subtraction THEN 0 ELSE COALESCE(lift_distance_m, 0) END), 0)) / 1000.0`
+		// default: km — per-row floor before SUM, then convert to km.
+		aggExpr = `COALESCE(SUM(GREATEST(0,
+				COALESCE(distance_m, 0) -
+				CASE WHEN exclude_lift_subtraction THEN 0
+				     ELSE COALESCE(lift_distance_m, 0) END)), 0) / 1000.0`
 	}
 
 	query := `
 		SELECT ` + aggExpr + ` AS value
 		FROM activities a
-		WHERE a.user_id = $1` + whereClause + `
+		WHERE a.user_id = $1
+		  AND NOT a.is_group_secondary` + whereClause + `
 		GROUP BY (a.started_at AT TIME ZONE COALESCE(a.timezone, 'UTC'))::date
 		ORDER BY value DESC`
 
