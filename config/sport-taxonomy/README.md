@@ -15,10 +15,12 @@ source label itself carries that evidence. Do not use aliases to create new
 canonical sports or to encode parser/device evidence that is derived from
 numeric IDs or file metadata.
 
-Source aliases also feed the generated top-level gear-default projection where a
-current gear importer has verified raw default-sport labels. Gear defaults remain
-stored as top-level `sport_type` strings. They do not store `sub_type` or
-modifier predicates until a dedicated gear predicate schema exists.
+Source aliases also feed the generated gear-default projection where a current
+gear importer has verified raw default-sport labels. The projection source list
+lives in `projections/gear_defaults.yaml`; add a source there only after its
+gear-default labels have been reviewed against the canonical aliases. Gear
+defaults store both the broad `sport_type` compatibility value and predicate
+defaults that may include a `sub_type` or modifier filters.
 
 `projections/*.yaml` defines consumer-specific groupings of canonical tuples.
 `projections/activity_filters.yaml` owns activity and map filter placement.
@@ -28,20 +30,29 @@ segment group each eligible tuple uses.
 `projections/rules.yaml` defines automation-rule tuple selectors, tuple-scoped
 modifier controls, and rule-visible trait condition fields. Projections do not
 own taxonomy identity and should not duplicate source/import alias rules.
+`projections/gear_defaults.yaml` defines which source alias namespaces are
+allowed to contribute gear-default projections. It does not define sports
+itself; it only selects already validated alias namespaces.
 If a non-selectable broad fallback must remain matchable for compatibility, mark
 that row with `eligibility_role: legacy_fallback_coverage` and cover it with a
 loader test; do not add hidden generator exceptions.
 
 Generated Go artifacts are committed. Review the YAML source first, then use
 generated diffs and tests to verify the runtime contract.
+The JSON schemas in `schema/*.schema.json` are editor guidance and test
+fixtures. Loader code remains authoritative, and the schema-validation tests
+compare the repository YAML against the schemas so schema drift fails in the
+normal taxonomy test suite.
 
 Edit workflow:
 
-1. Edit the relevant YAML source: `sports.yaml`, `aliases/*.yaml`, or
-   `projections/*.yaml`.
+1. Edit the relevant YAML source: `sports.yaml`, `aliases/*.yaml`,
+   `modifiers.yaml`, or `projections/*.yaml`.
 2. Run `scripts/generate-sport-taxonomy.sh`.
 3. Run `scripts/generate-sport-taxonomy.sh --check`.
-4. Run the backend and frontend taxonomy tests for the touched surfaces.
+4. Run the backend and frontend taxonomy tests for the touched surfaces. The
+   backend taxonomy-generator tests validate the YAML/schema pairs and compare
+   committed generated artifacts against freshly rendered output.
 5. Run the required documentation sync for any reader-facing or developer-facing
    surfaces that changed.
 
