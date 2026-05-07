@@ -5,7 +5,6 @@ modifiers:
     ts_field: isElectric
     json_key: is_electric
     activity_column: is_electric
-    applicability_source: modifier_applicability.is_electric
     action_name: set_electric
     action_param: electric
     shadowfs_token: electric
@@ -37,7 +36,6 @@ modifiers:
     ts_field: isIndoor
     json_key: is_indoor
     activity_column: is_indoor
-    applicability_source: modifier_applicability.is_indoor
     action_name: set_indoor
     action_param: indoor
     shadowfs_token: indoor
@@ -67,7 +65,6 @@ modifiers:
     ts_field: isVirtual
     json_key: is_virtual
     activity_column: is_virtual
-    applicability_source: modifier_applicability.is_virtual
     action_name: set_virtual
     action_param: virtual
     shadowfs_token: virtual
@@ -97,7 +94,6 @@ modifiers:
     ts_field: isCommute
     json_key: is_commute
     activity_column: is_commute
-    applicability_source: modifier_applicability.is_commute
     action_name: set_commute
     action_param: commute
     shadowfs_token: commute

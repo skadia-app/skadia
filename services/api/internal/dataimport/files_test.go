@@ -3,9 +3,11 @@ package dataimport
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/google/uuid"
 )
 
@@ -64,6 +66,52 @@ func TestLoadActivityFileTagIndexUsesAutoTitleFallback(t *testing.T) {
 	}
 	if got := index[fileID].Title; got != "Automatischer Lauf" {
 		t.Fatalf("title = %q, want title_auto fallback", got)
+	}
+}
+
+func TestLoadActivityFileTagIndexPreservesGeneratedActivityStateModifiers(t *testing.T) {
+	fileID := uuid.New().String()
+	row := map[string]any{
+		"id":         uuid.New().String(),
+		"file_id":    fileID,
+		"sport_type": "cycling",
+	}
+	for _, key := range sport.SportModifierKeysWithCapability("activity_state") {
+		modifier, ok := sport.SportModifierByKey(key)
+		if !ok {
+			t.Fatalf("missing modifier %s", key)
+		}
+		row[modifier.JSONKey] = true
+	}
+	zipPath := buildExportZip(t, zipBuildOpts{
+		activities: []map[string]any{row},
+	})
+	src := openZipSource(t, zipPath)
+
+	index, warnings, err := loadActivityFileTagIndex(src)
+	if err != nil {
+		t.Fatalf("loadActivityFileTagIndex: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	input, ok := index[fileID]
+	if !ok {
+		t.Fatalf("missing activity file tag input for %s", fileID)
+	}
+	value := reflect.ValueOf(input)
+	for _, key := range sport.SportModifierKeysWithCapability("activity_state") {
+		modifier, ok := sport.SportModifierByKey(key)
+		if !ok {
+			t.Fatalf("missing modifier %s", key)
+		}
+		field := value.FieldByName(modifier.GoField)
+		if !field.IsValid() || field.Kind() != reflect.Bool {
+			t.Fatalf("ActivitySchemaTagsInput.%s missing bool field for %s", modifier.GoField, key)
+		}
+		if !field.Bool() {
+			t.Fatalf("ActivitySchemaTagsInput.%s = false, want true for %s", modifier.GoField, key)
+		}
 	}
 }
 

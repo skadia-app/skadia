@@ -1,7 +1,9 @@
 package sporttaxgen
 
 import (
+	"encoding/json"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -68,7 +70,6 @@ modifiers:
     ts_field: isElectric
     json_key: is_electric
     activity_column: is_electric
-    applicability_source: modifier_applicability.is_electric
     action_name: set_electric
     action_param: electric
     shadowfs_token: electric
@@ -92,7 +93,6 @@ modifiers:
     ts_field: isElectric
     json_key: is_electric
     activity_column: is_electric
-    applicability_source: modifier_applicability.is_electric
     action_name: set_electric_2
     action_param: electric_2
     shadowfs_token: electric2
@@ -112,7 +112,6 @@ modifiers:
     ts_field: isElectric
     json_key: is_electric
     activity_column: is_electric
-    applicability_source: modifier_applicability.is_electric
     action_name: set_electric
     action_param: electric
     shadowfs_token: electric
@@ -131,10 +130,66 @@ func TestLoadModifiersRejectsScopedTagSyncWithoutLabelContext(t *testing.T) {
 	}
 }
 
+func TestLoadModifiersRejectsInvalidTagSyncColor(t *testing.T) {
+	_, err := LoadModifiers(strings.NewReader(strings.Replace(validModifierRegistryFixture(), `      color: "#16A34A"`, `      color: orange`, 1)))
+	if err == nil {
+		t.Fatal("LoadModifiers accepted invalid tag_sync.color")
+	}
+}
+
+func TestLoadModifiersRejectsEmptyTagSyncDescription(t *testing.T) {
+	_, err := LoadModifiers(strings.NewReader(strings.Replace(validModifierRegistryFixture(), "      description: Automatisch bei elektrischen Radfahrten\n", "      description: \"\"\n", 1)))
+	if err == nil {
+		t.Fatal("LoadModifiers accepted empty tag_sync.description")
+	}
+}
+
+func TestLoadModifiersRejectsMissingTagSyncReadonlySync(t *testing.T) {
+	_, err := LoadModifiers(strings.NewReader(strings.Replace(validModifierRegistryFixture(), "      readonly_sync: true\n", "", 1)))
+	if err == nil {
+		t.Fatal("LoadModifiers accepted missing tag_sync.readonly_sync")
+	}
+}
+
 func TestLoadModifiersRejectsUnknownCapabilityCombination(t *testing.T) {
 	_, err := LoadModifiers(strings.NewReader(strings.Replace(validModifierRegistryFixture(), "rule_action: true", "rule_action: false", 1)))
 	if err == nil {
 		t.Fatal("LoadModifiers accepted rule_condition without rule_action")
+	}
+}
+
+func TestModifiersSchemaListsSameCapabilitiesAsLoader(t *testing.T) {
+	data, err := os.ReadFile("../../../../config/sport-taxonomy/schema/modifiers.schema.json")
+	if err != nil {
+		t.Fatalf("read modifiers schema: %v", err)
+	}
+	var schema struct {
+		Defs map[string]struct {
+			Required   []string       `json:"required"`
+			Properties map[string]any `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatalf("parse modifiers schema: %v", err)
+	}
+	capabilities, ok := schema.Defs["capabilities"]
+	if !ok {
+		t.Fatal("schema missing $defs.capabilities")
+	}
+	required := append([]string(nil), capabilities.Required...)
+	properties := make([]string, 0, len(capabilities.Properties))
+	for key := range capabilities.Properties {
+		properties = append(properties, key)
+	}
+	sort.Strings(required)
+	sort.Strings(properties)
+	want := modifierCapabilityNames()
+	sort.Strings(want)
+	if !stringSlicesEqual(required, want) {
+		t.Fatalf("schema required capabilities = %v, want %v", required, want)
+	}
+	if !stringSlicesEqual(properties, want) {
+		t.Fatalf("schema capability properties = %v, want %v", properties, want)
 	}
 }
 
