@@ -492,12 +492,18 @@ func mergeModifierPatch(a, b ModifierPatch) ModifierPatch {
 }
 
 func modifierPatchValue(patch ModifierPatch, key string) *bool {
-	field, ok := modifierGoField(key)
+	field, ok := modifierGoFieldForCapability(key, "modifier_patch")
 	if !ok {
 		return nil
 	}
 	value := reflect.ValueOf(patch).FieldByName(field)
-	if !value.IsValid() || value.IsNil() {
+	if !value.IsValid() {
+		panic(fmt.Sprintf("ModifierPatch missing generated modifier field %s for %s", field, key))
+	}
+	if value.Kind() != reflect.Ptr || value.Type().Elem().Kind() != reflect.Bool {
+		panic(fmt.Sprintf("ModifierPatch.%s type = %s, want *bool for %s", field, value.Type(), key))
+	}
+	if value.IsNil() {
 		return nil
 	}
 	out, _ := value.Interface().(*bool)
@@ -512,13 +518,16 @@ func SetModifierPatchValue(patch *ModifierPatch, key string, value *bool) bool {
 	if patch == nil {
 		return false
 	}
-	field, ok := modifierGoField(key)
+	field, ok := modifierGoFieldForCapability(key, "modifier_patch")
 	if !ok {
 		return false
 	}
 	target := reflect.ValueOf(patch).Elem().FieldByName(field)
-	if !target.IsValid() || !target.CanSet() {
-		return false
+	if !target.IsValid() {
+		panic(fmt.Sprintf("ModifierPatch missing generated modifier field %s for %s", field, key))
+	}
+	if !target.CanSet() || target.Kind() != reflect.Ptr || target.Type().Elem().Kind() != reflect.Bool {
+		panic(fmt.Sprintf("ModifierPatch.%s type = %s, want settable *bool for %s", field, target.Type(), key))
 	}
 	if value == nil {
 		target.Set(reflect.Zero(target.Type()))
@@ -529,30 +538,39 @@ func SetModifierPatchValue(patch *ModifierPatch, key string, value *bool) bool {
 }
 
 func ModifierValuesValue(values ModifierValues, key string) bool {
-	field, ok := modifierGoField(key)
+	field, ok := modifierGoFieldForCapability(key, "activity_state")
 	if !ok {
 		return false
 	}
 	value := reflect.ValueOf(values).FieldByName(field)
-	return value.IsValid() && value.Kind() == reflect.Bool && value.Bool()
+	if !value.IsValid() {
+		panic(fmt.Sprintf("ModifierValues missing generated modifier field %s for %s", field, key))
+	}
+	if value.Kind() != reflect.Bool {
+		panic(fmt.Sprintf("ModifierValues.%s type = %s, want bool for %s", field, value.Type(), key))
+	}
+	return value.Bool()
 }
 
 func setModifierValuesValue(values *ModifierValues, key string, value bool) bool {
-	field, ok := modifierGoField(key)
+	field, ok := modifierGoFieldForCapability(key, "activity_state")
 	if values == nil || !ok {
 		return false
 	}
 	target := reflect.ValueOf(values).Elem().FieldByName(field)
-	if !target.IsValid() || !target.CanSet() || target.Kind() != reflect.Bool {
-		return false
+	if !target.IsValid() {
+		panic(fmt.Sprintf("ModifierValues missing generated modifier field %s for %s", field, key))
+	}
+	if !target.CanSet() || target.Kind() != reflect.Bool {
+		panic(fmt.Sprintf("ModifierValues.%s type = %s, want settable bool for %s", field, target.Type(), key))
 	}
 	target.SetBool(value)
 	return true
 }
 
-func modifierGoField(key string) (string, bool) {
+func modifierGoFieldForCapability(key, capability string) (string, bool) {
 	modifier, ok := SportModifierByKey(key)
-	if !ok || !SportModifierHasCapability(key, "modifier_patch") {
+	if !ok || !SportModifierHasCapability(key, capability) {
 		return "", false
 	}
 	return modifier.GoField, true

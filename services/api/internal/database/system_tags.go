@@ -1,6 +1,10 @@
 package database
 
-import "github.com/skadia-app/skadia/services/api/internal/sport"
+import (
+	"sync"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
+)
 
 type systemModifierTagSync struct {
 	ModifierKey   string
@@ -14,6 +18,10 @@ type systemModifierTagSync struct {
 }
 
 func systemModifierTagSyncs() []systemModifierTagSync {
+	return append([]systemModifierTagSync(nil), cachedSystemModifierTagSyncs()...)
+}
+
+var cachedSystemModifierTagSyncs = sync.OnceValue(func() []systemModifierTagSync {
 	syncs := []systemModifierTagSync{}
 	for _, key := range sport.SportModifierKeys() {
 		modifier, ok := sport.SportModifierByKey(key)
@@ -32,7 +40,7 @@ func systemModifierTagSyncs() []systemModifierTagSync {
 		})
 	}
 	return syncs
-}
+})
 
 func readonlySystemModifierTagSyncs() []systemModifierTagSync {
 	syncs := []systemModifierTagSync{}

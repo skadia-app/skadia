@@ -20,7 +20,7 @@ type ModifierDefinition struct {
 	TSField             string               `yaml:"ts_field"`
 	JSONKey             string               `yaml:"json_key"`
 	ActivityColumn      string               `yaml:"activity_column"`
-	ApplicabilitySource string               `yaml:"applicability_source"`
+	ApplicabilitySource string               `yaml:"-"`
 	ActionName          string               `yaml:"action_name"`
 	ActionParam         string               `yaml:"action_param"`
 	ShadowFSToken       string               `yaml:"shadowfs_token"`
@@ -80,6 +80,9 @@ func LoadModifiers(r io.Reader) (ModifierRegistry, error) {
 	dec.SetStrict(true)
 	if err := dec.Decode(&registry); err != nil {
 		return ModifierRegistry{}, err
+	}
+	for i := range registry.Modifiers {
+		registry.Modifiers[i].ApplicabilitySource = "modifier_applicability." + registry.Modifiers[i].Key
 	}
 	if err := validateModifierRegistry(registry); err != nil {
 		return ModifierRegistry{}, err
@@ -198,12 +201,6 @@ func validateModifierRegistry(registry ModifierRegistry) error {
 		}
 		if !modifierIdentifierPattern.MatchString(modifier.ActivityColumn) {
 			return fmt.Errorf("modifier %q: invalid activity_column %q", modifier.Key, modifier.ActivityColumn)
-		}
-		if modifier.ApplicabilitySource == "" {
-			return fmt.Errorf("modifier %q: missing applicability_source", modifier.Key)
-		}
-		if want := "modifier_applicability." + modifier.Key; modifier.ApplicabilitySource != want {
-			return fmt.Errorf("modifier %q: applicability_source = %q, want %q", modifier.Key, modifier.ApplicabilitySource, want)
 		}
 		if modifier.ActionName == "" {
 			return fmt.Errorf("modifier %q: missing action_name", modifier.Key)
