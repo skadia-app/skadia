@@ -105,7 +105,7 @@ describe('SystemLayerVisibilityAdminSection', () => {
     await waitFor(() => expect(screen.getByText('Wanderwege')).toBeInTheDocument())
 
     const enabledCheckbox = screen.getByRole('checkbox', {
-      name: /hiking_trails Aktiv/i,
+      name: /Wanderwege.*Aktiv/i,
     })
     fireEvent.click(enabledCheckbox)
 
@@ -121,7 +121,7 @@ describe('SystemLayerVisibilityAdminSection', () => {
     await waitFor(() => expect(screen.getByText('Abdeckungs-Heatmap')).toBeInTheDocument())
 
     const opacitySlider = screen.getByRole('slider', {
-      name: /coverage_heatmap.*Deckkraft/i,
+      name: /Abdeckungs-Heatmap.*Deckkraft/i,
     })
     expect(opacitySlider).toBeInTheDocument()
   })
@@ -130,7 +130,7 @@ describe('SystemLayerVisibilityAdminSection', () => {
     render(<SystemLayerVisibilityAdminSection />, { wrapper: makeWrapper() })
     await waitFor(() => expect(screen.getByText('Wanderwege')).toBeInTheDocument())
 
-    const sliders = screen.queryAllByRole('slider', { name: /hiking_trails.*Deckkraft/i })
+    const sliders = screen.queryAllByRole('slider', { name: /Wanderwege.*Deckkraft/i })
     expect(sliders).toHaveLength(0)
   })
 
@@ -138,7 +138,7 @@ describe('SystemLayerVisibilityAdminSection', () => {
     render(<SystemLayerVisibilityAdminSection />, { wrapper: makeWrapper() })
     await waitFor(() => expect(screen.getByText('Wanderwege')).toBeInTheDocument())
 
-    const labelInput = screen.getByRole('textbox', { name: /hiking_trails.*Label/i })
+    const labelInput = screen.getByRole('textbox', { name: /Wanderwege.*Label/i })
     expect(labelInput).toHaveAttribute('maxlength', '100')
   })
 })
