@@ -807,7 +807,8 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			n++
 		}
 		if doLifts {
-			geoBatch.Queue("DELETE FROM activity_lift_candidates WHERE activity_id = $1", activityID)
+			// Phase 4d: preserve rejected rows across re-enrichment (user-authored audit traces).
+			geoBatch.Queue("DELETE FROM activity_lift_candidates WHERE activity_id = $1 AND NOT rejected_by_user", activityID)
 			n++
 		}
 		// Surfaces: the worker (enrichTrackAnalysisSQL / _graph) handles its own
