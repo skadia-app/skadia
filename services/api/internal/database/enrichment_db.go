@@ -579,25 +579,53 @@ func (db *DB) GetVisitedPOIs(ctx context.Context, userID string) ([]VisitedPOI, 
 
 // LiftCandidate represents an unconfirmed lift ride detected by ML.
 type LiftCandidate struct {
-	ID         string    `json:"id"`
-	ActivityID string    `json:"activity_id"`
-	StartedAt  time.Time `json:"started_at"`
-	EndedAt    time.Time `json:"ended_at"`
-	DurationS  int       `json:"duration_s"`
-	AscentM    float64   `json:"ascent_m"`
-	DescentM   *float64  `json:"descent_m,omitempty"`
-	DistanceM  *float64  `json:"distance_m,omitempty"`
-	Confidence string    `json:"confidence"`
-	Confirmed  bool      `json:"confirmed"`
+	ID              string    `json:"id"`
+	ActivityID      string    `json:"activity_id"`
+	StartedAt       time.Time `json:"started_at"`
+	EndedAt         time.Time `json:"ended_at"`
+	DurationS       int       `json:"duration_s"`
+	AscentM         float64   `json:"ascent_m"`
+	DescentM        *float64  `json:"descent_m,omitempty"`
+	DistanceM       *float64  `json:"distance_m,omitempty"`
+	Confidence      string    `json:"confidence"`
+	Confirmed       bool      `json:"confirmed"`
+	Source          string    `json:"source"`
+	SegmentEffortID *string   `json:"segment_effort_id"`
 }
 
-func (db *DB) GetLiftCandidates(ctx context.Context, activityID string) ([]LiftCandidate, error) {
-	rows, err := db.Pool.Query(ctx, `
-		SELECT id, activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m, confidence, confirmed
-		FROM activity_lift_candidates
-		WHERE activity_id = $1
-		ORDER BY started_at
-	`, activityID)
+type LiftCandidateFilter struct {
+	Source          string
+	IncludeRejected bool
+}
+
+func (db *DB) GetLiftCandidates(ctx context.Context, activityID, userID string, filter LiftCandidateFilter) ([]LiftCandidate, error) {
+	query := `
+		SELECT
+			alc.id::text,
+			alc.activity_id::text,
+			alc.started_at,
+			alc.ended_at,
+			alc.duration_s,
+			alc.ascent_m,
+			alc.descent_m,
+			alc.distance_m,
+			alc.confidence,
+			alc.confirmed,
+			alc.source,
+			alc.segment_effort_id::text
+		FROM activity_lift_candidates alc
+		JOIN activities a ON a.id = alc.activity_id
+		WHERE alc.activity_id = $1 AND a.user_id = $2
+	`
+	args := []any{activityID, userID}
+	if filter.Source != "" {
+		args = append(args, filter.Source)
+		query += fmt.Sprintf(" AND alc.source = $%d", len(args))
+	}
+	// Phase 4d adds rejected_by_user and wires IncludeRejected into this query.
+	query += " ORDER BY alc.started_at"
+
+	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -606,7 +634,8 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID string) ([]LiftC
 	for rows.Next() {
 		var c LiftCandidate
 		if err := rows.Scan(&c.ID, &c.ActivityID, &c.StartedAt, &c.EndedAt,
-			&c.DurationS, &c.AscentM, &c.DescentM, &c.DistanceM, &c.Confidence, &c.Confirmed); err != nil {
+			&c.DurationS, &c.AscentM, &c.DescentM, &c.DistanceM, &c.Confidence,
+			&c.Confirmed, &c.Source, &c.SegmentEffortID); err != nil {
 			return nil, err
 		}
 		result = append(result, c)

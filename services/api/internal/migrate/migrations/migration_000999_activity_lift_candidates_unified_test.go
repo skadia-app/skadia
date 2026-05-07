@@ -8,7 +8,7 @@ package migrations_test
 // Phase 4c — OSM-Snap-Pipeline. The migration:
 //   1. Adds activity_lift_candidates.source TEXT NOT NULL DEFAULT 'heuristic'
 //      with CHECK (source IN ('heuristic','osm')).
-//   2. Adds activity_lift_candidates.segment_effort_id BIGINT (nullable)
+//   2. Adds activity_lift_candidates.segment_effort_id UUID (nullable)
 //      — Phase-4c snap stages set this to the inserted segment_effort id so
 //      lift-stats recompute can dedup heuristic+OSM in a single query.
 //   3. Adds segment_efforts.is_lift_segment_match, .is_method_a_only,

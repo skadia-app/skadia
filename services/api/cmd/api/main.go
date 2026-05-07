@@ -1497,6 +1497,7 @@ func main() {
 			r.Get("/activities/{id}/segments", h.GetActivitySegmentEfforts)
 			r.Get("/activities/{id}/detected-laps", h.GetActivityDetectedLaps)
 			r.Get("/activities/{id}/stops", h.GetActivityStops)
+			r.Get("/activities/{id}/lifts/candidates", h.GetLiftCandidates)
 			r.Get("/activities/{id}/lift-candidates", h.GetLiftCandidates)
 			r.Post("/activities/{id}/lift-candidates/{cid}/confirm", h.ConfirmLiftCandidate)
 			r.Delete("/activities/{id}/lift-candidates/{cid}", h.RejectLiftCandidate)
