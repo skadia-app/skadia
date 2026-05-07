@@ -23,6 +23,7 @@ require (
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/ringsaturn/tzf v1.0.4
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/sixdouglas/suncalc v0.0.0-20250114185126-291b1938b70c
 	github.com/wneessen/go-mail v0.7.2
 	github.com/zeebo/xxh3 v1.1.0
