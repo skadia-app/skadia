@@ -1,5 +1,6 @@
 # Environment
 .env
+.envrc
 .superpowers/
 
 # Obsidian workspace state (personal, not tracked)

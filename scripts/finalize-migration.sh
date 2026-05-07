@@ -35,11 +35,18 @@
 
 set -euo pipefail
 
-REPO_ROOT="${REPO_ROOT:-/path/to/skadia}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+DEFAULT_REPO_ROOT="$(git -C "$SCRIPT_DIR/.." rev-parse --show-toplevel 2>/dev/null || true)"
+REPO_ROOT="${REPO_ROOT:-$DEFAULT_REPO_ROOT}"
+if [[ -z "$REPO_ROOT" ]]; then
+    echo "finalize-migration.sh: cannot resolve the script worktree, set REPO_ROOT explicitly" >&2
+    exit 1
+fi
 MIG_DIR="services/api/internal/migrate/migrations"
 BASE_REF="${BASE_REF:-main}"
 PLACEHOLDER="000999"
 
+echo "finalize-migration.sh: using REPO_ROOT=$REPO_ROOT (branch=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD))" >&2
 cd "$REPO_ROOT"
 
 # Step 1: Find placeholder migrations in current branch (vs main).
@@ -166,5 +173,5 @@ echo
 echo "Renumber complete. Verify with:"
 echo "  git status"
 echo "  git diff --stat"
-echo "  go test ./services/api/internal/migrate/..."
+echo "  cd services/api && go test ./internal/migrate/..."
 echo "Then: git add -u && git commit --amend (or new commit if separate from migration content)"
