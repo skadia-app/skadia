@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -18,6 +19,9 @@ func main() {
 	summary := flag.String("summary", "", "print 30s-bucket summary for the given file (relative to -root) and exit")
 	rides := flag.String("rides", "", "print CSV of detected ride boundaries (idx,start_t,end_t,dur_s,asc_m,desc_m,conf,start_lat,start_lng,end_lat,end_lng) for the given file and exit")
 	sport := flag.String("sport", "ski", "sport profile for -rides mode (ignored in -dump/-summary)")
+	dbURL := flag.String("db", "", "postgres URL; when set together with --snap-stats, runs the OSM-snap pipeline against the live osm_lifts table for empirical action/coverage stats")
+	snapStats := flag.Bool("snap-stats", false, "after eval, run the snap pipeline against osm_lifts and print the per-region action/coverage table (requires --db)")
+	snapStatsJSON := flag.Bool("snap-stats-json", false, "instead of the table, emit the snap-stats result as JSON on stdout (implies --snap-stats)")
 	flag.Parse()
 
 	if *rides != "" {
@@ -169,6 +173,41 @@ func main() {
 		results = append(results, Result{Case: c, Detected: rides})
 	}
 
-	exit := printReport(results, *verbose)
+	// In --snap-stats-json mode stdout is reserved for the machine-readable
+	// JSON document; the human-readable eval report goes to stderr so it
+	// stays visible without contaminating the parsed JSON. Default mode keeps
+	// the historical contract (eval report on stdout).
+	var exit int
+	if *snapStatsJSON {
+		exit = printReportTo(results, *verbose, os.Stderr)
+	} else {
+		exit = printReport(results, *verbose)
+	}
+
+	// --snap-stats: run the OSM-snap pipeline against the live osm_lifts table
+	// and aggregate decision counts + coverage histogram. The eval pass/fail
+	// (exit code) is unaffected — Stage-3-double-count investigation runs in
+	// addition to the existing recall/precision gate.
+	if *snapStats || *snapStatsJSON {
+		if *dbURL == "" {
+			fmt.Fprintln(os.Stderr, "--snap-stats requires --db <postgres-url>")
+			os.Exit(2)
+		}
+		ctx := context.Background()
+		if *snapStatsJSON {
+			// JSON to stdout, no table output (the table-writer is unused).
+			if err := runSnapStats(ctx, gt, *root, *dbURL, os.Stdout, os.Stderr); err != nil {
+				fmt.Fprintf(os.Stderr, "snap-stats: %v\n", err)
+				os.Exit(2)
+			}
+		} else {
+			// Table output to stdout, no JSON.
+			if err := runSnapStats(ctx, gt, *root, *dbURL, nil, os.Stdout); err != nil {
+				fmt.Fprintf(os.Stderr, "snap-stats: %v\n", err)
+				os.Exit(2)
+			}
+		}
+	}
+
 	os.Exit(exit)
 }
