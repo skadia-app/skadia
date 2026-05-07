@@ -655,11 +655,15 @@ func (db *DB) ConfirmLiftCandidate(ctx context.Context, candidateID, activityID 
 	return db.recomputeLiftStats(ctx, returnedActivityID)
 }
 
-// RejectLiftCandidate deletes a lift candidate and recomputes activity lift stats.
+// RejectLiftCandidate soft-rejects a lift candidate and recomputes activity
+// lift stats. The row is marked rejected_by_user=true rather than deleted so
+// that it survives subsequent re-enrichment passes (Phase 4d: the idempotent
+// DELETE in enrichStreamLifts now skips rows with rejected_by_user=true).
 func (db *DB) RejectLiftCandidate(ctx context.Context, candidateID, activityID string) error {
 	var returnedActivityID string
 	err := db.Pool.QueryRow(ctx,
-		`DELETE FROM activity_lift_candidates WHERE id = $1 AND activity_id = $2 RETURNING activity_id`,
+		`UPDATE activity_lift_candidates SET rejected_by_user = true
+		 WHERE id = $1 AND activity_id = $2 RETURNING activity_id`,
 		candidateID, activityID,
 	).Scan(&returnedActivityID)
 	if err != nil {
@@ -690,6 +694,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 			) + (
 				SELECT COUNT(*) FROM activity_lift_candidates
 				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
+				  AND NOT rejected_by_user
 			),
 			lift_duration_s = (
 				SELECT COALESCE(SUM(se.elapsed_time_s), 0) FROM segment_efforts se
@@ -698,6 +703,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 			) + (
 				SELECT COALESCE(SUM(duration_s), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
+				  AND NOT rejected_by_user
 			),
 			lift_ascent_m = (
 				SELECT COALESCE(SUM(CASE WHEN NOT se.is_reverse THEN se.elevation_gain_m ELSE 0 END), 0)
@@ -707,6 +713,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 			) + (
 				SELECT COALESCE(SUM(ascent_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
+				  AND NOT rejected_by_user
 			),
 			lift_descent_m = (
 				SELECT COALESCE(SUM(CASE WHEN se.is_reverse THEN se.elevation_gain_m ELSE 0 END), 0)
@@ -716,6 +723,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 			) + (
 				SELECT COALESCE(SUM(descent_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
+				  AND NOT rejected_by_user
 			),
 			lift_distance_m = (
 				SELECT COALESCE(SUM(se.distance_m), 0) FROM segment_efforts se
@@ -724,6 +732,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 			) + (
 				SELECT COALESCE(SUM(distance_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
+				  AND NOT rejected_by_user
 			)
 		WHERE id = $1`, activityID)
 	return err
@@ -732,4 +741,70 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 // RecomputeLiftStats is the exported entry-point for the enrichment adapter.
 func (db *DB) RecomputeLiftStats(ctx context.Context, activityID string) error {
 	return db.recomputeLiftStats(ctx, activityID)
+}
+
+// HeuristicCandidateInput carries the fields needed for one heuristic lift
+// candidate insert. Used by InsertHeuristicCandidateIfNotRejected.
+// DescentM and DistanceM are stored as nullable DOUBLE PRECISION in the DB;
+// passing zero stores NULL (consistent with the pre-Phase-4d insert path).
+type HeuristicCandidateInput struct {
+	StartedAt  time.Time
+	EndedAt    time.Time
+	DurationS  int
+	AscentM    float64
+	DescentM   float64
+	DistanceM  float64
+	Confidence string
+}
+
+// InsertHeuristicCandidateIfNotRejected inserts a heuristic candidate unless a
+// rejected row already exists whose [started_at, ended_at] overlaps the new
+// window within ±5s on each boundary (Adversarial-Review-Finding #15: detector
+// boundaries may drift between runs by a few samples).
+//
+// Returns true if a row was inserted, false if it was suppressed (overlap with
+// a rejected row) or already present (ON CONFLICT). Does not call
+// recomputeLiftStats — callers are responsible for triggering recompute after
+// all candidates for an activity have been processed.
+func (db *DB) InsertHeuristicCandidateIfNotRejected(
+	ctx context.Context,
+	userID, activityID string,
+	in HeuristicCandidateInput,
+) (bool, error) {
+	const toleranceS = 5
+
+	// Check for a rejected row whose window overlaps (with ±5s slack on each edge).
+	var conflictExists bool
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM activity_lift_candidates alc
+			JOIN activities a ON a.id = alc.activity_id
+			WHERE alc.activity_id = $1
+			  AND a.user_id = $2
+			  AND alc.rejected_by_user = true
+			  AND alc.started_at <= $3 + make_interval(secs => $5)
+			  AND alc.ended_at   >= $4 - make_interval(secs => $5)
+		)
+	`, activityID, userID,
+		in.EndedAt, in.StartedAt, toleranceS,
+	).Scan(&conflictExists); err != nil {
+		return false, fmt.Errorf("check reject overlap: %w", err)
+	}
+	if conflictExists {
+		return false, nil
+	}
+
+	tag, err := db.Pool.Exec(ctx, `
+		INSERT INTO activity_lift_candidates
+			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
+			 confidence, confirmed, source)
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, false, 'heuristic'
+		WHERE EXISTS (SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id = $9)
+		ON CONFLICT (activity_id, started_at) DO NOTHING
+	`, activityID, in.StartedAt, in.EndedAt, in.DurationS,
+		in.AscentM, in.DescentM, in.DistanceM, in.Confidence, userID)
+	if err != nil {
+		return false, fmt.Errorf("insert heuristic candidate: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }

@@ -72,12 +72,15 @@ func enrichStreamLifts(
 	}
 
 	// Idempotent delete — guard user_id so only the activity's owner is
-	// affected. Both candidate rows AND lift-typed segment_efforts must go,
-	// or a re-run would accumulate duplicates.
+	// affected. Rows with rejected_by_user=true are intentionally preserved:
+	// they are user-authored audit traces that must survive re-enrichment
+	// (Phase 4d). The re-insert path uses InsertHeuristicCandidateIfNotRejected
+	// to suppress re-detection of overlapping rejected candidates.
 	if _, err := db.Pool.Exec(ctx, `
 		DELETE FROM activity_lift_candidates alc
 		USING activities a
 		WHERE alc.activity_id = $1 AND a.id = alc.activity_id AND a.user_id = $2
+		  AND NOT alc.rejected_by_user
 	`, activityID, userID); err != nil {
 		return fmt.Errorf("enrichStreamLifts: delete candidates: %w", err)
 	}
@@ -458,22 +461,23 @@ func insertAuditCandidate(
 
 // insertHeuristicCandidate writes a heuristic-only candidate (source='heuristic',
 // segment_effort_id=NULL, confirmed=false) for a ride that did not snap to any
-// OSM lift. User must confirm before it counts in lift stats.
+// OSM lift. Delegates to InsertHeuristicCandidateIfNotRejected so that a
+// previously rejected row whose window overlaps (±5s) suppresses the re-insert.
 func insertHeuristicCandidate(
 	ctx context.Context,
 	db *database.DB,
 	userID, activityID string,
 	ride lifts.LiftRide,
 ) error {
-	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO activity_lift_candidates
-			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
-			 confidence, confirmed, source)
-		SELECT $1, $2, $3, $4, $5, $6, $7, $8, false, 'heuristic'
-		WHERE EXISTS (SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id = $9)
-		ON CONFLICT (activity_id, started_at) DO NOTHING
-	`, activityID, ride.StartedAt, ride.EndedAt, ride.DurationS,
-		ride.AscentM, ride.DescentM, ride.DistanceM, ride.Confidence, userID)
+	_, err := db.InsertHeuristicCandidateIfNotRejected(ctx, userID, activityID, database.HeuristicCandidateInput{
+		StartedAt:  ride.StartedAt,
+		EndedAt:    ride.EndedAt,
+		DurationS:  ride.DurationS,
+		AscentM:    ride.AscentM,
+		DescentM:   ride.DescentM,
+		DistanceM:  ride.DistanceM,
+		Confidence: ride.Confidence,
+	})
 	if err != nil {
 		return fmt.Errorf("insert: %w", err)
 	}
