@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
@@ -55,7 +56,7 @@ func enrichStreamLifts(
 	// Without this lock, two callers (e.g. cron retry + manual retry, or two
 	// stream-enrichment pipeline runs) can race on the DELETE → INSERT
 	// sequence below. That race produces duplicated rows on the audit-row
-	// path (lookupCanonicalSegmentEffortID's `ORDER BY created_at DESC LIMIT
+	// path (lookupCanonicalSegmentEffortIDTx's `ORDER BY created_at DESC LIMIT
 	// 1` becomes non-deterministic) and orphaned segment_efforts.
 	//
 	// The lock is session-scoped (pg_try_advisory_lock) on a dedicated
@@ -140,53 +141,6 @@ func enrichStreamLifts(
 		return nil
 	}
 
-	// Idempotent delete — guard user_id so only the activity's owner is
-	// affected. Rows with rejected_by_user=true are intentionally preserved:
-	// they are user-authored audit traces that must survive re-enrichment
-	// (Phase 4d). The re-insert path uses InsertHeuristicCandidateIfNotRejected
-	// to suppress re-detection of overlapping rejected candidates.
-	if _, err := db.Pool.Exec(ctx, `
-		DELETE FROM activity_lift_candidates alc
-		USING activities a
-		WHERE alc.activity_id = $1 AND a.id = alc.activity_id AND a.user_id = $2
-		  AND NOT alc.rejected_by_user
-	`, activityID, userID); err != nil {
-		return fmt.Errorf("enrichStreamLifts: delete candidates: %w", err)
-	}
-	// Critic F5 — break the orphan FK on soft-rejected audit rows. Those
-	// rows are intentionally preserved across re-enrichment so the user's
-	// reject decision survives, but their segment_effort_id pointer would
-	// dangle once the segment_efforts DELETE below removes the referenced
-	// row. There is no DB-level FK from activity_lift_candidates →
-	// segment_efforts (the hypertable's composite PK is not referenceable),
-	// so an explicit NULL update is the only way to keep the audit row
-	// orphan-free. The column is nullable since migration 000349. NULL is
-	// the correct soft-reject state (matches the heuristic-rejected case
-	// where the candidate never had a segment_effort).
-	if _, err := db.Pool.Exec(ctx, `
-		UPDATE activity_lift_candidates alc
-		SET segment_effort_id = NULL
-		FROM activities a
-		WHERE alc.activity_id = $1
-		  AND a.id = alc.activity_id
-		  AND a.user_id = $2
-		  AND alc.rejected_by_user = true
-		  AND alc.segment_effort_id IS NOT NULL
-	`, activityID, userID); err != nil {
-		return fmt.Errorf("enrichStreamLifts: null-out rejected audit segment_effort_id: %w", err)
-	}
-	if _, err := db.Pool.Exec(ctx, `
-		DELETE FROM segment_efforts se
-		USING activities a, segments s
-		WHERE se.activity_id = $1
-		  AND a.id = se.activity_id
-		  AND a.user_id = $2
-		  AND s.id = se.segment_id
-		  AND s.segment_type = 'lift'
-	`, activityID, userID); err != nil {
-		return fmt.Errorf("enrichStreamLifts: delete lift segment_efforts: %w", err)
-	}
-
 	// 1. Heuristic detection (in-process) — index-bearing variant so Stage 2
 	//    can correlate ride boundaries against the underlying samples for
 	//    cable-hold signal evaluation.
@@ -207,6 +161,11 @@ func enrichStreamLifts(
 	//    their resolved segment_id + segment_version_id, length and bearing.
 	//    When osm_lifts is empty (no OSM data globally) the pipeline
 	//    short-circuits to "all rides are heuristic-only".
+	//
+	//    Both reads run BEFORE the destructive cleanup Tx below — they are
+	//    pure reads of pre-existing data (osm_lifts + activity_tracks +
+	//    segments) that the Tx neither modifies nor depends on. Running them
+	//    on db.Pool keeps the Tx window short.
 	var osmCandidates []lifts.OSMLiftCandidate
 	var overlaps []lifts.RideOSMOverlap
 	if hasOSM {
@@ -220,21 +179,120 @@ func enrichStreamLifts(
 		}
 	}
 
-	// 4. Pipeline. With no OSM candidates Stage 1 + 2 emit Passthrough
+	// 3. Pipeline. With no OSM candidates Stage 1 + 2 emit Passthrough
 	//    for every ride, Stage 3 plans nothing — every ride lands as a
 	//    heuristic-only candidate, which is the Phase 4c.5.1 contract.
+	//    Pure in-memory; no DB access.
 	stage1 := lifts.SnapToOSMLifts(rides, osmCandidates, overlaps, streamPts, nil)
 	stage2 := lifts.MergeMultiRideForOSM(stage1, rides, osmCandidates, overlaps, streamPts)
 	stage3 := lifts.MethodACoverageGap(stage2, osmCandidates)
 
-	// 5. Persist Stage-1 + Stage-2 results.
+	// 4. Atomic destructive cleanup + rebuild — Codex N5a (Option B).
 	//
-	// Phase-4 critic F2 (Variante B) — OSM-reject persistence. Before each
+	// Pre-fix the cleanup (DELETE candidates, NULL-out rejected pointers,
+	// DELETE segment_efforts) and the rebuild (INSERT segment_efforts +
+	// audit candidates) ran on db.Pool as auto-commit statements. If the
+	// rebuild failed mid-way after the cleanup committed, the activity was
+	// left in an empty/inconsistent lift state with no recovery hook — the
+	// advisory lock made the next caller skip silently, so the bad state
+	// could persist indefinitely.
+	//
+	// The fix wraps cleanup + rebuild in a single transaction: on any
+	// failure both phases roll back together and the original rows
+	// (including rejected_by_user audit rows with their original
+	// segment_effort_id pointers) are restored. RecomputeLiftStats stays
+	// outside the Tx — it has its own internal Tx for the activities.lift_*
+	// UPDATE + gear-stats refresh, and a recompute failure leaves the
+	// committed lift candidates / segment_efforts intact (re-running
+	// enrichment recovers stale activities.lift_* values).
+	//
+	// All write helpers here have *Tx variants that route via tx.Exec.
+	// Read helpers that touch only pre-existing rejected rows
+	// (IsRejectedAnySourceInWindow) keep using db.Pool: those rows are
+	// preserved by the Tx's `NOT alc.rejected_by_user` DELETE filter, so a
+	// separate-connection read returns correct results regardless of
+	// READ COMMITTED visibility.
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("enrichStreamLifts: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after Commit is a no-op
+
+	// Idempotent delete — guard user_id so only the activity's owner is
+	// affected. Rows with rejected_by_user=true are intentionally preserved:
+	// they are user-authored audit traces that must survive re-enrichment
+	// (Phase 4d). The re-insert path uses insertHeuristicCandidateTx (and
+	// insertAuditCandidateTx) to suppress re-detection of overlapping
+	// rejected candidates.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM activity_lift_candidates alc
+		USING activities a
+		WHERE alc.activity_id = $1 AND a.id = alc.activity_id AND a.user_id = $2
+		  AND NOT alc.rejected_by_user
+	`, activityID, userID); err != nil {
+		return fmt.Errorf("enrichStreamLifts: delete candidates: %w", err)
+	}
+	// Critic F5 — break the orphan FK on soft-rejected audit rows. Those
+	// rows are intentionally preserved across re-enrichment so the user's
+	// reject decision survives, but their segment_effort_id pointer would
+	// dangle once the segment_efforts DELETE below removes the referenced
+	// row. There is no DB-level FK from activity_lift_candidates →
+	// segment_efforts (the hypertable's composite PK is not referenceable),
+	// so an explicit NULL update is the only way to keep the audit row
+	// orphan-free. The column is nullable since migration 000349. NULL is
+	// the correct soft-reject state (matches the heuristic-rejected case
+	// where the candidate never had a segment_effort).
+	//
+	// N5c trade-off note: with cleanup + rebuild now atomic in one Tx, the
+	// NULL-update is no longer a defensive measure against rebuild failure
+	// (Tx-rollback would restore both the segment_efforts rows and the
+	// original pointers). It IS still required on the success path: the
+	// segment_efforts DELETE that follows would otherwise leave the
+	// preserved rejected rows pointing at deleted IDs after Commit. Keeping
+	// the NULL-update preserves that contract regardless of Tx outcome.
+	if _, err := tx.Exec(ctx, `
+		UPDATE activity_lift_candidates alc
+		SET segment_effort_id = NULL
+		FROM activities a
+		WHERE alc.activity_id = $1
+		  AND a.id = alc.activity_id
+		  AND a.user_id = $2
+		  AND alc.rejected_by_user = true
+		  AND alc.segment_effort_id IS NOT NULL
+	`, activityID, userID); err != nil {
+		return fmt.Errorf("enrichStreamLifts: null-out rejected audit segment_effort_id: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM segment_efforts se
+		USING activities a, segments s
+		WHERE se.activity_id = $1
+		  AND a.id = se.activity_id
+		  AND a.user_id = $2
+		  AND s.id = se.segment_id
+		  AND s.segment_type = 'lift'
+	`, activityID, userID); err != nil {
+		return fmt.Errorf("enrichStreamLifts: delete lift segment_efforts: %w", err)
+	}
+
+	// 5. Persist Stage-1 + Stage-2 results inside the Tx.
+	//
+	// Phase-4 critic F2 (Variante B) — reject persistence. Before each
 	// SnapAction-Snap insert (canonical or suppressed-merge) we ask the DB
-	// whether a soft-rejected OSM audit-row already covers the same window
-	// (boundary deltas ≤ 5 s). When yes, the entire insert is skipped — both
-	// the segment_effort and the audit-row — so the user's reject survives
-	// re-enrichment instead of being overwritten by a fresh canonical row.
+	// whether a soft-rejected audit-row (any source) already covers the
+	// same window (boundary deltas ≤ 5 s). When yes, the entire insert is
+	// skipped — both the segment_effort and the audit-row — so the user's
+	// reject survives re-enrichment instead of being overwritten by a fresh
+	// canonical row.
+	//
+	// N5b fix (Codex finding): this pre-check uses IsRejectedAnySourceInWindow
+	// (symmetric, source-agnostic) rather than IsOSMRejectedInWindow
+	// (source='osm' only). The asymmetric helper would let a heuristic-
+	// rejected window pass this guard, insert a fresh segment_effort, and
+	// then have insertAuditCandidateTx's downstream symmetric guard skip
+	// the audit-row — leaving an orphan segment_effort that
+	// recomputeLiftStats counts via the segment_efforts arm (NOT EXISTS a
+	// rejected audit row pointing at it → it gets counted), bypassing the
+	// user's reject. The symmetric guard at the early-exit shuts that gap.
 	osmMatches := 0
 	for _, res := range stage2 {
 		ride := rides[res.RideIdx]
@@ -244,7 +302,7 @@ func enrichStreamLifts(
 			// Pre-check the per-ride window — the audit-row writes
 			// ride.Ride.StartedAt/EndedAt, so that is the window the
 			// rejected-window predicate is evaluated against.
-			suppressed, err := db.IsOSMRejectedInWindow(ctx, activityID, ride.Ride.StartedAt, ride.Ride.EndedAt)
+			suppressed, err := db.IsRejectedAnySourceInWindow(ctx, activityID, ride.Ride.StartedAt, ride.Ride.EndedAt)
 			if err != nil {
 				return fmt.Errorf("enrichStreamLifts: check rejected window: %w", err)
 			}
@@ -255,38 +313,39 @@ func enrichStreamLifts(
 				// Audit-only candidate referencing the canonical merge's
 				// segment_effort_id. The canonical row creates the
 				// segment_effort itself; we look it up by the merged
-				// (activity, started_at) key.
-				canonicalEffortID, err := lookupCanonicalSegmentEffortID(ctx, db, activityID, rides[res.MergedRideIndices[0]].Ride.StartedAt)
+				// (activity, started_at) key. The lookup runs inside the
+				// Tx so the just-inserted canonical row is visible.
+				canonicalEffortID, err := lookupCanonicalSegmentEffortIDTx(ctx, tx, activityID, rides[res.MergedRideIndices[0]].Ride.StartedAt)
 				if err != nil {
 					return fmt.Errorf("enrichStreamLifts: lookup canonical merge id: %w", err)
 				}
-				if err := insertAuditCandidate(ctx, db, userID, activityID, ride.Ride, canonicalEffortID); err != nil {
+				if err := insertAuditCandidateTx(ctx, db, tx, userID, activityID, ride.Ride, canonicalEffortID); err != nil {
 					return fmt.Errorf("enrichStreamLifts: insert suppressed audit candidate: %w", err)
 				}
 				continue
 			}
 			// Canonical Stage-1 snap or canonical Stage-2 merge.
 			startedAt, durationS, ascentM, distanceM := canonicalRideMetrics(rides, res, osm)
-			effortID, err := insertSegmentEffort(ctx, db, userID, activityID, osm,
+			effortID, err := insertSegmentEffortTx(ctx, tx, userID, activityID, osm,
 				startedAt, durationS, distanceM, ascentM, res.IsReverse,
 				true /*isLiftSegmentMatch*/, false /*isMethodAOnly*/, res.IsCableHoldMerge)
 			if err != nil {
 				return fmt.Errorf("enrichStreamLifts: insert segment_effort: %w", err)
 			}
-			if err := insertAuditCandidate(ctx, db, userID, activityID, ride.Ride, effortID); err != nil {
+			if err := insertAuditCandidateTx(ctx, db, tx, userID, activityID, ride.Ride, effortID); err != nil {
 				return fmt.Errorf("enrichStreamLifts: insert audit candidate: %w", err)
 			}
 			osmMatches++
 
 		case lifts.SnapActionPassthrough:
-			if err := insertHeuristicCandidate(ctx, db, userID, activityID, ride.Ride); err != nil {
+			if err := insertHeuristicCandidateTx(ctx, tx, userID, activityID, ride.Ride); err != nil {
 				return fmt.Errorf("enrichStreamLifts: insert heuristic candidate: %w", err)
 			}
 
 		case lifts.SnapActionMultiRideGroup:
 			// Stage 2 should have rewritten this; if anything slips through
 			// treat as heuristic-only (defensive).
-			if err := insertHeuristicCandidate(ctx, db, userID, activityID, ride.Ride); err != nil {
+			if err := insertHeuristicCandidateTx(ctx, tx, userID, activityID, ride.Ride); err != nil {
 				return fmt.Errorf("enrichStreamLifts: insert heuristic candidate (defensive): %w", err)
 			}
 		}
@@ -298,13 +357,22 @@ func enrichStreamLifts(
 	//    one audit-only candidate (source='osm', confirmed=true).
 	for _, plan := range stage3 {
 		osm := osmCandidates[plan.OSMCandidateIdx]
-		ok, err := insertStage3SegmentEffort(ctx, db, userID, activityID, osm)
+		ok, err := insertStage3SegmentEffortTx(ctx, db, tx, userID, activityID, osm)
 		if err != nil {
 			return fmt.Errorf("enrichStreamLifts: stage 3 insert: %w", err)
 		}
 		if ok {
 			osmMatches++
 		}
+	}
+
+	// Commit the cleanup + rebuild atomically. RecomputeLiftStats runs on
+	// db.Pool (its own internal Tx) afterwards: a recompute failure here
+	// leaves the candidates / segment_efforts in their correct rebuilt
+	// state and only activities.lift_* are stale, recoverable by re-running
+	// enrichment.
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("enrichStreamLifts: commit tx: %w", err)
 	}
 
 	if err := db.RecomputeLiftStats(ctx, userID, activityID); err != nil {
@@ -500,13 +568,18 @@ func ascentForDirection(r lifts.LiftRide, isReverse bool) float64 {
 	return r.AscentM
 }
 
-// insertSegmentEffort writes one Stage-1 / Stage-2 / Stage-3 segment_efforts
+// insertSegmentEffortTx writes one Stage-1 / Stage-2 / Stage-3 segment_efforts
 // row with the Phase 4c audit flags. Returns the inserted id (UUID); the
 // composite-PK hypertable design means we generate the id client-side and
 // thread it back to the audit-candidate insert.
-func insertSegmentEffort(
+//
+// Tx-bound: the INSERT must be visible to subsequent statements in the same
+// Tx (lookupCanonicalSegmentEffortIDTx + ON CONFLICT semantics for
+// insertAuditCandidateTx) and must roll back together with the rest of the
+// rebuild on any failure.
+func insertSegmentEffortTx(
 	ctx context.Context,
-	db *database.DB,
+	tx pgx.Tx,
 	userID, activityID string,
 	osm lifts.OSMLiftCandidate,
 	startedAt time.Time,
@@ -515,7 +588,7 @@ func insertSegmentEffort(
 	isReverse, isLiftSegmentMatch, isMethodAOnly, isCableHoldMerge bool,
 ) (string, error) {
 	effortID := uuid.NewString()
-	_, err := db.Pool.Exec(ctx, `
+	_, err := tx.Exec(ctx, `
 		INSERT INTO segment_efforts
 			(id, activity_id, segment_id, segment_version_id, user_id,
 			 started_at, elapsed_time_s, distance_m, elevation_gain_m,
@@ -536,8 +609,8 @@ func insertSegmentEffort(
 	return effortID, nil
 }
 
-// insertAuditCandidate writes the activity_lift_candidates row that mirrors
-// a Stage-1/2/3 segment_effort. The candidate carries source='osm',
+// insertAuditCandidateTx writes the activity_lift_candidates row that
+// mirrors a Stage-1/2/3 segment_effort. The candidate carries source='osm',
 // confirmed=true and segment_effort_id pointing at the effort. This row
 // is purely for the read-side unified API; it is excluded from the
 // recomputeLiftStats heuristic-only count by the partial-index dedup.
@@ -550,18 +623,28 @@ func insertSegmentEffort(
 // persists across re-enrichment AND across OSM data imports.
 //
 // Why the pre-check lives here and not just at the SnapAction-entry guard
-// in enrichStreamLifts: the entry guard uses IsOSMRejectedInWindow (source-
-// scoped, early-exit optimisation) and lets a rejected heuristic row fall
-// through to this function. The naive ON CONFLICT (activity_id, started_at)
-// DO UPDATE then flipped the rejected heuristic row's source to 'osm' but
-// kept rejected_by_user=true — a once-rejected window silently poisoned all
+// in enrichStreamLifts: the entry guard is now also symmetric (N5b fix),
+// but the upsert-site guard remains as a second line of defense. The
+// failure mode it guards against is: a rejected heuristic row falls
+// through both an asymmetric pre-check upstream (legacy callers, future
+// callers) and the ON CONFLICT (activity_id, started_at) DO UPDATE flips
+// the rejected heuristic row's source to 'osm' while keeping
+// rejected_by_user=true — a once-rejected window silently poisons all
 // future detection through the OSM path. Codex GPT-5.5-xhigh adversarial-
 // review surfaced this as F14 on commit 2062b1465 in branch
 // feature/lift-detection-go. Putting the symmetric guard at the upsert site
 // makes the bug unreachable regardless of which caller path arrives here.
-func insertAuditCandidate(
+//
+// Tx contract: the INSERT runs on tx so it commits atomically with the
+// rest of the rebuild. The IsRejectedAnySourceInWindow read intentionally
+// runs on db.Pool: rejected_by_user rows are preserved across the Tx's
+// destructive cleanup (the DELETE filters NOT alc.rejected_by_user) and
+// are not modified inside the Tx, so a separate-connection
+// READ COMMITTED snapshot returns the same rows the Tx would see.
+func insertAuditCandidateTx(
 	ctx context.Context,
 	db *database.DB,
+	tx pgx.Tx,
 	userID, activityID string,
 	ride lifts.LiftRide,
 	segmentEffortID string,
@@ -573,7 +656,7 @@ func insertAuditCandidate(
 	if suppressed {
 		return nil
 	}
-	_, err = db.Pool.Exec(ctx, `
+	_, err = tx.Exec(ctx, `
 		INSERT INTO activity_lift_candidates
 			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
 			 confidence, confirmed, source, segment_effort_id)
@@ -592,38 +675,68 @@ func insertAuditCandidate(
 	return nil
 }
 
-// insertHeuristicCandidate writes a heuristic-only candidate (source='heuristic',
-// segment_effort_id=NULL, confirmed=false) for a ride that did not snap to any
-// OSM lift. Delegates to InsertHeuristicCandidateIfNotRejected so that a
-// previously rejected row whose window overlaps (±5s) suppresses the re-insert.
-func insertHeuristicCandidate(
+// insertHeuristicCandidateTx writes a heuristic-only candidate
+// (source='heuristic', segment_effort_id=NULL, confirmed=false) for a ride
+// that did not snap to any OSM lift. The SQL must run inside the
+// destructive-cleanup Tx so that the INSERT (and the in-Tx-only DELETEs
+// that just preceded it) commit atomically; that requires routing through
+// tx.Exec rather than db.Pool.Exec.
+//
+// The SQL is intentionally a verbatim mirror of
+// database.InsertHeuristicCandidateIfNotRejected — same NOT EXISTS reject
+// filter, same ±5 s boundary tolerance, same multi-tenant user_id guard,
+// same ON CONFLICT (activity_id, started_at) DO NOTHING. When the
+// canonical helper changes (boundary tolerance, reject-filter shape) this
+// duplicate must be updated to match. The duplication is the cost of
+// keeping the destructive cleanup atomic without a Tx variant of the
+// canonical helper in the database package (parallel cluster N4+N7+N8
+// owns enrichment_db.go in this branch; once a Tx variant of
+// InsertHeuristicCandidateIfNotRejected becomes available post-merge,
+// this inline SQL should be replaced with that call).
+//
+// Symmetric reject-filter (paired with insertAuditCandidateTx and the
+// comment block above database.InsertHeuristicCandidateIfNotRejected): the
+// NOT EXISTS sub-query checks rejected_by_user = true WITHOUT a source
+// filter, so a rejected row of either source ('osm' or 'heuristic')
+// blocks a fresh heuristic re-insert in the same window.
+func insertHeuristicCandidateTx(
 	ctx context.Context,
-	db *database.DB,
+	tx pgx.Tx,
 	userID, activityID string,
 	ride lifts.LiftRide,
 ) error {
-	_, err := db.InsertHeuristicCandidateIfNotRejected(ctx, userID, activityID, database.HeuristicCandidateInput{
-		StartedAt:  ride.StartedAt,
-		EndedAt:    ride.EndedAt,
-		DurationS:  ride.DurationS,
-		AscentM:    ride.AscentM,
-		DescentM:   ride.DescentM,
-		DistanceM:  ride.DistanceM,
-		Confidence: ride.Confidence,
-	})
+	_, err := tx.Exec(ctx, `
+		INSERT INTO activity_lift_candidates
+			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
+			 confidence, confirmed, source)
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, false, 'heuristic'
+		WHERE EXISTS (SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id = $9)
+		  AND NOT EXISTS (
+			SELECT 1 FROM activity_lift_candidates rej
+			WHERE rej.activity_id = $1
+			  AND rej.rejected_by_user = true
+			  AND ABS(EXTRACT(EPOCH FROM (rej.started_at - $2::timestamptz))) <= 5
+			  AND ABS(EXTRACT(EPOCH FROM (rej.ended_at   - $3::timestamptz))) <= 5
+		  )
+		ON CONFLICT (activity_id, started_at) DO NOTHING
+	`, activityID, ride.StartedAt, ride.EndedAt, ride.DurationS,
+		ride.AscentM, ride.DescentM, ride.DistanceM, ride.Confidence, userID)
 	if err != nil {
 		return fmt.Errorf("insert: %w", err)
 	}
 	return nil
 }
 
-// lookupCanonicalSegmentEffortID returns the id of the segment_effort that
-// the canonical Stage-2 ride just inserted (matched by activity_id +
-// started_at). Returns the empty string when not found — caller treats that
-// as "no canonical row" and skips the audit insert.
-func lookupCanonicalSegmentEffortID(ctx context.Context, db *database.DB, activityID string, startedAt time.Time) (string, error) {
+// lookupCanonicalSegmentEffortIDTx returns the id of the segment_effort
+// that the canonical Stage-2 ride just inserted (matched by activity_id +
+// started_at). Runs on the caller-supplied Tx so the just-inserted
+// canonical row is visible (the destructive cleanup + rebuild commits
+// atomically; a separate-connection lookup would not see the row yet).
+// Returns the empty string when not found — caller treats that as "no
+// canonical row" and skips the audit insert.
+func lookupCanonicalSegmentEffortIDTx(ctx context.Context, tx pgx.Tx, activityID string, startedAt time.Time) (string, error) {
 	var id string
-	err := db.Pool.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		SELECT id FROM segment_efforts
 		WHERE activity_id = $1 AND started_at = $2 AND is_cable_hold_merge = true
 		ORDER BY created_at DESC LIMIT 1
@@ -634,15 +747,27 @@ func lookupCanonicalSegmentEffortID(ctx context.Context, db *database.DB, activi
 	return id, nil
 }
 
-// insertStage3SegmentEffort runs the legacy Method-A per-lift time-window
-// SQL: extracts samples within 75m of the OSM lift, derives
+// insertStage3SegmentEffortTx runs the legacy Method-A per-lift time-
+// window SQL: extracts samples within 75m of the OSM lift, derives
 // duration/ascent/bearing, then INSERTs one segment_efforts row
-// (is_method_a_only=true) plus the audit-only candidate. Returns true when
-// a row was successfully inserted (false for "below 30s duration floor" or
-// "fewer than 2 samples in window" — both legitimate skip cases).
-func insertStage3SegmentEffort(
+// (is_method_a_only=true) plus the audit-only candidate. Returns true
+// when a row was successfully inserted (false for "below 30s duration
+// floor" or "fewer than 2 samples in window" — both legitimate skip
+// cases).
+//
+// Tx-bound write path: insertSegmentEffortTx + insertAuditCandidateTx
+// route through tx so the inserts roll back together with the rest of
+// the rebuild on any failure. The activity_streams + osm_lifts read
+// runs on db.Pool — pre-existing data, not modified inside the Tx.
+//
+// N5b fix: the rejected-window pre-check uses IsRejectedAnySourceInWindow
+// (symmetric, source-agnostic) rather than IsOSMRejectedInWindow. See
+// the matching N5b comment on the SnapAction-Snap pre-check above —
+// same orphan-segment_effort failure mode applied to Stage-3.
+func insertStage3SegmentEffortTx(
 	ctx context.Context,
 	db *database.DB,
+	tx pgx.Tx,
 	userID, activityID string,
 	osm lifts.OSMLiftCandidate,
 ) (bool, error) {
@@ -692,10 +817,10 @@ func insertStage3SegmentEffort(
 		return false, nil
 	}
 	// Phase-4 critic F2 (Variante B): pre-check the time-window against
-	// soft-rejected OSM audit-rows. Stage 3 is the method-A coverage gap
+	// soft-rejected audit-rows. Stage 3 is the method-A coverage gap
 	// path; the audit-row writes startedAt/endedAt as derived here, so
 	// the rejected-window predicate uses those same boundaries.
-	suppressed, err := db.IsOSMRejectedInWindow(ctx, activityID, startedAt, endedAt)
+	suppressed, err := db.IsRejectedAnySourceInWindow(ctx, activityID, startedAt, endedAt)
 	if err != nil {
 		return false, fmt.Errorf("check rejected window: %w", err)
 	}
@@ -713,7 +838,7 @@ func insertStage3SegmentEffort(
 	}
 	isReverse := lifts.IsReverseHeading(trackBearing, osm.BearingDeg)
 
-	effortID, err := insertSegmentEffort(ctx, db, userID, activityID, osm,
+	effortID, err := insertSegmentEffortTx(ctx, tx, userID, activityID, osm,
 		startedAt, durationS, osm.LengthM, ascentM, isReverse,
 		true /*isLiftSegmentMatch*/, true /*isMethodAOnly*/, false /*isCableHoldMerge*/)
 	if err != nil {
@@ -729,7 +854,7 @@ func insertStage3SegmentEffort(
 		DistanceM:  osm.LengthM,
 		Confidence: "high",
 	}
-	if err := insertAuditCandidate(ctx, db, userID, activityID, auditRide, effortID); err != nil {
+	if err := insertAuditCandidateTx(ctx, db, tx, userID, activityID, auditRide, effortID); err != nil {
 		return false, fmt.Errorf("insert audit candidate: %w", err)
 	}
 	return true, nil
