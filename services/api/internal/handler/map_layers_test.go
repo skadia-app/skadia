@@ -33,7 +33,7 @@ func newMapLayerHandler(t *testing.T) *Handler {
 // fields (url_template, style_url, etc.) without triggering ErrSystemLayerImmutable.
 func insertTestMapLayer(t *testing.T, h *Handler, key, name string) int64 {
 	t.Helper()
-	tpl := "https://tile.example.com/{z}/{x}/{y}.png"
+	tpl := handlerTestRasterURLTemplate
 	var id int64
 	err := h.DB.Pool.QueryRow(context.Background(), `
 		INSERT INTO map_layers (key, role, name, source_kind, url_template, is_system, enabled, sort_order, default_opacity)
@@ -60,8 +60,8 @@ func TestGetMapLayers_Returns7PlusSeed(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
 	var resp struct {
-		Layers           []map[string]any            `json:"layers"`
-		SystemVisibility map[string]map[string]any   `json:"system_visibility"`
+		Layers           []map[string]any          `json:"layers"`
+		SystemVisibility map[string]map[string]any `json:"system_visibility"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -78,7 +78,7 @@ func TestGetMapLayers_Returns7PlusSeed(t *testing.T) {
 // admin endpoint always have is_system=true, regardless of what the client sends.
 func TestCreateMapLayer_AdminCreatesSystemLayer(t *testing.T) {
 	h := newMapLayerHandler(t)
-	tpl := "https://tile.example.com/{z}/{x}/{y}.png"
+	tpl := handlerTestRasterURLTemplate
 	body := map[string]any{
 		"key":          "test-force-" + strconv.FormatInt(time.Now().UnixNano(), 36),
 		"role":         "base",
@@ -141,7 +141,7 @@ func TestPatchMapLayer_SystemLayer_ImmutableField(t *testing.T) {
 	}
 
 	body := map[string]any{
-		"url_template": "https://new.example.com/{z}/{x}/{y}.png",
+		"url_template": handlerTestUpdatedRasterURLTemplate,
 	}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPatch, "/admin/map-layers/"+strconv.FormatInt(sysID, 10), bytes.NewReader(b))
@@ -164,7 +164,7 @@ func TestPatchMapLayer_UrlTemplate_NoIfMatch_Returns428(t *testing.T) {
 	h := newMapLayerHandler(t)
 	id := insertTestMapLayer(t, h, "patch-no-ifmatch-"+strconv.FormatInt(time.Now().UnixNano(), 36), "No IfMatch Test")
 
-	body := map[string]any{"url_template": "https://new.example.com/{z}/{x}/{y}.png"}
+	body := map[string]any{"url_template": handlerTestUpdatedRasterURLTemplate}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPatch, "/admin/map-layers/"+strconv.FormatInt(id, 10), bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
@@ -185,7 +185,7 @@ func TestPatchMapLayer_StaleIfMatch_Returns412(t *testing.T) {
 	id := insertTestMapLayer(t, h, "stale-ifmatch-"+strconv.FormatInt(time.Now().UnixNano(), 36), "Stale Test")
 
 	past := time.Now().Add(-1 * time.Hour).Format(time.RFC3339Nano)
-	body := map[string]any{"url_template": "https://new.example.com/{z}/{x}/{y}.png"}
+	body := map[string]any{"url_template": handlerTestUpdatedRasterURLTemplate}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPatch, "/admin/map-layers/"+strconv.FormatInt(id, 10), bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
@@ -332,7 +332,7 @@ func TestPatchMapLayer_StyleURLBadScheme(t *testing.T) {
 func TestPatchMapLayer_StyleURLRelativeAllowed(t *testing.T) {
 	h := newMapLayerHandler(t)
 	// Seed a vector_style layer so style_url is a meaningful field.
-	tpl := "https://tile.example.com/{z}/{x}/{y}.png"
+	tpl := handlerTestRasterURLTemplate
 	_ = tpl
 	body := map[string]any{
 		"key":         "style-rel-" + strconv.FormatInt(time.Now().UnixNano(), 36),
@@ -371,7 +371,7 @@ func TestCreateMapLayer_InvalidCapability(t *testing.T) {
 		"role":                "base",
 		"name":                "Bad Cap",
 		"source_kind":         "raster_tiles",
-		"url_template":        "https://tile.example.com/{z}/{x}/{y}.png",
+		"url_template":        handlerTestRasterURLTemplate,
 		"requires_capability": bogus,
 		"enabled":             true,
 	}
@@ -469,7 +469,7 @@ func TestBulkSortMapLayers_CtxCanceled(t *testing.T) {
 // the handler derives one by slugifying the name.
 func TestCreateMapLayer_KeySlugifiedFromName(t *testing.T) {
 	h := newMapLayerHandler(t)
-	tpl := "https://tile.example.com/{z}/{x}/{y}.png"
+	tpl := handlerTestRasterURLTemplate
 	body := map[string]any{
 		// key intentionally omitted — handler must generate it
 		"role":         "base",
@@ -507,7 +507,7 @@ func TestCreateMapLayer_KeySlugifiedFromName(t *testing.T) {
 // the "-2" suffix retry and produces a unique key.
 func TestCreateMapLayer_KeyCollisionSuffix(t *testing.T) {
 	h := newMapLayerHandler(t)
-	tpl := "https://tile.example.com/{z}/{x}/{y}.png"
+	tpl := handlerTestRasterURLTemplate
 	ts := strconv.FormatInt(time.Now().UnixNano(), 36)
 	sharedName := "Collision " + ts
 
@@ -577,8 +577,8 @@ func TestPatchMapLayer_StripsImmutableFields(t *testing.T) {
 	h.DB.Pool.QueryRow(context.Background(), "SELECT key FROM map_layers WHERE id = $1", id).Scan(&origKey) //nolint:errcheck
 
 	body := map[string]any{
-		"key":         "totally-new-key",  // must be silently dropped
-		"source_kind": "vector_style",     // must be silently dropped
+		"key":         "totally-new-key", // must be silently dropped
+		"source_kind": "vector_style",    // must be silently dropped
 		"min_zoom":    float64(3),
 	}
 	b, _ := json.Marshal(body)

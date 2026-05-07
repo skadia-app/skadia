@@ -65,7 +65,7 @@ func (h *Handler) CreateMapLayer(w http.ResponseWriter, r *http.Request) {
 	}
 	// Zero out server-controlled fields — callers must not influence these.
 	m.ID = 0
-	m.IsSystem = true // admin endpoint always creates system layers
+	m.IsSystem = true             // admin endpoint always creates system layers
 	m.ProxyThroughBackend = false // not implemented in Phase 1
 	m.CreatedAt = time.Time{}
 	m.UpdatedAt = time.Time{}
@@ -80,11 +80,6 @@ func (h *Handler) CreateMapLayer(w http.ResponseWriter, r *http.Request) {
 			code = "style_url_too_long"
 		case errors.Is(err, model.ErrStyleURLEmpty), errors.Is(err, model.ErrStyleURLInvalid):
 			code = "invalid_style_url"
-		case errors.Is(err, model.ErrPrivateIPBlocked), errors.Is(err, model.ErrIPv6ULABlocked),
-			errors.Is(err, model.ErrBlockedHostname):
-			code = "private_address_blocked"
-		case errors.Is(err, model.ErrHostResolutionFailed):
-			code = "host_resolution_failed"
 		case strings.HasPrefix(err.Error(), "name_required"):
 			code = "name_required"
 		case strings.HasPrefix(err.Error(), "name_too_long"):
@@ -95,6 +90,8 @@ func (h *Handler) CreateMapLayer(w http.ResponseWriter, r *http.Request) {
 			code = "invalid_sort_order"
 		case strings.HasPrefix(err.Error(), "requires_capability"):
 			code = "invalid_capability"
+		default:
+			code = mapLayerAddressValidationErrorCode(err, code)
 		}
 		httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 		return
@@ -202,14 +199,7 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 		// `local` system layer uses a relative `/api/v1/...` path, so legitimate
 		// internal references don't need IP literals.
 		if err := model.ValidateURLTemplate(v, true); err != nil {
-			code := "invalid_url"
-			switch {
-			case errors.Is(err, model.ErrPrivateIPBlocked), errors.Is(err, model.ErrIPv6ULABlocked),
-				errors.Is(err, model.ErrBlockedHostname):
-				code = "private_address_blocked"
-			case errors.Is(err, model.ErrHostResolutionFailed):
-				code = "host_resolution_failed"
-			}
+			code := mapLayerAddressValidationErrorCode(err, "invalid_url")
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 			return
 		}
@@ -223,11 +213,8 @@ func (h *Handler) PatchMapLayer(w http.ResponseWriter, r *http.Request) {
 			switch {
 			case errors.Is(err, model.ErrStyleURLTooLong):
 				code = "style_url_too_long"
-			case errors.Is(err, model.ErrPrivateIPBlocked), errors.Is(err, model.ErrIPv6ULABlocked),
-				errors.Is(err, model.ErrBlockedHostname):
-				code = "private_address_blocked"
-			case errors.Is(err, model.ErrHostResolutionFailed):
-				code = "host_resolution_failed"
+			default:
+				code = mapLayerAddressValidationErrorCode(err, code)
 			}
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 			return
@@ -386,6 +373,18 @@ const (
 
 func mapLayerErrBody(code, msg string) map[string]any {
 	return map[string]any{"error": code, "message": msg}
+}
+
+func mapLayerAddressValidationErrorCode(err error, fallback string) string {
+	switch {
+	case errors.Is(err, model.ErrPrivateIPBlocked), errors.Is(err, model.ErrIPv6ULABlocked),
+		errors.Is(err, model.ErrBlockedHostname):
+		return "private_address_blocked"
+	case errors.Is(err, model.ErrHostResolutionFailed):
+		return "host_resolution_failed"
+	default:
+		return fallback
+	}
 }
 
 // validateName enforces non-empty + max length on a layer name. Pass the trimmed
