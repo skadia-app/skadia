@@ -456,6 +456,58 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 		return nil, fmt.Errorf("related-tables union-copy: %w", err)
 	}
 
+	// Step 7d: Propagate soft-rejected lift candidates from source activities to the
+	// merged activity so that the async re-enrichment pass (postCommitFusionCleanup)
+	// does not resurrect candidates the user already rejected on a source activity.
+	//
+	// Why this is needed: re-enrichment calls InsertHeuristicCandidateIfNotRejected,
+	// which suppresses any new detection whose boundaries fall within ±5 s of a
+	// rejected row for the *same* activity_id. The merged activity starts with zero
+	// rejected rows, so without this copy every previously-rejected lift would
+	// reappear. Copying the source-activity rejected rows before commit ensures
+	// the suppression guard has data to match against when the goroutine starts.
+	//
+	// Timestamp translation: not needed. The unified timeline preserves source
+	// timestamps verbatim (insertUnifiedTimelineInto uses UNION of raw source times),
+	// so started_at/ended_at from the source candidates map 1:1 into the merged
+	// activity's stream range.
+	//
+	// segment_effort_id is set to NULL: the source's effort ID references a
+	// segment_effort row owned by the source activity. The merged activity gets its
+	// own segment_efforts from re-enrichment.
+	//
+	// Non-fatal: a failure here degrades gracefully — the user may see re-appeared
+	// rejected candidates after merge, but no data is lost or corrupted.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activity_lift_candidates
+			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m,
+			 distance_m, confidence, confirmed, source, rejected_by_user, segment_effort_id)
+		SELECT
+			$1,
+			alc.started_at,
+			alc.ended_at,
+			alc.duration_s,
+			alc.ascent_m,
+			alc.descent_m,
+			alc.distance_m,
+			alc.confidence,
+			false,
+			alc.source,
+			true,
+			NULL
+		FROM activity_lift_candidates alc
+		JOIN activities a ON a.id = alc.activity_id
+		WHERE alc.activity_id = ANY($2)
+		  AND alc.rejected_by_user = true
+		  AND a.user_id = $3
+		ON CONFLICT (activity_id, started_at) DO NOTHING
+	`, p.merged.ID, p.allSourceIDs, p.userID); err != nil {
+		slog.Warn("fusion-merge: copy source soft-rejected lift candidates failed",
+			"action", "fusion_merge_lift_soft_reject_copy_nonfatal",
+			"merged_id", p.merged.ID, "error", err)
+		warnings = append(warnings, "soft-rejected lift candidates could not be copied — previously rejected lifts may reappear after merge")
+	}
+
 	// Audit log (inside transaction).
 	// FATAL: the audit record is required for GDPR accountability. A failed INSERT
 	// here would commit the merge without any audit trail, breaking the export/import

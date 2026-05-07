@@ -4285,3 +4285,127 @@ func TestFusionMerge_GearCopyFailureReturnsWarning(t *testing.T) {
 		t.Errorf("expected a gear-related warning, got: %v", warnings)
 	}
 }
+
+// TestFusionMerge_SoftRejectedLiftCandidatesCopied verifies F28: soft-rejected
+// lift candidates from source activities are propagated to the merged activity
+// inside the transaction, so that the async re-enrichment pass cannot resurrect
+// lifts the user already rejected on any source.
+func TestFusionMerge_SoftRejectedLiftCandidatesCopied(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2024, 8, 1, 10, 0, 0, 0, time.UTC)
+
+	// Insert one soft-rejected lift candidate on actA and one on actB.
+	// The started_at timestamps are intentionally distinct so both must appear
+	// in the merged activity.
+	_, err := pool.Exec(ctx, `
+		INSERT INTO activity_lift_candidates
+			(activity_id, started_at, ended_at, duration_s, ascent_m,
+			 confidence, rejected_by_user, source)
+		VALUES
+			($1, $3::timestamptz,                     $3::timestamptz + interval '5 minutes',        300, 120.0, 'high',   true, 'heuristic'),
+			($2, $3::timestamptz + interval '1 hour', $3::timestamptz + interval '1 hour 5 minutes', 300, 80.0,  'medium', true, 'heuristic')
+	`, actA, actB, base)
+	if err != nil {
+		t.Fatalf("insert rejected candidates: %v", err)
+	}
+
+	// Create merged activity row so FK constraints on activity_lift_candidates hold.
+	mergedID := uuid.New().String()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, started_at, visibility, enrichment_status, has_edits)
+		SELECT $1, user_id, sport_type, started_at, visibility, 'pending', true FROM activities WHERE id = $2
+	`, mergedID, actA); err != nil {
+		t.Fatalf("insert merged activity row: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM activities WHERE id = $1", mergedID) //nolint:errcheck
+	})
+
+	// Load activities map (mirrors what loadAndVerifyActivities produces).
+	mergedAct, err := db.GetActivity(ctx, mergedID)
+	if err != nil || mergedAct == nil {
+		t.Fatalf("get mergedAct: %v", err)
+	}
+	srcA, err := db.GetActivity(ctx, actA)
+	if err != nil || srcA == nil {
+		t.Fatalf("get actA: %v", err)
+	}
+	srcB, err := db.GetActivity(ctx, actB)
+	if err != nil || srcB == nil {
+		t.Fatalf("get actB: %v", err)
+	}
+
+	h := &Handler{DB: db}
+
+	// Run applyFusionTxExtras inside a real transaction.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	p := fusionFinalizeParams{
+		merged:           mergedAct,
+		allSourceIDs:     []string{actA, actB},
+		activities:       map[string]*model.Activity{actA: srcA, actB: srcB},
+		userID:           userID,
+		metadataSourceID: actA,
+		auditData:        []byte(`{}`),
+	}
+
+	warnings, applyErr := h.applyFusionTxExtras(ctx, tx, p)
+	if applyErr != nil {
+		t.Fatalf("applyFusionTxExtras returned fatal error: %v", applyErr)
+	}
+	// Non-fatal warning about lift candidates is possible on DB error, but should
+	// not be present when the copy succeeds.
+	for _, w := range warnings {
+		if strings.Contains(strings.ToLower(w), "lift") || strings.Contains(strings.ToLower(w), "reject") {
+			t.Errorf("unexpected lift/reject warning (indicates copy failed): %q", w)
+		}
+	}
+
+	// Verify: merged activity has exactly 2 rejected rows, one per source timestamp.
+	var count int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM activity_lift_candidates
+		WHERE activity_id = $1 AND rejected_by_user = true
+	`, mergedID).Scan(&count); err != nil {
+		t.Fatalf("count rejected candidates on merged: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("merged activity: want 2 soft-rejected lift candidates, got %d", count)
+	}
+
+	// Verify that segment_effort_id is NULL on all copied rows (source effort IDs
+	// must not bleed into the merged activity's candidate rows).
+	var nonNullEfforts int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM activity_lift_candidates
+		WHERE activity_id = $1 AND rejected_by_user = true AND segment_effort_id IS NOT NULL
+	`, mergedID).Scan(&nonNullEfforts); err != nil {
+		t.Fatalf("count non-null segment_effort_id on merged: %v", err)
+	}
+	if nonNullEfforts != 0 {
+		t.Errorf("merged rejected candidates should have segment_effort_id=NULL, found %d with non-NULL", nonNullEfforts)
+	}
+
+	// Verify: confirmed=false on all copied rows (reject propagates, confirm does not).
+	var confirmedCount int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM activity_lift_candidates
+		WHERE activity_id = $1 AND rejected_by_user = true AND confirmed = true
+	`, mergedID).Scan(&confirmedCount); err != nil {
+		t.Fatalf("count confirmed+rejected on merged: %v", err)
+	}
+	if confirmedCount != 0 {
+		t.Errorf("copied rejected candidates must not have confirmed=true, found %d", confirmedCount)
+	}
+}
