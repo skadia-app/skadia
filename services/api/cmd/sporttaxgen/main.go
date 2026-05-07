@@ -43,6 +43,7 @@ func run() error {
 	goRecordsProjectionOut := flag.String("go-records-projection-out", "", "generated Go records projection output path")
 	tsRecordsProjectionOut := flag.String("ts-records-projection-out", "", "generated TypeScript records projection output path")
 	aliasSourceDir := flag.String("alias-source-dir", "", "source-specific sport alias YAML directory")
+	gearDefaultProjectionSource := flag.String("gear-default-projection-source", "", "gear default projection YAML source")
 	goAliasesOut := flag.String("go-aliases-out", "", "generated Go source aliases output path")
 	tsAliasesOut := flag.String("ts-aliases-out", "", "generated TypeScript source aliases output path")
 	tsGearDefaultsOut := flag.String("ts-gear-defaults-out", "", "generated TypeScript gear default projection output path")
@@ -100,6 +101,9 @@ func run() error {
 	}
 	if *aliasSourceDir == "" {
 		*aliasSourceDir = filepath.Join(*repoRoot, "config", "sport-taxonomy", "aliases")
+	}
+	if *gearDefaultProjectionSource == "" {
+		*gearDefaultProjectionSource = filepath.Join(*repoRoot, "config", "sport-taxonomy", "projections", "gear_defaults.yaml")
 	}
 	if *goAliasesOut == "" {
 		*goAliasesOut = filepath.Join(*repoRoot, "services", "api", "internal", "sport", "aliases_generated.go")
@@ -221,7 +225,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("render TypeScript records projection: %w", err)
 	}
-	renderedGoAliases, renderedTSAliases, renderedTSGearDefaults, aliasesExist, err := renderAliasesFromDir(*aliasSourceDir, taxonomy, modifierRegistry)
+	renderedGoAliases, renderedTSAliases, renderedTSGearDefaults, aliasesExist, err := renderAliasesFromDir(*aliasSourceDir, *gearDefaultProjectionSource, taxonomy, modifierRegistry)
 	if err != nil {
 		return err
 	}
@@ -305,7 +309,7 @@ func run() error {
 	return nil
 }
 
-func renderAliasesFromDir(dir string, taxonomy sporttaxgen.Taxonomy, modifiers sporttaxgen.ModifierRegistry) ([]byte, []byte, []byte, bool, error) {
+func renderAliasesFromDir(dir, gearDefaultProjectionSource string, taxonomy sporttaxgen.Taxonomy, modifiers sporttaxgen.ModifierRegistry) ([]byte, []byte, []byte, bool, error) {
 	if _, err := os.Stat(dir); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil, nil, false, nil
@@ -336,7 +340,16 @@ func renderAliasesFromDir(dir string, taxonomy sporttaxgen.Taxonomy, modifiers s
 	if err != nil {
 		return nil, nil, nil, false, fmt.Errorf("load source aliases: %w", err)
 	}
-	gearDefaults, err := sporttaxgen.BuildGearDefaultProjection(taxonomy, sources)
+	configFile, err := os.Open(gearDefaultProjectionSource)
+	if err != nil {
+		return nil, nil, nil, false, fmt.Errorf("open gear default projection source %s: %w", gearDefaultProjectionSource, err)
+	}
+	defer configFile.Close()
+	gearDefaultConfig, err := sporttaxgen.LoadGearDefaultProjectionConfig(configFile, sources)
+	if err != nil {
+		return nil, nil, nil, false, fmt.Errorf("load gear default projection source: %w", err)
+	}
+	gearDefaults, err := sporttaxgen.BuildGearDefaultProjection(taxonomy, sources, gearDefaultConfig)
 	if err != nil {
 		return nil, nil, nil, false, fmt.Errorf("build gear default projection: %w", err)
 	}

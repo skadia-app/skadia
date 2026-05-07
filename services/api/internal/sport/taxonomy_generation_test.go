@@ -202,7 +202,7 @@ func TestGeneratedBackendSourceAliasesAreCurrent(t *testing.T) {
 	taxonomy := loadTestTaxonomy(t)
 	modifiers := loadTestModifiers(t)
 	sources := loadTestSourceAliases(t, taxonomy)
-	gearDefaults, err := sporttaxgen.BuildGearDefaultProjection(taxonomy, sources)
+	gearDefaults, err := sporttaxgen.BuildGearDefaultProjection(taxonomy, sources, loadTestGearDefaultProjectionConfig(t, sources))
 	if err != nil {
 		t.Fatalf("build gear default projection: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestGeneratedBackendSourceAliasesAreCurrent(t *testing.T) {
 func TestGeneratedFrontendGearDefaultProjectionIsCurrent(t *testing.T) {
 	taxonomy := loadTestTaxonomy(t)
 	sources := loadTestSourceAliases(t, taxonomy)
-	gearDefaults, err := sporttaxgen.BuildGearDefaultProjection(taxonomy, sources)
+	gearDefaults, err := sporttaxgen.BuildGearDefaultProjection(taxonomy, sources, loadTestGearDefaultProjectionConfig(t, sources))
 	if err != nil {
 		t.Fatalf("build gear default projection: %v", err)
 	}
@@ -293,6 +293,20 @@ func loadTestSourceAliases(t *testing.T, taxonomy sporttaxgen.Taxonomy) []sportt
 		t.Fatalf("load source aliases: %v", err)
 	}
 	return sources
+}
+
+func loadTestGearDefaultProjectionConfig(t *testing.T, sources []sporttaxgen.SourceAliases) sporttaxgen.GearDefaultProjectionConfig {
+	t.Helper()
+	file, err := os.Open("../../../../config/sport-taxonomy/projections/gear_defaults.yaml")
+	if err != nil {
+		t.Fatalf("open gear_defaults.yaml: %v", err)
+	}
+	defer file.Close()
+	config, err := sporttaxgen.LoadGearDefaultProjectionConfig(file, sources)
+	if err != nil {
+		t.Fatalf("load gear_defaults.yaml: %v", err)
+	}
+	return config
 }
 
 func loadTestSegmentProjection(t *testing.T, taxonomy sporttaxgen.Taxonomy) sporttaxgen.SegmentProjection {

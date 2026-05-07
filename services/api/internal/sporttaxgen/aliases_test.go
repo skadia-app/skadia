@@ -238,7 +238,7 @@ func TestBuildGearDefaultProjectionCollapsesAliasesToTopLevelSports(t *testing.T
 			{Raw: "Badminton", SportType: "racket", SubType: "badminton"},
 			{Raw: "Elliptical", SportType: "fitness_equipment", SubType: "elliptical"},
 		},
-	}})
+	}}, gearDefaultProjectionConfigForTest("strava"))
 	if err != nil {
 		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
 	}
@@ -262,7 +262,7 @@ func TestBuildGearDefaultProjectionProjectsOnlyStrava(t *testing.T) {
 		{Source: "strava_route", Aliases: []SourceAlias{{Raw: "ride", SportType: "cycling"}}},
 		{Source: "tcx", Aliases: []SourceAlias{{Raw: "Biking", SportType: "cycling"}}},
 		{Source: "komoot", Aliases: []SourceAlias{{Raw: "bike_touring", SportType: "cycling"}}},
-	})
+	}, gearDefaultProjectionConfigForTest("strava"))
 	if err != nil {
 		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
 	}
@@ -278,7 +278,7 @@ func TestBuildGearDefaultProjectionSkipsRawSubAliases(t *testing.T) {
 			{Raw: "Workout", SportType: "running"},
 			{Raw: "Workout", RawSub: "trail", SportType: "running", SubType: "trail"},
 		},
-	}})
+	}}, gearDefaultProjectionConfigForTest("strava"))
 	if err != nil {
 		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
 	}
@@ -295,7 +295,7 @@ func TestBuildGearDefaultProjectionRejectsConflictingRawMapping(t *testing.T) {
 			{Raw: "Workout", SportType: "cycling"},
 			{Raw: " Workout ", SportType: "running"},
 		},
-	}})
+	}}, gearDefaultProjectionConfigForTest("strava"))
 	if err == nil {
 		t.Fatal("BuildGearDefaultProjection accepted conflicting raw mappings")
 	}
@@ -307,7 +307,7 @@ func TestBuildGearDefaultProjectionRejectsConflictingRawMapping(t *testing.T) {
 }
 
 func TestBuildGearDefaultProjectionOptionsSeparateStorageAndManualChoices(t *testing.T) {
-	projection, err := BuildGearDefaultProjection(aliasTestTaxonomy(), nil)
+	projection, err := BuildGearDefaultProjection(aliasTestTaxonomy(), nil, gearDefaultProjectionConfigForTest("strava"))
 	if err != nil {
 		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
 	}
@@ -335,7 +335,7 @@ func TestBuildGearDefaultProjectionExcludesRouteOnlyAliases(t *testing.T) {
 	projection, err := BuildGearDefaultProjection(aliasTestTaxonomy(), []SourceAliases{
 		{Source: "strava", Aliases: []SourceAlias{{Raw: "Ride", SportType: "cycling"}}},
 		{Source: "strava_route", Aliases: []SourceAlias{{Raw: "alpine ski", SportType: "alpine_skiing"}}},
-	})
+	}, gearDefaultProjectionConfigForTest("strava"))
 	if err != nil {
 		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
 	}
@@ -345,6 +345,96 @@ func TestBuildGearDefaultProjectionExcludesRouteOnlyAliases(t *testing.T) {
 	}
 	if len(projection.Sources) != 1 || projection.Sources[0].Source != "strava" {
 		t.Fatalf("projected sources = %#v, want only strava", projection.Sources)
+	}
+}
+
+func TestLoadGearDefaultProjectionConfigLoadsRepositoryFixture(t *testing.T) {
+	taxonomyFile, err := os.Open("../../../../config/sport-taxonomy/sports.yaml")
+	if err != nil {
+		t.Fatalf("open sports.yaml: %v", err)
+	}
+	defer taxonomyFile.Close()
+	taxonomy, err := LoadTaxonomy(taxonomyFile)
+	if err != nil {
+		t.Fatalf("load sports.yaml: %v", err)
+	}
+
+	matches, err := filepath.Glob("../../../../config/sport-taxonomy/aliases/*.yaml")
+	if err != nil {
+		t.Fatalf("glob aliases: %v", err)
+	}
+	files := make(map[string]io.Reader, len(matches))
+	opened := make([]*os.File, 0, len(matches))
+	defer func() {
+		for _, file := range opened {
+			_ = file.Close()
+		}
+	}()
+	for _, match := range matches {
+		file, err := os.Open(match)
+		if err != nil {
+			t.Fatalf("open aliases %s: %v", match, err)
+		}
+		opened = append(opened, file)
+		stem := strings.TrimSuffix(filepath.Base(match), filepath.Ext(match))
+		files[stem] = file
+	}
+	sources, err := LoadSourceAliasFiles(files, taxonomy, modifierRegistryForTest())
+	if err != nil {
+		t.Fatalf("LoadSourceAliasFiles() error = %v", err)
+	}
+	configFile, err := os.Open("../../../../config/sport-taxonomy/projections/gear_defaults.yaml")
+	if err != nil {
+		t.Fatalf("open gear_defaults.yaml: %v", err)
+	}
+	defer configFile.Close()
+	config, err := LoadGearDefaultProjectionConfig(configFile, sources)
+	if err != nil {
+		t.Fatalf("LoadGearDefaultProjectionConfig() error = %v", err)
+	}
+	if !stringSlicesEqual(config.ProjectionSources, []string{"strava"}) {
+		t.Fatalf("projection_sources = %v, want [strava]", config.ProjectionSources)
+	}
+	projection, err := BuildGearDefaultProjection(taxonomy, sources, config)
+	if err != nil {
+		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
+	}
+	if len(projection.Sources) != 1 || projection.Sources[0].Source != "strava" {
+		t.Fatalf("projected sources = %#v, want only strava", projection.Sources)
+	}
+}
+
+func TestBuildGearDefaultProjectionIncludesConfiguredGarminAliases(t *testing.T) {
+	projection, err := BuildGearDefaultProjection(aliasTestTaxonomy(), []SourceAliases{
+		{Source: "strava", Aliases: []SourceAlias{{Raw: "Ride", SportType: "cycling"}}},
+		{Source: "garmin", Aliases: []SourceAlias{{Raw: "running", SportType: "running"}}},
+	}, gearDefaultProjectionConfigForTest("strava", "garmin"))
+	if err != nil {
+		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
+	}
+	if got := gearDefaultAliasesByRaw(t, projection, "garmin"); got["running"] != "running" {
+		t.Fatalf("garmin gear default aliases = %#v, want running", got)
+	}
+}
+
+func TestLoadGearDefaultProjectionConfigRejectsUnknownSource(t *testing.T) {
+	_, err := LoadGearDefaultProjectionConfig(strings.NewReader(`projection_sources: [garmin]`), []SourceAliases{{Source: "strava"}})
+	if err == nil || !strings.Contains(err.Error(), "unknown projection source") {
+		t.Fatalf("LoadGearDefaultProjectionConfig() error = %v, want unknown projection source", err)
+	}
+}
+
+func TestLoadGearDefaultProjectionConfigRejectsDuplicateSource(t *testing.T) {
+	_, err := LoadGearDefaultProjectionConfig(strings.NewReader(`projection_sources: [strava, strava]`), []SourceAliases{{Source: "strava"}})
+	if err == nil || !strings.Contains(err.Error(), "duplicate projection source") {
+		t.Fatalf("LoadGearDefaultProjectionConfig() error = %v, want duplicate projection source", err)
+	}
+}
+
+func TestLoadGearDefaultProjectionConfigRejectsEmptySourceList(t *testing.T) {
+	_, err := LoadGearDefaultProjectionConfig(strings.NewReader(`projection_sources: []`), []SourceAliases{{Source: "strava"}})
+	if err == nil || !strings.Contains(err.Error(), "must not be empty") {
+		t.Fatalf("LoadGearDefaultProjectionConfig() error = %v, want empty list rejection", err)
 	}
 }
 
@@ -456,6 +546,10 @@ func gearDefaultOptionsBySportType(options []GearDefaultSportOption) map[string]
 		out[option.SportType] = option
 	}
 	return out
+}
+
+func gearDefaultProjectionConfigForTest(sources ...string) GearDefaultProjectionConfig {
+	return GearDefaultProjectionConfig{ProjectionSources: sources}
 }
 
 func ptrBoolForTest(v bool) *bool {
