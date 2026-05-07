@@ -999,21 +999,31 @@ type HeuristicCandidateInput struct {
 // recomputeLiftStats — callers are responsible for triggering recompute after
 // all candidates for an activity have been processed.
 //
-// Asymmetric reject-filter (intentional, paired with IsOSMRejectedInWindow):
-// the NOT EXISTS sub-query here checks `rejected_by_user = true` WITHOUT a
+// Symmetric reject-filter (paired with IsRejectedAnySourceInWindow): the
+// NOT EXISTS sub-query here checks `rejected_by_user = true` WITHOUT a
 // source filter, so a rejected row of either source ('osm' or 'heuristic')
-// blocks a fresh heuristic re-insert in the same window. IsOSMRejectedInWindow
-// further scopes its check to source = 'osm', so a rejected heuristic does
-// NOT block a later OSM snap of the same window — the OSM data import that
-// fills in missing geometry is allowed to re-detect the lift correctly.
-// Rationale: a user rejecting an OSM-snapped lift signals "the lift does
-// not apply at all" (blocks both heuristic and OSM in window); a user
-// rejecting a heuristic-only candidate signals "the heuristic was wrong"
-// (blocks future heuristics, but a higher-quality OSM detection is allowed
-// to override).
-// Anchor: Phase-4d adversarial-review finding F14 on commit 9066dd2a9 in
-// branch feature/lift-detection-go; user-decision recorded in that review's
-// findings table.
+// blocks a fresh heuristic re-insert in the same window. The OSM-snap path
+// applies the same source-agnostic predicate via IsRejectedAnySourceInWindow
+// inside the audit-row insert (insertAuditCandidate). The two predicates
+// together encode a single rule: once a user soft-rejects a lift candidate
+// at a window, no future detection — heuristic or OSM, in that window —
+// re-creates it.
+//
+// History: an earlier asymmetric design (rejected heuristic blocked only
+// heuristics, rejected OSM blocked both) leaked through the audit-row
+// upsert: ON CONFLICT (activity_id, started_at) DO UPDATE flipped a
+// rejected heuristic row to source='osm' but left rejected_by_user=true,
+// after which IsOSMRejectedInWindow (source='osm' filter) saw it and
+// silently blocked all future OSM snaps in that window — the inverse of
+// the asymmetric intent. Codex GPT-5.5-xhigh adversarial-review surfaced
+// this as F14 on commit 2062b1465 in branch feature/lift-detection-go.
+// The fix is the symmetric design above.
+//
+// User-decision: when a user soft-rejects a lift candidate, the rejection
+// persists across re-enrichment AND across OSM data imports — regardless
+// of which detection source surfaces the lift again. (Confirmed by user
+// in session 2026-05-08 during Codex GPT-5.5-xhigh adversarial-review
+// follow-up.)
 func (db *DB) InsertHeuristicCandidateIfNotRejected(
 	ctx context.Context,
 	userID, activityID string,
@@ -1044,25 +1054,23 @@ func (db *DB) InsertHeuristicCandidateIfNotRejected(
 	return tag.RowsAffected() > 0, nil
 }
 
-// IsOSMRejectedInWindow reports whether a soft-rejected OSM audit-row
-// covers the given [startedAt, endedAt] window with both per-boundary
-// deltas ≤ 5 s. The OSM-snap pipeline calls this before inserting a
-// fresh segment_effort + audit-row so a user's reject persists across
-// re-enrichment passes (Phase-4 critic F2 Variante B).
+// IsOSMRejectedInWindow reports whether a soft-rejected audit-row scoped
+// to source='osm' covers the given [startedAt, endedAt] window with both
+// per-boundary deltas ≤ 5 s. The OSM-snap pipeline calls this as an early
+// exit before doing the relatively expensive segment_effort INSERT, so a
+// previously rejected OSM row short-circuits the snap path (Phase-4 critic
+// F2 Variante B).
 //
 // The boundary-delta tolerance mirrors InsertHeuristicCandidateIfNotRejected
 // (Slot-2 F4): a re-detection that has shifted by more than 5 s on either
 // edge is treated as a distinct lift and is not suppressed.
 //
-// Asymmetric reject-filter (intentional, paired with
-// InsertHeuristicCandidateIfNotRejected): the check is scoped to
-// source = 'osm', so a rejected heuristic candidate does NOT block a later
-// OSM snap of the same window — the OSM data import that fills in missing
-// lift geometry is allowed to override an earlier wrong heuristic. The
-// reverse direction is asymmetric: see the corresponding block above
-// InsertHeuristicCandidateIfNotRejected for the full rationale and the
-// user-decision anchor (Phase-4d adversarial-review finding F14 on commit
-// 9066dd2a9 in branch feature/lift-detection-go).
+// Source-scoped helper, NOT the symmetric contract: this function only
+// reports source='osm' rejected rows. The full symmetric "any rejected row
+// blocks any future detection in window" contract is enforced inside
+// insertAuditCandidate (lift_enrich.go) via IsRejectedAnySourceInWindow —
+// see the comment block above InsertHeuristicCandidateIfNotRejected for
+// the rationale and the user-decision anchor.
 func (db *DB) IsOSMRejectedInWindow(ctx context.Context, activityID string, startedAt, endedAt time.Time) (bool, error) {
 	var exists bool
 	err := db.Pool.QueryRow(ctx, `
@@ -1076,6 +1084,35 @@ func (db *DB) IsOSMRejectedInWindow(ctx context.Context, activityID string, star
 		)`, activityID, startedAt, endedAt).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("check rejected OSM window: %w", err)
+	}
+	return exists, nil
+}
+
+// IsRejectedAnySourceInWindow reports whether ANY soft-rejected audit-row
+// (regardless of source) covers the given [startedAt, endedAt] window with
+// both per-boundary deltas ≤ 5 s. Used by insertAuditCandidate to enforce
+// the symmetric reject contract: once a user soft-rejects a candidate at a
+// window, no future detection — heuristic or OSM — re-creates it.
+//
+// Why a separate helper from IsOSMRejectedInWindow: the OSM-snap pipeline
+// uses IsOSMRejectedInWindow as a cheap early-exit (skip the segment_effort
+// INSERT when an OSM-rejected row already exists). The full symmetric check
+// also covers heuristic-rejected rows, but is only consulted at the audit-row
+// insert site where the ON CONFLICT (activity_id, started_at) DO UPDATE
+// would otherwise silently flip a rejected heuristic row's source to 'osm'
+// and re-introduce the F14 poisoning bug.
+func (db *DB) IsRejectedAnySourceInWindow(ctx context.Context, activityID string, startedAt, endedAt time.Time) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM activity_lift_candidates
+			WHERE activity_id = $1
+			  AND rejected_by_user = true
+			  AND ABS(EXTRACT(EPOCH FROM (started_at - $2::timestamptz))) <= 5
+			  AND ABS(EXTRACT(EPOCH FROM (ended_at   - $3::timestamptz))) <= 5
+		)`, activityID, startedAt, endedAt).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check rejected window (any source): %w", err)
 	}
 	return exists, nil
 }

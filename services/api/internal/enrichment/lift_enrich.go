@@ -541,6 +541,24 @@ func insertSegmentEffort(
 // confirmed=true and segment_effort_id pointing at the effort. This row
 // is purely for the read-side unified API; it is excluded from the
 // recomputeLiftStats heuristic-only count by the partial-index dedup.
+//
+// Symmetric soft-reject pre-check (paired with InsertHeuristicCandidateIfNotRejected
+// and the comment block above it in enrichment_db.go): before writing the
+// audit-row we query for ANY soft-rejected row (regardless of source) within
+// ±5 s of the new boundaries. If one exists we return nil silently — the
+// rejected row stays as-is, no audit-row is upserted, and the user's reject
+// persists across re-enrichment AND across OSM data imports.
+//
+// Why the pre-check lives here and not just at the SnapAction-entry guard
+// in enrichStreamLifts: the entry guard uses IsOSMRejectedInWindow (source-
+// scoped, early-exit optimisation) and lets a rejected heuristic row fall
+// through to this function. The naive ON CONFLICT (activity_id, started_at)
+// DO UPDATE then flipped the rejected heuristic row's source to 'osm' but
+// kept rejected_by_user=true — a once-rejected window silently poisoned all
+// future detection through the OSM path. Codex GPT-5.5-xhigh adversarial-
+// review surfaced this as F14 on commit 2062b1465 in branch
+// feature/lift-detection-go. Putting the symmetric guard at the upsert site
+// makes the bug unreachable regardless of which caller path arrives here.
 func insertAuditCandidate(
 	ctx context.Context,
 	db *database.DB,
@@ -548,7 +566,14 @@ func insertAuditCandidate(
 	ride lifts.LiftRide,
 	segmentEffortID string,
 ) error {
-	_, err := db.Pool.Exec(ctx, `
+	suppressed, err := db.IsRejectedAnySourceInWindow(ctx, activityID, ride.StartedAt, ride.EndedAt)
+	if err != nil {
+		return fmt.Errorf("check rejected window: %w", err)
+	}
+	if suppressed {
+		return nil
+	}
+	_, err = db.Pool.Exec(ctx, `
 		INSERT INTO activity_lift_candidates
 			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
 			 confidence, confirmed, source, segment_effort_id)
