@@ -298,6 +298,55 @@ func TestGetLiftCandidates_DTOExposesRejectedFlag(t *testing.T) {
 	}
 }
 
+// callRejectLiftCandidate fires DELETE on the lift-candidate endpoint.
+func callRejectLiftCandidate(
+	t *testing.T,
+	h *Handler,
+	userID, activityID, candidateID string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	r := chi.NewRouter()
+	r.Delete("/api/v1/activities/{id}/lift-candidates/{cid}", h.RejectLiftCandidate)
+	req := httptest.NewRequest(http.MethodDelete,
+		"/api/v1/activities/"+activityID+"/lift-candidates/"+candidateID, nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, userID))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestRejectLiftCandidate_OSMSource_204: rejecting an audit-row with
+// source='osm' must succeed (204 No Content) and flip rejected_by_user to
+// true. Phase-4 critic F2 Variante B: the OSM reject path must be open so
+// the user can recover from a wrong snap (e.g. paths running parallel to
+// the lift line that the snap heuristic mis-attributes).
+func TestRejectLiftCandidate_OSMSource_204(t *testing.T) {
+	h, db := liftCandidatesHandlerSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	// Insert an OSM audit-row (segment_effort_id pointer is intentionally
+	// nil — the reject path does not depend on the segment_effort linkage,
+	// only on the audit-row PK).
+	start := time.Now().UTC().Truncate(time.Second)
+	candID := insertUnifiedLiftCandidate(t, db, activityID, start, "osm", true, nil)
+
+	rec := callRejectLiftCandidate(t, h, userID, activityID, candID)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d, want 204; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var rejected bool
+	if err := db.Pool.QueryRow(context.Background(),
+		"SELECT rejected_by_user FROM activity_lift_candidates WHERE id = $1", candID,
+	).Scan(&rejected); err != nil {
+		t.Fatalf("query rejected_by_user: %v", err)
+	}
+	if !rejected {
+		t.Error("rejected_by_user = false after OSM reject — soft-reject did not write")
+	}
+}
+
 // TestGetUnifiedLiftCandidates_DefaultReturnsOnlyNonRejected: non-rejected
 // candidates are returned while rejected ones remain hidden by default.
 func TestGetUnifiedLiftCandidates_DefaultReturnsOnlyNonRejected(t *testing.T) {
