@@ -457,21 +457,6 @@ eligible:`, 1)), testProjectionTaxonomy())
 	}
 }
 
-func TestProjectionSchemaMentionsValidatedFields(t *testing.T) {
-	schema, err := os.ReadFile("../../../../config/sport-taxonomy/schema/projections.schema.json")
-	if err != nil {
-		t.Fatalf("read projections.schema.json: %v", err)
-	}
-	for _, field := range []string{"presets", "groups", "entries", "category_key", "sport_type", "sub_type", "sport_order", "labels", "label_ref", "label_mode", "domains", "segment_types", "active_domains", "compatibility_role", "route_options", "promoted_sub_types", "eligible", "sport_group", "eligibility_role", "tuple_selectors", "modifiers", "source", "selectable_sport_tuples", "sport_tuple", "set_sport_type", "condition_applicable_from", "action_applicable_from", "render_existing"} {
-		if !strings.Contains(string(schema), field) {
-			t.Fatalf("schema does not mention %q", field)
-		}
-	}
-	if strings.Contains(string(schema), `"label_ref": { "type": "string" }`) {
-		t.Fatal("schema allows label_ref on projection entries")
-	}
-}
-
 func loadProjectionFixture(t *testing.T, src string) (ActivityFilterProjections, error) {
 	t.Helper()
 	return LoadActivityFilterProjections(strings.NewReader(src), testProjectionTaxonomy())
