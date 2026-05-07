@@ -14,12 +14,15 @@ import {
   getSessions,
   revokeSession,
   deleteAccount,
-  startDataExport, getDataExportStatus,
+  startDataExport, getLatestDataExport, getDataExportStatus,
   startDataImport, getDataImportStatus,
   type UserSession,
+  type DataExportStatus,
   type DataImportStatus,
 } from '@/api/auth'
+import { apiDownload } from '@/api/client'
 import { fmtDateTime, parseUserAgent } from '@/lib/format'
+import { triggerBlobDownload } from '@/lib/utils'
 import { SettingsSection as Section } from '@/components/ui/SettingsSection'
 import { accountSettingsStrings as S } from '@/lib/strings/account-settings'
 
@@ -753,10 +756,19 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
+function formatExportExpiry(iso?: string): string | null {
+  if (!iso) return null
+  return new Intl.DateTimeFormat('de-DE', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(iso))
+}
+
 function DangerZoneSection() {
   const { hasPassword } = useUser()
   const navigate = useNavigate()
   const { addToast } = useToast()
+  const queryClient = useQueryClient()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deletePw, setDeletePw] = useState('')
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
@@ -768,6 +780,13 @@ function DangerZoneSection() {
   useEffect(() => {
     return () => { exportAbortRef.current?.abort() }
   }, [])
+
+  const { data: latestExport } = useQuery({
+    queryKey: ['data-export-latest'],
+    queryFn: getLatestDataExport,
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
+  })
 
   const deleteMut = useMutation({
     mutationFn: deleteAccount,
@@ -781,12 +800,40 @@ function DangerZoneSection() {
     },
   })
 
+  async function downloadDataExport(status: DataExportStatus) {
+    if (!status.download_url?.startsWith('/api/')) {
+      addToast({ type: 'error', title: S.dataExport.invalidUrl.title, duration: 0 })
+      return
+    }
+    try {
+      const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+      const { blob, filename } = await apiDownload(status.download_url)
+      triggerBlobDownload(blob, filename ?? `skadia-export-${today}.zip`)
+
+      const detailParts: string[] = []
+      if (status.sha256) detailParts.push(`SHA-256: ${status.sha256}`)
+      if (status.size_bytes) {
+        detailParts.push(`${(status.size_bytes / 1024 / 1024).toFixed(1)} MB`)
+      }
+      addToast({
+        type: 'success',
+        title: S.dataExport.completed.title,
+        message: detailParts.length > 0 ? detailParts.join(S.dataExport.detailSeparator) : undefined,
+        duration: 0,
+      })
+    } catch {
+      addToast({ type: 'error', title: S.dataExport.downloadFailed.title, duration: 0 })
+      queryClient.invalidateQueries({ queryKey: ['data-export-latest'] })
+    }
+  }
+
   async function handleExport() {
     const abort = new AbortController()
     exportAbortRef.current = abort
     setExporting(true)
     try {
       const { job_id } = await startDataExport()
+      queryClient.invalidateQueries({ queryKey: ['data-export-latest'] })
       addToast({ type: 'info', title: S.dataExport.started.title })
 
       // Poll for completion (max 10 min = 120 × 5s)
@@ -795,32 +842,8 @@ function DangerZoneSection() {
         await abortableSleep(5000, abort.signal)
         const status = await getDataExportStatus(job_id)
         if (status.status === 'completed' && status.download_url) {
-          if (!status.download_url.startsWith('/api/')) {
-            addToast({ type: 'error', title: S.dataExport.invalidUrl.title, duration: 0 })
-            return
-          }
-          // Programmatic anchor click — bypasses popup blockers that intercept
-          // window.open() outside of synchronous user gestures.
-          const a = document.createElement('a')
-          a.href = status.download_url
-          const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
-          a.download = `skadia-export-${today}.zip`
-          a.rel = 'noopener noreferrer'
-          document.body.appendChild(a)
-          a.click()
-          a.remove()
-
-          const detailParts: string[] = []
-          if (status.sha256) detailParts.push(`SHA-256: ${status.sha256}`)
-          if (status.size_bytes) {
-            detailParts.push(`${(status.size_bytes / 1024 / 1024).toFixed(1)} MB`)
-          }
-          addToast({
-            type: 'success',
-            title: S.dataExport.completed.title,
-            message: detailParts.length > 0 ? detailParts.join(S.dataExport.detailSeparator) : undefined,
-            duration: 0,
-          })
+          await downloadDataExport(status)
+          queryClient.invalidateQueries({ queryKey: ['data-export-latest'] })
           return
         }
         if (status.status === 'failed') {
@@ -863,6 +886,12 @@ function DangerZoneSection() {
     }
   }
 
+  const latestExportExpiry = formatExportExpiry(latestExport?.expires_at)
+  const showLatestExport = latestExport?.status === 'completed'
+  const latestExportAvailable = showLatestExport &&
+    Boolean(latestExport.download_url) &&
+    (!latestExport.expires_at || new Date(latestExport.expires_at).getTime() > Date.now())
+
   return (
     <Section title="Gefahrenzone" danger>
       <div className="space-y-4">
@@ -882,6 +911,27 @@ function DangerZoneSection() {
             {exporting ? 'Wird exportiert...' : 'Exportieren'}
           </button>
         </div>
+
+        {showLatestExport && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 bg-neutral-50 dark:bg-neutral-900/40">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-neutral-800 dark:text-neutral-200">{S.dataExport.latest.heading}</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                {latestExportAvailable ? S.dataExport.latest.available : S.dataExport.latest.expired}
+                {latestExportExpiry ? ` · ${S.dataExport.latest.expiresPrefix} ${latestExportExpiry}` : ''}
+              </p>
+            </div>
+            {latestExportAvailable && latestExport && (
+              <button
+                type="button"
+                onClick={() => { void downloadDataExport(latestExport) }}
+                className="flex-shrink-0 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-white dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+              >
+                {S.dataExport.latest.downloadButton}
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="border-t border-red-200 dark:border-red-800/60" />
 

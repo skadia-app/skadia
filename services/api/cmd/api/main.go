@@ -653,8 +653,8 @@ func main() {
 	}
 
 	h := &handler.Handler{
-		DB:    db,
-		PMC:   pmcService,
+		DB:             db,
+		PMC:            pmcService,
 		BestEfforts:    bestEffortsService,
 		ShadowFS:       store,
 		ShadowFSConfig: shadowFSCfg,
@@ -1022,6 +1022,8 @@ func main() {
 				Delete("/account", authHandler.DeleteAccount)
 			r.With(middleware.RateLimitPerUser(authRL, "export:", 1.0/300, 1)).
 				Post("/data-export", authHandler.DataExport)
+			r.With(middleware.RateLimitPerUser(authRL, "export-latest:", 60.0/60, 10)).
+				Get("/data-export/latest", authHandler.DataExportLatest)
 			r.With(middleware.RateLimitPerUser(authRL, "export-status:", 60.0/60, 10)).
 				Get("/data-export/{jobID}", authHandler.DataExportStatus)
 			r.Get("/data-export/{jobID}/download", authHandler.DataExportDownload)

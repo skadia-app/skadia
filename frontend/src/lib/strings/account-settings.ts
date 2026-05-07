@@ -23,6 +23,14 @@ export const accountSettingsStrings = {
       messageGeneric: 'Bitte versuche es später erneut. Falls das Problem bestehen bleibt, kontaktiere den Support.',
     },
     completed: { title: 'Datenexport heruntergeladen' },
+    downloadFailed: { title: 'Download fehlgeschlagen' },
+    latest: {
+      heading: 'Letzter Export',
+      available: 'Download verfügbar',
+      expired: 'Download abgelaufen',
+      expiresPrefix: 'Verfügbar bis',
+      downloadButton: 'Herunterladen',
+    },
     detailSeparator: ' / ',
   },
   dataImport: {

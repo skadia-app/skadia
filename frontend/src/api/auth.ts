@@ -399,6 +399,18 @@ export async function deleteAccount(data: { password?: string; confirmation?: st
   return res.json() as Promise<{ status: string }>
 }
 
+export interface DataExportStatus {
+  job_id: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  started_at?: string
+  updated_at?: string
+  expires_at?: string
+  sha256?: string
+  size_bytes?: number
+  download_url?: string
+  error?: string
+}
+
 export async function startDataExport(): Promise<{ job_id: string; status: string }> {
   const res = await apiFetch('/api/v1/auth/data-export', { method: 'POST' })
   if (!res.ok) {
@@ -408,14 +420,17 @@ export async function startDataExport(): Promise<{ job_id: string; status: strin
   return res.json()
 }
 
-export async function getDataExportStatus(jobId: string): Promise<{
-  job_id: string
-  status: 'queued' | 'running' | 'completed' | 'failed'
-  sha256?: string
-  size_bytes?: number
-  download_url?: string
-  error?: string
-}> {
+export async function getLatestDataExport(): Promise<DataExportStatus | null> {
+  const res = await apiFetch('/api/v1/auth/data-export/latest')
+  if (res.status === 404) return null
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Latest export lookup failed')
+  }
+  return res.json()
+}
+
+export async function getDataExportStatus(jobId: string): Promise<DataExportStatus> {
   const res = await apiFetch(`/api/v1/auth/data-export/${jobId}`)
   if (!res.ok) {
     const d = await res.json().catch(() => ({})) as { error?: string }
