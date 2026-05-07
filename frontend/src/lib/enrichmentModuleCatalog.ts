@@ -100,7 +100,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
     label: 'Lifte / Seilbahnen',
     description: 'Erkennt Gondelbahnen und Sessellifte.',
     field: 'enable_lift_detection',
-    requiresML: true,
+    requiresML: false,
     reprocess: { type: 'standalone', scope: 'lifts', group: 'geo' },
     icon: 'M4 4v16h2V4H4zm14 0v16h2V4h-2zM8 8l4-4 4 4M12 4v12',
   },

@@ -33,7 +33,6 @@ function ReprocessScopeModal({
           selected={scope}
           onToggle={key => setScope(prev => toggleScopeKey(prev, key))}
           layout="vertical"
-          showDescriptions
         />
 
         <div className="flex justify-end gap-3 pt-1">
