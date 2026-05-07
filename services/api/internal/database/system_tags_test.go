@@ -22,6 +22,9 @@ func TestSystemModifierTagSyncsMatchGeneratedRegistry(t *testing.T) {
 			SystemType:    modifier.ActionParam + "_sync",
 			RuleName:      systemRuleNameForModifierSync(modifier),
 			OnlySportType: modifier.TagSync.OnlySportType,
+			Color:         modifier.TagSync.Color,
+			Description:   modifier.TagSync.Description,
+			ReadonlySync:  modifier.TagSync.ReadonlySync,
 		}
 	}
 
@@ -37,10 +40,10 @@ func TestSystemModifierTagSyncsMatchGeneratedRegistry(t *testing.T) {
 		modifierKey string
 		tagName     string
 	}{
-		{modifierKey: "is_electric", tagName: systemTagNameEBike},
-		{modifierKey: "is_indoor", tagName: systemTagNameIndoor},
-		{modifierKey: "is_virtual", tagName: systemTagNameVirtual},
-		{modifierKey: "is_commute", tagName: systemTagNameCommute},
+		{modifierKey: "is_electric", tagName: "E-Bike"},
+		{modifierKey: "is_indoor", tagName: "Indoor"},
+		{modifierKey: "is_virtual", tagName: "virtuell"},
+		{modifierKey: "is_commute", tagName: "Pendeln"},
 	} {
 		if got[row.modifierKey].SystemTagName != row.tagName {
 			t.Fatalf("%s system tag = %q, want %q", row.modifierKey, got[row.modifierKey].SystemTagName, row.tagName)

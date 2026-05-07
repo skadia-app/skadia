@@ -29,27 +29,32 @@ type ModifierDefinition struct {
 }
 
 type ModifierCapabilities struct {
-	SourceAlias    *bool `yaml:"source_alias"`
-	ModifierPatch  *bool `yaml:"modifier_patch"`
-	ActivityState  *bool `yaml:"activity_state"`
-	ModifierFilter *bool `yaml:"modifier_filter"`
-	RuleCondition  *bool `yaml:"rule_condition"`
-	RuleAction     *bool `yaml:"rule_action"`
-	RouteFilter    *bool `yaml:"route_filter"`
-	HeatmapFilter  *bool `yaml:"heatmap_filter"`
-	GearDefault    *bool `yaml:"gear_default"`
-	RecordGrouping *bool `yaml:"record_grouping"`
-	ShadowFSLabel  *bool `yaml:"shadowfs_label"`
-	QuickEdit      *bool `yaml:"quick_edit"`
+	SourceAlias     *bool `yaml:"source_alias"`
+	ModifierPatch   *bool `yaml:"modifier_patch"`
+	ActivityState   *bool `yaml:"activity_state"`
+	ModifierFilter  *bool `yaml:"modifier_filter"`
+	RuleCondition   *bool `yaml:"rule_condition"`
+	RuleAction      *bool `yaml:"rule_action"`
+	RouteFilter     *bool `yaml:"route_filter"`
+	HeatmapFilter   *bool `yaml:"heatmap_filter"`
+	GearDefault     *bool `yaml:"gear_default"`
+	RecordGrouping  *bool `yaml:"record_grouping"`
+	ShadowFSLabel   *bool `yaml:"shadowfs_label"`
+	QuickEdit       *bool `yaml:"quick_edit"`
+	TaxonomyDefault *bool `yaml:"taxonomy_default"`
 }
 
 type ModifierTagSync struct {
 	SystemTag     string `yaml:"system_tag"`
+	Color         string `yaml:"color"`
+	Description   string `yaml:"description"`
+	ReadonlySync  *bool  `yaml:"readonly_sync"`
 	OnlySportType string `yaml:"only_sport_type"`
 	LabelContext  string `yaml:"label_context"`
 }
 
-var shadowFSTokenPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+var modifierIdentifierPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+var shadowFSTokenPattern = modifierIdentifierPattern
 
 func modifierCapabilityNames() []string {
 	return []string{
@@ -65,6 +70,7 @@ func modifierCapabilityNames() []string {
 		"record_grouping",
 		"shadowfs_label",
 		"quick_edit",
+		"taxonomy_default",
 	}
 }
 
@@ -145,6 +151,8 @@ func (c ModifierCapabilities) Enabled(capability string) bool {
 		return boolValue(c.ShadowFSLabel)
 	case "quick_edit":
 		return boolValue(c.QuickEdit)
+	case "taxonomy_default":
+		return boolValue(c.TaxonomyDefault)
 	default:
 		return false
 	}
@@ -163,6 +171,9 @@ func validateModifierRegistry(registry ModifierRegistry) error {
 		if modifier.Key == "" {
 			return fmt.Errorf("%s: missing key", context)
 		}
+		if !modifierIdentifierPattern.MatchString(modifier.Key) {
+			return fmt.Errorf("%s: invalid key %q", context, modifier.Key)
+		}
 		if _, ok := keys[modifier.Key]; ok {
 			return fmt.Errorf("duplicate modifier key %q", modifier.Key)
 		}
@@ -179,8 +190,14 @@ func validateModifierRegistry(registry ModifierRegistry) error {
 		if modifier.JSONKey == "" {
 			return fmt.Errorf("modifier %q: missing json_key", modifier.Key)
 		}
+		if !modifierIdentifierPattern.MatchString(modifier.JSONKey) {
+			return fmt.Errorf("modifier %q: invalid json_key %q", modifier.Key, modifier.JSONKey)
+		}
 		if modifier.ActivityColumn == "" {
 			return fmt.Errorf("modifier %q: missing activity_column", modifier.Key)
+		}
+		if !modifierIdentifierPattern.MatchString(modifier.ActivityColumn) {
+			return fmt.Errorf("modifier %q: invalid activity_column %q", modifier.Key, modifier.ActivityColumn)
 		}
 		if modifier.ApplicabilitySource == "" {
 			return fmt.Errorf("modifier %q: missing applicability_source", modifier.Key)
@@ -234,6 +251,9 @@ func validateModifierCapabilities(modifier ModifierDefinition) error {
 	if boolValue(modifier.Capabilities.QuickEdit) && !boolValue(modifier.Capabilities.ModifierPatch) {
 		return fmt.Errorf("modifier %q: quick_edit requires modifier_patch", modifier.Key)
 	}
+	if boolValue(modifier.Capabilities.TaxonomyDefault) && !boolValue(modifier.Capabilities.ModifierPatch) {
+		return fmt.Errorf("modifier %q: taxonomy_default requires modifier_patch", modifier.Key)
+	}
 	if boolValue(modifier.Capabilities.GearDefault) && !boolValue(modifier.Capabilities.ModifierPatch) {
 		return fmt.Errorf("modifier %q: gear_default requires modifier_patch", modifier.Key)
 	}
@@ -272,6 +292,8 @@ func (c ModifierCapabilities) pointer(capability string) *bool {
 		return c.ShadowFSLabel
 	case "quick_edit":
 		return c.QuickEdit
+	case "taxonomy_default":
+		return c.TaxonomyDefault
 	default:
 		return nil
 	}
@@ -284,10 +306,14 @@ func validateModifierTagSync(modifier ModifierDefinition) error {
 	if modifier.TagSync.SystemTag == "" {
 		return fmt.Errorf("modifier %q: tag_sync.system_tag is required", modifier.Key)
 	}
-	if modifier.Key == "is_electric" {
-		if modifier.TagSync.SystemTag != "E-Bike" || modifier.TagSync.OnlySportType != "cycling" || modifier.TagSync.LabelContext != "cycling" {
-			return fmt.Errorf("modifier %q: tag_sync must keep cycling-scoped E-Bike semantics", modifier.Key)
-		}
+	if !validHex.MatchString(modifier.TagSync.Color) {
+		return fmt.Errorf("modifier %q: invalid tag_sync.color %q", modifier.Key, modifier.TagSync.Color)
+	}
+	if modifier.TagSync.Description == "" {
+		return fmt.Errorf("modifier %q: tag_sync.description is required", modifier.Key)
+	}
+	if modifier.TagSync.ReadonlySync == nil {
+		return fmt.Errorf("modifier %q: tag_sync.readonly_sync is required", modifier.Key)
 	}
 	if modifier.TagSync.OnlySportType != "" && modifier.TagSync.LabelContext == "" {
 		return fmt.Errorf("modifier %q: tag_sync.only_sport_type requires label_context", modifier.Key)

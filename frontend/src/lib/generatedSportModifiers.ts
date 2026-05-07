@@ -16,8 +16,8 @@ export const GENERATED_SPORT_MODIFIERS = [
     actionName: 'set_electric',
     actionParam: 'electric',
     shadowFSToken: 'electric',
-    capabilities: { source_alias: true, modifier_patch: true, activity_state: true, modifier_filter: true, rule_condition: true, rule_action: true, route_filter: true, heatmap_filter: true, gear_default: true, record_grouping: true, shadowfs_label: true, quick_edit: true },
-    tagSync: { systemTag: 'E-Bike', onlySportType: 'cycling', labelContext: 'cycling' },
+    capabilities: { source_alias: true, modifier_patch: true, activity_state: true, modifier_filter: true, rule_condition: true, rule_action: true, route_filter: true, heatmap_filter: true, gear_default: true, record_grouping: true, shadowfs_label: true, quick_edit: true, taxonomy_default: false },
+    tagSync: { systemTag: 'E-Bike', color: '#16A34A', description: 'Automatisch bei elektrischen Radfahrten', readonlySync: true, onlySportType: 'cycling', labelContext: 'cycling' },
   },
   {
     key: 'is_indoor',
@@ -30,8 +30,8 @@ export const GENERATED_SPORT_MODIFIERS = [
     actionName: 'set_indoor',
     actionParam: 'indoor',
     shadowFSToken: 'indoor',
-    capabilities: { source_alias: true, modifier_patch: true, activity_state: true, modifier_filter: true, rule_condition: true, rule_action: true, route_filter: true, heatmap_filter: false, gear_default: true, record_grouping: true, shadowfs_label: true, quick_edit: true },
-    tagSync: { systemTag: 'Indoor' },
+    capabilities: { source_alias: true, modifier_patch: true, activity_state: true, modifier_filter: true, rule_condition: true, rule_action: true, route_filter: true, heatmap_filter: false, gear_default: true, record_grouping: true, shadowfs_label: true, quick_edit: true, taxonomy_default: true },
+    tagSync: { systemTag: 'Indoor', color: '#3B82F6', description: 'Automatisch bei Indoor-Aktivitäten', readonlySync: true },
   },
   {
     key: 'is_virtual',
@@ -44,8 +44,8 @@ export const GENERATED_SPORT_MODIFIERS = [
     actionName: 'set_virtual',
     actionParam: 'virtual',
     shadowFSToken: 'virtual',
-    capabilities: { source_alias: true, modifier_patch: true, activity_state: true, modifier_filter: true, rule_condition: true, rule_action: true, route_filter: true, heatmap_filter: false, gear_default: true, record_grouping: true, shadowfs_label: true, quick_edit: true },
-    tagSync: { systemTag: 'virtuell' },
+    capabilities: { source_alias: true, modifier_patch: true, activity_state: true, modifier_filter: true, rule_condition: true, rule_action: true, route_filter: true, heatmap_filter: false, gear_default: true, record_grouping: true, shadowfs_label: true, quick_edit: true, taxonomy_default: false },
+    tagSync: { systemTag: 'virtuell', color: '#8B5CF6', description: 'Automatisch bei virtuellen Aktivitäten', readonlySync: true },
   },
   {
     key: 'is_commute',
@@ -58,7 +58,9 @@ export const GENERATED_SPORT_MODIFIERS = [
     actionName: 'set_commute',
     actionParam: 'commute',
     shadowFSToken: 'commute',
-    capabilities: { source_alias: false, modifier_patch: true, activity_state: true, modifier_filter: true, rule_condition: true, rule_action: true, route_filter: true, heatmap_filter: true, gear_default: false, record_grouping: false, shadowfs_label: true, quick_edit: false },
-    tagSync: { systemTag: 'Pendeln' },
+    capabilities: { source_alias: false, modifier_patch: true, activity_state: true, modifier_filter: true, rule_condition: true, rule_action: true, route_filter: true, heatmap_filter: true, gear_default: false, record_grouping: false, shadowfs_label: true, quick_edit: false, taxonomy_default: false },
+    tagSync: { systemTag: 'Pendeln', color: '#6B7280', description: 'Automatisch bei Pendel-Aktivitäten', readonlySync: false },
   },
 ] as const
+
+export type SportModifierTSField = typeof GENERATED_SPORT_MODIFIERS[number]['tsField']

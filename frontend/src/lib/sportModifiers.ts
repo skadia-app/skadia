@@ -2,16 +2,17 @@ import {
   GENERATED_SPORT_MODIFIER_KEYS,
   GENERATED_SPORT_MODIFIERS,
   type SportModifierKey,
+  type SportModifierTSField,
 } from './generatedSportModifiers'
 
-export type { SportModifierKey }
+export type { SportModifierKey, SportModifierTSField }
 
 export type SportModifierCapability = keyof (typeof GENERATED_SPORT_MODIFIERS)[number]['capabilities']
 
 export const SPORT_MODIFIER_KEYS = [...GENERATED_SPORT_MODIFIER_KEYS] as SportModifierKey[]
 
 export function modifierLabel(key: SportModifierKey): string {
-  return modifierByKey(key)?.label ?? key
+  return requireModifier(key).label
 }
 
 export function modifierKeysForCapability(capability: SportModifierCapability): SportModifierKey[] {
@@ -31,15 +32,19 @@ export function modifierTagSyncOnlySportType(key: SportModifierKey): string | nu
 }
 
 export function modifierActionName(key: SportModifierKey): string {
-  return modifierByKey(key)?.actionName ?? key
+  return requireModifier(key).actionName
 }
 
 export function modifierActionParam(key: SportModifierKey): string {
-  return modifierByKey(key)?.actionParam ?? key
+  return requireModifier(key).actionParam
 }
 
-export function modifierTSField(key: SportModifierKey): string {
-  return modifierByKey(key)?.tsField ?? key
+export function modifierTSField(key: SportModifierKey): SportModifierTSField {
+  return requireModifier(key).tsField
+}
+
+export function modifierJSONKey(key: SportModifierKey): string {
+  return requireModifier(key).jsonKey
 }
 
 export function modifierFromTSField(field: string): SportModifierKey | null {
@@ -59,3 +64,9 @@ export function modifierByKey(key: SportModifierKey) {
 
 const modifierByKeyMap = new Map(GENERATED_SPORT_MODIFIERS.map((modifier) => [modifier.key, modifier]))
 const modifierByTSField = new Map<string, SportModifierKey>(GENERATED_SPORT_MODIFIERS.map((modifier) => [modifier.tsField, modifier.key]))
+
+function requireModifier(key: SportModifierKey) {
+  const modifier = modifierByKey(key)
+  if (!modifier) throw new Error(`Unknown sport modifier ${key}`)
+  return modifier
+}

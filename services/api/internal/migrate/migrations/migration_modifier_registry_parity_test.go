@@ -14,7 +14,7 @@ import (
 
 func TestMigrationSQLModifierContractsMatchGeneratedRegistry(t *testing.T) {
 	t.Run("routing profile modifier filters", func(t *testing.T) {
-		upSQL := latestUpMigrationSQLContaining(t, "CREATE OR REPLACE FUNCTION fn_validate_modifier_filters")
+		upSQL := currentUpMigrationSQLForFunction(t, "fn_validate_modifier_filters")
 		block := sqlSectionBetween(t, upSQL,
 			"CREATE OR REPLACE FUNCTION fn_validate_modifier_filters",
 			"CREATE OR REPLACE FUNCTION fp_modifier_filters_from_sport_types",
@@ -23,7 +23,7 @@ func TestMigrationSQLModifierContractsMatchGeneratedRegistry(t *testing.T) {
 	})
 
 	t.Run("gear default predicates", func(t *testing.T) {
-		upSQL := latestUpMigrationSQLContaining(t, "CREATE OR REPLACE FUNCTION fn_validate_gear_default_predicates")
+		upSQL := currentUpMigrationSQLForFunction(t, "fn_validate_gear_default_predicates")
 		block := sqlSectionBetween(t, upSQL,
 			"CREATE OR REPLACE FUNCTION fn_validate_gear_default_predicates",
 			"ALTER TABLE gear",
@@ -32,7 +32,7 @@ func TestMigrationSQLModifierContractsMatchGeneratedRegistry(t *testing.T) {
 	})
 
 	t.Run("heatmap filters", func(t *testing.T) {
-		upSQL := latestUpMigrationSQLContaining(t, "CREATE OR REPLACE FUNCTION skadia_heatmap_modifier_filter_matches")
+		upSQL := currentUpMigrationSQLForFunction(t, "skadia_heatmap_modifier_filter_matches")
 		block := sqlSectionBetween(t, upSQL,
 			"CREATE OR REPLACE FUNCTION skadia_heatmap_modifier_filter_matches",
 			"DO $$",
@@ -43,7 +43,7 @@ func TestMigrationSQLModifierContractsMatchGeneratedRegistry(t *testing.T) {
 
 func TestMigration000348CyclingElectricTagSyncMatchesGeneratedRegistry(t *testing.T) {
 	upSQL, _ := readMigration000348CyclingElectricTagSyncSQL(t)
-	tagSyncSQL := upSQL + "\n" + readMigrationSQLFile(t, "000221_virtual_system_tag.up.sql")
+	tagSyncSQL := allUpMigrationSQLContainingAnySystemTag(t, sport.SportModifierKeys())
 	for _, key := range sport.SportModifierKeys() {
 		modifier, ok := sport.SportModifierByKey(key)
 		if !ok || modifier.TagSync == nil {
@@ -78,7 +78,7 @@ func readMigrationSQLFile(t *testing.T, path string) string {
 	return string(bytes)
 }
 
-func latestUpMigrationSQLContaining(t *testing.T, marker string) string {
+func currentUpMigrationSQLForFunction(t *testing.T, functionName string) string {
 	t.Helper()
 	matches, err := filepath.Glob("*.up.sql")
 	if err != nil {
@@ -87,12 +87,47 @@ func latestUpMigrationSQLContaining(t *testing.T, marker string) string {
 	sort.Strings(matches)
 	for i := len(matches) - 1; i >= 0; i-- {
 		sql := readMigrationSQLFile(t, matches[i])
-		if strings.Contains(sql, marker) {
+		if !strings.Contains(sql, functionName) {
+			continue
+		}
+		createMarker := "CREATE OR REPLACE FUNCTION " + functionName
+		if strings.Contains(sql, createMarker) {
 			return sql
 		}
+		if strings.Contains(sql, "DROP FUNCTION") {
+			t.Fatalf("latest migration mentioning %s is %s and drops it without a current replacement", functionName, matches[i])
+		}
 	}
-	t.Fatalf("no up migration contains marker %q", marker)
+	t.Fatalf("no up migration contains current definition for function %q", functionName)
 	return ""
+}
+
+func allUpMigrationSQLContainingAnySystemTag(t *testing.T, modifierKeys []string) string {
+	t.Helper()
+	tagNames := map[string]struct{}{}
+	for _, key := range modifierKeys {
+		modifier, ok := sport.SportModifierByKey(key)
+		if ok && modifier.TagSync != nil {
+			tagNames[modifier.TagSync.SystemTag] = struct{}{}
+		}
+	}
+	matches, err := filepath.Glob("*.up.sql")
+	if err != nil {
+		t.Fatalf("glob migrations: %v", err)
+	}
+	sort.Strings(matches)
+	var out strings.Builder
+	for _, match := range matches {
+		sql := readMigrationSQLFile(t, match)
+		for tagName := range tagNames {
+			if strings.Contains(sql, "'"+tagName+"'") {
+				out.WriteString(sql)
+				out.WriteString("\n")
+				break
+			}
+		}
+	}
+	return out.String()
 }
 
 func sqlSectionBetween(t *testing.T, sql, startMarker, endMarker string) string {
@@ -114,11 +149,11 @@ func modifierKeysAllowedBySQLValidator(sql string) []string {
 	if len(matches) == 0 {
 		return nil
 	}
-	return uniqueRegexMatches(matches[len(matches)-1][1], regexp.MustCompile(`'((?:is)_[a-z_]+)'`))
+	return uniqueRegexMatches(matches[len(matches)-1][1], regexp.MustCompile(`'([a-z][a-z0-9_]*)'`))
 }
 
 func queryParamModifierKeys(sql string) []string {
-	return uniqueRegexMatches(sql, regexp.MustCompile(`query_params->>'((?:is)_[a-z_]+)'`))
+	return uniqueRegexMatches(sql, regexp.MustCompile(`query_params->>'([a-z][a-z0-9_]*)'`))
 }
 
 func uniqueRegexMatches(value string, pattern *regexp.Regexp) []string {

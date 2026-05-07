@@ -22,10 +22,9 @@ type SportTraits struct {
 	PropulsionModes   []string `json:"propulsion_modes"`
 }
 
-// ModifierDefaults describes canonical tuple-level modifier defaults.
-type ModifierDefaults struct {
-	IsIndoor *bool `json:"is_indoor,omitempty"`
-}
+// ModifierDefaults describes canonical tuple-level modifier defaults keyed by
+// generated modifier key.
+type ModifierDefaults map[string]bool
 
 type GearDefaultSportOption struct {
 	SportType string `json:"sport_type"`
@@ -532,16 +531,19 @@ func ModifierDefaultsForTuple(sportType, subType string) ModifierDefaults {
 
 func mergeModifierDefaults(parent, child ModifierDefaults) ModifierDefaults {
 	merged := cloneModifierDefaults(parent)
-	if child.IsIndoor != nil {
-		merged.IsIndoor = ptrBool(*child.IsIndoor)
+	for key, value := range child {
+		merged[key] = value
 	}
 	return merged
 }
 
 func cloneModifierDefaults(defaults ModifierDefaults) ModifierDefaults {
-	cloned := ModifierDefaults{}
-	if defaults.IsIndoor != nil {
-		cloned.IsIndoor = ptrBool(*defaults.IsIndoor)
+	if defaults == nil {
+		return ModifierDefaults{}
+	}
+	cloned := make(ModifierDefaults, len(defaults))
+	for key, value := range defaults {
+		cloned[key] = value
 	}
 	return cloned
 }
@@ -620,7 +622,7 @@ func segmentProjectionEntryIsActiveIndexed(entry SegmentProjectionEntry) bool {
 // given sport/sub-type combination as indoor.
 func IsIndoor(sportType, subType string) bool {
 	defaults := ModifierDefaultsForTuple(sportType, subType)
-	return defaults.IsIndoor != nil && *defaults.IsIndoor
+	return defaults["is_indoor"]
 }
 
 func subTypeLabelCanStandAlone(d SportDef) bool {

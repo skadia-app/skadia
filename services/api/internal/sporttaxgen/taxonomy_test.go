@@ -166,7 +166,7 @@ func TestLoadTaxonomyAcceptsModifierDefaults(t *testing.T) {
 		t.Fatalf("LoadTaxonomy returned error: %v", err)
 	}
 	got := taxonomy.Sports[0].SubTypes[0].ModifierDefaults
-	if got == nil || got.IsIndoor == nil || !*got.IsIndoor {
+	if got == nil || !(*got)["is_indoor"] {
 		t.Fatalf("subtype modifier defaults = %#v, want is_indoor true", got)
 	}
 }
@@ -187,11 +187,51 @@ func TestLoadTaxonomyRejectsEmptyModifierDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadTaxonomyRejectsUnknownModifierDefaultField(t *testing.T) {
-	src := strings.Replace(modifierDefaultsFixture(), "        is_indoor: true", "        is_virtual: true", 1)
-	_, err := LoadTaxonomy(strings.NewReader(src))
+func TestValidateTaxonomyModifierRegistryRejectsUnsupportedModifierDefault(t *testing.T) {
+	src := strings.Replace(modifierDefaultsFixture(), "        modifier_defaults:\n          is_indoor: true", "        modifier_defaults:\n          is_virtual: true", 1)
+	src = strings.Replace(src, "      is_virtual: false", "      is_virtual: true", 1)
+	taxonomy, err := LoadTaxonomy(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("LoadTaxonomy returned error before registry validation: %v", err)
+	}
+	modifiers, err := LoadModifiers(strings.NewReader(validModifierRegistryFixture()))
+	if err != nil {
+		t.Fatalf("LoadModifiers returned error: %v", err)
+	}
+	err = ValidateTaxonomyModifierRegistry(taxonomy, modifiers)
 	if err == nil {
-		t.Fatal("LoadTaxonomy accepted unknown modifier_defaults field")
+		t.Fatal("ValidateTaxonomyModifierRegistry accepted unsupported modifier_defaults field")
+	}
+}
+
+func TestValidateTaxonomyModifierRegistryRejectsMissingApplicabilityForRegisteredModifier(t *testing.T) {
+	taxonomy, err := LoadTaxonomy(strings.NewReader(modifierDefaultsFixture()))
+	if err != nil {
+		t.Fatalf("LoadTaxonomy returned error: %v", err)
+	}
+	modifiers, err := LoadModifiers(strings.NewReader(validModifierRegistryFixture()))
+	if err != nil {
+		t.Fatalf("LoadModifiers returned error: %v", err)
+	}
+	template, ok := modifiers.ModifierByKey("is_indoor")
+	if !ok {
+		t.Fatal("test registry missing is_indoor")
+	}
+	template.Key = "has_assist"
+	template.Labels = LocaleMap{"de": "Assistenz"}
+	template.GoField = "HasAssist"
+	template.TSField = "hasAssist"
+	template.JSONKey = "has_assist"
+	template.ActivityColumn = "has_assist"
+	template.ApplicabilitySource = "modifier_applicability.has_assist"
+	template.ActionName = "set_has_assist"
+	template.ActionParam = "has_assist"
+	template.ShadowFSToken = "has_assist"
+	template.TagSync = nil
+	modifiers.Modifiers = append(modifiers.Modifiers, template)
+
+	if err := ValidateTaxonomyModifierRegistry(taxonomy, modifiers); err == nil {
+		t.Fatal("ValidateTaxonomyModifierRegistry accepted taxonomy missing has_assist applicability")
 	}
 }
 
@@ -607,7 +647,7 @@ func TestTaxonomySchemaMentionsValidatedFields(t *testing.T) {
 	}
 }
 
-func TestTaxonomySchemaSupportsOnlyIndoorModifierDefaults(t *testing.T) {
+func TestTaxonomySchemaSupportsRegistryShapedModifierDefaults(t *testing.T) {
 	schema, err := os.ReadFile("../../../../config/sport-taxonomy/schema/taxonomy.schema.json")
 	if err != nil {
 		t.Fatalf("read taxonomy schema: %v", err)
@@ -619,16 +659,16 @@ func TestTaxonomySchemaSupportsOnlyIndoorModifierDefaults(t *testing.T) {
 
 	defs := decoded["$defs"].(map[string]any)
 	defaults := defs["modifierDefaults"].(map[string]any)
-	if got := defaults["additionalProperties"]; got != false {
-		t.Fatalf("modifierDefaults additionalProperties = %#v, want false", got)
+	additional := defaults["additionalProperties"].(map[string]any)
+	if got := additional["type"]; got != "boolean" {
+		t.Fatalf("modifierDefaults additionalProperties.type = %#v, want boolean", got)
 	}
-	properties := defaults["properties"].(map[string]any)
-	isIndoor := properties["is_indoor"].(map[string]any)
-	if got := isIndoor["type"]; got != "boolean" {
-		t.Fatalf("modifierDefaults.is_indoor type = %#v, want boolean", got)
+	if got := defaults["minProperties"]; got != float64(1) {
+		t.Fatalf("modifierDefaults minProperties = %#v, want 1", got)
 	}
-	if _, ok := properties["is_virtual"]; ok {
-		t.Fatal("modifierDefaults schema unexpectedly allows is_virtual")
+	propertyNames := defaults["propertyNames"].(map[string]any)
+	if got := propertyNames["pattern"]; got != "^[a-z][a-z0-9_]*$" {
+		t.Fatalf("modifierDefaults propertyNames.pattern = %#v", got)
 	}
 
 	sports := decoded["properties"].(map[string]any)["sports"].(map[string]any)

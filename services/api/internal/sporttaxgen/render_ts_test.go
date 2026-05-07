@@ -33,7 +33,11 @@ func TestRenderTSEmitsTopLevelAutoTitleAndMovingThreshold(t *testing.T) {
 		}},
 	}
 
-	rendered, err := RenderTS(taxonomy, []byte("source"))
+	modifiers, err := LoadModifiers(strings.NewReader(validModifierRegistryFixture()))
+	if err != nil {
+		t.Fatalf("LoadModifiers() error = %v", err)
+	}
+	rendered, err := RenderTS(taxonomy, []byte("source"), modifiers)
 	if err != nil {
 		t.Fatalf("RenderTS() error = %v", err)
 	}
