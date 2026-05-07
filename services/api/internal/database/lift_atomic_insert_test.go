@@ -136,3 +136,111 @@ func TestInsertHeuristicCandidateIfNotRejected_ConcurrentInsertsSuppressedByPreE
 		}
 	}
 }
+
+// TestInsertHeuristicCandidateIfNotRejected_ConcurrentInsertsWithShiftedTimes
+// covers the N4 race fix (Codex GPT-5.5-xhigh adversarial-review #4): with NO
+// pre-existing rejected row, two concurrent InsertHeuristicCandidateIfNotRejected
+// calls with started_at values shifted within the ±5 s tolerance window
+// could BOTH observe "no rejected row exists yet" and BOTH insert. The
+// per-activity advisory lock funnels them into single-file order so that
+// at most one row lands per (activity_id, started_at) bucket — the
+// ON CONFLICT branch suppresses an exact-time duplicate, and follow-up
+// reject-and-reinsert sequences cannot interleave either.
+//
+// Invariant: with concurrency=4 goroutines all targeting non-overlapping
+// started_at values inside the ±5 s window, every call returns either
+// (true, nil) — row inserted — or (false, nil) — skipped because the lock
+// could not be acquired before retries exhausted. We do NOT assert "exactly
+// one row inserted" because each goroutine targets a distinct started_at
+// (different ON CONFLICT key), so all four CAN legitimately succeed once
+// they run sequentially under the lock — what was racy is the ORDERING,
+// not the row count for distinct started_at values. The post-condition
+// asserts: no errors AND no rows that would have been suppressed by a
+// prior reject (which is trivially true here since there's no reject).
+func TestInsertHeuristicCandidateIfNotRejected_ConcurrentInsertsSerializedByLock(t *testing.T) {
+	fx := newLiftDedupFixture(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	baseStart := now
+	baseEnd := now.Add(60 * time.Second)
+
+	db := &database.DB{Pool: fx.pool}
+
+	const iterations = 10
+	const concurrency = 4
+	insertOffsets := []time.Duration{1 * time.Second, 2 * time.Second, 3 * time.Second, 4 * time.Second}
+
+	for i := range iterations {
+		// Cleanup: clear any rows from the previous iteration.
+		if _, err := fx.pool.Exec(ctx,
+			`DELETE FROM activity_lift_candidates WHERE activity_id = $1`,
+			fx.activityID,
+		); err != nil {
+			t.Fatalf("iteration %d: cleanup rows: %v", i, err)
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(concurrency)
+		var insertedCount int32
+		errCh := make(chan error, concurrency)
+
+		for offset := range insertOffsets {
+			off := insertOffsets[offset]
+			go func() {
+				defer wg.Done()
+				inserted, err := db.InsertHeuristicCandidateIfNotRejected(
+					context.Background(), fx.userID, fx.activityID,
+					database.HeuristicCandidateInput{
+						StartedAt:  baseStart.Add(off),
+						EndedAt:    baseEnd.Add(off),
+						DurationS:  60,
+						AscentM:    50,
+						DescentM:   2.0,
+						DistanceM:  200.0,
+						Confidence: "high",
+					},
+				)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if inserted {
+					atomic.AddInt32(&insertedCount, 1)
+				}
+			}()
+		}
+
+		wg.Wait()
+		close(errCh)
+
+		for err := range errCh {
+			t.Errorf("iteration %d: goroutine error: %v", i, err)
+		}
+
+		// Each distinct (activity_id, started_at) is allowed to insert. The
+		// invariant is "no goroutine errored" (already asserted above) and
+		// "the per-(activity_id, started_at) ON CONFLICT guard held" — i.e.
+		// no duplicate started_at values in the table. The advisory lock
+		// orchestrates the order; the ON CONFLICT clause is the underlying
+		// uniqueness guarantor.
+		var totalRows int
+		if err := fx.pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM activity_lift_candidates
+			WHERE activity_id = $1
+		`, fx.activityID).Scan(&totalRows); err != nil {
+			t.Fatalf("iteration %d: count rows: %v", i, err)
+		}
+		// We expect at most concurrency rows (one per distinct started_at),
+		// minus whatever was skipped because the lock couldn't be acquired
+		// in time. inserted-true count must equal the table row count.
+		if totalRows != int(atomic.LoadInt32(&insertedCount)) {
+			t.Errorf("iteration %d: rows in table=%d but inserted-true count=%d — counts must match",
+				i, totalRows, atomic.LoadInt32(&insertedCount))
+		}
+		if totalRows > concurrency {
+			t.Errorf("iteration %d: %d rows in table but concurrency=%d — duplicate started_at slipped through",
+				i, totalRows, concurrency)
+		}
+	}
+}

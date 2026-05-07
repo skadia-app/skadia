@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"strings"
 	"time"
@@ -13,6 +14,31 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+// liftAdvisoryLockNs is the high-half namespace tag for per-activity
+// advisory locks coordinating concurrent lift-detection writes. The
+// lift-detection enrichment pipeline (services/api/internal/enrichment/
+// lift_enrich.go) uses the SAME constant under the local name
+// liftEnrichAdvisoryLockNs — both code paths must hash to identical
+// keys so that an in-progress enrichStreamLifts run blocks a concurrent
+// InsertHeuristicCandidateIfNotRejected call (and vice versa) on the
+// same activity_id.
+//
+// Keep this value in lockstep with services/api/internal/enrichment/
+// lift_enrich.go's liftEnrichAdvisoryLockNs constant. The mnemonic
+// 0x4C494654 spells "LIFT" in ASCII.
+const liftAdvisoryLockNs int64 = 0x4C494654
+
+// liftAdvisoryLockKey derives the int64 advisory-lock key for one
+// activity_id. The 32-bit FNV-1a hash of the UUID occupies the low
+// half; the namespace tag occupies the high half. Mirrors
+// liftEnrichLockKey in services/api/internal/enrichment/lift_enrich.go
+// so both packages compute the same key for the same activity.
+func liftAdvisoryLockKey(activityID string) int64 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(activityID))
+	return (liftAdvisoryLockNs << 32) | int64(h.Sum32())
+}
 
 // validEnrichmentCols is the allowlist of column names that may be passed to
 // UpdateEnrichmentFields / UpdateEnrichmentFieldsSafe. Any column not in this
@@ -648,9 +674,24 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID, userID string, 
 	return result, rows.Err()
 }
 
+// ConfirmLiftCandidate flips a candidate's confirmed flag and recomputes the
+// owning activity's lift_* aggregates atomically.
+//
+// N8 fix (Codex GPT-5.5-xhigh adversarial-review #8): the candidate UPDATE
+// and the recompute now share a single transaction. Pre-fix the UPDATE
+// committed via auto-commit and recomputeLiftStats opened its own Tx; if
+// recompute failed (DB hiccup, gear-stats failure, etc.) the candidate
+// stayed flipped while activities.lift_* and gear stats remained stale and
+// the user could only recover via a global /lifts/recalculate-all.
 func (db *DB) ConfirmLiftCandidate(ctx context.Context, userID, candidateID, activityID string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("confirm lift candidate: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after Commit is a no-op
+
 	var returnedActivityID string
-	err := db.Pool.QueryRow(ctx,
+	if err := tx.QueryRow(ctx,
 		`UPDATE activity_lift_candidates alc
 		 SET confirmed = true
 		 FROM activities a
@@ -658,20 +699,38 @@ func (db *DB) ConfirmLiftCandidate(ctx context.Context, userID, candidateID, act
 		   AND a.id = alc.activity_id AND a.user_id = $3
 		 RETURNING alc.activity_id`,
 		candidateID, activityID, userID,
-	).Scan(&returnedActivityID)
+	).Scan(&returnedActivityID); err != nil {
+		return err
+	}
+	gearIDs, err := db.recomputeLiftStatsTx(ctx, tx, userID, returnedActivityID)
 	if err != nil {
 		return err
 	}
-	return db.recomputeLiftStats(ctx, userID, returnedActivityID)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("confirm lift candidate: commit: %w", err)
+	}
+	db.afterLiftStatsCommit(ctx, userID, returnedActivityID, gearIDs)
+	return nil
 }
 
 // RejectLiftCandidate soft-rejects a lift candidate and recomputes activity
 // lift stats. The row is marked rejected_by_user=true rather than deleted so
 // that it survives subsequent re-enrichment passes (Phase 4d: the idempotent
 // DELETE in enrichStreamLifts now skips rows with rejected_by_user=true).
+//
+// N8 fix (Codex GPT-5.5-xhigh adversarial-review #8): the candidate UPDATE
+// and the recompute share a single transaction so that a recompute failure
+// rolls back the soft-reject too — see ConfirmLiftCandidate for the full
+// rationale.
 func (db *DB) RejectLiftCandidate(ctx context.Context, userID, candidateID, activityID string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("reject lift candidate: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after Commit is a no-op
+
 	var returnedActivityID string
-	err := db.Pool.QueryRow(ctx,
+	if err := tx.QueryRow(ctx,
 		`UPDATE activity_lift_candidates alc
 		 SET rejected_by_user = true
 		 FROM activities a
@@ -679,11 +738,18 @@ func (db *DB) RejectLiftCandidate(ctx context.Context, userID, candidateID, acti
 		   AND a.id = alc.activity_id AND a.user_id = $3
 		 RETURNING alc.activity_id`,
 		candidateID, activityID, userID,
-	).Scan(&returnedActivityID)
+	).Scan(&returnedActivityID); err != nil {
+		return err
+	}
+	gearIDs, err := db.recomputeLiftStatsTx(ctx, tx, userID, returnedActivityID)
 	if err != nil {
 		return err
 	}
-	return db.recomputeLiftStats(ctx, userID, returnedActivityID)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("reject lift candidate: commit: %w", err)
+	}
+	db.afterLiftStatsCommit(ctx, userID, returnedActivityID, gearIDs)
+	return nil
 }
 
 // recomputeLiftStats recomputes activities.lift_* columns. Phase 4c
@@ -719,6 +785,61 @@ func skipGearRefresh() recomputeOpt {
 }
 
 func (db *DB) recomputeLiftStats(ctx context.Context, userID, activityID string, opts ...recomputeOpt) error {
+	// F6 fix: UPDATE activities.lift_* and the dependent gear-stats refresh
+	// must commit atomically. Pre-fix the UPDATE ran on db.Pool (auto-commit)
+	// and refreshActivityGearStats opened a separate Tx — on gear-refresh
+	// failure the lift stats stayed committed, gear totals went stale, and
+	// the error was only slog.Warn'd while the caller received nil. Now both
+	// statements share one Tx; on any failure both roll back and the caller
+	// gets the error.
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("recompute lift stats: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after Commit is a no-op
+
+	gearIDs, err := db.recomputeLiftStatsTx(ctx, tx, userID, activityID, opts...)
+	if err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("recompute lift stats: commit: %w", err)
+	}
+
+	db.afterLiftStatsCommit(ctx, userID, activityID, gearIDs)
+	return nil
+}
+
+// recomputeLiftStatsTx executes the lift-stats UPDATE plus the dependent
+// gear-stats refresh inside the supplied transaction. It does NOT begin or
+// commit the transaction — the caller owns the Tx lifecycle. It also does
+// NOT run the post-commit sanity probe (warnIfLiftAggregatesExceedRaw):
+// the probe is a read-only diagnostic that must run after the outer commit,
+// so the caller is responsible for invoking it once its own commit succeeds.
+//
+// N8 fix (Codex GPT-5.5-xhigh adversarial-review #8): ConfirmLiftCandidate
+// and RejectLiftCandidate use this variant so the candidate-flag UPDATE
+// and the activities.lift_* UPDATE commit atomically. Pre-fix the candidate
+// flag was committed as auto-commit and recomputeLiftStats opened its own
+// Tx; if recompute failed, the candidate stayed flipped while activities.
+// lift_* and gear stats remained stale.
+//
+// N7 fix (Codex GPT-5.5-xhigh adversarial-review #7): the heuristic-only
+// arm filters on `segment_effort_id IS NULL` AND `source = 'heuristic'`.
+// Without the source filter, an OSM-source row whose segment_effort_id has
+// been NULLed out (e.g. lift_enrich.go's F5 fix when re-enrichment removes
+// the segment_effort while preserving the rejected audit row, then a later
+// /lifts/recalculate-all clears the reject flag) would be miscounted via
+// the heuristic arm even though no segment_effort exists. The OSM arm is
+// driven by segment_efforts JOIN segments, so source='osm' rows without
+// segment_efforts are correctly excluded by both arms after this fix.
+func (db *DB) recomputeLiftStatsTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	userID, activityID string,
+	opts ...recomputeOpt,
+) ([]string, error) {
 	var cfg recomputeOpts
 	for _, opt := range opts {
 		opt(&cfg)
@@ -748,6 +869,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, userID, activityID string,
 			) + (
 				SELECT COUNT(*) FROM activity_lift_candidates
 				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
+				  AND source = 'heuristic'
 				  AND NOT rejected_by_user
 			),
 			lift_duration_s = (
@@ -761,6 +883,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, userID, activityID string,
 			) + (
 				SELECT COALESCE(SUM(duration_s), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
+				  AND source = 'heuristic'
 				  AND NOT rejected_by_user
 			),
 			lift_ascent_m = (
@@ -775,6 +898,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, userID, activityID string,
 			) + (
 				SELECT COALESCE(SUM(ascent_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
+				  AND source = 'heuristic'
 				  AND NOT rejected_by_user
 			),
 			lift_descent_m = (
@@ -789,6 +913,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, userID, activityID string,
 			) + (
 				SELECT COALESCE(SUM(descent_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
+				  AND source = 'heuristic'
 				  AND NOT rejected_by_user
 			),
 			lift_distance_m = (
@@ -802,44 +927,33 @@ func (db *DB) recomputeLiftStats(ctx context.Context, userID, activityID string,
 			) + (
 				SELECT COALESCE(SUM(distance_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
+				  AND source = 'heuristic'
 				  AND NOT rejected_by_user
 			)
 		WHERE id = $1 AND user_id = $2`, confirmedFilter, confirmedFilter, confirmedFilter, confirmedFilter, confirmedFilter)
 
-	// F6 fix: UPDATE activities.lift_* and the dependent gear-stats refresh
-	// must commit atomically. Pre-fix the UPDATE ran on db.Pool (auto-commit)
-	// and refreshActivityGearStats opened a separate Tx — on gear-refresh
-	// failure the lift stats stayed committed, gear totals went stale, and
-	// the error was only slog.Warn'd while the caller received nil. Now both
-	// statements share one Tx; on any failure both roll back and the caller
-	// gets the error.
-	tx, err := db.Pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("recompute lift stats: begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after Commit is a no-op
-
 	tag, err := tx.Exec(ctx, query, activityID, userID)
 	if err != nil {
-		return fmt.Errorf("recompute lift stats: %w", err)
+		return nil, fmt.Errorf("recompute lift stats: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		// No matching activity (deleted or wrong user) — nothing to refresh,
-		// nothing to commit. Rollback via defer.
-		return nil
+		// No matching activity (deleted or wrong user) — nothing to refresh.
+		// The caller's outer-Tx candidate UPDATE will independently see
+		// pgx.ErrNoRows on its RETURNING and skip this path entirely.
+		return nil, nil
 	}
 
 	var gearIDs []string
 	if !cfg.skipGearRefresh {
 		gearIDs, err = db.refreshActivityGearStatsTx(ctx, tx, userID, activityID)
 		if err != nil {
-			return fmt.Errorf("recompute lift stats: refresh gear stats: %w", err)
+			return nil, fmt.Errorf("recompute lift stats: refresh gear stats: %w", err)
 		}
 	}
+	return gearIDs, nil
+}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("recompute lift stats: commit: %w", err)
-	}
+func (db *DB) afterLiftStatsCommit(ctx context.Context, userID, activityID string, gearIDs []string) {
 	if len(gearIDs) > 0 {
 		if err := db.EvaluateGearUsageRulesForGear(ctx, gearIDs); err != nil {
 			slog.Warn("evaluate gear usage rules",
@@ -858,7 +972,6 @@ func (db *DB) recomputeLiftStats(ctx context.Context, userID, activityID string,
 	// raw counterpart is NULL to avoid spurious warnings on imports without
 	// GPS / elevation data.
 	db.warnIfLiftAggregatesExceedRaw(ctx, userID, activityID)
-	return nil
 }
 
 // warnIfLiftAggregatesExceedRaw logs a warning when the recomputed lift_*
@@ -1029,10 +1142,83 @@ func (db *DB) InsertHeuristicCandidateIfNotRejected(
 	userID, activityID string,
 	in HeuristicCandidateInput,
 ) (bool, error) {
+	// N4 fix (Codex GPT-5.5-xhigh adversarial-review #4): serialize concurrent
+	// inserts on the same activity. The single INSERT ... WHERE NOT EXISTS
+	// statement is atomic against a stable rejected row (covered by the
+	// existing TestInsertHeuristicCandidateIfNotRejected_… atomicity test),
+	// but two concurrent INSERT statements with shifted started_at within the
+	// ±5 s tolerance can BOTH observe "no rejected row exists yet" — neither
+	// of those two inserts is a rejected row, so the WHERE NOT EXISTS guard
+	// against rejects does not catch them. Without this lock both rows would
+	// land. The advisory lock funnels these calls into single-file order so
+	// that follow-up reject-and-reinsert sequences cannot interleave either.
+	//
+	// We share the SAME advisory-lock namespace as enrichStreamLifts
+	// (lift_enrich.go) so an in-progress enrichment of the same activity
+	// blocks heuristic inserts and vice versa. See liftAdvisoryLockNs.
+	//
+	// Retry loop (Option A): pg_try_advisory_lock with bounded retries up
+	// to ~100 ms total. The lock is held only for the duration of one
+	// INSERT, so contention windows are sub-ms in practice. If retries
+	// exhaust, return (false, nil): another worker is currently producing
+	// a row for this activity; the caller's batch will see that row on
+	// the next retry path or via the ON CONFLICT branch when the worker
+	// commits. We deliberately do NOT return an error — exhausting retries
+	// is a "skipped this insert because something else is doing it" signal,
+	// not a failure.
+	lockConn, err := db.Pool.Acquire(ctx)
+	if err != nil {
+		return false, fmt.Errorf("insert heuristic candidate: acquire conn for advisory lock: %w", err)
+	}
+	defer lockConn.Release()
+	lockKey := liftAdvisoryLockKey(activityID)
+
+	const (
+		maxRetries   = 10
+		retryBackoff = 10 * time.Millisecond // 10 retries × 10 ms ≈ 100 ms total
+	)
+	var locked bool
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if err := lockConn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockKey).Scan(&locked); err != nil {
+			return false, fmt.Errorf("insert heuristic candidate: try advisory lock: %w", err)
+		}
+		if locked {
+			break
+		}
+		// Sleep with ctx cancellation: aborting the request must propagate.
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(retryBackoff):
+		}
+	}
+	if !locked {
+		slog.Info("InsertHeuristicCandidateIfNotRejected: another worker holds the lift advisory lock, skipping",
+			"activity_id", activityID,
+			"max_retries", maxRetries,
+			"backoff", retryBackoff)
+		return false, nil
+	}
+	defer func() {
+		// Unlock with a fresh background context so cancellation does not
+		// leak the lock. Mirrors the pattern in enrichStreamLifts.
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, unlockErr := lockConn.Exec(releaseCtx, "SELECT pg_advisory_unlock($1)", lockKey); unlockErr != nil {
+			slog.Warn("InsertHeuristicCandidateIfNotRejected: advisory unlock failed",
+				"activity_id", activityID,
+				"error", unlockErr)
+		}
+	}()
+
 	// Single atomic statement: insert only when no rejected row with boundaries
 	// within ±5 s exists. The interval literals avoid pgx type-inference issues
 	// with make_interval(secs => $N) that appeared in Phase 4d.
-	tag, err := db.Pool.Exec(ctx, `
+	//
+	// Run on the same lockConn so the INSERT is serialized behind the lock
+	// acquisition on this connection (otherwise the lock and the INSERT could
+	// race against the connection-pool scheduler).
+	tag, err := lockConn.Exec(ctx, `
 		INSERT INTO activity_lift_candidates
 			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
 			 confidence, confirmed, source)
