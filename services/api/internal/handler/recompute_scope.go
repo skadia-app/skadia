@@ -124,7 +124,13 @@ func buildRecomputeScopeFlags(scope map[string]bool) recomputeScopeFlags {
 
 	flags.doGeo = flags.doSummits || flags.doSettlements || flags.doForests ||
 		flags.doWater || flags.doBorders || flags.doSurfaces || flags.doLifts
-	flags.doStreamEnrichment = flags.doStops || flags.doAscents || flags.doIntervals
+	// Lifts are derived in RunStreamEnrichment (Phase 4: NATS-Lift-Dispatch removed),
+	// so doLifts must gate the stream-enrichment branch in scoped recompute. Without
+	// this, scope=["lifts"] runs the cleanup batch (deletes activity_lift_candidates,
+	// nulls segment_effort_id on rejected audits, deletes lift segment_efforts) but
+	// the scoped enrichment branch in recompute.go is gated on doStreamEnrichment,
+	// leaving the activity with empty lift state.
+	flags.doStreamEnrichment = flags.doStops || flags.doAscents || flags.doIntervals || flags.doLifts
 	flags.doStage1 = allScope || flags.doStreams || flags.doMetrics || flags.doSportType ||
 		flags.doTags || flags.doDetails || flags.doSensors || flags.doGeo
 
