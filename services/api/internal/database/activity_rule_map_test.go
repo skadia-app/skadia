@@ -3,7 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
-	"os"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"testing"
 	"time"
 
@@ -191,7 +191,7 @@ func TestGetActivityAsMapClimbCategoryMaxIgnoresHC(t *testing.T) {
 }
 
 // Property-style coverage of every plausible activity_climbs.category value.
-// The bug class — text sentinels (HC, NULL, '') routed through a numeric
+// The bug class — text sentinels (HC, NULL, "") routed through a numeric
 // aggregate cast — generalises beyond HC. Future additions to classifyClimb
 // (services/api/internal/enrichment/ascents.go) must keep GetActivityAsMap
 // crash-free for any value the enrichment layer may emit.
@@ -259,10 +259,7 @@ func TestGetActivityAsMapClimbCategoryValuesNeverCrash(t *testing.T) {
 // minutes on a populated dev DB; raise the cap or drop the LIMIT entirely
 // once we want stronger guarantees.
 func TestGetActivityAsMapSmokeAgainstLiveData(t *testing.T) {
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	if testing.Short() {
 		t.Skip("smoke test skipped in -short mode")
 	}

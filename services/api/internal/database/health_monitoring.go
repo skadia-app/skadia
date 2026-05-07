@@ -22,7 +22,7 @@ func (db *DB) InsertMonitoringSamples(ctx context.Context, samples []model.Monit
 	defer tx.Rollback(ctx)
 
 	// 1. Create temp staging table (unlogged, no constraints — plain heap table, NOT a hypertable)
-	_, err = tx.Exec(ctx, `CREATE TEMP TABLE _hms_staging (LIKE health_monitoring_samples INCLUDING NOTHING) ON COMMIT DROP`)
+	_, err = tx.Exec(ctx, `CREATE TEMP TABLE _hms_staging (LIKE health_monitoring_samples EXCLUDING ALL) ON COMMIT DROP`)
 	if err != nil {
 		return fmt.Errorf("create staging table: %w", err)
 	}
@@ -66,6 +66,7 @@ func (db *DB) InsertMonitoringSamples(ctx context.Context, samples []model.Monit
 			respiration_rate, sleep_level,
 			spo2_pct, spo2_confidence, wrist_temperature_c
 		FROM _hms_staging
+		WHERE true
 		ON CONFLICT (user_id, ts) DO UPDATE SET
 			heart_rate          = COALESCE(EXCLUDED.heart_rate,          health_monitoring_samples.heart_rate),
 			activity_type       = COALESCE(EXCLUDED.activity_type,       health_monitoring_samples.activity_type),
