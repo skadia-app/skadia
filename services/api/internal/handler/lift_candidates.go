@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/automation"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -44,10 +45,14 @@ func (h *Handler) reapplyRulesAfterLiftChange(r *http.Request, activityID, userI
 	}
 }
 
-// GetLiftCandidates returns lift ride candidates for an activity.
-// GET /api/v1/activities/{id}/lift-candidates
+// GetLiftCandidates returns unified lift ride candidates for an activity.
+// GET /api/v1/activities/{id}/lifts/candidates
 func (h *Handler) GetLiftCandidates(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	filter, ok := parseLiftCandidateFilter(w, r)
 	if !ok {
 		return
 	}
@@ -63,12 +68,34 @@ func (h *Handler) GetLiftCandidates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	candidates, err := h.DB.GetLiftCandidates(r.Context(), activityID)
+	candidates, err := h.DB.GetLiftCandidates(r.Context(), activityID, userID, filter)
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, candidates)
+}
+
+func parseLiftCandidateFilter(w http.ResponseWriter, r *http.Request) (database.LiftCandidateFilter, bool) {
+	q := r.URL.Query()
+	filter := database.LiftCandidateFilter{}
+	switch source := q.Get("source"); source {
+	case "", "osm", "heuristic":
+		filter.Source = source
+	default:
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "source must be osm or heuristic", r.URL.Path)
+		return filter, false
+	}
+	switch includeRejected := q.Get("include_rejected"); includeRejected {
+	case "", "false":
+		filter.IncludeRejected = false
+	case "true":
+		filter.IncludeRejected = true
+	default:
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "include_rejected must be true or false", r.URL.Path)
+		return filter, false
+	}
+	return filter, true
 }
 
 // ConfirmLiftCandidate marks a lift candidate as confirmed.
