@@ -55,7 +55,7 @@ func summitDriftFixtureForExistingActivity(t *testing.T, ctx context.Context, po
 
 	const q = `
 		SELECT candidate.activity_id,
-		       ST_AsWKB(ST_Simplify(track.track_full, 0.00005)) AS geom_wkb,
+			       ST_AsBinary(ST_Simplify(track.track_full, 0.00005)) AS geom_wkb,
 		       GREATEST(10::double precision, candidate.max_dist_m::double precision + 1) AS radius_m
 		FROM (
 			SELECT g.activity_id, COALESCE(MAX(g.dist_m), 79) AS max_dist_m

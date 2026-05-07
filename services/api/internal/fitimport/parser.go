@@ -628,32 +628,40 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	// Min heart rate
 	if session.MinHeartRate != basetype.Uint8Invalid {
 		data.MinHeartRate = int(session.MinHeartRate)
+		data.MinHeartRateValid = true
 	}
 	// Total calories
 	if session.TotalCalories != basetype.Uint16Invalid {
 		data.TotalCalories = int(session.TotalCalories)
+		data.TotalCaloriesValid = true
 	}
 	// Training effects (uint8, scale: 10)
 	if session.TotalTrainingEffect != basetype.Uint8Invalid {
 		data.AerobicTrainingEffect = float64(session.TotalTrainingEffect) / 10.0
+		data.AerobicTrainingEffectValid = true
 	}
 	if session.TotalAnaerobicTrainingEffect != basetype.Uint8Invalid {
 		data.AnaerobicTrainingEffect = float64(session.TotalAnaerobicTrainingEffect) / 10.0
+		data.AnaerobicTrainingEffectValid = true
 	}
 	// Training load peak (int32, Scale: 65536)
 	if session.TrainingLoadPeak != basetype.Sint32Invalid {
 		data.TrainingLoadPeak = float64(session.TrainingLoadPeak) / 65536.0
+		data.TrainingLoadPeakValid = true
 	}
 	// SpO2, stress
 	if session.AvgSpo2 != basetype.Uint8Invalid {
 		data.AvgSpo2Pct = int(session.AvgSpo2)
+		data.AvgSpo2PctValid = true
 	}
 	if session.AvgStress != basetype.Uint8Invalid {
 		data.AvgStressLevel = int(session.AvgStress)
+		data.AvgStressLevelValid = true
 	}
 	// Respiration (uint16, Scale: 100)
 	if session.EnhancedAvgRespirationRate != basetype.Uint16Invalid {
 		data.AvgRespirationRate = float64(session.EnhancedAvgRespirationRate) / 100.0
+		data.AvgRespirationRateValid = true
 	}
 	// RPE, feel
 	if session.WorkoutRpe != basetype.Uint8Invalid {
@@ -665,14 +673,17 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	// HRV RMSSD
 	if session.RmssdHrv != basetype.Uint8Invalid {
 		data.SessionRmssdMs = int(session.RmssdHrv)
+		data.SessionRmssdMsValid = true
 	}
 	// Threshold power
 	if session.ThresholdPower != basetype.Uint16Invalid {
 		data.ThresholdPowerW = int(session.ThresholdPower)
+		data.ThresholdPowerWValid = true
 	}
 	// Core temperature (uint16, Scale: 100)
 	if session.AvgCoreTemperature != basetype.Uint16Invalid {
 		data.AvgCoreTemperatureC = float64(session.AvgCoreTemperature) / 100.0
+		data.AvgCoreTemperatureCValid = true
 	}
 
 	// === FIT SDK — Movement / Cycles ===

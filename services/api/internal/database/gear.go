@@ -1148,10 +1148,14 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 			a.max_depth_m, a.avg_depth_m, a.end_cns_pct,
 			a.jump_count, a.total_grit, a.avg_flow,
 			a.avg_lev_motor_power_w, a.lev_battery_consumption_pct,
-			a.parent_id, a.num_sessions,
-			a.aerobic_training_effect, a.anaerobic_training_effect,
-			a.aerobic_decoupling, a.variability_index, a.efficiency_factor,
-			a.intensity_factor, a.workout_rpe, a.workout_feel
+				a.parent_id, a.num_sessions,
+				a.total_calories,
+				a.aerobic_training_effect, a.anaerobic_training_effect,
+				a.training_load_peak,
+				a.avg_spo2_pct, a.avg_respiration_rate, a.avg_stress_level,
+				a.session_rmssd_ms, a.avg_core_temperature_c, a.threshold_power_w,
+				a.aerobic_decoupling, a.variability_index, a.efficiency_factor,
+				a.intensity_factor, a.workout_rpe, a.workout_feel
 		FROM activities a
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_photos GROUP BY activity_id) pc ON pc.activity_id = a.id
 		LEFT JOIN (SELECT activity_id, COUNT(*)::int AS cnt FROM activity_detected_laps GROUP BY activity_id) lc ON lc.activity_id = a.id
@@ -1254,7 +1258,10 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		levBatteryPct                                                         *float64
 		parentID                                                              *string
 		numSessions                                                           *int16
+		totalCalories                                                         *int
 		aerobicTE, anaerobicTE                                                *float64
+		trainingLoadPeak, avgRespirationRate, avgCoreTemperature              *float64
+		avgSpo2Pct, avgStressLevel, sessionRmssdMs, thresholdPowerW           *int
 		aerobicDecoupling, variabilityIndex                                   *float64
 		efficiencyFactor, intensityFactor                                     *float64
 		workoutRPE, workoutFeel                                               *int
@@ -1294,7 +1301,11 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 		&jumpCount, &totalGrit, &avgFlow,
 		&avgLevMotorPowerW, &levBatteryPct,
 		&parentID, &numSessions,
-		&aerobicTE, &anaerobicTE, &aerobicDecoupling, &variabilityIndex,
+		&totalCalories,
+		&aerobicTE, &anaerobicTE,
+		&trainingLoadPeak, &avgSpo2Pct, &avgRespirationRate, &avgStressLevel,
+		&sessionRmssdMs, &avgCoreTemperature, &thresholdPowerW,
+		&aerobicDecoupling, &variabilityIndex,
 		&efficiencyFactor, &intensityFactor, &workoutRPE, &workoutFeel,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1512,8 +1523,16 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	m["is_multisport_parent"] = numSessions != nil && *numSessions > 1
 
 	// Training metrics
+	setNN("total_calories", derefInt(totalCalories))
 	setNN("aerobic_training_effect", derefF(aerobicTE))
 	setNN("anaerobic_training_effect", derefF(anaerobicTE))
+	setNN("training_load_peak", derefF(trainingLoadPeak))
+	setNN("avg_spo2_pct", derefInt(avgSpo2Pct))
+	setNN("avg_respiration_rate", derefF(avgRespirationRate))
+	setNN("avg_stress_level", derefInt(avgStressLevel))
+	setNN("session_rmssd_ms", derefInt(sessionRmssdMs))
+	setNN("avg_core_temperature_c", derefF(avgCoreTemperature))
+	setNN("threshold_power_w", derefInt(thresholdPowerW))
 	setNN("aerobic_decoupling", derefF(aerobicDecoupling))
 	setNN("variability_index", derefF(variabilityIndex))
 	setNN("efficiency_factor", derefF(efficiencyFactor))
