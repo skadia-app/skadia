@@ -220,7 +220,11 @@ export default function AutomationRulesPage() {
       setDeleteConfirmId(null)
     },
     onError: (err: unknown) => {
-      const msg = err instanceof ApiError ? err.body : err instanceof Error ? err.message : 'Unbekannter Fehler'
+      // Prefer RFC7807 `detail` field over the raw body string so the user sees
+      // the human-readable message rather than the full JSON envelope.
+      const msg = err instanceof ApiError
+        ? (typeof err.json?.detail === 'string' ? err.json.detail : err.body)
+        : err instanceof Error ? err.message : 'Unbekannter Fehler'
       addToast({ type: 'error', title: 'Regel konnte nicht gelöscht werden', message: msg, duration: 0 })
     },
   })
