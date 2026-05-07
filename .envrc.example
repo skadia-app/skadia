@@ -1,0 +1,13 @@
+# direnv configuration for Skadia worktrees.
+# Copy to .envrc and run `direnv allow` once.
+#
+# `ensure` must run before `emit-url`: `emit-url` only prints the DSN and does
+# not verify that the per-worktree database exists or matches the migration
+# fingerprint.
+./scripts/test_db.sh ensure
+
+eval "$(./scripts/test_db.sh emit-url)"
+
+# Tests should use TEST_DATABASE_URL or services/api/internal/database/testdb.
+# Clearing DATABASE_URL makes direct production-DSN reads fail loudly.
+unset DATABASE_URL
