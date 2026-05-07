@@ -113,26 +113,60 @@ func TestSnapToOSMLifts_PartialCoverageMarksMultiRideGroup(t *testing.T) {
 }
 
 // TestSnapToOSMLifts_SinglePartialNoSibling: coverage 0.30..0.70 but no other
-// ride hits the same lift → Action="passthrough" (ride stays heuristic-only).
+// ride hits the same lift → Action="passthrough" (ride stays heuristic-only)
+// — but the ride physically rode an OSM lift, so OSMCandidateIdx must point
+// at that lift to block Stage 3 (Phase-4 critic finding F1).
 func TestSnapToOSMLifts_SinglePartialNoSibling(t *testing.T) {
 	startTime := time.Unix(0, 0).UTC()
 	ride := newSyntheticRide(t, startTime, 0, 300, 0, 1000.0, 1050.0)
 
-	osmLift := OSMLiftCandidate{
-		SegmentID:  "seg-D",
-		LengthM:    600.0,
-		BearingDeg: 90.0,
-	}
+	// Two OSM lifts so we can verify OSMCandidateIdx points at the *right*
+	// one (idx 1, the only one with partial coverage above the threshold).
+	// Using idx 1 also distinguishes the new sentinel-aware code from the
+	// old zero-value-as-default behaviour.
+	osmA := OSMLiftCandidate{SegmentID: "seg-A", LengthM: 5000.0, BearingDeg: 90.0} // coverage 0.06 — below threshold
+	osmB := OSMLiftCandidate{SegmentID: "seg-B", LengthM: 600.0, BearingDeg: 90.0}  // coverage 0.50 — above threshold, single ride
 	matches := []RideOSMOverlap{
-		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0}, // 0.5 coverage, single ride
+		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
+		{RideIdx: 0, OSMIdx: 1, HausdorffM: 5.0, IntersectionLen: 300.0},
 	}
 
-	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []OSMLiftCandidate{osmLift}, matches, nil, nil)
+	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []OSMLiftCandidate{osmA, osmB}, matches, nil, nil)
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
 	if results[0].Action != SnapActionPassthrough {
 		t.Errorf("Action = %q, want passthrough (single partial without sibling)", results[0].Action)
+	}
+	if results[0].OSMCandidateIdx != 1 {
+		t.Errorf("OSMCandidateIdx = %d, want 1 (passthrough must remember the OSM lift to block Stage 3)", results[0].OSMCandidateIdx)
+	}
+}
+
+// TestSnapToOSMLifts_PassthroughNoOverlapHasSentinelIdx: a ride with no
+// usable OSM overlap (every match below 30% coverage) must end up as
+// passthrough with OSMCandidateIdx = -1 — the sentinel that signals "no OSM
+// relation". This is the symmetric counterpart to the
+// TestSnapToOSMLifts_SinglePartialNoSibling case: without the sentinel,
+// MethodACoverageGap could not distinguish "no OSM relation" from "OSM lift
+// at index 0", and Stage 3 would incorrectly skip osmCandidates[0] for every
+// passthrough ride (Phase-4 critic finding F1).
+func TestSnapToOSMLifts_PassthroughNoOverlapHasSentinelIdx(t *testing.T) {
+	startTime := time.Unix(0, 0).UTC()
+	ride := newSyntheticRide(t, startTime, 0, 600, 0, 1000.0, 1100.0)
+
+	osm := OSMLiftCandidate{SegmentID: "seg-A", LengthM: 5000.0, BearingDeg: 90.0}
+	matches := []RideOSMOverlap{
+		// 100m intersection on a 5000m lift = 0.02 coverage, below threshold.
+		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 100.0},
+	}
+
+	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []OSMLiftCandidate{osm}, matches, nil, nil)
+	if results[0].Action != SnapActionPassthrough {
+		t.Fatalf("Action = %q, want passthrough", results[0].Action)
+	}
+	if results[0].OSMCandidateIdx != -1 {
+		t.Errorf("OSMCandidateIdx = %d, want -1 (no OSM relation)", results[0].OSMCandidateIdx)
 	}
 }
 
@@ -395,17 +429,55 @@ func TestMethodACoverageGap_NoPlanWhenAllSnapped(t *testing.T) {
 	}
 }
 
-// TestMethodACoverageGap_PassthroughDoesNotCoverOSMLift: a ride that fell
-// through to passthrough (no snap) does NOT count as covering an OSM lift,
-// so Stage 3 should still propose the lift.
-func TestMethodACoverageGap_PassthroughDoesNotCoverOSMLift(t *testing.T) {
+// TestMethodACoverageGap_PassthroughWithoutOSMRelationStillPlansLift: a ride
+// that fell through to passthrough without ever touching an OSM lift
+// (OSMCandidateIdx = -1) does NOT count as covering any OSM lift in the
+// neighbourhood, so Stage 3 still proposes the unrelated lifts.
+//
+// This test replaces the older TestMethodACoverageGap_PassthroughDoesNotCoverOSMLift
+// (Phase-4 critic finding F1). The old test asserted that *any* passthrough,
+// including one whose OSMCandidateIdx defaulted to 0 from the SnapResult
+// zero-value, left the lift uncovered. That contract caused recomputeLiftStats
+// to double-count: the heuristic detector inserted an activity_lift_candidates
+// row for the partial-coverage ride AND Stage 3 inserted an OSM-side
+// segment_effort for the same physical ride. The fix makes OSMCandidateIdx an
+// explicit sentinel (-1 = no OSM relation, >= 0 = ride physically corresponds
+// to that lift), and MethodACoverageGap treats every >= 0 value as covered
+// regardless of Action. This test now exercises the no-relation case to make
+// sure unrelated OSM lifts are still planned.
+func TestMethodACoverageGap_PassthroughWithoutOSMRelationStillPlansLift(t *testing.T) {
 	osmA := OSMLiftCandidate{OSMID: 100, SegmentID: "seg-A", LengthM: 600.0}
 	finalResults := []SnapResult{
-		{RideIdx: 0, Action: SnapActionPassthrough},
+		// OSMCandidateIdx = -1 means the snap pipeline never associated this
+		// ride with any OSM lift (no overlap above snapPartialCoverage).
+		{RideIdx: 0, Action: SnapActionPassthrough, OSMCandidateIdx: -1},
 	}
 	plan := MethodACoverageGap(finalResults, []OSMLiftCandidate{osmA})
 	if len(plan) != 1 {
-		t.Fatalf("plan len = %d, want 1 (passthrough does not cover the lift)", len(plan))
+		t.Fatalf("plan len = %d, want 1 (passthrough without OSM relation does not cover the lift)", len(plan))
+	}
+}
+
+// TestMethodACoverageGap_PassthroughWithPartialCoverageBlocksStage3: a
+// passthrough ride whose Stage-1 best coverage was 0.30..0.70 with no sibling
+// (and therefore stayed Action=Passthrough but kept OSMCandidateIdx pointing
+// at the OSM lift it physically rode on) MUST block Stage 3 — otherwise Stage
+// 3 inserts an OSM-side segment_effort for the same physical ride that the
+// heuristic detector already emitted as a candidate, double-counting in
+// recomputeLiftStats. (Phase-4 critic finding F1.)
+func TestMethodACoverageGap_PassthroughWithPartialCoverageBlocksStage3(t *testing.T) {
+	osmA := OSMLiftCandidate{OSMID: 100, SegmentID: "seg-A", LengthM: 600.0}
+	osmB := OSMLiftCandidate{OSMID: 101, SegmentID: "seg-B", LengthM: 200.0}
+	finalResults := []SnapResult{
+		// Lone partial-coverage passthrough on osmA (idx 0).
+		{RideIdx: 0, Action: SnapActionPassthrough, OSMCandidateIdx: 0},
+	}
+	plan := MethodACoverageGap(finalResults, []OSMLiftCandidate{osmA, osmB})
+	if len(plan) != 1 {
+		t.Fatalf("plan len = %d, want 1 (only osmB uncovered)", len(plan))
+	}
+	if plan[0].OSMCandidateIdx != 1 {
+		t.Errorf("plan[0].OSMCandidateIdx = %d, want 1 (osmB; osmA is blocked by the passthrough+partial-coverage ride)", plan[0].OSMCandidateIdx)
 	}
 }
 
@@ -571,6 +643,170 @@ func TestSnapCorpus_HeuristicOnlyNoOSM(t *testing.T) {
 	}
 	if len(stage3) != 0 {
 		t.Fatalf("Stage 3 plan len=%d, want 0 without OSM candidates", len(stage3))
+	}
+}
+
+// TestComputeIsReverseFromSamples_MalformedIndicesDoesNotPanic exercises
+// every degenerate index combination against a non-empty samples slice
+// (Phase-4 critic finding F19). The previous asymmetric bounds check would
+// panic on (StartSampleIdx >= len, EndSampleIdx in range) and similar
+// inversions. The function must return false instead.
+func TestComputeIsReverseFromSamples_MalformedIndicesDoesNotPanic(t *testing.T) {
+	start := time.Unix(0, 0).UTC()
+	ride := newSyntheticRide(t, start, 0, 600, 0, 1000, 1100)
+
+	cases := []struct {
+		name string
+		idx  RideWithIndices
+	}{
+		{"start_negative", RideWithIndices{StartSampleIdx: -1, EndSampleIdx: 5}},
+		{"end_negative", RideWithIndices{StartSampleIdx: 0, EndSampleIdx: -1}},
+		{"start_out_of_range", RideWithIndices{StartSampleIdx: len(ride.samples), EndSampleIdx: len(ride.samples) - 1}},
+		{"end_out_of_range", RideWithIndices{StartSampleIdx: 0, EndSampleIdx: len(ride.samples) + 5}},
+		{"start_after_end", RideWithIndices{StartSampleIdx: 10, EndSampleIdx: 5}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("computeIsReverseFromSamples panicked: %v", r)
+				}
+			}()
+			got := computeIsReverseFromSamples(ride.samples, tc.idx, 90.0)
+			if got {
+				t.Errorf("got IsReverse=true for malformed indices, want false (assume same direction)")
+			}
+		})
+	}
+}
+
+// TestCableHoldSignalsHold_MalformedIndicesDoesNotPanic mirrors the F19
+// guard for cableHoldSignalsHold. The Stage-2 helper must reject any merge
+// where either ride has out-of-range or inverted indices instead of panicking
+// when it dereferences samples[ra.StartSampleIdx] / samples[rb.EndSampleIdx].
+func TestCableHoldSignalsHold_MalformedIndicesDoesNotPanic(t *testing.T) {
+	start := time.Unix(0, 0).UTC()
+	ride := newSyntheticRide(t, start, 0, 600, 0, 1000, 1100)
+	good := ride.indexed
+	cases := []struct {
+		name string
+		ra   RideWithIndices
+		rb   RideWithIndices
+	}{
+		{"ra_start_oor", RideWithIndices{StartSampleIdx: len(ride.samples), EndSampleIdx: len(ride.samples) - 1}, good},
+		{"ra_end_negative", RideWithIndices{StartSampleIdx: 0, EndSampleIdx: -1}, good},
+		{"rb_end_oor", good, RideWithIndices{StartSampleIdx: 0, EndSampleIdx: len(ride.samples) + 5}},
+		{"rb_start_negative", good, RideWithIndices{StartSampleIdx: -1, EndSampleIdx: 5}},
+		{"ra_inverted", RideWithIndices{StartSampleIdx: 10, EndSampleIdx: 5}, good},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("cableHoldSignalsHold panicked: %v", r)
+				}
+			}()
+			got := cableHoldSignalsHold(tc.ra, tc.rb, []RideWithIndices{tc.ra, tc.rb}, ride.samples)
+			if got {
+				t.Errorf("got cable-hold=true on malformed indices, want false (conservative)")
+			}
+		})
+	}
+}
+
+// TestMergeMultiRideForOSM_CableHoldSurvivesForeignRideSamples exercises
+// Phase-4 critic finding F26: when an unrelated ride (different OSM lift)
+// chronologically lies between the two cable-hold rides, its GPS samples
+// were previously checked against the anchor's 10m drift and would always
+// fail — rejecting the legitimate cable-hold merge. The fix skips foreign-
+// ride samples in the gap-pattern loop so the merge succeeds.
+func TestMergeMultiRideForOSM_CableHoldSurvivesForeignRideSamples(t *testing.T) {
+	start := time.Unix(0, 0).UTC()
+	rideA := newSyntheticRide(t, start, 0, 300, 0, 1000.0, 1050.0)
+	// rideMid sits 500m to the south at startY = -500. Its samples are far
+	// from rideA's anchor — without the foreign-ride skip they would force
+	// the cable-hold merge to fail.
+	rideMid := newSyntheticRide(t, start.Add(60*time.Second), 0, 300, -500, 1000.0, 1050.0)
+	rideB := newSyntheticRide(t, start.Add(180*time.Second), 310, 600, 0, 1052.0, 1100.0)
+
+	// Concatenate samples in chronological order: A, Mid, B.
+	allSamples := append([]StreamPoint{}, rideA.samples...)
+	midOffset := len(allSamples)
+	allSamples = append(allSamples, rideMid.samples...)
+	bOffset := len(allSamples)
+	allSamples = append(allSamples, rideB.samples...)
+
+	rideAIdx := rideA.indexed
+	rideMidIdx := rideMid.indexed
+	rideMidIdx.StartSampleIdx = midOffset
+	rideMidIdx.EndSampleIdx = midOffset + len(rideMid.samples) - 1
+	rideBIdx := rideB.indexed
+	rideBIdx.StartSampleIdx = bOffset
+	rideBIdx.EndSampleIdx = bOffset + len(rideB.samples) - 1
+
+	osmCableHold := OSMLiftCandidate{
+		SegmentID: "seg-merge", SegmentVersionID: "ver-merge",
+		LengthM: 600.0, BearingDeg: 90.0,
+	}
+	osmMid := OSMLiftCandidate{
+		SegmentID: "seg-mid", SegmentVersionID: "ver-mid",
+		LengthM: 300.0, BearingDeg: 90.0,
+	}
+	matches := []RideOSMOverlap{
+		// rideA + rideB hold OSM lift 0.
+		{RideIdx: 0, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
+		{RideIdx: 2, OSMIdx: 0, HausdorffM: 5.0, IntersectionLen: 300.0},
+		// rideMid is its own lift — no overlap with OSM 0.
+		{RideIdx: 1, OSMIdx: 1, HausdorffM: 5.0, IntersectionLen: 300.0},
+	}
+
+	rides := []RideWithIndices{rideAIdx, rideMidIdx, rideBIdx}
+	osmCandidates := []OSMLiftCandidate{osmCableHold, osmMid}
+
+	stage1 := SnapToOSMLifts(rides, osmCandidates, matches, allSamples, nil)
+	stage2 := MergeMultiRideForOSM(stage1, rides, osmCandidates, matches, allSamples)
+
+	canonical := stage2[0]
+	if canonical.Action != SnapActionSnap {
+		t.Fatalf("rideA action=%q, want snap (cable-hold merge must succeed despite foreign ride between)", canonical.Action)
+	}
+	if !canonical.IsCableHoldMerge {
+		t.Fatalf("rideA IsCableHoldMerge=false, want true")
+	}
+	suppressed := stage2[2]
+	if !suppressed.SuppressedByMerge {
+		t.Fatalf("rideB SuppressedByMerge=false, want true")
+	}
+}
+
+// TestMergeMultiRideForOSM_LoneMemberDefensiveBlocksStage3 exercises
+// Phase-4 critic finding F39: if a Stage-1 result tags exactly one ride as
+// MultiRideGroup (the defensive branch in MergeMultiRideForOSM), Stage 2
+// must still prevent Stage 3 from re-planning the same OSM lift, otherwise
+// the consumer's defensive heuristic-only insert plus a Stage 3 OSM-side
+// segment_effort double-count the same physical ride.
+func TestMergeMultiRideForOSM_LoneMemberDefensiveBlocksStage3(t *testing.T) {
+	osm := OSMLiftCandidate{OSMID: 50, SegmentID: "seg-lone", LengthM: 600.0, BearingDeg: 90.0}
+
+	// Hand-crafted Stage-1 output: a single MultiRideGroup ride. (Stage 1
+	// can't actually emit this configuration today — it requires
+	// ridesPerOSM[osmIdx] >= 2 — but Stage 2 must still cope defensively if
+	// upstream code ever produces it.)
+	stage1 := []SnapResult{
+		{RideIdx: 0, Action: SnapActionMultiRideGroup, OSMCandidateIdx: 0},
+	}
+	rides := []RideWithIndices{{StartSampleIdx: 0, EndSampleIdx: 10}}
+	stage2 := MergeMultiRideForOSM(stage1, rides, []OSMLiftCandidate{osm}, nil, nil)
+
+	if stage2[0].Action != SnapActionMultiRideGroup {
+		t.Fatalf("lone defensive ride action=%q, want multi_ride_group preserved (consumer falls back to heuristic-only)", stage2[0].Action)
+	}
+	if !stage2[0].BlocksStage3 {
+		t.Errorf("lone defensive ride BlocksStage3=false, want true (Stage 3 must not re-plan the same OSM lift)")
+	}
+	plan := MethodACoverageGap(stage2, []OSMLiftCandidate{osm})
+	if len(plan) != 0 {
+		t.Errorf("Stage 3 plan len=%d, want 0 (lone defensive ride already covers the lift)", len(plan))
 	}
 }
 
