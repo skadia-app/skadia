@@ -80,9 +80,15 @@ type Stage3PlanEntry struct {
 // by MergeMultiRideForOSM. Stage 3 produces additional Stage3Result rows for
 // OSM lifts that no ride covered.
 type SnapResult struct {
-	RideIdx          int
-	Action           SnapAction
-	OSMCandidateIdx  int    // index into osmCandidates; valid for snap + multi_ride_group
+	RideIdx int
+	Action  SnapAction
+	// OSMCandidateIdx links the ride to an OSM lift in the activity's
+	// neighbourhood. Set whenever the ride physically corresponds to an OSM
+	// lift, even when the per-ride coverage was too low for a Stage-1 snap or
+	// the Stage-2 merge collapsed to passthrough — Stage 3 uses this value to
+	// avoid re-planning a lift the ride already touched. -1 means "no OSM
+	// relation"; >= 0 indexes osmCandidates.
+	OSMCandidateIdx  int
 	SegmentID        string // valid when Action == SnapActionSnap (after merge)
 	SegmentVersionID string
 	IsReverse        bool
@@ -96,7 +102,10 @@ type SnapResult struct {
 	// canonical merge's segment_effort_id.
 	SuppressedByMerge bool
 	// BlocksStage3 marks an OSM lift that Stage 2 explicitly rejected as
-	// mid-station-like or under-covered. Stage 3 must not re-snap it.
+	// mid-station-like or under-covered. Retained for documentation purposes;
+	// MethodACoverageGap now derives Stage-3 coverage from OSMCandidateIdx >= 0
+	// directly, so any ride with a known OSM relation blocks Stage 3 regardless
+	// of this flag.
 	BlocksStage3 bool
 }
 
@@ -152,7 +161,11 @@ func snapOneRide(
 	ridesPerOSM map[int]int,
 	samples []StreamPoint,
 ) SnapResult {
-	res := SnapResult{RideIdx: rideIdx, Action: SnapActionPassthrough}
+	// Default OSMCandidateIdx = -1 means "no OSM relation". Any ride that
+	// reaches at least snapPartialCoverage on an OSM lift overwrites this
+	// with the real index, so MethodACoverageGap can recognise the lift as
+	// covered even when the per-ride coverage was too low for a Stage-1 snap.
+	res := SnapResult{RideIdx: rideIdx, Action: SnapActionPassthrough, OSMCandidateIdx: -1}
 
 	bestIdx := -1
 	bestCoverage := 0.0
@@ -190,12 +203,16 @@ func snapOneRide(
 		return res
 	}
 	// 0.30 <= bestCoverage < 0.70 — defer to Stage 2 only if a sibling
-	// ride covers the same OSM lift; otherwise pass through unchanged.
+	// ride covers the same OSM lift; otherwise stay passthrough but record
+	// the OSM relation so Stage 3 does not re-plan the same lift (Phase-4
+	// critic finding F1: passthrough+Stage-3 double-count on partial lone
+	// rides).
 	if ridesPerOSM[bestIdx] >= 2 {
 		res.Action = SnapActionMultiRideGroup
 		res.OSMCandidateIdx = bestIdx
 		return res
 	}
+	res.OSMCandidateIdx = bestIdx
 	return res
 }
 
@@ -258,17 +275,29 @@ func MergeMultiRideForOSM(
 		members := groups[osmIdx]
 		if len(members) < 2 {
 			// Defensive: a "group" with 1 member shouldn't have been
-			// MultiRideGroup-tagged. Pass through unchanged.
+			// MultiRideGroup-tagged in Stage 1, but if a future change ever
+			// produces this state we must (a) keep the consumer's heuristic-
+			// only insert path working — done by the SnapActionMultiRideGroup
+			// case in lift_enrich.go — and (b) prevent Stage 3 from re-planning
+			// the same OSM lift, which the OSMCandidateIdx >= 0 check in
+			// MethodACoverageGap now covers automatically. We additionally set
+			// BlocksStage3 to make the intent self-documenting (Phase-4 critic
+			// finding F39).
+			lone := members[0]
+			out[lone].BlocksStage3 = true
 			continue
 		}
 		osm := osmCandidates[osmIdx]
 
-		// Each adjacent pair must satisfy all three signals.
+		// Each adjacent pair must satisfy all three signals. The sample-
+		// iteration in cableHoldSignalsHold needs the full rides slice to skip
+		// foreign-ride samples that chronologically straddle the gap — see
+		// Phase-4 critic finding F26.
 		allCableHold := true
 		for i := 0; i < len(members)-1; i++ {
 			ra := rides[members[i]]
 			rb := rides[members[i+1]]
-			if !cableHoldSignalsHold(ra, rb, samples) {
+			if !cableHoldSignalsHold(ra, rb, rides, samples) {
 				allCableHold = false
 				break
 			}
@@ -337,14 +366,21 @@ func MergeMultiRideForOSM(
 // rb (later). When samples are missing (caller passed nil) the function is
 // conservative and returns false — the merge decision falls back to
 // "treat as mid-station".
-func cableHoldSignalsHold(ra, rb RideWithIndices, samples []StreamPoint) bool {
+//
+// allRides is the full ride slice supplied to MergeMultiRideForOSM. The
+// gap-sample-pattern check uses it to skip samples that belong to foreign
+// rides (a different OSM lift recorded chronologically between ra and rb)
+// rather than treating them as cable-hold-anchor failures — see Phase-4
+// critic finding F26.
+func cableHoldSignalsHold(ra, rb RideWithIndices, allRides []RideWithIndices, samples []StreamPoint) bool {
 	if len(samples) == 0 {
 		return false
 	}
-	if ra.EndSampleIdx < 0 || ra.EndSampleIdx >= len(samples) {
-		return false
-	}
-	if rb.StartSampleIdx < 0 || rb.StartSampleIdx >= len(samples) {
+	// Symmetric bounds: every index we dereference (start + end on both
+	// rides) must be in range, and start <= end. Phase-4 critic finding F19:
+	// the previous code only validated half of the indices and would panic
+	// on malformed inputs.
+	if !validRideIndices(ra, samples) || !validRideIndices(rb, samples) {
 		return false
 	}
 	endA := samples[ra.EndSampleIdx]
@@ -360,8 +396,13 @@ func cableHoldSignalsHold(ra, rb RideWithIndices, samples []StreamPoint) bool {
 
 	// Signal 2: gap-sample-pattern. Either no samples in [endA+1, startB-1]
 	// (smart-recording pause) or every gap sample within cableHoldSampleDriftM
-	// of the anchor endA.
+	// of the anchor endA. Samples that belong to a foreign ride (any ride
+	// other than ra/rb) are skipped — they describe a different physical
+	// movement and would otherwise force a false cable-hold rejection.
 	for k := ra.EndSampleIdx + 1; k < rb.StartSampleIdx; k++ {
+		if sampleBelongsToForeignRide(k, ra, rb, allRides) {
+			continue
+		}
 		s := samples[k]
 		if s.Lat == nil || s.Lng == nil {
 			continue // gap-style nil treats as silence
@@ -392,15 +433,54 @@ func cableHoldSignalsHold(ra, rb RideWithIndices, samples []StreamPoint) bool {
 	return diff <= cableHoldBearingMaxDeg
 }
 
+// validRideIndices is the symmetric bounds check for both endpoints of one
+// ride against the samples slice. Used by cableHoldSignalsHold and
+// computeIsReverseFromSamples — Phase-4 critic finding F19.
+func validRideIndices(r RideWithIndices, samples []StreamPoint) bool {
+	if r.StartSampleIdx < 0 || r.StartSampleIdx >= len(samples) {
+		return false
+	}
+	if r.EndSampleIdx < 0 || r.EndSampleIdx >= len(samples) {
+		return false
+	}
+	if r.StartSampleIdx > r.EndSampleIdx {
+		return false
+	}
+	return true
+}
+
+// sampleBelongsToForeignRide reports whether sample index k sits inside the
+// [StartSampleIdx, EndSampleIdx] interval of some ride other than ra or rb.
+// Used by the Stage-2 cable-hold sample-iteration to avoid penalising the
+// merge for unrelated rides that chronologically straddle the gap.
+func sampleBelongsToForeignRide(k int, ra, rb RideWithIndices, allRides []RideWithIndices) bool {
+	for _, other := range allRides {
+		if other.StartSampleIdx == ra.StartSampleIdx && other.EndSampleIdx == ra.EndSampleIdx {
+			continue
+		}
+		if other.StartSampleIdx == rb.StartSampleIdx && other.EndSampleIdx == rb.EndSampleIdx {
+			continue
+		}
+		if k >= other.StartSampleIdx && k <= other.EndSampleIdx {
+			return true
+		}
+	}
+	return false
+}
+
 // computeIsReverseFromSamples derives the ride's bearing from its first/last
 // stream sample and compares to the OSM lift bearing. When samples are
 // unavailable (caller passed nil) the function returns false (assume same
 // direction). Mirrors the IsReverseHeading rule in osm.go.
+//
+// The bounds check is symmetric (both endpoints validated independently) —
+// Phase-4 critic finding F19. The previous asymmetric check could panic on
+// malformed indices like (StartSampleIdx >= len(samples), EndSampleIdx < len).
 func computeIsReverseFromSamples(samples []StreamPoint, ride RideWithIndices, liftBearingDeg float64) bool {
 	if len(samples) == 0 {
 		return false
 	}
-	if ride.StartSampleIdx < 0 || ride.EndSampleIdx >= len(samples) {
+	if !validRideIndices(ride, samples) {
 		return false
 	}
 	s := samples[ride.StartSampleIdx]
@@ -412,15 +492,23 @@ func computeIsReverseFromSamples(samples []StreamPoint, ride RideWithIndices, li
 	return IsReverseHeading(rideBearing, liftBearingDeg)
 }
 
-// MethodACoverageGap is Stage 3: for every OSM lift no Stage-1 or Stage-2
-// snap referenced (whether canonical or SuppressedByMerge sibling), emit a
-// Stage3PlanEntry. The caller is responsible for running the per-lift
-// time-window SQL and inserting one segment_efforts row plus one audit-only
-// activity_lift_candidates row (source='osm', confirmed=true).
+// MethodACoverageGap is Stage 3: for every OSM lift that no Stage-1 or
+// Stage-2 ride physically corresponds to, emit a Stage3PlanEntry. The caller
+// is responsible for running the per-lift time-window SQL and inserting one
+// segment_efforts row plus one audit-only activity_lift_candidates row
+// (source='osm', confirmed=true).
 //
-// Stage 3 deliberately ignores SnapActionPassthrough rides — they are
-// heuristic-only candidates that did NOT cover the OSM lift; if the lift
-// exists in the neighbourhood it should still be filled in here.
+// "Physically corresponds" means OSMCandidateIdx >= 0 — any value the snap
+// pipeline assigned, regardless of whether the ride ended up as Snap, a
+// passthrough with partial OSM coverage, a Stage-2 mid-station rejection, or
+// a defensive single-member multi-ride group. The earlier "Action == Snap or
+// BlocksStage3" rule double-counted the lone passthrough with partial
+// coverage case (Phase-4 critic finding F1) and the defensive single-member
+// merge case (Phase-4 critic finding F39): the heuristic detector emitted a
+// candidate row AND Stage 3 added an OSM-side segment_effort for the same
+// physical ride, so recomputeLiftStats summed both. Switching to the
+// OSMCandidateIdx-derived covered set eliminates the duplication while still
+// giving Stage 3 the chance to fill in OSM lifts no ride ever touched.
 //
 // Min-duration enforcement (the legacy 30s floor for very short lifts that
 // are below the heuristic 60s minimum) lives in the time-window SQL the
@@ -429,7 +517,12 @@ func computeIsReverseFromSamples(samples []StreamPoint, ride RideWithIndices, li
 func MethodACoverageGap(finalResults []SnapResult, osmCandidates []OSMLiftCandidate) []Stage3PlanEntry {
 	covered := make(map[int]bool, len(osmCandidates))
 	for _, r := range finalResults {
-		if r.Action != SnapActionSnap && !r.BlocksStage3 {
+		if r.OSMCandidateIdx < 0 {
+			continue
+		}
+		if r.OSMCandidateIdx >= len(osmCandidates) {
+			// Defensive — should never happen since the snap pipeline only
+			// stores indices it produced. Skip rather than panic.
 			continue
 		}
 		covered[r.OSMCandidateIdx] = true
