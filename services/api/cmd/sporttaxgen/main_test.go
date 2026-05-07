@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,6 +89,43 @@ func TestRenderAliasesFromDirUsesGearDefaultProjectionSource(t *testing.T) {
 	}
 	if bytes.Contains(goAliases, []byte("var generatedGearDefaultSportsBySource = map[Source]map[string]string{\n\tSourceStrava:")) {
 		t.Fatalf("generated gear default source map includes unconfigured strava source:\n%s", goAliases)
+	}
+}
+
+func TestCheckModeReportsGearDefaultProjectionConfigDrift(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "gear_defaults.yaml")
+	if err := os.WriteFile(configPath, []byte("projection_sources: [garmin]\n"), 0o644); err != nil {
+		t.Fatalf("write gear defaults config: %v", err)
+	}
+
+	oldArgs := os.Args
+	oldCommandLine := flag.CommandLine
+	t.Cleanup(func() {
+		os.Args = oldArgs
+		flag.CommandLine = oldCommandLine
+	})
+	flag.CommandLine = flag.NewFlagSet("sporttaxgen", flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
+	os.Args = []string{
+		"sporttaxgen",
+		"--repo-root", "../../../../",
+		"--gear-default-projection-source", configPath,
+		"--check",
+	}
+
+	err := run()
+	if err == nil {
+		t.Fatal("run --check returned nil for changed gear default projection source")
+	}
+	message := err.Error()
+	for _, want := range []string{
+		"aliases_generated.go is stale",
+		"generatedGearDefaultSportsBySource",
+		"SourceGarminCourse",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("run --check error missing %q:\n%s", want, message)
+		}
 	}
 }
 

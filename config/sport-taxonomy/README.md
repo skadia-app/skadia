@@ -31,8 +31,11 @@ segment group each eligible tuple uses.
 modifier controls, and rule-visible trait condition fields. Projections do not
 own taxonomy identity and should not duplicate source/import alias rules.
 `projections/gear_defaults.yaml` defines which source alias namespaces are
-allowed to contribute gear-default projections. It does not define sports
-itself; it only selects already validated alias namespaces.
+allowed to contribute broad gear-default projections. It does not define sports
+itself; it only selects already validated alias namespaces for generated
+default-sport option maps. Precise import predicates may still be derived from a
+source alias through `GearDefaultPredicateForSource()` when that importer has
+its own verified gear-default path.
 If a non-selectable broad fallback must remain matchable for compatibility, mark
 that row with `eligibility_role: legacy_fallback_coverage` and cover it with a
 loader test; do not add hidden generator exceptions.
