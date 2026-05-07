@@ -38,6 +38,7 @@ func isValidExportPath(path string) bool {
 var staleCleanupOnce sync.Once
 
 const dataExportDownloadTTL = 24 * time.Hour
+const dataExportMaxStartsPer24h = 3
 
 func dataExportExpiresAt(updatedAt time.Time) time.Time {
 	return updatedAt.Add(dataExportDownloadTTL)
@@ -181,6 +182,20 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 	}
 	if userRunning {
 		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
+		return
+	}
+
+	var recentStarts int
+	if err := h.DB.Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM background_jobs
+		 WHERE user_id = $1 AND job_type = 'gdpr_export'
+		 AND started_at > NOW() - INTERVAL '24 hours'`,
+		userID).Scan(&recentStarts); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	if recentStarts >= dataExportMaxStartsPer24h {
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_daily_limit"})
 		return
 	}
 
@@ -860,7 +875,7 @@ func writeZipJSON(zw *zip.Writer, name string, data any) {
 
 // streamShadowFSToZip walks the user's ShadowFS directory and copies each file into the zip.
 func streamShadowFSToZip(basePath, userID string, zw *zip.Writer) {
-	const maxLegacyZipBytes int64 = 10 << 30 // 10 GB — matches UnifiedShadowFS.StreamToZip limit
+	const maxLegacyZipBytes int64 = 4 << 30 // 4 GiB — matches the web GDPR import limit
 
 	userDir := filepath.Join(basePath, userID)
 	if _, err := os.Stat(userDir); os.IsNotExist(err) {
@@ -873,12 +888,12 @@ func streamShadowFSToZip(basePath, userID string, zw *zip.Writer) {
 			return nil
 		}
 
-		// Enforce 10 GB limit (same as the ShadowFS/S3 path above).
+		// Enforce the same 4 GiB payload limit as the ShadowFS/S3 path above.
 		totalBytes += info.Size()
 		if totalBytes > maxLegacyZipBytes {
-			slog.Warn("data export: legacy ShadowFS zip exceeds 10 GB limit",
+			slog.Warn("data export: legacy ShadowFS zip exceeds 4 GiB limit",
 				"user_id", userID, "total_bytes", totalBytes)
-			return fmt.Errorf("zip export exceeds 10 GB limit")
+			return fmt.Errorf("zip export exceeds 4 GiB limit")
 		}
 
 		rel, relErr := filepath.Rel(userDir, path)

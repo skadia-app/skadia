@@ -668,7 +668,7 @@ func (u *UnifiedShadowFS) DiskUsage(ctx context.Context, userID string) (int64, 
 // StreamToZip — per-file dispatch, skip derivatives
 // ---------------------------------------------------------------------------
 
-const maxExportBytesUnified int64 = 10 * 1024 * 1024 * 1024 // 10 GiB
+const maxExportBytesUnified int64 = 4 * 1024 * 1024 * 1024 // 4 GiB
 
 // StreamToZip writes all exportable user files into the given zip.Writer.
 // Derivatives (thumb/preview) and legacy _cache/ paths are skipped.
