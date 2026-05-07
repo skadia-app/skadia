@@ -1,15 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import type { LiftCandidate } from '@/api/types'
 import { apiFetch } from '@/lib/auth'
-
-interface LiftCandidate {
-  id: string
-  started_at: string
-  ended_at: string
-  duration_s: number
-  ascent_m: number
-  confidence: 'high' | 'medium'
-  confirmed: boolean
-}
 
 interface LiftSectionProps {
   activityId: string
@@ -33,7 +24,7 @@ export default function LiftSection({
 
   const { data: candidates = [] } = useQuery<LiftCandidate[]>({
     queryKey: ['lift-candidates', activityId],
-    queryFn: () => apiFetch(`/api/v1/activities/${activityId}/lift-candidates`).then(r => r.json()),
+    queryFn: () => apiFetch(`/api/v1/activities/${activityId}/lifts/candidates`).then(r => r.json()),
   })
 
   const confirm = useMutation({
