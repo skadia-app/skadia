@@ -589,6 +589,7 @@ type LiftCandidate struct {
 	DistanceM       *float64  `json:"distance_m,omitempty"`
 	Confidence      string    `json:"confidence"`
 	Confirmed       bool      `json:"confirmed"`
+	RejectedByUser  bool      `json:"rejected_by_user"`
 	Source          string    `json:"source"`
 	SegmentEffortID *string   `json:"segment_effort_id"`
 }
@@ -611,6 +612,7 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID, userID string, 
 			alc.distance_m,
 			alc.confidence,
 			alc.confirmed,
+			alc.rejected_by_user,
 			alc.source,
 			alc.segment_effort_id::text
 		FROM activity_lift_candidates alc
@@ -622,7 +624,9 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID, userID string, 
 		args = append(args, filter.Source)
 		query += fmt.Sprintf(" AND alc.source = $%d", len(args))
 	}
-	// Phase 4d adds rejected_by_user and wires IncludeRejected into this query.
+	if !filter.IncludeRejected {
+		query += " AND NOT alc.rejected_by_user"
+	}
 	query += " ORDER BY alc.started_at"
 
 	rows, err := db.Pool.Query(ctx, query, args...)
@@ -635,7 +639,7 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID, userID string, 
 		var c LiftCandidate
 		if err := rows.Scan(&c.ID, &c.ActivityID, &c.StartedAt, &c.EndedAt,
 			&c.DurationS, &c.AscentM, &c.DescentM, &c.DistanceM, &c.Confidence,
-			&c.Confirmed, &c.Source, &c.SegmentEffortID); err != nil {
+			&c.Confirmed, &c.RejectedByUser, &c.Source, &c.SegmentEffortID); err != nil {
 			return nil, err
 		}
 		result = append(result, c)
@@ -758,12 +762,18 @@ type HeuristicCandidateInput struct {
 }
 
 // InsertHeuristicCandidateIfNotRejected inserts a heuristic candidate unless a
-// rejected row already exists whose [started_at, ended_at] overlaps the new
-// window within ±5s on each boundary (Adversarial-Review-Finding #15: detector
-// boundaries may drift between runs by a few samples).
+// rejected row already exists whose boundaries are within ±5 s of the new
+// candidate's boundaries. The check uses per-boundary deltas rather than
+// broad interval overlap — a candidate whose window merely overlaps a rejected
+// one but has moved by more than 5 s on either edge is treated as a distinct
+// detection and is not suppressed (Phase-4 critic F4).
 //
-// Returns true if a row was inserted, false if it was suppressed (overlap with
-// a rejected row) or already present (ON CONFLICT). Does not call
+// The check and insert are collapsed into a single INSERT ... WHERE NOT EXISTS
+// statement so there is no window for a concurrent reject to land between
+// them (Phase-4 critic F5).
+//
+// Returns true if a row was inserted, false if it was suppressed (matching
+// rejected row) or already present (ON CONFLICT). Does not call
 // recomputeLiftStats — callers are responsible for triggering recompute after
 // all candidates for an activity have been processed.
 func (db *DB) InsertHeuristicCandidateIfNotRejected(
@@ -771,39 +781,22 @@ func (db *DB) InsertHeuristicCandidateIfNotRejected(
 	userID, activityID string,
 	in HeuristicCandidateInput,
 ) (bool, error) {
-	// Check for a rejected row whose window overlaps (with ±5s slack on each edge).
-	// Two windows [A, B] and [C, D] overlap when A <= D and B >= C.
-	// With tolerance t: rejected overlaps new when
-	//   rejected.started_at <= new.ended_at + t
-	//   rejected.ended_at   >= new.started_at - t
-	// The tolerance is baked in as a literal interval ('5 seconds') to avoid
-	// pgx type-inference issues with make_interval(secs => $N).
-	var conflictExists bool
-	if err := db.Pool.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM activity_lift_candidates alc
-			JOIN activities a ON a.id = alc.activity_id
-			WHERE alc.activity_id = $1
-			  AND a.user_id = $2
-			  AND alc.rejected_by_user = true
-			  AND alc.started_at <= $3::timestamptz + interval '5 seconds'
-			  AND alc.ended_at   >= $4::timestamptz - interval '5 seconds'
-		)
-	`, activityID, userID,
-		in.EndedAt, in.StartedAt,
-	).Scan(&conflictExists); err != nil {
-		return false, fmt.Errorf("check reject overlap: %w", err)
-	}
-	if conflictExists {
-		return false, nil
-	}
-
+	// Single atomic statement: insert only when no rejected row with boundaries
+	// within ±5 s exists. The interval literals avoid pgx type-inference issues
+	// with make_interval(secs => $N) that appeared in Phase 4d.
 	tag, err := db.Pool.Exec(ctx, `
 		INSERT INTO activity_lift_candidates
 			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
 			 confidence, confirmed, source)
 		SELECT $1, $2, $3, $4, $5, $6, $7, $8, false, 'heuristic'
 		WHERE EXISTS (SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id = $9)
+		  AND NOT EXISTS (
+			SELECT 1 FROM activity_lift_candidates rej
+			WHERE rej.activity_id = $1
+			  AND rej.rejected_by_user = true
+			  AND ABS(EXTRACT(EPOCH FROM (rej.started_at - $2::timestamptz))) <= 5
+			  AND ABS(EXTRACT(EPOCH FROM (rej.ended_at   - $3::timestamptz))) <= 5
+		  )
 		ON CONFLICT (activity_id, started_at) DO NOTHING
 	`, activityID, in.StartedAt, in.EndedAt, in.DurationS,
 		in.AscentM, in.DescentM, in.DistanceM, in.Confidence, userID)
