@@ -1,0 +1,160 @@
+package migrations_test
+
+// Integration tests for migration 000999_lift_review_state (placeholder;
+// renumbered to 000348 at end of Phase 4d).
+//
+// Verifies:
+//   1. rejected_by_user column exists with NOT NULL + DEFAULT FALSE.
+//   2. idx_lift_candidates_active partial index exists.
+//   3. lifts_acknowledged_at column exists on activities as nullable TIMESTAMPTZ.
+//   4. Existing rows get rejected_by_user=false by default (no data loss).
+//
+// Tests are skipped when TEST_DATABASE_URL is unset.
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// TestMigration_LiftReviewState_RejectedByUserColumn verifies the
+// rejected_by_user column is BOOLEAN NOT NULL DEFAULT FALSE.
+func TestMigration_LiftReviewState_RejectedByUserColumn(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	var dataType, columnDefault, isNullable string
+	err := pool.QueryRow(ctx, `
+		SELECT data_type, column_default, is_nullable
+		FROM information_schema.columns
+		WHERE table_name = 'activity_lift_candidates' AND column_name = 'rejected_by_user'
+	`).Scan(&dataType, &columnDefault, &isNullable)
+	if err != nil {
+		t.Fatalf("query column metadata: %v", err)
+	}
+	if dataType != "boolean" {
+		t.Errorf("rejected_by_user data_type = %q, want %q", dataType, "boolean")
+	}
+	if isNullable != "NO" {
+		t.Errorf("rejected_by_user is_nullable = %q, want %q", isNullable, "NO")
+	}
+	if columnDefault == "" {
+		t.Error("rejected_by_user has no default, want false")
+	}
+}
+
+// TestMigration_LiftReviewState_ActiveIndexExists verifies the partial index
+// idx_lift_candidates_active is present in pg_indexes.
+func TestMigration_LiftReviewState_ActiveIndexExists(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	var exists bool
+	err := pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_indexes
+			WHERE tablename = 'activity_lift_candidates'
+			  AND indexname = 'idx_lift_candidates_active'
+		)
+	`).Scan(&exists)
+	if err != nil {
+		t.Fatalf("query index: %v", err)
+	}
+	if !exists {
+		t.Error("idx_lift_candidates_active does not exist")
+	}
+}
+
+// TestMigration_LiftReviewState_LiftsAcknowledgedAtColumn verifies the
+// lifts_acknowledged_at column on activities is nullable TIMESTAMPTZ.
+func TestMigration_LiftReviewState_LiftsAcknowledgedAtColumn(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	var dataType, isNullable string
+	err := pool.QueryRow(ctx, `
+		SELECT data_type, is_nullable
+		FROM information_schema.columns
+		WHERE table_name = 'activities' AND column_name = 'lifts_acknowledged_at'
+	`).Scan(&dataType, &isNullable)
+	if err != nil {
+		t.Fatalf("query column metadata: %v", err)
+	}
+	if dataType != "timestamp with time zone" {
+		t.Errorf("lifts_acknowledged_at data_type = %q, want %q", dataType, "timestamp with time zone")
+	}
+	if isNullable != "YES" {
+		t.Errorf("lifts_acknowledged_at is_nullable = %q, want %q", isNullable, "YES")
+	}
+}
+
+// TestMigration_LiftReviewState_ExistingRowsGetDefaultFalse verifies that
+// rows inserted before or after the migration have rejected_by_user=false and
+// that the column can be set to true (no constraint blocks it).
+func TestMigration_LiftReviewState_ExistingRowsGetDefaultFalse(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	userID := uuid.NewString()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO users (id, username, email, email_verified, registration_source)
+		 VALUES ($1, $2, $3, true, 'test')`,
+		userID,
+		"liftrev_"+userID[:8],
+		"liftrev_"+userID[:8]+"@example.com",
+	); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID)
+	})
+
+	activityID := uuid.NewString()
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, started_at, ended_at, file_hash)
+		VALUES ($1, $2, 'skiing', $3, $4, $5)
+	`, activityID, userID, now, now.Add(2*time.Hour), uuid.NewString()); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM activities WHERE id = $1", activityID)
+	})
+
+	// Insert a candidate without specifying rejected_by_user — should default to false.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activity_lift_candidates
+			(activity_id, started_at, ended_at, duration_s, ascent_m, source)
+		VALUES ($1, $2, $3, 120, 80, 'heuristic')
+	`, activityID, now, now.Add(2*time.Minute)); err != nil {
+		t.Fatalf("insert candidate: %v", err)
+	}
+
+	var rejected bool
+	if err := pool.QueryRow(ctx, `
+		SELECT rejected_by_user FROM activity_lift_candidates
+		WHERE activity_id = $1
+	`, activityID).Scan(&rejected); err != nil {
+		t.Fatalf("query candidate: %v", err)
+	}
+	if rejected {
+		t.Error("rejected_by_user = true, want false (DEFAULT should apply)")
+	}
+
+	// Verify we can flip it to true.
+	if _, err := pool.Exec(ctx, `
+		UPDATE activity_lift_candidates SET rejected_by_user = true WHERE activity_id = $1
+	`, activityID); err != nil {
+		t.Fatalf("update rejected_by_user: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT rejected_by_user FROM activity_lift_candidates WHERE activity_id = $1
+	`, activityID).Scan(&rejected); err != nil {
+		t.Fatalf("query after update: %v", err)
+	}
+	if !rejected {
+		t.Error("rejected_by_user = false after UPDATE, want true")
+	}
+}
