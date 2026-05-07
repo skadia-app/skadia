@@ -14,6 +14,7 @@ import { fmtDist } from '@/lib/format'
 import { triggerBlobDownload } from '@/lib/utils'
 import { sportDetailLabel, normalizeSportTuple, routeSportOptions } from '@/lib/sportTaxonomy'
 import { ROUTE_MODIFIER_LABELS, type RouteModifierKey } from '@/lib/routeModifierLabels'
+import { modifierKeysForCapability } from '@/lib/sportModifiers'
 
 // ── Sport type labels for filter dropdown ─────────────────────────────────────
 
@@ -35,12 +36,17 @@ const SPORT_TYPE_COLORS: Record<string, string> = {
 
 type SortOption = 'created_at' | 'name' | 'distance' | 'elevation'
 type ModifierFilter = 'any' | 'true' | 'false'
+const ROUTE_MODIFIER_KEYS = modifierKeysForCapability('route_filter') as RouteModifierKey[]
 
 const SORT_LABELS: Record<SortOption, string> = {
   created_at: 'Neueste',
   name: 'Name A–Z',
   distance: 'Distanz',
   elevation: 'Höhenmeter',
+}
+
+function emptyRouteModifierFilters(): Record<RouteModifierKey, ModifierFilter> {
+  return Object.fromEntries(ROUTE_MODIFIER_KEYS.map((key) => [key, 'any'])) as Record<RouteModifierKey, ModifierFilter>
 }
 
 // ── Icon helpers ──────────────────────────────────────────────────────────────
@@ -344,12 +350,7 @@ export default function RoutesPage() {
   const { addToast } = useToast()
 
   const [sportPredicates, setSportPredicates] = useState<string[]>([])
-  const [modifierFilters, setModifierFilters] = useState<Record<'is_electric' | 'is_indoor' | 'is_virtual' | 'is_commute', ModifierFilter>>({
-    is_electric: 'any',
-    is_indoor: 'any',
-    is_virtual: 'any',
-    is_commute: 'any',
-  })
+  const [modifierFilters, setModifierFilters] = useState<Record<RouteModifierKey, ModifierFilter>>(() => emptyRouteModifierFilters())
   const [sortBy, setSortBy] = useState<SortOption>('created_at')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -464,12 +465,7 @@ export default function RoutesPage() {
     setSearch('')
     setSearchInput('')
     setSportPredicates([])
-    setModifierFilters({
-      is_electric: 'any',
-      is_indoor: 'any',
-      is_virtual: 'any',
-      is_commute: 'any',
-    })
+    setModifierFilters(emptyRouteModifierFilters())
   }
 
   // ── Render ────────────────────────────────────────────────────────────────

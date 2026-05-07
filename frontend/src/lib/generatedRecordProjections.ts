@@ -347,7 +347,7 @@ export const GENERATED_RECORD_MATCH_RULES = [
   { recordGroup: 'running_trail', priority: 80, sequence: 1, sportType: 'running', subTypes: ['trail'], excludeSubTypes: [], modifiers: {} },
   { recordGroup: 'cycling_electric', priority: 80, sequence: 6, sportType: 'cycling', subTypes: [], excludeSubTypes: [], modifiers: { isElectric: true } },
   { recordGroup: 'running', priority: 10, sequence: 0, sportType: 'running', subTypes: [], excludeSubTypes: ['trail', 'indoor_running', 'treadmill'], modifiers: { isIndoor: false, isVirtual: false } },
-  { recordGroup: 'cycling', priority: 10, sequence: 5, sportType: 'cycling', subTypes: [], excludeSubTypes: ['indoor_cycling'], modifiers: { isIndoor: false, isVirtual: false, isElectric: false } },
+  { recordGroup: 'cycling', priority: 10, sequence: 5, sportType: 'cycling', subTypes: [], excludeSubTypes: ['indoor_cycling'], modifiers: { isElectric: false, isIndoor: false, isVirtual: false } },
   { recordGroup: 'hiking', priority: 10, sequence: 11, sportType: 'hiking', subTypes: [], excludeSubTypes: [], modifiers: {} },
   { recordGroup: 'hiking', priority: 10, sequence: 12, sportType: 'mountaineering', subTypes: [], excludeSubTypes: [], modifiers: {} },
   { recordGroup: 'hiking', priority: 10, sequence: 13, sportType: 'snowshoeing', subTypes: [], excludeSubTypes: [], modifiers: {} },

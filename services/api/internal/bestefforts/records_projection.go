@@ -37,9 +37,7 @@ type RecordMatchRule struct {
 	SportType       string
 	SubTypes        []string
 	ExcludeSubTypes []string
-	IsIndoor        *bool
-	IsVirtual       *bool
-	IsElectric      *bool
+	Modifiers       map[string]*bool
 }
 
 func recordBoolPtr(v bool) *bool {
@@ -69,8 +67,13 @@ func RecordGroupForActivity(sportType, subType string, isIndoor, isVirtual, isEl
 
 func recordGroupForActivityWithModifierPresence(sportType, subType string, isIndoor, isVirtual, isElectric bool, explicitIndoor, explicitVirtual, explicitElectric bool) (string, bool) {
 	isIndoor, isVirtual, isElectric = resolveRecordModifierDefaults(sportType, subType, isIndoor, isVirtual, isElectric, explicitIndoor, explicitVirtual, explicitElectric)
+	modifiers := map[string]bool{
+		"is_electric": isElectric,
+		"is_indoor":   isIndoor,
+		"is_virtual":  isVirtual,
+	}
 	for _, rule := range generatedRecordMatchRules {
-		if recordRuleMatches(rule, sportType, subType, isIndoor, isVirtual, isElectric) {
+		if recordRuleMatches(rule, sportType, subType, modifiers) {
 			return rule.RecordGroup, true
 		}
 	}
@@ -85,7 +88,7 @@ func resolveRecordModifierDefaults(sportType, subType string, isIndoor, isVirtua
 	return isIndoor, isVirtual, isElectric
 }
 
-func recordRuleMatches(rule RecordMatchRule, sportType, subType string, isIndoor, isVirtual, isElectric bool) bool {
+func recordRuleMatches(rule RecordMatchRule, sportType, subType string, modifiers map[string]bool) bool {
 	if rule.SportType != sportType {
 		return false
 	}
@@ -95,14 +98,11 @@ func recordRuleMatches(rule RecordMatchRule, sportType, subType string, isIndoor
 	if recordSubTypeListMatches(rule.ExcludeSubTypes, subType) {
 		return false
 	}
-	if rule.IsIndoor != nil && *rule.IsIndoor != isIndoor {
-		return false
-	}
-	if rule.IsVirtual != nil && *rule.IsVirtual != isVirtual {
-		return false
-	}
-	if rule.IsElectric != nil && *rule.IsElectric != isElectric {
-		return false
+	for _, key := range sport.SportModifierKeysWithCapability("record_grouping") {
+		want := rule.Modifiers[key]
+		if want != nil && *want != modifiers[key] {
+			return false
+		}
 	}
 	return true
 }

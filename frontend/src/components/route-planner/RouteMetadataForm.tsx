@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchTags } from '@/api/tags'
 import { routeSportOptions } from '@/lib/sportTaxonomy'
 import { ROUTE_MODIFIER_LABELS } from '@/lib/routeModifierLabels'
+import { modifierKeysForCapability } from '@/lib/sportModifiers'
 import type { Tag } from '@/api/tags'
 
 // ─── BRouter profiles ─────────────────────────────────────────────────────────
@@ -203,17 +204,17 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
     'w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent'
 
   const labelClass = 'block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1'
-  const modifierControls: Array<{
-    key: keyof Pick<RouteMetadataValues, 'is_electric' | 'is_indoor' | 'is_virtual' | 'is_commute'>
-    label: string
-    checked: boolean
-    setChecked: (value: boolean) => void
-  }> = [
-    { key: 'is_electric', label: ROUTE_MODIFIER_LABELS.is_electric, checked: isElectric, setChecked: setIsElectric },
-    { key: 'is_indoor', label: ROUTE_MODIFIER_LABELS.is_indoor, checked: isIndoor, setChecked: setIsIndoor },
-    { key: 'is_virtual', label: ROUTE_MODIFIER_LABELS.is_virtual, checked: isVirtual, setChecked: setIsVirtual },
-    { key: 'is_commute', label: ROUTE_MODIFIER_LABELS.is_commute, checked: isCommute, setChecked: setIsCommute },
-  ]
+  const modifierState = {
+    is_electric: { checked: isElectric, setChecked: setIsElectric },
+    is_indoor: { checked: isIndoor, setChecked: setIsIndoor },
+    is_virtual: { checked: isVirtual, setChecked: setIsVirtual },
+    is_commute: { checked: isCommute, setChecked: setIsCommute },
+  }
+  const modifierControls = modifierKeysForCapability('route_filter').map((key) => ({
+    key: key as keyof typeof modifierState,
+    label: ROUTE_MODIFIER_LABELS[key],
+    ...modifierState[key as keyof typeof modifierState],
+  }))
 
   return (
     <div className="space-y-4">

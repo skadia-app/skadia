@@ -15,7 +15,7 @@ func TestLoadRecordsProjectionLoadsRepositoryFixture(t *testing.T) {
 	}
 	defer file.Close()
 
-	projection, err := LoadRecordsProjection(file, taxonomy)
+	projection, err := LoadRecordsProjection(file, taxonomy, modifierRegistryForTest())
 	if err != nil {
 		t.Fatalf("LoadRecordsProjection returned error: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestLoadRecordsProjectionRejectsInvalidReferences(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := LoadRecordsProjection(strings.NewReader(tc.src), recordsProjectionTestTaxonomy())
+			_, err := LoadRecordsProjection(strings.NewReader(tc.src), recordsProjectionTestTaxonomy(), modifierRegistryForTest())
 			if err == nil {
 				t.Fatalf("LoadRecordsProjection accepted %s", tc.name)
 			}
@@ -62,7 +62,7 @@ func TestLoadRecordsProjectionRejectsEmptyRequiredCollectionsAndLabels(t *testin
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := LoadRecordsProjection(strings.NewReader(tc.src), recordsProjectionTestTaxonomy())
+			_, err := LoadRecordsProjection(strings.NewReader(tc.src), recordsProjectionTestTaxonomy(), modifierRegistryForTest())
 			if err == nil {
 				t.Fatalf("LoadRecordsProjection accepted %s", tc.name)
 			}
@@ -80,7 +80,7 @@ func TestLoadRecordsProjectionRejectsInvalidColorHex(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := LoadRecordsProjection(strings.NewReader(tc.src), recordsProjectionTestTaxonomy())
+			_, err := LoadRecordsProjection(strings.NewReader(tc.src), recordsProjectionTestTaxonomy(), modifierRegistryForTest())
 			if err == nil {
 				t.Fatalf("LoadRecordsProjection accepted %s", tc.name)
 			}
@@ -102,7 +102,7 @@ func TestLoadRecordsProjectionRejectsInvalidCategoryDefinitions(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := LoadRecordsProjection(strings.NewReader(tc.src), recordsProjectionTestTaxonomy())
+			_, err := LoadRecordsProjection(strings.NewReader(tc.src), recordsProjectionTestTaxonomy(), modifierRegistryForTest())
 			if err == nil {
 				t.Fatalf("LoadRecordsProjection accepted %s", tc.name)
 			}
@@ -112,7 +112,7 @@ func TestLoadRecordsProjectionRejectsInvalidCategoryDefinitions(t *testing.T) {
 
 func TestLoadRecordsProjectionRejectsInvalidSubtypeSentinelUse(t *testing.T) {
 	src := strings.Replace(validRecordsProjectionFixture(), "exclude_sub_types: [treadmill]", "exclude_sub_types: [\"\"]", 1)
-	_, err := LoadRecordsProjection(strings.NewReader(src), recordsProjectionTestTaxonomy())
+	_, err := LoadRecordsProjection(strings.NewReader(src), recordsProjectionTestTaxonomy(), modifierRegistryForTest())
 	if err == nil {
 		t.Fatal("LoadRecordsProjection accepted empty subtype sentinel in exclude_sub_types")
 	}
@@ -120,18 +120,18 @@ func TestLoadRecordsProjectionRejectsInvalidSubtypeSentinelUse(t *testing.T) {
 
 func TestRecordsProjectionRejectsModifierWithoutRecordGroupingCapability(t *testing.T) {
 	src := strings.Replace(validRecordsProjectionFixture(), "modifiers: {is_indoor: false}", "modifiers: {is_commute: true}", 1)
-	_, err := LoadRecordsProjection(strings.NewReader(src), recordsProjectionTestTaxonomy())
+	_, err := LoadRecordsProjection(strings.NewReader(src), recordsProjectionTestTaxonomy(), modifierRegistryForTest())
 	if err == nil {
 		t.Fatal("LoadRecordsProjection accepted record_grouping-disabled is_commute modifier")
 	}
 }
 
 func TestExpandRecordsProjectionSortsRulesAndExpandsCategories(t *testing.T) {
-	projection, err := LoadRecordsProjection(strings.NewReader(validRecordsProjectionFixture()), recordsProjectionTestTaxonomy())
+	projection, err := LoadRecordsProjection(strings.NewReader(validRecordsProjectionFixture()), recordsProjectionTestTaxonomy(), modifierRegistryForTest())
 	if err != nil {
 		t.Fatalf("LoadRecordsProjection returned error: %v", err)
 	}
-	expanded, err := ExpandRecordsProjection(recordsProjectionTestTaxonomy(), projection)
+	expanded, err := ExpandRecordsProjection(recordsProjectionTestTaxonomy(), projection, modifierRegistryForTest())
 	if err != nil {
 		t.Fatalf("ExpandRecordsProjection returned error: %v", err)
 	}
@@ -159,16 +159,16 @@ func TestExpandRecordsProjectionSortsRulesAndExpandsCategories(t *testing.T) {
 }
 
 func TestRenderRecordsProjectionOutputsGoAndTypeScriptShapes(t *testing.T) {
-	projection, err := LoadRecordsProjection(strings.NewReader(validRecordsProjectionFixture()), recordsProjectionTestTaxonomy())
+	projection, err := LoadRecordsProjection(strings.NewReader(validRecordsProjectionFixture()), recordsProjectionTestTaxonomy(), modifierRegistryForTest())
 	if err != nil {
 		t.Fatalf("LoadRecordsProjection returned error: %v", err)
 	}
-	expanded, err := ExpandRecordsProjection(recordsProjectionTestTaxonomy(), projection)
+	expanded, err := ExpandRecordsProjection(recordsProjectionTestTaxonomy(), projection, modifierRegistryForTest())
 	if err != nil {
 		t.Fatalf("ExpandRecordsProjection returned error: %v", err)
 	}
 
-	goOut, err := RenderGoRecordsProjection(expanded)
+	goOut, err := RenderGoRecordsProjection(expanded, modifierRegistryForTest())
 	if err != nil {
 		t.Fatalf("RenderGoRecordsProjection returned error: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestRenderRecordsProjectionOutputsGoAndTypeScriptShapes(t *testing.T) {
 		}
 	}
 
-	tsOut, err := RenderTSRecordsProjection(expanded)
+	tsOut, err := RenderTSRecordsProjection(expanded, modifierRegistryForTest())
 	if err != nil {
 		t.Fatalf("RenderTSRecordsProjection returned error: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestRenderGoRecordsProjectionRejectsUnknownCategoryType(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, modifierRegistryForTest())
 	if err == nil || !strings.Contains(err.Error(), "future_type") {
 		t.Fatalf("error = %v, want unknown category type rejection", err)
 	}

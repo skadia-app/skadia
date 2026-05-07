@@ -67,6 +67,7 @@ func TestGeneratedModifierRegistryExposesMetadata(t *testing.T) {
 
 func TestGeneratedBackendSegmentProjectionIsCurrent(t *testing.T) {
 	taxonomy := loadTestTaxonomy(t)
+	modifiers := loadTestModifiers(t)
 	activityFile, err := os.Open("../../../../config/sport-taxonomy/projections/activity_filters.yaml")
 	if err != nil {
 		t.Fatalf("open activity_filters.yaml: %v", err)
@@ -99,11 +100,11 @@ func TestGeneratedBackendSegmentProjectionIsCurrent(t *testing.T) {
 		t.Fatalf("open rules.yaml: %v", err)
 	}
 	defer ruleFile.Close()
-	ruleProjection, err := sporttaxgen.LoadRuleProjection(ruleFile, taxonomy)
+	ruleProjection, err := sporttaxgen.LoadRuleProjection(ruleFile, taxonomy, modifiers)
 	if err != nil {
 		t.Fatalf("load rule projection: %v", err)
 	}
-	ruleExpanded, err := sporttaxgen.ExpandRuleProjection(taxonomy, ruleProjection)
+	ruleExpanded, err := sporttaxgen.ExpandRuleProjection(taxonomy, ruleProjection, modifiers)
 	if err != nil {
 		t.Fatalf("expand rule projection: %v", err)
 	}
@@ -122,16 +123,17 @@ func TestGeneratedBackendSegmentProjectionIsCurrent(t *testing.T) {
 
 func TestGeneratedFrontendRuleProjectionIsCurrent(t *testing.T) {
 	taxonomy := loadTestTaxonomy(t)
+	modifiers := loadTestModifiers(t)
 	file, err := os.Open("../../../../config/sport-taxonomy/projections/rules.yaml")
 	if err != nil {
 		t.Fatalf("open rules.yaml: %v", err)
 	}
 	defer file.Close()
-	projection, err := sporttaxgen.LoadRuleProjection(file, taxonomy)
+	projection, err := sporttaxgen.LoadRuleProjection(file, taxonomy, modifiers)
 	if err != nil {
 		t.Fatalf("load rule projection: %v", err)
 	}
-	expanded, err := sporttaxgen.ExpandRuleProjection(taxonomy, projection)
+	expanded, err := sporttaxgen.ExpandRuleProjection(taxonomy, projection, modifiers)
 	if err != nil {
 		t.Fatalf("expand rule projection: %v", err)
 	}
@@ -150,12 +152,13 @@ func TestGeneratedFrontendRuleProjectionIsCurrent(t *testing.T) {
 
 func TestGeneratedBackendSourceAliasesAreCurrent(t *testing.T) {
 	taxonomy := loadTestTaxonomy(t)
+	modifiers := loadTestModifiers(t)
 	sources := loadTestSourceAliases(t, taxonomy)
 	gearDefaults, err := sporttaxgen.BuildGearDefaultProjection(taxonomy, sources)
 	if err != nil {
 		t.Fatalf("build gear default projection: %v", err)
 	}
-	got, err := sporttaxgen.RenderGoSourceAliasesWithGearDefaults(sources, gearDefaults)
+	got, err := sporttaxgen.RenderGoSourceAliasesWithGearDefaults(sources, gearDefaults, modifiers)
 	if err != nil {
 		t.Fatalf("render Go source aliases: %v", err)
 	}
@@ -237,7 +240,7 @@ func loadTestSourceAliases(t *testing.T, taxonomy sporttaxgen.Taxonomy) []sportt
 		stem := strings.TrimSuffix(filepath.Base(match), filepath.Ext(match))
 		files[stem] = file
 	}
-	sources, err := sporttaxgen.LoadSourceAliasFiles(files, taxonomy)
+	sources, err := sporttaxgen.LoadSourceAliasFiles(files, taxonomy, loadTestModifiers(t))
 	if err != nil {
 		t.Fatalf("load source aliases: %v", err)
 	}

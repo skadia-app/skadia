@@ -4,19 +4,11 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"strings"
 
 	"gopkg.in/yaml.v2"
 )
 
 const selectableSportTuplesSource = "selectable_sport_tuples"
-
-var allowedRuleModifierSources = map[string]struct{}{
-	"modifier_applicability.is_electric": {},
-	"modifier_applicability.is_indoor":   {},
-	"modifier_applicability.is_virtual":  {},
-	"modifier_applicability.is_commute":  {},
-}
 
 type RuleProjection struct {
 	TupleSelectors  []RuleTupleSelectorConfig  `yaml:"tuple_selectors"`
@@ -101,21 +93,26 @@ type ExpandedRuleTraitOption struct {
 	Label LocaleMap
 }
 
-func LoadRuleProjection(r io.Reader, taxonomy Taxonomy) (RuleProjection, error) {
+func LoadRuleProjection(r io.Reader, taxonomy Taxonomy, modifiers ModifierRegistry) (RuleProjection, error) {
 	var projection RuleProjection
 	dec := yaml.NewDecoder(r)
 	dec.SetStrict(true)
 	if err := dec.Decode(&projection); err != nil {
 		return RuleProjection{}, err
 	}
-	if err := validateRuleProjection(projection, taxonomy); err != nil {
+	if len(projection.Modifiers) > 0 {
+		return RuleProjection{}, fmt.Errorf("rule projection modifiers are derived from modifier registry")
+	}
+	projection.Modifiers = ruleModifierConfigsFromRegistry(modifiers)
+	if err := validateRuleProjection(projection, taxonomy, modifiers); err != nil {
 		return RuleProjection{}, err
 	}
 	return projection, nil
 }
 
-func ExpandRuleProjection(taxonomy Taxonomy, projection RuleProjection) (ExpandedRuleProjection, error) {
-	if err := validateRuleProjection(projection, taxonomy); err != nil {
+func ExpandRuleProjection(taxonomy Taxonomy, projection RuleProjection, modifiers ModifierRegistry) (ExpandedRuleProjection, error) {
+	projection.Modifiers = ruleModifierConfigsFromRegistry(modifiers)
+	if err := validateRuleProjection(projection, taxonomy, modifiers); err != nil {
 		return ExpandedRuleProjection{}, err
 	}
 	out := ExpandedRuleProjection{
@@ -213,12 +210,9 @@ func (p ExpandedRuleProjection) TraitValueLabelDE(field, value string) string {
 	return ""
 }
 
-func validateRuleProjection(projection RuleProjection, taxonomy Taxonomy) error {
+func validateRuleProjection(projection RuleProjection, taxonomy Taxonomy, modifiers ModifierRegistry) error {
 	if len(projection.TupleSelectors) == 0 {
 		return fmt.Errorf("missing tuple_selectors")
-	}
-	if len(projection.Modifiers) == 0 {
-		return fmt.Errorf("missing modifiers")
 	}
 	if len(projection.TraitConditions) == 0 {
 		return fmt.Errorf("missing trait_conditions")
@@ -262,6 +256,8 @@ func validateRuleProjection(projection RuleProjection, taxonomy Taxonomy) error 
 	}
 
 	modifierKeys := map[string]struct{}{}
+	wantModifierKeys := modifiers.ModifierKeysWithCapability("rule_condition")
+	gotModifierKeys := make([]string, 0, len(projection.Modifiers))
 	for i, modifier := range projection.Modifiers {
 		if modifier.Key == "" {
 			return fmt.Errorf("modifiers[%d]: missing key", i)
@@ -273,12 +269,26 @@ func validateRuleProjection(projection RuleProjection, taxonomy Taxonomy) error 
 		if modifier.Labels["de"] == "" {
 			return fmt.Errorf("modifier %q: missing labels.de", modifier.Key)
 		}
-		if err := validateRuleModifierSource(modifier.Key, modifier.ConditionApplicableFrom); err != nil {
+		def, ok := modifiers.ModifierByKey(modifier.Key)
+		if !ok {
+			return fmt.Errorf("modifier %q: missing registry definition", modifier.Key)
+		}
+		if err := modifiers.ValidateModifierKeyForCapability(modifier.Key, "rule_condition", "rule projection"); err != nil {
 			return err
 		}
-		if err := validateRuleModifierSource(modifier.Key, modifier.ActionApplicableFrom); err != nil {
+		if err := modifiers.ValidateModifierKeyForCapability(modifier.Key, "rule_action", "rule projection"); err != nil {
 			return err
 		}
+		if modifier.Labels["de"] != def.Labels["de"] {
+			return fmt.Errorf("modifier %q: label %q must come from registry label %q", modifier.Key, modifier.Labels["de"], def.Labels["de"])
+		}
+		if modifier.ConditionApplicableFrom != def.ApplicabilitySource || modifier.ActionApplicableFrom != def.ApplicabilitySource {
+			return fmt.Errorf("modifier %q: applicability source must come from registry", modifier.Key)
+		}
+		gotModifierKeys = append(gotModifierKeys, modifier.Key)
+	}
+	if !stringSlicesEqual(gotModifierKeys, wantModifierKeys) {
+		return fmt.Errorf("rule projection modifier keys = %v, want registry rule modifier keys %v", gotModifierKeys, wantModifierKeys)
 	}
 	if len(selectableRuleTupleOptions(taxonomy)) == 0 {
 		return fmt.Errorf("rule projection requires at least one selectable sport tuple")
@@ -289,14 +299,21 @@ func validateRuleProjection(projection RuleProjection, taxonomy Taxonomy) error 
 	return nil
 }
 
-func validateRuleModifierSource(key, source string) error {
-	if _, ok := allowedRuleModifierSources[source]; !ok {
-		return fmt.Errorf("modifier %q: unsupported applicability source %q", key, source)
+func ruleModifierConfigsFromRegistry(modifiers ModifierRegistry) []RuleModifierConfig {
+	out := make([]RuleModifierConfig, 0, len(modifiers.Modifiers))
+	for _, modifier := range modifiers.Modifiers {
+		if !modifier.Capabilities.Enabled("rule_condition") || !modifier.Capabilities.Enabled("rule_action") {
+			continue
+		}
+		out = append(out, RuleModifierConfig{
+			Key:                     modifier.Key,
+			Labels:                  cloneLocaleMap(modifier.Labels),
+			ConditionApplicableFrom: modifier.ApplicabilitySource,
+			ActionApplicableFrom:    modifier.ApplicabilitySource,
+			RenderExisting:          true,
+		})
 	}
-	if !strings.HasSuffix(source, "."+key) {
-		return fmt.Errorf("modifier %q: applicability source %q does not match modifier key", key, source)
-	}
-	return nil
+	return out
 }
 
 func expandSelectableRuleTupleOptions(taxonomy Taxonomy, modifiers []RuleModifierConfig) []ExpandedRuleTupleOption {

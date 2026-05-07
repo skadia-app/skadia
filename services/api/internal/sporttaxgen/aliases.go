@@ -15,20 +15,16 @@ type SourceAliases struct {
 }
 
 type SourceAlias struct {
-	Raw       string                `yaml:"raw"`
-	RawSub    string                `yaml:"raw_sub"`
-	SportType string                `yaml:"sport_type"`
-	SubType   string                `yaml:"sub_type"`
-	Modifiers *SourceAliasModifiers `yaml:"modifiers"`
+	Raw       string               `yaml:"raw"`
+	RawSub    string               `yaml:"raw_sub"`
+	SportType string               `yaml:"sport_type"`
+	SubType   string               `yaml:"sub_type"`
+	Modifiers SourceAliasModifiers `yaml:"modifiers"`
 }
 
-type SourceAliasModifiers struct {
-	IsElectric *bool `yaml:"is_electric"`
-	IsIndoor   *bool `yaml:"is_indoor"`
-	IsVirtual  *bool `yaml:"is_virtual"`
-}
+type SourceAliasModifiers map[string]*bool
 
-func LoadSourceAliases(r io.Reader, filenameStem string, taxonomy Taxonomy) (SourceAliases, error) {
+func LoadSourceAliases(r io.Reader, filenameStem string, taxonomy Taxonomy, modifiers ModifierRegistry) (SourceAliases, error) {
 	var source SourceAliases
 	dec := yaml.NewDecoder(r)
 	dec.SetStrict(true)
@@ -70,14 +66,24 @@ func LoadSourceAliases(r io.Reader, filenameStem string, taxonomy Taxonomy) (Sou
 		if alias.SubType != "" && !aliasSportHasSubType(sport, alias.SubType) {
 			return SourceAliases{}, fmt.Errorf("source aliases %q aliases[%d]: unknown sub_type %q for sport_type %q", filenameStem, i, alias.SubType, alias.SportType)
 		}
-		if alias.Modifiers != nil && alias.Modifiers.IsElectric == nil && alias.Modifiers.IsIndoor == nil && alias.Modifiers.IsVirtual == nil {
-			return SourceAliases{}, fmt.Errorf("source aliases %q aliases[%d]: empty modifiers", filenameStem, i)
+		if alias.Modifiers != nil {
+			if len(alias.Modifiers) == 0 {
+				return SourceAliases{}, fmt.Errorf("source aliases %q aliases[%d]: empty modifiers", filenameStem, i)
+			}
+			for key, value := range alias.Modifiers {
+				if value == nil {
+					return SourceAliases{}, fmt.Errorf("source aliases %q aliases[%d]: modifier %q must be true or false", filenameStem, i, key)
+				}
+				if err := modifiers.ValidateModifierKeyForCapability(key, "source_alias", fmt.Sprintf("source aliases %q aliases[%d]", filenameStem, i)); err != nil {
+					return SourceAliases{}, err
+				}
+			}
 		}
 	}
 	return source, nil
 }
 
-func LoadSourceAliasFiles(files map[string]io.Reader, taxonomy Taxonomy) ([]SourceAliases, error) {
+func LoadSourceAliasFiles(files map[string]io.Reader, taxonomy Taxonomy, modifiers ModifierRegistry) ([]SourceAliases, error) {
 	sources := make([]SourceAliases, 0, len(files))
 	filenameStems := make([]string, 0, len(files))
 	for filenameStem := range files {
@@ -86,7 +92,7 @@ func LoadSourceAliasFiles(files map[string]io.Reader, taxonomy Taxonomy) ([]Sour
 	sort.Strings(filenameStems)
 	for _, filenameStem := range filenameStems {
 		file := files[filenameStem]
-		source, err := LoadSourceAliases(file, filenameStem, taxonomy)
+		source, err := LoadSourceAliases(file, filenameStem, taxonomy, modifiers)
 		if err != nil {
 			return nil, err
 		}

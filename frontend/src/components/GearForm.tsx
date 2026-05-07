@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import type { Gear, GearDefaultModifiers, GearDefaultSportPredicate } from '@/api/types'
 import { selectableSportTupleOptions, sportDetailLabel } from '@/lib/sportTaxonomy'
+import { modifierKeysForCapability, modifierLabel, type SportModifierKey } from '@/lib/sportModifiers'
 
 const GEAR_TYPES = [
   { value: 'bike', label: 'Fahrrad' },
@@ -24,13 +25,12 @@ interface GearFormProps {
 }
 
 type ModifierChoice = 'any' | 'true' | 'false'
+const GEAR_DEFAULT_MODIFIER_KEYS = modifierKeysForCapability('gear_default')
 
 interface GearPredicateRow {
   id: string
   sportKey: string
-  isElectric: ModifierChoice
-  isIndoor: ModifierChoice
-  isVirtual: ModifierChoice
+  modifiers: Partial<Record<SportModifierKey, ModifierChoice>>
 }
 
 interface GearPredicateOption {
@@ -232,24 +232,17 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
                       ))}
                     </select>
                   </label>
-                  <ModifierSelect
-                    label="E-Antrieb"
-                    ariaLabel={`Standard ${index + 1} E-Antrieb`}
-                    value={row.isElectric}
-                    onChange={(value) => updateDefaultPredicate(index, { isElectric: value })}
-                  />
-                  <ModifierSelect
-                    label="Indoor"
-                    ariaLabel={`Standard ${index + 1} Indoor`}
-                    value={row.isIndoor}
-                    onChange={(value) => updateDefaultPredicate(index, { isIndoor: value })}
-                  />
-                  <ModifierSelect
-                    label="Virtuell"
-                    ariaLabel={`Standard ${index + 1} Virtuell`}
-                    value={row.isVirtual}
-                    onChange={(value) => updateDefaultPredicate(index, { isVirtual: value })}
-                  />
+                  {GEAR_DEFAULT_MODIFIER_KEYS.map((key) => (
+                    <ModifierSelect
+                      key={key}
+                      label={modifierLabel(key)}
+                      ariaLabel={`Standard ${index + 1} ${modifierLabel(key)}`}
+                      value={row.modifiers[key] ?? 'any'}
+                      onChange={(value) => updateDefaultPredicate(index, {
+                        modifiers: { ...row.modifiers, [key]: value },
+                      })}
+                    />
+                  ))}
                   <button
                     type="button"
                     aria-label={`Standard ${index + 1} entfernen`}
@@ -352,9 +345,9 @@ function predicateRowFromPredicate(predicate: GearDefaultSportPredicate, index: 
   return {
     id: `default-${index}`,
     sportKey: sportTupleKey(predicate.sport_type, predicate.sub_type ?? undefined),
-    isElectric: modifierChoice(modifiers.is_electric),
-    isIndoor: modifierChoice(modifiers.is_indoor),
-    isVirtual: modifierChoice(modifiers.is_virtual),
+    modifiers: Object.fromEntries(
+      GEAR_DEFAULT_MODIFIER_KEYS.map((key) => [key, modifierChoice(modifiers[key as keyof GearDefaultModifiers])]),
+    ),
   }
 }
 
@@ -362,9 +355,7 @@ function newPredicateRow(index: number, sportKey: string): GearPredicateRow {
   return {
     id: `default-${Date.now()}-${index}`,
     sportKey,
-    isElectric: 'any',
-    isIndoor: 'any',
-    isVirtual: 'any',
+    modifiers: Object.fromEntries(GEAR_DEFAULT_MODIFIER_KEYS.map((key) => [key, 'any'])),
   }
 }
 
@@ -430,9 +421,9 @@ function predicateFromRow(row: GearPredicateRow): GearDefaultSportPredicate | nu
 
 function modifiersFromRow(row: GearPredicateRow): GearDefaultModifiers | null {
   const modifiers: GearDefaultModifiers = {}
-  assignModifier(modifiers, 'is_electric', row.isElectric)
-  assignModifier(modifiers, 'is_indoor', row.isIndoor)
-  assignModifier(modifiers, 'is_virtual', row.isVirtual)
+  for (const key of GEAR_DEFAULT_MODIFIER_KEYS) {
+    assignModifier(modifiers, key as keyof GearDefaultModifiers, row.modifiers[key] ?? 'any')
+  }
   return Object.keys(modifiers).length > 0 ? modifiers : null
 }
 
@@ -458,12 +449,11 @@ function sportTypesFromPredicates(predicates: GearDefaultSportPredicate[]): stri
 
 function stablePredicateKey(predicate: GearDefaultSportPredicate): string {
   const modifiers = predicate.modifiers ?? {}
+  const keyParts = GEAR_DEFAULT_MODIFIER_KEYS.map((key) => modifierKeyPart(key, modifiers[key as keyof GearDefaultModifiers]))
   return [
     predicate.sport_type,
     predicate.sub_type ?? '',
-    modifierKeyPart('electric', modifiers.is_electric),
-    modifierKeyPart('indoor', modifiers.is_indoor),
-    modifierKeyPart('virtual', modifiers.is_virtual),
+    ...keyParts,
   ].join(':')
 }
 

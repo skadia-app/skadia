@@ -305,14 +305,11 @@ func GearDefaultPredicateMatchesActivity(predicate GearDefaultPredicate, sportTy
 	if normalized.Modifiers == nil {
 		return true
 	}
-	if normalized.Modifiers.IsElectric != nil && *normalized.Modifiers.IsElectric != modifiers.IsElectric {
-		return false
-	}
-	if normalized.Modifiers.IsIndoor != nil && *normalized.Modifiers.IsIndoor != modifiers.IsIndoor {
-		return false
-	}
-	if normalized.Modifiers.IsVirtual != nil && *normalized.Modifiers.IsVirtual != modifiers.IsVirtual {
-		return false
+	for _, key := range SportModifierKeysWithCapability("gear_default") {
+		want := ModifierPatchValue(*normalized.Modifiers, key)
+		if want != nil && *want != ModifierValuesValue(modifiers, key) {
+			return false
+		}
 	}
 	return true
 }
@@ -397,15 +394,18 @@ func normalizeGearDefaultModifierPatch(patch *ModifierPatch) (*ModifierPatch, er
 	if patch == nil {
 		return nil, nil
 	}
-	if patch.IsCommute != nil {
-		return nil, fmt.Errorf("gear default modifier %q is not allowed", "is_commute")
+	normalized := ModifierPatch{}
+	for _, key := range SportModifierKeys() {
+		value := ModifierPatchValue(*patch, key)
+		if value == nil {
+			continue
+		}
+		if !SportModifierHasCapability(key, "gear_default") {
+			return nil, fmt.Errorf("gear default modifier %q is not allowed", key)
+		}
+		SetModifierPatchValue(&normalized, key, value)
 	}
-	normalized := ModifierPatch{
-		IsElectric: patch.IsElectric,
-		IsIndoor:   patch.IsIndoor,
-		IsVirtual:  patch.IsVirtual,
-	}
-	if normalized.IsElectric == nil && normalized.IsIndoor == nil && normalized.IsVirtual == nil {
+	if ModifierPatchIsEmpty(&normalized) {
 		return nil, nil
 	}
 	return &normalized, nil
@@ -417,14 +417,11 @@ func gearDefaultPredicateKey(predicate GearDefaultPredicate) string {
 		key += ":" + *predicate.SubType
 	}
 	if predicate.Modifiers != nil {
-		if predicate.Modifiers.IsElectric != nil {
-			key += fmt.Sprintf("|electric=%t", *predicate.Modifiers.IsElectric)
-		}
-		if predicate.Modifiers.IsIndoor != nil {
-			key += fmt.Sprintf("|indoor=%t", *predicate.Modifiers.IsIndoor)
-		}
-		if predicate.Modifiers.IsVirtual != nil {
-			key += fmt.Sprintf("|virtual=%t", *predicate.Modifiers.IsVirtual)
+		for _, modifierKey := range SportModifierKeysWithCapability("gear_default") {
+			value := ModifierPatchValue(*predicate.Modifiers, modifierKey)
+			if value != nil {
+				key += fmt.Sprintf("|%s=%t", modifierKey, *value)
+			}
 		}
 	}
 	return key
@@ -522,6 +519,40 @@ func modifierPatchValue(patch ModifierPatch, key string) *bool {
 
 func ModifierPatchValue(patch ModifierPatch, key string) *bool {
 	return modifierPatchValue(patch, key)
+}
+
+func SetModifierPatchValue(patch *ModifierPatch, key string, value *bool) bool {
+	if patch == nil {
+		return false
+	}
+	switch key {
+	case "is_electric":
+		patch.IsElectric = value
+	case "is_indoor":
+		patch.IsIndoor = value
+	case "is_virtual":
+		patch.IsVirtual = value
+	case "is_commute":
+		patch.IsCommute = value
+	default:
+		return false
+	}
+	return true
+}
+
+func ModifierValuesValue(values ModifierValues, key string) bool {
+	switch key {
+	case "is_electric":
+		return values.IsElectric
+	case "is_indoor":
+		return values.IsIndoor
+	case "is_virtual":
+		return values.IsVirtual
+	case "is_commute":
+		return values.IsCommute
+	default:
+		return false
+	}
 }
 
 func boolPtr(v bool) *bool {

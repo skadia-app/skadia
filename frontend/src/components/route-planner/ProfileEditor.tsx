@@ -14,6 +14,7 @@ import {
 } from '@/api/routes'
 import { routeSportOptions } from '@/lib/sportTaxonomy'
 import { ROUTE_MODIFIER_LABELS } from '@/lib/routeModifierLabels'
+import { modifierKeysForCapability } from '@/lib/sportModifiers'
 import type { ModifierFilters, SportPredicate } from '@/lib/sportPredicates'
 
 // ─── Highway cost slider definitions ──────────────────────────────────────
@@ -75,10 +76,10 @@ const HIGHWAY_GROUP_LABELS: Record<string, string> = {
 
 const ROUTE_SPORT_OPTIONS = routeSportOptions()
 const MODIFIER_FILTER_OPTIONS: { key: keyof ModifierFilters; label: string }[] = [
-  { key: 'is_electric', label: ROUTE_MODIFIER_LABELS.is_electric },
-  { key: 'is_indoor', label: ROUTE_MODIFIER_LABELS.is_indoor },
-  { key: 'is_virtual', label: ROUTE_MODIFIER_LABELS.is_virtual },
-  { key: 'is_commute', label: ROUTE_MODIFIER_LABELS.is_commute },
+  ...modifierKeysForCapability('route_filter').map((key) => ({
+    key: key as keyof ModifierFilters,
+    label: ROUTE_MODIFIER_LABELS[key],
+  })),
 ]
 type ModifierFilterValue = 'any' | 'true' | 'false'
 

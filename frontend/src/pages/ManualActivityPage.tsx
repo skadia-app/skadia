@@ -89,7 +89,7 @@ export default function ManualActivityPage() {
   // ── Derived ─────────────────────────────────────────────────────────────────
   const selectedSportDef = SPORT_DEFS.find(d => d.sportType === sportType)
   const manualSports = manualActivitySportOptions()
-  const isBike = selectedSportDef?.categoryKey === 'bike'
+  const hasElectricAssistToggle = selectedSportDef?.categoryKey === 'bike'
 
   function handleSportChange(newSport: string) {
     const nextDef = SPORT_DEFS.find(d => d.sportType === newSport)
@@ -445,17 +445,17 @@ export default function ManualActivityPage() {
               </select>
             </div>
 
-            {/* E-Bike Toggle — nur bei bike-Kategorie */}
-            {isBike && (
+            {/* Electric-assist toggle — currently only for bike sports */}
+            {hasElectricAssistToggle && (
               <div className="flex items-center justify-between rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900">
                 <div>
-                  <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">E-Bike</p>
+                  <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">E-Antrieb</p>
                   <p className="text-xs text-neutral-500">Elektrisch unterstützt</p>
                 </div>
                 <Toggle
                   checked={isElectric}
                   onChange={(v) => setIsElectric(v)}
-                  aria-label="E-Bike"
+                  aria-label="E-Antrieb"
                 />
               </div>
             )}

@@ -154,14 +154,10 @@ func gearDefaultPredicatesRowValue(predicates []sport.GearDefaultPredicate) []an
 		}
 		if predicate.Modifiers != nil {
 			modifiers := map[string]any{}
-			if predicate.Modifiers.IsElectric != nil {
-				modifiers["is_electric"] = *predicate.Modifiers.IsElectric
-			}
-			if predicate.Modifiers.IsIndoor != nil {
-				modifiers["is_indoor"] = *predicate.Modifiers.IsIndoor
-			}
-			if predicate.Modifiers.IsVirtual != nil {
-				modifiers["is_virtual"] = *predicate.Modifiers.IsVirtual
+			for _, key := range sport.SportModifierKeysWithCapability("gear_default") {
+				if value := sport.ModifierPatchValue(*predicate.Modifiers, key); value != nil {
+					modifiers[key] = *value
+				}
 			}
 			if len(modifiers) > 0 {
 				obj["modifiers"] = modifiers
@@ -195,16 +191,12 @@ func mergeGearDefaultPredicateModifierPatch(existing *sport.ModifierPatch, patch
 		existing = &sport.ModifierPatch{}
 	}
 	merged := *existing
-	if patch.IsElectric != nil {
-		merged.IsElectric = patch.IsElectric
+	for _, key := range sport.SportModifierKeysWithCapability("gear_default") {
+		if value := sport.ModifierPatchValue(patch, key); value != nil {
+			sport.SetModifierPatchValue(&merged, key, value)
+		}
 	}
-	if patch.IsIndoor != nil {
-		merged.IsIndoor = patch.IsIndoor
-	}
-	if patch.IsVirtual != nil {
-		merged.IsVirtual = patch.IsVirtual
-	}
-	if merged.IsElectric == nil && merged.IsIndoor == nil && merged.IsVirtual == nil {
+	if sport.ModifierPatchIsEmpty(&merged) {
 		return nil
 	}
 	return &merged
@@ -223,27 +215,19 @@ func applyModifierPatchToRow(row map[string]any, patch sport.ModifierPatch) {
 }
 
 func mergeImportModifierPatch(a, b sport.ModifierPatch) sport.ModifierPatch {
-	if b.IsElectric != nil {
-		a.IsElectric = b.IsElectric
-	}
-	if b.IsIndoor != nil {
-		a.IsIndoor = b.IsIndoor
-	}
-	if b.IsVirtual != nil {
-		a.IsVirtual = b.IsVirtual
+	for _, key := range sport.SportModifierKeysWithCapability("source_alias") {
+		if value := sport.ModifierPatchValue(b, key); value != nil {
+			sport.SetModifierPatchValue(&a, key, value)
+		}
 	}
 	return a
 }
 
 func applyPatchToModifierFilters(filters map[string]any, patch sport.ModifierPatch) {
-	if patch.IsElectric != nil {
-		filters["is_electric"] = *patch.IsElectric
-	}
-	if patch.IsIndoor != nil {
-		filters["is_indoor"] = *patch.IsIndoor
-	}
-	if patch.IsVirtual != nil {
-		filters["is_virtual"] = *patch.IsVirtual
+	for _, key := range sport.SportModifierKeysWithCapability("source_alias") {
+		if value := sport.ModifierPatchValue(patch, key); value != nil {
+			filters[key] = *value
+		}
 	}
 }
 

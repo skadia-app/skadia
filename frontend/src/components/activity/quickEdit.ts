@@ -1,4 +1,5 @@
 import type { Activity } from '@/api/types'
+import { modifierFromTSField, modifierKeysForCapability, modifierTagSync, modifierTagSyncOnlySportType, modifierTSField, type SportModifierKey } from '@/lib/sportModifiers'
 import type { updateActivity } from '@/api/activities'
 
 export type ActivityQuickEditPatch = Parameters<typeof updateActivity>[1]
@@ -147,11 +148,12 @@ export function quickEditTagDraftAfterToggle(
   const tags = selected ? uniqueTags([...withoutTag, tag]) : withoutTag
   const next: ActivityQuickEditDraft = { ...draft, tags }
 
-  if (key === 'indoor') next.isIndoor = selected
-  if (key === 'e-bike') next.isElectric = selected
-  if (key === 'virtuell') {
-    next.isVirtual = selected
-    next.excludeFromHeatmap = selected
+  for (const modifierKey of modifierKeysForCapability('quick_edit')) {
+    const sync = modifierTagSync(modifierKey)
+    if (!sync || normalizedTagName(sync.systemTag) !== key) continue
+    const onlySportType = modifierTagSyncOnlySportType(modifierKey)
+    if (onlySportType && onlySportType !== draft.sportType) continue
+    setQuickEditModifier(next, modifierKey, selected)
   }
 
   return next
@@ -159,18 +161,32 @@ export function quickEditTagDraftAfterToggle(
 
 export function quickEditTagDraftAfterModifier(
   draft: ActivityQuickEditDraft,
-  modifier: 'isIndoor' | 'isElectric' | 'isVirtual',
+  modifier: SportModifierKey | 'isIndoor' | 'isElectric' | 'isVirtual',
   selected: boolean,
 ): ActivityQuickEditDraft {
-  if (modifier === 'isElectric' && draft.sportType !== 'cycling') {
-    return { ...draft, isElectric: selected }
+  const modifierKey = normalizeQuickEditModifierKey(modifier)
+  if (!modifierKey) return draft
+  const next = { ...draft }
+  setQuickEditModifier(next, modifierKey, selected)
+  const sync = modifierTagSync(modifierKey)
+  const onlySportType = modifierTagSyncOnlySportType(modifierKey)
+  if (sync && (!onlySportType || onlySportType === draft.sportType)) {
+    return quickEditTagDraftAfterToggle(next, sync.systemTag, selected)
   }
-  const tagByModifier = {
-    isIndoor: 'Indoor',
-    isElectric: 'E-Bike',
-    isVirtual: 'virtuell',
-  } as const
-  const next = quickEditTagDraftAfterToggle({ ...draft, [modifier]: selected }, tagByModifier[modifier], selected)
-  if (modifier === 'isVirtual') next.excludeFromHeatmap = selected
   return next
+}
+
+function normalizeQuickEditModifierKey(modifier: SportModifierKey | 'isIndoor' | 'isElectric' | 'isVirtual'): SportModifierKey | null {
+  if (modifierKeysForCapability('quick_edit').includes(modifier as SportModifierKey)) {
+    return modifier as SportModifierKey
+  }
+  return modifierFromTSField(modifier)
+}
+
+function setQuickEditModifier(draft: ActivityQuickEditDraft, modifier: SportModifierKey, selected: boolean) {
+  const field = modifierTSField(modifier) as keyof Pick<ActivityQuickEditDraft, 'isIndoor' | 'isElectric' | 'isVirtual'>
+  if (field === 'isIndoor' || field === 'isElectric' || field === 'isVirtual') {
+    draft[field] = selected
+  }
+  if (field === 'isVirtual') draft.excludeFromHeatmap = selected
 }
