@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -39,7 +41,7 @@ func insertTestUserMapLayer(t *testing.T, h *Handler, uid, name string) int64 {
 	t.Helper()
 	body := map[string]any{
 		"name":         name,
-		"url_template": "https://tiles.example.com/{z}/{x}/{y}.png",
+		"url_template": handlerTestRasterURLTemplate,
 		"enabled":      true,
 	}
 	b, _ := json.Marshal(body)
@@ -106,7 +108,7 @@ func TestCreateUserMapLayer_LimitReached(t *testing.T) {
 
 	body := map[string]any{
 		"name":         "Second Layer",
-		"url_template": "https://tiles.example.com/{z}/{x}/{y}.png",
+		"url_template": handlerTestRasterURLTemplate,
 	}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
@@ -156,6 +158,43 @@ func TestCreateUserMapLayer_PrivateIP_Blocked(t *testing.T) {
 	}
 }
 
+func TestCreateUserMapLayer_UnresolvedHostname_ReturnsHostResolutionFailed(t *testing.T) {
+	pool := fusionTestPool(t)
+	uid := insertTestUser(t, pool)
+	h := newUserMapLayerHandler(t)
+	h.DB = &database.DB{Pool: pool}
+
+	body := map[string]any{
+		"name":         "Unresolved Host",
+		"url_template": "https://tiles.invalid/{z}/{x}/{y}.png",
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, uid))
+	rr := httptest.NewRecorder()
+	h.CreateUserMapLayer(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["error"] != "host_resolution_failed" {
+		t.Errorf("expected error=host_resolution_failed, got %q", resp["error"])
+	}
+}
+
+func TestMapLayerAddressValidationErrorCode_HostResolutionFailed(t *testing.T) {
+	err := fmt.Errorf("wrapped: %w", model.ErrHostResolutionFailed)
+
+	if got := mapLayerAddressValidationErrorCode(err, "invalid_url"); got != "host_resolution_failed" {
+		t.Fatalf("expected host_resolution_failed, got %q", got)
+	}
+}
+
 func TestCreateUserMapLayer_DuplicateName_Returns409(t *testing.T) {
 	pool := fusionTestPool(t)
 	uid := insertTestUser(t, pool)
@@ -166,7 +205,7 @@ func TestCreateUserMapLayer_DuplicateName_Returns409(t *testing.T) {
 
 	body := map[string]any{
 		"name":         "My Layer",
-		"url_template": "https://other.example.com/{z}/{x}/{y}.png",
+		"url_template": handlerTestOtherRasterURLTemplate,
 	}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
@@ -189,7 +228,7 @@ func TestCreateUserMapLayer_XSSInAttribution_IsSanitized(t *testing.T) {
 	xss := `<a href="https://safe.com">OK</a><script>alert(1)</script>`
 	body := map[string]any{
 		"name":         "XSS Test " + uuid.New().String()[:8],
-		"url_template": "https://tiles.example.com/{z}/{x}/{y}.png",
+		"url_template": handlerTestRasterURLTemplate,
 		"attribution":  xss,
 	}
 	b, _ := json.Marshal(body)
@@ -282,7 +321,7 @@ func TestCreateUserMapLayer_DefaultsEnabledTrue(t *testing.T) {
 	// Intentionally no "enabled" field — client did not set it.
 	body := map[string]any{
 		"name":         "Default Enabled " + strconv.FormatInt(time.Now().UnixNano(), 36),
-		"url_template": "https://tiles.example.com/{z}/{x}/{y}.png",
+		"url_template": handlerTestRasterURLTemplate,
 	}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
@@ -342,7 +381,7 @@ func TestCreateUserMapLayer_DefaultsRoleAndSourceKind(t *testing.T) {
 
 	body := map[string]any{
 		"name":         "Defaults " + strconv.FormatInt(time.Now().UnixNano(), 36),
-		"url_template": "https://tiles.example.com/{z}/{x}/{y}.png",
+		"url_template": handlerTestRasterURLTemplate,
 	}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
@@ -384,7 +423,7 @@ func TestCreateUserMapLayer_BaseLayer(t *testing.T) {
 		"name":         "Base " + strconv.FormatInt(time.Now().UnixNano(), 36),
 		"role":         "base",
 		"source_kind":  "raster_tiles",
-		"url_template": "https://tiles.example.com/{z}/{x}/{y}.png",
+		"url_template": handlerTestRasterURLTemplate,
 	}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
@@ -422,7 +461,7 @@ func TestCreateUserMapLayer_VectorStyle(t *testing.T) {
 	body := map[string]any{
 		"name":        "VectorStyle " + strconv.FormatInt(time.Now().UnixNano(), 36),
 		"source_kind": "vector_style",
-		"style_url":   "https://style.example.com/style.json",
+		"style_url":   handlerTestVectorStyleURL,
 	}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
@@ -496,8 +535,8 @@ func TestCreateUserMapLayer_RasterWithStyleURL_422(t *testing.T) {
 	body := map[string]any{
 		"name":         "BadRaster " + uuid.New().String()[:8],
 		"source_kind":  "raster_tiles",
-		"url_template": "https://tiles.example.com/{z}/{x}/{y}.png",
-		"style_url":    "https://style.example.com/style.json",
+		"url_template": handlerTestRasterURLTemplate,
+		"style_url":    handlerTestVectorStyleURL,
 	}
 	b, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/map-layers/user/", bytes.NewReader(b))
@@ -532,7 +571,7 @@ func TestPatchUserMapLayer_ChangeSourceKind(t *testing.T) {
 	// PATCH it to vector_style — must provide style_url and no url_template.
 	patchBody := map[string]any{
 		"source_kind": "vector_style",
-		"style_url":   "https://style.example.com/style.json",
+		"style_url":   handlerTestVectorStyleURL,
 	}
 	pb, _ := json.Marshal(patchBody)
 	req := httptest.NewRequest(http.MethodPatch, "/map-layers/user/"+strconv.FormatInt(layerID, 10), bytes.NewReader(pb))

@@ -88,11 +88,7 @@ func (h *Handler) CreateUserMapLayer(w http.ResponseWriter, r *http.Request) {
 		m.StyleURL = nil
 		tpl := *m.URLTemplate
 		if err := model.ValidateURLTemplate(tpl, true); err != nil {
-			code := "invalid_url"
-			if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
-				errors.Is(err, model.ErrBlockedHostname) {
-				code = "private_address_blocked"
-			}
+			code := mapLayerAddressValidationErrorCode(err, "invalid_url")
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 			return
 		}
@@ -110,11 +106,7 @@ func (h *Handler) CreateUserMapLayer(w http.ResponseWriter, r *http.Request) {
 		m.URLTemplate = nil
 		su := *m.StyleURL
 		if err := model.ValidateStyleURL(su, true); err != nil {
-			code := "invalid_url"
-			if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
-				errors.Is(err, model.ErrBlockedHostname) {
-				code = "private_address_blocked"
-			}
+			code := mapLayerAddressValidationErrorCode(err, "invalid_url")
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 			return
 		}
@@ -248,11 +240,7 @@ func (h *Handler) PatchUserMapLayer(w http.ResponseWriter, r *http.Request) {
 	// Validate url_template if present (private-IP block applies to user layers).
 	if v, ok := patch["url_template"].(string); ok {
 		if err := model.ValidateURLTemplate(v, true); err != nil {
-			code := "invalid_url"
-			if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
-				errors.Is(err, model.ErrBlockedHostname) {
-				code = "private_address_blocked"
-			}
+			code := mapLayerAddressValidationErrorCode(err, "invalid_url")
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 			return
 		}
@@ -260,11 +248,7 @@ func (h *Handler) PatchUserMapLayer(w http.ResponseWriter, r *http.Request) {
 	// Validate style_url if present and non-nil.
 	if v, ok := patch["style_url"].(string); ok && v != "" {
 		if err := model.ValidateStyleURL(v, true); err != nil {
-			code := "invalid_url"
-			if errors.Is(err, model.ErrPrivateIPBlocked) || errors.Is(err, model.ErrIPv6ULABlocked) ||
-				errors.Is(err, model.ErrBlockedHostname) {
-				code = "private_address_blocked"
-			}
+			code := mapLayerAddressValidationErrorCode(err, "invalid_url")
 			httputil.WriteJSON(w, http.StatusUnprocessableEntity, mapLayerErrBody(code, err.Error()))
 			return
 		}
@@ -397,4 +381,3 @@ func userMapLayerPatchFieldAllowed(field string) bool {
 	}
 	return false
 }
-
