@@ -2,12 +2,18 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
 )
 
-// Result holds the outcome of running the detector against one ground-truth case.
+var defaultStdout io.Writer = os.Stdout
+
+// stdoutWriter is a small indirection so tests can inject an alternative
+// without monkey-patching os.Stdout. Default points at the real stdout.
+var stdoutWriter = func() io.Writer { return defaultStdout }
+
 type Result struct {
 	Case     GroundTruthCase
 	Detected []lifts.LiftRide
@@ -20,12 +26,19 @@ type Result struct {
 // Precision definition: a single case with detected > expected_max makes
 // Precision < 1.0. Recall: (cases where detected >= expected_rides_min) / total.
 func printReport(results []Result, verbose bool) int {
+	return printReportTo(results, verbose, stdoutWriter())
+}
+
+// printReportTo allows callers to route the eval report to stdout (default)
+// or stderr (when stdout is reserved for machine-readable output like the
+// snap-stats JSON). Returns the same exit-code as printReport.
+func printReportTo(results []Result, verbose bool, w io.Writer) int {
 	var totalExpMin, totalExpMax, totalDetected int
 	var recallNumerator int
 
 	for _, r := range results {
 		if r.Err != nil {
-			fmt.Fprintf(os.Stdout, "ERR  %-50s  %v\n", r.Case.File, r.Err)
+			fmt.Fprintf(w, "ERR  %-50s  %v\n", r.Case.File, r.Err)
 			continue
 		}
 
@@ -45,12 +58,12 @@ func printReport(results []Result, verbose bool) int {
 			status = "OVER"
 		}
 
-		fmt.Fprintf(os.Stdout, "%s %-50s  got=%d  want=[%d,%d]\n",
+		fmt.Fprintf(w, "%s %-50s  got=%d  want=[%d,%d]\n",
 			status, r.Case.File, got, r.Case.ExpectedRidesMin, r.Case.ExpectedRidesMax)
 
 		if verbose {
 			for i, ride := range r.Detected {
-				fmt.Fprintf(os.Stdout, "     ride[%02d] started=%s dur=%ds asc=%.1fm desc=%.1fm dist=%.0fm conf=%s\n",
+				fmt.Fprintf(w, "     ride[%02d] started=%s dur=%ds asc=%.1fm desc=%.1fm dist=%.0fm conf=%s\n",
 					i,
 					ride.StartedAt.Format("15:04:05"),
 					ride.DurationS,
@@ -80,7 +93,7 @@ func printReport(results []Result, verbose bool) int {
 		precision = float64(totalExpMax) / float64(totalDetected)
 	}
 
-	fmt.Fprintf(os.Stdout, "\nSummary: cases=%d  detected=%d  recall=%.2f  precision=%.2f\n",
+	fmt.Fprintf(w, "\nSummary: cases=%d  detected=%d  recall=%.2f  precision=%.2f\n",
 		totalCases, totalDetected, recall, precision)
 
 	if recall >= 0.9 && precision >= 1.0 {
