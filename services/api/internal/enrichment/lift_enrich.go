@@ -3,6 +3,7 @@ package enrichment
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"strings"
 	"time"
@@ -12,6 +13,25 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
 )
+
+// liftEnrichAdvisoryLockNs scopes the per-activity advisory-lock key so it
+// cannot collide with other features that hash activity_id into an int64
+// lock space. The 32-bit FNV-1a hash of the activity UUID occupies the low
+// half; this namespace tag occupies the high half.
+//
+//	key = (liftEnrichAdvisoryLockNs << 32) | fnv32a(activityID)
+//
+// Mnemonic value 0x4C494654 spells "LIFT" in ASCII.
+const liftEnrichAdvisoryLockNs int64 = 0x4C494654
+
+// liftEnrichLockKey derives the advisory-lock key for one activity_id. It
+// combines the namespace tag with a 32-bit FNV-1a hash of the activity UUID
+// to yield a stable int64 that pg_advisory_lock accepts directly.
+func liftEnrichLockKey(activityID string) int64 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(activityID))
+	return (liftEnrichAdvisoryLockNs << 32) | int64(h.Sum32())
+}
 
 // enrichStreamLifts is the lift-detection adapter (Phase 4c — three-stage
 // snap pipeline). It is registered as a stream-enrichment module in
@@ -30,6 +50,55 @@ func enrichStreamLifts(
 	userID, activityID string,
 	stream []EnrichmentStreamPoint,
 ) error {
+	// Critic F18 — serialize concurrent re-enrichments of the same activity.
+	//
+	// Without this lock, two callers (e.g. cron retry + manual retry, or two
+	// stream-enrichment pipeline runs) can race on the DELETE → INSERT
+	// sequence below. That race produces duplicated rows on the audit-row
+	// path (lookupCanonicalSegmentEffortID's `ORDER BY created_at DESC LIMIT
+	// 1` becomes non-deterministic) and orphaned segment_efforts.
+	//
+	// The lock is session-scoped (pg_try_advisory_lock) on a dedicated
+	// connection that is held until the function returns, mirroring the
+	// established sidecar pattern in handler/activity_edit_ops.go.
+	// pg_advisory_xact_lock is unsuitable here: this function does not run
+	// inside a single transaction (RecomputeLiftStats and the gear-refresh
+	// helper open their own internal transactions and would deadlock or
+	// require signature changes in helpers outside this file's scope).
+	//
+	// pg_try_advisory_lock + early return is preferred over the blocking
+	// pg_advisory_lock variant: another worker is already producing the
+	// same result, so doubling up wastes CPU without changing the outcome.
+	lockConn, err := db.Pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("enrichStreamLifts: acquire conn for advisory lock: %w", err)
+	}
+	defer lockConn.Release()
+	lockKey := liftEnrichLockKey(activityID)
+	var locked bool
+	if err := lockConn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockKey).Scan(&locked); err != nil {
+		return fmt.Errorf("enrichStreamLifts: try advisory lock: %w", err)
+	}
+	if !locked {
+		slog.Info("enrichStreamLifts: another worker is enriching this activity, skipping",
+			"activity_id", activityID)
+		return nil
+	}
+	defer func() {
+		// Use a fresh context bounded by ctx — even on cancellation we
+		// want to release the lock. pgx returns the connection on Release;
+		// the lock itself is bound to the underlying server-side session,
+		// so explicit unlock is required (Release alone does not free
+		// session-scoped advisory locks until the connection truly closes).
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, unlockErr := lockConn.Exec(releaseCtx, "SELECT pg_advisory_unlock($1)", lockKey); unlockErr != nil {
+			slog.Warn("enrichStreamLifts: advisory unlock failed",
+				"activity_id", activityID,
+				"error", unlockErr)
+		}
+	}()
+
 	act, err := db.GetActivity(ctx, activityID)
 	if err != nil {
 		return fmt.Errorf("enrichStreamLifts: get activity: %w", err)
@@ -83,6 +152,28 @@ func enrichStreamLifts(
 		  AND NOT alc.rejected_by_user
 	`, activityID, userID); err != nil {
 		return fmt.Errorf("enrichStreamLifts: delete candidates: %w", err)
+	}
+	// Critic F5 — break the orphan FK on soft-rejected audit rows. Those
+	// rows are intentionally preserved across re-enrichment so the user's
+	// reject decision survives, but their segment_effort_id pointer would
+	// dangle once the segment_efforts DELETE below removes the referenced
+	// row. There is no DB-level FK from activity_lift_candidates →
+	// segment_efforts (the hypertable's composite PK is not referenceable),
+	// so an explicit NULL update is the only way to keep the audit row
+	// orphan-free. The column is nullable since migration 000349. NULL is
+	// the correct soft-reject state (matches the heuristic-rejected case
+	// where the candidate never had a segment_effort).
+	if _, err := db.Pool.Exec(ctx, `
+		UPDATE activity_lift_candidates alc
+		SET segment_effort_id = NULL
+		FROM activities a
+		WHERE alc.activity_id = $1
+		  AND a.id = alc.activity_id
+		  AND a.user_id = $2
+		  AND alc.rejected_by_user = true
+		  AND alc.segment_effort_id IS NOT NULL
+	`, activityID, userID); err != nil {
+		return fmt.Errorf("enrichStreamLifts: null-out rejected audit segment_effort_id: %w", err)
 	}
 	if _, err := db.Pool.Exec(ctx, `
 		DELETE FROM segment_efforts se
