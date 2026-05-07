@@ -724,6 +724,12 @@ func (db *DB) recomputeLiftStats(ctx context.Context, userID, activityID string,
 		opt(&cfg)
 	}
 
+	// Confirm-gate. lifts.AutoConfirmHeuristic is a package-level var (not a
+	// const) so this branch stays reachable for static analysis even while the
+	// default is false; flipping it to true would still require recompile +
+	// redeploy + a /lifts/recalculate-all backfill across the corpus before
+	// previously-unconfirmed candidates become visible in activities.lift_*.
+	// See lifts/config.go for the future settings-key migration note.
 	confirmedFilter := "AND confirmed = true"
 	if lifts.AutoConfirmHeuristic {
 		confirmedFilter = ""
