@@ -1,22 +1,22 @@
 package database_test
 
-// Phase-4 Adversarial-Critic finding F5: the rejected-row check and INSERT
-// were separate statements, opening a window for a concurrent reject to
-// land between them.
+// Phase-4d Adversarial-Critic finding F8: the suppression guarantee of
+// InsertHeuristicCandidateIfNotRejected against a *pre-existing* rejected
+// row in the ±5 s tolerance window must hold under concurrent insert
+// pressure. This is the realistic atomicity contract — once the user has
+// rejected a window, ALL concurrent inserts that fall within that window
+// must be suppressed, never one or the other.
 //
-// Race scenario: a heuristic candidate already exists in the table. A
-// concurrent insert uses a started_at that is within ±5 s of the existing
-// row (so it matches the boundary-delta suppression check) but different
-// enough to avoid the UNIQUE constraint — this gives InsertHeuristic…
-// something to actually insert rather than hitting ON CONFLICT DO NOTHING.
-// If Reject wins, the new insert is suppressed by the WHERE NOT EXISTS
-// guard. If Insert wins first, the new row is live while the original gets
-// rejected; that combination (a rejected row + a non-rejected near-window
-// row) is the invariant violation the test catches.
+// (The earlier Race-With-Reject test asserted a different invariant —
+// that a concurrent REJECT could retroactively block an INSERT that had
+// not yet seen the reject. Postgres' READ COMMITTED isolation does not
+// give that guarantee for non-overlapping rows, and the production code
+// does not promise it. Asserting it would be testing a non-contract.)
 
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,97 +25,89 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 )
 
-// TestInsertHeuristicCandidateIfNotRejected_RaceWithReject exercises the
-// atomic-insert guarantee: a concurrent RejectLiftCandidate and
-// InsertHeuristicCandidateIfNotRejected for the same activity must not
-// produce a live (non-rejected) row for a window that has already been
-// rejected.
+// TestInsertHeuristicCandidateIfNotRejected_ConcurrentInsertsSuppressedByPreExistingReject
+// covers the atomicity-of-suppression contract: with a rejected row already
+// present in the activity, N concurrent InsertHeuristicCandidateIfNotRejected
+// calls inside the ±5 s tolerance window must all be suppressed. None of
+// them may produce a live row, regardless of scheduling order.
 //
-// The candidate used for InsertHeuristic… has a started_at shifted by 3 s
-// from the existing row — within the ±5 s tolerance window, so the
-// WHERE NOT EXISTS guard would suppress it when a rejected row exists —
-// but different enough to avoid the UNIQUE (activity_id, started_at)
-// conflict that would make the INSERT a silent no-op regardless of the
-// rejection state.
-func TestInsertHeuristicCandidateIfNotRejected_RaceWithReject(t *testing.T) {
+// The pre-existing rejected row sits at `seedStart`. Each goroutine attempts
+// an insert at `seedStart + offset`, where offset ∈ {1s, 2s, 3s, 4s} — every
+// offset stays within ±5 s, so the suppression guard MUST fire for all of
+// them. The post-condition is exactly one row in the activity (the
+// pre-existing rejected one).
+func TestInsertHeuristicCandidateIfNotRejected_ConcurrentInsertsSuppressedByPreExistingReject(t *testing.T) {
 	fx := newLiftDedupFixture(t)
 	ctx := context.Background()
 
 	now := time.Now().UTC().Truncate(time.Second)
-	existingStart := now
-	existingEnd := now.Add(60 * time.Second)
+	seedStart := now
+	seedEnd := now.Add(60 * time.Second)
 
-	// The insert candidate is shifted 3 s inside the ±5 s suppression window
-	// so the WHERE NOT EXISTS guard fires when a rejected row is present, but
-	// the started_at differs enough to not hit the UNIQUE constraint.
-	insertStart := now.Add(3 * time.Second)
-	insertEnd := existingEnd.Add(3 * time.Second)
-
-	// Insert the initial candidate that will be rejected in each iteration.
-	existingID := uuid.NewString()
+	// Seed with a pre-existing REJECTED row in the activity. This is the
+	// suppression anchor — every concurrent insert below must be blocked
+	// because its boundaries fall within ±5 s of this row's boundaries.
+	seedID := uuid.NewString()
 	if _, err := fx.pool.Exec(ctx, `
 		INSERT INTO activity_lift_candidates
 			(id, activity_id, started_at, ended_at, duration_s, ascent_m,
-			 descent_m, distance_m, confidence, confirmed, source)
-		VALUES ($1, $2, $3, $4, 60, 50, 2, 200, 'high', false, 'heuristic')
-	`, existingID, fx.activityID, existingStart, existingEnd); err != nil {
-		t.Fatalf("insert initial candidate: %v", err)
+			 descent_m, distance_m, confidence, confirmed, source,
+			 rejected_by_user)
+		VALUES ($1, $2, $3, $4, 60, 50, 2, 200, 'high', false, 'heuristic',
+			true)
+	`, seedID, fx.activityID, seedStart, seedEnd); err != nil {
+		t.Fatalf("insert seed rejected candidate: %v", err)
 	}
 
 	db := &database.DB{Pool: fx.pool}
 
-	// Race many iterations to expose the window between check and insert.
+	// Run several iterations to expose any windowed-race in the
+	// WHERE NOT EXISTS guard against a stable pre-existing rejected row.
 	const iterations = 20
+	const concurrency = 4
+	insertOffsets := []time.Duration{1 * time.Second, 2 * time.Second, 3 * time.Second, 4 * time.Second}
+
 	for i := range iterations {
-		// Reset: un-reject the existing row and delete any extra rows from
-		// the previous iteration.
-		if _, err := fx.pool.Exec(ctx,
-			`UPDATE activity_lift_candidates SET rejected_by_user = false WHERE id = $1`,
-			existingID,
-		); err != nil {
-			t.Fatalf("iteration %d: reset rejected flag: %v", i, err)
-		}
+		// Cleanup: keep only the seed row.
 		if _, err := fx.pool.Exec(ctx,
 			`DELETE FROM activity_lift_candidates
 			 WHERE activity_id = $1 AND id != $2`,
-			fx.activityID, existingID,
+			fx.activityID, seedID,
 		); err != nil {
 			t.Fatalf("iteration %d: cleanup extra rows: %v", i, err)
 		}
 
 		var wg sync.WaitGroup
-		wg.Add(2)
+		wg.Add(concurrency)
 
-		errCh := make(chan error, 2)
+		var insertedCount int32
+		errCh := make(chan error, concurrency)
 
-		// Goroutine 1: reject the existing candidate.
-		go func() {
-			defer wg.Done()
-			if err := db.RejectLiftCandidate(context.Background(), fx.userID, existingID, fx.activityID); err != nil {
-				errCh <- err
-			}
-		}()
-
-		// Goroutine 2: insert a candidate within the ±5 s suppression window
-		// of the existing row. When the reject wins the race, the WHERE NOT
-		// EXISTS guard must suppress this insert.
-		go func() {
-			defer wg.Done()
-			if _, err := db.InsertHeuristicCandidateIfNotRejected(
-				context.Background(), fx.userID, fx.activityID,
-				database.HeuristicCandidateInput{
-					StartedAt:  insertStart,
-					EndedAt:    insertEnd,
-					DurationS:  60,
-					AscentM:    50,
-					DescentM:   2.0,
-					DistanceM:  200.0,
-					Confidence: "high",
-				},
-			); err != nil {
-				errCh <- err
-			}
-		}()
+		for offset := range insertOffsets {
+			off := insertOffsets[offset]
+			go func() {
+				defer wg.Done()
+				inserted, err := db.InsertHeuristicCandidateIfNotRejected(
+					context.Background(), fx.userID, fx.activityID,
+					database.HeuristicCandidateInput{
+						StartedAt:  seedStart.Add(off),
+						EndedAt:    seedEnd.Add(off),
+						DurationS:  60,
+						AscentM:    50,
+						DescentM:   2.0,
+						DistanceM:  200.0,
+						Confidence: "high",
+					},
+				)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if inserted {
+					atomic.AddInt32(&insertedCount, 1)
+				}
+			}()
+		}
 
 		wg.Wait()
 		close(errCh)
@@ -124,31 +116,23 @@ func TestInsertHeuristicCandidateIfNotRejected_RaceWithReject(t *testing.T) {
 			t.Errorf("iteration %d: goroutine error: %v", i, err)
 		}
 
-		// Count rows per rejection state for the activity window.
-		var rejectedCount, nonRejectedCount int
-		if err := fx.pool.QueryRow(ctx, `
-			SELECT COUNT(*) FROM activity_lift_candidates
-			WHERE activity_id = $1
-			  AND rejected_by_user = true
-		`, fx.activityID).Scan(&rejectedCount); err != nil {
-			t.Fatalf("iteration %d: count rejected rows: %v", i, err)
-		}
-		if err := fx.pool.QueryRow(ctx, `
-			SELECT COUNT(*) FROM activity_lift_candidates
-			WHERE activity_id = $1
-			  AND rejected_by_user = false
-		`, fx.activityID).Scan(&nonRejectedCount); err != nil {
-			t.Fatalf("iteration %d: count non-rejected rows: %v", i, err)
+		if got := atomic.LoadInt32(&insertedCount); got != 0 {
+			t.Errorf("iteration %d: %d insert(s) escaped suppression — every concurrent insert in the ±5 s "+
+				"tolerance window of a pre-existing rejected row must be blocked",
+				i, got)
 		}
 
-		// Invariant: if any row was rejected, no non-rejected row within the
-		// same suppression window may exist. The reject must win whenever
-		// both goroutines raced; finding both states simultaneously means the
-		// WHERE NOT EXISTS guard failed to suppress the insert.
-		if rejectedCount > 0 && nonRejectedCount > 0 {
-			t.Errorf("iteration %d: both a rejected row AND a non-rejected row exist for the same activity — "+
-				"race condition: insert escaped the WHERE NOT EXISTS guard (rejected=%d, non_rejected=%d)",
-				i, rejectedCount, nonRejectedCount)
+		// Authoritative count: exactly one row (the seed) remains.
+		var totalRows int
+		if err := fx.pool.QueryRow(ctx, `
+			SELECT COUNT(*) FROM activity_lift_candidates
+			WHERE activity_id = $1
+		`, fx.activityID).Scan(&totalRows); err != nil {
+			t.Fatalf("iteration %d: count rows: %v", i, err)
+		}
+		if totalRows != 1 {
+			t.Errorf("iteration %d: expected 1 row (the seed) but got %d — concurrent inserts produced live rows",
+				i, totalRows)
 		}
 	}
 }
