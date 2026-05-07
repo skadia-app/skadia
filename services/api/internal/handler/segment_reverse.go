@@ -126,21 +126,18 @@ func reverseSegmentTx(ctx context.Context, db *database.DB, segID, userID string
 	}
 
 	// Insert a new segment_versions row with ST_Reverse(track) and swapped
-	// start_point / end_point. Copies the rest of the active version (including
-	// segment_type_meta which is a column on segment_versions — verified per
-	// database/segments.go createNewSegmentVersion at line 446). The parent
-	// segments row's effort_count/athlete_count are untouched by the geometry flip.
+	// start_point / end_point. Segment metadata lives on segments, so the
+	// parent row's effort_count/athlete_count and metadata are untouched.
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point,
-		                              valid_from, created_by, segment_type_meta)
+		                              valid_from, created_by)
 		SELECT sv.segment_id,
 		       (SELECT COALESCE(MAX(version_number), 0) + 1 FROM segment_versions WHERE segment_id = $1),
 		       ST_Reverse(sv.track),
 		       sv.end_point,
 		       sv.start_point,
 		       CURRENT_DATE,
-		       $2,
-		       sv.segment_type_meta
+		       $2
 		FROM segment_versions sv
 		WHERE sv.segment_id = $1
 		ORDER BY sv.version_number DESC

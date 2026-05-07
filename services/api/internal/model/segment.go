@@ -148,6 +148,7 @@ type ListSegmentsParams struct {
 	Name            string
 	BBox            string
 	LiftsOnlyRidden bool
+	CompletedOnly   bool
 	IncludeGeoJSON  bool
 	Cursor          string // base64(created_at|id)
 	Limit           int    // 0 = kein Limit

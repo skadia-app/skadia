@@ -51,6 +51,7 @@ const SEGMENT_TYPE_LABELS: Record<string, string> = {
   wintersport: 'Wintersport',
   wassersport: 'Wassersport',
 }
+const DEFAULT_SEGMENT_TYPES = ['standard', 'trail', 'wintersport', 'wassersport']
 
 // Canonical list of visibility-filter values. Used both for iteration in the
 // checkbox render and the Set-based toggle handler — single source of truth.
@@ -64,8 +65,12 @@ export default function SegmentsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const sportGroup = searchParams.get('sport_group') ?? ''
-  const terrainFilter = searchParams.get('segment_types')?.split(',') ?? ['standard', 'trail', 'wintersport', 'wassersport']
-  const showAllLifts = searchParams.get('show_lifts') === 'true'
+  const segmentTypesParam = searchParams.get('segment_types')
+  const terrainFilter = useMemo(
+    () => segmentTypesParam === null ? DEFAULT_SEGMENT_TYPES : segmentTypesParam.split(',').filter(Boolean),
+    [segmentTypesParam],
+  )
+  const showAllSegments = searchParams.get('show_all_segments') === 'true'
   const search = searchParams.get('search') ?? ''
   // B3: Stable array references via useMemo — without this, every render creates a new
   // array instance which causes filterParams memo to recompute and triggers unnecessary
@@ -102,6 +107,14 @@ export default function SegmentsPage() {
       const next = new URLSearchParams(prev)
       if (strValue) next.set(key, strValue)
       else next.delete(key)
+      return next
+    }, { replace: true })
+  }
+  const setSegmentTypesFilter = (nextTypes: string[]) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.set('segment_types', nextTypes.join(','))
+      if (!nextTypes.includes('lift')) next.delete('show_lifts')
       return next
     }, { replace: true })
   }
@@ -164,19 +177,18 @@ export default function SegmentsPage() {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
   }, [])
 
+  const hasExplicitEmptySegmentTypes = segmentTypesParam !== null && terrainFilter.length === 0
   const filterParams = useMemo(() => ({
     sport_group: sportGroup || undefined,
     search: search || undefined,
-    segment_types: terrainFilter.length === 0
-      ? 'standard,trail,wintersport,wassersport'
-      : terrainFilter.join(','),
-    lifts_only_ridden: terrainFilter.includes('lift') && !showAllLifts ? true : undefined,
+    segment_types: hasExplicitEmptySegmentTypes ? undefined : terrainFilter.join(','),
+    completed_only: !showAllSegments ? true : undefined,
     sac_scale: sacFilter.length > 0 ? sacFilter.join(',') : undefined,
     mtb_scale: mtbFilter.length > 0 ? mtbFilter.join(',') : undefined,
     surface: surfaceFilter.length > 0 ? surfaceFilter.join(',') : undefined,
     visibility: visibilityFilter.length > 0 ? visibilityFilter.join(',') : undefined,
     difficulty_match: (sacFilter.length > 0 || mtbFilter.length > 0) && difficultyMatch === 'any' ? ('any' as const) : undefined,
-  }), [sportGroup, search, terrainFilter, showAllLifts, sacFilter, mtbFilter, surfaceFilter, visibilityFilter, difficultyMatch])
+  }), [sportGroup, search, hasExplicitEmptySegmentTypes, terrainFilter, showAllSegments, sacFilter, mtbFilter, surfaceFilter, visibilityFilter, difficultyMatch])
 
   const {
     data,
@@ -191,23 +203,32 @@ export default function SegmentsPage() {
     queryFn: ({ pageParam }) => fetchSegments({ ...filterParams, cursor: pageParam, limit: 50 }),
     getNextPageParam: (lastPage) => lastPage.has_more ? lastPage.next_cursor : undefined,
     initialPageParam: undefined as string | undefined,
+    enabled: !hasExplicitEmptySegmentTypes,
   })
 
-  const segments = useMemo(
+  const rawSegments = useMemo(
     () => data?.pages.flatMap(p => p.segments) ?? [],
     [data]
   )
+  const segments = useMemo(
+    () => showAllSegments ? rawSegments : rawSegments.filter(segment => segment.ridden_count > 0),
+    [rawSegments, showAllSegments]
+  )
 
-  // B10: Clear stale show_lifts URL param when lift is not in terrainFilter.
-  // This handles the edge case where user manually edits the URL to set segment_types
-  // without lift, but show_lifts=true remains in the URL from a previous state.
+  // Keep old lift-only URLs meaningful after the global all-segments toggle replaced
+  // show_lifts. Only lift-scoped old links become show_all_segments=true.
   useEffect(() => {
-    if (showAllLifts && !terrainFilter.includes('lift')) {
+    const legacyShowLifts = searchParams.get('show_lifts')
+    if (legacyShowLifts !== null) {
       const next = new URLSearchParams(searchParams)
+      const legacySegmentTypes = next.get('segment_types')?.split(',').filter(Boolean) ?? DEFAULT_SEGMENT_TYPES
+      if (legacyShowLifts === 'true' && legacySegmentTypes.includes('lift') && next.get('show_all_segments') === null) {
+        next.set('show_all_segments', 'true')
+      }
       next.delete('show_lifts')
       setSearchParams(next, { replace: true })
     }
-  }, [terrainFilter, showAllLifts])
+  }, [searchParams])
 
   // A3: difficulty_match toggle is only meaningful when BOTH SAC and MTB filters are active.
   // When the user unchecks one group (falling below 2 active groups), the param must be
@@ -342,6 +363,7 @@ export default function SegmentsPage() {
   }
 
   const activeFilterCount = (sacFilter.length + mtbFilter.length + surfaceFilter.length + (visibilityFilter.length === 1 ? 1 : 0))
+  const completedOnlyEmpty = segments.length === 0 && !showAllSegments && !hasExplicitEmptySegmentTypes
 
   return (
     <div>
@@ -395,28 +417,23 @@ export default function SegmentsPage() {
                   onChange={e => {
                     let next: string[]
                     if (e.target.checked) next = [...terrainFilter, id]
-                    else {
-                      next = terrainFilter.filter(t => t !== id)
-                      if (id === 'lift') setFilter('show_lifts', null)
-                    }
-                    setFilter('segment_types', next.length > 0 ? next.join(',') : null)
+                    else next = terrainFilter.filter(t => t !== id)
+                    setSegmentTypesFilter(next)
                   }}
                   className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
                 />
                 <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
               </label>
             ))}
-            {terrainFilter.includes('lift') && (
-              <label className="flex items-center gap-1.5 cursor-pointer select-none border-l border-neutral-200 dark:border-neutral-700 pl-3">
-                <input
-                  type="checkbox"
-                  checked={showAllLifts}
-                  onChange={e => setFilter('show_lifts', e.target.checked ? 'true' : null)}
-                  className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
-                />
-                <span className="text-sm text-neutral-500 dark:text-neutral-400">Alle anzeigen</span>
-              </label>
-            )}
+            <label className="flex items-center gap-1.5 cursor-pointer select-none border-l border-neutral-200 dark:border-neutral-700 pl-3">
+              <input
+                type="checkbox"
+                checked={showAllSegments}
+                onChange={e => setFilter('show_all_segments', e.target.checked ? 'true' : null)}
+                className="w-3.5 h-3.5 rounded accent-accent-DEFAULT"
+              />
+              <span className="text-sm text-neutral-500 dark:text-neutral-400">Alle anzeigen</span>
+            </label>
           </div>
 
           <div className="flex-1 min-w-[200px] relative">
@@ -442,7 +459,7 @@ export default function SegmentsPage() {
             )}
           </button>
 
-          {(sportGroup || activeFilterCount > 0 || search) && (
+          {(sportGroup || segmentTypesParam !== null || showAllSegments || activeFilterCount > 0 || search) && (
             <button
               onClick={() => {
                 setSearchParams(new URLSearchParams(), { replace: true })
@@ -695,8 +712,18 @@ export default function SegmentsPage() {
 
       {/* Segment Cards */}
       {segments.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-48 text-neutral-400">
-           <p className="text-sm">Keine Segmente gefunden.</p>
+        <div className="flex flex-col items-center justify-center h-48 gap-3 text-neutral-400">
+          <p className="text-sm">
+            {completedOnlyEmpty ? 'Keine abgeschlossenen Segmente gefunden.' : 'Keine Segmente gefunden.'}
+          </p>
+          {completedOnlyEmpty && (
+            <button
+              onClick={() => setFilter('show_all_segments', 'true')}
+              className="px-3 py-1.5 text-xs rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+            >
+              Alle anzeigen
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

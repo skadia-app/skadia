@@ -209,7 +209,9 @@ LEFT JOIN LATERAL (
 			argIdx += 4
 		}
 	}
-	if p.LiftsOnlyRidden {
+	if p.CompletedOnly {
+		where += " AND COALESCE(ue.ridden_count, 0) > 0"
+	} else if p.LiftsOnlyRidden {
 		where += " AND (s.segment_type != 'lift' OR COALESCE(ue.ridden_count, 0) > 0)"
 	}
 
@@ -644,10 +646,10 @@ func (db *DB) UpdateSegment(ctx context.Context, segmentID, userID string, isAdm
 // createNewSegmentVersion copies the latest segment_version into a new version row.
 func (db *DB) createNewSegmentVersion(ctx context.Context, segmentID string) error {
 	_, err := db.Pool.Exec(ctx, `
-		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point, valid_from, created_by, segment_type_meta)
+		INSERT INTO segment_versions (segment_id, version_number, track, start_point, end_point, valid_from, created_by)
 		SELECT segment_id,
 		       (SELECT COALESCE(MAX(version_number), 0) + 1 FROM segment_versions WHERE segment_id = $1),
-		       track, start_point, end_point, CURRENT_DATE, created_by, segment_type_meta
+		       track, start_point, end_point, CURRENT_DATE, created_by
 		FROM segment_versions
 		WHERE segment_id = $1
 		ORDER BY version_number DESC
@@ -976,16 +978,16 @@ func (db *DB) GetSpatialCandidateSegments(ctx context.Context, activityID, userI
 	// allowed_predicates = '[]' means "none" — matched never.
 	rows, err := db.Pool.Query(ctx, `
 		SELECT s.id, sv.id, s.sport_group, COALESCE(s.distance_m, 0),
-		       s.segment_type, COALESCE(sv.segment_type_meta, '{}'),
+		       s.segment_type, COALESCE(s.segment_type_meta, '{}'),
 		       ST_AsBinary(sv.track), s.bidirectional
 		FROM segments s
 		JOIN LATERAL (
-			SELECT id, track, segment_type_meta FROM (
-				(SELECT id, track, segment_type_meta FROM segment_versions
+			SELECT id, track FROM (
+				(SELECT id, track FROM segment_versions
 				 WHERE segment_id = s.id AND valid_from <= $4
 				 ORDER BY valid_from DESC, version_number DESC LIMIT 1)
 				UNION ALL
-				(SELECT id, track, segment_type_meta FROM segment_versions
+				(SELECT id, track FROM segment_versions
 				 WHERE segment_id = s.id
 				 ORDER BY version_number ASC LIMIT 1)
 			) versioned LIMIT 1
@@ -1261,57 +1263,118 @@ func sportGroupFromSportType(sportType string) string {
 	return sport.SegmentGroup(sportType)
 }
 
+type liftSegmentImportCandidate struct {
+	osmID   int64
+	name    *string
+	geojson string
+}
+
 // ImportLiftSegments creates segment_type='lift' segments from osm_lifts.
-// Idempotent: skips lifts that already have a matching segment.
+// Idempotent: skips lifts that already have a matching segment and repairs
+// missing geometry versions for existing imported lift segments.
 func (db *DB) ImportLiftSegments(ctx context.Context, userID string) (int, error) {
-	rows, err := db.Pool.Query(ctx, `
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin lift import: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('skadia_import_lift_segments'))`); err != nil {
+		return 0, fmt.Errorf("lock lift import: %w", err)
+	}
+
+	rows, err := tx.Query(ctx, `
 		SELECT l.osm_id, l.name, ST_AsGeoJSON(l.geom) AS geojson
 		FROM osm_lifts l
-		WHERE NOT EXISTS (
-			SELECT 1 FROM segments s WHERE s.osm_lift_id = l.osm_id
-		)
+		ORDER BY l.osm_id
 	`)
 	if err != nil {
 		return 0, fmt.Errorf("query osm_lifts: %w", err)
 	}
-	defer rows.Close()
+	candidates := make([]liftSegmentImportCandidate, 0)
+	for rows.Next() {
+		var c liftSegmentImportCandidate
+		if err := rows.Scan(&c.osmID, &c.name, &c.geojson); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		candidates = append(candidates, c)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
 
 	count := 0
-	for rows.Next() {
-		var osmID int64
-		var name *string
-		var geojson string
-		if err := rows.Scan(&osmID, &name, &geojson); err != nil {
+	for _, c := range candidates {
+		created, err := ensureImportedLiftSegment(ctx, tx, userID, c)
+		if err != nil {
 			return count, err
 		}
-		segName := "Lift"
-		if name != nil && *name != "" {
-			segName = *name
+		if created {
+			count++
 		}
-		_, err := db.Pool.Exec(ctx, `
-			INSERT INTO segments (created_by, name, sport_group, segment_type,
-			                      segment_type_meta, osm_lift_id, visibility)
-			VALUES ($1, $2, 'generic', 'lift', '{}', $3, 'public')
-		`, userID, segName, osmID)
-		if err != nil {
-			continue
-		}
-		var segID string
-		_ = db.Pool.QueryRow(ctx, `
-			SELECT id FROM segments WHERE osm_lift_id = $1 LIMIT 1
-		`, osmID).Scan(&segID)
-		if segID != "" {
-			_, _ = db.Pool.Exec(ctx, `
-				WITH g AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON($2), 4326) AS geom)
-				INSERT INTO segment_versions (segment_id, version_number, track,
-				                              start_point, end_point, valid_from, created_by)
-				SELECT $1, 1, g.geom, ST_StartPoint(g.geom), ST_EndPoint(g.geom), CURRENT_DATE, $3
-				FROM g
-			`, segID, geojson, userID)
-		}
-		count++
 	}
-	return count, rows.Err()
+
+	if err := tx.Commit(ctx); err != nil {
+		return count, fmt.Errorf("commit lift import: %w", err)
+	}
+	return count, nil
+}
+
+func ensureImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID string, c liftSegmentImportCandidate) (bool, error) {
+	segID, created, err := findOrCreateImportedLiftSegment(ctx, tx, userID, c)
+	if err != nil {
+		return false, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		WITH g AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON($2), 4326) AS geom)
+		INSERT INTO segment_versions (segment_id, version_number, track,
+		                              start_point, end_point, valid_from, created_by)
+		SELECT $1, 1, g.geom, ST_StartPoint(g.geom), ST_EndPoint(g.geom), CURRENT_DATE, $3
+		FROM g
+		WHERE NOT EXISTS (
+			SELECT 1 FROM segment_versions WHERE segment_id = $1
+		)
+	`, segID, c.geojson, userID); err != nil {
+		return false, fmt.Errorf("ensure lift segment version osm_id=%d: %w", c.osmID, err)
+	}
+	return created, nil
+}
+
+func findOrCreateImportedLiftSegment(ctx context.Context, tx pgx.Tx, userID string, c liftSegmentImportCandidate) (string, bool, error) {
+	var segID string
+	err := tx.QueryRow(ctx, `
+		SELECT s.id
+		FROM segments s
+		WHERE s.osm_lift_id = $1
+		  AND s.segment_type = 'lift'
+		ORDER BY EXISTS (
+			SELECT 1 FROM segment_versions sv WHERE sv.segment_id = s.id
+		) DESC, s.created_at ASC, s.id ASC
+		LIMIT 1
+	`, c.osmID).Scan(&segID)
+	if err == nil {
+		return segID, false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", false, fmt.Errorf("lookup lift segment osm_id=%d: %w", c.osmID, err)
+	}
+
+	segName := "Lift"
+	if c.name != nil && *c.name != "" {
+		segName = *c.name
+	}
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO segments (created_by, name, sport_group, segment_type,
+		                      segment_type_meta, osm_lift_id, visibility)
+		VALUES ($1, $2, 'generic', 'lift', '{}', $3, 'public')
+		RETURNING id
+	`, userID, segName, c.osmID).Scan(&segID); err != nil {
+		return "", false, fmt.Errorf("insert lift segment osm_id=%d: %w", c.osmID, err)
+	}
+	return segID, true, nil
 }
 
 // ListActivityIDsForSegmentBackfill returns IDs of all GPS activities belonging

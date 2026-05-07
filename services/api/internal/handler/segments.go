@@ -52,6 +52,7 @@ func (h *Handler) ListSegments(w http.ResponseWriter, r *http.Request) {
 		Name:             name,
 		BBox:             r.URL.Query().Get("bbox"),
 		LiftsOnlyRidden:  r.URL.Query().Get("lifts_only_ridden") == "true",
+		CompletedOnly:    r.URL.Query().Get("completed_only") == "true",
 		IncludeGeoJSON:   r.URL.Query().Get("include_geojson") == "true",
 		Cursor:           r.URL.Query().Get("cursor"),
 		Limit:            limit,

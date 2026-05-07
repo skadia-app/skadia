@@ -97,6 +97,24 @@ func TestHausdorffDistancePlanar(t *testing.T) {
 		}
 	})
 
+	t.Run("same path with different sampling returns 0", func(t *testing.T) {
+		sparse := orb.LineString{
+			{0, 0},
+			{1000, 0},
+		}
+		dense := orb.LineString{
+			{0, 0},
+			{250, 0},
+			{500, 0},
+			{750, 0},
+			{1000, 0},
+		}
+		got := HausdorffDistancePlanar(sparse, dense)
+		if got != 0 {
+			t.Errorf("HausdorffDistancePlanar(same path different sampling) = %f, want 0", got)
+		}
+	})
+
 	t.Run("empty input returns Inf", func(t *testing.T) {
 		ls := orb.LineString{{0, 0}}
 		got := HausdorffDistancePlanar(orb.LineString{}, ls)

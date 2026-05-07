@@ -36,7 +36,7 @@ func insertActivityWithTrack(t *testing.T, pool *database.DB, userID, sportType,
 		 VALUES ($1,
 		         ST_GeomFromText($2, 4326),
 		         ST_GeomFromText($2, 4326),
-		         ST_Envelope(ST_GeomFromText($2, 4326)),
+		         ST_Envelope(ST_Expand(ST_GeomFromText($2, 4326), 0.0000001)),
 		         $3)`,
 		activityID, trackWKT, len(pts))
 	if err != nil {

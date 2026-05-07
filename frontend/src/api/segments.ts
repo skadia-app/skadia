@@ -90,6 +90,7 @@ export interface FetchSegmentsOpts {
   search?: string
   bbox?: string
   lifts_only_ridden?: boolean
+  completed_only?: boolean
   include_geojson?: boolean
   cursor?: string
   limit?: number
@@ -110,6 +111,7 @@ export async function fetchSegments(params: FetchSegmentsOpts = {}): Promise<Seg
   if (params.search) qs.set('search', params.search)
   if (params.bbox) qs.set('bbox', params.bbox)
   if (params.lifts_only_ridden) qs.set('lifts_only_ridden', 'true')
+  if (params.completed_only) qs.set('completed_only', 'true')
   if (params.include_geojson) qs.set('include_geojson', 'true')
   if (params.cursor) qs.set('cursor', params.cursor)
   if (params.limit !== undefined) qs.set('limit', String(params.limit))
