@@ -137,12 +137,29 @@ func enrichStreamLifts(
 	stage3 := lifts.MethodACoverageGap(stage2, osmCandidates)
 
 	// 5. Persist Stage-1 + Stage-2 results.
+	//
+	// Phase-4 critic F2 (Variante B) — OSM-reject persistence. Before each
+	// SnapAction-Snap insert (canonical or suppressed-merge) we ask the DB
+	// whether a soft-rejected OSM audit-row already covers the same window
+	// (boundary deltas ≤ 5 s). When yes, the entire insert is skipped — both
+	// the segment_effort and the audit-row — so the user's reject survives
+	// re-enrichment instead of being overwritten by a fresh canonical row.
 	osmMatches := 0
 	for _, res := range stage2 {
 		ride := rides[res.RideIdx]
 		switch res.Action {
 		case lifts.SnapActionSnap:
 			osm := osmCandidates[res.OSMCandidateIdx]
+			// Pre-check the per-ride window — the audit-row writes
+			// ride.Ride.StartedAt/EndedAt, so that is the window the
+			// rejected-window predicate is evaluated against.
+			suppressed, err := db.IsOSMRejectedInWindow(ctx, activityID, ride.Ride.StartedAt, ride.Ride.EndedAt)
+			if err != nil {
+				return fmt.Errorf("enrichStreamLifts: check rejected window: %w", err)
+			}
+			if suppressed {
+				continue
+			}
 			if res.SuppressedByMerge {
 				// Audit-only candidate referencing the canonical merge's
 				// segment_effort_id. The canonical row creates the
@@ -556,6 +573,17 @@ func insertStage3SegmentEffort(
 	endedAt := pts[len(pts)-1].t
 	durationS := int(endedAt.Sub(startedAt).Seconds())
 	if durationS < 30 {
+		return false, nil
+	}
+	// Phase-4 critic F2 (Variante B): pre-check the time-window against
+	// soft-rejected OSM audit-rows. Stage 3 is the method-A coverage gap
+	// path; the audit-row writes startedAt/endedAt as derived here, so
+	// the rejected-window predicate uses those same boundaries.
+	suppressed, err := db.IsOSMRejectedInWindow(ctx, activityID, startedAt, endedAt)
+	if err != nil {
+		return false, fmt.Errorf("check rejected window: %w", err)
+	}
+	if suppressed {
 		return false, nil
 	}
 	var ascentM float64

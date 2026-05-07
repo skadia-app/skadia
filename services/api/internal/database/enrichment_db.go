@@ -688,6 +688,16 @@ func (db *DB) RejectLiftCandidate(ctx context.Context, candidateID, activityID s
 // the segment_efforts arm. Same goes for Stage 2 cable-hold merges (N audit
 // candidates → 1 segment_effort) and Stage 3 method-A-only inserts
 // (1 audit candidate → 1 segment_effort).
+//
+// Phase-4 critic F2 (Variante B): the segment_efforts arm filters out
+// efforts whose audit-row has been soft-rejected by the user. The predicate
+// is "NOT EXISTS a rejected audit-row referencing this effort" rather than
+// a JOIN on segment_effort_id — Stage 2 cable-hold merges produce one
+// canonical effort with N audit-rows, and a JOIN would N-fold the count
+// of every kept merge. The NOT EXISTS form is also correct for
+// segment_efforts that have no audit-row at all (pre-Phase-4c data): the
+// sub-select returns zero rows, the predicate is true, the effort is
+// counted normally.
 func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 	_, err := db.Pool.Exec(ctx, `
 		UPDATE activities SET
@@ -695,6 +705,10 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				SELECT COUNT(*) FROM segment_efforts se
 				JOIN segments s ON s.id = se.segment_id
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+				  AND NOT EXISTS (
+					SELECT 1 FROM activity_lift_candidates alc
+					WHERE alc.segment_effort_id = se.id AND alc.rejected_by_user = true
+				  )
 			) + (
 				SELECT COUNT(*) FROM activity_lift_candidates
 				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
@@ -704,6 +718,10 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				SELECT COALESCE(SUM(se.elapsed_time_s), 0) FROM segment_efforts se
 				JOIN segments s ON s.id = se.segment_id
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+				  AND NOT EXISTS (
+					SELECT 1 FROM activity_lift_candidates alc
+					WHERE alc.segment_effort_id = se.id AND alc.rejected_by_user = true
+				  )
 			) + (
 				SELECT COALESCE(SUM(duration_s), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
@@ -714,6 +732,10 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				FROM segment_efforts se
 				JOIN segments s ON s.id = se.segment_id
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+				  AND NOT EXISTS (
+					SELECT 1 FROM activity_lift_candidates alc
+					WHERE alc.segment_effort_id = se.id AND alc.rejected_by_user = true
+				  )
 			) + (
 				SELECT COALESCE(SUM(ascent_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
@@ -724,6 +746,10 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				FROM segment_efforts se
 				JOIN segments s ON s.id = se.segment_id
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+				  AND NOT EXISTS (
+					SELECT 1 FROM activity_lift_candidates alc
+					WHERE alc.segment_effort_id = se.id AND alc.rejected_by_user = true
+				  )
 			) + (
 				SELECT COALESCE(SUM(descent_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
@@ -733,6 +759,10 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				SELECT COALESCE(SUM(se.distance_m), 0) FROM segment_efforts se
 				JOIN segments s ON s.id = se.segment_id
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
+				  AND NOT EXISTS (
+					SELECT 1 FROM activity_lift_candidates alc
+					WHERE alc.segment_effort_id = se.id AND alc.rejected_by_user = true
+				  )
 			) + (
 				SELECT COALESCE(SUM(distance_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
@@ -804,4 +834,33 @@ func (db *DB) InsertHeuristicCandidateIfNotRejected(
 		return false, fmt.Errorf("insert heuristic candidate: %w", err)
 	}
 	return tag.RowsAffected() > 0, nil
+}
+
+// IsOSMRejectedInWindow reports whether a soft-rejected OSM audit-row
+// covers the given [startedAt, endedAt] window with both per-boundary
+// deltas ≤ 5 s. The OSM-snap pipeline calls this before inserting a
+// fresh segment_effort + audit-row so a user's reject persists across
+// re-enrichment passes (Phase-4 critic F2 Variante B).
+//
+// The boundary-delta tolerance mirrors InsertHeuristicCandidateIfNotRejected
+// (Slot-2 F4): a re-detection that has shifted by more than 5 s on either
+// edge is treated as a distinct lift and is not suppressed. The check is
+// scoped to source='osm' so a rejected heuristic candidate cannot block
+// a later OSM snap of the same window (e.g. after an OSM data import that
+// filled in missing lift geometry).
+func (db *DB) IsOSMRejectedInWindow(ctx context.Context, activityID string, startedAt, endedAt time.Time) (bool, error) {
+	var exists bool
+	err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM activity_lift_candidates
+			WHERE activity_id = $1
+			  AND source = 'osm'
+			  AND rejected_by_user = true
+			  AND ABS(EXTRACT(EPOCH FROM (started_at - $2::timestamptz))) <= 5
+			  AND ABS(EXTRACT(EPOCH FROM (ended_at   - $3::timestamptz))) <= 5
+		)`, activityID, startedAt, endedAt).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check rejected OSM window: %w", err)
+	}
+	return exists, nil
 }
