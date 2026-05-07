@@ -67,7 +67,8 @@ Adding a modifier:
 
 1. Add the modifier to `modifiers.yaml` with stable key, German label, Go field,
    TypeScript field, JSON key, activity column, action names, ShadowFS token,
-   capability flags, and optional tag-sync metadata.
+   capability flags, and optional tag-sync metadata. Applicability source names
+   are derived from the modifier key; do not duplicate them in YAML.
 2. If the modifier is stored on activities, add the storage migration and update
    all SQL contracts for the enabled capabilities. The parity tests cover
    modifier filters, gear-default predicates, heatmap filters, and tag-sync SQL.
@@ -101,7 +102,9 @@ Stored activity modifiers still require explicit storage and importer work:
 adding a stored modifier means adding the activity column/migration, Go model
 fields, sidecar/manual-file fields, and importer assignment tests. The registry
 and parity tests make those checkpoints fail loudly; they do not create storage
-columns dynamically.
+columns dynamically. `is_virtual` also forces heatmap exclusion in the quick-edit
+UI; that UX coupling is hand-coded and must be reviewed if virtual semantics or
+heatmap behavior change.
 
 Do not review taxonomy changes only in generated source. The source YAML is the
 canonical input; generated tests and projections are the review surfaces for
