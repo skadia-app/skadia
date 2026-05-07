@@ -73,18 +73,35 @@ Adding a modifier:
    modifier filters, gear-default predicates, heatmap filters, and tag-sync SQL.
 3. Decide every capability explicitly. Do not enable a surface just because a
    neighboring modifier has it; each consumer has different semantics.
-4. Add or update `modifier_applicability` and `modifier_defaults` in
-   `sports.yaml` only for sports where the modifier can actually apply.
-5. Update source aliases only when a raw source label itself carries modifier
+4. Add or update `modifier_applicability` in `sports.yaml` for every top-level
+   sport. The generator validates that every registered modifier key is present,
+   so adding a modifier is an explicit taxonomy decision for each sport.
+5. Add `modifier_defaults` only for sports where the modifier has
+   `taxonomy_default: true`. This keeps automatic tuple defaults narrow: a
+   modifier can be stored or filtered without being eligible for implicit
+   defaulting.
+6. Update source aliases only when a raw source label itself carries modifier
    evidence. Parser/device evidence belongs in importer code, not aliases.
-6. Regenerate with `scripts/generate-sport-taxonomy.sh`, then run
+7. Regenerate with `scripts/generate-sport-taxonomy.sh`, then run
    `scripts/generate-sport-taxonomy.sh --check`.
-7. Run the modifier parity matrix for generated Go/TypeScript metadata,
+8. Run the modifier parity matrix for generated Go/TypeScript metadata,
    SQL validators, rule projections, route filters, records, ShadowFS, sidecar
    metadata, import metadata, and frontend modifier consumers.
-8. Check importer precedence: source evidence must not be overwritten by
+9. Check importer precedence: source evidence must not be overwritten by
    taxonomy defaults, explicit false patches must remain possible, and tag sync
    must keep context-specific labels such as `E-Bike` scoped to their sport.
+
+The modifier registry is strict build-time input. Deploy the generator/code that
+knows a new capability before adding that capability to `modifiers.yaml`.
+`rule_condition` and `rule_action` are intentionally symmetrical today: rule
+modifiers are exposed as condition and action pairs, not condition-only or
+action-only controls.
+
+Stored activity modifiers still require explicit storage and importer work:
+adding a stored modifier means adding the activity column/migration, Go model
+fields, sidecar/manual-file fields, and importer assignment tests. The registry
+and parity tests make those checkpoints fail loudly; they do not create storage
+columns dynamically.
 
 Do not review taxonomy changes only in generated source. The source YAML is the
 canonical input; generated tests and projections are the review surfaces for
