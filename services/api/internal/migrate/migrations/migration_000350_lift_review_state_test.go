@@ -1,7 +1,6 @@
 package migrations_test
 
-// Integration tests for migration 000999_lift_review_state (placeholder;
-// renumbered to 000348 at end of Phase 4d).
+// Integration tests for migration 000350_lift_review_state.
 //
 // Verifies:
 //   1. rejected_by_user column exists with NOT NULL + DEFAULT FALSE.
