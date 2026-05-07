@@ -93,9 +93,11 @@ func TestRejectLiftCandidate_SoftDeletePersistsAcrossReEnrichment(t *testing.T) 
 	// (synthetic 2-point track with no elevation signal → no detections).
 	// In an OSM environment Method-A may insert new candidates but must
 	// not touch the rejected one.
+	lat0, lng0 := 47.0, 11.0
+	lat1, lng1 := 47.01, 11.01
 	stream := []EnrichmentStreamPoint{
-		{Lat: 47.0, Lng: 11.0},
-		{Lat: 47.01, Lng: 11.01},
+		{Time: now, Lat: &lat0, Lng: &lng0},
+		{Time: now.Add(30 * time.Second), Lat: &lat1, Lng: &lng1},
 	}
 	if err := enrichStreamLifts(ctx, db, userID, activityID, stream); err != nil {
 		t.Fatalf("enrichStreamLifts: %v", err)
