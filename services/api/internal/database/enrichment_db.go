@@ -1079,3 +1079,27 @@ func (db *DB) IsOSMRejectedInWindow(ctx context.Context, activityID string, star
 	}
 	return exists, nil
 }
+
+// ResetSoftRejectedLiftCandidates clears the rejected_by_user flag on every
+// lift candidate that belongs to the authenticated user. Returns the number of
+// rows cleared and the number of distinct activities affected. Multi-tenant:
+// the JOIN ensures only rows owned by userID are touched.
+func (db *DB) ResetSoftRejectedLiftCandidates(ctx context.Context, userID string) (cleared int, activities int, err error) {
+	row := db.Pool.QueryRow(ctx, `
+		WITH updated AS (
+			UPDATE activity_lift_candidates alc
+			SET    rejected_by_user = false
+			FROM   activities a
+			WHERE  alc.activity_id = a.id
+			  AND  a.user_id       = $1
+			  AND  alc.rejected_by_user = true
+			RETURNING alc.activity_id
+		)
+		SELECT COUNT(*) AS cleared, COUNT(DISTINCT activity_id) AS activities
+		FROM   updated
+	`, userID)
+	if err := row.Scan(&cleared, &activities); err != nil {
+		return 0, 0, fmt.Errorf("reset soft-rejected lift candidates: %w", err)
+	}
+	return cleared, activities, nil
+}

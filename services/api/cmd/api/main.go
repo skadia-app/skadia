@@ -1501,6 +1501,7 @@ func main() {
 			r.Get("/activities/{id}/lift-candidates", h.GetLiftCandidates)
 			r.Post("/activities/{id}/lift-candidates/{cid}/confirm", h.ConfirmLiftCandidate)
 			r.Delete("/activities/{id}/lift-candidates/{cid}", h.RejectLiftCandidate)
+			r.Post("/lifts/recalculate-all", h.RecalculateLifts)
 
 			// Track Editor
 			r.Get("/activities/{id}/edits", h.GetActivityEdits)
