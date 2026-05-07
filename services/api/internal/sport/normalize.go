@@ -3,6 +3,7 @@ package sport
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -58,17 +59,12 @@ func hasConcreteSubType(subType string) bool {
 }
 
 func ApplyModifierPatch(values ModifierValues, patch ModifierPatch) ModifierValues {
-	if patch.IsElectric != nil {
-		values.IsElectric = *patch.IsElectric
-	}
-	if patch.IsIndoor != nil {
-		values.IsIndoor = *patch.IsIndoor
-	}
-	if patch.IsVirtual != nil {
-		values.IsVirtual = *patch.IsVirtual
-	}
-	if patch.IsCommute != nil {
-		values.IsCommute = *patch.IsCommute
+	for _, key := range SportModifierKeysWithCapability("modifier_patch") {
+		value := modifierPatchValue(patch, key)
+		if value == nil {
+			continue
+		}
+		setModifierValuesValue(&values, key, *value)
 	}
 	return values
 }
@@ -464,8 +460,8 @@ func normalizeCanonicalTuple(sportType, subType string) (Tuple, ModifierPatch, e
 
 func modifierDefaultsToPatch(defaults ModifierDefaults) ModifierPatch {
 	var patch ModifierPatch
-	if defaults.IsIndoor != nil {
-		patch.IsIndoor = boolPtr(*defaults.IsIndoor)
+	for key, value := range defaults {
+		SetModifierPatchValue(&patch, key, boolPtr(value))
 	}
 	return patch
 }
@@ -487,34 +483,25 @@ func NormalizeSportTupleForImport(sportType, subType string) (Tuple, ModifierPat
 }
 
 func mergeModifierPatch(a, b ModifierPatch) ModifierPatch {
-	if b.IsElectric != nil {
-		a.IsElectric = b.IsElectric
-	}
-	if b.IsIndoor != nil {
-		a.IsIndoor = b.IsIndoor
-	}
-	if b.IsVirtual != nil {
-		a.IsVirtual = b.IsVirtual
-	}
-	if b.IsCommute != nil {
-		a.IsCommute = b.IsCommute
+	for _, key := range SportModifierKeysWithCapability("modifier_patch") {
+		if value := modifierPatchValue(b, key); value != nil {
+			SetModifierPatchValue(&a, key, value)
+		}
 	}
 	return a
 }
 
 func modifierPatchValue(patch ModifierPatch, key string) *bool {
-	switch key {
-	case "is_electric":
-		return patch.IsElectric
-	case "is_indoor":
-		return patch.IsIndoor
-	case "is_virtual":
-		return patch.IsVirtual
-	case "is_commute":
-		return patch.IsCommute
-	default:
+	field, ok := modifierGoField(key)
+	if !ok {
 		return nil
 	}
+	value := reflect.ValueOf(patch).FieldByName(field)
+	if !value.IsValid() || value.IsNil() {
+		return nil
+	}
+	out, _ := value.Interface().(*bool)
+	return out
 }
 
 func ModifierPatchValue(patch ModifierPatch, key string) *bool {
@@ -525,34 +512,50 @@ func SetModifierPatchValue(patch *ModifierPatch, key string, value *bool) bool {
 	if patch == nil {
 		return false
 	}
-	switch key {
-	case "is_electric":
-		patch.IsElectric = value
-	case "is_indoor":
-		patch.IsIndoor = value
-	case "is_virtual":
-		patch.IsVirtual = value
-	case "is_commute":
-		patch.IsCommute = value
-	default:
+	field, ok := modifierGoField(key)
+	if !ok {
 		return false
 	}
+	target := reflect.ValueOf(patch).Elem().FieldByName(field)
+	if !target.IsValid() || !target.CanSet() {
+		return false
+	}
+	if value == nil {
+		target.Set(reflect.Zero(target.Type()))
+		return true
+	}
+	target.Set(reflect.ValueOf(value))
 	return true
 }
 
 func ModifierValuesValue(values ModifierValues, key string) bool {
-	switch key {
-	case "is_electric":
-		return values.IsElectric
-	case "is_indoor":
-		return values.IsIndoor
-	case "is_virtual":
-		return values.IsVirtual
-	case "is_commute":
-		return values.IsCommute
-	default:
+	field, ok := modifierGoField(key)
+	if !ok {
 		return false
 	}
+	value := reflect.ValueOf(values).FieldByName(field)
+	return value.IsValid() && value.Kind() == reflect.Bool && value.Bool()
+}
+
+func setModifierValuesValue(values *ModifierValues, key string, value bool) bool {
+	field, ok := modifierGoField(key)
+	if values == nil || !ok {
+		return false
+	}
+	target := reflect.ValueOf(values).Elem().FieldByName(field)
+	if !target.IsValid() || !target.CanSet() || target.Kind() != reflect.Bool {
+		return false
+	}
+	target.SetBool(value)
+	return true
+}
+
+func modifierGoField(key string) (string, bool) {
+	modifier, ok := SportModifierByKey(key)
+	if !ok || !SportModifierHasCapability(key, "modifier_patch") {
+		return "", false
+	}
+	return modifier.GoField, true
 }
 
 func boolPtr(v bool) *bool {

@@ -82,8 +82,10 @@ func recordGroupForActivityWithModifierPresence(sportType, subType string, isInd
 
 func resolveRecordModifierDefaults(sportType, subType string, isIndoor, isVirtual, isElectric bool, explicitIndoor, explicitVirtual, explicitElectric bool) (bool, bool, bool) {
 	defaults := sport.ModifierDefaultsForTuple(sportType, subType)
-	if !explicitIndoor && defaults.IsIndoor != nil {
-		isIndoor = *defaults.IsIndoor
+	if !explicitIndoor {
+		if value, ok := defaults["is_indoor"]; ok {
+			isIndoor = value
+		}
 	}
 	return isIndoor, isVirtual, isElectric
 }

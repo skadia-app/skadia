@@ -1,6 +1,7 @@
 package sidecar
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -24,13 +25,11 @@ func TestGenerateMetaFullUsesFinalActivityTupleAndCommuteFlag(t *testing.T) {
 		Title:         &title,
 		SportType:     "cycling",
 		SubType:       &subType,
-		IsCommute:     true,
-		IsIndoor:      true,
-		IsElectric:    true,
 		Visibility:    "private",
 		CreatedAt:     time.Date(2026, 5, 1, 10, 1, 0, 0, time.UTC),
 		TitleIsManual: true,
 	}
+	setGeneratedModifierFields(t, activity, true)
 
 	meta := GenerateMetaFull("act-1", data, activity)
 
@@ -40,12 +39,17 @@ func TestGenerateMetaFullUsesFinalActivityTupleAndCommuteFlag(t *testing.T) {
 	if meta.Title != "Final Activity Title" {
 		t.Fatalf("meta.Title = %q, want final manual activity title", meta.Title)
 	}
-	if !meta.IsCommute {
-		t.Fatal("meta.IsCommute = false, want true")
+	for _, key := range sport.SportModifierKeysWithCapability("activity_state") {
+		modifier, _ := sport.SportModifierByKey(key)
+		if !reflect.ValueOf(meta).Elem().FieldByName(modifier.GoField).Bool() {
+			t.Fatalf("meta.%s = false, want true", modifier.GoField)
+		}
 	}
-	if !meta.IsIndoor || !meta.IsElectric {
-		t.Fatalf("meta modifiers indoor/electric = %v/%v, want true/true", meta.IsIndoor, meta.IsElectric)
-	}
+}
+
+func TestSidecarActivityStateModifiersRoundTripThroughJSON(t *testing.T) {
+	assertModifierJSONRoundTrip(t, &MetaFile{})
+	assertModifierJSONRoundTrip(t, &ManualActivityFile{})
 }
 
 func TestSidecarModifierFieldsMatchGeneratedActivityStateMetadata(t *testing.T) {
@@ -72,5 +76,38 @@ func assertSidecarModifierField(t *testing.T, typ reflect.Type, fieldName, jsonK
 	}
 	if got := field.Tag.Get("json"); got == "" || len(got) < len(jsonKey) || got[:len(jsonKey)] != jsonKey {
 		t.Fatalf("%s.%s json tag = %q, want %q", typ.Name(), fieldName, got, jsonKey)
+	}
+}
+
+func assertModifierJSONRoundTrip(t *testing.T, value any) {
+	t.Helper()
+	for _, key := range sport.SportModifierKeysWithCapability("activity_state") {
+		modifier, _ := sport.SportModifierByKey(key)
+		original := reflect.New(reflect.TypeOf(value).Elem()).Interface()
+		reflect.ValueOf(original).Elem().FieldByName(modifier.GoField).SetBool(true)
+		data, err := json.Marshal(original)
+		if err != nil {
+			t.Fatalf("marshal %T: %v", original, err)
+		}
+		decoded := reflect.New(reflect.TypeOf(value).Elem()).Interface()
+		if err := json.Unmarshal(data, decoded); err != nil {
+			t.Fatalf("unmarshal %T: %v", decoded, err)
+		}
+		if !reflect.ValueOf(decoded).Elem().FieldByName(modifier.GoField).Bool() {
+			t.Fatalf("%T.%s did not round-trip through JSON", decoded, modifier.GoField)
+		}
+	}
+}
+
+func setGeneratedModifierFields(t *testing.T, value any, selected bool) {
+	t.Helper()
+	target := reflect.ValueOf(value).Elem()
+	for _, key := range sport.SportModifierKeysWithCapability("activity_state") {
+		modifier, _ := sport.SportModifierByKey(key)
+		field := target.FieldByName(modifier.GoField)
+		if !field.IsValid() || !field.CanSet() || field.Kind() != reflect.Bool {
+			t.Fatalf("%T missing settable bool field %s", value, modifier.GoField)
+		}
+		field.SetBool(selected)
 	}
 }

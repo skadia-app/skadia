@@ -51,16 +51,9 @@ type Traits struct {
 	PropulsionModes   []string `yaml:"propulsion_modes"`
 }
 
-type ModifierApplicability struct {
-	IsElectric *bool `yaml:"is_electric"`
-	IsIndoor   *bool `yaml:"is_indoor"`
-	IsVirtual  *bool `yaml:"is_virtual"`
-	IsCommute  *bool `yaml:"is_commute"`
-}
+type ModifierApplicability map[string]bool
 
-type ModifierDefaults struct {
-	IsIndoor *bool `yaml:"is_indoor"`
-}
+type ModifierDefaults map[string]bool
 
 type SubType struct {
 	SubType          string            `yaml:"sub_type"`
@@ -168,11 +161,13 @@ func validateTaxonomy(t Taxonomy) error {
 		if s.ModifierApplicability == nil {
 			return fmt.Errorf("sport %q: missing modifier_applicability", s.SportType)
 		}
-		if s.ModifierApplicability.IsElectric == nil ||
-			s.ModifierApplicability.IsIndoor == nil ||
-			s.ModifierApplicability.IsVirtual == nil ||
-			s.ModifierApplicability.IsCommute == nil {
+		if len(*s.ModifierApplicability) == 0 {
 			return fmt.Errorf("sport %q: incomplete modifier_applicability", s.SportType)
+		}
+		for key := range *s.ModifierApplicability {
+			if !modifierIdentifierPattern.MatchString(key) {
+				return fmt.Errorf("sport %q: invalid modifier_applicability key %q", s.SportType, key)
+			}
 		}
 		if err := validateModifierDefaults(s, s.ModifierDefaults, fmt.Sprintf("sport %q", s.SportType)); err != nil {
 			return err
@@ -219,11 +214,73 @@ func validateModifierDefaults(s Sport, defaults *ModifierDefaults, context strin
 	if defaults == nil {
 		return nil
 	}
-	if defaults.IsIndoor == nil {
+	if len(*defaults) == 0 {
 		return fmt.Errorf("%s: empty modifier_defaults", context)
 	}
-	if s.ModifierApplicability == nil || s.ModifierApplicability.IsIndoor == nil || !*s.ModifierApplicability.IsIndoor {
-		return fmt.Errorf("%s: modifier_defaults.is_indoor requires modifier_applicability.is_indoor=true", context)
+	for key := range *defaults {
+		if !modifierIdentifierPattern.MatchString(key) {
+			return fmt.Errorf("%s: invalid modifier_defaults key %q", context, key)
+		}
+		if s.ModifierApplicability == nil || !(*s.ModifierApplicability)[key] {
+			return fmt.Errorf("%s: modifier_defaults.%s requires modifier_applicability.%s=true", context, key, key)
+		}
+	}
+	return nil
+}
+
+func ValidateTaxonomyModifierRegistry(t Taxonomy, modifiers ModifierRegistry) error {
+	known := map[string]ModifierDefinition{}
+	for _, modifier := range modifiers.Modifiers {
+		known[modifier.Key] = modifier
+	}
+	for _, sport := range t.Sports {
+		if err := validateModifierApplicabilityAgainstRegistry(sport.ModifierApplicability, known, fmt.Sprintf("sport %q", sport.SportType)); err != nil {
+			return err
+		}
+		if err := validateModifierDefaultsAgainstRegistry(sport.ModifierDefaults, sport.ModifierApplicability, known, fmt.Sprintf("sport %q", sport.SportType)); err != nil {
+			return err
+		}
+		for _, subType := range sport.SubTypes {
+			if err := validateModifierDefaultsAgainstRegistry(subType.ModifierDefaults, sport.ModifierApplicability, known, fmt.Sprintf("sport %q/%q", sport.SportType, subType.SubType)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateModifierApplicabilityAgainstRegistry(applicability *ModifierApplicability, known map[string]ModifierDefinition, context string) error {
+	if applicability == nil {
+		return fmt.Errorf("%s: missing modifier_applicability", context)
+	}
+	for key := range known {
+		if _, ok := (*applicability)[key]; !ok {
+			return fmt.Errorf("%s: missing modifier_applicability.%s", context, key)
+		}
+	}
+	for key := range *applicability {
+		if _, ok := known[key]; !ok {
+			return fmt.Errorf("%s: unknown modifier_applicability.%s", context, key)
+		}
+	}
+	return nil
+}
+
+func validateModifierDefaultsAgainstRegistry(defaults *ModifierDefaults, applicability *ModifierApplicability, known map[string]ModifierDefinition, context string) error {
+	if defaults == nil {
+		return nil
+	}
+	for key := range *defaults {
+		modifier, ok := known[key]
+		if !ok {
+			return fmt.Errorf("%s: unknown modifier_defaults.%s", context, key)
+		}
+		if !modifier.Capabilities.Enabled("taxonomy_default") {
+			return fmt.Errorf("%s: modifier_defaults.%s requires modifier capability taxonomy_default", context, key)
+		}
+		if applicability == nil || !(*applicability)[key] {
+			return fmt.Errorf("%s: modifier_defaults.%s requires modifier_applicability.%s=true", context, key, key)
+		}
 	}
 	return nil
 }

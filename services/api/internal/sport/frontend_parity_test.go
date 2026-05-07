@@ -22,7 +22,16 @@ func TestGeneratedFrontendTaxonomyIsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load sports.yaml: %v", err)
 	}
-	got, err := sporttaxgen.RenderTS(taxonomy, source)
+	modifierFile, err := os.Open("../../../../config/sport-taxonomy/modifiers.yaml")
+	if err != nil {
+		t.Fatalf("open modifiers.yaml: %v", err)
+	}
+	defer modifierFile.Close()
+	modifiers, err := sporttaxgen.LoadModifiers(modifierFile)
+	if err != nil {
+		t.Fatalf("load modifiers.yaml: %v", err)
+	}
+	got, err := sporttaxgen.RenderTS(taxonomy, source, modifiers)
 	if err != nil {
 		t.Fatalf("render generated frontend taxonomy: %v", err)
 	}

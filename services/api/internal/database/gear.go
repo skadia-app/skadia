@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -887,21 +888,31 @@ func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 }
 
 func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationRule, error) {
-	rows, err := db.Pool.Query(ctx,
-		`SELECT ar.id, ar.user_id, ar.name, ar.is_active, ar.priority,
-		        ar.conditions, ar.conditions_logic, ar.condition_groups, ar.actions,
-			        CASE
-				            WHEN ar.system_type = 'electric_sync'    THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = $2 LIMIT 1), 0)
-				            WHEN ar.system_type = 'indoor_sync'      THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = $3 LIMIT 1), 0)
-				            WHEN ar.system_type = 'virtual_sync'     THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = $4 LIMIT 1), 0)
-				            ELSE ar.times_applied
-				        END,
-			        ar.created_at, ar.is_system, ar.system_type,
-			        ar.trigger_event, ar.stop_on_match, ar.apply_retroactively,
-			        ar.last_evaluated_at, ar.last_matched_count, ar.branches
-			 FROM automation_rules ar WHERE ar.user_id = $1 ORDER BY ar.priority, ar.name`,
-		userID, systemTagNameEBike, systemTagNameIndoor, systemTagNameVirtual,
-	)
+	readonlySyncs := readonlySystemModifierTagSyncs()
+	args := []any{userID}
+	caseParts := make([]string, 0, len(readonlySyncs))
+	for _, sync := range readonlySyncs {
+		systemTypeParam := len(args) + 1
+		args = append(args, sync.SystemType)
+		tagNameParam := len(args) + 1
+		args = append(args, sync.SystemTagName)
+		caseParts = append(caseParts, fmt.Sprintf(
+			"WHEN ar.system_type = $%d THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = $%d LIMIT 1), 0)",
+			systemTypeParam, tagNameParam,
+		))
+	}
+	timesAppliedExpr := "ar.times_applied"
+	if len(caseParts) > 0 {
+		timesAppliedExpr = "CASE " + strings.Join(caseParts, " ") + " ELSE ar.times_applied END"
+	}
+	query := fmt.Sprintf(`SELECT ar.id, ar.user_id, ar.name, ar.is_active, ar.priority,
+			        ar.conditions, ar.conditions_logic, ar.condition_groups, ar.actions,
+				        %s,
+				        ar.created_at, ar.is_system, ar.system_type,
+				        ar.trigger_event, ar.stop_on_match, ar.apply_retroactively,
+				        ar.last_evaluated_at, ar.last_matched_count, ar.branches
+				 FROM automation_rules ar WHERE ar.user_id = $1 ORDER BY ar.priority, ar.name`, timesAppliedExpr)
+	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list rules: %w", err)
 	}
@@ -1102,12 +1113,12 @@ func isReadonlySyncRuleType(systemType *string) bool {
 	if systemType == nil {
 		return false
 	}
-	switch *systemType {
-	case "electric_sync", "indoor_sync", "virtual_sync":
-		return true
-	default:
-		return false
+	for _, sync := range readonlySystemModifierTagSyncs() {
+		if *systemType == sync.SystemType {
+			return true
+		}
 	}
+	return false
 }
 
 func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {

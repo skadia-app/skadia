@@ -22,8 +22,12 @@ modifiers:
       record_grouping: true
       shadowfs_label: true
       quick_edit: true
+      taxonomy_default: false
     tag_sync:
       system_tag: E-Bike
+      color: "#16A34A"
+      description: Automatisch bei elektrischen Radfahrten
+      readonly_sync: true
       only_sport_type: cycling
       label_context: cycling
 
@@ -50,8 +54,12 @@ modifiers:
       record_grouping: true
       shadowfs_label: true
       quick_edit: true
+      taxonomy_default: true
     tag_sync:
       system_tag: Indoor
+      color: "#3B82F6"
+      description: Automatisch bei Indoor-Aktivitäten
+      readonly_sync: true
 
   - key: is_virtual
     labels: {de: Virtuell}
@@ -76,8 +84,12 @@ modifiers:
       record_grouping: true
       shadowfs_label: true
       quick_edit: true
+      taxonomy_default: false
     tag_sync:
       system_tag: virtuell
+      color: "#8B5CF6"
+      description: Automatisch bei virtuellen Aktivitäten
+      readonly_sync: true
 
   - key: is_commute
     labels: {de: Pendeln}
@@ -102,5 +114,9 @@ modifiers:
       record_grouping: false
       shadowfs_label: true
       quick_edit: false
+      taxonomy_default: false
     tag_sync:
       system_tag: Pendeln
+      color: "#6B7280"
+      description: Automatisch bei Pendel-Aktivitäten
+      readonly_sync: false

@@ -63,14 +63,9 @@
           "selectable": { "type": "boolean" },
           "modifier_applicability": {
             "type": "object",
-            "additionalProperties": false,
-            "required": ["is_electric", "is_indoor", "is_virtual", "is_commute"],
-            "properties": {
-              "is_electric": { "type": "boolean" },
-              "is_indoor": { "type": "boolean" },
-              "is_virtual": { "type": "boolean" },
-              "is_commute": { "type": "boolean" }
-            }
+            "additionalProperties": { "type": "boolean" },
+            "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+            "minProperties": 1
           },
           "modifier_defaults": { "$ref": "#/$defs/modifierDefaults" },
           "sub_types": {
@@ -106,11 +101,9 @@
     },
     "modifierDefaults": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["is_indoor"],
-      "properties": {
-        "is_indoor": { "type": "boolean" }
-      }
+      "additionalProperties": { "type": "boolean" },
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "minProperties": 1
     },
     "traits": {
       "type": "object",

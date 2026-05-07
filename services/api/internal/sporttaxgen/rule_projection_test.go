@@ -196,7 +196,7 @@ func minimalRuleProjectionTaxonomy(t *testing.T) Taxonomy {
 				Lifecycle:             "canonical",
 				Traits:                Traits{Environments: []string{"land"}, MovementFamilies: []string{"run"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
 				SubTypes:              []SubType{{SubType: "trail", Labels: LocaleMap{"de": "Trail"}, Details: LocaleMap{"de": "Trail"}, AutoTitles: LocaleMap{"de": "Trail"}, Selectable: boolPtr(true)}},
-				ModifierApplicability: &ModifierApplicability{IsElectric: boolPtr(false), IsIndoor: boolPtr(true), IsVirtual: boolPtr(true), IsCommute: boolPtr(true)},
+				ModifierApplicability: modifierApplicability(false, true, true, true),
 			},
 			{
 				SportType:             "cycling",
@@ -208,7 +208,7 @@ func minimalRuleProjectionTaxonomy(t *testing.T) Taxonomy {
 				Lifecycle:             "canonical",
 				Traits:                Traits{Environments: []string{"land"}, MovementFamilies: []string{"pedal"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
 				SubTypes:              []SubType{{SubType: "mountain", Labels: LocaleMap{"de": "MTB"}, Details: LocaleMap{"de": "MTB"}, AutoTitles: LocaleMap{"de": "MTB"}, Selectable: boolPtr(true)}},
-				ModifierApplicability: &ModifierApplicability{IsElectric: boolPtr(true), IsIndoor: boolPtr(true), IsVirtual: boolPtr(true), IsCommute: boolPtr(true)},
+				ModifierApplicability: modifierApplicability(true, true, true, true),
 			},
 			{
 				SportType:             "training",
@@ -219,7 +219,7 @@ func minimalRuleProjectionTaxonomy(t *testing.T) Taxonomy {
 				Selectable:            boolPtr(false),
 				Lifecycle:             "broad_fallback",
 				Traits:                Traits{Environments: []string{"indoor"}, MovementFamilies: []string{"generic"}, ActivityForm: "fallback", PropulsionModes: []string{"human"}},
-				ModifierApplicability: &ModifierApplicability{IsElectric: boolPtr(false), IsIndoor: boolPtr(true), IsVirtual: boolPtr(false), IsCommute: boolPtr(false)},
+				ModifierApplicability: modifierApplicability(false, true, false, false),
 			},
 			{
 				SportType:             "stand_up_paddleboarding",
@@ -230,7 +230,7 @@ func minimalRuleProjectionTaxonomy(t *testing.T) Taxonomy {
 				Selectable:            boolPtr(true),
 				Lifecycle:             "canonical",
 				Traits:                Traits{Environments: []string{"water"}, MovementFamilies: []string{"paddle"}, EquipmentFamilies: []string{"board", "paddle"}, ActivityForm: "single", PropulsionModes: []string{"human"}},
-				ModifierApplicability: &ModifierApplicability{IsElectric: boolPtr(false), IsIndoor: boolPtr(false), IsVirtual: boolPtr(false), IsCommute: boolPtr(false)},
+				ModifierApplicability: modifierApplicability(false, false, false, false),
 			},
 			{
 				SportType:             "unknown",
@@ -241,10 +241,20 @@ func minimalRuleProjectionTaxonomy(t *testing.T) Taxonomy {
 				Selectable:            boolPtr(false),
 				Lifecycle:             "canonical",
 				Traits:                Traits{Environments: []string{"generic"}, MovementFamilies: []string{"generic"}, EquipmentFamilies: []string{"generic"}, ActivityForm: "system", PropulsionModes: []string{"generic"}},
-				ModifierApplicability: &ModifierApplicability{IsElectric: boolPtr(false), IsIndoor: boolPtr(false), IsVirtual: boolPtr(false), IsCommute: boolPtr(false)},
+				ModifierApplicability: modifierApplicability(false, false, false, false),
 			},
 		},
 	}
 	applyTaxonomyDefaults(&taxonomy)
 	return taxonomy
+}
+
+func modifierApplicability(isElectric, isIndoor, isVirtual, isCommute bool) *ModifierApplicability {
+	applicability := ModifierApplicability{
+		"is_electric": isElectric,
+		"is_indoor":   isIndoor,
+		"is_virtual":  isVirtual,
+		"is_commute":  isCommute,
+	}
+	return &applicability
 }

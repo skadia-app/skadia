@@ -56,6 +56,7 @@ func TestLoadModifiersAcceptsCanonicalRegistry(t *testing.T) {
 	assertCapabilityKeys(t, registry, "gear_default", []string{"is_electric", "is_indoor", "is_virtual"})
 	assertCapabilityKeys(t, registry, "record_grouping", []string{"is_electric", "is_indoor", "is_virtual"})
 	assertCapabilityKeys(t, registry, "heatmap_filter", []string{"is_electric", "is_commute"})
+	assertCapabilityKeys(t, registry, "taxonomy_default", []string{"is_indoor"})
 }
 
 func TestLoadModifiersRejectsDuplicateKeys(t *testing.T) {
@@ -81,9 +82,10 @@ modifiers:
       route_filter: true
       heatmap_filter: true
       gear_default: true
-      record_grouping: true
-      shadowfs_label: true
-      quick_edit: true
+	      record_grouping: true
+	      shadowfs_label: true
+	      quick_edit: true
+	      taxonomy_default: false
   - key: is_electric
     labels: {de: E-Antrieb 2}
     go_field: IsElectric
@@ -122,10 +124,10 @@ modifiers:
 	}
 }
 
-func TestLoadModifiersRejectsInvalidTagSync(t *testing.T) {
-	_, err := LoadModifiers(strings.NewReader(strings.Replace(validModifierRegistryFixture(), "only_sport_type: cycling", "only_sport_type: running", 1)))
+func TestLoadModifiersRejectsScopedTagSyncWithoutLabelContext(t *testing.T) {
+	_, err := LoadModifiers(strings.NewReader(strings.Replace(validModifierRegistryFixture(), "      label_context: cycling\n", "", 1)))
 	if err == nil {
-		t.Fatal("LoadModifiers accepted unscoped is_electric tag_sync drift")
+		t.Fatal("LoadModifiers accepted scoped tag_sync without label_context")
 	}
 }
 

@@ -133,10 +133,7 @@ func normalizeActionMaps(actions []ruleActionMap, tagNameByID map[string]string)
 					if !systemTagAppliesToModifier(modifier, tagName, cyclingActionContext) {
 						continue
 					}
-					state := states[modifier.Action]
-					if !state.seen {
-						state = states[modifier.Field]
-					}
+					state := states[modifier.Field]
 					if actionName == "add_tag" && state.seen && state.value {
 						goto skipAction
 					}

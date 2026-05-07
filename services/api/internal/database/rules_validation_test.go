@@ -111,9 +111,9 @@ func TestListRulesUsesSystemTagCountsForReadonlySyncRules(t *testing.T) {
 		systemType string
 		count      int
 	}{
-		{name: systemTagNameEBike, systemType: "electric_sync", count: 11},
-		{name: systemTagNameIndoor, systemType: "indoor_sync", count: 22},
-		{name: systemTagNameVirtual, systemType: "virtual_sync", count: 33},
+		{name: systemTagNameForModifier("is_electric"), systemType: "electric_sync", count: 11},
+		{name: systemTagNameForModifier("is_indoor"), systemType: "indoor_sync", count: 22},
+		{name: systemTagNameForModifier("is_virtual"), systemType: "virtual_sync", count: 33},
 	} {
 		if _, err := db.Pool.Exec(ctx, `
 			INSERT INTO tags (user_id, name, color, text_color, category, is_system, activity_count)

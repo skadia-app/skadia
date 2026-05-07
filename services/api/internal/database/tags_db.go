@@ -403,12 +403,11 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 	}
 
 	for _, sync := range systemModifierTagSyncs() {
-		color, description := systemModifierTagStyle(sync.ModifierKey)
 		if _, err := db.Pool.Exec(ctx, `
 			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
 			VALUES ($1, $2, $3, '#FFFFFF', 'system', true, false, $4)
 			ON CONFLICT (user_id, name) DO NOTHING`,
-			userID, sync.SystemTagName, color, description,
+			userID, sync.SystemTagName, sync.Color, sync.Description,
 		); err != nil {
 			return fmt.Errorf("seed %s tag: %w", sync.SystemTagName, err)
 		}

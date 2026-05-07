@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"sort"
 	"strings"
 )
 
-func RenderTS(t Taxonomy, source []byte) ([]byte, error) {
+func RenderTS(t Taxonomy, source []byte, modifiers ModifierRegistry) ([]byte, error) {
 	var buf bytes.Buffer
 	sum := sha256.Sum256(source)
 
@@ -35,7 +36,11 @@ func RenderTS(t Taxonomy, source []byte) ([]byte, error) {
 		fmt.Fprintf(&buf, "    selectable: %t,\n", *s.Selectable)
 		fmt.Fprintf(&buf, "    traits: %s,\n", tsTraits(s.Traits))
 		if defaults := effectiveSportModifierDefaults(s); defaults != nil {
-			fmt.Fprintf(&buf, "    modifierDefaults: %s,\n", tsModifierDefaults(defaults))
+			rendered, err := tsModifierDefaults(defaults, modifiers)
+			if err != nil {
+				return nil, fmt.Errorf("sport %q modifier defaults: %w", s.SportType, err)
+			}
+			fmt.Fprintf(&buf, "    modifierDefaults: %s,\n", rendered)
 		}
 		if len(s.SubTypes) > 0 {
 			buf.WriteString("    subTypes: [\n")
@@ -46,7 +51,11 @@ func RenderTS(t Taxonomy, source []byte) ([]byte, error) {
 				}
 				fmt.Fprintf(&buf, ", traits: %s", tsTraits(EffectiveSubTypeTraits(s, st)))
 				if st.ModifierDefaults != nil {
-					fmt.Fprintf(&buf, ", modifierDefaults: %s", tsModifierDefaults(st.ModifierDefaults))
+					rendered, err := tsModifierDefaults(st.ModifierDefaults, modifiers)
+					if err != nil {
+						return nil, fmt.Errorf("sport %q/%q modifier defaults: %w", s.SportType, st.SubType, err)
+					}
+					fmt.Fprintf(&buf, ", modifierDefaults: %s", rendered)
 				}
 				buf.WriteString(" },\n")
 			}
@@ -82,15 +91,24 @@ func tsTraits(traits Traits) string {
 	)
 }
 
-func tsModifierDefaults(defaults *ModifierDefaults) string {
+func tsModifierDefaults(defaults *ModifierDefaults, modifiers ModifierRegistry) (string, error) {
 	if defaults == nil {
-		return "{}"
+		return "{}", nil
 	}
 	parts := []string{}
-	if defaults.IsIndoor != nil {
-		parts = append(parts, fmt.Sprintf("isIndoor: %t", *defaults.IsIndoor))
+	keys := make([]string, 0, len(*defaults))
+	for key := range *defaults {
+		keys = append(keys, key)
 	}
-	return "{ " + strings.Join(parts, ", ") + " }"
+	sort.Strings(keys)
+	for _, key := range keys {
+		modifier, ok := modifiers.ModifierByKey(key)
+		if !ok {
+			return "", fmt.Errorf("unknown modifier default %q", key)
+		}
+		parts = append(parts, fmt.Sprintf("%s: %t", modifier.TSField, (*defaults)[key]))
+	}
+	return "{ " + strings.Join(parts, ", ") + " }", nil
 }
 
 func tsStringArray(values []string) string {
@@ -134,6 +152,9 @@ func RenderTSModifiers(registry ModifierRegistry) ([]byte, error) {
 		fmt.Fprintf(&buf, "    capabilities: %s,\n", tsModifierCapabilities(modifier.Capabilities))
 		if modifier.TagSync != nil {
 			fmt.Fprintf(&buf, "    tagSync: { systemTag: %s", tsString(modifier.TagSync.SystemTag))
+			fmt.Fprintf(&buf, ", color: %s", tsString(modifier.TagSync.Color))
+			fmt.Fprintf(&buf, ", description: %s", tsString(modifier.TagSync.Description))
+			fmt.Fprintf(&buf, ", readonlySync: %t", boolValue(modifier.TagSync.ReadonlySync))
 			if modifier.TagSync.OnlySportType != "" {
 				fmt.Fprintf(&buf, ", onlySportType: %s", tsString(modifier.TagSync.OnlySportType))
 			}
@@ -145,6 +166,7 @@ func RenderTSModifiers(registry ModifierRegistry) ([]byte, error) {
 		buf.WriteString("  },\n")
 	}
 	buf.WriteString("] as const\n")
+	buf.WriteString("\nexport type SportModifierTSField = typeof GENERATED_SPORT_MODIFIERS[number]['tsField']\n")
 
 	return buf.Bytes(), nil
 }

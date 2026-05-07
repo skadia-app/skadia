@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
+	"sort"
 )
 
 func RenderGo(t Taxonomy) ([]byte, error) {
@@ -91,11 +92,14 @@ func effectiveSportModifierDefaults(s Sport) *ModifierDefaults {
 	}
 	defaults := ModifierDefaults{}
 	if s.ModifierDefaults != nil {
-		defaults = *s.ModifierDefaults
+		for key, value := range *s.ModifierDefaults {
+			defaults[key] = value
+		}
 	}
-	if s.IsIndoor && defaults.IsIndoor == nil {
-		isIndoor := true
-		defaults.IsIndoor = &isIndoor
+	if s.IsIndoor {
+		if _, ok := defaults["is_indoor"]; !ok {
+			defaults["is_indoor"] = true
+		}
 	}
 	return &defaults
 }
@@ -106,8 +110,13 @@ func renderGoModifierDefaults(defaults *ModifierDefaults) string {
 	}
 	var buf bytes.Buffer
 	buf.WriteString("ModifierDefaults{")
-	if defaults.IsIndoor != nil {
-		fmt.Fprintf(&buf, "IsIndoor: ptrBool(%t),", *defaults.IsIndoor)
+	keys := make([]string, 0, len(*defaults))
+	for key := range *defaults {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		fmt.Fprintf(&buf, "%q: %t,", key, (*defaults)[key])
 	}
 	buf.WriteString("}")
 	return buf.String()
@@ -134,6 +143,9 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("}\n\n")
 	buf.WriteString("type SportModifierTagSync struct {\n")
 	buf.WriteString("\tSystemTag string\n")
+	buf.WriteString("\tColor string\n")
+	buf.WriteString("\tDescription string\n")
+	buf.WriteString("\tReadonlySync bool\n")
 	buf.WriteString("\tOnlySportType string\n")
 	buf.WriteString("\tLabelContext string\n")
 	buf.WriteString("}\n\n")
@@ -145,7 +157,7 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 		fmt.Fprintf(&buf, "\t\tActivityColumn: %q, ApplicabilitySource: %q, ActionName: %q, ActionParam: %q, ShadowFSToken: %q,\n", modifier.ActivityColumn, modifier.ApplicabilitySource, modifier.ActionName, modifier.ActionParam, modifier.ShadowFSToken)
 		fmt.Fprintf(&buf, "\t\tCapabilities: %s,\n", renderGoModifierCapabilities(modifier.Capabilities))
 		if modifier.TagSync != nil {
-			fmt.Fprintf(&buf, "\t\tTagSync: &SportModifierTagSync{SystemTag: %q, OnlySportType: %q, LabelContext: %q},\n", modifier.TagSync.SystemTag, modifier.TagSync.OnlySportType, modifier.TagSync.LabelContext)
+			fmt.Fprintf(&buf, "\t\tTagSync: &SportModifierTagSync{SystemTag: %q, Color: %q, Description: %q, ReadonlySync: %t, OnlySportType: %q, LabelContext: %q},\n", modifier.TagSync.SystemTag, modifier.TagSync.Color, modifier.TagSync.Description, boolValue(modifier.TagSync.ReadonlySync), modifier.TagSync.OnlySportType, modifier.TagSync.LabelContext)
 		}
 		buf.WriteString("\t},\n")
 	}
@@ -179,8 +191,12 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("}\n\n")
 
 	buf.WriteString("func SportModifierHasCapability(key, capability string) bool {\n")
-	buf.WriteString("\tmodifier, ok := SportModifierByKey(key)\n")
-	buf.WriteString("\treturn ok && modifier.Capabilities[capability]\n")
+	buf.WriteString("\tfor _, modifier := range generatedSportModifiers {\n")
+	buf.WriteString("\t\tif modifier.Key == key {\n")
+	buf.WriteString("\t\t\treturn modifier.Capabilities[capability]\n")
+	buf.WriteString("\t\t}\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("\treturn false\n")
 	buf.WriteString("}\n\n")
 
 	buf.WriteString("func SportModifierLabelDE(key string) string {\n")

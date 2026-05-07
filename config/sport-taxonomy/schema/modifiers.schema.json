@@ -35,7 +35,8 @@
         "gear_default",
         "record_grouping",
         "shadowfs_label",
-        "quick_edit"
+        "quick_edit",
+        "taxonomy_default"
       ],
       "properties": {
         "source_alias": {"type": "boolean"},
@@ -49,15 +50,19 @@
         "gear_default": {"type": "boolean"},
         "record_grouping": {"type": "boolean"},
         "shadowfs_label": {"type": "boolean"},
-        "quick_edit": {"type": "boolean"}
+        "quick_edit": {"type": "boolean"},
+        "taxonomy_default": {"type": "boolean"}
       }
     },
     "tagSync": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["system_tag"],
+      "required": ["system_tag", "color", "description", "readonly_sync"],
       "properties": {
         "system_tag": {"type": "string", "minLength": 1},
+        "color": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+        "description": {"type": "string", "minLength": 1},
+        "readonly_sync": {"type": "boolean"},
         "only_sport_type": {"type": "string", "minLength": 1},
         "label_context": {"type": "string", "minLength": 1}
       }
@@ -79,13 +84,13 @@
         "capabilities"
       ],
       "properties": {
-        "key": {"type": "string", "pattern": "^is_[a-z0-9_]+$"},
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
         "labels": {"$ref": "#/$defs/localeMap"},
         "go_field": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
         "ts_field": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
-        "json_key": {"type": "string", "pattern": "^is_[a-z0-9_]+$"},
-        "activity_column": {"type": "string", "pattern": "^is_[a-z0-9_]+$"},
-        "applicability_source": {"type": "string", "pattern": "^modifier_applicability\\.is_[a-z0-9_]+$"},
+        "json_key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "activity_column": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "applicability_source": {"type": "string", "pattern": "^modifier_applicability\\.[a-z][a-z0-9_]*$"},
         "action_name": {"type": "string", "pattern": "^set_[a-z0-9_]+$"},
         "action_param": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
         "shadowfs_token": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},

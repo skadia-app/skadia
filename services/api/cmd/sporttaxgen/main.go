@@ -130,6 +130,9 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load modifier registry: %w", err)
 	}
+	if err := sporttaxgen.ValidateTaxonomyModifierRegistry(taxonomy, modifierRegistry); err != nil {
+		return fmt.Errorf("validate taxonomy modifier registry: %w", err)
+	}
 	renderedGoModifiers, err := sporttaxgen.RenderGoModifiers(modifierRegistry)
 	if err != nil {
 		return fmt.Errorf("render Go modifiers: %w", err)
@@ -142,7 +145,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("render Go taxonomy: %w", err)
 	}
-	renderedTS, err := sporttaxgen.RenderTS(taxonomy, sourceBytes)
+	renderedTS, err := sporttaxgen.RenderTS(taxonomy, sourceBytes, modifierRegistry)
 	if err != nil {
 		return fmt.Errorf("render TypeScript taxonomy: %w", err)
 	}

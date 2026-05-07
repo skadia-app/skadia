@@ -496,18 +496,11 @@ func modifierApplicabilityForSource(sport Sport, source string) bool {
 	if sport.ModifierApplicability == nil {
 		return false
 	}
-	switch source {
-	case "modifier_applicability.is_electric":
-		return sport.ModifierApplicability.IsElectric != nil && *sport.ModifierApplicability.IsElectric
-	case "modifier_applicability.is_indoor":
-		return sport.ModifierApplicability.IsIndoor != nil && *sport.ModifierApplicability.IsIndoor
-	case "modifier_applicability.is_virtual":
-		return sport.ModifierApplicability.IsVirtual != nil && *sport.ModifierApplicability.IsVirtual
-	case "modifier_applicability.is_commute":
-		return sport.ModifierApplicability.IsCommute != nil && *sport.ModifierApplicability.IsCommute
-	default:
+	const prefix = "modifier_applicability."
+	if len(source) <= len(prefix) || source[:len(prefix)] != prefix {
 		return false
 	}
+	return (*sport.ModifierApplicability)[source[len(prefix):]]
 }
 
 func mustFindProjectionSport(taxonomy Taxonomy, sportType string) Sport {

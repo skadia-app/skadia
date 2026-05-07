@@ -186,28 +186,15 @@
             "additionalProperties": false,
             "required": ["key", "labels", "condition_applicable_from", "action_applicable_from", "render_existing"],
             "properties": {
-              "key": {
-                "type": "string",
-                "enum": ["is_electric", "is_indoor", "is_virtual", "is_commute"]
-              },
+              "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
               "labels": { "$ref": "#/$defs/localeMap" },
               "condition_applicable_from": {
                 "type": "string",
-                "enum": [
-                  "modifier_applicability.is_electric",
-                  "modifier_applicability.is_indoor",
-                  "modifier_applicability.is_virtual",
-                  "modifier_applicability.is_commute"
-                ]
+                "pattern": "^modifier_applicability\\.[a-z][a-z0-9_]*$"
               },
               "action_applicable_from": {
                 "type": "string",
-                "enum": [
-                  "modifier_applicability.is_electric",
-                  "modifier_applicability.is_indoor",
-                  "modifier_applicability.is_virtual",
-                  "modifier_applicability.is_commute"
-                ]
+                "pattern": "^modifier_applicability\\.[a-z][a-z0-9_]*$"
               },
               "render_existing": { "type": "boolean" }
             }

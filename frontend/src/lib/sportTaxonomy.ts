@@ -6,6 +6,7 @@ import { GENERATED_ACTIVITY_FILTER_PRESETS } from './generatedSportFilterProject
 import { GENERATED_LEGACY_ALIASES, GENERATED_LEGACY_SUBTYPE_ALIASES } from './generatedSportAliases'
 import { GENERATED_CATEGORIES, GENERATED_SPORT_DEFS } from './generatedSportTaxonomy'
 import { GENERATED_SEGMENT_PROJECTION } from './generatedSegmentProjections'
+import type { SportModifierTSField } from './generatedSportModifiers'
 
 // ── Types ────────────────────────────────────────────────────────────────────────
 
@@ -31,13 +32,9 @@ interface GeneratedTraits {
   readonly propulsionModes: readonly string[]
 }
 
-interface GeneratedModifierDefaults {
-  readonly isIndoor?: boolean
-}
+type GeneratedModifierDefaults = Partial<Record<SportModifierTSField, boolean>>
 
-export interface ModifierDefaults {
-  isIndoor?: boolean
-}
+export type ModifierDefaults = Partial<Record<SportModifierTSField, boolean>>
 
 export interface SubTypeDef {
   subType: string
@@ -66,11 +63,7 @@ export interface SportDef {
 export interface SportTuple {
   sportType: string
   subType: string
-  modifiers: {
-    isElectric?: boolean
-    isIndoor?: boolean
-    isVirtual?: boolean
-  }
+  modifiers: ModifierDefaults
 }
 
 export interface SportLabelOptions {

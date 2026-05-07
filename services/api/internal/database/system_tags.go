@@ -2,19 +2,15 @@ package database
 
 import "github.com/skadia-app/skadia/services/api/internal/sport"
 
-const (
-	systemTagNameEBike   = "E-Bike"
-	systemTagNameIndoor  = "Indoor"
-	systemTagNameVirtual = "virtuell"
-	systemTagNameCommute = "Pendeln"
-)
-
 type systemModifierTagSync struct {
 	ModifierKey   string
 	SystemTagName string
 	SystemType    string
 	RuleName      string
 	OnlySportType string
+	Color         string
+	Description   string
+	ReadonlySync  bool
 }
 
 func systemModifierTagSyncs() []systemModifierTagSync {
@@ -30,6 +26,9 @@ func systemModifierTagSyncs() []systemModifierTagSync {
 			SystemType:    modifier.ActionParam + "_sync",
 			RuleName:      systemRuleNameForModifierSync(modifier),
 			OnlySportType: modifier.TagSync.OnlySportType,
+			Color:         modifier.TagSync.Color,
+			Description:   modifier.TagSync.Description,
+			ReadonlySync:  modifier.TagSync.ReadonlySync,
 		})
 	}
 	return syncs
@@ -38,12 +37,21 @@ func systemModifierTagSyncs() []systemModifierTagSync {
 func readonlySystemModifierTagSyncs() []systemModifierTagSync {
 	syncs := []systemModifierTagSync{}
 	for _, sync := range systemModifierTagSyncs() {
-		if sync.ModifierKey == "is_commute" {
+		if !sync.ReadonlySync {
 			continue
 		}
 		syncs = append(syncs, sync)
 	}
 	return syncs
+}
+
+func systemTagNameForModifier(modifierKey string) string {
+	for _, sync := range systemModifierTagSyncs() {
+		if sync.ModifierKey == modifierKey {
+			return sync.SystemTagName
+		}
+	}
+	return ""
 }
 
 func systemRuleNameForModifierSync(modifier sport.SportModifierDef) string {
@@ -57,19 +65,4 @@ func systemRuleNameForModifierSync(modifier sport.SportModifierDef) string {
 		return modifier.Key
 	}
 	return modifier.TagSync.SystemTag
-}
-
-func systemModifierTagStyle(modifierKey string) (color string, description string) {
-	switch modifierKey {
-	case "is_electric":
-		return "#16A34A", "Automatisch bei elektrischen Radfahrten"
-	case "is_indoor":
-		return "#3B82F6", "Automatisch bei Indoor-Aktivitäten (Sync mit is_indoor)"
-	case "is_virtual":
-		return "#8B5CF6", "Automatisch bei virtuellen Aktivitäten (Sync mit is_virtual)"
-	case "is_commute":
-		return "#6B7280", "Automatisch bei Pendel-Aktivitäten (Sync mit is_commute)"
-	default:
-		return "#6B7280", "Automatisch synchronisiert"
-	}
 }
