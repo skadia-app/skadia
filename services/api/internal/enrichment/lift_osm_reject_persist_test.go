@@ -133,9 +133,12 @@ func TestEnrichStreamLifts_RejectedOSMSnap_NotReinserted(t *testing.T) {
 		t.Fatalf("insert streams: %v", err)
 	}
 
+	// Real osm_lifts schema (migrations 000068 + 000164): id (BIGSERIAL),
+	// osm_id, name, geom, source_region. way_id and aerialway never existed
+	// — the production loader (lift_enrich.go) only reads osm_id/name/geom.
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO osm_lifts (way_id, osm_id, name, aerialway, geom)
-		VALUES ($1, $1, $2, 'gondola', ST_GeomFromText($3, 4326))
+		INSERT INTO osm_lifts (osm_id, name, geom)
+		VALUES ($1, $2, ST_GeomFromText($3, 4326))
 	`, syntheticOSMID, "synthetic-osm-reject-test-lift", liftWKT); err != nil {
 		t.Fatalf("insert osm_lifts: %v", err)
 	}

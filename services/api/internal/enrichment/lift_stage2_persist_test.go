@@ -174,10 +174,13 @@ func TestEnrichStreamLifts_Stage2CableHoldMerge_Persists(t *testing.T) {
 	}
 
 	// Insert synthetic osm_lifts row + matching segment + segment_version
-	// so loadOSMLiftCandidates resolves a candidate.
+	// so loadOSMLiftCandidates resolves a candidate. Real osm_lifts schema
+	// (migrations 000068 + 000164): id, osm_id, name, geom, source_region —
+	// way_id and aerialway never existed; production loader reads only
+	// osm_id/name/geom.
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO osm_lifts (way_id, osm_id, name, aerialway, geom)
-		VALUES ($1, $1, $2, 'gondola', ST_GeomFromText($3, 4326))
+		INSERT INTO osm_lifts (osm_id, name, geom)
+		VALUES ($1, $2, ST_GeomFromText($3, 4326))
 	`, syntheticOSMID, "synthetic-stage2-test-lift", liftWKT); err != nil {
 		t.Fatalf("insert osm_lifts: %v", err)
 	}
