@@ -203,7 +203,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if fitResult.Status == "skipped" {
-			tracker.Skipped(r.Context(), "duplicate", nil)
+			tracker.Skipped(r.Context(), "duplicate", &fitResult.ActivityID)
 			httputil.WriteJSON(w, http.StatusOK, map[string]any{
 				"status":      "duplicate",
 				"activity_id": fitResult.ActivityID,
@@ -342,7 +342,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if gpxResult.Status == "skipped" {
-		tracker.Skipped(r.Context(), "duplicate", nil)
+		tracker.Skipped(r.Context(), "duplicate", &gpxResult.ActivityID)
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"status":      "duplicate",
 			"activity_id": gpxResult.ActivityID,

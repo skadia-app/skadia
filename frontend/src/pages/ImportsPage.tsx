@@ -24,6 +24,15 @@ import type { ImportLogEntry } from '@/api/imports'
 // Helpers
 // ---------------------------------------------------------------------------
 
+const IMPORT_ERROR_TRANSLATIONS: Record<string, string> = {
+  'processing timeout — server may have restarted':
+    'Verarbeitungs-Timeout — Server wurde möglicherweise neu gestartet',
+}
+
+function translateImportError(msg: string): string {
+  return IMPORT_ERROR_TRANSLATIONS[msg] ?? msg
+}
+
 function elapsedLabel(createdAt: string): string {
   const secs = Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000)
   if (secs < 60) return `vor ${secs}s`
@@ -521,7 +530,7 @@ function HistoryRow({ entry, isExpanded, onToggleExpand }: HistoryRowProps) {
             className="px-4 py-3 bg-red-50 dark:bg-red-950/20 border-t border-red-100 dark:border-red-900/30"
           >
             <p className="text-xs text-red-700 dark:text-red-400 font-mono break-all">
-              {entry.error_msg}
+              {translateImportError(entry.error_msg!)}
             </p>
           </td>
         </tr>
