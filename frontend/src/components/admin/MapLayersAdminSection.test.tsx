@@ -8,6 +8,7 @@ import { ToastProvider } from '@/lib/toast'
 import { ToastContainer } from '@/components/Toast'
 import { MapLayersAdminSection } from './MapLayersAdminSection'
 import type { MapLayer } from '@/api/mapLayers'
+import { ApiError } from '@/api/client'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -228,7 +229,7 @@ describe('MapLayersAdminSection', () => {
   })
 
   it('412 response shows outdated toast and invalidates query', async () => {
-    mockPatchMapLayer.mockRejectedValue(new Error('412 Precondition Failed'))
+    mockPatchMapLayer.mockRejectedValue(new ApiError(412, 'Precondition Failed'))
 
     render(<MapLayersAdminSection />, { wrapper: makeWrapper() })
     await waitFor(() => expect(screen.getByText('Mein Overlay')).toBeInTheDocument())
