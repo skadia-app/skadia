@@ -808,7 +808,28 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 		if doLifts {
 			// Phase 4d: preserve rejected rows across re-enrichment (user-authored audit traces).
-			geoBatch.Queue("DELETE FROM activity_lift_candidates WHERE activity_id = $1 AND NOT rejected_by_user", activityID)
+			// Defence-in-depth: EXISTS guard ties the delete to the owning user.
+			geoBatch.Queue(`DELETE FROM activity_lift_candidates
+				WHERE activity_id = $1 AND NOT rejected_by_user
+				AND EXISTS (SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id = $2)`,
+				activityID, userID)
+			n++
+			// Null out the segment_effort_id pointer on rejected rows before deleting
+			// the referenced segment_efforts rows, so no dangling UUID reference is left
+			// on user-authored audit traces.
+			geoBatch.Queue(`UPDATE activity_lift_candidates
+				SET segment_effort_id = NULL
+				WHERE activity_id = $1 AND rejected_by_user = true
+				AND EXISTS (SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id = $2)`,
+				activityID, userID)
+			n++
+			// Remove lift segment_efforts so ghost lift counts cannot accumulate across
+			// reprocess runs (candidates were just wiped above; efforts must go too).
+			geoBatch.Queue(`DELETE FROM segment_efforts
+				WHERE activity_id = $1
+				AND segment_id IN (SELECT id FROM segments WHERE segment_type = 'lift')
+				AND EXISTS (SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id = $2)`,
+				activityID, userID)
 			n++
 		}
 		// Surfaces: the worker (enrichTrackAnalysisSQL / _graph) handles its own
@@ -868,6 +889,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			EnableStopDetection:     doStops,
 			EnableAscentDetection:   doAscents,
 			EnableIntervalDetection: doIntervals,
+			EnableLiftDetection:     doLifts,
 		}
 		if err := enrichment.RunStreamEnrichment(ctx, h.DB, userID, activityID, streamSettings); err != nil {
 			slog.Warn("reprocess: stream enrichment failed (non-fatal)", "id", activityID, "error", err)
