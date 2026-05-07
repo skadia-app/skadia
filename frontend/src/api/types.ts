@@ -454,6 +454,23 @@ export interface StreamPoint {
   running_smoothness_pct?: number  // 0–100 %
 }
 
+export type LiftCandidateSource = 'heuristic' | 'osm'
+
+export interface LiftCandidate {
+  id: string
+  activity_id: string
+  started_at: string
+  ended_at: string
+  duration_s: number
+  ascent_m: number
+  descent_m?: number | null
+  distance_m?: number | null
+  confidence: string
+  confirmed: boolean
+  source: LiftCandidateSource
+  segment_effort_id: string | null
+}
+
 export interface DataVisibility {
   speed: boolean
   heart_rate: boolean
