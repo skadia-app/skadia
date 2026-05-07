@@ -10,8 +10,8 @@ import "slices"
 //   - "embeddings" is recompute-only — it runs in the Stage-1 ML pipeline and
 //     re-enriching without reparsing would produce stale results.
 //
-// To add a new module: add it here and update both handlers; the CI test in
-// modules_test.go will catch divergence.
+// To add a new module: add it here and update both handlers (re_enrich.go and
+// recompute.go); grep for CanonicalModules to find all call sites.
 var CanonicalModules = []string{
 	"ascents",
 	"stops",
