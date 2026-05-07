@@ -390,6 +390,10 @@ func ExtractStreams(records []*mesgdef.Record, fieldDescs []*mesgdef.FieldDescri
 
 		// --- FIT SDK — Health / Stress ---
 
+		// rec.RespirationRate is seconds per breath in FIT record messages;
+		// keep the breaths/min stream fields sourced from enhanced/current
+		// record values instead of silently changing units.
+
 		// Core Temperature (uint16, Scale: 100 → °C)
 		if rec.CoreTemperature != basetype.Uint16Invalid {
 			v := rec.CoreTemperatureScaled()

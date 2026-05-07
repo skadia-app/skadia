@@ -64,6 +64,8 @@ type Activity struct {
 	AvgStressLevel          *int             `json:"avg_stress_level,omitempty"`
 	WorkoutRpe              *int             `json:"workout_rpe,omitempty"`
 	WorkoutFeel             *int             `json:"workout_feel,omitempty"`
+	SessionRmssdMs          *int             `json:"session_rmssd_ms,omitempty"`
+	AvgCoreTemperatureC     *float64         `json:"avg_core_temperature_c,omitempty"`
 	ThresholdPowerW         *int             `json:"threshold_power_w,omitempty"`
 	VariabilityIndex        *float64         `json:"variability_index,omitempty"`
 	EfficiencyFactor        *float64         `json:"efficiency_factor,omitempty"`

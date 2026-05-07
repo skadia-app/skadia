@@ -63,6 +63,7 @@ func (db *DB) CheckTimeOverlap(ctx context.Context, userID string, startedAt, en
 
 // rowQuerier abstracts pgxpool.Pool and pgx.Tx for InsertActivity.
 type rowQuerier interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
@@ -328,6 +329,9 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
 	}
+	if err := persistActivitySessionMetrics(ctx, q, id, data); err != nil {
+		return nil, err
+	}
 
 	act := &model.Activity{
 		ID:                   id,
@@ -352,11 +356,102 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		UpdatedAt:            updatedAt,
 		SportConflictPending: data.SportConflictPending,
 	}
+	setActivitySessionMetricFields(act, data)
 	if data.NumSessions > 0 {
 		ns := data.NumSessions
 		act.NumSessions = &ns
 	}
 	return act, nil
+}
+
+func persistActivitySessionMetrics(ctx context.Context, q rowQuerier, activityID string, data *model.ActivityData) error {
+	if !hasActivitySessionMetrics(data) {
+		return nil
+	}
+	_, err := q.Exec(ctx, `
+		UPDATE activities SET
+			total_calories = $2,
+			min_heart_rate = $3,
+			aerobic_training_effect = $4,
+			anaerobic_training_effect = $5,
+			training_load_peak = $6,
+			avg_spo2_pct = $7,
+			avg_respiration_rate = $8,
+			avg_stress_level = $9,
+			session_rmssd_ms = $10,
+			avg_core_temperature_c = $11,
+			threshold_power_w = $12
+		WHERE id = $1`,
+		activityID,
+		sessionIntMetric(data.TotalCalories, data.TotalCaloriesValid),
+		sessionIntMetric(data.MinHeartRate, data.MinHeartRateValid),
+		sessionF64Metric(data.AerobicTrainingEffect, data.AerobicTrainingEffectValid),
+		sessionF64Metric(data.AnaerobicTrainingEffect, data.AnaerobicTrainingEffectValid),
+		sessionF64Metric(data.TrainingLoadPeak, data.TrainingLoadPeakValid),
+		sessionIntMetric(data.AvgSpo2Pct, data.AvgSpo2PctValid),
+		sessionF64Metric(data.AvgRespirationRate, data.AvgRespirationRateValid),
+		sessionIntMetric(data.AvgStressLevel, data.AvgStressLevelValid),
+		sessionIntMetric(data.SessionRmssdMs, data.SessionRmssdMsValid),
+		sessionF64Metric(data.AvgCoreTemperatureC, data.AvgCoreTemperatureCValid),
+		sessionIntMetric(data.ThresholdPowerW, data.ThresholdPowerWValid),
+	)
+	if err != nil {
+		return fmt.Errorf("persist activity session metrics: %w", err)
+	}
+	return nil
+}
+
+func hasActivitySessionMetrics(data *model.ActivityData) bool {
+	return data.TotalCaloriesValid ||
+		data.MinHeartRateValid ||
+		data.AerobicTrainingEffectValid ||
+		data.AnaerobicTrainingEffectValid ||
+		data.TrainingLoadPeakValid ||
+		data.AvgSpo2PctValid ||
+		data.AvgRespirationRateValid ||
+		data.AvgStressLevelValid ||
+		data.SessionRmssdMsValid ||
+		data.AvgCoreTemperatureCValid ||
+		data.ThresholdPowerWValid ||
+		data.TotalCalories != 0 ||
+		data.MinHeartRate != 0 ||
+		data.AerobicTrainingEffect != 0 ||
+		data.AnaerobicTrainingEffect != 0 ||
+		data.TrainingLoadPeak != 0 ||
+		data.AvgSpo2Pct != 0 ||
+		data.AvgRespirationRate != 0 ||
+		data.AvgStressLevel != 0 ||
+		data.SessionRmssdMs != 0 ||
+		data.AvgCoreTemperatureC != 0 ||
+		data.ThresholdPowerW != 0
+}
+
+func setActivitySessionMetricFields(act *model.Activity, data *model.ActivityData) {
+	act.TotalCalories = sessionIntMetric(data.TotalCalories, data.TotalCaloriesValid)
+	act.MinHeartRate = sessionIntMetric(data.MinHeartRate, data.MinHeartRateValid)
+	act.AerobicTrainingEffect = sessionF64Metric(data.AerobicTrainingEffect, data.AerobicTrainingEffectValid)
+	act.AnaerobicTrainingEffect = sessionF64Metric(data.AnaerobicTrainingEffect, data.AnaerobicTrainingEffectValid)
+	act.TrainingLoadPeak = sessionF64Metric(data.TrainingLoadPeak, data.TrainingLoadPeakValid)
+	act.AvgSpo2Pct = sessionIntMetric(data.AvgSpo2Pct, data.AvgSpo2PctValid)
+	act.AvgRespirationRate = sessionF64Metric(data.AvgRespirationRate, data.AvgRespirationRateValid)
+	act.AvgStressLevel = sessionIntMetric(data.AvgStressLevel, data.AvgStressLevelValid)
+	act.SessionRmssdMs = sessionIntMetric(data.SessionRmssdMs, data.SessionRmssdMsValid)
+	act.AvgCoreTemperatureC = sessionF64Metric(data.AvgCoreTemperatureC, data.AvgCoreTemperatureCValid)
+	act.ThresholdPowerW = sessionIntMetric(data.ThresholdPowerW, data.ThresholdPowerWValid)
+}
+
+func sessionIntMetric(v int, valid bool) *int {
+	if valid {
+		return &v
+	}
+	return nilIfZeroInt(v)
+}
+
+func sessionF64Metric(v float64, valid bool) *float64 {
+	if valid {
+		return &v
+	}
+	return nilIfZeroF64(v)
 }
 
 func (db *DB) InsertStreams(ctx context.Context, activityID string, streams []model.StreamPoint) error {
@@ -523,7 +618,7 @@ func (db *DB) InsertTrack(ctx context.Context, activityID string, trackPoints []
 	_, err = db.Pool.Exec(ctx, `
 		WITH g AS (SELECT ST_GeomFromEWKB($2) AS geom)
 		INSERT INTO activity_tracks (activity_id, track_full, track_simplified, bbox, point_count)
-		SELECT $1, g.geom, ST_Simplify(g.geom, 0.0001), ST_Envelope(g.geom), $3
+			SELECT $1, g.geom, ST_Simplify(g.geom, 0.0001), ST_Envelope(ST_Expand(g.geom, 0.0000001)), $3
 		FROM g
 		ON CONFLICT (activity_id) DO UPDATE SET
 			track_full       = EXCLUDED.track_full,
@@ -598,14 +693,20 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.sport_type, a.sub_type, a.fit_sport_id, a.fit_sub_sport_id, a.is_electric,
 			a.is_virtual, a.exclude_from_heatmap, a.exclude_from_stats,
 			a.started_at, a.ended_at, a.elapsed_time_s, a.moving_time_s,
-			a.distance_m, a.elevation_gain_m, a.elevation_loss_m,
-			a.max_elevation_m, a.min_elevation_m,
-			a.avg_speed_ms, a.max_speed_ms,
-			a.avg_heart_rate, a.max_heart_rate,
+				a.distance_m, a.elevation_gain_m, a.elevation_loss_m,
+				a.max_elevation_m, a.min_elevation_m,
+				a.avg_speed_ms, a.max_speed_ms,
+				a.avg_heart_rate, a.max_heart_rate, a.min_heart_rate,
 			a.avg_power_w, a.max_power_w, a.normalized_power_w,
 			a.avg_cadence, a.avg_temperature_c,
 			a.min_temperature_c, a.max_temperature_c, a.max_cadence,
-			a.tss, a.trimp, a.is_indoor,
+			a.tss, a.trimp,
+			a.total_calories,
+			a.aerobic_training_effect, a.anaerobic_training_effect,
+			a.training_load_peak,
+			a.avg_spo2_pct, a.avg_respiration_rate, a.avg_stress_level,
+			a.session_rmssd_ms, a.avg_core_temperature_c, a.threshold_power_w,
+			a.is_indoor,
 			a.source, a.source_device,
 			a.tags, a.visibility, a.enrichment_status, a.original_filename, a.original_file_format,
 			a.start_city, a.end_city, a.start_state, a.start_country, a.start_country_code,
@@ -696,11 +797,17 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.DistanceM, &a.ElevationGainM, &a.ElevationLossM,
 		&a.MaxElevationM, &a.MinElevationM,
 		&a.AvgSpeedMS, &a.MaxSpeedMS,
-		&a.AvgHeartRate, &a.MaxHeartRate,
+		&a.AvgHeartRate, &a.MaxHeartRate, &a.MinHeartRate,
 		&a.AvgPowerW, &a.MaxPowerW, &a.NormalizedPowerW,
 		&a.AvgCadence, &a.AvgTemperatureC,
 		&a.MinTemperatureC, &a.MaxTemperatureC, &a.MaxCadence,
-		&a.TSS, &a.TRIMP, &a.IsIndoor,
+		&a.TSS, &a.TRIMP,
+		&a.TotalCalories,
+		&a.AerobicTrainingEffect, &a.AnaerobicTrainingEffect,
+		&a.TrainingLoadPeak,
+		&a.AvgSpo2Pct, &a.AvgRespirationRate, &a.AvgStressLevel,
+		&a.SessionRmssdMs, &a.AvgCoreTemperatureC, &a.ThresholdPowerW,
+		&a.IsIndoor,
 		&a.Source, &a.SourceDevice,
 		&a.Tags, &a.Visibility, &a.EnrichmentStatus, &a.OriginalFilename, &a.OriginalFileFormat,
 		&a.StartCity, &a.EndCity, &a.StartState, &a.StartCountry, &a.StartCountryCode,
@@ -2080,6 +2187,8 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, nilIfZeroF64(data.AvgHeartRate))
 	sets = append(sets, fmt.Sprintf("max_heart_rate = %s", idx()))
 	args = append(args, nilIfZeroInt(data.MaxHeartRate))
+	sets = append(sets, fmt.Sprintf("min_heart_rate = %s", idx()))
+	args = append(args, sessionIntMetric(data.MinHeartRate, data.MinHeartRateValid))
 
 	// Power
 	sets = append(sets, fmt.Sprintf("avg_power_w = %s", idx()))
@@ -2100,6 +2209,26 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, nilIfZeroF64(data.TSS))
 	sets = append(sets, fmt.Sprintf("trimp = %s", idx()))
 	args = append(args, nilIfZeroF64(data.TRIMP))
+	sets = append(sets, fmt.Sprintf("total_calories = %s", idx()))
+	args = append(args, sessionIntMetric(data.TotalCalories, data.TotalCaloriesValid))
+	sets = append(sets, fmt.Sprintf("aerobic_training_effect = %s", idx()))
+	args = append(args, sessionF64Metric(data.AerobicTrainingEffect, data.AerobicTrainingEffectValid))
+	sets = append(sets, fmt.Sprintf("anaerobic_training_effect = %s", idx()))
+	args = append(args, sessionF64Metric(data.AnaerobicTrainingEffect, data.AnaerobicTrainingEffectValid))
+	sets = append(sets, fmt.Sprintf("training_load_peak = %s", idx()))
+	args = append(args, sessionF64Metric(data.TrainingLoadPeak, data.TrainingLoadPeakValid))
+	sets = append(sets, fmt.Sprintf("avg_spo2_pct = %s", idx()))
+	args = append(args, sessionIntMetric(data.AvgSpo2Pct, data.AvgSpo2PctValid))
+	sets = append(sets, fmt.Sprintf("avg_respiration_rate = %s", idx()))
+	args = append(args, sessionF64Metric(data.AvgRespirationRate, data.AvgRespirationRateValid))
+	sets = append(sets, fmt.Sprintf("avg_stress_level = %s", idx()))
+	args = append(args, sessionIntMetric(data.AvgStressLevel, data.AvgStressLevelValid))
+	sets = append(sets, fmt.Sprintf("session_rmssd_ms = %s", idx()))
+	args = append(args, sessionIntMetric(data.SessionRmssdMs, data.SessionRmssdMsValid))
+	sets = append(sets, fmt.Sprintf("avg_core_temperature_c = %s", idx()))
+	args = append(args, sessionF64Metric(data.AvgCoreTemperatureC, data.AvgCoreTemperatureCValid))
+	sets = append(sets, fmt.Sprintf("threshold_power_w = %s", idx()))
+	args = append(args, sessionIntMetric(data.ThresholdPowerW, data.ThresholdPowerWValid))
 	sets = append(sets, fmt.Sprintf("is_indoor = %s", idx()))
 	args = append(args, data.IsIndoor)
 	sets = append(sets, fmt.Sprintf("is_electric = %s", idx()))

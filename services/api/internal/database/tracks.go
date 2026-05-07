@@ -13,7 +13,7 @@ func (db *DB) RebuildActivityTrack(ctx context.Context, activityID string) error
 		UPDATE activity_tracks SET
 			track_full = sub.full_track,
 			track_simplified = ST_Simplify(sub.full_track, 0.0001),
-			bbox = ST_Envelope(sub.full_track)
+			bbox = ST_Envelope(ST_Expand(sub.full_track, 0.0000001))
 		FROM (
 			SELECT ST_MakeLine(
 				ST_SetSRID(ST_MakePoint(lng, lat), 4326) ORDER BY time
@@ -50,7 +50,7 @@ func (db *DB) EnsureActivityTrack(ctx context.Context, activityID string) error 
 		INSERT INTO activity_tracks (activity_id, track_full, track_simplified, bbox, point_count)
 		SELECT $1, full_track,
 		       ST_Simplify(full_track, 0.0001),
-		       ST_Envelope(full_track),
+		       ST_Envelope(ST_Expand(full_track, 0.0000001)),
 		       cnt
 		FROM track
 		ON CONFLICT (activity_id) DO UPDATE SET

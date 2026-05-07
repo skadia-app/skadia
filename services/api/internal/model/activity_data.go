@@ -38,23 +38,34 @@ type ActivityData struct {
 	MinTemperatureC  *float64
 	MaxTemperatureC  *float64
 
-	MinHeartRate            int
-	TotalCalories           int
-	AerobicTrainingEffect   float64
-	AnaerobicTrainingEffect float64
-	TrainingLoadPeak        float64
-	AvgSpo2Pct              int
-	AvgRespirationRate      float64
-	AvgStressLevel          int
-	WorkoutRpe              int
-	WorkoutFeel             int
-	SessionRmssdMs          int
-	AvgCoreTemperatureC     float64
-	ThresholdPowerW         int
-	TimeInZoneData          []TimeInZoneData
-	LapTimeInZones          map[string][]TimeInZoneData `json:"-"` // key = lap UUID
-	SegmentLapTimeInZones   map[string][]TimeInZoneData `json:"-"` // key = segment lap UUID
-	UserProfileImport       *UserProfileImport
+	MinHeartRate                 int
+	TotalCalories                int
+	AerobicTrainingEffect        float64
+	AnaerobicTrainingEffect      float64
+	TrainingLoadPeak             float64
+	AvgSpo2Pct                   int
+	AvgRespirationRate           float64
+	AvgStressLevel               int
+	WorkoutRpe                   int
+	WorkoutFeel                  int
+	SessionRmssdMs               int
+	AvgCoreTemperatureC          float64
+	ThresholdPowerW              int
+	MinHeartRateValid            bool
+	TotalCaloriesValid           bool
+	AerobicTrainingEffectValid   bool
+	AnaerobicTrainingEffectValid bool
+	TrainingLoadPeakValid        bool
+	AvgSpo2PctValid              bool
+	AvgRespirationRateValid      bool
+	AvgStressLevelValid          bool
+	SessionRmssdMsValid          bool
+	AvgCoreTemperatureCValid     bool
+	ThresholdPowerWValid         bool
+	TimeInZoneData               []TimeInZoneData
+	LapTimeInZones               map[string][]TimeInZoneData `json:"-"` // key = lap UUID
+	SegmentLapTimeInZones        map[string][]TimeInZoneData `json:"-"` // key = segment lap UUID
+	UserProfileImport            *UserProfileImport
 
 	TSS   float64
 	TRIMP float64
@@ -66,7 +77,7 @@ type ActivityData struct {
 	Timezone string // IANA timezone string, e.g. "Europe/Berlin". Empty for indoor without GPS.
 
 	IsIndoor             bool
-	IsElectric              bool
+	IsElectric           bool
 	IsVirtual            bool
 	IsManualEntry        bool
 	SportConflictPending bool
@@ -122,13 +133,13 @@ type ActivityData struct {
 	ClimbProEvents []ClimbProEventRecord
 
 	// FIT SDK — New record collections (write-path only, not serialized directly)
-	Events             []EventRecord       `json:"-"`
-	Sets               []SetRecord         `json:"-"`
-	Jumps              []JumpRecord        `json:"-"`
-	HrData             []HrDataRecord      `json:"-"`
-	SegmentLaps        []SegmentLapRecord  `json:"-"`
-	Workout            *WorkoutRecord      `json:"-"`
-	WorkoutSteps       []WorkoutStepRecord `json:"-"`
+	Events             []EventRecord        `json:"-"`
+	Sets               []SetRecord          `json:"-"`
+	Jumps              []JumpRecord         `json:"-"`
+	HrData             []HrDataRecord       `json:"-"`
+	SegmentLaps        []SegmentLapRecord   `json:"-"`
+	Workout            *WorkoutRecord       `json:"-"`
+	WorkoutSteps       []WorkoutStepRecord  `json:"-"`
 	DeveloperFieldDefs []DeveloperFieldDef  `json:"-"`
 	DeveloperApps      []DeveloperAppRecord `json:"-"`
 	WorkoutID          *string              `json:"workout_id,omitempty"`
@@ -337,7 +348,7 @@ type SensorResponse struct {
 	Manufacturer     string   `json:"manufacturer,omitempty"`
 	ProductName      string   `json:"product_name,omitempty"`
 	SerialNumber     *int64   `json:"serial_number,omitempty"`
-	SerialText       *string  `json:"serial_text,omitempty"`       // Developer Apps: text (z.B. FORM)
+	SerialText       *string  `json:"serial_text,omitempty"` // Developer Apps: text (z.B. FORM)
 	AntDeviceNumber  *int32   `json:"ant_device_number,omitempty"`
 	SoftwareVersion  string   `json:"software_version,omitempty"`
 	BatteryStatus    string   `json:"battery_status,omitempty"`

@@ -31,7 +31,7 @@ func (db *DB) FindMultisportParentByHash(ctx context.Context, userID, fileHash s
 	var id string
 	err := db.Pool.QueryRow(ctx, `
 		SELECT id FROM activities
-		WHERE user_id = $1 AND file_hash = $2 AND sport_type = 'multisport' AND deleted_at IS NULL
+			WHERE user_id = $1 AND file_hash = $2 AND sport_type = 'multisport'
 		LIMIT 1`, userID, fileHash).Scan(&id)
 	if err != nil {
 		return "", nil // not found is not an error
@@ -258,6 +258,9 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 	if err != nil {
 		return nil, fmt.Errorf("insert activity with parent: %w", err)
 	}
+	if err := persistActivitySessionMetrics(ctx, db.Pool, id, data); err != nil {
+		return nil, err
+	}
 
 	act := &model.Activity{
 		ID:                   id,
@@ -279,6 +282,7 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 		ParentID:             &parentID,
 		SportConflictPending: data.SportConflictPending,
 	}
+	setActivitySessionMetricFields(act, data)
 	return act, nil
 }
 
@@ -359,17 +363,17 @@ func (db *DB) SetActivitiesParent(ctx context.Context, userID string, activityID
 func (db *DB) AggregateParentMetrics(ctx context.Context, parentID string) error {
 	_, err := db.Pool.Exec(ctx, `
 		UPDATE activities SET
-			elapsed_time_s  = (SELECT SUM(elapsed_time_s)   FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
-			moving_time_s   = (SELECT SUM(moving_time_s)    FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
-			distance_m      = (SELECT SUM(distance_m)       FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
-			elevation_gain_m = (SELECT SUM(elevation_gain_m) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
-			elevation_loss_m = (SELECT SUM(elevation_loss_m) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
-			total_calories  = (SELECT SUM(total_calories)   FROM activities WHERE parent_id = $1 AND deleted_at IS NULL),
-			is_indoor = COALESCE((SELECT BOOL_AND(is_indoor) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false),
-			is_electric = COALESCE((SELECT BOOL_OR(is_electric) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false),
-			is_virtual = COALESCE((SELECT BOOL_OR(is_virtual) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false),
-			exclude_from_heatmap = COALESCE((SELECT BOOL_OR(is_virtual) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false),
-			has_gps = COALESCE((SELECT BOOL_OR(has_gps) FROM activities WHERE parent_id = $1 AND deleted_at IS NULL), false)
+				elapsed_time_s  = (SELECT SUM(elapsed_time_s)   FROM activities WHERE parent_id = $1),
+				moving_time_s   = (SELECT SUM(moving_time_s)    FROM activities WHERE parent_id = $1),
+				distance_m      = (SELECT SUM(distance_m)       FROM activities WHERE parent_id = $1),
+				elevation_gain_m = (SELECT SUM(elevation_gain_m) FROM activities WHERE parent_id = $1),
+				elevation_loss_m = (SELECT SUM(elevation_loss_m) FROM activities WHERE parent_id = $1),
+				total_calories  = (SELECT SUM(total_calories)   FROM activities WHERE parent_id = $1),
+				is_indoor = COALESCE((SELECT BOOL_AND(is_indoor) FROM activities WHERE parent_id = $1), false),
+				is_electric = COALESCE((SELECT BOOL_OR(is_electric) FROM activities WHERE parent_id = $1), false),
+				is_virtual = COALESCE((SELECT BOOL_OR(is_virtual) FROM activities WHERE parent_id = $1), false),
+				exclude_from_heatmap = COALESCE((SELECT BOOL_OR(is_virtual) FROM activities WHERE parent_id = $1), false),
+				has_gps = COALESCE((SELECT BOOL_OR(has_gps) FROM activities WHERE parent_id = $1), false)
 		WHERE id = $1`, parentID)
 	return err
 }

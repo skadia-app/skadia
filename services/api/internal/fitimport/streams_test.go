@@ -164,6 +164,40 @@ func TestExtractStreams_BatterySocScale(t *testing.T) {
 	}
 }
 
+func TestExtractStreams_HealthFieldsDoNotMapRawRespirationSeconds(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	records := []*mesgdef.Record{
+		{
+			Timestamp:               now,
+			RespirationRate:         4,    // seconds per breath in FIT record fields
+			EnhancedRespirationRate: 1850, // /100 = 18.5 breaths/min
+			CurrentStress:           4210, // /100 = 42.1
+			PositionLat:             invalidSint32,
+			PositionLong:            invalidSint32,
+		},
+	}
+
+	result := ExtractStreams(records, nil)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 stream point, got %d", len(result))
+	}
+	if result[0].RespirationRate != nil {
+		t.Fatalf("RespirationRate: got %v, want nil because FIT record respiration_rate is seconds per breath", *result[0].RespirationRate)
+	}
+	if result[0].EnhancedRespirationRate == nil {
+		t.Fatal("EnhancedRespirationRate: expected non-nil")
+	}
+	if math.Abs(*result[0].EnhancedRespirationRate-18.5) > 0.001 {
+		t.Errorf("EnhancedRespirationRate: got %f, want 18.5", *result[0].EnhancedRespirationRate)
+	}
+	if result[0].CurrentStress == nil {
+		t.Fatal("CurrentStress: expected non-nil")
+	}
+	if math.Abs(*result[0].CurrentStress-42.1) > 0.001 {
+		t.Errorf("CurrentStress: got %f, want 42.1", *result[0].CurrentStress)
+	}
+}
+
 // TestExtractStreams_Po2Scale tests Po2 Scale: /100
 func TestExtractStreams_Po2Scale(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)

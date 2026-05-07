@@ -58,6 +58,121 @@ func TestGetActivityAsMapIncludesBooleanRuleModifiers(t *testing.T) {
 	assertMapBool(t, m, "is_commute", true)
 }
 
+func TestGetActivityAsMapIncludesTrainingEffects(t *testing.T) {
+	db, userID := activitiesParentTestDB(t)
+	ctx := context.Background()
+
+	act, err := db.InsertActivity(ctx, userID, &model.ActivityData{
+		SportType:               "cycling",
+		StartedAt:               time.Now().UTC(),
+		MinHeartRate:            92,
+		TotalCalories:           700,
+		AerobicTrainingEffect:   3.5,
+		AnaerobicTrainingEffect: 1.2,
+		TrainingLoadPeak:        88.4,
+		AvgSpo2Pct:              96,
+		AvgRespirationRate:      17.25,
+		AvgStressLevel:          24,
+		SessionRmssdMs:          51,
+		AvgCoreTemperatureC:     37.2,
+		ThresholdPowerW:         290,
+	})
+	if err != nil {
+		t.Fatalf("InsertActivity: %v", err)
+	}
+
+	m, err := db.GetActivityAsMap(ctx, act.ID)
+	if err != nil {
+		t.Fatalf("GetActivityAsMap: %v", err)
+	}
+	assertMapInt(t, m, "total_calories", 700)
+	assertMapFloat64(t, m, "min_heart_rate", 92)
+	assertMapFloat64(t, m, "aerobic_training_effect", 3.5)
+	assertMapFloat64(t, m, "anaerobic_training_effect", 1.2)
+	assertMapFloat64(t, m, "training_load_peak", 88.4)
+	assertMapInt(t, m, "avg_spo2_pct", 96)
+	assertMapFloat64(t, m, "avg_respiration_rate", 17.25)
+	assertMapInt(t, m, "avg_stress_level", 24)
+	assertMapInt(t, m, "session_rmssd_ms", 51)
+	assertMapFloat64(t, m, "avg_core_temperature_c", 37.2)
+	assertMapInt(t, m, "threshold_power_w", 290)
+
+	got, err := db.GetActivity(ctx, act.ID)
+	if err != nil {
+		t.Fatalf("GetActivity: %v", err)
+	}
+	assertPtrInt(t, got.TotalCalories, "TotalCalories", 700)
+	assertPtrInt(t, got.MinHeartRate, "MinHeartRate", 92)
+	assertPtrFloat64(t, got.AerobicTrainingEffect, "AerobicTrainingEffect", 3.5)
+	assertPtrFloat64(t, got.AnaerobicTrainingEffect, "AnaerobicTrainingEffect", 1.2)
+	assertPtrFloat64(t, got.TrainingLoadPeak, "TrainingLoadPeak", 88.4)
+	assertPtrInt(t, got.AvgSpo2Pct, "AvgSpo2Pct", 96)
+	assertPtrFloat64(t, got.AvgRespirationRate, "AvgRespirationRate", 17.25)
+	assertPtrInt(t, got.AvgStressLevel, "AvgStressLevel", 24)
+	assertPtrInt(t, got.SessionRmssdMs, "SessionRmssdMs", 51)
+	assertPtrFloat64(t, got.AvgCoreTemperatureC, "AvgCoreTemperatureC", 37.2)
+	assertPtrInt(t, got.ThresholdPowerW, "ThresholdPowerW", 290)
+}
+
+func TestGetActivityAsMapPreservesValidZeroSessionMetrics(t *testing.T) {
+	db, userID := activitiesParentTestDB(t)
+	ctx := context.Background()
+
+	act, err := db.InsertActivity(ctx, userID, &model.ActivityData{
+		SportType:                    "cycling",
+		StartedAt:                    time.Now().UTC(),
+		TotalCalories:                0,
+		TotalCaloriesValid:           true,
+		AerobicTrainingEffect:        0,
+		AerobicTrainingEffectValid:   true,
+		AnaerobicTrainingEffect:      0,
+		AnaerobicTrainingEffectValid: true,
+		TrainingLoadPeak:             0,
+		TrainingLoadPeakValid:        true,
+		AvgRespirationRate:           0,
+		AvgRespirationRateValid:      true,
+		AvgStressLevel:               0,
+		AvgStressLevelValid:          true,
+		SessionRmssdMs:               0,
+		SessionRmssdMsValid:          true,
+		AvgCoreTemperatureC:          0,
+		AvgCoreTemperatureCValid:     true,
+		ThresholdPowerW:              0,
+		ThresholdPowerWValid:         true,
+	})
+	if err != nil {
+		t.Fatalf("InsertActivity: %v", err)
+	}
+
+	m, err := db.GetActivityAsMap(ctx, act.ID)
+	if err != nil {
+		t.Fatalf("GetActivityAsMap: %v", err)
+	}
+	assertMapInt(t, m, "total_calories", 0)
+	assertMapFloat64(t, m, "aerobic_training_effect", 0)
+	assertMapFloat64(t, m, "anaerobic_training_effect", 0)
+	assertMapFloat64(t, m, "training_load_peak", 0)
+	assertMapFloat64(t, m, "avg_respiration_rate", 0)
+	assertMapInt(t, m, "avg_stress_level", 0)
+	assertMapInt(t, m, "session_rmssd_ms", 0)
+	assertMapFloat64(t, m, "avg_core_temperature_c", 0)
+	assertMapInt(t, m, "threshold_power_w", 0)
+
+	got, err := db.GetActivity(ctx, act.ID)
+	if err != nil {
+		t.Fatalf("GetActivity: %v", err)
+	}
+	assertPtrInt(t, got.TotalCalories, "TotalCalories", 0)
+	assertPtrFloat64(t, got.AerobicTrainingEffect, "AerobicTrainingEffect", 0)
+	assertPtrFloat64(t, got.AnaerobicTrainingEffect, "AnaerobicTrainingEffect", 0)
+	assertPtrFloat64(t, got.TrainingLoadPeak, "TrainingLoadPeak", 0)
+	assertPtrFloat64(t, got.AvgRespirationRate, "AvgRespirationRate", 0)
+	assertPtrInt(t, got.AvgStressLevel, "AvgStressLevel", 0)
+	assertPtrInt(t, got.SessionRmssdMs, "SessionRmssdMs", 0)
+	assertPtrFloat64(t, got.AvgCoreTemperatureC, "AvgCoreTemperatureC", 0)
+	assertPtrInt(t, got.ThresholdPowerW, "ThresholdPowerW", 0)
+}
+
 func TestGetActivityAsMapCountsOnlyCountryBordersForRuleConditions(t *testing.T) {
 	db, userID := activitiesParentTestDB(t)
 	ctx := context.Background()
@@ -91,6 +206,56 @@ func TestGetActivityAsMapCountsOnlyCountryBordersForRuleConditions(t *testing.T)
 	}
 	if got, _ := m["border_crossing_count"].(int); got != 1 {
 		t.Fatalf("border_crossing_count = %v, want 1 country border only", m["border_crossing_count"])
+	}
+}
+
+func assertMapFloat64(t *testing.T, m map[string]any, key string, want float64) {
+	t.Helper()
+	got, ok := m[key]
+	if !ok {
+		t.Fatalf("activity map missing %q", key)
+	}
+	gotFloat, ok := got.(float64)
+	if !ok {
+		t.Fatalf("activity map %q = %T(%v), want float64", key, got, got)
+	}
+	if gotFloat != want {
+		t.Fatalf("activity map %q = %v, want %v", key, gotFloat, want)
+	}
+}
+
+func assertMapInt(t *testing.T, m map[string]any, key string, want int) {
+	t.Helper()
+	got, ok := m[key]
+	if !ok {
+		t.Fatalf("activity map missing %q", key)
+	}
+	gotInt, ok := got.(int)
+	if !ok {
+		t.Fatalf("activity map %q = %T(%v), want int", key, got, got)
+	}
+	if gotInt != want {
+		t.Fatalf("activity map %q = %v, want %v", key, gotInt, want)
+	}
+}
+
+func assertPtrFloat64(t *testing.T, got *float64, name string, want float64) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("%s = nil, want %v", name, want)
+	}
+	if *got != want {
+		t.Fatalf("%s = %v, want %v", name, *got, want)
+	}
+}
+
+func assertPtrInt(t *testing.T, got *int, name string, want int) {
+	t.Helper()
+	if got == nil {
+		t.Fatalf("%s = nil, want %v", name, want)
+	}
+	if *got != want {
+		t.Fatalf("%s = %v, want %v", name, *got, want)
 	}
 }
 
