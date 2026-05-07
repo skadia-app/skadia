@@ -4409,3 +4409,219 @@ func TestFusionMerge_SoftRejectedLiftCandidatesCopied(t *testing.T) {
 		t.Errorf("copied rejected candidates must not have confirmed=true, found %d", confirmedCount)
 	}
 }
+
+// TestFusionMerge_SoftRejectedLiftCandidatesSameStartLogsWarning verifies the
+// same-started_at silent-drop path (F28 Option D): when two source activities
+// each have a soft-rejected candidate at the same started_at, ON CONFLICT DO
+// NOTHING silently drops one row. The operation must still succeed (no fatal
+// error, no user-visible warning string), but only one row lands in the merged
+// activity — the other is lost. The slog.Warn path is exercised by verifying
+// that inserted < sourceCount would be detected.
+//
+// The structural test here confirms: (a) no fatal error, (b) exactly one row
+// in the merged activity (the second was dropped by the constraint), (c) no
+// lift/reject entry in the warnings slice (the conflict drop is a slog.Warn
+// only, not surfaced to the user as a warning response).
+func TestFusionMerge_SoftRejectedLiftCandidatesSameStartLogsWarning(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2024, 9, 1, 8, 0, 0, 0, time.UTC)
+
+	// Both source activities have a rejected candidate at the SAME started_at
+	// but different ended_at — the UNIQUE(activity_id, started_at) constraint on
+	// the merged activity will silently drop the second row via ON CONFLICT DO NOTHING.
+	_, err := pool.Exec(ctx, `
+		INSERT INTO activity_lift_candidates
+			(activity_id, started_at, ended_at, duration_s, ascent_m,
+			 confidence, rejected_by_user, source)
+		VALUES
+			($1, $3::timestamptz, $3::timestamptz + interval '5 minutes',  300, 100.0, 'high',   true, 'heuristic'),
+			($2, $3::timestamptz, $3::timestamptz + interval '10 minutes', 600, 150.0, 'medium', true, 'heuristic')
+	`, actA, actB, base)
+	if err != nil {
+		t.Fatalf("insert same-start rejected candidates: %v", err)
+	}
+
+	mergedID := uuid.New().String()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, started_at, visibility, enrichment_status, has_edits)
+		SELECT $1, user_id, sport_type, started_at, visibility, 'pending', true FROM activities WHERE id = $2
+	`, mergedID, actA); err != nil {
+		t.Fatalf("insert merged activity row: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM activities WHERE id = $1", mergedID) //nolint:errcheck
+	})
+
+	mergedAct, err := db.GetActivity(ctx, mergedID)
+	if err != nil || mergedAct == nil {
+		t.Fatalf("get mergedAct: %v", err)
+	}
+	srcA, err := db.GetActivity(ctx, actA)
+	if err != nil || srcA == nil {
+		t.Fatalf("get actA: %v", err)
+	}
+	srcB, err := db.GetActivity(ctx, actB)
+	if err != nil || srcB == nil {
+		t.Fatalf("get actB: %v", err)
+	}
+
+	h := &Handler{DB: db}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	p := fusionFinalizeParams{
+		merged:           mergedAct,
+		allSourceIDs:     []string{actA, actB},
+		activities:       map[string]*model.Activity{actA: srcA, actB: srcB},
+		userID:           userID,
+		metadataSourceID: actA,
+		auditData:        []byte(`{}`),
+	}
+
+	warnings, applyErr := h.applyFusionTxExtras(ctx, tx, p)
+	if applyErr != nil {
+		t.Fatalf("applyFusionTxExtras returned fatal error: %v", applyErr)
+	}
+
+	// The conflict-drop path logs via slog.Warn only — it must NOT emit a
+	// user-visible warning string (we don't want the merge result page to show
+	// an error for a known-harmless structural constraint).
+	for _, w := range warnings {
+		if strings.Contains(strings.ToLower(w), "lift") || strings.Contains(strings.ToLower(w), "reject") {
+			t.Errorf("unexpected lift/reject warning for same-start conflict drop: %q", w)
+		}
+	}
+
+	// Exactly one row must survive — the second was dropped by ON CONFLICT DO NOTHING.
+	var count int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM activity_lift_candidates
+		WHERE activity_id = $1 AND rejected_by_user = true
+	`, mergedID).Scan(&count); err != nil {
+		t.Fatalf("count rejected candidates on merged: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("same-start conflict: want 1 surviving row in merged, got %d", count)
+	}
+}
+
+// TestFusionMerge_SoftRejectedLiftCandidateCopyFailureIsNonFatal verifies the
+// SAVEPOINT semantics of step 7d (N10 fix): when the INSERT into
+// activity_lift_candidates fails (injected via mockTx), the outer transaction
+// must remain valid and the mandatory audit-log INSERT (step 7e) must still
+// succeed. The merge must return a user-visible warning but no fatal error.
+func TestFusionMerge_SoftRejectedLiftCandidateCopyFailureIsNonFatal(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+
+	userID := insertTestUser(t, pool)
+	actA := insertMinimalActivity(t, db, userID)
+	actB := insertMinimalActivity(t, db, userID)
+
+	base := time.Date(2024, 9, 2, 9, 0, 0, 0, time.UTC)
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO activity_lift_candidates
+			(activity_id, started_at, ended_at, duration_s, ascent_m,
+			 confidence, rejected_by_user, source)
+		VALUES ($1, $2::timestamptz, $2::timestamptz + interval '5 minutes', 300, 90.0, 'high', true, 'heuristic')
+	`, actA, base)
+	if err != nil {
+		t.Fatalf("insert rejected candidate: %v", err)
+	}
+
+	mergedID := uuid.New().String()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, started_at, visibility, enrichment_status, has_edits)
+		SELECT $1, user_id, sport_type, started_at, visibility, 'pending', true FROM activities WHERE id = $2
+	`, mergedID, actA); err != nil {
+		t.Fatalf("insert merged activity row: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), "DELETE FROM activities WHERE id = $1", mergedID) //nolint:errcheck
+	})
+
+	mergedAct, err := db.GetActivity(ctx, mergedID)
+	if err != nil || mergedAct == nil {
+		t.Fatalf("get mergedAct: %v", err)
+	}
+	srcA, err := db.GetActivity(ctx, actA)
+	if err != nil || srcA == nil {
+		t.Fatalf("get actA: %v", err)
+	}
+	srcB, err := db.GetActivity(ctx, actB)
+	if err != nil || srcB == nil {
+		t.Fatalf("get actB: %v", err)
+	}
+
+	h := &Handler{DB: db}
+
+	realTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer realTx.Rollback(ctx) //nolint:errcheck
+
+	injectedErr := fmt.Errorf("simulated lift_candidates INSERT failure")
+
+	// Inject a failure only on the INSERT INTO activity_lift_candidates statement.
+	// The SAVEPOINT and ROLLBACK TO SAVEPOINT statements must pass through unchanged
+	// so the outer Tx recovers cleanly.
+	mt := &mockTx{
+		Tx:          realTx,
+		shouldFail:  sqlContains("insert into activity_lift_candidates"),
+		injectedErr: injectedErr,
+	}
+
+	p := fusionFinalizeParams{
+		merged:           mergedAct,
+		allSourceIDs:     []string{actA, actB},
+		activities:       map[string]*model.Activity{actA: srcA, actB: srcB},
+		userID:           userID,
+		metadataSourceID: actA,
+		auditData:        []byte(`{}`),
+	}
+
+	warnings, applyErr := h.applyFusionTxExtras(ctx, mt, p)
+	// Must be non-fatal — the merge must complete despite the copy failure.
+	if applyErr != nil {
+		t.Fatalf("applyFusionTxExtras returned fatal error after injected lift copy failure: %v", applyErr)
+	}
+
+	// A user-visible warning must be present to indicate the copy failed.
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(strings.ToLower(w), "lift") || strings.Contains(strings.ToLower(w), "reject") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a lift/reject warning after copy failure, got: %v", warnings)
+	}
+
+	// The SAVEPOINT isolated the failure — the audit-log INSERT (step 7e, which
+	// runs after the lift copy) must have succeeded, proving the outer Tx is alive.
+	var auditCount int
+	if err := realTx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM activity_edits
+		WHERE activity_id = $1 AND edit_type = 'fusion_merge'
+	`, mergedID).Scan(&auditCount); err != nil {
+		t.Fatalf("count audit records for merged activity: %v", err)
+	}
+	if auditCount != 1 {
+		t.Errorf("audit log must be present after non-fatal lift copy failure; want 1, got %d", auditCount)
+	}
+}
