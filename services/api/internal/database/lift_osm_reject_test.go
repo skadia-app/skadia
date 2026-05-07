@@ -77,7 +77,7 @@ func TestRecomputeLiftStats_RejectedOSMSegmentEffortExcluded(t *testing.T) {
 	}
 
 	db := &database.DB{Pool: fx.pool}
-	if err := db.RecomputeLiftStats(ctx, fx.activityID); err != nil {
+	if err := db.RecomputeLiftStats(ctx, fx.userID, fx.activityID); err != nil {
 		t.Fatalf("recompute: %v", err)
 	}
 
@@ -145,7 +145,7 @@ func TestRecomputeLiftStats_RejectedOSMCableHoldMergeExcluded(t *testing.T) {
 	}
 
 	db := &database.DB{Pool: fx.pool}
-	if err := db.RecomputeLiftStats(ctx, fx.activityID); err != nil {
+	if err := db.RecomputeLiftStats(ctx, fx.userID, fx.activityID); err != nil {
 		t.Fatalf("recompute: %v", err)
 	}
 	var liftCount int
@@ -182,7 +182,7 @@ func TestRecomputeLiftStats_SegmentEffortWithoutAuditRowStillCounts(t *testing.T
 	}
 
 	db := &database.DB{Pool: fx.pool}
-	if err := db.RecomputeLiftStats(ctx, fx.activityID); err != nil {
+	if err := db.RecomputeLiftStats(ctx, fx.userID, fx.activityID); err != nil {
 		t.Fatalf("recompute: %v", err)
 	}
 	var liftCount int
@@ -216,7 +216,7 @@ func TestRecomputeLiftStats_RejectedHeuristicOnlyStillExcluded(t *testing.T) {
 	}
 
 	db := &database.DB{Pool: fx.pool}
-	if err := db.RecomputeLiftStats(ctx, fx.activityID); err != nil {
+	if err := db.RecomputeLiftStats(ctx, fx.userID, fx.activityID); err != nil {
 		t.Fatalf("recompute: %v", err)
 	}
 	var liftCount int

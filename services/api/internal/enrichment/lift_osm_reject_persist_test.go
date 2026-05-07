@@ -215,7 +215,7 @@ func TestEnrichStreamLifts_RejectedOSMSnap_NotReinserted(t *testing.T) {
 	`, activityID).Scan(&auditID, &originalEffortID); err != nil {
 		t.Fatalf("fetch audit row: %v", err)
 	}
-	if err := db.RejectLiftCandidate(ctx, auditID, activityID); err != nil {
+	if err := db.RejectLiftCandidate(ctx, userID, auditID, activityID); err != nil {
 		t.Fatalf("RejectLiftCandidate: %v", err)
 	}
 

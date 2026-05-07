@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -647,33 +648,42 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID, userID string, 
 	return result, rows.Err()
 }
 
-func (db *DB) ConfirmLiftCandidate(ctx context.Context, candidateID, activityID string) error {
+func (db *DB) ConfirmLiftCandidate(ctx context.Context, userID, candidateID, activityID string) error {
 	var returnedActivityID string
 	err := db.Pool.QueryRow(ctx,
-		`UPDATE activity_lift_candidates SET confirmed = true WHERE id = $1 AND activity_id = $2 RETURNING activity_id`,
-		candidateID, activityID,
+		`UPDATE activity_lift_candidates alc
+		 SET confirmed = true
+		 FROM activities a
+		 WHERE alc.id = $1 AND alc.activity_id = $2
+		   AND a.id = alc.activity_id AND a.user_id = $3
+		 RETURNING alc.activity_id`,
+		candidateID, activityID, userID,
 	).Scan(&returnedActivityID)
 	if err != nil {
 		return err
 	}
-	return db.recomputeLiftStats(ctx, returnedActivityID)
+	return db.recomputeLiftStats(ctx, userID, returnedActivityID)
 }
 
 // RejectLiftCandidate soft-rejects a lift candidate and recomputes activity
 // lift stats. The row is marked rejected_by_user=true rather than deleted so
 // that it survives subsequent re-enrichment passes (Phase 4d: the idempotent
 // DELETE in enrichStreamLifts now skips rows with rejected_by_user=true).
-func (db *DB) RejectLiftCandidate(ctx context.Context, candidateID, activityID string) error {
+func (db *DB) RejectLiftCandidate(ctx context.Context, userID, candidateID, activityID string) error {
 	var returnedActivityID string
 	err := db.Pool.QueryRow(ctx,
-		`UPDATE activity_lift_candidates SET rejected_by_user = true
-		 WHERE id = $1 AND activity_id = $2 RETURNING activity_id`,
-		candidateID, activityID,
+		`UPDATE activity_lift_candidates alc
+		 SET rejected_by_user = true
+		 FROM activities a
+		 WHERE alc.id = $1 AND alc.activity_id = $2
+		   AND a.id = alc.activity_id AND a.user_id = $3
+		 RETURNING alc.activity_id`,
+		candidateID, activityID, userID,
 	).Scan(&returnedActivityID)
 	if err != nil {
 		return err
 	}
-	return db.recomputeLiftStats(ctx, returnedActivityID)
+	return db.recomputeLiftStats(ctx, userID, returnedActivityID)
 }
 
 // recomputeLiftStats recomputes activities.lift_* columns. Phase 4c
@@ -698,8 +708,28 @@ func (db *DB) RejectLiftCandidate(ctx context.Context, candidateID, activityID s
 // segment_efforts that have no audit-row at all (pre-Phase-4c data): the
 // sub-select returns zero rows, the predicate is true, the effort is
 // counted normally.
-func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
-	_, err := db.Pool.Exec(ctx, `
+type recomputeOpts struct {
+	skipGearRefresh bool
+}
+
+type recomputeOpt func(*recomputeOpts)
+
+func skipGearRefresh() recomputeOpt {
+	return func(o *recomputeOpts) { o.skipGearRefresh = true }
+}
+
+func (db *DB) recomputeLiftStats(ctx context.Context, userID, activityID string, opts ...recomputeOpt) error {
+	var cfg recomputeOpts
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	confirmedFilter := "AND confirmed = true"
+	if lifts.AutoConfirmHeuristic {
+		confirmedFilter = ""
+	}
+
+	query := fmt.Sprintf(`
 		UPDATE activities SET
 			lift_count = (
 				SELECT COUNT(*) FROM segment_efforts se
@@ -711,7 +741,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				  )
 			) + (
 				SELECT COUNT(*) FROM activity_lift_candidates
-				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
+				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
 				  AND NOT rejected_by_user
 			),
 			lift_duration_s = (
@@ -724,7 +754,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				  )
 			) + (
 				SELECT COALESCE(SUM(duration_s), 0) FROM activity_lift_candidates
-				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
+				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
 				  AND NOT rejected_by_user
 			),
 			lift_ascent_m = (
@@ -738,7 +768,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				  )
 			) + (
 				SELECT COALESCE(SUM(ascent_m), 0) FROM activity_lift_candidates
-				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
+				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
 				  AND NOT rejected_by_user
 			),
 			lift_descent_m = (
@@ -752,7 +782,7 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				  )
 			) + (
 				SELECT COALESCE(SUM(descent_m), 0) FROM activity_lift_candidates
-				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
+				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
 				  AND NOT rejected_by_user
 			),
 			lift_distance_m = (
@@ -765,16 +795,76 @@ func (db *DB) recomputeLiftStats(ctx context.Context, activityID string) error {
 				  )
 			) + (
 				SELECT COALESCE(SUM(distance_m), 0) FROM activity_lift_candidates
-				WHERE activity_id = $1 AND confirmed = true AND segment_effort_id IS NULL
+				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
 				  AND NOT rejected_by_user
 			)
-		WHERE id = $1`, activityID)
-	return err
+		WHERE id = $1 AND user_id = $2`, confirmedFilter, confirmedFilter, confirmedFilter, confirmedFilter, confirmedFilter)
+
+	tag, err := db.Pool.Exec(ctx, query, activityID, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+
+	db.warnIfLiftAggregatesExceedRaw(ctx, userID, activityID)
+	if !cfg.skipGearRefresh {
+		db.refreshActivityGearStats(ctx, userID, activityID)
+	}
+	return nil
+}
+
+func (db *DB) warnIfLiftAggregatesExceedRaw(ctx context.Context, userID, activityID string) {
+	var distM, liftDistM, ascentM, liftAscentM, lossM, liftDescentM float64
+	err := db.Pool.QueryRow(ctx, `
+		SELECT COALESCE(distance_m, 0), COALESCE(lift_distance_m, 0),
+		       COALESCE(elevation_gain_m, 0), COALESCE(lift_ascent_m, 0),
+		       COALESCE(elevation_loss_m, 0), COALESCE(lift_descent_m, 0)
+		FROM activities
+		WHERE id = $1 AND user_id = $2`, activityID, userID).Scan(
+		&distM, &liftDistM, &ascentM, &liftAscentM, &lossM, &liftDescentM,
+	)
+	if err != nil {
+		slog.Warn("recomputeLiftStats: lift sanity read failed",
+			"activity_id", activityID,
+			"user_id", userID,
+			"error", err)
+		return
+	}
+	if liftDistM > distM || liftAscentM > ascentM || liftDescentM > lossM {
+		slog.Warn("lift aggregates exceed activity raw - possible enrichment defect",
+			"activity_id", activityID,
+			"user_id", userID,
+			"distance_m", distM,
+			"lift_distance_m", liftDistM,
+			"ascent_m", ascentM,
+			"lift_ascent_m", liftAscentM,
+			"loss_m", lossM,
+			"lift_descent_m", liftDescentM)
+	}
+}
+
+func (db *DB) refreshActivityGearStats(ctx context.Context, userID, activityID string) {
+	gearIDs, err := db.RefreshGearUsageForActivityMetricChange(ctx, activityID, userID)
+	if err != nil {
+		slog.Warn("recomputeLiftStats: gear refresh failed",
+			"activity_id", activityID,
+			"user_id", userID,
+			"error", err)
+		return
+	}
+	if len(gearIDs) > 0 {
+		slog.Debug("recomputeLiftStats: refreshed gear usage",
+			"activity_id", activityID,
+			"user_id", userID,
+			"gear_count", len(gearIDs))
+	}
 }
 
 // RecomputeLiftStats is the exported entry-point for the enrichment adapter.
-func (db *DB) RecomputeLiftStats(ctx context.Context, activityID string) error {
-	return db.recomputeLiftStats(ctx, activityID)
+func (db *DB) RecomputeLiftStats(ctx context.Context, userID, activityID string) error {
+	return db.recomputeLiftStats(ctx, userID, activityID)
 }
 
 // HeuristicCandidateInput carries the fields needed for one heuristic lift

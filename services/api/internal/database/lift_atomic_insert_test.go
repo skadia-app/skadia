@@ -74,7 +74,7 @@ func TestInsertHeuristicCandidateIfNotRejected_RaceWithReject(t *testing.T) {
 		// Goroutine 1: reject the existing candidate.
 		go func() {
 			defer wg.Done()
-			_ = db.RejectLiftCandidate(context.Background(), existingID, fx.activityID)
+			_ = db.RejectLiftCandidate(context.Background(), fx.userID, existingID, fx.activityID)
 		}()
 
 		// Goroutine 2: insert a candidate with the same window (±0s drift).

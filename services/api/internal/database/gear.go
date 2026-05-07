@@ -2094,7 +2094,13 @@ func (db *DB) UpdateGearStatsOwnerVerified(ctx context.Context, gearID string) e
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE gear SET
 		   total_distance_m = COALESCE((
-		      SELECT SUM(COALESCE(aga.distance_m_override, a.distance_m, 0))
+		      SELECT SUM(COALESCE(
+		        aga.distance_m_override,
+		        GREATEST(0,
+		          COALESCE(a.distance_m, 0) -
+		          CASE WHEN a.exclude_lift_subtraction THEN 0
+		               ELSE COALESCE(a.lift_distance_m, 0) END),
+		        0))
 		      FROM activity_gear_assignments aga
 		      JOIN activities a ON a.id = aga.activity_id
 		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
@@ -2112,13 +2118,19 @@ func (db *DB) UpdateGearStatsOwnerVerified(ctx context.Context, gearID string) e
 		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
 		   ), 0),
 		   total_elevation_gain_m = COALESCE((
-		      SELECT SUM(COALESCE(a.elevation_gain_m, 0))
+		      SELECT SUM(GREATEST(0,
+		        COALESCE(a.elevation_gain_m, 0) -
+		        CASE WHEN a.exclude_lift_subtraction THEN 0
+		             ELSE COALESCE(a.lift_ascent_m, 0) END))
 		      FROM activity_gear_assignments aga
 		      JOIN activities a ON a.id = aga.activity_id
 		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
 		   ), 0),
 		   total_elevation_loss_m = COALESCE((
-		      SELECT SUM(COALESCE(a.elevation_loss_m, 0))
+		      SELECT SUM(GREATEST(0,
+		        COALESCE(a.elevation_loss_m, 0) -
+		        CASE WHEN a.exclude_lift_subtraction THEN 0
+		             ELSE COALESCE(a.lift_descent_m, 0) END))
 		      FROM activity_gear_assignments aga
 		      JOIN activities a ON a.id = aga.activity_id
 		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
@@ -2151,15 +2163,27 @@ func (db *DB) UpdateComponentUsageStatsOwnerVerified(ctx context.Context, compon
 	_, err := db.Pool.Exec(ctx, `
 		WITH usage AS (
 			SELECT
-				gc.id AS component_id,
-				ca.id AS assignment_id,
-				COALESCE(SUM(COALESCE(aga.distance_m_override, a.distance_m, 0)), 0) AS distance_m,
-				COALESCE(SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)), 0) AS moving_time_s,
-				COALESCE(SUM(COALESCE(a.elapsed_time_s, 0)), 0) AS time_s,
-				COALESCE(SUM(COALESCE(a.elevation_gain_m, 0)), 0) AS elevation_gain_m,
-				COALESCE(SUM(COALESCE(a.elevation_loss_m, 0)), 0) AS elevation_loss_m,
-				COUNT(a.id) AS activities_count
-			FROM gear_components gc
+					gc.id AS component_id,
+					ca.id AS assignment_id,
+					COALESCE(SUM(COALESCE(
+						aga.distance_m_override,
+						GREATEST(0,
+							COALESCE(a.distance_m, 0) -
+							CASE WHEN a.exclude_lift_subtraction THEN 0
+							     ELSE COALESCE(a.lift_distance_m, 0) END),
+						0)), 0) AS distance_m,
+					COALESCE(SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)), 0) AS moving_time_s,
+					COALESCE(SUM(COALESCE(a.elapsed_time_s, 0)), 0) AS time_s,
+					COALESCE(SUM(GREATEST(0,
+						COALESCE(a.elevation_gain_m, 0) -
+						CASE WHEN a.exclude_lift_subtraction THEN 0
+						     ELSE COALESCE(a.lift_ascent_m, 0) END)), 0) AS elevation_gain_m,
+					COALESCE(SUM(GREATEST(0,
+						COALESCE(a.elevation_loss_m, 0) -
+						CASE WHEN a.exclude_lift_subtraction THEN 0
+						     ELSE COALESCE(a.lift_descent_m, 0) END)), 0) AS elevation_loss_m,
+					COUNT(a.id) AS activities_count
+				FROM gear_components gc
 			LEFT JOIN component_assignments ca ON ca.component_id = gc.id AND ca.removed_at IS NULL
 			LEFT JOIN activity_gear_assignments aga ON aga.gear_id = gc.gear_id
 			LEFT JOIN activities a ON a.id = aga.activity_id
@@ -2217,13 +2241,25 @@ func (db *DB) UpdateChainRotationMemberStatsOwnerVerified(ctx context.Context, m
 		    total_activities = COALESCE(src.activities_count, 0)
 		FROM (
 			SELECT
-				cm.id AS member_id,
-				SUM(COALESCE(aga.distance_m_override, a.distance_m, 0)) AS distance_m,
-				SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)) AS moving_time_s,
-				SUM(COALESCE(a.elapsed_time_s, 0)) AS time_s,
-				SUM(COALESCE(a.elevation_gain_m, 0)) AS elevation_gain_m,
-				SUM(COALESCE(a.elevation_loss_m, 0)) AS elevation_loss_m,
-				COUNT(a.id) AS activities_count
+					cm.id AS member_id,
+					SUM(COALESCE(
+						aga.distance_m_override,
+						GREATEST(0,
+							COALESCE(a.distance_m, 0) -
+							CASE WHEN a.exclude_lift_subtraction THEN 0
+							     ELSE COALESCE(a.lift_distance_m, 0) END),
+						0)) AS distance_m,
+					SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)) AS moving_time_s,
+					SUM(COALESCE(a.elapsed_time_s, 0)) AS time_s,
+					SUM(GREATEST(0,
+						COALESCE(a.elevation_gain_m, 0) -
+						CASE WHEN a.exclude_lift_subtraction THEN 0
+						     ELSE COALESCE(a.lift_ascent_m, 0) END)) AS elevation_gain_m,
+					SUM(GREATEST(0,
+						COALESCE(a.elevation_loss_m, 0) -
+						CASE WHEN a.exclude_lift_subtraction THEN 0
+						     ELSE COALESCE(a.lift_descent_m, 0) END)) AS elevation_loss_m,
+					COUNT(a.id) AS activities_count
 			FROM chain_rotation_members cm
 			JOIN chain_rotation_groups crg ON crg.id = cm.group_id
 			JOIN gear_components gc ON gc.id = cm.component_id
