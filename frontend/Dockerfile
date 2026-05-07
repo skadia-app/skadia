@@ -18,4 +18,4 @@ EXPOSE 80
 
 # Liveness probe via busybox wget (alpine ships it; no extra layer needed).
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD wget -q -O - --timeout=2 http://localhost/ > /dev/null || exit 1
+    CMD wget -q -O - --timeout=2 http://127.0.0.1/ > /dev/null || exit 1
