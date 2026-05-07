@@ -2091,7 +2091,11 @@ func (db *DB) ValidateRuleGearAssignment(ctx context.Context, activityID, userID
 // (or via an upstream RLS-scoped query) before invoking this function.
 // This function trusts the caller — it does not re-check user_id ownership.
 func (db *DB) UpdateGearStatsOwnerVerified(ctx context.Context, gearID string) error {
-	_, err := db.Pool.Exec(ctx,
+	return db.updateGearStatsOwnerVerifiedOn(ctx, db.Pool, gearID)
+}
+
+func (db *DB) updateGearStatsOwnerVerifiedOn(ctx context.Context, q Querier, gearID string) error {
+	_, err := q.Exec(ctx,
 		`UPDATE gear SET
 		   total_distance_m = COALESCE((
 		      SELECT SUM(COALESCE(
@@ -2160,7 +2164,11 @@ func (db *DB) UpdateGearStatsOwnerVerified(ctx context.Context, gearID string) e
 // or via an upstream RLS-scoped query) before invoking this function.
 // This function trusts the caller — it does not re-check user_id ownership.
 func (db *DB) UpdateComponentUsageStatsOwnerVerified(ctx context.Context, componentID string) error {
-	_, err := db.Pool.Exec(ctx, `
+	return db.updateComponentUsageStatsOwnerVerifiedOn(ctx, db.Pool, componentID)
+}
+
+func (db *DB) updateComponentUsageStatsOwnerVerifiedOn(ctx context.Context, q Querier, componentID string) error {
+	_, err := q.Exec(ctx, `
 		WITH usage AS (
 			SELECT
 					gc.id AS component_id,
@@ -2231,7 +2239,11 @@ func (db *DB) UpdateComponentUsageStatsOwnerVerified(ctx context.Context, compon
 // or via an upstream RLS-scoped query) before invoking this function.
 // This function trusts the caller — it does not re-check user_id ownership.
 func (db *DB) UpdateChainRotationMemberStatsOwnerVerified(ctx context.Context, memberID string) error {
-	tag, err := db.Pool.Exec(ctx, `
+	return db.updateChainRotationMemberStatsOwnerVerifiedOn(ctx, db.Pool, memberID)
+}
+
+func (db *DB) updateChainRotationMemberStatsOwnerVerifiedOn(ctx context.Context, q Querier, memberID string) error {
+	tag, err := q.Exec(ctx, `
 		UPDATE chain_rotation_members cm
 		SET total_distance_m = COALESCE(src.distance_m, 0),
 		    total_moving_time_s = COALESCE(src.moving_time_s, 0),
@@ -2277,7 +2289,7 @@ func (db *DB) UpdateChainRotationMemberStatsOwnerVerified(ctx context.Context, m
 		return fmt.Errorf("update chain rotation member stats: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		_, err = db.Pool.Exec(ctx, `
+		_, err = q.Exec(ctx, `
 			UPDATE chain_rotation_members
 			SET total_distance_m = 0,
 			    total_moving_time_s = 0,
@@ -2302,7 +2314,11 @@ func (db *DB) UpdateChainRotationMemberStatsOwnerVerified(ctx context.Context, m
 // (or via an upstream RLS-scoped query) before invoking this function.
 // This function trusts the caller — it does not re-check user_id ownership.
 func (db *DB) ListActiveComponentIDsForGearOwnerVerified(ctx context.Context, gearID string) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
+	return db.listActiveComponentIDsForGearOwnerVerifiedOn(ctx, db.Pool, gearID)
+}
+
+func (db *DB) listActiveComponentIDsForGearOwnerVerifiedOn(ctx context.Context, q Querier, gearID string) ([]string, error) {
+	rows, err := q.Query(ctx, `
 		SELECT id::text
 		FROM gear_components
 		WHERE gear_id = $1
@@ -2333,7 +2349,11 @@ func (db *DB) ListActiveComponentIDsForGearOwnerVerified(ctx context.Context, ge
 // (or via an upstream RLS-scoped query) before invoking this function.
 // This function trusts the caller — it does not re-check user_id ownership.
 func (db *DB) ListImpactedChainRotationMemberIDsForGearOwnerVerified(ctx context.Context, gearID string) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
+	return db.listImpactedChainRotationMemberIDsForGearOwnerVerifiedOn(ctx, db.Pool, gearID)
+}
+
+func (db *DB) listImpactedChainRotationMemberIDsForGearOwnerVerifiedOn(ctx context.Context, q Querier, gearID string) ([]string, error) {
+	rows, err := q.Query(ctx, `
 		SELECT cm.id::text
 		FROM chain_rotation_members cm
 		JOIN chain_rotation_groups crg ON crg.id = cm.group_id
@@ -2367,29 +2387,36 @@ func (db *DB) ListImpactedChainRotationMemberIDsForGearOwnerVerified(ctx context
 // (or via an upstream RLS-scoped query) before invoking this function.
 // This function trusts the caller — it does not re-check user_id ownership.
 func (db *DB) RefreshGearAndDependentUsageStatsOwnerVerified(ctx context.Context, gearID string) error {
-	if err := db.UpdateGearStatsOwnerVerified(ctx, gearID); err != nil {
+	if err := db.refreshGearAndDependentUsageStatsOwnerVerifiedOn(ctx, db.Pool, gearID); err != nil {
 		return err
 	}
-	componentIDs, err := db.ListActiveComponentIDsForGearOwnerVerified(ctx, gearID)
+	if err := db.EvaluateGearUsageRulesForGear(ctx, []string{gearID}); err != nil {
+		slog.Warn("evaluate gear usage rules", "gear_id", gearID, "error", err)
+	}
+	return nil
+}
+
+func (db *DB) refreshGearAndDependentUsageStatsOwnerVerifiedOn(ctx context.Context, q Querier, gearID string) error {
+	if err := db.updateGearStatsOwnerVerifiedOn(ctx, q, gearID); err != nil {
+		return err
+	}
+	componentIDs, err := db.listActiveComponentIDsForGearOwnerVerifiedOn(ctx, q, gearID)
 	if err != nil {
 		return err
 	}
 	for _, componentID := range componentIDs {
-		if err := db.UpdateComponentUsageStatsOwnerVerified(ctx, componentID); err != nil {
+		if err := db.updateComponentUsageStatsOwnerVerifiedOn(ctx, q, componentID); err != nil {
 			return err
 		}
 	}
-	memberIDs, err := db.ListImpactedChainRotationMemberIDsForGearOwnerVerified(ctx, gearID)
+	memberIDs, err := db.listImpactedChainRotationMemberIDsForGearOwnerVerifiedOn(ctx, q, gearID)
 	if err != nil {
 		return err
 	}
 	for _, memberID := range memberIDs {
-		if err := db.UpdateChainRotationMemberStatsOwnerVerified(ctx, memberID); err != nil {
+		if err := db.updateChainRotationMemberStatsOwnerVerifiedOn(ctx, q, memberID); err != nil {
 			return err
 		}
-	}
-	if err := db.EvaluateGearUsageRulesForGear(ctx, []string{gearID}); err != nil {
-		slog.Warn("evaluate gear usage rules", "gear_id", gearID, "error", err)
 	}
 	return nil
 }

@@ -800,27 +800,85 @@ func (db *DB) recomputeLiftStats(ctx context.Context, userID, activityID string,
 			)
 		WHERE id = $1 AND user_id = $2`, confirmedFilter, confirmedFilter, confirmedFilter, confirmedFilter, confirmedFilter)
 
-	tag, err := db.Pool.Exec(ctx, query, activityID, userID)
+	// F6 fix: UPDATE activities.lift_* and the dependent gear-stats refresh
+	// must commit atomically. Pre-fix the UPDATE ran on db.Pool (auto-commit)
+	// and refreshActivityGearStats opened a separate Tx — on gear-refresh
+	// failure the lift stats stayed committed, gear totals went stale, and
+	// the error was only slog.Warn'd while the caller received nil. Now both
+	// statements share one Tx; on any failure both roll back and the caller
+	// gets the error.
+	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("recompute lift stats: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after Commit is a no-op
+
+	tag, err := tx.Exec(ctx, query, activityID, userID)
+	if err != nil {
+		return fmt.Errorf("recompute lift stats: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
+		// No matching activity (deleted or wrong user) — nothing to refresh,
+		// nothing to commit. Rollback via defer.
 		return nil
 	}
 
-	db.warnIfLiftAggregatesExceedRaw(ctx, userID, activityID)
+	var gearIDs []string
 	if !cfg.skipGearRefresh {
-		db.refreshActivityGearStats(ctx, userID, activityID)
+		gearIDs, err = db.refreshActivityGearStatsTx(ctx, tx, userID, activityID)
+		if err != nil {
+			return fmt.Errorf("recompute lift stats: refresh gear stats: %w", err)
+		}
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("recompute lift stats: commit: %w", err)
+	}
+	if len(gearIDs) > 0 {
+		if err := db.EvaluateGearUsageRulesForGear(ctx, gearIDs); err != nil {
+			slog.Warn("evaluate gear usage rules",
+				"activity_id", activityID,
+				"user_id", userID,
+				"error", err)
+		}
+		slog.Debug("recomputeLiftStats: refreshed gear usage",
+			"activity_id", activityID,
+			"user_id", userID,
+			"gear_count", len(gearIDs))
+	}
+
+	// Sanity probe runs after Commit: it is read-only and a probe-read failure
+	// must not roll back a correct UPDATE. F9 fix: probe skips columns whose
+	// raw counterpart is NULL to avoid spurious warnings on imports without
+	// GPS / elevation data.
+	db.warnIfLiftAggregatesExceedRaw(ctx, userID, activityID)
 	return nil
 }
 
+// warnIfLiftAggregatesExceedRaw logs a warning when the recomputed lift_*
+// aggregates exceed the corresponding raw activity totals — a signal that
+// the dedup/recompute query produced an impossible result.
+//
+// F9 fix: distance_m, elevation_gain_m, elevation_loss_m on activities are
+// nullable (see migration 000003 — DOUBLE PRECISION without NOT NULL).
+// Activities imported without GPS / elevation data carry NULL for those
+// columns. The pre-fix probe COALESCE'd them to 0 and then warned when
+// any non-zero lift_* aggregate "exceeded 0", producing alert-fatigue on
+// every recompute for those activities. The probe now reads raw fields as
+// nullable *float64 and only compares pairs where the raw value is NOT
+// NULL — a NULL raw value means "we don't know the activity total" and
+// the probe abstains rather than firing a false positive.
+//
+// lift_count is omitted from the probe by design: there is no raw
+// counterpart to compare against ("activity total ride count" is not a
+// stored column).
 func (db *DB) warnIfLiftAggregatesExceedRaw(ctx context.Context, userID, activityID string) {
-	var distM, liftDistM, ascentM, liftAscentM, lossM, liftDescentM float64
+	var distM, ascentM, lossM *float64
+	var liftDistM, liftAscentM, liftDescentM float64
 	err := db.Pool.QueryRow(ctx, `
-		SELECT COALESCE(distance_m, 0), COALESCE(lift_distance_m, 0),
-		       COALESCE(elevation_gain_m, 0), COALESCE(lift_ascent_m, 0),
-		       COALESCE(elevation_loss_m, 0), COALESCE(lift_descent_m, 0)
+		SELECT distance_m, COALESCE(lift_distance_m, 0),
+		       elevation_gain_m, COALESCE(lift_ascent_m, 0),
+		       elevation_loss_m, COALESCE(lift_descent_m, 0)
 		FROM activities
 		WHERE id = $1 AND user_id = $2`, activityID, userID).Scan(
 		&distM, &liftDistM, &ascentM, &liftAscentM, &lossM, &liftDescentM,
@@ -832,7 +890,14 @@ func (db *DB) warnIfLiftAggregatesExceedRaw(ctx context.Context, userID, activit
 			"error", err)
 		return
 	}
-	if liftDistM > distM || liftAscentM > ascentM || liftDescentM > lossM {
+	// Only flag pairs where the raw column is known. A NULL raw column
+	// means the activity carries no recorded total for that axis (e.g.
+	// no GPS → distance_m IS NULL); comparing a real lift aggregate to
+	// an unknown raw is meaningless and would always trip the warning.
+	distExceeds := distM != nil && liftDistM > *distM
+	ascentExceeds := ascentM != nil && liftAscentM > *ascentM
+	descentExceeds := lossM != nil && liftDescentM > *lossM
+	if distExceeds || ascentExceeds || descentExceeds {
 		slog.Warn("lift aggregates exceed activity raw - possible enrichment defect",
 			"activity_id", activityID,
 			"user_id", userID,
@@ -845,21 +910,44 @@ func (db *DB) warnIfLiftAggregatesExceedRaw(ctx context.Context, userID, activit
 	}
 }
 
-func (db *DB) refreshActivityGearStats(ctx context.Context, userID, activityID string) {
-	gearIDs, err := db.RefreshGearUsageForActivityMetricChange(ctx, activityID, userID)
+// refreshActivityGearStatsTx refreshes gear totals for the activity's gear
+// inside the caller-supplied transaction. F6 fix: previously this function
+// opened its own Tx and swallowed errors via slog.Warn — when the gear
+// refresh failed the just-committed lift_* update was left orphaned with
+// stale gear totals and the caller received nil. The Tx is now passed in
+// so the lift_* UPDATE and the gear UPDATE commit (or roll back) together,
+// and any failure is returned to the caller.
+//
+// "No gear assigned" is not an error: the activity simply has no
+// activity_gear_assignments rows, nothing to refresh, return nil.
+func (db *DB) refreshActivityGearStatsTx(ctx context.Context, tx pgx.Tx, userID, activityID string) ([]string, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT DISTINCT aga.gear_id::text
+		FROM activity_gear_assignments aga
+		JOIN activities a ON a.id = aga.activity_id
+		WHERE aga.activity_id = $1
+		  AND aga.user_id = $2
+		  AND a.user_id = $2`, activityID, userID)
 	if err != nil {
-		slog.Warn("recomputeLiftStats: gear refresh failed",
-			"activity_id", activityID,
-			"user_id", userID,
-			"error", err)
-		return
+		return nil, fmt.Errorf("read activity gear assignments: %w", err)
 	}
-	if len(gearIDs) > 0 {
-		slog.Debug("recomputeLiftStats: refreshed gear usage",
-			"activity_id", activityID,
-			"user_id", userID,
-			"gear_count", len(gearIDs))
+	defer rows.Close()
+
+	var gearIDs []string
+	for rows.Next() {
+		var gearID string
+		if err := rows.Scan(&gearID); err != nil {
+			return nil, fmt.Errorf("scan activity gear assignment: %w", err)
+		}
+		if err := db.refreshGearAndDependentUsageStatsOwnerVerifiedOn(ctx, tx, gearID); err != nil {
+			return nil, fmt.Errorf("update gear usage stats (gear_id=%s): %w", gearID, err)
+		}
+		gearIDs = append(gearIDs, gearID)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read activity gear assignments: %w", err)
+	}
+	return gearIDs, nil
 }
 
 // RecomputeLiftStats is the exported entry-point for the enrichment adapter.
@@ -869,8 +957,16 @@ func (db *DB) RecomputeLiftStats(ctx context.Context, userID, activityID string)
 
 // HeuristicCandidateInput carries the fields needed for one heuristic lift
 // candidate insert. Used by InsertHeuristicCandidateIfNotRejected.
-// DescentM and DistanceM are stored as nullable DOUBLE PRECISION in the DB;
-// passing zero stores NULL (consistent with the pre-Phase-4d insert path).
+//
+// DescentM and DistanceM are stored as nullable DOUBLE PRECISION in the DB.
+// F25 fix: passing zero stores 0 — NOT NULL — because the SQL binds the
+// Go float64 value directly without a NULLIF wrapper. This matches the
+// pre-Phase-4d insert path and is the intended behaviour: callers that
+// genuinely have no descent/distance data should not pass this struct
+// (or future callers can switch the fields to *float64 and add explicit
+// nil-handling at the SQL site if NULL semantics are needed). A zero
+// reading and an unknown reading are aggregated identically by the
+// downstream recompute SUM, so the distinction is currently moot.
 type HeuristicCandidateInput struct {
 	StartedAt  time.Time
 	EndedAt    time.Time
@@ -896,6 +992,22 @@ type HeuristicCandidateInput struct {
 // rejected row) or already present (ON CONFLICT). Does not call
 // recomputeLiftStats — callers are responsible for triggering recompute after
 // all candidates for an activity have been processed.
+//
+// Asymmetric reject-filter (intentional, paired with IsOSMRejectedInWindow):
+// the NOT EXISTS sub-query here checks `rejected_by_user = true` WITHOUT a
+// source filter, so a rejected row of either source ('osm' or 'heuristic')
+// blocks a fresh heuristic re-insert in the same window. IsOSMRejectedInWindow
+// further scopes its check to source = 'osm', so a rejected heuristic does
+// NOT block a later OSM snap of the same window — the OSM data import that
+// fills in missing geometry is allowed to re-detect the lift correctly.
+// Rationale: a user rejecting an OSM-snapped lift signals "the lift does
+// not apply at all" (blocks both heuristic and OSM in window); a user
+// rejecting a heuristic-only candidate signals "the heuristic was wrong"
+// (blocks future heuristics, but a higher-quality OSM detection is allowed
+// to override).
+// Anchor: Phase-4d adversarial-review finding F14 on commit 9066dd2a9 in
+// branch feature/lift-detection-go; user-decision recorded in that review's
+// findings table.
 func (db *DB) InsertHeuristicCandidateIfNotRejected(
 	ctx context.Context,
 	userID, activityID string,
@@ -934,10 +1046,17 @@ func (db *DB) InsertHeuristicCandidateIfNotRejected(
 //
 // The boundary-delta tolerance mirrors InsertHeuristicCandidateIfNotRejected
 // (Slot-2 F4): a re-detection that has shifted by more than 5 s on either
-// edge is treated as a distinct lift and is not suppressed. The check is
-// scoped to source='osm' so a rejected heuristic candidate cannot block
-// a later OSM snap of the same window (e.g. after an OSM data import that
-// filled in missing lift geometry).
+// edge is treated as a distinct lift and is not suppressed.
+//
+// Asymmetric reject-filter (intentional, paired with
+// InsertHeuristicCandidateIfNotRejected): the check is scoped to
+// source = 'osm', so a rejected heuristic candidate does NOT block a later
+// OSM snap of the same window — the OSM data import that fills in missing
+// lift geometry is allowed to override an earlier wrong heuristic. The
+// reverse direction is asymmetric: see the corresponding block above
+// InsertHeuristicCandidateIfNotRejected for the full rationale and the
+// user-decision anchor (Phase-4d adversarial-review finding F14 on commit
+// 9066dd2a9 in branch feature/lift-detection-go).
 func (db *DB) IsOSMRejectedInWindow(ctx context.Context, activityID string, startedAt, endedAt time.Time) (bool, error) {
 	var exists bool
 	err := db.Pool.QueryRow(ctx, `
