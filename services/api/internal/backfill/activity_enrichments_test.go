@@ -2,12 +2,13 @@ package backfill
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"testing"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/google/uuid"
 )
 
@@ -242,15 +243,20 @@ func TestWriteBackfillResult_MetadataShape(t *testing.T) {
 		t.Fatalf("read metadata: %v", err)
 	}
 
-	for _, want := range []string{
-		`"processed":8`,
-		`"failed":2`,
-		`"total":10`,
-		`"failed_ids":["aaa","bbb"]`,
-	} {
-		if !containsStr(meta, want) {
-			t.Fatalf("metadata missing %q, got: %s", want, meta)
-		}
+	var got struct {
+		Processed int      `json:"processed"`
+		Failed    int      `json:"failed"`
+		Total     int      `json:"total"`
+		FailedIDs []string `json:"failed_ids"`
+	}
+	if err := json.Unmarshal([]byte(meta), &got); err != nil {
+		t.Fatalf("decode metadata %q: %v", meta, err)
+	}
+	if got.Processed != 8 || got.Failed != 2 || got.Total != 10 {
+		t.Fatalf("metadata counts = processed:%d failed:%d total:%d, want 8/2/10", got.Processed, got.Failed, got.Total)
+	}
+	if len(got.FailedIDs) != 2 || got.FailedIDs[0] != "aaa" || got.FailedIDs[1] != "bbb" {
+		t.Fatalf("metadata failed_ids = %#v, want [aaa bbb]", got.FailedIDs)
 	}
 }
 
@@ -281,18 +287,6 @@ func TestEnrichOneCandidate_NoSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enrichOneCandidate with nil settings should succeed silently, got: %v", err)
 	}
-}
-
-func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		func() bool {
-			for i := 0; i <= len(s)-len(substr); i++ {
-				if s[i:i+len(substr)] == substr {
-					return true
-				}
-			}
-			return false
-		}())
 }
 
 func candidateContains(candidates []activityEnrichmentBackfillCandidate, activityID string) bool {

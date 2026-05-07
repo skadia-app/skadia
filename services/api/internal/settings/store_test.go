@@ -235,8 +235,9 @@ func TestSettingsStoreTTLRefresh(t *testing.T) {
 	store.setLastLoadForTest(time.Now().Add(-35 * time.Second))
 
 	// Next Get triggers rebuild (fire-and-forget). Wait for it to complete.
+	baseline := store.rebuildCountForTest()
 	_ = store.Get("library.user_can_edit_schemas")
-	if err := store.waitForRebuildCompleteForTest(2 * time.Second); err != nil {
+	if err := store.waitForRebuildAfterForTest(baseline, 2*time.Second); err != nil {
 		t.Fatalf("wait for rebuild: %v", err)
 	}
 	if got := store.Get("library.user_can_edit_schemas").Value; got != "false" {
@@ -262,13 +263,12 @@ func TestSettingsStoreStartupRecoversFromLoadCacheFailure(t *testing.T) {
 	// only increments inside triggerRebuild). The relevant invariant for this
 	// test is the delta after the Get below.
 	baseline := store.rebuildCountForTest()
-	_ = baseline
 	_ = ctx
 
 	// Get should see stale=true (IsZero would've been guard) and trigger rebuild.
 	_ = store.Get("smtp.host")
 
-	if err := store.waitForRebuildCompleteForTest(2 * time.Second); err != nil {
+	if err := store.waitForRebuildAfterForTest(baseline, 2*time.Second); err != nil {
 		t.Fatalf("rebuild never triggered despite zero lastLoad: %v", err)
 	}
 }
@@ -280,6 +280,7 @@ func TestSettingsStoreSingleFlightConcurrentGet(t *testing.T) {
 
 	// Trigger TTL expiry
 	store.setLastLoadForTest(time.Now().Add(-1 * time.Minute))
+	baseline := store.rebuildCountForTest()
 
 	// Fire 100 parallel Gets
 	var wg sync.WaitGroup
@@ -293,9 +294,9 @@ func TestSettingsStoreSingleFlightConcurrentGet(t *testing.T) {
 	wg.Wait()
 
 	// Wait for the triggered rebuild to complete (singleflight is fire-and-forget).
-	// waitForRebuildCompleteForTest blocks until either rebuildCount incremented
-	// at least once or timeout — deterministic and race-safe.
-	if err := store.waitForRebuildCompleteForTest(2 * time.Second); err != nil {
+	// The baseline was captured before firing Gets, so this remains deterministic
+	// even if the rebuild finishes before all goroutines join.
+	if err := store.waitForRebuildAfterForTest(baseline, 2*time.Second); err != nil {
 		t.Fatalf("wait for rebuild: %v", err)
 	}
 
