@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -20,15 +21,8 @@ func testUnifiedStore(t *testing.T, pool *pgxpool.Pool) (*UnifiedShadowFS, strin
 }
 
 func TestUnifiedShadowFS_PutGetDelete(t *testing.T) {
-	if os.Getenv("DATABASE_URL") == "" {
-		t.Skip("DATABASE_URL not set")
-	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
+	pool := testdb.Open(t)
 
 	fs, dir := testUnifiedStore(t, pool)
 

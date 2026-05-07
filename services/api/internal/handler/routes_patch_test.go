@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -239,9 +238,6 @@ func patchRouteRequest(t *testing.T, h *Handler, userID, routeID string, body []
 }
 
 func TestUpdateRoute_PreservesAbsentFields_Integration(t *testing.T) {
-	if os.Getenv("TEST_DATABASE_URL") == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
 	userID := insertTestUser(t, pool)
@@ -278,9 +274,6 @@ func TestUpdateRoute_PreservesAbsentFields_Integration(t *testing.T) {
 }
 
 func TestUpdateRoute_ExplicitNullClearsDescription_Integration(t *testing.T) {
-	if os.Getenv("TEST_DATABASE_URL") == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
 	userID := insertTestUser(t, pool)
@@ -301,9 +294,6 @@ func TestUpdateRoute_ExplicitNullClearsDescription_Integration(t *testing.T) {
 }
 
 func TestUpdateRoute_EmptyStringName_Integration(t *testing.T) {
-	if os.Getenv("TEST_DATABASE_URL") == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
 	userID := insertTestUser(t, pool)
@@ -324,9 +314,6 @@ func TestUpdateRoute_EmptyStringName_Integration(t *testing.T) {
 }
 
 func TestUpdateRoute_OtherUser404_Integration(t *testing.T) {
-	if os.Getenv("TEST_DATABASE_URL") == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
 	ownerID := insertTestUser(t, pool)
@@ -349,9 +336,6 @@ func TestUpdateRoute_OtherUser404_Integration(t *testing.T) {
 }
 
 func TestUpdateRoute_NonExistentID404_Integration(t *testing.T) {
-	if os.Getenv("TEST_DATABASE_URL") == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
 	userID := insertTestUser(t, pool)
@@ -365,9 +349,6 @@ func TestUpdateRoute_NonExistentID404_Integration(t *testing.T) {
 }
 
 func TestUpdateRoute_RoutingEngineSetAndPreserve_Integration(t *testing.T) {
-	if os.Getenv("TEST_DATABASE_URL") == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
 	userID := insertTestUser(t, pool)

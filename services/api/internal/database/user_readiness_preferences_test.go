@@ -6,7 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"reflect"
 	"testing"
 	"time"
@@ -18,10 +18,7 @@ import (
 // readinessTestDB connects via TEST_DATABASE_URL (skipped when unset).
 func readinessTestDB(t *testing.T) *DB {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("readinessTestDB: connect: %v", err)

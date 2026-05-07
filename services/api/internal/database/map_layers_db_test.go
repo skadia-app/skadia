@@ -8,7 +8,7 @@ package database
 
 import (
 	"context"
-	"os"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"testing"
 	"time"
 
@@ -20,10 +20,7 @@ import (
 // mapLayerTestPool returns a pool connected to TEST_DATABASE_URL or skips the test.
 func mapLayerTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping map_layers integration test")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connect: %v", err)

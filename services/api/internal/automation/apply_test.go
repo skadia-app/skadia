@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"testing"
 	"time"
 
@@ -104,10 +104,7 @@ func TestApplyRulesToActivityReturnsPausedBeforeActivityRead(t *testing.T) {
 }
 
 func TestApplyRulesToActivityReturnsPausedWhenAdvisoryLockHeld(t *testing.T) {
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
