@@ -7,7 +7,7 @@ package enrichment
 
 import (
 	"context"
-	"os"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"testing"
 	"time"
 
@@ -19,10 +19,7 @@ import (
 
 func retractTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connect to test DB: %v", err)
@@ -46,9 +43,9 @@ func retractTestUser(t *testing.T, pool *pgxpool.Pool) string {
 		t.Fatalf("insert user: %v", err)
 	}
 	t.Cleanup(func() {
-		pool.Exec(context.Background(), "DELETE FROM activities WHERE user_id = $1", userID)    //nolint:errcheck
-		pool.Exec(context.Background(), "DELETE FROM tags WHERE user_id = $1", userID)          //nolint:errcheck
-		pool.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID)              //nolint:errcheck
+		pool.Exec(context.Background(), "DELETE FROM activities WHERE user_id = $1", userID) //nolint:errcheck
+		pool.Exec(context.Background(), "DELETE FROM tags WHERE user_id = $1", userID)       //nolint:errcheck
+		pool.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID)           //nolint:errcheck
 	})
 	return userID
 }

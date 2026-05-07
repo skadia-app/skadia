@@ -16,7 +16,7 @@ package database
 import (
 	"context"
 	"fmt"
-	"os"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"testing"
 	"time"
 
@@ -28,10 +28,7 @@ import (
 // Unique name to avoid clashing with cacheInvTestPool in the same package.
 func backfillTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("backfillTestPool: connect: %v", err)

@@ -23,7 +23,7 @@ package enrichment
 
 import (
 	"context"
-	"os"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"testing"
 	"time"
 
@@ -78,10 +78,7 @@ func (f *fakeGeocoder) Reverse(ctx context.Context, db *database.DB, userID stri
 // stage1TestPool opens a pgxpool from TEST_DATABASE_URL; skips if not set.
 func stage1TestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connect to test DB: %v", err)
@@ -108,10 +105,10 @@ func stage1TestUser(t *testing.T, pool *pgxpool.Pool) string {
 	t.Cleanup(func() {
 		bg := context.Background()
 		pool.Exec(bg, "DELETE FROM activity_weather WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)", userID) //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM activity_tags WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)", userID)   //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM activities WHERE user_id = $1", userID)                                                       //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM tags WHERE user_id = $1", userID)                                                             //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM users WHERE id = $1", userID)                                                                 //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activity_tags WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)", userID)    //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activities WHERE user_id = $1", userID)                                                        //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM tags WHERE user_id = $1", userID)                                                              //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM users WHERE id = $1", userID)                                                                  //nolint:errcheck
 	})
 	return userID
 }

@@ -316,8 +316,8 @@ func (e *Engine) runPhase1(ctx context.Context, input ImportInput, manifest *Man
 		return fmt.Errorf("read profile.json: %w", err)
 	}
 
-	var profile map[string]any
-	if err := json.Unmarshal(raw, &profile); err != nil {
+	profile, err := decodeProfile(raw)
+	if err != nil {
 		return fmt.Errorf("decode profile.json: %w", err)
 	}
 
@@ -354,6 +354,26 @@ func (e *Engine) runPhase1(ctx context.Context, input ImportInput, manifest *Man
 	}
 
 	return nil
+}
+
+func decodeProfile(raw []byte) (map[string]any, error) {
+	var profile map[string]any
+	objectErr := json.Unmarshal(raw, &profile)
+	if objectErr == nil {
+		return profile, nil
+	}
+
+	var rows []map[string]any
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, objectErr
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	if len(rows) > 1 {
+		return nil, fmt.Errorf("expected one user row, got %d", len(rows))
+	}
+	return rows[0], nil
 }
 
 // runSingleTXPhase imports all tables for phase within a single DB transaction.
@@ -498,10 +518,11 @@ func (e *Engine) runPhase5Activities(
 			return activityCount, fmt.Errorf("activity row %d: begin tx: %w", i, err)
 		}
 
+		rowIDMap := idMap.Clone()
 		var localDeferred []deferredFK
-		prepared := e.prepareRow(activitySpec, rawRow, idMap, input.TargetUserID, insertCols, &localDeferred)
+		prepared := e.prepareRow(activitySpec, rawRow, rowIDMap, input.TargetUserID, insertCols, &localDeferred)
 
-		res, insertErr := e.insertRow(ctx, tx, activitySpec, prepared, idMap, oldID, input.TargetUserID, insertCols, geometryCols)
+		res, insertErr := e.insertRow(ctx, tx, activitySpec, prepared, rowIDMap, oldID, input.TargetUserID, insertCols, geometryCols)
 
 		if res == failed {
 			tx.Rollback(ctx) //nolint:errcheck
@@ -521,13 +542,16 @@ func (e *Engine) runPhase5Activities(
 			continue
 		}
 
-		if len(localDeferred) > 0 {
-			*deferredFKs = append(*deferredFKs, localDeferred...)
-		}
-
 		if err := tx.Commit(ctx); err != nil {
 			tx.Rollback(ctx) //nolint:errcheck
 			return activityCount, fmt.Errorf("activity row %d: commit: %w", i, err)
+		}
+
+		if shouldCommitRowState(activitySpec, res) {
+			idMap.MergeFrom(rowIDMap)
+			if len(localDeferred) > 0 {
+				*deferredFKs = append(*deferredFKs, localDeferred...)
+			}
 		}
 
 		switch res {

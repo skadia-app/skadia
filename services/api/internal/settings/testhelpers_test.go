@@ -2,7 +2,7 @@ package settings
 
 import (
 	"context"
-	"os"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -13,10 +13,7 @@ import (
 // Mirrors the pattern from handler/testhelpers_test.go:fusionTestPool.
 func settingsTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set; skipping DB test")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)

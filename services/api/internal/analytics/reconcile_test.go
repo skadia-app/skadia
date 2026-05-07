@@ -5,7 +5,7 @@ package analytics
 import (
 	"context"
 	"fmt"
-	"os"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"testing"
 	"time"
 
@@ -18,10 +18,7 @@ import (
 // reconcileTestPool connects to TEST_DATABASE_URL, skipping if unset.
 func reconcileTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
-	}
+	dsn := testdb.RequireSafeDSN(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("reconcileTestPool: connect: %v", err)

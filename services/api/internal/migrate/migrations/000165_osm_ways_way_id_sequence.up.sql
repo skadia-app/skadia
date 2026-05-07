@@ -8,6 +8,7 @@
 --
 -- NUR osm_ways braucht das — alle anderen Tabellen nutzen source_region
 -- für Region-Management und kopieren ihre IDs direkt aus dem Staging.
+ALTER TABLE osm_ways ADD COLUMN IF NOT EXISTS way_id BIGINT;
 CREATE SEQUENCE IF NOT EXISTS osm_ways_way_id_seq;
 SELECT setval('osm_ways_way_id_seq', COALESCE((SELECT MAX(way_id) FROM osm_ways), 0) + 1, false);
 ALTER TABLE osm_ways ALTER COLUMN way_id SET DEFAULT nextval('osm_ways_way_id_seq');
