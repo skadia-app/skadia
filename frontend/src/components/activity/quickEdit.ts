@@ -1,5 +1,5 @@
 import type { Activity } from '@/api/types'
-import { modifierFromTSField, modifierKeysForCapability, modifierTagSync, modifierTagSyncOnlySportType, modifierTSField, type SportModifierKey } from '@/lib/sportModifiers'
+import { modifierFromTSField, modifierJSONKey, modifierKeysForCapability, modifierTagSync, modifierTagSyncOnlySportType, modifierTSField, type SportModifierKey, type SportModifierTSField } from '@/lib/sportModifiers'
 import type { updateActivity } from '@/api/activities'
 
 export type ActivityQuickEditPatch = Parameters<typeof updateActivity>[1]
@@ -9,9 +9,7 @@ export interface ActivityQuickEditDraft {
   description: string
   sportType: string
   subType: string
-  isIndoor: boolean
-  isElectric: boolean
-  isVirtual: boolean
+  modifiers: Partial<Record<SportModifierTSField, boolean>>
   excludeFromHeatmap: boolean
   excludeFromStats: boolean
   visibility: Activity['visibility']
@@ -20,7 +18,13 @@ export interface ActivityQuickEditDraft {
   tags: string[]
 }
 
-const COUPLED_TAGS = new Set(['indoor', 'e-bike', 'virtuell'])
+const COUPLED_TAGS = new Set(
+  modifierKeysForCapability('quick_edit')
+    .flatMap((key) => {
+      const tag = modifierTagSync(key)?.systemTag
+      return tag ? [normalizedTagName(tag)] : []
+    }),
+)
 
 export interface QuickEditTagCandidate {
   name: string
@@ -50,14 +54,13 @@ function uniqueTags(tags: string[]): string[] {
 }
 
 export function activityQuickEditDraftFromActivity(activity: Activity): ActivityQuickEditDraft {
+  const modifiers = quickEditModifiersFromActivity(activity)
   return {
     title: activity.title ?? activity.title_auto ?? '',
     description: activity.description ?? '',
     sportType: activity.sport_type,
     subType: activity.sub_type ?? '',
-    isIndoor: activity.is_indoor,
-    isElectric: activity.is_electric,
-    isVirtual: activity.is_virtual,
+    modifiers,
     excludeFromHeatmap: activity.is_virtual || activity.exclude_from_heatmap,
     excludeFromStats: activity.exclude_from_stats,
     visibility: activity.visibility,
@@ -73,7 +76,8 @@ export function buildActivityQuickEditPatch(activity: Activity, draft: ActivityQ
   const description = draft.description.trim()
   const subType = draft.subType.trim()
   const originalTitle = activity.title ?? activity.title_auto ?? ''
-  const effectiveExcludeFromHeatmap = draft.isVirtual ? true : draft.excludeFromHeatmap
+  const draftVirtual = quickEditModifierSelected(draft, 'is_virtual')
+  const effectiveExcludeFromHeatmap = draftVirtual ? true : draft.excludeFromHeatmap
 
   if (title) {
     if (originalTitle !== title) patch.title = title
@@ -87,9 +91,13 @@ export function buildActivityQuickEditPatch(activity: Activity, draft: ActivityQ
   }
   if (activity.sport_type !== draft.sportType) patch.sport_type = draft.sportType
   if (!sameNullableString(activity.sub_type, subType)) patch.sub_type = subType || null
-  if (activity.is_indoor !== draft.isIndoor) patch.is_indoor = draft.isIndoor
-  if (activity.is_electric !== draft.isElectric) patch.is_electric = draft.isElectric
-  if (activity.is_virtual !== draft.isVirtual) patch.is_virtual = draft.isVirtual
+  for (const modifierKey of modifierKeysForCapability('quick_edit')) {
+    const jsonKey = modifierJSONKey(modifierKey) as keyof ActivityQuickEditPatch & keyof Activity
+    const selected = quickEditModifierSelected(draft, modifierKey)
+    if (activity[jsonKey] !== selected) {
+      ;(patch as Record<string, unknown>)[jsonKey] = selected
+    }
+  }
   if (activity.exclude_from_heatmap !== effectiveExcludeFromHeatmap) patch.exclude_from_heatmap = effectiveExcludeFromHeatmap
   if (activity.exclude_from_stats !== draft.excludeFromStats) patch.exclude_from_stats = draft.excludeFromStats
   if (activity.visibility !== draft.visibility) patch.visibility = draft.visibility
@@ -140,7 +148,7 @@ export function quickEditTagDraftAfterToggle(
   const tag = tagName.trim()
   if (!tag) return draft
   const key = normalizedTagName(tag)
-  if (key === 'virtuell' && draft.isVirtual && !selected) {
+  if (key === 'virtuell' && quickEditModifierSelected(draft, 'is_virtual') && !selected) {
     return draft
   }
 
@@ -161,7 +169,7 @@ export function quickEditTagDraftAfterToggle(
 
 export function quickEditTagDraftAfterModifier(
   draft: ActivityQuickEditDraft,
-  modifier: SportModifierKey | 'isIndoor' | 'isElectric' | 'isVirtual',
+  modifier: SportModifierKey | SportModifierTSField,
   selected: boolean,
 ): ActivityQuickEditDraft {
   const modifierKey = normalizeQuickEditModifierKey(modifier)
@@ -176,17 +184,30 @@ export function quickEditTagDraftAfterModifier(
   return next
 }
 
-function normalizeQuickEditModifierKey(modifier: SportModifierKey | 'isIndoor' | 'isElectric' | 'isVirtual'): SportModifierKey | null {
+function normalizeQuickEditModifierKey(modifier: SportModifierKey | SportModifierTSField): SportModifierKey | null {
   if (modifierKeysForCapability('quick_edit').includes(modifier as SportModifierKey)) {
     return modifier as SportModifierKey
   }
-  return modifierFromTSField(modifier)
+  const key = modifierFromTSField(modifier)
+  return key && modifierKeysForCapability('quick_edit').includes(key) ? key : null
 }
 
 function setQuickEditModifier(draft: ActivityQuickEditDraft, modifier: SportModifierKey, selected: boolean) {
-  const field = modifierTSField(modifier) as keyof Pick<ActivityQuickEditDraft, 'isIndoor' | 'isElectric' | 'isVirtual'>
-  if (field === 'isIndoor' || field === 'isElectric' || field === 'isVirtual') {
-    draft[field] = selected
+  if (!modifierKeysForCapability('quick_edit').includes(modifier)) return
+  const field = modifierTSField(modifier)
+  draft.modifiers = { ...draft.modifiers, [field]: selected }
+  if (modifier === 'is_virtual') draft.excludeFromHeatmap = selected
+}
+
+export function quickEditModifierSelected(draft: ActivityQuickEditDraft, modifier: SportModifierKey): boolean {
+  return Boolean(draft.modifiers[modifierTSField(modifier)])
+}
+
+function quickEditModifiersFromActivity(activity: Activity): Partial<Record<SportModifierTSField, boolean>> {
+  const modifiers: Partial<Record<SportModifierTSField, boolean>> = {}
+  for (const modifierKey of modifierKeysForCapability('quick_edit')) {
+    const jsonKey = modifierJSONKey(modifierKey) as keyof Activity
+    modifiers[modifierTSField(modifierKey)] = Boolean(activity[jsonKey])
   }
-  if (field === 'isVirtual') draft.excludeFromHeatmap = selected
+  return modifiers
 }
