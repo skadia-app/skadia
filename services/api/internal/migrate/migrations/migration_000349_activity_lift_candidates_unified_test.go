@@ -24,6 +24,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -217,5 +218,196 @@ func TestMigration_LiftCandidatesUnified_PartialIndexExists(t *testing.T) {
 	}
 	if !exists {
 		t.Error("expected partial index idx_alc_heuristic_only_confirmed to exist")
+	}
+}
+
+// TestMigration_LiftCandidatesUnified_RejectsUppercaseSource verifies that the
+// CHECK constraint is case-sensitive: 'OSM' (uppercase) must be rejected even
+// though 'osm' (lowercase) is valid. This documents the intended contract and
+// guards against accidental case-insensitive constraint rewrites.
+func TestMigration_LiftCandidatesUnified_RejectsUppercaseSource(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	userID := uuid.NewString()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO users (id, username, email, email_verified, registration_source)
+		 VALUES ($1, $2, $3, true, 'test')`,
+		userID,
+		"liftosmupper_"+userID[:8],
+		"liftosmupper_"+userID[:8]+"@example.com",
+	); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, "DELETE FROM users WHERE id = $1", userID)
+	})
+
+	activityID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, started_at)
+		VALUES ($1, $2, 'mig349_upper', 'skiing', NOW())
+	`, activityID, userID); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, "DELETE FROM activities WHERE id = $1", activityID)
+	})
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO activity_lift_candidates
+			(activity_id, started_at, ended_at, duration_s, ascent_m, source)
+		VALUES ($1, NOW(), NOW() + interval '60s', 60, 100, 'OSM')
+	`, activityID)
+	if err == nil {
+		t.Fatal("expected CHECK constraint violation for source='OSM' (uppercase), got success")
+	}
+	if !strings.Contains(err.Error(), "check") && !strings.Contains(err.Error(), "constraint") {
+		t.Errorf("expected CHECK constraint error for 'OSM', got: %v", err)
+	}
+}
+
+// TestMigration_LiftCandidatesUnified_SegmentEffortFlagsDefaultFalse verifies
+// that the three audit boolean columns added to segment_efforts have DEFAULT
+// false on rows that pre-date the migration. The test inserts a segment_effort
+// row without specifying the flags and reads them back to confirm the default.
+//
+// Note: segment_efforts is a TimescaleDB hypertable with composite PK
+// (id, started_at) — we build the minimal chain: user → activity → segment →
+// segment_version → segment_effort.
+func TestMigration_LiftCandidatesUnified_SegmentEffortFlagsDefaultFalse(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	userID := uuid.NewString()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO users (id, username, email, email_verified, registration_source)
+		 VALUES ($1, $2, $3, true, 'test')`,
+		userID,
+		"liftseflag_"+userID[:8],
+		"liftseflag_"+userID[:8]+"@example.com",
+	); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, "DELETE FROM users WHERE id = $1", userID)
+	})
+
+	activityID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, started_at)
+		VALUES ($1, $2, 'mig349_seflag', 'skiing', NOW())
+	`, activityID, userID); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, "DELETE FROM activities WHERE id = $1", activityID)
+	})
+
+	segID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segments
+			(id, name, segment_type, distance_m, elevation_gain_m, sport_group, created_by)
+		VALUES ($1, 'mig349_seg', 'lift', 200, 80, 'skiing', $2)
+	`, segID, userID); err != nil {
+		t.Fatalf("insert segment: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, "DELETE FROM segments WHERE id = $1", segID)
+	})
+
+	versionID := uuid.NewString()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segment_versions
+			(id, segment_id, version_number, track, valid_from, created_by)
+		VALUES ($1, $2, 1,
+		        ST_GeomFromText('LINESTRING(11.0 47.0, 11.005 47.0)', 4326),
+		        CURRENT_DATE, $3)
+	`, versionID, segID, userID); err != nil {
+		t.Fatalf("insert segment_version: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, "DELETE FROM segment_versions WHERE id = $1", versionID)
+	})
+
+	// Insert a segment_effort without specifying the three audit flag columns.
+	effortID := uuid.NewString()
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segment_efforts
+			(id, segment_id, segment_version_id, activity_id, user_id,
+			 started_at, elapsed_time_s, sport_type, sub_type, in_leaderboard)
+		VALUES ($1, $2, $3, $4, $5, $6, 60, 'skiing', 'generic', false)
+	`, effortID, segID, versionID, activityID, userID, now); err != nil {
+		t.Fatalf("insert segment_effort: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, "DELETE FROM segment_efforts WHERE id = $1", effortID)
+	})
+
+	var isLiftMatch, isMethodAOnly, isCableHoldMerge bool
+	if err := pool.QueryRow(ctx, `
+		SELECT is_lift_segment_match, is_method_a_only, is_cable_hold_merge
+		FROM segment_efforts WHERE id = $1
+	`, effortID).Scan(&isLiftMatch, &isMethodAOnly, &isCableHoldMerge); err != nil {
+		t.Fatalf("query segment_effort flags: %v", err)
+	}
+	if isLiftMatch {
+		t.Error("is_lift_segment_match = true, want false (DEFAULT should apply)")
+	}
+	if isMethodAOnly {
+		t.Error("is_method_a_only = true, want false (DEFAULT should apply)")
+	}
+	if isCableHoldMerge {
+		t.Error("is_cable_hold_merge = true, want false (DEFAULT should apply)")
+	}
+}
+
+// TestMigration_LiftCandidatesUnified_IndexUsedByDedupQuery verifies that
+// EXPLAIN selects idx_alc_heuristic_only_confirmed for the recomputeLiftStats
+// query pattern (WHERE confirmed=true AND segment_effort_id IS NULL).
+// An index scan here confirms the partial index predicate matches the query.
+//
+// `SET LOCAL enable_seqscan = off` is required because on a near-empty
+// activity_lift_candidates table the planner picks a seq scan (cheaper than
+// any index on small data). Disabling seq-scan forces the planner to use
+// the index if applicable, which proves the partial-index predicate matches.
+func TestMigration_LiftCandidatesUnified_IndexUsedByDedupQuery(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(context.Background()) //nolint:errcheck
+	if _, err := tx.Exec(ctx, "SET LOCAL enable_seqscan = off"); err != nil {
+		t.Fatalf("disable seqscan: %v", err)
+	}
+
+	rows, err := tx.Query(ctx, `
+		EXPLAIN SELECT activity_id FROM activity_lift_candidates
+		WHERE confirmed = true AND segment_effort_id IS NULL
+	`)
+	if err != nil {
+		t.Fatalf("EXPLAIN query: %v", err)
+	}
+	defer rows.Close()
+
+	var planLines []string
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatalf("scan EXPLAIN row: %v", err)
+		}
+		planLines = append(planLines, line)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("EXPLAIN rows: %v", err)
+	}
+
+	fullPlan := strings.Join(planLines, "\n")
+	if !strings.Contains(fullPlan, "idx_alc_heuristic_only_confirmed") {
+		t.Errorf("expected EXPLAIN plan to reference idx_alc_heuristic_only_confirmed, got:\n%s", fullPlan)
 	}
 }

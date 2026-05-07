@@ -12,6 +12,7 @@ package migrations_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -155,5 +156,54 @@ func TestMigration_LiftReviewState_ExistingRowsGetDefaultFalse(t *testing.T) {
 	}
 	if !rejected {
 		t.Error("rejected_by_user = false after UPDATE, want true")
+	}
+}
+
+// TestMigration_LiftReviewState_PartialIndexUsedByActiveFilter verifies that
+// EXPLAIN selects idx_lift_candidates_active for a query filtering on
+// WHERE NOT rejected_by_user. The partial index is defined with that exact
+// predicate — a planner hit confirms the index is correctly recognised.
+//
+// `SET LOCAL enable_seqscan = off` is required because on a near-empty
+// activity_lift_candidates table the planner picks a seq scan (cheaper than
+// any index on small data). Disabling seq-scan forces the planner to use
+// the index if applicable, which proves the partial-index predicate matches.
+func TestMigration_LiftReviewState_PartialIndexUsedByActiveFilter(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(context.Background()) //nolint:errcheck
+	if _, err := tx.Exec(ctx, "SET LOCAL enable_seqscan = off"); err != nil {
+		t.Fatalf("disable seqscan: %v", err)
+	}
+
+	rows, err := tx.Query(ctx, `
+		EXPLAIN SELECT activity_id FROM activity_lift_candidates
+		WHERE NOT rejected_by_user
+	`)
+	if err != nil {
+		t.Fatalf("EXPLAIN query: %v", err)
+	}
+	defer rows.Close()
+
+	var planLines []string
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatalf("scan EXPLAIN row: %v", err)
+		}
+		planLines = append(planLines, line)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("EXPLAIN rows: %v", err)
+	}
+
+	fullPlan := strings.Join(planLines, "\n")
+	if !strings.Contains(fullPlan, "idx_lift_candidates_active") {
+		t.Errorf("expected EXPLAIN plan to reference idx_lift_candidates_active, got:\n%s", fullPlan)
 	}
 }
