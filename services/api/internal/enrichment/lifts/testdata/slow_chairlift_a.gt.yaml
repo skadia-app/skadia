@@ -30,4 +30,10 @@ anchors:
     x_m: 924
     y_m: 0
 fixture_content_hash: e98f5663461fe6519ca80db9e610047b4352a1c19192bad9220ade86727cbd2e
+# detector_verdict_hash is informational only — hash drift is logged but not a
+# test failure (see loadCanonicalFixture: t.Logf on mismatch, not t.Errorf).
+# The hash covers DurationS, AscentM, DescentM, round(DistanceM), Confidence
+# via math.Float64bits; it may change on Go toolchain upgrades or CPU
+# instruction-set variations. Update by running the canonical fixture smoke test
+# and copying the "current detector verdict hash" from the log output.
 detector_verdict_hash: 9055f14308df5e08
