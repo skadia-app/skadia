@@ -3,6 +3,7 @@ import {
   activityQuickEditDraftFromActivity,
   buildActivityQuickEditPatch,
   diffQuickEditTags,
+  quickEditModifierSelected,
   quickEditTagDraftAfterModifier,
   quickEditTagDraftAfterToggle,
   quickEditTagSuggestions,
@@ -28,21 +29,30 @@ const baseActivity = {
 } as Activity
 
 function draft(overrides: Partial<ActivityQuickEditDraft> = {}): ActivityQuickEditDraft {
-  return {
+  const base: ActivityQuickEditDraft = {
     title: 'New title',
     description: '',
     sportType: 'cycling',
     subType: 'mountain',
-    isIndoor: true,
-    isElectric: true,
-    isVirtual: false,
+    modifiers: {
+      isIndoor: true,
+      isElectric: true,
+      isVirtual: false,
+    },
     excludeFromHeatmap: false,
     excludeFromStats: false,
     visibility: 'public',
     workoutRpe: 7,
     workoutFeel: 4,
     tags: ['Indoor', 'E-Bike', 'Neu'],
+  }
+  return {
+    ...base,
     ...overrides,
+    modifiers: {
+      ...base.modifiers,
+      ...overrides.modifiers,
+    },
   }
 }
 
@@ -97,12 +107,12 @@ describe('activity quick edit helpers', () => {
     const initial = activityQuickEditDraftFromActivity({ ...baseActivity, is_virtual: true, exclude_from_heatmap: false })
     expect(initial.excludeFromHeatmap).toBe(true)
 
-    const virtual = quickEditTagDraftAfterModifier(draft({ isVirtual: false, excludeFromHeatmap: false, tags: [] }), 'isVirtual', true)
-    expect(virtual.isVirtual).toBe(true)
+    const virtual = quickEditTagDraftAfterModifier(draft({ modifiers: { isVirtual: false }, excludeFromHeatmap: false, tags: [] }), 'isVirtual', true)
+    expect(quickEditModifierSelected(virtual, 'is_virtual')).toBe(true)
     expect(virtual.excludeFromHeatmap).toBe(true)
 
     const outdoor = quickEditTagDraftAfterModifier(virtual, 'isVirtual', false)
-    expect(outdoor.isVirtual).toBe(false)
+    expect(quickEditModifierSelected(outdoor, 'is_virtual')).toBe(false)
     expect(outdoor.excludeFromHeatmap).toBe(false)
   })
 
@@ -117,33 +127,33 @@ describe('activity quick edit helpers', () => {
 
   it('keeps virtual locked while the draft flag is true and maps system tags to flags', () => {
     const nextIndoor = quickEditTagDraftAfterToggle(draft({ tags: [] }), 'Indoor', true)
-    expect(nextIndoor.isIndoor).toBe(true)
+    expect(quickEditModifierSelected(nextIndoor, 'is_indoor')).toBe(true)
     expect(nextIndoor.tags).toContain('Indoor')
 
-    const stillVirtual = quickEditTagDraftAfterToggle(draft({ isVirtual: true, tags: ['virtuell'] }), 'virtuell', false)
-    expect(stillVirtual.isVirtual).toBe(true)
+    const stillVirtual = quickEditTagDraftAfterToggle(draft({ modifiers: { isVirtual: true }, tags: ['virtuell'] }), 'virtuell', false)
+    expect(quickEditModifierSelected(stillVirtual, 'is_virtual')).toBe(true)
     expect(stillVirtual.tags).toContain('virtuell')
 
-    const noElectric = quickEditTagDraftAfterToggle(draft({ isElectric: true, tags: ['E-Bike'] }), 'E-Bike', false)
-    expect(noElectric.isElectric).toBe(false)
+    const noElectric = quickEditTagDraftAfterToggle(draft({ modifiers: { isElectric: true }, tags: ['E-Bike'] }), 'E-Bike', false)
+    expect(quickEditModifierSelected(noElectric, 'is_electric')).toBe(false)
     expect(noElectric.tags).not.toContain('E-Bike')
   })
 
   it('adds the E-Bike tag only for cycling drafts when toggling the electric modifier', () => {
     const cyclingElectric = quickEditTagDraftAfterModifier(
-      draft({ sportType: 'cycling', tags: [], isElectric: false }),
+      draft({ sportType: 'cycling', tags: [], modifiers: { isElectric: false } }),
       'isElectric',
       true,
     )
-    expect(cyclingElectric.isElectric).toBe(true)
+    expect(quickEditModifierSelected(cyclingElectric, 'is_electric')).toBe(true)
     expect(cyclingElectric.tags).toContain('E-Bike')
 
     const runningElectric = quickEditTagDraftAfterModifier(
-      draft({ sportType: 'running', subType: '', tags: [], isElectric: false }),
+      draft({ sportType: 'running', subType: '', tags: [], modifiers: { isElectric: false } }),
       'isElectric',
       true,
     )
-    expect(runningElectric.isElectric).toBe(true)
+    expect(quickEditModifierSelected(runningElectric, 'is_electric')).toBe(true)
     expect(runningElectric.tags).not.toContain('E-Bike')
   })
 

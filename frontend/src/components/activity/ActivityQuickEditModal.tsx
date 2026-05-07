@@ -15,13 +15,14 @@ import {
   diffQuickEditTags,
   quickEditTagDraftAfterModifier,
   quickEditTagDraftAfterToggle,
+  quickEditModifierSelected,
   quickEditTagSuggestions,
   type ActivityQuickEditDraft,
 } from './quickEdit'
 import { formatDistance, formatDuration, formatElevationGain, formatElevationLoss } from '@/lib/utils'
 import { getTagBadgeStyle } from '@/lib/tagUtils'
 import { fmtTime } from '@/lib/format'
-import { modifierKeysForCapability, modifierLabel, modifierTSField, type SportModifierKey } from '@/lib/sportModifiers'
+import { modifierKeysForCapability, modifierLabel, type SportModifierKey } from '@/lib/sportModifiers'
 
 interface ActivityQuickEditModalProps {
   activity: Activity
@@ -321,14 +322,12 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
 
             <div className="grid gap-3 md:grid-cols-3">
               {quickEditModifierKeys.map((key) => {
-                const field = modifierTSField(key) as keyof Pick<ActivityQuickEditDraft, 'isIndoor' | 'isElectric' | 'isVirtual'>
-                if (field !== 'isIndoor' && field !== 'isElectric' && field !== 'isVirtual') return null
                 const label = modifierLabel(key)
                 return (
                 <div key={key} className="flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
                   <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
                   <Toggle
-                    checked={draft[field]}
+                    checked={quickEditModifierSelected(draft, key)}
                     onChange={checked => toggleModifier(key, checked)}
                     size="sm"
                     aria-label={label}
@@ -346,10 +345,10 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
                 <div key={key} className="flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
                   <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
                   <Toggle
-                    checked={key === 'excludeFromHeatmap' && draft.isVirtual ? true : draft[key]}
+                    checked={key === 'excludeFromHeatmap' && quickEditModifierSelected(draft, 'is_virtual') ? true : draft[key]}
                     onChange={checked => patchDraft({ [key]: checked })}
                     size="sm"
-                    disabled={key === 'excludeFromHeatmap' && draft.isVirtual}
+                    disabled={key === 'excludeFromHeatmap' && quickEditModifierSelected(draft, 'is_virtual')}
                     aria-label={label}
                   />
                 </div>
@@ -360,12 +359,12 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
               <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Tags</span>
               <div className="rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
                 <div className="mb-2 flex flex-wrap gap-2">
-	                  {draft.tags.map(tag => {
-	                    const locked = tag.toLowerCase() === 'virtuell' && draft.isVirtual
-	                    const removalLabel = tag.toLowerCase() === 'indoor' && draft.isIndoor
-	                      ? 'Indoor entfernen (setzt Indoor aus)'
-	                      : tag.toLowerCase() === 'e-bike' && draft.isElectric
-	                        ? 'E-Bike entfernen (setzt E-Antrieb aus)'
+		                  {draft.tags.map(tag => {
+		                    const locked = tag.toLowerCase() === 'virtuell' && quickEditModifierSelected(draft, 'is_virtual')
+		                    const removalLabel = tag.toLowerCase() === 'indoor' && quickEditModifierSelected(draft, 'is_indoor')
+		                      ? 'Indoor entfernen (setzt Indoor aus)'
+		                      : tag.toLowerCase() === 'e-bike' && quickEditModifierSelected(draft, 'is_electric')
+		                        ? 'E-Bike entfernen (setzt E-Antrieb aus)'
 	                        : `${tag} entfernen`
 	                    return (
 	                      <span key={tag} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium" style={tagStyle(tag, draft.tags.indexOf(tag))}>
