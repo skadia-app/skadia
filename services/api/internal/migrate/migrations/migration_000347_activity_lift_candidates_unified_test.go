@@ -1,9 +1,6 @@
 package migrations_test
 
-// Integration tests for migration 000999_activity_lift_candidates_unified.
-//
-// Originally written as a 000999 placeholder; finalize-migration.sh renumbers
-// the file at merge time. The test name stays attached regardless of final number.
+// Integration tests for migration 000347_activity_lift_candidates_unified.
 //
 // Phase 4c — OSM-Snap-Pipeline. The migration:
 //   1. Adds activity_lift_candidates.source TEXT NOT NULL DEFAULT 'heuristic'
@@ -16,12 +13,10 @@ package migrations_test
 //
 // Note on segment_effort_id type: segment_efforts has a composite PK
 // (id UUID, started_at TIMESTAMPTZ) due to TimescaleDB hypertable. We
-// therefore use a UUID FK on segment_effort_id (referencing segment_efforts.id
-// only — the started_at half of the PK is recoverable via the candidate's own
-// activity_id+started_at). NO foreign key constraint is added because composite
-// PK targets cannot be referenced by a single column FK in Postgres; the
-// dedup contract is maintained by the writing code (snap.go) and audited by
-// nullability semantics.
+// therefore use a UUID link on segment_effort_id. NO foreign key constraint is
+// added because composite PK targets cannot be referenced by a single-column FK
+// in Postgres; the dedup contract is maintained by the writing code (snap.go)
+// and audited by nullability semantics.
 //
 // Tests are skipped when TEST_DATABASE_URL is unset.
 
