@@ -45,11 +45,11 @@ var GDPRRegistry = map[string]TableCategory{
 	"gear":                        Export,
 	"gear_components":             Export,
 	"gear_documents":              Export,
-	"activity_gear_assignments":     Export, // gear-to-activity link with role/slot/quantity (Mig 000355)
-	"gear_component_swap_events":   Export, // component swap history (Mig 000355)
-	"gear_schema_definitions":      Export, // user-custom schema overrides (Mig 000355)
-	"gear_service_events":          Export,
-	"gear_service_intervals":       Export,
+	"activity_gear_assignments":   Export, // gear-to-activity link with role/slot/quantity (Mig 000355)
+	"gear_component_swap_events":  Export, // component swap history (Mig 000355)
+	"gear_schema_definitions":     Export, // user-custom schema overrides (Mig 000355)
+	"gear_service_events":         Export,
+	"gear_service_intervals":      Export,
 	"llm_user_config":             Export,
 	"ml_user_settings":            Export,
 	"oauth_connections":           Export, // Metadaten; Tokens in Deny-List
@@ -96,19 +96,22 @@ var GDPRRegistry = map[string]TableCategory{
 	// -------------------------------------------------------------------------
 	// Derived — regenerated on re-import; exported for convenience only
 	// -------------------------------------------------------------------------
-	"activity_climb_pro_events":      Derived,
-	"activity_climbs":                Derived,
-	"activity_detected_laps":         Derived,
-	"activity_dive_gases":            Derived, // FIT-dive data, cascades from activities
-	"activity_dive_settings":         Derived, // FIT-dive data, cascades from activities
-	"activity_events":                Derived,
-	"activity_geo_tags":              Derived,
-	"activity_hr_data":               Derived,
-	"activity_intervals":             Derived,
-	"activity_jumps":                 Derived,
-	"activity_laps":                  Derived,
-	"activity_lengths":               Derived,
-	"activity_lift_candidates":       Derived,
+	"activity_climb_pro_events": Derived,
+	"activity_climbs":           Derived,
+	"activity_detected_laps":    Derived,
+	"activity_dive_gases":       Derived, // FIT-dive data, cascades from activities
+	"activity_dive_settings":    Derived, // FIT-dive data, cascades from activities
+	"activity_events":           Derived,
+	"activity_geo_tags":         Derived,
+	"activity_hr_data":          Derived,
+	"activity_intervals":        Derived,
+	"activity_jumps":            Derived,
+	"activity_laps":             Derived,
+	"activity_lengths":          Derived,
+	// activity_lift_candidates: upgraded from Derived to Export in Phase 4d
+	// because rejected_by_user is user-authored data that is not regenerable
+	// on re-import (unlike the detection results, which are derived).
+	"activity_lift_candidates":       Export,
 	"activity_privacy_sections":      Derived,
 	"activity_rr_intervals":          Derived,
 	"activity_segment_laps":          Derived,
@@ -144,9 +147,9 @@ var GDPRRegistry = map[string]TableCategory{
 	"device_tokens":          System,
 	"server_settings":        System,
 	"email_tokens":           System,
-	"garmin_import_jobs":       System,
-	"garmin_import_mappings":   System,
-	"gear_idempotency_keys":    System, // transient dedup state; best-effort 24 h TTL via pg_cron when available; Go-side hourly fallback ticker when not (Mig 000355)
+	"garmin_import_jobs":     System,
+	"garmin_import_mappings": System,
+	"gear_idempotency_keys":  System, // transient dedup state; best-effort 24 h TTL via pg_cron when available; Go-side hourly fallback ticker when not (Mig 000355)
 	// System: state is fully reproducible from automation_rules + gear; no historical signal lost (Plan 2026-05-08 §11).
 	"gear_rule_action_state": System,
 	// hotfolder_imports removed — table never existed in DB (stale aspirational entry, Mig cleanup)
@@ -232,6 +235,10 @@ var ExportedTables = []string{
 	"activity_gear_assignments",
 	"gear_component_swap_events",
 	"gear_schema_definitions",
+	// Phase 4d: rejected_by_user is user-authored; activity_lift_candidates
+	// must be exported so that soft-reject decisions survive a GDPR
+	// import/export round-trip.
+	"activity_lift_candidates",
 	// Health tables are exported dynamically via database.AllHealthTables():
 	"health_daily_summary",
 	"health_sleep",
