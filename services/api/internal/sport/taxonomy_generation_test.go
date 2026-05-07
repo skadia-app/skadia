@@ -121,6 +121,54 @@ func TestGeneratedBackendSegmentProjectionIsCurrent(t *testing.T) {
 	}
 }
 
+func TestGeneratedFrontendActivityFilterProjectionIsCurrent(t *testing.T) {
+	taxonomy := loadTestTaxonomy(t)
+	file, err := os.Open("../../../../config/sport-taxonomy/projections/activity_filters.yaml")
+	if err != nil {
+		t.Fatalf("open activity_filters.yaml: %v", err)
+	}
+	defer file.Close()
+	projection, err := sporttaxgen.LoadActivityFilterProjections(file, taxonomy)
+	if err != nil {
+		t.Fatalf("load activity filter projections: %v", err)
+	}
+	expanded, err := sporttaxgen.ExpandActivityFilterPresets(taxonomy, projection)
+	if err != nil {
+		t.Fatalf("expand activity filter projections: %v", err)
+	}
+	got, err := sporttaxgen.RenderTSActivityFilterProjections(expanded)
+	if err != nil {
+		t.Fatalf("render TypeScript activity filter projection: %v", err)
+	}
+	want, err := os.ReadFile("../../../../frontend/src/lib/generatedSportFilterProjections.ts")
+	if err != nil {
+		t.Fatalf("read generatedSportFilterProjections.ts: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("generatedSportFilterProjections.ts is stale; run scripts/generate-sport-taxonomy.sh")
+	}
+}
+
+func TestGeneratedFrontendSegmentProjectionIsCurrent(t *testing.T) {
+	taxonomy := loadTestTaxonomy(t)
+	projection := loadTestSegmentProjection(t, taxonomy)
+	expanded, err := sporttaxgen.ExpandSegmentProjection(taxonomy, projection)
+	if err != nil {
+		t.Fatalf("expand segment projection: %v", err)
+	}
+	got, err := sporttaxgen.RenderTSSegmentProjection(expanded)
+	if err != nil {
+		t.Fatalf("render TypeScript segment projection: %v", err)
+	}
+	want, err := os.ReadFile("../../../../frontend/src/lib/generatedSegmentProjections.ts")
+	if err != nil {
+		t.Fatalf("read generatedSegmentProjections.ts: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("generatedSegmentProjections.ts is stale; run scripts/generate-sport-taxonomy.sh")
+	}
+}
+
 func TestGeneratedFrontendRuleProjectionIsCurrent(t *testing.T) {
 	taxonomy := loadTestTaxonomy(t)
 	modifiers := loadTestModifiers(t)
