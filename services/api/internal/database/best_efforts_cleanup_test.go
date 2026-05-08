@@ -115,7 +115,7 @@ func TestReplaceBestEffortsForActivitiesRemovesStaleValidRows(t *testing.T) {
 	}
 
 	replacementElapsed := 1300
-	if err := db.ReplaceBestEffortsForActivities(ctx, []string{activityID}, []bestefforts.BestEffortRecord{
+	if err := db.ReplaceBestEffortsForActivities(ctx, userID, []string{activityID}, []bestefforts.BestEffortRecord{
 		{
 			ID:           uuid.NewString(),
 			UserID:       userID,
@@ -160,6 +160,94 @@ func TestReplaceBestEffortsForActivitiesRemovesStaleValidRows(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].category != "dist_5km" || got[0].elapsedS != replacementElapsed {
 		t.Fatalf("remaining rows = %#v, want one replacement dist_5km row", got)
+	}
+}
+
+func TestReplaceBestEffortsForActivitiesDeletesOnlyRequestedUserRows(t *testing.T) {
+	db, userID, activityID := bestEffortsCleanupDB(t)
+	ctx := context.Background()
+	otherDB, otherUserID, otherActivityID := bestEffortsCleanupDB(t)
+	_ = otherDB
+	now := time.Now().UTC()
+
+	for _, row := range []struct {
+		userID     string
+		activityID string
+		category   string
+	}{
+		{userID: userID, activityID: activityID, category: "dist_5km"},
+		{userID: otherUserID, activityID: otherActivityID, category: "dist_10km"},
+	} {
+		if _, err := db.Pool.Exec(ctx,
+			`INSERT INTO best_efforts (user_id, activity_id, category, sport_group, elapsed_time_s, achieved_at)
+			 VALUES ($1, $2, $3, 'running', 1200, $4)`,
+			row.userID, row.activityID, row.category, now,
+		); err != nil {
+			t.Fatalf("insert stale best_effort %s: %v", row.category, err)
+		}
+	}
+
+	if err := db.ReplaceBestEffortsForActivities(ctx, userID, []string{activityID, otherActivityID}, nil); err != nil {
+		t.Fatalf("ReplaceBestEffortsForActivities: %v", err)
+	}
+
+	var ownCount, otherCount int
+	if err := db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM best_efforts WHERE activity_id = $1`, activityID).Scan(&ownCount); err != nil {
+		t.Fatalf("count own best_efforts: %v", err)
+	}
+	if err := db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM best_efforts WHERE activity_id = $1`, otherActivityID).Scan(&otherCount); err != nil {
+		t.Fatalf("count other best_efforts: %v", err)
+	}
+	if ownCount != 0 {
+		t.Fatalf("own activity best_efforts = %d, want 0", ownCount)
+	}
+	if otherCount != 1 {
+		t.Fatalf("other user best_efforts = %d, want untouched 1", otherCount)
+	}
+}
+
+func TestReplaceBestEffortsForActivitiesRejectsRecordsOutsideDeleteScope(t *testing.T) {
+	db, userID, activityID := bestEffortsCleanupDB(t)
+	_, _, otherActivityID := bestEffortsCleanupDB(t)
+	ctx := context.Background()
+
+	err := db.ReplaceBestEffortsForActivities(ctx, userID, []string{activityID}, []bestefforts.BestEffortRecord{
+		{
+			ID:         uuid.NewString(),
+			UserID:     userID,
+			ActivityID: otherActivityID,
+			Category:   "dist_5km",
+			SportGroup: "running",
+			AchievedAt: time.Now().UTC(),
+		},
+	})
+	if err == nil {
+		t.Fatal("ReplaceBestEffortsForActivities returned nil, want scope error")
+	}
+}
+
+func TestReplaceBestEffortsForActivitiesEmptyRecordsDeletesStaleRows(t *testing.T) {
+	db, userID, activityID := bestEffortsCleanupDB(t)
+	ctx := context.Background()
+
+	if _, err := db.Pool.Exec(ctx,
+		`INSERT INTO best_efforts (user_id, activity_id, category, sport_group, elapsed_time_s, achieved_at)
+		 VALUES ($1, $2, 'dist_5km', 'running', 1200, $3)`,
+		userID, activityID, time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("insert stale best_effort: %v", err)
+	}
+
+	if err := db.ReplaceBestEffortsForActivities(ctx, userID, []string{activityID}, nil); err != nil {
+		t.Fatalf("ReplaceBestEffortsForActivities: %v", err)
+	}
+
+	var count int
+	if err := db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM best_efforts WHERE activity_id = $1`, activityID).Scan(&count); err != nil {
+		t.Fatalf("count best_efforts: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("best_efforts count = %d, want 0", count)
 	}
 }
 

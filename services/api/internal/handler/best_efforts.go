@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
@@ -256,10 +257,10 @@ func (h *Handler) RecalcBestEfforts(w http.ResponseWriter, r *http.Request) {
 
 	svc := h.BestEfforts
 	shutdown.Go(jobID, func(ctx context.Context) {
-		err := svc.RecalcAll(ctx, userID, func(done, total int) {
-			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(done))
-			if done == 0 && total > 0 {
-				_ = h.DB.UpdateBackgroundJobTotal(ctx, jobID, int64(total))
+		err := svc.RecalcAll(ctx, userID, func(progress bestefforts.RecalcProgress) {
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(progress.Done))
+			if progress.Done == 0 && progress.Total > 0 {
+				_ = h.DB.UpdateBackgroundJobTotal(ctx, jobID, int64(progress.Total))
 			}
 		})
 		if err != nil {

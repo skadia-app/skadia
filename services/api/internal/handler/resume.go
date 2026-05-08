@@ -2,9 +2,11 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
@@ -13,8 +15,10 @@ import (
 // a container restart. Only fully idempotent jobs belong here — the resume
 // logic deletes prior results and re-runs from scratch.
 var resumableJobTypes = map[string]bool{
-	"segment_recompute": true,
-	"segment_publish":   true,
+	"segment_recompute":       true,
+	"segment_publish":         true,
+	"recalc_best_efforts":     true,
+	"recalc_best_efforts_all": true,
 }
 
 // maxResumableJobAge is the maximum age of a job that can be resumed.
@@ -116,11 +120,66 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 			h.resumeSegmentRecompute(job)
 		case "segment_publish":
 			h.resumeSegmentPublish(job)
+		case "recalc_best_efforts":
+			h.resumeBestEffortsRecalc(job)
+		case "recalc_best_efforts_all":
+			h.resumeAllUsersBestEffortsRecalc(job)
 		default:
 			_ = h.DB.FailBackgroundJob(ctx, job.ID)
 		}
 	}
 
+}
+
+func bestEffortsCheckpointFromJob(job database.BackgroundJob) allUsersBestEffortsCheckpoint {
+	var checkpoint allUsersBestEffortsCheckpoint
+	if len(job.Metadata) == 0 {
+		return checkpoint
+	}
+	if err := json.Unmarshal(job.Metadata, &checkpoint); err != nil {
+		slog.Warn("resume: best-efforts checkpoint metadata invalid", "job_id", job.ID, "error", err)
+	}
+	return checkpoint
+}
+
+func (h *Handler) resumeBestEffortsRecalc(job database.BackgroundJob) {
+	if h.BestEfforts == nil {
+		_ = h.DB.FailBackgroundJob(context.Background(), job.ID)
+		return
+	}
+	checkpoint := bestEffortsCheckpointFromJob(job)
+	shutdown.Go(job.ID, func(ctx context.Context) {
+		err := h.BestEfforts.RecalcAllFromCheckpoint(ctx, job.UserID, checkpoint.LastActivityID, func(progress bestefforts.RecalcProgress) {
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, job.ID, int64(progress.Done))
+			if progress.Total > 0 {
+				_ = h.DB.UpdateBackgroundJobTotal(ctx, job.ID, int64(progress.Total))
+			}
+			updateAllUsersBestEffortsCheckpoint(ctx, h.DB, job.ID, allUsersBestEffortsCheckpoint{
+				LastUserID:     job.UserID,
+				LastActivityID: progress.LastProcessedActivityID,
+				UserDone:       progress.Done,
+				UserTotal:      progress.Total,
+				TotalUsers:     1,
+			})
+		})
+		if err != nil {
+			slog.Error("resume: best-efforts recalc failed", "job_id", job.ID, "user_id", job.UserID, "error", err)
+			_ = h.DB.CompleteBackgroundJob(context.Background(), job.ID, true, err.Error())
+			return
+		}
+		_ = h.DB.CompleteBackgroundJob(context.Background(), job.ID, false, "")
+	})
+}
+
+func (h *Handler) resumeAllUsersBestEffortsRecalc(job database.BackgroundJob) {
+	if h.BestEfforts == nil {
+		_ = h.DB.FailBackgroundJob(context.Background(), job.ID)
+		return
+	}
+	checkpoint := bestEffortsCheckpointFromJob(job)
+	shutdown.Go(job.ID, func(ctx context.Context) {
+		runAllUsersBestEffortsRecalcFromCheckpoint(ctx, h.DB, h.BestEfforts, job.ID, checkpoint)
+	})
 }
 
 // resumeSegmentPublish restarts a segment_publish job from scratch after an interrupted API restart.
