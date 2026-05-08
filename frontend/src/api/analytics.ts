@@ -206,6 +206,10 @@ export interface LifetimeStats {
   everest_count: number
   current_day_streak: number
   max_day_streak: number
+  lift_ride_count: number
+  lift_ascent_m: number
+  lift_descent_m: number
+  lift_distance_m: number
 }
 
 export interface EddingtonResult {
