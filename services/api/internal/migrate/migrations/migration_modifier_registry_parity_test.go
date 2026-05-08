@@ -10,7 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/gear"
+	"github.com/skadia-app/skadia/services/api/internal/heatmap"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
+	"github.com/skadia-app/skadia/services/api/internal/tags"
 )
 
 // systemModifierTagSyncSQLCoverageEntry pins the four facts a tag_sync
@@ -85,7 +88,7 @@ func TestMigrationSQLModifierContractsMatchGeneratedRegistry(t *testing.T) {
 			"CREATE OR REPLACE FUNCTION fn_validate_gear_default_predicates",
 			"ALTER TABLE gear",
 		)
-		assertSameStringSet(t, modifierKeysAllowedBySQLValidator(block), sport.SportModifierKeysWithCapability("gear_default"))
+		assertSameStringSet(t, modifierKeysAllowedBySQLValidator(block), gear.GearApplicableModifierKeys)
 	})
 
 	t.Run("heatmap filters", func(t *testing.T) {
@@ -94,7 +97,7 @@ func TestMigrationSQLModifierContractsMatchGeneratedRegistry(t *testing.T) {
 			"CREATE OR REPLACE FUNCTION skadia_heatmap_modifier_filter_matches",
 			"DO $$",
 		)
-		assertSameStringSet(t, queryParamModifierKeys(block), sport.SportModifierKeysWithCapability("heatmap_filter"))
+		assertSameStringSet(t, queryParamModifierKeys(block), heatmap.HeatmapApplicableModifierKeys)
 	})
 }
 
@@ -102,18 +105,18 @@ func TestMigration000350CyclingElectricTagSyncMatchesGeneratedRegistry(t *testin
 	upSQL, _ := readMigration000350CyclingElectricTagSyncSQL(t)
 	tagSyncSQL := allUpMigrationSQLContainingAnySystemTag(t, sport.SportModifierKeys())
 	for _, key := range sport.SportModifierKeys() {
-		modifier, ok := sport.SportModifierByKey(key)
-		if !ok || modifier.TagSync == nil {
+		sync, ok := tags.SystemTagSyncByModifierKey(key)
+		if !ok {
 			continue
 		}
-		if !strings.Contains(tagSyncSQL, "'"+modifier.TagSync.SystemTag+"'") {
-			t.Fatalf("tag-sync SQL missing system tag %q for %s", modifier.TagSync.SystemTag, key)
+		if !strings.Contains(tagSyncSQL, "'"+sync.SystemTag+"'") {
+			t.Fatalf("tag-sync SQL missing system tag %q for %s", sync.SystemTag, key)
 		}
-		if modifier.TagSync.OnlySportType != "" {
+		if sync.OnlySportType != "" {
 			for _, needle := range []string{
-				"NEW.sport_type = '" + modifier.TagSync.OnlySportType + "'",
-				"OLD.sport_type = '" + modifier.TagSync.OnlySportType + "'",
-				"a.sport_type = '" + modifier.TagSync.OnlySportType + "'",
+				"NEW.sport_type = '" + sync.OnlySportType + "'",
+				"OLD.sport_type = '" + sync.OnlySportType + "'",
+				"a.sport_type = '" + sync.OnlySportType + "'",
 			} {
 				if !strings.Contains(upSQL, needle) {
 					t.Fatalf("000350 up migration missing %s guard %q", key, needle)
@@ -163,9 +166,8 @@ func allUpMigrationSQLContainingAnySystemTag(t *testing.T, modifierKeys []string
 	t.Helper()
 	tagNames := map[string]struct{}{}
 	for _, key := range modifierKeys {
-		modifier, ok := sport.SportModifierByKey(key)
-		if ok && modifier.TagSync != nil {
-			tagNames[modifier.TagSync.SystemTag] = struct{}{}
+		if sync, ok := tags.SystemTagSyncByModifierKey(key); ok {
+			tagNames[sync.SystemTag] = struct{}{}
 		}
 	}
 	matches, err := filepath.Glob("*.up.sql")
