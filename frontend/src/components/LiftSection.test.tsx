@@ -197,4 +197,76 @@ describe('LiftSection', () => {
     const headline = await screen.findByText(/2 Liftfahrten/)
     expect(headline).toBeTruthy()
   })
+
+  it('shows review banner when lifts_acknowledged_at is null and unreviewed heuristic candidates exist', async () => {
+    const candidates = makeCandidates([
+      { id: 'h-0', source: 'heuristic', confirmed: false, rejected_by_user: false },
+      { id: 'h-1', source: 'heuristic', confirmed: false, rejected_by_user: false },
+    ])
+    mockApiFetch.mockImplementation((url: string) => {
+      if (url.includes('/lifts/candidates')) {
+        return Promise.resolve({ json: () => Promise.resolve(candidates) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+
+    render(
+      <LiftSection
+        activity={makeActivity({ lift_count: 2, lifts_acknowledged_at: null })}
+        onToggleExclude={async () => {}}
+      />,
+      { wrapper },
+    )
+
+    const banner = await screen.findByText(/2 Liftfahrten unbestätigt/)
+    expect(banner).toBeTruthy()
+  })
+
+  it('hides review banner when lifts_acknowledged_at is set', async () => {
+    const candidates = makeCandidates([
+      { id: 'h-0', source: 'heuristic', confirmed: false, rejected_by_user: false },
+    ])
+    mockApiFetch.mockImplementation((url: string) => {
+      if (url.includes('/lifts/candidates')) {
+        return Promise.resolve({ json: () => Promise.resolve(candidates) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+
+    render(
+      <LiftSection
+        activity={makeActivity({ lift_count: 1, lifts_acknowledged_at: '2024-01-01T10:00:00Z' })}
+        onToggleExclude={async () => {}}
+      />,
+      { wrapper },
+    )
+
+    // Wait for candidates to settle
+    await screen.findByText(/1 Liftfahrt/)
+    expect(screen.queryByText(/unbestätigt/)).toBeNull()
+  })
+
+  it('shows singular "1 Liftfahrt unbestätigt" when unreviewedCount === 1', async () => {
+    const candidates = makeCandidates([
+      { id: 'h-0', source: 'heuristic', confirmed: false, rejected_by_user: false },
+    ])
+    mockApiFetch.mockImplementation((url: string) => {
+      if (url.includes('/lifts/candidates')) {
+        return Promise.resolve({ json: () => Promise.resolve(candidates) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+
+    render(
+      <LiftSection
+        activity={makeActivity({ lift_count: 1, lifts_acknowledged_at: null })}
+        onToggleExclude={async () => {}}
+      />,
+      { wrapper },
+    )
+
+    const banner = await screen.findByText(/1 Liftfahrt unbestätigt/)
+    expect(banner).toBeTruthy()
+    expect(banner.textContent).not.toMatch(/1 Liftfahrten/)
+  })
 })

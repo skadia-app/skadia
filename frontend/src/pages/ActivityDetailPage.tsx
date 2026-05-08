@@ -35,9 +35,10 @@ import EnrichmentStatusSection from '@/components/EnrichmentStatusSection'
 import ActivitySegments from '@/components/ActivitySegments'
 import DetectedLapsTable from '@/components/DetectedLapsTable'
 import LiftSection from '@/components/LiftSection'
+import LiftReviewModal from '@/components/lift/LiftReviewModal'
 import { fetchGeoTags, fetchStops } from '@/api/enrichment'
 import { apiFetch } from '@/lib/auth'
-import type { GeoTag, ActivityStop } from '@/api/types'
+import type { GeoTag, ActivityStop, LiftCandidate } from '@/api/types'
 import { fetchActivityBestEfforts } from '@/api/bestEfforts'
 import { useActivityTrackSummary } from '@/api/trackSummary'
 import type { TrackSummaryGeoTagItem, TrackSummaryWaterItem } from '@/api/trackSummary'
@@ -192,6 +193,33 @@ export default function ActivityDetailPage() {
     enabled: !!activeActivityId && activity?.sport_type === 'diving',
     staleTime: Infinity,
   })
+
+  // Lift candidates — needed for review modal trigger logic.
+  const { data: liftCandidates } = useQuery<LiftCandidate[]>({
+    queryKey: ['lift-candidates', activeActivityId],
+    queryFn: () =>
+      apiFetch(`/api/v1/activities/${activeActivityId}/lifts/candidates`).then(r => r.json()),
+    enabled: !!activeActivityId && (activity?.lift_count ?? 0) > 0,
+  })
+
+  const unreviewedHeuristicCount = (liftCandidates ?? []).filter(
+    c => c.source === 'heuristic' && !c.confirmed && !c.rejected_by_user,
+  ).length
+
+  const [reviewModalOpen, setReviewModalOpen] = useState(false)
+
+  // Auto-open bulk-review modal on first mount when there are unreviewed heuristic candidates.
+  useEffect(() => {
+    if (
+      activity?.lifts_acknowledged_at == null &&
+      unreviewedHeuristicCount > 0 &&
+      !reviewModalOpen
+    ) {
+      setReviewModalOpen(true)
+    }
+    // Re-evaluate only when activity identity or ack timestamp changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activity?.id, activity?.lifts_acknowledged_at, unreviewedHeuristicCount])
 
   // Speed/Pace toggle — persisted per segment group
   const segGroup = activity ? getSegmentGroup(activity.sport_type) : 'generic'
@@ -1036,8 +1064,17 @@ export default function ActivityDetailPage() {
             })
             queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
           }}
+          onOpenReview={() => setReviewModalOpen(true)}
         />
       ) : null}
+
+      {/* Bulk lift-review modal — auto-opens when there are unreviewed heuristic candidates */}
+      <LiftReviewModal
+        open={reviewModalOpen}
+        onClose={() => setReviewModalOpen(false)}
+        activity={activity}
+        candidates={liftCandidates ?? []}
+      />
 
       {/* Stopps (nicht für Multisport-Parent) */}
       {activity.sport_type !== 'multisport' && !hiddenModules.has('stops') && <StopsSection activityId={activity.id} timezone={activity.timezone} />}
