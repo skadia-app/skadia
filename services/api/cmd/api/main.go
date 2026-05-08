@@ -1502,6 +1502,14 @@ func main() {
 			r.Post("/activities/{id}/lift-candidates/{cid}/confirm", h.ConfirmLiftCandidate)
 			r.Patch("/activities/{id}/lift-candidates/{cid}/unconfirm", h.UnconfirmLiftCandidate)
 			r.Delete("/activities/{id}/lift-candidates/{cid}", h.RejectLiftCandidate)
+			// Phase 6.3.1: bulk endpoints + acknowledge + activity-scoped recalculate.
+			// The user-wide /lifts/recalculate-all below is disjoint (clear-only,
+			// no DELETE, no re-enrichment); both endpoints co-exist by design.
+			r.Post("/activities/{id}/lifts/confirm-all", h.ConfirmAllLiftCandidates)
+			r.Post("/activities/{id}/lifts/reject-all", h.RejectAllLiftCandidates)
+			r.Post("/activities/{id}/lifts/acknowledge", h.AcknowledgeLifts)
+			r.Post("/activities/{id}/lifts/recalculate-all", h.RecalculateActivityLifts)
+			r.Post("/lift-candidates/{id}/restore", h.RestoreLiftCandidate)
 			r.Post("/lifts/recalculate-all", h.RecalculateLifts)
 
 			// Track Editor

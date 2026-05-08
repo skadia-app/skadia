@@ -112,6 +112,11 @@ type Activity struct {
 	LiftDescentM           *float64 `json:"lift_descent_m,omitempty"`
 	LiftDurationS          *int     `json:"lift_duration_s,omitempty"`
 	ExcludeLiftSubtraction bool     `json:"exclude_lift_subtraction"`
+	// LiftsAcknowledgedAt is set when the user has reviewed lift candidates
+	// (confirm-all/reject-all/single-action via review modal, or X-close
+	// = acknowledge). NULL means the modal should show on next visit.
+	// Phase 4d migration 000350.
+	LiftsAcknowledgedAt *time.Time `json:"lifts_acknowledged_at,omitempty"`
 	ElevationSource        string   `json:"elevation_source,omitempty" db:"elevation_source"`
 	DistanceSource         string   `json:"distance_source,omitempty" db:"distance_source"`
 	// Multisport parent/child
