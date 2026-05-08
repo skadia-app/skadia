@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type GearDefaultProjectionConfig struct {
@@ -37,7 +37,7 @@ type GearDefaultAlias struct {
 func LoadGearDefaultProjectionConfig(r io.Reader, sources []SourceAliases) (GearDefaultProjectionConfig, error) {
 	var config GearDefaultProjectionConfig
 	dec := yaml.NewDecoder(r)
-	dec.SetStrict(true)
+	dec.KnownFields(true)
 	if err := dec.Decode(&config); err != nil {
 		return GearDefaultProjectionConfig{}, err
 	}

@@ -5,7 +5,7 @@ import (
 	"io"
 	"regexp"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type Taxonomy struct {
@@ -77,7 +77,7 @@ var TraitPropulsionModeValues = []string{"human", "gravity", "wind", "motor", "t
 func LoadTaxonomy(r io.Reader) (Taxonomy, error) {
 	var taxonomy Taxonomy
 	dec := yaml.NewDecoder(r)
-	dec.SetStrict(true)
+	dec.KnownFields(true)
 	if err := dec.Decode(&taxonomy); err != nil {
 		return Taxonomy{}, err
 	}

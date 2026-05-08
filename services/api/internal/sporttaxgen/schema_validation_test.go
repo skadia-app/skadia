@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 func TestSportTaxonomyRepositoryFixturesValidateAgainstSchemas(t *testing.T) {
