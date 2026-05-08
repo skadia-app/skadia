@@ -16,6 +16,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/rules"
+	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -59,7 +60,7 @@ func scanGear(row pgx.Row) (*model.Gear, error) {
 		}
 	}
 	if g.DefaultSportPredicates == nil {
-		g.DefaultSportPredicates = []sport.GearDefaultPredicate{}
+		g.DefaultSportPredicates = []gearpkg.GearDefaultPredicate{}
 	}
 	return &g, nil
 }
@@ -136,7 +137,7 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 			}
 		}
 		if g.DefaultSportPredicates == nil {
-			g.DefaultSportPredicates = []sport.GearDefaultPredicate{}
+			g.DefaultSportPredicates = []gearpkg.GearDefaultPredicate{}
 		}
 		items = append(items, g)
 	}
@@ -150,11 +151,11 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 }
 
 func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearCreate) (*model.Gear, error) {
-	sports, err := sport.NormalizeGearDefaultSports(create.DefaultForSports)
+	sports, err := gearpkg.NormalizeGearDefaultSports(create.DefaultForSports)
 	if err != nil {
 		return nil, fmt.Errorf("create gear: %w", err)
 	}
-	predicates, err := sport.NormalizeGearDefaultPredicates(create.DefaultSportPredicates)
+	predicates, err := gearpkg.NormalizeGearDefaultPredicates(create.DefaultSportPredicates)
 	if err != nil {
 		return nil, fmt.Errorf("create gear: %w", err)
 	}
@@ -225,14 +226,14 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 		b.Set("is_retired", *update.IsRetired)
 	}
 	if update.DefaultForSports != nil {
-		sports, err := sport.NormalizeGearDefaultSports(update.DefaultForSports)
+		sports, err := gearpkg.NormalizeGearDefaultSports(update.DefaultForSports)
 		if err != nil {
 			return nil, fmt.Errorf("update gear: %w", err)
 		}
 		b.Set("default_for_sports", sports)
 	}
 	if update.DefaultSportPredicates != nil {
-		predicates, err := sport.NormalizeGearDefaultPredicates(update.DefaultSportPredicates)
+		predicates, err := gearpkg.NormalizeGearDefaultPredicates(update.DefaultSportPredicates)
 		if err != nil {
 			return nil, fmt.Errorf("update gear: %w", err)
 		}
@@ -1230,7 +1231,7 @@ func (db *DB) findDefaultGearForActivity(ctx context.Context, userID string, act
 		if err := rows.Scan(&gearID, &defaultSports, &predicateJSON); err != nil {
 			return "", fmt.Errorf("scan default gear: %w", err)
 		}
-		var predicates []sport.GearDefaultPredicate
+		var predicates []gearpkg.GearDefaultPredicate
 		if len(predicateJSON) > 0 {
 			if err := json.Unmarshal(predicateJSON, &predicates); err != nil {
 				return "", fmt.Errorf("scan default gear predicates: %w", err)
@@ -1238,7 +1239,7 @@ func (db *DB) findDefaultGearForActivity(ctx context.Context, userID string, act
 		}
 		if len(predicates) > 0 {
 			for _, predicate := range predicates {
-				if sport.GearDefaultPredicateMatchesActivity(predicate, activityTuple.SportType, activityTuple.SubType, modifiers) {
+				if gearpkg.GearDefaultPredicateMatchesActivity(predicate, activityTuple.SportType, activityTuple.SubType, modifiers) {
 					return gearID, nil
 				}
 			}

@@ -28,10 +28,10 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
+	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
-	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func (h *Handler) ListGear(w http.ResponseWriter, r *http.Request) {
@@ -139,7 +139,7 @@ func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if update.DefaultForSports != nil {
-		sports, err := sport.NormalizeGearDefaultSports(update.DefaultForSports)
+		sports, err := gearpkg.NormalizeGearDefaultSports(update.DefaultForSports)
 		if err != nil {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 			return
@@ -172,7 +172,7 @@ func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
 }
 
 func normalizeGearDefaultSportsForRequest(w http.ResponseWriter, r *http.Request, values []string) ([]string, bool) {
-	sports, err := sport.NormalizeManualGearDefaultSports(values)
+	sports, err := gearpkg.NormalizeManualGearDefaultSports(values)
 	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return nil, false
@@ -180,8 +180,8 @@ func normalizeGearDefaultSportsForRequest(w http.ResponseWriter, r *http.Request
 	return sports, true
 }
 
-func normalizeGearDefaultPredicatesForRequest(w http.ResponseWriter, r *http.Request, values []sport.GearDefaultPredicate) ([]sport.GearDefaultPredicate, bool) {
-	predicates, err := sport.NormalizeGearDefaultPredicates(values)
+func normalizeGearDefaultPredicatesForRequest(w http.ResponseWriter, r *http.Request, values []gearpkg.GearDefaultPredicate) ([]gearpkg.GearDefaultPredicate, bool) {
+	predicates, err := gearpkg.NormalizeGearDefaultPredicates(values)
 	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return nil, false

@@ -26,12 +26,6 @@ type ModifierValues struct {
 	IsCommute  bool
 }
 
-type GearDefaultPredicate struct {
-	SportType string         `json:"sport_type"`
-	SubType   *string        `json:"sub_type,omitempty"`
-	Modifiers *ModifierPatch `json:"modifiers,omitempty"`
-}
-
 const (
 	GenericSportType          = "generic"
 	UnknownSportType          = "unknown"
@@ -203,6 +197,21 @@ func ResolveSport(input ResolveInput) (ResolveResult, error) {
 	}
 }
 
+// GearDefaultStorageSportOptions returns a copy of the generated storage-tier
+// gear-default sport options. Consumed by the internal/gear package, which
+// owns the gear-defaulting logic but reads taxonomy data from here.
+func GearDefaultStorageSportOptions() []GearDefaultSportOption {
+	return append([]GearDefaultSportOption(nil), generatedGearDefaultStorageSportOptions...)
+}
+
+// GearDefaultManualSportOptions returns a copy of the generated manual-tier
+// gear-default sport options.
+func GearDefaultManualSportOptions() []GearDefaultSportOption {
+	return append([]GearDefaultSportOption(nil), generatedGearDefaultManualSportOptions...)
+}
+
+// GearDefaultSportForSource maps a source-specific raw sport label to the
+// canonical gear-default sport_type, if one is registered for that source.
 func GearDefaultSportForSource(source Source, rawSport string) (string, bool) {
 	rawSport = strings.TrimSpace(rawSport)
 	if rawSport == "" {
@@ -214,213 +223,6 @@ func GearDefaultSportForSource(source Source, rawSport string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func GearDefaultPredicateForSource(source Source, rawSport string) (GearDefaultPredicate, bool) {
-	rawSport = strings.TrimSpace(rawSport)
-	if rawSport == "" {
-		return GearDefaultPredicate{}, false
-	}
-	result, err := ResolveSport(ResolveInput{Source: source, RawSport: rawSport})
-	if err == nil && result.Resolved && result.Tuple.SportType != "" {
-		return gearDefaultPredicateFromResolved(result.Tuple, result.Patch), true
-	}
-	return GearDefaultPredicate{}, false
-}
-
-func GearDefaultStorageSportOptions() []GearDefaultSportOption {
-	return append([]GearDefaultSportOption(nil), generatedGearDefaultStorageSportOptions...)
-}
-
-func GearDefaultManualSportOptions() []GearDefaultSportOption {
-	return append([]GearDefaultSportOption(nil), generatedGearDefaultManualSportOptions...)
-}
-
-func NormalizeGearDefaultSports(values []string) ([]string, error) {
-	return normalizeGearDefaultSports(values, generatedGearDefaultStorageSportOptions)
-}
-
-func NormalizeManualGearDefaultSports(values []string) ([]string, error) {
-	return normalizeGearDefaultSports(values, generatedGearDefaultManualSportOptions)
-}
-
-func GearDefaultPredicatesFromSports(values []string) ([]GearDefaultPredicate, error) {
-	sports, err := NormalizeGearDefaultSports(values)
-	if err != nil {
-		return nil, err
-	}
-	predicates := make([]GearDefaultPredicate, 0, len(sports))
-	for _, sportType := range sports {
-		predicates = append(predicates, GearDefaultPredicate{SportType: sportType})
-	}
-	return predicates, nil
-}
-
-func NormalizeGearDefaultPredicates(predicates []GearDefaultPredicate) ([]GearDefaultPredicate, error) {
-	if len(predicates) == 0 {
-		return []GearDefaultPredicate{}, nil
-	}
-	out := make([]GearDefaultPredicate, 0, len(predicates))
-	seen := map[string]struct{}{}
-	for _, predicate := range predicates {
-		normalized, err := normalizeGearDefaultPredicate(predicate)
-		if err != nil {
-			return nil, err
-		}
-		if normalized.SportType == "" {
-			continue
-		}
-		key := gearDefaultPredicateKey(normalized)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, normalized)
-	}
-	if out == nil {
-		return []GearDefaultPredicate{}, nil
-	}
-	return out, nil
-}
-
-func GearDefaultPredicateMatchesActivity(predicate GearDefaultPredicate, sportType, subType string, modifiers ModifierValues) bool {
-	normalized, err := normalizeGearDefaultPredicate(predicate)
-	if err != nil || normalized.SportType == "" {
-		return false
-	}
-	activityTuple, _, err := NormalizeSportTuple(sportType, subType)
-	if err != nil {
-		return false
-	}
-	if normalized.SportType != activityTuple.SportType {
-		return false
-	}
-	if normalized.SubType != nil && *normalized.SubType != activityTuple.SubType {
-		return false
-	}
-	if normalized.Modifiers == nil {
-		return true
-	}
-	for _, key := range SportModifierKeysWithCapability("gear_default") {
-		want := ModifierPatchValue(*normalized.Modifiers, key)
-		if want != nil && *want != ModifierValuesValue(modifiers, key) {
-			return false
-		}
-	}
-	return true
-}
-
-func normalizeGearDefaultSports(values []string, options []GearDefaultSportOption) ([]string, error) {
-	if len(values) == 0 {
-		return []string{}, nil
-	}
-	allowed := map[string]struct{}{}
-	for _, option := range options {
-		allowed[option.SportType] = struct{}{}
-	}
-	out := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, value := range values {
-		sportType := strings.TrimSpace(value)
-		if sportType == "" {
-			continue
-		}
-		if strings.Contains(sportType, ":") {
-			return nil, fmt.Errorf("gear default sport %q must be a top-level sport_type, not a tuple key", sportType)
-		}
-		if _, ok := allowed[sportType]; !ok {
-			return nil, fmt.Errorf("gear default sport %q is not allowed", sportType)
-		}
-		if _, ok := seen[sportType]; ok {
-			continue
-		}
-		seen[sportType] = struct{}{}
-		out = append(out, sportType)
-	}
-	if out == nil {
-		return []string{}, nil
-	}
-	return out, nil
-}
-
-func normalizeGearDefaultPredicate(predicate GearDefaultPredicate) (GearDefaultPredicate, error) {
-	sportType := strings.TrimSpace(predicate.SportType)
-	if sportType == "" {
-		return GearDefaultPredicate{}, nil
-	}
-	subType := ""
-	if predicate.SubType != nil {
-		subType = strings.TrimSpace(*predicate.SubType)
-	}
-	tuple, _, err := NormalizeSportTuple(sportType, subType)
-	if err != nil {
-		return GearDefaultPredicate{}, err
-	}
-	if _, err := NormalizeGearDefaultSports([]string{tuple.SportType}); err != nil {
-		return GearDefaultPredicate{}, err
-	}
-	normalized := GearDefaultPredicate{SportType: tuple.SportType}
-	if tuple.SubType != "" {
-		sub := tuple.SubType
-		normalized.SubType = &sub
-	}
-	patch, err := normalizeGearDefaultModifierPatch(predicate.Modifiers)
-	if err != nil {
-		return GearDefaultPredicate{}, err
-	}
-	if patch != nil {
-		normalized.Modifiers = patch
-	}
-	return normalized, nil
-}
-
-func gearDefaultPredicateFromResolved(tuple Tuple, patch ModifierPatch) GearDefaultPredicate {
-	predicate := GearDefaultPredicate{SportType: tuple.SportType}
-	if tuple.SubType != "" {
-		subType := tuple.SubType
-		predicate.SubType = &subType
-	}
-	if normalizedPatch, err := normalizeGearDefaultModifierPatch(&patch); err == nil && normalizedPatch != nil {
-		predicate.Modifiers = normalizedPatch
-	}
-	return predicate
-}
-
-func normalizeGearDefaultModifierPatch(patch *ModifierPatch) (*ModifierPatch, error) {
-	if patch == nil {
-		return nil, nil
-	}
-	normalized := ModifierPatch{}
-	for _, key := range SportModifierKeys() {
-		value := ModifierPatchValue(*patch, key)
-		if value == nil {
-			continue
-		}
-		if !SportModifierHasCapability(key, "gear_default") {
-			return nil, fmt.Errorf("gear default modifier %q is not allowed", key)
-		}
-		SetModifierPatchValue(&normalized, key, value)
-	}
-	if ModifierPatchIsEmpty(&normalized) {
-		return nil, nil
-	}
-	return &normalized, nil
-}
-
-func gearDefaultPredicateKey(predicate GearDefaultPredicate) string {
-	key := predicate.SportType
-	if predicate.SubType != nil {
-		key += ":" + *predicate.SubType
-	}
-	if predicate.Modifiers != nil {
-		for _, modifierKey := range SportModifierKeysWithCapability("gear_default") {
-			value := ModifierPatchValue(*predicate.Modifiers, modifierKey)
-			if value != nil {
-				key += fmt.Sprintf("|%s=%t", modifierKey, *value)
-			}
-		}
-	}
-	return key
 }
 
 func lookupSourceAlias(source Source, rawSport, rawSub string) (sourceAliasDef, bool) {
