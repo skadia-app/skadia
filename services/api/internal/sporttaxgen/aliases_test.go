@@ -17,13 +17,19 @@ func modifierRegistryForTest() ModifierRegistry {
 	return registry
 }
 
-// sourceAliasPredicateForTest builds an isApplicable predicate from the registry's
-// source_alias capability. Tests use the full registry capability so they stay
-// consistent with the modifiers.yaml fixture without hard-coding key names.
+// sourceAliasPredicateForTest returns a predicate for modifier applicability in
+// the dataimport subsystem. The applicable keys are owned by the dataimport
+// package (generated); the sporttaxgen tests use a local copy to avoid an
+// import-cycle through sporttaxgen → dataimport → sport → sporttaxgen.
+// Update this list when dataimport/applicable_modifiers_generated.go changes.
 func sourceAliasPredicateForTest() func(string) bool {
-	registry := modifierRegistryForTest()
+	applicable := map[string]bool{
+		"is_electric": true,
+		"is_indoor":   true,
+		"is_virtual":  true,
+	}
 	return func(key string) bool {
-		return registry.HasCapability(key, "source_alias")
+		return applicable[key]
 	}
 }
 

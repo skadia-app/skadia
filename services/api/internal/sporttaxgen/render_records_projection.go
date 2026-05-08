@@ -157,8 +157,9 @@ func goRecordModifiers(values RecordModifiers, modifiers ModifierRegistry) strin
 	if len(values) == 0 {
 		return "nil"
 	}
+	// Use registry order for stable output.
 	parts := []string{}
-	for _, key := range modifiers.ModifierKeysWithCapability("record_grouping") {
+	for _, key := range modifiers.ModifierKeys() {
 		value := values[key]
 		if value == nil {
 			continue
@@ -172,8 +173,9 @@ func goRecordModifiers(values RecordModifiers, modifiers ModifierRegistry) strin
 }
 
 func tsRecordModifiers(values RecordModifiers, modifiers ModifierRegistry) string {
+	// Use registry order for stable output.
 	parts := []string{}
-	for _, key := range modifiers.ModifierKeysWithCapability("record_grouping") {
+	for _, key := range modifiers.ModifierKeys() {
 		value := values[key]
 		if value == nil {
 			continue

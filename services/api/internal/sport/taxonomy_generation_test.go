@@ -54,14 +54,11 @@ func TestGeneratedModifierRegistryExposesMetadata(t *testing.T) {
 	if electric.LabelDE != "E-Antrieb" || electric.ActionName != "set_electric" || electric.ActionParam != "electric" || electric.ShadowFSToken != "electric" {
 		t.Fatalf("is_electric metadata = %#v", electric)
 	}
-	if electric.TagSync == nil || electric.TagSync.SystemTag != "E-Bike" || electric.TagSync.OnlySportType != "cycling" {
-		t.Fatalf("is_electric tag sync = %#v, want cycling-scoped E-Bike", electric.TagSync)
+	if got := SportModifierKeysWithCapability("modifier_filter"); strings.Join(got, ",") != "is_electric,is_indoor,is_virtual,is_commute" {
+		t.Fatalf("modifier_filter keys = %v", got)
 	}
-	if got := SportModifierKeysWithCapability("record_grouping"); strings.Join(got, ",") != "is_electric,is_indoor,is_virtual" {
-		t.Fatalf("record_grouping keys = %v", got)
-	}
-	if SportModifierHasCapability("is_commute", "record_grouping") {
-		t.Fatal("is_commute unexpectedly has record_grouping capability")
+	if got := SportModifierKeysWithCapability("taxonomy_default"); strings.Join(got, ",") != "is_indoor" {
+		t.Fatalf("taxonomy_default keys = %v", got)
 	}
 }
 
@@ -206,7 +203,7 @@ func TestGeneratedBackendSourceAliasesAreCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build gear default projection: %v", err)
 	}
-	got, err := sporttaxgen.RenderGoSourceAliasesWithGearDefaults(sources, gearDefaults, modifiers)
+	got, err := sporttaxgen.RenderGoSourceAliasesWithGearDefaults(sources, gearDefaults, modifiers, testSourceAliasIsApplicable)
 	if err != nil {
 		t.Fatalf("render Go source aliases: %v", err)
 	}
@@ -266,6 +263,18 @@ func TestCategoryForSportIncludesGeneratedColor(t *testing.T) {
 	}
 }
 
+// testSourceAliasIsApplicable is the applicability predicate for source aliases.
+// The actual keys are owned by the dataimport subsystem; this copy exists here to
+// avoid an import cycle (dataimport non-test imports sport).
+// Update when dataimport/applicable_modifiers_generated.go changes.
+func testSourceAliasIsApplicable(key string) bool {
+	switch key {
+	case "is_electric", "is_indoor", "is_virtual":
+		return true
+	}
+	return false
+}
+
 func loadTestSourceAliases(t *testing.T, taxonomy sporttaxgen.Taxonomy) []sporttaxgen.SourceAliases {
 	t.Helper()
 	matches, err := filepath.Glob("../../../../config/sport-taxonomy/aliases/*.yaml")
@@ -288,7 +297,7 @@ func loadTestSourceAliases(t *testing.T, taxonomy sporttaxgen.Taxonomy) []sportt
 		stem := strings.TrimSuffix(filepath.Base(match), filepath.Ext(match))
 		files[stem] = file
 	}
-	sources, err := sporttaxgen.LoadSourceAliasFiles(files, taxonomy, loadTestModifiers(t))
+	sources, err := sporttaxgen.LoadSourceAliasFiles(files, taxonomy, loadTestModifiers(t), testSourceAliasIsApplicable)
 	if err != nil {
 		t.Fatalf("load source aliases: %v", err)
 	}

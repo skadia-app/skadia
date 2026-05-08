@@ -100,7 +100,7 @@ func TestRuleProjectionModifierKeysMustMatchRegistry(t *testing.T) {
 		gotKeys = append(gotKeys, modifier.Key)
 		gotLabels[modifier.Key] = modifier.Labels["de"]
 	}
-	wantKeys := registry.ModifierKeysWithCapability("rule_condition")
+	wantKeys := registry.ModifierKeys()
 	if !stringSlicesEqual(gotKeys, wantKeys) {
 		t.Fatalf("rule projection modifier keys = %v, want %v", gotKeys, wantKeys)
 	}

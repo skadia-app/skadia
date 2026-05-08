@@ -118,11 +118,13 @@ func TestLoadRecordsProjectionRejectsInvalidSubtypeSentinelUse(t *testing.T) {
 	}
 }
 
-func TestRecordsProjectionRejectsModifierWithoutRecordGroupingCapability(t *testing.T) {
+func TestRecordsProjectionAcceptsAnyRegisteredModifierKey(t *testing.T) {
+	// Record-grouping applicability is now owned by the bestefforts subsystem.
+	// The sporttaxgen loader only validates that the modifier key is registered.
 	src := strings.Replace(validRecordsProjectionFixture(), "modifiers: {is_indoor: false}", "modifiers: {is_commute: true}", 1)
 	_, err := LoadRecordsProjection(strings.NewReader(src), recordsProjectionTestTaxonomy(), modifierRegistryForTest())
-	if err == nil {
-		t.Fatal("LoadRecordsProjection accepted record_grouping-disabled is_commute modifier")
+	if err != nil {
+		t.Fatalf("LoadRecordsProjection rejected registered modifier key: %v", err)
 	}
 }
 

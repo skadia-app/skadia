@@ -49,15 +49,9 @@ func TestLoadModifiersAcceptsCanonicalRegistry(t *testing.T) {
 		}
 	}
 
-	electric, _ := registry.ModifierByKey("is_electric")
-	if electric.TagSync == nil || electric.TagSync.SystemTag != "E-Bike" || electric.TagSync.OnlySportType != "cycling" {
-		t.Fatalf("is_electric tag_sync = %#v, want cycling-scoped E-Bike", electric.TagSync)
-	}
-
-	assertCapabilityKeys(t, registry, "source_alias", []string{"is_electric", "is_indoor", "is_virtual"})
-	assertCapabilityKeys(t, registry, "gear_default", []string{"is_electric", "is_indoor", "is_virtual"})
-	assertCapabilityKeys(t, registry, "record_grouping", []string{"is_electric", "is_indoor", "is_virtual"})
-	assertCapabilityKeys(t, registry, "heatmap_filter", []string{"is_electric", "is_commute"})
+	assertCapabilityKeys(t, registry, "modifier_filter", []string{"is_electric", "is_indoor", "is_virtual", "is_commute"})
+	assertCapabilityKeys(t, registry, "activity_state", []string{"is_electric", "is_indoor", "is_virtual", "is_commute"})
+	assertCapabilityKeys(t, registry, "modifier_patch", []string{"is_electric", "is_indoor", "is_virtual", "is_commute"})
 	assertCapabilityKeys(t, registry, "taxonomy_default", []string{"is_indoor"})
 }
 
@@ -74,19 +68,10 @@ modifiers:
     action_param: electric
     shadowfs_token: electric
     capabilities: &all
-      source_alias: true
-      modifier_patch: true
       activity_state: true
       modifier_filter: true
-      rule_condition: true
-      rule_action: true
-      route_filter: true
-      heatmap_filter: true
-      gear_default: true
-	      record_grouping: true
-	      shadowfs_label: true
-	      quick_edit: true
-	      taxonomy_default: false
+      modifier_patch: true
+      taxonomy_default: false
   - key: is_electric
     labels: {de: E-Antrieb 2}
     go_field: IsElectric
@@ -116,45 +101,33 @@ modifiers:
     action_param: electric
     shadowfs_token: electric
     capabilities:
-      source_alias: true
+      activity_state: true
 `))
 	if err == nil {
 		t.Fatal("LoadModifiers accepted missing capability fields")
 	}
 }
 
-func TestLoadModifiersRejectsScopedTagSyncWithoutLabelContext(t *testing.T) {
-	_, err := LoadModifiers(strings.NewReader(strings.Replace(validModifierRegistryFixture(), "      label_context: cycling\n", "", 1)))
+func TestLoadModifiersRejectsTaxonomyDefaultWithoutModifierPatch(t *testing.T) {
+	_, err := LoadModifiers(strings.NewReader(`
+modifiers:
+  - key: is_indoor
+    labels: {de: Indoor}
+    go_field: IsIndoor
+    ts_field: isIndoor
+    json_key: is_indoor
+    activity_column: is_indoor
+    action_name: set_indoor
+    action_param: indoor
+    shadowfs_token: indoor
+    capabilities:
+      activity_state: true
+      modifier_filter: true
+      modifier_patch: false
+      taxonomy_default: true
+`))
 	if err == nil {
-		t.Fatal("LoadModifiers accepted scoped tag_sync without label_context")
-	}
-}
-
-func TestLoadModifiersRejectsInvalidTagSyncColor(t *testing.T) {
-	_, err := LoadModifiers(strings.NewReader(strings.Replace(validModifierRegistryFixture(), `      color: "#16A34A"`, `      color: orange`, 1)))
-	if err == nil {
-		t.Fatal("LoadModifiers accepted invalid tag_sync.color")
-	}
-}
-
-func TestLoadModifiersRejectsEmptyTagSyncDescription(t *testing.T) {
-	_, err := LoadModifiers(strings.NewReader(strings.Replace(validModifierRegistryFixture(), "      description: Automatisch bei elektrischen Radfahrten\n", "      description: \"\"\n", 1)))
-	if err == nil {
-		t.Fatal("LoadModifiers accepted empty tag_sync.description")
-	}
-}
-
-func TestLoadModifiersRejectsMissingTagSyncReadonlySync(t *testing.T) {
-	_, err := LoadModifiers(strings.NewReader(strings.Replace(validModifierRegistryFixture(), "      readonly_sync: true\n", "", 1)))
-	if err == nil {
-		t.Fatal("LoadModifiers accepted missing tag_sync.readonly_sync")
-	}
-}
-
-func TestLoadModifiersRejectsUnknownCapabilityCombination(t *testing.T) {
-	_, err := LoadModifiers(strings.NewReader(strings.Replace(validModifierRegistryFixture(), "rule_action: true", "rule_action: false", 1)))
-	if err == nil {
-		t.Fatal("LoadModifiers accepted rule_condition without rule_action")
+		t.Fatal("LoadModifiers accepted taxonomy_default without modifier_patch")
 	}
 }
 
@@ -193,11 +166,56 @@ func TestModifiersSchemaListsSameCapabilitiesAsLoader(t *testing.T) {
 	}
 }
 
+func TestModifierCapabilitiesAreSportInternalOnly(t *testing.T) {
+	file, err := os.Open("../../../../config/sport-taxonomy/modifiers.yaml")
+	if err != nil {
+		t.Fatalf("open modifiers.yaml: %v", err)
+	}
+	defer file.Close()
+
+	registry, err := LoadModifiers(file)
+	if err != nil {
+		t.Fatalf("LoadModifiers() error = %v", err)
+	}
+
+	var buf strings.Builder
+	rendered, err := renderModifierRegistryForTest(registry)
+	if err != nil {
+		t.Fatalf("render modifiers: %v", err)
+	}
+	buf.Write(rendered)
+	out := buf.String()
+
+	decoupledCapabilities := []string{
+		"gear_default", "route_filter", "rule_condition", "rule_action",
+		"shadowfs_label", "record_grouping", "heatmap_filter",
+		"source_alias", "quick_edit", "tag_sync", "TagSync",
+	}
+	for _, cap := range decoupledCapabilities {
+		if strings.Contains(out, `"`+cap+`"`) || strings.Contains(out, cap+":") {
+			t.Errorf("rendered output still contains decoupled capability %q", cap)
+		}
+	}
+
+	sportInternalCapabilities := []string{
+		"activity_state", "modifier_filter", "modifier_patch", "taxonomy_default",
+	}
+	for _, cap := range sportInternalCapabilities {
+		if !strings.Contains(out, cap) {
+			t.Errorf("rendered output missing sport-internal capability %q", cap)
+		}
+	}
+}
+
 func assertCapabilityKeys(t *testing.T, registry ModifierRegistry, capability string, want []string) {
 	t.Helper()
 	if got := registry.ModifierKeysWithCapability(capability); !stringSlicesEqual(got, want) {
 		t.Fatalf("%s keys = %v, want %v", capability, got, want)
 	}
+}
+
+func renderModifierRegistryForTest(registry ModifierRegistry) ([]byte, error) {
+	return RenderGoModifiers(registry)
 }
 
 func validModifierRegistryFixture() string {

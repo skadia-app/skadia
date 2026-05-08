@@ -150,19 +150,6 @@ func RenderTSModifiers(registry ModifierRegistry) ([]byte, error) {
 		fmt.Fprintf(&buf, "    actionParam: %s,\n", tsString(modifier.ActionParam))
 		fmt.Fprintf(&buf, "    shadowFSToken: %s,\n", tsString(modifier.ShadowFSToken))
 		fmt.Fprintf(&buf, "    capabilities: %s,\n", tsModifierCapabilities(modifier.Capabilities))
-		if modifier.TagSync != nil {
-			fmt.Fprintf(&buf, "    tagSync: { systemTag: %s", tsString(modifier.TagSync.SystemTag))
-			fmt.Fprintf(&buf, ", color: %s", tsString(modifier.TagSync.Color))
-			fmt.Fprintf(&buf, ", description: %s", tsString(modifier.TagSync.Description))
-			fmt.Fprintf(&buf, ", readonlySync: %t", boolValue(modifier.TagSync.ReadonlySync))
-			if modifier.TagSync.OnlySportType != "" {
-				fmt.Fprintf(&buf, ", onlySportType: %s", tsString(modifier.TagSync.OnlySportType))
-			}
-			if modifier.TagSync.LabelContext != "" {
-				fmt.Fprintf(&buf, ", labelContext: %s", tsString(modifier.TagSync.LabelContext))
-			}
-			buf.WriteString(" },\n")
-		}
 		buf.WriteString("  },\n")
 	}
 	buf.WriteString("] as const\n")
