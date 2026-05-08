@@ -20,7 +20,7 @@ type systemModifier struct {
 
 func systemModifiers() []systemModifier {
 	out := make([]systemModifier, 0)
-	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+	for _, key := range RulesApplicableModifierKeys {
 		def, ok := sport.SportModifierByKey(key)
 		if !ok {
 			continue

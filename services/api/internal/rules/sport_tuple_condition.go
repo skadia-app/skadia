@@ -145,7 +145,7 @@ func parseSportTupleConditionValue(item map[string]any, surface string) (sportTu
 			tuple.SubType = sport.CanonicalSubTypeID(value)
 			tuple.SubTypePresent = true
 		default:
-			if !sport.SportModifierHasCapability(key, "rule_condition") {
+			if !IsApplicableModifier(key) {
 				return sportTupleConditionValue{}, fmt.Errorf("%s: unsupported key %q in sport_tuple object", surface, key)
 			}
 			value, ok := raw.(bool)
@@ -172,7 +172,7 @@ func validateSportTupleConditionValue(tuple sportTupleConditionValue, surface st
 		}
 	}
 	for key := range tuple.Modifiers {
-		if !sport.SportModifierHasCapability(key, "rule_condition") {
+		if !IsApplicableModifier(key) {
 			return fmt.Errorf("%s: unsupported modifier key %q", surface, key)
 		}
 	}

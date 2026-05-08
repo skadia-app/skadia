@@ -434,7 +434,7 @@ func rewriteSetFieldSportType(action map[string]any, surface string, index int) 
 
 func modifierWrite(action map[string]any) (string, bool, bool) {
 	name := actionName(action)
-	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+	for _, key := range RulesApplicableModifierKeys {
 		def, ok := sport.SportModifierByKey(key)
 		if !ok {
 			continue
@@ -446,7 +446,7 @@ func modifierWrite(action map[string]any) (string, bool, bool) {
 	if name == "set_field" {
 		params, _ := action["params"].(map[string]any)
 		field, _ := params["field"].(string)
-		if sport.SportModifierHasCapability(field, "rule_action") {
+		if IsApplicableModifier(field) {
 			value, ok := params["value"].(bool)
 			return field, value, ok
 		}
@@ -456,7 +456,7 @@ func modifierWrite(action map[string]any) (string, bool, bool) {
 
 func modifierPatchConditions(patch sport.ModifierPatch) []Condition {
 	conditions := []Condition{}
-	for _, key := range sport.SportModifierKeysWithCapability("rule_condition") {
+	for _, key := range RulesApplicableModifierKeys {
 		value := sport.ModifierPatchValue(patch, key)
 		if value == nil {
 			continue
@@ -468,7 +468,7 @@ func modifierPatchConditions(patch sport.ModifierPatch) []Condition {
 
 func modifierPatchActions(patch sport.ModifierPatch, modifierWrites map[string]modifierWriteState, surface string, index int) ([]map[string]any, error) {
 	actions := []map[string]any{}
-	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+	for _, key := range RulesApplicableModifierKeys {
 		value := sport.ModifierPatchValue(patch, key)
 		if value == nil {
 			continue
