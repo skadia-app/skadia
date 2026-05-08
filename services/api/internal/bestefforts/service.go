@@ -62,6 +62,7 @@ type BestEffortRankedRecord struct {
 type Store interface {
 	UpsertBestEffortRec(ctx context.Context, be BestEffortRecord) error
 	BatchUpsertBestEffortRecs(ctx context.Context, records []BestEffortRecord) error
+	ReplaceBestEffortsForActivities(ctx context.Context, activityIDs []string, records []BestEffortRecord) error
 	DeleteAllBestEfforts(ctx context.Context, userID string) error
 	DeleteBestEffortsForActivity(ctx context.Context, activityID string) error
 	// DeleteOrphanedBestEfforts removes best_efforts rows whose activity_id is not
@@ -97,6 +98,8 @@ type Store interface {
 type Service struct {
 	Store Store
 }
+
+const bestEffortRecalcBatchLimit = 1000
 
 // computeForActivityInner performs the actual computation and upsert for a
 // single activity. It does NOT acquire any advisory lock — the caller is
@@ -242,8 +245,32 @@ func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(
 		return fmt.Errorf("get recalc activities: %w", err)
 	}
 
+	return recalcAllLoadedActivities(ctx, s.Store, userID, activities, bestEffortRecalcBatchLimit, progressFn)
+}
+
+func recalcAllLoadedActivities(ctx context.Context, store Store, userID string, activities []ActivityInfo, batchLimit int, progressFn func(done, total int)) error {
+	if batchLimit <= 0 {
+		batchLimit = bestEffortRecalcBatchLimit
+	}
+
 	total := len(activities)
 	processedIDs := make([]string, 0, total)
+	pendingIDs := make([]string, 0, batchLimit)
+	pendingRecords := make([]BestEffortRecord, 0, batchLimit)
+
+	flush := func() error {
+		if len(pendingIDs) == 0 {
+			return nil
+		}
+		activityIDs := uniqueStringsPreserveOrder(pendingIDs)
+		if err := store.ReplaceBestEffortsForActivities(ctx, activityIDs, pendingRecords); err != nil {
+			return fmt.Errorf("replace best efforts for %d activities: %w", len(activityIDs), err)
+		}
+		processedIDs = append(processedIDs, activityIDs...)
+		pendingIDs = pendingIDs[:0]
+		pendingRecords = pendingRecords[:0]
+		return nil
+	}
 
 	// Report total immediately so the UI can show progress (e.g. "0 / 442")
 	if progressFn != nil {
@@ -252,18 +279,19 @@ func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(
 
 	for i, info := range activities {
 		// Use lightweight stream (5 columns) — ~16× less data than full StreamPoint.
-		stream, err := s.Store.GetStreamPointsLightweight(ctx, info.ID)
+		stream, err := store.GetStreamPointsLightweight(ctx, info.ID)
 		if err != nil {
 			return fmt.Errorf("get stream points for %s: %w", info.ID, err)
 		}
 
-		// Call the inner function directly — we already hold the advisory lock.
-		if _, err := computeForActivityInner(ctx, s.Store, info, stream); err != nil {
-			slog.ErrorContext(ctx, "best efforts: compute failed", "activity_id", info.ID, "error", err)
-			// Non-fatal: continue with remaining activities.
-		}
+		pendingIDs = append(pendingIDs, info.ID)
+		pendingRecords = append(pendingRecords, computeBestEffortRecords(info, stream)...)
 
-		processedIDs = append(processedIDs, info.ID)
+		if len(pendingIDs) >= batchLimit || len(pendingRecords) >= batchLimit {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
 
 		// Discard stream slice immediately to avoid accumulating memory.
 		stream = nil
@@ -276,10 +304,14 @@ func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(
 		}
 	}
 
+	if err := flush(); err != nil {
+		return err
+	}
+
 	// Remove stale rows for activities that are no longer eligible (deleted,
 	// excluded, etc.). Safe here because we hold the advisory lock and all
 	// current eligible activities have already been upserted above.
-	if err := s.Store.DeleteOrphanedBestEfforts(ctx, userID, processedIDs); err != nil {
+	if err := store.DeleteOrphanedBestEfforts(ctx, userID, processedIDs); err != nil {
 		return fmt.Errorf("delete orphaned best efforts: %w", err)
 	}
 
@@ -288,4 +320,17 @@ func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(
 	}
 
 	return nil
+}
+
+func uniqueStringsPreserveOrder(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, value := range in {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }

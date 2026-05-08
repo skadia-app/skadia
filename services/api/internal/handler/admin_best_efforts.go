@@ -4,11 +4,22 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
+
+type allUsersBestEffortsDB interface {
+	ForEachUser(ctx context.Context, fn func(userID string) error) error
+	UpdateBackgroundJobProgress(ctx context.Context, jobID string, current int64) error
+	CompleteBackgroundJob(ctx context.Context, jobID string, failed bool, errorText string) error
+}
+
+type allUsersBestEffortsService interface {
+	RecalcAll(ctx context.Context, userID string, progressFn func(done, total int)) error
+}
 
 // RecalcAllUsersBestEfforts starts a background job that recomputes best efforts
 // for every user. Uses a fixed "system" user ID as job guard so only one run can
@@ -40,26 +51,45 @@ func (h *Handler) RecalcAllUsersBestEfforts(w http.ResponseWriter, r *http.Reque
 
 	svc := h.BestEfforts
 	shutdown.Go(jobID, func(ctx context.Context) {
-		var done int
-		err := h.DB.ForEachUser(ctx, func(userID string) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			_ = svc.RecalcAll(ctx, userID, nil)
-			done++
-			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(done))
-			return nil
-		})
-		failed := err != nil
-		errText := ""
-		if failed {
-			errText = err.Error()
-		}
-		_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, failed, errText)
+		runAllUsersBestEffortsRecalc(ctx, h.DB, svc, jobID)
 	})
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"status": "started",
 		"job_id": jobID,
 	})
+}
+
+func runAllUsersBestEffortsRecalc(ctx context.Context, db allUsersBestEffortsDB, svc allUsersBestEffortsService, jobID string) {
+	var done int
+	var failedUsers int
+	var firstUserErr string
+
+	err := db.ForEachUser(ctx, func(userID string) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err := svc.RecalcAll(ctx, userID, nil); err != nil {
+			failedUsers++
+			if firstUserErr == "" {
+				firstUserErr = fmt.Sprintf("%s: %v", userID, err)
+			}
+			return nil
+		}
+		done++
+		_ = db.UpdateBackgroundJobProgress(ctx, jobID, int64(done))
+		return nil
+	})
+
+	failed := err != nil || failedUsers > 0
+	errText := ""
+	switch {
+	case err != nil:
+		errText = err.Error()
+	case failedUsers == 1:
+		errText = fmt.Sprintf("1 user recalc failed; first error: %s", firstUserErr)
+	case failedUsers > 1:
+		errText = fmt.Sprintf("%d user recalcs failed; first error: %s", failedUsers, firstUserErr)
+	}
+	_ = db.CompleteBackgroundJob(context.Background(), jobID, failed, errText)
 }

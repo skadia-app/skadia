@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 )
 
 func bestEffortsCleanupDB(t *testing.T) (*DB, string, string) {
@@ -87,6 +89,77 @@ func TestDeleteOrphanedBestEffortsRemovesInvalidSportGroups(t *testing.T) {
 	}
 	if len(sportGroups) != 1 || sportGroups[0] != "running" {
 		t.Fatalf("sport_groups after cleanup = %#v, want [running]", sportGroups)
+	}
+}
+
+func TestReplaceBestEffortsForActivitiesRemovesStaleValidRows(t *testing.T) {
+	db, userID, activityID := bestEffortsCleanupDB(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	for _, row := range []struct {
+		category   string
+		sportGroup string
+		elapsedS   int
+	}{
+		{category: "dist_5km", sportGroup: "running", elapsedS: 1200},
+		{category: "dist_10km", sportGroup: "running", elapsedS: 2500},
+	} {
+		if _, err := db.Pool.Exec(ctx,
+			`INSERT INTO best_efforts (user_id, activity_id, category, sport_group, elapsed_time_s, achieved_at)
+			 VALUES ($1, $2, $3, $4, $5, $6)`,
+			userID, activityID, row.category, row.sportGroup, row.elapsedS, now,
+		); err != nil {
+			t.Fatalf("insert stale best_effort %s: %v", row.category, err)
+		}
+	}
+
+	replacementElapsed := 1300
+	if err := db.ReplaceBestEffortsForActivities(ctx, []string{activityID}, []bestefforts.BestEffortRecord{
+		{
+			ID:           uuid.NewString(),
+			UserID:       userID,
+			ActivityID:   activityID,
+			Category:     "dist_5km",
+			SportGroup:   "running",
+			ElapsedTimeS: &replacementElapsed,
+			AchievedAt:   now.Add(time.Minute),
+		},
+	}); err != nil {
+		t.Fatalf("ReplaceBestEffortsForActivities: %v", err)
+	}
+
+	rows, err := db.Pool.Query(ctx,
+		`SELECT category, elapsed_time_s
+		 FROM best_efforts
+		 WHERE activity_id = $1
+		 ORDER BY category`,
+		activityID,
+	)
+	if err != nil {
+		t.Fatalf("query best_efforts: %v", err)
+	}
+	defer rows.Close()
+
+	var got []struct {
+		category string
+		elapsedS int
+	}
+	for rows.Next() {
+		var row struct {
+			category string
+			elapsedS int
+		}
+		if err := rows.Scan(&row.category, &row.elapsedS); err != nil {
+			t.Fatalf("scan replacement row: %v", err)
+		}
+		got = append(got, row)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+	if len(got) != 1 || got[0].category != "dist_5km" || got[0].elapsedS != replacementElapsed {
+		t.Fatalf("remaining rows = %#v, want one replacement dist_5km row", got)
 	}
 }
 
