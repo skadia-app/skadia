@@ -35,6 +35,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/migrate"
 	mlpkg "github.com/skadia-app/skadia/services/api/internal/ml"
+	"github.com/skadia-app/skadia/services/api/internal/observability"
 	"github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/pmc"
@@ -42,6 +43,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func main() {
@@ -971,6 +973,7 @@ func main() {
 	r.Get("/readyz", h.Readyz)
 	r.Get("/healthz", h.Healthz)
 	r.Get("/health", h.Healthz) // backwards compat alias
+	r.Handle("/metrics", observability.NewMetricsHandler(prometheus.DefaultGatherer))
 	r.Get("/api/v1/coverage/info", h.CoverageBuildInfo)
 	r.Get("/api/v1/coverage/tiles/*", h.CoverageTile)
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
