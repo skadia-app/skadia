@@ -8,25 +8,23 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
+	"github.com/skadia-app/skadia/services/api/internal/tags"
 	"github.com/google/uuid"
 )
 
 func TestSystemModifierTagSyncsMatchGeneratedRegistry(t *testing.T) {
+	// Build expected values from the tags package (single source of truth after Phase 8).
 	want := map[string]systemModifierTagSync{}
-	for _, key := range sport.SportModifierKeys() {
-		modifier, ok := sport.SportModifierByKey(key)
-		if !ok || modifier.TagSync == nil {
-			continue
-		}
-		want[key] = systemModifierTagSync{
-			ModifierKey:   key,
-			SystemTagName: modifier.TagSync.SystemTag,
-			SystemType:    modifier.ActionParam + "_sync",
-			RuleName:      systemRuleNameForModifierSync(modifier),
-			OnlySportType: modifier.TagSync.OnlySportType,
-			Color:         modifier.TagSync.Color,
-			Description:   modifier.TagSync.Description,
-			ReadonlySync:  modifier.TagSync.ReadonlySync,
+	for _, s := range tags.SystemTagSyncs {
+		want[s.ModifierKey] = systemModifierTagSync{
+			ModifierKey:   s.ModifierKey,
+			SystemTagName: s.SystemTag,
+			SystemType:    systemTypeForModifierKey(s.ModifierKey),
+			RuleName:      systemRuleNameForTagSync(s),
+			OnlySportType: s.OnlySportType,
+			Color:         s.Color,
+			Description:   s.Description,
+			ReadonlySync:  s.ReadonlySync,
 		}
 	}
 
@@ -34,8 +32,18 @@ func TestSystemModifierTagSyncsMatchGeneratedRegistry(t *testing.T) {
 	for _, sync := range systemModifierTagSyncs() {
 		got[sync.ModifierKey] = sync
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("system modifier tag syncs = %#v, want %#v", got, want)
+
+	for key, wantSync := range want {
+		gotSync, ok := got[key]
+		if !ok {
+			t.Fatalf("missing modifier key %q in systemModifierTagSyncs()", key)
+		}
+		if gotSync != wantSync {
+			t.Fatalf("systemModifierTagSync[%q] = %#v, want %#v", key, gotSync, wantSync)
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d syncs, want %d", len(got), len(want))
 	}
 
 	for _, row := range []struct {
