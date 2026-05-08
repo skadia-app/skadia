@@ -1,6 +1,10 @@
 package komoot
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/importmetrics"
+)
 
 func TestKomootRouteSportTuplePreservesSubtypeAndElectricFlag(t *testing.T) {
 	tests := []struct {
@@ -26,5 +30,23 @@ func TestKomootRouteSportTuplePreservesSubtypeAndElectricFlag(t *testing.T) {
 					tt.sport, gotSport, gotSub, gotElectric, tt.wantSport, tt.wantSub, tt.wantElectric)
 			}
 		})
+	}
+}
+
+func TestKomootRouteSportTupleRecordsUnmappedSportOnce(t *testing.T) {
+	var sources []importmetrics.Source
+	previous := recordUnmappedSport
+	recordUnmappedSport = func(source importmetrics.Source) {
+		sources = append(sources, source)
+	}
+	t.Cleanup(func() { recordUnmappedSport = previous })
+
+	gotSport, _, _ := komootRouteSportTuple("definitely_unknown")
+
+	if gotSport != "unknown" {
+		t.Fatalf("sport = %q, want unknown", gotSport)
+	}
+	if len(sources) != 1 || sources[0] != importmetrics.SourceKomootRoute {
+		t.Fatalf("recorded sources = %#v, want one Komoot route event", sources)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/muktihari/fit/profile/typedef"
 
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
+	"github.com/skadia-app/skadia/services/api/internal/importmetrics"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -102,6 +103,26 @@ func TestNormalizeParsedActivitySportWarnsForUnmappedFITTuple(t *testing.T) {
 	raw := logs.String()
 	if !strings.Contains(raw, "unmapped sport type") || !strings.Contains(raw, "fit") {
 		t.Fatalf("warn log = %q, want unmapped FIT sport warning", raw)
+	}
+}
+
+func TestNormalizeParsedActivitySportRecordsUnmappedFITTupleOnce(t *testing.T) {
+	var sources []importmetrics.Source
+	previous := recordUnmappedSport
+	recordUnmappedSport = func(source importmetrics.Source) {
+		sources = append(sources, source)
+	}
+	t.Cleanup(func() { recordUnmappedSport = previous })
+
+	data := &model.ActivityData{
+		SportType: SportToString(typedef.SportWinterSport),
+		SubType:   SubSportToString(typedef.SubSportGeneric),
+	}
+	if err := normalizeParsedActivitySport(data); err != nil {
+		t.Fatalf("normalizeParsedActivitySport: %v", err)
+	}
+	if len(sources) != 1 || sources[0] != importmetrics.SourceFIT {
+		t.Fatalf("recorded sources = %#v, want one FIT event", sources)
 	}
 }
 

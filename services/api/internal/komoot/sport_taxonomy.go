@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/importmetrics"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -13,6 +14,7 @@ func komootRouteSportTuple(komootSport string, logAttrs ...any) (string, string,
 		attrs := []any{"source", "komoot_route", "raw_sport", strings.TrimSpace(komootSport)}
 		attrs = append(attrs, logAttrs...)
 		slog.Warn("komoot route: unmapped sport type", attrs...)
+		recordUnmappedSport(importmetrics.SourceKomootRoute)
 		return "unknown", "", false
 	}
 	modifiers := sport.ApplyModifierPatch(sport.ModifierValues{}, resolved.Patch)
