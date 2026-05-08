@@ -33,7 +33,7 @@ import { apiClient } from '@/api/client'
 import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor, saveHeatmapColor } from '@/lib/mapHeatmap'
 import { findClosestIdx } from '@/lib/utils'
 import type { ZoomRange } from '@/components/ActivityCharts'
-import { MOTION_PROFILE_BY_SPORT_TYPE, type MotionProfile } from '@/lib/colorScaleRanges'
+import { motionProfileForSport, type MotionProfile } from '@/lib/colorScaleRanges'
 
 echarts.use([
   LineChart,
@@ -76,6 +76,7 @@ interface Props {
   streams: StreamPoint[]
   sportColor: string
   sportType: string
+  subType?: string | null
   fitSportId?: number
   hasGps: boolean
   onClose: () => void
@@ -213,7 +214,7 @@ function findNearestIdx(arr: number[], value: number): number {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function MapFullscreen({ streams, sportColor, sportType, fitSportId, hasGps, onClose, activityId, geoTags }: Props) {
+export default function MapFullscreen({ streams, sportColor, sportType, subType, fitSportId, hasGps, onClose, activityId, geoTags }: Props) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -306,10 +307,10 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
 
   // Filter to only streams with actual data
   const availableStreams = useMemo(() => {
-    const motionProfile = MOTION_PROFILE_BY_SPORT_TYPE[sportType] ?? MOTION_PROFILE_BY_SPORT_TYPE['generic']
-    const all = buildAllStreams(motionProfile ?? { speed: 'generic', cadence: 'generic' })
+    const motionProfile = motionProfileForSport(sportType, subType)
+    const all = buildAllStreams(motionProfile)
     return all.filter(s => hasValidData(data[s.key]))
-  }, [data, sportType])
+  }, [data, sportType, subType])
 
   // Build coordinates for map
   const coordinates = useMemo(
@@ -321,7 +322,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
 
   const metricColoring = useMetricColoring({
     streams,
-    activity: { sport_type: sportType, fit_sport_id: fitSportId },
+    activity: { sport_type: sportType, sub_type: subType ?? null, fit_sport_id: fitSportId },
     hasGps,
     zoomRange,
     map: mapInstance,
@@ -1113,6 +1114,7 @@ export default function MapFullscreen({ streams, sportColor, sportType, fitSport
             <MapColorDropdown
               streams={streams}
               sportType={sportType}
+              subType={subType}
               metric={metricColoring.metric}
               onChange={metricColoring.setMetric}
               modeByMetric={metricColoring.modeByMetric}

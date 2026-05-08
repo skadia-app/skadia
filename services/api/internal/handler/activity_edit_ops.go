@@ -117,6 +117,7 @@ func (h *Handler) TrimActivity(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity metrics", r.URL.Path)
 		return
 	}
+	h.refreshActivityFilePathBestEffort(r.Context(), userID, activityID, "")
 
 	// Record in activity_edits audit log.
 	editData, _ := json.Marshal(map[string]any{
@@ -291,6 +292,7 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity metrics", r.URL.Path)
 		return
 	}
+	h.refreshActivityFilePathBestEffort(r.Context(), userID, activityID, "")
 
 	// Determine suffix for the new activity title.
 	origTitle := "(Teil 2)"

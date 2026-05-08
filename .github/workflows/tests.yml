@@ -1,0 +1,141 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go-tests:
+    name: Tests / Go
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        # actions/checkout v4.2.2 - pinned by SHA against tag-move attacks.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        # actions/setup-go v6.4.0 - pinned by SHA.
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: services/api/go.mod
+          cache-dependency-path: services/api/go.sum
+
+      - name: Run Go tests
+        working-directory: services/api
+        run: go test ./...
+
+  sport-taxonomy-generator:
+    name: Tests / Sport taxonomy generator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        # actions/checkout v4.2.2 - pinned by SHA against tag-move attacks.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        # actions/setup-go v6.4.0 - pinned by SHA.
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: services/api/go.mod
+          cache-dependency-path: services/api/go.sum
+
+      - name: Check generated sport taxonomy artifacts
+        run: scripts/generate-sport-taxonomy.sh --check
+
+  migration-tests:
+    name: Tests / Migrations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: timescale/timescaledb-ha@sha256:a1fb8d618c2c835f7c90ac2731c0ab219129dc673304c3551d8dcdba2272c837
+        env:
+          POSTGRES_USER: skadia
+          POSTGRES_PASSWORD: skadia_dev_password
+          POSTGRES_DB: skadia
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U skadia -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out repository
+        # actions/checkout v4.2.2 - pinned by SHA against tag-move attacks.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        # actions/setup-go v6.4.0 - pinned by SHA.
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: services/api/go.mod
+          cache-dependency-path: services/api/go.sum
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Apply all migrations in isolated test DB
+        run: ./scripts/test_db.sh ensure
+
+      - name: Verify migration version
+        run: |
+          eval "$(./scripts/test_db.sh emit-url)"
+          expected="$(find services/api/internal/migrate/migrations -maxdepth 1 -name '[0-9][0-9][0-9][0-9][0-9][0-9]_*.up.sql' -printf '%f\n' | sed 's/_.*//' | sort -n | tail -1 | sed 's/^0*//')"
+          actual="$(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 --no-psqlrc -tA -c "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1")"
+          dirty="$(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 --no-psqlrc -tA -c "SELECT dirty FROM schema_migrations ORDER BY version DESC LIMIT 1")"
+          test "$actual" = "$expected"
+          test "$dirty" = "f"
+
+      - name: Run sport taxonomy migration tests
+        run: |
+          ./scripts/test_db.sh run -- sh -c 'cd services/api && go test -count=1 ./internal/migrate/migrations -run "TestMigration000349|TestMigration000350|TestMigrationModifierRegistry|TestForbidsDirectDatabaseURL"'
+
+  frontend-tests:
+    name: Tests / Frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        # actions/checkout v4.2.2 - pinned by SHA against tag-move attacks.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        # actions/setup-node v5.0.0 - pinned by SHA.
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test -- --run
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build

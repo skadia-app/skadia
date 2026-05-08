@@ -263,7 +263,8 @@ func fitSportToSegmentGroup(sport typedef.Sport) string {
 	case typedef.SportAlpineSkiing, typedef.SportCrossCountrySkiing, typedef.SportSnowboarding,
 		typedef.SportSnowshoeing:
 		return "ski"
-	case typedef.SportPaddling, typedef.SportRowing, typedef.SportKayaking, typedef.SportSailing:
+	case typedef.SportPaddling, typedef.SportRowing, typedef.SportKayaking, typedef.SportSailing,
+		typedef.SportCanoeing:
 		return "paddle"
 	default:
 		return "generic"

@@ -43,9 +43,9 @@ type MetaFile struct {
 	Visibility    string   `json:"visibility,omitempty"`
 	WorkoutFeel   *int     `json:"workout_feel,omitempty"`
 	WorkoutRpe    *int     `json:"workout_rpe,omitempty"`
-	IsElectric    bool `json:"is_electric,omitempty"`
-	IsElectricOld bool `json:"is_ebike,omitempty"` // legacy compat for old exports
-	IsVirtual     bool `json:"is_virtual,omitempty"`
+	IsElectric    bool     `json:"is_electric,omitempty"`
+	IsElectricOld bool     `json:"is_ebike,omitempty"` // legacy compat for old exports
+	IsVirtual     bool     `json:"is_virtual,omitempty"`
 	IsManualEntry bool     `json:"is_manual_entry,omitempty"`
 	Source        string   `json:"source,omitempty"`
 
@@ -54,6 +54,7 @@ type MetaFile struct {
 	ExcludeFromHeatmap     bool     `json:"exclude_from_heatmap,omitempty"`
 	ExcludeFromStats       bool     `json:"exclude_from_stats,omitempty"`
 	IsIndoor               bool     `json:"is_indoor,omitempty"`
+	IsCommute              bool     `json:"is_commute,omitempty"`
 	ExcludeLiftSubtraction bool     `json:"exclude_lift_subtraction,omitempty"`
 	LocationLat            *float64 `json:"location_lat,omitempty"`
 	LocationLng            *float64 `json:"location_lng,omitempty"`
@@ -121,6 +122,8 @@ func GenerateMetaFull(activityID string, data *model.ActivityData, activity *mod
 		m.Visibility = activity.Visibility
 		m.WorkoutFeel = activity.WorkoutFeel
 		m.WorkoutRpe = activity.WorkoutRpe
+		m.SportType = activity.SportType
+		m.SubType = derefStr(activity.SubType)
 		m.IsElectric = activity.IsElectric
 		m.IsVirtual = activity.IsVirtual
 		m.IsManualEntry = activity.IsManualEntry
@@ -129,6 +132,7 @@ func GenerateMetaFull(activityID string, data *model.ActivityData, activity *mod
 		m.ExcludeFromHeatmap = activity.ExcludeFromHeatmap
 		m.ExcludeFromStats = activity.ExcludeFromStats
 		m.IsIndoor = activity.IsIndoor
+		m.IsCommute = activity.IsCommute
 		m.ExcludeLiftSubtraction = activity.ExcludeLiftSubtraction
 		m.LocationLat = activity.LocationLat
 		m.LocationLng = activity.LocationLng

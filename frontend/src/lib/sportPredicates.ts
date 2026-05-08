@@ -1,3 +1,5 @@
+import { modifierKeysForCapability, type SportModifierKey } from './sportModifiers'
+
 export interface SportPredicate {
   sport: string
   sub_type?: string
@@ -39,10 +41,8 @@ export function modifiersMatch(
   state: ActivityModifierState,
 ): boolean {
   if (!filters) return true
-  return boolFilterMatches(filters.is_electric, state.is_electric) &&
-    boolFilterMatches(filters.is_indoor, state.is_indoor) &&
-    boolFilterMatches(filters.is_virtual, state.is_virtual) &&
-    boolFilterMatches(filters.is_commute, state.is_commute)
+  return modifierKeysForCapability('modifier_filter')
+    .every((key) => boolFilterMatches(filters[key as SportModifierKey], state[key as SportModifierKey]))
 }
 
 function boolFilterMatches(filter: boolean | undefined, state: boolean | undefined): boolean {

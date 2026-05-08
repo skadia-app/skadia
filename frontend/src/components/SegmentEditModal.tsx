@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchSegment, updateSegment, publishSegment, reverseSegment, type Segment, type UpdateSegmentPayload } from '@/api/segments'
 import { getMe } from '@/api/auth'
@@ -15,20 +15,13 @@ import { DifficultyColorPicker } from './segment-editor/DifficultyColorPicker'
 import { ClimbTypePills } from './segment-editor/ClimbTypePills'
 import { MapPreview } from './segment-editor/MapPreview'
 import { SportCategoryChips } from './segment-editor/SportCategoryChips'
-import { expandCategoryToSportTypes, isCategoryFullyActive } from '@/lib/sportCategoryHelpers'
-import { WINTER_SPORT_WHITELIST, WATER_SPORT_WHITELIST, BIDIRECTIONAL_DEFAULT, type SegType } from './segment-editor/constants'
+import { expandCategoryToSportTypes, isCategoryFullyActive, whitelistForSegmentType } from '@/lib/sportCategoryHelpers'
+import { BIDIRECTIONAL_DEFAULT, type SegType } from './segment-editor/constants'
 import { Pill } from './ui/Pill'
-import { sportPredicatesFromSelectionKeys } from '@/lib/sportSelection'
 import { filterSegmentSportSelection, removeSegmentSportSelectionKeys } from './segment-editor/segmentSportSelection'
-
-const SEG_TYPE_LABELS: Record<SegType, string> = {
-  standard: 'Standard',
-  trail: 'Trail',
-  lap: 'Runde',
-  wintersport: 'Winter',
-  wassersport: 'Wassersport',
-  lift: 'Lift',
-}
+import { SPORT_DEFS } from '@/lib/sportTaxonomy'
+import { segmentTypeLabel } from '@/lib/segmentProjection'
+import { buildExistingSegmentSportPatch } from './segment-editor/segmentSave'
 
 interface Props {
   segment: Segment
@@ -37,6 +30,10 @@ interface Props {
 
 export default function SegmentEditModal({ segment: initialSegment, onClose }: Props) {
   const qc = useQueryClient()
+  const allSportTypes = useMemo(
+    () => SPORT_DEFS.map(s => ({ key: s.sportType, label: s.label, category: s.categoryKey })),
+    [],
+  )
   
   // Vollständige Segment-Daten laden (inkl. GeoJSON für MapPreview)
   const { data: segment = initialSegment, isLoading: isLoadingFull } = useQuery({
@@ -69,7 +66,9 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
   })
   const [bidirectional, setBidirectional] = useState<boolean>(initialSegment.bidirectional ?? true)
   const [userEditedBidirectional, setUserEditedBidirectional] = useState(false)
-  const [segType, setSegType] = useState<SegType>((initialSegment.segment_type as SegType) ?? 'standard')
+  const initialSegType = (initialSegment.segment_type as SegType) ?? 'standard'
+  const [segType, setSegType] = useState<SegType>(initialSegType)
+  const [sportSelectionTouched, setSportSelectionTouched] = useState(false)
 
   function handleSegTypeChange(newType: SegType) {
     setSegType(newType)
@@ -82,14 +81,10 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
       setSurface(null)
       setDiffColor(null)
     }
-    if (newType === 'wintersport') {
+    const whitelist = whitelistForSegmentType(newType)
+    if (whitelist) {
       setAllowedSportTypes(prev => {
-        return filterSegmentSportSelection(prev, WINTER_SPORT_WHITELIST)
-      })
-    }
-    if (newType === 'wassersport') {
-      setAllowedSportTypes(prev => {
-        return filterSegmentSportSelection(prev, WATER_SPORT_WHITELIST)
+        return filterSegmentSportSelection(prev, whitelist)
       })
     }
   }
@@ -115,9 +110,13 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         delete meta.difficulty_color
       }
 
-      const sportPredicates = allowedSportTypes === null
-        ? undefined
-        : sportPredicatesFromSelectionKeys(allowedSportTypes)
+      const sportPatch = buildExistingSegmentSportPatch({
+        segType,
+        initialSegType,
+        selection: allowedSportTypes,
+        initialAllowedPredicates: initialSegment.allowed_predicates,
+        touched: sportSelectionTouched,
+      })
       const payload: UpdateSegmentPayload = {
         name: name.trim(),
         description: description.trim() || undefined,
@@ -126,7 +125,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         new_version: newVersion || undefined,
         climb_type: segType === 'lap' ? 'standard' : climbType,
         bidirectional,
-        allowed_predicates: sportPredicates ?? null,
+        ...sportPatch,
       }
       if (initialSegment.visibility === 'public' && visibility === 'private') {
         payload.visibility = 'private'
@@ -224,7 +223,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
                 ariaChecked={segType === t}
                 disabled={isLoadingFull}
               >
-                {SEG_TYPE_LABELS[t]}
+                {segmentTypeLabel(t)}
               </Pill>
             ))}
           </div>
@@ -291,7 +290,8 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
             segType={segType}
             activeTypes={allowedSportTypes}
             onToggleCategory={(catKey) => {
-              const whitelist = segType === 'wintersport' ? WINTER_SPORT_WHITELIST : (segType === 'wassersport' ? WATER_SPORT_WHITELIST : undefined)
+              setSportSelectionTouched(true)
+              const whitelist = whitelistForSegmentType(segType)
               const types = expandCategoryToSportTypes(catKey, whitelist)
               if (types.length === 0) return
 
@@ -307,9 +307,14 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
                 }
               })
             }}
-            onSetAll={() => setAllowedSportTypes(null)}
+            onSetAll={() => {
+              setSportSelectionTouched(true)
+              setAllowedSportTypes(null)
+            }}
+            availableSportTypes={allSportTypes}
             showDetailPicker
             onToggleSportType={(sportType) => {
+              setSportSelectionTouched(true)
               setAllowedSportTypes(prev => {
                 if (prev === null) return [sportType]
                 const next = prev.includes(sportType)

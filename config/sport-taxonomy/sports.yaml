@@ -1,0 +1,2758 @@
+categories:
+- key: run
+  labels:
+    de: Läufe
+  color:
+    token: run
+    light_hex: '#EF4444'
+
+- key: bike
+  labels:
+    de: Radfahrten
+  color:
+    token: bike
+    light_hex: '#F97316'
+
+- key: winter
+  labels:
+    de: Wintersport
+  color:
+    token: winter
+    light_hex: '#06B6D4'
+
+- key: water
+  labels:
+    de: Wassersport
+  color:
+    token: water
+    light_hex: '#3B82F6'
+
+- key: fitness
+  labels:
+    de: Fitness
+  color:
+    token: fitness
+    light_hex: '#8B5CF6'
+
+- key: game
+  labels:
+    de: Spiele
+  color:
+    token: game
+    light_hex: '#10B981'
+
+- key: climb
+  labels:
+    de: Klettern
+  color:
+    token: climb
+    light_hex: '#A855F7'
+
+- key: outdoor
+  labels:
+    de: Weitere Aktivitäten
+  color:
+    token: outdoor
+    light_hex: '#84CC16'
+
+- key: multi
+  labels:
+    de: Multisport
+  color:
+    token: multi
+    light_hex: '#F59E0B'
+
+- key: other
+  labels:
+    de: Sonstiges
+  color:
+    token: other
+    light_hex: '#6B7280'
+
+
+sports:
+- sport_type: running
+  category_key: run
+  labels:
+    de: Laufen
+  auto_titles:
+    de: Lauf
+  segment_group: foot
+  typically_has_gps: true
+  moving_threshold: 0.5
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: true
+  sub_types:
+  - sub_type: street
+    labels:
+      de: Straße
+    details:
+      de: Straßenlauf
+    auto_titles:
+      de: Lauf
+  - sub_type: trail
+    labels:
+      de: Trail
+    details:
+      de: Trailrun
+    auto_titles:
+      de: Trailrun
+  - sub_type: track
+    labels:
+      de: Bahn
+    details:
+      de: Bahnlauf
+    auto_titles:
+      de: Bahnlauf
+  - sub_type: treadmill
+    labels:
+      de: Laufband
+    details:
+      de: Laufband
+    auto_titles:
+      de: Laufband
+    traits:
+      environments: [indoor]
+      movement_families: [run]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
+    modifier_defaults:
+      is_indoor: true
+  - sub_type: indoor_running
+    labels:
+      de: Indoor
+    details:
+      de: Indoor-Lauf
+    auto_titles:
+      de: Indoor-Lauf
+    traits:
+      environments: [indoor]
+      movement_families: [run]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
+    modifier_defaults:
+      is_indoor: true
+  - sub_type: ultra
+    labels:
+      de: Ultra
+    details:
+      de: Ultramarathon
+    auto_titles:
+      de: Ultramarathon
+  - sub_type: obstacle
+    labels:
+      de: Hindernislauf
+    details:
+      de: Hindernislauf
+    auto_titles:
+      de: Hindernislauf
+
+- sport_type: walking
+  category_key: run
+  labels:
+    de: Gehen
+  auto_titles:
+    de: Spaziergang
+  segment_group: foot
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [walk]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: true
+  sub_types:
+  - sub_type: casual_walking
+    labels:
+      de: Spaziergang
+    details:
+      de: Spaziergang
+    auto_titles:
+      de: Spaziergang
+  - sub_type: speed_walking
+    labels:
+      de: Speed Walking
+    details:
+      de: Speed Walking
+    auto_titles:
+      de: Speed Walking
+  - sub_type: indoor_walking
+    labels:
+      de: Indoor
+    details:
+      de: Indoor-Gehen
+    auto_titles:
+      de: Indoor-Gehen
+    traits:
+      environments: [indoor]
+      movement_families: [walk]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
+    modifier_defaults:
+      is_indoor: true
+
+- sport_type: hiking
+  category_key: run
+  labels:
+    de: Wandern
+  auto_titles:
+    de: Wanderung
+  segment_group: foot
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [walk]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: true
+    is_commute: true
+  sub_types:
+  - sub_type: rucking
+    labels:
+      de: Rucking
+    details:
+      de: Rucking
+    auto_titles:
+      de: Rucking
+    traits:
+      environments: [land]
+      movement_families: [walk]
+      equipment_families: [weights]
+      activity_form: single
+      propulsion_modes: [human]
+
+- sport_type: mountaineering
+  category_key: run
+  labels:
+    de: Bergsteigen
+  auto_titles:
+    de: Bergtour
+  segment_group: foot
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [land, snow]
+    movement_families: [walk, climb]
+    equipment_families: [climbing_gear]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: true
+    is_commute: true
+
+- sport_type: snowshoeing
+  category_key: winter
+  labels:
+    de: Schneeschuhwandern
+  auto_titles:
+    de: Schneeschuhtour
+  segment_group: foot
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [walk]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: true
+    is_commute: true
+
+- sport_type: floor_climbing
+  category_key: fitness
+  labels:
+    de: Treppensteigen
+  auto_titles:
+    de: Treppensteigen
+  segment_group: foot
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [climb]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+
+- sport_type: wheelchair_push
+  category_key: run
+  labels:
+    de: Rollstuhl
+  auto_titles:
+    de: Rollstuhl-Aktivität
+  segment_group: foot
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [roll]
+    equipment_families: [wheelchair]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: true
+  sub_types:
+  - sub_type: walk_speed
+    labels:
+      de: Gehtempo
+    details:
+      de: Rollstuhl (Gehtempo)
+    auto_titles:
+      de: Rollstuhl (Gehtempo)
+    moving_threshold: 0.2
+  - sub_type: run_speed
+    labels:
+      de: Lauftempo
+    details:
+      de: Rollstuhl (Lauftempo)
+    auto_titles:
+      de: Rollstuhl (Lauftempo)
+    moving_threshold: 0.5
+
+- sport_type: cycling
+  category_key: bike
+  labels:
+    de: Radfahren
+  auto_titles:
+    de: Radfahrt
+  segment_group: bike
+  typically_has_gps: true
+  moving_threshold: 0.5
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [pedal]
+    equipment_families: [bike]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: true
+    is_indoor: true
+    is_virtual: true
+    is_commute: true
+  sub_types:
+  - sub_type: road
+    labels:
+      de: Rennrad
+    details:
+      de: Rennrad
+    auto_titles:
+      de: Rennradfahrt
+  - sub_type: mountain
+    labels:
+      de: MTB
+    details:
+      de: Mountainbike
+    auto_titles:
+      de: MTB-Tour
+  - sub_type: downhill
+    labels:
+      de: Downhill
+    details:
+      de: Downhill
+    auto_titles:
+      de: Downhill
+  - sub_type: recumbent
+    labels:
+      de: Liegerad
+    details:
+      de: Liegerad
+    auto_titles:
+      de: Liegerad-Tour
+  - sub_type: cyclocross
+    labels:
+      de: Cyclocross
+    details:
+      de: Cyclocross
+    auto_titles:
+      de: Cyclocross
+  - sub_type: hand_cycling
+    labels:
+      de: Handbike
+    details:
+      de: Handbike
+    auto_titles:
+      de: Handbike-Tour
+    traits:
+      environments: [land]
+      movement_families: [pedal]
+      equipment_families: [bike, wheelchair]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: track_cycling
+    labels:
+      de: Bahnrad
+    details:
+      de: Bahnrad
+    auto_titles:
+      de: Bahnrad
+  - sub_type: indoor_cycling
+    labels:
+      de: Indoor
+    details:
+      de: Indoor-Rad
+    auto_titles:
+      de: Indoor-Radfahrt
+    traits:
+      environments: [indoor]
+      movement_families: [pedal]
+      equipment_families: [bike, machine]
+      activity_form: single
+      propulsion_modes: [human]
+    modifier_defaults:
+      is_indoor: true
+  - sub_type: spin
+    labels:
+      de: Spinning
+    details:
+      de: Spinning
+    auto_titles:
+      de: Spinning
+    traits:
+      environments: [indoor]
+      movement_families: [pedal]
+      equipment_families: [bike, machine]
+      activity_form: single
+      propulsion_modes: [human]
+    modifier_defaults:
+      is_indoor: true
+  - sub_type: gravel_cycling
+    labels:
+      de: Gravel
+    details:
+      de: Gravel
+    auto_titles:
+      de: Gravel-Tour
+  - sub_type: unicycling
+    labels:
+      de: Einrad
+    details:
+      de: Einrad
+    auto_titles:
+      de: Einradfahrt
+  - sub_type: mixed_surface
+    labels:
+      de: Mixed
+    details:
+      de: Mixed Surface
+    auto_titles:
+      de: Mixed-Tour
+  - sub_type: bmx
+    labels:
+      de: BMX
+    details:
+      de: BMX
+    auto_titles:
+      de: BMX
+
+- sport_type: inline_skating
+  category_key: outdoor
+  labels:
+    de: Inline-Skaten
+  auto_titles:
+    de: Inline-Skaten
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.5
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [glide]
+    equipment_families: [skate]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: skateboarding
+  category_key: outdoor
+  labels:
+    de: Skateboard
+  auto_titles:
+    de: Skateboarden
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.5
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [glide]
+    equipment_families: [board]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: true
+    is_indoor: true
+    is_virtual: false
+    is_commute: true
+
+- sport_type: alpine_skiing
+  category_key: winter
+  labels:
+    de: Alpin-Ski
+  auto_titles:
+    de: Skifahrt
+  segment_group: ski
+  typically_has_gps: true
+  moving_threshold: 0.3
+  is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [glide]
+    equipment_families: [ski]
+    activity_form: single
+    propulsion_modes: [human, gravity]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: false
+    is_commute: false
+  sub_types:
+  - sub_type: backcountry
+    labels:
+      de: Freeride
+    details:
+      de: Freeride/Backcountry
+    auto_titles:
+      de: Freeride
+  - sub_type: resort
+    labels:
+      de: Piste
+    details:
+      de: Pisten-Ski
+    auto_titles:
+      de: Skifahrt
+  - sub_type: indoor_skiing
+    labels:
+      de: Indoor-Ski
+    details:
+      de: Indoor-Ski
+    auto_titles:
+      de: Indoor-Skifahrt
+    traits:
+      environments: [indoor]
+      movement_families: [glide]
+      equipment_families: [ski, machine]
+      activity_form: single
+      propulsion_modes: [human]
+    modifier_defaults:
+      is_indoor: true
+
+- sport_type: backcountry_skiing
+  category_key: winter
+  labels:
+    de: Skitour
+  auto_titles:
+    de: Skitour
+  segment_group: ski
+  typically_has_gps: true
+  moving_threshold: 0.3
+  is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [glide, walk]
+    equipment_families: [ski]
+    activity_form: single
+    propulsion_modes: [human, gravity]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: cross_country_skiing
+  category_key: winter
+  labels:
+    de: Langlauf
+  auto_titles:
+    de: Langlauf
+  segment_group: ski
+  typically_has_gps: true
+  moving_threshold: 0.3
+  is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [glide]
+    equipment_families: [ski]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+  sub_types:
+  - sub_type: skate_skiing
+    labels:
+      de: Skating
+    details:
+      de: Skating-Stil
+    auto_titles:
+      de: Skating-Langlauf
+
+- sport_type: snowboarding
+  category_key: winter
+  labels:
+    de: Snowboard
+  auto_titles:
+    de: Snowboard
+  segment_group: ski
+  typically_has_gps: true
+  moving_threshold: 0.3
+  is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [glide]
+    equipment_families: [snowboard]
+    activity_form: single
+    propulsion_modes: [human, gravity]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+  sub_types:
+  - sub_type: backcountry
+    labels:
+      de: Backcountry
+    details:
+      de: Backcountry-Snowboard
+    auto_titles:
+      de: Backcountry-Snowboard
+  - sub_type: resort
+    labels:
+      de: Piste
+    details:
+      de: Pisten-Snowboard
+    auto_titles:
+      de: Snowboard
+
+- sport_type: ice_skating
+  category_key: winter
+  labels:
+    de: Eislaufen
+  auto_titles:
+    de: Eislaufen
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.3
+  is_indoor: false
+  traits:
+    environments: [ice]
+    movement_families: [glide]
+    equipment_families: [skate]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: snowmobiling
+  category_key: winter
+  labels:
+    de: Schneemobil
+  auto_titles:
+    de: Schneemobil-Tour
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.5
+  is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [drive]
+    equipment_families: [vehicle]
+    activity_form: single
+    propulsion_modes: [motor]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: sledding
+  category_key: winter
+  labels:
+    de: Rodeln
+  auto_titles:
+    de: Rodeln
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [glide]
+    equipment_families: [sled]
+    activity_form: single
+    propulsion_modes: [human, gravity]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: swimming
+  category_key: water
+  labels:
+    de: Schwimmen
+  auto_titles:
+    de: Schwimmen
+  segment_group: swim
+  typically_has_gps: false
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [swim]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+  sub_types:
+  - sub_type: lap_swimming
+    labels:
+      de: Bahnschwimmen
+    details:
+      de: Bahnschwimmen
+    auto_titles:
+      de: Bahnschwimmen
+  - sub_type: open_water
+    labels:
+      de: Freiwasser
+    details:
+      de: Freiwasserschwimmen
+    auto_titles:
+      de: Freiwasserschwimmen
+
+- sport_type: paddling
+  category_key: water
+  labels:
+    de: Paddeln (allgemein)
+  auto_titles:
+    de: Wassersport-Tour
+  segment_group: paddle
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [paddle]
+    equipment_families: [paddle]
+    activity_form: fallback
+    propulsion_modes: [human]
+  lifecycle: broad_fallback
+  selectable: false
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: kayaking
+  category_key: water
+  labels:
+    de: Kajak
+  auto_titles:
+    de: Kajaktour
+  segment_group: paddle
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [paddle]
+    equipment_families: [boat, paddle]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+  sub_types:
+  - sub_type: whitewater
+    labels:
+      de: Wildwasser
+    details:
+      de: Wildwasser-Kajak
+    auto_titles:
+      de: Wildwasser-Kajak
+
+- sport_type: stand_up_paddleboarding
+  category_key: water
+  labels:
+    de: SUP
+  auto_titles:
+    de: SUP-Tour
+  segment_group: paddle
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [paddle]
+    equipment_families: [board, paddle]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: rowing
+  category_key: water
+  labels:
+    de: Rudern
+  auto_titles:
+    de: Rudern
+  segment_group: paddle
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [row]
+    equipment_families: [boat]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: false
+    is_commute: true
+  sub_types:
+  - sub_type: indoor_rowing
+    labels:
+      de: Indoor-Rudern
+    details:
+      de: Indoor-Rudern
+    auto_titles:
+      de: Indoor-Rudern
+    traits:
+      environments: [indoor]
+      movement_families: [row]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
+    modifier_defaults:
+      is_indoor: true
+
+- sport_type: surfing
+  category_key: water
+  labels:
+    de: Surfen
+  auto_titles:
+    de: Surfen
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [board]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: kitesurfing
+  category_key: water
+  labels:
+    de: Kitesurfen
+  auto_titles:
+    de: Kitesurfen
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [board]
+    activity_form: single
+    propulsion_modes: [human, wind]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: windsurfing
+  category_key: water
+  labels:
+    de: Windsurfen
+  auto_titles:
+    de: Windsurfen
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [board, sail]
+    activity_form: single
+    propulsion_modes: [human, wind]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: wakeboarding
+  category_key: water
+  labels:
+    de: Wakeboard
+  auto_titles:
+    de: Wakeboarden
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [board]
+    activity_form: single
+    propulsion_modes: [towed]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: wakesurfing
+  category_key: water
+  labels:
+    de: Wakesurfen
+  auto_titles:
+    de: Wakesurfen
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [board]
+    activity_form: single
+    propulsion_modes: [towed]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: water_skiing
+  category_key: water
+  labels:
+    de: Wasserski
+  auto_titles:
+    de: Wasserski
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [ski]
+    activity_form: single
+    propulsion_modes: [towed]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: water_tubing
+  category_key: water
+  labels:
+    de: Wassertubing
+  auto_titles:
+    de: Wassertubing
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [boat]
+    activity_form: single
+    propulsion_modes: [towed]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: diving
+  category_key: water
+  labels:
+    de: Tauchen
+  auto_titles:
+    de: Tauchen
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [swim]
+    equipment_families: [breathing_gear]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: false
+    is_commute: false
+  sub_types:
+  - sub_type: single_gas_diving
+    labels:
+      de: Eingas
+    details:
+      de: Eingas-Tauchen
+    auto_titles:
+      de: Tauchen
+  - sub_type: multi_gas_diving
+    labels:
+      de: Mehrgas
+    details:
+      de: Mehrgas-Tauchen
+    auto_titles:
+      de: Tauchen
+  - sub_type: gauge_diving
+    labels:
+      de: Gauge
+    details:
+      de: Gauge-Tauchen
+    auto_titles:
+      de: Tauchen
+  - sub_type: apnea_diving
+    labels:
+      de: Apnoe
+    details:
+      de: Apnoe-Tauchen
+    auto_titles:
+      de: Apnoe-Tauchen
+    traits:
+      environments: [water]
+      movement_families: [swim]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: dynamic_apnea
+    labels:
+      de: Dynamische Apnoe
+    details:
+      de: Dynamische Apnoe
+    auto_titles:
+      de: Apnoe-Tauchen
+    traits:
+      environments: [water, indoor]
+      movement_families: [swim]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
+    modifier_defaults:
+      is_indoor: true
+  - sub_type: apnea_hunting
+    labels:
+      de: Apnoe-Jagd
+    details:
+      de: Apnoe-Jagdtauchen
+    auto_titles:
+      de: Apnoe-Tauchen
+    traits:
+      environments: [water]
+      movement_families: [swim]
+      equipment_families: [fishing_gear]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: ccr_diving
+    labels:
+      de: CCR
+    details:
+      de: Kreislauftauchen (CCR)
+    auto_titles:
+      de: CCR-Tauchen
+  - sub_type: apnea_pool
+    labels:
+      de: Apnoe Pool
+    details:
+      de: Apnoe-Tauchen (Pool)
+    auto_titles:
+      de: Apnoe-Tauchen
+    traits:
+      environments: [water, indoor]
+      movement_families: [swim]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
+    modifier_defaults:
+      is_indoor: true
+
+- sport_type: snorkeling
+  category_key: water
+  labels:
+    de: Schnorcheln
+  auto_titles:
+    de: Schnorcheln
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [swim]
+    equipment_families: [breathing_gear]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: boating
+  category_key: water
+  labels:
+    de: Bootfahren
+  auto_titles:
+    de: Bootstour
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [drive]
+    equipment_families: [boat]
+    activity_form: single
+    propulsion_modes: [motor]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: sailing
+  category_key: water
+  labels:
+    de: Segeln
+  auto_titles:
+    de: Segeln
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [glide]
+    equipment_families: [boat, sail]
+    activity_form: single
+    propulsion_modes: [wind]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+  sub_types:
+  - sub_type: sail_race
+    labels:
+      de: Regatta
+    details:
+      de: Segelregatta
+    auto_titles:
+      de: Regatta
+
+- sport_type: fishing
+  category_key: water
+  labels:
+    de: Angeln
+  auto_titles:
+    de: Angeln
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [fish]
+    equipment_families: [fishing_gear]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: rafting
+  category_key: water
+  labels:
+    de: Rafting
+  auto_titles:
+    de: Rafting
+  segment_group: paddle
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [paddle]
+    equipment_families: [boat, paddle]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+  sub_types:
+  - sub_type: whitewater
+    labels:
+      de: Wildwasser
+    details:
+      de: Wildwasser-Rafting
+    auto_titles:
+      de: Wildwasser-Rafting
+
+- sport_type: training
+  category_key: fitness
+  labels:
+    de: Training
+  auto_titles:
+    de: Training
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [generic]
+    equipment_families: [generic]
+    activity_form: fallback
+    propulsion_modes: [human]
+  lifecycle: broad_fallback
+  selectable: false
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+  sub_types:
+  - sub_type: flexibility_training
+    labels:
+      de: Stretching
+    details:
+      de: Dehnungstraining
+    auto_titles:
+      de: Stretching
+    traits:
+      environments: [indoor]
+      movement_families: [generic]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: cardio_training
+    labels:
+      de: Cardio
+    details:
+      de: Cardio-Training
+    auto_titles:
+      de: Cardio
+    traits:
+      environments: [indoor]
+      movement_families: [generic]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: breathing
+    labels:
+      de: Atemübung
+    details:
+      de: Atemübung
+    auto_titles:
+      de: Atemübung
+    traits:
+      environments: [indoor]
+      movement_families: [mind_body]
+      equipment_families: []
+      activity_form: single
+      propulsion_modes: [human]
+
+- sport_type: fitness_equipment
+  category_key: fitness
+  labels:
+    de: Fitnessgerät
+  auto_titles:
+    de: Fitnessgerät
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [generic]
+    equipment_families: [machine]
+    activity_form: fallback
+    propulsion_modes: [human]
+  lifecycle: broad_fallback
+  selectable: false
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+  sub_types:
+  - sub_type: indoor_cycling
+    labels:
+      de: Indoor-Rad
+    details:
+      de: Indoor-Rad
+    auto_titles:
+      de: Indoor-Radfahrt
+    traits:
+      environments: [indoor]
+      movement_families: [pedal]
+      equipment_families: [bike, machine]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: indoor_rowing
+    labels:
+      de: Ruder-Ergometer
+    details:
+      de: Ruder-Ergometer
+    auto_titles:
+      de: Indoor-Rudern
+    traits:
+      environments: [indoor]
+      movement_families: [row]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: elliptical
+    labels:
+      de: Crosstrainer
+    details:
+      de: Crosstrainer
+    auto_titles:
+      de: Crosstrainer
+    traits:
+      environments: [indoor]
+      movement_families: [generic]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: stair_climbing
+    labels:
+      de: Treppensteiger
+    details:
+      de: Treppensteiger
+    auto_titles:
+      de: Treppensteiger
+    traits:
+      environments: [indoor]
+      movement_families: [climb]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: indoor_skiing
+    labels:
+      de: Indoor-Ski
+    details:
+      de: Skimaschine
+    auto_titles:
+      de: Indoor-Ski
+    traits:
+      environments: [indoor]
+      movement_families: [glide]
+      equipment_families: [ski, machine]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: indoor_walking
+    labels:
+      de: Indoor-Gehen
+    details:
+      de: Indoor-Gehen
+    auto_titles:
+      de: Indoor-Gehen
+    traits:
+      environments: [indoor]
+      movement_families: [walk]
+      equipment_families: [machine]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: indoor_hand_cycling
+    labels:
+      de: Handbike-Ergometer
+    details:
+      de: Handbike-Ergometer
+    auto_titles:
+      de: Indoor-Handbike
+    traits:
+      environments: [indoor]
+      movement_families: [pedal]
+      equipment_families: [bike, wheelchair, machine]
+      activity_form: single
+      propulsion_modes: [human]
+    modifier_defaults:
+      is_indoor: true
+
+- sport_type: strength_training
+  category_key: fitness
+  labels:
+    de: Krafttraining
+  auto_titles:
+    de: Krafttraining
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [lift]
+    equipment_families: [weights]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+  sub_types:
+  - sub_type: amrap
+    labels:
+      de: AMRAP
+    details:
+      de: As Many Reps As Possible
+    auto_titles:
+      de: AMRAP
+  - sub_type: emom
+    labels:
+      de: EMOM
+    details:
+      de: Every Minute On the Minute
+    auto_titles:
+      de: EMOM
+
+- sport_type: hiit
+  category_key: fitness
+  labels:
+    de: HIIT
+  auto_titles:
+    de: HIIT
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [generic]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+  sub_types:
+  - sub_type: tabata
+    labels:
+      de: Tabata
+    details:
+      de: Tabata
+    auto_titles:
+      de: Tabata
+
+- sport_type: dance
+  category_key: fitness
+  labels:
+    de: Tanzen
+  auto_titles:
+    de: Tanzen
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [dance]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+
+- sport_type: jump_rope
+  category_key: fitness
+  labels:
+    de: Seilspringen
+  auto_titles:
+    de: Seilspringen
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [generic]
+    equipment_families: [rope]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+
+- sport_type: meditation
+  category_key: fitness
+  labels:
+    de: Meditation
+  auto_titles:
+    de: Meditation
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [mind_body]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+
+- sport_type: mobility
+  category_key: fitness
+  labels:
+    de: Mobilität
+  auto_titles:
+    de: Mobilität
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [mind_body]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+
+- sport_type: yoga
+  category_key: fitness
+  labels:
+    de: Yoga
+  auto_titles:
+    de: Yoga
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [mind_body]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+
+- sport_type: pilates
+  category_key: fitness
+  labels:
+    de: Pilates
+  auto_titles:
+    de: Pilates
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [mind_body]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+
+- sport_type: soccer
+  category_key: game
+  labels:
+    de: Fußball
+  auto_titles:
+    de: Fußball
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, strike]
+    equipment_families: [ball]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: basketball
+  category_key: game
+  labels:
+    de: Basketball
+  auto_titles:
+    de: Basketball
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, throw]
+    equipment_families: [ball]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: american_football
+  category_key: game
+  labels:
+    de: American Football
+  auto_titles:
+    de: American Football
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, throw]
+    equipment_families: [ball]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: rugby
+  category_key: game
+  labels:
+    de: Rugby
+  auto_titles:
+    de: Rugby
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, throw]
+    equipment_families: [ball]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: lacrosse
+  category_key: game
+  labels:
+    de: Lacrosse
+  auto_titles:
+    de: Lacrosse
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, throw]
+    equipment_families: [ball, stick]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: hockey
+  category_key: game
+  labels:
+    de: Hockey
+  auto_titles:
+    de: Hockey
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [ice, land]
+    movement_families: [glide, strike]
+    equipment_families: [stick]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: volleyball
+  category_key: game
+  labels:
+    de: Volleyball
+  auto_titles:
+    de: Volleyball
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [throw, strike]
+    equipment_families: [ball]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: tennis
+  category_key: game
+  labels:
+    de: Tennis
+  auto_titles:
+    de: Tennis
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [strike]
+    equipment_families: [racket, ball]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+  sub_types:
+  - sub_type: warm_up
+    labels:
+      de: Aufwärmen
+    details:
+      de: Aufwärmen
+    auto_titles:
+      de: Tennis-Aufwärmen
+  - sub_type: match
+    labels:
+      de: Match
+    details:
+      de: Tennis-Match
+    auto_titles:
+      de: Tennis-Match
+  - sub_type: exercise
+    labels:
+      de: Übung
+    details:
+      de: Tennis-Übung
+    auto_titles:
+      de: Tennis-Übung
+
+- sport_type: racket
+  category_key: game
+  labels:
+    de: Schlägersport
+  auto_titles:
+    de: Schlägersport
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [strike]
+    equipment_families: [racket, ball]
+    activity_form: family
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+  sub_types:
+  - sub_type: pickleball
+    labels:
+      de: Pickleball
+    details:
+      de: Pickleball
+    auto_titles:
+      de: Pickleball
+    traits:
+      environments: [land]
+      movement_families: [strike]
+      equipment_families: [racket, ball]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: padel
+    labels:
+      de: Padel
+    details:
+      de: Padel
+    auto_titles:
+      de: Padel
+    traits:
+      environments: [land]
+      movement_families: [strike]
+      equipment_families: [racket, ball]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: squash
+    labels:
+      de: Squash
+    details:
+      de: Squash
+    auto_titles:
+      de: Squash
+    traits:
+      environments: [land]
+      movement_families: [strike]
+      equipment_families: [racket, ball]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: badminton
+    labels:
+      de: Badminton
+    details:
+      de: Badminton
+    auto_titles:
+      de: Badminton
+    traits:
+      environments: [land]
+      movement_families: [strike]
+      equipment_families: [racket]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: racquetball
+    labels:
+      de: Racquetball
+    details:
+      de: Racquetball
+    auto_titles:
+      de: Racquetball
+    traits:
+      environments: [land]
+      movement_families: [strike]
+      equipment_families: [racket, ball]
+      activity_form: single
+      propulsion_modes: [human]
+  - sub_type: table_tennis
+    labels:
+      de: Tischtennis
+    details:
+      de: Tischtennis
+    auto_titles:
+      de: Tischtennis
+    traits:
+      environments: [land]
+      movement_families: [strike]
+      equipment_families: [racket, ball]
+      activity_form: single
+      propulsion_modes: [human]
+
+- sport_type: cricket
+  category_key: game
+  labels:
+    de: Cricket
+  auto_titles:
+    de: Cricket
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, strike, throw]
+    equipment_families: [ball, stick]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: baseball
+  category_key: game
+  labels:
+    de: Baseball
+  auto_titles:
+    de: Baseball
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [run, strike, throw]
+    equipment_families: [ball, stick]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: golf
+  category_key: game
+  labels:
+    de: Golf
+  auto_titles:
+    de: Golf
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [strike, walk]
+    equipment_families: [ball, stick]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: disc_golf
+  category_key: game
+  labels:
+    de: Disc Golf
+  auto_titles:
+    de: Disc Golf
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [throw, walk]
+    equipment_families: [disc]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: rock_climbing
+  category_key: climb
+  labels:
+    de: Klettern
+  auto_titles:
+    de: Klettern
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land, indoor]
+    movement_families: [climb]
+    equipment_families: [climbing_gear]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: false
+    is_commute: false
+  sub_types:
+  - sub_type: indoor_climbing
+    labels:
+      de: Indoor
+    details:
+      de: Hallenklettern
+    auto_titles:
+      de: Hallenklettern
+    traits:
+      environments: [indoor]
+      movement_families: [climb]
+      equipment_families: [climbing_gear]
+      activity_form: single
+      propulsion_modes: [human]
+    modifier_defaults:
+      is_indoor: true
+  - sub_type: bouldering
+    labels:
+      de: Bouldern
+    details:
+      de: Bouldern
+    auto_titles:
+      de: Bouldern
+
+- sport_type: flying
+  category_key: outdoor
+  labels:
+    de: Fliegen
+  auto_titles:
+    de: Fliegen
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.5
+  is_indoor: false
+  traits:
+    environments: [air]
+    movement_families: [fly]
+    equipment_families: [aircraft]
+    activity_form: family
+    propulsion_modes: [generic]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+  sub_types:
+  - sub_type: rc_drone
+    labels:
+      de: Drohne
+    details:
+      de: Drohnenflug
+    auto_titles:
+      de: Drohnenflug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: single
+      propulsion_modes: [motor]
+  - sub_type: wingsuit
+    labels:
+      de: Wingsuit
+    details:
+      de: Wingsuit
+    auto_titles:
+      de: Wingsuit-Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: single
+      propulsion_modes: [human, gravity]
+  - sub_type: fly_canopy
+    labels:
+      de: Fallschirm
+    details:
+      de: Fallschirmspringen
+    auto_titles:
+      de: Fallschirmsprung
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: single
+      propulsion_modes: [human, gravity]
+  - sub_type: fly_paraglide
+    labels:
+      de: Gleitschirm
+    details:
+      de: Gleitschirmfliegen
+    auto_titles:
+      de: Gleitschirmflug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: single
+      propulsion_modes: [human, wind, gravity]
+  - sub_type: fly_paramotor
+    labels:
+      de: Paramotor
+    details:
+      de: Paramotorfliegen
+    auto_titles:
+      de: Paramotorflug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: single
+      propulsion_modes: [motor]
+  - sub_type: fly_pressurized
+    labels:
+      de: Druckkabine
+    details:
+      de: Druckkabinenflugzeug
+    auto_titles:
+      de: Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: single
+      propulsion_modes: [motor]
+  - sub_type: fly_vfr
+    labels:
+      de: Sichtflug (VFR)
+    details:
+      de: Sichtflugregeln (VFR)
+    auto_titles:
+      de: VFR-Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: mode
+      propulsion_modes: [generic]
+  - sub_type: fly_ifr
+    labels:
+      de: Instrumentenflug (IFR)
+    details:
+      de: Instrumentenflugregeln (IFR)
+    auto_titles:
+      de: IFR-Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: mode
+      propulsion_modes: [generic]
+  - sub_type: fly_navigate
+    labels:
+      de: Navigation
+    details:
+      de: Luftfahrt-Navigation
+    auto_titles:
+      de: Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: mode
+      propulsion_modes: [generic]
+  - sub_type: fly_timer
+    labels:
+      de: Timer
+    details:
+      de: Flug-Timer
+    auto_titles:
+      de: Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: mode
+      propulsion_modes: [generic]
+  - sub_type: fly_altimeter
+    labels:
+      de: Höhenmesser
+    details:
+      de: Höhenmesser-Modus
+    auto_titles:
+      de: Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: mode
+      propulsion_modes: [generic]
+  - sub_type: fly_wx
+    labels:
+      de: Wetter
+    details:
+      de: Flugwetter
+    auto_titles:
+      de: Flug
+    traits:
+      environments: [air]
+      movement_families: [fly]
+      equipment_families: [aircraft]
+      activity_form: mode
+      propulsion_modes: [generic]
+
+- sport_type: hang_gliding
+  category_key: outdoor
+  labels:
+    de: Gleitschirmfliegen
+  auto_titles:
+    de: Gleitschirmflug
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.5
+  is_indoor: false
+  traits:
+    environments: [air]
+    movement_families: [fly]
+    equipment_families: [aircraft]
+    activity_form: single
+    propulsion_modes: [human, wind, gravity]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: sky_diving
+  category_key: outdoor
+  labels:
+    de: Fallschirmspringen
+  auto_titles:
+    de: Fallschirmsprung
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [air]
+    movement_families: [fly]
+    equipment_families: [aircraft]
+    activity_form: single
+    propulsion_modes: [human, gravity]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: jumpmaster
+  category_key: outdoor
+  labels:
+    de: Jumpmaster
+  auto_titles:
+    de: Jumpmaster
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [air]
+    movement_families: [fly]
+    equipment_families: [aircraft]
+    activity_form: single
+    propulsion_modes: [human, gravity]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: horseback_riding
+  category_key: outdoor
+  labels:
+    de: Reiten
+  auto_titles:
+    de: Ausritt
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [ride]
+    equipment_families: [animal]
+    activity_form: single
+    propulsion_modes: [animal]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: hunting
+  category_key: outdoor
+  labels:
+    de: Jagd
+  auto_titles:
+    de: Jagd
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [walk]
+    equipment_families: [weapon]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: motorcycling
+  category_key: outdoor
+  labels:
+    de: Motorrad
+  auto_titles:
+    de: Motorradtour
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.5
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [drive]
+    equipment_families: [vehicle]
+    activity_form: single
+    propulsion_modes: [motor]
+  modifier_applicability:
+    is_electric: true
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+  sub_types:
+  - sub_type: atv
+    labels:
+      de: Quad/ATV
+    details:
+      de: Quad/ATV
+    auto_titles:
+      de: Quad-Tour
+  - sub_type: motocross
+    labels:
+      de: Motocross
+    details:
+      de: Motocross
+    auto_titles:
+      de: Motocross
+
+- sport_type: driving
+  category_key: outdoor
+  labels:
+    de: Autofahren
+  auto_titles:
+    de: Autofahrt
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.5
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [drive]
+    equipment_families: [vehicle]
+    activity_form: single
+    propulsion_modes: [motor]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: archery
+  category_key: outdoor
+  labels:
+    de: Bogenschießen
+  auto_titles:
+    de: Bogenschießen
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [generic]
+    equipment_families: [weapon]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: shooting
+  category_key: outdoor
+  labels:
+    de: Schießen
+  auto_titles:
+    de: Schießen
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [generic]
+    equipment_families: [weapon]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: geocaching
+  category_key: outdoor
+  labels:
+    de: Geocaching
+  auto_titles:
+    de: Geocaching
+  segment_group: foot
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [walk]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: boxing
+  category_key: fitness
+  labels:
+    de: Boxen
+  auto_titles:
+    de: Boxen
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [combat, strike]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+
+- sport_type: mixed_martial_arts
+  category_key: fitness
+  labels:
+    de: MMA
+  auto_titles:
+    de: MMA
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: true
+  modifier_defaults:
+    is_indoor: true
+  traits:
+    environments: [indoor]
+    movement_families: [combat, strike]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: true
+    is_virtual: true
+    is_commute: false
+
+- sport_type: tactical
+  category_key: outdoor
+  labels:
+    de: Taktisch
+  auto_titles:
+    de: Taktisches Training
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0.2
+  is_indoor: false
+  traits:
+    environments: [land]
+    movement_families: [generic]
+    equipment_families: []
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true
+
+- sport_type: multisport
+  category_key: multi
+  labels:
+    de: Multisport
+  auto_titles:
+    de: Multisport
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [land, water]
+    movement_families: [multi]
+    equipment_families: []
+    activity_form: composite
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: transition
+  category_key: multi
+  labels:
+    de: Wechselzone
+  auto_titles:
+    de: Wechselzone
+  segment_group: generic
+  typically_has_gps: true
+  moving_threshold: 0
+  is_indoor: false
+  selectable: false
+  traits:
+    environments: [land]
+    movement_families: [generic]
+    equipment_families: []
+    activity_form: transition
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+  sub_types:
+  - sub_type: bike_to_run_transition
+    labels:
+      de: Rad→Lauf
+    details:
+      de: Wechsel Rad zu Lauf
+    auto_titles:
+      de: Wechselzone
+    selectable: false
+  - sub_type: run_to_bike_transition
+    labels:
+      de: Lauf→Rad
+    details:
+      de: Wechsel Lauf zu Rad
+    auto_titles:
+      de: Wechselzone
+    selectable: false
+  - sub_type: swim_to_bike_transition
+    labels:
+      de: Schwimmen→Rad
+    details:
+      de: Wechsel Schwimmen zu Rad
+    auto_titles:
+      de: Wechselzone
+    selectable: false
+
+- sport_type: generic
+  category_key: other
+  labels:
+    de: Aktivität
+  auto_titles:
+    de: Training
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: false
+  traits:
+    environments: [generic]
+    movement_families: [generic]
+    equipment_families: [generic]
+    activity_form: system
+    propulsion_modes: [generic]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: unknown
+  category_key: other
+  labels:
+    de: Unbekannt
+  auto_titles:
+    de: Training
+  segment_group: generic
+  typically_has_gps: false
+  moving_threshold: 0
+  is_indoor: false
+  selectable: false
+  traits:
+    environments: [generic]
+    movement_families: [generic]
+    equipment_families: [generic]
+    activity_form: system
+    propulsion_modes: [generic]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: skiing
+  category_key: winter
+  labels:
+    de: Skifahren
+  auto_titles:
+    de: Skifahrt
+  segment_group: ski
+  typically_has_gps: true
+  moving_threshold: 0.3
+  is_indoor: false
+  traits:
+    environments: [snow]
+    movement_families: [glide]
+    equipment_families: [ski]
+    activity_form: fallback
+    propulsion_modes: [human, gravity]
+  lifecycle: broad_fallback
+  selectable: false
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: false
+
+- sport_type: canoeing
+  category_key: water
+  labels:
+    de: Kanu
+  auto_titles:
+    de: Kanutour
+  segment_group: paddle
+  typically_has_gps: true
+  moving_threshold: 0.1
+  is_indoor: false
+  traits:
+    environments: [water]
+    movement_families: [paddle]
+    equipment_families: [boat, paddle]
+    activity_form: single
+    propulsion_modes: [human]
+  modifier_applicability:
+    is_electric: false
+    is_indoor: false
+    is_virtual: false
+    is_commute: true

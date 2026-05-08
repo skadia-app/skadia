@@ -31,6 +31,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func (h *Handler) ListGear(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +69,16 @@ func (h *Handler) CreateGear(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "type is required", r.URL.Path)
 		return
 	}
+	sports, ok := normalizeGearDefaultSportsForRequest(w, r, create.DefaultForSports)
+	if !ok {
+		return
+	}
+	predicates, ok := normalizeGearDefaultPredicatesForRequest(w, r, create.DefaultSportPredicates)
+	if !ok {
+		return
+	}
+	create.DefaultForSports = sports
+	create.DefaultSportPredicates = predicates
 
 	gear, err := h.DB.CreateGear(r.Context(), userID, &create)
 	if err != nil {
@@ -127,6 +138,24 @@ func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if update.DefaultForSports != nil {
+		sports, err := sport.NormalizeGearDefaultSports(update.DefaultForSports)
+		if err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
+		if sports == nil {
+			sports = []string{}
+		}
+		update.DefaultForSports = sports
+	}
+	if update.DefaultSportPredicates != nil {
+		predicates, ok := normalizeGearDefaultPredicatesForRequest(w, r, update.DefaultSportPredicates)
+		if !ok {
+			return
+		}
+		update.DefaultSportPredicates = predicates
+	}
 
 	gear, err := h.DB.UpdateGear(r.Context(), id, &update)
 	if err != nil {
@@ -140,6 +169,24 @@ func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, gear)
+}
+
+func normalizeGearDefaultSportsForRequest(w http.ResponseWriter, r *http.Request, values []string) ([]string, bool) {
+	sports, err := sport.NormalizeManualGearDefaultSports(values)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return nil, false
+	}
+	return sports, true
+}
+
+func normalizeGearDefaultPredicatesForRequest(w http.ResponseWriter, r *http.Request, values []sport.GearDefaultPredicate) ([]sport.GearDefaultPredicate, bool) {
+	predicates, err := sport.NormalizeGearDefaultPredicates(values)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return nil, false
+	}
+	return predicates, true
 }
 
 func (h *Handler) DeleteGear(w http.ResponseWriter, r *http.Request) {

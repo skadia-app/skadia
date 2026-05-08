@@ -7,9 +7,9 @@ import type { FileType } from '@/api/shadowfs'
 // compatible with future i18n framework that uses {placeholder} interpolation.
 
 // ── Variable definitions per FileType ─────────────────────────────────────
-// IMPORTANT: Keep in sync with backend variable list defined in
-// services/api/internal/shadowfs/schema.go (SchemaRenderer.Render) and
-// services/api/internal/shadowfs/legacy_template.go.
+// IMPORTANT: Keep in sync with backend activity tags in
+// services/api/internal/shadowfs/activity_schema_tags.go and path rendering in
+// services/api/internal/shadowfs/schema.go.
 // Any new variable added on the backend MUST also be added here.
 
 export interface VarDef {
@@ -23,8 +23,10 @@ export const TYPE_VARIABLES: Record<FileType, VarDef[]> = {
     { key: '{month}',       label: 'Monat'         },
     { key: '{day}',         label: 'Tag'           },
     { key: '{time}',        label: 'Uhrzeit'       },
+    { key: '{format}',      label: 'Dateiformat'   },
     { key: '{sport}',       label: 'Sportart'      },
     { key: '{subCategory}', label: 'Unterkategorie'},
+    { key: '{modifiers}',   label: 'Modifier'      },
     { key: '{city}',        label: 'Stadt'         },
     { key: '{country}',     label: 'Land'          },
     { key: '{title}',       label: 'Titel'         },
@@ -72,14 +74,16 @@ export const EXAMPLE_VALUES: Record<string, string> = {
   '{year}':        '2024',
   '{month}':       '03',
   '{day}':         '15',
-  '{time}':        '14-30',
+  '{time}':        '1430',
+  '{format}':      'fit',
   '{sport}':       'cycling',
   '{subCategory}': 'mountain',
+  '{modifiers}':   'electric_virtual',
   '{city}':        'Berlin',
-  '{country}':     'Deutschland',
+  '{country}':     'DE',
   '{title}':       'Feierabendrunde',
   '{distance_km}': '42',
-  '{duration_h}':  '2',
+  '{duration_h}':  '0002-00',
   '{elevation_m}': '850',
   '{parent_type}': 'activity',
   '{parent_name}': 'Feierabendrunde',

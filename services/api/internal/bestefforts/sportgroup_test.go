@@ -1,6 +1,11 @@
 package bestefforts
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
+)
 
 func TestDetermineSportGroup(t *testing.T) {
 	tests := []struct {
@@ -29,13 +34,14 @@ func TestDetermineSportGroup(t *testing.T) {
 		// no best efforts
 		{name: "walking", sportType: "walking", want: ""},
 		{name: "floor climbing", sportType: "floor_climbing", want: ""},
-		{name: "wheelchair push walk", sportType: "wheelchair_push_walk", want: ""},
-		{name: "wheelchair push run", sportType: "wheelchair_push_run", want: ""},
+		{name: "wheelchair push", sportType: "wheelchair_push", want: ""},
 
 		// ── Cycling ──
 		{name: "cycling outdoor", sportType: "cycling", want: "cycling"},
+		{name: "cycling parent-only generic subtype", sportType: "cycling", subType: "generic", want: "cycling"},
 		{name: "mountain biking", sportType: "cycling", subType: "mountain", want: "cycling"},
 		{name: "gravel cycling", sportType: "cycling", subType: "gravel_cycling", want: "cycling"},
+		{name: "spin subtype uses taxonomy indoor default", sportType: "cycling", subType: "spin", want: "cycling_virtual"},
 		{name: "cycling electric", sportType: "cycling", isElectric: true, want: "cycling_electric"},
 		{name: "cycling virtual", sportType: "cycling", isVirtual: true, want: "cycling_virtual"},
 		{name: "virtual overrides electric", sportType: "cycling", isVirtual: true, isElectric: true, want: "cycling_virtual"},
@@ -61,6 +67,100 @@ func TestDetermineSportGroup(t *testing.T) {
 					tc.sportType, tc.subType, tc.isIndoor, tc.isVirtual, tc.isElectric, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRecordGroupForActivityWithMissingModifierBooleansUsesTaxonomyDefaults(t *testing.T) {
+	got, ok := recordGroupForActivityWithModifierPresence("cycling", "spin", false, false, false, false, false, false)
+	if !ok {
+		t.Fatal("recordGroupForActivityWithModifierPresence(cycling, spin) returned no group")
+	}
+	if got != "cycling_virtual" {
+		t.Fatalf("recordGroupForActivityWithModifierPresence(cycling, spin) = %q, want cycling_virtual", got)
+	}
+}
+
+func TestRecordsRuntimeRejectsRecordGroupingDisabledModifier(t *testing.T) {
+	if sport.SportModifierHasCapability("is_commute", "record_grouping") {
+		t.Fatal("is_commute must not be a record_grouping modifier")
+	}
+	got, ok := RecordGroupForActivity("cycling", "", false, false, false)
+	if !ok {
+		t.Fatal("RecordGroupForActivity(cycling) returned no group")
+	}
+	if got != "cycling" {
+		t.Fatalf("RecordGroupForActivity(cycling) = %q, want cycling", got)
+	}
+}
+
+func TestRecordGroupIndexedLookupMatchesFullScanForEveryGeneratedRule(t *testing.T) {
+	for _, rule := range generatedRecordMatchRules {
+		subType := ""
+		if len(rule.SubTypes) > 0 {
+			subType = rule.SubTypes[0]
+		}
+		modifiers := map[string]bool{}
+		for key, value := range rule.Modifiers {
+			if value != nil {
+				modifiers[key] = *value
+			}
+		}
+
+		got, gotOK := recordGroupForActivityWithModifierPresence(
+			rule.SportType,
+			subType,
+			modifiers["is_indoor"],
+			modifiers["is_virtual"],
+			modifiers["is_electric"],
+			true,
+			true,
+			true,
+		)
+		want, wantOK := recordGroupForActivityFullScan(
+			rule.SportType,
+			subType,
+			modifiers["is_indoor"],
+			modifiers["is_virtual"],
+			modifiers["is_electric"],
+		)
+		if got != want || gotOK != wantOK {
+			t.Fatalf("indexed lookup for rule %+v = (%q, %v), full scan = (%q, %v)", rule, got, gotOK, want, wantOK)
+		}
+	}
+}
+
+func TestRecordMatchRulesBySportTypePartitionsRulesInOrder(t *testing.T) {
+	want := map[string][]RecordMatchRule{}
+	for _, rule := range generatedRecordMatchRules {
+		want[rule.SportType] = append(want[rule.SportType], rule)
+	}
+	if got := recordMatchRulesBySportType(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("recordMatchRulesBySportType() = %#v, want %#v", got, want)
+	}
+}
+
+func recordGroupForActivityFullScan(sportType, subType string, isIndoor, isVirtual, isElectric bool) (string, bool) {
+	modifiers := map[string]bool{
+		"is_electric": isElectric,
+		"is_indoor":   isIndoor,
+		"is_virtual":  isVirtual,
+	}
+	for _, rule := range generatedRecordMatchRules {
+		if recordRuleMatches(rule, sportType, subType, modifiers) {
+			return rule.RecordGroup, true
+		}
+	}
+	return "", false
+}
+
+func TestRecordProjectionKeepsExistingStoredGroupKeys(t *testing.T) {
+	got := []string{}
+	for _, group := range RecordGroups() {
+		got = append(got, group.Key)
+	}
+	want := []string{"running", "running_trail", "running_indoor", "running_virtual", "cycling", "cycling_electric", "cycling_virtual", "hiking", "swim_pool", "swim_ow"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("record groups = %#v, want %#v", got, want)
 	}
 }
 
@@ -175,6 +275,51 @@ func TestCategoriesForReturnsCopy(t *testing.T) {
 	}
 }
 
+func TestCategoriesForAllRecordGroupsExactKeys(t *testing.T) {
+	cases := map[string][]string{
+		"running":          {"dist_400m", "dist_800m", "dist_1km", "dist_1mi", "dist_2mi", "dist_5km", "dist_10km", "dist_15km", "dist_10mi", "dist_20km", "dist_hm", "dist_30km", "dist_marathon", "dist_50km", "dist_100km", "elev_500hm", "elev_1000hm", "elev_1500hm", "elev_2000hm", "power_5s", "power_30s", "power_1min", "power_5min", "power_10min", "power_20min", "power_30min", "power_1h", "power_2h", "sup_longest_distance", "sup_most_elevation", "sup_biggest_climb", "sup_longest_duration"},
+		"running_trail":    {"dist_400m", "dist_800m", "dist_1km", "dist_1mi", "dist_2mi", "dist_5km", "dist_10km", "dist_15km", "dist_10mi", "dist_20km", "dist_hm", "dist_30km", "dist_marathon", "dist_50km", "dist_100km", "elev_500hm", "elev_1000hm", "elev_1500hm", "elev_2000hm", "power_5s", "power_30s", "power_1min", "power_5min", "power_10min", "power_20min", "power_30min", "power_1h", "power_2h", "sup_longest_distance", "sup_most_elevation", "sup_biggest_climb", "sup_longest_duration"},
+		"running_indoor":   {"dist_400m", "dist_800m", "dist_1km", "dist_1mi", "dist_2mi", "dist_5km", "dist_10km", "dist_15km", "dist_10mi", "dist_20km", "dist_hm", "dist_30km", "dist_marathon", "dist_50km", "dist_100km", "power_5s", "power_30s", "power_1min", "power_5min", "power_10min", "power_20min", "power_30min", "power_1h", "power_2h", "sup_longest_distance", "sup_longest_duration"},
+		"running_virtual":  {"dist_400m", "dist_800m", "dist_1km", "dist_1mi", "dist_2mi", "dist_5km", "dist_10km", "dist_15km", "dist_10mi", "dist_20km", "dist_hm", "dist_30km", "dist_marathon", "dist_50km", "dist_100km", "power_5s", "power_30s", "power_1min", "power_5min", "power_10min", "power_20min", "power_30min", "power_1h", "power_2h", "sup_longest_distance", "sup_longest_duration"},
+		"cycling":          {"dist_10km", "dist_20km", "dist_25mi", "dist_40km", "dist_50km", "dist_50mi", "dist_100km", "dist_100mi", "dist_150km", "dist_200km", "dist_300km", "elev_500hm", "elev_1000hm", "elev_1500hm", "elev_2000hm", "power_5s", "power_30s", "power_1min", "power_5min", "power_10min", "power_20min", "power_30min", "power_1h", "power_2h", "sup_longest_distance", "sup_most_elevation", "sup_biggest_climb", "sup_longest_duration"},
+		"cycling_electric": {"dist_10km", "dist_20km", "dist_25mi", "dist_40km", "dist_50km", "dist_50mi", "dist_100km", "dist_100mi", "dist_150km", "dist_200km", "dist_300km", "elev_500hm", "elev_1000hm", "elev_1500hm", "elev_2000hm", "sup_longest_distance", "sup_most_elevation", "sup_biggest_climb", "sup_longest_duration"},
+		"cycling_virtual":  {"dist_10km", "dist_20km", "dist_25mi", "dist_40km", "dist_50km", "dist_50mi", "dist_100km", "dist_100mi", "dist_150km", "dist_200km", "dist_300km", "sup_longest_distance", "sup_longest_duration"},
+		"hiking":           {"dist_5km", "dist_10km", "dist_20km", "dist_30km", "dist_50km", "elev_500hm", "elev_1000hm", "elev_1500hm", "elev_2000hm", "sup_longest_distance", "sup_most_elevation", "sup_biggest_climb", "sup_longest_duration"},
+		"swim_pool":        {"dist_50m", "dist_100m", "dist_200m", "dist_400m", "dist_800m", "dist_1500m", "sup_longest_distance", "sup_longest_duration"},
+		"swim_ow":          {"dist_1km", "dist_2km", "dist_5km", "sup_longest_distance", "sup_longest_duration"},
+	}
+	for group, want := range cases {
+		if got := categoryKeys(CategoriesFor(group)); !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s category keys = %#v, want %#v", group, got, want)
+		}
+	}
+}
+
+func TestRecordProjectionAccessorsReturnDeepCopies(t *testing.T) {
+	groups := RecordGroups()
+	groups[0].Categories[0].Key = "mutated"
+	if again := RecordGroups(); again[0].Categories[0].Key == "mutated" {
+		t.Fatal("RecordGroups returned shared category slice")
+	}
+
+	mainCategories := RecordMainCategories()
+	mainCategories[0].RecordGroups[0] = "mutated"
+	mainCategories[0].SubFilters[0].RecordGroups[0] = "mutated"
+	mainCategories[0].PowerCurve.RecordGroups[0] = "mutated"
+	again := RecordMainCategories()
+	if again[0].RecordGroups[0] == "mutated" || again[0].SubFilters[0].RecordGroups[0] == "mutated" || again[0].PowerCurve.RecordGroups[0] == "mutated" {
+		t.Fatal("RecordMainCategories returned shared nested slices")
+	}
+}
+
+func categoryKeys(categories []Category) []string {
+	keys := make([]string, 0, len(categories))
+	for _, category := range categories {
+		keys = append(keys, category.Key)
+	}
+	return keys
+}
+
 func TestDistanceCategoryValues(t *testing.T) {
 	cats := CategoriesFor("running")
 	byKey := make(map[string]Category, len(cats))
@@ -187,10 +332,10 @@ func TestDistanceCategoryValues(t *testing.T) {
 		wantM   float64
 		wantLbl string
 	}{
-		{"dist_1mi", 1609, "1 Meile"},
-		{"dist_hm", 21097, "Halbmarathon"},
+		{"dist_1mi", 1609.34, "1 Meile"},
+		{"dist_hm", 21097.5, "Halbmarathon"},
 		{"dist_marathon", 42195, "Marathon"},
-		{"dist_10mi", 16093, "10 Meilen"},
+		{"dist_10mi", 16093.4, "10 Meilen"},
 	}
 	for _, ch := range checks {
 		c, ok := byKey[ch.key]
@@ -199,7 +344,7 @@ func TestDistanceCategoryValues(t *testing.T) {
 			continue
 		}
 		if c.DistanceM != ch.wantM {
-			t.Errorf("running[%q].DistanceM = %.0f, want %.0f", ch.key, c.DistanceM, ch.wantM)
+			t.Errorf("running[%q].DistanceM = %v, want %v", ch.key, c.DistanceM, ch.wantM)
 		}
 		if c.Label != ch.wantLbl {
 			t.Errorf("running[%q].Label = %q, want %q", ch.key, c.Label, ch.wantLbl)

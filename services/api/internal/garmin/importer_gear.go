@@ -2,10 +2,13 @@ package garmin
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // GearImporter reads gear data from DI_CONNECT/DI-Connect-Fitness/*_gear.json.
@@ -30,7 +33,8 @@ func (g *GearImporter) Priority() int       { return 20 }
 
 // garminGearFile is the top-level wrapper returned by the gear JSON.
 type garminGearFile struct {
-	GearDTOS []garminGearDTO `json:"gearDTOS"`
+	GearDTOS             []garminGearDTO   `json:"gearDTOS"`
+	GearActivityTypeDTOS []json.RawMessage `json:"gearActivityTypeDTOS"`
 }
 
 type garminGearDTO struct {
@@ -42,6 +46,11 @@ type garminGearDTO struct {
 	DateBegin       string  `json:"dateBegin"`       // ISO date
 	MaximumMeters   float64 `json:"maximumMeters"`
 	// GearVersion is an integer in real Garmin exports (e.g. 0), not a string — omit to avoid unmarshal failure
+}
+
+type garminGearDefaults struct {
+	Sports     []string
+	Predicates []sport.GearDefaultPredicate
 }
 
 func (g *GearImporter) Detect(src ExportSource) (bool, int, error) {
@@ -76,6 +85,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 	if len(wrapper) == 0 {
 		return result, nil
 	}
+	defaultSports := garminDefaultSportsByGear(wrapper[0])
 
 	items := wrapper[0].GearDTOS
 	total := len(items)
@@ -85,12 +95,8 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			params.OnProgress(i+1, total, "gear: "+dto.CustomMakeModel)
 		}
 
-		// Map Garmin gear type to Skadia gear type
-		gearType := mapGearType(dto.GearTypeName)
-		gearName := dto.CustomMakeModel
-		if gearName == "" {
-			gearName = dto.GearTypeName
-		}
+		create := gearCreateFromGarminDTO(dto, defaultSports)
+		gearName := create.Name
 
 		status := "active"
 		if strings.EqualFold(dto.GearStatusName, "RETIRED") || strings.EqualFold(dto.GearStatusName, "NOT_ACTIVE") {
@@ -110,17 +116,6 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 		if exists {
 			result.Skipped++
 			continue
-		}
-
-		var purchasedAt *string
-		if dto.DateBegin != "" {
-			purchasedAt = &dto.DateBegin
-		}
-
-		create := &model.GearCreate{
-			Name:        gearName,
-			Type:        gearType,
-			PurchasedAt: purchasedAt,
 		}
 
 		gear, err := params.DB.CreateGear(ctx, params.UserID, create)
@@ -147,6 +142,185 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 	slog.Info("garmin gear import done", "imported", result.Imported, "skipped", result.Skipped)
 	return result, nil
+}
+
+func gearCreateFromGarminDTO(dto garminGearDTO, defaultSports map[string]garminGearDefaults) *model.GearCreate {
+	gearName := dto.CustomMakeModel
+	if gearName == "" {
+		gearName = dto.GearTypeName
+	}
+	var purchasedAt *string
+	if dto.DateBegin != "" {
+		purchasedAt = &dto.DateBegin
+	}
+	return &model.GearCreate{
+		Name:                   gearName,
+		Type:                   mapGearType(dto.GearTypeName),
+		PurchasedAt:            purchasedAt,
+		DefaultForSports:       garminDefaultSportsForDTO(dto, defaultSports),
+		DefaultSportPredicates: garminDefaultPredicatesForDTO(dto, defaultSports),
+	}
+}
+
+func garminDefaultSportsForDTO(dto garminGearDTO, defaults map[string]garminGearDefaults) []string {
+	for _, key := range garminGearDefaultKeys(dto.GearPk, dto.UUID) {
+		if defaultSet, ok := defaults[key]; ok {
+			return append([]string(nil), defaultSet.Sports...)
+		}
+	}
+	return nil
+}
+
+func garminDefaultPredicatesForDTO(dto garminGearDTO, defaults map[string]garminGearDefaults) []sport.GearDefaultPredicate {
+	for _, key := range garminGearDefaultKeys(dto.GearPk, dto.UUID) {
+		if defaultSet, ok := defaults[key]; ok {
+			return append([]sport.GearDefaultPredicate(nil), defaultSet.Predicates...)
+		}
+	}
+	return nil
+}
+
+func garminDefaultSportsByGear(file garminGearFile) map[string]garminGearDefaults {
+	defaults := map[string]garminGearDefaults{}
+	seenSports := map[string]map[string]struct{}{}
+	seenPredicates := map[string]map[string]struct{}{}
+	for _, raw := range file.GearActivityTypeDTOS {
+		gearKeys, rawSport := parseGarminGearActivityTypeDefault(raw)
+		if len(gearKeys) == 0 || rawSport == "" {
+			continue
+		}
+		predicate, ok := garminGearDefaultPredicate(rawSport)
+		if !ok {
+			continue
+		}
+		for _, key := range gearKeys {
+			defaultSet := defaults[key]
+			if seenSports[key] == nil {
+				seenSports[key] = map[string]struct{}{}
+			}
+			if _, ok := seenSports[key][predicate.SportType]; !ok {
+				seenSports[key][predicate.SportType] = struct{}{}
+				defaultSet.Sports = append(defaultSet.Sports, predicate.SportType)
+			}
+			if seenPredicates[key] == nil {
+				seenPredicates[key] = map[string]struct{}{}
+			}
+			predicateKey := garminGearDefaultPredicateKey(predicate)
+			if _, ok := seenPredicates[key][predicateKey]; !ok {
+				seenPredicates[key][predicateKey] = struct{}{}
+				defaultSet.Predicates = append(defaultSet.Predicates, predicate)
+			}
+			defaults[key] = defaultSet
+		}
+	}
+	return defaults
+}
+
+func parseGarminGearActivityTypeDefault(raw json.RawMessage) ([]string, string) {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, ""
+	}
+	keys := garminGearDefaultKeys(numberAsInt64(obj["gearPk"], obj["gearId"], obj["gearID"]), stringValue(obj["gearUuid"], obj["gearUUID"], obj["uuid"]))
+	rawSport := stringValue(obj["activityTypeKey"], obj["typeKey"], obj["sportType"])
+	if rawSport == "" {
+		rawSport = stringFromNested(obj["activityType"], "typeKey", "activityTypeKey", "key", "sportType")
+	}
+	if rawSport == "" {
+		rawSport = stringFromNested(obj["activityTypeDTO"], "typeKey", "activityTypeKey", "key", "sportType")
+	}
+	return keys, rawSport
+}
+
+func garminGearDefaultKeys(gearPk int64, uuid string) []string {
+	var keys []string
+	if gearPk != 0 {
+		keys = append(keys, fmt.Sprintf("pk:%d", gearPk))
+	}
+	if strings.TrimSpace(uuid) != "" {
+		keys = append(keys, "uuid:"+strings.TrimSpace(uuid))
+	}
+	return keys
+}
+
+func garminGearDefaultPredicate(rawSport string) (sport.GearDefaultPredicate, bool) {
+	for _, source := range []sport.Source{sport.SourceGarminCourse, sport.SourceFITFile} {
+		result, err := sport.ResolveSport(sport.ResolveInput{Source: source, RawSport: strings.TrimSpace(rawSport)})
+		if err == nil && result.Resolved && result.Tuple.SportType != "" {
+			if _, err := sport.NormalizeGearDefaultSports([]string{result.Tuple.SportType}); err == nil {
+				predicate, ok := sport.GearDefaultPredicateForSource(source, rawSport)
+				if ok {
+					return predicate, true
+				}
+			}
+		}
+	}
+	return sport.GearDefaultPredicate{}, false
+}
+
+func garminGearDefaultPredicateKey(predicate sport.GearDefaultPredicate) string {
+	key := predicate.SportType
+	if predicate.SubType != nil {
+		key += ":" + *predicate.SubType
+	}
+	if predicate.Modifiers != nil {
+		if predicate.Modifiers.IsElectric != nil {
+			key += "|is_electric=" + garminBoolString(*predicate.Modifiers.IsElectric)
+		}
+		if predicate.Modifiers.IsIndoor != nil {
+			key += "|is_indoor=" + garminBoolString(*predicate.Modifiers.IsIndoor)
+		}
+		if predicate.Modifiers.IsVirtual != nil {
+			key += "|is_virtual=" + garminBoolString(*predicate.Modifiers.IsVirtual)
+		}
+	}
+	return key
+}
+
+func garminBoolString(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
+}
+
+func numberAsInt64(values ...any) int64 {
+	for _, value := range values {
+		switch v := value.(type) {
+		case float64:
+			return int64(v)
+		case int64:
+			return v
+		case json.Number:
+			n, _ := v.Int64()
+			return n
+		}
+	}
+	return 0
+}
+
+func stringValue(values ...any) string {
+	for _, value := range values {
+		if s, ok := value.(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}
+
+func stringFromNested(value any, keys ...string) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case map[string]any:
+		values := make([]any, 0, len(keys))
+		for _, key := range keys {
+			values = append(values, v[key])
+		}
+		return stringValue(values...)
+	default:
+		return ""
+	}
 }
 
 // mapGearType converts Garmin gear type names to Skadia gear types.

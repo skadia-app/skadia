@@ -4,11 +4,39 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
 
+	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
+
+type allUsersBestEffortsDB interface {
+	ForEachUser(ctx context.Context, fn func(userID string) error) error
+	UpdateBackgroundJobProgress(ctx context.Context, jobID string, current int64) error
+	UpdateBackgroundJobTotal(ctx context.Context, jobID string, total int64) error
+	UpdateBackgroundJobMetadata(ctx context.Context, jobID string, metadata []byte) error
+	CompleteBackgroundJob(ctx context.Context, jobID string, failed bool, errorText string) error
+}
+
+type allUsersBestEffortsService interface {
+	RecalcAll(ctx context.Context, userID string, progressFn bestefforts.RecalcProgressFunc) error
+	RecalcAllFromCheckpoint(ctx context.Context, userID, afterActivityID string, progressFn bestefforts.RecalcProgressFunc) error
+}
+
+type allUsersBestEffortsCheckpoint struct {
+	LastUserID     string   `json:"last_user_id,omitempty"`
+	LastActivityID string   `json:"last_activity_id,omitempty"`
+	UserDone       int      `json:"user_done,omitempty"`
+	UserTotal      int      `json:"user_total,omitempty"`
+	DoneUsers      int      `json:"done_users"`
+	TotalUsers     int      `json:"total_users"`
+	FailedUsers    int      `json:"failed_users,omitempty"`
+	DoneUserIDs    []string `json:"done_user_ids,omitempty"`
+}
 
 // RecalcAllUsersBestEfforts starts a background job that recomputes best efforts
 // for every user. Uses a fixed "system" user ID as job guard so only one run can
@@ -40,26 +68,139 @@ func (h *Handler) RecalcAllUsersBestEfforts(w http.ResponseWriter, r *http.Reque
 
 	svc := h.BestEfforts
 	shutdown.Go(jobID, func(ctx context.Context) {
-		var done int
-		err := h.DB.ForEachUser(ctx, func(userID string) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			_ = svc.RecalcAll(ctx, userID, nil)
-			done++
-			_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(done))
-			return nil
-		})
-		failed := err != nil
-		errText := ""
-		if failed {
-			errText = err.Error()
-		}
-		_ = h.DB.CompleteBackgroundJob(context.Background(), jobID, failed, errText)
+		runAllUsersBestEffortsRecalc(ctx, h.DB, svc, jobID)
 	})
 
 	httputil.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"status": "started",
 		"job_id": jobID,
 	})
+}
+
+func runAllUsersBestEffortsRecalc(ctx context.Context, db allUsersBestEffortsDB, svc allUsersBestEffortsService, jobID string) {
+	runAllUsersBestEffortsRecalcFromCheckpoint(ctx, db, svc, jobID, allUsersBestEffortsCheckpoint{})
+}
+
+func runAllUsersBestEffortsRecalcFromCheckpoint(ctx context.Context, db allUsersBestEffortsDB, svc allUsersBestEffortsService, jobID string, checkpoint allUsersBestEffortsCheckpoint) {
+	var users []string
+	iterErr := db.ForEachUser(ctx, func(userID string) error {
+		users = append(users, userID)
+		return nil
+	})
+	totalUsers := len(users)
+	_ = db.UpdateBackgroundJobTotal(ctx, jobID, int64(totalUsers))
+
+	var doneUsers int
+	var failedUsers int
+	var firstUserErr string
+	doneUserIDs := append([]string(nil), checkpoint.DoneUserIDs...)
+	doneUserSet := make(map[string]bool, len(doneUserIDs))
+	for _, userID := range doneUserIDs {
+		doneUserSet[userID] = true
+	}
+
+	resumeUserID := checkpoint.LastUserID
+	resumeAfterActivityID := checkpoint.LastActivityID
+	for _, userID := range users {
+		if ctx.Err() != nil {
+			iterErr = ctx.Err()
+			break
+		}
+		if doneUserSet[userID] {
+			doneUsers++
+			continue
+		}
+		afterActivityID := ""
+		if resumeUserID != "" {
+			if userID != resumeUserID {
+				if len(doneUserSet) == 0 {
+					doneUsers++
+					doneUserIDs = append(doneUserIDs, userID)
+					doneUserSet[userID] = true
+					continue
+				}
+			} else {
+				if checkpoint.UserTotal > 0 && checkpoint.UserDone >= checkpoint.UserTotal {
+					doneUsers++
+					doneUserIDs = append(doneUserIDs, userID)
+					doneUserSet[userID] = true
+					resumeUserID = ""
+					resumeAfterActivityID = ""
+					continue
+				}
+				afterActivityID = resumeAfterActivityID
+				resumeUserID = ""
+				resumeAfterActivityID = ""
+			}
+		}
+		var lastProgress bestefforts.RecalcProgress
+		if err := svc.RecalcAllFromCheckpoint(ctx, userID, afterActivityID, func(progress bestefforts.RecalcProgress) {
+			lastProgress = progress
+			updateAllUsersBestEffortsCheckpoint(ctx, db, jobID, allUsersBestEffortsCheckpoint{
+				LastUserID:     userID,
+				LastActivityID: progress.LastProcessedActivityID,
+				UserDone:       progress.Done,
+				UserTotal:      progress.Total,
+				DoneUsers:      doneUsers,
+				TotalUsers:     totalUsers,
+				FailedUsers:    failedUsers,
+				DoneUserIDs:    doneUserIDs,
+			})
+		}); err != nil {
+			failedUsers++
+			if firstUserErr == "" {
+				firstUserErr = err.Error()
+			}
+			slog.Warn("all-users best-efforts recalc failed for user", "user_id", userID, "error", err)
+		}
+		doneUsers++
+		if !doneUserSet[userID] {
+			doneUserIDs = append(doneUserIDs, userID)
+			doneUserSet[userID] = true
+		}
+		_ = db.UpdateBackgroundJobProgress(ctx, jobID, int64(doneUsers))
+		updateAllUsersBestEffortsCheckpoint(ctx, db, jobID, allUsersBestEffortsCheckpoint{
+			LastUserID:     userID,
+			LastActivityID: lastProgress.LastProcessedActivityID,
+			UserDone:       lastProgress.Done,
+			UserTotal:      lastProgress.Total,
+			DoneUsers:      doneUsers,
+			TotalUsers:     totalUsers,
+			FailedUsers:    failedUsers,
+			DoneUserIDs:    doneUserIDs,
+		})
+	}
+
+	failed := iterErr != nil || failedUsers > 0
+	errText := allUsersBestEffortsErrorText(failedUsers, firstUserErr, iterErr)
+	_ = db.CompleteBackgroundJob(context.Background(), jobID, failed, errText)
+}
+
+func updateAllUsersBestEffortsCheckpoint(ctx context.Context, db allUsersBestEffortsDB, jobID string, checkpoint allUsersBestEffortsCheckpoint) {
+	encoded, err := json.Marshal(checkpoint)
+	if err != nil {
+		slog.Warn("all-users best-efforts checkpoint marshal failed", "error", err)
+		return
+	}
+	if err := db.UpdateBackgroundJobMetadata(ctx, jobID, encoded); err != nil {
+		slog.Warn("all-users best-efforts checkpoint update failed", "job_id", jobID, "error", err)
+	}
+}
+
+func allUsersBestEffortsErrorText(failedUsers int, firstUserErr string, iteratorErr error) string {
+	switch {
+	case failedUsers == 0 && iteratorErr == nil:
+		return ""
+	case failedUsers == 0:
+		return iteratorErr.Error()
+	}
+
+	userSummary := fmt.Sprintf("%d user recalcs failed; first error: %s", failedUsers, firstUserErr)
+	if failedUsers == 1 {
+		userSummary = fmt.Sprintf("1 user recalc failed; first error: %s", firstUserErr)
+	}
+	if iteratorErr != nil {
+		return fmt.Sprintf("%s; iteration error: %v", userSummary, iteratorErr)
+	}
+	return userSummary
 }

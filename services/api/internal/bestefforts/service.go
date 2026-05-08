@@ -55,6 +55,14 @@ type BestEffortRankedRecord struct {
 	Rank int
 }
 
+type RecalcProgress struct {
+	Done                    int
+	Total                   int
+	LastProcessedActivityID string
+}
+
+type RecalcProgressFunc func(RecalcProgress)
+
 // Store is the persistence interface required by Service.
 // It is implemented by *database.DB via adapter methods; the interface lives
 // here to break the import cycle that would arise if service.go imported the
@@ -62,8 +70,9 @@ type BestEffortRankedRecord struct {
 type Store interface {
 	UpsertBestEffortRec(ctx context.Context, be BestEffortRecord) error
 	BatchUpsertBestEffortRecs(ctx context.Context, records []BestEffortRecord) error
+	ReplaceBestEffortsForActivities(ctx context.Context, userID string, activityIDs []string, records []BestEffortRecord) error
 	DeleteAllBestEfforts(ctx context.Context, userID string) error
-	DeleteBestEffortsForActivity(ctx context.Context, activityID string) error
+	DeleteBestEffortsForActivity(ctx context.Context, userID, activityID string) error
 	// DeleteOrphanedBestEfforts removes best_efforts rows whose activity_id is not
 	// in keepActivityIDs. Used by RecalcAll to purge stale rows after a full upsert
 	// pass without ever leaving the table empty.
@@ -98,17 +107,45 @@ type Service struct {
 	Store Store
 }
 
+const bestEffortRecalcBatchLimit = 1000
+
 // computeForActivityInner performs the actual computation and upsert for a
 // single activity. It does NOT acquire any advisory lock — the caller is
 // responsible for serialisation.
 func computeForActivityInner[T model.BestEffortPoint](ctx context.Context, store Store, info ActivityInfo, stream []T) ([]BestEffortRankedRecord, error) {
 	sportGroup := DetermineSportGroup(info.SportType, info.SubType, info.IsIndoor, info.IsVirtual, info.IsElectric)
 	if sportGroup == "" {
+		if err := store.DeleteBestEffortsForActivity(ctx, info.UserID, info.ID); err != nil {
+			return nil, fmt.Errorf("delete stale best efforts for unsupported activity %s: %w", info.ID, err)
+		}
 		return nil, nil
 	}
 
-	categories := CategoriesFor(sportGroup)
+	efforts := computeBestEffortRecordsForSportGroup(info, stream, sportGroup)
 
+	// Delete before upsert so sport_group changes (e.g. running → running_trail after
+	// DetermineSportGroup was updated) don't leave stale rows behind.
+	if err := store.DeleteBestEffortsForActivity(ctx, info.UserID, info.ID); err != nil {
+		return nil, fmt.Errorf("delete stale best efforts for activity %s: %w", info.ID, err)
+	}
+
+	if err := store.BatchUpsertBestEffortRecs(ctx, efforts); err != nil {
+		return nil, fmt.Errorf("batch upsert best efforts for activity %s: %w", info.ID, err)
+	}
+
+	return store.GetBestEffortsForActivityRec(ctx, info.ID, info.UserID)
+}
+
+func computeBestEffortRecords[T model.BestEffortPoint](info ActivityInfo, stream []T) []BestEffortRecord {
+	sportGroup := DetermineSportGroup(info.SportType, info.SubType, info.IsIndoor, info.IsVirtual, info.IsElectric)
+	if sportGroup == "" {
+		return nil
+	}
+	return computeBestEffortRecordsForSportGroup(info, stream, sportGroup)
+}
+
+func computeBestEffortRecordsForSportGroup[T model.BestEffortPoint](info ActivityInfo, stream []T, sportGroup string) []BestEffortRecord {
+	categories := CategoriesFor(sportGroup)
 	// TODO(lift-indices): populate liftIndices from ski-lift segment stream indices once
 	// the Python ML "lifts" enrichment module is migrated to Go and stores per-stream
 	// start/end indices in the database. Currently activity_climbs stores only
@@ -162,18 +199,7 @@ func computeForActivityInner[T model.BestEffortPoint](ctx context.Context, store
 		}
 		efforts = append(efforts, record)
 	}
-
-	// Delete before upsert so sport_group changes (e.g. running → running_trail after
-	// DetermineSportGroup was updated) don't leave stale rows behind.
-	if err := store.DeleteBestEffortsForActivity(ctx, info.ID); err != nil {
-		return nil, fmt.Errorf("delete stale best efforts for activity %s: %w", info.ID, err)
-	}
-
-	if err := store.BatchUpsertBestEffortRecs(ctx, efforts); err != nil {
-		return nil, fmt.Errorf("batch upsert best efforts for activity %s: %w", info.ID, err)
-	}
-
-	return store.GetBestEffortsForActivityRec(ctx, info.ID, info.UserID)
+	return efforts
 }
 
 // ComputeForActivity computes all best-effort records for the given activity
@@ -200,16 +226,23 @@ func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, str
 	return computeForActivityInner(ctx, s.Store, info, stream)
 }
 
-// RecalcAll recomputes all best-effort records for a user atomically.
+// RecalcAll recomputes all best-effort records for a user without first
+// emptying the table.
 //
 // Instead of deleting everything first (which leaves an empty table on crash),
-// it upserts each activity's efforts and then removes orphaned rows for
-// activities that are no longer eligible. A blocking advisory lock prevents a
-// concurrent ComputeForActivity call from racing with the bulk recompute.
+// it replaces rows in committed batches and then removes orphaned rows for
+// activities that are no longer eligible. A later batch failure can leave
+// already replaced batches committed; stale-row cleanup only runs after every
+// batch succeeds. A blocking advisory lock prevents a concurrent
+// ComputeForActivity call from racing with the bulk recompute.
 //
-// progressFn is called every 50 activities and once at the end with (total, total).
+// progressFn is called after committed replacement batches and once at the end.
 // progressFn may be nil.
-func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(done, total int)) error {
+func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn RecalcProgressFunc) error {
+	return s.RecalcAllFromCheckpoint(ctx, userID, "", progressFn)
+}
+
+func (s *Service) RecalcAllFromCheckpoint(ctx context.Context, userID, afterActivityID string, progressFn RecalcProgressFunc) error {
 	// Acquire per-user advisory lock on a pinned connection — blocks until no
 	// other RecalcAll or ComputeForActivity is running for this user.
 	// conn.Release() returns the connection to the pool, which ends the session
@@ -227,50 +260,114 @@ func (s *Service) RecalcAll(ctx context.Context, userID string, progressFn func(
 		return fmt.Errorf("get recalc activities: %w", err)
 	}
 
+	return recalcAllLoadedActivities(ctx, s.Store, userID, activities, bestEffortRecalcBatchLimit, afterActivityID, progressFn)
+}
+
+func recalcAllLoadedActivities(ctx context.Context, store Store, userID string, activities []ActivityInfo, batchLimit int, afterActivityID string, progressFn RecalcProgressFunc) error {
+	if batchLimit <= 0 {
+		batchLimit = bestEffortRecalcBatchLimit
+	}
+
 	total := len(activities)
 	processedIDs := make([]string, 0, total)
+	startIndex := 0
+	if afterActivityID != "" {
+		for i, activity := range activities {
+			processedIDs = append(processedIDs, activity.ID)
+			if activity.ID == afterActivityID {
+				startIndex = i + 1
+				break
+			}
+		}
+		if startIndex == 0 {
+			processedIDs = processedIDs[:0]
+		}
+	}
+	pendingIDs := make([]string, 0, batchLimit)
+	pendingRecords := make([]BestEffortRecord, 0, batchLimit)
+
+	flush := func() error {
+		if len(pendingIDs) == 0 {
+			return nil
+		}
+		activityIDs := uniqueStringsPreserveOrder(pendingIDs)
+		if err := store.ReplaceBestEffortsForActivities(ctx, userID, activityIDs, pendingRecords); err != nil {
+			return fmt.Errorf("replace best efforts for %d activities: %w", len(activityIDs), err)
+		}
+		processedIDs = append(processedIDs, activityIDs...)
+		if progressFn != nil {
+			progressFn(RecalcProgress{
+				Done:                    len(processedIDs),
+				Total:                   total,
+				LastProcessedActivityID: processedIDs[len(processedIDs)-1],
+			})
+		}
+		pendingIDs = pendingIDs[:0]
+		pendingRecords = pendingRecords[:0]
+		return nil
+	}
 
 	// Report total immediately so the UI can show progress (e.g. "0 / 442")
 	if progressFn != nil {
-		progressFn(0, total)
+		lastProcessedActivityID := ""
+		if len(processedIDs) > 0 {
+			lastProcessedActivityID = processedIDs[len(processedIDs)-1]
+		}
+		progressFn(RecalcProgress{Done: len(processedIDs), Total: total, LastProcessedActivityID: lastProcessedActivityID})
 	}
 
-	for i, info := range activities {
+	for _, info := range activities[startIndex:] {
 		// Use lightweight stream (5 columns) — ~16× less data than full StreamPoint.
-		stream, err := s.Store.GetStreamPointsLightweight(ctx, info.ID)
+		stream, err := store.GetStreamPointsLightweight(ctx, info.ID)
 		if err != nil {
 			return fmt.Errorf("get stream points for %s: %w", info.ID, err)
 		}
 
-		// Call the inner function directly — we already hold the advisory lock.
-		if _, err := computeForActivityInner(ctx, s.Store, info, stream); err != nil {
-			slog.ErrorContext(ctx, "best efforts: compute failed", "activity_id", info.ID, "error", err)
-			// Non-fatal: continue with remaining activities.
-		}
+		pendingIDs = append(pendingIDs, info.ID)
+		pendingRecords = append(pendingRecords, computeBestEffortRecords(info, stream)...)
 
-		processedIDs = append(processedIDs, info.ID)
+		if len(pendingIDs) >= batchLimit || len(pendingRecords) >= batchLimit {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
 
 		// Discard stream slice immediately to avoid accumulating memory.
 		stream = nil
 
-		done := i + 1
-		if done%50 == 0 {
-			if progressFn != nil {
-				progressFn(done, total)
-			}
-		}
+	}
+
+	if err := flush(); err != nil {
+		return err
 	}
 
 	// Remove stale rows for activities that are no longer eligible (deleted,
 	// excluded, etc.). Safe here because we hold the advisory lock and all
 	// current eligible activities have already been upserted above.
-	if err := s.Store.DeleteOrphanedBestEfforts(ctx, userID, processedIDs); err != nil {
+	if err := store.DeleteOrphanedBestEfforts(ctx, userID, processedIDs); err != nil {
 		return fmt.Errorf("delete orphaned best efforts: %w", err)
 	}
 
 	if progressFn != nil {
-		progressFn(total, total)
+		lastProcessedActivityID := ""
+		if len(processedIDs) > 0 {
+			lastProcessedActivityID = processedIDs[len(processedIDs)-1]
+		}
+		progressFn(RecalcProgress{Done: total, Total: total, LastProcessedActivityID: lastProcessedActivityID})
 	}
 
 	return nil
+}
+
+func uniqueStringsPreserveOrder(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, value := range in {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }

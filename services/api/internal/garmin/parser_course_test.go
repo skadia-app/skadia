@@ -66,6 +66,8 @@ func TestFitSportToSportType(t *testing.T) {
 	}{
 		{typedef.SportCycling, typedef.SubSportGeneric, "cycling", ""},
 		{typedef.SportCycling, typedef.SubSportMountain, "cycling", "mountain"},
+		{typedef.SportCycling, typedef.SubSportEnduro, "cycling", "mountain"},
+		{typedef.SportCycling, typedef.SubSportEBikeEnduro, "cycling", "mountain"},
 		{typedef.SportCycling, typedef.SubSportGravelCycling, "cycling", "gravel_cycling"},
 		{typedef.SportCycling, typedef.SubSportIndoorCycling, "cycling", "indoor_cycling"},
 		{typedef.SportRunning, typedef.SubSportGeneric, "running", ""},
@@ -77,8 +79,17 @@ func TestFitSportToSportType(t *testing.T) {
 		{typedef.SportCrossCountrySkiing, typedef.SubSportGeneric, "cross_country_skiing", ""},
 		{typedef.SportPaddling, typedef.SubSportGeneric, "paddling", ""},
 		{typedef.SportRowing, typedef.SubSportGeneric, "rowing", ""},
-		{typedef.SportInvalid, typedef.SubSportGeneric, "generic", ""}, // unknown -> generic
-		{typedef.Sport(255), typedef.SubSportGeneric, "generic", ""},   // unknown -> generic
+		{typedef.SportCanoeing, typedef.SubSportGeneric, "canoeing", ""},
+		{typedef.SportGolf, typedef.SubSportGeneric, "golf", ""},
+		{typedef.SportSnowboarding, typedef.SubSportGeneric, "snowboarding", ""},
+		{typedef.SportStandUpPaddleboarding, typedef.SubSportGeneric, "stand_up_paddleboarding", ""},
+		{typedef.SportKayaking, typedef.SubSportGeneric, "kayaking", ""},
+		{typedef.SportEBiking, typedef.SubSportGeneric, "cycling", ""},
+		{typedef.SportPoolApnea, typedef.SubSportGeneric, "diving", "apnea_pool"},
+		{typedef.SportWaterSport, typedef.SubSportGeneric, "unknown", ""},
+		{typedef.SportWinterSport, typedef.SubSportGeneric, "unknown", ""},
+		{typedef.SportInvalid, typedef.SubSportGeneric, "unknown", ""}, // unknown -> unknown
+		{typedef.Sport(255), typedef.SubSportGeneric, "unknown", ""},   // unknown -> unknown
 	}
 
 	for _, tc := range cases {
@@ -90,6 +101,26 @@ func TestFitSportToSportType(t *testing.T) {
 	}
 }
 
+func TestFitSportToRouteSportAppliesElectricModifier(t *testing.T) {
+	gotSport, gotSub, gotPatch := fitSportToRouteSport(typedef.SportCycling, typedef.SubSportEBikeEnduro)
+	if gotSport != "cycling" || ptrStringValue(gotSub) != "mountain" {
+		t.Fatalf("tuple = %s/%s, want cycling/mountain", gotSport, ptrStringValue(gotSub))
+	}
+	if gotPatch.IsElectric == nil || !*gotPatch.IsElectric {
+		t.Fatalf("IsElectric patch = %#v, want true", gotPatch.IsElectric)
+	}
+}
+
+func TestFitSportToRouteSportAppliesEBikingModifier(t *testing.T) {
+	gotSport, gotSub, gotPatch := fitSportToRouteSport(typedef.SportEBiking, typedef.SubSportGeneric)
+	if gotSport != "cycling" || ptrStringValue(gotSub) != "" {
+		t.Fatalf("tuple = %s/%s, want cycling/", gotSport, ptrStringValue(gotSub))
+	}
+	if gotPatch.IsElectric == nil || !*gotPatch.IsElectric {
+		t.Fatalf("IsElectric patch = %#v, want true", gotPatch.IsElectric)
+	}
+}
+
 // TestDefaultProfileForSport checks the default routing profile per sport type.
 func TestDefaultProfileForSport(t *testing.T) {
 	cases := []struct {
@@ -97,11 +128,7 @@ func TestDefaultProfileForSport(t *testing.T) {
 		want      string
 	}{
 		{"cycling", "bike"},
-		{"gravel_cycling", "bike"},
-		{"mountain_biking", "bike"},
-		{"indoor_cycling", "bike"},
 		{"running", "foot"},
-		{"trail_running", "foot"},
 		{"hiking", "foot"},
 		{"walking", "foot"},
 		{"swimming", "outdoor"},
@@ -115,6 +142,38 @@ func TestDefaultProfileForSport(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("defaultProfileForSport(%q): got %q, want %q", tc.sportType, got, tc.want)
 		}
+	}
+}
+
+func TestDefaultProfileForSportTupleUsesCanonicalTuple(t *testing.T) {
+	tests := []struct {
+		name      string
+		sportType string
+		subType   string
+		want      string
+	}{
+		{name: "cycling", sportType: "cycling", want: "bike"},
+		{name: "road cycling", sportType: "cycling", subType: "road", want: "bike"},
+		{name: "mountain biking", sportType: "cycling", subType: "mountain", want: "bike"},
+		{name: "gravel cycling", sportType: "cycling", subType: "gravel_cycling", want: "bike"},
+		{name: "indoor cycling", sportType: "cycling", subType: "indoor_cycling", want: "bike"},
+		{name: "running", sportType: "running", want: "foot"},
+		{name: "trail running", sportType: "running", subType: "trail", want: "foot"},
+		{name: "hiking", sportType: "hiking", want: "foot"},
+		{name: "walking", sportType: "walking", want: "foot"},
+		{name: "unrelated", sportType: "rowing", want: "outdoor"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var subType *string
+			if tt.subType != "" {
+				subType = &tt.subType
+			}
+			got := defaultProfileForSportTuple(tt.sportType, subType)
+			if got != tt.want {
+				t.Fatalf("defaultProfileForSportTuple(%q, %q) = %q, want %q", tt.sportType, tt.subType, got, tt.want)
+			}
+		})
 	}
 }
 

@@ -25,6 +25,7 @@ vi.mock('echarts/core', () => ({
     dispose: vi.fn(),
     on: vi.fn(),
     off: vi.fn(),
+    dispatchAction: vi.fn(),
   })),
 }))
 vi.mock('echarts/charts', () => ({ LineChart: {}, BarChart: {} }))
@@ -34,6 +35,7 @@ vi.mock('echarts/components', () => ({
   LegendComponent: {},
   DataZoomComponent: {},
   ToolboxComponent: {},
+  BrushComponent: {},
 }))
 vi.mock('echarts/renderers', () => ({ CanvasRenderer: {} }))
 

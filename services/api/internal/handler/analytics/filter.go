@@ -397,9 +397,8 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 			idx++
 		}
 	}
-	// TODO(weather-improvements Task 8): TempMin/TempMax and WeatherCondition filters
-	// should query activity_weather table instead of removed flat columns.
-	// Temporarily disabled to avoid reference to dropped columns.
+	// Weather filters require an activity_weather join that preserves one row per activity.
+	// Keep the parsed parameters ignored until that query shape is implemented.
 	_ = f.TempMin
 	_ = f.TempMax
 	_ = f.WeatherCondition

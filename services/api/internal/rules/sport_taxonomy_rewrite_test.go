@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func TestSportTaxonomyRewriteActions(t *testing.T) {
@@ -93,6 +95,45 @@ func TestSportTaxonomyRewriteActionsRejectsModifierWriteConflict(t *testing.T) {
 	}
 }
 
+func TestRuleTaxonomyRewriteDeduplicatesGeneratedModifierWrites(t *testing.T) {
+	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+		def, ok := sport.SportModifierByKey(key)
+		if !ok {
+			t.Fatalf("missing generated modifier %q", key)
+		}
+		input := SportTaxonomyRuleJSON{
+			Actions: json.RawMessage(`[
+				{"action":"set_field","params":{"field":"` + def.JSONKey + `","value":true}},
+				{"action":"` + def.ActionName + `","params":{"` + def.ActionParam + `":true}}
+			]`),
+		}
+		got, _, err := RewriteSportTaxonomyRuleJSON(input)
+		if err != nil {
+			t.Fatalf("RewriteSportTaxonomyRuleJSON(%q): %v", key, err)
+		}
+		var actions []map[string]any
+		if err := json.Unmarshal(got.Actions, &actions); err != nil {
+			t.Fatalf("unmarshal actions: %v", err)
+		}
+		if len(actions) != 2 {
+			t.Fatalf("actions len for %q = %d, want 2 preserved idempotent writes: %#v", key, len(actions), actions)
+		}
+	}
+}
+
+func TestSportTaxonomyRewriteActionsRejectsNonSelectableSetSportType(t *testing.T) {
+	input := SportTaxonomyRuleJSON{
+		Actions: json.RawMessage(`[
+			{"action":"set_sport_type","params":{"sport_type":"unknown"}}
+		]`),
+	}
+
+	_, _, err := NormalizeAndValidateSportTaxonomyRuleJSON(input)
+	if err == nil || !strings.Contains(err.Error(), "not selectable") {
+		t.Fatalf("error = %v, want not selectable rejection", err)
+	}
+}
+
 func TestSportTaxonomyRewriteSetFieldSportType(t *testing.T) {
 	input := SportTaxonomyRuleJSON{
 		Actions: json.RawMessage(`[
@@ -162,6 +203,100 @@ func TestSportTaxonomyRewritePreservesCanonicalNonEqAndInConditions(t *testing.T
 	assertRawJSONEqual(t, got.ConditionGroups, input.ConditionGroups, "condition_groups")
 }
 
+func TestValidateSportTaxonomyRuleJSONAcceptsSportTupleInBranches(t *testing.T) {
+	input := SportTaxonomyRuleJSON{Branches: json.RawMessage(`[
+		{"type":"if","condition_groups":[{"logic":"and","conditions":[
+			{"field":"sport_tuple","op":"in","value":[{"sport_type":"cycling","sub_type":"mountain","is_electric":true}]}
+		]}],"actions":[]}
+	]`)}
+	if _, _, err := NormalizeAndValidateSportTaxonomyRuleJSON(input); err != nil {
+		t.Fatalf("NormalizeAndValidateSportTaxonomyRuleJSON: %v", err)
+	}
+}
+
+func TestValidateSportTaxonomyRuleJSONRejectsMixedLegacyAndTupleIn(t *testing.T) {
+	input := SportTaxonomyRuleJSON{ConditionGroups: json.RawMessage(`[
+		{"logic":"and","conditions":[
+			{"field":"sport_type","op":"in","value":["running"]},
+			{"field":"sport_tuple","op":"in","value":[{"sport_type":"cycling"}]}
+		]}
+	]`)}
+	_, _, err := NormalizeAndValidateSportTaxonomyRuleJSON(input)
+	if err == nil || !strings.Contains(err.Error(), "mixed sport_type in and sport_tuple in") {
+		t.Fatalf("error = %v, want mixed-shape rejection", err)
+	}
+}
+
+func TestValidateSportTaxonomyRuleJSONRejectsMixedShapeAcrossBranchesAndFlatConditions(t *testing.T) {
+	input := SportTaxonomyRuleJSON{
+		Conditions: json.RawMessage(`[{"field":"sport_type","op":"not_in","value":["running"]}]`),
+		Branches: json.RawMessage(`[
+			{"type":"if","condition_groups":[{"logic":"and","conditions":[
+				{"field":"sport_tuple","op":"in","value":[{"sport_type":"cycling"}]}
+			]}],"actions":[]}
+		]`),
+	}
+	_, _, err := NormalizeAndValidateSportTaxonomyRuleJSON(input)
+	if err == nil || !strings.Contains(err.Error(), "mixed sport_type in and sport_tuple in") {
+		t.Fatalf("error = %v, want mixed-shape rejection", err)
+	}
+}
+
+func TestValidateSportTaxonomyRuleJSONPreservesLegacySportTypeIn(t *testing.T) {
+	input := SportTaxonomyRuleJSON{Conditions: json.RawMessage(`[
+		{"field":"sport_type","op":"in","value":["running","swimming"]}
+	]`)}
+	got, _, err := NormalizeAndValidateSportTaxonomyRuleJSON(input)
+	if err != nil {
+		t.Fatalf("NormalizeAndValidateSportTaxonomyRuleJSON: %v", err)
+	}
+	assertRawJSONEqual(t, got.Conditions, input.Conditions, "conditions")
+}
+
+func TestValidateSportTaxonomyRuleJSONRejectsInvalidSportTupleSubtype(t *testing.T) {
+	input := SportTaxonomyRuleJSON{ConditionGroups: json.RawMessage(`[
+		{"logic":"and","conditions":[
+			{"field":"sport_tuple","op":"in","value":[{"sport_type":"running","sub_type":"mountain"}]}
+		]}
+	]`)}
+	_, _, err := NormalizeAndValidateSportTaxonomyRuleJSON(input)
+	if err == nil || !strings.Contains(err.Error(), "condition_groups[0].conditions[0]") || !strings.Contains(err.Error(), "sub_type") {
+		t.Fatalf("error = %v, want surface-specific sub_type rejection", err)
+	}
+}
+
+func TestValidateSportTaxonomyRuleJSONRejectsMalformedTopLevelJSONShapes(t *testing.T) {
+	tests := []struct {
+		name  string
+		input SportTaxonomyRuleJSON
+		want  string
+	}{
+		{
+			name:  "conditions object",
+			input: SportTaxonomyRuleJSON{Conditions: json.RawMessage(`{"field":"sport_tuple","op":"in","value":[{"sport_type":"cycling"}]}`)},
+			want:  "conditions must be a JSON array",
+		},
+		{
+			name:  "condition groups object",
+			input: SportTaxonomyRuleJSON{ConditionGroups: json.RawMessage(`{"logic":"and","conditions":[{"field":"sport_tuple","op":"in","value":[{"sport_type":"cycling"}]}]}`)},
+			want:  "condition_groups must be a JSON array",
+		},
+		{
+			name:  "branches object",
+			input: SportTaxonomyRuleJSON{Branches: json.RawMessage(`{"type":"if","condition_groups":[],"actions":[]}`)},
+			want:  "branches must be a JSON array",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := NormalizeAndValidateSportTaxonomyRuleJSON(tt.input)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestSportTaxonomyRewriteRejectsUnsupportedSemantics(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -189,6 +324,17 @@ func TestSportTaxonomyRewriteRejectsUnsupportedSemantics(t *testing.T) {
 				t.Fatalf("error: got %v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestSportConditionNeedsTupleRewriteIncludesVirtualPatch(t *testing.T) {
+	virtual := true
+	if !sportConditionNeedsTupleRewrite(
+		"cycling",
+		sport.Tuple{SportType: "cycling"},
+		sport.ModifierPatch{IsVirtual: &virtual},
+	) {
+		t.Fatal("virtual modifier patch should require tuple rewrite handling")
 	}
 }
 

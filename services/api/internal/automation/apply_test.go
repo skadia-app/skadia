@@ -67,6 +67,11 @@ func TestShouldEvaluateRule(t *testing.T) {
 			"on_import", true,
 		},
 		{
+			"removed commute_sync system rule no longer special-cased",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: new("commute_sync")},
+			"on_import", true,
+		},
+		{
 			"frost system rule NOT skipped",
 			model.AutomationRule{IsActive: true, TriggerEvent: "on_import", SystemType: new("frost")},
 			"on_import", true,
@@ -88,6 +93,31 @@ func TestShouldEvaluateRule(t *testing.T) {
 				t.Errorf("shouldEvaluateRule() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSystemRuleRetractionDefaultCoversBooleanRuleFields(t *testing.T) {
+	for _, field := range []string{
+		"is_round_trip",
+		"is_indoor",
+		"is_electric",
+		"is_virtual",
+		"is_commute",
+		"exclude_from_stats",
+		"exclude_from_heatmap",
+		"hide_map",
+	} {
+		got, ok := systemRuleRetractionDefault(field)
+		if !ok {
+			t.Fatalf("systemRuleRetractionDefault(%q) missing", field)
+		}
+		if got != false {
+			t.Fatalf("systemRuleRetractionDefault(%q) = %#v, want false", field, got)
+		}
+	}
+
+	if _, ok := systemRuleRetractionDefault("title"); ok {
+		t.Fatal("systemRuleRetractionDefault(\"title\") must not retract arbitrary fields")
 	}
 }
 

@@ -3,6 +3,7 @@ package sport
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,7 @@ func TestPredicatesMatchSubtypeStates(t *testing.T) {
 		{name: "empty subtype sentinel matches nil subtype", preds: []Predicate{{Sport: "cycling", SubType: &empty}}, sport: "cycling", expected: true},
 		{name: "empty subtype sentinel matches empty subtype", preds: []Predicate{{Sport: "cycling", SubType: &empty}}, sport: "cycling", subType: &empty, expected: true},
 		{name: "empty subtype sentinel rejects concrete subtype", preds: []Predicate{{Sport: "cycling", SubType: &empty}}, sport: "cycling", subType: &mountain, expected: false},
+		{name: "open sport predicate rejects unknown stored subtype", preds: []Predicate{{Sport: "cycling"}}, sport: "cycling", subType: strPtr("does_not_exist"), expected: false},
 		{name: "sport mismatch rejects", preds: []Predicate{{Sport: "cycling"}}, sport: "running", expected: false},
 	}
 
@@ -130,6 +132,19 @@ func TestModifiersMatch(t *testing.T) {
 				t.Fatalf("ModifiersMatch() = %v, want %v", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestModifiersMatchUsesGeneratedKeys(t *testing.T) {
+	want := []string{"is_electric", "is_indoor", "is_virtual", "is_commute"}
+	got := SportModifierKeysWithCapability("modifier_filter")
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("modifier_filter keys = %v, want %v", got, want)
+	}
+
+	falseValue := false
+	if ModifiersMatch(ModifierFilters{IsCommute: &falseValue}, ActivityModifierState{IsCommute: true}) {
+		t.Fatal("ModifiersMatch ignored generated is_commute filter")
 	}
 }
 

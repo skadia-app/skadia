@@ -1,12 +1,18 @@
 import { useState, useMemo } from 'react'
-import type { Gear } from '@/api/types'
-import { generateGearSportOptions } from '@/lib/sportOptions'
+import type { Gear, GearDefaultModifiers, GearDefaultSportPredicate } from '@/api/types'
+import { selectableSportTupleOptions, sportDetailLabel } from '@/lib/sportTaxonomy'
+import { modifierKeysForCapability, modifierLabel, type SportModifierKey } from '@/lib/sportModifiers'
 
 const GEAR_TYPES = [
   { value: 'bike', label: 'Fahrrad' },
+  { value: 'e_bike', label: 'E-Bike' },
   { value: 'shoes', label: 'Laufschuhe' },
   { value: 'goggles', label: 'Schwimmbrille' },
   { value: 'ski', label: 'Ski' },
+  { value: 'skis', label: 'Ski' },
+  { value: 'snowboard', label: 'Snowboard' },
+  { value: 'wetsuit', label: 'Neoprenanzug' },
+  { value: 'racket', label: 'Schläger' },
   { value: 'paddle', label: 'Paddel' },
   { value: 'other', label: 'Sonstiges' },
 ]
@@ -18,27 +24,70 @@ interface GearFormProps {
   isSaving?: boolean
 }
 
+type ModifierChoice = 'any' | 'true' | 'false'
+const GEAR_DEFAULT_MODIFIER_KEYS = modifierKeysForCapability('gear_default')
+
+interface GearPredicateRow {
+  id: string
+  sportKey: string
+  modifiers: Partial<Record<SportModifierKey, ModifierChoice>>
+}
+
+interface GearPredicateOption {
+  value: string
+  label: string
+}
+
 export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormProps) {
-  const sportOptions = useMemo(() => generateGearSportOptions(), [])
+  const baseSportOptions = useMemo(
+    () => selectableSportTupleOptions().map((option) => ({
+      value: sportTupleKey(option.value, option.subType),
+      label: option.subType ? sportDetailLabel(option.value, option.subType) : option.label,
+    })),
+    [],
+  )
   const [name, setName] = useState(gear?.name ?? '')
   const [type, setType] = useState(gear?.type ?? '')
   const [subType, setSubType] = useState(gear?.sub_type ?? '')
   const [brand, setBrand] = useState(gear?.brand ?? '')
   const [model, setModel] = useState(gear?.model ?? '')
   const [purchasedAt, setPurchasedAt] = useState(gear?.purchased_at?.split('T')[0] ?? '')
-  const [defaultForSports, setDefaultForSports] = useState<string[]>(gear?.default_for_sports ?? [])
+  const [defaultPredicateRows, setDefaultPredicateRows] = useState<GearPredicateRow[]>(
+    () => predicateRowsFromGear(gear),
+  )
   const [notes, setNotes] = useState(gear?.notes ?? '')
   const [weightG, setWeightG] = useState(gear?.weight_g?.toString() ?? '')
 
-  function toggleSport(sport: string) {
-    setDefaultForSports((prev) =>
-      prev.includes(sport) ? prev.filter((s) => s !== sport) : [...prev, sport],
-    )
+  const sportOptions = useMemo(
+    () => optionsIncludingCurrentRows(baseSportOptions, defaultPredicateRows),
+    [baseSportOptions, defaultPredicateRows],
+  )
+  const duplicateDefaultRowIds = useMemo(
+    () => duplicatePredicateRowIds(defaultPredicateRows),
+    [defaultPredicateRows],
+  )
+  const hasDuplicateDefaultPredicates = duplicateDefaultRowIds.size > 0
+
+  function addDefaultPredicate() {
+    const sportKey = sportOptions[0]?.value ?? 'generic'
+    setDefaultPredicateRows((prev) => [...prev, newPredicateRow(prev.length, sportKey)])
+  }
+
+  function updateDefaultPredicate(index: number, patch: Partial<GearPredicateRow>) {
+    setDefaultPredicateRows((prev) => prev.map((row, rowIndex) => (
+      rowIndex === index ? { ...row, ...patch } : row
+    )))
+  }
+
+  function removeDefaultPredicate(index: number) {
+    setDefaultPredicateRows((prev) => prev.filter((_, rowIndex) => rowIndex !== index))
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim() || !type) return
+    if (hasDuplicateDefaultPredicates) return
+    const defaultSportPredicates = predicatesFromRows(defaultPredicateRows)
     onSave({
       name: name.trim(),
       type,
@@ -46,7 +95,8 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
       brand: brand.trim() || null,
       model: model.trim() || null,
       purchased_at: purchasedAt || null,
-      default_for_sports: defaultForSports,
+      default_for_sports: sportTypesFromPredicates(defaultSportPredicates),
+      default_sport_predicates: defaultSportPredicates,
       notes: notes.trim() || null,
       weight_g: weightG ? parseInt(weightG, 10) : null,
     })
@@ -160,18 +210,63 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
         <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-2">
           Standard für Sportarten
         </label>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {sportOptions.map(({ value, label }) => (
-            <label key={value} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={defaultForSports.includes(value)}
-                onChange={() => toggleSport(value)}
-                className="w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT focus:ring-1"
-              />
-              <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
-            </label>
-          ))}
+        <div className="space-y-2">
+          {defaultPredicateRows.map((row, index) => {
+            const duplicated = duplicateDefaultRowIds.has(row.id)
+            return (
+              <div key={row.id} className="space-y-1">
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_repeat(3,minmax(7rem,0.8fr))_auto] gap-2 items-end">
+                  <label className="block">
+                    <span className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">
+                      Sportart
+                    </span>
+                    <select
+                      aria-label={`Standard ${index + 1} Sportart`}
+                      value={row.sportKey}
+                      onChange={(e) => updateDefaultPredicate(index, { sportKey: e.target.value })}
+                      aria-invalid={duplicated}
+                      className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
+                    >
+                      {sportOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {GEAR_DEFAULT_MODIFIER_KEYS.map((key) => (
+                    <ModifierSelect
+                      key={key}
+                      label={modifierLabel(key)}
+                      ariaLabel={`Standard ${index + 1} ${modifierLabel(key)}`}
+                      value={row.modifiers[key] ?? 'any'}
+                      onChange={(value) => updateDefaultPredicate(index, {
+                        modifiers: { ...row.modifiers, [key]: value },
+                      })}
+                    />
+                  ))}
+                  <button
+                    type="button"
+                    aria-label={`Standard ${index + 1} entfernen`}
+                    onClick={() => removeDefaultPredicate(index)}
+                    className="h-10 px-3 rounded-lg text-sm text-neutral-600 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
+                  >
+                    Entfernen
+                  </button>
+                </div>
+                {duplicated && (
+                  <p className="text-xs text-rose-600 dark:text-rose-400">
+                    Doppelter Standard: gleiche Sportart und Modifier bereits vorhanden.
+                  </p>
+                )}
+              </div>
+            )
+          })}
+          <button
+            type="button"
+            onClick={addDefaultPredicate}
+            className="text-sm font-medium text-accent-600 dark:text-orange-400 hover:underline cursor-pointer"
+          >
+            + Standard hinzufügen
+          </button>
         </div>
       </div>
 
@@ -199,7 +294,7 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
         </button>
         <button
           type="submit"
-          disabled={isSaving || !name.trim() || !type}
+          disabled={isSaving || !name.trim() || !type || hasDuplicateDefaultPredicates}
           className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
         >
           {isSaving ? 'Speichert...' : 'Speichern'}
@@ -207,4 +302,176 @@ export default function GearForm({ gear, onSave, onCancel, isSaving }: GearFormP
       </div>
     </form>
   )
+}
+
+function ModifierSelect({
+  label,
+  ariaLabel,
+  value,
+  onChange,
+}: {
+  label: string
+  ariaLabel: string
+  value: ModifierChoice
+  onChange: (value: ModifierChoice) => void
+}) {
+  return (
+    <label className="block">
+      <span className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">{label}</span>
+      <select
+        aria-label={ariaLabel}
+        value={value}
+        onChange={(e) => onChange(e.target.value as ModifierChoice)}
+        className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
+      >
+        <option value="any">egal</option>
+        <option value="true">Ja</option>
+        <option value="false">Nein</option>
+      </select>
+    </label>
+  )
+}
+
+function predicateRowsFromGear(gear: Gear | null | undefined): GearPredicateRow[] {
+  const predicates = gear?.default_sport_predicates ?? []
+  if (predicates.length > 0) {
+    return predicates.map((predicate, index) => predicateRowFromPredicate(predicate, index))
+  }
+  return (gear?.default_for_sports ?? []).map((sportType, index) => newPredicateRow(index, sportType))
+}
+
+function predicateRowFromPredicate(predicate: GearDefaultSportPredicate, index: number): GearPredicateRow {
+  const modifiers = predicate.modifiers ?? {}
+  return {
+    id: `default-${index}`,
+    sportKey: sportTupleKey(predicate.sport_type, predicate.sub_type ?? undefined),
+    modifiers: Object.fromEntries(
+      GEAR_DEFAULT_MODIFIER_KEYS.map((key) => [key, modifierChoice(modifiers[key as keyof GearDefaultModifiers])]),
+    ),
+  }
+}
+
+function newPredicateRow(index: number, sportKey: string): GearPredicateRow {
+  return {
+    id: `default-${Date.now()}-${index}`,
+    sportKey,
+    modifiers: Object.fromEntries(GEAR_DEFAULT_MODIFIER_KEYS.map((key) => [key, 'any'])),
+  }
+}
+
+function modifierChoice(value: boolean | undefined): ModifierChoice {
+  if (value === true) return 'true'
+  if (value === false) return 'false'
+  return 'any'
+}
+
+function sportTupleKey(sportType: string, subType?: string | null): string {
+  return subType ? `${sportType}:${subType}` : sportType
+}
+
+function splitSportTupleKey(key: string): { sportType: string; subType?: string } {
+  const separator = key.indexOf(':')
+  if (separator < 0) return { sportType: key }
+  const sportType = key.slice(0, separator)
+  const subType = key.slice(separator + 1)
+  return subType ? { sportType, subType } : { sportType }
+}
+
+function predicatesFromRows(rows: GearPredicateRow[]): GearDefaultSportPredicate[] {
+  const predicates: GearDefaultSportPredicate[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    const predicate = predicateFromRow(row)
+    if (!predicate) continue
+    const key = stablePredicateKey(predicate)
+    if (seen.has(key)) continue
+    seen.add(key)
+    predicates.push(predicate)
+  }
+  return predicates
+}
+
+function duplicatePredicateRowIds(rows: GearPredicateRow[]): Set<string> {
+  const firstByKey = new Map<string, string>()
+  const duplicates = new Set<string>()
+  for (const row of rows) {
+    const predicate = predicateFromRow(row)
+    if (!predicate) continue
+    const key = stablePredicateKey(predicate)
+    const first = firstByKey.get(key)
+    if (first) {
+      duplicates.add(first)
+      duplicates.add(row.id)
+    } else {
+      firstByKey.set(key, row.id)
+    }
+  }
+  return duplicates
+}
+
+function predicateFromRow(row: GearPredicateRow): GearDefaultSportPredicate | null {
+  const tuple = splitSportTupleKey(row.sportKey)
+  if (!tuple.sportType) return null
+  const predicate: GearDefaultSportPredicate = { sport_type: tuple.sportType }
+  if (tuple.subType) predicate.sub_type = tuple.subType
+  const modifiers = modifiersFromRow(row)
+  if (modifiers) predicate.modifiers = modifiers
+  return predicate
+}
+
+function modifiersFromRow(row: GearPredicateRow): GearDefaultModifiers | null {
+  const modifiers: GearDefaultModifiers = {}
+  for (const key of GEAR_DEFAULT_MODIFIER_KEYS) {
+    assignModifier(modifiers, key as keyof GearDefaultModifiers, row.modifiers[key] ?? 'any')
+  }
+  return Object.keys(modifiers).length > 0 ? modifiers : null
+}
+
+function assignModifier(
+  modifiers: GearDefaultModifiers,
+  key: keyof GearDefaultModifiers,
+  value: ModifierChoice,
+) {
+  if (value === 'true') modifiers[key] = true
+  if (value === 'false') modifiers[key] = false
+}
+
+function sportTypesFromPredicates(predicates: GearDefaultSportPredicate[]): string[] {
+  const sportTypes: string[] = []
+  const seen = new Set<string>()
+  for (const predicate of predicates) {
+    if (seen.has(predicate.sport_type)) continue
+    seen.add(predicate.sport_type)
+    sportTypes.push(predicate.sport_type)
+  }
+  return sportTypes
+}
+
+function stablePredicateKey(predicate: GearDefaultSportPredicate): string {
+  const modifiers = predicate.modifiers ?? {}
+  const keyParts = GEAR_DEFAULT_MODIFIER_KEYS.map((key) => modifierKeyPart(key, modifiers[key as keyof GearDefaultModifiers]))
+  return [
+    predicate.sport_type,
+    predicate.sub_type ?? '',
+    ...keyParts,
+  ].join(':')
+}
+
+function modifierKeyPart(key: string, value: boolean | undefined): string {
+  return value === undefined ? '' : `${key}=${value}`
+}
+
+function optionsIncludingCurrentRows(
+  baseOptions: GearPredicateOption[],
+  rows: GearPredicateRow[],
+): GearPredicateOption[] {
+  const options = [...baseOptions]
+  const seen = new Set(options.map((option) => option.value))
+  for (const row of rows) {
+    if (seen.has(row.sportKey)) continue
+    const tuple = splitSportTupleKey(row.sportKey)
+    options.push({ value: row.sportKey, label: sportDetailLabel(tuple.sportType, tuple.subType) })
+    seen.add(row.sportKey)
+  }
+  return options
 }

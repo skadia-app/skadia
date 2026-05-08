@@ -250,6 +250,11 @@ const (
 	ManufacturerCarv                       Manufacturer = 341
 	ManufacturerTissot                     Manufacturer = 342
 	ManufacturerRealVelo                   Manufacturer = 345
+	ManufacturerWetech                     Manufacturer = 346
+	ManufacturerJespr                      Manufacturer = 347
+	ManufacturerHuawei                     Manufacturer = 348
+	ManufacturerGotoes                     Manufacturer = 349
+	ManufacturerCadenceApp                 Manufacturer = 350
 	ManufacturerActigraphcorp              Manufacturer = 5759
 	ManufacturerInvalid                    Manufacturer = 0xFFFF
 )
@@ -732,6 +737,16 @@ func (m Manufacturer) String() string {
 		return "tissot"
 	case ManufacturerRealVelo:
 		return "real_velo"
+	case ManufacturerWetech:
+		return "wetech"
+	case ManufacturerJespr:
+		return "jespr"
+	case ManufacturerHuawei:
+		return "huawei"
+	case ManufacturerGotoes:
+		return "gotoes"
+	case ManufacturerCadenceApp:
+		return "cadence_app"
 	case ManufacturerActigraphcorp:
 		return "actigraphcorp"
 	default:
@@ -1216,6 +1231,16 @@ func ManufacturerFromString(s string) Manufacturer {
 		return ManufacturerTissot
 	case "real_velo":
 		return ManufacturerRealVelo
+	case "wetech":
+		return ManufacturerWetech
+	case "jespr":
+		return ManufacturerJespr
+	case "huawei":
+		return ManufacturerHuawei
+	case "gotoes":
+		return ManufacturerGotoes
+	case "cadence_app":
+		return ManufacturerCadenceApp
 	case "actigraphcorp":
 		return ManufacturerActigraphcorp
 	default:
@@ -1463,6 +1488,11 @@ func ListManufacturer() []Manufacturer {
 		ManufacturerCarv,
 		ManufacturerTissot,
 		ManufacturerRealVelo,
+		ManufacturerWetech,
+		ManufacturerJespr,
+		ManufacturerHuawei,
+		ManufacturerGotoes,
+		ManufacturerCadenceApp,
 		ManufacturerActigraphcorp,
 	}
 }

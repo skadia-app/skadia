@@ -13,6 +13,8 @@ import { useToast } from '@/lib/toast'
 import { fmtDist } from '@/lib/format'
 import { triggerBlobDownload } from '@/lib/utils'
 import { sportDetailLabel, normalizeSportTuple, routeSportOptions } from '@/lib/sportTaxonomy'
+import { ROUTE_MODIFIER_LABELS, type RouteModifierKey } from '@/lib/routeModifierLabels'
+import { modifierKeysForCapability } from '@/lib/sportModifiers'
 
 // ── Sport type labels for filter dropdown ─────────────────────────────────────
 
@@ -34,12 +36,17 @@ const SPORT_TYPE_COLORS: Record<string, string> = {
 
 type SortOption = 'created_at' | 'name' | 'distance' | 'elevation'
 type ModifierFilter = 'any' | 'true' | 'false'
+const ROUTE_MODIFIER_KEYS = modifierKeysForCapability('route_filter') as RouteModifierKey[]
 
 const SORT_LABELS: Record<SortOption, string> = {
   created_at: 'Neueste',
   name: 'Name A–Z',
   distance: 'Distanz',
   elevation: 'Höhenmeter',
+}
+
+function emptyRouteModifierFilters(): Record<RouteModifierKey, ModifierFilter> {
+  return Object.fromEntries(ROUTE_MODIFIER_KEYS.map((key) => [key, 'any'])) as Record<RouteModifierKey, ModifierFilter>
 }
 
 // ── Icon helpers ──────────────────────────────────────────────────────────────
@@ -343,12 +350,7 @@ export default function RoutesPage() {
   const { addToast } = useToast()
 
   const [sportPredicates, setSportPredicates] = useState<string[]>([])
-  const [modifierFilters, setModifierFilters] = useState<Record<'is_electric' | 'is_indoor' | 'is_virtual' | 'is_commute', ModifierFilter>>({
-    is_electric: 'any',
-    is_indoor: 'any',
-    is_virtual: 'any',
-    is_commute: 'any',
-  })
+  const [modifierFilters, setModifierFilters] = useState<Record<RouteModifierKey, ModifierFilter>>(() => emptyRouteModifierFilters())
   const [sortBy, setSortBy] = useState<SortOption>('created_at')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
@@ -463,12 +465,7 @@ export default function RoutesPage() {
     setSearch('')
     setSearchInput('')
     setSportPredicates([])
-    setModifierFilters({
-      is_electric: 'any',
-      is_indoor: 'any',
-      is_virtual: 'any',
-      is_commute: 'any',
-    })
+    setModifierFilters(emptyRouteModifierFilters())
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -557,15 +554,10 @@ export default function RoutesPage() {
           </div>
         )}
 
-        {[
-          ['is_electric', 'E-Bike'],
-          ['is_indoor', 'Indoor'],
-          ['is_virtual', 'Virtuell'],
-          ['is_commute', 'Pendeln'],
-        ].map(([key, label]) => (
+        {Object.entries(ROUTE_MODIFIER_LABELS).map(([key, label]) => (
           <select
             key={key}
-            value={modifierFilters[key as keyof typeof modifierFilters]}
+            value={modifierFilters[key as RouteModifierKey]}
             onChange={(e) => setModifierFilters(prev => ({ ...prev, [key]: e.target.value as ModifierFilter }))}
             className="border border-neutral-200 dark:border-neutral-700 rounded-lg px-2 py-1.5 text-sm
                        bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200

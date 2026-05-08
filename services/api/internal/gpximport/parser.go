@@ -84,28 +84,22 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 		return nil, fmt.Errorf("no trackpoints found in GPX file")
 	}
 
-	sport, subType := mapGPXType(trk.Type)
+	resolved := mapGPXType(trk.Type)
 	source, sourceDevice, recordingDevice := parseGPXCreator(gpx.Creator)
 
 	// If the GPX has no type but the creator identifies it as an e-bike app,
 	// default to e_biking so the normalisation below picks it up correctly.
-	if sport == "unknown" && source == "Bosch eBike App" {
-		sport = "e_biking"
+	if resolved.Tuple.SportType == "unknown" && source == "Bosch eBike App" {
+		resolved = sporttax.ResolveResult{Tuple: sporttax.Tuple{SportType: "e_biking"}, Resolved: true}
 	}
 
-	tuple, patch, err := sporttax.NormalizeSportTuple(sport, subType)
+	tuple, patch, err := sporttax.NormalizeSportTuple(resolved.Tuple.SportType, resolved.Tuple.SubType)
 	if err != nil {
 		return nil, err
 	}
-	sport, subType = tuple.SportType, tuple.SubType
-	isElectric := false
-	if patch.IsElectric != nil {
-		isElectric = *patch.IsElectric
-	}
-	isIndoorPatch := false
-	if patch.IsIndoor != nil {
-		isIndoorPatch = *patch.IsIndoor
-	}
+	modifiers := sporttax.ApplyModifierPatch(sporttax.ModifierValues{}, patch)
+	modifiers = sporttax.ApplyModifierPatch(modifiers, resolved.Patch)
+	sport, subType := tuple.SportType, tuple.SubType
 
 	// Prefer the track name; fall back to the metadata name (used e.g. by Bosch eBike).
 	activityTitle := strings.TrimSpace(trk.Name)
@@ -121,7 +115,8 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 		SourceDevice:    sourceDevice,
 		SportType:       sport,
 		SubType:         subType,
-		IsElectric:      isElectric,
+		IsElectric:      modifiers.IsElectric,
+		IsVirtual:       modifiers.IsVirtual,
 		RecordingDevice: recordingDevice,
 	}
 
@@ -236,7 +231,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	// GPX files have speed values computed from position deltas above (sp.SpeedMS).
 	// Use the stream-based moving time; fall back to elapsed time if no
 	// usable data is present.
-	streamMoving := activityutil.CalcMovingTime(streams, sport)
+	streamMoving := activityutil.CalcMovingTimeForTuple(streams, sport, subType)
 	if streamMoving > 0 {
 		data.MovingTimeS = streamMoving
 	} else {
@@ -276,7 +271,7 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	data.Streams = streams
 	data.TrackPoints = trackPoints
 	data.HasGPS = len(trackPoints) >= 2
-	data.IsIndoor = isIndoorPatch || sporttax.IsIndoor(data.SportType, data.SubType)
+	data.IsIndoor = modifiers.IsIndoor
 
 	if data.HasGPS {
 		data.StartLat = trackPoints[0].Lat
@@ -289,140 +284,17 @@ func ParseGPX(r io.Reader, filename string) (*model.ActivityData, error) {
 	return data, nil
 }
 
-func mapGPXType(gpxType string) (sport, subType string) {
+func mapGPXType(gpxType string) sporttax.ResolveResult {
 	t := strings.ToLower(strings.TrimSpace(gpxType))
 	if t == "" {
-		return "unknown", ""
+		return sporttax.ResolveResult{Tuple: sporttax.Tuple{SportType: "unknown"}, Resolved: true}
 	}
 
-	switch t {
-	// Strava numeric type IDs
-	case "1":
-		return "cycling", ""
-	case "2":
-		return "running", ""
-	case "3":
-		return "swimming", ""
-	case "4":
-		return "hiking", ""
-	case "5":
-		return "walking", ""
-	case "6":
-		return "e_biking", ""
-	case "9":
-		return "alpine_skiing", ""
-	case "10":
-		return "cross_country_skiing", ""
-	case "11":
-		return "rock_climbing", ""
-	case "12":
-		return "rowing", ""
-	case "13":
-		return "stand_up_paddleboarding", ""
-	case "14":
-		return "kayaking", ""
-	case "15":
-		return "strength_training", ""
-	case "17":
-		return "training", "yoga"
-
-	// Running
-	case "running", "run":
-		return "running", ""
-	case "trail_running", "trailrunning", "trailrun", "trail running":
-		return "running", "trail"
-
-	// Cycling
-	case "cycling", "biking", "bike", "ride":
-		return "cycling", ""
-	case "road_cycling", "roadcycling":
-		return "cycling", "road"
-	case "mountainbikeride", "mountain_biking", "mountainbiking", "mtb":
-		return "cycling", "mountain"
-	case "ebikeride", "e_bike_ride", "ebike", "e-bike":
-		return "e_biking", ""
-	case "gravelride", "gravel_ride", "gravel":
-		return "cycling", "gravel_cycling"
-
-	// Walking / Hiking
-	case "hiking", "hike":
-		return "hiking", ""
-	case "walking", "walk":
-		return "walking", ""
-	case "mountaineering":
-		return "mountaineering", ""
-
-	// Swimming
-	case "swimming", "swim":
-		return "swimming", ""
-	case "open_water_swimming":
-		return "swimming", "open_water"
-	case "lap_swimming":
-		return "swimming", "lap_swimming"
-
-	// Winter
-	case "skiing", "ski", "alpine_skiing":
-		return "alpine_skiing", ""
-	case "cross_country_skiing", "nordicski":
-		return "cross_country_skiing", ""
-	case "snowboarding", "snowboard":
-		return "snowboarding", ""
-	case "snowshoeing":
-		return "snowshoeing", ""
-	case "ice_skating":
-		return "ice_skating", ""
-
-	// Water
-	case "rowing", "row":
-		return "rowing", ""
-	case "kayaking", "canoeing":
-		return "kayaking", ""
-	case "paddling", "paddle":
-		return "paddling", ""
-	case "stand_up_paddleboarding", "sup":
-		return "stand_up_paddleboarding", ""
-	case "surfing", "surf":
-		return "surfing", ""
-	case "sailing", "sail":
-		return "sailing", ""
-
-	// Fitness
-	case "strength_training", "strength", "weighttraining":
-		return "strength_training", ""
-	case "training":
-		return "training", ""
-	case "yoga":
-		return "training", "yoga"
-	case "pilates":
-		return "training", "pilates"
-	case "hiit":
-		return "hiit", ""
-
-	// Climb
-	case "rock_climbing", "climbing":
-		return "rock_climbing", ""
-	case "bouldering":
-		return "rock_climbing", "bouldering"
-
-	// Game
-	case "soccer", "football":
-		return "soccer", ""
-	case "tennis":
-		return "tennis", ""
-	case "golf":
-		return "golf", ""
-
-	// Other
-	case "inline_skating", "inlineskating":
-		return "inline_skating", ""
-	case "horseback_riding":
-		return "horseback_riding", ""
-	case "multisport":
-		return "multisport", ""
-
-	default:
-		return "unknown", ""
+	result, err := sporttax.ResolveSport(sporttax.ResolveInput{Source: sporttax.SourceGPXFile, RawSport: t})
+	if err != nil || !result.Resolved {
+		return sporttax.ResolveResult{Tuple: sporttax.Tuple{SportType: "unknown"}, Resolved: true}
 	}
+	return result
 }
 
 // parseGPXCreator extracts source app and device from the GPX creator attribute.

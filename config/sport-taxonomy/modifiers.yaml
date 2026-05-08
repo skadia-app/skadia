@@ -1,0 +1,118 @@
+modifiers:
+  - key: is_electric
+    labels: {de: E-Antrieb}
+    go_field: IsElectric
+    ts_field: isElectric
+    json_key: is_electric
+    activity_column: is_electric
+    action_name: set_electric
+    action_param: electric
+    shadowfs_token: electric
+    capabilities:
+      source_alias: true
+      modifier_patch: true
+      activity_state: true
+      modifier_filter: true
+      rule_condition: true
+      rule_action: true
+      route_filter: true
+      heatmap_filter: true
+      gear_default: true
+      record_grouping: true
+      shadowfs_label: true
+      quick_edit: true
+      taxonomy_default: false
+    tag_sync:
+      system_tag: E-Bike
+      color: "#16A34A"
+      description: Automatisch bei elektrischen Radfahrten
+      readonly_sync: true
+      only_sport_type: cycling
+      label_context: cycling
+
+  - key: is_indoor
+    labels: {de: Indoor}
+    go_field: IsIndoor
+    ts_field: isIndoor
+    json_key: is_indoor
+    activity_column: is_indoor
+    action_name: set_indoor
+    action_param: indoor
+    shadowfs_token: indoor
+    capabilities:
+      source_alias: true
+      modifier_patch: true
+      activity_state: true
+      modifier_filter: true
+      rule_condition: true
+      rule_action: true
+      route_filter: true
+      heatmap_filter: false
+      gear_default: true
+      record_grouping: true
+      shadowfs_label: true
+      quick_edit: true
+      taxonomy_default: true
+    tag_sync:
+      system_tag: Indoor
+      color: "#3B82F6"
+      description: Automatisch bei Indoor-Aktivitäten
+      readonly_sync: true
+
+  - key: is_virtual
+    labels: {de: Virtuell}
+    go_field: IsVirtual
+    ts_field: isVirtual
+    json_key: is_virtual
+    activity_column: is_virtual
+    action_name: set_virtual
+    action_param: virtual
+    shadowfs_token: virtual
+    capabilities:
+      source_alias: true
+      modifier_patch: true
+      activity_state: true
+      modifier_filter: true
+      rule_condition: true
+      rule_action: true
+      route_filter: true
+      heatmap_filter: false
+      gear_default: true
+      record_grouping: true
+      shadowfs_label: true
+      quick_edit: true
+      taxonomy_default: false
+    tag_sync:
+      system_tag: virtuell
+      color: "#8B5CF6"
+      description: Automatisch bei virtuellen Aktivitäten
+      readonly_sync: true
+
+  - key: is_commute
+    labels: {de: Pendeln}
+    go_field: IsCommute
+    ts_field: isCommute
+    json_key: is_commute
+    activity_column: is_commute
+    action_name: set_commute
+    action_param: commute
+    shadowfs_token: commute
+    capabilities:
+      source_alias: false
+      modifier_patch: true
+      activity_state: true
+      modifier_filter: true
+      rule_condition: true
+      rule_action: true
+      route_filter: true
+      heatmap_filter: true
+      gear_default: false
+      record_grouping: false
+      shadowfs_label: true
+      quick_edit: false
+      taxonomy_default: false
+    tag_sync:
+      system_tag: Pendeln
+      color: "#6B7280"
+      description: Automatisch bei Pendel-Aktivitäten
+      readonly_sync: false

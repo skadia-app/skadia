@@ -4,6 +4,7 @@ import { useClickOutside } from '@/hooks/useClickOutside'
 import { useQuery, useInfiniteQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { format } from 'date-fns'
+import { MoreVertical, Pencil } from 'lucide-react'
 import { fetchActivities, downloadActivitiesZip } from '@/api/activities'
 import { fetchRecordingGroup, fetchRecordingGroups } from '@/api/recordingGroups'
 import type { Activity, RecordingGroupMember } from '@/api/types'
@@ -25,6 +26,7 @@ import RecomputeModal from '@/components/RecomputeModal'
 import DeleteConfirmModal from '@/components/DeleteConfirmModal'
 import SportConflictBadge from '@/components/SportConflictBadge'
 import SportConflictModal from '@/components/SportConflictModal'
+import ActivityQuickEditModal from '@/components/activity/ActivityQuickEditModal'
 
 const PAGE_SIZES = [20, 50, 100] as const
 
@@ -317,6 +319,7 @@ interface ContextMenuProps {
   onDelete: (ids: string[], title?: string | null) => void
   onZip: (ids: string[], format: ExportFormat) => void
   onOpenTabs: (items: OpenTabsItem[]) => void
+  onQuickEdit: (activityId: string) => void
   onGroup: (ids: string[]) => void
   onUngroup: (id: string) => void
 }
@@ -330,6 +333,7 @@ function ActivityContextMenu({
   onDelete,
   onZip,
   onOpenTabs,
+  onQuickEdit,
   onGroup,
   onUngroup,
 }: ContextMenuProps) {
@@ -432,6 +436,13 @@ function ActivityContextMenu({
         </svg>
         In neuem Tab öffnen
       </a>
+      <button
+        onClick={() => { onQuickEdit(state.activityId); onClose() }}
+        className="w-full text-left px-3 py-2 text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors cursor-pointer"
+      >
+        <Pencil className="w-3.5 h-3.5 text-neutral-400" />
+        Schnell bearbeiten
+      </button>
       <ExportSubMenu activityId={state.activityId} sportType={state.sportType ?? ''} onClose={onClose} />
       <button
         onClick={() => { onRecompute([state.activityId]); onClose() }}
@@ -558,6 +569,8 @@ export default function ActivitiesPage() {
 
   // Modal-States
   const [conflictActivity, setConflictActivity] = useState<Activity | null>(null)
+  const [quickEditActivity, setQuickEditActivity] = useState<Activity | null>(null)
+  const [recentlySavedId, setRecentlySavedId] = useState<string | null>(null)
   const [recomputeIds, setRecomputeIds] = useState<string[] | null>(null)
   const [deleteIds, setDeleteIds] = useState<string[] | null>(null)
   const [deleteTitle, setDeleteTitle] = useState<string | null>(null)
@@ -974,6 +987,10 @@ export default function ActivitiesPage() {
           onDelete={(ids, title) => { setDeleteIds(ids); setDeleteTitle(title ?? null) }}
           onZip={handleZipDownload}
           onOpenTabs={(items) => setOpenTabsItems(items)}
+          onQuickEdit={(id) => {
+            const activity = activities.find(a => a.id === id)
+            if (activity) setQuickEditActivity(activity)
+          }}
           onGroup={(ids) => setGroupModalIds(ids)}
           onUngroup={async (id) => {
             await apiFetch(`/api/v1/activities/${id}/group`, { method: 'DELETE' })
@@ -1030,6 +1047,17 @@ export default function ActivitiesPage() {
           onResolved={() => {
             setConflictActivity(null)
             queryClient.invalidateQueries({ queryKey: ['activities'] })
+          }}
+        />
+      )}
+      {quickEditActivity && (
+        <ActivityQuickEditModal
+          activity={quickEditActivity}
+          open={!!quickEditActivity}
+          onClose={() => setQuickEditActivity(null)}
+          onSaved={(updated) => {
+            setRecentlySavedId(updated.id)
+            setTimeout(() => setRecentlySavedId(current => current === updated.id ? null : current), 1600)
           }}
         />
       )}
@@ -1198,7 +1226,7 @@ export default function ActivitiesPage() {
                 Höhenmeter{sortIndicator('elevation_gain_m')}
               </th>
               {/* 3-Punkt-Menü-Spalte (Platzhalter für Ausrichtung) */}
-              <th className="w-8 pr-2" />
+              <th className="w-16 pr-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800/50">
@@ -1208,6 +1236,7 @@ export default function ActivitiesPage() {
                   activity={activity}
                   idx={idx}
                   highlighted={!!jumpDate && activity.started_at.startsWith(jumpDate)}
+                  savedHighlight={activity.id === recentlySavedId}
                   isLastVisited={activity.id === lastActivityId}
                   isSelected={selectedIds.has(activity.id)}
                   isMultisport={activity.sport_type === 'multisport'}
@@ -1226,6 +1255,7 @@ export default function ActivitiesPage() {
                     setContextMenu({ x, y, activityId: id, activityTitle: title, sportType })
                   }}
                   onToggleSelect={toggleSelect}
+                  onQuickEdit={setQuickEditActivity}
                   onThreeDotClick={(e, id, title, sportType) => {
                     e.stopPropagation()
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -1543,6 +1573,7 @@ interface ActivityRowProps {
   activity: Activity
   idx: number
   highlighted?: boolean
+  savedHighlight?: boolean
   isLastVisited?: boolean
   isSelected: boolean
   isMultisport?: boolean
@@ -1553,6 +1584,7 @@ interface ActivityRowProps {
   onNavigate: (id: string) => void
   onContextMenu: (e: React.MouseEvent, id: string, title: string | null | undefined, sportType: string) => void
   onToggleSelect: (id: string, idx: number, shiftKey: boolean) => void
+  onQuickEdit: (activity: Activity) => void
   onThreeDotClick: (e: React.MouseEvent<HTMLButtonElement>, id: string, title: string | null | undefined, sportType: string) => void
   onConflictClick?: (activity: Activity) => void
 }
@@ -1561,6 +1593,7 @@ function ActivityRow({
   activity,
   idx,
   highlighted,
+  savedHighlight,
   isLastVisited,
   isSelected,
   isMultisport,
@@ -1571,6 +1604,7 @@ function ActivityRow({
   onNavigate,
   onContextMenu,
   onToggleSelect,
+  onQuickEdit,
   onThreeDotClick,
   onConflictClick,
 }: ActivityRowProps) {
@@ -1588,6 +1622,8 @@ function ActivityRow({
   let rowClass = 'even:bg-neutral-50/50 dark:even:bg-neutral-800/20 hover:bg-neutral-100 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group'
   if (isSelected) {
     rowClass = 'bg-orange-50/70 dark:bg-orange-900/15 hover:bg-accent-100/60 dark:hover:bg-orange-900/25 transition-colors cursor-pointer group'
+  } else if (savedHighlight) {
+    rowClass = 'bg-emerald-50 dark:bg-emerald-900/20 even:bg-emerald-50 dark:even:bg-emerald-900/20 animate-activity-quick-edit-saved transition-colors cursor-pointer group'
   } else if (isLastVisited) {
     rowClass = 'bg-accent-100/60 dark:bg-orange-900/25 ring-1 ring-inset ring-orange-400/40 dark:ring-accent-DEFAULT/30 hover:bg-accent-100/80 dark:hover:bg-orange-900/35 transition-colors cursor-pointer group'
   } else if (highlighted) {
@@ -1688,15 +1724,21 @@ function ActivityRow({
         )}
       </td>
       {/* 3-Punkt-Menü */}
-      <td className="py-3 pl-0 pr-2 w-8" onClick={e => e.stopPropagation()}>
+      <td className="py-3 pl-0 pr-2 w-16" onClick={e => e.stopPropagation()}>
+        <button
+          onClick={() => onQuickEdit(activity)}
+          className="rounded p-1 text-neutral-400 opacity-0 transition-opacity hover:bg-neutral-100 hover:text-neutral-600 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+          aria-label="Aktivität schnell bearbeiten"
+          title="Schnell bearbeiten"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
         <button
           onClick={e => onThreeDotClick(e, activity.id, activity.title ?? activity.title_auto, activity.sport_type)}
           className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
           aria-label="Aktivitätsmenü"
         >
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-          </svg>
+          <MoreVertical className="h-4 w-4" />
         </button>
       </td>
     </tr>

@@ -1,0 +1,71 @@
+source: komoot
+aliases:
+- raw: hike
+  sport_type: hiking
+- raw: mountaineering
+  sport_type: mountaineering
+- raw: jogging
+  sport_type: running
+- raw: racebike
+  sport_type: cycling
+  sub_type: road
+- raw: e_racebike
+  sport_type: cycling
+  sub_type: road
+  modifiers: {is_electric: true}
+- raw: touringbicycle
+  sport_type: cycling
+- raw: e_touringbicycle
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: mtb
+  sport_type: cycling
+  sub_type: mountain
+- raw: e_mtb
+  sport_type: cycling
+  sub_type: mountain
+  modifiers: {is_electric: true}
+- raw: mtb_easy
+  sport_type: cycling
+  sub_type: gravel_cycling
+- raw: e_mtb_easy
+  sport_type: cycling
+  sub_type: gravel_cycling
+  modifiers: {is_electric: true}
+- raw: mtb_advanced
+  sport_type: cycling
+  sub_type: mountain
+- raw: e_mtb_advanced
+  sport_type: cycling
+  sub_type: mountain
+  modifiers: {is_electric: true}
+- raw: citybike
+  sport_type: cycling
+- raw: downhillbike
+  sport_type: cycling
+  sub_type: downhill
+- raw: climbing
+  sport_type: rock_climbing
+- raw: nordic
+  sport_type: cross_country_skiing
+- raw: nordicwalking
+  sport_type: walking
+  sub_type: speed_walking
+- raw: skaten
+  sport_type: inline_skating
+- raw: skialpin
+  sport_type: alpine_skiing
+  sub_type: resort
+- raw: skitour
+  sport_type: backcountry_skiing
+- raw: sled
+  sport_type: sledding
+- raw: snowboard
+  sport_type: snowboarding
+- raw: snowshoe
+  sport_type: snowshoeing
+- raw: unicycle
+  sport_type: cycling
+  sub_type: unicycling
+- raw: other
+  sport_type: generic

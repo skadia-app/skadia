@@ -12,12 +12,18 @@ import {
   applySingleRule,
 } from '@/api/rules'
 import { fetchTags } from '@/api/tags'
-import type { AutomationRule } from '@/api/types'
+import type { AutomationRule, RuleSportTupleConditionValue } from '@/api/types'
 import type { ApplyResult, DryRunAllResult, DryRunSingleResult } from '@/api/rules'
 import RuleEditor from '@/components/RuleEditor'
 import Toggle from '@/components/Toggle'
 import { useToast } from '@/lib/toast'
 import { sportDetailLabel, sportLabel } from '@/lib/sportTaxonomy'
+
+const READONLY_SYNC_SYSTEM_TYPES = ['electric_sync', 'virtual_sync', 'indoor_sync'] as const
+
+function isReadonlySyncRule(rule: AutomationRule): boolean {
+  return Boolean(rule.is_system && rule.system_type && READONLY_SYNC_SYSTEM_TYPES.includes(rule.system_type as typeof READONLY_SYNC_SYSTEM_TYPES[number]))
+}
 
 interface DryRunMatch {
   activity_id: string
@@ -29,7 +35,7 @@ interface DryRunMatch {
 }
 
 const FIELD_LABELS: Record<string, string> = {
-  sport_type: 'Sportart', sub_type: 'Sub-Typ', source: 'Quelle',
+  sport_type: 'Sportart', sport_tuple: 'Sportauswahl', sub_type: 'Sub-Typ', source: 'Quelle',
   intensity: 'Intensität', is_indoor: 'Indoor', has_gps: 'GPS',
   visibility: 'Sichtbarkeit', title: 'Titel', description: 'Beschreibung',
   elapsed_time_s: 'Gesamtzeit', moving_time_s: 'Bewegungszeit',
@@ -70,6 +76,7 @@ const OP_DISPLAY: Record<string, string> = {
 }
 
 function formatConditionValue(c: { field: string; op: string; value: unknown }): string {
+  if (c.field === 'sport_tuple') return formatSportTupleConditionValue(c.value)
   if (typeof c.value === 'boolean') return c.value ? 'Ja' : 'Nein'
   if (c.value === null || c.value === undefined) return ''
   const v = String(c.value)
@@ -97,6 +104,19 @@ function formatConditionValue(c: { field: string; op: string; value: unknown }):
   return v
 }
 
+function formatSportTupleConditionValue(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  return value.map((entry) => {
+    const tuple = entry as RuleSportTupleConditionValue
+    const parts = [sportDetailLabel(tuple.sport_type, tuple.sub_type ?? null)]
+    if (tuple.is_electric !== undefined) parts.push(`E-Antrieb=${tuple.is_electric ? 'Ja' : 'Nein'}`)
+    if (tuple.is_indoor !== undefined) parts.push(`Indoor=${tuple.is_indoor ? 'Ja' : 'Nein'}`)
+    if (tuple.is_virtual !== undefined) parts.push(`Virtuell=${tuple.is_virtual ? 'Ja' : 'Nein'}`)
+    if (tuple.is_commute !== undefined) parts.push(`Pendeln=${tuple.is_commute ? 'Ja' : 'Nein'}`)
+    return parts.join(', ')
+  }).join(' ODER ')
+}
+
 function formatActionParams(action: string, params: Record<string, unknown> | undefined, tags?: { id: string; name: string }[]): string {
   if (!params) return ''
   if ((action === 'add_tag' || action === 'remove_tag') && params.tag_id) {
@@ -113,6 +133,8 @@ function formatActionParams(action: string, params: Record<string, unknown> | un
   if (action === 'set_visibility') return String(params.visibility || '')
   if (action === 'set_intensity') return String(params.intensity || '')
   if (action === 'set_indoor') return params.indoor ? 'Ja' : 'Nein'
+  if (action === 'set_virtual') return params.virtual ? 'Ja' : 'Nein'
+  if (action === 'set_commute') return params.commute ? 'Ja' : 'Nein'
   if (action === 'set_gear' && params.gear_id) return String(params.gear_id)
   return JSON.stringify(params)
 }
@@ -132,7 +154,7 @@ export default function AutomationRulesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
-  const [showSystemRules, setShowSystemRules] = useState(false)
+  const [showReadonlySyncRules, setShowReadonlySyncRules] = useState(false)
   const [search, setSearch] = useState('')
   const [dryRunResults, setDryRunResults] = useState<DryRunAllResult | null>(null)
   const [dryRunLoading, setDryRunLoading] = useState(false)
@@ -214,10 +236,8 @@ export default function AutomationRulesPage() {
     },
   })
 
-  const syncSystemTypes = ['electric_sync', 'virtual_sync', 'indoor_sync']
-
   const visibleRules = (rules ?? []).filter(r => {
-    if (!showSystemRules && r.is_system && r.system_type && syncSystemTypes.includes(r.system_type)) {
+    if (!showReadonlySyncRules && isReadonlySyncRule(r)) {
       return false
     }
     if (search) {
@@ -231,6 +251,10 @@ export default function AutomationRulesPage() {
 
   const systemRules = visibleRules.filter(r => r.is_system)
   const userRules = visibleRules.filter(r => !r.is_system)
+  const sortedSystemRules = [
+    ...systemRules.filter(isReadonlySyncRule),
+    ...systemRules.filter(rule => !isReadonlySyncRule(rule)),
+  ]
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Regeln...</div>
@@ -251,11 +275,11 @@ export default function AutomationRulesPage() {
           <label className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400 cursor-pointer select-none">
             <input
               type="checkbox"
-              checked={showSystemRules}
-              onChange={e => setShowSystemRules(e.target.checked)}
+              checked={showReadonlySyncRules}
+              onChange={e => setShowReadonlySyncRules(e.target.checked)}
               className="rounded"
             />
-            System-Regeln anzeigen
+            Sync-Regeln anzeigen
           </label>
           <button
             onClick={handleDryRunAll}
@@ -319,7 +343,7 @@ export default function AutomationRulesPage() {
         <div className="mb-6">
           <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2">System-Regeln</h3>
           <div className="space-y-3">
-            {systemRules.map((rule) => (
+            {sortedSystemRules.map((rule) => (
               <div key={rule.id}>
                 {editingId === rule.id ? (
                   <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
@@ -555,12 +579,12 @@ function RuleCard({
     }
   }
 
-  const isReadonlySystem = rule.system_type === 'electric_sync' || rule.system_type === 'virtual_sync' || rule.system_type === 'indoor_sync'
+  const isReadonlySystem = isReadonlySyncRule(rule)
 
   const readonlyDescriptions: Record<string, string> = {
-    electric_sync: 'Wird automatisch aus Gerätedaten erkannt. Diese Regel kann nicht bearbeitet werden.',
-    virtual_sync: 'Wird automatisch über die Datenbankspalte is_virtual synchronisiert. Diese Regel kann nicht bearbeitet werden.',
-    indoor_sync: 'Wird automatisch aus der Sport-Taxonomy erkannt. Diese Regel kann nicht bearbeitet werden.',
+    electric_sync: 'Wird automatisch bei elektrischen Radfahrten gesetzt. Diese Regel kann nicht bearbeitet werden.',
+    virtual_sync: 'Wird automatisch aus Importdaten und Aktivitätsmerkmalen erkannt. Diese Regel kann nicht bearbeitet werden.',
+    indoor_sync: 'Wird automatisch anhand der Sportart und Sub-Sportart gesetzt. Diese Regel kann nicht bearbeitet werden.',
   }
   const readonlyDescription = rule.system_type ? (readonlyDescriptions[rule.system_type] ?? 'System-Regel. Diese Regel kann nicht bearbeitet werden.') : ''
 
@@ -726,10 +750,12 @@ function actionLabel(action: string): string {
     remove_tag: 'Tag entfernen',
     set_visibility: 'Sichtbarkeit',
     set_sport_type: 'Sportart',
-    set_electric: 'E-Bike',
+    set_electric: 'E-Antrieb',
     set_name: 'Titel',
     set_intensity: 'Intensität',
     set_indoor: 'Indoor',
+    set_virtual: 'Virtuell',
+    set_commute: 'Pendeln',
     set_field: 'Feld setzen',
   }
   return labels[action] ?? action

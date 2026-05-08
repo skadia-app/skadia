@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { createManualActivity } from '@/api/manualActivity'
 import { fetchGear } from '@/api/gear'
 import { fetchTags } from '@/api/tags'
-import { CATEGORIES, SPORT_DEFS, sportsInCategory } from '@/lib/sportTaxonomy'
+import { CATEGORIES, SPORT_DEFS, manualActivitySportOptions } from '@/lib/sportTaxonomy'
 import { useToast } from '@/lib/toast'
 import Toggle from '@/components/Toggle'
 import type { Gear } from '@/api/types'
@@ -88,12 +88,14 @@ export default function ManualActivityPage() {
 
   // ── Derived ─────────────────────────────────────────────────────────────────
   const selectedSportDef = SPORT_DEFS.find(d => d.sportType === sportType)
-  const isBike = selectedSportDef?.categoryKey === 'bike'
+  const manualSports = manualActivitySportOptions()
+  const hasElectricAssistToggle = selectedSportDef?.categoryKey === 'bike'
 
   function handleSportChange(newSport: string) {
+    const nextDef = SPORT_DEFS.find(d => d.sportType === newSport)
     setSportType(newSport)
-    setSubType('')
-    if (SPORT_DEFS.find(d => d.sportType === newSport)?.categoryKey !== 'bike') {
+    setSubType(nextDef?.selectable === false ? (nextDef.subTypes.find(st => st.selectable)?.subType ?? '') : '')
+    if (nextDef?.categoryKey !== 'bike') {
       setIsElectric(false)
     }
   }
@@ -110,6 +112,10 @@ export default function ManualActivityPage() {
     const elapsedTimeS = parseDuration(durH, durM, durS)
     if (elapsedTimeS <= 0) {
       addToast({ type: 'error', title: 'Dauer fehlt', message: 'Bitte gib eine Dauer ein.' })
+      return
+    }
+    if (selectedSportDef?.selectable === false && !subType) {
+      addToast({ type: 'error', title: 'Unterart fehlt', message: 'Bitte wähle eine konkrete Unterart.' })
       return
     }
 
@@ -176,7 +182,7 @@ export default function ManualActivityPage() {
               <legend className="mb-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">Sportart</legend>
               <div className="overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900">
                 {CATEGORIES.map(cat => {
-                  const sports = sportsInCategory(cat.key)
+                  const sports = manualSports.filter(s => s.categoryKey === cat.key)
                   if (!sports.length) return null
                   return (
                     <details key={cat.key} open={sports.some(s => s.sportType === sportType)}>
@@ -223,8 +229,8 @@ export default function ManualActivityPage() {
                   onChange={e => setSubType(e.target.value)}
                   className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-accent-DEFAULT focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
                 >
-                  <option value="">— keine —</option>
-                  {selectedSportDef.subTypes.map(st => (
+                  {selectedSportDef.selectable && <option value="">— keine —</option>}
+                  {selectedSportDef.subTypes.filter(st => st.selectable).map(st => (
                     <option key={st.subType} value={st.subType}>{st.label}</option>
                   ))}
                 </select>
@@ -439,17 +445,17 @@ export default function ManualActivityPage() {
               </select>
             </div>
 
-            {/* E-Bike Toggle — nur bei bike-Kategorie */}
-            {isBike && (
+            {/* Electric-assist toggle — currently only for bike sports */}
+            {hasElectricAssistToggle && (
               <div className="flex items-center justify-between rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900">
                 <div>
-                  <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">E-Bike</p>
+                  <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">E-Antrieb</p>
                   <p className="text-xs text-neutral-500">Elektrisch unterstützt</p>
                 </div>
                 <Toggle
                   checked={isElectric}
                   onChange={(v) => setIsElectric(v)}
-                  aria-label="E-Bike"
+                  aria-label="E-Antrieb"
                 />
               </div>
             )}

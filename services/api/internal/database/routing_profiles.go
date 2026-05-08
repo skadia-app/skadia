@@ -147,6 +147,9 @@ func (db *DB) CreateRoutingProfile(ctx context.Context, userID, name, baseProfil
 	if predicates == nil {
 		predicates = []sport.Predicate{}
 	}
+	if err := sport.ValidatePredicates(predicates, false); err != nil {
+		return nil, fmt.Errorf("validate routing profile predicates: %w", err)
+	}
 	sportTypes := sport.SportTypesFromPredicates(predicates)
 	predicatesJSON, err := json.Marshal(predicates)
 	if err != nil {
@@ -173,6 +176,9 @@ RETURNING id, user_id, name, base_profile, sport_types, predicates, modifier_fil
 func (db *DB) UpdateRoutingProfile(ctx context.Context, id, name string, predicates []sport.Predicate, modifierFilters sport.ModifierFilters, config []byte) (*RoutingProfile, error) {
 	if predicates == nil {
 		predicates = []sport.Predicate{}
+	}
+	if err := sport.ValidatePredicates(predicates, false); err != nil {
+		return nil, fmt.Errorf("validate routing profile predicates: %w", err)
 	}
 	sportTypes := sport.SportTypesFromPredicates(predicates)
 	predicatesJSON, err := json.Marshal(predicates)
@@ -221,6 +227,9 @@ func (db *DB) DeleteRoutingProfile(ctx context.Context, id, userID string) error
 func (db *DB) UpsertGlobalProfile(ctx context.Context, name, baseProfile string, predicates []sport.Predicate, modifierFilters sport.ModifierFilters, config []byte, source string) (*RoutingProfile, error) {
 	if predicates == nil {
 		predicates = []sport.Predicate{}
+	}
+	if err := sport.ValidatePredicates(predicates, false); err != nil {
+		return nil, fmt.Errorf("validate routing profile predicates: %w", err)
 	}
 	sportTypes := sport.SportTypesFromPredicates(predicates)
 	predicatesJSON, err := json.Marshal(predicates)

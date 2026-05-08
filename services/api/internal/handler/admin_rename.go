@@ -30,23 +30,32 @@ func (h *Handler) PostAdminRenameUser(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown file type", r.URL.Path)
 		return
 	}
-	if h.storageBackend() != "local" {
-		httputil.WriteJSON(w, http.StatusOK, map[string]any{
-			"status":  "ok",
-			"renamed": 0,
-			"note":    "rename not applicable for non-local backends",
-		})
-		return
-	}
 
 	basePath := h.Config.LibraryBasePath
+	ctx := r.Context()
 	if basePath == "" {
-		slog.Error("admin-rename: LibraryBasePath not configured", "target_id", targetID)
+		var localCount int
+		if err := h.DB.Pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM user_files
+			 WHERE user_id = $1 AND file_type = $2 AND storage_backend = 'local' AND status = 'active'`,
+			targetID, fileType,
+		).Scan(&localCount); err != nil {
+			slog.Error("admin-rename: count local files", "error", err, "target_id", targetID)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
+			return
+		}
+		if localCount == 0 {
+			httputil.WriteJSON(w, http.StatusOK, map[string]any{
+				"status":  "ok",
+				"renamed": 0,
+				"note":    "rename not applicable for non-local backends",
+			})
+			return
+		}
+		slog.Error("admin-rename: LibraryBasePath not configured for local files", "target_id", targetID, "file_type", fileType, "local_files", localCount)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "library base path not configured", r.URL.Path)
 		return
 	}
-
-	ctx := r.Context()
 
 	// Foreground-Snapshot: resolve schema + library-dir once so background
 	// goroutine uses a stable view even if admin changes settings mid-job.
@@ -120,16 +129,26 @@ func (h *Handler) PostAdminRenameBulk(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown file type", r.URL.Path)
 		return
 	}
-	if h.storageBackend() != "local" {
-		httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "note": "not applicable"})
-		return
-	}
+	ctx := r.Context()
 	if h.Config.LibraryBasePath == "" {
+		var localCount int
+		if err := h.DB.Pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM user_files
+			 WHERE file_type = $1 AND storage_backend = 'local' AND status = 'active'`,
+			body.FileType,
+		).Scan(&localCount); err != nil {
+			slog.Error("admin-rename-bulk: count local files", "error", err, "file_type", body.FileType)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
+			return
+		}
+		if localCount == 0 {
+			httputil.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok", "note": "not applicable"})
+			return
+		}
+		slog.Error("admin-rename-bulk: LibraryBasePath not configured for local files", "file_type", body.FileType, "local_files", localCount)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "library base path not configured", r.URL.Path)
 		return
 	}
-
-	ctx := r.Context()
 
 	// Acquire a pinned connection for the advisory lock. The lock is
 	// session-scoped (pg_advisory_lock), so the connection MUST be held
@@ -171,6 +190,13 @@ func (h *Handler) PostAdminRenameBulk(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN user_file_schemas ufs
 		  ON ufs.user_id = u.id AND ufs.file_type = $1
 		WHERE u.is_active = true AND u.deleted_at IS NULL
+		  AND EXISTS (
+		      SELECT 1 FROM user_files uf
+		      WHERE uf.user_id = u.id
+		        AND uf.file_type = $1
+		        AND uf.storage_backend = 'local'
+		        AND uf.status = 'active'
+		  )
 	`, body.FileType)
 	if err != nil {
 		_, _ = conn.Exec(ctx, `SELECT pg_advisory_unlock($1)`, bulkRenameAdvisoryLockKey)

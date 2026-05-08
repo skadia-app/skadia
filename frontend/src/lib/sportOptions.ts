@@ -1,15 +1,12 @@
 // Shared sport-option types and constants used by MapPage filters and activity filters.
-// Generated from sportTaxonomy.ts — single source of truth.
+// Filter option trees come from the generated activity-filter projection.
 
 import {
-  CATEGORIES,
   SPORT_DEFS,
-  PROMOTE_SUB_TYPE,
-  WATER_SPORT_UI_GROUPS,
   sportColor,
-  sportsInCategory,
-  type SportDef,
 } from '@/lib/sportTaxonomy'
+import { GENERATED_ACTIVITY_FILTER_PRESETS } from '@/lib/generatedSportFilterProjections'
+import { GENERATED_GEAR_DEFAULT_MANUAL_OPTIONS } from '@/lib/generatedGearDefaultProjections'
 
 export interface SportOption {
   value: string
@@ -35,118 +32,43 @@ export function getOptionKey(opt: SportOption): string {
   return opt.subType ? `${opt.value}:${opt.subType}` : opt.value
 }
 
-/**
- * Sub-type labels that are too generic without a parent-sport prefix.
- * For these, the filter label becomes "Sport: SubType" (e.g. "Fußball: Aufwärmen").
- */
-const GENERIC_SUBTYPES = new Set(['warm_up', 'exercise', 'match'])
+type GeneratedActivityFilterPreset = (typeof GENERATED_ACTIVITY_FILTER_PRESETS)[number]
+type GeneratedActivityFilterGroup = GeneratedActivityFilterPreset['groups'][number]
+type GeneratedActivityFilterLeaf = GeneratedActivityFilterGroup['leaves'][number]
 
-/**
- * Builds the children array for a category group.
- *
- * Rules:
- * - Promoted sports (training, fitness_equipment, racket): only sub-type entries,
- *   no parent entry (sub-type IS the label).
- * - Sports with sub-types but NOT promoted: parent entry first (catches activities
- *   without any sub_type), then each sub-type entry.
- * - Generic sub-type labels (warm_up, exercise, match): prefixed with parent sport
- *   label for context (e.g. "Fußball: Aufwärmen").
- * - Sports without sub-types: plain entry.
- */
-function categoryGroup(catKey: string, label: string, sports: SportDef[]): SportOption {
-  const children: SportOption[] = []
-  for (const s of sports) {
-    if (s.subTypes.length > 0) {
-      if (!PROMOTE_SUB_TYPE.has(s.sportType)) {
-        // Parent entry first — catches activities stored with no sub_type
-        children.push({ value: s.sportType, label: s.label })
-      }
-      for (const st of s.subTypes) {
-        const stLabel = GENERIC_SUBTYPES.has(st.subType)
-          ? `${s.label}: ${st.label}`
-          : st.label
-        children.push({ value: s.sportType, label: stLabel, subType: st.subType })
-      }
-    } else {
-      children.push({ value: s.sportType, label: s.label })
-    }
+function optionFromLeaf(leaf: GeneratedActivityFilterLeaf): SportOption {
+  const subType = 'subType' in leaf ? leaf.subType : undefined
+  return {
+    value: leaf.sportType,
+    label: leaf.label,
+    ...(subType ? { subType } : {}),
   }
-  return { value: catKey, label, groupKey: catKey, children }
 }
 
-function waterCategoryGroups(sports: SportDef[]): SportOption[] {
-  return WATER_SPORT_UI_GROUPS.flatMap((group) => {
-    const groupedSports = sports.filter((sport) => group.segmentGroups.includes(sport.segmentGroup))
-    return groupedSports.length > 0 ? [categoryGroup(group.key, group.label, groupedSports)] : []
-  })
+function optionsForPreset(presetKey: GeneratedActivityFilterPreset['key']): SportOption[] {
+  const preset = GENERATED_ACTIVITY_FILTER_PRESETS.find((candidate) => candidate.key === presetKey)
+  if (!preset) return []
+  return preset.groups.map((group) => ({
+    value: group.key,
+    label: group.label,
+    groupKey: group.key,
+    children: group.leaves.map(optionFromLeaf),
+  })).filter((group) => group.children.length > 0)
 }
-
-// ── GPS-relevant categories for map view ────────────────────────────────────────
-
-const GPS_CATEGORIES = ['run', 'bike', 'winter', 'water', 'climb', 'outdoor', 'multi']
-const NON_GPS_CATEGORIES = ['fitness', 'game', 'other']
 
 /**
  * Sport filter options for map view.
  * Only includes GPS-relevant categories + a combined "Fitness & Sonstiges" group.
  */
 export function generateMapFilterOptions(): SportOption[] {
-  const options: SportOption[] = []
-
-  for (const catKey of GPS_CATEGORIES) {
-    const cat = CATEGORIES.find((c) => c.key === catKey)
-    if (!cat) continue
-    const sports = sportsInCategory(catKey)
-    if (sports.length === 0) continue
-
-    if (catKey === 'water') {
-      options.push(...waterCategoryGroups(sports))
-      continue
-    }
-
-    if (sports.length === 1 && sports[0].subTypes.length === 0) {
-      options.push({ value: sports[0].sportType, label: cat.label })
-    } else {
-      options.push(categoryGroup(catKey, cat.label, sports))
-    }
-  }
-
-  // Collected non-GPS sports
-  const nonGpsSports: SportDef[] = []
-  for (const catKey of NON_GPS_CATEGORIES) {
-    nonGpsSports.push(...sportsInCategory(catKey))
-  }
-  if (nonGpsSports.length > 0) {
-    options.push(categoryGroup('fitness_other', 'Fitness & Sonstiges', nonGpsSports))
-  }
-
-  return options
+  return optionsForPreset('map_panel_gps')
 }
 
 /**
  * Sport filter options for activity list view.
- * All 10 categories as expandable groups.
  */
 export function generateActivityFilterOptions(): SportOption[] {
-  const options: SportOption[] = []
-
-  for (const cat of CATEGORIES) {
-    const sports = sportsInCategory(cat.key)
-    if (sports.length === 0) continue
-
-    if (cat.key === 'water') {
-      options.push(...waterCategoryGroups(sports))
-      continue
-    }
-
-    if (sports.length === 1 && sports[0].subTypes.length === 0) {
-      options.push({ value: sports[0].sportType, label: cat.label })
-    } else {
-      options.push(categoryGroup(cat.key, cat.label, sports))
-    }
-  }
-
-  return options
+  return optionsForPreset('activity_all')
 }
 
 // ── Unified filter option generator ─────────────────────────────────────────
@@ -156,9 +78,8 @@ export type FilterMode = 'map' | 'activity' | 'analytics'
 /**
  * Unified sport filter option generator.
  *
- * - 'map': GPS-relevant categories (run/bike/winter/water/climb/outdoor) +
- *          a combined "Indoor & Sonstiges" group for fitness + other.
- * - 'activity' | 'analytics': All 8 categories as expandable groups.
+ * - 'map': generated map-panel preset.
+ * - 'activity' | 'analytics': generated full activity-filter preset.
  */
 export function generateFilterOptions(mode: FilterMode): SportOption[] {
   if (mode === 'map') {
@@ -201,10 +122,10 @@ export function getAllSportTypes(): string[] {
  * Generates sport options for GearForm (flat list of all sports, sorted by label).
  */
 export function generateGearSportOptions(): { value: string; label: string }[] {
-  return SPORT_DEFS
-    .filter((s) => s.sportType !== 'unknown')
-    .map((s) => ({ value: s.sportType, label: s.label }))
-    .sort((a, b) => a.label.localeCompare(b.label, 'de'))
+  return GENERATED_GEAR_DEFAULT_MANUAL_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.label,
+  }))
 }
 
 /**

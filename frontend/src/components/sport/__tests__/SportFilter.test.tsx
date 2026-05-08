@@ -26,23 +26,28 @@ function renderFilter(value: SportFilterValue, onChange = vi.fn(), preset: 'ACTI
 }
 
 describe('SportFilter', () => {
-  it('splits water sports into swim, paddle, and surf/sail groups', () => {
+  it('splits water sports into generated water groups', () => {
     renderFilter({ sportTypes: null })
 
     expect(screen.getByRole('button', { name: 'Schwimmen' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Paddeln' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Surfen & Segeln' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Surfen/Board' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Segeln/Boot' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tauchen/Schnorcheln' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Angeln' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Surfen & Segeln' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Wassersport' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Paddeln' }))
-    expect(screen.getByText('Paddeln (Generisch)')).toBeInTheDocument()
+    expect(screen.getByText('Paddeln (allgemein)')).toBeInTheDocument()
   })
 
   it('keeps non-GPS water sports in the activity water split', () => {
     renderFilter({ sportTypes: null })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Surfen & Segeln' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tauchen/Schnorcheln' }))
     expect(screen.getByText('Tauchen')).toBeInTheDocument()
+    expect(screen.getByText('Schnorcheln')).toBeInTheDocument()
   })
 
   it('uses the water split in map filters too', () => {
@@ -50,7 +55,11 @@ describe('SportFilter', () => {
 
     expect(screen.getByRole('button', { name: 'Schwimmen' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Paddeln' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Surfen & Segeln' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Surfen/Board' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Segeln/Boot' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tauchen/Schnorcheln' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Angeln' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Surfen & Segeln' })).not.toBeInTheDocument()
   })
 
   it('renders canonical top sport groups without deprecated top-level options', () => {
@@ -61,9 +70,27 @@ describe('SportFilter', () => {
     expect(screen.queryByText('mountain_biking')).not.toBeInTheDocument()
   })
 
+  it('renders newly canonical taxonomy sports in generated UI groups', () => {
+    renderFilter({ sportTypes: null })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Läufe' }))
+    expect(screen.getByText('Wandern: Rucking')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fitness' }))
+    expect(screen.getByText('Mobilität')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tauchen/Schnorcheln' }))
+    expect(screen.getByText('Dynamische Apnoe')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Weitere Aktivitäten' }))
+    expect(screen.getByText('Geocaching')).toBeInTheDocument()
+    expect(screen.getByText('Bogenschießen')).toBeInTheDocument()
+    expect(screen.getByText('Schießen')).toBeInTheDocument()
+  })
+
   it('emits sport keys and modifier filters together', () => {
     const onChange = renderFilter({ sportTypes: null, modifiers: {} })
-    fireEvent.change(screen.getByLabelText(/E-Bike/), { target: { value: 'true' } })
+    fireEvent.change(screen.getByLabelText(/E-Antrieb/), { target: { value: 'true' } })
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
       modifiers: expect.objectContaining({ is_electric: true }),
     }))

@@ -337,6 +337,14 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 
 	activity, err := h.DB.UpdateActivity(r.Context(), id, userID, &update)
 	if err != nil {
+		if errors.Is(err, database.ErrVirtualHeatmapRequired) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
+		if errors.Is(err, sport.ErrNonSelectableTuple) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
 		slog.Error("update activity failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update activity", r.URL.Path)
 		return
@@ -351,10 +359,13 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 	if h.ShadowFS != nil && freshAct != nil && freshAct.FileID != nil && *freshAct.FileID != "" {
 		sidecar.WriteMetaCompanion(r.Context(), h.ShadowFS, h.DB, userID, id, *freshAct.FileID, nil, freshAct)
 	}
+	if activityUpdateAffectsFileSchema(&update) {
+		h.refreshActivityFilePathBestEffort(r.Context(), userID, id, "")
+	}
 
-	// Side-effect: toggle heatmap data when exclude_from_heatmap changes.
-	if update.ExcludeFromHeatmap != nil {
-		if *update.ExcludeFromHeatmap {
+	// Side-effect: toggle heatmap data when the effective exclusion changes.
+	if existing.ExcludeFromHeatmap != activity.ExcludeFromHeatmap {
+		if activity.ExcludeFromHeatmap {
 			_ = h.DB.DeleteHeatmapData(r.Context(), id)
 		} else {
 			interval, _ := h.DB.GetUserHeatmapInterval(r.Context(), userID)
@@ -367,8 +378,8 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 		h.DB.InvalidateTerraIncognitaCache(r.Context(), userID)
 	}
 
-	// Side-effect: recalc best efforts when sport_type changes (sport_group may differ).
-	if update.SportType != nil && *update.SportType != existing.SportType && h.BestEfforts != nil {
+	// Side-effect: recalc best efforts when Records grouping inputs change.
+	if bestEffortGroupingInputChanged(update, *existing) && h.BestEfforts != nil {
 		actID := id
 		svc := h.BestEfforts
 		// Cancel any in-flight job for this activity before re-dispatching.
@@ -382,6 +393,9 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if info == nil {
+				if err := h.DB.DeleteBestEffortsForActivity(ctx, userID, actID); err != nil {
+					slog.Warn("update activity: delete ineligible best efforts failed", "id", actID, "error", err)
+				}
 				return
 			}
 			stream, err := h.DB.GetStreamPoints(ctx, actID)
@@ -396,8 +410,8 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 			// Delete stale entries from the old sport_group (different from the new one).
 			newGroup := bestefforts.DetermineSportGroup(info.SportType, info.SubType, info.IsIndoor, info.IsVirtual, info.IsElectric)
 			if _, err := h.DB.Pool.Exec(ctx,
-				`DELETE FROM best_efforts WHERE activity_id = $1 AND sport_group != $2`,
-				actID, newGroup,
+				`DELETE FROM best_efforts WHERE user_id = $1 AND activity_id = $2 AND sport_group != $3`,
+				userID, actID, newGroup,
 			); err != nil {
 				slog.Warn("update activity: delete stale sport_group best efforts failed", "id", actID, "error", err)
 			}
@@ -420,6 +434,34 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, activity)
+}
+
+func bestEffortGroupingInputChanged(update model.ActivityUpdate, existing model.Activity) bool {
+	if update.SportType != nil && *update.SportType != existing.SportType {
+		return true
+	}
+	if update.SubType != nil {
+		existingSubType := ""
+		if existing.SubType != nil {
+			existingSubType = *existing.SubType
+		}
+		if *update.SubType != existingSubType {
+			return true
+		}
+	}
+	if update.IsIndoor != nil && *update.IsIndoor != existing.IsIndoor {
+		return true
+	}
+	if update.IsVirtual != nil && *update.IsVirtual != existing.IsVirtual {
+		return true
+	}
+	if update.IsElectric != nil && *update.IsElectric != existing.IsElectric {
+		return true
+	}
+	if update.ExcludeFromStats != nil && *update.ExcludeFromStats != existing.ExcludeFromStats {
+		return true
+	}
+	return false
 }
 
 func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
@@ -488,7 +530,7 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 
 	// Explicitly remove best efforts before hard-delete (belt-and-suspenders: ON DELETE CASCADE
 	// handles this, but an explicit call makes the intent clear and simplifies future soft-delete migrations).
-	if err := h.DB.DeleteBestEffortsForActivity(r.Context(), id); err != nil {
+	if err := h.DB.DeleteBestEffortsForActivity(r.Context(), userID, id); err != nil {
 		slog.Warn("delete activity: clean up best efforts failed", "id", id, "error", err)
 	}
 

@@ -411,6 +411,7 @@ func (h *Handler) ApplyActivityEdits(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusInternalServerError, "Apply Error", err.Error(), r.URL.Path)
 			return
 		}
+		h.refreshActivityFilePathBestEffort(r.Context(), userID, activityID, "")
 	}
 
 	// Mark edits as applied

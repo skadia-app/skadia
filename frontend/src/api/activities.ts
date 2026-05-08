@@ -67,7 +67,14 @@ export async function fetchActivitySensors(id: string): Promise<Sensor[]> {
   return apiClient<Sensor[]>(`/activities/${id}/sensors`)
 }
 
-export async function updateActivity(id: string, data: Partial<Pick<Activity, 'title' | 'description' | 'sport_type' | 'sub_type' | 'tags' | 'visibility' | 'workout_feel' | 'workout_rpe' | 'location_lat' | 'location_lng'>> & { exclude_from_heatmap?: boolean; exclude_from_stats?: boolean }): Promise<Activity> {
+export async function updateActivity(id: string, data: Partial<Pick<Activity, 'title' | 'description' | 'sport_type' | 'sub_type' | 'tags' | 'visibility' | 'workout_feel' | 'workout_rpe' | 'location_lat' | 'location_lng' | 'is_indoor' | 'is_virtual' | 'is_electric'>> & {
+  clear_title?: boolean
+  clear_description?: boolean
+  clear_workout_feel?: boolean
+  clear_workout_rpe?: boolean
+  exclude_from_heatmap?: boolean
+  exclude_from_stats?: boolean
+}): Promise<Activity> {
   return apiClient<Activity>(`/activities/${id}`, { method: 'PATCH', body: data })
 }
 

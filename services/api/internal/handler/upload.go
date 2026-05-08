@@ -136,7 +136,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 				FileName:    filename,
 				SizeBytes:   int64(len(decompressed)),
 				FileHash:    hashStr,
-				Tags:        map[string]string{"format": format},
+				Tags:        shadowfs.ActivitySchemaTags(importer.MultisportActivitySchemaTagsInput(format, "upload", activities)),
 			}, bytes.NewReader(decompressed))
 			if putErr != nil {
 				slog.Error("shadowfs upload for multisport failed", "error", putErr)
@@ -230,14 +230,20 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 				FileName:    filename,
 				SizeBytes:   int64(len(decompressed)),
 				FileHash:    hashStr,
-				Tags: map[string]string{
-					"format": format,
-					"year":   data.StartedAt.Format("2006"),
-					"month":  data.StartedAt.Format("01"),
-					"day":    data.StartedAt.Format("02"),
-					"time":   data.StartedAt.Format("15-04"),
-					"sport":  data.SportType,
-				},
+				Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
+					Format:         format,
+					Source:         "upload",
+					StartedAt:      data.StartedAt,
+					SportType:      data.SportType,
+					SubType:        data.SubType,
+					Title:          data.Title,
+					DistanceM:      data.DistanceM,
+					ElapsedTimeS:   data.ElapsedTimeS,
+					ElevationGainM: data.ElevationGainM,
+					IsElectric:     data.IsElectric,
+					IsIndoor:       data.IsIndoor,
+					IsVirtual:      data.IsVirtual,
+				}),
 			}, bytes.NewReader(decompressed))
 			if putErr != nil {
 				slog.Error("shadowfs upload failed", "error", putErr)
@@ -371,14 +377,20 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			FileName:    filename,
 			SizeBytes:   int64(len(decompressed)),
 			FileHash:    hashStr,
-			Tags: map[string]string{
-				"format": format,
-				"year":   data.StartedAt.Format("2006"),
-				"month":  data.StartedAt.Format("01"),
-				"day":    data.StartedAt.Format("02"),
-				"time":   data.StartedAt.Format("15-04"),
-				"sport":  data.SportType,
-			},
+			Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
+				Format:         format,
+				Source:         "upload",
+				StartedAt:      data.StartedAt,
+				SportType:      data.SportType,
+				SubType:        data.SubType,
+				Title:          data.Title,
+				DistanceM:      data.DistanceM,
+				ElapsedTimeS:   data.ElapsedTimeS,
+				ElevationGainM: data.ElevationGainM,
+				IsElectric:     data.IsElectric,
+				IsIndoor:       data.IsIndoor,
+				IsVirtual:      data.IsVirtual,
+			}),
 		}, bytes.NewReader(decompressed))
 		if putErr != nil {
 			slog.Error("shadowfs upload failed", "error", putErr)

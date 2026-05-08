@@ -188,7 +188,7 @@ export default function WorkshopReprocessPage() {
                 <option value="swimming">Schwimmen</option>
                 <option value="walking">Gehen</option>
                 <option value="skiing">Ski</option>
-                <option value="strength">Kraft</option>
+                <option value="strength_training">Kraft</option>
               </select>
             </div>
             <div>

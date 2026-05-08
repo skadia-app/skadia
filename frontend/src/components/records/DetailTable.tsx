@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown, TrendingUp } from 'lucide-react'
-import { formatBestEffortDisplay, categoryLabel, CATEGORY_LABELS } from '@/lib/bestEffortLabels'
+import { formatBestEffortDisplay, categoryLabel, categoryKeysForRecordGroup } from '@/lib/bestEffortLabels'
 import { fmtDateMedium, fmtDuration } from '@/lib/format'
 import type { BestEffortRanked } from '@/api/bestEfforts'
 import { pickBestPerCategory } from '@/lib/bestEffortRanking'
@@ -12,8 +12,6 @@ const RANK_STYLES: Record<number, { bg: string; text: string }> = {
   2: { bg: 'bg-neutral-200 dark:bg-neutral-700', text: 'text-neutral-500 dark:text-neutral-400' },
   3: { bg: 'bg-orange-100 dark:bg-orange-500/15', text: 'text-orange-600 dark:text-orange-400' },
 }
-
-const CATEGORY_KEYS = Object.keys(CATEGORY_LABELS)
 
 function categoryColorHint(cat: string): string {
   if (cat.startsWith('power_')) return 'text-orange-600 dark:text-orange-300'
@@ -60,9 +58,10 @@ export function DetailTable({
     return map
   }, [records])
 
+  const categoryOrder = categoryKeysForRecordGroup(sportGroup)
   const categories = Array.from(rank1ByCategory.keys()).sort((a, b) => {
-    const ia = CATEGORY_KEYS.indexOf(a)
-    const ib = CATEGORY_KEYS.indexOf(b)
+    const ia = categoryOrder.indexOf(a)
+    const ib = categoryOrder.indexOf(b)
     return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib)
   })
 

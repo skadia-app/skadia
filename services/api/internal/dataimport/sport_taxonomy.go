@@ -29,6 +29,10 @@ func normalizeSportTaxonomyImportRow(table string, row map[string]any, targetCol
 		if err := normalizeAutomationRuleSportJSON(row); err != nil {
 			return nil, err
 		}
+	case "gear":
+		if err := normalizeGearDefaultSportsImportRow(row, targetCols); err != nil {
+			return nil, err
+		}
 	case "segments":
 		if err := normalizeSegmentSportFields(row); err != nil {
 			return nil, err
@@ -49,10 +53,8 @@ func normalizeActivitySportFields(row map[string]any) error {
 	} else {
 		applyModifierPatchToRow(row, patch)
 	}
-	if patch, err := normalizeSportPair(row, "parsed_sport_type", "parsed_sub_type"); err != nil {
+	if _, err := normalizeSportPair(row, "parsed_sport_type", "parsed_sub_type"); err != nil {
 		return err
-	} else {
-		applyModifierPatchToRow(row, patch)
 	}
 	return nil
 }
@@ -89,6 +91,117 @@ func normalizeSingleSportType(row map[string]any, sportKey string) error {
 	return nil
 }
 
+func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []targetColumn) error {
+	rawValues, hasDefaultSports := row["default_for_sports"]
+	hasPredicates := targetHasColumn(targetCols, "default_sport_predicates")
+	if rawPredicateValue, ok := row["default_sport_predicates"]; ok {
+		predicates, err := gearDefaultPredicatesFromRowValue(rawPredicateValue)
+		if err != nil {
+			return fmt.Errorf("default_sport_predicates: %w", err)
+		}
+		normalized, err := sport.NormalizeGearDefaultPredicates(predicates)
+		if err != nil {
+			return fmt.Errorf("default_sport_predicates: %w", err)
+		}
+		row["default_sport_predicates"] = gearDefaultPredicatesRowValue(normalized)
+		hasPredicates = false
+	}
+	if !hasDefaultSports {
+		return nil
+	}
+	values, err := stringList(rawValues)
+	if err != nil {
+		return fmt.Errorf("default_for_sports: %w", err)
+	}
+	canonicalTopLevel := make([]string, 0, len(values))
+	predicates := make([]sport.GearDefaultPredicate, 0, len(values))
+	for _, raw := range values {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		tuple, patch, err := sport.NormalizeSportTuple(raw, "")
+		if err != nil {
+			return fmt.Errorf("default_for_sports: %w", err)
+		}
+		canonicalTopLevel = append(canonicalTopLevel, tuple.SportType)
+		predicate, ok := sport.GearDefaultPredicateForSource(sport.SourceLegacy, raw)
+		if ok {
+			predicate.Modifiers = mergeGearDefaultPredicateModifierPatch(predicate.Modifiers, patch)
+			predicates = append(predicates, predicate)
+		}
+	}
+	normalized, err := sport.NormalizeGearDefaultSports(canonicalTopLevel)
+	if err != nil {
+		return fmt.Errorf("default_for_sports: %w", err)
+	}
+	row["default_for_sports"] = normalized
+	if hasPredicates {
+		normalizedPredicates, err := sport.NormalizeGearDefaultPredicates(predicates)
+		if err != nil {
+			return fmt.Errorf("default_sport_predicates: %w", err)
+		}
+		row["default_sport_predicates"] = gearDefaultPredicatesRowValue(normalizedPredicates)
+	}
+	return nil
+}
+
+func gearDefaultPredicatesRowValue(predicates []sport.GearDefaultPredicate) []any {
+	out := make([]any, 0, len(predicates))
+	for _, predicate := range predicates {
+		obj := map[string]any{"sport_type": predicate.SportType}
+		if predicate.SubType != nil {
+			obj["sub_type"] = *predicate.SubType
+		}
+		if predicate.Modifiers != nil {
+			modifiers := map[string]any{}
+			for _, key := range sport.SportModifierKeysWithCapability("gear_default") {
+				if value := sport.ModifierPatchValue(*predicate.Modifiers, key); value != nil {
+					modifiers[key] = *value
+				}
+			}
+			if len(modifiers) > 0 {
+				obj["modifiers"] = modifiers
+			}
+		}
+		out = append(out, obj)
+	}
+	return out
+}
+
+func gearDefaultPredicatesFromRowValue(value any) ([]sport.GearDefaultPredicate, error) {
+	if value == nil {
+		return nil, nil
+	}
+	raw, ok, err := rawMessageFromRowValue(value)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || len(raw) == 0 || strings.TrimSpace(string(raw)) == "null" {
+		return nil, nil
+	}
+	var predicates []sport.GearDefaultPredicate
+	if err := json.Unmarshal(raw, &predicates); err != nil {
+		return nil, err
+	}
+	return predicates, nil
+}
+
+func mergeGearDefaultPredicateModifierPatch(existing *sport.ModifierPatch, patch sport.ModifierPatch) *sport.ModifierPatch {
+	if existing == nil {
+		existing = &sport.ModifierPatch{}
+	}
+	merged := *existing
+	for _, key := range sport.SportModifierKeysWithCapability("gear_default") {
+		if value := sport.ModifierPatchValue(patch, key); value != nil {
+			sport.SetModifierPatchValue(&merged, key, value)
+		}
+	}
+	if sport.ModifierPatchIsEmpty(&merged) {
+		return nil
+	}
+	return &merged
+}
+
 func applyModifierPatchToRow(row map[string]any, patch sport.ModifierPatch) {
 	if patch.IsElectric != nil && *patch.IsElectric && !boolValue(row["is_electric"]) {
 		row["is_electric"] = true
@@ -96,24 +209,25 @@ func applyModifierPatchToRow(row map[string]any, patch sport.ModifierPatch) {
 	if patch.IsIndoor != nil && *patch.IsIndoor && !boolValue(row["is_indoor"]) {
 		row["is_indoor"] = true
 	}
+	if patch.IsVirtual != nil && *patch.IsVirtual && !boolValue(row["is_virtual"]) {
+		row["is_virtual"] = true
+	}
 }
 
 func mergeImportModifierPatch(a, b sport.ModifierPatch) sport.ModifierPatch {
-	if b.IsElectric != nil {
-		a.IsElectric = b.IsElectric
-	}
-	if b.IsIndoor != nil {
-		a.IsIndoor = b.IsIndoor
+	for _, key := range sport.SportModifierKeysWithCapability("source_alias") {
+		if value := sport.ModifierPatchValue(b, key); value != nil {
+			sport.SetModifierPatchValue(&a, key, value)
+		}
 	}
 	return a
 }
 
 func applyPatchToModifierFilters(filters map[string]any, patch sport.ModifierPatch) {
-	if patch.IsElectric != nil {
-		filters["is_electric"] = *patch.IsElectric
-	}
-	if patch.IsIndoor != nil {
-		filters["is_indoor"] = *patch.IsIndoor
+	for _, key := range sport.SportModifierKeysWithCapability("source_alias") {
+		if value := sport.ModifierPatchValue(patch, key); value != nil {
+			filters[key] = *value
+		}
 	}
 }
 
@@ -241,8 +355,6 @@ func normalizePredicateList(value any) ([]any, sport.ModifierPatch, error) {
 		normalized := map[string]any{"sport": tuple.SportType}
 		if tuple.SubType != "" {
 			normalized["sub_type"] = tuple.SubType
-		} else if _, ok := predicate["sub_type"]; ok {
-			normalized["sub_type"] = ""
 		}
 		modifierPatch = mergeImportModifierPatch(modifierPatch, patch)
 		out = append(out, normalized)
@@ -273,7 +385,7 @@ func normalizeAutomationRuleSportJSON(row map[string]any) error {
 		input.Actions = raw
 	}
 
-	rewritten, _, err := rules.RewriteSportTaxonomyRuleJSON(input)
+	rewritten, _, err := rules.NormalizeAndValidateSportTaxonomyRuleJSON(input)
 	if err != nil {
 		return err
 	}

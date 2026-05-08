@@ -1,17 +1,19 @@
 package shadowfs
 
-import "strings"
-
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
 
 func TestRenderPath_Activity(t *testing.T) {
 	r := NewSchemaRenderer()
 	vars := map[string]string{
 		"year": "2024", "month": "03", "day": "15",
-		"time": "14-30", "sport": "cycling",
+		"time": "1430", "sport": "cycling",
 	}
 	got := r.RenderPath("activity", "{year}/{month}/{day}_{time}_{sport}", vars, "fit")
-	want := "2024/03/15_14-30_cycling.fit"
+	want := "2024/03/15_1430_cycling.fit"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -42,6 +44,19 @@ func TestRenderPath_Truncation(t *testing.T) {
 	}
 }
 
+func TestRenderPathTruncatesUTF8Safely(t *testing.T) {
+	r := NewSchemaRenderer()
+	var longTitle strings.Builder
+	for range 20 {
+		longTitle.WriteString("界")
+	}
+
+	got := r.RenderPath("route", "{title}", map[string]string{"title": longTitle.String()}, "gpx")
+	if !utf8.ValidString(got) {
+		t.Fatalf("rendered path is not valid UTF-8: %q", got)
+	}
+}
+
 func TestRenderPath_Sanitize(t *testing.T) {
 	r := NewSchemaRenderer()
 	vars := map[string]string{"title": "my:file*name"}
@@ -49,6 +64,20 @@ func TestRenderPath_Sanitize(t *testing.T) {
 	want := "my_file_name.gpx"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestRenderPathCollapsesEmptyModifierSeparator(t *testing.T) {
+	r := NewSchemaRenderer()
+	got := r.RenderPath("activity", "{city}_{sport}_{modifiers}_{day}", map[string]string{
+		"city":      "Berlin",
+		"sport":     "running",
+		"modifiers": "",
+		"day":       "15",
+	}, "fit")
+	want := "Berlin_running_15.fit"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
@@ -81,5 +110,16 @@ func TestValidateSchema_TooLong(t *testing.T) {
 	warns, _ := r.ValidateSchema("activity", long.String()+"/{year}")
 	if len(warns) == 0 {
 		t.Error("expected path-length warning")
+	}
+}
+
+func TestValidateSchema_ModifiersUseRealisticMaxLength(t *testing.T) {
+	r := NewSchemaRenderer()
+	warns, err := r.ValidateSchema("activity", strings.Repeat("{modifiers}/", 6)+"{modifiers}")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(warns) == 0 {
+		t.Fatal("expected path-length warning from expanded modifiers")
 	}
 }

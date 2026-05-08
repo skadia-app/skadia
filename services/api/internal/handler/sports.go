@@ -22,23 +22,18 @@ type sportResponse struct {
 	Label           string            `json:"label"`
 	TypicallyHasGPS bool              `json:"typically_has_gps"`
 	Color           string            `json:"color"`
+	Lifecycle       string            `json:"lifecycle"`
+	Selectable      bool              `json:"selectable"`
 	SubTypes        []subTypeResponse `json:"sub_types"`
 }
 
 type subTypeResponse struct {
-	SubType string `json:"sub_type"`
-	Label   string `json:"label"`
+	SubType    string `json:"sub_type"`
+	Label      string `json:"label"`
+	Selectable bool   `json:"selectable"`
 }
 
 func (h *Handler) GetSportsTaxonomy(w http.ResponseWriter, r *http.Request) {
-	// Category colors matching frontend
-	catColors := map[string]string{
-		"run": "#EF4444", "bike": "#F97316", "winter": "#06B6D4",
-		"water": "#3B82F6", "fitness": "#8B5CF6", "game": "#10B981",
-		"climb": "#A855F7", "outdoor": "#84CC16", "multi": "#F59E0B",
-		"other": "#6B7280",
-	}
-
 	var resp taxonomyResponse
 	for _, cat := range sport.AllCategories() {
 		cr := categoryResponse{
@@ -50,18 +45,11 @@ func (h *Handler) GetSportsTaxonomy(w http.ResponseWriter, r *http.Request) {
 				SportType:       s.SportType,
 				Label:           s.LabelDE,
 				TypicallyHasGPS: s.TypicallyHasGPS,
-				Color:           catColors[s.CategoryKey],
+				Color:           cat.Color,
+				Lifecycle:       s.Lifecycle,
+				Selectable:      s.Selectable,
 			}
-			for stKey, st := range s.SubTypes {
-				_ = stKey
-				sr.SubTypes = append(sr.SubTypes, subTypeResponse{
-					SubType: st.SubType,
-					Label:   st.LabelDE,
-				})
-			}
-			if sr.SubTypes == nil {
-				sr.SubTypes = []subTypeResponse{}
-			}
+			sr.SubTypes = subTypeResponses(s)
 			cr.Sports = append(cr.Sports, sr)
 		}
 		if cr.Sports == nil {
@@ -71,4 +59,17 @@ func (h *Handler) GetSportsTaxonomy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+func subTypeResponses(def sport.SportDef) []subTypeResponse {
+	subTypes := sport.OrderedSubTypes(def)
+	out := make([]subTypeResponse, 0, len(subTypes))
+	for _, st := range subTypes {
+		out = append(out, subTypeResponse{
+			SubType:    st.SubType,
+			Label:      st.LabelDE,
+			Selectable: st.Selectable,
+		})
+	}
+	return out
 }

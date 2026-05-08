@@ -2,8 +2,6 @@
 import { useMemo, type ReactNode } from 'react'
 import { Check, Loader2, RefreshCw, X } from 'lucide-react'
 import {
-  WINTER_SPORT_WHITELIST,
-  WATER_SPORT_WHITELIST,
   BIDIRECTIONAL_DEFAULT,
   type SegType,
   type ClimbType,
@@ -17,6 +15,7 @@ import { SportCategoryChips } from './SportCategoryChips'
 import { isCategoryFullyActive, expandCategoryToSportTypes } from '@/lib/sportCategoryHelpers'
 import { cn } from '@/lib/utils'
 import { filterSegmentSportSelection, removeSegmentSportSelectionKeys } from './segmentSportSelection'
+import { segmentEligibleSelectionKeys, segmentTypeLabel } from '@/lib/segmentProjection'
 
 export interface SegmentMetadata {
   name: string
@@ -56,13 +55,10 @@ export interface SegmentSidebarProps {
   enrichmentStatus?: string
 }
 
-const SEG_TYPE_LABELS: Record<SegType, string> = {
-  standard: 'Standard',
-  trail: 'Trail',
-  lap: 'Runde',
-  wintersport: 'Winter',
-  wassersport: 'Wassersport',
-  lift: 'Lift',
+function eligibleKeys(segType: SegType): readonly string[] | undefined {
+  return segType === 'wintersport' || segType === 'wassersport'
+    ? segmentEligibleSelectionKeys(segType)
+    : undefined
 }
 
 export function SegmentSidebar(props: SegmentSidebarProps) {
@@ -100,12 +96,10 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
     if (!meta.userEditedBidirectional) {
       patch.bidirectional = BIDIRECTIONAL_DEFAULT[newType]
     }
-    if (newType === 'wintersport' && meta.sportTypes) {
-      patch.sportTypes = filterSegmentSportSelection(meta.sportTypes, WINTER_SPORT_WHITELIST)
-    }
-    if (newType === 'wassersport' && meta.sportTypes) {
-      patch.sportTypes = filterSegmentSportSelection(meta.sportTypes, WATER_SPORT_WHITELIST)
-    }
+	const whitelist = eligibleKeys(newType)
+	if (meta.sportTypes && whitelist) {
+	  patch.sportTypes = filterSegmentSportSelection(meta.sportTypes, whitelist)
+	}
     if (newType === 'wintersport' || newType === 'wassersport' || newType === 'lift') {
       patch.sacScale = null
       patch.mtbScale = null
@@ -137,7 +131,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
   const setAll = () => onMetaChange({ sportTypes: null })
 
   const toggleUiCategory = (uiKey: string) => {
-    const whitelist = meta.segType === 'wintersport' ? WINTER_SPORT_WHITELIST : (meta.segType === 'wassersport' ? WATER_SPORT_WHITELIST : undefined)
+    const whitelist = eligibleKeys(meta.segType)
     const categoryTypes = expandCategoryToSportTypes(uiKey, whitelist)
     const current = meta.sportTypes
 
@@ -152,8 +146,8 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
   }
 
   const availableSportTypes = useMemo(() => {
-    if (meta.segType === 'wintersport') return allSportTypes.filter(s => WINTER_SPORT_WHITELIST.includes(s.key))
-    if (meta.segType === 'wassersport') return allSportTypes.filter(s => WATER_SPORT_WHITELIST.includes(s.key))
+    const whitelist = eligibleKeys(meta.segType)
+    if (whitelist) return allSportTypes.filter(s => whitelist.includes(s.key))
     return allSportTypes
   }, [meta.segType, allSportTypes])
 
@@ -202,7 +196,7 @@ export function SegmentSidebar(props: SegmentSidebarProps) {
                 active={meta.segType === t}
                 onClick={() => handleSegTypeChange(t)}
               >
-                {SEG_TYPE_LABELS[t]}
+                {segmentTypeLabel(t)}
               </Pill>
             ))}
           </div>

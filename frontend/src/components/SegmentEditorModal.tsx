@@ -32,7 +32,7 @@ import { getToken } from '@/lib/auth'
 import { createSegment, suggestSegmentEnrichment } from '@/api/segments'
 import { useToast } from '@/lib/toast'
 import { SPORT_DEFS } from '@/lib/sportTaxonomy'
-import { sportPredicatesFromSelectionKeys } from '@/lib/sportSelection'
+import { buildNewSegmentSportPatch } from './segment-editor/segmentSave'
 
 export interface SegmentEditorModalProps {
   mode: 'track' | 'draw' | 'lap'
@@ -296,19 +296,13 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
       // Strip pure-UI flag before send
       const { userEditedBidirectional, ...savePayload } = meta
       void userEditedBidirectional
-      const sportPredicates = savePayload.sportTypes === null
-        ? null
-        : sportPredicatesFromSelectionKeys(savePayload.sportTypes)
+      const sportPatch = buildNewSegmentSportPatch(savePayload.segType, savePayload.sportTypes)
 
       return createSegment({
         name: savePayload.name,
-        sport_group: 'generic', // sport_group is legacy; tuple matching uses allowed_predicates.
+        sport_group: sportPatch.sport_group,
         segment_type: savePayload.segType,
-        // allowed_predicates:
-        //   null  → alle Sport-Tuples
-        //   []    → keine Sport-Tuples
-        //   [...] → konkrete Tuple-Predicates
-        allowed_predicates: sportPredicates,
+        allowed_predicates: sportPatch.allowed_predicates,
         bidirectional: savePayload.bidirectional,
         segment_type_meta: {
           surface: savePayload.surface,

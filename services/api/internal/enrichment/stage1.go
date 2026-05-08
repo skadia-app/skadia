@@ -474,16 +474,16 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		}
 	}
 
-	// E-Bike tag: if is_electric is true, ensure "E-Bike" tag is in tags array
-	// and link in activity_tags junction table (same pattern as "Wettkampf" above).
-	if data.IsElectric {
+	// E-Bike tag is cycling-specific. Other electric sports keep the generic
+	// is_electric flag without receiving this system tag.
+	if shouldSyncEBikeSystemTag(data) {
 		addAutoTag("E-Bike")
 
 		// Upsert the "E-Bike" system tag and link it to this activity.
 		var electricTagID string
 		row := db.Pool.QueryRow(ctx, `
 			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-			VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false, 'Automatisch bei E-Bike-Aktivitäten (Sync mit is_electric)')
+			VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false, 'Automatisch bei elektrischen Radfahrten')
 			ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'
 			RETURNING id
 		`, userID)
@@ -651,6 +651,10 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 			slog.Warn("stage1: failed to publish stage2 event", "activity_id", activityID, "error", err)
 		}
 	}
+}
+
+func shouldSyncEBikeSystemTag(data *model.ActivityData) bool {
+	return data != nil && data.SportType == "cycling" && data.IsElectric
 }
 
 // fetchAndInsertWeather fetches weather data for an activity and inserts readings + tags.

@@ -156,7 +156,8 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- GPS quality
 			gps_accuracy_m,
 			-- Suunto Training Load
-			suunto_vo2max, suunto_peak_epoc, suunto_recovery_time_h
+			suunto_vo2max, suunto_peak_epoc, suunto_recovery_time_h,
+			is_commute
 		) VALUES (
 			-- Core ($1-$4, parsed reuses $3/$4)
 			$1, $2, $3, $4,
@@ -261,7 +262,9 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 			-- GPS quality ($158)
 			$158,
 			-- Suunto Training Load ($159-$161)
-			$159, $160, $161
+			$159, $160, $161,
+			-- Importer/runtime modifier ($162)
+			$162
 		)
 		RETURNING id, is_electric, is_virtual, created_at, updated_at`,
 		userID, nilIfEmpty(data.FileHash), data.SportType, nilIfEmpty(data.SubType), // $1-$4
@@ -325,6 +328,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		data.Vo2MaxMlKgMin, data.Vo2MaxCalibrated, data.Vo2MaxHrSource, data.Vo2MaxSpeedSource, // $154-$157
 		nilIfZeroInt(data.GpsAccuracyM),                                  // $158
 		data.SuuntoVO2max, data.SuuntoPeakEPOC, data.SuuntoRecoveryTimeH, // $159-$161
+		data.IsCommute, // $162
 	).Scan(&id, &isElectric, &isVirtual, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert activity: %w", err)
@@ -343,6 +347,7 @@ func insertActivityOnQuerier(ctx context.Context, q rowQuerier, userID string, d
 		StartedAt:            data.StartedAt,
 		IsElectric:           isElectric,
 		IsVirtual:            isVirtual,
+		IsCommute:            data.IsCommute,
 		ExcludeFromHeatmap:   isVirtual,
 		ExcludeFromStats:     false,
 		IsIndoor:             data.IsIndoor,
@@ -691,7 +696,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		SELECT
 			a.id, a.user_id, a.file_hash, a.file_id, a.title, a.title_auto, a.description,
 			a.sport_type, a.sub_type, a.fit_sport_id, a.fit_sub_sport_id, a.is_electric,
-			a.is_virtual, a.exclude_from_heatmap, a.exclude_from_stats,
+			a.is_virtual, a.is_commute, a.exclude_from_heatmap, a.exclude_from_stats,
 			a.started_at, a.ended_at, a.elapsed_time_s, a.moving_time_s,
 				a.distance_m, a.elevation_gain_m, a.elevation_loss_m,
 				a.max_elevation_m, a.min_elevation_m,
@@ -792,7 +797,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 	).Scan(
 		&a.ID, &a.UserID, &a.FileHash, &a.FileID, &a.Title, &a.TitleAuto, &a.Description,
 		&a.SportType, &a.SubType, &a.FitSportID, &a.FitSubSportID, &a.IsElectric,
-		&a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats,
+		&a.IsVirtual, &a.IsCommute, &a.ExcludeFromHeatmap, &a.ExcludeFromStats,
 		&a.StartedAt, &a.EndedAt, &a.ElapsedTimeS, &a.MovingTimeS,
 		&a.DistanceM, &a.ElevationGainM, &a.ElevationLossM,
 		&a.MaxElevationM, &a.MinElevationM,
@@ -1343,12 +1348,19 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 
 func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *model.ActivityUpdate) (*model.Activity, error) {
 	b := newSetBuilder(3)
+	clearSportConflict := update.SportType != nil || update.SubType != nil ||
+		update.IsIndoor != nil || update.IsElectric != nil || update.IsVirtual != nil
 
-	if update.Title != nil {
+	if update.ClearTitle != nil && *update.ClearTitle {
+		b.SetExpr("title = NULL")
+		b.SetExpr("title_is_manual = false")
+	} else if update.Title != nil {
 		b.Set("title", *update.Title)
 		b.SetExpr("title_is_manual = true")
 	}
-	if update.Description != nil {
+	if update.ClearDescription != nil && *update.ClearDescription {
+		b.SetExpr("description = NULL")
+	} else if update.Description != nil {
 		b.Set("description", *update.Description)
 	}
 	if update.SportType != nil || update.SubType != nil {
@@ -1369,7 +1381,7 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 		if update.SubType != nil {
 			rawSubType = *update.SubType
 		}
-		tuple, patch, err := sport.NormalizeSportTuple(rawSportType, rawSubType)
+		tuple, patch, err := sport.NormalizeSelectableSportTuple(rawSportType, rawSubType)
 		if err != nil {
 			return nil, err
 		}
@@ -1440,25 +1452,33 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	if update.ExcludeLiftSubtraction != nil {
 		b.Set("exclude_lift_subtraction", *update.ExcludeLiftSubtraction)
 	}
-	if update.WorkoutFeel != nil {
+	if update.ClearWorkoutFeel != nil && *update.ClearWorkoutFeel {
+		b.SetExpr("workout_feel = NULL")
+	} else if update.WorkoutFeel != nil {
 		b.Set("workout_feel", *update.WorkoutFeel)
 	}
-	if update.WorkoutRpe != nil {
+	if update.ClearWorkoutRpe != nil && *update.ClearWorkoutRpe {
+		b.SetExpr("workout_rpe = NULL")
+	} else if update.WorkoutRpe != nil {
 		b.Set("workout_rpe", *update.WorkoutRpe)
 	}
 	if update.ExcludeFromHeatmap != nil {
 		skipExplicitHeatmap := false
 		if update.IsVirtual != nil && *update.IsVirtual {
 			if !*update.ExcludeFromHeatmap {
-				return nil, fmt.Errorf("cannot disable heatmap exclusion for virtual activities")
+				return nil, ErrVirtualHeatmapRequired
 			}
 			skipExplicitHeatmap = true
 		}
 		if !skipExplicitHeatmap && !*update.ExcludeFromHeatmap {
-			var isVirtual bool
-			_ = db.Pool.QueryRow(ctx, "SELECT is_virtual FROM activities WHERE id = $1 AND user_id = $2", id, userID).Scan(&isVirtual)
-			if isVirtual {
-				return nil, fmt.Errorf("cannot disable heatmap exclusion for virtual activities")
+			effectiveVirtual := false
+			if update.IsVirtual != nil {
+				effectiveVirtual = *update.IsVirtual
+			} else {
+				_ = db.Pool.QueryRow(ctx, "SELECT is_virtual FROM activities WHERE id = $1 AND user_id = $2", id, userID).Scan(&effectiveVirtual)
+			}
+			if effectiveVirtual {
+				return nil, ErrVirtualHeatmapRequired
 			}
 		}
 		if !skipExplicitHeatmap {
@@ -1467,6 +1487,9 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	}
 	if update.ExcludeFromStats != nil {
 		b.Set("exclude_from_stats", *update.ExcludeFromStats)
+	}
+	if clearSportConflict {
+		b.Set("sport_conflict_pending", false)
 	}
 
 	if !b.HasSets() {
@@ -1478,6 +1501,11 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	_, err := db.Pool.Exec(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("update activity: %w", err)
+	}
+	if clearSportConflict {
+		if err := db.ResolveImportQueueByActivity(ctx, userID, id); err != nil {
+			slog.Warn("update activity: failed to resolve sport conflict queue", "activity_id", id, "user_id", userID, "error", err)
+		}
 	}
 
 	return db.GetActivity(ctx, id)
@@ -2235,6 +2263,8 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, data.IsElectric)
 	sets = append(sets, fmt.Sprintf("is_virtual = %s", idx()))
 	args = append(args, data.IsVirtual)
+	sets = append(sets, fmt.Sprintf("is_commute = %s", idx()))
+	args = append(args, data.IsCommute)
 	sets = append(sets, fmt.Sprintf("has_gps = %s", idx()))
 	args = append(args, data.HasGPS)
 

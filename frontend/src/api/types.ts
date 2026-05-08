@@ -7,7 +7,7 @@ export type SportType =
   | 'skiing'
   | 'paddling'
   | 'walking'
-  | 'strength'
+  | 'strength_training'
   | 'rock_climbing'
   | 'stand_up_paddleboarding'
   | 'generic'
@@ -16,6 +16,18 @@ export type SportType =
 export type Visibility = 'private' | 'bekannte' | 'instanz' | 'federation' | 'public'
 
 export type GearStatus = 'active' | 'stored' | 'retired'
+
+export interface GearDefaultModifiers {
+  is_electric?: boolean
+  is_indoor?: boolean
+  is_virtual?: boolean
+}
+
+export interface GearDefaultSportPredicate {
+  sport_type: string
+  sub_type?: string | null
+  modifiers?: GearDefaultModifiers | null
+}
 
 export interface WeatherReading {
   id: string
@@ -75,6 +87,7 @@ export interface Activity {
   fit_sport_id?: number
   is_electric: boolean
   is_virtual: boolean
+  is_commute: boolean
   exclude_from_heatmap: boolean
   exclude_from_stats: boolean
   started_at: string
@@ -614,6 +627,7 @@ export interface Gear {
   is_retired: boolean
   status: GearStatus
   default_for_sports: string[]
+  default_sport_predicates: GearDefaultSportPredicate[]
   notes?: string | null
   weight_g?: number | null
   components?: GearComponent[]
@@ -770,6 +784,15 @@ export interface AutomationRule {
 export interface RuleConditionGroup {
   logic: 'and' | 'or'
   conditions: RuleCondition[]
+}
+
+export interface RuleSportTupleConditionValue {
+  sport_type: string
+  sub_type?: string
+  is_electric?: boolean
+  is_indoor?: boolean
+  is_virtual?: boolean
+  is_commute?: boolean
 }
 
 export interface RuleCondition {

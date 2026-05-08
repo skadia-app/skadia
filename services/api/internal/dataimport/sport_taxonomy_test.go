@@ -2,8 +2,11 @@ package dataimport
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func TestNormalizeSportTaxonomyImportRowActivities(t *testing.T) {
@@ -29,8 +32,55 @@ func TestNormalizeSportTaxonomyImportRowActivities(t *testing.T) {
 	if got["is_electric"] != true {
 		t.Fatalf("is_electric should preserve true, got %#v", got["is_electric"])
 	}
-	if got["is_indoor"] != true {
-		t.Fatalf("is_indoor should be set by parsed treadmill tuple, got %#v", got["is_indoor"])
+	if got["is_indoor"] != false {
+		t.Fatalf("is_indoor should preserve the effective activity modifier, got %#v", got["is_indoor"])
+	}
+}
+
+func TestNormalizeSportTaxonomyImportRowActivitiesDoesNotApplyParsedModifiersToEffectiveTuple(t *testing.T) {
+	row := map[string]any{
+		"sport_type":        "running",
+		"sub_type":          "trail",
+		"parsed_sport_type": "treadmill_running",
+		"parsed_sub_type":   "",
+		"is_indoor":         false,
+		"is_virtual":        false,
+	}
+
+	got, err := normalizeSportTaxonomyImportRow("activities", row, nil)
+	if err != nil {
+		t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
+	}
+	if got["sport_type"] != "running" || got["sub_type"] != "trail" {
+		t.Fatalf("effective tuple: got (%#v, %#v), want (running, trail)", got["sport_type"], got["sub_type"])
+	}
+	if got["parsed_sport_type"] != "running" || got["parsed_sub_type"] != "treadmill" {
+		t.Fatalf("parsed tuple: got (%#v, %#v), want (running, treadmill)", got["parsed_sport_type"], got["parsed_sub_type"])
+	}
+	if got["is_indoor"] != false {
+		t.Fatalf("is_indoor = %#v, want false from effective tuple/manual state", got["is_indoor"])
+	}
+}
+
+func TestImportModifierPatchAppliesVirtual(t *testing.T) {
+	virtual := true
+	patch := sport.ModifierPatch{IsVirtual: &virtual}
+
+	row := map[string]any{"is_virtual": false}
+	applyModifierPatchToRow(row, patch)
+	if row["is_virtual"] != true {
+		t.Fatalf("is_virtual row patch = %#v, want true", row["is_virtual"])
+	}
+
+	merged := mergeImportModifierPatch(sport.ModifierPatch{}, patch)
+	if merged.IsVirtual == nil || !*merged.IsVirtual {
+		t.Fatalf("merged IsVirtual = %#v, want true", merged.IsVirtual)
+	}
+
+	filters := map[string]any{}
+	applyPatchToModifierFilters(filters, patch)
+	if filters["is_virtual"] != true {
+		t.Fatalf("is_virtual filter patch = %#v, want true", filters["is_virtual"])
 	}
 }
 
@@ -161,6 +211,98 @@ func TestNormalizeSportTaxonomyImportRowRoutingProfiles(t *testing.T) {
 	}
 }
 
+func TestNormalizeSportTaxonomyImportRowDropsParentOnlyPredicateSubType(t *testing.T) {
+	row := map[string]any{
+		"predicates": []any{map[string]any{"sport": "cycling", "sub_type": "generic"}},
+	}
+	targetCols := []targetColumn{
+		{Name: "predicates"},
+		{Name: "modifier_filters"},
+	}
+
+	got, err := normalizeSportTaxonomyImportRow("routing_profiles", row, targetCols)
+	if err != nil {
+		t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
+	}
+	predicates := got["predicates"].([]any)
+	predicate := predicates[0].(map[string]any)
+	if _, ok := predicate["sub_type"]; ok {
+		t.Fatalf("predicate kept parent-only sub_type: %#v", predicate)
+	}
+}
+
+func TestNormalizeSportTaxonomyImportRowGearDefaultSports(t *testing.T) {
+	row := map[string]any{
+		"default_for_sports": []any{"mountain_biking", "e_mountain_biking", "cycling", "fitness_equipment"},
+	}
+
+	got, err := normalizeSportTaxonomyImportRow("gear", row, []targetColumn{{Name: "default_for_sports"}, {Name: "default_sport_predicates"}})
+	if err != nil {
+		t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
+	}
+	want := []string{"cycling", "fitness_equipment"}
+	if !reflect.DeepEqual(got["default_for_sports"], want) {
+		t.Fatalf("default_for_sports = %#v (%T), want %#v", got["default_for_sports"], got["default_for_sports"], want)
+	}
+	predicates, ok := got["default_sport_predicates"].([]any)
+	if !ok {
+		t.Fatalf("default_sport_predicates = %#v (%T), want []any", got["default_sport_predicates"], got["default_sport_predicates"])
+	}
+	if len(predicates) != 4 {
+		t.Fatalf("predicate count = %d, want 4: %#v", len(predicates), predicates)
+	}
+	mountainElectric, ok := predicates[1].(map[string]any)
+	if !ok {
+		t.Fatalf("second predicate = %#v", predicates[1])
+	}
+	modifiers, ok := mountainElectric["modifiers"].(map[string]any)
+	if !ok || modifiers["is_electric"] != true {
+		t.Fatalf("second predicate modifiers = %#v", mountainElectric["modifiers"])
+	}
+}
+
+func TestNormalizeSportTaxonomyImportRowGearDefaultSportsEmpty(t *testing.T) {
+	tests := []struct {
+		name string
+		row  map[string]any
+		want any
+	}{
+		{name: "nil value", row: map[string]any{"default_for_sports": nil}, want: []string{}},
+		{name: "missing export key", row: map[string]any{}, want: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeSportTaxonomyImportRow("gear", tt.row, []targetColumn{{Name: "default_for_sports"}})
+			if err != nil {
+				t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
+			}
+			if !reflect.DeepEqual(got["default_for_sports"], tt.want) {
+				t.Fatalf("default_for_sports = %#v (%T), want %#v", got["default_for_sports"], got["default_for_sports"], tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeSportTaxonomyImportRowRejectsInvalidGearDefaultSport(t *testing.T) {
+	tests := []struct {
+		name string
+		row  map[string]any
+	}{
+		{name: "tuple shaped storage", row: map[string]any{"default_for_sports": []any{"cycling:mountain"}}},
+		{name: "unknown sport", row: map[string]any{"default_for_sports": []any{"not_a_sport"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := normalizeSportTaxonomyImportRow("gear", tt.row, []targetColumn{{Name: "default_for_sports"}})
+			if err == nil || !strings.Contains(err.Error(), "default_for_sports") {
+				t.Fatalf("error: got %v, want default_for_sports error", err)
+			}
+		})
+	}
+}
+
 func TestNormalizeSportTaxonomyImportRowRejectsUnsupportedAutomationRule(t *testing.T) {
 	row := map[string]any{
 		"conditions": []any{map[string]any{"field": "sport_type", "op": "neq", "value": "mountain_biking"}},
@@ -168,6 +310,85 @@ func TestNormalizeSportTaxonomyImportRowRejectsUnsupportedAutomationRule(t *test
 	_, err := normalizeSportTaxonomyImportRow("automation_rules", row, nil)
 	if err == nil || !strings.Contains(err.Error(), "conditions") || !strings.Contains(err.Error(), "unsupported sport_type operator") {
 		t.Fatalf("error: got %v, want clear automation rule field error", err)
+	}
+}
+
+func TestNormalizeSportTaxonomyImportRowPreservesValidSportTupleRule(t *testing.T) {
+	row := map[string]any{
+		"condition_groups": []any{map[string]any{
+			"logic": "and",
+			"conditions": []any{map[string]any{
+				"field": "sport_tuple",
+				"op":    "in",
+				"value": []any{map[string]any{"sport_type": "cycling", "sub_type": "mountain", "is_electric": true}},
+			}},
+		}},
+	}
+	got, err := normalizeSportTaxonomyImportRow("automation_rules", row, nil)
+	if err != nil {
+		t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
+	}
+	groups := got["condition_groups"].([]any)
+	conditions := groups[0].(map[string]any)["conditions"].([]any)
+	value := conditions[0].(map[string]any)["value"].([]any)
+	tuple := value[0].(map[string]any)
+	if tuple["sport_type"] != "cycling" || tuple["sub_type"] != "mountain" || tuple["is_electric"] != true {
+		t.Fatalf("sport_tuple not preserved: %#v", got["condition_groups"])
+	}
+}
+
+func TestNormalizeSportTaxonomyImportRowRejectsInvalidSportTupleRule(t *testing.T) {
+	row := map[string]any{
+		"conditions": []any{map[string]any{
+			"field": "sport_tuple",
+			"op":    "in",
+			"value": []any{map[string]any{"sport_type": "running", "sub_type": "mountain"}},
+		}},
+	}
+	_, err := normalizeSportTaxonomyImportRow("automation_rules", row, nil)
+	if err == nil || !strings.Contains(err.Error(), "conditions") || !strings.Contains(err.Error(), "sub_type") {
+		t.Fatalf("error: got %v, want sport_tuple sub_type rejection", err)
+	}
+}
+
+func TestNormalizeSportTaxonomyImportRowPreservesLegacySportTypeInRule(t *testing.T) {
+	row := map[string]any{
+		"conditions": []any{map[string]any{
+			"field": "sport_type",
+			"op":    "in",
+			"value": []any{"running", "swimming"},
+		}},
+	}
+	got, err := normalizeSportTaxonomyImportRow("automation_rules", row, nil)
+	if err != nil {
+		t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
+	}
+	conditions := got["conditions"].([]any)
+	value := conditions[0].(map[string]any)["value"].([]any)
+	if value[0] != "running" || value[1] != "swimming" {
+		t.Fatalf("legacy sport_type in not preserved: %#v", got["conditions"])
+	}
+}
+
+func TestNormalizeSportTaxonomyImportRowRejectsMixedSportTupleAndLegacyRule(t *testing.T) {
+	row := map[string]any{
+		"conditions": []any{map[string]any{
+			"field": "sport_type",
+			"op":    "in",
+			"value": []any{"running"},
+		}},
+		"condition_groups": []any{map[string]any{
+			"logic": "and",
+			"conditions": []any{map[string]any{
+				"field": "sport_tuple",
+				"op":    "in",
+				"value": []any{map[string]any{"sport_type": "cycling"}},
+			}},
+		}},
+	}
+	_, err := normalizeSportTaxonomyImportRow("automation_rules", row, nil)
+	if err == nil || !strings.Contains(err.Error(), "mixed sport_type in and sport_tuple in") {
+		t.Fatalf("error: got %v, want mixed-shape rejection", err)
 	}
 }
 

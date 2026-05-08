@@ -2,10 +2,12 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -14,12 +16,13 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/rules"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 // gearSelectCols are the columns returned by gear queries.
 const gearSelectCols = `id, user_id, name, type, sub_type, brand, model,
 	total_distance_m, total_time_s, total_elevation_gain_m, total_activities,
-	purchased_at, retired_at, is_retired, status, default_for_sports, notes, created_at`
+	purchased_at, retired_at, is_retired, status, default_for_sports, default_sport_predicates, notes, created_at`
 
 // scanGear scans a gear row into a model.Gear.
 // pgx v5 uses binary protocol for dates (OID 1082) which cannot be scanned
@@ -27,10 +30,11 @@ const gearSelectCols = `id, user_id, name, type, sub_type, brand, model,
 func scanGear(row pgx.Row) (*model.Gear, error) {
 	var g model.Gear
 	var purchasedAt, retiredAt pgtype.Date
+	var predicateJSON []byte
 	err := row.Scan(
 		&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
 		&g.TotalDistanceM, &g.TotalTimeS, &g.TotalElevationGainM, &g.TotalActivities,
-		&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
+		&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &predicateJSON, &g.Notes, &g.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -48,6 +52,14 @@ func scanGear(row pgx.Row) (*model.Gear, error) {
 	}
 	if g.DefaultForSports == nil {
 		g.DefaultForSports = []string{}
+	}
+	if len(predicateJSON) > 0 {
+		if err := json.Unmarshal(predicateJSON, &g.DefaultSportPredicates); err != nil {
+			return nil, fmt.Errorf("scan gear default_sport_predicates: %w", err)
+		}
+	}
+	if g.DefaultSportPredicates == nil {
+		g.DefaultSportPredicates = []sport.GearDefaultPredicate{}
 	}
 	return &g, nil
 }
@@ -99,10 +111,11 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 	for rows.Next() {
 		var g model.Gear
 		var purchasedAt, retiredAt pgtype.Date
+		var predicateJSON []byte
 		if err := rows.Scan(
 			&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
 			&g.TotalDistanceM, &g.TotalTimeS, &g.TotalElevationGainM, &g.TotalActivities,
-			&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &g.Notes, &g.CreatedAt,
+			&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &predicateJSON, &g.Notes, &g.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan gear: %w", err)
 		}
@@ -117,6 +130,14 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 		if g.DefaultForSports == nil {
 			g.DefaultForSports = []string{}
 		}
+		if len(predicateJSON) > 0 {
+			if err := json.Unmarshal(predicateJSON, &g.DefaultSportPredicates); err != nil {
+				return nil, fmt.Errorf("scan gear default_sport_predicates: %w", err)
+			}
+		}
+		if g.DefaultSportPredicates == nil {
+			g.DefaultSportPredicates = []sport.GearDefaultPredicate{}
+		}
 		items = append(items, g)
 	}
 	if err := rows.Err(); err != nil {
@@ -129,17 +150,25 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 }
 
 func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearCreate) (*model.Gear, error) {
-	sports := create.DefaultForSports
-	if sports == nil {
-		sports = []string{}
+	sports, err := sport.NormalizeGearDefaultSports(create.DefaultForSports)
+	if err != nil {
+		return nil, fmt.Errorf("create gear: %w", err)
+	}
+	predicates, err := sport.NormalizeGearDefaultPredicates(create.DefaultSportPredicates)
+	if err != nil {
+		return nil, fmt.Errorf("create gear: %w", err)
+	}
+	predicateJSON, err := json.Marshal(predicates)
+	if err != nil {
+		return nil, fmt.Errorf("create gear: %w", err)
 	}
 
 	g, err := scanGear(db.Pool.QueryRow(ctx,
-		`INSERT INTO gear (user_id, name, type, sub_type, brand, model, purchased_at, default_for_sports, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`INSERT INTO gear (user_id, name, type, sub_type, brand, model, purchased_at, default_for_sports, default_sport_predicates, notes)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
 		 RETURNING `+gearSelectCols,
 		userID, create.Name, create.Type, create.SubType, create.Brand, create.Model,
-		create.PurchasedAt, sports, create.Notes,
+		create.PurchasedAt, sports, string(predicateJSON), create.Notes,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create gear: %w", err)
@@ -196,7 +225,24 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 		b.Set("is_retired", *update.IsRetired)
 	}
 	if update.DefaultForSports != nil {
-		b.Set("default_for_sports", update.DefaultForSports)
+		sports, err := sport.NormalizeGearDefaultSports(update.DefaultForSports)
+		if err != nil {
+			return nil, fmt.Errorf("update gear: %w", err)
+		}
+		b.Set("default_for_sports", sports)
+	}
+	if update.DefaultSportPredicates != nil {
+		predicates, err := sport.NormalizeGearDefaultPredicates(update.DefaultSportPredicates)
+		if err != nil {
+			return nil, fmt.Errorf("update gear: %w", err)
+		}
+		predicateJSON, err := json.Marshal(predicates)
+		if err != nil {
+			return nil, fmt.Errorf("update gear: %w", err)
+		}
+		idx := b.NextIdx()
+		b.SetExpr(fmt.Sprintf("default_sport_predicates = $%d::jsonb", idx), string(predicateJSON))
+		b.idx++
 	}
 	if update.Notes != nil {
 		b.Set("notes", *update.Notes)
@@ -842,19 +888,31 @@ func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 }
 
 func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationRule, error) {
-	rows, err := db.Pool.Query(ctx,
-		`SELECT ar.id, ar.user_id, ar.name, ar.is_active, ar.priority,
-		        ar.conditions, ar.conditions_logic, ar.condition_groups, ar.actions,
-		        CASE
-		            WHEN ar.system_type = 'electric_sync'    THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'E-Bike'   LIMIT 1), 0)
-		            WHEN ar.system_type = 'virtual_sync'  THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = 'virtuell' LIMIT 1), 0)
-		            ELSE ar.times_applied
-		        END,
-		        ar.created_at, ar.is_system, ar.system_type,
-		        ar.trigger_event, ar.stop_on_match, ar.apply_retroactively,
-		        ar.last_evaluated_at, ar.last_matched_count, ar.branches
-		 FROM automation_rules ar WHERE ar.user_id = $1 ORDER BY ar.priority, ar.name`, userID,
-	)
+	readonlySyncs := readonlySystemModifierTagSyncs()
+	args := []any{userID}
+	caseParts := make([]string, 0, len(readonlySyncs))
+	for _, sync := range readonlySyncs {
+		systemTypeParam := len(args) + 1
+		args = append(args, sync.SystemType)
+		tagNameParam := len(args) + 1
+		args = append(args, sync.SystemTagName)
+		caseParts = append(caseParts, fmt.Sprintf(
+			"WHEN ar.system_type = $%d THEN COALESCE((SELECT t.activity_count FROM tags t WHERE t.user_id = ar.user_id AND t.name = $%d LIMIT 1), 0)",
+			systemTypeParam, tagNameParam,
+		))
+	}
+	timesAppliedExpr := "ar.times_applied"
+	if len(caseParts) > 0 {
+		timesAppliedExpr = "CASE " + strings.Join(caseParts, " ") + " ELSE ar.times_applied END"
+	}
+	query := fmt.Sprintf(`SELECT ar.id, ar.user_id, ar.name, ar.is_active, ar.priority,
+			        ar.conditions, ar.conditions_logic, ar.condition_groups, ar.actions,
+				        %s,
+				        ar.created_at, ar.is_system, ar.system_type,
+				        ar.trigger_event, ar.stop_on_match, ar.apply_retroactively,
+				        ar.last_evaluated_at, ar.last_matched_count, ar.branches
+				 FROM automation_rules ar WHERE ar.user_id = $1 ORDER BY ar.priority, ar.name`, timesAppliedExpr)
+	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list rules: %w", err)
 	}
@@ -893,6 +951,14 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 	if triggerEvent == "" {
 		triggerEvent = "on_import"
 	}
+	if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+		Conditions:      create.Conditions,
+		ConditionGroups: create.ConditionGroups,
+		Actions:         create.Actions,
+		Branches:        create.Branches,
+	}); err != nil {
+		return nil, fmt.Errorf("validate rule: %w", err)
+	}
 	var r model.AutomationRule
 	err := db.Pool.QueryRow(ctx,
 		`INSERT INTO automation_rules (user_id, name, priority, conditions, conditions_logic, condition_groups, actions, trigger_event, stop_on_match, apply_retroactively, branches)
@@ -922,18 +988,19 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 }
 
 func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *model.AutomationRuleUpdate) (*model.AutomationRule, error) {
-	// Server-side guard: ebike_sync rules are fully read-only
+	// Server-side guard: sync rules are fully read-only.
 	var sysType *string
+	var currentConditions, currentConditionGroups, currentActions, currentBranches json.RawMessage
 	if err := db.Pool.QueryRow(ctx,
-		`SELECT system_type FROM automation_rules WHERE id = $1 AND user_id = $2`,
+		`SELECT system_type, conditions, condition_groups, actions, branches FROM automation_rules WHERE id = $1 AND user_id = $2`,
 		id, userID,
-	).Scan(&sysType); err != nil {
+	).Scan(&sysType, &currentConditions, &currentConditionGroups, &currentActions, &currentBranches); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	if sysType != nil && (*sysType == "electric_sync" || *sysType == "virtual_sync") {
+	if isReadonlySyncRuleType(sysType) {
 		return nil, fmt.Errorf("this system rule is read-only")
 	}
 
@@ -971,6 +1038,28 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 	}
 	if update.Branches != nil {
 		b.Set("branches", update.Branches)
+	}
+
+	effective := rules.SportTaxonomyRuleJSON{
+		Conditions:      currentConditions,
+		ConditionGroups: currentConditionGroups,
+		Actions:         currentActions,
+		Branches:        currentBranches,
+	}
+	if update.Conditions != nil {
+		effective.Conditions = *update.Conditions
+	}
+	if update.ConditionGroups != nil {
+		effective.ConditionGroups = *update.ConditionGroups
+	}
+	if update.Actions != nil {
+		effective.Actions = *update.Actions
+	}
+	if update.Branches != nil {
+		effective.Branches = update.Branches
+	}
+	if err := validateAutomationRuleJSON(effective); err != nil {
+		return nil, fmt.Errorf("validate rule: %w", err)
 	}
 
 	if !b.HasSets() {
@@ -1014,6 +1103,22 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 			  AND (ar.actions::text LIKE '%' || t.id::text || '%' OR COALESCE(ar.branches::text, '') LIKE '%' || t.id::text || '%')
 		) WHERE t.user_id = $1`, userID) //nolint:errcheck
 	return &r, nil
+}
+
+func validateAutomationRuleJSON(input rules.SportTaxonomyRuleJSON) error {
+	return rules.MarkSportTaxonomyValidationError(rules.ValidateSportTaxonomyRuleJSON(input))
+}
+
+func isReadonlySyncRuleType(systemType *string) bool {
+	if systemType == nil {
+		return false
+	}
+	for _, sync := range readonlySystemModifierTagSyncs() {
+		if *systemType == sync.SystemType {
+			return true
+		}
+	}
+	return false
 }
 
 func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
@@ -1075,18 +1180,20 @@ func (db *DB) UpdateGearStats(ctx context.Context, gearID string) error {
 }
 
 func (db *DB) AssignGearByRules(ctx context.Context, userID, activityID, sportType string) error {
-	// Find default gear for the sport type
-	var gearID string
-	err := db.Pool.QueryRow(ctx,
-		`SELECT id FROM gear
-		 WHERE user_id = $1 AND is_retired = false AND $2 = ANY(default_for_sports)
-		 ORDER BY created_at LIMIT 1`, userID, sportType,
-	).Scan(&gearID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // No default gear for this sport
-	}
+	return db.AssignGearByRulesForActivity(ctx, userID, activityID, sportType, "", sport.ModifierValues{})
+}
+
+func (db *DB) AssignGearByRulesForActivity(ctx context.Context, userID, activityID, sportType, subType string, modifiers sport.ModifierValues) error {
+	activityTuple, _, err := sport.NormalizeSportTuple(sportType, subType)
 	if err != nil {
-		return fmt.Errorf("find default gear: %w", err)
+		return fmt.Errorf("normalize activity sport for gear: %w", err)
+	}
+	gearID, err := db.findDefaultGearForActivity(ctx, userID, activityTuple, modifiers)
+	if err != nil {
+		return err
+	}
+	if gearID == "" {
+		return nil
 	}
 
 	_, err = db.Pool.Exec(ctx,
@@ -1097,6 +1204,56 @@ func (db *DB) AssignGearByRules(ctx context.Context, userID, activityID, sportTy
 		return fmt.Errorf("assign gear: %w", err)
 	}
 	return nil
+}
+
+func (db *DB) findDefaultGearForActivity(ctx context.Context, userID string, activityTuple sport.Tuple, modifiers sport.ModifierValues) (string, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, default_for_sports, default_sport_predicates
+		 FROM gear
+		 WHERE user_id = $1
+		   AND is_retired = false
+		   AND (
+		     COALESCE(cardinality(default_for_sports), 0) > 0
+		     OR jsonb_array_length(COALESCE(default_sport_predicates, '[]'::jsonb)) > 0
+		   )
+		 ORDER BY created_at`, userID,
+	)
+	if err != nil {
+		return "", fmt.Errorf("find default gear: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var gearID string
+		var defaultSports []string
+		var predicateJSON []byte
+		if err := rows.Scan(&gearID, &defaultSports, &predicateJSON); err != nil {
+			return "", fmt.Errorf("scan default gear: %w", err)
+		}
+		var predicates []sport.GearDefaultPredicate
+		if len(predicateJSON) > 0 {
+			if err := json.Unmarshal(predicateJSON, &predicates); err != nil {
+				return "", fmt.Errorf("scan default gear predicates: %w", err)
+			}
+		}
+		if len(predicates) > 0 {
+			for _, predicate := range predicates {
+				if sport.GearDefaultPredicateMatchesActivity(predicate, activityTuple.SportType, activityTuple.SubType, modifiers) {
+					return gearID, nil
+				}
+			}
+			continue
+		}
+		for _, defaultSport := range defaultSports {
+			if defaultSport == activityTuple.SportType {
+				return gearID, nil
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("find default gear: %w", err)
+	}
+	return "", nil
 }
 
 // GetActivityAsMap returns an activity as a map for rule evaluation.
@@ -1657,13 +1814,21 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET visibility = $1 WHERE id = $2`, value, activityID)
 		return err
 	case "sport_type":
+		rawSportType, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("sport_type value must be a string")
+		}
+		tuple, _, err := sport.NormalizeSelectableSportTuple(rawSportType, "")
+		if err != nil {
+			return err
+		}
 		// Guard: don't override manually set sport types
 		var isManual bool
 		_ = db.Pool.QueryRow(ctx, `SELECT sport_type_is_manual FROM activities WHERE id = $1`, activityID).Scan(&isManual)
 		if isManual {
 			return nil // skip — user corrected this manually
 		}
-		_, err := db.Pool.Exec(ctx, `UPDATE activities SET sport_type = $1 WHERE id = $2`, value, activityID)
+		_, err = db.Pool.Exec(ctx, `UPDATE activities SET sport_type = $1, sub_type = NULL WHERE id = $2`, tuple.SportType, activityID)
 		return err
 	case "sub_type":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET sub_type = $1 WHERE id = $2`, value, activityID)
@@ -1678,9 +1843,13 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 		if isManual {
 			return nil
 		}
-		_, err := db.Pool.Exec(ctx,
+		normalized, _, err := sport.NormalizeSelectableSportTuple(tuple.SportType, tuple.SubType)
+		if err != nil {
+			return err
+		}
+		_, err = db.Pool.Exec(ctx,
 			`UPDATE activities SET sport_type = $1, sub_type = NULLIF($2, '') WHERE id = $3`,
-			tuple.SportType, tuple.SubType, activityID)
+			normalized.SportType, normalized.SubType, activityID)
 		return err
 	case "intensity":
 		_, err := db.Pool.Exec(ctx, `UPDATE activities SET intensity = $1 WHERE id = $2`, value, activityID)

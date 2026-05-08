@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skadia.local/schema/sport-taxonomy/modifiers.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["modifiers"],
+  "properties": {
+    "modifiers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/modifier"}
+    }
+  },
+  "$defs": {
+    "localeMap": {
+      "type": "object",
+      "additionalProperties": {"type": "string"},
+      "required": ["de"],
+      "properties": {
+        "de": {"type": "string", "minLength": 1}
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_alias",
+        "modifier_patch",
+        "activity_state",
+        "modifier_filter",
+        "rule_condition",
+        "rule_action",
+        "route_filter",
+        "heatmap_filter",
+        "gear_default",
+        "record_grouping",
+        "shadowfs_label",
+        "quick_edit",
+        "taxonomy_default"
+      ],
+      "properties": {
+        "source_alias": {"type": "boolean"},
+        "modifier_patch": {"type": "boolean"},
+        "activity_state": {"type": "boolean"},
+        "modifier_filter": {"type": "boolean"},
+        "rule_condition": {"type": "boolean"},
+        "rule_action": {"type": "boolean"},
+        "route_filter": {"type": "boolean"},
+        "heatmap_filter": {"type": "boolean"},
+        "gear_default": {"type": "boolean"},
+        "record_grouping": {"type": "boolean"},
+        "shadowfs_label": {"type": "boolean"},
+        "quick_edit": {"type": "boolean"},
+        "taxonomy_default": {"type": "boolean"}
+      }
+    },
+    "tagSync": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system_tag", "color", "description", "readonly_sync"],
+      "properties": {
+        "system_tag": {"type": "string", "minLength": 1},
+        "color": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+        "description": {"type": "string", "minLength": 1},
+        "readonly_sync": {"type": "boolean"},
+        "only_sport_type": {"type": "string", "minLength": 1},
+        "label_context": {"type": "string", "minLength": 1}
+      }
+    },
+    "modifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "labels",
+        "go_field",
+        "ts_field",
+        "json_key",
+        "activity_column",
+        "action_name",
+        "action_param",
+        "shadowfs_token",
+        "capabilities"
+      ],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "labels": {"$ref": "#/$defs/localeMap"},
+        "go_field": {"type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$"},
+        "ts_field": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
+        "json_key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "activity_column": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "action_name": {"type": "string", "pattern": "^set_[a-z0-9_]+$"},
+        "action_param": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "shadowfs_token": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "capabilities": {"$ref": "#/$defs/capabilities"},
+        "tag_sync": {"$ref": "#/$defs/tagSync"}
+      }
+    }
+  }
+}

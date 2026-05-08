@@ -9,6 +9,8 @@ import (
 )
 
 var illegalChars = regexp.MustCompile(`[/\\:*?"<>|{}]`)
+var repeatedUnderscores = regexp.MustCompile(`_{2,}`)
+var repeatedDashes = regexp.MustCompile(`-{2,}`)
 
 // SchemaRenderer renders file paths from templates and variables.
 type SchemaRenderer struct {
@@ -42,12 +44,16 @@ func (r *SchemaRenderer) RenderPath(fileType, schema string, vars map[string]str
 	}
 	result := schema
 	for key, val := range vars {
-		rendered := sanitize(val)
-		if len(rendered) > 50 {
-			rendered = rendered[:50]
+		if val == "" {
+			result = collapseEmptyVariableSeparators(result, key)
 		}
+	}
+	for key, val := range vars {
+		rendered := sanitize(val)
+		rendered = truncateRunes(rendered, 50)
 		result = strings.ReplaceAll(result, "{"+key+"}", rendered)
 	}
+	result = cleanupRenderedSeparators(result)
 	for i := 0; i < 20 && strings.Contains(result, "{"); i++ {
 		start := strings.Index(result, "{")
 		end := strings.Index(result, "}")
@@ -63,6 +69,32 @@ func (r *SchemaRenderer) RenderPath(fileType, schema string, vars map[string]str
 		result += ext
 	}
 	return result
+}
+
+func collapseEmptyVariableSeparators(schema, key string) string {
+	token := "{" + key + "}"
+	for _, sep := range []string{"_", "-"} {
+		schema = strings.ReplaceAll(schema, sep+token+sep, sep)
+		schema = strings.ReplaceAll(schema, token+sep, "")
+		schema = strings.ReplaceAll(schema, sep+token, "")
+	}
+	schema = strings.ReplaceAll(schema, token+"/", "")
+	schema = strings.ReplaceAll(schema, "/"+token, "")
+	return strings.ReplaceAll(schema, token, "")
+}
+
+func cleanupRenderedSeparators(path string) string {
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		part = repeatedUnderscores.ReplaceAllString(part, "_")
+		part = repeatedDashes.ReplaceAllString(part, "-")
+		part = strings.Trim(part, "_-")
+		if part == "" {
+			part = "unknown"
+		}
+		parts[i] = part
+	}
+	return strings.Join(parts, "/")
 }
 
 // ValidateSchema checks a schema template for issues.
@@ -83,10 +115,12 @@ func (r *SchemaRenderer) ValidateSchema(fileType, schema string) (warnings []str
 		return nil, fmt.Errorf("schema exceeds maximum directory depth of 6")
 	}
 	maxVars := map[string]string{
-		"year": "2024", "month": "03", "day": "15", "time": "14-30",
-		"sport": strings.Repeat("x", 30), "subCategory": strings.Repeat("x", 30),
-		"city": strings.Repeat("x", 50), "title": strings.Repeat("x", 50),
-		"distance_km": "9999.9", "duration_h": "99-59", "elevation_m": "99999",
+		"year": "2024", "month": "03", "day": "15", "time": "1430",
+		"format": "fit",
+		"sport":  strings.Repeat("x", 30), "subCategory": strings.Repeat("x", 30),
+		"modifiers": maxActivitySchemaModifiersTag(),
+		"city":      strings.Repeat("x", 50), "title": strings.Repeat("x", 50),
+		"distance_km": "9999.9", "duration_h": "9999-59", "elevation_m": "99999",
 		"country":  strings.Repeat("x", 30),
 		"category": strings.Repeat("x", 30), "type": strings.Repeat("x", 20),
 		"parent_type": strings.Repeat("x", 20), "parent_name": strings.Repeat("x", 50),
@@ -116,4 +150,17 @@ func sanitize(s string) string {
 	// this service is Linux-only, so the additional complexity is not warranted.
 	s = strings.TrimLeft(s, ".")
 	return strings.TrimSpace(s)
+}
+
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	for idx := range s {
+		if max == 0 {
+			return s[:idx]
+		}
+		max--
+	}
+	return s
 }

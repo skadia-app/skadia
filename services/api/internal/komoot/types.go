@@ -99,38 +99,9 @@ type TimelineItem struct {
 
 // SportMapping maps a Komoot sport string to Skadia taxonomy fields.
 type SportMapping struct {
-	SportType string
-	SubType   string
-	IsElectric   bool
-}
-
-// KomootSportMapping maps Komoot sport strings to Skadia taxonomy.
-// Covers all 26 known Komoot sport types.
-var KomootSportMapping = map[string]SportMapping{
-	"hike":             {"hiking", "", false},
-	"mountaineering":   {"mountaineering", "", false},
-	"jogging":          {"running", "", false},
-	"racebike":         {"cycling", "road", false},
-	"e_racebike":       {"cycling", "road", true},
-	"touringbicycle":   {"cycling", "", false},
-	"e_touringbicycle": {"cycling", "", true},
-	"mtb":              {"cycling", "mountain", false},
-	"e_mtb":            {"cycling", "mountain", true},
-	"mtb_easy":         {"cycling", "gravel_cycling", false},
-	"e_mtb_easy":       {"cycling", "gravel_cycling", true},
-	"mtb_advanced":     {"cycling", "mountain", false},
-	"e_mtb_advanced":   {"cycling", "mountain", true},
-	"citybike":         {"cycling", "", false},
-	"downhillbike":     {"cycling", "downhill", false},
-	"climbing":         {"rock_climbing", "", false},
-	"nordic":           {"cross_country_skiing", "", false},
-	"nordicwalking":    {"walking", "speed_walking", false},
-	"skaten":           {"inline_skating", "", false},
-	"skialpin":         {"alpine_skiing", "resort", false},
-	"skitour":          {"backcountry_skiing", "", false},
-	"sled":             {"sledding", "", false},
-	"snowboard":        {"snowboarding", "", false},
-	"snowshoe":         {"snowshoeing", "", false},
-	"unicycle":         {"cycling", "unicycling", false},
-	"other":            {"generic", "", false},
+	SportType  string
+	SubType    string
+	IsElectric bool
+	IsIndoor   bool
+	IsVirtual  bool
 }

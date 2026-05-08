@@ -1,6 +1,10 @@
 package komoot
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/importmetrics"
+)
 
 func TestKomootRouteSportTuplePreservesSubtypeAndElectricFlag(t *testing.T) {
 	tests := []struct {
@@ -11,8 +15,11 @@ func TestKomootRouteSportTuplePreservesSubtypeAndElectricFlag(t *testing.T) {
 		wantElectric bool
 	}{
 		{name: "racebike", sport: "racebike", wantSport: "cycling", wantSub: "road"},
+		{name: "e racebike", sport: "e_racebike", wantSport: "cycling", wantSub: "road", wantElectric: true},
 		{name: "mtb", sport: "mtb", wantSport: "cycling", wantSub: "mountain"},
 		{name: "e mtb", sport: "e_mtb", wantSport: "cycling", wantSub: "mountain", wantElectric: true},
+		{name: "intentional broad other", sport: "other", wantSport: "generic"},
+		{name: "unknown fallback", sport: "definitely_unknown", wantSport: "unknown"},
 	}
 
 	for _, tt := range tests {
@@ -23,5 +30,20 @@ func TestKomootRouteSportTuplePreservesSubtypeAndElectricFlag(t *testing.T) {
 					tt.sport, gotSport, gotSub, gotElectric, tt.wantSport, tt.wantSub, tt.wantElectric)
 			}
 		})
+	}
+}
+
+func TestKomootRouteSportTupleRecordsUnmappedSportOnce(t *testing.T) {
+	var sources []importmetrics.Source
+
+	gotSport, _, _ := komootRouteSportTupleWithRecorder("definitely_unknown", func(source importmetrics.Source) {
+		sources = append(sources, source)
+	})
+
+	if gotSport != "unknown" {
+		t.Fatalf("sport = %q, want unknown", gotSport)
+	}
+	if len(sources) != 1 || sources[0] != importmetrics.SourceKomootRoute {
+		t.Fatalf("recorded sources = %#v, want one Komoot route event", sources)
 	}
 }
