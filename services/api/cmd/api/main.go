@@ -973,7 +973,6 @@ func main() {
 	r.Get("/readyz", h.Readyz)
 	r.Get("/healthz", h.Healthz)
 	r.Get("/health", h.Healthz) // backwards compat alias
-	r.Get("/metrics", observability.NewMetricsHandler(prometheus.DefaultGatherer).ServeHTTP)
 	r.Get("/api/v1/coverage/info", h.CoverageBuildInfo)
 	r.Get("/api/v1/coverage/tiles/*", h.CoverageTile)
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
@@ -1074,6 +1073,7 @@ func main() {
 		}
 
 		r.Use(middleware.RequirePasswordChanged())
+		mountMetricsRoute(r, observability.NewMetricsHandler(prometheus.DefaultGatherer))
 
 		r.Route("/api/v1", func(r chi.Router) {
 			// ── Admin routes (RequireAdmin) ──
@@ -1790,6 +1790,10 @@ func main() {
 	demSvc.Close()
 
 	slog.Info("server stopped")
+}
+
+func mountMetricsRoute(r chi.Router, handler http.Handler) {
+	r.With(middleware.RequireAdmin()).Get("/metrics", handler.ServeHTTP)
 }
 
 func parseDuration(s string, defaultVal time.Duration) time.Duration {
