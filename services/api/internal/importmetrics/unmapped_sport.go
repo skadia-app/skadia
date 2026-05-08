@@ -9,7 +9,6 @@ const (
 	SourceStrava      Source = "strava"
 	SourceKomoot      Source = "komoot"
 	SourceKomootRoute Source = "komoot_route"
-	SourceUnknown     Source = "unknown"
 )
 
 type UnmappedSportRecorder interface {
@@ -49,14 +48,14 @@ func RecordUnmappedSport(source Source) {
 }
 
 func (r *prometheusUnmappedSportRecorder) RecordUnmappedSport(source Source) {
-	r.counter.WithLabelValues(string(normalizeSource(source))).Inc()
+	r.counter.WithLabelValues(sourceLabel(source)).Inc()
 }
 
-func normalizeSource(source Source) Source {
+func sourceLabel(source Source) string {
 	switch source {
 	case SourceFIT, SourceStrava, SourceKomoot, SourceKomootRoute:
-		return source
+		return string(source)
 	default:
-		return SourceUnknown
+		panic("unsupported unmapped sport source: " + string(source))
 	}
 }
