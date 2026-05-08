@@ -3,6 +3,7 @@ import type { Activity } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain, formatElevationLoss } from '@/lib/utils'
 import { fieldLabel, fieldUnit, formatSpeedValue, cyclesLabel, defaultSpeedMode } from '@/lib/sportFieldLabels'
 import { getSegmentGroup } from '@/lib/sportTaxonomy'
+import { getNetActivityTotals } from '@/lib/netActivityTotals'
 
 interface StatsGridProps {
   activity: Activity
@@ -31,12 +32,13 @@ const STRENGTH_SPORT_TYPES = ['fitness_equipment', 'training', 'strength_trainin
 
 export function StatsGrid({ activity }: StatsGridProps) {
   const sport = activity.sport_type
-  const gain = formatElevationGain(activity.elevation_gain_m)
-  const loss = formatElevationLoss(activity.elevation_loss_m)
+  const net = getNetActivityTotals(activity)
+  const gain = formatElevationGain(net.elevationGainM)
+  const loss = formatElevationLoss(net.elevationLossM)
   const isDEM = activity.elevation_source === 'dem'
 
   const stats: (StatItem | null)[] = [
-    { label: 'Distanz', value: formatDistance(activity.distance_m) },
+    { label: 'Distanz', value: formatDistance(net.distanceM) },
     { label: 'Dauer', value: formatDuration(activity.elapsed_time_s ?? 0) },
     { label: 'Bewegungszeit', value: activity.moving_time_s ? formatDuration(activity.moving_time_s) : null },
     {

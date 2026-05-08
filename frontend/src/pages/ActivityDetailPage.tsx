@@ -1027,15 +1027,7 @@ export default function ActivityDetailPage() {
       {/* Liftfahrten */}
       {(activity.lift_count ?? 0) > 0 ? (
         <LiftSection
-          activityId={activity.id}
-          liftCount={activity.lift_count ?? 0}
-          liftDistanceM={activity.lift_distance_m}
-          liftAscentM={activity.lift_ascent_m}
-          liftDescentM={activity.lift_descent_m}
-          liftDurationS={activity.lift_duration_s}
-          distanceM={activity.distance_m ?? 0}
-          totalAscentM={activity.elevation_gain_m ?? 0}
-          excludeLiftSubtraction={activity.exclude_lift_subtraction ?? false}
+          activity={activity}
           onToggleExclude={async (v) => {
             await apiFetch(`/api/v1/activities/${activity.id}`, {
               method: 'PATCH',
