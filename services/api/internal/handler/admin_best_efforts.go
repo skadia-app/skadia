@@ -82,14 +82,24 @@ func runAllUsersBestEffortsRecalc(ctx context.Context, db allUsersBestEffortsDB,
 	})
 
 	failed := err != nil || failedUsers > 0
-	errText := ""
-	switch {
-	case err != nil:
-		errText = err.Error()
-	case failedUsers == 1:
-		errText = fmt.Sprintf("1 user recalc failed; first error: %s", firstUserErr)
-	case failedUsers > 1:
-		errText = fmt.Sprintf("%d user recalcs failed; first error: %s", failedUsers, firstUserErr)
-	}
+	errText := allUsersBestEffortsErrorText(failedUsers, firstUserErr, err)
 	_ = db.CompleteBackgroundJob(context.Background(), jobID, failed, errText)
+}
+
+func allUsersBestEffortsErrorText(failedUsers int, firstUserErr string, iteratorErr error) string {
+	switch {
+	case failedUsers == 0 && iteratorErr == nil:
+		return ""
+	case failedUsers == 0:
+		return iteratorErr.Error()
+	}
+
+	userSummary := fmt.Sprintf("%d user recalcs failed; first error: %s", failedUsers, firstUserErr)
+	if failedUsers == 1 {
+		userSummary = fmt.Sprintf("1 user recalc failed; first error: %s", firstUserErr)
+	}
+	if iteratorErr != nil {
+		return fmt.Sprintf("%s; iteration error: %v", userSummary, iteratorErr)
+	}
+	return userSummary
 }

@@ -218,12 +218,15 @@ func (s *Service) ComputeForActivity(ctx context.Context, info ActivityInfo, str
 	return computeForActivityInner(ctx, s.Store, info, stream)
 }
 
-// RecalcAll recomputes all best-effort records for a user atomically.
+// RecalcAll recomputes all best-effort records for a user without first
+// emptying the table.
 //
 // Instead of deleting everything first (which leaves an empty table on crash),
-// it upserts each activity's efforts and then removes orphaned rows for
-// activities that are no longer eligible. A blocking advisory lock prevents a
-// concurrent ComputeForActivity call from racing with the bulk recompute.
+// it replaces rows in committed batches and then removes orphaned rows for
+// activities that are no longer eligible. A later batch failure can leave
+// already replaced batches committed; stale-row cleanup only runs after every
+// batch succeeds. A blocking advisory lock prevents a concurrent
+// ComputeForActivity call from racing with the bulk recompute.
 //
 // progressFn is called every 50 activities and once at the end with (total, total).
 // progressFn may be nil.
