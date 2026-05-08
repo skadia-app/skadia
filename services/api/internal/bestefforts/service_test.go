@@ -3,6 +3,7 @@ package bestefforts
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -84,5 +85,58 @@ func TestComputeForActivityInnerDeletesStaleRowsWhenActivityNoLongerHasRecordGro
 	}
 	if len(store.batchUpserts) != 0 {
 		t.Fatalf("batch upserts = %#v, want none", store.batchUpserts)
+	}
+}
+
+func TestComputeBestEffortRecordsDoesNotPersist(t *testing.T) {
+	store := &fakeBestEffortStore{}
+	info := ActivityInfo{
+		ID:             "activity-running",
+		UserID:         "user-1",
+		SportType:      "running",
+		StartedAt:      time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC),
+		DistanceM:      10_000,
+		ElevationGainM: 200,
+		ElapsedTimeS:   3_600,
+		BiggestClimbM:  100,
+	}
+
+	records := computeBestEffortRecords[model.StreamPointLight](info, nil)
+
+	if len(records) == 0 {
+		t.Fatal("computeBestEffortRecords returned no records for running activity")
+	}
+	if len(store.deletedActivityIDs) != 0 {
+		t.Fatalf("deleted activities = %#v, want none", store.deletedActivityIDs)
+	}
+	if len(store.batchUpserts) != 0 {
+		t.Fatalf("batch upserts = %#v, want none", store.batchUpserts)
+	}
+}
+
+func TestComputeForActivityInnerPersistsComputedRecords(t *testing.T) {
+	store := &fakeBestEffortStore{}
+	info := ActivityInfo{
+		ID:             "activity-running",
+		UserID:         "user-1",
+		SportType:      "running",
+		StartedAt:      time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC),
+		DistanceM:      10_000,
+		ElevationGainM: 200,
+		ElapsedTimeS:   3_600,
+		BiggestClimbM:  100,
+	}
+
+	if _, err := computeForActivityInner[model.StreamPointLight](context.Background(), store, info, nil); err != nil {
+		t.Fatalf("computeForActivityInner: %v", err)
+	}
+	if len(store.deletedActivityIDs) != 1 || store.deletedActivityIDs[0] != info.ID {
+		t.Fatalf("deleted activities = %#v, want [%q]", store.deletedActivityIDs, info.ID)
+	}
+	if len(store.batchUpserts) != 1 {
+		t.Fatalf("batch upserts = %#v, want one call", store.batchUpserts)
+	}
+	if len(store.batchUpserts[0]) == 0 {
+		t.Fatal("computeForActivityInner persisted no records for running activity")
 	}
 }

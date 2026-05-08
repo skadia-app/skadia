@@ -110,8 +110,31 @@ func computeForActivityInner[T model.BestEffortPoint](ctx context.Context, store
 		return nil, nil
 	}
 
-	categories := CategoriesFor(sportGroup)
+	efforts := computeBestEffortRecordsForSportGroup(info, stream, sportGroup)
 
+	// Delete before upsert so sport_group changes (e.g. running → running_trail after
+	// DetermineSportGroup was updated) don't leave stale rows behind.
+	if err := store.DeleteBestEffortsForActivity(ctx, info.ID); err != nil {
+		return nil, fmt.Errorf("delete stale best efforts for activity %s: %w", info.ID, err)
+	}
+
+	if err := store.BatchUpsertBestEffortRecs(ctx, efforts); err != nil {
+		return nil, fmt.Errorf("batch upsert best efforts for activity %s: %w", info.ID, err)
+	}
+
+	return store.GetBestEffortsForActivityRec(ctx, info.ID, info.UserID)
+}
+
+func computeBestEffortRecords[T model.BestEffortPoint](info ActivityInfo, stream []T) []BestEffortRecord {
+	sportGroup := DetermineSportGroup(info.SportType, info.SubType, info.IsIndoor, info.IsVirtual, info.IsElectric)
+	if sportGroup == "" {
+		return nil
+	}
+	return computeBestEffortRecordsForSportGroup(info, stream, sportGroup)
+}
+
+func computeBestEffortRecordsForSportGroup[T model.BestEffortPoint](info ActivityInfo, stream []T, sportGroup string) []BestEffortRecord {
+	categories := CategoriesFor(sportGroup)
 	// TODO(lift-indices): populate liftIndices from ski-lift segment stream indices once
 	// the Python ML "lifts" enrichment module is migrated to Go and stores per-stream
 	// start/end indices in the database. Currently activity_climbs stores only
@@ -165,18 +188,7 @@ func computeForActivityInner[T model.BestEffortPoint](ctx context.Context, store
 		}
 		efforts = append(efforts, record)
 	}
-
-	// Delete before upsert so sport_group changes (e.g. running → running_trail after
-	// DetermineSportGroup was updated) don't leave stale rows behind.
-	if err := store.DeleteBestEffortsForActivity(ctx, info.ID); err != nil {
-		return nil, fmt.Errorf("delete stale best efforts for activity %s: %w", info.ID, err)
-	}
-
-	if err := store.BatchUpsertBestEffortRecs(ctx, efforts); err != nil {
-		return nil, fmt.Errorf("batch upsert best efforts for activity %s: %w", info.ID, err)
-	}
-
-	return store.GetBestEffortsForActivityRec(ctx, info.ID, info.UserID)
+	return efforts
 }
 
 // ComputeForActivity computes all best-effort records for the given activity
