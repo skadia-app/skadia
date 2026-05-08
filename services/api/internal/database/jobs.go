@@ -23,6 +23,7 @@ type BackgroundJob struct {
 	StartedAt       time.Time  `json:"started_at"`
 	FinishedAt      *time.Time `json:"finished_at,omitempty"`
 	Error           *string    `json:"error,omitempty"`
+	Metadata        []byte     `json:"-"`
 }
 
 // InsertBackgroundJob schreibt einen neuen Job-Eintrag und gibt die generierte ID zurück.
@@ -88,6 +89,14 @@ func (db *DB) UpdateBackgroundJobTotal(ctx context.Context, jobID string, total 
 	return err
 }
 
+func (db *DB) UpdateBackgroundJobMetadata(ctx context.Context, jobID string, metadata []byte) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE background_jobs SET metadata = $1, updated_at = NOW() WHERE id = $2`,
+		metadata, jobID,
+	)
+	return err
+}
+
 // CompleteBackgroundJob setzt status auf 'completed' oder 'failed' und trägt finished_at ein.
 // Erzeugt zusätzlich eine Notification für den User (best-effort).
 func (db *DB) CompleteBackgroundJob(ctx context.Context, jobID string, failed bool, errorText string) error {
@@ -131,58 +140,58 @@ func (db *DB) CompleteBackgroundJob(ctx context.Context, jobID string, failed bo
 // SYNC: keep in sync with frontend/src/lib/jobLabels.ts (JOB_TYPE_LABELS).
 // When adding a new job type, add it here AND in the frontend map.
 var jobTypeLabels = map[string]string{
-	"osm_import":                   "OSM-Import",
-	"osm_enrichment":               "OSM-Anreicherung",
-	"osm_update":                   "OSM-Region aktualisieren",
-	"osm_update_all":               "Alle OSM-Regionen aktualisieren",
-	"garmin_import":                "Garmin-Import",
-	"strava_import":                "Strava-Import",
-	"komoot_import":                "Komoot-Import",
-	"data_import":                  "Datenimport",
-	"data_import_enrichment":       "Import-Enrichment",
-	"gdpr_export":                  "Datenexport",
-	"gdpr_purge":                   "DSGVO-Datenlöschung",
-	"segment_recompute":            "Segmente neu berechnen",
-	"segment_publish":              "Segment veröffentlichen",
-	"segment_matching":             "Segment-Matching",
-	"activity_recompute":           "Aktivität neu berechnen",
-	"activity_recompute_all":       "Alle Aktivitäten neu berechnen",
-	"activity_re_enrich":           "Enrichment-Update",
-	"backfill_activity_enrichments":"Track-Anreicherungen nachfüllen",
-	"recompute_multisport":         "Multisport neu berechnen",
-	"photo_preview_recompute":      "Foto-Vorschaubilder neu erstellen",
-	"photo_thumb_recompute":        "Foto-Thumbnails neu erstellen",
-	"photo_clip_embed":             "Foto-Indexierung",
-	"photo_embed_backfill":         "Foto-Einbettungen berechnen",
-	"phash_backfill":               "Foto-Duplikaterkennung berechnen",
-	"thumbnail_backfill":           "Thumbnails regenerieren",
-	"meta_backfill":                "Meta-Sidecars erstellen",
-	"elevation_reset":              "Höhenkorrektur zurücksetzen",
-	"elevation_correction":         "Höhenkorrektur anwenden",
-	"distance_correction":          "Distanzkorrektur anwenden",
-	"distance_reset":               "Distanzkorrektur zurücksetzen",
-	"dem_import":                   "Höhenmodell importieren",
-	"dem_download":                 "Höhenmodell herunterladen",
-	"apply_rules":                  "Regeln anwenden",
-	"rule_apply":                   "Regel anwenden",
-	"routing_graph_build":          "Routing-Graph erstellen",
-	"tile_build":                   "Routing-Tiles erstellen",
-	"brouter_segment_build":        "BRouter-Segmente erstellen",
-	"brouter_segment_download":     "BRouter-Segmente herunterladen",
-	"coverage_build":               "Coverage-Grids erstellen",
-	"weather_backfill":             "Wetter-Daten nachfüllen",
-	"geocoding_backfill":           "Ortsnamen nachtragen",
-	"heatmap_rebuild":              "Heatmap aktualisieren",
-	"pmc_recalc":                   "PMC neu berechnen",
-	"recalc_best_efforts":          "Bestleistungen neu berechnen",
-	"recalc_best_efforts_all":      "Bestleistungen neu berechnen (global)",
-	"best_efforts_recalc":          "Bestleistungen berechnen",
-	"recompute_all_tss":            "TSS neu berechnen",
-	"fusion_queue_compute":         "Fusionskandidaten berechnen",
-	"shadowfs_reconcile":           "Dateispeicher-Konsistenzprüfung",
-	"shadowfs_rename":              "Dateispeicher-Umbenennung",
-	"compression_toggle":           "Datenkompression umschalten",
-	"device_orphan_cleanup":        "Verwaiste Geräte bereinigen",
+	"osm_import":                    "OSM-Import",
+	"osm_enrichment":                "OSM-Anreicherung",
+	"osm_update":                    "OSM-Region aktualisieren",
+	"osm_update_all":                "Alle OSM-Regionen aktualisieren",
+	"garmin_import":                 "Garmin-Import",
+	"strava_import":                 "Strava-Import",
+	"komoot_import":                 "Komoot-Import",
+	"data_import":                   "Datenimport",
+	"data_import_enrichment":        "Import-Enrichment",
+	"gdpr_export":                   "Datenexport",
+	"gdpr_purge":                    "DSGVO-Datenlöschung",
+	"segment_recompute":             "Segmente neu berechnen",
+	"segment_publish":               "Segment veröffentlichen",
+	"segment_matching":              "Segment-Matching",
+	"activity_recompute":            "Aktivität neu berechnen",
+	"activity_recompute_all":        "Alle Aktivitäten neu berechnen",
+	"activity_re_enrich":            "Enrichment-Update",
+	"backfill_activity_enrichments": "Track-Anreicherungen nachfüllen",
+	"recompute_multisport":          "Multisport neu berechnen",
+	"photo_preview_recompute":       "Foto-Vorschaubilder neu erstellen",
+	"photo_thumb_recompute":         "Foto-Thumbnails neu erstellen",
+	"photo_clip_embed":              "Foto-Indexierung",
+	"photo_embed_backfill":          "Foto-Einbettungen berechnen",
+	"phash_backfill":                "Foto-Duplikaterkennung berechnen",
+	"thumbnail_backfill":            "Thumbnails regenerieren",
+	"meta_backfill":                 "Meta-Sidecars erstellen",
+	"elevation_reset":               "Höhenkorrektur zurücksetzen",
+	"elevation_correction":          "Höhenkorrektur anwenden",
+	"distance_correction":           "Distanzkorrektur anwenden",
+	"distance_reset":                "Distanzkorrektur zurücksetzen",
+	"dem_import":                    "Höhenmodell importieren",
+	"dem_download":                  "Höhenmodell herunterladen",
+	"apply_rules":                   "Regeln anwenden",
+	"rule_apply":                    "Regel anwenden",
+	"routing_graph_build":           "Routing-Graph erstellen",
+	"tile_build":                    "Routing-Tiles erstellen",
+	"brouter_segment_build":         "BRouter-Segmente erstellen",
+	"brouter_segment_download":      "BRouter-Segmente herunterladen",
+	"coverage_build":                "Coverage-Grids erstellen",
+	"weather_backfill":              "Wetter-Daten nachfüllen",
+	"geocoding_backfill":            "Ortsnamen nachtragen",
+	"heatmap_rebuild":               "Heatmap aktualisieren",
+	"pmc_recalc":                    "PMC neu berechnen",
+	"recalc_best_efforts":           "Bestleistungen neu berechnen",
+	"recalc_best_efforts_all":       "Bestleistungen neu berechnen (global)",
+	"best_efforts_recalc":           "Bestleistungen berechnen",
+	"recompute_all_tss":             "TSS neu berechnen",
+	"fusion_queue_compute":          "Fusionskandidaten berechnen",
+	"shadowfs_reconcile":            "Dateispeicher-Konsistenzprüfung",
+	"shadowfs_rename":               "Dateispeicher-Umbenennung",
+	"compression_toggle":            "Datenkompression umschalten",
+	"device_orphan_cleanup":         "Verwaiste Geräte bereinigen",
 }
 
 func jobCompletionTitle(jobType string, entityName *string, failed bool) string {
@@ -241,8 +250,8 @@ func (db *DB) ListActiveBackgroundJobs(ctx context.Context, userID string) ([]Ba
 // from a previous server process and need to be either resumed or cancelled.
 func (db *DB) ListStaleRunningJobs(ctx context.Context) ([]BackgroundJob, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, job_type, entity_id, entity_name, status, phase,
-		       progress_current, progress_total, started_at, finished_at
+			SELECT id, user_id, job_type, entity_id, entity_name, status, phase,
+			       progress_current, progress_total, started_at, finished_at, COALESCE(metadata, '{}'::jsonb)
 		FROM background_jobs
 		WHERE status = 'running'
 		ORDER BY started_at ASC
@@ -258,7 +267,7 @@ func (db *DB) ListStaleRunningJobs(ctx context.Context) ([]BackgroundJob, error)
 		if err := rows.Scan(
 			&j.ID, &j.UserID, &j.JobType, &j.EntityID, &j.EntityName,
 			&j.Status, &j.Phase,
-			&j.ProgressCurrent, &j.ProgressTotal, &j.StartedAt, &j.FinishedAt,
+			&j.ProgressCurrent, &j.ProgressTotal, &j.StartedAt, &j.FinishedAt, &j.Metadata,
 		); err != nil {
 			return nil, err
 		}

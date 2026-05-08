@@ -393,7 +393,7 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if info == nil {
-				if err := h.DB.DeleteBestEffortsForActivity(ctx, actID); err != nil {
+				if err := h.DB.DeleteBestEffortsForActivity(ctx, userID, actID); err != nil {
 					slog.Warn("update activity: delete ineligible best efforts failed", "id", actID, "error", err)
 				}
 				return
@@ -410,8 +410,8 @@ func (h *Handler) UpdateActivity(w http.ResponseWriter, r *http.Request) {
 			// Delete stale entries from the old sport_group (different from the new one).
 			newGroup := bestefforts.DetermineSportGroup(info.SportType, info.SubType, info.IsIndoor, info.IsVirtual, info.IsElectric)
 			if _, err := h.DB.Pool.Exec(ctx,
-				`DELETE FROM best_efforts WHERE activity_id = $1 AND sport_group != $2`,
-				actID, newGroup,
+				`DELETE FROM best_efforts WHERE user_id = $1 AND activity_id = $2 AND sport_group != $3`,
+				userID, actID, newGroup,
 			); err != nil {
 				slog.Warn("update activity: delete stale sport_group best efforts failed", "id", actID, "error", err)
 			}
@@ -530,7 +530,7 @@ func (h *Handler) DeleteActivity(w http.ResponseWriter, r *http.Request) {
 
 	// Explicitly remove best efforts before hard-delete (belt-and-suspenders: ON DELETE CASCADE
 	// handles this, but an explicit call makes the intent clear and simplifies future soft-delete migrations).
-	if err := h.DB.DeleteBestEffortsForActivity(r.Context(), id); err != nil {
+	if err := h.DB.DeleteBestEffortsForActivity(r.Context(), userID, id); err != nil {
 		slog.Warn("delete activity: clean up best efforts failed", "id", id, "error", err)
 	}
 

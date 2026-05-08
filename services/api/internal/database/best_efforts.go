@@ -200,10 +200,13 @@ func batchUpsertBestEfforts(ctx context.Context, exec bestEffortExec, records []
 	return nil
 }
 
-func (db *DB) ReplaceBestEffortsForActivities(ctx context.Context, activityIDs []string, records []bestefforts.BestEffortRecord) error {
-	activityIDs = bestEffortReplacementActivityIDs(activityIDs, records)
+func (db *DB) ReplaceBestEffortsForActivities(ctx context.Context, userID string, activityIDs []string, records []bestefforts.BestEffortRecord) error {
+	activityIDs = bestEffortReplacementActivityIDs(activityIDs)
 	if len(activityIDs) == 0 {
 		return nil
+	}
+	if err := validateBestEffortReplacementRecords(userID, activityIDs, records); err != nil {
+		return err
 	}
 
 	tx, err := db.Pool.Begin(ctx)
@@ -213,7 +216,8 @@ func (db *DB) ReplaceBestEffortsForActivities(ctx context.Context, activityIDs [
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	if _, err := tx.Exec(ctx,
-		`DELETE FROM best_efforts WHERE activity_id = ANY($1::uuid[])`,
+		`DELETE FROM best_efforts WHERE user_id = $1 AND activity_id = ANY($2::uuid[])`,
+		userID,
 		activityIDs,
 	); err != nil {
 		return fmt.Errorf("delete replaced best efforts: %w", err)
@@ -244,9 +248,9 @@ func (db *DB) ReplaceBestEffortsForActivities(ctx context.Context, activityIDs [
 	return nil
 }
 
-func bestEffortReplacementActivityIDs(activityIDs []string, records []bestefforts.BestEffortRecord) []string {
-	seen := make(map[string]bool, len(activityIDs)+len(records))
-	out := make([]string, 0, len(activityIDs)+len(records))
+func bestEffortReplacementActivityIDs(activityIDs []string) []string {
+	seen := make(map[string]bool, len(activityIDs))
+	out := make([]string, 0, len(activityIDs))
 	for _, activityID := range activityIDs {
 		if activityID == "" || seen[activityID] {
 			continue
@@ -254,20 +258,30 @@ func bestEffortReplacementActivityIDs(activityIDs []string, records []besteffort
 		seen[activityID] = true
 		out = append(out, activityID)
 	}
-	for _, record := range records {
-		if record.ActivityID == "" || seen[record.ActivityID] {
-			continue
-		}
-		seen[record.ActivityID] = true
-		out = append(out, record.ActivityID)
-	}
 	return out
 }
 
+func validateBestEffortReplacementRecords(userID string, activityIDs []string, records []bestefforts.BestEffortRecord) error {
+	allowedActivityIDs := make(map[string]bool, len(activityIDs))
+	for _, activityID := range activityIDs {
+		allowedActivityIDs[activityID] = true
+	}
+	for _, record := range records {
+		if record.UserID != userID {
+			return fmt.Errorf("best effort replacement record user %q outside requested user %q", record.UserID, userID)
+		}
+		if !allowedActivityIDs[record.ActivityID] {
+			return fmt.Errorf("best effort replacement record activity %q outside delete scope", record.ActivityID)
+		}
+	}
+	return nil
+}
+
 // DeleteBestEffortsForActivity removes all best effort records for a single activity.
-func (db *DB) DeleteBestEffortsForActivity(ctx context.Context, activityID string) error {
+func (db *DB) DeleteBestEffortsForActivity(ctx context.Context, userID, activityID string) error {
 	_, err := db.Pool.Exec(ctx,
-		`DELETE FROM best_efforts WHERE activity_id = $1`,
+		`DELETE FROM best_efforts WHERE user_id = $1 AND activity_id = $2`,
+		userID,
 		activityID,
 	)
 	if err != nil {

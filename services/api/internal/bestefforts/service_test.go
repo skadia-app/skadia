@@ -14,6 +14,7 @@ import (
 
 type fakeBestEffortStore struct {
 	deletedActivityIDs      []string
+	deletedUserIDs          []string
 	batchUpserts            [][]BestEffortRecord
 	replaceCalls            []replaceBestEffortsCall
 	replaceErrAtCall        int
@@ -24,6 +25,7 @@ type fakeBestEffortStore struct {
 }
 
 type replaceBestEffortsCall struct {
+	userID      string
 	activityIDs []string
 	records     []BestEffortRecord
 }
@@ -37,8 +39,9 @@ func (s *fakeBestEffortStore) BatchUpsertBestEffortRecs(_ context.Context, recor
 	return nil
 }
 
-func (s *fakeBestEffortStore) ReplaceBestEffortsForActivities(_ context.Context, activityIDs []string, records []BestEffortRecord) error {
+func (s *fakeBestEffortStore) ReplaceBestEffortsForActivities(_ context.Context, userID string, activityIDs []string, records []BestEffortRecord) error {
 	s.replaceCalls = append(s.replaceCalls, replaceBestEffortsCall{
+		userID:      userID,
 		activityIDs: append([]string(nil), activityIDs...),
 		records:     append([]BestEffortRecord(nil), records...),
 	})
@@ -52,7 +55,8 @@ func (s *fakeBestEffortStore) DeleteAllBestEfforts(context.Context, string) erro
 	return nil
 }
 
-func (s *fakeBestEffortStore) DeleteBestEffortsForActivity(_ context.Context, activityID string) error {
+func (s *fakeBestEffortStore) DeleteBestEffortsForActivity(_ context.Context, userID, activityID string) error {
+	s.deletedUserIDs = append(s.deletedUserIDs, userID)
 	s.deletedActivityIDs = append(s.deletedActivityIDs, activityID)
 	return nil
 }
@@ -113,6 +117,9 @@ func TestComputeForActivityInnerDeletesStaleRowsWhenActivityNoLongerHasRecordGro
 	}
 	if len(store.deletedActivityIDs) != 1 || store.deletedActivityIDs[0] != info.ID {
 		t.Fatalf("deleted activities = %#v, want [%q]", store.deletedActivityIDs, info.ID)
+	}
+	if len(store.deletedUserIDs) != 1 || store.deletedUserIDs[0] != info.UserID {
+		t.Fatalf("deleted users = %#v, want [%q]", store.deletedUserIDs, info.UserID)
 	}
 	if len(store.batchUpserts) != 0 {
 		t.Fatalf("batch upserts = %#v, want none", store.batchUpserts)
@@ -180,7 +187,10 @@ func TestRecalcAllLoadedActivitiesReplacesBatchesAndCleansOrphans(t *testing.T) 
 	}
 	store := &fakeBestEffortStore{}
 
-	err := recalcAllLoadedActivities(context.Background(), store, "user-1", activities, 1, nil)
+	var progress []RecalcProgress
+	err := recalcAllLoadedActivities(context.Background(), store, "user-1", activities, 1, "", func(p RecalcProgress) {
+		progress = append(progress, p)
+	})
 	if err != nil {
 		t.Fatalf("recalcAllLoadedActivities: %v", err)
 	}
@@ -196,6 +206,9 @@ func TestRecalcAllLoadedActivitiesReplacesBatchesAndCleansOrphans(t *testing.T) 
 	}
 	for i, activity := range activities {
 		call := store.replaceCalls[i]
+		if call.userID != "user-1" {
+			t.Fatalf("replace call %d userID = %q, want user-1", i, call.userID)
+		}
 		if !reflect.DeepEqual(call.activityIDs, []string{activity.ID}) {
 			t.Fatalf("replace call %d activity IDs = %#v, want [%q]", i, call.activityIDs, activity.ID)
 		}
@@ -212,13 +225,20 @@ func TestRecalcAllLoadedActivitiesReplacesBatchesAndCleansOrphans(t *testing.T) 
 	if !reflect.DeepEqual(store.orphanedKeepActivityIDs, []string{"activity-running-1", "activity-unsupported", "activity-running-zero"}) {
 		t.Fatalf("orphan keep IDs = %#v", store.orphanedKeepActivityIDs)
 	}
+	if len(progress) == 0 {
+		t.Fatal("progress callbacks = none, want committed checkpoints")
+	}
+	last := progress[len(progress)-1]
+	if last.Done != 3 || last.Total != 3 || last.LastProcessedActivityID != "activity-running-zero" {
+		t.Fatalf("last progress = %#v, want final committed checkpoint for activity-running-zero", last)
+	}
 }
 
 func TestRecalcAllLoadedActivitiesAbortsBeforeOrphanCleanupOnStreamError(t *testing.T) {
 	activities := []ActivityInfo{testBestEffortActivity("activity-running-1", "running", 10_000, 3_600)}
 	store := &fakeBestEffortStore{streamErrForActivity: activities[0].ID}
 
-	err := recalcAllLoadedActivities(context.Background(), store, "user-1", activities, 1, nil)
+	err := recalcAllLoadedActivities(context.Background(), store, "user-1", activities, 1, "", nil)
 	if err == nil {
 		t.Fatal("recalcAllLoadedActivities returned nil, want stream error")
 	}
@@ -237,7 +257,7 @@ func TestRecalcAllLoadedActivitiesAbortsBeforeOrphanCleanupOnReplacementError(t 
 	}
 	store := &fakeBestEffortStore{replaceErrAtCall: 2}
 
-	err := recalcAllLoadedActivities(context.Background(), store, "user-1", activities, 1, nil)
+	err := recalcAllLoadedActivities(context.Background(), store, "user-1", activities, 1, "", nil)
 	if err == nil {
 		t.Fatal("recalcAllLoadedActivities returned nil, want replacement error")
 	}
@@ -246,6 +266,30 @@ func TestRecalcAllLoadedActivitiesAbortsBeforeOrphanCleanupOnReplacementError(t 
 	}
 	if store.orphanedKeepActivityIDs != nil {
 		t.Fatalf("orphan cleanup keep IDs = %#v, want nil", store.orphanedKeepActivityIDs)
+	}
+}
+
+func TestRecalcAllLoadedActivitiesStartsAfterCheckpointAndKeepsEarlierEligibleIDs(t *testing.T) {
+	activities := []ActivityInfo{
+		testBestEffortActivity("activity-running-1", "running", 10_000, 3_600),
+		testBestEffortActivity("activity-running-2", "running", 20_000, 7_200),
+		testBestEffortActivity("activity-running-3", "running", 30_000, 10_800),
+	}
+	store := &fakeBestEffortStore{}
+
+	err := recalcAllLoadedActivities(context.Background(), store, "user-1", activities, 1, "activity-running-2", nil)
+	if err != nil {
+		t.Fatalf("recalcAllLoadedActivities: %v", err)
+	}
+
+	if got, want := len(store.replaceCalls), 1; got != want {
+		t.Fatalf("replace call count = %d, want %d", got, want)
+	}
+	if !reflect.DeepEqual(store.replaceCalls[0].activityIDs, []string{"activity-running-3"}) {
+		t.Fatalf("replace activity IDs = %#v, want [activity-running-3]", store.replaceCalls[0].activityIDs)
+	}
+	if !reflect.DeepEqual(store.orphanedKeepActivityIDs, []string{"activity-running-1", "activity-running-2", "activity-running-3"}) {
+		t.Fatalf("orphan keep IDs = %#v, want all eligible IDs", store.orphanedKeepActivityIDs)
 	}
 }
 
