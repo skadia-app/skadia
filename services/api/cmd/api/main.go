@@ -46,6 +46,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+const metricsAddrEnv = "SKADIA_METRICS_ADDR"
+
 func main() {
 	// Parse LOG_LEVEL before config.Load() so startup logs use the correct level.
 	logLevel := slog.LevelInfo
@@ -1073,7 +1075,8 @@ func main() {
 		}
 
 		r.Use(middleware.RequirePasswordChanged())
-		mountMetricsRoute(r, observability.NewMetricsHandler(prometheus.DefaultGatherer))
+		metricsHandler := observability.NewMetricsHandler(prometheus.DefaultGatherer)
+		mountMetricsRoute(r, metricsHandler)
 
 		r.Route("/api/v1", func(r chi.Router) {
 			// ── Admin routes (RequireAdmin) ──
@@ -1653,6 +1656,7 @@ func main() {
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
+	metricsSrv := newInternalMetricsServer(os.Getenv(metricsAddrEnv), observability.NewMetricsHandler(prometheus.DefaultGatherer))
 
 	// Resume interrupted background jobs from previous server process.
 	go h.ResumeInterruptedJobs(context.Background())
@@ -1752,6 +1756,7 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+	startInternalMetricsServer(metricsSrv)
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
@@ -1785,6 +1790,11 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("server forced to shutdown", "error", err)
 	}
+	if metricsSrv != nil {
+		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("metrics server forced to shutdown", "error", err)
+		}
+	}
 
 	// Release mmap'd DEM grids after all HTTP requests have drained.
 	demSvc.Close()
@@ -1794,6 +1804,35 @@ func main() {
 
 func mountMetricsRoute(r chi.Router, handler http.Handler) {
 	r.With(middleware.RequireAdmin()).Get("/metrics", handler.ServeHTTP)
+}
+
+func newInternalMetricsServer(addr string, handler http.Handler) *http.Server {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return nil
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", handler)
+	return &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  30 * time.Second,
+	}
+}
+
+func startInternalMetricsServer(srv *http.Server) {
+	if srv == nil {
+		return
+	}
+	go func() {
+		slog.Info("internal metrics server starting", "addr", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("internal metrics server failed", "error", err)
+			os.Exit(1)
+		}
+	}()
 }
 
 func parseDuration(s string, defaultVal time.Duration) time.Duration {
