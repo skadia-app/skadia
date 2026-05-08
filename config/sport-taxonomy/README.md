@@ -77,6 +77,39 @@ Adding a top-level sport:
 6. Regenerate and review generated Go/TypeScript diffs instead of editing them
    by hand.
 
+Adding a sub-type:
+
+1. Add the sub-type under the existing sport in `sports.yaml` with labels,
+   selectability, lifecycle, modifier overrides, and trait overrides when it
+   must not inherit the parent traits.
+2. Add source aliases only for raw provider labels that directly identify the
+   new sub-type. Do not add aliases for broad labels that still mean the parent
+   sport.
+3. Review legacy rewrite needs. Existing stored rows, rule predicates, route
+   predicates, or importer outputs that should move to the new sub-type require
+   an explicit migration or a later `legacy_normalize` generator feature.
+4. Review record projections, especially `exclude_sub_types`, so a new sub-type
+   does not accidentally join or leave a record family.
+5. Review activity filters, rules, gear defaults, route options, and segment
+   eligibility only when the sub-type needs a consumer-specific surface.
+6. Regenerate and run the taxonomy generator and affected consumer tests.
+
+Adding a top-level category:
+
+1. Add the category to the `categories:` block in `sports.yaml` with labels and
+   a stable key. Category keys are taxonomy identity and should not be renamed
+   casually.
+2. Move or add sports to the category only in `sports.yaml`; if existing stored
+   rows or predicates need a rewrite, add an explicit migration.
+3. Add or update `projections/activity_filters.yaml` groups for user-facing
+   filter placement. Category membership alone does not define UI grouping.
+4. Review `projections/segments.yaml`, `projections/rules.yaml`, records, and
+   gear defaults for consumer-specific behavior. Do not mirror the category into
+   every projection unless that consumer actually needs it.
+5. Review frontend fallback behavior for unknown category keys and update ADR or
+   developer documentation that enumerates the coarse taxonomy buckets.
+6. Regenerate and verify generated artifacts and schema tests.
+
 Adding a modifier:
 
 1. Add the modifier to `modifiers.yaml` with stable key, German label, Go field,
