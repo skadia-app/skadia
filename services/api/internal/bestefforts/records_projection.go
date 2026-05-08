@@ -92,6 +92,10 @@ func recordGroupForActivityWithModifierPresence(sportType, subType string, isInd
 
 func resolveRecordModifierDefaults(sportType, subType string, isIndoor, isVirtual, isElectric bool, explicitIndoor, explicitVirtual, explicitElectric bool) (bool, bool, bool) {
 	defaults := sport.ModifierDefaultsForTuple(sportType, subType)
+	// Record grouping canonicalizes from persisted activity state plus taxonomy
+	// defaults; persisted best-effort inputs do not carry explicit modifier
+	// provenance. is_indoor is the only current taxonomy_default modifier, so
+	// virtual and electric state remain the persisted values.
 	if !explicitIndoor {
 		if value, ok := defaults["is_indoor"]; ok {
 			isIndoor = value
