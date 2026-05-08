@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type SourceAliases struct {
@@ -27,7 +27,7 @@ type SourceAliasModifiers map[string]*bool
 func LoadSourceAliases(r io.Reader, filenameStem string, taxonomy Taxonomy, modifiers ModifierRegistry) (SourceAliases, error) {
 	var source SourceAliases
 	dec := yaml.NewDecoder(r)
-	dec.SetStrict(true)
+	dec.KnownFields(true)
 	if err := dec.Decode(&source); err != nil {
 		return SourceAliases{}, err
 	}

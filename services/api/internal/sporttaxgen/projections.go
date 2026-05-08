@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type ActivityFilterProjections struct {
@@ -150,7 +150,7 @@ var parentContextSubTypes = map[string]struct{}{
 func LoadActivityFilterProjections(r io.Reader, taxonomy Taxonomy) (ActivityFilterProjections, error) {
 	var projections ActivityFilterProjections
 	dec := yaml.NewDecoder(r)
-	dec.SetStrict(true)
+	dec.KnownFields(true)
 	if err := dec.Decode(&projections); err != nil {
 		return ActivityFilterProjections{}, err
 	}
@@ -163,7 +163,7 @@ func LoadActivityFilterProjections(r io.Reader, taxonomy Taxonomy) (ActivityFilt
 func LoadSegmentProjection(r io.Reader, taxonomy Taxonomy) (SegmentProjection, error) {
 	var projection SegmentProjection
 	dec := yaml.NewDecoder(r)
-	dec.SetStrict(true)
+	dec.KnownFields(true)
 	if err := dec.Decode(&projection); err != nil {
 		return SegmentProjection{}, err
 	}

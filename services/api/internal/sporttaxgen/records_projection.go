@@ -5,7 +5,7 @@ import (
 	"io"
 	"sort"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type RecordsProjection struct {
@@ -110,7 +110,7 @@ type ExpandedRecordMatchRule struct {
 func LoadRecordsProjection(r io.Reader, taxonomy Taxonomy, modifiers ModifierRegistry) (RecordsProjection, error) {
 	var projection RecordsProjection
 	dec := yaml.NewDecoder(r)
-	dec.SetStrict(true)
+	dec.KnownFields(true)
 	if err := dec.Decode(&projection); err != nil {
 		return RecordsProjection{}, err
 	}

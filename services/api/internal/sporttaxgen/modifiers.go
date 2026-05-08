@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type ModifierRegistry struct {
@@ -77,7 +77,7 @@ func modifierCapabilityNames() []string {
 func LoadModifiers(r io.Reader) (ModifierRegistry, error) {
 	var registry ModifierRegistry
 	dec := yaml.NewDecoder(r)
-	dec.SetStrict(true)
+	dec.KnownFields(true)
 	if err := dec.Decode(&registry); err != nil {
 		return ModifierRegistry{}, err
 	}

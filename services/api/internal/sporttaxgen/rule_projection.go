@@ -5,7 +5,7 @@ import (
 	"io"
 	"sort"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 const selectableSportTuplesSource = "selectable_sport_tuples"
@@ -96,7 +96,7 @@ type ExpandedRuleTraitOption struct {
 func LoadRuleProjection(r io.Reader, taxonomy Taxonomy, modifiers ModifierRegistry) (RuleProjection, error) {
 	var projection RuleProjection
 	dec := yaml.NewDecoder(r)
-	dec.SetStrict(true)
+	dec.KnownFields(true)
 	if err := dec.Decode(&projection); err != nil {
 		return RuleProjection{}, err
 	}
