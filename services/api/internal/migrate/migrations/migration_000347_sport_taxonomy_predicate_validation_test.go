@@ -407,10 +407,14 @@ func TestMigration000347DownMigrationRestoresPreviousValidator(t *testing.T) {
 		raw  string
 		want bool
 	}{
+		{raw: `[{"sport":"cycling","sub_type":"mountain"}]`, want: true},
 		{raw: `[{"sport":"wheelchair_push","sub_type":"walk_speed"}]`, want: true},
 		{raw: `[{"sport":"wheelchair_push_walk"}]`, want: false},
 		{raw: `[{"sport":"strength"}]`, want: false},
 		{raw: `[{"sport":"training","sub_type":"pilates"}]`, want: true},
+		{raw: `[{"sport":"archery"}]`, want: false},
+		{raw: `[{"sport":"skateboarding"}]`, want: false},
+		{raw: `[{"sport":"hiking","sub_type":"rucking"}]`, want: false},
 	}
 	for _, tc := range cases {
 		var got bool
