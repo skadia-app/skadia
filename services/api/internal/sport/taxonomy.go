@@ -3,49 +3,145 @@ package sport
 import (
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Category groups related sport types into a UI-friendly bucket.
 type Category struct {
 	Key     string `json:"key"`
 	LabelDE string `json:"label_de"`
+	Color   string `json:"color"`
+}
+
+// SportTraits describes stable taxonomy dimensions for a sport tuple.
+type SportTraits struct {
+	Environments      []string `json:"environments"`
+	MovementFamilies  []string `json:"movement_families"`
+	EquipmentFamilies []string `json:"equipment_families"`
+	ActivityForm      string   `json:"activity_form"`
+	PropulsionModes   []string `json:"propulsion_modes"`
+}
+
+// ModifierDefaults describes canonical tuple-level modifier defaults keyed by
+// generated modifier key.
+type ModifierDefaults map[string]bool
+
+type GearDefaultSportOption struct {
+	SportType string `json:"sport_type"`
+	LabelDE   string `json:"label_de"`
+}
+
+// ActivityFilterProjectionPreset is the generated option tree used by activity
+// and map filters.
+type ActivityFilterProjectionPreset struct {
+	Key     string                          `json:"key"`
+	LabelDE string                          `json:"label_de"`
+	Groups  []ActivityFilterProjectionGroup `json:"groups"`
+}
+
+// ActivityFilterProjectionGroup groups related activity-filter leaves.
+type ActivityFilterProjectionGroup struct {
+	Key     string                         `json:"key"`
+	LabelDE string                         `json:"label_de"`
+	Leaves  []ActivityFilterProjectionLeaf `json:"leaves"`
+}
+
+// ActivityFilterProjectionLeaf describes a concrete sport tuple displayed in a
+// filter group.
+type ActivityFilterProjectionLeaf struct {
+	SportType string `json:"sport_type"`
+	SubType   string `json:"sub_type,omitempty"`
+	LabelDE   string `json:"label_de"`
+}
+
+type SegmentProjectionDomain struct {
+	Key     string `json:"key"`
+	LabelDE string `json:"label_de"`
+	Status  string `json:"status"`
+}
+
+type SegmentProjectionSegmentType struct {
+	Key               string   `json:"key"`
+	LabelDE           string   `json:"label_de"`
+	ActiveDomains     []string `json:"active_domains"`
+	CompatibilityRole string   `json:"compatibility_role"`
+}
+
+type SegmentProjectionEntry struct {
+	SegmentType string `json:"segment_type"`
+	Domain      string `json:"domain"`
+	SportType   string `json:"sport_type"`
+	SubType     string `json:"sub_type,omitempty"`
+	SportGroup  string `json:"sport_group"`
+}
+
+type RuleTupleOption struct {
+	SportType string `json:"sport_type"`
+	SubType   string `json:"sub_type,omitempty"`
+	LabelDE   string `json:"label_de"`
+}
+
+var (
+	segmentProjectionIndexOnce      sync.Once
+	segmentProjectionEntriesByType  map[string][]SegmentProjectionEntry
+	segmentProjectionGroupsByTuple  map[string]string
+	segmentProjectionActiveByType   map[string]map[string]struct{}
+	segmentProjectionActiveByDomain map[string]struct{}
+)
+
+type RuleModifierProjection struct {
+	Key                 string `json:"key"`
+	LabelDE             string `json:"label_de"`
+	ConditionApplicable bool   `json:"condition_applicable"`
+	ActionApplicable    bool   `json:"action_applicable"`
+	RenderExisting      bool   `json:"render_existing"`
+}
+
+type RuleTraitProjection struct {
+	Key     string            `json:"key"`
+	Field   string            `json:"field"`
+	LabelDE string            `json:"label_de"`
+	Options []RuleTraitOption `json:"options"`
+}
+
+type RuleTraitOption struct {
+	Key     string `json:"key"`
+	LabelDE string `json:"label_de"`
 }
 
 // SubTypeDef describes a sub-sport variation within a parent sport.
 type SubTypeDef struct {
-	SubType     string `json:"sub_type"`
-	LabelDE     string `json:"label_de"`
-	DetailDE    string `json:"detail_de"`
-	AutoTitleDE string `json:"auto_title_de"`
+	SubType          string           `json:"sub_type"`
+	LabelDE          string           `json:"label_de"`
+	DetailDE         string           `json:"detail_de"`
+	AutoTitleDE      string           `json:"auto_title_de"`
+	MovingThreshold  *float64         `json:"moving_threshold,omitempty"`
+	Selectable       bool             `json:"selectable"`
+	Traits           SportTraits      `json:"traits"`
+	ModifierDefaults ModifierDefaults `json:"modifier_defaults,omitempty"`
 }
 
 // SportDef holds every piece of metadata for a single sport type.
 type SportDef struct {
-	SportType       string                `json:"sport_type"`
-	CategoryKey     string                `json:"category_key"`
-	LabelDE         string                `json:"label_de"`
-	AutoTitleDE     string                `json:"auto_title_de"`
-	SegmentGroup    string                `json:"segment_group"`
-	TypicallyHasGPS bool                  `json:"typically_has_gps"`
-	MovingThreshold float64               `json:"moving_threshold"`
-	IsIndoor        bool                  `json:"is_indoor"`
-	SubTypes        map[string]SubTypeDef `json:"sub_types,omitempty"`
+	SportType        string                `json:"sport_type"`
+	CategoryKey      string                `json:"category_key"`
+	LabelDE          string                `json:"label_de"`
+	AutoTitleDE      string                `json:"auto_title_de"`
+	SegmentGroup     string                `json:"segment_group"`
+	TypicallyHasGPS  bool                  `json:"typically_has_gps"`
+	MovingThreshold  float64               `json:"moving_threshold"`
+	IsIndoor         bool                  `json:"is_indoor"`
+	Lifecycle        string                `json:"lifecycle"`
+	Selectable       bool                  `json:"selectable"`
+	Traits           SportTraits           `json:"traits"`
+	ModifierDefaults ModifierDefaults      `json:"modifier_defaults,omitempty"`
+	SubTypeOrder     []string              `json:"-"`
+	SubTypes         map[string]SubTypeDef `json:"sub_types,omitempty"`
 }
 
 // ---- Categories ----
 
-var categories = []Category{
-	{Key: "run", LabelDE: "Läufe"},
-	{Key: "bike", LabelDE: "Radfahrten"},
-	{Key: "winter", LabelDE: "Wintersport"},
-	{Key: "water", LabelDE: "Wassersport"},
-	{Key: "fitness", LabelDE: "Fitness"},
-	{Key: "game", LabelDE: "Spiele"},
-	{Key: "climb", LabelDE: "Klettern"},
-	{Key: "outdoor", LabelDE: "Outdoor"},
-	{Key: "multi", LabelDE: "Multisport"},
-	{Key: "other", LabelDE: "Sonstiges"},
-}
+var categories = generatedCategories
 
 var categoryByKey map[string]Category
 
@@ -54,6 +150,11 @@ func init() {
 	for _, c := range categories {
 		categoryByKey[c.Key] = c
 	}
+
+	registry = make(map[string]SportDef, len(generatedSportDefs))
+	for _, d := range generatedSportDefs {
+		registry[d.SportType] = d
+	}
 }
 
 // ---- Sport definitions ----
@@ -61,484 +162,31 @@ func init() {
 // registry maps sport_type string → SportDef.
 var registry map[string]SportDef
 
-func init() {
-	defs := []SportDef{
-		// ── Run ──
-		{
-			SportType: "running", CategoryKey: "run", LabelDE: "Laufen", AutoTitleDE: "Lauf",
-			SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.5,
-			SubTypes: map[string]SubTypeDef{
-				"street":         {SubType: "street", LabelDE: "Straße", DetailDE: "Straßenlauf", AutoTitleDE: "Lauf"},
-				"trail":          {SubType: "trail", LabelDE: "Trail", DetailDE: "Trailrun", AutoTitleDE: "Trailrun"},
-				"track":          {SubType: "track", LabelDE: "Bahn", DetailDE: "Bahnlauf", AutoTitleDE: "Bahnlauf"},
-				"treadmill":      {SubType: "treadmill", LabelDE: "Laufband", DetailDE: "Laufband", AutoTitleDE: "Laufband"},
-				"indoor_running": {SubType: "indoor_running", LabelDE: "Indoor", DetailDE: "Indoor-Lauf", AutoTitleDE: "Indoor-Lauf"},
-				"ultra":          {SubType: "ultra", LabelDE: "Ultra", DetailDE: "Ultramarathon", AutoTitleDE: "Ultramarathon"},
-				"obstacle":       {SubType: "obstacle", LabelDE: "Hindernislauf", DetailDE: "Hindernislauf", AutoTitleDE: "Hindernislauf"},
-			},
-		},
-		{
-			SportType: "walking", CategoryKey: "run", LabelDE: "Gehen", AutoTitleDE: "Spaziergang",
-			SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.2,
-			SubTypes: map[string]SubTypeDef{
-				"casual_walking": {SubType: "casual_walking", LabelDE: "Spaziergang", DetailDE: "Spaziergang", AutoTitleDE: "Spaziergang"},
-				"speed_walking":  {SubType: "speed_walking", LabelDE: "Speed Walking", DetailDE: "Speed Walking", AutoTitleDE: "Speed Walking"},
-				"indoor_walking": {SubType: "indoor_walking", LabelDE: "Indoor", DetailDE: "Indoor-Gehen", AutoTitleDE: "Indoor-Gehen"},
-			},
-		},
-		{
-			SportType: "hiking", CategoryKey: "run", LabelDE: "Wandern", AutoTitleDE: "Wanderung",
-			SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.2,
-		},
-		{
-			SportType: "mountaineering", CategoryKey: "run", LabelDE: "Bergsteigen", AutoTitleDE: "Bergtour",
-			SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.2,
-		},
-		{
-			SportType: "snowshoeing", CategoryKey: "run", LabelDE: "Schneeschuhwandern", AutoTitleDE: "Schneeschuhtour",
-			SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.2,
-		},
-		{
-			SportType: "floor_climbing", CategoryKey: "run", LabelDE: "Treppensteigen", AutoTitleDE: "Treppensteigen",
-			SegmentGroup: "foot", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-		},
-		{
-			SportType: "wheelchair_push_walk", CategoryKey: "run", LabelDE: "Rollstuhl (Fahren)", AutoTitleDE: "Rollstuhl-Spaziergang",
-			SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.2,
-			SubTypes: map[string]SubTypeDef{
-				"indoor_wheelchair_walk": {SubType: "indoor_wheelchair_walk", LabelDE: "Indoor", DetailDE: "Indoor-Rollstuhl", AutoTitleDE: "Indoor-Rollstuhl"},
-			},
-		},
-		{
-			SportType: "wheelchair_push_run", CategoryKey: "run", LabelDE: "Rollstuhl (Rennen)", AutoTitleDE: "Rollstuhl-Lauf",
-			SegmentGroup: "foot", TypicallyHasGPS: true, MovingThreshold: 0.5,
-			SubTypes: map[string]SubTypeDef{
-				"indoor_wheelchair_run": {SubType: "indoor_wheelchair_run", LabelDE: "Indoor", DetailDE: "Indoor-Rollstuhl-Lauf", AutoTitleDE: "Indoor-Rollstuhl-Lauf"},
-			},
-		},
-
-		// ── Bike ──
-		{
-			SportType: "cycling", CategoryKey: "bike", LabelDE: "Radfahren", AutoTitleDE: "Radfahrt",
-			SegmentGroup: "bike", TypicallyHasGPS: true, MovingThreshold: 0.5,
-			SubTypes: map[string]SubTypeDef{
-				"road":           {SubType: "road", LabelDE: "Rennrad", DetailDE: "Rennrad", AutoTitleDE: "Rennradfahrt"},
-				"mountain":       {SubType: "mountain", LabelDE: "MTB", DetailDE: "Mountainbike", AutoTitleDE: "MTB-Tour"},
-				"downhill":       {SubType: "downhill", LabelDE: "Downhill", DetailDE: "Downhill", AutoTitleDE: "Downhill"},
-				"recumbent":      {SubType: "recumbent", LabelDE: "Liegerad", DetailDE: "Liegerad", AutoTitleDE: "Liegerad-Tour"},
-				"cyclocross":     {SubType: "cyclocross", LabelDE: "Cyclocross", DetailDE: "Cyclocross", AutoTitleDE: "Cyclocross"},
-				"hand_cycling":   {SubType: "hand_cycling", LabelDE: "Handbike", DetailDE: "Handbike", AutoTitleDE: "Handbike-Tour"},
-				"track_cycling":  {SubType: "track_cycling", LabelDE: "Bahnrad", DetailDE: "Bahnrad", AutoTitleDE: "Bahnrad"},
-				"indoor_cycling": {SubType: "indoor_cycling", LabelDE: "Indoor", DetailDE: "Indoor-Rad", AutoTitleDE: "Indoor-Radfahrt"},
-				"spin":           {SubType: "spin", LabelDE: "Spinning", DetailDE: "Spinning", AutoTitleDE: "Spinning"},
-				"gravel_cycling": {SubType: "gravel_cycling", LabelDE: "Gravel", DetailDE: "Gravel", AutoTitleDE: "Gravel-Tour"},
-				"unicycling":     {SubType: "unicycling", LabelDE: "Einrad", DetailDE: "Einrad", AutoTitleDE: "Einradfahrt"},
-				"mixed_surface":  {SubType: "mixed_surface", LabelDE: "Mixed", DetailDE: "Mixed Surface", AutoTitleDE: "Mixed-Tour"},
-				"bmx":            {SubType: "bmx", LabelDE: "BMX", DetailDE: "BMX", AutoTitleDE: "BMX"},
-			},
-		},
-		{
-			SportType: "inline_skating", CategoryKey: "outdoor", LabelDE: "Inline-Skaten", AutoTitleDE: "Inline-Skaten",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
-		},
-		{
-			SportType: "alpine_skiing", CategoryKey: "winter", LabelDE: "Alpin-Ski", AutoTitleDE: "Skifahrt",
-			SegmentGroup: "ski", TypicallyHasGPS: true, MovingThreshold: 0.3,
-			SubTypes: map[string]SubTypeDef{
-				"backcountry":   {SubType: "backcountry", LabelDE: "Freeride", DetailDE: "Freeride/Backcountry", AutoTitleDE: "Freeride"},
-				"resort":        {SubType: "resort", LabelDE: "Piste", DetailDE: "Pisten-Ski", AutoTitleDE: "Skifahrt"},
-				"indoor_skiing": {SubType: "indoor_skiing", LabelDE: "Indoor-Ski", DetailDE: "Indoor-Ski", AutoTitleDE: "Indoor-Skifahrt"},
-			},
-		},
-		{
-			SportType: "backcountry_skiing", CategoryKey: "winter", LabelDE: "Skitour", AutoTitleDE: "Skitour",
-			SegmentGroup: "ski", TypicallyHasGPS: true, MovingThreshold: 0.3,
-		},
-		{
-			SportType: "cross_country_skiing", CategoryKey: "winter", LabelDE: "Langlauf", AutoTitleDE: "Langlauf",
-			SegmentGroup: "ski", TypicallyHasGPS: true, MovingThreshold: 0.3,
-			SubTypes: map[string]SubTypeDef{
-				"skate_skiing": {SubType: "skate_skiing", LabelDE: "Skating", DetailDE: "Skating-Stil", AutoTitleDE: "Skating-Langlauf"},
-			},
-		},
-		{
-			SportType: "snowboarding", CategoryKey: "winter", LabelDE: "Snowboard", AutoTitleDE: "Snowboard",
-			SegmentGroup: "ski", TypicallyHasGPS: true, MovingThreshold: 0.3,
-			SubTypes: map[string]SubTypeDef{
-				"backcountry": {SubType: "backcountry", LabelDE: "Backcountry", DetailDE: "Backcountry-Snowboard", AutoTitleDE: "Backcountry-Snowboard"},
-				"resort":      {SubType: "resort", LabelDE: "Piste", DetailDE: "Pisten-Snowboard", AutoTitleDE: "Snowboard"},
-			},
-		},
-		{
-			SportType: "ice_skating", CategoryKey: "winter", LabelDE: "Eislaufen", AutoTitleDE: "Eislaufen",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.3,
-		},
-		{
-			SportType: "snowmobiling", CategoryKey: "winter", LabelDE: "Schneemobil", AutoTitleDE: "Schneemobil-Tour",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
-		},
-		{
-			SportType: "sledding", CategoryKey: "winter", LabelDE: "Rodeln", AutoTitleDE: "Rodeln",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.2,
-		},
-
-		// ── Water ──
-		{
-			SportType: "swimming", CategoryKey: "water", LabelDE: "Schwimmen", AutoTitleDE: "Schwimmen",
-			SegmentGroup: "swim", TypicallyHasGPS: false, MovingThreshold: 0.1,
-			SubTypes: map[string]SubTypeDef{
-				"lap_swimming": {SubType: "lap_swimming", LabelDE: "Bahnschwimmen", DetailDE: "Bahnschwimmen", AutoTitleDE: "Bahnschwimmen"},
-				"open_water":   {SubType: "open_water", LabelDE: "Freiwasser", DetailDE: "Freiwasserschwimmen", AutoTitleDE: "Freiwasserschwimmen"},
-			},
-		},
-		{
-			SportType: "paddling", CategoryKey: "water", LabelDE: "Paddeln (Generisch)", AutoTitleDE: "Wassersport-Tour",
-			SegmentGroup: "paddle", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "kayaking", CategoryKey: "water", LabelDE: "Kajak", AutoTitleDE: "Kajaktour",
-			SegmentGroup: "paddle", TypicallyHasGPS: true, MovingThreshold: 0.1,
-			SubTypes: map[string]SubTypeDef{
-				"whitewater": {SubType: "whitewater", LabelDE: "Wildwasser", DetailDE: "Wildwasser-Kajak", AutoTitleDE: "Wildwasser-Kajak"},
-			},
-		},
-		{
-			SportType: "stand_up_paddleboarding", CategoryKey: "water", LabelDE: "SUP", AutoTitleDE: "SUP-Tour",
-			SegmentGroup: "paddle", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "rowing", CategoryKey: "water", LabelDE: "Rudern", AutoTitleDE: "Rudern",
-			SegmentGroup: "paddle", TypicallyHasGPS: true, MovingThreshold: 0.1,
-			SubTypes: map[string]SubTypeDef{
-				"indoor_rowing": {SubType: "indoor_rowing", LabelDE: "Indoor-Rudern", DetailDE: "Indoor-Rudern", AutoTitleDE: "Indoor-Rudern"},
-			},
-		},
-		{
-			SportType: "surfing", CategoryKey: "water", LabelDE: "Surfen", AutoTitleDE: "Surfen",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "kitesurfing", CategoryKey: "water", LabelDE: "Kitesurfen", AutoTitleDE: "Kitesurfen",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "windsurfing", CategoryKey: "water", LabelDE: "Windsurfen", AutoTitleDE: "Windsurfen",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "wakeboarding", CategoryKey: "water", LabelDE: "Wakeboard", AutoTitleDE: "Wakeboarden",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "wakesurfing", CategoryKey: "water", LabelDE: "Wakesurfen", AutoTitleDE: "Wakesurfen",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "water_skiing", CategoryKey: "water", LabelDE: "Wasserski", AutoTitleDE: "Wasserski",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "water_tubing", CategoryKey: "water", LabelDE: "Wassertubing", AutoTitleDE: "Wassertubing",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "diving", CategoryKey: "water", LabelDE: "Tauchen", AutoTitleDE: "Tauchen",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
-			SubTypes: map[string]SubTypeDef{
-				"single_gas_diving": {SubType: "single_gas_diving", LabelDE: "Eingas", DetailDE: "Eingas-Tauchen", AutoTitleDE: "Tauchen"},
-				"multi_gas_diving":  {SubType: "multi_gas_diving", LabelDE: "Mehrgas", DetailDE: "Mehrgas-Tauchen", AutoTitleDE: "Tauchen"},
-				"gauge_diving":      {SubType: "gauge_diving", LabelDE: "Gauge", DetailDE: "Gauge-Tauchen", AutoTitleDE: "Tauchen"},
-				"apnea_diving":      {SubType: "apnea_diving", LabelDE: "Apnoe", DetailDE: "Apnoe-Tauchen", AutoTitleDE: "Apnoe-Tauchen"},
-				"apnea_hunting":     {SubType: "apnea_hunting", LabelDE: "Apnoe-Jagd", DetailDE: "Apnoe-Jagdtauchen", AutoTitleDE: "Apnoe-Tauchen"},
-				"ccr_diving":        {SubType: "ccr_diving", LabelDE: "CCR", DetailDE: "Kreislauftauchen (CCR)", AutoTitleDE: "CCR-Tauchen"},
-				"apnea_pool":        {SubType: "apnea_pool", LabelDE: "Apnoe Pool", DetailDE: "Apnoe-Tauchen (Pool)", AutoTitleDE: "Apnoe-Tauchen"},
-			},
-		},
-		{
-			SportType: "snorkeling", CategoryKey: "water", LabelDE: "Schnorcheln", AutoTitleDE: "Schnorcheln",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "boating", CategoryKey: "water", LabelDE: "Bootfahren", AutoTitleDE: "Bootstour",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-		{
-			SportType: "sailing", CategoryKey: "water", LabelDE: "Segeln", AutoTitleDE: "Segeln",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.1,
-			SubTypes: map[string]SubTypeDef{
-				"sail_race": {SubType: "sail_race", LabelDE: "Regatta", DetailDE: "Segelregatta", AutoTitleDE: "Regatta"},
-			},
-		},
-		{
-			SportType: "fishing", CategoryKey: "water", LabelDE: "Angeln", AutoTitleDE: "Angeln",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.0,
-		},
-		{
-			SportType: "rafting", CategoryKey: "water", LabelDE: "Rafting", AutoTitleDE: "Rafting",
-			SegmentGroup: "paddle", TypicallyHasGPS: true, MovingThreshold: 0.1,
-			SubTypes: map[string]SubTypeDef{
-				"whitewater": {SubType: "whitewater", LabelDE: "Wildwasser", DetailDE: "Wildwasser-Rafting", AutoTitleDE: "Wildwasser-Rafting"},
-			},
-		},
-
-		// ── Fitness ──
-		{
-			SportType: "training", CategoryKey: "fitness", LabelDE: "Training", AutoTitleDE: "Training",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-			SubTypes: map[string]SubTypeDef{
-				"strength_training":    {SubType: "strength_training", LabelDE: "Krafttraining", DetailDE: "Krafttraining", AutoTitleDE: "Krafttraining"},
-				"flexibility_training": {SubType: "flexibility_training", LabelDE: "Stretching", DetailDE: "Dehnungstraining", AutoTitleDE: "Stretching"},
-				"cardio_training":      {SubType: "cardio_training", LabelDE: "Cardio", DetailDE: "Cardio-Training", AutoTitleDE: "Cardio"},
-				"yoga":                 {SubType: "yoga", LabelDE: "Yoga", DetailDE: "Yoga", AutoTitleDE: "Yoga"},
-				"breathing":            {SubType: "breathing", LabelDE: "Atemübung", DetailDE: "Atemübung", AutoTitleDE: "Atemübung"},
-				"hiit":                 {SubType: "hiit", LabelDE: "HIIT", DetailDE: "High Intensity Interval Training", AutoTitleDE: "HIIT"},
-			},
-		},
-		{
-			SportType: "fitness_equipment", CategoryKey: "fitness", LabelDE: "Fitnessgerät", AutoTitleDE: "Fitnessgerät",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-			SubTypes: map[string]SubTypeDef{
-				"treadmill":           {SubType: "treadmill", LabelDE: "Laufband", DetailDE: "Laufband", AutoTitleDE: "Laufband"},
-				"indoor_cycling":      {SubType: "indoor_cycling", LabelDE: "Indoor-Rad", DetailDE: "Indoor-Rad", AutoTitleDE: "Indoor-Radfahrt"},
-				"indoor_rowing":       {SubType: "indoor_rowing", LabelDE: "Ruder-Ergometer", DetailDE: "Ruder-Ergometer", AutoTitleDE: "Indoor-Rudern"},
-				"elliptical":          {SubType: "elliptical", LabelDE: "Crosstrainer", DetailDE: "Crosstrainer", AutoTitleDE: "Crosstrainer"},
-				"stair_climbing":      {SubType: "stair_climbing", LabelDE: "Treppensteiger", DetailDE: "Treppensteiger", AutoTitleDE: "Treppensteiger"},
-				"pilates":             {SubType: "pilates", LabelDE: "Pilates", DetailDE: "Pilates", AutoTitleDE: "Pilates"},
-				"indoor_skiing":       {SubType: "indoor_skiing", LabelDE: "Indoor-Ski", DetailDE: "Skimaschine", AutoTitleDE: "Indoor-Ski"},
-				"indoor_walking":      {SubType: "indoor_walking", LabelDE: "Indoor-Gehen", DetailDE: "Indoor-Gehen", AutoTitleDE: "Indoor-Gehen"},
-				"indoor_hand_cycling": {SubType: "indoor_hand_cycling", LabelDE: "Handbike-Ergometer", DetailDE: "Handbike-Ergometer", AutoTitleDE: "Indoor-Handbike"},
-			},
-		},
-		{
-			SportType: "strength_training", CategoryKey: "fitness", LabelDE: "Krafttraining", AutoTitleDE: "Krafttraining",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-			SubTypes: map[string]SubTypeDef{
-				"amrap": {SubType: "amrap", LabelDE: "AMRAP", DetailDE: "As Many Reps As Possible", AutoTitleDE: "AMRAP"},
-				"emom":  {SubType: "emom", LabelDE: "EMOM", DetailDE: "Every Minute On the Minute", AutoTitleDE: "EMOM"},
-			},
-		},
-		{
-			SportType: "hiit", CategoryKey: "fitness", LabelDE: "HIIT", AutoTitleDE: "HIIT",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-			SubTypes: map[string]SubTypeDef{
-				"tabata": {SubType: "tabata", LabelDE: "Tabata", DetailDE: "Tabata", AutoTitleDE: "Tabata"},
-			},
-		},
-		{
-			SportType: "dance", CategoryKey: "fitness", LabelDE: "Tanzen", AutoTitleDE: "Tanzen",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-		},
-		{
-			SportType: "jump_rope", CategoryKey: "fitness", LabelDE: "Seilspringen", AutoTitleDE: "Seilspringen",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-		},
-		{
-			SportType: "meditation", CategoryKey: "fitness", LabelDE: "Meditation", AutoTitleDE: "Meditation",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-		},
-		{
-			SportType: "yoga", CategoryKey: "fitness", LabelDE: "Yoga", AutoTitleDE: "Yoga",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-		},
-		{
-			SportType: "pilates", CategoryKey: "fitness", LabelDE: "Pilates", AutoTitleDE: "Pilates",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-		},
-
-		// ── Game ──
-		{
-			SportType: "soccer", CategoryKey: "game", LabelDE: "Fußball", AutoTitleDE: "Fußball",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.2,
-		},
-		{
-			SportType: "basketball", CategoryKey: "game", LabelDE: "Basketball", AutoTitleDE: "Basketball",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
-		},
-		{
-			SportType: "american_football", CategoryKey: "game", LabelDE: "American Football", AutoTitleDE: "American Football",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.2,
-		},
-		{
-			SportType: "rugby", CategoryKey: "game", LabelDE: "Rugby", AutoTitleDE: "Rugby",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.2,
-		},
-		{
-			SportType: "lacrosse", CategoryKey: "game", LabelDE: "Lacrosse", AutoTitleDE: "Lacrosse",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.2,
-		},
-		{
-			SportType: "hockey", CategoryKey: "game", LabelDE: "Hockey", AutoTitleDE: "Hockey",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.2,
-		},
-		{
-			SportType: "volleyball", CategoryKey: "game", LabelDE: "Volleyball", AutoTitleDE: "Volleyball",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
-		},
-		{
-			SportType: "tennis", CategoryKey: "game", LabelDE: "Tennis", AutoTitleDE: "Tennis",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
-			SubTypes: map[string]SubTypeDef{
-				"warm_up":  {SubType: "warm_up", LabelDE: "Aufwärmen", DetailDE: "Aufwärmen", AutoTitleDE: "Tennis-Aufwärmen"},
-				"match":    {SubType: "match", LabelDE: "Match", DetailDE: "Tennis-Match", AutoTitleDE: "Tennis-Match"},
-				"exercise": {SubType: "exercise", LabelDE: "Übung", DetailDE: "Tennis-Übung", AutoTitleDE: "Tennis-Übung"},
-			},
-		},
-		{
-			SportType: "racket", CategoryKey: "game", LabelDE: "Schlägersport", AutoTitleDE: "Schlägersport",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
-			SubTypes: map[string]SubTypeDef{
-				"pickleball":   {SubType: "pickleball", LabelDE: "Pickleball", DetailDE: "Pickleball", AutoTitleDE: "Pickleball"},
-				"padel":        {SubType: "padel", LabelDE: "Padel", DetailDE: "Padel", AutoTitleDE: "Padel"},
-				"squash":       {SubType: "squash", LabelDE: "Squash", DetailDE: "Squash", AutoTitleDE: "Squash"},
-				"badminton":    {SubType: "badminton", LabelDE: "Badminton", DetailDE: "Badminton", AutoTitleDE: "Badminton"},
-				"racquetball":  {SubType: "racquetball", LabelDE: "Racquetball", DetailDE: "Racquetball", AutoTitleDE: "Racquetball"},
-				"table_tennis": {SubType: "table_tennis", LabelDE: "Tischtennis", DetailDE: "Tischtennis", AutoTitleDE: "Tischtennis"},
-			},
-		},
-		{
-			SportType: "cricket", CategoryKey: "game", LabelDE: "Cricket", AutoTitleDE: "Cricket",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.0,
-		},
-		{
-			SportType: "baseball", CategoryKey: "game", LabelDE: "Baseball", AutoTitleDE: "Baseball",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
-		},
-		{
-			SportType: "golf", CategoryKey: "game", LabelDE: "Golf", AutoTitleDE: "Golf",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.0,
-		},
-		{
-			SportType: "disc_golf", CategoryKey: "game", LabelDE: "Disc Golf", AutoTitleDE: "Disc Golf",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.0,
-		},
-
-		// ── Climb ──
-		{
-			SportType: "rock_climbing", CategoryKey: "climb", LabelDE: "Klettern", AutoTitleDE: "Klettern",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
-			SubTypes: map[string]SubTypeDef{
-				"indoor_climbing": {SubType: "indoor_climbing", LabelDE: "Indoor", DetailDE: "Hallenklettern", AutoTitleDE: "Hallenklettern"},
-				"bouldering":      {SubType: "bouldering", LabelDE: "Bouldern", DetailDE: "Bouldern", AutoTitleDE: "Bouldern"},
-			},
-		},
-
-		// ── Outdoor ──
-		{
-			SportType: "flying", CategoryKey: "outdoor", LabelDE: "Fliegen", AutoTitleDE: "Fliegen",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
-			SubTypes: map[string]SubTypeDef{
-				"rc_drone":        {SubType: "rc_drone", LabelDE: "Drohne", DetailDE: "Drohnenflug", AutoTitleDE: "Drohnenflug"},
-				"wingsuit":        {SubType: "wingsuit", LabelDE: "Wingsuit", DetailDE: "Wingsuit", AutoTitleDE: "Wingsuit-Flug"},
-				"fly_canopy":      {SubType: "fly_canopy", LabelDE: "Fallschirm", DetailDE: "Fallschirmspringen", AutoTitleDE: "Fallschirmsprung"},
-				"fly_paraglide":   {SubType: "fly_paraglide", LabelDE: "Gleitschirm", DetailDE: "Gleitschirmfliegen", AutoTitleDE: "Gleitschirmflug"},
-				"fly_paramotor":   {SubType: "fly_paramotor", LabelDE: "Paramotor", DetailDE: "Paramotorfliegen", AutoTitleDE: "Paramotorflug"},
-				"fly_pressurized": {SubType: "fly_pressurized", LabelDE: "Druckkabine", DetailDE: "Druckkabinenflugzeug", AutoTitleDE: "Flug"},
-				"fly_vfr":         {SubType: "fly_vfr", LabelDE: "Sichtflug (VFR)", DetailDE: "Sichtflugregeln (VFR)", AutoTitleDE: "VFR-Flug"},
-				"fly_ifr":         {SubType: "fly_ifr", LabelDE: "Instrumentenflug (IFR)", DetailDE: "Instrumentenflugregeln (IFR)", AutoTitleDE: "IFR-Flug"},
-				"fly_navigate":    {SubType: "fly_navigate", LabelDE: "Navigation", DetailDE: "Luftfahrt-Navigation", AutoTitleDE: "Flug"},
-				"fly_timer":       {SubType: "fly_timer", LabelDE: "Timer", DetailDE: "Flug-Timer", AutoTitleDE: "Flug"},
-				"fly_altimeter":   {SubType: "fly_altimeter", LabelDE: "Höhenmesser", DetailDE: "Höhenmesser-Modus", AutoTitleDE: "Flug"},
-				"fly_wx":          {SubType: "fly_wx", LabelDE: "Wetter", DetailDE: "Flugwetter", AutoTitleDE: "Flug"},
-			},
-		},
-		{
-			SportType: "hang_gliding", CategoryKey: "outdoor", LabelDE: "Gleitschirmfliegen", AutoTitleDE: "Gleitschirmflug",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
-		},
-		{
-			SportType: "sky_diving", CategoryKey: "outdoor", LabelDE: "Fallschirmspringen", AutoTitleDE: "Fallschirmsprung",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.0,
-		},
-		{
-			SportType: "jumpmaster", CategoryKey: "outdoor", LabelDE: "Jumpmaster", AutoTitleDE: "Jumpmaster",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.0,
-		},
-		{
-			SportType: "horseback_riding", CategoryKey: "outdoor", LabelDE: "Reiten", AutoTitleDE: "Ausritt",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.2,
-		},
-		{
-			SportType: "hunting", CategoryKey: "outdoor", LabelDE: "Jagd", AutoTitleDE: "Jagd",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.0,
-		},
-		{
-			SportType: "motorcycling", CategoryKey: "outdoor", LabelDE: "Motorrad", AutoTitleDE: "Motorradtour",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
-			SubTypes: map[string]SubTypeDef{
-				"atv":       {SubType: "atv", LabelDE: "Quad/ATV", DetailDE: "Quad/ATV", AutoTitleDE: "Quad-Tour"},
-				"motocross": {SubType: "motocross", LabelDE: "Motocross", DetailDE: "Motocross", AutoTitleDE: "Motocross"},
-			},
-		},
-		{
-			SportType: "driving", CategoryKey: "outdoor", LabelDE: "Autofahren", AutoTitleDE: "Autofahrt",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.5,
-		},
-		{
-			SportType: "boxing", CategoryKey: "fitness", LabelDE: "Boxen", AutoTitleDE: "Boxen",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-		},
-		{
-			SportType: "mixed_martial_arts", CategoryKey: "fitness", LabelDE: "MMA", AutoTitleDE: "MMA",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-		},
-		{
-			SportType: "tactical", CategoryKey: "outdoor", LabelDE: "Taktisch", AutoTitleDE: "Taktisches Training",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.2,
-		},
-
-		// ── Multi ──
-		{
-			SportType: "multisport", CategoryKey: "multi", LabelDE: "Multisport", AutoTitleDE: "Multisport",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.0,
-		},
-		{
-			SportType: "transition", CategoryKey: "multi", LabelDE: "Wechselzone", AutoTitleDE: "Wechselzone",
-			SegmentGroup: "generic", TypicallyHasGPS: true, MovingThreshold: 0.0,
-			SubTypes: map[string]SubTypeDef{
-				"bike_to_run_transition":  {SubType: "bike_to_run_transition", LabelDE: "Rad→Lauf", DetailDE: "Wechsel Rad zu Lauf", AutoTitleDE: "Wechselzone"},
-				"run_to_bike_transition":  {SubType: "run_to_bike_transition", LabelDE: "Lauf→Rad", DetailDE: "Wechsel Lauf zu Rad", AutoTitleDE: "Wechselzone"},
-				"swim_to_bike_transition": {SubType: "swim_to_bike_transition", LabelDE: "Schwimmen→Rad", DetailDE: "Wechsel Schwimmen zu Rad", AutoTitleDE: "Wechselzone"},
-			},
-		},
-
-		// ── Other ──
-		{
-			SportType: "generic", CategoryKey: "other", LabelDE: "Aktivität", AutoTitleDE: "Training",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
-		},
-		{
-			SportType: "unknown", CategoryKey: "other", LabelDE: "Unbekannt", AutoTitleDE: "Training",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0,
-		},
-
-		// Aliases still emitted by upstream sources as canonical top-level sports.
-		{
-			SportType: "skiing", CategoryKey: "winter", LabelDE: "Skifahren", AutoTitleDE: "Skifahrt",
-			SegmentGroup: "ski", TypicallyHasGPS: true, MovingThreshold: 0.3,
-		},
-		{
-			SportType: "strength", CategoryKey: "fitness", LabelDE: "Krafttraining", AutoTitleDE: "Krafttraining",
-			SegmentGroup: "generic", TypicallyHasGPS: false, MovingThreshold: 0.0, IsIndoor: true,
-		},
-		{
-			SportType: "canoeing", CategoryKey: "water", LabelDE: "Kanu", AutoTitleDE: "Kanutour",
-			SegmentGroup: "paddle", TypicallyHasGPS: true, MovingThreshold: 0.1,
-		},
-	}
-
-	registry = make(map[string]SportDef, len(defs))
-	for _, d := range defs {
-		registry[d.SportType] = d
-	}
-}
-
 // ---- Lookup functions ----
 
 // GetSportDef returns the full definition for a sport type.
 // The second return value is false when the sport type is unknown.
 func GetSportDef(sportType string) (SportDef, bool) {
 	d, ok := registry[sportType]
-	return d, ok
+	if !ok {
+		return SportDef{}, false
+	}
+	return cloneSportDef(d), true
+}
+
+// IsSelectableTuple reports whether a canonical sport tuple is available for
+// new user-authored activity choices.
+func IsSelectableTuple(sportType, subType string) bool {
+	d, ok := registry[CanonicalSportTypeID(sportType)]
+	if !ok {
+		return false
+	}
+	subType = CanonicalSubTypeID(subType)
+	if subType == "" {
+		return d.Selectable
+	}
+	st, ok := d.SubTypes[subType]
+	return ok && st.Selectable
 }
 
 // SportLabel returns the compact German display label for a sport tuple.
@@ -547,7 +195,8 @@ func SportLabel(sportType, subType string) string {
 	if !ok {
 		return titleCase(sportType)
 	}
-	if subType != "" && subType != "generic" {
+	subType = CanonicalSubTypeID(subType)
+	if subType != "" {
 		if st, stOK := d.SubTypes[subType]; stOK {
 			return st.LabelDE
 		}
@@ -562,7 +211,8 @@ func SportDetailLabel(sportType, subType string) string {
 	if !ok {
 		return titleCase(sportType)
 	}
-	if subType == "" || subType == "generic" {
+	subType = CanonicalSubTypeID(subType)
+	if subType == "" {
 		return d.LabelDE
 	}
 	if st, stOK := d.SubTypes[subType]; stOK {
@@ -581,7 +231,8 @@ func AutoTitle(sportType, subType string) string {
 	if !ok {
 		return "Training"
 	}
-	if subType != "" && subType != "generic" {
+	subType = CanonicalSubTypeID(subType)
+	if subType != "" {
 		if st, stOK := d.SubTypes[subType]; stOK && st.AutoTitleDE != "" {
 			return st.AutoTitleDE
 		}
@@ -602,9 +253,21 @@ func SegmentGroup(sportType string) string {
 // MovingThreshold returns the minimum speed (m/s) that counts as "moving"
 // for the given sport type.
 func MovingThreshold(sportType string) float64 {
+	return MovingThresholdForTuple(sportType, "")
+}
+
+// MovingThresholdForTuple returns the minimum speed (m/s) that counts as
+// moving for the given sport tuple.
+func MovingThresholdForTuple(sportType, subType string) float64 {
 	d, ok := registry[sportType]
 	if !ok {
 		return 0.0
+	}
+	subType = CanonicalSubTypeID(subType)
+	if subType != "" {
+		if st, stOK := d.SubTypes[subType]; stOK && st.MovingThreshold != nil {
+			return *st.MovingThreshold
+		}
 	}
 	return d.MovingThreshold
 }
@@ -630,30 +293,166 @@ func AllCategories() []Category {
 	return result
 }
 
-// AllSports returns all registered sport definitions, sorted alphabetically by SportType.
+// AllSports returns all registered sport definitions in taxonomy display order.
 func AllSports() []SportDef {
-	result := make([]SportDef, 0, len(registry))
-	for _, d := range registry {
-		result = append(result, d)
+	result := make([]SportDef, len(generatedSportDefs))
+	for i, def := range generatedSportDefs {
+		result[i] = cloneSportDef(def)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].SportType < result[j].SportType
-	})
 	return result
 }
 
-// SportsInCategory returns all sport definitions belonging to a category,
-// sorted alphabetically by SportType.
-func SportsInCategory(categoryKey string) []SportDef {
-	var result []SportDef
-	for _, d := range registry {
-		if d.CategoryKey == categoryKey {
-			result = append(result, d)
+// ActivityFilterProjectionPresets returns generated activity-filter projection
+// presets in display order.
+func ActivityFilterProjectionPresets() []ActivityFilterProjectionPreset {
+	return cloneActivityFilterProjectionPresets(generatedActivityFilterProjectionPresets)
+}
+
+// ActivityFilterProjectionPresetByKey returns one generated activity-filter
+// projection preset by key.
+func ActivityFilterProjectionPresetByKey(key string) (ActivityFilterProjectionPreset, bool) {
+	for _, preset := range generatedActivityFilterProjectionPresets {
+		if preset.Key == key {
+			return cloneActivityFilterProjectionPreset(preset), true
 		}
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].SportType < result[j].SportType
-	})
+	return ActivityFilterProjectionPreset{}, false
+}
+
+func SegmentProjectionEntriesForType(segmentType string) []SegmentProjectionEntry {
+	ensureSegmentProjectionIndex()
+	return append([]SegmentProjectionEntry(nil), segmentProjectionEntriesByType[segmentType]...)
+}
+
+func SegmentProjectionGroupForTuple(sportType, subType string) (string, bool) {
+	ensureSegmentProjectionIndex()
+	subType = CanonicalSubTypeID(subType)
+	if subType != "" {
+		if group, ok := segmentProjectionGroupsByTuple[projectionTupleKey(sportType, subType)]; ok {
+			return group, true
+		}
+	}
+	if group, ok := segmentProjectionGroupsByTuple[projectionTupleKey(sportType, "")]; ok {
+		return group, true
+	}
+	return "", false
+}
+
+func SegmentProjectionGroupForPredicates(preds []Predicate) string {
+	if len(preds) == 0 {
+		return "generic"
+	}
+	group := ""
+	for _, pred := range preds {
+		subType := ""
+		if pred.SubType != nil {
+			subType = *pred.SubType
+		}
+		next, ok := SegmentProjectionGroupForTuple(pred.Sport, subType)
+		if !ok {
+			return "generic"
+		}
+		if group == "" {
+			group = next
+			continue
+		}
+		if group != next {
+			return "generic"
+		}
+	}
+	if group == "" {
+		return "generic"
+	}
+	return group
+}
+
+func RuleTupleOptions() []RuleTupleOption {
+	return append([]RuleTupleOption(nil), generatedRuleTupleOptions...)
+}
+
+func RuleModifierProjectionForTuple(sportType, subType, key string) (RuleModifierProjection, bool) {
+	for _, modifier := range generatedRuleModifierProjections[projectionTupleKey(sportType, subType)] {
+		if modifier.Key == key {
+			return modifier, true
+		}
+	}
+	return RuleModifierProjection{}, false
+}
+
+func RuleTraitProjections() []RuleTraitProjection {
+	out := make([]RuleTraitProjection, len(generatedRuleTraitProjections))
+	for i, projection := range generatedRuleTraitProjections {
+		out[i] = projection
+		out[i].Options = append([]RuleTraitOption(nil), projection.Options...)
+	}
+	return out
+}
+
+func RuleTraitValues(field string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, projection := range generatedRuleTraitProjections {
+		if projection.Field != field {
+			continue
+		}
+		for _, option := range projection.Options {
+			out[option.Key] = struct{}{}
+		}
+	}
+	return out
+}
+
+func EffectiveTraitsForTuple(sportType, subType string) (SportTraits, bool) {
+	def, ok := registry[sportType]
+	if !ok {
+		return SportTraits{}, false
+	}
+	subType = CanonicalSubTypeID(subType)
+	if subType != "" {
+		if st, stOK := def.SubTypes[subType]; stOK {
+			return cloneSportTraits(st.Traits), true
+		}
+	}
+	return cloneSportTraits(def.Traits), true
+}
+
+// SportsInCategory returns all sport definitions belonging to a category in
+// taxonomy display order.
+func SportsInCategory(categoryKey string) []SportDef {
+	var result []SportDef
+	for _, d := range generatedSportDefs {
+		if d.CategoryKey == categoryKey {
+			result = append(result, cloneSportDef(d))
+		}
+	}
+	return result
+}
+
+// OrderedSubTypes returns a sport's sub-types in taxonomy display order.
+func OrderedSubTypes(def SportDef) []SubTypeDef {
+	if len(def.SubTypes) == 0 {
+		return nil
+	}
+	result := make([]SubTypeDef, 0, len(def.SubTypes))
+	seen := make(map[string]struct{}, len(def.SubTypes))
+	for _, key := range def.SubTypeOrder {
+		if st, ok := def.SubTypes[key]; ok {
+			result = append(result, st)
+			seen[key] = struct{}{}
+		}
+	}
+	if len(result) == len(def.SubTypes) {
+		return result
+	}
+	fallbackKeys := make([]string, 0, len(def.SubTypes)-len(result))
+	for key := range def.SubTypes {
+		if _, ok := seen[key]; !ok {
+			fallbackKeys = append(fallbackKeys, key)
+		}
+	}
+	sort.Strings(fallbackKeys)
+	for _, key := range fallbackKeys {
+		result = append(result, def.SubTypes[key])
+	}
 	return result
 }
 
@@ -670,20 +469,160 @@ func titleCase(s string) string {
 	return strings.Join(parts, " ")
 }
 
-// IsIndoor returns true when the given sport/sub-type combination
-// represents an indoor activity. Three sources of truth:
-//  1. SportDef.IsIndoor flag (sport types that are always indoor)
-//  2. SubType name pattern (indoor_* prefix or explicit list)
-//
-// Indoor SubType patterns. New indoor sub-types MUST use "indoor_" prefix
-// or be added here explicitly. See SportDef.IsIndoor for sport-level defaults.
-func IsIndoor(sportType, subType string) bool {
-	if d, ok := registry[sportType]; ok && d.IsIndoor {
-		return true
+func cloneSportDef(def SportDef) SportDef {
+	def.Traits = cloneSportTraits(def.Traits)
+	def.ModifierDefaults = cloneModifierDefaults(def.ModifierDefaults)
+	def.SubTypeOrder = append([]string(nil), def.SubTypeOrder...)
+	if def.SubTypes != nil {
+		subTypes := make(map[string]SubTypeDef, len(def.SubTypes))
+		for key, subType := range def.SubTypes {
+			subTypes[key] = cloneSubTypeDef(subType)
+		}
+		def.SubTypes = subTypes
 	}
-	return strings.HasPrefix(subType, "indoor_") ||
-		subType == "treadmill" ||
-		subType == "spin"
+	return def
+}
+
+func cloneSubTypeDef(def SubTypeDef) SubTypeDef {
+	def.Traits = cloneSportTraits(def.Traits)
+	def.ModifierDefaults = cloneModifierDefaults(def.ModifierDefaults)
+	if def.MovingThreshold != nil {
+		value := *def.MovingThreshold
+		def.MovingThreshold = &value
+	}
+	return def
+}
+
+func cloneSportTraits(traits SportTraits) SportTraits {
+	traits.Environments = cloneStringSlice(traits.Environments)
+	traits.MovementFamilies = cloneStringSlice(traits.MovementFamilies)
+	traits.EquipmentFamilies = cloneStringSlice(traits.EquipmentFamilies)
+	traits.PropulsionModes = cloneStringSlice(traits.PropulsionModes)
+	return traits
+}
+
+func cloneStringSlice(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	out := make([]string, len(values))
+	copy(out, values)
+	return out
+}
+
+// ModifierDefaultsForTuple returns effective canonical modifier defaults for a
+// sport tuple. Unknown sports return zero defaults; unknown subtypes inherit the parent.
+func ModifierDefaultsForTuple(sportType, subType string) ModifierDefaults {
+	d, ok := registry[sportType]
+	if !ok {
+		return ModifierDefaults{}
+	}
+	defaults := cloneModifierDefaults(d.ModifierDefaults)
+	subType = CanonicalSubTypeID(subType)
+	if subType != "" {
+		st, stOK := d.SubTypes[subType]
+		if !stOK {
+			return defaults
+		}
+		defaults = mergeModifierDefaults(defaults, st.ModifierDefaults)
+	}
+	return defaults
+}
+
+func mergeModifierDefaults(parent, child ModifierDefaults) ModifierDefaults {
+	merged := cloneModifierDefaults(parent)
+	for key, value := range child {
+		merged[key] = value
+	}
+	return merged
+}
+
+func cloneModifierDefaults(defaults ModifierDefaults) ModifierDefaults {
+	if defaults == nil {
+		return ModifierDefaults{}
+	}
+	cloned := make(ModifierDefaults, len(defaults))
+	for key, value := range defaults {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func cloneActivityFilterProjectionPresets(in []ActivityFilterProjectionPreset) []ActivityFilterProjectionPreset {
+	out := make([]ActivityFilterProjectionPreset, len(in))
+	for i := range in {
+		out[i] = cloneActivityFilterProjectionPreset(in[i])
+	}
+	return out
+}
+
+func cloneActivityFilterProjectionPreset(in ActivityFilterProjectionPreset) ActivityFilterProjectionPreset {
+	out := in
+	out.Groups = make([]ActivityFilterProjectionGroup, len(in.Groups))
+	for i := range in.Groups {
+		out.Groups[i] = in.Groups[i]
+		out.Groups[i].Leaves = append([]ActivityFilterProjectionLeaf(nil), in.Groups[i].Leaves...)
+	}
+	return out
+}
+
+func projectionTupleKey(sportType, subType string) string {
+	if subType == "" {
+		return sportType
+	}
+	return sportType + ":" + subType
+}
+
+func segmentProjectionActiveDomains(segmentType string) map[string]struct{} {
+	ensureSegmentProjectionIndex()
+	return segmentProjectionActiveByType[segmentType]
+}
+
+func segmentProjectionEntryIsActive(entry SegmentProjectionEntry) bool {
+	ensureSegmentProjectionIndex()
+	_, ok := segmentProjectionActiveByDomain[entry.SegmentType+":"+entry.Domain]
+	return ok
+}
+
+func ensureSegmentProjectionIndex() {
+	segmentProjectionIndexOnce.Do(func() {
+		segmentProjectionEntriesByType = map[string][]SegmentProjectionEntry{}
+		segmentProjectionGroupsByTuple = map[string]string{}
+		segmentProjectionActiveByType = map[string]map[string]struct{}{}
+		segmentProjectionActiveByDomain = map[string]struct{}{}
+
+		for _, segmentType := range generatedSegmentProjectionSegmentTypes {
+			active := map[string]struct{}{}
+			for _, domain := range segmentType.ActiveDomains {
+				active[domain] = struct{}{}
+				segmentProjectionActiveByDomain[segmentType.Key+":"+domain] = struct{}{}
+			}
+			segmentProjectionActiveByType[segmentType.Key] = active
+		}
+
+		for _, entry := range generatedSegmentProjectionEntries {
+			if !segmentProjectionEntryIsActiveIndexed(entry) {
+				continue
+			}
+			segmentProjectionEntriesByType[entry.SegmentType] = append(segmentProjectionEntriesByType[entry.SegmentType], entry)
+			key := projectionTupleKey(entry.SportType, entry.SubType)
+			if _, exists := segmentProjectionGroupsByTuple[key]; !exists {
+				segmentProjectionGroupsByTuple[key] = entry.SportGroup
+			}
+		}
+	})
+}
+
+func segmentProjectionEntryIsActiveIndexed(entry SegmentProjectionEntry) bool {
+	_, ok := segmentProjectionActiveByDomain[entry.SegmentType+":"+entry.Domain]
+	return ok
+}
+
+// IsIndoor returns true when generated canonical modifier defaults mark the
+// given sport/sub-type combination as indoor.
+func IsIndoor(sportType, subType string) bool {
+	defaults := ModifierDefaultsForTuple(sportType, subType)
+	return defaults["is_indoor"]
 }
 
 func subTypeLabelCanStandAlone(d SportDef) bool {
@@ -693,4 +632,12 @@ func subTypeLabelCanStandAlone(d SportDef) bool {
 	default:
 		return false
 	}
+}
+
+func ptrFloat64(v float64) *float64 {
+	return &v
+}
+
+func ptrBool(v bool) *bool {
+	return &v
 }

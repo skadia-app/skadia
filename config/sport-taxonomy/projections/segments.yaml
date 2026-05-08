@@ -1,0 +1,375 @@
+domains:
+  - key: real_world_gps
+    labels: {de: GPS draußen}
+    status: active
+  - key: virtual_route
+    labels: {de: Virtuelle Strecke}
+    status: reserved
+
+segment_types:
+  - key: standard
+    labels: {de: Standard}
+    active_domains: [real_world_gps]
+    compatibility_role: legacy_segment_type
+  - key: trail
+    labels: {de: Trail}
+    active_domains: [real_world_gps]
+    compatibility_role: legacy_segment_type
+  - key: lap
+    labels: {de: Runde}
+    active_domains: [real_world_gps]
+    compatibility_role: legacy_segment_type
+  - key: wintersport
+    labels: {de: Winter}
+    active_domains: [real_world_gps]
+    compatibility_role: legacy_segment_type
+  - key: wassersport
+    labels: {de: Wassersport}
+    active_domains: [real_world_gps]
+    compatibility_role: legacy_segment_type
+  - key: lift
+    labels: {de: Lift}
+    active_domains: []
+    compatibility_role: legacy_lift
+
+route_options:
+  - sport_type: running
+    promoted_sub_types: [trail]
+  - sport_type: walking
+  - sport_type: hiking
+    promoted_sub_types: [rucking]
+  - sport_type: mountaineering
+  - sport_type: snowshoeing
+  - sport_type: wheelchair_push
+    promoted_sub_types: [walk_speed, run_speed]
+  - sport_type: cycling
+    promoted_sub_types: [mountain, gravel_cycling, road]
+  - sport_type: inline_skating
+  - sport_type: skateboarding
+  - sport_type: geocaching
+  - sport_type: archery
+  - sport_type: shooting
+  - sport_type: alpine_skiing
+  - sport_type: backcountry_skiing
+  - sport_type: cross_country_skiing
+  - sport_type: snowboarding
+  - sport_type: ice_skating
+  - sport_type: snowmobiling
+  - sport_type: sledding
+  - sport_type: swimming
+  - sport_type: kayaking
+  - sport_type: stand_up_paddleboarding
+  - sport_type: rowing
+  - sport_type: rafting
+  - sport_type: canoeing
+  - sport_type: surfing
+  - sport_type: kitesurfing
+  - sport_type: windsurfing
+  - sport_type: wakeboarding
+  - sport_type: wakesurfing
+  - sport_type: water_skiing
+  - sport_type: water_tubing
+  - sport_type: snorkeling
+  - sport_type: boating
+  - sport_type: sailing
+  - sport_type: fishing
+  - sport_type: cricket
+  - sport_type: golf
+  - sport_type: disc_golf
+  - sport_type: rock_climbing
+  - sport_type: flying
+  - sport_type: hang_gliding
+  - sport_type: sky_diving
+  - sport_type: jumpmaster
+  - sport_type: horseback_riding
+  - sport_type: hunting
+  - sport_type: motorcycling
+  - sport_type: driving
+  - sport_type: multisport
+
+eligible:
+  - sport_type: running
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: foot
+  - sport_type: walking
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: foot
+  - sport_type: hiking
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: foot
+  - sport_type: mountaineering
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: foot
+  - sport_type: wheelchair_push
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: foot
+  - sport_type: cycling
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: bike
+  - sport_type: strength_training
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: hiit
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: yoga
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: pilates
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: floor_climbing
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: foot
+  - sport_type: dance
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: jump_rope
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: meditation
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: boxing
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: mixed_martial_arts
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: soccer
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: basketball
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: american_football
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: rugby
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: lacrosse
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: hockey
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: volleyball
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: tennis
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: racket
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: cricket
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: baseball
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: golf
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: disc_golf
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: rock_climbing
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: inline_skating
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: skateboarding
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: geocaching
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: foot
+  - sport_type: archery
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: shooting
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: flying
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: hang_gliding
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: sky_diving
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: jumpmaster
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: horseback_riding
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: hunting
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: motorcycling
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: driving
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: tactical
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: multisport
+    segment_types: [standard, trail, lap]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: alpine_skiing
+    segment_types: [wintersport]
+    domains: [real_world_gps]
+    sport_group: ski
+  - sport_type: backcountry_skiing
+    segment_types: [wintersport]
+    domains: [real_world_gps]
+    sport_group: ski
+  - sport_type: cross_country_skiing
+    segment_types: [wintersport]
+    domains: [real_world_gps]
+    sport_group: ski
+  - sport_type: snowboarding
+    segment_types: [wintersport]
+    domains: [real_world_gps]
+    sport_group: ski
+  - sport_type: ice_skating
+    segment_types: [wintersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: snowmobiling
+    segment_types: [wintersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: sledding
+    segment_types: [wintersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: snowshoeing
+    segment_types: [wintersport]
+    domains: [real_world_gps]
+    sport_group: foot
+  - sport_type: swimming
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: swim
+  - sport_type: paddling
+    eligibility_role: legacy_fallback_coverage
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: paddle
+  - sport_type: kayaking
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: paddle
+  - sport_type: stand_up_paddleboarding
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: paddle
+  - sport_type: rowing
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: paddle
+  - sport_type: rafting
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: paddle
+  - sport_type: canoeing
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: paddle
+  - sport_type: surfing
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: kitesurfing
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: windsurfing
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: wakeboarding
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: wakesurfing
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: water_skiing
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: water_tubing
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: snorkeling
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: boating
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: sailing
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: generic
+  - sport_type: fishing
+    segment_types: [wassersport]
+    domains: [real_world_gps]
+    sport_group: generic

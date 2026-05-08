@@ -30,9 +30,9 @@ func routeETag(version int64) string {
 type parseIfMatchResult int
 
 const (
-	ifMatchAbsent   parseIfMatchResult = iota // header not sent or wildcard — use legacy path
-	ifMatchValid                              // header present and parseable — use concurrency check
-	ifMatchMalformed                          // header present but unparseable — caller must return 400
+	ifMatchAbsent    parseIfMatchResult = iota // header not sent or wildcard — use legacy path
+	ifMatchValid                               // header present and parseable — use concurrency check
+	ifMatchMalformed                           // header present but unparseable — caller must return 400
 )
 
 // parseIfMatchVersion extracts a numeric version from an If-Match header.
@@ -378,7 +378,7 @@ func normalizeRouteSportForRequest(route *model.PlannedRoute) error {
 	if route.SubType != nil {
 		rawSubType = *route.SubType
 	}
-	tuple, patch, err := sport.NormalizeSportTuple(route.SportType, rawSubType)
+	tuple, patch, err := sport.NormalizeSelectableSportTuple(route.SportType, rawSubType)
 	if err != nil {
 		return err
 	}
@@ -410,12 +410,11 @@ func parseRouteModifierFilters(r *http.Request) sport.ModifierFilters {
 		}
 		return &value
 	}
-	return sport.ModifierFilters{
-		IsElectric: parse("is_electric"),
-		IsIndoor:   parse("is_indoor"),
-		IsVirtual:  parse("is_virtual"),
-		IsCommute:  parse("is_commute"),
+	filters := sport.ModifierFilters{}
+	for _, key := range sport.SportModifierKeysWithCapability("route_filter") {
+		sport.SetModifierFilter(&filters, key, parse(key))
 	}
+	return filters
 }
 
 // DeleteRoute removes a planned route, enforcing ownership.

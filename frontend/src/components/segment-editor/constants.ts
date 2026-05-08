@@ -25,32 +25,6 @@ export const BIDIRECTIONAL_DEFAULT: Record<SegType, boolean> = {
   lift: true,
 }
 
-// Hardcoded whitelist (NOT derived from taxonomy Category() === 'winter' —
-// snowshoeing is CategoryKey 'run' per sport/taxonomy.go:103). §4.2 Item 5.
-export const WINTER_SPORT_WHITELIST: readonly string[] = [
-  'alpine_skiing',
-  'backcountry_skiing',
-  'cross_country_skiing',
-  'snowboarding',
-  'ice_skating',
-  'snowmobiling',
-  'sledding',
-  'snowshoeing',
-]
-
-// WATER_SPORT_WHITELIST — analog zu WINTER_SPORT_WHITELIST
-// Verhindert dass bei segType='wassersport' Bike/Run-Sportarten angeboten werden
-// Quelle: sportTaxonomy.ts:129-163 categoryKey='water', ohne diving (hasGPS=false)
-export const WATER_SPORT_WHITELIST: readonly string[] = [
-  // swim
-  'swimming',
-  // paddle
-  'paddling', 'kayaking', 'stand_up_paddleboarding', 'rowing', 'rafting', 'canoeing',
-  // generic water (hasGPS=true only — diving excluded)
-  'surfing', 'kitesurfing', 'windsurfing', 'wakeboarding', 'wakesurfing',
-  'water_skiing', 'water_tubing', 'snorkeling', 'boating', 'sailing', 'fishing',
-]
-
 // DAV-Bayern-Auslegung — Ski-Pisten convention blau < rot < schwarz. §4.6.
 // Single-Source-of-Truth: @/lib/scaleColors. Re-Export hier aus Abwärts-
 // kompatibilität; Consumer die Hex-Werte brauchen (z.B. Badge-Dots) importieren

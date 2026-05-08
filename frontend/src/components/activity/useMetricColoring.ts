@@ -21,7 +21,7 @@ import {
 } from '@/lib/mapColorUtils'
 import { fetchTrainingZones } from '@/api/trainingZones'
 import { getHeatmapSettings } from '@/api/settings'
-import { MOTION_PROFILE_BY_SPORT_TYPE, METRIC_AVAILABILITY_THRESHOLDS } from '@/lib/colorScaleRanges'
+import { motionProfileForSport, METRIC_AVAILABILITY_THRESHOLDS } from '@/lib/colorScaleRanges'
 import { sportChartColor } from '@/lib/sportColors'
 
 const MAX_MAP_SEGMENTS = 2000
@@ -65,7 +65,7 @@ export function splitStreamsAtTeleports(streams: StreamPoint[], thresholdM: numb
 
 export interface UseMetricColoringArgs {
   streams: StreamPoint[]
-  activity: Pick<Activity, 'sport_type' | 'fit_sport_id'>
+  activity: Pick<Activity, 'sport_type' | 'sub_type' | 'fit_sport_id'>
   hasGps: boolean
   zoomRange: ZoomRange | null
   map: maplibregl.Map | null
@@ -155,13 +155,13 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
     const pct = streams.length > 0 ? defined / streams.length : 0
     if (pct < threshold) setMetric('sport')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streams, activity.sport_type, activity.fit_sport_id])
+  }, [streams, activity.sport_type, activity.sub_type, activity.fit_sport_id])
 
   // Reset mode overrides when activity changes — prevents 'linear' from a
   // previous activity bleeding into an activity with configured zones.
   useEffect(() => {
     setModeByMetric({})
-  }, [activity.sport_type, activity.fit_sport_id])
+  }, [activity.sport_type, activity.sub_type, activity.fit_sport_id])
 
   const { data: zonesData } = useQuery({
     queryKey: ['training-zones'],
@@ -184,7 +184,7 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
   const sportZones = useMemo(() => {
     if (!zonesData) return null
     return matchSportZones(activity, zonesData.sports)
-  }, [zonesData, activity.sport_type, activity.fit_sport_id])
+  }, [zonesData, activity.sport_type, activity.sub_type, activity.fit_sport_id])
 
   const zonesAvailable = useCallback((m: Metric): boolean => {
     if (!sportZones) return false
@@ -208,9 +208,8 @@ export function useMetricColoring(args: UseMetricColoringArgs): UseMetricColorin
   }, [metric, modeByMetric, zonesAvailable])
 
   const motionProfile = useMemo(() => {
-    return MOTION_PROFILE_BY_SPORT_TYPE[activity.sport_type]
-      ?? MOTION_PROFILE_BY_SPORT_TYPE.generic
-  }, [activity.sport_type])
+    return motionProfileForSport(activity.sport_type, activity.sub_type)
+  }, [activity.sport_type, activity.sub_type])
 
   // Scale computed on FULL streams (not visible subset) — see spec §Scale-auf-Full-Streams
   const scale = useMemo<ScaleDefinition | null>(() => {

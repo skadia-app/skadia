@@ -1,0 +1,64 @@
+source: fit
+aliases:
+- raw: archery
+  sport_type: archery
+- raw: e_biking
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: cycling
+  raw_sub: enduro
+  sport_type: cycling
+  sub_type: mountain
+- raw: cycling
+  raw_sub: e_bike_enduro
+  sport_type: cycling
+  sub_type: mountain
+  modifiers: {is_electric: true}
+- raw: cycling
+  raw_sub: e_bike_fitness
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: cycling
+  raw_sub: e_bike_mountain
+  sport_type: cycling
+  sub_type: mountain
+  modifiers: {is_electric: true}
+- raw: geocaching
+  sport_type: geocaching
+- raw: grinding
+  sport_type: unknown
+- raw: mobility
+  sport_type: mobility
+- raw: motor_sports
+  sport_type: unknown
+- raw: para_sport
+  sport_type: unknown
+- raw: pool_apnea
+  sport_type: diving
+  sub_type: apnea_pool
+- raw: shooting
+  sport_type: shooting
+- raw: team_sport
+  sport_type: unknown
+- raw: video_gaming
+  sport_type: unknown
+- raw: water_sport
+  sport_type: unknown
+- raw: wheelchair_push_run
+  sport_type: wheelchair_push
+  sub_type: run_speed
+- raw: wheelchair_push_run
+  raw_sub: indoor_wheelchair_run
+  sport_type: wheelchair_push
+  sub_type: run_speed
+  modifiers: {is_indoor: true}
+- raw: wheelchair_push_walk
+  sport_type: wheelchair_push
+  sub_type: walk_speed
+- raw: wheelchair_push_walk
+  raw_sub: indoor_wheelchair_walk
+  sport_type: wheelchair_push
+  sub_type: walk_speed
+  modifiers: {is_indoor: true}
+- raw: winter_sport
+  sport_type: unknown

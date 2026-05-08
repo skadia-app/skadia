@@ -3,23 +3,41 @@ package rules
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 type ruleActionMap map[string]any
 
 type systemModifier struct {
-	Action    string
-	Field     string
-	Param     string
-	TagName   string
-	HumanName string
+	Action        string
+	Field         string
+	Param         string
+	TagName       string
+	HumanName     string
+	OnlySportType string
 }
 
-var systemModifiers = []systemModifier{
-	{Action: "set_electric", Field: "is_electric", Param: "electric", TagName: "E-Bike", HumanName: "E-Bike"},
-	{Action: "set_indoor", Field: "is_indoor", Param: "indoor", TagName: "Indoor", HumanName: "Indoor"},
-	{Action: "set_virtual", Field: "is_virtual", Param: "virtual", TagName: "virtuell", HumanName: "Virtuell"},
-	{Action: "set_commute", Field: "is_commute", Param: "commute", TagName: "Pendeln", HumanName: "Pendeln"},
+func systemModifiers() []systemModifier {
+	out := make([]systemModifier, 0)
+	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+		def, ok := sport.SportModifierByKey(key)
+		if !ok {
+			continue
+		}
+		modifier := systemModifier{
+			Action:    def.ActionName,
+			Field:     def.JSONKey,
+			Param:     def.ActionParam,
+			HumanName: def.LabelDE,
+		}
+		if def.TagSync != nil {
+			modifier.TagName = def.TagSync.SystemTag
+			modifier.OnlySportType = def.TagSync.OnlySportType
+		}
+		out = append(out, modifier)
+	}
+	return out
 }
 
 // NormalizeRuleActions validates and normalizes an automation-rule action array.
@@ -86,14 +104,18 @@ func normalizeActionMaps(actions []ruleActionMap, tagNameByID map[string]string)
 	}
 	states := map[string]modifierState{}
 	out := make([]ruleActionMap, 0, len(actions))
+	cyclingActionContext := ruleActionsSetCycling(actions)
 
-	for _, action := range actions {
+	for i, action := range actions {
+		if err := validateRuleActionParams(action, fmt.Sprintf("actions[%d]", i)); err != nil {
+			return nil, err
+		}
 		actionName, _ := action["action"].(string)
 		if modifier, stateKey, value, ok := modifierWriteFromAction(action); ok {
 			if state := states[stateKey]; state.seen && state.value != value {
 				return nil, fmt.Errorf("conflicting writes to %s", stateKey)
 			}
-			if err := validateModifierAgainstExistingTags(modifier, value, out, tagNameByID); err != nil {
+			if err := validateModifierAgainstExistingTags(modifier, value, out, tagNameByID, cyclingActionContext); err != nil {
 				return nil, err
 			}
 			states[stateKey] = modifierState{seen: true, value: value}
@@ -107,22 +129,19 @@ func normalizeActionMaps(actions []ruleActionMap, tagNameByID map[string]string)
 		if actionName == "add_tag" || actionName == "remove_tag" {
 			tagName := tagNameForAction(action, tagNameByID)
 			if tagName != "" {
-				for _, modifier := range systemModifiers {
-					if tagName != modifier.TagName {
+				for _, modifier := range systemModifiers() {
+					if !systemTagAppliesToModifier(modifier, tagName, cyclingActionContext) {
 						continue
 					}
-					state := states[modifier.Action]
-					if !state.seen {
-						state = states[modifier.Field]
-					}
+					state := states[modifier.Field]
 					if actionName == "add_tag" && state.seen && state.value {
 						goto skipAction
 					}
 					if actionName == "add_tag" && state.seen && !state.value {
-						return nil, fmt.Errorf("%s(false) conflicts with add_tag(%s)", modifier.Action, modifier.HumanName)
+						return nil, fmt.Errorf("%s=false conflicts with add_tag(%s)", modifier.HumanName, modifier.TagName)
 					}
 					if actionName == "remove_tag" && state.seen && state.value {
-						return nil, fmt.Errorf("%s(true) conflicts with remove_tag(%s)", modifier.Action, modifier.HumanName)
+						return nil, fmt.Errorf("%s=true conflicts with remove_tag(%s)", modifier.HumanName, modifier.TagName)
 					}
 				}
 			}
@@ -135,8 +154,92 @@ func normalizeActionMaps(actions []ruleActionMap, tagNameByID map[string]string)
 	return out, nil
 }
 
+func validateRuleActionParams(action ruleActionMap, surface string) error {
+	actionName, _ := action["action"].(string)
+	params, _ := action["params"].(map[string]any)
+	switch actionName {
+	case "set_gear":
+		if !nonEmptyStringParam(params, "gear_id") {
+			return fmt.Errorf("%s: set_gear requires params.gear_id", surface)
+		}
+	case "add_tag", "remove_tag":
+		if !nonEmptyStringParam(params, "tag_id") {
+			return fmt.Errorf("%s: %s requires params.tag_id", surface, actionName)
+		}
+	case "set_visibility":
+		if !nonEmptyStringParam(params, "visibility") {
+			return fmt.Errorf("%s: set_visibility requires params.visibility", surface)
+		}
+	case "set_sport_type":
+		if !nonEmptyStringParam(params, "sport_type") {
+			return fmt.Errorf("%s: set_sport_type requires params.sport_type", surface)
+		}
+	case "set_name":
+		if !nonEmptyStringParam(params, "template") {
+			return fmt.Errorf("%s: set_name requires params.template", surface)
+		}
+	case "set_intensity":
+		if !nonEmptyStringParam(params, "intensity") {
+			return fmt.Errorf("%s: set_intensity requires params.intensity", surface)
+		}
+	case "set_field":
+		if !nonEmptyStringParam(params, "field") {
+			return fmt.Errorf("%s: set_field requires params.field", surface)
+		}
+		if params == nil {
+			return fmt.Errorf("%s: set_field requires params.value", surface)
+		}
+		if _, ok := params["value"]; !ok {
+			return fmt.Errorf("%s: set_field requires params.value", surface)
+		}
+	case "notify", "webhook":
+		if !nonEmptyStringParam(params, "template") && actionName == "notify" {
+			return fmt.Errorf("%s: notify requires params.template", surface)
+		}
+		if !nonEmptyStringParam(params, "url") && actionName == "webhook" {
+			return fmt.Errorf("%s: webhook requires params.url", surface)
+		}
+	}
+	return nil
+}
+
+func nonEmptyStringParam(params map[string]any, key string) bool {
+	if params == nil {
+		return false
+	}
+	value, _ := params[key].(string)
+	return value != ""
+}
+
+func ruleActionsSetCycling(actions []ruleActionMap) bool {
+	for _, action := range actions {
+		actionName, _ := action["action"].(string)
+		if actionName != "set_sport_type" {
+			continue
+		}
+		params, _ := action["params"].(map[string]any)
+		if params == nil {
+			continue
+		}
+		if sportType, _ := params["sport_type"].(string); sportType == "cycling" {
+			return true
+		}
+	}
+	return false
+}
+
+func systemTagAppliesToModifier(modifier systemModifier, tagName string, cyclingActionContext bool) bool {
+	if modifier.TagName != tagName {
+		return false
+	}
+	if modifier.OnlySportType == "cycling" {
+		return cyclingActionContext
+	}
+	return true
+}
+
 func modifierForAction(action string) (systemModifier, bool) {
-	for _, modifier := range systemModifiers {
+	for _, modifier := range systemModifiers() {
 		if modifier.Action == action {
 			return modifier, true
 		}
@@ -145,7 +248,7 @@ func modifierForAction(action string) (systemModifier, bool) {
 }
 
 func modifierForField(field string) (systemModifier, bool) {
-	for _, modifier := range systemModifiers {
+	for _, modifier := range systemModifiers() {
 		if modifier.Field == field {
 			return modifier, true
 		}
@@ -200,25 +303,25 @@ func tagNameForAction(action ruleActionMap, tagNameByID map[string]string) strin
 	return tagNameByID[tagID]
 }
 
-func validateModifierAgainstExistingTags(modifier systemModifier, value bool, actions []ruleActionMap, tagNameByID map[string]string) error {
+func validateModifierAgainstExistingTags(modifier systemModifier, value bool, actions []ruleActionMap, tagNameByID map[string]string, cyclingActionContext bool) error {
 	for _, action := range actions {
 		actionName, _ := action["action"].(string)
 		tagName := tagNameForAction(action, tagNameByID)
-		if tagName != modifier.TagName {
+		if !systemTagAppliesToModifier(modifier, tagName, cyclingActionContext) {
 			continue
 		}
 		if actionName == "add_tag" && !value {
-			return fmt.Errorf("%s(false) conflicts with add_tag(%s)", modifier.Action, modifier.HumanName)
+			return fmt.Errorf("%s=false conflicts with add_tag(%s)", modifier.HumanName, modifier.TagName)
 		}
 		if actionName == "remove_tag" && value {
-			return fmt.Errorf("%s(true) conflicts with remove_tag(%s)", modifier.Action, modifier.HumanName)
+			return fmt.Errorf("%s=true conflicts with remove_tag(%s)", modifier.HumanName, modifier.TagName)
 		}
 	}
 	return nil
 }
 
 func removeSystemTagActions(actions []ruleActionMap, tagName string, tagNameByID map[string]string, actionName string) []ruleActionMap {
-	out := actions[:0]
+	out := make([]ruleActionMap, 0, len(actions))
 	for _, action := range actions {
 		name, _ := action["action"].(string)
 		if name == actionName && tagNameForAction(action, tagNameByID) == tagName {

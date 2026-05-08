@@ -129,6 +129,11 @@ func (db *DB) UpsertPMCDays(ctx context.Context, userID string, days []model.PMC
 // DeterminePMCSportGroup maps a sport_type string to a coarse PMC sport group.
 // PMC uses fewer buckets than the full sport taxonomy for statistical significance.
 func DeterminePMCSportGroup(sportType string) string {
+	switch sportType {
+	case "snowshoeing", "floor_climbing":
+		return "running"
+	}
+
 	key := sport.CategoryForSport(sportType).Key
 	switch key {
 	case "bike":

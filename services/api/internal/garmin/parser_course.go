@@ -164,7 +164,7 @@ func processCourseFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS
 	}
 
 	// --- Map FIT sport enum to taxonomy sport type ---
-	sportType, routeSubType := fitSportToSportType(sport, subSport)
+	sportType, routeSubType, modifierPatch := fitSportToRouteSport(sport, subSport)
 	profile := defaultProfileForSportTuple(sportType, routeSubType)
 
 	// --- SourceID: SHA256(name + sport string) for dedup ---
@@ -176,6 +176,7 @@ func processCourseFIT(ctx context.Context, db *database.DB, fs shadowfs.ShadowFS
 		Name:               courseName,
 		SportType:          sportType,
 		SubType:            routeSubType,
+		IsElectric:         modifierPatch.IsElectric != nil && *modifierPatch.IsElectric,
 		Profile:            profile,
 		GeometryGeoJSON:    geoJSON,
 		WaypointsJSON:      waypointsJSON,
@@ -268,52 +269,59 @@ func coursePointTypeName(t typedef.CoursePoint) string {
 
 // fitSportToSportType maps a FIT sport + sub-sport enum to a Skadia route sport tuple.
 func fitSportToSportType(sport typedef.Sport, subSport typedef.SubSport) (string, *string) {
+	sportType, subType, _ := fitSportToRouteSport(sport, subSport)
+	return sportType, subType
+}
+
+func fitSportToRouteSport(sport typedef.Sport, subSport typedef.SubSport) (string, *string, sporttax.ModifierPatch) {
 	normalize := func(sportType, subType string) (string, *string) {
 		tuple, _, err := sporttax.NormalizeSportTuple(sportType, subType)
 		if err != nil {
-			return "generic", nil
+			return "unknown", nil
 		}
 		if tuple.SubType == "" {
 			return tuple.SportType, nil
 		}
 		return tuple.SportType, &tuple.SubType
 	}
-	switch sport {
-	case typedef.SportCycling:
-		switch subSport {
-		case typedef.SubSportMountain:
-			return normalize("cycling", "mountain")
-		case typedef.SubSportGravelCycling:
-			return normalize("cycling", "gravel_cycling")
-		case typedef.SubSportIndoorCycling:
-			return normalize("cycling", "indoor_cycling")
-		default:
-			return normalize("cycling", "")
+	resolve := func(sportType, subType string) (string, *string, sporttax.ModifierPatch) {
+		result, err := sporttax.ResolveSport(sporttax.ResolveInput{
+			Source:   sporttax.SourceFITFile,
+			RawSport: sportType,
+			RawSub:   subType,
+		})
+		if err != nil || !result.Resolved {
+			normalizedSport, normalizedSub := normalize(sportType, subType)
+			return normalizedSport, normalizedSub, sporttax.ModifierPatch{}
 		}
-	case typedef.SportRunning:
-		switch subSport {
-		case typedef.SubSportTrail:
-			return normalize("running", "trail")
-		default:
-			return normalize("running", "")
+		if result.Tuple.SubType == "" {
+			return result.Tuple.SportType, nil, result.Patch
 		}
-	case typedef.SportHiking:
-		return normalize("hiking", "")
-	case typedef.SportWalking:
-		return normalize("walking", "")
-	case typedef.SportSwimming:
-		return normalize("swimming", "")
-	case typedef.SportAlpineSkiing:
-		return normalize("alpine_skiing", "")
-	case typedef.SportCrossCountrySkiing:
-		return normalize("cross_country_skiing", "")
-	case typedef.SportPaddling:
-		return normalize("paddling", "")
-	case typedef.SportRowing:
-		return normalize("rowing", "")
-	default:
-		return normalize("generic", "")
+		return result.Tuple.SportType, &result.Tuple.SubType, result.Patch
 	}
+	return resolve(fitSportRawName(sport), fitSubSportRawName(subSport))
+}
+
+func fitSportRawName(sport typedef.Sport) string {
+	if sport == typedef.SportInvalid {
+		return "unknown"
+	}
+	raw := sport.String()
+	if raw == "" || strings.HasPrefix(raw, "Sport(") {
+		return "unknown"
+	}
+	return strings.ToLower(raw)
+}
+
+func fitSubSportRawName(subSport typedef.SubSport) string {
+	if subSport == typedef.SubSportGeneric || subSport == typedef.SubSportInvalid {
+		return ""
+	}
+	raw := subSport.String()
+	if raw == "" || strings.HasPrefix(raw, "SubSport(") {
+		return ""
+	}
+	return strings.ToLower(raw)
 }
 
 // defaultProfileForSport returns a sensible routing profile for the given sport type.
@@ -323,9 +331,9 @@ func defaultProfileForSport(sportType string) string {
 
 func defaultProfileForSportTuple(sportType string, subType *string) string {
 	switch sportType {
-	case "cycling", "gravel_cycling", "mountain_biking", "indoor_cycling":
+	case "cycling":
 		return "bike"
-	case "running", "trail_running", "hiking", "walking":
+	case "running", "hiking", "walking":
 		return "foot"
 	default:
 		return "outdoor"

@@ -39,8 +39,18 @@ describe('ActivityFilters commute modifier', () => {
   it('shows commute as a sport modifier in the filter popover', () => {
     renderFilters()
 
-    fireEvent.click(screen.getByRole('button', { name: /Filter/ }))
+    fireEvent.click(screen.getAllByRole('button', { name: /Filter/ })[0])
 
     expect(screen.getByLabelText(/Pendeln/)).toBeInTheDocument()
+  })
+
+  it('labels the generic electric filter as E-Antrieb', () => {
+    renderFilters({ ...EMPTY_FILTERS, isElectric: true })
+
+    expect(screen.getByText('Nur E-Antrieb')).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Filter/ })[0])
+    expect(screen.getAllByLabelText(/E-Antrieb/).length).toBeGreaterThan(0)
+    expect(screen.queryByLabelText(/E-Bike/)).not.toBeInTheDocument()
   })
 })

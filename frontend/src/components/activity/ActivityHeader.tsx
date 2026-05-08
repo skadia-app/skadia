@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Pencil } from 'lucide-react'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useToast } from '@/lib/toast'
@@ -13,6 +14,7 @@ import type { Activity } from '@/api/types'
 import { SportIcon } from '@/components/SportIcon'
 import SportConflictBadge from '@/components/SportConflictBadge'
 import SportConflictModal from '@/components/SportConflictModal'
+import ActivityQuickEditModal from '@/components/activity/ActivityQuickEditModal'
 import ReprocessScopeModal from '@/components/activity/ReprocessScopeModal'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
 import { triggerBlobDownload, cn } from '@/lib/utils'
@@ -161,6 +163,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
 
   const [showRevertFusionModal, setShowRevertFusionModal] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
+  const [quickEditOpen, setQuickEditOpen] = useState(false)
 
   const sourceIds = activity.fusion_memberships
     ? Array.from(new Set(activity.fusion_memberships.map(m => m.source_id))).filter(id => id !== activity.id && id !== 'fuse')
@@ -482,6 +485,13 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
         </div>
       )}
       {/* Edit Button — trim/split/merge not applicable for multisport parents */}
+      <button
+        onClick={() => setQuickEditOpen(true)}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 cursor-pointer"
+      >
+        <Pencil className="h-4 w-4" />
+        Metadaten
+      </button>
       {activity.sport_type !== 'multisport' && (
         <Link
           to={`/activities/${activity.id}/edit`}
@@ -777,6 +787,17 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
           onClose={() => setConflictOpen(false)}
           onResolved={() => {
             setConflictOpen(false)
+            queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+          }}
+        />
+      )}
+      {quickEditOpen && (
+        <ActivityQuickEditModal
+          activity={activity}
+          open={quickEditOpen}
+          onClose={() => setQuickEditOpen(false)}
+          onSaved={(updated) => {
+            queryClient.setQueryData(['activity', activity.id], updated)
             queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
           }}
         />

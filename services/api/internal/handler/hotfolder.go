@@ -90,31 +90,11 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 		// handled==false → continue to activity import
 	}
 
-	// 7. Store file via ShadowFS.
+	// 7. Prepare activity file metadata. Single-session files are stored only
+	// after duplicate detection so skipped duplicates do not create ShadowFS files.
 	contentType := "application/octet-stream"
 	if format == "gpx" || format == "tcx" {
 		contentType = "application/xml"
-	}
-	var hotfolderFileID string
-	{
-		rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "activity",
-			ContentType: contentType,
-			FileName:    filename,
-			SizeBytes:   int64(len(decompressed)),
-			FileHash:    hashStr,
-			Tags: map[string]string{
-				"format": format,
-				"source": "hotfolder",
-			},
-		}, bytes.NewReader(decompressed))
-		if putErr != nil {
-			importErr := fmt.Errorf("ShadowFS upload: %w", putErr)
-			tracker.Error(ctx, importErr)
-			return importErr
-		}
-		hotfolderFileID = rec.ID
 	}
 
 	// 8. Get user's conflict strategy
@@ -127,9 +107,24 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 	if format == "fit" {
 		sessions, multiErr := fitimport.ParseMultiSessionFIT(decompressed, filename)
 		if multiErr == nil && len(sessions) >= 2 {
+			rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
+				UserID:      userID,
+				FileType:    "activity",
+				ContentType: contentType,
+				FileName:    filename,
+				SizeBytes:   int64(len(decompressed)),
+				FileHash:    hashStr,
+				Tags:        shadowfs.ActivitySchemaTags(importer.MultisportActivitySchemaTagsInput(format, "hotfolder", sessions)),
+			}, bytes.NewReader(decompressed))
+			if putErr != nil {
+				importErr := fmt.Errorf("ShadowFS upload: %w", putErr)
+				tracker.Error(ctx, importErr)
+				return importErr
+			}
+
 			msResult, msErr := h.ImportService.ProcessMultisport(
 				ctx, userID, sessions, decompressed, hashStr,
-				hotfolderFileID, format, filename,
+				rec.ID, format, filename,
 				importer.ImportMetadata{
 					SourcePlatform:   "hotfolder",
 					ConflictStrategy: conflictStrategy,
@@ -196,7 +191,34 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 
 	// 12. PostProcess for created/enriched/replaced (NOT skipped)
 	if result.Status == "created" || result.Status == "enriched" || result.Status == "replaced" {
-		if err := h.ImportService.PostProcess(ctx, userID, result.ActivityID, data, hotfolderFileID, format, filename); err != nil {
+		rec, putErr := h.ShadowFS.Put(ctx, shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "activity",
+			ContentType: contentType,
+			FileName:    filename,
+			SizeBytes:   int64(len(decompressed)),
+			FileHash:    hashStr,
+			Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
+				Format:         format,
+				Source:         "hotfolder",
+				StartedAt:      data.StartedAt,
+				SportType:      data.SportType,
+				SubType:        data.SubType,
+				Title:          data.Title,
+				DistanceM:      data.DistanceM,
+				ElapsedTimeS:   data.ElapsedTimeS,
+				ElevationGainM: data.ElevationGainM,
+				IsElectric:     data.IsElectric,
+				IsIndoor:       data.IsIndoor,
+				IsVirtual:      data.IsVirtual,
+			}),
+		}, bytes.NewReader(decompressed))
+		if putErr != nil {
+			importErr := fmt.Errorf("ShadowFS upload: %w", putErr)
+			tracker.Error(ctx, importErr)
+			return importErr
+		}
+		if err := h.ImportService.PostProcess(ctx, userID, result.ActivityID, data, rec.ID, format, filename); err != nil {
 			slog.Warn("hotfolder: PostProcess failed", "id", result.ActivityID, "file", filename, "error", err)
 		}
 		// Delete source file after successful import

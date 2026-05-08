@@ -144,22 +144,16 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 
 	act := tcx.Activities.Activity[0]
 
-	sport, subType := mapTCXSport(act.Sport)
+	resolved := mapTCXSport(act.Sport)
 	source, sourceDevice, recordingDevice := parseTCXCreator(act.Creator)
 
-	tuple, patch, err := sporttax.NormalizeSportTuple(sport, subType)
+	tuple, patch, err := sporttax.NormalizeSportTuple(resolved.Tuple.SportType, resolved.Tuple.SubType)
 	if err != nil {
 		return nil, err
 	}
-	sport, subType = tuple.SportType, tuple.SubType
-	isElectric := false
-	if patch.IsElectric != nil {
-		isElectric = *patch.IsElectric
-	}
-	isIndoorPatch := false
-	if patch.IsIndoor != nil {
-		isIndoorPatch = *patch.IsIndoor
-	}
+	modifiers := sporttax.ApplyModifierPatch(sporttax.ModifierValues{}, patch)
+	modifiers = sporttax.ApplyModifierPatch(modifiers, resolved.Patch)
+	sport, subType := tuple.SportType, tuple.SubType
 
 	data := &model.ActivityData{
 		FileFormat:      "tcx",
@@ -168,7 +162,8 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 		SourceDevice:    sourceDevice,
 		SportType:       sport,
 		SubType:         subType,
-		IsElectric:      isElectric,
+		IsElectric:      modifiers.IsElectric,
+		IsVirtual:       modifiers.IsVirtual,
 		RecordingDevice: recordingDevice,
 	}
 
@@ -346,7 +341,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	// not pause for. Take the minimum to stay conservative.
 	deviceMoving := int(totalTime)
 	if activityutil.HasSpeedData(streams) || activityutil.HasGPSData(streams) {
-		streamMoving := activityutil.CalcMovingTime(streams, sport)
+		streamMoving := activityutil.CalcMovingTimeForTuple(streams, sport, subType)
 		if streamMoving > 0 {
 			data.MovingTimeS = activityutil.MinMovingTime(deviceMoving, streamMoving)
 		} else {
@@ -394,7 +389,7 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	data.Streams = streams
 	data.TrackPoints = trackPoints
 	data.HasGPS = len(trackPoints) >= 2
-	data.IsIndoor = isIndoorPatch || sporttax.IsIndoor(data.SportType, data.SubType)
+	data.IsIndoor = modifiers.IsIndoor
 
 	if data.HasGPS {
 		data.StartLat = trackPoints[0].Lat
@@ -407,64 +402,17 @@ func ParseTCX(r io.Reader, filename string) (*model.ActivityData, error) {
 	return data, nil
 }
 
-func mapTCXSport(sport string) (sportType, subType string) {
+func mapTCXSport(sport string) sporttax.ResolveResult {
 	t := strings.ToLower(strings.TrimSpace(sport))
 	if t == "" {
-		return "unknown", ""
+		return sporttax.ResolveResult{Tuple: sporttax.Tuple{SportType: "unknown"}, Resolved: true}
 	}
 
-	switch t {
-	// Running
-	case "running", "run":
-		return "running", ""
-	case "trail_running", "trailrunning":
-		return "running", "trail"
-
-	// Cycling (TCX standard: "Biking")
-	case "biking", "cycling", "ride":
-		return "cycling", ""
-	case "road_cycling", "roadcycling":
-		return "cycling", "road"
-	case "mountainbikeride", "mountain_biking":
-		return "cycling", "mountain"
-	case "ebikeride", "e_bike_ride", "ebike":
-		return "e_biking", ""
-	case "gravelride", "gravel_ride":
-		return "cycling", "gravel_cycling"
-
-	// Walking / Hiking
-	case "hiking", "hike":
-		return "hiking", ""
-	case "walking", "walk":
-		return "walking", ""
-
-	// Swimming
-	case "swimming", "swim":
-		return "swimming", ""
-
-	// Winter
-	case "skiing", "alpine_skiing":
-		return "alpine_skiing", ""
-	case "cross_country_skiing":
-		return "cross_country_skiing", ""
-	case "snowboarding":
-		return "snowboarding", ""
-
-	// Other
-	case "strength_training", "strength":
-		return "strength_training", ""
-	case "rowing":
-		return "rowing", ""
-	case "kayaking":
-		return "kayaking", ""
-	case "multisport":
-		return "multisport", ""
-	case "other":
-		return "unknown", ""
-
-	default:
-		return "unknown", ""
+	result, err := sporttax.ResolveSport(sporttax.ResolveInput{Source: sporttax.SourceTCXFile, RawSport: t})
+	if err != nil || !result.Resolved {
+		return sporttax.ResolveResult{Tuple: sporttax.Tuple{SportType: "unknown"}, Resolved: true}
 	}
+	return result
 }
 
 // parseTCXCreator extracts source app and device from TCX Creator element.

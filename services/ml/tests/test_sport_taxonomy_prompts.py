@@ -53,8 +53,8 @@ def test_prompt_maps_specific_sports_to_tuple_fields():
     assert "E-Bike -> sport_type='cycling', is_electric=true" in _ascii(prompt)
     assert "Ski allgemein -> sport_type='skiing'" in _ascii(prompt)
     assert "Alpin-Ski -> sport_type='alpine_skiing'" in _ascii(prompt)
-    assert "Kraft allgemein -> sport_type='strength'" in _ascii(prompt)
     assert "Krafttraining -> sport_type='strength_training'" in _ascii(prompt)
+    assert "sport_type='strength'" not in _ascii(prompt)
     for sport_type in DEPRECATED_TOP_LEVEL_SPORTS:
         assert sport_type not in prompt
     assert LEGACY_ELECTRIC_FIELD not in prompt
@@ -69,7 +69,8 @@ def test_tool_descriptions_do_not_recommend_deprecated_top_level_sports():
     assert "sport_type='swimming' AND sub_type='open_water'" in tool_text
     assert "sport_type='cycling' AND sub_type='indoor_cycling'" in tool_text
     assert "sport_type='skiing'" in tool_text
-    assert "sport_type='strength'" in tool_text
+    assert "sport_type='strength_training'" in tool_text
+    assert "sport_type='strength'" not in tool_text
     assert "is_electric=true" in tool_text
     assert "is_indoor=true" in tool_text
     assert "is_virtual=true" in tool_text

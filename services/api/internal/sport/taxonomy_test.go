@@ -66,13 +66,13 @@ func TestSubTypeLabels(t *testing.T) {
 	}{
 		{"cycling", "mountain", "MTB"},
 		{"running", "indoor_running", "Indoor"},
-		{"training", "yoga", "Yoga"},
-		{"training", "strength_training", "Krafttraining"},
+		{"yoga", "", "Yoga"},
+		{"pilates", "", "Pilates"},
+		{"strength_training", "", "Krafttraining"},
 		{"training", "cardio_training", "Cardio"},
 		{"training", "", "Training"},
 		{"training", "generic", "Training"},
 		{"fitness_equipment", "elliptical", "Crosstrainer"},
-		{"fitness_equipment", "treadmill", "Laufband"},
 		{"fitness_equipment", "", "Fitnessgerät"},
 	}
 	for _, tc := range tests {
@@ -125,17 +125,33 @@ func TestAllSports(t *testing.T) {
 		t.Errorf("AllSports() returned %d, want at least 60", len(all))
 	}
 	legacyAliases := map[string]bool{
-		"mountain_biking":     true,
-		"trail_running":       true,
-		"gravel_cycling":      true,
-		"indoor_cycling":      true,
-		"treadmill_running":   true,
-		"lap_swimming":        true,
-		"open_water_swimming": true,
+		"mountain_biking":      true,
+		"trail_running":        true,
+		"gravel_cycling":       true,
+		"indoor_cycling":       true,
+		"treadmill_running":    true,
+		"lap_swimming":         true,
+		"open_water_swimming":  true,
+		"wheelchair_push_walk": true,
+		"wheelchair_push_run":  true,
+		"strength":             true,
 	}
 	for _, d := range all {
 		if legacyAliases[d.SportType] {
 			t.Fatalf("AllSports() included legacy alias %q", d.SportType)
+		}
+	}
+}
+
+func TestAllSportsUsesTaxonomyOrder(t *testing.T) {
+	all := AllSports()
+	wantPrefix := []string{"running", "walking", "hiking", "mountaineering", "snowshoeing", "floor_climbing", "wheelchair_push", "cycling"}
+	if len(all) < len(wantPrefix) {
+		t.Fatalf("AllSports() returned %d sports, want at least %d", len(all), len(wantPrefix))
+	}
+	for i, want := range wantPrefix {
+		if all[i].SportType != want {
+			t.Fatalf("AllSports()[%d] = %q, want taxonomy order %q", i, all[i].SportType, want)
 		}
 	}
 }
@@ -148,6 +164,28 @@ func TestSportsInCategory(t *testing.T) {
 	for _, s := range bike {
 		if s.CategoryKey != "bike" {
 			t.Errorf("SportsInCategory('bike') returned sport %q with category %q", s.SportType, s.CategoryKey)
+		}
+	}
+}
+
+func TestSportsInCategoryUsesTaxonomyOrder(t *testing.T) {
+	run := SportsInCategory("run")
+	want := []string{"running", "walking", "hiking", "mountaineering", "wheelchair_push"}
+	if got := sportTypesInOrder(run); !reflect.DeepEqual(got, want) {
+		t.Fatalf("SportsInCategory(run) = %#v, want taxonomy order %#v", got, want)
+	}
+}
+
+func TestSportsInCategoryOrderMatchesAllSportsFiltering(t *testing.T) {
+	for _, category := range AllCategories() {
+		want := make([]string, 0)
+		for _, def := range AllSports() {
+			if def.CategoryKey == category.Key {
+				want = append(want, def.SportType)
+			}
+		}
+		if got := sportTypesInOrder(SportsInCategory(category.Key)); !reflect.DeepEqual(got, want) {
+			t.Fatalf("SportsInCategory(%q) = %#v, want taxonomy order %#v", category.Key, got, want)
 		}
 	}
 }
@@ -166,6 +204,210 @@ func TestGetSportDef(t *testing.T) {
 	}
 }
 
+func TestOrderedSubTypesUsesTaxonomyOrder(t *testing.T) {
+	cycling, ok := GetSportDef("cycling")
+	if !ok {
+		t.Fatal("GetSportDef(cycling) returned false")
+	}
+	want := []string{
+		"road",
+		"mountain",
+		"downhill",
+		"recumbent",
+		"cyclocross",
+		"hand_cycling",
+		"track_cycling",
+		"indoor_cycling",
+		"spin",
+		"gravel_cycling",
+		"unicycling",
+		"mixed_surface",
+		"bmx",
+	}
+	if got := subTypesInOrder(OrderedSubTypes(cycling)); !reflect.DeepEqual(got, want) {
+		t.Fatalf("OrderedSubTypes(cycling) = %#v, want taxonomy order %#v", got, want)
+	}
+}
+
+func TestReturnedSportDefsDoNotShareSubTypeOrder(t *testing.T) {
+	cycling, ok := GetSportDef("cycling")
+	if !ok {
+		t.Fatal("GetSportDef(cycling) returned false")
+	}
+	cycling.SubTypeOrder[0] = "mutated"
+	cyclingAgain, ok := GetSportDef("cycling")
+	if !ok {
+		t.Fatal("GetSportDef(cycling) second call returned false")
+	}
+	if cyclingAgain.SubTypeOrder[0] != "road" {
+		t.Fatalf("GetSportDef returned shared SubTypeOrder backing array, got first subtype %q", cyclingAgain.SubTypeOrder[0])
+	}
+
+	all := AllSports()
+	all[7].SubTypeOrder[0] = "mutated"
+	allAgain := AllSports()
+	if allAgain[7].SubTypeOrder[0] != "road" {
+		t.Fatalf("AllSports returned shared SubTypeOrder backing array, got first cycling subtype %q", allAgain[7].SubTypeOrder[0])
+	}
+}
+
+func TestReturnedSportDefsAreDeepCloned(t *testing.T) {
+	t.Run("GetSportDef", func(t *testing.T) {
+		cycling, ok := GetSportDef("cycling")
+		if !ok {
+			t.Fatal("GetSportDef(cycling) returned false")
+		}
+		mutateReturnedSportDef(cycling)
+		assertCyclingDefUnchanged(t, func() (SportDef, bool) {
+			return GetSportDef("cycling")
+		})
+	})
+
+	t.Run("AllSports", func(t *testing.T) {
+		all := AllSports()
+		cycling, ok := findSportDef(all, "cycling")
+		if !ok {
+			t.Fatal("AllSports missing cycling")
+		}
+		mutateReturnedSportDef(cycling)
+		assertCyclingDefUnchanged(t, func() (SportDef, bool) {
+			allAgain := AllSports()
+			return findSportDef(allAgain, "cycling")
+		})
+	})
+
+	t.Run("SportsInCategory", func(t *testing.T) {
+		bike := SportsInCategory("bike")
+		cycling, ok := findSportDef(bike, "cycling")
+		if !ok {
+			t.Fatal("SportsInCategory(bike) missing cycling")
+		}
+		mutateReturnedSportDef(cycling)
+		assertCyclingDefUnchanged(t, func() (SportDef, bool) {
+			bikeAgain := SportsInCategory("bike")
+			return findSportDef(bikeAgain, "cycling")
+		})
+	})
+}
+
+func TestReturnedSubTypeMovingThresholdsAreCloned(t *testing.T) {
+	wheelchair, ok := GetSportDef("wheelchair_push")
+	if !ok {
+		t.Fatal("GetSportDef(wheelchair_push) returned false")
+	}
+	subType := wheelchair.SubTypes["walk_speed"]
+	if subType.MovingThreshold == nil {
+		t.Fatal("wheelchair_push/walk_speed missing moving threshold fixture")
+	}
+	*subType.MovingThreshold = 99
+	wheelchair.SubTypes["walk_speed"] = subType
+
+	wheelchairAgain, ok := GetSportDef("wheelchair_push")
+	if !ok {
+		t.Fatal("GetSportDef(wheelchair_push) second call returned false")
+	}
+	got := wheelchairAgain.SubTypes["walk_speed"].MovingThreshold
+	if got == nil || *got != 0.2 {
+		t.Fatalf("GetSportDef returned shared subtype moving threshold pointer, got %v", got)
+	}
+}
+
+func TestReturnedSportModifierDefaultsAreCloned(t *testing.T) {
+	floorClimbing, ok := GetSportDef("floor_climbing")
+	if !ok {
+		t.Fatal("GetSportDef(floor_climbing) returned false")
+	}
+	if _, ok := floorClimbing.ModifierDefaults["is_indoor"]; !ok {
+		t.Fatal("floor_climbing missing modifier default fixture")
+	}
+	floorClimbing.ModifierDefaults["is_indoor"] = false
+	floorClimbingAgain, ok := GetSportDef("floor_climbing")
+	if !ok {
+		t.Fatal("GetSportDef(floor_climbing) second call returned false")
+	}
+	if !floorClimbingAgain.ModifierDefaults["is_indoor"] {
+		t.Fatalf("GetSportDef returned shared modifier default pointer, got %#v", floorClimbingAgain.ModifierDefaults)
+	}
+
+	cycling, ok := GetSportDef("cycling")
+	if !ok {
+		t.Fatal("GetSportDef(cycling) returned false")
+	}
+	indoorCycling := cycling.SubTypes["indoor_cycling"]
+	if _, ok := indoorCycling.ModifierDefaults["is_indoor"]; !ok {
+		t.Fatal("cycling/indoor_cycling missing modifier default fixture")
+	}
+	indoorCycling.ModifierDefaults["is_indoor"] = false
+	cycling.SubTypes["indoor_cycling"] = indoorCycling
+	cyclingAgain, ok := GetSportDef("cycling")
+	if !ok {
+		t.Fatal("GetSportDef(cycling) second call returned false")
+	}
+	indoorCyclingAgain := cyclingAgain.SubTypes["indoor_cycling"]
+	if !indoorCyclingAgain.ModifierDefaults["is_indoor"] {
+		t.Fatalf("GetSportDef returned shared subtype modifier default pointer, got %#v", indoorCyclingAgain.ModifierDefaults)
+	}
+}
+
+func TestEffectiveTraitsForTupleReturnsClone(t *testing.T) {
+	traits, ok := EffectiveTraitsForTuple("cycling", "mountain")
+	if !ok {
+		t.Fatal("EffectiveTraitsForTuple(cycling, mountain) returned false")
+	}
+	traits.Environments[0] = "mutated"
+	traits.MovementFamilies[0] = "mutated"
+	traits.EquipmentFamilies[0] = "mutated"
+	traits.PropulsionModes[0] = "mutated"
+
+	traitsAgain, ok := EffectiveTraitsForTuple("cycling", "mountain")
+	if !ok {
+		t.Fatal("EffectiveTraitsForTuple(cycling, mountain) second call returned false")
+	}
+	if got, want := traitsAgain.Environments[0], "land"; got != want {
+		t.Fatalf("EffectiveTraitsForTuple returned shared Environments backing array, got %q", got)
+	}
+	if got, want := traitsAgain.MovementFamilies[0], "pedal"; got != want {
+		t.Fatalf("EffectiveTraitsForTuple returned shared MovementFamilies backing array, got %q", got)
+	}
+	if got, want := traitsAgain.EquipmentFamilies[0], "bike"; got != want {
+		t.Fatalf("EffectiveTraitsForTuple returned shared EquipmentFamilies backing array, got %q", got)
+	}
+	if got, want := traitsAgain.PropulsionModes[0], "human"; got != want {
+		t.Fatalf("EffectiveTraitsForTuple returned shared PropulsionModes backing array, got %q", got)
+	}
+}
+
+func TestSportDefLifecycleDefaults(t *testing.T) {
+	d, ok := GetSportDef("running")
+	if !ok {
+		t.Fatal("GetSportDef(running) returned false")
+	}
+	if d.Lifecycle != "canonical" {
+		t.Fatalf("running lifecycle = %q, want canonical", d.Lifecycle)
+	}
+	if !d.Selectable {
+		t.Fatal("running selectable = false, want true")
+	}
+}
+
+func TestIsSelectableTupleHonorsParentAndSubtypeFlags(t *testing.T) {
+	if !IsSelectableTuple("cycling", "") {
+		t.Fatal("cycling parent tuple should be selectable")
+	}
+	if !IsSelectableTuple("fitness_equipment", "elliptical") {
+		t.Fatal("fitness_equipment/elliptical subtype should be selectable")
+	}
+	if IsSelectableTuple("fitness_equipment", "") {
+		t.Fatal("fitness_equipment parent tuple should not be selectable")
+	}
+	if IsSelectableTuple("unknown", "") {
+		t.Fatal("unknown should not be selectable for user-authored activity creation")
+	}
+	if IsSelectableTuple("cycling", "does_not_exist") {
+		t.Fatal("unknown subtype should not be selectable")
+	}
+}
+
 func TestLegacyAliasesAreNotRuntimeSports(t *testing.T) {
 	for _, sportType := range []string{
 		"mountain_biking",
@@ -175,10 +417,25 @@ func TestLegacyAliasesAreNotRuntimeSports(t *testing.T) {
 		"treadmill_running",
 		"lap_swimming",
 		"open_water_swimming",
+		"wheelchair_push_walk",
+		"wheelchair_push_run",
+		"strength",
 	} {
 		if _, ok := GetSportDef(sportType); ok {
 			t.Fatalf("GetSportDef(%q) returned true after compatibility cleanup", sportType)
 		}
+	}
+}
+
+func TestMovingThresholdForTupleUsesSubTypeOverride(t *testing.T) {
+	if got := MovingThresholdForTuple("wheelchair_push", "walk_speed"); got != 0.2 {
+		t.Fatalf("walk threshold = %v, want 0.2", got)
+	}
+	if got := MovingThresholdForTuple("wheelchair_push", "run_speed"); got != 0.5 {
+		t.Fatalf("run threshold = %v, want 0.5", got)
+	}
+	if got := MovingThreshold("wheelchair_push"); got != 0.2 {
+		t.Fatalf("parent threshold = %v, want 0.2", got)
 	}
 }
 
@@ -190,14 +447,31 @@ func TestSportDetailLabel(t *testing.T) {
 		{"cycling", "", "Radfahren"},
 		{"cycling", "generic", "Radfahren"},
 		{"running", "indoor_running", "Laufen (Indoor)"},
-		{"training", "yoga", "Yoga"},
+		{"yoga", "", "Yoga"},
+		{"pilates", "", "Pilates"},
 		{"training", "", "Training"},
-		{"paddling", "", "Paddeln (Generisch)"},
+		{"paddling", "", "Paddeln (allgemein)"},
 	}
 	for _, tc := range tests {
 		got := SportDetailLabel(tc.sport, tc.sub)
 		if got != tc.want {
 			t.Errorf("SportDetailLabel(%q, %q) = %q, want %q", tc.sport, tc.sub, got, tc.want)
+		}
+	}
+}
+
+func TestEffectiveTraitsForTupleUsesParentForParentOnlyAndUnknownSubTypes(t *testing.T) {
+	parent, ok := EffectiveTraitsForTuple("cycling", "")
+	if !ok {
+		t.Fatal("EffectiveTraitsForTuple(cycling, \"\") returned false")
+	}
+	for _, subType := range []string{"generic", " Generic ", "device_private_mode"} {
+		got, ok := EffectiveTraitsForTuple("cycling", subType)
+		if !ok {
+			t.Fatalf("EffectiveTraitsForTuple(cycling, %q) returned false", subType)
+		}
+		if !reflect.DeepEqual(got, parent) {
+			t.Fatalf("EffectiveTraitsForTuple(cycling, %q) = %#v, want parent %#v", subType, got, parent)
 		}
 	}
 }
@@ -220,7 +494,6 @@ func TestIsIndoor(t *testing.T) {
 		{"boxing", "", true},
 		{"mixed_martial_arts", "", true},
 		{"floor_climbing", "", true},
-		{"strength", "", true}, // alias
 
 		// Sport-level IsIndoor: false
 		{"running", "", false},
@@ -240,12 +513,14 @@ func TestIsIndoor(t *testing.T) {
 		{"alpine_skiing", "indoor_skiing", true},
 		{"walking", "indoor_walking", true},
 		{"rock_climbing", "indoor_climbing", true},
+		{"diving", "apnea_pool", true},
 
 		// SubType: not indoor
 		{"running", "street", false},
 		{"running", "trail", false},
 		{"cycling", "road", false},
 		{"swimming", "open_water", false},
+		{"rock_climbing", "bouldering", false},
 
 		// Unknown sport
 		{"nonexistent_sport", "", false},
@@ -255,5 +530,99 @@ func TestIsIndoor(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("IsIndoor(%q, %q) = %v, want %v", tt.sport, tt.sub, got, tt.want)
 		}
+	}
+}
+
+func TestModifierDefaultsForTuple(t *testing.T) {
+	defaults := ModifierDefaultsForTuple("diving", "apnea_pool")
+	if !defaults["is_indoor"] {
+		t.Fatalf("diving/apnea_pool modifier defaults = %#v, want is_indoor true", defaults)
+	}
+
+	if got := ModifierDefaultsForTuple("rock_climbing", "bouldering"); len(got) != 0 {
+		t.Fatalf("rock_climbing/bouldering defaults = %#v, want no indoor default", got)
+	}
+	if got := ModifierDefaultsForTuple("running", "treadmill"); !got["is_indoor"] {
+		t.Fatalf("running/treadmill defaults = %#v, want is_indoor true", got)
+	}
+	if got := ModifierDefaultsForTuple("yoga", ""); !got["is_indoor"] {
+		t.Fatalf("yoga defaults = %#v, want is_indoor true", got)
+	}
+	if got := ModifierDefaultsForTuple("fitness_equipment", "indoor_rowing"); !got["is_indoor"] {
+		t.Fatalf("fitness_equipment/indoor_rowing defaults = %#v, want inherited is_indoor true", got)
+	}
+	if got := ModifierDefaultsForTuple("fitness_equipment", "device_private_mode"); !got["is_indoor"] {
+		t.Fatalf("fitness_equipment unknown subtype defaults = %#v, want inherited is_indoor true", got)
+	}
+	if got := ModifierDefaultsForTuple("nonexistent_sport", ""); len(got) != 0 {
+		t.Fatalf("unknown sport defaults = %#v, want zero defaults", got)
+	}
+}
+
+func TestModifierDefaultsForTupleReturnsCopy(t *testing.T) {
+	first := ModifierDefaultsForTuple("running", "treadmill")
+	if !first["is_indoor"] {
+		t.Fatalf("running/treadmill defaults = %#v, want is_indoor true", first)
+	}
+	first["is_indoor"] = false
+
+	second := ModifierDefaultsForTuple("running", "treadmill")
+	if !second["is_indoor"] {
+		t.Fatalf("mutating returned defaults changed registry: %#v", second)
+	}
+}
+
+func sportTypesInOrder(defs []SportDef) []string {
+	result := make([]string, 0, len(defs))
+	for _, def := range defs {
+		result = append(result, def.SportType)
+	}
+	return result
+}
+
+func subTypesInOrder(defs []SubTypeDef) []string {
+	result := make([]string, 0, len(defs))
+	for _, def := range defs {
+		result = append(result, def.SubType)
+	}
+	return result
+}
+
+func findSportDef(defs []SportDef, sportType string) (SportDef, bool) {
+	for _, def := range defs {
+		if def.SportType == sportType {
+			return def, true
+		}
+	}
+	return SportDef{}, false
+}
+
+func mutateReturnedSportDef(def SportDef) {
+	def.Traits.Environments[0] = "mutated"
+	def.ModifierDefaults["is_indoor"] = true
+	subType := def.SubTypes["mountain"]
+	subType.Traits.EquipmentFamilies[0] = "mutated"
+	subType.ModifierDefaults["is_indoor"] = true
+	def.SubTypes["mountain"] = subType
+}
+
+func assertCyclingDefUnchanged(t *testing.T, load func() (SportDef, bool)) {
+	t.Helper()
+	def, ok := load()
+	if !ok {
+		t.Fatal("fresh cycling lookup failed")
+	}
+	if got, want := def.Traits.Environments[0], "land"; got != want {
+		t.Fatalf("cycling traits environment = %q, want %q", got, want)
+	}
+	if _, ok := def.ModifierDefaults["is_indoor"]; ok {
+		t.Fatalf("cycling modifier default is_indoor = %v, want absent", def.ModifierDefaults["is_indoor"])
+	}
+	subType := def.SubTypes["mountain"]
+	if got, want := subType.Traits.EquipmentFamilies[0], "bike"; got != want {
+		t.Fatalf("cycling/mountain equipment family = %q, want %q", got, want)
+	}
+	if _, ok := subType.ModifierDefaults["is_indoor"]; ok {
+		t.Fatalf("cycling/mountain modifier default is_indoor = %v, want absent", subType.ModifierDefaults["is_indoor"])
 	}
 }

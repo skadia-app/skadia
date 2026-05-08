@@ -2,10 +2,11 @@ package database
 
 import (
 	"context"
-	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -79,5 +80,30 @@ func TestRoutingProfilePredicatePersistence(t *testing.T) {
 	}
 	if len(loaded.SportTypes) != 1 || loaded.SportTypes[0] != "cycling" {
 		t.Fatalf("sport_types = %#v, want compatibility [cycling]", loaded.SportTypes)
+	}
+}
+
+func TestRoutingProfileWritesValidatePredicatesBeforeDB(t *testing.T) {
+	db := &DB{}
+	ctx := context.Background()
+	badSubtype := "not_real"
+	preds := []sport.Predicate{{Sport: "cycling", SubType: &badSubtype}}
+
+	if _, err := db.CreateRoutingProfile(ctx, "user-1", "bad", "mtb", preds, sport.ModifierFilters{}, nil); err == nil {
+		t.Fatal("CreateRoutingProfile accepted invalid predicates")
+	} else if !strings.Contains(err.Error(), "unknown subtype") {
+		t.Fatalf("CreateRoutingProfile error = %v, want predicate validation detail", err)
+	}
+
+	if _, err := db.UpdateRoutingProfile(ctx, "profile-1", "bad", preds, sport.ModifierFilters{}, nil); err == nil {
+		t.Fatal("UpdateRoutingProfile accepted invalid predicates")
+	} else if !strings.Contains(err.Error(), "unknown subtype") {
+		t.Fatalf("UpdateRoutingProfile error = %v, want predicate validation detail", err)
+	}
+
+	if _, err := db.UpsertGlobalProfile(ctx, "bad", "mtb", preds, sport.ModifierFilters{}, nil, "system"); err == nil {
+		t.Fatal("UpsertGlobalProfile accepted invalid predicates")
+	} else if !strings.Contains(err.Error(), "unknown subtype") {
+		t.Fatalf("UpsertGlobalProfile error = %v, want predicate validation detail", err)
 	}
 }

@@ -810,6 +810,7 @@ func applyMetaUserFields(ctx context.Context, db *database.DB, activityID string
 		{"exclude_from_heatmap", meta.ExcludeFromHeatmap},
 		{"exclude_from_stats", meta.ExcludeFromStats},
 		{"is_indoor", meta.IsIndoor},
+		{"is_commute", meta.IsCommute},
 		{"exclude_lift_subtraction", meta.ExcludeLiftSubtraction},
 	} {
 		if pair.val {

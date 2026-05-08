@@ -392,6 +392,31 @@ func (h *Handler) PreviewFileRename(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		if fileType == "activity" {
+			rendered, renderErr := shadowfs.RenderActivityFilePath(r.Context(), shadowfs.ActivityFileRefreshRequest{
+				Pool:           h.DB.Pool,
+				Settings:       h.Settings,
+				Renderer:       renderer,
+				UserID:         userID,
+				FileID:         id,
+				SchemaOverride: body.Schema,
+			})
+			if renderErr != nil {
+				slog.Warn("rename-preview: render activity path", "file_id", id, "error", renderErr)
+				continue
+			}
+			if rendered.FileID != "" && rendered.NewPath != rendered.OldPath {
+				pairs = append(pairs, renamePair{
+					FileID:  id,
+					OldPath: rendered.OldPath,
+					NewPath: rendered.NewPath,
+				})
+			}
+			if rendered.FileID != "" {
+				continue
+			}
+		}
+
 		ext := filepath.Ext(storagePath)
 
 		// Strip the user/type prefix to recover just the rendered portion.
@@ -454,24 +479,31 @@ func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Physical rename only makes sense for the local backend.
-	if h.storageBackend() != "local" {
-		httputil.WriteJSON(w, http.StatusOK, map[string]any{
-			"status":  "ok",
-			"renamed": 0,
-			"note":    "rename not applicable for non-local backends",
-		})
-		return
-	}
-
 	basePath := h.Config.LibraryBasePath
+	ctx := r.Context()
 	if basePath == "" {
-		slog.Error("rename-execute: LibraryBasePath not configured", "user_id", userID)
+		var localCount int
+		if err := h.DB.Pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM user_files
+			 WHERE user_id = $1 AND file_type = $2 AND storage_backend = 'local' AND status = 'active'`,
+			userID, fileType,
+		).Scan(&localCount); err != nil {
+			slog.Error("rename-execute: count local files", "error", err, "user_id", userID)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "database error", r.URL.Path)
+			return
+		}
+		if localCount == 0 {
+			httputil.WriteJSON(w, http.StatusOK, map[string]any{
+				"status":  "ok",
+				"renamed": 0,
+				"note":    "rename not applicable for non-local backends",
+			})
+			return
+		}
+		slog.Error("rename-execute: LibraryBasePath not configured for local files", "user_id", userID, "file_type", fileType, "local_files", localCount)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "library base path not configured", r.URL.Path)
 		return
 	}
-
-	ctx := r.Context()
 
 	// Guard: check for an already-running rename job for this user+type.
 	var existingCount int
@@ -582,7 +614,7 @@ func (h *Handler) executeFileRenameBackground(ctx context.Context, userID, fileT
 	fileRows, queryErr := conn.Query(ctx,
 		`SELECT id, storage_path, file_name, has_sidecar
 		 FROM user_files
-		 WHERE user_id = $1 AND file_type = $2 AND status = 'active' AND NOT is_renaming`,
+		 WHERE user_id = $1 AND file_type = $2 AND storage_backend = 'local' AND status = 'active' AND NOT is_renaming`,
 		userID, fileType,
 	)
 	if queryErr != nil {
@@ -642,6 +674,45 @@ func (h *Handler) executeFileRenameBackground(ctx context.Context, userID, fileT
 
 	renamed := 0
 	for _, f := range files {
+		if fileType == "activity" {
+			rendered, err := shadowfs.RenderActivityFilePath(ctx, shadowfs.ActivityFileRefreshRequest{
+				Pool:               h.DB.Pool,
+				Settings:           h.Settings,
+				Renderer:           renderer,
+				BasePath:           basePath,
+				UserID:             userID,
+				FileID:             f.id,
+				SchemaOverride:     schema,
+				LibraryDirOverride: userDir,
+			})
+			if err != nil {
+				slog.Error("rename-execute: render activity path", "error", err, "id", f.id)
+				continue
+			}
+			if rendered.FileID == "" {
+				// Orphaned activity files keep the legacy path-token fallback below.
+			} else {
+				refreshed, err := shadowfs.RefreshActivityFilePath(ctx, shadowfs.ActivityFileRefreshRequest{
+					Pool:               h.DB.Pool,
+					Settings:           h.Settings,
+					Renderer:           renderer,
+					BasePath:           basePath,
+					UserID:             userID,
+					FileID:             f.id,
+					SchemaOverride:     schema,
+					LibraryDirOverride: userDir,
+				})
+				if err != nil {
+					slog.Error("rename-execute: refresh activity path", "error", err, "id", f.id)
+					continue
+				}
+				if refreshed {
+					renamed++
+				}
+				continue
+			}
+		}
+
 		ext := filepath.Ext(f.storagePath)
 
 		// Recover rendered portion by stripping user/type prefix.

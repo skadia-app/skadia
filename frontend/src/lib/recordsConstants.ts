@@ -1,74 +1,64 @@
-// ── Records page constants ────────────────────────────────────────────────────
+import {
+  GENERATED_RECORD_GROUPS,
+  GENERATED_RECORD_MAIN_CATEGORIES,
+  GENERATED_RECORD_MATCH_RULES,
+} from './generatedRecordProjections'
+import { modifierDefaultsForTuple } from './sportTaxonomy'
 
-export const SPORT_GROUP_LABELS: Record<string, string> = {
-  running:          'Laufen',
-  running_trail:    'Laufen (Trail)',
-  running_indoor:   'Laufen (Indoor)',
-  running_virtual:  'Laufen (Virtuell)',
-  cycling:          'Radfahren',
-  cycling_electric: 'E-Bike',
-  cycling_virtual:  'Radfahren (Stationär)',
-  hiking:           'Wandern',
-  swim_pool:        'Schwimmen (Becken)',
-  swim_ow:          'Schwimmen (Freiwasser)',
-}
+export const SPORT_GROUP_LABELS: Record<string, string> = Object.fromEntries(
+  GENERATED_RECORD_GROUPS.map(group => [group.key, group.label]),
+)
 
-export type MainCategory = 'laufen' | 'radfahren' | 'wandern' | 'schwimmen'
+export const RECORD_GROUP_BADGES: Record<string, string> = Object.fromEntries(
+  GENERATED_RECORD_GROUPS
+    .filter(group => 'badge' in group)
+    .map(group => [group.key, group.badge]),
+)
 
-export const MAIN_CATEGORIES: Record<MainCategory, string[]> = {
-  laufen:     ['running', 'running_trail', 'running_indoor', 'running_virtual'],
-  radfahren:  ['cycling', 'cycling_electric', 'cycling_virtual'],
-  wandern:    ['hiking'],
-  schwimmen:  ['swim_ow', 'swim_pool'],
-}
+export type MainCategory = (typeof GENERATED_RECORD_MAIN_CATEGORIES)[number]['key']
 
-export const MAIN_CATEGORY_LABELS: Record<MainCategory, string> = {
-  laufen:     'Laufen',
-  radfahren:  'Radfahren',
-  wandern:    'Wandern',
-  schwimmen:  'Schwimmen',
-}
+export const MAIN_CATEGORY_ORDER = GENERATED_RECORD_MAIN_CATEGORIES.map(category => category.key) as MainCategory[]
 
-export const MAIN_CATEGORY_COLORS: Record<MainCategory, string> = {
-  laufen:     '#3B82F6',
-  radfahren:  '#F97316',
-  wandern:    '#22C55E',
-  schwimmen:  '#06B6D4',
-}
+export const MAIN_CATEGORIES: Record<MainCategory, string[]> = Object.fromEntries(
+  GENERATED_RECORD_MAIN_CATEGORIES.map(category => [category.key, [...category.recordGroups]]),
+) as Record<MainCategory, string[]>
+
+export const MAIN_CATEGORY_LABELS: Record<MainCategory, string> = Object.fromEntries(
+  GENERATED_RECORD_MAIN_CATEGORIES.map(category => [category.key, category.label]),
+) as Record<MainCategory, string>
+
+export const MAIN_CATEGORY_COLORS: Record<MainCategory, string> = Object.fromEntries(
+  GENERATED_RECORD_MAIN_CATEGORIES.map(category => [category.key, category.color]),
+) as Record<MainCategory, string>
 
 export interface SubFilter {
   label: string
   sportGroups: string[]
 }
 
-export const SUB_FILTERS: Record<MainCategory, SubFilter[]> = {
-  laufen: [
-    { label: 'Alle', sportGroups: ['running', 'running_trail', 'running_indoor', 'running_virtual'] },
-    { label: 'Straße', sportGroups: ['running'] },
-    { label: 'Trail', sportGroups: ['running_trail'] },
-    { label: 'Stationär', sportGroups: ['running_indoor', 'running_virtual'] },
-  ],
-  radfahren: [
-    { label: 'Alle', sportGroups: ['cycling', 'cycling_electric', 'cycling_virtual'] },
-    { label: 'Radfahren', sportGroups: ['cycling'] },
-    { label: 'E-Bike', sportGroups: ['cycling_electric'] },
-    { label: 'Stationär', sportGroups: ['cycling_virtual'] },
-  ],
-  schwimmen: [
-    { label: 'Alle', sportGroups: ['swim_ow', 'swim_pool'] },
-    { label: 'Freiwasser', sportGroups: ['swim_ow'] },
-    { label: 'Becken', sportGroups: ['swim_pool'] },
-  ],
-  wandern: [],  // no sub-filters
-}
+export const SUB_FILTERS: Record<MainCategory, SubFilter[]> = Object.fromEntries(
+  GENERATED_RECORD_MAIN_CATEGORIES.map(category => [
+    category.key,
+    category.subFilters.map(filter => ({ label: filter.label, sportGroups: [...filter.recordGroups] })),
+  ]),
+) as Record<MainCategory, SubFilter[]>
 
-/** Power curves: which sport_groups to aggregate per main category */
-export const POWER_CURVE_GROUPS: Partial<Record<MainCategory, string[]>> = {
-  laufen:    ['running', 'running_trail', 'running_indoor', 'running_virtual'],
-  radfahren: ['cycling'],  // E-Bike has no power categories in backend, cycling_virtual has no power data
-}
+export const SPORT_GROUP_BADGE_LABELS: Record<string, string> = Object.fromEntries(
+  GENERATED_RECORD_MAIN_CATEGORIES.flatMap(category =>
+    category.subFilters.flatMap(filter => {
+      if (filter.label === 'Alle') return []
+      return filter.recordGroups.map(group => [group, filter.label] as const)
+    }),
+  ),
+)
 
-export const SPORT_GROUP_ORDER = Object.keys(SPORT_GROUP_LABELS)
+export const POWER_CURVE_GROUPS: Partial<Record<MainCategory, string[]>> = Object.fromEntries(
+  GENERATED_RECORD_MAIN_CATEGORIES
+    .filter(category => 'powerCurve' in category)
+    .map(category => [category.key, [...category.powerCurve!.recordGroups]]),
+) as Partial<Record<MainCategory, string[]>>
+
+export const SPORT_GROUP_ORDER = GENERATED_RECORD_GROUPS.map(group => group.key)
 
 export const CATEGORY_PREFIXES = {
   dist: 'dist_',
@@ -77,58 +67,42 @@ export const CATEGORY_PREFIXES = {
   sup: 'sup_',
 } as const
 
-/** Sport-group badge suffix for mixed swimming views */
-export const POOL_BADGE = 'B'
-export const OW_BADGE = 'FW'
-
-export const SPORT_GROUP_TO_SPORT_TYPES: Record<string, string[]> = {
-  running:          ['running'],
-  running_trail:    ['running'],
-  running_indoor:   ['running'],
-  running_virtual:  ['running'],
-  cycling:          ['cycling'],
-  cycling_electric: ['cycling'],
-  cycling_virtual:  ['cycling'],
-  hiking:           ['hiking', 'mountaineering', 'snowshoeing'],
-  swim_pool:        ['swimming'],
-  swim_ow:          ['swimming'],
+type RecordEffort = {
+  sport_type: string
+  sub_type?: string
+  is_electric?: boolean
+  is_indoor?: boolean
+  is_virtual?: boolean
 }
 
-/** Predicate for filtering SegmentEffort / similar records by best-efforts sport_group. */
-export function matchesSportGroup(
-  sportGroup: string,
-  effort: { sport_type: string; sub_type?: string; is_electric?: boolean; is_indoor?: boolean; is_virtual?: boolean },
-): boolean {
-  const types = SPORT_GROUP_TO_SPORT_TYPES[sportGroup] ?? []
-  const matchesType = types.includes(effort.sport_type)
-
-  if (sportGroup === 'running_trail') {
-    return matchesType && effort.sub_type === 'trail'
-  }
-  if (sportGroup === 'running_indoor') {
-    return matchesType && (effort.is_indoor === true || effort.sub_type === 'indoor_running' || effort.sub_type === 'treadmill')
-  }
-  if (sportGroup === 'running') {
-    return matchesType && effort.sub_type !== 'trail' && effort.sub_type !== 'indoor_running' && effort.sub_type !== 'treadmill' && effort.is_indoor !== true && effort.is_virtual !== true
-  }
-  if (sportGroup === 'running_virtual') {
-    return matchesType && effort.is_virtual === true
-  }
-  if (sportGroup === 'cycling_electric') {
-    return matchesType && effort.is_electric === true
-  }
-  if (sportGroup === 'cycling_virtual') {
-    return matchesType && (effort.is_virtual === true || effort.is_indoor === true || effort.sub_type === 'indoor_cycling')
-  }
-  if (sportGroup === 'cycling') {
-    return matchesType && effort.is_electric !== true && effort.is_indoor !== true && effort.is_virtual !== true && effort.sub_type !== 'indoor_cycling'
-  }
-  if (sportGroup === 'swim_pool') {
-    return matchesType && effort.sub_type === 'lap_swimming'
-  }
-  if (sportGroup === 'swim_ow') {
-    return matchesType && (effort.sub_type === 'open_water' || !effort.sub_type)
-  }
-  return matchesType
+type RecordRuleModifiers = {
+  readonly isIndoor?: boolean
+  readonly isVirtual?: boolean
+  readonly isElectric?: boolean
 }
 
+export function matchesSportGroup(sportGroup: string, effort: RecordEffort): boolean {
+  return recordGroupForEffort(effort) === sportGroup
+}
+
+function recordGroupForEffort(effort: RecordEffort): string | null {
+  const subType = effort.sub_type === 'generic' ? '' : (effort.sub_type ?? '')
+  const defaults = modifierDefaultsForTuple(effort.sport_type, subType)
+  const isIndoor = effort.is_indoor ?? defaults.isIndoor ?? false
+  const isVirtual = effort.is_virtual ?? false
+  const isElectric = effort.is_electric ?? false
+
+  for (const rule of GENERATED_RECORD_MATCH_RULES) {
+    if (rule.sportType !== effort.sport_type) continue
+    const subTypes = rule.subTypes as readonly string[]
+    const excludeSubTypes = rule.excludeSubTypes as readonly string[]
+    const modifiers = rule.modifiers as RecordRuleModifiers
+    if (subTypes.length > 0 && !subTypes.includes(subType)) continue
+    if (excludeSubTypes.includes(subType)) continue
+    if (modifiers.isIndoor !== undefined && modifiers.isIndoor !== isIndoor) continue
+    if (modifiers.isVirtual !== undefined && modifiers.isVirtual !== isVirtual) continue
+    if (modifiers.isElectric !== undefined && modifiers.isElectric !== isElectric) continue
+    return rule.recordGroup
+  }
+  return null
+}

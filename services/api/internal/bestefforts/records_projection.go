@@ -1,0 +1,179 @@
+package bestefforts
+
+import (
+	"sync"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
+)
+
+type RecordGroup struct {
+	Key          string
+	LabelDE      string
+	MainCategory string
+	Color        string
+	Badge        string
+	Categories   []Category
+}
+
+type RecordMainCategory struct {
+	Key          string
+	LabelDE      string
+	Color        string
+	RecordGroups []string
+	SubFilters   []RecordSubFilter
+	PowerCurve   *RecordPowerCurve
+}
+
+type RecordSubFilter struct {
+	Label        string
+	RecordGroups []string
+}
+
+type RecordPowerCurve struct {
+	Label        string
+	RecordGroups []string
+}
+
+type RecordMatchRule struct {
+	RecordGroup     string
+	Priority        int
+	Sequence        int
+	SportType       string
+	SubTypes        []string
+	ExcludeSubTypes []string
+	Modifiers       map[string]*bool
+}
+
+func recordBoolPtr(v bool) *bool {
+	return &v
+}
+
+var recordMatchRulesBySportType = sync.OnceValue(func() map[string][]RecordMatchRule {
+	return indexRecordMatchRulesBySportType(generatedRecordMatchRules)
+})
+
+func indexRecordMatchRulesBySportType(rules []RecordMatchRule) map[string][]RecordMatchRule {
+	out := make(map[string][]RecordMatchRule)
+	for _, rule := range rules {
+		out[rule.SportType] = append(out[rule.SportType], rule)
+	}
+	return out
+}
+
+func RecordGroups() []RecordGroup {
+	return cloneRecordGroups(generatedRecordGroups)
+}
+
+func RecordGroupByKey(key string) (RecordGroup, bool) {
+	for _, group := range generatedRecordGroups {
+		if group.Key == key {
+			return cloneRecordGroup(group), true
+		}
+	}
+	return RecordGroup{}, false
+}
+
+func RecordMainCategories() []RecordMainCategory {
+	return cloneRecordMainCategories(generatedRecordMainCategories)
+}
+
+func RecordGroupForActivity(sportType, subType string, isIndoor, isVirtual, isElectric bool) (string, bool) {
+	return recordGroupForActivityWithModifierPresence(sportType, subType, isIndoor, isVirtual, isElectric, false, false, false)
+}
+
+func recordGroupForActivityWithModifierPresence(sportType, subType string, isIndoor, isVirtual, isElectric bool, explicitIndoor, explicitVirtual, explicitElectric bool) (string, bool) {
+	isIndoor, isVirtual, isElectric = resolveRecordModifierDefaults(sportType, subType, isIndoor, isVirtual, isElectric, explicitIndoor, explicitVirtual, explicitElectric)
+	modifiers := map[string]bool{
+		"is_electric": isElectric,
+		"is_indoor":   isIndoor,
+		"is_virtual":  isVirtual,
+	}
+	for _, rule := range recordMatchRulesBySportType()[sportType] {
+		if recordRuleMatches(rule, sportType, subType, modifiers) {
+			return rule.RecordGroup, true
+		}
+	}
+	return "", false
+}
+
+func resolveRecordModifierDefaults(sportType, subType string, isIndoor, isVirtual, isElectric bool, explicitIndoor, explicitVirtual, explicitElectric bool) (bool, bool, bool) {
+	defaults := sport.ModifierDefaultsForTuple(sportType, subType)
+	// Record grouping canonicalizes from persisted activity state plus taxonomy
+	// defaults; persisted best-effort inputs do not carry explicit modifier
+	// provenance. is_indoor is the only current taxonomy_default modifier, so
+	// virtual and electric state remain the persisted values.
+	if !explicitIndoor {
+		if value, ok := defaults["is_indoor"]; ok {
+			isIndoor = value
+		}
+	}
+	return isIndoor, isVirtual, isElectric
+}
+
+func recordRuleMatches(rule RecordMatchRule, sportType, subType string, modifiers map[string]bool) bool {
+	if rule.SportType != sportType {
+		return false
+	}
+	if len(rule.SubTypes) > 0 && !recordSubTypeListMatches(rule.SubTypes, subType) {
+		return false
+	}
+	if recordSubTypeListMatches(rule.ExcludeSubTypes, subType) {
+		return false
+	}
+	for _, key := range sport.SportModifierKeysWithCapability("record_grouping") {
+		want := rule.Modifiers[key]
+		if want != nil && *want != modifiers[key] {
+			return false
+		}
+	}
+	return true
+}
+
+func recordSubTypeListMatches(values []string, subType string) bool {
+	subType = sport.CanonicalSubTypeID(subType)
+	for _, value := range values {
+		if sport.CanonicalSubTypeID(value) == subType {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneRecordGroups(in []RecordGroup) []RecordGroup {
+	out := make([]RecordGroup, len(in))
+	for i := range in {
+		out[i] = cloneRecordGroup(in[i])
+	}
+	return out
+}
+
+func cloneRecordGroup(in RecordGroup) RecordGroup {
+	out := in
+	out.Categories = append([]Category(nil), in.Categories...)
+	return out
+}
+
+func cloneRecordMainCategories(in []RecordMainCategory) []RecordMainCategory {
+	out := make([]RecordMainCategory, len(in))
+	for i := range in {
+		out[i] = cloneRecordMainCategory(in[i])
+	}
+	return out
+}
+
+func cloneRecordMainCategory(in RecordMainCategory) RecordMainCategory {
+	out := in
+	out.RecordGroups = append([]string(nil), in.RecordGroups...)
+	out.SubFilters = make([]RecordSubFilter, len(in.SubFilters))
+	for i := range in.SubFilters {
+		out.SubFilters[i] = in.SubFilters[i]
+		out.SubFilters[i].RecordGroups = append([]string(nil), in.SubFilters[i].RecordGroups...)
+	}
+	if in.PowerCurve != nil {
+		out.PowerCurve = &RecordPowerCurve{
+			Label:        in.PowerCurve.Label,
+			RecordGroups: append([]string(nil), in.PowerCurve.RecordGroups...),
+		}
+	}
+	return out
+}

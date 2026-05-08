@@ -30,6 +30,12 @@ import (
 // The handler package provides the concrete implementation.
 type SegmentMatcherFunc func(activityID, userID, sportType, subType string, gearID *string, activityDate time.Time)
 
+// ActivityFileRefresher refreshes a linked original activity file path after
+// post-processing has populated schema-relevant activity fields.
+type ActivityFileRefresher func(ctx context.Context, userID, activityID, fileID string)
+
+type metaCompanionWriter func(ctx context.Context, userID, activityID, fileID string, data *model.ActivityData, activity *model.Activity)
+
 // Service holds shared dependencies needed to run post-insert processing steps
 // after an activity has been written to the database. It is used by the upload
 // handler and will be reused by the cross-platform import pipeline so that all
@@ -66,6 +72,12 @@ type Service struct {
 	// PostImportHook is called once after a successful activity import.
 	// Used to trigger fusion queue recompute. Optional — nil is safe.
 	PostImportHook func(ctx context.Context, userID string)
+
+	// ActivityFileRefresher updates local ShadowFS paths after enrichment/rules
+	// have finalized schema-relevant activity fields. Optional — nil is safe.
+	ActivityFileRefresher ActivityFileRefresher
+
+	metaCompanionWriter metaCompanionWriter
 
 	// Stage1Deps overrides the external dependencies (WeatherFetcher,
 	// ReverseGeocoder) used by RunStage1 in PostProcess. When nil,
@@ -429,6 +441,12 @@ func (s *Service) PostProcess(
 		}
 	}
 
+	if freshActivity, err := s.DB.GetActivity(ctx, activityID); err == nil && freshActivity != nil {
+		activity = freshActivity
+	} else if err != nil {
+		slog.Warn("postprocess: refresh activity snapshot failed before sidecar write", "activity_id", activityID, "error", err)
+	}
+
 	// Compute TSS immediately after import so computed_tss is populated
 	// without requiring a manual recompute. Runs after InsertStreams (Phase 1)
 	// so power/HR/speed streams are available for stream-based TSS methods.
@@ -534,7 +552,7 @@ func (s *Service) PostProcess(
 		if effectiveFileID == "" && activity != nil && activity.FileID != nil {
 			effectiveFileID = *activity.FileID
 		}
-		sidecar.WriteMetaCompanion(ctx, s.ShadowFS, s.DB, userID, activityID, effectiveFileID, data, activity)
+		s.writeMetaCompanionAndRefreshActivityFile(ctx, userID, activityID, effectiveFileID, data, activity)
 	}
 
 	slog.Info("activity post-processed",
@@ -546,6 +564,30 @@ func (s *Service) PostProcess(
 		"has_gps", data.HasGPS,
 	)
 	return nil
+}
+
+func (s *Service) writeMetaCompanionAndRefreshActivityFile(
+	ctx context.Context,
+	userID, activityID, effectiveFileID string,
+	data *model.ActivityData,
+	activity *model.Activity,
+) {
+	if effectiveFileID == "" && activity != nil && activity.FileID != nil {
+		effectiveFileID = *activity.FileID
+	}
+	if effectiveFileID == "" {
+		return
+	}
+	writeMeta := s.metaCompanionWriter
+	if writeMeta == nil {
+		writeMeta = func(ctx context.Context, userID, activityID, effectiveFileID string, data *model.ActivityData, activity *model.Activity) {
+			sidecar.WriteMetaCompanion(ctx, s.ShadowFS, s.DB, userID, activityID, effectiveFileID, data, activity)
+		}
+	}
+	writeMeta(ctx, userID, activityID, effectiveFileID, data, activity)
+	if s.ActivityFileRefresher != nil {
+		s.ActivityFileRefresher(ctx, userID, activityID, effectiveFileID)
+	}
 }
 
 // runWeatherStreamRefinement re-fetches weather with summit/midpoint GPS after streams are inserted.
@@ -739,15 +781,14 @@ func normalizeImportedActivitySport(data *model.ActivityData) error {
 	}
 	data.SportType = tuple.SportType
 	data.SubType = tuple.SubType
-	if patch.IsElectric != nil {
-		data.IsElectric = *patch.IsElectric
-	}
-	if patch.IsIndoor != nil && *patch.IsIndoor {
-		data.IsIndoor = true
-	}
-	if sport.IsIndoor(data.SportType, data.SubType) {
-		data.IsIndoor = true
-	}
+	modifiers := sport.ApplyModifierPatch(sport.ModifierValues{
+		IsElectric: data.IsElectric,
+		IsIndoor:   data.IsIndoor,
+		IsVirtual:  data.IsVirtual,
+	}, patch)
+	data.IsElectric = modifiers.IsElectric
+	data.IsIndoor = modifiers.IsIndoor
+	data.IsVirtual = modifiers.IsVirtual
 	return nil
 }
 

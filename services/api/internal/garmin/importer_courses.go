@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -122,7 +123,7 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 				continue
 			}
 
-			sportType, subType := garminCourseTypeToSport(course.CourseType)
+			sportType, subType, modifierPatch := garminCourseTypeToSport(course.CourseType)
 			sourcePlatform := platform
 			sid := sourceID
 			elevGain := course.ElevationGain
@@ -133,6 +134,7 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 				Name:               course.CourseName,
 				SportType:          sportType,
 				SubType:            subType,
+				IsElectric:         modifierPatch.IsElectric != nil && *modifierPatch.IsElectric,
 				Profile:            "outdoor",
 				GeometryGeoJSON:    geojson,
 				WaypointsJSON:      "[]",
@@ -161,43 +163,16 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 }
 
 // garminCourseTypeToSport maps Garmin courseType strings to Skadia route sport tuples.
-func garminCourseTypeToSport(courseType string) (string, *string) {
-	normalize := func(sportType, subType string) (string, *string) {
-		tuple, _, err := sporttax.NormalizeSportTuple(sportType, subType)
-		if err != nil {
-			return "generic", nil
-		}
-		if tuple.SubType == "" {
-			return tuple.SportType, nil
-		}
-		return tuple.SportType, &tuple.SubType
+func garminCourseTypeToSport(courseType string) (string, *string, sporttax.ModifierPatch) {
+	result, err := sporttax.ResolveSport(sporttax.ResolveInput{
+		Source:   sporttax.SourceGarminCourse,
+		RawSport: strings.ToLower(strings.TrimSpace(courseType)),
+	})
+	if err != nil || !result.Resolved {
+		return "unknown", nil, sporttax.ModifierPatch{}
 	}
-	switch courseType {
-	case "road_cycling":
-		return normalize("cycling", "road")
-	case "cycling":
-		return normalize("cycling", "")
-	case "mountain_biking":
-		return normalize("cycling", "mountain")
-	case "gravel_cycling":
-		return normalize("cycling", "gravel_cycling")
-	case "running":
-		return normalize("running", "")
-	case "trail_running":
-		return normalize("running", "trail")
-	case "hiking":
-		return normalize("hiking", "")
-	case "walking":
-		return normalize("walking", "")
-	case "swimming":
-		return normalize("swimming", "")
-	case "skiing":
-		return normalize("alpine_skiing", "")
-	case "cross_country_skiing":
-		return normalize("cross_country_skiing", "")
-	default:
-		return normalize("generic", "")
-	}
+	sportType, subType := sporttax.RouteImportTuple(result.Tuple, "unknown")
+	return sportType, subType, result.Patch
 }
 
 // geoPointsToGeoJSON converts Garmin GeoPoints to a GeoJSON LineString string.

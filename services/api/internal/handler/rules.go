@@ -80,6 +80,10 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 
 	rule, err := h.DB.CreateRule(r.Context(), userID, &create)
 	if err != nil {
+		if rules.IsSportTaxonomyValidationError(err) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
 		slog.Error("create rule failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create rule", r.URL.Path)
 		return
@@ -130,6 +134,10 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteError(w, http.StatusForbidden, "Forbidden", "this system rule is read-only", r.URL.Path)
 			return
 		}
+		if rules.IsSportTaxonomyValidationError(err) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
 		slog.Error("update rule failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update rule", r.URL.Path)
 		return
@@ -143,7 +151,7 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func rewriteCreateRuleSportTaxonomy(create *model.AutomationRuleCreate) error {
-	rewritten, _, err := rules.RewriteSportTaxonomyRuleJSON(rules.SportTaxonomyRuleJSON{
+	rewritten, _, err := rules.NormalizeAndValidateSportTaxonomyRuleJSON(rules.SportTaxonomyRuleJSON{
 		Conditions:      create.Conditions,
 		ConditionGroups: create.ConditionGroups,
 		Branches:        create.Branches,
@@ -170,7 +178,7 @@ func rewriteUpdateRuleSportTaxonomy(update *model.AutomationRuleUpdate) error {
 	if update.Actions != nil {
 		input.Actions = *update.Actions
 	}
-	rewritten, _, err := rules.RewriteSportTaxonomyRuleJSON(input)
+	rewritten, _, err := rules.NormalizeAndValidateSportTaxonomyRuleJSON(input)
 	if err != nil {
 		return err
 	}
@@ -309,10 +317,14 @@ func (h *Handler) ApplyRules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ApplyRulesToActivity is a thin wrapper around automation.ApplyRulesToActivity
-// for use in handler contexts.
+// ApplyRulesToActivity applies automation rules and refreshes any linked local
+// activity file path because rule actions can change schema-relevant fields.
 func (h *Handler) ApplyRulesToActivity(ctx context.Context, activityID, userID string, allRules []model.AutomationRule, triggerEvent string) error {
-	return automation.ApplyRulesToActivity(ctx, h.DB, activityID, userID, allRules, triggerEvent)
+	if err := automation.ApplyRulesToActivity(ctx, h.DB, activityID, userID, allRules, triggerEvent); err != nil {
+		return err
+	}
+	h.refreshActivityFilePathBestEffort(ctx, userID, activityID, "")
+	return nil
 }
 
 func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID string) {
@@ -653,7 +665,7 @@ func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule 
 	var firstFailedID string
 	var firstFailedErr error
 	for i, actID := range actIDs {
-		if err := automation.ApplyRulesToActivity(ctx, h.DB, actID, userID, singleRule, ""); err != nil {
+		if err := h.ApplyRulesToActivity(ctx, actID, userID, singleRule, ""); err != nil {
 			if errors.Is(err, automation.ErrRulesEnginePaused) {
 				pausedCount++
 				slog.Warn("apply single rule skipped because rules engine is paused", "activity_id", actID, "rule_id", rule.ID, "error", err)

@@ -6,6 +6,7 @@ CREATE OR REPLACE FUNCTION skadia_sport_tuple_filter_matches(
 RETURNS BOOLEAN
 LANGUAGE sql
 IMMUTABLE
+SET search_path = public
 AS $$
     SELECT sport_filter IS NULL OR EXISTS (
         SELECT 1

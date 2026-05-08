@@ -5,6 +5,7 @@ import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useECharts } from '@/hooks/useECharts'
 import type { BestEffortRanked } from '@/api/bestEfforts'
+import { POWER_DURATIONS, CATEGORY_LABELS } from '@/lib/bestEffortLabels'
 
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -15,8 +16,12 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`
 }
 
-const POWER_DURATIONS = ['power_5s','power_30s','power_1min','power_5min','power_10min','power_20min','power_30min','power_1h','power_2h'] as const
-const DURATION_LABELS = ['5s','30s','1m','5m','10m','20m','30m','1h','2h']
+const DURATION_LABELS = POWER_DURATIONS.map((category) =>
+  CATEGORY_LABELS[category]
+    .replace(' Sek', 's')
+    .replace(' Min', 'm')
+    .replace(' Std', 'h'),
+)
 
 interface PowerSeries {
   name: string

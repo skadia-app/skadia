@@ -16,6 +16,7 @@ import type { TagFilter } from '@/components/TagFilterInput'
 import type { GearFilter, GearFilterState } from '@/components/GearFilterInput'
 import { toLocalISO } from '@/lib/dateUtils'
 import { SportFilter } from '@/components/sport/SportFilter'
+import { modifierKeysForCapability } from '@/lib/sportModifiers'
 import type { SegmentColorConfig, SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
 import { DEFAULT_SEGMENT_COLORS } from '@/components/Map/SegmentsOverlay'
 
@@ -111,7 +112,7 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
             <div className="pt-3">
               <SportFilter
                 preset="MAP_PANEL_GPS"
-                modifierKeys={['is_electric', 'is_commute']}
+                modifierKeys={MAP_MODIFIER_KEYS}
                 value={{
                   sportTypes: filters.sportTypes === null ? null : [...filters.sportTypes],
                   modifiers: {
@@ -543,3 +544,4 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
 }
 
 export default memo(MapFilters)
+const MAP_MODIFIER_KEYS = modifierKeysForCapability('heatmap_filter')

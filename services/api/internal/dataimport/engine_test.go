@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -89,12 +90,13 @@ func currentSchemaMigration(t *testing.T, pool *pgxpool.Pool) int {
 // Put() stores file content and returns a synthetic FileRecord.
 // All other methods are no-ops or return reasonable zero values.
 type mockShadowFS struct {
-	mu    sync.Mutex
-	files map[string][]byte // fileID → content
+	mu      sync.Mutex
+	files   map[string][]byte // fileID → content
+	entries map[string]shadowfs.FileEntry
 }
 
 func newMockShadowFS() *mockShadowFS {
-	return &mockShadowFS{files: make(map[string][]byte)}
+	return &mockShadowFS{files: make(map[string][]byte), entries: make(map[string]shadowfs.FileEntry)}
 }
 
 func (m *mockShadowFS) Put(_ context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
@@ -105,6 +107,7 @@ func (m *mockShadowFS) Put(_ context.Context, entry shadowfs.FileEntry, data io.
 	id := uuid.New().String()
 	m.mu.Lock()
 	m.files[id] = content
+	m.entries[id] = entry
 	m.mu.Unlock()
 	return shadowfs.FileRecord{
 		ID:        id,
@@ -113,6 +116,17 @@ func (m *mockShadowFS) Put(_ context.Context, entry shadowfs.FileEntry, data io.
 		SizeBytes: int64(len(content)),
 		Status:    "active",
 	}, nil
+}
+
+func (m *mockShadowFS) entryByFileName(name string) (shadowfs.FileEntry, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, entry := range m.entries {
+		if entry.FileName == name {
+			return entry, true
+		}
+	}
+	return shadowfs.FileEntry{}, false
 }
 
 func (m *mockShadowFS) PutCompanion(_ context.Context, _, _, _ string, _ []byte) error {
@@ -1805,6 +1819,130 @@ func TestDeferredFKGearDocument(t *testing.T) {
 	}
 }
 
+func TestImportGearNormalizesDefaultForSports(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	gearOldID := uuid.New().String()
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"gear": {"id", "user_id", "name", "type", "default_for_sports"},
+		},
+		gear: []map[string]any{
+			{
+				"id":                 gearOldID,
+				"user_id":            srcUser,
+				"name":               "Legacy MTB",
+				"type":               "bike",
+				"default_for_sports": []any{"mountain_biking", "e_mountain_biking", "fitness_equipment"},
+			},
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	_, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	var defaults []string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT default_for_sports FROM gear WHERE user_id = $1 AND name = 'Legacy MTB'`,
+		userID,
+	).Scan(&defaults); err != nil {
+		t.Fatalf("select gear default_for_sports: %v", err)
+	}
+	want := []string{"cycling", "fitness_equipment"}
+	if !reflect.DeepEqual(defaults, want) {
+		t.Fatalf("default_for_sports = %#v, want %#v", defaults, want)
+	}
+	var predicatesJSON []byte
+	if err := pool.QueryRow(context.Background(),
+		`SELECT default_sport_predicates FROM gear WHERE user_id = $1 AND name = 'Legacy MTB'`,
+		userID,
+	).Scan(&predicatesJSON); err != nil {
+		t.Fatalf("select gear default_sport_predicates: %v", err)
+	}
+	if !strings.Contains(string(predicatesJSON), `"is_electric": true`) {
+		t.Fatalf("default_sport_predicates = %s, want preserved electric predicate", string(predicatesJSON))
+	}
+}
+
+func TestImportGearSkipsInvalidDefaultForSportsRow(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	badGearOldID := uuid.New().String()
+	goodGearOldID := uuid.New().String()
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"gear": {"id", "user_id", "name", "type", "default_for_sports"},
+		},
+		gear: []map[string]any{
+			{
+				"id":                 badGearOldID,
+				"user_id":            srcUser,
+				"name":               "Bad Gear",
+				"type":               "bike",
+				"default_for_sports": []any{"not_a_sport"},
+			},
+			{
+				"id":                 goodGearOldID,
+				"user_id":            srcUser,
+				"name":               "Good Gear",
+				"type":               "bike",
+				"default_for_sports": []any{"cycling"},
+			},
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	result, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	if result.EntitiesFailed != 1 {
+		t.Fatalf("EntitiesFailed = %d, want 1; errors = %#v", result.EntitiesFailed, result.Errors)
+	}
+	if len(result.Errors) != 1 || result.Errors[0].Table != "gear" || result.Errors[0].OldID != badGearOldID ||
+		!strings.Contains(result.Errors[0].Error, "default_for_sports") {
+		t.Fatalf("import errors = %#v, want one row-level gear default_for_sports error", result.Errors)
+	}
+
+	var names []string
+	rows, err := pool.Query(context.Background(),
+		`SELECT name FROM gear WHERE user_id = $1 ORDER BY name`,
+		userID,
+	)
+	if err != nil {
+		t.Fatalf("select gear names: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan gear name: %v", err)
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate gear names: %v", err)
+	}
+	if !reflect.DeepEqual(names, []string{"Good Gear"}) {
+		t.Fatalf("imported gear names = %#v, want only valid row", names)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Test 20: TestDeferredFKTagCoverFile
 // ---------------------------------------------------------------------------
@@ -2168,6 +2306,189 @@ func TestFileParentIDRemap(t *testing.T) {
 		if pid != nil && *pid == actOldID {
 			t.Errorf("ShadowFS.Put received old export activity UUID %q as ParentID — remap failed", actOldID)
 		}
+	}
+}
+
+func TestFileRestoreTagsActivityFileFromExportedActivity(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	srcUser := uuid.New().String()
+	actOldID := uuid.New().String()
+	fileOldID := uuid.New().String()
+	now := time.Date(2024, 3, 15, 14, 30, 0, 0, time.UTC)
+
+	userFilesJSON := mustMarshalJSON(t, []map[string]any{
+		{
+			"id":           fileOldID,
+			"file_type":    "activity",
+			"content_type": "application/octet-stream",
+			"file_name":    "legacy.fit",
+			"size_bytes":   4,
+			"status":       "active",
+		},
+	})
+
+	fs := newDBMockShadowFS(pool)
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"activities": {
+				"id", "user_id", "title", "sport_type", "sub_type", "started_at", "file_id",
+				"original_file_format", "source", "start_city", "start_country", "distance_m", "elapsed_time_s", "elevation_gain_m",
+			},
+		},
+		activities: []map[string]any{
+			{
+				"id":                   actOldID,
+				"user_id":              srcUser,
+				"title":                "Forest Ride",
+				"sport_type":           "mountain_biking",
+				"started_at":           now.Format(time.RFC3339),
+				"file_id":              fileOldID,
+				"original_file_format": "fit",
+				"source":               "strava",
+				"start_city":           "Beispielstadt West",
+				"start_country":        "DE",
+				"distance_m":           12345.0,
+				"elapsed_time_s":       5432,
+				"elevation_gain_m":     321.0,
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/user_files.json":      userFilesJSON,
+			"files/activity/legacy.fit": []byte("data"),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := &Engine{DB: pool, ShadowFS: fs, Config: EngineConfig{}}
+	_, err := eng.RunImport(context.Background(), ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	entry, ok := fs.mockShadowFS.entryByFileName("legacy.fit")
+	if !ok {
+		t.Fatal("restored activity file was not passed to ShadowFS")
+	}
+	if entry.Tags["sport"] != "cycling" || entry.Tags["subCategory"] != "mountain" {
+		t.Fatalf("activity tags = %#v, want canonical cycling/mountain", entry.Tags)
+	}
+	if entry.Tags["title"] != "Forest Ride" || entry.Tags["city"] != "Beispielstadt West" || entry.Tags["country"] != "DE" {
+		t.Fatalf("activity metadata tags = %#v", entry.Tags)
+	}
+	if entry.Tags["source"] != "strava" {
+		t.Fatalf("activity source tag = %#v, want strava", entry.Tags)
+	}
+	for key, want := range map[string]string{
+		"year":        "2024",
+		"month":       "03",
+		"day":         "15",
+		"time":        "1430",
+		"distance_km": "12.3",
+		"duration_h":  "0001-30",
+		"elevation_m": "321",
+	} {
+		if entry.Tags[key] != want {
+			t.Fatalf("activity tag %s = %q, want %q in %#v", key, entry.Tags[key], want, entry.Tags)
+		}
+	}
+}
+
+func TestFileRestoreWithoutActivityRowDoesNotWriteRawTaxonomyTags(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	fileOldID := uuid.New().String()
+	userFilesJSON := mustMarshalJSON(t, []map[string]any{
+		{
+			"id":           fileOldID,
+			"file_type":    "activity",
+			"content_type": "application/octet-stream",
+			"file_name":    "orphan.fit",
+			"size_bytes":   4,
+			"status":       "active",
+		},
+	})
+
+	fs := newDBMockShadowFS(pool)
+	zipPath := buildExportZip(t, zipBuildOpts{
+		extraFiles: map[string][]byte{
+			"data/user_files.json":      userFilesJSON,
+			"files/activity/orphan.fit": []byte("data"),
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := &Engine{DB: pool, ShadowFS: fs, Config: EngineConfig{}}
+	_, err := eng.RunImport(context.Background(), ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	entry, ok := fs.mockShadowFS.entryByFileName("orphan.fit")
+	if !ok {
+		t.Fatal("orphan activity file was not passed to ShadowFS")
+	}
+	if _, ok := entry.Tags["sport"]; ok {
+		t.Fatalf("orphan activity file should not receive synthetic sport tag: %#v", entry.Tags)
+	}
+	if entry.Tags["format"] != "fit" {
+		t.Fatalf("orphan activity file format tag = %#v, want fit only", entry.Tags)
+	}
+}
+
+func TestActivityFileRecordDetectionRequiresActivityFileType(t *testing.T) {
+	parentType := "activity"
+	tests := []struct {
+		name string
+		rec  userFileRecord
+		want bool
+	}{
+		{
+			name: "activity file type",
+			rec:  userFileRecord{FileType: "activity", ParentType: &parentType},
+			want: true,
+		},
+		{
+			name: "media attached to activity",
+			rec:  userFileRecord{FileType: "media", ParentType: &parentType},
+			want: false,
+		},
+		{
+			name: "original legacy activity export file",
+			rec:  userFileRecord{FileType: "original", FileName: "legacy.fit"},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isActivityFileRecord(tt.rec); got != tt.want {
+				t.Fatalf("isActivityFileRecord(%#v) = %v, want %v", tt.rec, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestInferFileFormatOnlyAcceptsActivityFormats(t *testing.T) {
+	tests := []struct {
+		fileName string
+		want     string
+	}{
+		{fileName: "track.FIT", want: "fit"},
+		{fileName: "route.gpx", want: "gpx"},
+		{fileName: "activity.tcx", want: "tcx"},
+		{fileName: "notes.txt", want: ""},
+		{fileName: "archive.zip", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.fileName, func(t *testing.T) {
+			if got := inferFileFormat(tt.fileName); got != tt.want {
+				t.Fatalf("inferFileFormat(%q) = %q, want %q", tt.fileName, got, tt.want)
+			}
+		})
 	}
 }
 

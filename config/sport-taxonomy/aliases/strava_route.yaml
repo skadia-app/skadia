@@ -1,0 +1,40 @@
+source: strava_route
+aliases:
+- raw: run
+  sport_type: running
+- raw: running
+  sport_type: running
+- raw: trail run
+  sport_type: running
+  sub_type: trail
+- raw: trail running
+  sport_type: running
+  sub_type: trail
+- raw: trailrun
+  sport_type: running
+  sub_type: trail
+- raw: ride
+  sport_type: cycling
+- raw: e-bike ride
+  sport_type: cycling
+  modifiers: {is_electric: true}
+- raw: e-mountain bike ride
+  sport_type: cycling
+  sub_type: mountain
+  modifiers: {is_electric: true}
+- raw: cycling
+  sport_type: cycling
+- raw: bike
+  sport_type: cycling
+- raw: hike
+  sport_type: hiking
+- raw: hiking
+  sport_type: hiking
+- raw: walk
+  sport_type: walking
+- raw: walking
+  sport_type: walking
+- raw: alpine ski
+  sport_type: alpine_skiing
+- raw: skiing
+  sport_type: alpine_skiing

@@ -17,6 +17,7 @@ import (
 	"github.com/muktihari/fit/proto"
 
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
+	"github.com/skadia-app/skadia/services/api/internal/importmetrics"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
@@ -475,6 +476,9 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		subType = "generic"
 		isElectric = true
 	case "e_bike_mountain":
+		subType = "mountain"
+		isElectric = true
+	case "e_bike_enduro":
 		subType = "mountain"
 		isElectric = true
 	}
@@ -1479,6 +1483,10 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		}
 	}
 
+	if err := normalizeParsedActivitySport(data); err != nil {
+		return nil, err
+	}
+
 	// Refine MovingTimeS using stream data when speed or GPS information is
 	// available. The device's TotalTimerTime (already set above) is a valid
 	// upper bound because the device itself excluded manual/auto-pause periods.
@@ -1486,7 +1494,7 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 	// did not pause but the athlete was actually stopped (e.g. red lights,
 	// waiting at a summit). We take the minimum of both to stay conservative.
 	if activityutil.HasSpeedData(data.Streams) || activityutil.HasGPSData(data.Streams) {
-		streamMoving := activityutil.CalcMovingTime(data.Streams, data.SportType)
+		streamMoving := activityutil.CalcMovingTimeForTuple(data.Streams, data.SportType, data.SubType)
 		if streamMoving > 0 {
 			data.MovingTimeS = activityutil.MinMovingTime(data.MovingTimeS, streamMoving)
 		}
@@ -1637,15 +1645,8 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		data.DiveGases = append(data.DiveGases, gas)
 	}
 
-	// CCR detection: if any gas is closed-circuit diluent, this is a CCR dive.
-	// The FIT SDK has no dedicated CCR sub-sport; Garmin encodes CCR via gas mode.
-	if data.SportType == "diving" {
-		for _, g := range data.DiveGases {
-			if g.Mode == "closed_circuit_diluent" {
-				data.SubType = "ccr_diving"
-				break
-			}
-		}
+	if err := applyDiveGasDerivedSport(data); err != nil {
+		return nil, err
 	}
 
 	// === FIT SDK — GPS Metadata: assign headings to stream points ===
@@ -1687,33 +1688,71 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 		}
 	}
 
-	if err := normalizeParsedActivitySport(data); err != nil {
-		return nil, err
-	}
 	return data, nil
 }
 
 func normalizeParsedActivitySport(data *model.ActivityData) error {
+	return normalizeParsedActivitySportWithRecorder(data, importmetrics.RecordUnmappedSport)
+}
+
+func normalizeParsedActivitySportWithRecorder(data *model.ActivityData, recordUnmappedSport func(importmetrics.Source)) error {
 	if data == nil {
 		return fmt.Errorf("activity data is nil")
 	}
 	if strings.TrimSpace(data.SportType) == "" {
 		return fmt.Errorf("sport_type is required")
 	}
-	tuple, patch, err := sport.NormalizeSportTupleForImport(data.SportType, data.SubType)
+	resolved, err := sport.ResolveSport(sport.ResolveInput{
+		Source:   sport.SourceFITFile,
+		RawSport: data.SportType,
+		RawSub:   data.SubType,
+	})
 	if err != nil {
 		return err
 	}
+	tuple := resolved.Tuple
+	patch := resolved.Patch
+	loggedUnmapped := false
+	if !resolved.Resolved {
+		slog.Warn("fit import: unmapped sport type", "source", "fit", "raw_sport", strings.TrimSpace(data.SportType), "raw_sub_type", strings.TrimSpace(data.SubType))
+		recordUnmappedSport(importmetrics.SourceFIT)
+		loggedUnmapped = true
+		var fallbackErr error
+		tuple, patch, fallbackErr = sport.NormalizeSportTupleForImport(data.SportType, data.SubType)
+		if fallbackErr != nil {
+			return fallbackErr
+		}
+	}
+	if tuple.SportType == sport.UnknownSportType && !loggedUnmapped {
+		slog.Warn("fit import: unmapped sport type", "source", "fit", "raw_sport", strings.TrimSpace(data.SportType), "raw_sub_type", strings.TrimSpace(data.SubType))
+		recordUnmappedSport(importmetrics.SourceFIT)
+	}
 	data.SportType = tuple.SportType
 	data.SubType = tuple.SubType
-	if patch.IsElectric != nil {
-		data.IsElectric = *patch.IsElectric
+	modifiers := sport.ApplyModifierPatch(sport.ModifierValues{
+		IsElectric: data.IsElectric,
+		IsIndoor:   data.IsIndoor,
+		IsVirtual:  data.IsVirtual,
+	}, patch)
+	data.IsElectric = modifiers.IsElectric
+	data.IsIndoor = modifiers.IsIndoor
+	data.IsVirtual = modifiers.IsVirtual
+	return nil
+}
+
+func applyDiveGasDerivedSport(data *model.ActivityData) error {
+	if data == nil || data.SportType != "diving" {
+		return nil
 	}
-	if patch.IsIndoor != nil && *patch.IsIndoor {
-		data.IsIndoor = true
-	}
-	if sport.IsIndoor(data.SportType, data.SubType) {
-		data.IsIndoor = true
+	for _, g := range data.DiveGases {
+		if g.Mode == "closed_circuit_diluent" {
+			data.SubType = "ccr_diving"
+			if err := normalizeParsedActivitySport(data); err != nil {
+				return err
+			}
+			data.IsIndoor = data.IsIndoor || sport.IsIndoor(data.SportType, data.SubType)
+			return nil
+		}
 	}
 	return nil
 }

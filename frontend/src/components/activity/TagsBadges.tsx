@@ -108,8 +108,9 @@ export default function TagsBadges({ tags, activityId, isVirtual, commuteContext
 
   const createAndAddMut = useMutation({
     mutationFn: async (name: string) => {
-      await createTag({ name })
-      return updateActivity(activityId, { tags: [...tags, name] })
+      const tag = await createTag({ name })
+      await assignActivitiesToTag(tag.id, [activityId])
+      return updateActivity(activityId, {})
     },
     onSuccess: (updated) => {
       queryClient.setQueryData(['activity', activityId], updated)

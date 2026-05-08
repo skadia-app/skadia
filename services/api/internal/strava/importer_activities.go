@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,6 +19,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/importmetrics"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
@@ -145,7 +145,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		activityName := colVal(row, hdr["Name der Aktivität"])
 		description := colVal(row, hdr["Aktivitätsbeschreibung"])
 		sportStr := colVal(row, hdr["Aktivitätsart"])
-		sportFields, err := normalizeStravaSportFields(sportStr)
+		sportFields, err := normalizeStravaSportFields(sportStr, "user_id", params.UserID, "strava_id", stravaID)
 		if err != nil {
 			slog.Warn("strava activities: cannot normalize sport type", "sport", sportStr, "error", err)
 			result.Skipped++
@@ -155,6 +155,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		sportType, subType := sportFields.SportType, sportFields.SubType
 		isElectric := sportFields.IsElectric
 		isVirtual := sportFields.IsVirtual
+		isCommute, _ := parseBool(colVal(row, hdr["Pendeln"]))
 
 		// Moving time (seconds)
 		movingTimeS, _ := parseGermanInt(colVal(row, hdr["Bewegungszeit"]))
@@ -225,11 +226,13 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			SubType:    subType,
 			IsElectric: isElectric,
 			IsVirtual:  isVirtual,
+			IsCommute:  isCommute,
 			StartedAt:  startedAt,
 			EndedAt:    endedAt,
 		}
 		if activityName != "" {
 			data.OriginalName = activityName
+			data.Title = activityName
 		}
 		if description != "" {
 			slog.Debug("strava activities: activity description (not yet stored)", "description", description)
@@ -314,10 +317,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 							FileName:    filepath.Base(filename), // L48: strip directory prefix
 							SizeBytes:   int64(len(fileBytes)),
 							FileHash:    msHash,
-							Tags: map[string]string{
-								"format": "fit",
-								"source": "strava",
-							},
+							Tags:        shadowfs.ActivitySchemaTags(importer.MultisportActivitySchemaTagsInput("fit", "strava", sessions)),
 						}, bytes.NewReader(fileBytes))
 						if putErr != nil {
 							slog.Error("strava activities: ShadowFS.Put multisport failed — skipping activity", "file", filename, "error", putErr)
@@ -445,50 +445,17 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		// This prevents orphaned files in ShadowFS for duplicates/skipped activities.
 		var fileID string
 
-		// CSV-only activity (no file in Strava export, e.g. manually created in Strava).
-		// Store the CSV row as a JSON source file so every activity has a stored original.
+		var csvSourceFile *stravaCSVSourceFile
 		if len(fileBytes) == 0 {
-			csvJSON := &sidecar.ManualActivityFile{
-				SchemaVersion:  1,
-				FileFormat:     "strava_csv",
-				SportType:      data.SportType,
-				SubType:        data.SubType,
-				Title:          activityName,
-				StartedAt:      data.StartedAt,
-				ElapsedTimeS:   float64(data.ElapsedTimeS),
-				DistanceM:      data.DistanceM,
-				ElevationGainM: data.ElevationGainM,
-				Source:         "Strava",
-				SourceFields:   csvRowToMap(row, hdr),
-				CreatedAt:      time.Now().UTC(),
-			}
-			// Deterministic hash (not from JSON bytes which contain CreatedAt)
-			detHash := sha256.Sum256(fmt.Appendf(nil, "strava_csv|%d|%s|%s", stravaID, data.StartedAt.Format(time.RFC3339), data.SportType))
-			hashStr = hex.EncodeToString(detHash[:])
-			jsonBytes, jsonErr := csvJSON.Marshal()
-			if jsonErr == nil {
-				data.FileHash = hashStr
-				data.FileFormat = "strava_csv"
+			var csvErr error
+			csvSourceFile, csvErr = buildStravaCSVSourceFile(params.UserID, stravaID, data, activityName, row, hdr)
+			if csvErr != nil {
+				slog.Warn("strava activities: build CSV-only source file failed", "strava_id", stravaID, "error", csvErr)
+			} else {
+				hashStr = csvSourceFile.hash
 				format = "strava_csv"
-				if params.ShadowFS != nil {
-					rec, putErr := params.ShadowFS.Put(ctx, shadowfs.FileEntry{
-						UserID:      params.UserID,
-						FileType:    "activity",
-						ContentType: "application/json",
-						FileName:    fmt.Sprintf("strava_%d.json", stravaID),
-						SizeBytes:   int64(len(jsonBytes)),
-						FileHash:    hashStr,
-						Tags: map[string]string{
-							"format": "strava_csv",
-							"source": "strava",
-						},
-					}, bytes.NewReader(jsonBytes))
-					if putErr != nil {
-						slog.Warn("strava activities: ShadowFS.Put for CSV-only failed", "error", putErr)
-					} else {
-						fileID = rec.ID
-					}
-				}
+				data.FileHash = hashStr
+				data.FileFormat = format
 			}
 		}
 
@@ -536,16 +503,20 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 					FileName:    filepath.Base(filename), // L48: strip directory prefix
 					SizeBytes:   int64(len(fileBytes)),
 					FileHash:    hashStr,
-					Tags: map[string]string{
-						"format": format,
-						"source": "strava",
-					},
+					Tags:        shadowfs.ActivitySchemaTags(importer.ActivitySchemaTagsInputFromData(format, "strava", data)),
 				}, bytes.NewReader(fileBytes))
 				if putErr != nil {
 					slog.Warn("strava activities: ShadowFS.Put failed", "file", filename, "error", putErr)
 				} else {
 					fileID = rec.ID
 				}
+			}
+		} else if csvSourceFile != nil && params.ShadowFS != nil {
+			rec, putErr := putStravaCSVSourceFile(ctx, params.ShadowFS, csvSourceFile)
+			if putErr != nil {
+				slog.Warn("strava activities: ShadowFS.Put for CSV-only failed", "error", putErr)
+			} else {
+				fileID = rec.ID
 			}
 		}
 
@@ -554,14 +525,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			slog.Warn("strava activities: PostProcess failed", "id", actResult.ActivityID, "error", err)
 		}
 		tracker.Completed(ctx, actResult.ActivityID)
-
-		// Apply Strava-specific enrichment: activity name + weather from CSV
-		enrichFields := buildStravaEnrichFields(activityName, row, hdr)
-		if len(enrichFields) > 0 {
-			if err := params.DB.UpdateEnrichmentFields(ctx, actResult.ActivityID, enrichFields); err != nil {
-				slog.Warn("strava activities: update enrichment fields failed", "error", err)
-			}
-		}
 
 		// Create sport conflict queue entry if detected
 		if data.SportConflictPending {
@@ -592,17 +555,6 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 	return result, nil
 }
 
-// buildStravaEnrichFields builds the enrichment field map for Strava-specific metadata:
-// the activity title and weather data from the CSV row.
-func buildStravaEnrichFields(activityName string, row []string, hdr map[string]int) map[string]any {
-	fields := make(map[string]any)
-	if activityName != "" {
-		fields["title"] = activityName
-	}
-	maps.Copy(fields, extractWeatherFields(row, hdr))
-	return fields
-}
-
 func csvRowToMap(row []string, hdr map[string]int) map[string]string {
 	m := make(map[string]string, len(hdr))
 	for key, idx := range hdr {
@@ -611,6 +563,60 @@ func csvRowToMap(row []string, hdr map[string]int) map[string]string {
 		}
 	}
 	return m
+}
+
+type stravaCSVSourceFile struct {
+	entry shadowfs.FileEntry
+	data  []byte
+	hash  string
+}
+
+func buildStravaCSVSourceFile(userID string, stravaID int64, data *model.ActivityData, activityName string, row []string, hdr map[string]int) (*stravaCSVSourceFile, error) {
+	csvJSON := &sidecar.ManualActivityFile{
+		SchemaVersion:  1,
+		FileFormat:     "strava_csv",
+		SportType:      data.SportType,
+		SubType:        data.SubType,
+		Title:          activityName,
+		StartedAt:      data.StartedAt,
+		ElapsedTimeS:   float64(data.ElapsedTimeS),
+		DistanceM:      data.DistanceM,
+		ElevationGainM: data.ElevationGainM,
+		IsElectric:     data.IsElectric,
+		IsIndoor:       data.IsIndoor,
+		IsVirtual:      data.IsVirtual,
+		IsCommute:      data.IsCommute,
+		Source:         "Strava",
+		SourceFields:   csvRowToMap(row, hdr),
+		CreatedAt:      data.StartedAt.UTC(),
+	}
+	detHash := sha256.Sum256(fmt.Appendf(nil, "strava_csv|%d|%s", stravaID, data.StartedAt.Format(time.RFC3339)))
+	hashStr := hex.EncodeToString(detHash[:])
+	jsonBytes, err := csvJSON.Marshal()
+	if err != nil {
+		return nil, err
+	}
+	return &stravaCSVSourceFile{
+		data: jsonBytes,
+		hash: hashStr,
+		entry: shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "activity",
+			ContentType: "application/json",
+			FileName:    fmt.Sprintf("strava_%d.json", stravaID),
+			SizeBytes:   int64(len(jsonBytes)),
+			FileHash:    hashStr,
+			Tags: shadowfs.ActivitySchemaTags(func() shadowfs.ActivitySchemaTagsInput {
+				input := importer.ActivitySchemaTagsInputFromData("strava_csv", "strava", data)
+				input.Title = activityName
+				return input
+			}()),
+		},
+	}, nil
+}
+
+func putStravaCSVSourceFile(ctx context.Context, fs shadowfs.ShadowFS, file *stravaCSVSourceFile) (shadowfs.FileRecord, error) {
+	return fs.Put(ctx, file.entry, bytes.NewReader(file.data))
 }
 
 // readStravaActivityFile reads and optionally decompresses an activity file.
@@ -724,7 +730,7 @@ func mergeActivityData(base, parsed *model.ActivityData) {
 
 	// Sport type merge strategy:
 	// - Strava CSV "Aktivitätsart" is a lossy localized string that collapses specific
-	//   types into broad categories (e.g., mountain_biking → "Radfahren", bouldering → "Klettern")
+	//   types into broad categories (e.g., cycling/mountain → "Radfahren", bouldering → "Klettern")
 	// - FIT/GPX files contain precise sport/sub-sport IDs from the recording device
 	// - When Strava gave a broad category and the device has a more specific variant
 	//   in the same sport family, prefer the device data
@@ -756,6 +762,9 @@ func mergeActivityData(base, parsed *model.ActivityData) {
 	}
 	if parsed.IsVirtual {
 		base.IsVirtual = true
+	}
+	if parsed.IsCommute {
+		base.IsCommute = true
 	}
 
 	// UserProfileImport from FIT
@@ -798,307 +807,31 @@ type normalizedStravaSport struct {
 	IsVirtual  bool
 }
 
-func normalizeStravaSportFields(stravaSport string) (normalizedStravaSport, error) {
-	rawSportType := mapStravaSportType(stravaSport)
-	isVirtual := false
-	switch rawSportType {
-	case "virtual_ride":
-		rawSportType = "cycling"
-		isVirtual = true
-	case "virtual_run":
-		rawSportType = "running"
-		isVirtual = true
-	case "virtual_row":
-		rawSportType = "rowing"
-		isVirtual = true
-	}
+func normalizeStravaSportFields(stravaSport string, logAttrs ...any) (normalizedStravaSport, error) {
+	return normalizeStravaSportFieldsWithRecorder(stravaSport, importmetrics.RecordUnmappedSport, logAttrs...)
+}
 
-	tuple, patch, err := sport.NormalizeSportTuple(rawSportType, "")
+func normalizeStravaSportFieldsWithRecorder(stravaSport string, recordUnmappedSport func(importmetrics.Source), logAttrs ...any) (normalizedStravaSport, error) {
+	resolved, err := sport.ResolveSport(sport.ResolveInput{Source: sport.SourceStrava, RawSport: stravaSport})
 	if err != nil {
 		return normalizedStravaSport{}, err
 	}
+	if !resolved.Resolved {
+		attrs := []any{"source", "strava", "raw_sport", strings.TrimSpace(stravaSport)}
+		attrs = append(attrs, logAttrs...)
+		slog.Warn("strava: unmapped sport type", attrs...)
+		recordUnmappedSport(importmetrics.SourceStrava)
+		return normalizedStravaSport{SportType: "unknown"}, nil
+	}
+	modifiers := sport.ApplyModifierPatch(sport.ModifierValues{}, resolved.Patch)
 	out := normalizedStravaSport{
-		SportType: tuple.SportType,
-		SubType:   tuple.SubType,
-		IsVirtual: isVirtual,
-	}
-	if patch.IsElectric != nil {
-		out.IsElectric = *patch.IsElectric
-	}
-	if patch.IsIndoor != nil {
-		out.IsIndoor = *patch.IsIndoor
+		SportType:  resolved.Tuple.SportType,
+		SubType:    resolved.Tuple.SubType,
+		IsElectric: modifiers.IsElectric,
+		IsIndoor:   modifiers.IsIndoor,
+		IsVirtual:  modifiers.IsVirtual,
 	}
 	return out, nil
-}
-
-// mapStravaSportType maps Strava sport type strings to raw Skadia sport aliases.
-//
-// English names come from the Strava API SportType enum (verified, PascalCase in API,
-// space-separated in CSV export). German names are ONLY included when verified from
-// actual German Strava GDPR exports — no guesses.
-//
-// Sources:
-//   - API: https://developers.strava.com/docs/reference/ (50 SportTypes as of 2025)
-//   - New (Feb 2026): Padel, Basketball, Volleyball, Cricket, Dance
-//   - German: verified from strava_export_deutsch/ and original codebase
-func mapStravaSportType(stravaSport string) string {
-	s := strings.TrimSpace(stravaSport)
-	switch s {
-	// ── Cycling ─────────────────────────────────────────────────────────
-	// EN: Ride | DE verified: Radfahrt, Radfahren
-	case "Ride", "Radfahrt", "Radfahren":
-		return "cycling"
-	// EN: E-Bike Ride | DE verified: E-Bike-Radfahrt, E-Bike
-	case "E-Bike Ride", "E-Bike-Radfahrt", "E-Bike":
-		return "e_biking" // normalized to cycling + is_electric downstream
-	// EN: Mountain Bike Ride | DE verified: Mountainbiking, Mountainbike-Fahrt
-	case "Mountain Bike Ride", "Mountainbiking", "Mountainbike-Fahrt":
-		return "mountain_biking"
-	// EN: E-Mountain Bike Ride (API: EMountainBikeRide)
-	case "E-Mountain Bike Ride":
-		return "e_mountain_biking" // normalized to mountain_biking + is_electric downstream
-	// EN: Gravel Ride | DE verified: Gravelbike, Gravel-Radfahrt
-	case "Gravel Ride", "Gravelbike", "Gravel-Radfahrt":
-		return "gravel_cycling"
-	// EN: Virtual Ride | DE verified: Virtuelles Radfahren
-	case "Virtual Ride", "VirtualRide", "Virtuelles Radfahren":
-		return "virtual_ride"
-	// DE verified: Indoor-Radfahren, Spinning
-	case "Indoor Cycling", "Indoor-Radfahren", "Spinning":
-		return "indoor_cycling"
-	// EN: Handcycle
-	case "Handcycle":
-		return "cycling"
-	// EN: Velomobile
-	case "Velomobile":
-		return "cycling"
-
-	// ── Running ─────────────────────────────────────────────────────────
-	// EN: Run | DE verified: Lauf, Laufen
-	case "Run", "Lauf", "Laufen":
-		return "running"
-	// EN: Trail Run | DE verified: Trailrunning, Trailrun
-	case "Trail Run", "Trailrunning", "Trailrun":
-		return "trail_running"
-	// DE verified: Treadmill-Lauf, Laufband
-	case "Treadmill", "Treadmill-Lauf", "Laufband":
-		return "treadmill_running"
-	// EN: Virtual Run | DE verified: Virtuelles Laufen
-	case "Virtual Run", "VirtualRun", "Virtuelles Laufen":
-		return "virtual_run"
-
-	// ── Hiking / Walking ────────────────────────────────────────────────
-	// EN: Hike | DE verified: Wandern, Wanderung
-	case "Hike", "Wandern", "Wanderung":
-		return "hiking"
-	// EN: Walk | DE verified: Spaziergang
-	case "Walk", "Spaziergang":
-		return "walking"
-
-	// ── Swimming ────────────────────────────────────────────────────────
-	// EN: Swim | DE verified: Schwimmen
-	case "Swim", "Schwimmen":
-		return "swimming"
-	// DE verified: Freiwasserschwimmen
-	case "Open Water Swim", "Freiwasserschwimmen":
-		return "open_water_swimming"
-
-	// ── Water sports ────────────────────────────────────────────────────
-	// EN: Stand Up Paddling | DE verified: Stand-up-Paddeln, SUP
-	case "Stand Up Paddling", "Stand-up-Paddeln", "SUP":
-		return "stand_up_paddleboarding"
-	// EN: Kayaking | DE verified: Kajak fahren, Kajak
-	case "Kayaking", "Kajak fahren", "Kajak":
-		return "kayaking"
-	// EN: Rowing | DE verified: Rudern
-	case "Rowing", "Rudern":
-		return "rowing"
-	// EN: Canoeing | DE verified: Kanufahren
-	case "Canoeing", "Kanufahren":
-		return "kayaking"
-	// EN: Virtual Row | DE verified: Virtuelles Rudern
-	case "Virtual Row", "VirtualRow", "Virtuelles Rudern":
-		return "virtual_row"
-	// EN: Sail
-	case "Sail":
-		return "sailing"
-	// EN: Surfing
-	case "Surfing":
-		return "surfing"
-	// EN: Kitesurf
-	case "Kitesurf":
-		return "kitesurfing"
-	// EN: Windsurf
-	case "Windsurf":
-		return "windsurfing"
-
-	// ── Winter sports ───────────────────────────────────────────────────
-	// EN: Alpine Ski | DE verified: Skifahren, Ski alpin
-	case "Alpine Ski", "Skifahren", "Ski alpin":
-		return "alpine_skiing"
-	// EN: Nordic Ski | DE verified: Langlauf, Skilanglauf
-	case "Nordic Ski", "Langlauf", "Skilanglauf":
-		return "cross_country_skiing"
-	// EN: Backcountry Ski
-	case "Backcountry Ski":
-		return "backcountry_skiing"
-	// EN: Snowboard | DE verified: Snowboarden
-	case "Snowboard", "Snowboarden":
-		return "snowboarding"
-	// EN: Snowshoe | DE verified: Schneeschuhwandern
-	case "Snowshoe", "Schneeschuhwandern":
-		return "snowshoeing"
-	// EN: Ice Skate
-	case "Ice Skate":
-		return "ice_skating"
-	// EN: Roller Ski
-	case "Roller Ski":
-		return "cross_country_skiing" // closest taxonomy match
-
-	// ── Fitness / Gym ───────────────────────────────────────────────────
-	// EN: Weight Training | DE verified: Krafttraining, Gewichtheben
-	case "Weight Training", "Krafttraining", "Gewichtheben":
-		return "strength_training"
-	// EN: Yoga | identical in DE
-	case "Yoga":
-		return "yoga"
-	// EN: Pilates | identical in DE
-	case "Pilates":
-		return "pilates"
-	// EN: Crossfit | identical in DE
-	case "Crossfit":
-		return "training"
-	// EN: HIIT (HighIntensityIntervalTraining) | identical in DE
-	case "HIIT":
-		return "hiit"
-	// EN: Workout
-	case "Workout":
-		return "training"
-	// EN: Elliptical
-	case "Elliptical":
-		return "fitness_equipment"
-	// EN: Stair-Stepper (API: StairStepper)
-	case "Stair-Stepper":
-		return "fitness_equipment"
-	// EN: Dance (added Feb 2026)
-	case "Dance":
-		return "dance"
-
-	// ── Climbing ────────────────────────────────────────────────────────
-	// EN: Rock Climbing | DE verified: Klettern, Felsenklettern, Bouldern
-	case "Rock Climbing", "Klettern", "Felsenklettern", "Bouldern":
-		return "rock_climbing"
-
-	// ── Racquet / Ball / Team sports ────────────────────────────────────
-	// EN: Tennis | identical in DE
-	case "Tennis":
-		return "tennis"
-	// EN: Badminton | identical in DE
-	case "Badminton":
-		return "badminton"
-	// EN: Table Tennis
-	case "Table Tennis":
-		return "table_tennis"
-	// EN: Squash | identical in DE
-	case "Squash":
-		return "squash"
-	// EN: Pickleball | identical in DE
-	case "Pickleball":
-		return "pickleball"
-	// EN: Racquetball
-	case "Racquetball":
-		return "racket"
-	// EN: Padel (added Feb 2026) | identical in DE
-	case "Padel":
-		return "racket"
-	// EN: Football (Soccer) — Strava's CSV name for Soccer
-	case "Football (Soccer)", "Soccer":
-		return "soccer"
-	// EN: Golf | identical in DE
-	case "Golf":
-		return "golf"
-	// EN: Basketball (added Feb 2026) | identical in DE
-	case "Basketball":
-		return "basketball"
-	// EN: Volleyball (added Feb 2026) | identical in DE
-	case "Volleyball":
-		return "volleyball"
-	// EN: Cricket (added Feb 2026) | identical in DE
-	case "Cricket":
-		return "cricket"
-
-	// ── Other ───────────────────────────────────────────────────────────
-	// EN: Inline Skate
-	case "Inline Skate":
-		return "inline_skating"
-	// EN: Skateboard
-	case "Skateboard":
-		return "inline_skating" // closest taxonomy match
-	// EN: Wheelchair
-	case "Wheelchair":
-		return "generic"
-	case "Triathlon":
-		return "triathlon"
-	case "Multisport":
-		return "multi_sport"
-	// DE verified: Sonstiges, Andere
-	case "Sonstiges", "Andere":
-		return "generic"
-
-	default:
-		slog.Debug("strava: unmapped sport type", "strava_type", s)
-		return "generic"
-	}
-}
-
-// extractWeatherFields previously populated flat weather_* columns from Strava CSV.
-// TODO(weather-improvements Task 6): migrate to InsertWeatherReadings via activity_weather table.
-// Flat columns have been removed from activities table (migration 000167).
-func extractWeatherFields(row []string, hdr map[string]int) map[string]any {
-	// Strava weather data import is temporarily disabled pending migration to
-	// the new activity_weather table. Return empty map so no dead columns are written.
-	_, _ = row, hdr
-	return map[string]any{}
-}
-
-// mapStravaWeatherCondition maps Strava weather condition codes to descriptive strings.
-// Strava uses DarkSky-compatible condition codes.
-func mapStravaWeatherCondition(code int) string {
-	// DarkSky / Strava precipitation type codes:
-	// The "Wetterlage" field appears to be a general condition code
-	// Common mappings based on DarkSky icon names
-	switch code {
-	case 1:
-		return "clear-day"
-	case 2:
-		return "clear-night"
-	case 3:
-		return "rain"
-	case 4:
-		return "snow"
-	case 5:
-		return "sleet"
-	case 6:
-		return "wind"
-	case 7:
-		return "fog"
-	case 8:
-		return "cloudy"
-	case 9:
-		return "partly-cloudy-day"
-	case 10:
-		return "partly-cloudy-night"
-	default:
-		return ""
-	}
-}
-
-// sportRefinements maps broad Strava CSV sport types to the set of more specific
-// device-recorded types that should take precedence.
-var sportRefinements = map[string]map[string]bool{
-	"cycling":  {"cycling": true},
-	"running":  {"running": true},
-	"swimming": {"swimming": true},
 }
 
 // isSportRefinement returns true when 'specific' is a known more-specific variant
@@ -1107,11 +840,40 @@ func isSportRefinement(broad, specific string) bool {
 	if broad == specific {
 		return false
 	}
-	refinements, ok := sportRefinements[broad]
-	if !ok {
+	if broad == "" || specific == "" || broad == "generic" || broad == "unknown" || specific == "generic" || specific == "unknown" {
 		return false
 	}
-	return refinements[specific]
+	broadDef, broadOK := sport.GetSportDef(broad)
+	specificDef, specificOK := sport.GetSportDef(specific)
+	if !broadOK || !specificOK {
+		return false
+	}
+	if broadDef.Traits.ActivityForm != "fallback" && broadDef.Traits.ActivityForm != "family" {
+		return false
+	}
+	if specificDef.Traits.ActivityForm == "fallback" || specificDef.Traits.ActivityForm == "family" {
+		return false
+	}
+	if broadDef.CategoryKey != specificDef.CategoryKey {
+		return false
+	}
+	return traitsOverlap(broadDef.Traits.Environments, specificDef.Traits.Environments) ||
+		traitsOverlap(broadDef.Traits.MovementFamilies, specificDef.Traits.MovementFamilies) ||
+		traitsOverlap(broadDef.Traits.EquipmentFamilies, specificDef.Traits.EquipmentFamilies)
+}
+
+func traitsOverlap(a, b []string) bool {
+	for _, left := range a {
+		if left == "" || left == "generic" {
+			continue
+		}
+		for _, right := range b {
+			if left == right {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type sportConflictSnapshot struct {

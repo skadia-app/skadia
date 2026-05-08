@@ -546,22 +546,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if parseErr != nil {
 			return fmt.Errorf("parse %s JSON: %w", info.FileFormat, parseErr)
 		}
-		data = &model.ActivityData{
-			FileFormat:     mf.FileFormat,
-			Source:         mf.Source,
-			SportType:      mf.SportType,
-			SubType:        mf.SubType,
-			StartedAt:      mf.StartedAt,
-			ElapsedTimeS:   int(mf.ElapsedTimeS),
-			MovingTimeS:    int(mf.MovingTimeS),
-			DistanceM:      mf.DistanceM,
-			ElevationGainM: mf.ElevationGainM,
-			ElevationLossM: mf.ElevationLossM,
-			IsElectric:     mf.IsElectric,
-		}
-		if mf.ElapsedTimeS > 0 {
-			data.EndedAt = mf.StartedAt.Add(time.Duration(mf.ElapsedTimeS) * time.Second)
-		}
+		data = activityDataFromManualSidecar(mf)
 		// Persist title + description via enrichment fields (not in ActivityData).
 		enrichFields := make(map[string]any)
 		if mf.Title != "" {
@@ -1077,6 +1062,10 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
+	if doStage1 || doMetrics || doSportType || doDetails || doStreams || doSensors || doTags || doGeo {
+		h.refreshActivityFilePathBestEffort(ctx, userID, activityID, "")
+	}
+
 	// 9. Publish NATS event (triggers PMC recalculation).
 	// Im Bulk-Recompute (skipAnalyticsEvent=true) werden ALLE Events unterdrückt:
 	// PublishActivityUploaded löst eine vollständige PMC-Neuberechnung aus — bei 700+
@@ -1100,6 +1089,29 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	}
 
 	return nil
+}
+
+func activityDataFromManualSidecar(mf *sidecar.ManualActivityFile) *model.ActivityData {
+	data := &model.ActivityData{
+		FileFormat:     mf.FileFormat,
+		Source:         mf.Source,
+		SportType:      mf.SportType,
+		SubType:        mf.SubType,
+		StartedAt:      mf.StartedAt,
+		ElapsedTimeS:   int(mf.ElapsedTimeS),
+		MovingTimeS:    int(mf.MovingTimeS),
+		DistanceM:      mf.DistanceM,
+		ElevationGainM: mf.ElevationGainM,
+		ElevationLossM: mf.ElevationLossM,
+		IsElectric:     mf.IsElectric,
+		IsIndoor:       mf.IsIndoor,
+		IsVirtual:      mf.IsVirtual,
+		IsCommute:      mf.IsCommute,
+	}
+	if mf.ElapsedTimeS > 0 {
+		data.EndedAt = mf.StartedAt.Add(time.Duration(mf.ElapsedTimeS) * time.Second)
+	}
+	return data
 }
 
 // reprocessTags re-evaluates automation rules for an activity using the shared helper.

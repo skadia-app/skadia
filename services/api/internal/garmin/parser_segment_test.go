@@ -27,6 +27,9 @@ func TestFitSportToSegmentGroup(t *testing.T) {
 		{typedef.SportRowing, "paddle"},
 		{typedef.SportKayaking, "paddle"},
 		{typedef.SportSailing, "paddle"},
+		{typedef.SportCanoeing, "paddle"},
+		{typedef.SportWaterSport, "generic"},
+		{typedef.SportWinterSport, "generic"},
 		{typedef.SportInvalid, "generic"},    // unbekannt → generic
 		{typedef.Sport(255), "generic"},       // FIT Invalid → generic
 		{typedef.Sport(100), "generic"},       // unbekannter Wert → generic

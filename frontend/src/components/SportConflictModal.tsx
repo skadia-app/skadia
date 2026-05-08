@@ -4,6 +4,7 @@ import { apiFetch } from '@/lib/auth'
 import { resolveSportConflict, type ResolveSportConflictPayload } from '@/api/sportConflict'
 import { useToast } from '@/lib/toast'
 import { CATEGORIES, SPORT_DEFS, normalizeSportTuple, sportDetailLabel } from '@/lib/sportTaxonomy'
+import { activityModifierLabels } from '@/lib/activityModifierLabels'
 import { ModalShell } from '@/components/ui/ModalShell'
 
 interface SportConflictModalProps {
@@ -17,6 +18,14 @@ type Selection = {
   key: string
   payload: ResolveSportConflictPayload | undefined
   label: string
+}
+
+type SportPickerEntry = {
+  sportType: string
+  subType: string
+  label: string
+  displayLabel: string
+  category: string
 }
 
 export default function SportConflictModal({ activity, open, onClose, onResolved }: SportConflictModalProps) {
@@ -59,13 +68,18 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
     return SPORT_DEFS.flatMap(sd => {
       const cat = CATEGORIES.find(c => c.key === sd.categoryKey)
       const category = cat?.label ?? sd.categoryKey
-      const topKey = `${sd.label}:${category}`
-      if (seenTopLevel.has(topKey)) return []
-      seenTopLevel.add(topKey)
-
-      const entries = [{ sportType: sd.sportType, subType: '', label: sd.label, displayLabel: sd.label, category }]
+      const entries: SportPickerEntry[] = []
+      if (sd.selectable) {
+        const topKey = `${sd.label}:${category}`
+        if (!seenTopLevel.has(topKey)) {
+          seenTopLevel.add(topKey)
+          entries.push({ sportType: sd.sportType, subType: '', label: sd.label, displayLabel: sd.label, category })
+        }
+      }
       for (const st of sd.subTypes) {
-        entries.push({ sportType: sd.sportType, subType: st.subType, label: st.label, displayLabel: `${sd.label} › ${st.label}`, category })
+        if (st.selectable) {
+          entries.push({ sportType: sd.sportType, subType: st.subType, label: st.label, displayLabel: `${sd.label} › ${st.label}`, category })
+        }
       }
       return entries
     })
@@ -104,11 +118,7 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
   })
 
   const conflictLabel = (sportType: string, subType?: string, isElectric?: boolean, isIndoor?: boolean, isVirtual?: boolean) => {
-    const modifiers = [
-      isElectric ? 'E-Bike' : '',
-      isIndoor ? 'Indoor' : '',
-      isVirtual ? 'Virtuell' : '',
-    ].filter(Boolean)
+    const modifiers = activityModifierLabels({ isElectric, isIndoor, isVirtual })
     return [sportDetailLabel(sportType, subType || null), ...modifiers].join(' · ')
   }
 

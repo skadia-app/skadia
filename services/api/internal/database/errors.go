@@ -9,14 +9,15 @@ import (
 // Sentinel errors returned by DB functions. Callers should use errors.Is
 // instead of string-matching on err.Error().
 var (
-	ErrNotFound              = errors.New("not found")
-	ErrActivityNotFound      = errors.New("activity not found")
-	ErrGearNotFound          = errors.New("gear not found")
-	ErrComponentNotFound     = errors.New("component not found")
-	ErrChainRotationNotFound = errors.New("chain rotation not found")
-	ErrServiceEventNotFound  = errors.New("service event not found")
-	ErrBikeSetupNotFound     = errors.New("bike setup not found")
-	ErrReadOnly              = errors.New("read-only")
+	ErrNotFound               = errors.New("not found")
+	ErrActivityNotFound       = errors.New("activity not found")
+	ErrGearNotFound           = errors.New("gear not found")
+	ErrComponentNotFound      = errors.New("component not found")
+	ErrChainRotationNotFound  = errors.New("chain rotation not found")
+	ErrServiceEventNotFound   = errors.New("service event not found")
+	ErrBikeSetupNotFound      = errors.New("bike setup not found")
+	ErrReadOnly               = errors.New("read-only")
+	ErrVirtualHeatmapRequired = errors.New("virtual activities must be excluded from heatmap")
 )
 
 // isUniqueViolation reports whether err is a Postgres unique-constraint violation (SQLSTATE 23505).

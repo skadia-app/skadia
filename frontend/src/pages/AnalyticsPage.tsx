@@ -591,7 +591,7 @@ function FilterPanel({ filters, onFilterChange, onReset, onClose }: FilterPanelP
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <ModifierTriState label="E-Bike" value={filters.isElectric} onChange={(isElectric) => onFilterChange({ isElectric })} />
+        <ModifierTriState label="E-Antrieb" value={filters.isElectric} onChange={(isElectric) => onFilterChange({ isElectric })} />
         <ModifierTriState label="Indoor" value={filters.isIndoor} onChange={(isIndoor) => onFilterChange({ isIndoor })} />
         <ModifierTriState label="Virtuell" value={filters.isVirtual} onChange={(isVirtual) => onFilterChange({ isVirtual })} />
       </div>

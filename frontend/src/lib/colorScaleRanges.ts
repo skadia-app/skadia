@@ -60,12 +60,11 @@ export interface MotionProfile {
  */
 export const MOTION_PROFILE_BY_SPORT_TYPE: Record<string, MotionProfile> = {
   // Foot: running
-  running:             { speed: 'running', pace: 'running', cadence: 'foot_running' },
-  wheelchair_push_run: { speed: 'running', pace: 'running', cadence: 'generic' },
+  running: { speed: 'running', pace: 'running', cadence: 'foot_running' },
 
   // Foot: walking
-  walking:              { speed: 'walking', pace: 'walking', cadence: 'foot_walking' },
-  wheelchair_push_walk: { speed: 'walking', pace: 'walking', cadence: 'generic' },
+  walking:         { speed: 'walking', pace: 'walking', cadence: 'foot_walking' },
+  wheelchair_push: { speed: 'walking', pace: 'walking', cadence: 'generic' },
 
   // Foot: hiking
   hiking:         { speed: 'hiking', pace: 'hiking', cadence: 'foot_walking' },
@@ -131,6 +130,7 @@ export const MOTION_PROFILE_BY_SPORT_TYPE: Record<string, MotionProfile> = {
   // Skate
   ice_skating:    { speed: 'xcSki', cadence: 'generic' },
   inline_skating: { speed: 'xcSki', cadence: 'generic' },
+  skateboarding:  { speed: 'xcSki', cadence: 'generic' },
 
   // Horse
   horseback_riding: { speed: 'horseback', cadence: 'generic' },
@@ -152,9 +152,9 @@ export const MOTION_PROFILE_BY_SPORT_TYPE: Record<string, MotionProfile> = {
 
   // Fitness / Indoor / Combat
   fitness_equipment:  { speed: 'generic', cadence: 'generic' },
-  strength:           { speed: 'generic', cadence: 'generic' },
   strength_training:  { speed: 'generic', cadence: 'generic' },
   hiit:               { speed: 'generic', cadence: 'generic' },
+  mobility:           { speed: 'generic', cadence: 'generic' },
   jump_rope:          { speed: 'generic', cadence: 'generic' },
   yoga:               { speed: 'generic', cadence: 'generic' },
   pilates:            { speed: 'generic', cadence: 'generic' },
@@ -166,7 +166,10 @@ export const MOTION_PROFILE_BY_SPORT_TYPE: Record<string, MotionProfile> = {
   jumpmaster:         { speed: 'generic', cadence: 'generic' },
 
   // Other
+  geocaching: { speed: 'hiking',  pace: 'hiking', cadence: 'generic' },
   hunting:    { speed: 'hiking',  pace: 'hiking', cadence: 'generic' },
+  archery:    { speed: 'generic', cadence: 'generic' },
+  shooting:   { speed: 'generic', cadence: 'generic' },
   multisport: { speed: 'generic', cadence: 'generic' },
   transition: { speed: 'walking', cadence: 'generic' },
   training:   { speed: 'generic', cadence: 'generic' },
@@ -185,6 +188,12 @@ export function motionProfileForSport(sportType: string, subType?: string | null
   if (tuple.sportType === 'running' && tuple.subType === 'trail') {
     return { speed: 'running', pace: 'running', cadence: 'foot_running' }
   }
+  if (tuple.sportType === 'wheelchair_push' && tuple.subType === 'walk_speed') {
+    return { speed: 'walking', pace: 'walking', cadence: 'generic' }
+  }
+  if (tuple.sportType === 'wheelchair_push' && tuple.subType === 'run_speed') {
+    return { speed: 'running', pace: 'running', cadence: 'generic' }
+  }
   return MOTION_PROFILE_BY_SPORT_TYPE[tuple.sportType] ?? MOTION_PROFILE_BY_SPORT_TYPE.generic
 }
 
@@ -196,9 +205,10 @@ export function motionProfileForSport(sportType: string, subType?: string | null
 export const GENERIC_ALLOWLIST: ReadonlyArray<string> = [
   'fishing',
   'volleyball', 'tennis', 'racket',
-  'fitness_equipment', 'strength', 'strength_training', 'hiit', 'jump_rope',
+  'fitness_equipment', 'strength_training', 'hiit', 'jump_rope',
   'yoga', 'pilates', 'meditation', 'dance', 'boxing', 'mixed_martial_arts',
-  'tactical', 'jumpmaster',
+  'mobility',
+  'tactical', 'jumpmaster', 'archery', 'shooting',
   'multisport', 'training', 'generic', 'unknown',
 ]
 

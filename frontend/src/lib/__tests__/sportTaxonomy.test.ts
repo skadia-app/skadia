@@ -1,8 +1,28 @@
 import { describe, expect, it } from 'vitest'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 
-import { SPORT_DEFS, normalizeSportTuple, routeSportOptions, sportLabel } from '../sportTaxonomy'
+import { GENERATED_SPORT_TAXONOMY_SOURCE_SHA256 } from '../generatedSportTaxonomy'
+import { SPORT_DEFS, canonicalSportOptions, categoryForSport, manualActivitySportOptions, modifierDefaultsForTuple, normalizeSportTuple, routeSportOptions, selectableParentSportOptions, selectableSportTupleOptions, sportColor, sportLabel, sportsInCategory } from '../sportTaxonomy'
 
 describe('sport taxonomy aliases', () => {
+  it('keeps the generated frontend taxonomy source hash in sync with sports.yaml', () => {
+    const yaml = readFileSync('../config/sport-taxonomy/sports.yaml')
+    const expected = createHash('sha256').update(yaml).digest('hex')
+
+    expect(GENERATED_SPORT_TAXONOMY_SOURCE_SHA256).toBe(expected)
+  })
+
+  it('does not keep hand-maintained frontend taxonomy sister tables', () => {
+    const source = readFileSync('src/lib/sportTaxonomy.ts', 'utf8')
+
+    expect(source).not.toContain('FRONTEND_SPORT_ORDER')
+    expect(source).not.toContain('const LEGACY_ALIASES')
+    expect(source).not.toContain('const LEGACY_SUBTYPE_ALIASES')
+    expect(source).not.toContain('ROUTE_PROMOTED_SUBTYPES')
+    expect(source).not.toContain('ROUTE_COMPATIBLE_SPORT_TYPES')
+  })
+
   it('normalizes legacy sport types to canonical tuples', () => {
     expect(normalizeSportTuple('mountain_biking')).toEqual({
       sportType: 'cycling',
@@ -34,19 +54,96 @@ describe('sport taxonomy aliases', () => {
       subType: '',
       modifiers: {},
     })
+    expect(normalizeSportTuple('roadcycling')).toEqual({
+      sportType: 'cycling',
+      subType: 'road',
+      modifiers: {},
+    })
+    expect(normalizeSportTuple('wheelchair_push_walk')).toEqual({
+      sportType: 'wheelchair_push',
+      subType: 'walk_speed',
+      modifiers: {},
+    })
+    expect(normalizeSportTuple('wheelchair_push_run')).toEqual({
+      sportType: 'wheelchair_push',
+      subType: 'run_speed',
+      modifiers: {},
+    })
+    expect(normalizeSportTuple('wheelchair_push_walk', 'indoor_wheelchair_walk')).toEqual({
+      sportType: 'wheelchair_push',
+      subType: 'walk_speed',
+      modifiers: { isIndoor: true },
+    })
+    expect(normalizeSportTuple('wheelchair_push_run', 'indoor_wheelchair_run')).toEqual({
+      sportType: 'wheelchair_push',
+      subType: 'run_speed',
+      modifiers: { isIndoor: true },
+    })
+    expect(normalizeSportTuple('strength')).toEqual({
+      sportType: 'strength_training',
+      subType: '',
+      modifiers: { isIndoor: true },
+    })
+    for (const alias of ['bike', 'biking', 'ride']) {
+      expect(normalizeSportTuple(alias)).toEqual({
+        sportType: 'cycling',
+        subType: '',
+        modifiers: {},
+      })
+    }
   })
 
   it('keeps broad canonical sport classes distinct from legacy aliases', () => {
     expect(normalizeSportTuple('skiing')).toEqual({ sportType: 'skiing', subType: '', modifiers: {} })
-    expect(normalizeSportTuple('strength')).toEqual({ sportType: 'strength', subType: '', modifiers: {} })
     expect(normalizeSportTuple('canoeing')).toEqual({ sportType: 'canoeing', subType: '', modifiers: {} })
+  })
+
+  it('applies generated indoor modifier defaults to canonical tuples', () => {
+    expect(modifierDefaultsForTuple('diving', 'apnea_pool').isIndoor).toBe(true)
+    expect(normalizeSportTuple('diving', 'apnea_pool').modifiers.isIndoor).toBe(true)
+    expect(normalizeSportTuple('rock_climbing', 'bouldering').modifiers.isIndoor).toBeUndefined()
+    expect(normalizeSportTuple('swimming', 'lap_swimming').modifiers.isIndoor).toBeUndefined()
+    expect(normalizeSportTuple('fitness_equipment', 'indoor_rowing').modifiers.isIndoor).toBe(true)
+
+    for (const [sportType, subType] of [
+      ['running', 'indoor_running'],
+      ['running', 'treadmill'],
+      ['cycling', 'indoor_cycling'],
+      ['cycling', 'spin'],
+      ['rowing', 'indoor_rowing'],
+      ['alpine_skiing', 'indoor_skiing'],
+      ['walking', 'indoor_walking'],
+      ['rock_climbing', 'indoor_climbing'],
+    ]) {
+      expect(normalizeSportTuple(sportType, subType).modifiers.isIndoor).toBe(true)
+    }
+  })
+
+  it('returns a copy of generated modifier defaults', () => {
+    const first = modifierDefaultsForTuple('running', 'treadmill')
+    first.isIndoor = false
+
+    expect(modifierDefaultsForTuple('running', 'treadmill').isIndoor).toBe(true)
+  })
+
+  it('keeps parent modifier defaults for unknown stored subtypes', () => {
+    expect(modifierDefaultsForTuple('fitness_equipment', 'old_vendor_subtype').isIndoor).toBe(true)
+    expect(normalizeSportTuple('fitness_equipment', 'old_vendor_subtype').modifiers.isIndoor).toBe(true)
+  })
+
+  it('keeps parent modifier defaults for known subtypes without subtype defaults', () => {
+    expect(modifierDefaultsForTuple('fitness_equipment', 'elliptical').isIndoor).toBe(true)
+    expect(normalizeSportTuple('fitness_equipment', 'elliptical').modifiers.isIndoor).toBe(true)
   })
 
   it('uses canonical subtype labels', () => {
     expect(sportLabel('cycling', 'mountain')).toBe('MTB')
     expect(sportLabel('running', 'indoor_running')).toBe('Indoor')
     expect(sportLabel('running', 'indoor_running', { mode: 'withParent' })).toBe('Laufen (Indoor)')
-    expect(sportLabel('paddling')).toBe('Paddeln (Generisch)')
+    expect(sportLabel('paddling')).toBe('Paddeln (allgemein)')
+    expect(sportLabel('skiing')).toBe('Skifahren')
+    expect(sportLabel('training')).toBe('Training')
+    expect(sportLabel('fitness_equipment')).toBe('Fitnessgerät')
   })
 
   it('keeps canonical sport options free of deprecated top-level sports', () => {
@@ -58,7 +155,49 @@ describe('sport taxonomy aliases', () => {
     expect(sportTypes).not.toContain('treadmill_running')
     expect(sportTypes).not.toContain('lap_swimming')
     expect(sportTypes).not.toContain('open_water_swimming')
+    expect(sportTypes).not.toContain('wheelchair_push_walk')
+    expect(sportTypes).not.toContain('wheelchair_push_run')
+    expect(sportTypes).not.toContain('strength')
   })
+
+  it('derives frontend option order from the activity filter projection', () => {
+    expect(canonicalSportOptions().slice(0, 12).map((opt) => opt.value)).toEqual([
+      'running',
+      'walking',
+      'hiking',
+      'mountaineering',
+      'wheelchair_push',
+      'cycling',
+      'alpine_skiing',
+      'backcountry_skiing',
+      'cross_country_skiing',
+      'snowboarding',
+      'snowshoeing',
+      'ice_skating',
+    ])
+    expect(sportsInCategory('fitness').map((s) => s.sportType)).toEqual([
+      'training',
+      'fitness_equipment',
+      'strength_training',
+      'hiit',
+      'yoga',
+      'pilates',
+      'mobility',
+      'floor_climbing',
+      'dance',
+      'jump_rope',
+      'meditation',
+      'boxing',
+      'mixed_martial_arts',
+    ])
+    expect(sportsInCategory('outdoor').map((s) => s.sportType)).toEqual(expect.arrayContaining([
+      'geocaching',
+      'archery',
+      'shooting',
+    ]))
+    expect(sportsInCategory('winter').map((s) => s.sportType)).toContain('snowshoeing')
+  })
+
 
   it('marks legacy input values as invalid at runtime display boundaries', () => {
     expect(sportLabel('mountain_biking')).toContain('Veraltete Sportart')
@@ -68,6 +207,9 @@ describe('sport taxonomy aliases', () => {
     expect(sportLabel('treadmill_running')).toContain('Veraltete Sportart')
     expect(sportLabel('lap_swimming')).toContain('Veraltete Sportart')
     expect(sportLabel('open_water_swimming')).toContain('Veraltete Sportart')
+    expect(sportLabel('wheelchair_push_walk')).toContain('Veraltete Sportart')
+    expect(sportLabel('wheelchair_push_run')).toContain('Veraltete Sportart')
+    expect(sportLabel('strength')).toContain('Veraltete Sportart')
   })
 
   it('keeps labels for representative frontend/backend taxonomy parity points', () => {
@@ -76,6 +218,101 @@ describe('sport taxonomy aliases', () => {
     expect(sportLabel('training', 'flexibility_training')).toBe('Stretching')
     expect(sportLabel('fitness_equipment', 'indoor_rowing')).toBe('Ruder-Ergometer')
     expect(sportLabel('water_tubing')).toBe('Wassertubing')
+    expect(sportLabel('wheelchair_push', 'walk_speed')).toBe('Gehtempo')
+    expect(sportLabel('wheelchair_push', 'run_speed')).toBe('Lauftempo')
+    expect(sportLabel('mobility')).toBe('Mobilität')
+    expect(sportLabel('hiking', 'rucking')).toBe('Rucking')
+    expect(sportLabel('diving', 'dynamic_apnea')).toBe('Dynamische Apnoe')
+    expect(sportLabel('archery')).toBe('Bogenschießen')
+    expect(sportLabel('shooting')).toBe('Schießen')
+    expect(sportLabel('geocaching')).toBe('Geocaching')
+  })
+
+  it('exposes lifecycle metadata for fallback taxonomy values', () => {
+    const bySport = new Map(SPORT_DEFS.map((s) => [s.sportType, s]))
+
+    expect(bySport.get('skiing')?.lifecycle).toBe('broad_fallback')
+    expect(bySport.get('training')?.lifecycle).toBe('broad_fallback')
+    expect(bySport.get('fitness_equipment')?.lifecycle).toBe('broad_fallback')
+    expect(bySport.get('paddling')?.lifecycle).toBe('broad_fallback')
+    expect(bySport.get('canoeing')?.lifecycle).toBe('canonical')
+  })
+
+  it('exposes generated sport trait metadata', () => {
+    expect(findSport('surfing')?.traits.equipmentFamilies).toEqual(['board'])
+    expect(findSport('stand_up_paddleboarding')?.traits.equipmentFamilies).toEqual(['board', 'paddle'])
+    expect(findSport('swimming')?.traits.environments).toEqual(['water'])
+    expect(findSport('swimming')?.traits.movementFamilies).toEqual(['swim'])
+    expect(findSport('tennis')?.traits.equipmentFamilies).toEqual(['racket', 'ball'])
+    expect(findSport('golf')?.traits.equipmentFamilies).toEqual(['ball', 'stick'])
+    expect(findSport('golf')?.traits.equipmentFamilies).not.toContain('racket')
+    expect(findSubtype('racket', 'badminton')?.traits.equipmentFamilies).toEqual(['racket'])
+    expect(findSubtype('racket', 'badminton')?.traits.equipmentFamilies).not.toContain('ball')
+    expect(findSubtype('fitness_equipment', 'pilates')).toBeUndefined()
+    expect(findSubtype('fitness_equipment', 'elliptical')?.traits.activityForm).toBe('single')
+    expect(findSubtype('running', 'treadmill')?.traits.environments).toEqual(['indoor'])
+    expect(findSubtype('hiking', 'rucking')?.traits.equipmentFamilies).toEqual(['weights'])
+    expect(findSubtype('diving', 'dynamic_apnea')?.traits.environments).toEqual(['water', 'indoor'])
+    expect(findSport('mobility')?.traits.movementFamilies).toEqual(['mind_body'])
+    expect(findSport('archery')?.traits.equipmentFamilies).toEqual(['weapon'])
+    expect(findSport('shooting')?.traits.equipmentFamilies).toEqual(['weapon'])
+    expect(findSport('geocaching')?.traits.movementFamilies).toEqual(['walk'])
+    expect(findSubtype('rock_climbing', 'indoor_climbing')?.traits.environments).toEqual(['indoor'])
+    expect(findSubtype('rock_climbing', 'bouldering')?.traits.environments).toEqual(['land', 'indoor'])
+  })
+
+  it('keeps system taxonomy values addressable while keeping unknown out of normal creation options', () => {
+	const parentValues = selectableParentSportOptions().map((opt) => opt.value)
+	const tupleValues = selectableSportTupleOptions().map((opt) => `${opt.value}/${opt.subType ?? ''}`)
+	const manualValues = manualActivitySportOptions().map((opt) => opt.sportType)
+
+	for (const sportType of ['generic', 'unknown']) {
+	  expect(findSport(sportType)?.traits.activityForm).toBe('system')
+	  expect(findSport(sportType)?.traits.environments).toEqual(['generic'])
+	}
+	expect(parentValues).toContain('generic')
+	expect(parentValues).not.toContain('unknown')
+	expect(tupleValues).not.toContain('unknown/')
+	expect(manualValues).toContain('generic')
+	expect(manualValues).not.toContain('unknown')
+  })
+
+  it('keeps broad fallback parents out of selectable creation options while preserving selectable subtypes', () => {
+    const parentValues = selectableParentSportOptions().map((opt) => opt.value)
+    const tupleValues = selectableSportTupleOptions().map((opt) => `${opt.value}/${opt.subType ?? ''}`)
+
+    expect(parentValues).not.toEqual(expect.arrayContaining(['skiing', 'training', 'fitness_equipment', 'paddling', 'transition']))
+    expect(tupleValues).toContain('fitness_equipment/stair_climbing')
+    expect(tupleValues).toContain('training/flexibility_training')
+    expect(tupleValues).not.toContain('training/strength_training')
+    expect(tupleValues).not.toContain('training/pilates')
+    expect(tupleValues).not.toContain('transition/')
+    expect(tupleValues).not.toContain('transition/bike_to_run_transition')
+    expect(tupleValues).not.toContain('transition/run_to_bike_transition')
+    expect(tupleValues).not.toContain('transition/swim_to_bike_transition')
+  })
+
+  it('keeps normal broad parent defaults selectable as tuple options', () => {
+    const tupleValues = selectableSportTupleOptions().map((opt) => `${opt.value}/${opt.subType ?? ''}`)
+
+    expect(tupleValues).toContain('running/')
+    expect(tupleValues).toContain('cycling/')
+    expect(tupleValues).toContain('swimming/')
+  })
+
+  it('keeps broad fallback parent tuples out of selectable tuple options', () => {
+    const tupleValues = selectableSportTupleOptions().map((opt) => `${opt.value}/${opt.subType ?? ''}`)
+
+    expect(tupleValues).not.toContain('paddling/')
+    expect(tupleValues).not.toContain('skiing/')
+    expect(tupleValues).not.toContain('training/')
+    expect(tupleValues).not.toContain('fitness_equipment/')
+  })
+
+  it('keeps generated category colors as hex defaults', () => {
+    expect(categoryForSport('running').color).toBe('#EF4444')
+    expect(categoryForSport('cycling').color).toBe('#F97316')
+    expect(sportColor('totally_unknown')).toBe('#6B7280')
   })
 
   it('builds route sport options from canonical GPS-capable sports and subtypes', () => {
@@ -85,8 +322,82 @@ describe('sport taxonomy aliases', () => {
     expect(values).toContain('cycling/gravel_cycling')
     expect(values).toContain('running/trail')
     expect(values).toContain('hiking/')
+    expect(values).toContain('hiking/rucking')
+    expect(values).toContain('geocaching/')
+    expect(values).toContain('archery/')
+    expect(values).toContain('shooting/')
+    expect(values).toContain('wheelchair_push/')
+    expect(values).toContain('wheelchair_push/walk_speed')
+    expect(values).toContain('wheelchair_push/run_speed')
     expect(values).not.toContain('mountain_biking/')
     expect(values).not.toContain('trail_running/')
+    expect(values).not.toContain('wheelchair_push_walk/')
+    expect(values).not.toContain('wheelchair_push_run/')
+    expect(values).not.toContain('skiing/')
+    expect(values).not.toContain('paddling/')
+  })
+
+  it('keeps current route sport option keys stable while projections are deferred', () => {
+    const values = routeSportOptions().map((opt) => `${opt.sportType}/${opt.subType ?? ''}`)
+
+    expect(values).toEqual([
+      'running/',
+      'running/trail',
+      'walking/',
+      'hiking/',
+      'hiking/rucking',
+      'mountaineering/',
+      'snowshoeing/',
+      'wheelchair_push/',
+      'wheelchair_push/walk_speed',
+      'wheelchair_push/run_speed',
+      'cycling/',
+      'cycling/mountain',
+      'cycling/gravel_cycling',
+      'cycling/road',
+      'inline_skating/',
+      'skateboarding/',
+      'geocaching/',
+      'archery/',
+      'shooting/',
+      'alpine_skiing/',
+      'backcountry_skiing/',
+      'cross_country_skiing/',
+      'snowboarding/',
+      'ice_skating/',
+      'snowmobiling/',
+      'sledding/',
+      'swimming/',
+      'kayaking/',
+      'stand_up_paddleboarding/',
+      'rowing/',
+      'rafting/',
+      'canoeing/',
+      'surfing/',
+      'kitesurfing/',
+      'windsurfing/',
+      'wakeboarding/',
+      'wakesurfing/',
+      'water_skiing/',
+      'water_tubing/',
+      'snorkeling/',
+      'boating/',
+      'sailing/',
+      'fishing/',
+      'cricket/',
+      'golf/',
+      'disc_golf/',
+      'rock_climbing/',
+      'flying/',
+      'hang_gliding/',
+      'sky_diving/',
+      'jumpmaster/',
+      'horseback_riding/',
+      'hunting/',
+      'motorcycling/',
+      'driving/',
+      'multisport/',
+    ])
   })
 
   it('does not expose generic as a cycling subtype option', () => {
@@ -94,3 +405,11 @@ describe('sport taxonomy aliases', () => {
     expect(cycling?.subTypes.map((s) => s.subType)).not.toContain('generic')
   })
 })
+
+function findSport(sportType: string) {
+  return SPORT_DEFS.find((s) => s.sportType === sportType)
+}
+
+function findSubtype(sportType: string, subType: string) {
+  return findSport(sportType)?.subTypes.find((s) => s.subType === subType)
+}

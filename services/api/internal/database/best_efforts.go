@@ -6,10 +6,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 )
+
+type bestEffortExec interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
 
 // ---- Advisory lock helpers (satisfy bestefforts.Store) ----
 
@@ -59,11 +64,19 @@ func (db *DB) TryAcquireBestEffortLock(ctx context.Context, userID string) (*pgx
 // all currently eligible activities to purge stale rows without ever leaving
 // the table empty.
 func (db *DB) DeleteOrphanedBestEfforts(ctx context.Context, userID string, keepActivityIDs []string) error {
+	recordGroups := bestefforts.RecordGroups()
+	validSportGroups := make([]string, 0, len(recordGroups))
+	for _, group := range recordGroups {
+		validSportGroups = append(validSportGroups, group.Key)
+	}
 	_, err := db.Pool.Exec(ctx,
 		`DELETE FROM best_efforts
 		 WHERE user_id = $1
-		   AND activity_id != ALL($2::uuid[])`,
-		userID, keepActivityIDs,
+		   AND (
+		       activity_id != ALL($2::uuid[])
+		       OR sport_group != ALL($3::text[])
+		   )`,
+		userID, keepActivityIDs, validSportGroups,
 	)
 	if err != nil {
 		return fmt.Errorf("delete orphaned best efforts: %w", err)
@@ -73,17 +86,17 @@ func (db *DB) DeleteOrphanedBestEfforts(ctx context.Context, userID string, keep
 
 // BestEffort represents a single computed best effort record.
 type BestEffort struct {
-	ID             string     `json:"id"`
-	UserID         string     `json:"user_id"`
-	ActivityID     string     `json:"activity_id"`
-	Category       string     `json:"category"`
-	SportGroup     string     `json:"sport_group"`
-	ElapsedTimeS   *int       `json:"elapsed_time_s,omitempty"`
-	ValueNumeric   *float64   `json:"value_numeric,omitempty"`
-	AchievedAt     time.Time  `json:"achieved_at"`
-	StreamStartIdx *int       `json:"stream_start_idx,omitempty"`
-	StreamEndIdx   *int       `json:"stream_end_idx,omitempty"`
-	Suspicious     bool       `json:"suspicious"`
+	ID             string    `json:"id"`
+	UserID         string    `json:"user_id"`
+	ActivityID     string    `json:"activity_id"`
+	Category       string    `json:"category"`
+	SportGroup     string    `json:"sport_group"`
+	ElapsedTimeS   *int      `json:"elapsed_time_s,omitempty"`
+	ValueNumeric   *float64  `json:"value_numeric,omitempty"`
+	AchievedAt     time.Time `json:"achieved_at"`
+	StreamStartIdx *int      `json:"stream_start_idx,omitempty"`
+	StreamEndIdx   *int      `json:"stream_end_idx,omitempty"`
+	Suspicious     bool      `json:"suspicious"`
 }
 
 // BestEffortRanked is a BestEffort with a rank within the user's sport group and category.
@@ -125,6 +138,10 @@ func (db *DB) UpsertBestEffort(ctx context.Context, be BestEffort) error {
 // single INSERT ... ON CONFLICT statement using UNNEST arrays. A no-op for an
 // empty slice.
 func (db *DB) BatchUpsertBestEfforts(ctx context.Context, records []BestEffort) error {
+	return batchUpsertBestEfforts(ctx, db.Pool, records)
+}
+
+func batchUpsertBestEfforts(ctx context.Context, exec bestEffortExec, records []BestEffort) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -155,7 +172,7 @@ func (db *DB) BatchUpsertBestEfforts(ctx context.Context, records []BestEffort) 
 		suspiciouses[i] = r.Suspicious
 	}
 
-	_, err := db.Pool.Exec(ctx,
+	_, err := exec.Exec(ctx,
 		`INSERT INTO best_efforts
 		    (id, user_id, activity_id, category, sport_group,
 		     elapsed_time_s, value_numeric, achieved_at,
@@ -183,10 +200,88 @@ func (db *DB) BatchUpsertBestEfforts(ctx context.Context, records []BestEffort) 
 	return nil
 }
 
+func (db *DB) ReplaceBestEffortsForActivities(ctx context.Context, userID string, activityIDs []string, records []bestefforts.BestEffortRecord) error {
+	activityIDs = bestEffortReplacementActivityIDs(activityIDs)
+	if len(activityIDs) == 0 {
+		return nil
+	}
+	if err := validateBestEffortReplacementRecords(userID, activityIDs, records); err != nil {
+		return err
+	}
+
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin replace best efforts: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM best_efforts WHERE user_id = $1 AND activity_id = ANY($2::uuid[])`,
+		userID,
+		activityIDs,
+	); err != nil {
+		return fmt.Errorf("delete replaced best efforts: %w", err)
+	}
+
+	bes := make([]BestEffort, len(records))
+	for i, r := range records {
+		bes[i] = BestEffort{
+			ID:             r.ID,
+			UserID:         r.UserID,
+			ActivityID:     r.ActivityID,
+			Category:       r.Category,
+			SportGroup:     r.SportGroup,
+			ElapsedTimeS:   r.ElapsedTimeS,
+			ValueNumeric:   r.ValueNumeric,
+			AchievedAt:     r.AchievedAt,
+			StreamStartIdx: r.StreamStartIdx,
+			StreamEndIdx:   r.StreamEndIdx,
+			Suspicious:     r.Suspicious,
+		}
+	}
+	if err := batchUpsertBestEfforts(ctx, tx, bes); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit replace best efforts: %w", err)
+	}
+	return nil
+}
+
+func bestEffortReplacementActivityIDs(activityIDs []string) []string {
+	seen := make(map[string]bool, len(activityIDs))
+	out := make([]string, 0, len(activityIDs))
+	for _, activityID := range activityIDs {
+		if activityID == "" || seen[activityID] {
+			continue
+		}
+		seen[activityID] = true
+		out = append(out, activityID)
+	}
+	return out
+}
+
+func validateBestEffortReplacementRecords(userID string, activityIDs []string, records []bestefforts.BestEffortRecord) error {
+	allowedActivityIDs := make(map[string]bool, len(activityIDs))
+	for _, activityID := range activityIDs {
+		allowedActivityIDs[activityID] = true
+	}
+	for _, record := range records {
+		if record.UserID != userID {
+			return fmt.Errorf("best effort replacement record user %q outside requested user %q", record.UserID, userID)
+		}
+		if !allowedActivityIDs[record.ActivityID] {
+			return fmt.Errorf("best effort replacement record activity %q outside delete scope", record.ActivityID)
+		}
+	}
+	return nil
+}
+
 // DeleteBestEffortsForActivity removes all best effort records for a single activity.
-func (db *DB) DeleteBestEffortsForActivity(ctx context.Context, activityID string) error {
+func (db *DB) DeleteBestEffortsForActivity(ctx context.Context, userID, activityID string) error {
 	_, err := db.Pool.Exec(ctx,
-		`DELETE FROM best_efforts WHERE activity_id = $1`,
+		`DELETE FROM best_efforts WHERE user_id = $1 AND activity_id = $2`,
+		userID,
 		activityID,
 	)
 	if err != nil {
@@ -213,14 +308,31 @@ const rankingOrderExpr = `
 	CASE WHEN be.elapsed_time_s IS NOT NULL THEN be.elapsed_time_s END ASC NULLS LAST,
 	CASE WHEN be.value_numeric  IS NOT NULL THEN be.value_numeric  END DESC NULLS LAST`
 
+const sharedBestEffortActivityEligibilitySQL = `
+		      AND NOT COALESCE(%s.exclude_from_stats, false)
+		      AND NOT COALESCE(%s.is_group_secondary, false)
+		      AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = %s.id)
+		      AND (%s.num_sessions IS NULL OR %s.num_sessions <= 1)`
+
+func bestEffortActivityEligibilitySQL(activityAlias string) string {
+	return fmt.Sprintf(
+		sharedBestEffortActivityEligibilitySQL,
+		activityAlias,
+		activityAlias,
+		activityAlias,
+		activityAlias,
+		activityAlias,
+	)
+}
+
 // GetBestEffortsForActivity returns all best effort records for an activity,
 // each annotated with the user's rank (top-3 only) among eligible activities.
 //
 // Eligibility guards applied to ranked activities:
-//   (activities use hard delete — ON DELETE CASCADE handles cleanup)
-//   - NOT COALESCE(a.exclude_from_stats, false)
-//   - NOT COALESCE(a.is_group_secondary, false)
-//   - No active best_effort_exclusions for (user, activity, category OR '__all__')
+//
+//	(activities use hard delete — ON DELETE CASCADE handles cleanup)
+//	- sharedBestEffortActivityEligibilitySQL
+//	- No active best_effort_exclusions for (user, activity, category OR '__all__')
 //
 // Only ranks 1–3 are returned; records outside the top-3 receive rank > 3.
 func (db *DB) GetBestEffortsForActivity(ctx context.Context, activityID, userID string) ([]BestEffortRanked, error) {
@@ -245,9 +357,7 @@ func (db *DB) GetBestEffortsForActivity(ctx context.Context, activityID, userID 
 		    FROM best_efforts be
 		    JOIN activities a ON a.id = be.activity_id
 		    WHERE be.user_id = $2
-
-		      AND NOT COALESCE(a.exclude_from_stats, false)
-		      AND NOT COALESCE(a.is_group_secondary, false)
+`+bestEffortActivityEligibilitySQL("a")+`
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions exc
 		          WHERE exc.user_id    = be.user_id
@@ -308,9 +418,7 @@ func (db *DB) GetBestEffortPersonalRecords(
 		      AND ($2::text = '' OR be.sport_group = $2)
 		      AND ($4::timestamptz IS NULL OR be.achieved_at >= $4)
 		      AND ($5::timestamptz IS NULL OR be.achieved_at <  $5)
-
-		      AND NOT COALESCE(a.exclude_from_stats, false)
-		      AND NOT COALESCE(a.is_group_secondary, false)
+`+bestEffortActivityEligibilitySQL("a")+`
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions exc
 		          WHERE exc.user_id     = be.user_id
@@ -411,11 +519,8 @@ func (db *DB) GetBestEffortRecalcIDs(ctx context.Context, userID string) ([]stri
 	rows, err := db.Pool.Query(ctx,
 		`SELECT id FROM activities
 		 WHERE user_id = $1
-		   AND NOT COALESCE(exclude_from_stats, false)
-		   AND NOT COALESCE(is_group_secondary, false)
-		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = activities.id)
-		   AND (num_sessions IS NULL OR num_sessions <= 1)
-		 ORDER BY started_at ASC`,
+`+bestEffortActivityEligibilitySQL("activities")+`
+		 ORDER BY started_at ASC, id ASC`,
 		userID,
 	)
 	if err != nil {
@@ -463,11 +568,8 @@ func (db *DB) GetBestEffortRecalcActivities(ctx context.Context, userID string) 
 		     WHERE activity_id = a.id
 		 ) cl ON true
 		 WHERE a.user_id = $1
-		   AND NOT COALESCE(a.exclude_from_stats, false)
-		   AND NOT COALESCE(a.is_group_secondary, false)
-		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)
-		   AND (a.num_sessions IS NULL OR a.num_sessions <= 1)
-		 ORDER BY a.started_at ASC`,
+`+bestEffortActivityEligibilitySQL("a")+`
+		 ORDER BY a.started_at ASC, a.id ASC`,
 		userID,
 	)
 	if err != nil {
@@ -526,9 +628,7 @@ func (db *DB) GetBestEffortActivityInfo(ctx context.Context, activityID string) 
 		     WHERE activity_id = a.id
 		 ) cl ON true
 		 WHERE a.id = $1
-		   AND NOT COALESCE(a.exclude_from_stats, false)
-		   AND NOT COALESCE(a.is_group_secondary, false)
-		   AND NOT EXISTS (SELECT 1 FROM activity_fusion_memberships m WHERE m.source_id = a.id)`,
+`+bestEffortActivityEligibilitySQL("a")+``,
 		activityID,
 	)
 	var info bestefforts.ActivityInfo
@@ -663,9 +763,7 @@ func (db *DB) GetNearMisses(ctx context.Context, activityID, userID string) ([]N
 		    JOIN activities a ON a.id = be.activity_id
 		    WHERE be.user_id = $2
 		      AND be.activity_id <> $1
-
-		      AND NOT COALESCE(a.exclude_from_stats, false)
-		      AND NOT COALESCE(a.is_group_secondary, false)
+`+bestEffortActivityEligibilitySQL("a")+`
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions exc
 		          WHERE exc.user_id     = be.user_id
@@ -685,8 +783,10 @@ func (db *DB) GetNearMisses(ctx context.Context, activityID, userID string) ([]N
 		        be.elapsed_time_s,
 		        be.value_numeric
 		    FROM best_efforts be
+		    JOIN activities a ON a.id = be.activity_id
 		    WHERE be.activity_id = $1
 		      AND be.user_id     = $2
+`+bestEffortActivityEligibilitySQL("a")+`
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions exc
 		          WHERE exc.user_id     = be.user_id
@@ -801,8 +901,7 @@ func (db *DB) GetEffortPercentiles(ctx context.Context, activityID, userID strin
 		    JOIN activities a ON a.id = be.activity_id
 		    WHERE be.user_id = $1
 		      AND (be.elapsed_time_s IS NOT NULL OR be.value_numeric IS NOT NULL)
-		      AND NOT COALESCE(a.exclude_from_stats, false)
-		      AND NOT COALESCE(a.is_group_secondary, false)
+`+bestEffortActivityEligibilitySQL("a")+`
 		      AND NOT EXISTS (
 		          SELECT 1 FROM best_effort_exclusions ex
 		          WHERE ex.user_id     = be.user_id
@@ -875,8 +974,7 @@ type PRHistoryEntry struct {
 // computed via a window function over the full eligible pool.
 //
 // Eligibility guards match GetBestEffortsForActivity:
-//   - NOT COALESCE(a.exclude_from_stats, false)
-//   - NOT COALESCE(a.is_group_secondary, false)
+//   - sharedBestEffortActivityEligibilitySQL
 //   - No active best_effort_exclusions for (user, activity, category OR '__all__')
 func (db *DB) GetPRHistory(ctx context.Context, userID, category, sportGroup string) ([]PRHistoryEntry, error) {
 	rows, err := db.Pool.Query(ctx,
@@ -894,8 +992,7 @@ func (db *DB) GetPRHistory(ctx context.Context, userID, category, sportGroup str
 		 WHERE be.user_id    = $1
 		   AND be.category   = $2
 		   AND be.sport_group = $3
-		   AND NOT COALESCE(a.exclude_from_stats, false)
-		   AND NOT COALESCE(a.is_group_secondary, false)
+`+bestEffortActivityEligibilitySQL("a")+`
 		   AND NOT EXISTS (
 		       SELECT 1 FROM best_effort_exclusions exc
 		       WHERE exc.user_id     = be.user_id

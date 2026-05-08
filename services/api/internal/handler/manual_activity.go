@@ -53,7 +53,7 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "sport_type is required", r.URL.Path)
 		return
 	}
-	tuple, patch, err := sport.NormalizeSportTuple(req.SportType, req.SubType)
+	tuple, patch, err := sport.NormalizeSelectableSportTuple(req.SportType, req.SubType)
 	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
@@ -123,7 +123,20 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		FileName:    "manual.json",
 		SizeBytes:   int64(len(jsonBytes)),
 		FileHash:    hashStr,
-		Tags:        map[string]string{"format": "manual", "source": "manual"},
+		Tags: shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{
+			Format:         "manual",
+			Source:         "manual",
+			StartedAt:      startedAt,
+			SportType:      req.SportType,
+			SubType:        req.SubType,
+			Title:          req.Title,
+			DistanceM:      req.DistanceM,
+			ElapsedTimeS:   int(req.ElapsedTimeS),
+			ElevationGainM: req.ElevationGainM,
+			IsElectric:     req.IsElectric,
+			IsIndoor:       req.IsIndoor,
+			IsVirtual:      req.IsVirtual,
+		}),
 	}, bytes.NewReader(jsonBytes))
 	if putErr != nil {
 		slog.Error("manual activity: ShadowFS.Put failed", "error", putErr)
@@ -237,6 +250,7 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 	if h.ShadowFS != nil && manualFileID != "" {
 		freshAct, _ := h.DB.GetActivity(r.Context(), activity.ID)
 		sidecar.WriteMetaCompanion(r.Context(), h.ShadowFS, h.DB, userID, activity.ID, manualFileID, nil, freshAct)
+		h.refreshActivityFilePathBestEffort(r.Context(), userID, activity.ID, manualFileID)
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, map[string]string{

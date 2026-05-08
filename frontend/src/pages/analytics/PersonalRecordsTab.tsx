@@ -19,6 +19,7 @@ import { useToast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import {
   MAIN_CATEGORIES,
+  MAIN_CATEGORY_ORDER,
   MAIN_CATEGORY_LABELS,
   MAIN_CATEGORY_COLORS,
   SUB_FILTERS,
@@ -44,8 +45,6 @@ const YEAR_OPTIONS = [
   { value: String(CURRENT_YEAR - 1), label: String(CURRENT_YEAR - 1) },
   { value: String(CURRENT_YEAR - 2), label: String(CURRENT_YEAR - 2) },
 ]
-
-const ALL_MAIN_CATEGORIES: MainCategory[] = ['laufen', 'radfahren', 'wandern', 'schwimmen']
 
 // ── Excluded List ──────────────────────────────────────────────────────────
 
@@ -253,6 +252,16 @@ export default function PersonalRecordsTab() {
     return [{ name: MAIN_CATEGORY_LABELS[mainCategory], color: MAIN_CATEGORY_COLORS[mainCategory], sportGroups: groups }]
   }, [mainCategory])
 
+  const overviewPowerSeries = useMemo(() => {
+    return MAIN_CATEGORY_ORDER
+      .filter((category) => POWER_CURVE_GROUPS[category]?.length)
+      .map((category) => ({
+        name: MAIN_CATEGORY_LABELS[category],
+        color: MAIN_CATEGORY_COLORS[category],
+        sportGroups: POWER_CURVE_GROUPS[category]!,
+      }))
+  }, [])
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-0">
@@ -299,7 +308,7 @@ export default function PersonalRecordsTab() {
         </button>
 
         {/* Per-sport tabs */}
-        {ALL_MAIN_CATEGORIES
+        {MAIN_CATEGORY_ORDER
           .filter(cat => allRecords.some(r => MAIN_CATEGORIES[cat].includes(r.sport_group)))
           .map(cat => (
             <button
@@ -366,15 +375,9 @@ export default function PersonalRecordsTab() {
         <div className="space-y-6">
           <HighlightBanner records={allRecords} />
 
-          <PowerDurationChart
-            records={allRecords}
-            series={[
-              { name: 'Laufen', color: '#3B82F6', sportGroups: POWER_CURVE_GROUPS.laufen! },
-              { name: 'Radfahren', color: '#F97316', sportGroups: POWER_CURVE_GROUPS.radfahren! },
-            ]}
-          />
+          <PowerDurationChart records={allRecords} series={overviewPowerSeries} />
 
-          {ALL_MAIN_CATEGORIES
+          {MAIN_CATEGORY_ORDER
             .filter(cat => allRecords.some(r => MAIN_CATEGORIES[cat].includes(r.sport_group)))
             .map(cat => {
               const catRecords = allRecords.filter(r => MAIN_CATEGORIES[cat].includes(r.sport_group))

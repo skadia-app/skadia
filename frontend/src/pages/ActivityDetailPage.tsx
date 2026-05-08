@@ -495,7 +495,7 @@ export default function ActivityDetailPage() {
   const { data: sets } = useQuery<ActivitySet[]>({
     queryKey: ['activity-sets', activeActivityId],
     queryFn: () => fetchActivitySets(activeActivityId!),
-    enabled: !!activity && ['strength_training', 'training', 'strength'].includes(activity.sport_type),
+    enabled: !!activity && ['strength_training', 'training'].includes(activity.sport_type),
   })
 
   const { data: workout } = useQuery<Workout>({
@@ -923,6 +923,7 @@ export default function ActivityDetailPage() {
               hoverIndex={hoverIndex}
               sportColor={sportColor(activity.sport_type)}
               sportType={activity.sport_type}
+              subType={activity.sub_type}
               fitSportId={activity.fit_sport_id}
               hasGps={activity.has_gps}
               zoomRange={zoomRange}
@@ -957,6 +958,7 @@ export default function ActivityDetailPage() {
           streams={streams}
           sportColor={sportColor(activity.sport_type)}
           sportType={activity.sport_type}
+          subType={activity.sub_type}
           fitSportId={activity.fit_sport_id}
           hasGps={activity.has_gps}
           onClose={() => setMapFullscreen(false)}

@@ -1,0 +1,83 @@
+tuple_selectors:
+  - key: condition_sport_tuple
+    labels: {de: Sportauswahl}
+    field: sport_tuple
+    operators: [in]
+    source: selectable_sport_tuples
+  - key: action_set_sport_type
+    labels: {de: Sportart setzen}
+    action: set_sport_type
+    source: selectable_sport_tuples
+
+trait_conditions:
+  - key: sport_environment
+    labels: {de: Umgebung}
+    field: sport_environment
+    operators: [in]
+    source: traits.environments
+    option_labels:
+      air: {de: Luft}
+      generic: {de: Allgemein}
+      ice: {de: Eis}
+      indoor: {de: Indoor}
+      land: {de: Land}
+      snow: {de: Schnee}
+      water: {de: Wasser}
+  - key: sport_equipment_family
+    labels: {de: Ausrüstungsart}
+    field: sport_equipment_family
+    operators: [in]
+    source: traits.equipment_families
+    option_labels:
+      aircraft: {de: Fluggerät}
+      animal: {de: Tier}
+      ball: {de: Ball}
+      bike: {de: Rad}
+      board: {de: Board}
+      boat: {de: Boot}
+      breathing_gear: {de: Atemausrüstung}
+      climbing_gear: {de: Kletterausrüstung}
+      disc: {de: Scheibe}
+      fishing_gear: {de: Angelausrüstung}
+      generic: {de: Allgemein}
+      machine: {de: Gerät}
+      paddle: {de: Paddel}
+      racket: {de: Schläger}
+      rope: {de: Seil}
+      sail: {de: Segel}
+      skate: {de: Skates}
+      ski: {de: Ski}
+      sled: {de: Schlitten}
+      snowboard: {de: Snowboard}
+      stick: {de: Stock}
+      vehicle: {de: Fahrzeug}
+      weapon: {de: Waffe}
+      weights: {de: Gewichte}
+      wheelchair: {de: Rollstuhl}
+  - key: sport_movement_family
+    labels: {de: Bewegungsart}
+    field: sport_movement_family
+    operators: [in]
+    source: traits.movement_families
+    option_labels:
+      climb: {de: Klettern}
+      combat: {de: Kampfsport}
+      dance: {de: Tanzen}
+      drive: {de: Fahren}
+      fish: {de: Angeln}
+      fly: {de: Fliegen}
+      generic: {de: Allgemein}
+      glide: {de: Gleiten}
+      lift: {de: Lift}
+      mind_body: {de: Mind-Body}
+      multi: {de: Multisport}
+      paddle: {de: Paddeln}
+      pedal: {de: Pedalieren}
+      ride: {de: Reiten}
+      roll: {de: Rollen}
+      row: {de: Rudern}
+      run: {de: Laufen}
+      strike: {de: Schlagen}
+      swim: {de: Schwimmen}
+      throw: {de: Werfen}
+      walk: {de: Gehen}

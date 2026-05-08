@@ -4,15 +4,18 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
-func TestNormalizeRuleActionsDedupesElectricAndIndoorSystemTags(t *testing.T) {
+func TestNormalizeRuleActionsDedupesSystemTagsWhenModifierContextMatches(t *testing.T) {
 	tagNames := map[string]string{
 		"tag-ebike":  "E-Bike",
 		"tag-indoor": "Indoor",
 		"tag-other":  "Urlaub",
 	}
 	raw := json.RawMessage(`[
+		{"action":"set_sport_type","params":{"sport_type":"cycling"}},
 		{"action":"add_tag","params":{"tag_id":"tag-ebike"}},
 		{"action":"set_electric","params":{"electric":true}},
 		{"action":"set_indoor","params":{"indoor":true}},
@@ -29,8 +32,8 @@ func TestNormalizeRuleActionsDedupesElectricAndIndoorSystemTags(t *testing.T) {
 	if err := json.Unmarshal(got, &actions); err != nil {
 		t.Fatalf("unmarshal actions: %v", err)
 	}
-	if len(actions) != 3 {
-		t.Fatalf("actions len = %d, want 3: %s", len(actions), got)
+	if len(actions) != 4 {
+		t.Fatalf("actions len = %d, want 4: %s", len(actions), got)
 	}
 	for _, action := range actions {
 		if action.Action == "add_tag" && strings.Contains(string(action.Params), "tag-ebike") {
@@ -39,6 +42,76 @@ func TestNormalizeRuleActionsDedupesElectricAndIndoorSystemTags(t *testing.T) {
 		if action.Action == "add_tag" && strings.Contains(string(action.Params), "tag-indoor") {
 			t.Fatalf("Indoor add_tag was not deduped: %s", got)
 		}
+	}
+}
+
+func TestNormalizeRuleActionsOnlyDedupesEBikeTagWithCyclingContext(t *testing.T) {
+	tagNames := map[string]string{"tag-ebike": "E-Bike"}
+
+	generic, err := NormalizeRuleActions(json.RawMessage(`[
+		{"action":"set_electric","params":{"electric":true}},
+		{"action":"add_tag","params":{"tag_id":"tag-ebike"}}
+	]`), tagNames)
+	if err != nil {
+		t.Fatalf("NormalizeRuleActions generic electric: %v", err)
+	}
+	if !strings.Contains(string(generic), "tag-ebike") {
+		t.Fatalf("generic electric action must not dedupe cycling-specific E-Bike tag: %s", generic)
+	}
+
+	cycling, err := NormalizeRuleActions(json.RawMessage(`[
+		{"action":"set_sport_type","params":{"sport_type":"cycling"}},
+		{"action":"set_electric","params":{"electric":true}},
+		{"action":"add_tag","params":{"tag_id":"tag-ebike"}}
+	]`), tagNames)
+	if err != nil {
+		t.Fatalf("NormalizeRuleActions cycling electric: %v", err)
+	}
+	if strings.Contains(string(cycling), "tag-ebike") {
+		t.Fatalf("cycling electric action should dedupe E-Bike tag: %s", cycling)
+	}
+}
+
+func TestRemoveSystemTagActionsDoesNotMutateInputBackingArray(t *testing.T) {
+	actions := []ruleActionMap{
+		{"action": "add_tag", "params": map[string]any{"tag_id": "tag-indoor"}},
+		{"action": "add_tag", "params": map[string]any{"tag_id": "tag-other"}},
+	}
+
+	got := removeSystemTagActions(actions, "Indoor", map[string]string{
+		"tag-indoor": "Indoor",
+		"tag-other":  "Urlaub",
+	}, "add_tag")
+
+	if len(got) != 1 {
+		t.Fatalf("filtered actions len = %d, want 1", len(got))
+	}
+	if actions[0]["params"].(map[string]any)["tag_id"] != "tag-indoor" {
+		t.Fatalf("input slice was mutated: %#v", actions)
+	}
+}
+
+func TestNormalizeRuleActionsRejectsMissingRequiredParams(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  json.RawMessage
+		want string
+	}{
+		{"set_gear without gear_id", json.RawMessage(`[{"action":"set_gear","params":{}}]`), "set_gear requires params.gear_id"},
+		{"add_tag without tag_id", json.RawMessage(`[{"action":"add_tag","params":{}}]`), "add_tag requires params.tag_id"},
+		{"set_visibility without visibility", json.RawMessage(`[{"action":"set_visibility","params":{}}]`), "set_visibility requires params.visibility"},
+		{"set_sport_type without sport_type", json.RawMessage(`[{"action":"set_sport_type","params":{}}]`), "set_sport_type requires params.sport_type"},
+		{"set_name without template", json.RawMessage(`[{"action":"set_name","params":{}}]`), "set_name requires params.template"},
+		{"set_intensity without intensity", json.RawMessage(`[{"action":"set_intensity","params":{}}]`), "set_intensity requires params.intensity"},
+		{"set_field without field", json.RawMessage(`[{"action":"set_field","params":{"value":true}}]`), "set_field requires params.field"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NormalizeRuleActions(tc.raw, nil)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want containing %q", err, tc.want)
+			}
+		})
 	}
 }
 
@@ -51,18 +124,18 @@ func TestNormalizeRuleActionsRejectsContradictorySystemTagActions(t *testing.T) 
 	}{
 		{
 			name: "electric false plus e-bike add_tag",
-			raw:  json.RawMessage(`[{"action":"set_electric","params":{"electric":false}},{"action":"add_tag","params":{"tag_id":"tag-ebike"}}]`),
-			want: "set_electric(false)",
+			raw:  json.RawMessage(`[{"action":"set_sport_type","params":{"sport_type":"cycling"}},{"action":"set_electric","params":{"electric":false}},{"action":"add_tag","params":{"tag_id":"tag-ebike"}}]`),
+			want: "E-Antrieb=false conflicts with add_tag(E-Bike)",
 		},
 		{
 			name: "electric true plus e-bike remove_tag",
-			raw:  json.RawMessage(`[{"action":"set_electric","params":{"electric":true}},{"action":"remove_tag","params":{"tag_id":"tag-ebike"}}]`),
-			want: "remove_tag(E-Bike)",
+			raw:  json.RawMessage(`[{"action":"set_sport_type","params":{"sport_type":"cycling"}},{"action":"set_electric","params":{"electric":true}},{"action":"remove_tag","params":{"tag_id":"tag-ebike"}}]`),
+			want: "E-Antrieb=true conflicts with remove_tag(E-Bike)",
 		},
 		{
 			name: "indoor false plus indoor add_tag",
 			raw:  json.RawMessage(`[{"action":"set_indoor","params":{"indoor":false}},{"action":"add_tag","params":{"tag_id":"tag-indoor"}}]`),
-			want: "set_indoor(false)",
+			want: "Indoor=false conflicts with add_tag(Indoor)",
 		},
 	}
 
@@ -104,6 +177,7 @@ func TestNormalizeRuleBranchesValidatesNestedActions(t *testing.T) {
 	tagNames := map[string]string{"tag-ebike": "E-Bike"}
 	raw := json.RawMessage(`[
 		{"type":"if","condition_groups":[],"actions":[
+			{"action":"set_sport_type","params":{"sport_type":"cycling"}},
 			{"action":"set_electric","params":{"electric":true}},
 			{"action":"remove_tag","params":{"tag_id":"tag-ebike"}}
 		]}
@@ -112,5 +186,35 @@ func TestNormalizeRuleBranchesValidatesNestedActions(t *testing.T) {
 	_, err := NormalizeRuleBranches(raw, tagNames)
 	if err == nil || !strings.Contains(err.Error(), "branches[0].actions") {
 		t.Fatalf("error = %v, want branch action context", err)
+	}
+}
+
+func TestNormalizeRuleActionsUsesGenericElectricModifierNameInConflicts(t *testing.T) {
+	tagNames := map[string]string{"tag-ebike": "E-Bike"}
+	raw := json.RawMessage(`[
+		{"action":"set_sport_type","params":{"sport_type":"cycling"}},
+		{"action":"set_electric","params":{"electric":false}},
+		{"action":"add_tag","params":{"tag_id":"tag-ebike"}}
+	]`)
+
+	_, err := NormalizeRuleActions(raw, tagNames)
+	if err == nil || !strings.Contains(err.Error(), "E-Antrieb=false conflicts with add_tag(E-Bike)") {
+		t.Fatalf("error = %v, want generic E-Antrieb conflict text", err)
+	}
+}
+
+func TestRuleActionValidationUsesGeneratedModifierActions(t *testing.T) {
+	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+		def, ok := sport.SportModifierByKey(key)
+		if !ok {
+			t.Fatalf("missing generated modifier %q", key)
+		}
+		modifier, ok := modifierForAction(def.ActionName)
+		if !ok {
+			t.Fatalf("modifierForAction(%q) missing", def.ActionName)
+		}
+		if modifier.Field != def.JSONKey || modifier.Param != def.ActionParam || modifier.HumanName != def.LabelDE {
+			t.Fatalf("modifierForAction(%q) = %#v, want generated metadata %#v", def.ActionName, modifier, def)
+		}
 	}
 }
