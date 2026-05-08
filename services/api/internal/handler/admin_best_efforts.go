@@ -28,13 +28,14 @@ type allUsersBestEffortsService interface {
 }
 
 type allUsersBestEffortsCheckpoint struct {
-	LastUserID     string `json:"last_user_id,omitempty"`
-	LastActivityID string `json:"last_activity_id,omitempty"`
-	UserDone       int    `json:"user_done,omitempty"`
-	UserTotal      int    `json:"user_total,omitempty"`
-	DoneUsers      int    `json:"done_users"`
-	TotalUsers     int    `json:"total_users"`
-	FailedUsers    int    `json:"failed_users,omitempty"`
+	LastUserID     string   `json:"last_user_id,omitempty"`
+	LastActivityID string   `json:"last_activity_id,omitempty"`
+	UserDone       int      `json:"user_done,omitempty"`
+	UserTotal      int      `json:"user_total,omitempty"`
+	DoneUsers      int      `json:"done_users"`
+	TotalUsers     int      `json:"total_users"`
+	FailedUsers    int      `json:"failed_users,omitempty"`
+	DoneUserIDs    []string `json:"done_user_ids,omitempty"`
 }
 
 // RecalcAllUsersBestEfforts starts a background job that recomputes best efforts
@@ -92,6 +93,11 @@ func runAllUsersBestEffortsRecalcFromCheckpoint(ctx context.Context, db allUsers
 	var doneUsers int
 	var failedUsers int
 	var firstUserErr string
+	doneUserIDs := append([]string(nil), checkpoint.DoneUserIDs...)
+	doneUserSet := make(map[string]bool, len(doneUserIDs))
+	for _, userID := range doneUserIDs {
+		doneUserSet[userID] = true
+	}
 
 	resumeUserID := checkpoint.LastUserID
 	resumeAfterActivityID := checkpoint.LastActivityID
@@ -100,21 +106,32 @@ func runAllUsersBestEffortsRecalcFromCheckpoint(ctx context.Context, db allUsers
 			iterErr = ctx.Err()
 			break
 		}
+		if doneUserSet[userID] {
+			doneUsers++
+			continue
+		}
 		afterActivityID := ""
 		if resumeUserID != "" {
 			if userID != resumeUserID {
-				doneUsers++
-				continue
-			}
-			if checkpoint.UserTotal > 0 && checkpoint.UserDone >= checkpoint.UserTotal {
-				doneUsers++
+				if len(doneUserSet) == 0 {
+					doneUsers++
+					doneUserIDs = append(doneUserIDs, userID)
+					doneUserSet[userID] = true
+					continue
+				}
+			} else {
+				if checkpoint.UserTotal > 0 && checkpoint.UserDone >= checkpoint.UserTotal {
+					doneUsers++
+					doneUserIDs = append(doneUserIDs, userID)
+					doneUserSet[userID] = true
+					resumeUserID = ""
+					resumeAfterActivityID = ""
+					continue
+				}
+				afterActivityID = resumeAfterActivityID
 				resumeUserID = ""
 				resumeAfterActivityID = ""
-				continue
 			}
-			afterActivityID = resumeAfterActivityID
-			resumeUserID = ""
-			resumeAfterActivityID = ""
 		}
 		var lastProgress bestefforts.RecalcProgress
 		if err := svc.RecalcAllFromCheckpoint(ctx, userID, afterActivityID, func(progress bestefforts.RecalcProgress) {
@@ -127,6 +144,7 @@ func runAllUsersBestEffortsRecalcFromCheckpoint(ctx context.Context, db allUsers
 				DoneUsers:      doneUsers,
 				TotalUsers:     totalUsers,
 				FailedUsers:    failedUsers,
+				DoneUserIDs:    doneUserIDs,
 			})
 		}); err != nil {
 			failedUsers++
@@ -136,6 +154,10 @@ func runAllUsersBestEffortsRecalcFromCheckpoint(ctx context.Context, db allUsers
 			slog.Warn("all-users best-efforts recalc failed for user", "user_id", userID, "error", err)
 		}
 		doneUsers++
+		if !doneUserSet[userID] {
+			doneUserIDs = append(doneUserIDs, userID)
+			doneUserSet[userID] = true
+		}
 		_ = db.UpdateBackgroundJobProgress(ctx, jobID, int64(doneUsers))
 		updateAllUsersBestEffortsCheckpoint(ctx, db, jobID, allUsersBestEffortsCheckpoint{
 			LastUserID:     userID,
@@ -145,6 +167,7 @@ func runAllUsersBestEffortsRecalcFromCheckpoint(ctx context.Context, db allUsers
 			DoneUsers:      doneUsers,
 			TotalUsers:     totalUsers,
 			FailedUsers:    failedUsers,
+			DoneUserIDs:    doneUserIDs,
 		})
 	}
 

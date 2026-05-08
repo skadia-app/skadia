@@ -1,6 +1,10 @@
 package importmetrics
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"sync"
+
+	"github.com/prometheus/client_golang/prometheus"
+)
 
 type Source string
 
@@ -9,6 +13,7 @@ const (
 	SourceStrava      Source = "strava"
 	SourceKomoot      Source = "komoot"
 	SourceKomootRoute Source = "komoot_route"
+	sourceUnknown     Source = "unknown"
 )
 
 type UnmappedSportRecorder interface {
@@ -19,7 +24,9 @@ type prometheusUnmappedSportRecorder struct {
 	counter *prometheus.CounterVec
 }
 
-var defaultUnmappedSportRecorder = NewUnmappedSportRecorder(prometheus.DefaultRegisterer)
+var defaultUnmappedSportRecorder = sync.OnceValue(func() UnmappedSportRecorder {
+	return NewUnmappedSportRecorder(prometheus.DefaultRegisterer)
+})
 
 func NewUnmappedSportRecorder(registerer prometheus.Registerer) UnmappedSportRecorder {
 	if registerer == nil {
@@ -44,7 +51,7 @@ func NewUnmappedSportRecorder(registerer prometheus.Registerer) UnmappedSportRec
 }
 
 func RecordUnmappedSport(source Source) {
-	defaultUnmappedSportRecorder.RecordUnmappedSport(source)
+	defaultUnmappedSportRecorder().RecordUnmappedSport(source)
 }
 
 func (r *prometheusUnmappedSportRecorder) RecordUnmappedSport(source Source) {
@@ -56,6 +63,6 @@ func sourceLabel(source Source) string {
 	case SourceFIT, SourceStrava, SourceKomoot, SourceKomootRoute:
 		return string(source)
 	default:
-		panic("unsupported unmapped sport source: " + string(source))
+		return string(sourceUnknown)
 	}
 }
