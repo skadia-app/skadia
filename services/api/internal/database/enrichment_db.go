@@ -1371,3 +1371,252 @@ func (db *DB) ResetSoftRejectedLiftCandidates(ctx context.Context, userID string
 	}
 	return cleared, activities, nil
 }
+
+// ConfirmAllLiftCandidates bulk-confirms every unconfirmed, non-rejected
+// heuristic candidate of the given activity, sets activities.lifts_acknowledged_at
+// to NOW(), and recomputes activities.lift_* aggregates atomically in one Tx.
+//
+// Method-A (source='osm') rows are intentionally untouched: they are auto-
+// confirmed at insert time, and a "confirm-all" semantic on OSM rows would
+// be a no-op that risks future drift. The WHERE source='heuristic' clause
+// keeps this contract enforced at the SQL layer.
+//
+// Idempotent: a second call against an already-confirmed corpus updates 0
+// candidate rows but still refreshes lifts_acknowledged_at to NOW() (the
+// "user re-acknowledged" signal). The recompute is also idempotent.
+//
+// Phase 6.3.1.2 bullet 1.
+func (db *DB) ConfirmAllLiftCandidates(ctx context.Context, userID, activityID string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("confirm-all lift candidates: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after Commit is a no-op
+
+	// Owner check + acknowledged_at write in one statement. RETURNING the
+	// id ensures a 0-row UPDATE (wrong owner / wrong activity) propagates as
+	// pgx.ErrNoRows and the handler maps it to 404.
+	var ownedID string
+	if err := tx.QueryRow(ctx, `
+		UPDATE activities
+		SET    lifts_acknowledged_at = NOW()
+		WHERE  id = $1 AND user_id = $2
+		RETURNING id
+	`, activityID, userID).Scan(&ownedID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE activity_lift_candidates
+		SET    confirmed = true
+		WHERE  activity_id = $1
+		  AND  source = 'heuristic'
+		  AND  confirmed = false
+		  AND  NOT rejected_by_user
+	`, activityID); err != nil {
+		return fmt.Errorf("confirm-all lift candidates: update candidates: %w", err)
+	}
+
+	if err := db.recomputeLiftStatsTx(ctx, tx, userID, activityID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("confirm-all lift candidates: commit: %w", err)
+	}
+	db.warnIfLiftAggregatesExceedRaw(ctx, userID, activityID)
+	return nil
+}
+
+// RejectAllLiftCandidates bulk-soft-rejects every unconfirmed, non-rejected
+// heuristic candidate of the given activity, sets lifts_acknowledged_at to
+// NOW(), and recomputes lift_* aggregates atomically in one Tx.
+//
+// "All-reject" is intentionally restricted to source='heuristic'. A bulk
+// reject of OSM-snapped lifts has no clean semantics — Method-A rows
+// represent objective geometry matches, and rejecting them all at once
+// would hide all OSM lifts at the activity level even if the user only
+// wanted to clear the heuristic noise. Per-row OSM reject stays available
+// via DELETE /api/v1/activities/{id}/lift-candidates/{cid}.
+//
+// Idempotent and atomic — same contract as ConfirmAllLiftCandidates.
+//
+// Phase 6.3.1.2 bullet 2.
+func (db *DB) RejectAllLiftCandidates(ctx context.Context, userID, activityID string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("reject-all lift candidates: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var ownedID string
+	if err := tx.QueryRow(ctx, `
+		UPDATE activities
+		SET    lifts_acknowledged_at = NOW()
+		WHERE  id = $1 AND user_id = $2
+		RETURNING id
+	`, activityID, userID).Scan(&ownedID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE activity_lift_candidates
+		SET    rejected_by_user = true
+		WHERE  activity_id = $1
+		  AND  source = 'heuristic'
+		  AND  confirmed = false
+		  AND  NOT rejected_by_user
+	`, activityID); err != nil {
+		return fmt.Errorf("reject-all lift candidates: update candidates: %w", err)
+	}
+
+	if err := db.recomputeLiftStatsTx(ctx, tx, userID, activityID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("reject-all lift candidates: commit: %w", err)
+	}
+	db.warnIfLiftAggregatesExceedRaw(ctx, userID, activityID)
+	return nil
+}
+
+// AcknowledgeLifts sets activities.lifts_acknowledged_at = NOW() without
+// touching candidates. The X-close path of the review modal calls this so
+// the modal does not auto-trigger again (User-Quote 2026-05-08 #6).
+//
+// 0-row UPDATE (wrong owner) → pgx.ErrNoRows → 404 in the handler.
+//
+// Phase 6.3.1.2 bullet 3.
+func (db *DB) AcknowledgeLifts(ctx context.Context, userID, activityID string) error {
+	var ownedID string
+	if err := db.Pool.QueryRow(ctx, `
+		UPDATE activities
+		SET    lifts_acknowledged_at = NOW()
+		WHERE  id = $1 AND user_id = $2
+		RETURNING id
+	`, activityID, userID).Scan(&ownedID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// RecalculateActivityLifts performs a hard-reset of one activity's lift
+// detection state (User-Quote 2026-05-08 #5):
+//
+//   - DELETE all activity_lift_candidates rows of the activity (including
+//     soft-rejected ones — the user is opting back in to a clean slate).
+//   - DELETE all coupled lift segment_efforts rows (segment_type='lift')
+//     for the activity. There is no DB-level FK from
+//     activity_lift_candidates.segment_effort_id to segment_efforts (the
+//     hypertable's composite PK is not referenceable; see migration 000349
+//     comment), so the DELETE is explicit.
+//   - SET activities.lifts_acknowledged_at = NULL.
+//
+// The transaction commits these mutations atomically. Re-enrichment is
+// triggered AFTER commit by the caller (handler) — running it inside the
+// Tx would introduce a deadlock risk against the lift advisory lock used
+// by enrichStreamLifts.
+//
+// Owner check is enforced via the activities UPDATE (RETURNING id);
+// 0-row UPDATE → pgx.ErrNoRows → handler maps to 404.
+//
+// Phase 6.3.1.2 bullet 4.
+func (db *DB) RecalculateActivityLifts(ctx context.Context, userID, activityID string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("recalculate activity lifts: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Owner check + acknowledged_at clear in one statement.
+	var ownedID string
+	if err := tx.QueryRow(ctx, `
+		UPDATE activities
+		SET    lifts_acknowledged_at = NULL,
+		       lift_count = 0, lift_distance_m = 0,
+		       lift_ascent_m = 0, lift_descent_m = 0, lift_duration_s = 0
+		WHERE  id = $1 AND user_id = $2
+		RETURNING id
+	`, activityID, userID).Scan(&ownedID); err != nil {
+		return err
+	}
+
+	// Hard-DELETE all candidates (including rejected ones — explicit reset).
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM activity_lift_candidates
+		WHERE activity_id = $1
+	`, activityID); err != nil {
+		return fmt.Errorf("recalculate activity lifts: delete candidates: %w", err)
+	}
+
+	// Hard-DELETE coupled lift segment_efforts. Mirrors the join shape used
+	// in enrichStreamLifts (lift_enrich.go) so re-enrichment runs against
+	// an empty slate.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM segment_efforts se
+		USING segments s
+		WHERE se.activity_id = $1
+		  AND s.id = se.segment_id
+		  AND s.segment_type = 'lift'
+	`, activityID); err != nil {
+		return fmt.Errorf("recalculate activity lifts: delete lift segment_efforts: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("recalculate activity lifts: commit: %w", err)
+	}
+	return nil
+}
+
+// RestoreLiftCandidate clears the soft-reject flag on a single candidate
+// owned (transitively via activities.user_id) by userID. The candidate's
+// source determines the post-restore confirmed state:
+//
+//   - source='heuristic' → confirmed=false (user must re-confirm or
+//     re-reject; there is no auto-confirm path for heuristic rows).
+//   - source='osm'       → confirmed=true (auto-confirmed on the OSM
+//     match; restoring just undoes the user's reject).
+//
+// The owner check uses a JOIN to activities so a wrong-owner candidateID
+// produces a 0-row UPDATE → pgx.ErrNoRows → 404. The same WHERE clause
+// also enforces "must currently be rejected" (rejected_by_user = true) —
+// restoring a non-rejected row is a no-op that returns 404 so the
+// frontend can surface a stale-state error.
+//
+// Returns the activity_id of the restored candidate so the handler can
+// recompute aggregates and re-fire rules.
+//
+// Adversarial-Review-Finding #19. Phase 6.3.1.2 bullet 5.
+func (db *DB) RestoreLiftCandidate(ctx context.Context, userID, candidateID string) (string, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("restore lift candidate: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// CASE on source flips confirmed to the source-appropriate state. The
+	// WHERE clause enforces owner + must-be-rejected; either failure
+	// surfaces as ErrNoRows.
+	var activityID string
+	if err := tx.QueryRow(ctx, `
+		UPDATE activity_lift_candidates alc
+		SET    rejected_by_user = false,
+		       confirmed = CASE WHEN alc.source = 'osm' THEN true ELSE false END
+		FROM   activities a
+		WHERE  alc.id = $1
+		  AND  a.id = alc.activity_id
+		  AND  a.user_id = $2
+		  AND  alc.rejected_by_user = true
+		RETURNING alc.activity_id
+	`, candidateID, userID).Scan(&activityID); err != nil {
+		return "", err
+	}
+
+	if err := db.recomputeLiftStatsTx(ctx, tx, userID, activityID); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("restore lift candidate: commit: %w", err)
+	}
+	db.warnIfLiftAggregatesExceedRaw(ctx, userID, activityID)
+	return activityID, nil
+}
