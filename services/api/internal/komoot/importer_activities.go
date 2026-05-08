@@ -128,22 +128,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 		hashStr := hex.EncodeToString(sum[:])
 		tracker.SetFileHash(ctx, hashStr)
 
-		// Parse file to get ActivityData
-		var data *model.ActivityData
-		var platformMapping SportMapping
-		var platformMapped bool
-		switch format {
-		case "fit":
-			data, err = fitimport.ParseFIT(bytes.NewReader(fileBytes), fmt.Sprintf("%d.fit", tour.ID))
-		case "gpx":
-			data, err = gpximport.ParseGPX(bytes.NewReader(fileBytes), fmt.Sprintf("%d.gpx", tour.ID))
-		}
-		platformMapping, platformMapped = normalizedKomootSportMapping(tour.Sport, "user_id", p.UserID, "tour_id", tour.ID)
-		if err != nil || data == nil {
-			slog.Warn("komoot activities: parse failed", "tour_id", tour.ID, "format", format, "error", err)
-			// Fallback: build minimal ActivityData from tour metadata
-			data = tourToActivityDataFromMapping(tour, platformMapping, platformMapped)
-		}
+		data, platformMapping, platformMapped := activityDataFromKomootTour(tour, fileBytes, format, p.UserID)
 
 		var conflictPlatformSnapshot komootSportConflictSnapshot
 		var conflictFileSnapshot komootSportConflictSnapshot
@@ -272,6 +257,23 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 		"errors", len(result.Errors),
 	)
 	return result, nil
+}
+
+func activityDataFromKomootTour(tour Tour, fileBytes []byte, format, userID string) (*model.ActivityData, SportMapping, bool) {
+	var data *model.ActivityData
+	var err error
+	switch format {
+	case "fit":
+		data, err = fitimport.ParseFIT(bytes.NewReader(fileBytes), fmt.Sprintf("%d.fit", tour.ID))
+	case "gpx":
+		data, err = gpximport.ParseGPX(bytes.NewReader(fileBytes), fmt.Sprintf("%d.gpx", tour.ID))
+	}
+	platformMapping, platformMapped := normalizedKomootSportMapping(tour.Sport, "user_id", userID, "tour_id", tour.ID)
+	if err != nil || data == nil {
+		slog.Warn("komoot activities: parse failed", "tour_id", tour.ID, "format", format, "error", err)
+		data = tourToActivityDataFromMapping(tour, platformMapping, platformMapped)
+	}
+	return data, platformMapping, platformMapped
 }
 
 // tourToActivityData converts Komoot tour metadata to a minimal ActivityData.

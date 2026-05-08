@@ -129,6 +129,31 @@ func TestTourToActivityDataFromPrecomputedMappingDoesNotRecordAgain(t *testing.T
 	}
 }
 
+func TestActivityDataFromKomootTourParseFallbackRecordsUnmappedSportOnce(t *testing.T) {
+	var sources []importmetrics.Source
+	previous := recordUnmappedSport
+	recordUnmappedSport = func(source importmetrics.Source) {
+		sources = append(sources, source)
+	}
+	t.Cleanup(func() { recordUnmappedSport = previous })
+
+	data, _, mapped := activityDataFromKomootTour(Tour{
+		ID:    42,
+		Type:  "tour_recorded",
+		Sport: "definitely_unknown",
+	}, []byte("not a fit file"), "fit", "user-1")
+
+	if mapped {
+		t.Fatal("platform sport mapped, want unmapped")
+	}
+	if data == nil || data.SportType != "unknown" || data.SubType != "" {
+		t.Fatalf("fallback data = %#v, want unknown tuple", data)
+	}
+	if len(sources) != 1 || sources[0] != importmetrics.SourceKomoot {
+		t.Fatalf("recorded sources = %#v, want exactly one Komoot event", sources)
+	}
+}
+
 func TestApplyKomootSportMappingAdoptsSameParentSubtype(t *testing.T) {
 	data := &model.ActivityData{SportType: "cycling"}
 	mapping := SportMapping{SportType: "cycling", SubType: "mountain"}
