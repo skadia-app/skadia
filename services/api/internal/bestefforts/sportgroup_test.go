@@ -93,6 +93,66 @@ func TestRecordsRuntimeRejectsRecordGroupingDisabledModifier(t *testing.T) {
 	}
 }
 
+func TestRecordGroupIndexedLookupMatchesFullScanForEveryGeneratedRule(t *testing.T) {
+	for _, rule := range generatedRecordMatchRules {
+		subType := ""
+		if len(rule.SubTypes) > 0 {
+			subType = rule.SubTypes[0]
+		}
+		modifiers := map[string]bool{}
+		for key, value := range rule.Modifiers {
+			if value != nil {
+				modifiers[key] = *value
+			}
+		}
+
+		got, gotOK := recordGroupForActivityWithModifierPresence(
+			rule.SportType,
+			subType,
+			modifiers["is_indoor"],
+			modifiers["is_virtual"],
+			modifiers["is_electric"],
+			true,
+			true,
+			true,
+		)
+		want, wantOK := recordGroupForActivityFullScan(
+			rule.SportType,
+			subType,
+			modifiers["is_indoor"],
+			modifiers["is_virtual"],
+			modifiers["is_electric"],
+		)
+		if got != want || gotOK != wantOK {
+			t.Fatalf("indexed lookup for rule %+v = (%q, %v), full scan = (%q, %v)", rule, got, gotOK, want, wantOK)
+		}
+	}
+}
+
+func TestRecordMatchRulesBySportTypePartitionsRulesInOrder(t *testing.T) {
+	want := map[string][]RecordMatchRule{}
+	for _, rule := range generatedRecordMatchRules {
+		want[rule.SportType] = append(want[rule.SportType], rule)
+	}
+	if !reflect.DeepEqual(generatedRecordMatchRulesBySportType, want) {
+		t.Fatalf("generatedRecordMatchRulesBySportType = %#v, want %#v", generatedRecordMatchRulesBySportType, want)
+	}
+}
+
+func recordGroupForActivityFullScan(sportType, subType string, isIndoor, isVirtual, isElectric bool) (string, bool) {
+	modifiers := map[string]bool{
+		"is_electric": isElectric,
+		"is_indoor":   isIndoor,
+		"is_virtual":  isVirtual,
+	}
+	for _, rule := range generatedRecordMatchRules {
+		if recordRuleMatches(rule, sportType, subType, modifiers) {
+			return rule.RecordGroup, true
+		}
+	}
+	return "", false
+}
+
 func TestRecordProjectionKeepsExistingStoredGroupKeys(t *testing.T) {
 	got := []string{}
 	for _, group := range RecordGroups() {
