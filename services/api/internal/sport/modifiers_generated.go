@@ -14,42 +14,28 @@ type SportModifierDef struct {
 	ActionParam         string
 	ShadowFSToken       string
 	Capabilities        map[string]bool
-	TagSync             *SportModifierTagSync
-}
-
-type SportModifierTagSync struct {
-	SystemTag     string
-	Color         string
-	Description   string
-	ReadonlySync  bool
-	OnlySportType string
-	LabelContext  string
 }
 
 var generatedSportModifiers = []SportModifierDef{
 	{
 		Key: "is_electric", LabelDE: "E-Antrieb", GoField: "IsElectric", TSField: "isElectric", JSONKey: "is_electric",
 		ActivityColumn: "is_electric", ApplicabilitySource: "modifier_applicability.is_electric", ActionName: "set_electric", ActionParam: "electric", ShadowFSToken: "electric",
-		Capabilities: map[string]bool{"source_alias": true, "modifier_patch": true, "activity_state": true, "modifier_filter": true, "rule_condition": true, "rule_action": true, "route_filter": true, "heatmap_filter": true, "gear_default": true, "record_grouping": true, "shadowfs_label": true, "quick_edit": true, "taxonomy_default": false},
-		TagSync:      &SportModifierTagSync{SystemTag: "E-Bike", Color: "#16A34A", Description: "Automatisch bei elektrischen Radfahrten", ReadonlySync: true, OnlySportType: "cycling", LabelContext: "cycling"},
+		Capabilities: map[string]bool{"activity_state": true, "modifier_filter": true, "modifier_patch": true, "taxonomy_default": false},
 	},
 	{
 		Key: "is_indoor", LabelDE: "Indoor", GoField: "IsIndoor", TSField: "isIndoor", JSONKey: "is_indoor",
 		ActivityColumn: "is_indoor", ApplicabilitySource: "modifier_applicability.is_indoor", ActionName: "set_indoor", ActionParam: "indoor", ShadowFSToken: "indoor",
-		Capabilities: map[string]bool{"source_alias": true, "modifier_patch": true, "activity_state": true, "modifier_filter": true, "rule_condition": true, "rule_action": true, "route_filter": true, "heatmap_filter": false, "gear_default": true, "record_grouping": true, "shadowfs_label": true, "quick_edit": true, "taxonomy_default": true},
-		TagSync:      &SportModifierTagSync{SystemTag: "Indoor", Color: "#3B82F6", Description: "Automatisch bei Indoor-Aktivitäten", ReadonlySync: true, OnlySportType: "", LabelContext: ""},
+		Capabilities: map[string]bool{"activity_state": true, "modifier_filter": true, "modifier_patch": true, "taxonomy_default": true},
 	},
 	{
 		Key: "is_virtual", LabelDE: "Virtuell", GoField: "IsVirtual", TSField: "isVirtual", JSONKey: "is_virtual",
 		ActivityColumn: "is_virtual", ApplicabilitySource: "modifier_applicability.is_virtual", ActionName: "set_virtual", ActionParam: "virtual", ShadowFSToken: "virtual",
-		Capabilities: map[string]bool{"source_alias": true, "modifier_patch": true, "activity_state": true, "modifier_filter": true, "rule_condition": true, "rule_action": true, "route_filter": true, "heatmap_filter": false, "gear_default": true, "record_grouping": true, "shadowfs_label": true, "quick_edit": true, "taxonomy_default": false},
-		TagSync:      &SportModifierTagSync{SystemTag: "virtuell", Color: "#8B5CF6", Description: "Automatisch bei virtuellen Aktivitäten", ReadonlySync: true, OnlySportType: "", LabelContext: ""},
+		Capabilities: map[string]bool{"activity_state": true, "modifier_filter": true, "modifier_patch": true, "taxonomy_default": false},
 	},
 	{
 		Key: "is_commute", LabelDE: "Pendeln", GoField: "IsCommute", TSField: "isCommute", JSONKey: "is_commute",
 		ActivityColumn: "is_commute", ApplicabilitySource: "modifier_applicability.is_commute", ActionName: "set_commute", ActionParam: "commute", ShadowFSToken: "commute",
-		Capabilities: map[string]bool{"source_alias": false, "modifier_patch": true, "activity_state": true, "modifier_filter": true, "rule_condition": true, "rule_action": true, "route_filter": true, "heatmap_filter": true, "gear_default": false, "record_grouping": false, "shadowfs_label": true, "quick_edit": false, "taxonomy_default": false},
-		TagSync:      &SportModifierTagSync{SystemTag: "Pendeln", Color: "#6B7280", Description: "Automatisch bei Pendel-Aktivitäten", ReadonlySync: false, OnlySportType: "", LabelContext: ""},
+		Capabilities: map[string]bool{"activity_state": true, "modifier_filter": true, "modifier_patch": true, "taxonomy_default": false},
 	},
 }
 
@@ -111,10 +97,6 @@ func cloneSportModifierDef(modifier SportModifierDef) SportModifierDef {
 	clone.Capabilities = make(map[string]bool, len(modifier.Capabilities))
 	for key, enabled := range modifier.Capabilities {
 		clone.Capabilities[key] = enabled
-	}
-	if modifier.TagSync != nil {
-		tagSync := *modifier.TagSync
-		clone.TagSync = &tagSync
 	}
 	return clone
 }

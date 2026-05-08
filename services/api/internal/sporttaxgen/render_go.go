@@ -139,15 +139,6 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("\tActionParam string\n")
 	buf.WriteString("\tShadowFSToken string\n")
 	buf.WriteString("\tCapabilities map[string]bool\n")
-	buf.WriteString("\tTagSync *SportModifierTagSync\n")
-	buf.WriteString("}\n\n")
-	buf.WriteString("type SportModifierTagSync struct {\n")
-	buf.WriteString("\tSystemTag string\n")
-	buf.WriteString("\tColor string\n")
-	buf.WriteString("\tDescription string\n")
-	buf.WriteString("\tReadonlySync bool\n")
-	buf.WriteString("\tOnlySportType string\n")
-	buf.WriteString("\tLabelContext string\n")
 	buf.WriteString("}\n\n")
 
 	buf.WriteString("var generatedSportModifiers = []SportModifierDef{\n")
@@ -156,9 +147,6 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 		fmt.Fprintf(&buf, "\t\tKey: %q, LabelDE: %q, GoField: %q, TSField: %q, JSONKey: %q,\n", modifier.Key, modifier.Labels["de"], modifier.GoField, modifier.TSField, modifier.JSONKey)
 		fmt.Fprintf(&buf, "\t\tActivityColumn: %q, ApplicabilitySource: %q, ActionName: %q, ActionParam: %q, ShadowFSToken: %q,\n", modifier.ActivityColumn, modifier.ApplicabilitySource, modifier.ActionName, modifier.ActionParam, modifier.ShadowFSToken)
 		fmt.Fprintf(&buf, "\t\tCapabilities: %s,\n", renderGoModifierCapabilities(modifier.Capabilities))
-		if modifier.TagSync != nil {
-			fmt.Fprintf(&buf, "\t\tTagSync: &SportModifierTagSync{SystemTag: %q, Color: %q, Description: %q, ReadonlySync: %t, OnlySportType: %q, LabelContext: %q},\n", modifier.TagSync.SystemTag, modifier.TagSync.Color, modifier.TagSync.Description, boolValue(modifier.TagSync.ReadonlySync), modifier.TagSync.OnlySportType, modifier.TagSync.LabelContext)
-		}
 		buf.WriteString("\t},\n")
 	}
 	buf.WriteString("}\n\n")
@@ -221,10 +209,6 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("\tclone.Capabilities = make(map[string]bool, len(modifier.Capabilities))\n")
 	buf.WriteString("\tfor key, enabled := range modifier.Capabilities {\n")
 	buf.WriteString("\t\tclone.Capabilities[key] = enabled\n")
-	buf.WriteString("\t}\n")
-	buf.WriteString("\tif modifier.TagSync != nil {\n")
-	buf.WriteString("\t\ttagSync := *modifier.TagSync\n")
-	buf.WriteString("\t\tclone.TagSync = &tagSync\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\treturn clone\n")
 	buf.WriteString("}\n")
