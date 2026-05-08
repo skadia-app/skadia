@@ -207,6 +207,15 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("\treturn modifier.LabelDE\n")
 	buf.WriteString("}\n\n")
 
+	buf.WriteString("func SportModifierExists(key string) bool {\n")
+	buf.WriteString("\tfor _, modifier := range generatedSportModifiers {\n")
+	buf.WriteString("\t\tif modifier.Key == key {\n")
+	buf.WriteString("\t\t\treturn true\n")
+	buf.WriteString("\t\t}\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("\treturn false\n")
+	buf.WriteString("}\n\n")
+
 	buf.WriteString("func cloneSportModifierDef(modifier SportModifierDef) SportModifierDef {\n")
 	buf.WriteString("\tclone := modifier\n")
 	buf.WriteString("\tclone.Capabilities = make(map[string]bool, len(modifier.Capabilities))\n")
