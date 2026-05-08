@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SystemTags",
+  "description": "Schema for config/tags/system_tags.yaml",
+  "type": "object",
+  "required": ["system_tags"],
+  "additionalProperties": false,
+  "properties": {
+    "system_tags": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["modifier_key", "system_tag", "color", "description", "readonly_sync"],
+        "additionalProperties": false,
+        "properties": {
+          "modifier_key": { "type": "string", "minLength": 1 },
+          "system_tag": { "type": "string", "minLength": 1 },
+          "color": {
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}$"
+          },
+          "description": { "type": "string", "minLength": 1 },
+          "readonly_sync": { "type": "boolean" },
+          "only_sport_type": { "type": "string", "minLength": 1 },
+          "label_context": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}
