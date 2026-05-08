@@ -155,7 +155,7 @@ func gearDefaultPredicatesRowValue(predicates []gear.GearDefaultPredicate) []any
 		}
 		if predicate.Modifiers != nil {
 			modifiers := map[string]any{}
-			for _, key := range sport.SportModifierKeysWithCapability("gear_default") {
+			for _, key := range gear.GearApplicableModifierKeys {
 				if value := sport.ModifierPatchValue(*predicate.Modifiers, key); value != nil {
 					modifiers[key] = *value
 				}
@@ -192,7 +192,7 @@ func mergeGearDefaultPredicateModifierPatch(existing *sport.ModifierPatch, patch
 		existing = &sport.ModifierPatch{}
 	}
 	merged := *existing
-	for _, key := range sport.SportModifierKeysWithCapability("gear_default") {
+	for _, key := range gear.GearApplicableModifierKeys {
 		if value := sport.ModifierPatchValue(patch, key); value != nil {
 			sport.SetModifierPatchValue(&merged, key, value)
 		}
