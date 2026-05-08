@@ -31,8 +31,6 @@ import (
 // maxStravaFileSize is the maximum decompressed size accepted from a Strava gzip file (500 MB).
 const maxStravaFileSize = 500 << 20
 
-var recordUnmappedSport = importmetrics.RecordUnmappedSport
-
 // ActivitiesImporter reads activity CSV and imports FIT/GPX files from a Strava export.
 //
 // activities.csv structure (German headers, German number format):
@@ -810,6 +808,10 @@ type normalizedStravaSport struct {
 }
 
 func normalizeStravaSportFields(stravaSport string, logAttrs ...any) (normalizedStravaSport, error) {
+	return normalizeStravaSportFieldsWithRecorder(stravaSport, importmetrics.RecordUnmappedSport, logAttrs...)
+}
+
+func normalizeStravaSportFieldsWithRecorder(stravaSport string, recordUnmappedSport func(importmetrics.Source), logAttrs ...any) (normalizedStravaSport, error) {
 	resolved, err := sport.ResolveSport(sport.ResolveInput{Source: sport.SourceStrava, RawSport: stravaSport})
 	if err != nil {
 		return normalizedStravaSport{}, err

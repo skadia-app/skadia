@@ -35,13 +35,10 @@ func TestKomootRouteSportTuplePreservesSubtypeAndElectricFlag(t *testing.T) {
 
 func TestKomootRouteSportTupleRecordsUnmappedSportOnce(t *testing.T) {
 	var sources []importmetrics.Source
-	previous := recordUnmappedSport
-	recordUnmappedSport = func(source importmetrics.Source) {
-		sources = append(sources, source)
-	}
-	t.Cleanup(func() { recordUnmappedSport = previous })
 
-	gotSport, _, _ := komootRouteSportTuple("definitely_unknown")
+	gotSport, _, _ := komootRouteSportTupleWithRecorder("definitely_unknown", func(source importmetrics.Source) {
+		sources = append(sources, source)
+	})
 
 	if gotSport != "unknown" {
 		t.Fatalf("sport = %q, want unknown", gotSport)

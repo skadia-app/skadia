@@ -22,8 +22,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
-var recordUnmappedSport = importmetrics.RecordUnmappedSport
-
 // ParseMultiSessionFIT parses a FIT file and returns one ActivityData per session.
 // For single-session files (the common case) it returns a slice with exactly one element.
 func ParseMultiSessionFIT(data []byte, filename string) ([]*model.ActivityData, error) {
@@ -1694,6 +1692,10 @@ func buildActivityData(fit *proto.FIT, filename string) (*model.ActivityData, er
 }
 
 func normalizeParsedActivitySport(data *model.ActivityData) error {
+	return normalizeParsedActivitySportWithRecorder(data, importmetrics.RecordUnmappedSport)
+}
+
+func normalizeParsedActivitySportWithRecorder(data *model.ActivityData, recordUnmappedSport func(importmetrics.Source)) error {
 	if data == nil {
 		return fmt.Errorf("activity data is nil")
 	}

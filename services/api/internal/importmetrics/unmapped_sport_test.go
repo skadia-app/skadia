@@ -34,6 +34,19 @@ func TestUnmappedSportRecorderBucketsUnknownSource(t *testing.T) {
 	}
 }
 
+func TestNewUnmappedSportRecorderReusesAlreadyRegisteredCounter(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	first := NewUnmappedSportRecorder(registry)
+	second := NewUnmappedSportRecorder(registry)
+
+	first.RecordUnmappedSport(SourceFIT)
+	second.RecordUnmappedSport(SourceFIT)
+
+	if got := gatherCounterValue(t, registry, "skadia_import_unmapped_sport_total", "fit"); got != 2 {
+		t.Fatalf("fit counter = %v, want 2", got)
+	}
+}
+
 func gatherCounterValue(t *testing.T, gatherer prometheus.Gatherer, metricName, source string) float64 {
 	t.Helper()
 

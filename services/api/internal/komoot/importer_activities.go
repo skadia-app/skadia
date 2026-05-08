@@ -260,6 +260,10 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 }
 
 func activityDataFromKomootTour(tour Tour, fileBytes []byte, format, userID string) (*model.ActivityData, SportMapping, bool) {
+	return activityDataFromKomootTourWithRecorder(tour, fileBytes, format, userID, importmetrics.RecordUnmappedSport)
+}
+
+func activityDataFromKomootTourWithRecorder(tour Tour, fileBytes []byte, format, userID string, recordUnmappedSport func(importmetrics.Source)) (*model.ActivityData, SportMapping, bool) {
 	var data *model.ActivityData
 	var err error
 	switch format {
@@ -268,7 +272,7 @@ func activityDataFromKomootTour(tour Tour, fileBytes []byte, format, userID stri
 	case "gpx":
 		data, err = gpximport.ParseGPX(bytes.NewReader(fileBytes), fmt.Sprintf("%d.gpx", tour.ID))
 	}
-	platformMapping, platformMapped := normalizedKomootSportMapping(tour.Sport, "user_id", userID, "tour_id", tour.ID)
+	platformMapping, platformMapped := normalizedKomootSportMappingWithRecorder(tour.Sport, recordUnmappedSport, "user_id", userID, "tour_id", tour.ID)
 	if err != nil || data == nil {
 		slog.Warn("komoot activities: parse failed", "tour_id", tour.ID, "format", format, "error", err)
 		data = tourToActivityDataFromMapping(tour, platformMapping, platformMapped)
@@ -314,6 +318,10 @@ func tourToActivityDataFromMapping(tour Tour, mapping SportMapping, mapped bool)
 }
 
 func normalizedKomootSportMapping(komootSport string, logAttrs ...any) (SportMapping, bool) {
+	return normalizedKomootSportMappingWithRecorder(komootSport, importmetrics.RecordUnmappedSport, logAttrs...)
+}
+
+func normalizedKomootSportMappingWithRecorder(komootSport string, recordUnmappedSport func(importmetrics.Source), logAttrs ...any) (SportMapping, bool) {
 	resolved, err := sport.ResolveSport(sport.ResolveInput{Source: sport.SourceKomoot, RawSport: komootSport})
 	if err != nil || !resolved.Resolved {
 		attrs := []any{"source", "komoot", "raw_sport", strings.TrimSpace(komootSport)}

@@ -89,13 +89,10 @@ func TestNormalizedKomootSportMappingUnknownStaysUnmapped(t *testing.T) {
 
 func TestNormalizedKomootSportMappingRecordsUnmappedSportOnce(t *testing.T) {
 	var sources []importmetrics.Source
-	previous := recordUnmappedSport
-	recordUnmappedSport = func(source importmetrics.Source) {
-		sources = append(sources, source)
-	}
-	t.Cleanup(func() { recordUnmappedSport = previous })
 
-	if got, ok := normalizedKomootSportMapping("definitely_unknown"); ok {
+	if got, ok := normalizedKomootSportMappingWithRecorder("definitely_unknown", func(source importmetrics.Source) {
+		sources = append(sources, source)
+	}); ok {
 		t.Fatalf("unknown Komoot sport mapped to %#v", got)
 	}
 	if len(sources) != 1 || sources[0] != importmetrics.SourceKomoot {
@@ -112,13 +109,10 @@ func TestTourToActivityDataUsesUnknownForUnmappedSport(t *testing.T) {
 
 func TestTourToActivityDataFromPrecomputedMappingDoesNotRecordAgain(t *testing.T) {
 	var sources []importmetrics.Source
-	previous := recordUnmappedSport
-	recordUnmappedSport = func(source importmetrics.Source) {
-		sources = append(sources, source)
-	}
-	t.Cleanup(func() { recordUnmappedSport = previous })
 
-	mapping, ok := normalizedKomootSportMapping("definitely_unknown")
+	mapping, ok := normalizedKomootSportMappingWithRecorder("definitely_unknown", func(source importmetrics.Source) {
+		sources = append(sources, source)
+	})
 	data := tourToActivityDataFromMapping(Tour{Sport: "definitely_unknown"}, mapping, ok)
 
 	if data.SportType != "unknown" || data.SubType != "" {
@@ -131,17 +125,14 @@ func TestTourToActivityDataFromPrecomputedMappingDoesNotRecordAgain(t *testing.T
 
 func TestActivityDataFromKomootTourParseFallbackRecordsUnmappedSportOnce(t *testing.T) {
 	var sources []importmetrics.Source
-	previous := recordUnmappedSport
-	recordUnmappedSport = func(source importmetrics.Source) {
-		sources = append(sources, source)
-	}
-	t.Cleanup(func() { recordUnmappedSport = previous })
 
-	data, _, mapped := activityDataFromKomootTour(Tour{
+	data, _, mapped := activityDataFromKomootTourWithRecorder(Tour{
 		ID:    42,
 		Type:  "tour_recorded",
 		Sport: "definitely_unknown",
-	}, []byte("not a fit file"), "fit", "user-1")
+	}, []byte("not a fit file"), "fit", "user-1", func(source importmetrics.Source) {
+		sources = append(sources, source)
+	})
 
 	if mapped {
 		t.Fatal("platform sport mapped, want unmapped")
