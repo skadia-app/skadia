@@ -1500,6 +1500,7 @@ func main() {
 			r.Get("/activities/{id}/lifts/candidates", h.GetLiftCandidates)
 			r.Get("/activities/{id}/lift-candidates", h.GetLiftCandidates)
 			r.Post("/activities/{id}/lift-candidates/{cid}/confirm", h.ConfirmLiftCandidate)
+			r.Patch("/activities/{id}/lift-candidates/{cid}/unconfirm", h.UnconfirmLiftCandidate)
 			r.Delete("/activities/{id}/lift-candidates/{cid}", h.RejectLiftCandidate)
 			r.Post("/lifts/recalculate-all", h.RecalculateLifts)
 

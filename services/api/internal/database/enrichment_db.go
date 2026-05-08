@@ -752,6 +752,51 @@ func (db *DB) RejectLiftCandidate(ctx context.Context, userID, candidateID, acti
 	return nil
 }
 
+// UnconfirmLiftCandidate flips a previously-confirmed heuristic candidate's
+// confirmed flag back to false and recomputes the activity's lift_*
+// aggregates. Mirrors ConfirmLiftCandidate's atomicity contract: the
+// candidate UPDATE and the recompute share a single transaction.
+//
+// Restrictions:
+//   - source = 'heuristic' only (OSM rows are auto-counted; undoing them
+//     is via the soft-reject path, not unconfirm).
+//   - rejected_by_user = false (a soft-rejected row already implies the
+//     user wants it OUT of aggregates; unconfirming it would be confusing).
+//
+// Both clauses are enforced in the WHERE, so a 0-row UPDATE propagates
+// pgx.ErrNoRows, which the handler maps to 404.
+func (db *DB) UnconfirmLiftCandidate(ctx context.Context, userID, candidateID, activityID string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("unconfirm lift candidate: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // Rollback after Commit is a no-op
+
+	var returnedActivityID string
+	if err := tx.QueryRow(ctx,
+		`UPDATE activity_lift_candidates alc
+		 SET confirmed = false
+		 FROM activities a
+		 WHERE alc.id = $1 AND alc.activity_id = $2
+		   AND a.id = alc.activity_id AND a.user_id = $3
+		   AND alc.source = 'heuristic'
+		   AND NOT alc.rejected_by_user
+		 RETURNING alc.activity_id`,
+		candidateID, activityID, userID,
+	).Scan(&returnedActivityID); err != nil {
+		return err
+	}
+	if err := db.recomputeLiftStatsTx(ctx, tx, userID, returnedActivityID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("unconfirm lift candidate: commit: %w", err)
+	}
+	// Sanity probe runs post-commit, mirroring the pattern in recomputeLiftStats.
+	db.warnIfLiftAggregatesExceedRaw(ctx, userID, returnedActivityID)
+	return nil
+}
+
 // recomputeLiftStats recomputes activities.lift_* columns. Phase 4c
 // dedup contract: every lift counted exactly once across the two storage
 // layers — segment_efforts (Stage 1/2/3 of the snap pipeline, auto-counted)

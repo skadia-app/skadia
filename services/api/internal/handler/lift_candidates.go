@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -119,6 +120,44 @@ func (h *Handler) ConfirmLiftCandidate(w http.ResponseWriter, r *http.Request) {
 
 	candID := chi.URLParam(r, "cid")
 	if err := h.DB.ConfirmLiftCandidate(r.Context(), userID, candID, activityID); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
+		return
+	}
+	h.reapplyRulesAfterLiftChange(r, activityID, userID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// UnconfirmLiftCandidate reverts a heuristic candidate's confirmed flag to false.
+// PATCH /api/v1/activities/{id}/lift-candidates/{cid}/unconfirm
+//
+// Restricted to source='heuristic' AND NOT rejected_by_user — see
+// database.UnconfirmLiftCandidate for the rationale. A 0-row UPDATE (wrong
+// source, already-rejected row, wrong owner, wrong activity) returns 404.
+func (h *Handler) UnconfirmLiftCandidate(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	activityID := chi.URLParam(r, "id")
+	activity, err := h.DB.GetActivity(r.Context(), activityID)
+	if err != nil {
+		slog.Error("get activity for unconfirm lift candidate failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
+		return
+	}
+	if activity == nil || activity.UserID != userID {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+		return
+	}
+
+	candID := chi.URLParam(r, "cid")
+	if err := h.DB.UnconfirmLiftCandidate(r.Context(), userID, candID, activityID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found",
+				"candidate not found, not heuristic, or already rejected", r.URL.Path)
+			return
+		}
+		slog.Error("unconfirm lift candidate failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
 	}
