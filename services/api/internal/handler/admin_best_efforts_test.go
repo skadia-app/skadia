@@ -9,6 +9,7 @@ import (
 
 type fakeAdminBestEffortsDB struct {
 	users         []string
+	forEachErr    error
 	progress      []int64
 	completed     bool
 	completedFail bool
@@ -21,7 +22,7 @@ func (db *fakeAdminBestEffortsDB) ForEachUser(_ context.Context, fn func(userID 
 			return err
 		}
 	}
-	return nil
+	return db.forEachErr
 }
 
 func (db *fakeAdminBestEffortsDB) UpdateBackgroundJobProgress(_ context.Context, _ string, current int64) error {
@@ -68,5 +69,26 @@ func TestRunAllUsersBestEffortsRecalcMarksJobFailedWhenAUserRecalcFails(t *testi
 	}
 	if len(db.progress) != 2 || db.progress[0] != 1 || db.progress[1] != 2 {
 		t.Fatalf("progress updates = %#v, want [1 2]", db.progress)
+	}
+}
+
+func TestRunAllUsersBestEffortsRecalcReportsUserAndIteratorErrors(t *testing.T) {
+	db := &fakeAdminBestEffortsDB{
+		users:      []string{"user-fail"},
+		forEachErr: errors.New("scan failed"),
+	}
+	svc := &fakeAdminBestEffortsService{errByUser: map[string]error{
+		"user-fail": errors.New("boom"),
+	}}
+
+	runAllUsersBestEffortsRecalc(context.Background(), db, svc, "job-1")
+
+	if !db.completedFail {
+		t.Fatal("background job completed as successful, want failed")
+	}
+	for _, want := range []string{"1 user recalc failed", "user-fail: boom", "scan failed"} {
+		if !strings.Contains(db.completedErr, want) {
+			t.Fatalf("completed error = %q, want substring %q", db.completedErr, want)
+		}
 	}
 }
