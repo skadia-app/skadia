@@ -16,6 +16,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/routefilter"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -411,7 +412,7 @@ func parseRouteModifierFilters(r *http.Request) sport.ModifierFilters {
 		return &value
 	}
 	filters := sport.ModifierFilters{}
-	for _, key := range sport.SportModifierKeysWithCapability("route_filter") {
+	for _, key := range routefilter.RoutingApplicableModifierKeys {
 		sport.SetModifierFilter(&filters, key, parse(key))
 	}
 	return filters
