@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/rules"
+	"github.com/skadia-app/skadia/services/api/internal/gear"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -99,7 +100,7 @@ func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []target
 		if err != nil {
 			return fmt.Errorf("default_sport_predicates: %w", err)
 		}
-		normalized, err := sport.NormalizeGearDefaultPredicates(predicates)
+		normalized, err := gear.NormalizeGearDefaultPredicates(predicates)
 		if err != nil {
 			return fmt.Errorf("default_sport_predicates: %w", err)
 		}
@@ -114,7 +115,7 @@ func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []target
 		return fmt.Errorf("default_for_sports: %w", err)
 	}
 	canonicalTopLevel := make([]string, 0, len(values))
-	predicates := make([]sport.GearDefaultPredicate, 0, len(values))
+	predicates := make([]gear.GearDefaultPredicate, 0, len(values))
 	for _, raw := range values {
 		if strings.TrimSpace(raw) == "" {
 			continue
@@ -124,19 +125,19 @@ func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []target
 			return fmt.Errorf("default_for_sports: %w", err)
 		}
 		canonicalTopLevel = append(canonicalTopLevel, tuple.SportType)
-		predicate, ok := sport.GearDefaultPredicateForSource(sport.SourceLegacy, raw)
+		predicate, ok := gear.GearDefaultPredicateForSource(sport.SourceLegacy, raw)
 		if ok {
 			predicate.Modifiers = mergeGearDefaultPredicateModifierPatch(predicate.Modifiers, patch)
 			predicates = append(predicates, predicate)
 		}
 	}
-	normalized, err := sport.NormalizeGearDefaultSports(canonicalTopLevel)
+	normalized, err := gear.NormalizeGearDefaultSports(canonicalTopLevel)
 	if err != nil {
 		return fmt.Errorf("default_for_sports: %w", err)
 	}
 	row["default_for_sports"] = normalized
 	if hasPredicates {
-		normalizedPredicates, err := sport.NormalizeGearDefaultPredicates(predicates)
+		normalizedPredicates, err := gear.NormalizeGearDefaultPredicates(predicates)
 		if err != nil {
 			return fmt.Errorf("default_sport_predicates: %w", err)
 		}
@@ -145,7 +146,7 @@ func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []target
 	return nil
 }
 
-func gearDefaultPredicatesRowValue(predicates []sport.GearDefaultPredicate) []any {
+func gearDefaultPredicatesRowValue(predicates []gear.GearDefaultPredicate) []any {
 	out := make([]any, 0, len(predicates))
 	for _, predicate := range predicates {
 		obj := map[string]any{"sport_type": predicate.SportType}
@@ -168,7 +169,7 @@ func gearDefaultPredicatesRowValue(predicates []sport.GearDefaultPredicate) []an
 	return out
 }
 
-func gearDefaultPredicatesFromRowValue(value any) ([]sport.GearDefaultPredicate, error) {
+func gearDefaultPredicatesFromRowValue(value any) ([]gear.GearDefaultPredicate, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -179,7 +180,7 @@ func gearDefaultPredicatesFromRowValue(value any) ([]sport.GearDefaultPredicate,
 	if !ok || len(raw) == 0 || strings.TrimSpace(string(raw)) == "null" {
 		return nil, nil
 	}
-	var predicates []sport.GearDefaultPredicate
+	var predicates []gear.GearDefaultPredicate
 	if err := json.Unmarshal(raw, &predicates); err != nil {
 		return nil, err
 	}
