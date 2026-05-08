@@ -20,17 +20,15 @@ func TestUnmappedSportRecorderCountsSupportedSource(t *testing.T) {
 	}
 }
 
-func TestUnmappedSportRecorderPanicsForUnsupportedSource(t *testing.T) {
+func TestUnmappedSportRecorderBucketsUnsupportedSource(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	recorder := NewUnmappedSportRecorder(registry)
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("RecordUnmappedSport accepted unsupported source")
-		}
-	}()
-
 	recorder.RecordUnmappedSport(Source("raw-provider-name"))
+
+	if got := gatherCounterValue(t, registry, "skadia_import_unmapped_sport_total", "unknown"); got != 1 {
+		t.Fatalf("unknown counter = %v, want 1", got)
+	}
 }
 
 func TestNewUnmappedSportRecorderReusesAlreadyRegisteredCounter(t *testing.T) {

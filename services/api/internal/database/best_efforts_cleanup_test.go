@@ -157,7 +157,6 @@ func TestReplaceBestEffortsForActivitiesDeletesOnlyRequestedUserRows(t *testing.
 	db, userID, activityID := bestEffortsCleanupDB(t)
 	ctx := context.Background()
 	otherDB, otherUserID, otherActivityID := bestEffortsCleanupDB(t)
-	_ = otherDB
 	now := time.Now().UTC()
 
 	for _, row := range []struct {
@@ -185,7 +184,7 @@ func TestReplaceBestEffortsForActivitiesDeletesOnlyRequestedUserRows(t *testing.
 	if err := db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM best_efforts WHERE activity_id = $1`, activityID).Scan(&ownCount); err != nil {
 		t.Fatalf("count own best_efforts: %v", err)
 	}
-	if err := db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM best_efforts WHERE activity_id = $1`, otherActivityID).Scan(&otherCount); err != nil {
+	if err := otherDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM best_efforts WHERE activity_id = $1`, otherActivityID).Scan(&otherCount); err != nil {
 		t.Fatalf("count other best_efforts: %v", err)
 	}
 	if ownCount != 0 {
@@ -321,5 +320,41 @@ func TestGetBestEffortActivityInfoExcludesMultiSessionActivities(t *testing.T) {
 	}
 	if info != nil {
 		t.Fatalf("GetBestEffortActivityInfo returned %#v, want nil for multi-session activity", info)
+	}
+}
+
+func TestGetBestEffortRecalcActivitiesOrdersEqualStartTimesByID(t *testing.T) {
+	db, userID, _ := bestEffortsCleanupDB(t)
+	ctx := context.Background()
+	startedAt := time.Now().UTC().Truncate(time.Second)
+	firstID := "00000000-0000-0000-0000-000000000101"
+	secondID := "ffffffff-ffff-ffff-ffff-ffffffff0101"
+
+	for _, activityID := range []string{secondID, firstID} {
+		if _, err := db.Pool.Exec(ctx,
+			`INSERT INTO activities (id, user_id, sport_type, title, started_at, file_hash, visibility, enrichment_status)
+			 VALUES ($1, $2, 'running', $3, $4, $5, 'private', 'complete')`,
+			activityID, userID, "Recalc Order Test "+activityID, startedAt, "best-efforts-recalc-order-"+activityID,
+		); err != nil {
+			t.Fatalf("insert activity %s: %v", activityID, err)
+		}
+	}
+
+	activities, err := db.GetBestEffortRecalcActivities(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetBestEffortRecalcActivities: %v", err)
+	}
+
+	var orderedIDs []string
+	for _, activity := range activities {
+		if activity.StartedAt.Equal(startedAt) {
+			orderedIDs = append(orderedIDs, activity.ID)
+		}
+	}
+	if len(orderedIDs) != 2 {
+		t.Fatalf("activities with shared start = %#v, want two test activities", orderedIDs)
+	}
+	if orderedIDs[0] != firstID || orderedIDs[1] != secondID {
+		t.Fatalf("shared-start order = %#v, want [%s %s]", orderedIDs, firstID, secondID)
 	}
 }

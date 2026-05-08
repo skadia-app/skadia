@@ -62,7 +62,7 @@ jobs:
     timeout-minutes: 25
     services:
       postgres:
-        image: timescale/timescaledb-ha:pg18
+        image: timescale/timescaledb-ha@sha256:a1fb8d618c2c835f7c90ac2731c0ab219129dc673304c3551d8dcdba2272c837
         env:
           POSTGRES_USER: skadia
           POSTGRES_PASSWORD: skadia_dev_password
@@ -104,6 +104,10 @@ jobs:
           dirty="$(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 --no-psqlrc -tA -c "SELECT dirty FROM schema_migrations ORDER BY version DESC LIMIT 1")"
           test "$actual" = "$expected"
           test "$dirty" = "f"
+
+      - name: Run sport taxonomy migration tests
+        run: |
+          ./scripts/test_db.sh run -- sh -c 'cd services/api && go test -count=1 ./internal/migrate/migrations -run "TestMigration000349|TestMigration000350|TestMigrationModifierRegistry|TestForbidsDirectDatabaseURL"'
 
   frontend-tests:
     name: Tests / Frontend

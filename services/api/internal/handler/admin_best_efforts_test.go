@@ -157,3 +157,25 @@ func TestRunAllUsersBestEffortsRecalcFromCheckpointResumesCurrentUser(t *testing
 		t.Fatalf("checkpoint activities = %#v, want [activity-42 \"\"]", svc.checkpointActivity)
 	}
 }
+
+func TestRunAllUsersBestEffortsRecalcFromCheckpointDoesNotSkipNewUserBeforeResumeMarker(t *testing.T) {
+	db := &fakeAdminBestEffortsDB{users: []string{"user-new-before", "user-done", "user-current", "user-next"}}
+	svc := &fakeAdminBestEffortsService{}
+
+	runAllUsersBestEffortsRecalcFromCheckpoint(context.Background(), db, svc, "job-1", allUsersBestEffortsCheckpoint{
+		LastUserID:     "user-current",
+		LastActivityID: "activity-42",
+		UserDone:       1,
+		UserTotal:      3,
+		DoneUsers:      1,
+		TotalUsers:     3,
+		DoneUserIDs:    []string{"user-done"},
+	})
+
+	if got := strings.Join(svc.calls, ","); got != "user-new-before,user-current,user-next" {
+		t.Fatalf("RecalcAll calls = %s, want user-new-before,user-current,user-next", got)
+	}
+	if len(svc.checkpointActivity) != 3 || svc.checkpointActivity[0] != "" || svc.checkpointActivity[1] != "activity-42" || svc.checkpointActivity[2] != "" {
+		t.Fatalf("checkpoint activities = %#v, want [\"\" activity-42 \"\"]", svc.checkpointActivity)
+	}
+}

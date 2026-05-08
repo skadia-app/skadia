@@ -520,7 +520,7 @@ func (db *DB) GetBestEffortRecalcIDs(ctx context.Context, userID string) ([]stri
 		`SELECT id FROM activities
 		 WHERE user_id = $1
 `+bestEffortActivityEligibilitySQL("activities")+`
-		 ORDER BY started_at ASC`,
+		 ORDER BY started_at ASC, id ASC`,
 		userID,
 	)
 	if err != nil {
@@ -569,7 +569,7 @@ func (db *DB) GetBestEffortRecalcActivities(ctx context.Context, userID string) 
 		 ) cl ON true
 		 WHERE a.user_id = $1
 `+bestEffortActivityEligibilitySQL("a")+`
-		 ORDER BY a.started_at ASC`,
+		 ORDER BY a.started_at ASC, a.id ASC`,
 		userID,
 	)
 	if err != nil {
