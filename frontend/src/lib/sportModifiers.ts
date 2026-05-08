@@ -4,6 +4,7 @@ import {
   type SportModifierKey,
   type SportModifierTSField,
 } from './generatedSportModifiers'
+import { systemTagSyncByModifierKey } from './generatedSystemTags'
 
 export type { SportModifierKey, SportModifierTSField }
 
@@ -23,13 +24,13 @@ export function modifierKeysForCapability(capability: SportModifierCapability): 
 }
 
 export function modifierTagSync(key: SportModifierKey) {
-  return modifierByKey(key)?.tagSync
+  return systemTagSyncByModifierKey(key)
 }
 
 export function modifierTagSyncOnlySportType(key: SportModifierKey): string | null {
   const sync = modifierTagSync(key)
-  if (!sync || !('onlySportType' in sync)) return null
-  return sync.onlySportType
+  if (!sync) return null
+  return sync.onlySportType || null
 }
 
 export function modifierActionName(key: SportModifierKey): string {
