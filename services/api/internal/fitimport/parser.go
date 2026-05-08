@@ -17,9 +17,12 @@ import (
 	"github.com/muktihari/fit/proto"
 
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
+	"github.com/skadia-app/skadia/services/api/internal/importmetrics"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
+
+var recordUnmappedSport = importmetrics.RecordUnmappedSport
 
 // ParseMultiSessionFIT parses a FIT file and returns one ActivityData per session.
 // For single-session files (the common case) it returns a slice with exactly one element.
@@ -1710,6 +1713,7 @@ func normalizeParsedActivitySport(data *model.ActivityData) error {
 	loggedUnmapped := false
 	if !resolved.Resolved {
 		slog.Warn("fit import: unmapped sport type", "source", "fit", "raw_sport", strings.TrimSpace(data.SportType), "raw_sub_type", strings.TrimSpace(data.SubType))
+		recordUnmappedSport(importmetrics.SourceFIT)
 		loggedUnmapped = true
 		var fallbackErr error
 		tuple, patch, fallbackErr = sport.NormalizeSportTupleForImport(data.SportType, data.SubType)
@@ -1719,6 +1723,7 @@ func normalizeParsedActivitySport(data *model.ActivityData) error {
 	}
 	if tuple.SportType == sport.UnknownSportType && !loggedUnmapped {
 		slog.Warn("fit import: unmapped sport type", "source", "fit", "raw_sport", strings.TrimSpace(data.SportType), "raw_sub_type", strings.TrimSpace(data.SubType))
+		recordUnmappedSport(importmetrics.SourceFIT)
 	}
 	data.SportType = tuple.SportType
 	data.SubType = tuple.SubType

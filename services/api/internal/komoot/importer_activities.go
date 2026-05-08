@@ -14,6 +14,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/importmetrics"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -129,27 +130,30 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 
 		// Parse file to get ActivityData
 		var data *model.ActivityData
+		var platformMapping SportMapping
+		var platformMapped bool
 		switch format {
 		case "fit":
 			data, err = fitimport.ParseFIT(bytes.NewReader(fileBytes), fmt.Sprintf("%d.fit", tour.ID))
 		case "gpx":
 			data, err = gpximport.ParseGPX(bytes.NewReader(fileBytes), fmt.Sprintf("%d.gpx", tour.ID))
 		}
+		platformMapping, platformMapped = normalizedKomootSportMapping(tour.Sport, "user_id", p.UserID, "tour_id", tour.ID)
 		if err != nil || data == nil {
 			slog.Warn("komoot activities: parse failed", "tour_id", tour.ID, "format", format, "error", err)
 			// Fallback: build minimal ActivityData from tour metadata
-			data = tourToActivityData(tour)
+			data = tourToActivityDataFromMapping(tour, platformMapping, platformMapped)
 		}
 
 		var conflictPlatformSnapshot komootSportConflictSnapshot
 		var conflictFileSnapshot komootSportConflictSnapshot
-		if mapping, ok := normalizedKomootSportMapping(tour.Sport, "user_id", p.UserID, "tour_id", tour.ID); ok {
+		if platformMapped {
 			platformSnapshot := komootSportConflictSnapshot{
-				Sport:      mapping.SportType,
-				SubType:    mapping.SubType,
-				IsElectric: mapping.IsElectric,
-				IsIndoor:   mapping.IsIndoor,
-				IsVirtual:  mapping.IsVirtual,
+				Sport:      platformMapping.SportType,
+				SubType:    platformMapping.SubType,
+				IsElectric: platformMapping.IsElectric,
+				IsIndoor:   platformMapping.IsIndoor,
+				IsVirtual:  platformMapping.IsVirtual,
 			}
 			fileSnapshot := komootSportConflictSnapshot{
 				Sport:      data.SportType,
@@ -163,7 +167,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 				conflictFileSnapshot = fileSnapshot
 				data.SportConflictPending = true
 			}
-			applyKomootSportMapping(data, mapping)
+			applyKomootSportMapping(data, platformMapping)
 		}
 
 		// Map Komoot tour visibility to activity visibility
@@ -273,11 +277,16 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 // tourToActivityData converts Komoot tour metadata to a minimal ActivityData.
 // Used as fallback when FIT/GPX parsing fails.
 func tourToActivityData(tour Tour) *model.ActivityData {
+	mapping, ok := normalizedKomootSportMapping(tour.Sport, "tour_id", tour.ID)
+	return tourToActivityDataFromMapping(tour, mapping, ok)
+}
+
+func tourToActivityDataFromMapping(tour Tour, mapping SportMapping, mapped bool) *model.ActivityData {
 	data := &model.ActivityData{
 		Source:    "Komoot",
 		StartedAt: tour.Date,
 	}
-	if mapping, ok := normalizedKomootSportMapping(tour.Sport, "tour_id", tour.ID); ok {
+	if mapped {
 		data.SportType = mapping.SportType
 		data.SubType = mapping.SubType
 		data.IsElectric = mapping.IsElectric
@@ -308,6 +317,7 @@ func normalizedKomootSportMapping(komootSport string, logAttrs ...any) (SportMap
 		attrs := []any{"source", "komoot", "raw_sport", strings.TrimSpace(komootSport)}
 		attrs = append(attrs, logAttrs...)
 		slog.Warn("komoot: unmapped sport type", attrs...)
+		recordUnmappedSport(importmetrics.SourceKomoot)
 		return SportMapping{}, false
 	}
 	modifiers := sport.ApplyModifierPatch(sport.ModifierValues{}, resolved.Patch)

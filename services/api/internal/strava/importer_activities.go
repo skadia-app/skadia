@@ -19,6 +19,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/importmetrics"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
@@ -29,6 +30,8 @@ import (
 
 // maxStravaFileSize is the maximum decompressed size accepted from a Strava gzip file (500 MB).
 const maxStravaFileSize = 500 << 20
+
+var recordUnmappedSport = importmetrics.RecordUnmappedSport
 
 // ActivitiesImporter reads activity CSV and imports FIT/GPX files from a Strava export.
 //
@@ -815,6 +818,7 @@ func normalizeStravaSportFields(stravaSport string, logAttrs ...any) (normalized
 		attrs := []any{"source", "strava", "raw_sport", strings.TrimSpace(stravaSport)}
 		attrs = append(attrs, logAttrs...)
 		slog.Warn("strava: unmapped sport type", attrs...)
+		recordUnmappedSport(importmetrics.SourceStrava)
 		return normalizedStravaSport{SportType: "unknown"}, nil
 	}
 	modifiers := sport.ApplyModifierPatch(sport.ModifierValues{}, resolved.Patch)

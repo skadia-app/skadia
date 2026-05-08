@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/importmetrics"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -86,10 +87,45 @@ func TestNormalizedKomootSportMappingUnknownStaysUnmapped(t *testing.T) {
 	}
 }
 
+func TestNormalizedKomootSportMappingRecordsUnmappedSportOnce(t *testing.T) {
+	var sources []importmetrics.Source
+	previous := recordUnmappedSport
+	recordUnmappedSport = func(source importmetrics.Source) {
+		sources = append(sources, source)
+	}
+	t.Cleanup(func() { recordUnmappedSport = previous })
+
+	if got, ok := normalizedKomootSportMapping("definitely_unknown"); ok {
+		t.Fatalf("unknown Komoot sport mapped to %#v", got)
+	}
+	if len(sources) != 1 || sources[0] != importmetrics.SourceKomoot {
+		t.Fatalf("recorded sources = %#v, want one Komoot event", sources)
+	}
+}
+
 func TestTourToActivityDataUsesUnknownForUnmappedSport(t *testing.T) {
 	data := tourToActivityData(Tour{Sport: "definitely_unknown"})
 	if data.SportType != "unknown" || data.SubType != "" {
 		t.Fatalf("tourToActivityData unknown tuple = %s/%s, want unknown/", data.SportType, data.SubType)
+	}
+}
+
+func TestTourToActivityDataFromPrecomputedMappingDoesNotRecordAgain(t *testing.T) {
+	var sources []importmetrics.Source
+	previous := recordUnmappedSport
+	recordUnmappedSport = func(source importmetrics.Source) {
+		sources = append(sources, source)
+	}
+	t.Cleanup(func() { recordUnmappedSport = previous })
+
+	mapping, ok := normalizedKomootSportMapping("definitely_unknown")
+	data := tourToActivityDataFromMapping(Tour{Sport: "definitely_unknown"}, mapping, ok)
+
+	if data.SportType != "unknown" || data.SubType != "" {
+		t.Fatalf("tourToActivityDataFromMapping unknown tuple = %s/%s, want unknown/", data.SportType, data.SubType)
+	}
+	if len(sources) != 1 || sources[0] != importmetrics.SourceKomoot {
+		t.Fatalf("recorded sources = %#v, want exactly one Komoot event", sources)
 	}
 }
 

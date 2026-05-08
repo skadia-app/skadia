@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/importmetrics"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -187,6 +188,26 @@ func TestNormalizeStravaSportFieldsWarnsForUnmappedSport(t *testing.T) {
 	raw := logs.String()
 	if !strings.Contains(raw, "unmapped sport type") || !strings.Contains(raw, "strava") {
 		t.Fatalf("warn log = %q, want unmapped strava sport warning", raw)
+	}
+}
+
+func TestNormalizeStravaSportFieldsRecordsUnmappedSportOnce(t *testing.T) {
+	var sources []importmetrics.Source
+	previous := recordUnmappedSport
+	recordUnmappedSport = func(source importmetrics.Source) {
+		sources = append(sources, source)
+	}
+	t.Cleanup(func() { recordUnmappedSport = previous })
+
+	got, err := normalizeStravaSportFields("Definitely Unknown Strava Label")
+	if err != nil {
+		t.Fatalf("normalizeStravaSportFields: %v", err)
+	}
+	if got.SportType != "unknown" {
+		t.Fatalf("SportType = %q, want unknown", got.SportType)
+	}
+	if len(sources) != 1 || sources[0] != importmetrics.SourceStrava {
+		t.Fatalf("recorded sources = %#v, want one Strava event", sources)
 	}
 }
 
