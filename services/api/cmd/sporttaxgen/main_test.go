@@ -159,7 +159,7 @@ func loadMainTestModifiers(t *testing.T) sporttaxgen.ModifierRegistry {
 
 func repoRootForMainTest(t *testing.T) string {
 	t.Helper()
-	root, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	root, err := findRepoRoot(".")
 	if err != nil {
 		t.Fatalf("repo root: %v", err)
 	}
