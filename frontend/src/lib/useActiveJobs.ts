@@ -20,6 +20,9 @@ export function invalidateQueriesForCompletedJob(queryClient: QueryClient, job: 
     queryClient.invalidateQueries({ queryKey: ['activity-streams', job.entity_id] })
     queryClient.invalidateQueries({ queryKey: ['activity-sensors', job.entity_id] })
     queryClient.invalidateQueries({ queryKey: ['activity-track-summary', job.entity_id] })
+    // Lift candidates may change when reprocess includes the lift module — refresh
+    // so the activity-detail review modal/banner reacts to newly detected rides.
+    queryClient.invalidateQueries({ queryKey: ['lift-candidates', job.entity_id] })
     return
   }
 

@@ -152,6 +152,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
       queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
       queryClient.invalidateQueries({ queryKey: ['activity-streams', activity.id] })
       queryClient.invalidateQueries({ queryKey: ['activity-sensors', activity.id] })
+      queryClient.invalidateQueries({ queryKey: ['lift-candidates', activity.id] })
       setReprocessState('success')
       setTimeout(() => setReprocessState('idle'), 2000)
     },
