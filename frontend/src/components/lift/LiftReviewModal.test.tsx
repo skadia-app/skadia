@@ -67,8 +67,8 @@ describe('LiftReviewModal', () => {
     )
 
     expect(screen.getByText(/Lifte erkannt/)).toBeTruthy()
-    expect(screen.getByText(/Ja, alle bestätigen/)).toBeTruthy()
-    expect(screen.getByText(/Nein, alle ablehnen/)).toBeTruthy()
+    expect(screen.getByText(/Alle bestätigen/)).toBeTruthy()
+    expect(screen.getByText(/Alle ablehnen/)).toBeTruthy()
     expect(screen.getByText(/Prüfen/)).toBeTruthy()
     // Expanded content must not be visible
     expect(screen.queryByText(/Inspector-Ansicht/)).toBeNull()
@@ -86,7 +86,7 @@ describe('LiftReviewModal', () => {
       { wrapper },
     )
 
-    fireEvent.click(screen.getByText(/Ja, alle bestätigen/))
+    fireEvent.click(screen.getByText(/Alle bestätigen/))
 
     await waitFor(() => {
       const calls = mockApiFetch.mock.calls
@@ -115,7 +115,7 @@ describe('LiftReviewModal', () => {
       { wrapper },
     )
 
-    fireEvent.click(screen.getByText(/Nein, alle ablehnen/))
+    fireEvent.click(screen.getByText(/Alle ablehnen/))
 
     await waitFor(() => {
       const calls = mockApiFetch.mock.calls
@@ -146,7 +146,7 @@ describe('LiftReviewModal', () => {
     fireEvent.click(screen.getByText(/Prüfen/))
 
     expect(screen.getByText(/Inspector-Ansicht/)).toBeTruthy()
-    expect(screen.queryByText(/Ja, alle bestätigen/)).toBeNull()
+    expect(screen.queryByText(/Alle bestätigen/)).toBeNull()
   })
 
   it('clicking back from expanded returns to compact', () => {
@@ -165,7 +165,7 @@ describe('LiftReviewModal', () => {
 
     fireEvent.click(screen.getByText(/Zurück zur Übersicht/))
 
-    expect(screen.getByText(/Ja, alle bestätigen/)).toBeTruthy()
+    expect(screen.getByText(/Alle bestätigen/)).toBeTruthy()
     expect(screen.queryByText(/Inspector-Ansicht/)).toBeNull()
   })
 
