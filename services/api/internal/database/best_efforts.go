@@ -6,10 +6,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 )
+
+type bestEffortExec interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
 
 // ---- Advisory lock helpers (satisfy bestefforts.Store) ----
 
@@ -133,6 +138,10 @@ func (db *DB) UpsertBestEffort(ctx context.Context, be BestEffort) error {
 // single INSERT ... ON CONFLICT statement using UNNEST arrays. A no-op for an
 // empty slice.
 func (db *DB) BatchUpsertBestEfforts(ctx context.Context, records []BestEffort) error {
+	return batchUpsertBestEfforts(ctx, db.Pool, records)
+}
+
+func batchUpsertBestEfforts(ctx context.Context, exec bestEffortExec, records []BestEffort) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -163,7 +172,7 @@ func (db *DB) BatchUpsertBestEfforts(ctx context.Context, records []BestEffort) 
 		suspiciouses[i] = r.Suspicious
 	}
 
-	_, err := db.Pool.Exec(ctx,
+	_, err := exec.Exec(ctx,
 		`INSERT INTO best_efforts
 		    (id, user_id, activity_id, category, sport_group,
 		     elapsed_time_s, value_numeric, achieved_at,
@@ -189,6 +198,70 @@ func (db *DB) BatchUpsertBestEfforts(ctx context.Context, records []BestEffort) 
 		return fmt.Errorf("batch upsert best efforts: %w", err)
 	}
 	return nil
+}
+
+func (db *DB) ReplaceBestEffortsForActivities(ctx context.Context, activityIDs []string, records []bestefforts.BestEffortRecord) error {
+	activityIDs = bestEffortReplacementActivityIDs(activityIDs, records)
+	if len(activityIDs) == 0 {
+		return nil
+	}
+
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin replace best efforts: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM best_efforts WHERE activity_id = ANY($1::uuid[])`,
+		activityIDs,
+	); err != nil {
+		return fmt.Errorf("delete replaced best efforts: %w", err)
+	}
+
+	bes := make([]BestEffort, len(records))
+	for i, r := range records {
+		bes[i] = BestEffort{
+			ID:             r.ID,
+			UserID:         r.UserID,
+			ActivityID:     r.ActivityID,
+			Category:       r.Category,
+			SportGroup:     r.SportGroup,
+			ElapsedTimeS:   r.ElapsedTimeS,
+			ValueNumeric:   r.ValueNumeric,
+			AchievedAt:     r.AchievedAt,
+			StreamStartIdx: r.StreamStartIdx,
+			StreamEndIdx:   r.StreamEndIdx,
+			Suspicious:     r.Suspicious,
+		}
+	}
+	if err := batchUpsertBestEfforts(ctx, tx, bes); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit replace best efforts: %w", err)
+	}
+	return nil
+}
+
+func bestEffortReplacementActivityIDs(activityIDs []string, records []bestefforts.BestEffortRecord) []string {
+	seen := make(map[string]bool, len(activityIDs)+len(records))
+	out := make([]string, 0, len(activityIDs)+len(records))
+	for _, activityID := range activityIDs {
+		if activityID == "" || seen[activityID] {
+			continue
+		}
+		seen[activityID] = true
+		out = append(out, activityID)
+	}
+	for _, record := range records {
+		if record.ActivityID == "" || seen[record.ActivityID] {
+			continue
+		}
+		seen[record.ActivityID] = true
+		out = append(out, record.ActivityID)
+	}
+	return out
 }
 
 // DeleteBestEffortsForActivity removes all best effort records for a single activity.
