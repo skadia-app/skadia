@@ -2,29 +2,19 @@ package database
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 )
 
 func bestEffortsCleanupDB(t *testing.T) (*DB, string, string) {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("pgxpool.New: %v", err)
-	}
-	t.Cleanup(func() { pool.Close() })
+	pool := testdb.Open(t)
+	ctx := context.Background()
 
 	suffix := uuid.NewString()[:8]
 	var userID string

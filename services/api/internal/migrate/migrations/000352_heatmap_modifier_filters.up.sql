@@ -1,4 +1,4 @@
--- 000350_heatmap_modifier_filters.up.sql
+-- 000352_heatmap_modifier_filters.up.sql
 -- Adds activity modifier filtering to the tuple-aware heatmap tile functions.
 
 CREATE OR REPLACE FUNCTION skadia_heatmap_modifier_filter_matches(
@@ -40,7 +40,7 @@ BEGIN
           AND skadia_heatmap_modifier_filter_matches(query_params, hl.activity_id)'
     );
     IF patched = fn THEN
-        RAISE EXCEPTION '000350 could not patch heatmap_lines_mvt modifier predicate';
+        RAISE EXCEPTION '000352 could not patch heatmap_lines_mvt modifier predicate';
     END IF;
     EXECUTE patched;
 
@@ -52,7 +52,7 @@ BEGIN
           AND skadia_heatmap_modifier_filter_matches(query_params, hp.activity_id)'
     );
     IF patched = fn THEN
-        RAISE EXCEPTION '000350 could not patch heatmap_points_mvt modifier predicate';
+        RAISE EXCEPTION '000352 could not patch heatmap_points_mvt modifier predicate';
     END IF;
     EXECUTE patched;
 END $$;

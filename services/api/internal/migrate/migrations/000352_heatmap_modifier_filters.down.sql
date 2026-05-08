@@ -1,4 +1,4 @@
--- 000350_heatmap_modifier_filters.down.sql
+-- 000352_heatmap_modifier_filters.down.sql
 
 DO $$
 DECLARE
@@ -13,7 +13,7 @@ BEGIN
         'AND skadia_sport_tuple_filter_matches(sport_filter, hl.sport_type, hl.sub_type)'
     );
     IF patched = fn AND position('skadia_heatmap_modifier_filter_matches(query_params, hl.activity_id)' in fn) > 0 THEN
-        RAISE EXCEPTION '000350 could not unpatch heatmap_lines_mvt modifier predicate';
+        RAISE EXCEPTION '000352 could not unpatch heatmap_lines_mvt modifier predicate';
     END IF;
     EXECUTE patched;
 
@@ -25,7 +25,7 @@ BEGIN
         'AND skadia_sport_tuple_filter_matches(sport_filter, hp.sport_type, hp.sub_type)'
     );
     IF patched = fn AND position('skadia_heatmap_modifier_filter_matches(query_params, hp.activity_id)' in fn) > 0 THEN
-        RAISE EXCEPTION '000350 could not unpatch heatmap_points_mvt modifier predicate';
+        RAISE EXCEPTION '000352 could not unpatch heatmap_points_mvt modifier predicate';
     END IF;
     EXECUTE patched;
 END $$;
