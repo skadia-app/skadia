@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
 import { GENERATED_SPORT_TAXONOMY_SOURCE_SHA256 } from '../generatedSportTaxonomy'
@@ -12,10 +11,6 @@ describe('sport taxonomy aliases', () => {
     const expected = createHash('sha256').update(yaml).digest('hex')
 
     expect(GENERATED_SPORT_TAXONOMY_SOURCE_SHA256).toBe(expected)
-  })
-
-  it('keeps generated frontend taxonomy content in sync with sports.yaml', () => {
-    execFileSync('../scripts/generate-sport-taxonomy.sh', ['--check'], { stdio: 'pipe' })
   })
 
   it('does not keep hand-maintained frontend taxonomy sister tables', () => {

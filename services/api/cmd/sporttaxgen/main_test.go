@@ -77,7 +77,7 @@ func TestRenderAliasesFromDirUsesGearDefaultProjectionSource(t *testing.T) {
 		t.Fatalf("write gear defaults config: %v", err)
 	}
 
-	goAliases, _, _, aliasesExist, err := renderAliasesFromDir("../../../../config/sport-taxonomy/aliases", configPath, taxonomy, modifiers)
+	goAliases, _, _, aliasesExist, err := renderAliasesFromDir(repoPathForMainTest(t, "config/sport-taxonomy/aliases"), configPath, taxonomy, modifiers)
 	if err != nil {
 		t.Fatalf("renderAliasesFromDir() error = %v", err)
 	}
@@ -108,7 +108,7 @@ func TestCheckModeReportsGearDefaultProjectionConfigDrift(t *testing.T) {
 	flag.CommandLine.SetOutput(io.Discard)
 	os.Args = []string{
 		"sporttaxgen",
-		"--repo-root", "../../../../",
+		"--repo-root", repoRootForMainTest(t),
 		"--gear-default-projection-source", configPath,
 		"--check",
 	}
@@ -131,7 +131,7 @@ func TestCheckModeReportsGearDefaultProjectionConfigDrift(t *testing.T) {
 
 func loadMainTestTaxonomy(t *testing.T) sporttaxgen.Taxonomy {
 	t.Helper()
-	file, err := os.Open("../../../../config/sport-taxonomy/sports.yaml")
+	file, err := os.Open(repoPathForMainTest(t, "config/sport-taxonomy/sports.yaml"))
 	if err != nil {
 		t.Fatalf("open sports.yaml: %v", err)
 	}
@@ -145,7 +145,7 @@ func loadMainTestTaxonomy(t *testing.T) sporttaxgen.Taxonomy {
 
 func loadMainTestModifiers(t *testing.T) sporttaxgen.ModifierRegistry {
 	t.Helper()
-	file, err := os.Open("../../../../config/sport-taxonomy/modifiers.yaml")
+	file, err := os.Open(repoPathForMainTest(t, "config/sport-taxonomy/modifiers.yaml"))
 	if err != nil {
 		t.Fatalf("open modifiers.yaml: %v", err)
 	}
@@ -155,4 +155,18 @@ func loadMainTestModifiers(t *testing.T) sporttaxgen.ModifierRegistry {
 		t.Fatalf("load modifiers: %v", err)
 	}
 	return modifiers
+}
+
+func repoRootForMainTest(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	if err != nil {
+		t.Fatalf("repo root: %v", err)
+	}
+	return root
+}
+
+func repoPathForMainTest(t *testing.T, rel string) string {
+	t.Helper()
+	return filepath.Join(repoRootForMainTest(t), rel)
 }
