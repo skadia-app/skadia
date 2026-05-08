@@ -9,24 +9,24 @@ import (
 	"github.com/google/uuid"
 )
 
-func readMigration000346PlanTSQL(t *testing.T) (upSQL, downSQL string) {
+func readMigration000348PlanTSQL(t *testing.T) (upSQL, downSQL string) {
 	t.Helper()
-	upBytes, err := os.ReadFile("000346_sport_taxonomy_plan_t.up.sql")
+	upBytes, err := os.ReadFile("000348_sport_taxonomy_plan_t.up.sql")
 	if err != nil {
-		t.Fatalf("read 000346 up.sql: %v", err)
+		t.Fatalf("read 000348 up.sql: %v", err)
 	}
-	downBytes, err := os.ReadFile("000346_sport_taxonomy_plan_t.down.sql")
+	downBytes, err := os.ReadFile("000348_sport_taxonomy_plan_t.down.sql")
 	if err != nil {
-		t.Fatalf("read 000346 down.sql: %v", err)
+		t.Fatalf("read 000348 down.sql: %v", err)
 	}
 	return string(upBytes), string(downBytes)
 }
 
-func TestMigration000346PlanTDeclaresRequiredContracts(t *testing.T) {
-	upSQL, downSQL := readMigration000346PlanTSQL(t)
+func TestMigration000348PlanTDeclaresRequiredContracts(t *testing.T) {
+	upSQL, downSQL := readMigration000348PlanTSQL(t)
 
 	for _, needle := range []string{
-		"SELECT pg_advisory_xact_lock(330346, 1)",
+		"SELECT pg_advisory_xact_lock(330348, 1)",
 		"ALTER TABLE activities DROP CONSTRAINT IF EXISTS activities_sport_type_canonical",
 		"wheelchair_push_walk",
 		"wheelchair_push_run",
@@ -86,8 +86,8 @@ func TestMigration000346PlanTDeclaresRequiredContracts(t *testing.T) {
 	}
 }
 
-func TestMigration000346PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
-	upSQL, downSQL := readMigration000346PlanTSQL(t)
+func TestMigration000348PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
+	upSQL, downSQL := readMigration000348PlanTSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 

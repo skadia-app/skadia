@@ -1,4 +1,4 @@
--- 000347_sport_taxonomy_predicate_validation.up.sql
+-- 000349_sport_taxonomy_predicate_validation.up.sql
 -- Refreshes fn_validate_predicates() from generated sport taxonomy data and
 -- repairs persisted tuples that became canonical top-level sport types.
 -- The migration runner wraps this file in one transaction; do not add concurrent index statements.
@@ -100,7 +100,7 @@ SELECT
 $$;
 -- END generated predicate validator
 
-CREATE OR REPLACE FUNCTION fp_000347_canonical_tuple(in_sport TEXT, in_sub_type TEXT)
+CREATE OR REPLACE FUNCTION fp_000349_canonical_tuple(in_sport TEXT, in_sub_type TEXT)
 RETURNS TABLE(sport_type TEXT, sub_type TEXT, is_indoor BOOLEAN)
 LANGUAGE plpgsql
 SET search_path = public
@@ -129,7 +129,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION fp_000347_rewrite_predicates(predicates JSONB)
+CREATE OR REPLACE FUNCTION fp_000349_rewrite_predicates(predicates JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
 SET search_path = public
@@ -149,7 +149,7 @@ BEGIN
             out := out || jsonb_build_array(pred);
             CONTINUE;
         END IF;
-        SELECT * INTO n FROM fp_000347_canonical_tuple(pred->>'sport', COALESCE(pred->>'sub_type', ''));
+        SELECT * INTO n FROM fp_000349_canonical_tuple(pred->>'sport', COALESCE(pred->>'sub_type', ''));
         rewritten := pred || jsonb_build_object('sport', n.sport_type);
         IF n.sub_type = '' THEN
             rewritten := rewritten - 'sub_type';
@@ -170,7 +170,7 @@ SET sport_type = n.sport_type,
 FROM (
     SELECT a.id, n.sport_type, n.sub_type, n.is_indoor
     FROM activities a
-    CROSS JOIN LATERAL fp_000347_canonical_tuple(a.sport_type, COALESCE(a.sub_type, '')) n
+    CROSS JOIN LATERAL fp_000349_canonical_tuple(a.sport_type, COALESCE(a.sub_type, '')) n
     WHERE a.sport_type IS DISTINCT FROM n.sport_type
        OR COALESCE(a.sub_type, '') IS DISTINCT FROM n.sub_type
        OR (n.is_indoor AND NOT a.is_indoor)
@@ -183,7 +183,7 @@ SET parsed_sport_type = n.sport_type,
 FROM (
     SELECT a.id, n.sport_type, n.sub_type, n.is_indoor
     FROM activities a
-    CROSS JOIN LATERAL fp_000347_canonical_tuple(a.parsed_sport_type, COALESCE(a.parsed_sub_type, '')) n
+    CROSS JOIN LATERAL fp_000349_canonical_tuple(a.parsed_sport_type, COALESCE(a.parsed_sub_type, '')) n
     WHERE a.parsed_sport_type IS NOT NULL
       AND (
         a.parsed_sport_type IS DISTINCT FROM n.sport_type
@@ -198,7 +198,7 @@ SET sport_type = n.sport_type,
 FROM (
     SELECT pr.id, n.sport_type, n.sub_type
     FROM planned_routes pr
-    CROSS JOIN LATERAL fp_000347_canonical_tuple(pr.sport_type, COALESCE(pr.sub_type, '')) n
+    CROSS JOIN LATERAL fp_000349_canonical_tuple(pr.sport_type, COALESCE(pr.sub_type, '')) n
     WHERE pr.sport_type IS DISTINCT FROM n.sport_type
        OR COALESCE(pr.sub_type, '') IS DISTINCT FROM n.sub_type
 ) n
@@ -211,7 +211,7 @@ SET sport_type = n.sport_type,
 FROM (
     SELECT rg.id, n.sport_type, n.sub_type, n.is_indoor
     FROM recording_groups rg
-    CROSS JOIN LATERAL fp_000347_canonical_tuple(rg.sport_type, COALESCE(rg.sub_type, '')) n
+    CROSS JOIN LATERAL fp_000349_canonical_tuple(rg.sport_type, COALESCE(rg.sub_type, '')) n
     WHERE rg.sport_type IS DISTINCT FROM n.sport_type
        OR COALESCE(rg.sub_type, '') IS DISTINCT FROM n.sub_type
        OR (n.is_indoor AND NOT rg.is_indoor)
@@ -224,7 +224,7 @@ SET sport_type = n.sport_type,
 FROM (
     SELECT h.id, n.sport_type, n.sub_type
     FROM heatmap_lines h
-    CROSS JOIN LATERAL fp_000347_canonical_tuple(h.sport_type, COALESCE(h.sub_type, '')) n
+    CROSS JOIN LATERAL fp_000349_canonical_tuple(h.sport_type, COALESCE(h.sub_type, '')) n
     WHERE h.sport_type IS DISTINCT FROM n.sport_type
        OR COALESCE(h.sub_type, '') IS DISTINCT FROM n.sub_type
 ) n
@@ -236,7 +236,7 @@ SET sport_type = n.sport_type,
 FROM (
     SELECT h.id, n.sport_type, n.sub_type
     FROM heatmap_points h
-    CROSS JOIN LATERAL fp_000347_canonical_tuple(h.sport_type, COALESCE(h.sub_type, '')) n
+    CROSS JOIN LATERAL fp_000349_canonical_tuple(h.sport_type, COALESCE(h.sub_type, '')) n
     WHERE h.sport_type IS DISTINCT FROM n.sport_type
        OR COALESCE(h.sub_type, '') IS DISTINCT FROM n.sub_type
 ) n
@@ -248,7 +248,7 @@ SET sport_type = n.sport_type,
 FROM (
     SELECT se.id, se.started_at, n.sport_type, n.sub_type
     FROM segment_efforts se
-    CROSS JOIN LATERAL fp_000347_canonical_tuple(se.sport_type, COALESCE(se.sub_type, '')) n
+    CROSS JOIN LATERAL fp_000349_canonical_tuple(se.sport_type, COALESCE(se.sub_type, '')) n
     WHERE se.sport_type IS DISTINCT FROM n.sport_type
        OR COALESCE(se.sub_type, '') IS DISTINCT FROM n.sub_type
 ) n
@@ -256,14 +256,14 @@ WHERE se.id = n.id
   AND se.started_at = n.started_at;
 
 UPDATE routing_profiles
-SET predicates = fp_000347_rewrite_predicates(predicates)
+SET predicates = fp_000349_rewrite_predicates(predicates)
 WHERE predicates IS NOT NULL;
 
 UPDATE segments
-SET allowed_predicates = fp_000347_rewrite_predicates(allowed_predicates)
+SET allowed_predicates = fp_000349_rewrite_predicates(allowed_predicates)
 WHERE allowed_predicates IS NOT NULL;
 
-CREATE OR REPLACE FUNCTION fp_000347_rewrite_sport_tuple_rows(rows JSONB, modifier_prefix TEXT)
+CREATE OR REPLACE FUNCTION fp_000349_rewrite_sport_tuple_rows(rows JSONB, modifier_prefix TEXT)
 RETURNS JSONB
 LANGUAGE plpgsql
 SET search_path = public
@@ -284,7 +284,7 @@ BEGIN
             CONTINUE;
         END IF;
 
-        SELECT * INTO n FROM fp_000347_canonical_tuple(row_item->>'sport_type', COALESCE(row_item->>'sub_type', ''));
+        SELECT * INTO n FROM fp_000349_canonical_tuple(row_item->>'sport_type', COALESCE(row_item->>'sub_type', ''));
         rewritten := row_item || jsonb_build_object('sport_type', n.sport_type);
         IF n.sub_type = '' THEN
             rewritten := rewritten - 'sub_type';
@@ -306,7 +306,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION fp_000347_rewrite_rule_conditions(conditions JSONB)
+CREATE OR REPLACE FUNCTION fp_000349_rewrite_rule_conditions(conditions JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
 SET search_path = public
@@ -323,7 +323,7 @@ BEGIN
         IF jsonb_typeof(condition_item) = 'object'
            AND condition_item->>'field' = 'sport_tuple'
            AND jsonb_typeof(condition_item->'value') = 'array' THEN
-            condition_item := jsonb_set(condition_item, '{value}', fp_000347_rewrite_sport_tuple_rows(condition_item->'value', 'condition'), true);
+            condition_item := jsonb_set(condition_item, '{value}', fp_000349_rewrite_sport_tuple_rows(condition_item->'value', 'condition'), true);
         END IF;
         out := out || jsonb_build_array(condition_item);
     END LOOP;
@@ -332,7 +332,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION fp_000347_rewrite_rule_condition_groups(groups JSONB)
+CREATE OR REPLACE FUNCTION fp_000349_rewrite_rule_condition_groups(groups JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
 SET search_path = public
@@ -347,7 +347,7 @@ BEGIN
 
     FOR group_item IN SELECT value FROM jsonb_array_elements(groups) LOOP
         IF jsonb_typeof(group_item) = 'object' AND group_item ? 'conditions' THEN
-            group_item := jsonb_set(group_item, '{conditions}', fp_000347_rewrite_rule_conditions(group_item->'conditions'), true);
+            group_item := jsonb_set(group_item, '{conditions}', fp_000349_rewrite_rule_conditions(group_item->'conditions'), true);
         END IF;
         out := out || jsonb_build_array(group_item);
     END LOOP;
@@ -356,7 +356,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION fp_000347_rewrite_rule_actions(actions JSONB)
+CREATE OR REPLACE FUNCTION fp_000349_rewrite_rule_actions(actions JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
 SET search_path = public
@@ -377,7 +377,7 @@ BEGIN
            AND jsonb_typeof(action_item->'params') = 'object'
            AND action_item->'params' ? 'sport_type' THEN
             params := action_item->'params';
-            SELECT * INTO n FROM fp_000347_canonical_tuple(params->>'sport_type', COALESCE(params->>'sub_type', ''));
+            SELECT * INTO n FROM fp_000349_canonical_tuple(params->>'sport_type', COALESCE(params->>'sub_type', ''));
             params := params || jsonb_build_object('sport_type', n.sport_type);
             IF n.sub_type = '' THEN
                 params := params - 'sub_type';
@@ -397,7 +397,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION fp_000347_rewrite_rule_branches(branches JSONB)
+CREATE OR REPLACE FUNCTION fp_000349_rewrite_rule_branches(branches JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
 SET search_path = public
@@ -412,10 +412,10 @@ BEGIN
 
     FOR branch_item IN SELECT value FROM jsonb_array_elements(branches) LOOP
         IF jsonb_typeof(branch_item) = 'object' AND branch_item ? 'condition_groups' THEN
-            branch_item := jsonb_set(branch_item, '{condition_groups}', fp_000347_rewrite_rule_condition_groups(branch_item->'condition_groups'), true);
+            branch_item := jsonb_set(branch_item, '{condition_groups}', fp_000349_rewrite_rule_condition_groups(branch_item->'condition_groups'), true);
         END IF;
         IF jsonb_typeof(branch_item) = 'object' AND branch_item ? 'actions' THEN
-            branch_item := jsonb_set(branch_item, '{actions}', fp_000347_rewrite_rule_actions(branch_item->'actions'), true);
+            branch_item := jsonb_set(branch_item, '{actions}', fp_000349_rewrite_rule_actions(branch_item->'actions'), true);
         END IF;
         out := out || jsonb_build_array(branch_item);
     END LOOP;
@@ -425,18 +425,18 @@ END;
 $$;
 
 UPDATE automation_rules
-SET conditions = fp_000347_rewrite_rule_conditions(conditions),
-    condition_groups = fp_000347_rewrite_rule_condition_groups(condition_groups),
-    actions = fp_000347_rewrite_rule_actions(actions),
-    branches = fp_000347_rewrite_rule_branches(branches);
+SET conditions = fp_000349_rewrite_rule_conditions(conditions),
+    condition_groups = fp_000349_rewrite_rule_condition_groups(condition_groups),
+    actions = fp_000349_rewrite_rule_actions(actions),
+    branches = fp_000349_rewrite_rule_branches(branches);
 
-DROP FUNCTION IF EXISTS fp_000347_rewrite_rule_branches(JSONB);
-DROP FUNCTION IF EXISTS fp_000347_rewrite_rule_actions(JSONB);
-DROP FUNCTION IF EXISTS fp_000347_rewrite_rule_condition_groups(JSONB);
-DROP FUNCTION IF EXISTS fp_000347_rewrite_rule_conditions(JSONB);
-DROP FUNCTION IF EXISTS fp_000347_rewrite_sport_tuple_rows(JSONB, TEXT);
-DROP FUNCTION IF EXISTS fp_000347_rewrite_predicates(JSONB);
-DROP FUNCTION IF EXISTS fp_000347_canonical_tuple(TEXT, TEXT);
+DROP FUNCTION IF EXISTS fp_000349_rewrite_rule_branches(JSONB);
+DROP FUNCTION IF EXISTS fp_000349_rewrite_rule_actions(JSONB);
+DROP FUNCTION IF EXISTS fp_000349_rewrite_rule_condition_groups(JSONB);
+DROP FUNCTION IF EXISTS fp_000349_rewrite_rule_conditions(JSONB);
+DROP FUNCTION IF EXISTS fp_000349_rewrite_sport_tuple_rows(JSONB, TEXT);
+DROP FUNCTION IF EXISTS fp_000349_rewrite_predicates(JSONB);
+DROP FUNCTION IF EXISTS fp_000349_canonical_tuple(TEXT, TEXT);
 
 ALTER TABLE routing_profiles
     ADD CONSTRAINT routing_profiles_predicates_valid

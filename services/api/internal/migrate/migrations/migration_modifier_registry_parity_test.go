@@ -41,8 +41,8 @@ func TestMigrationSQLModifierContractsMatchGeneratedRegistry(t *testing.T) {
 	})
 }
 
-func TestMigration000348CyclingElectricTagSyncMatchesGeneratedRegistry(t *testing.T) {
-	upSQL, _ := readMigration000348CyclingElectricTagSyncSQL(t)
+func TestMigration000350CyclingElectricTagSyncMatchesGeneratedRegistry(t *testing.T) {
+	upSQL, _ := readMigration000350CyclingElectricTagSyncSQL(t)
 	tagSyncSQL := allUpMigrationSQLContainingAnySystemTag(t, sport.SportModifierKeys())
 	for _, key := range sport.SportModifierKeys() {
 		modifier, ok := sport.SportModifierByKey(key)
@@ -59,7 +59,7 @@ func TestMigration000348CyclingElectricTagSyncMatchesGeneratedRegistry(t *testin
 				"a.sport_type = '" + modifier.TagSync.OnlySportType + "'",
 			} {
 				if !strings.Contains(upSQL, needle) {
-					t.Fatalf("000348 up migration missing %s guard %q", key, needle)
+					t.Fatalf("000350 up migration missing %s guard %q", key, needle)
 				}
 			}
 		}

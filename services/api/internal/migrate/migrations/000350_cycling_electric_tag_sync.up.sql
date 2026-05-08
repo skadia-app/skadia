@@ -1,4 +1,4 @@
--- 000348_cycling_electric_tag_sync.up.sql
+-- 000350_cycling_electric_tag_sync.up.sql
 
 -- E-Bike is a cycling-specific system tag. is_electric remains a generic
 -- activity modifier and may be true for non-cycling activities.

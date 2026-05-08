@@ -3,15 +3,13 @@ package database
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/rules"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestValidateAutomationRuleJSONRejectsInvalidSportTuple(t *testing.T) {
@@ -69,7 +67,8 @@ func TestUpdateRuleRejectsPartialMixedSportTupleAndLegacyList(t *testing.T) {
 func TestUpdateRuleRejectsPartialMixedLegacyListAndSportTuple(t *testing.T) {
 	db, userID := ruleValidationDB(t)
 	rule, err := db.CreateRule(context.Background(), userID, &model.AutomationRuleCreate{
-		Name: "Tuple",
+		Name:       "Tuple",
+		Conditions: json.RawMessage(`[]`),
 		ConditionGroups: json.RawMessage(`[
 			{"logic":"and","conditions":[{"field":"sport_tuple","op":"in","value":[{"sport_type":"cycling"}]}]}
 		]`),
@@ -153,17 +152,8 @@ func TestListRulesUsesSystemTagCountsForReadonlySyncRules(t *testing.T) {
 
 func ruleValidationDB(t *testing.T) (*DB, string) {
 	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL not set")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		t.Fatalf("pgxpool.New: %v", err)
-	}
-	t.Cleanup(func() { pool.Close() })
+	pool := testdb.Open(t)
+	ctx := context.Background()
 	userID := uuid.NewString()
 	if _, err := pool.Exec(ctx,
 		`INSERT INTO users (id, username, email, email_verified, registration_source)

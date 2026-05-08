@@ -13,20 +13,20 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
-func readMigration000347PredicateValidationSQL(t *testing.T) (upSQL, downSQL string) {
+func readMigration000349PredicateValidationSQL(t *testing.T) (upSQL, downSQL string) {
 	t.Helper()
-	upBytes, err := os.ReadFile("000347_sport_taxonomy_predicate_validation.up.sql")
+	upBytes, err := os.ReadFile("000349_sport_taxonomy_predicate_validation.up.sql")
 	if err != nil {
-		t.Fatalf("read 000347 up.sql: %v", err)
+		t.Fatalf("read 000349 up.sql: %v", err)
 	}
-	downBytes, err := os.ReadFile("000347_sport_taxonomy_predicate_validation.down.sql")
+	downBytes, err := os.ReadFile("000349_sport_taxonomy_predicate_validation.down.sql")
 	if err != nil {
-		t.Fatalf("read 000347 down.sql: %v", err)
+		t.Fatalf("read 000349 down.sql: %v", err)
 	}
 	return string(upBytes), string(downBytes)
 }
 
-func strPtr000347(v string) *string {
+func strPtr000349(v string) *string {
 	return &v
 }
 
@@ -56,7 +56,7 @@ func generatedPredicateValidatorFunctionSource(t *testing.T, sql string) string 
 	return strings.TrimSpace(block[start+len(begin) : stop])
 }
 
-func predicateValidatorStatement000347(t *testing.T, sql string) string {
+func predicateValidatorStatement000349(t *testing.T, sql string) string {
 	t.Helper()
 	const begin = "CREATE OR REPLACE FUNCTION fn_validate_predicates"
 	start := strings.Index(sql, begin)
@@ -70,8 +70,8 @@ func predicateValidatorStatement000347(t *testing.T, sql string) string {
 	return strings.TrimSpace(sql[start:start+stop+len("$$;")]) + "\n"
 }
 
-func TestMigration000347PredicateValidatorMatchesGeneratedSQL(t *testing.T) {
-	upSQL, _ := readMigration000347PredicateValidationSQL(t)
+func TestMigration000349PredicateValidatorMatchesGeneratedSQL(t *testing.T) {
+	upSQL, _ := readMigration000349PredicateValidationSQL(t)
 	generated, err := os.ReadFile("../../sport/predicate_validation_generated.sql")
 	if err != nil {
 		t.Fatalf("read generated predicate SQL: %v", err)
@@ -82,8 +82,8 @@ func TestMigration000347PredicateValidatorMatchesGeneratedSQL(t *testing.T) {
 	}
 }
 
-func TestMigration000347DownRestoresPostPlanTValidator(t *testing.T) {
-	_, downSQL := readMigration000347PredicateValidationSQL(t)
+func TestMigration000349DownRestoresPostPlanTValidator(t *testing.T) {
+	_, downSQL := readMigration000349PredicateValidationSQL(t)
 	for _, required := range []string{
 		"('wheelchair_push','walk_speed')",
 		"('wheelchair_push','run_speed')",
@@ -106,8 +106,8 @@ func TestMigration000347DownRestoresPostPlanTValidator(t *testing.T) {
 	}
 }
 
-func TestMigration000347PredicateValidationDeclaresRequiredContracts(t *testing.T) {
-	upSQL, downSQL := readMigration000347PredicateValidationSQL(t)
+func TestMigration000349PredicateValidationDeclaresRequiredContracts(t *testing.T) {
+	upSQL, downSQL := readMigration000349PredicateValidationSQL(t)
 	for _, needle := range []string{
 		"SELECT pg_advisory_xact_lock(hashtext('sport_taxonomy_predicate_validation'), 1)",
 		"CREATE OR REPLACE FUNCTION fn_validate_predicates",
@@ -139,7 +139,7 @@ func TestMigration000347PredicateValidationDeclaresRequiredContracts(t *testing.
 		}
 	}
 	if strings.Contains(downSQL, "ALTER TABLE routing_profiles VALIDATE CONSTRAINT routing_profiles_predicates_valid") {
-		t.Fatal("down migration must restore 000346 routing_profiles constraint shape without a separate VALIDATE")
+		t.Fatal("down migration must restore 000348 routing_profiles constraint shape without a separate VALIDATE")
 	}
 	if strings.Contains(upSQL, "Schema-only") {
 		t.Fatal("up migration must not claim to be schema-only because it repairs persisted tuples")
@@ -158,9 +158,9 @@ func TestMigration000347PredicateValidationDeclaresRequiredContracts(t *testing.
 	}
 }
 
-func TestMigration000347FullUpDownOnRealTables(t *testing.T) {
-	upSQL, downSQL := readMigration000347PredicateValidationSQL(t)
-	planTUpSQL, _ := readMigration000346PlanTSQL(t)
+func TestMigration000349FullUpDownOnRealTables(t *testing.T) {
+	upSQL, downSQL := readMigration000349PredicateValidationSQL(t)
+	planTUpSQL, _ := readMigration000348PlanTSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -175,7 +175,7 @@ func TestMigration000347FullUpDownOnRealTables(t *testing.T) {
 	})
 
 	if _, err := tx.Exec(ctx, planTUpSQL); err != nil {
-		t.Fatalf("apply prerequisite 000346 up.sql: %v", err)
+		t.Fatalf("apply prerequisite 000348 up.sql: %v", err)
 	}
 
 	userID := uuid.NewString()
@@ -207,7 +207,7 @@ func TestMigration000347FullUpDownOnRealTables(t *testing.T) {
 	}
 
 	if _, err := tx.Exec(ctx, upSQL); err != nil {
-		t.Fatalf("apply 000347 up.sql: %v", err)
+		t.Fatalf("apply 000349 up.sql: %v", err)
 	}
 
 	var parsedSport, parsedSubType string
@@ -219,7 +219,7 @@ func TestMigration000347FullUpDownOnRealTables(t *testing.T) {
 		t.Fatalf("query parsed-only rewrite activity: %v", err)
 	}
 	if parsedSport != "running" || parsedSubType != "treadmill" || isIndoor {
-		t.Fatalf("parsed-only 000347 rewrite = (%s,%s), indoor=%v; want parsed tuple only", parsedSport, parsedSubType, isIndoor)
+		t.Fatalf("parsed-only 000349 rewrite = (%s,%s), indoor=%v; want parsed tuple only", parsedSport, parsedSubType, isIndoor)
 	}
 
 	var automationJSON string
@@ -241,15 +241,15 @@ func TestMigration000347FullUpDownOnRealTables(t *testing.T) {
 		}
 	}
 
-	assertMigration000347RealTableConstraints(t, ctx, tx, "up")
+	assertMigration000349RealTableConstraints(t, ctx, tx, "up")
 
 	if _, err := tx.Exec(ctx, downSQL); err != nil {
-		t.Fatalf("apply 000347 down.sql: %v", err)
+		t.Fatalf("apply 000349 down.sql: %v", err)
 	}
-	assertMigration000347RealTableConstraints(t, ctx, tx, "down")
+	assertMigration000349RealTableConstraints(t, ctx, tx, "down")
 }
 
-func assertMigration000347RealTableConstraints(t *testing.T, ctx context.Context, tx pgx.Tx, phase string) {
+func assertMigration000349RealTableConstraints(t *testing.T, ctx context.Context, tx pgx.Tx, phase string) {
 	t.Helper()
 
 	userID := uuid.NewString()
@@ -266,7 +266,7 @@ func assertMigration000347RealTableConstraints(t *testing.T, ctx context.Context
 	`, userID, "valid "+phase); err != nil {
 		t.Fatalf("%s: valid routing profile rejected: %v", phase, err)
 	}
-	expectConstraintFailure000347(t, ctx, tx, `
+	expectConstraintFailure000349(t, ctx, tx, `
 		INSERT INTO routing_profiles (user_id, name, base_profile, sport_types, predicates, modifier_filters, config, source)
 		VALUES ($1, $2, 'cycling', ARRAY['cycling'], '[{"sport":"mountain_biking"}]'::jsonb, '{}'::jsonb, '{}'::jsonb, 'user')
 	`, userID, "invalid "+phase)
@@ -277,7 +277,7 @@ func assertMigration000347RealTableConstraints(t *testing.T, ctx context.Context
 	`, userID); err != nil {
 		t.Fatalf("%s: valid planned route rejected: %v", phase, err)
 	}
-	expectConstraintFailure000347(t, ctx, tx, `
+	expectConstraintFailure000349(t, ctx, tx, `
 		INSERT INTO planned_routes (user_id, name, sport_type, sub_type, profile, geometry, waypoints, segments)
 		VALUES ($1, 'invalid route', 'cycling', 'does_not_exist', 'cycling', ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326), '[]'::jsonb, '[]'::jsonb)
 	`, userID)
@@ -288,7 +288,7 @@ func assertMigration000347RealTableConstraints(t *testing.T, ctx context.Context
 	`, userID); err != nil {
 		t.Fatalf("%s: valid activity rejected: %v", phase, err)
 	}
-	expectConstraintFailure000347(t, ctx, tx, `
+	expectConstraintFailure000349(t, ctx, tx, `
 		INSERT INTO activities (id, user_id, title, sport_type, sub_type, parsed_sport_type, parsed_sub_type, is_indoor, started_at)
 		VALUES (gen_random_uuid(), $1, 'invalid activity', 'cycling', 'does_not_exist', NULL, NULL, false, now())
 	`, userID)
@@ -299,14 +299,14 @@ func assertMigration000347RealTableConstraints(t *testing.T, ctx context.Context
 	`, userID); err != nil {
 		t.Fatalf("%s: valid segment rejected: %v", phase, err)
 	}
-	expectConstraintFailure000347(t, ctx, tx, `
+	expectConstraintFailure000349(t, ctx, tx, `
 		INSERT INTO segments (id, created_by, name, sport_group, allowed_predicates)
 		VALUES (gen_random_uuid(), $1, 'invalid segment', 'foot', '[{"sport":"mountain_biking"}]'::jsonb)
 	`, userID)
 }
 
-func TestMigration000347InstallsGeneratedFunctionBody(t *testing.T) {
-	upSQL, _ := readMigration000347PredicateValidationSQL(t)
+func TestMigration000349InstallsGeneratedFunctionBody(t *testing.T) {
+	upSQL, _ := readMigration000349PredicateValidationSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -333,8 +333,8 @@ func TestMigration000347InstallsGeneratedFunctionBody(t *testing.T) {
 	}
 }
 
-func TestMigration000347PredicateValidatorMatchesGoValidation(t *testing.T) {
-	upSQL, _ := readMigration000347PredicateValidationSQL(t)
+func TestMigration000349PredicateValidatorMatchesGoValidation(t *testing.T) {
+	upSQL, _ := readMigration000349PredicateValidationSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -358,13 +358,13 @@ func TestMigration000347PredicateValidatorMatchesGoValidation(t *testing.T) {
 		preds []sport.Predicate
 	}{
 		{name: "empty predicate array", preds: []sport.Predicate{}},
-		{name: "cycling mountain", preds: []sport.Predicate{{Sport: "cycling", SubType: strPtr000347("mountain")}}},
+		{name: "cycling mountain", preds: []sport.Predicate{{Sport: "cycling", SubType: strPtr000349("mountain")}}},
 		{name: "cycling parent exactly", preds: []sport.Predicate{{Sport: "cycling", SubType: &empty}}},
-		{name: "canonical non selectable subtype is valid storage", preds: []sport.Predicate{{Sport: "transition", SubType: strPtr000347("bike_to_run_transition")}}},
-		{name: "wheelchair walk speed", preds: []sport.Predicate{{Sport: "wheelchair_push", SubType: strPtr000347("walk_speed")}}},
-		{name: "racket badminton", preds: []sport.Predicate{{Sport: "racket", SubType: strPtr000347("badminton")}}},
+		{name: "canonical non selectable subtype is valid storage", preds: []sport.Predicate{{Sport: "transition", SubType: strPtr000349("bike_to_run_transition")}}},
+		{name: "wheelchair walk speed", preds: []sport.Predicate{{Sport: "wheelchair_push", SubType: strPtr000349("walk_speed")}}},
+		{name: "racket badminton", preds: []sport.Predicate{{Sport: "racket", SubType: strPtr000349("badminton")}}},
 		{name: "unknown sport", preds: []sport.Predicate{{Sport: "not_a_sport"}}},
-		{name: "unknown subtype", preds: []sport.Predicate{{Sport: "cycling", SubType: strPtr000347("does_not_exist")}}},
+		{name: "unknown subtype", preds: []sport.Predicate{{Sport: "cycling", SubType: strPtr000349("does_not_exist")}}},
 		{name: "legacy alias rejected", preds: []sport.Predicate{{Sport: "mountain_biking"}}},
 	}
 	for _, tc := range cases {
@@ -385,8 +385,8 @@ func TestMigration000347PredicateValidatorMatchesGoValidation(t *testing.T) {
 	}
 }
 
-func TestMigration000347DownMigrationRestoresPreviousValidator(t *testing.T) {
-	upSQL, downSQL := readMigration000347PredicateValidationSQL(t)
+func TestMigration000349DownMigrationRestoresPreviousValidator(t *testing.T) {
+	upSQL, downSQL := readMigration000349PredicateValidationSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -399,7 +399,7 @@ func TestMigration000347DownMigrationRestoresPreviousValidator(t *testing.T) {
 	if _, err := tx.Exec(ctx, generatedPredicateValidatorBlock(t, upSQL)); err != nil {
 		t.Fatalf("install generated validator: %v", err)
 	}
-	if _, err := tx.Exec(ctx, predicateValidatorStatement000347(t, downSQL)); err != nil {
+	if _, err := tx.Exec(ctx, predicateValidatorStatement000349(t, downSQL)); err != nil {
 		t.Fatalf("install down validator: %v", err)
 	}
 
@@ -427,7 +427,7 @@ func TestMigration000347DownMigrationRestoresPreviousValidator(t *testing.T) {
 	}
 }
 
-func expectConstraintFailure000347(t *testing.T, ctx context.Context, tx pgx.Tx, query string, args ...any) {
+func expectConstraintFailure000349(t *testing.T, ctx context.Context, tx pgx.Tx, query string, args ...any) {
 	t.Helper()
 	if _, err := tx.Exec(ctx, `SAVEPOINT predicate_constraint_check`); err != nil {
 		t.Fatalf("create savepoint: %v", err)
@@ -443,8 +443,8 @@ func expectConstraintFailure000347(t *testing.T, ctx context.Context, tx pgx.Tx,
 	}
 }
 
-func TestMigration000347PredicateConstraintsRejectInvalidRows(t *testing.T) {
-	upSQL, _ := readMigration000347PredicateValidationSQL(t)
+func TestMigration000349PredicateConstraintsRejectInvalidRows(t *testing.T) {
+	upSQL, _ := readMigration000349PredicateValidationSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -457,12 +457,12 @@ func TestMigration000347PredicateConstraintsRejectInvalidRows(t *testing.T) {
 		t.Fatalf("install generated validator: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		CREATE TEMP TABLE predicate_routing_profiles_000347 (
+		CREATE TEMP TABLE predicate_routing_profiles_000349 (
 			predicates JSONB NOT NULL,
 			CONSTRAINT routing_profiles_predicates_valid
 				CHECK (jsonb_array_length(predicates) > 0 AND fn_validate_predicates(predicates))
 		) ON COMMIT DROP;
-		CREATE TEMP TABLE predicate_planned_routes_000347 (
+		CREATE TEMP TABLE predicate_planned_routes_000349 (
 			sport_type TEXT NOT NULL,
 			sub_type TEXT,
 			CONSTRAINT planned_routes_sport_tuple_valid
@@ -471,7 +471,7 @@ func TestMigration000347PredicateConstraintsRejectInvalidRows(t *testing.T) {
 					'sub_type', sub_type
 				)))))
 		) ON COMMIT DROP;
-		CREATE TEMP TABLE predicate_activities_000347 (
+		CREATE TEMP TABLE predicate_activities_000349 (
 			sport_type TEXT NOT NULL,
 			sub_type TEXT,
 			CONSTRAINT activities_sport_type_canonical
@@ -480,7 +480,7 @@ func TestMigration000347PredicateConstraintsRejectInvalidRows(t *testing.T) {
 					'sub_type', sub_type
 				)))))
 		) ON COMMIT DROP;
-		CREATE TEMP TABLE predicate_segments_000347 (
+		CREATE TEMP TABLE predicate_segments_000349 (
 			segment_type TEXT NOT NULL DEFAULT 'standard',
 			allowed_predicates JSONB,
 			CONSTRAINT segments_allowed_predicates_valid
@@ -491,70 +491,70 @@ func TestMigration000347PredicateConstraintsRejectInvalidRows(t *testing.T) {
 	}
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO predicate_routing_profiles_000347 (predicates)
+		INSERT INTO predicate_routing_profiles_000349 (predicates)
 		VALUES ('[{"sport":"cycling","sub_type":"mountain"}]'::jsonb)
 	`); err != nil {
 		t.Fatalf("valid routing profile rejected: %v", err)
 	}
-	expectConstraintFailure000347(t, ctx, tx, `
-		INSERT INTO predicate_routing_profiles_000347 (predicates)
+	expectConstraintFailure000349(t, ctx, tx, `
+		INSERT INTO predicate_routing_profiles_000349 (predicates)
 		VALUES ('[{"sport":"mountain_biking"}]'::jsonb)
 	`)
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO predicate_planned_routes_000347 (sport_type, sub_type)
+		INSERT INTO predicate_planned_routes_000349 (sport_type, sub_type)
 		VALUES ('cycling', 'mountain')
 	`); err != nil {
 		t.Fatalf("valid planned route rejected: %v", err)
 	}
 	for _, sportType := range []string{"generic", "unknown", "hiking"} {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO predicate_planned_routes_000347 (sport_type, sub_type)
+			INSERT INTO predicate_planned_routes_000349 (sport_type, sub_type)
 			VALUES ($1, NULL)
 		`, sportType); err != nil {
 			t.Fatalf("valid planned route fallback %q rejected: %v", sportType, err)
 		}
 	}
-	expectConstraintFailure000347(t, ctx, tx, `
-		INSERT INTO predicate_planned_routes_000347 (sport_type, sub_type)
+	expectConstraintFailure000349(t, ctx, tx, `
+		INSERT INTO predicate_planned_routes_000349 (sport_type, sub_type)
 		VALUES ('cycling', 'does_not_exist')
 	`)
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO predicate_activities_000347 (sport_type, sub_type)
+		INSERT INTO predicate_activities_000349 (sport_type, sub_type)
 		VALUES ('cycling', 'mountain')
 	`); err != nil {
 		t.Fatalf("valid activity rejected: %v", err)
 	}
-	expectConstraintFailure000347(t, ctx, tx, `
-		INSERT INTO predicate_activities_000347 (sport_type, sub_type)
+	expectConstraintFailure000349(t, ctx, tx, `
+		INSERT INTO predicate_activities_000349 (sport_type, sub_type)
 		VALUES ('cycling', 'does_not_exist')
 	`)
 
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO predicate_segments_000347 (allowed_predicates)
+		INSERT INTO predicate_segments_000349 (allowed_predicates)
 		VALUES ('[{"sport":"cycling","sub_type":"mountain"}]'::jsonb)
 	`); err != nil {
 		t.Fatalf("valid segment rejected: %v", err)
 	}
-	expectConstraintFailure000347(t, ctx, tx, `
-		INSERT INTO predicate_segments_000347 (allowed_predicates)
+	expectConstraintFailure000349(t, ctx, tx, `
+		INSERT INTO predicate_segments_000349 (allowed_predicates)
 		VALUES ('[{"sport":"mountain_biking"}]'::jsonb)
 	`)
-	expectConstraintFailure000347(t, ctx, tx, `
-		INSERT INTO predicate_segments_000347 (segment_type, allowed_predicates)
+	expectConstraintFailure000349(t, ctx, tx, `
+		INSERT INTO predicate_segments_000349 (segment_type, allowed_predicates)
 		VALUES ('wintersport', '[{"sport":"cycling","sub_type":"mountain"}]'::jsonb)
 	`)
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO predicate_segments_000347 (segment_type, allowed_predicates)
+		INSERT INTO predicate_segments_000349 (segment_type, allowed_predicates)
 		VALUES ('wintersport', '[{"sport":"snowshoeing"}]'::jsonb)
 	`); err != nil {
 		t.Fatalf("valid winter segment predicate rejected: %v", err)
 	}
 }
 
-func TestMigration000347PredicateValidatorRejectsMalformedJSON(t *testing.T) {
-	upSQL, _ := readMigration000347PredicateValidationSQL(t)
+func TestMigration000349PredicateValidatorRejectsMalformedJSON(t *testing.T) {
+	upSQL, _ := readMigration000349PredicateValidationSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 	tx, err := pool.Begin(ctx)

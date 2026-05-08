@@ -12,21 +12,21 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func readMigration000348CyclingElectricTagSyncSQL(t *testing.T) (upSQL, downSQL string) {
+func readMigration000350CyclingElectricTagSyncSQL(t *testing.T) (upSQL, downSQL string) {
 	t.Helper()
-	upBytes, err := os.ReadFile("000348_cycling_electric_tag_sync.up.sql")
+	upBytes, err := os.ReadFile("000350_cycling_electric_tag_sync.up.sql")
 	if err != nil {
-		t.Fatalf("read 000348 up.sql: %v", err)
+		t.Fatalf("read 000350 up.sql: %v", err)
 	}
-	downBytes, err := os.ReadFile("000348_cycling_electric_tag_sync.down.sql")
+	downBytes, err := os.ReadFile("000350_cycling_electric_tag_sync.down.sql")
 	if err != nil {
-		t.Fatalf("read 000348 down.sql: %v", err)
+		t.Fatalf("read 000350 down.sql: %v", err)
 	}
 	return string(upBytes), string(downBytes)
 }
 
-func TestMigration000348CyclingElectricTagSyncDeclaresRequiredContracts(t *testing.T) {
-	upSQL, downSQL := readMigration000348CyclingElectricTagSyncSQL(t)
+func TestMigration000350CyclingElectricTagSyncDeclaresRequiredContracts(t *testing.T) {
+	upSQL, downSQL := readMigration000350CyclingElectricTagSyncSQL(t)
 	for _, needle := range []string{
 		"SELECT pg_advisory_xact_lock(hashtext('cycling_electric_tag_sync'), 1)",
 		"INSERT INTO tags",
@@ -81,8 +81,8 @@ func TestMigration000348CyclingElectricTagSyncDeclaresRequiredContracts(t *testi
 	}
 }
 
-func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) {
-	upSQL, downSQL := readMigration000348CyclingElectricTagSyncSQL(t)
+func TestMigration000350CyclingElectricTagSyncAppliesToRealTables(t *testing.T) {
+	upSQL, downSQL := readMigration000350CyclingElectricTagSyncSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -172,19 +172,19 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	if _, err := tx.Exec(ctx, upSQL); err != nil {
 		t.Fatalf("apply up.sql: %v", err)
 	}
-	assertHasSystemEBikeLink000348(t, ctx, tx, cyclingID, true)
-	assertHasSystemEBikeLink000348(t, ctx, tx, runningID, false)
-	assertActivityElectric000348(t, ctx, tx, runningID, true)
-	assertActivityTagArrayHas000348(t, ctx, tx, runningID, "E-Bike", false)
-	assertSystemEBikeTagCount000348(t, ctx, tx, missingTagUserID, 1)
-	assertHasSystemEBikeLink000348(t, ctx, tx, missingTagCyclingID, true)
-	assertActivityTagArrayHas000348(t, ctx, tx, missingTagCyclingID, "E-Bike", true)
-	assertActivityTagLinkCount000348(t, ctx, tx, missingTagCyclingID, 1)
-	assertSystemEBikeTagCount000348(t, ctx, tx, customExistingUserID, 1)
-	assertSystemEBikeTagStyle000348(t, ctx, tx, customExistingUserID, "#111111", "#FFFFFF", "custom")
-	assertSystemEBikeTagAutomation000348(t, ctx, tx, customExistingUserID, "custom", true, `[{"field": "sport_type", "op": "eq", "value": "cycling"}]`, "and")
-	assertHasSystemEBikeLink000348(t, ctx, tx, customExistingCyclingID, true)
-	assertActivityTagArrayHas000348(t, ctx, tx, customExistingCyclingID, "E-Bike", true)
+	assertHasSystemEBikeLink000350(t, ctx, tx, cyclingID, true)
+	assertHasSystemEBikeLink000350(t, ctx, tx, runningID, false)
+	assertActivityElectric000350(t, ctx, tx, runningID, true)
+	assertActivityTagArrayHas000350(t, ctx, tx, runningID, "E-Bike", false)
+	assertSystemEBikeTagCount000350(t, ctx, tx, missingTagUserID, 1)
+	assertHasSystemEBikeLink000350(t, ctx, tx, missingTagCyclingID, true)
+	assertActivityTagArrayHas000350(t, ctx, tx, missingTagCyclingID, "E-Bike", true)
+	assertActivityTagLinkCount000350(t, ctx, tx, missingTagCyclingID, 1)
+	assertSystemEBikeTagCount000350(t, ctx, tx, customExistingUserID, 1)
+	assertSystemEBikeTagStyle000350(t, ctx, tx, customExistingUserID, "#111111", "#FFFFFF", "custom")
+	assertSystemEBikeTagAutomation000350(t, ctx, tx, customExistingUserID, "custom", true, `[{"field": "sport_type", "op": "eq", "value": "cycling"}]`, "and")
+	assertHasSystemEBikeLink000350(t, ctx, tx, customExistingCyclingID, true)
+	assertActivityTagArrayHas000350(t, ctx, tx, customExistingCyclingID, "E-Bike", true)
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto)
@@ -205,15 +205,15 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	`, insertCyclingID, insertRunningID, userID); err != nil {
 		t.Fatalf("insert post-migration activities: %v", err)
 	}
-	assertActivityTagArrayHas000348(t, ctx, tx, insertCyclingID, "Indoor", true)
-	assertActivityTagArrayHas000348(t, ctx, tx, insertCyclingID, "Pendeln", true)
-	assertActivityTagArrayHas000348(t, ctx, tx, insertCyclingID, "E-Bike", true)
-	assertHasSystemTagLink000348(t, ctx, tx, insertCyclingID, "Indoor", true)
-	assertHasSystemTagLink000348(t, ctx, tx, insertCyclingID, "Pendeln", true)
-	assertHasSystemTagLink000348(t, ctx, tx, insertCyclingID, "E-Bike", true)
-	assertActivityElectric000348(t, ctx, tx, insertRunningID, true)
-	assertActivityTagArrayHas000348(t, ctx, tx, insertRunningID, "E-Bike", false)
-	assertHasSystemEBikeLink000348(t, ctx, tx, insertRunningID, false)
+	assertActivityTagArrayHas000350(t, ctx, tx, insertCyclingID, "Indoor", true)
+	assertActivityTagArrayHas000350(t, ctx, tx, insertCyclingID, "Pendeln", true)
+	assertActivityTagArrayHas000350(t, ctx, tx, insertCyclingID, "E-Bike", true)
+	assertHasSystemTagLink000350(t, ctx, tx, insertCyclingID, "Indoor", true)
+	assertHasSystemTagLink000350(t, ctx, tx, insertCyclingID, "Pendeln", true)
+	assertHasSystemTagLink000350(t, ctx, tx, insertCyclingID, "E-Bike", true)
+	assertActivityElectric000350(t, ctx, tx, insertRunningID, true)
+	assertActivityTagArrayHas000350(t, ctx, tx, insertRunningID, "E-Bike", false)
+	assertHasSystemEBikeLink000350(t, ctx, tx, insertRunningID, false)
 
 	customUserID := uuid.NewString()
 	if _, err := tx.Exec(ctx, `
@@ -238,33 +238,33 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	if _, err := tx.Exec(ctx, `UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), 'Urlaub') WHERE id = $1`, customRunningID); err != nil {
 		t.Fatalf("add unrelated custom E-Bike activity tag: %v", err)
 	}
-	assertActivityTagArrayHas000348(t, ctx, tx, customRunningID, "E-Bike", false)
-	assertActivityElectric000348(t, ctx, tx, customRunningID, true)
+	assertActivityTagArrayHas000350(t, ctx, tx, customRunningID, "E-Bike", false)
+	assertActivityElectric000350(t, ctx, tx, customRunningID, true)
 
 	if _, err := tx.Exec(ctx, `UPDATE activities SET sport_type = 'running' WHERE id = $1`, cyclingID); err != nil {
 		t.Fatalf("change cycling to running: %v", err)
 	}
-	assertHasSystemEBikeLink000348(t, ctx, tx, cyclingID, false)
-	assertActivityElectric000348(t, ctx, tx, cyclingID, true)
+	assertHasSystemEBikeLink000350(t, ctx, tx, cyclingID, false)
+	assertActivityElectric000350(t, ctx, tx, cyclingID, true)
 
 	if _, err := tx.Exec(ctx, `UPDATE activities SET is_electric = false WHERE id = $1`, cyclingClearID); err != nil {
 		t.Fatalf("clear cycling electric: %v", err)
 	}
-	assertHasSystemEBikeLink000348(t, ctx, tx, cyclingClearID, false)
-	assertActivityTagArrayHas000348(t, ctx, tx, cyclingClearID, "E-Bike", false)
-	assertActivityElectric000348(t, ctx, tx, cyclingClearID, false)
+	assertHasSystemEBikeLink000350(t, ctx, tx, cyclingClearID, false)
+	assertActivityTagArrayHas000350(t, ctx, tx, cyclingClearID, "E-Bike", false)
+	assertActivityElectric000350(t, ctx, tx, cyclingClearID, false)
 
 	if _, err := tx.Exec(ctx, `UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), 'Urlaub') WHERE id = $1`, runningID); err != nil {
 		t.Fatalf("add unrelated running tag: %v", err)
 	}
-	assertHasSystemEBikeLink000348(t, ctx, tx, runningID, false)
-	assertActivityElectric000348(t, ctx, tx, runningID, true)
+	assertHasSystemEBikeLink000350(t, ctx, tx, runningID, false)
+	assertActivityElectric000350(t, ctx, tx, runningID, true)
 
 	if _, err := tx.Exec(ctx, upSQL); err != nil {
 		t.Fatalf("reapply up.sql: %v", err)
 	}
-	assertSystemEBikeTagCount000348(t, ctx, tx, missingTagUserID, 1)
-	assertActivityTagLinkCount000348(t, ctx, tx, missingTagCyclingID, 1)
+	assertSystemEBikeTagCount000350(t, ctx, tx, missingTagUserID, 1)
+	assertActivityTagLinkCount000350(t, ctx, tx, missingTagCyclingID, 1)
 
 	cascadeUserID := uuid.NewString()
 	if _, err := tx.Exec(ctx, `
@@ -292,17 +292,17 @@ func TestMigration000348CyclingElectricTagSyncAppliesToRealTables(t *testing.T) 
 	if _, err := tx.Exec(ctx, `UPDATE activities SET is_electric = false WHERE id = $1`, runningID); err != nil {
 		t.Fatalf("down clear running electric: %v", err)
 	}
-	assertActivityTagArrayHas000348(t, ctx, tx, runningID, "E-Bike", false)
+	assertActivityTagArrayHas000350(t, ctx, tx, runningID, "E-Bike", false)
 }
 
-func assertHasSystemEBikeLink000348(t *testing.T, ctx context.Context, q interface {
+func assertHasSystemEBikeLink000350(t *testing.T, ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, activityID string, want bool) {
 	t.Helper()
-	assertHasSystemTagLink000348(t, ctx, q, activityID, "E-Bike", want)
+	assertHasSystemTagLink000350(t, ctx, q, activityID, "E-Bike", want)
 }
 
-func assertHasSystemTagLink000348(t *testing.T, ctx context.Context, q interface {
+func assertHasSystemTagLink000350(t *testing.T, ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, activityID string, tagName string, want bool) {
 	t.Helper()
@@ -321,7 +321,7 @@ func assertHasSystemTagLink000348(t *testing.T, ctx context.Context, q interface
 	}
 }
 
-func assertSystemEBikeTagCount000348(t *testing.T, ctx context.Context, q interface {
+func assertSystemEBikeTagCount000350(t *testing.T, ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, userID string, want int) {
 	t.Helper()
@@ -337,7 +337,7 @@ func assertSystemEBikeTagCount000348(t *testing.T, ctx context.Context, q interf
 	}
 }
 
-func assertSystemEBikeTagStyle000348(t *testing.T, ctx context.Context, q interface {
+func assertSystemEBikeTagStyle000350(t *testing.T, ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, userID string, wantColor string, wantTextColor string, wantDescription string) {
 	t.Helper()
@@ -354,7 +354,7 @@ func assertSystemEBikeTagStyle000348(t *testing.T, ctx context.Context, q interf
 	}
 }
 
-func assertSystemEBikeTagAutomation000348(t *testing.T, ctx context.Context, q interface {
+func assertSystemEBikeTagAutomation000350(t *testing.T, ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, userID string, wantCategory string, wantIsAuto bool, wantConditions string, wantLogic string) {
 	t.Helper()
@@ -370,12 +370,12 @@ func assertSystemEBikeTagAutomation000348(t *testing.T, ctx context.Context, q i
 	if gotCategory != wantCategory || gotIsAuto != wantIsAuto || gotLogic != wantLogic {
 		t.Fatalf("system E-Bike automation fields = category %q is_auto %v logic %q, want %q/%v/%q", gotCategory, gotIsAuto, gotLogic, wantCategory, wantIsAuto, wantLogic)
 	}
-	if !jsonEqual000348(gotConditions, wantConditions) {
+	if !jsonEqual000350(gotConditions, wantConditions) {
 		t.Fatalf("system E-Bike conditions = %s, want JSON-equal %s", gotConditions, wantConditions)
 	}
 }
 
-func jsonEqual000348(got string, want string) bool {
+func jsonEqual000350(got string, want string) bool {
 	var gotAny any
 	var wantAny any
 	if err := json.Unmarshal([]byte(got), &gotAny); err != nil {
@@ -387,7 +387,7 @@ func jsonEqual000348(got string, want string) bool {
 	return reflect.DeepEqual(gotAny, wantAny)
 }
 
-func assertActivityTagLinkCount000348(t *testing.T, ctx context.Context, q interface {
+func assertActivityTagLinkCount000350(t *testing.T, ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, activityID string, want int) {
 	t.Helper()
@@ -405,7 +405,7 @@ func assertActivityTagLinkCount000348(t *testing.T, ctx context.Context, q inter
 	}
 }
 
-func assertActivityElectric000348(t *testing.T, ctx context.Context, q interface {
+func assertActivityElectric000350(t *testing.T, ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, activityID string, want bool) {
 	t.Helper()
@@ -418,7 +418,7 @@ func assertActivityElectric000348(t *testing.T, ctx context.Context, q interface
 	}
 }
 
-func assertActivityTagArrayHas000348(t *testing.T, ctx context.Context, q interface {
+func assertActivityTagArrayHas000350(t *testing.T, ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, activityID string, tag string, want bool) {
 	t.Helper()

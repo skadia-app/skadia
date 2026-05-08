@@ -1,4 +1,4 @@
-SELECT pg_advisory_xact_lock(330346, 1);
+SELECT pg_advisory_xact_lock(330348, 1);
 
 ALTER TABLE activities DROP CONSTRAINT IF EXISTS activities_sport_type_canonical;
 ALTER TABLE planned_routes DROP CONSTRAINT IF EXISTS planned_routes_sport_tuple_valid;

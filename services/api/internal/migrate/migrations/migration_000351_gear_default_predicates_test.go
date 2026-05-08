@@ -9,21 +9,21 @@ import (
 	"github.com/google/uuid"
 )
 
-func readMigration000349GearDefaultPredicatesSQL(t *testing.T) (upSQL, downSQL string) {
+func readMigration000351GearDefaultPredicatesSQL(t *testing.T) (upSQL, downSQL string) {
 	t.Helper()
-	upBytes, err := os.ReadFile("000349_gear_default_predicates.up.sql")
+	upBytes, err := os.ReadFile("000351_gear_default_predicates.up.sql")
 	if err != nil {
-		t.Fatalf("read 000349 up.sql: %v", err)
+		t.Fatalf("read 000351 up.sql: %v", err)
 	}
-	downBytes, err := os.ReadFile("000349_gear_default_predicates.down.sql")
+	downBytes, err := os.ReadFile("000351_gear_default_predicates.down.sql")
 	if err != nil {
-		t.Fatalf("read 000349 down.sql: %v", err)
+		t.Fatalf("read 000351 down.sql: %v", err)
 	}
 	return string(upBytes), string(downBytes)
 }
 
-func TestMigration000349GearDefaultPredicatesDeclaresRequiredContracts(t *testing.T) {
-	upSQL, downSQL := readMigration000349GearDefaultPredicatesSQL(t)
+func TestMigration000351GearDefaultPredicatesDeclaresRequiredContracts(t *testing.T) {
+	upSQL, downSQL := readMigration000351GearDefaultPredicatesSQL(t)
 	for _, needle := range []string{
 		"ADD COLUMN IF NOT EXISTS default_sport_predicates JSONB NOT NULL DEFAULT '[]'::jsonb",
 		"CREATE OR REPLACE FUNCTION fn_validate_gear_default_predicates",
@@ -53,8 +53,8 @@ func TestMigration000349GearDefaultPredicatesDeclaresRequiredContracts(t *testin
 	}
 }
 
-func TestMigration000349GearDefaultPredicatesBackfillsLegacyDefaults(t *testing.T) {
-	upSQL, downSQL := readMigration000349GearDefaultPredicatesSQL(t)
+func TestMigration000351GearDefaultPredicatesBackfillsLegacyDefaults(t *testing.T) {
+	upSQL, downSQL := readMigration000351GearDefaultPredicatesSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -91,11 +91,11 @@ func TestMigration000349GearDefaultPredicatesBackfillsLegacyDefaults(t *testing.
 	if _, err := tx.Exec(ctx, upSQL); err != nil {
 		t.Fatalf("apply up.sql: %v", err)
 	}
-	expectConstraintFailure000347(t, ctx, tx, `
+	expectConstraintFailure000349(t, ctx, tx, `
 		INSERT INTO gear (user_id, name, type, default_sport_predicates)
 		VALUES ($1, 'Invalid Predicate', 'other', '[{"sport_type":"cycling","sub_type":"does_not_exist"}]'::jsonb)
 	`, userID)
-	expectConstraintFailure000347(t, ctx, tx, `
+	expectConstraintFailure000349(t, ctx, tx, `
 		INSERT INTO gear (user_id, name, type, default_sport_predicates)
 		VALUES ($1, 'Invalid Modifier', 'other', '[{"sport_type":"cycling","modifiers":{"is_electric":"yes"}}]'::jsonb)
 	`, userID)

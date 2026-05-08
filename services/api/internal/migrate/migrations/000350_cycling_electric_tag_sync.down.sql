@@ -1,4 +1,4 @@
--- 000348_cycling_electric_tag_sync.down.sql
+-- 000350_cycling_electric_tag_sync.down.sql
 
 -- restore broad E-Bike tag sync for every is_electric activity.
 
