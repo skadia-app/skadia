@@ -117,13 +117,24 @@ func (r ModifierRegistry) ModifierKeysWithCapability(capability string) []string
 	return keys
 }
 
-func (r ModifierRegistry) ValidateModifierKeyForCapability(key, capability, surface string) error {
+// HasCapability reports whether the modifier with the given key supports the named capability.
+// Returns false if the key is unknown.
+func (r ModifierRegistry) HasCapability(key, capability string) bool {
 	modifier, ok := r.ModifierByKey(key)
 	if !ok {
+		return false
+	}
+	return modifier.Capabilities.Enabled(capability)
+}
+
+// ValidateModifierKeyForCapability checks that key is a known modifier and that isApplicable(key) is true.
+// isApplicable encodes the capability predicate for the target subsystem.
+func (r ModifierRegistry) ValidateModifierKeyForCapability(key string, isApplicable func(string) bool, surface string) error {
+	if _, ok := r.ModifierByKey(key); !ok {
 		return fmt.Errorf("%s: unknown modifier key %q", surface, key)
 	}
-	if !modifier.Capabilities.Enabled(capability) {
-		return fmt.Errorf("%s: modifier %q does not support capability %q", surface, key, capability)
+	if !isApplicable(key) {
+		return fmt.Errorf("%s: modifier %q is not applicable", surface, key)
 	}
 	return nil
 }

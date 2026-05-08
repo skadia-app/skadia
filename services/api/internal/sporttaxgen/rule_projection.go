@@ -273,10 +273,10 @@ func validateRuleProjection(projection RuleProjection, taxonomy Taxonomy, modifi
 		if !ok {
 			return fmt.Errorf("modifier %q: missing registry definition", modifier.Key)
 		}
-		if err := modifiers.ValidateModifierKeyForCapability(modifier.Key, "rule_condition", "rule projection"); err != nil {
+		if err := modifiers.ValidateModifierKeyForCapability(modifier.Key, func(k string) bool { return modifiers.HasCapability(k, "rule_condition") }, "rule projection"); err != nil {
 			return err
 		}
-		if err := modifiers.ValidateModifierKeyForCapability(modifier.Key, "rule_action", "rule projection"); err != nil {
+		if err := modifiers.ValidateModifierKeyForCapability(modifier.Key, func(k string) bool { return modifiers.HasCapability(k, "rule_action") }, "rule projection"); err != nil {
 			return err
 		}
 		if modifier.Labels["de"] != def.Labels["de"] {

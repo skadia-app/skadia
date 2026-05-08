@@ -216,7 +216,7 @@ func applyModifierPatchToRow(row map[string]any, patch sport.ModifierPatch) {
 }
 
 func mergeImportModifierPatch(a, b sport.ModifierPatch) sport.ModifierPatch {
-	for _, key := range sport.SportModifierKeysWithCapability("source_alias") {
+	for _, key := range DataimportApplicableModifierKeys {
 		if value := sport.ModifierPatchValue(b, key); value != nil {
 			sport.SetModifierPatchValue(&a, key, value)
 		}
@@ -225,7 +225,7 @@ func mergeImportModifierPatch(a, b sport.ModifierPatch) sport.ModifierPatch {
 }
 
 func applyPatchToModifierFilters(filters map[string]any, patch sport.ModifierPatch) {
-	for _, key := range sport.SportModifierKeysWithCapability("source_alias") {
+	for _, key := range DataimportApplicableModifierKeys {
 		if value := sport.ModifierPatchValue(patch, key); value != nil {
 			filters[key] = *value
 		}
