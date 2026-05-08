@@ -53,7 +53,12 @@ func generatedPredicateValidatorFunctionSource(t *testing.T, sql string) string 
 	if start < 0 || stop < 0 || stop <= start {
 		t.Fatalf("generated validator block does not contain AS $$ body")
 	}
-	return strings.TrimSpace(block[start+len(begin) : stop])
+	bodyStart := start + len(begin)
+	bodyStop := strings.Index(block[bodyStart:], "$$;")
+	if bodyStop < 0 {
+		t.Fatalf("generated validator block does not contain fn_validate_predicates terminator")
+	}
+	return strings.TrimSpace(block[bodyStart : bodyStart+bodyStop])
 }
 
 func predicateValidatorStatement000349(t *testing.T, sql string) string {
@@ -247,6 +252,146 @@ func TestMigration000349FullUpDownOnRealTables(t *testing.T) {
 		t.Fatalf("apply 000349 down.sql: %v", err)
 	}
 	assertMigration000349RealTableConstraints(t, ctx, tx, "down")
+}
+
+func TestMigration000349DownNormalizesPostUpTuplesBeforeRestoringOldValidator(t *testing.T) {
+	upSQL, downSQL := readMigration000349PredicateValidationSQL(t)
+	planTUpSQL, _ := readMigration000348PlanTSQL(t)
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback: %v", err)
+		}
+	})
+
+	if _, err := tx.Exec(ctx, planTUpSQL); err != nil {
+		t.Fatalf("apply prerequisite 000348 up.sql: %v", err)
+	}
+	if _, err := tx.Exec(ctx, upSQL); err != nil {
+		t.Fatalf("apply 000349 up.sql: %v", err)
+	}
+
+	userID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
+		VALUES ($1, $2, $3, true, 'test', false)
+	`, userID, "mig349_down_"+userID[:8], "mig349_down_"+userID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	activityID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, parsed_sport_type, parsed_sub_type, is_indoor, started_at)
+		VALUES ($1, $2, 'post up archery', 'archery', NULL, 'hiking', 'rucking', false, now())
+	`, activityID, userID); err != nil {
+		t.Fatalf("insert post-up activity: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO routing_profiles (user_id, name, base_profile, sport_types, predicates, modifier_filters, config, source)
+		VALUES ($1, 'post up profile', 'cycling', ARRAY['cycling'], '[{"sport":"archery"},{"sport":"hiking","sub_type":"rucking"}]'::jsonb, '{}'::jsonb, '{}'::jsonb, 'user')
+	`, userID); err != nil {
+		t.Fatalf("insert post-up routing profile: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO planned_routes (user_id, name, sport_type, sub_type, profile, geometry, waypoints, segments)
+		VALUES ($1, 'post up route', 'diving', 'dynamic_apnea', 'hiking', ST_GeomFromText('LINESTRING(8 49, 8.01 49.01)', 4326), '[]'::jsonb, '[]'::jsonb)
+	`, userID); err != nil {
+		t.Fatalf("insert post-up planned route: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO segments (id, created_by, name, sport_group, allowed_predicates)
+		VALUES (gen_random_uuid(), $1, 'post up segment', 'foot', '[{"sport":"skateboarding"},{"sport":"archery"}]'::jsonb)
+	`, userID); err != nil {
+		t.Fatalf("insert post-up segment: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO automation_rules (user_id, name, conditions, condition_groups, actions, branches)
+		VALUES (
+			$1,
+			'post up rollback rule',
+			'[{"field":"sport_tuple","op":"in","value":[{"sport_type":"archery"},{"sport_type":"hiking","sub_type":"rucking"}]}]'::jsonb,
+			'[]'::jsonb,
+			'[{"action":"set_sport_type","params":{"sport_type":"shooting"}}]'::jsonb,
+			'[]'::jsonb
+		)
+	`, userID); err != nil {
+		t.Fatalf("insert post-up automation rule: %v", err)
+	}
+
+	if _, err := tx.Exec(ctx, downSQL); err != nil {
+		t.Fatalf("apply 000349 down.sql: %v", err)
+	}
+
+	var sportType, subType, parsedSport, parsedSubType string
+	if err := tx.QueryRow(ctx, `
+		SELECT sport_type, COALESCE(sub_type, ''), COALESCE(parsed_sport_type, ''), COALESCE(parsed_sub_type, '')
+		FROM activities WHERE id = $1
+	`, activityID).Scan(&sportType, &subType, &parsedSport, &parsedSubType); err != nil {
+		t.Fatalf("query normalized activity: %v", err)
+	}
+	if sportType != "unknown" || subType != "" || parsedSport != "hiking" || parsedSubType != "" {
+		t.Fatalf("activity tuple after down = (%s,%s) parsed=(%s,%s), want (unknown,'') parsed=(hiking,'')", sportType, subType, parsedSport, parsedSubType)
+	}
+
+	var routeSport, routeSub string
+	if err := tx.QueryRow(ctx, `
+		SELECT sport_type, COALESCE(sub_type, '')
+		FROM planned_routes WHERE user_id = $1 AND name = 'post up route'
+	`, userID).Scan(&routeSport, &routeSub); err != nil {
+		t.Fatalf("query normalized planned route: %v", err)
+	}
+	if routeSport != "diving" || routeSub != "" {
+		t.Fatalf("planned route tuple after down = (%s,%s), want (diving,'')", routeSport, routeSub)
+	}
+
+	var profilePredicates, segmentPredicates, automationJSON string
+	if err := tx.QueryRow(ctx, `
+		SELECT predicates::text
+		FROM routing_profiles WHERE user_id = $1 AND name = 'post up profile'
+	`, userID).Scan(&profilePredicates); err != nil {
+		t.Fatalf("query normalized routing profile: %v", err)
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT allowed_predicates::text
+		FROM segments WHERE created_by = $1 AND name = 'post up segment'
+	`, userID).Scan(&segmentPredicates); err != nil {
+		t.Fatalf("query normalized segment: %v", err)
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT conditions::text || actions::text
+		FROM automation_rules WHERE user_id = $1 AND name = 'post up rollback rule'
+	`, userID).Scan(&automationJSON); err != nil {
+		t.Fatalf("query normalized automation rule: %v", err)
+	}
+	for label, raw := range map[string]string{
+		"profile":    profilePredicates,
+		"segment":    segmentPredicates,
+		"automation": automationJSON,
+	} {
+		for _, forbidden := range []string{"archery", "skateboarding", "shooting", "rucking", "dynamic_apnea"} {
+			if strings.Contains(raw, forbidden) {
+				t.Fatalf("%s still contains %q after down: %s", label, forbidden, raw)
+			}
+		}
+	}
+	for _, required := range []string{`"sport": "unknown"`, `"sport": "hiking"`} {
+		if !strings.Contains(profilePredicates, required) {
+			t.Fatalf("profile predicates missing %s after down: %s", required, profilePredicates)
+		}
+	}
+	if !strings.Contains(segmentPredicates, `"sport": "unknown"`) {
+		t.Fatalf("segment predicates missing unknown after down: %s", segmentPredicates)
+	}
+	for _, required := range []string{`"sport_type": "unknown"`, `"sport_type": "hiking"`} {
+		if !strings.Contains(automationJSON, required) {
+			t.Fatalf("automation JSON missing %s after down: %s", required, automationJSON)
+		}
+	}
 }
 
 func assertMigration000349RealTableConstraints(t *testing.T, ctx context.Context, tx pgx.Tx, phase string) {
