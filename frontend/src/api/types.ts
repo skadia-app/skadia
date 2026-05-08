@@ -165,6 +165,8 @@ export interface Activity {
   lift_descent_m?: number | null
   lift_duration_s?: number | null
   exclude_lift_subtraction?: boolean | null
+  // ISO timestamp; null = user has not yet reviewed heuristic lift candidates.
+  lifts_acknowledged_at?: string | null
   elevation_source?: string | null
   distance_source?: string | null
   // Multisport parent/child
