@@ -973,7 +973,7 @@ func main() {
 	r.Get("/readyz", h.Readyz)
 	r.Get("/healthz", h.Healthz)
 	r.Get("/health", h.Healthz) // backwards compat alias
-	r.Handle("/metrics", observability.NewMetricsHandler(prometheus.DefaultGatherer))
+	r.Get("/metrics", observability.NewMetricsHandler(prometheus.DefaultGatherer).ServeHTTP)
 	r.Get("/api/v1/coverage/info", h.CoverageBuildInfo)
 	r.Get("/api/v1/coverage/tiles/*", h.CoverageTile)
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
