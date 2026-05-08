@@ -182,6 +182,21 @@ export default function LifetimeStats() {
           </div>
         </div>
       )}
+
+      {/* Lift stats — only shown when user has lift rides */}
+      {data.lift_ride_count > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-neutral-600 dark:text-neutral-400 mb-3 uppercase tracking-wide">
+            Liftfahrten (Lifetime)
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard label="Liftfahrten" value={fmtNum(data.lift_ride_count)} />
+            <StatCard label="Lift ↑" value={fmtNum(data.lift_ascent_m)} unit="m" />
+            <StatCard label="Lift ↓" value={fmtNum(data.lift_descent_m)} unit="m" />
+            <StatCard label="Lift Distanz" value={(data.lift_distance_m / 1000).toFixed(0)} unit="km" />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
