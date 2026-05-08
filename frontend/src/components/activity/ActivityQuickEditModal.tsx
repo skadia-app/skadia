@@ -24,7 +24,8 @@ import {
 import { formatDistance, formatDuration, formatElevationGain, formatElevationLoss } from '@/lib/utils'
 import { getTagBadgeStyle } from '@/lib/tagUtils'
 import { fmtTime } from '@/lib/format'
-import { modifierKeysForCapability, modifierLabel, type SportModifierKey } from '@/lib/sportModifiers'
+import { modifierLabel, type SportModifierKey } from '@/lib/sportModifiers'
+import { QuickEditApplicableModifierKeys } from '@/lib/generatedQuickEditApplicableModifiers'
 
 interface ActivityQuickEditModalProps {
   activity: Activity
@@ -118,7 +119,7 @@ export default function ActivityQuickEditModal({ activity, open, onClose, onSave
   const visibleSuggestions = useMemo(() => {
     return quickEditTagSuggestions(allTags ?? [], draft.tags, tagSearch)
   }, [allTags, draft.tags, tagSearch])
-  const quickEditModifierKeys = useMemo(() => modifierKeysForCapability('quick_edit'), [])
+  const quickEditModifierKeys = useMemo(() => [...QuickEditApplicableModifierKeys], [])
 
   if (!open) return null
   if (!fullActivity) {

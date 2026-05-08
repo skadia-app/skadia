@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react'
 import type { Gear, GearDefaultModifiers, GearDefaultSportPredicate } from '@/api/types'
 import { selectableSportTupleOptions, sportDetailLabel } from '@/lib/sportTaxonomy'
-import { modifierKeysForCapability, modifierLabel, type SportModifierKey } from '@/lib/sportModifiers'
+import { modifierLabel, type SportModifierKey } from '@/lib/sportModifiers'
+import { GearApplicableModifierKeys } from '@/lib/generatedGearApplicableModifiers'
 
 const GEAR_TYPES = [
   { value: 'bike', label: 'Fahrrad' },
@@ -25,7 +26,7 @@ interface GearFormProps {
 }
 
 type ModifierChoice = 'any' | 'true' | 'false'
-const GEAR_DEFAULT_MODIFIER_KEYS = modifierKeysForCapability('gear_default')
+const GEAR_DEFAULT_MODIFIER_KEYS = [...GearApplicableModifierKeys] as SportModifierKey[]
 
 interface GearPredicateRow {
   id: string

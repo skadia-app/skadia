@@ -11,13 +11,13 @@ import { ruleModifierControlsForTuple, ruleTraitConditionFields, ruleTupleOption
 import {
   modifierActionName,
   modifierActionParam,
-  modifierKeysForCapability,
   modifierLabel,
   modifierTagSync,
   modifierTagSyncOnlySportType,
   modifierTSField,
   type SportModifierKey,
 } from '@/lib/sportModifiers'
+import { RulesApplicableModifierKeys } from '@/lib/generatedRulesApplicableModifiers'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import ZoneEditor, { type ZoneData } from '@/components/ZoneEditor'
@@ -141,7 +141,7 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     options: field.options,
     operators: ['in'],
   })) },
-  { key: 'modifiers', label: 'Modifier', fields: modifierKeysForCapability('rule_condition').map((key) => ({
+  { key: 'modifiers', label: 'Modifier', fields: RulesApplicableModifierKeys.map((key) => ({
     field: key,
     label: modifierLabel(key),
     inputType: 'bool',
@@ -392,7 +392,7 @@ const OP_LABELS: Record<string, string> = {
   between: 'zwischen',
 }
 
-const MODIFIER_ACTION_TYPES = modifierKeysForCapability('rule_action').map((key) => ({
+const MODIFIER_ACTION_TYPES = RulesApplicableModifierKeys.map((key) => ({
   value: modifierActionName(key),
   label: `${modifierLabel(key)} setzen`,
 }))
@@ -444,7 +444,7 @@ function flattenGroups(groups: RuleConditionGroup[]): { conditions: RuleConditio
 type ModifierChoice = '' | 'true' | 'false'
 
 const LEGACY_SPORT_TUPLE_ANCHOR_FIELDS = new Set(['sport_type', 'sub_type'])
-const RULE_TUPLE_MODIFIER_KEYS = modifierKeysForCapability('rule_condition') as SportModifierKey[]
+const RULE_TUPLE_MODIFIER_KEYS = RulesApplicableModifierKeys as SportModifierKey[]
 const LEGACY_SPORT_TUPLE_FIELDS = new Set(['sport_type', 'sub_type', ...RULE_TUPLE_MODIFIER_KEYS])
 const CANONICAL_SPORT_TUPLE_FIELDS = new Set(['sport_tuple'])
 
@@ -481,10 +481,10 @@ type SportTupleListRow = {
 } & Partial<Record<RuleTupleModifierKey, boolean>>
 
 const ACTION_MODIFIER_PARAM_BY_KEY = Object.fromEntries(
-  modifierKeysForCapability('rule_action').map((key) => [key, modifierActionParam(key)]),
+  RulesApplicableModifierKeys.map((key) => [key, modifierActionParam(key)]),
 ) as Record<RuleTupleModifierKey, string>
 const MODIFIER_KEY_BY_ACTION = new Map(
-  modifierKeysForCapability('rule_action').map((key) => [modifierActionName(key), key]),
+  RulesApplicableModifierKeys.map((key) => [modifierActionName(key), key]),
 )
 
 function modifierKeyForAction(action: string): SportModifierKey | undefined {
@@ -1797,7 +1797,7 @@ const SET_FIELD_FIELD_TO_ACTION: Record<string, string> = {
   hide_map:             'set_hide_map',
 }
 
-const MODIFIER_ACTION_SPECS = modifierKeysForCapability('rule_action').map((key) => ({
+const MODIFIER_ACTION_SPECS = RulesApplicableModifierKeys.map((key) => ({
   action: modifierActionName(key),
   field: key,
   param: modifierActionParam(key),
