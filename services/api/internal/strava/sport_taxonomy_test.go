@@ -193,13 +193,10 @@ func TestNormalizeStravaSportFieldsWarnsForUnmappedSport(t *testing.T) {
 
 func TestNormalizeStravaSportFieldsRecordsUnmappedSportOnce(t *testing.T) {
 	var sources []importmetrics.Source
-	previous := recordUnmappedSport
-	recordUnmappedSport = func(source importmetrics.Source) {
-		sources = append(sources, source)
-	}
-	t.Cleanup(func() { recordUnmappedSport = previous })
 
-	got, err := normalizeStravaSportFields("Definitely Unknown Strava Label")
+	got, err := normalizeStravaSportFieldsWithRecorder("Definitely Unknown Strava Label", func(source importmetrics.Source) {
+		sources = append(sources, source)
+	})
 	if err != nil {
 		t.Fatalf("normalizeStravaSportFields: %v", err)
 	}

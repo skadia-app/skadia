@@ -9,6 +9,10 @@ import (
 )
 
 func komootRouteSportTuple(komootSport string, logAttrs ...any) (string, string, bool) {
+	return komootRouteSportTupleWithRecorder(komootSport, importmetrics.RecordUnmappedSport, logAttrs...)
+}
+
+func komootRouteSportTupleWithRecorder(komootSport string, recordUnmappedSport func(importmetrics.Source), logAttrs ...any) (string, string, bool) {
 	resolved, err := sport.ResolveSport(sport.ResolveInput{Source: sport.SourceKomoot, RawSport: komootSport})
 	if err != nil || !resolved.Resolved {
 		attrs := []any{"source", "komoot_route", "raw_sport", strings.TrimSpace(komootSport)}

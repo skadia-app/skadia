@@ -108,17 +108,14 @@ func TestNormalizeParsedActivitySportWarnsForUnmappedFITTuple(t *testing.T) {
 
 func TestNormalizeParsedActivitySportRecordsUnmappedFITTupleOnce(t *testing.T) {
 	var sources []importmetrics.Source
-	previous := recordUnmappedSport
-	recordUnmappedSport = func(source importmetrics.Source) {
-		sources = append(sources, source)
-	}
-	t.Cleanup(func() { recordUnmappedSport = previous })
 
 	data := &model.ActivityData{
 		SportType: SportToString(typedef.SportWinterSport),
 		SubType:   SubSportToString(typedef.SubSportGeneric),
 	}
-	if err := normalizeParsedActivitySport(data); err != nil {
+	if err := normalizeParsedActivitySportWithRecorder(data, func(source importmetrics.Source) {
+		sources = append(sources, source)
+	}); err != nil {
 		t.Fatalf("normalizeParsedActivitySport: %v", err)
 	}
 	if len(sources) != 1 || sources[0] != importmetrics.SourceFIT {

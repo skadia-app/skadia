@@ -30,7 +30,17 @@ func NewUnmappedSportRecorder(registerer prometheus.Registerer) UnmappedSportRec
 		Name: "skadia_import_unmapped_sport_total",
 		Help: "Number of imported activities whose provider sport could not be mapped to the taxonomy.",
 	}, []string{"source"})
-	registerer.MustRegister(counter)
+	if err := registerer.Register(counter); err != nil {
+		if alreadyRegistered, ok := err.(prometheus.AlreadyRegisteredError); ok {
+			if existing, ok := alreadyRegistered.ExistingCollector.(*prometheus.CounterVec); ok {
+				counter = existing
+			} else {
+				panic(err)
+			}
+		} else {
+			panic(err)
+		}
+	}
 	return &prometheusUnmappedSportRecorder{counter: counter}
 }
 
