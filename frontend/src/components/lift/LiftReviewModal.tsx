@@ -111,14 +111,14 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
               disabled={confirmAllMutation.isPending || rejectAllMutation.isPending}
               className="cursor-pointer flex-1 rounded-lg bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
             >
-              Ja, alle bestätigen
+              Alle bestätigen
             </button>
             <button
               onClick={() => rejectAllMutation.mutate()}
               disabled={confirmAllMutation.isPending || rejectAllMutation.isPending}
               className="cursor-pointer flex-1 rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
             >
-              Nein, alle ablehnen
+              Alle ablehnen
             </button>
             <button
               onClick={() => setMode('expanded')}
