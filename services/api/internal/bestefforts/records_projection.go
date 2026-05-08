@@ -44,6 +44,16 @@ func recordBoolPtr(v bool) *bool {
 	return &v
 }
 
+var generatedRecordMatchRulesBySportType = indexRecordMatchRulesBySportType(generatedRecordMatchRules)
+
+func indexRecordMatchRulesBySportType(rules []RecordMatchRule) map[string][]RecordMatchRule {
+	out := make(map[string][]RecordMatchRule)
+	for _, rule := range rules {
+		out[rule.SportType] = append(out[rule.SportType], rule)
+	}
+	return out
+}
+
 func RecordGroups() []RecordGroup {
 	return cloneRecordGroups(generatedRecordGroups)
 }
@@ -72,7 +82,7 @@ func recordGroupForActivityWithModifierPresence(sportType, subType string, isInd
 		"is_indoor":   isIndoor,
 		"is_virtual":  isVirtual,
 	}
-	for _, rule := range generatedRecordMatchRules {
+	for _, rule := range generatedRecordMatchRulesBySportType[sportType] {
 		if recordRuleMatches(rule, sportType, subType, modifiers) {
 			return rule.RecordGroup, true
 		}
