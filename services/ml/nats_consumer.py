@@ -176,10 +176,7 @@ async def _decode_or_ack(msg, label: str) -> "dict | None":
 
 
 # Mapping of NATS subjects to enrichment functions.
-# "lifts" subject removed: lift detection moved to Go pipeline (Phase 4,
-# RunStreamEnrichment). Python entry-point deleted to prevent double-execution
-# if anything publishes to that subject. Cleanup of enrichment/lifts.py itself
-# is deferred to Phase 7 (Python-Lift-Cleanup).
+# Lift detection was removed in Phase 7 — moved to Go pipeline (RunStreamEnrichment).
 HIGH_PRIORITY_STEPS: list = []
 
 NORMAL_PRIORITY_STEPS = []
