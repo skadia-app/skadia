@@ -1,6 +1,10 @@
 package bestefforts
 
-import "github.com/skadia-app/skadia/services/api/internal/sport"
+import (
+	"sync"
+
+	"github.com/skadia-app/skadia/services/api/internal/sport"
+)
 
 type RecordGroup struct {
 	Key          string
@@ -44,7 +48,9 @@ func recordBoolPtr(v bool) *bool {
 	return &v
 }
 
-var generatedRecordMatchRulesBySportType = indexRecordMatchRulesBySportType(generatedRecordMatchRules)
+var recordMatchRulesBySportType = sync.OnceValue(func() map[string][]RecordMatchRule {
+	return indexRecordMatchRulesBySportType(generatedRecordMatchRules)
+})
 
 func indexRecordMatchRulesBySportType(rules []RecordMatchRule) map[string][]RecordMatchRule {
 	out := make(map[string][]RecordMatchRule)
@@ -82,7 +88,7 @@ func recordGroupForActivityWithModifierPresence(sportType, subType string, isInd
 		"is_indoor":   isIndoor,
 		"is_virtual":  isVirtual,
 	}
-	for _, rule := range generatedRecordMatchRulesBySportType[sportType] {
+	for _, rule := range recordMatchRulesBySportType()[sportType] {
 		if recordRuleMatches(rule, sportType, subType, modifiers) {
 			return rule.RecordGroup, true
 		}

@@ -134,8 +134,8 @@ func TestRecordMatchRulesBySportTypePartitionsRulesInOrder(t *testing.T) {
 	for _, rule := range generatedRecordMatchRules {
 		want[rule.SportType] = append(want[rule.SportType], rule)
 	}
-	if !reflect.DeepEqual(generatedRecordMatchRulesBySportType, want) {
-		t.Fatalf("generatedRecordMatchRulesBySportType = %#v, want %#v", generatedRecordMatchRulesBySportType, want)
+	if got := recordMatchRulesBySportType(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("recordMatchRulesBySportType() = %#v, want %#v", got, want)
 	}
 }
 
