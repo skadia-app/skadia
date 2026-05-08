@@ -147,7 +147,7 @@ func TestActivitySchemaTagsModifiersStableOrder(t *testing.T) {
 
 func TestActivitySchemaTagsModifierTokensFollowGeneratedShadowFSMetadata(t *testing.T) {
 	tokens := strings.Split(maxActivitySchemaModifiersTag(), "_")
-	keys := sport.SportModifierKeysWithCapability("shadowfs_label")
+	keys := ShadowfsApplicableModifierKeys
 	if len(tokens) != len(keys) {
 		t.Fatalf("tokens = %#v, keys = %#v", tokens, keys)
 	}

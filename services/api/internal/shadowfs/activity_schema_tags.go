@@ -81,7 +81,7 @@ func ActivitySchemaTags(input ActivitySchemaTagsInput) map[string]string {
 
 func activitySchemaModifierTokens(input ActivitySchemaTagsInput) []string {
 	modifiers := []string{}
-	for _, key := range sport.SportModifierKeysWithCapability("shadowfs_label") {
+	for _, key := range ShadowfsApplicableModifierKeys {
 		modifier, ok := sport.SportModifierByKey(key)
 		if !ok || !activitySchemaModifierActive(input, modifier.GoField) {
 			continue
@@ -93,7 +93,7 @@ func activitySchemaModifierTokens(input ActivitySchemaTagsInput) []string {
 
 func maxActivitySchemaModifiersTag() string {
 	tokens := []string{}
-	for _, key := range sport.SportModifierKeysWithCapability("shadowfs_label") {
+	for _, key := range ShadowfsApplicableModifierKeys {
 		modifier, ok := sport.SportModifierByKey(key)
 		if ok {
 			tokens = append(tokens, modifier.ShadowFSToken)
