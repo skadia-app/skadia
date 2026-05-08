@@ -97,6 +97,15 @@ func SportModifierLabelDE(key string) string {
 	return modifier.LabelDE
 }
 
+func SportModifierExists(key string) bool {
+	for _, modifier := range generatedSportModifiers {
+		if modifier.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
 func cloneSportModifierDef(modifier SportModifierDef) SportModifierDef {
 	clone := modifier
 	clone.Capabilities = make(map[string]bool, len(modifier.Capabilities))
