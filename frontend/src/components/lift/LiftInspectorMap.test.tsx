@@ -306,16 +306,16 @@ describe('LiftInspectorMap — F16: legend overlay', () => {
       />,
       { wrapper },
     )
-    // Phase 11.9 labels — signal-based, no direction bias
+    // Phase 11.10 labels — signal-based, bidirektional restored
     expect(screen.getByText('OSM-Treffer')).toBeTruthy()
     expect(screen.getByText('Heuristik (Speed + Steigung)')).toBeTruthy()
     expect(screen.getByText('Heuristik (Höhenrate)')).toBeTruthy()
-    expect(screen.getByText('Heuristik (Talquerung)')).toBeTruthy()
+    expect(screen.getByText('Heuristik (bidirektional)')).toBeTruthy()
     expect(screen.getByText('Abgelehnt')).toBeTruthy()
     // Old labels must NOT appear
     expect(screen.queryByText('Heuristik (hoch)')).toBeNull()
     expect(screen.queryByText('Heuristik (mittel)')).toBeNull()
-    expect(screen.queryByText('Heuristik (bidirektional)')).toBeNull()
+    expect(screen.queryByText('Heuristik (Talquerung)')).toBeNull()
   })
 
   it('legend is always visible (not behind empty-stream overlay)', async () => {

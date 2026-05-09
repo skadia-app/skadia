@@ -114,7 +114,7 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                 </div>
               </div>
 
-              {/* Bidir / Talquerung */}
+              {/* Bidir */}
               <div className="flex gap-3">
                 <div
                   className="shrink-0 mt-0.5 w-1 rounded-full"
@@ -123,14 +123,30 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                 />
                 <div>
                   <div className="font-medium text-neutral-900 dark:text-neutral-100 mb-1">
-                    Heuristik (Talquerung)
+                    Heuristik (bidirektional)
                   </div>
-                  <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-3">
-                    Spezialfall für Pendel-Seilbahnen mit U-förmigem Cable-Verlauf:
+                  <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-2">
+                    Klasse für Lifte, deren Höhenprofil während einer einzigen Fahrt sowohl
+                    Anstieg als auch Abstieg enthält. Die Netto-Höhenänderung am Endpunkt ist
+                    klein, obwohl die Cable kumulativ viele Höhenmeter zurücklegt.
                   </p>
+                  <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-3">
+                    <strong>Wichtig:</strong> Die Bezeichnung bezieht sich auf die Höhenbewegung der Cable,
+                    nicht auf die Richtung der Fahrt. Eine bidirektionale Klassifizierung
+                    beschreibt eine Liftfahrt mit U- oder ∩-Profil — kein Hin-und-Rück-Trip;
+                    letzteres wären zwei separate Fahrten und werden vom Detector auch so
+                    gezählt.
+                  </p>
+                  <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-2">
+                    Typische Fälle:
+                  </p>
+                  <ul className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-3 list-disc list-inside space-y-1">
+                    <li>Talquerung (∪) — Cable verbindet zwei Bergstationen ähnlicher Höhe und hängt zwischen ihnen ins Tal ab.</li>
+                    <li>Bergquerung (∩) — Cable führt von der Talstation über einen Grat hinüber zu einer Alm oder einem Hof auf vergleichbarer Höhe.</li>
+                  </ul>
                   <pre
                     className="text-xs leading-tight font-mono bg-neutral-100 dark:bg-neutral-800 rounded-lg px-4 py-3 overflow-x-auto text-neutral-700 dark:text-neutral-300"
-                    aria-label="Talquerung ASCII-Diagramm"
+                    aria-label="Bidirektional ASCII-Diagramm"
                   >
 {`Bergstation A 2446 m ────╮                 ╭──── Bergstation B 2444 m
                           ╲               ╱
@@ -138,10 +154,10 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                               Tal ~2000 m`}
                   </pre>
                   <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mt-3">
-                    EINE Liftfahrt — nicht zwei separate Rides. Netto-Höhe ändert sich kaum (~2 m),
-                    aber kumulativ wurden ~900 m durchfahren (450 m runter + 450 m hoch).
-                    Cable ist kerzengerade, Geschwindigkeit konstant.
-                    Häufig bei Talquerungs-Cable-Cars zwischen Berggipfeln.
+                    Der Detector kann beide Geometrien nicht voneinander unterscheiden — er
+                    sieht in beiden Fällen einen horizontal direkten Pfad, stabile
+                    Geschwindigkeit und kumulierte Höhenmeter, die sich zu einer kleinen
+                    Netto-Änderung aufsummieren.
                   </p>
                 </div>
               </div>

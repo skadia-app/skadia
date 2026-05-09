@@ -1,11 +1,13 @@
 /**
- * Tests for LiftHelpModal — Phase 11.9
+ * Tests for LiftHelpModal — Phase 11.10
  *
  * Verifies:
  * - Modal renders Methode-A and Methode-B sections when open.
- * - ASCII Talquerung diagram is visible (contains "Bergstation A").
+ * - ASCII bidirektional diagram is visible (contains "Bergstation A").
  * - Close button works (calls onClose callback).
  * - Modal is not mounted when open=false.
+ * - Phase 11.10: heading is "Heuristik (bidirektional)" (reverted from Talquerung).
+ * - Phase 11.10: "Wichtig:" altitude-vs-direction clarification is rendered.
  */
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -26,15 +28,25 @@ describe('LiftHelpModal', () => {
     expect(screen.getByText(/Methode B — Heuristik aus dem Stream/)).toBeTruthy()
   })
 
-  it('renders the Talquerung heuristic class section', () => {
+  it('renders the bidirektional heuristic class section (Phase 11.10)', () => {
     render(<LiftHelpModal open={true} onClose={() => {}} />)
-    expect(screen.getByText(/Heuristik \(Talquerung\)/)).toBeTruthy()
+    expect(screen.getByText(/Heuristik \(bidirektional\)/)).toBeTruthy()
+    // The old Talquerung heading must not appear
+    expect(screen.queryByText(/Heuristik \(Talquerung\)/)).toBeNull()
   })
 
-  it('renders the ASCII Talquerung diagram with "Bergstation A"', () => {
+  it('renders the ASCII bidirektional diagram with "Bergstation A"', () => {
     render(<LiftHelpModal open={true} onClose={() => {}} />)
     // The pre block contains the ASCII art; test for a distinctive string.
     expect(screen.getByText(/Bergstation A/)).toBeTruthy()
+  })
+
+  it('renders the "Wichtig:" altitude-vs-direction clarification (Phase 11.10)', () => {
+    render(<LiftHelpModal open={true} onClose={() => {}} />)
+    // The strong "Wichtig:" label must be present
+    expect(screen.getByText(/Wichtig:/)).toBeTruthy()
+    // Content about altitude movement of the cable (not user direction)
+    expect(screen.getByText(/Höhenbewegung der Cable/)).toBeTruthy()
   })
 
   it('renders the pause-gaps section', () => {
