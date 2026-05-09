@@ -219,6 +219,33 @@ func renderModifierRegistryForTest(registry ModifierRegistry) ([]byte, error) {
 	return RenderGoModifiers(registry)
 }
 
+func TestLoadModifiersRejectsUnknownSubsystem(t *testing.T) {
+	_, err := LoadModifiers(strings.NewReader(`
+modifiers:
+  - key: is_electric
+    labels: {de: E-Antrieb}
+    go_field: IsElectric
+    ts_field: isElectric
+    json_key: is_electric
+    activity_column: is_electric
+    action_name: set_electric
+    action_param: electric
+    shadowfs_token: electric
+    capabilities:
+      activity_state: true
+      modifier_filter: true
+      modifier_patch: true
+      taxonomy_default: false
+    subsystems: [unknown_subsystem]
+`))
+	if err == nil {
+		t.Fatal("LoadModifiers accepted unknown subsystem")
+	}
+	if !strings.Contains(err.Error(), "unknown subsystem") {
+		t.Fatalf("error should mention unknown subsystem, got: %v", err)
+	}
+}
+
 func TestModifierHasSubsystemsArray(t *testing.T) {
 	file, err := os.Open("../../../../config/sport-taxonomy/modifiers.yaml")
 	if err != nil {
