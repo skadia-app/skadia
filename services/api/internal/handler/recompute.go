@@ -750,11 +750,24 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		}
 	}
 
-	// 6. Update metrics. skipSportType = manual OR user didn't select sport_type scope.
+	// 6. Update metrics in one of two explicit modes:
+	//   - parser-metrics-only when sport_type is user-managed (manual override) or
+	//     the caller did not request the sport_type scope. This path skips the
+	//     sport columns and the four system modifier flags entirely so the
+	//     BEFORE UPDATE trigger has zero Direction-B/C/D work to do.
+	//   - sport-and-modifier refresh otherwise. The DB method routes this through
+	//     WithSystemModifierTagSyncSuspended so the per-row trigger does not rewrite
+	//     denormalized tag state for the row; resync repairs once at commit.
 	if doMetrics || doSportType {
 		skipSport := info.SportTypeIsManual || !doSportType
-		if err := h.DB.UpdateActivityMetrics(ctx, activityID, data, skipSport); err != nil {
-			return fmt.Errorf("update metrics: %w", err)
+		var metricsErr error
+		if skipSport {
+			metricsErr = h.DB.UpdateActivityParserMetrics(ctx, activityID, data)
+		} else {
+			metricsErr = h.DB.UpdateActivityMetricsWithSportAndModifiers(ctx, activityID, data)
+		}
+		if metricsErr != nil {
+			return fmt.Errorf("update metrics: %w", metricsErr)
 		}
 	}
 

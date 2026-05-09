@@ -6,8 +6,10 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/ringsaturn/tzf"
 	suncalc "github.com/sixdouglas/suncalc"
 
@@ -441,10 +443,18 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	// - strength_training/hiit + emom  → tag "EMOM"
 	// - sail_race / ultra sub_type     → tag "Wettkampf"
 	if data.SubType == "commuting" && data.SportType == "cycling" {
-		// Set is_commute=true; the DB trigger will sync the Pendeln tag bidirectionally.
+		// Set is_commute=true and queue 'Pendeln' for the auto-tags merge.
+		// We must add Pendeln explicitly: under the skip-flag transaction the
+		// trigger's Direction-D (is_commute → Pendeln tag append) is suspended,
+		// AND the trigger's UPDATE-path Direction-A hard-assigns
+		// is_commute := 'Pendeln' = ANY(tags) when tags change. Without the
+		// matching tag in the array, the subsequent auto-tags merge would
+		// reset is_commute to false. Resync at commit then ensures the
+		// junction row + activity_count are written exactly once.
 		fields["is_commute"] = true
 		fields["sub_type"] = ""
 		data.SubType = "" // prevent downstream use
+		addAutoTag("Pendeln")
 	}
 	if (data.SportType == "strength_training" || data.SportType == "hiit") && data.SubType == "amrap" {
 		addAutoTag("AMRAP")
@@ -452,6 +462,13 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	if (data.SportType == "strength_training" || data.SportType == "hiit") && data.SubType == "emom" {
 		addAutoTag("EMOM")
 	}
+
+	// Build the system-tag plan up front. The actual UPSERT + LinkActivityTag
+	// + activities.tags rewrites all happen in one helper transaction below
+	// so a partial failure cannot leave the modifier flags, the tags array,
+	// the junction rows, and the per-tag activity_count out of sync.
+	var systemTagPlan []stage1SystemTagIntent
+
 	// Race sub-sports (FIT SubSport) → tag "Wettkampf"
 	raceSubSports := map[string]bool{
 		"sail_race": true,
@@ -462,52 +479,39 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		// Ensure the "Wettkampf" tag exists in the tags table and is linked in activity_tags
 		// so that analytics filters (which join activity_tags) can find this activity.
 		// Stage2 has no race module, so we do the full upsert here.
-		var raceTagID string
-		row := db.Pool.QueryRow(ctx, `
-			INSERT INTO tags (user_id, name, color, text_color, is_auto, category)
-			VALUES ($1, 'Wettkampf', '#DC2626', '#FFFFFF', true, 'activity')
-			ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
-			RETURNING id
-		`, userID)
-		if err := row.Scan(&raceTagID); err == nil {
-			db.LinkActivityTag(ctx, activityID, raceTagID, "auto")
-		}
+		systemTagPlan = append(systemTagPlan, stage1SystemTagIntent{
+			name:     "Wettkampf",
+			upsertSQL: `INSERT INTO tags (user_id, name, color, text_color, is_auto, category)
+				VALUES ($1, 'Wettkampf', '#DC2626', '#FFFFFF', true, 'activity')
+				ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
+				RETURNING id`,
+		})
 	}
 
 	// E-Bike tag is cycling-specific. Other electric sports keep the generic
 	// is_electric flag without receiving this system tag.
 	if shouldSyncEBikeSystemTag(data) {
 		addAutoTag("E-Bike")
-
-		// Upsert the "E-Bike" system tag and link it to this activity.
-		var electricTagID string
-		row := db.Pool.QueryRow(ctx, `
-			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-			VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false, 'Automatisch bei elektrischen Radfahrten')
-			ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'
-			RETURNING id
-		`, userID)
-		if err := row.Scan(&electricTagID); err == nil {
-			_ = db.LinkActivityTag(ctx, activityID, electricTagID, "auto")
-		}
+		systemTagPlan = append(systemTagPlan, stage1SystemTagIntent{
+			name:     "E-Bike",
+			upsertSQL: `INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+				VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false, 'Automatisch bei elektrischen Radfahrten')
+				ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'
+				RETURNING id`,
+		})
 	}
 
 	// Indoor tag: if is_indoor is true, ensure "Indoor" tag is in tags array
 	// and link in activity_tags junction table (same pattern as E-Bike above).
 	if data.IsIndoor {
 		addAutoTag("Indoor")
-
-		// Upsert the "Indoor" system tag and link it to this activity.
-		var indoorTagID string
-		row := db.Pool.QueryRow(ctx, `
-			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-			VALUES ($1, 'Indoor', '#3B82F6', '#FFFFFF', 'system', true, false, 'Automatisch bei Indoor-Aktivitäten (Sync mit is_indoor)')
-			ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'
-			RETURNING id
-		`, userID)
-		if err := row.Scan(&indoorTagID); err == nil {
-			_ = db.LinkActivityTag(ctx, activityID, indoorTagID, "auto")
-		}
+		systemTagPlan = append(systemTagPlan, stage1SystemTagIntent{
+			name:     "Indoor",
+			upsertSQL: `INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+				VALUES ($1, 'Indoor', '#3B82F6', '#FFFFFF', 'system', true, false, 'Automatisch bei Indoor-Aktivitäten (Sync mit is_indoor)')
+				ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'
+				RETURNING id`,
+		})
 	}
 
 	// Virtual: exclude_from_heatmap erzwingen.
@@ -520,44 +524,30 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	// Manual activity tag: if is_manual_entry is true, ensure "manuell" tag
 	if data.IsManualEntry {
 		addAutoTag("manuell")
-
-		var manualTagID string
-		row := db.Pool.QueryRow(ctx, `
-			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-			VALUES ($1, 'manuell', '#6B7280', '#FFFFFF', 'system', true, false, 'Manuell erstellte Aktivität')
-			ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'
-			RETURNING id
-		`, userID)
-		if err := row.Scan(&manualTagID); err == nil {
-			_ = db.LinkActivityTag(ctx, activityID, manualTagID, "auto")
-		}
+		systemTagPlan = append(systemTagPlan, stage1SystemTagIntent{
+			name:     "manuell",
+			upsertSQL: `INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+				VALUES ($1, 'manuell', '#6B7280', '#FFFFFF', 'system', true, false, 'Manuell erstellte Aktivität')
+				ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'
+				RETURNING id`,
+		})
 	}
 
-	if len(fields) == 0 && len(autoTagsToAdd) == 0 {
+	if len(fields) == 0 && len(autoTagsToAdd) == 0 && len(systemTagPlan) == 0 {
 		return
 	}
 
-	if len(fields) > 0 {
-		if err := db.UpdateEnrichmentFields(ctx, activityID, fields); err != nil {
-			slog.Error("stage1 enrichment failed", "activity_id", activityID, "error", err)
-			return
-		}
-	}
-
-	// Merge auto-tags atomically: union of existing and new tags, de-duplicated.
-	// This replaces the previous read-modify-write pattern that raced with
-	// automation rule workers (#20, #19).
-	if len(autoTagsToAdd) > 0 {
-		if _, err := db.Pool.Exec(ctx, `
-			UPDATE activities
-			SET tags = (
-				SELECT ARRAY(SELECT DISTINCT unnest(COALESCE(tags, '{}') || $2::text[]))
-			)
-			WHERE id = $1
-		`, activityID, autoTagsToAdd); err != nil {
-			slog.Warn("stage1: merge auto-tags failed",
-				"activity_id", activityID, "tags", autoTagsToAdd, "error", err)
-		}
+	// Atomic system-modifier-tag block. The whole sequence runs inside
+	// WithSystemModifierTagSyncSuspended so:
+	//  - the BEFORE UPDATE trigger does not perform Direction-B/C/D writes
+	//    per row (resync repairs once at commit instead);
+	//  - any failure in the middle rolls back every write — modifier flags,
+	//    activities.tags, activity_tags, and tags.activity_count cannot end
+	//    up partially applied as they previously could under the
+	//    fire-and-forget best-effort pattern.
+	if err := runStage1ModifierTagBlock(ctx, db, activityID, userID, fields, autoTagsToAdd, systemTagPlan); err != nil {
+		slog.Error("stage1 modifier tag block failed", "activity_id", activityID, "error", err)
+		return
 	}
 
 	// Load enrichment settings once — used both for geo-enrichment gating and
@@ -655,6 +645,97 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 
 func shouldSyncEBikeSystemTag(data *model.ActivityData) bool {
 	return data != nil && data.SportType == "cycling" && data.IsElectric
+}
+
+// stage1SystemTagIntent represents one system tag that Stage 1 wants to upsert
+// and link to the activity inside the atomic modifier-tag block. The plan is
+// collected up front (purely in memory) so the block can be replayed inside
+// the helper transaction without any of the per-tag logic running on the
+// pool.
+type stage1SystemTagIntent struct {
+	name      string
+	upsertSQL string // returns the tag id; takes $1 = userID
+}
+
+// stage1ModifierTagFault is the signature of the fault-injection hook that
+// runStage1ModifierTagBlock invokes for tests after queuing all of its
+// writes. Returning a non-nil error forces the helper transaction to roll
+// back, letting tests assert observable consistency under partial failure.
+type stage1ModifierTagFault func(ctx context.Context, tx pgx.Tx, activityID string) error
+
+// stage1ModifierTagFaultHook holds the active fault hook (or nil). It uses
+// atomic.Pointer so concurrent tests can install/clear it without racing
+// against the production read in runStage1ModifierTagBlock. Production
+// builds never store a non-nil pointer here.
+var stage1ModifierTagFaultHook atomic.Pointer[stage1ModifierTagFault]
+
+// runStage1ModifierTagBlock writes the modifier columns, the system tag
+// upserts, the junction rows, and the auto-tag merge into activities.tags
+// in one helper transaction. The helper sets the system-modifier-tag-sync
+// skip flag for the duration of the transaction (so the BEFORE UPDATE
+// trigger does not rewrite tag/junction/count state per row) and runs
+// skadia_resync_system_modifier_tags($1) once at commit to repair the
+// denormalized state set-based for this single activity id.
+//
+// Any failure inside the block rolls back every write: a partial state
+// where modifier flags are set but the system tag is missing (or vice
+// versa) is no longer reachable.
+func runStage1ModifierTagBlock(
+	ctx context.Context,
+	db *database.DB,
+	activityID, userID string,
+	fields map[string]any,
+	autoTagsToAdd []string,
+	systemTagPlan []stage1SystemTagIntent,
+) error {
+	return db.WithSystemModifierTagSyncSuspended(ctx, []string{activityID}, func(ctx context.Context, tx pgx.Tx) error {
+		// 1. Upsert + link every system tag in plan order. Any failure here
+		// rolls back the whole block — no half-applied state.
+		for _, intent := range systemTagPlan {
+			var tagID string
+			if err := tx.QueryRow(ctx, intent.upsertSQL, userID).Scan(&tagID); err != nil {
+				return fmt.Errorf("stage1: upsert tag %q: %w", intent.name, err)
+			}
+			if err := db.LinkActivityTagTx(ctx, tx, activityID, tagID, "auto"); err != nil {
+				return fmt.Errorf("stage1: link tag %q: %w", intent.name, err)
+			}
+		}
+
+		// 2. Write enrichment fields (is_commute, sub_type, exclude_from_heatmap,
+		// timezone, …) inside the same tx so they roll back on any later error.
+		if len(fields) > 0 {
+			if err := db.UpdateEnrichmentFieldsTx(ctx, tx, activityID, fields); err != nil {
+				return fmt.Errorf("stage1: update enrichment fields: %w", err)
+			}
+		}
+
+		// 3. Merge auto-tags atomically. The Direction-A leg of the trigger
+		// (tags array → modifier flag) still runs even with the skip flag set,
+		// so writing 'Indoor' here keeps is_indoor in sync; resync at commit
+		// handles the junction/count denormalization once for the activity.
+		if len(autoTagsToAdd) > 0 {
+			if _, err := tx.Exec(ctx, `
+				UPDATE activities
+				SET tags = (
+					SELECT ARRAY(SELECT DISTINCT unnest(COALESCE(tags, '{}') || $2::text[]))
+				)
+				WHERE id = $1
+			`, activityID, autoTagsToAdd); err != nil {
+				return fmt.Errorf("stage1: merge auto-tags: %w", err)
+			}
+		}
+
+		// 4. Test fault-injection seam. Production builds leave the pointer
+		// nil; tests Store a hook to assert rollback behaviour without having
+		// to corrupt the SQL surface. atomic.Pointer keeps this race-free
+		// when other tests in the same package run in parallel.
+		if hookPtr := stage1ModifierTagFaultHook.Load(); hookPtr != nil {
+			if err := (*hookPtr)(ctx, tx, activityID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // fetchAndInsertWeather fetches weather data for an activity and inserts readings + tags.
