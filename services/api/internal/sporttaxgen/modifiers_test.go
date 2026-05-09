@@ -3,6 +3,7 @@ package sporttaxgen
 import (
 	"encoding/json"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -216,6 +217,40 @@ func assertCapabilityKeys(t *testing.T, registry ModifierRegistry, capability st
 
 func renderModifierRegistryForTest(registry ModifierRegistry) ([]byte, error) {
 	return RenderGoModifiers(registry)
+}
+
+func TestModifierHasSubsystemsArray(t *testing.T) {
+	file, err := os.Open("../../../../config/sport-taxonomy/modifiers.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	registry, err := LoadModifiers(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// subsystem names match the --subsystem flag values used by the tool scripts
+	expectedBySubsystem := map[string][]string{
+		"gear":        {"is_electric", "is_indoor", "is_virtual"},
+		"rules":       {"is_electric", "is_indoor", "is_virtual", "is_commute"},
+		"dataimport":  {"is_electric", "is_indoor", "is_virtual"},
+		"shadowfs":    {"is_electric", "is_indoor", "is_virtual", "is_commute"},
+		"routefilter": {"is_electric", "is_indoor", "is_virtual", "is_commute"},
+		"bestefforts": {"is_electric", "is_indoor", "is_virtual"},
+		"heatmap":     {"is_electric", "is_commute"},
+		"quick-edit":  {"is_electric", "is_indoor", "is_virtual"},
+	}
+	gotBySubsystem := map[string][]string{}
+	for _, m := range registry.Modifiers {
+		for _, s := range m.Subsystems {
+			gotBySubsystem[s] = append(gotBySubsystem[s], m.Key)
+		}
+	}
+	if !reflect.DeepEqual(gotBySubsystem, expectedBySubsystem) {
+		t.Errorf("got %v, want %v", gotBySubsystem, expectedBySubsystem)
+	}
 }
 
 func validModifierRegistryFixture() string {

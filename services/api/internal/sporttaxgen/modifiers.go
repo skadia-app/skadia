@@ -25,6 +25,9 @@ type ModifierDefinition struct {
 	ActionParam         string               `yaml:"action_param"`
 	ShadowFSToken       string               `yaml:"shadowfs_token"`
 	Capabilities        ModifierCapabilities `yaml:"capabilities"`
+	// Subsystems lists the consumer subsystems that include this modifier in their applicable set.
+	// Values are the --subsystem flag values used by applicablemodifiersgen.
+	Subsystems []string `yaml:"subsystems"`
 }
 
 // ModifierCapabilities holds the four sport-internal capabilities.
