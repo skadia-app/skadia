@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -12,8 +13,38 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
+	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
+
+// liftProblemDetail is an RFC 7807 problem+json body extended with a machine-
+// readable code field for lift-endpoint errors. Used where the frontend needs
+// to distinguish multiple 409/404 causes without string-matching detail text.
+type liftProblemDetail struct {
+	Type     string `json:"type"`
+	Title    string `json:"title"`
+	Status   int    `json:"status"`
+	Detail   string `json:"detail"`
+	Code     string `json:"code"`
+	Instance string `json:"instance,omitempty"`
+}
+
+// writeLiftError writes a structured lift problem+json response.
+func writeLiftError(w http.ResponseWriter, status int, title, detail, code, instance string) {
+	problem := liftProblemDetail{
+		Type:     "https://skadia.io/errors/lift/" + code,
+		Title:    title,
+		Status:   status,
+		Detail:   detail,
+		Code:     code,
+		Instance: instance,
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(problem); err != nil {
+		slog.Error("failed to encode lift problem JSON", "error", err)
+	}
+}
 
 // reapplyRulesAfterLiftChange re-fires the rules engine with the narrow
 // trigger 'on_enrichment_complete' so the lift_detected SystemRule (and any
@@ -153,10 +184,53 @@ func (h *Handler) UnconfirmLiftCandidate(w http.ResponseWriter, r *http.Request)
 	}
 
 	candID := chi.URLParam(r, "cid")
+
+	// F12: probe the candidate state before calling UnconfirmLiftCandidate so we
+	// can return a structured error that distinguishes the four failure cases.
+	// The probe is a plain SELECT — no lock needed since the subsequent UPDATE
+	// re-checks the same predicates atomically inside UnconfirmLiftCandidate.
+	var probeSource string
+	var probeRejected bool
+	var probeActivityID string
+	probeErr := h.DB.Pool.QueryRow(r.Context(),
+		`SELECT source, rejected_by_user, activity_id::text
+		 FROM activity_lift_candidates WHERE id = $1`, candID,
+	).Scan(&probeSource, &probeRejected, &probeActivityID)
+	switch {
+	case errors.Is(probeErr, pgx.ErrNoRows):
+		// Row does not exist at all.
+		writeLiftError(w, http.StatusNotFound, "Cannot unconfirm",
+			"lift candidate not found", "NOT_FOUND", r.URL.Path)
+		return
+	case probeErr != nil:
+		slog.Error("unconfirm lift candidate: probe failed", "error", probeErr)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
+		return
+	}
+	// Collapse wrong-activity and wrong-owner into NOT_FOUND to avoid leaking
+	// existence of candidates belonging to another user (AGENTS.md multi-user rule).
+	if probeActivityID != activityID {
+		writeLiftError(w, http.StatusNotFound, "Cannot unconfirm",
+			"lift candidate not found", "NOT_FOUND", r.URL.Path)
+		return
+	}
+	if probeRejected {
+		writeLiftError(w, http.StatusConflict, "Cannot unconfirm",
+			"candidate is already soft-rejected; restore it first", "ALREADY_REJECTED", r.URL.Path)
+		return
+	}
+	if probeSource != "heuristic" {
+		writeLiftError(w, http.StatusConflict, "Cannot unconfirm",
+			"only heuristic candidates can be unconfirmed; use the reject path for OSM candidates",
+			"WRONG_SOURCE", r.URL.Path)
+		return
+	}
+
 	if err := h.DB.UnconfirmLiftCandidate(r.Context(), userID, candID, activityID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found",
-				"candidate not found, not heuristic, or already rejected", r.URL.Path)
+			// Race: candidate was modified between probe and update — treat as NOT_FOUND.
+			writeLiftError(w, http.StatusNotFound, "Cannot unconfirm",
+				"lift candidate not found", "NOT_FOUND", r.URL.Path)
 			return
 		}
 		slog.Error("unconfirm lift candidate failed", "error", err)
@@ -313,7 +387,15 @@ func (h *Handler) AcknowledgeLifts(w http.ResponseWriter, r *http.Request) {
 // Hard-resets lift detection state for one activity (User-Quote 2026-05-08
 // #5): DELETE all candidates (including rejected), DELETE coupled lift
 // segment_efforts, clear lifts_acknowledged_at, then trigger re-enrichment
-// AFTER the transaction commits. The post-commit re-enrichment respects
+// AFTER the transaction commits in a background goroutine (F2 fix: async
+// dispatch prevents client-disconnect from leaving the activity in a
+// half-reset state and avoids blocking long enrichment runs).
+//
+// F25 fix: non-lift-eligible sports (running, cycling indoor, etc.) are
+// rejected with 400 NOT_LIFT_ELIGIBLE before any DELETE — the reset would be
+// a no-op anyway, and returning early avoids unnecessary DB churn.
+//
+// The post-commit re-enrichment respects
 // user_enrichment_settings.enable_lift_detection — a user who has lift
 // detection disabled gets the reset only, no re-detection.
 //
@@ -339,6 +421,20 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// F25: guard against wasting a DELETE+re-enrichment cycle on sports that
+	// will never produce lift candidates. IsLiftRelevant mirrors the Python
+	// detector's entry check (_is_lift_relevant_activity) 1:1.
+	subType := ""
+	if activity.SubType != nil {
+		subType = *activity.SubType
+	}
+	if !lifts.IsLiftRelevant(activity.SportType, subType, activity.IsIndoor, activity.IsElectric, activity.IsVirtual) {
+		writeLiftError(w, http.StatusBadRequest, "Cannot recalculate",
+			"sport "+activity.SportType+" hat keine Lift-Erkennung",
+			"NOT_LIFT_ELIGIBLE", r.URL.Path)
+		return
+	}
+
 	if err := h.DB.RecalculateActivityLifts(r.Context(), userID, activityID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
@@ -349,39 +445,66 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Re-enrichment runs AFTER commit to avoid deadlock against the
-	// per-activity lift advisory lock taken by enrichStreamLifts. The user
-	// has explicitly asked for a recalculate, so we run the lift module
-	// (gated by their per-user enable_lift_detection toggle).
-	h.triggerLiftReEnrichmentAfterRecalculate(r.Context(), userID, activityID)
+	// F2: enqueue lift re-enrichment as a background job AFTER the DELETE
+	// transaction commits. Returning 204 immediately prevents client disconnect
+	// from leaving the activity in a "wiped but not re-detected" state, and
+	// avoids blocking the caller for long enrichment runs.
+	//
+	// Job type "lift_recompute" appears in the background_jobs progress feed.
+	// On enqueue failure the job row is skipped (best-effort progress tracking)
+	// and the goroutine runs without a tracked job — the re-enrichment itself
+	// is still attempted, matching the guarantee of the previous synchronous path.
+	jobID, jobErr := h.DB.InsertBackgroundJob(r.Context(), userID, "lift_recompute", &activityID, nil, 1)
+	if jobErr != nil {
+		slog.Warn("recalculate lifts: failed to insert background job (continuing without tracking)",
+			"activity_id", activityID, "error", jobErr)
+	}
+
+	// Capture copies for the goroutine (request values must not be read after
+	// ServeHTTP returns — the goroutine must use context.Background()).
+	capturedUserID := userID
+	capturedActivityID := activityID
+	capturedJobID := jobID
+	capturedJobInserted := jobErr == nil
+
+	go func() {
+		ctx := context.Background()
+		if err := h.dispatchLiftReEnrichmentBackground(ctx, capturedUserID, capturedActivityID); err != nil {
+			slog.Warn("recalculate lifts: background re-enrichment failed (non-fatal)",
+				"activity_id", capturedActivityID, "error", err)
+			if capturedJobInserted {
+				_ = h.DB.CompleteBackgroundJob(ctx, capturedJobID, true, "re-enrichment failed")
+			}
+			return
+		}
+		if capturedJobInserted {
+			_ = h.DB.UpdateBackgroundJobProgress(ctx, capturedJobID, 1)
+			_ = h.DB.CompleteBackgroundJob(ctx, capturedJobID, false, "")
+		}
+	}()
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// triggerLiftReEnrichmentAfterRecalculate fires lift-only stream enrichment
-// for the activity. Errors are logged-and-swallowed because the 204
-// response is already correct (the DELETE/reset committed); re-enrichment
-// is a best-effort secondary effect that can also be retried via the
-// user's normal recompute path. No-op when EnableLiftDetection is false.
-func (h *Handler) triggerLiftReEnrichmentAfterRecalculate(ctx context.Context, userID, activityID string) {
+// dispatchLiftReEnrichmentBackground fires lift-only stream enrichment for the
+// activity. Errors are returned so the background goroutine can update job
+// status. No-op when EnableLiftDetection is false for the user.
+func (h *Handler) dispatchLiftReEnrichmentBackground(ctx context.Context, userID, activityID string) error {
 	settings, err := h.DB.GetEnrichmentSettings(ctx, userID)
 	if err != nil || settings == nil {
 		slog.Warn("recalculate lifts: load enrichment settings failed; skipping re-enrichment",
 			"activity_id", activityID, "error", err)
-		return
+		return nil // settings unavailable is non-fatal; skip enrichment silently
 	}
 	if !settings.EnableLiftDetection {
 		slog.Info("recalculate lifts: lift detection disabled for user; skipping re-enrichment",
 			"activity_id", activityID, "user_id", userID)
-		return
+		return nil
 	}
 	streamSettings := enrichment.StreamEnrichmentSettings{
 		EnableLiftDetection: true,
 	}
-	if err := enrichment.RunStreamEnrichment(ctx, h.DB, userID, activityID, streamSettings); err != nil {
-		slog.Warn("recalculate lifts: re-enrichment failed (non-fatal)",
-			"activity_id", activityID, "error", err)
-	}
+	return enrichment.RunStreamEnrichment(ctx, h.DB, userID, activityID, streamSettings)
 }
 
 // RestoreLiftCandidate handles POST /api/v1/lift-candidates/{id}/restore.

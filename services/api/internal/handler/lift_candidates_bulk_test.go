@@ -29,6 +29,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -39,6 +40,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // ----- helpers -----------------------------------------------------------
@@ -742,5 +744,110 @@ func TestActivityResponseExposesLiftsAcknowledgedAt(t *testing.T) {
 	}
 	if a.LiftsAcknowledgedAt == nil {
 		t.Errorf("LiftsAcknowledgedAt = nil after UPDATE, want non-nil")
+	}
+}
+
+// ----- F2: async dispatch -------------------------------------------------
+
+// insertActivityWithSport inserts a minimal activity with a given sport_type
+// and returns its ID. Used by F25 tests to exercise the sport-eligibility guard.
+func insertActivityWithSport(t *testing.T, db *database.DB, userID, sportType string) string {
+	t.Helper()
+	now := time.Now().UTC().Truncate(time.Second)
+	act, err := db.InsertActivity(context.Background(), userID, &model.ActivityData{
+		SportType: sportType,
+		StartedAt: now,
+		EndedAt:   now.Add(30 * time.Minute),
+		FileHash:  uuid.New().String(),
+	})
+	if err != nil {
+		t.Fatalf("insertActivityWithSport(%q): %v", sportType, err)
+	}
+	return act.ID
+}
+
+// TestRecalculateAllLifts_Returns204Quickly: RecalculateActivityLifts must
+// return 204 within a generous wall-clock budget (F2: async dispatch).
+// Re-enrichment now runs in a background goroutine — the handler response
+// must arrive long before the goroutine completes.
+func TestRecalculateAllLifts_Returns204Quickly(t *testing.T) {
+	h, db := liftCandidatesHandlerSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	// cycling is lift-eligible (F25: guard must not fire here).
+	activityID := insertMinimalActivity(t, db, userID)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	insertHeuristicUnconfirmed(t, db, activityID, now)
+
+	deadline := time.Now().Add(5 * time.Second)
+	rec := callBulkLifts(t, h, userID, activityID, "recalculate-all")
+	elapsed := time.Since(deadline.Add(-5 * time.Second))
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("recalculate-all status=%d, want 204; body=%s", rec.Code, rec.Body.String())
+	}
+	// The handler must respond within 5 s on any reasonable test machine.
+	// (Real budget: the DB reset is synchronous; only the re-enrichment goroutine
+	// is detached. For a minimal activity the reset completes in milliseconds.)
+	if elapsed > 5*time.Second {
+		t.Errorf("handler took %v — async dispatch likely not working", elapsed)
+	}
+
+	// DB reset must still be synchronous: all candidates are gone before 204 is sent.
+	var count int
+	if err := db.Pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM activity_lift_candidates WHERE activity_id = $1`, activityID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count candidates: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("candidates count = %d after recalculate-all (want 0 — reset must be synchronous)", count)
+	}
+}
+
+// ----- F25: sport-eligibility guard --------------------------------------
+
+// TestRecalculateAllLifts_NonLiftEligibleSportReturns400: sending
+// recalculate-all for a running activity must return 400 NOT_LIFT_ELIGIBLE
+// without touching any DB rows.
+func TestRecalculateAllLifts_NonLiftEligibleSportReturns400(t *testing.T) {
+	h, db := liftCandidatesHandlerSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertActivityWithSport(t, db, userID, "running")
+
+	now := time.Now().UTC().Truncate(time.Second)
+	candID := insertHeuristicUnconfirmed(t, db, activityID, now)
+
+	// Set lift_count to a non-zero value to prove the endpoint does NOT clear it.
+	if _, err := db.Pool.Exec(context.Background(),
+		`UPDATE activities SET lift_count = 3 WHERE id = $1`, activityID,
+	); err != nil {
+		t.Fatalf("set lift_count: %v", err)
+	}
+
+	rec := callBulkLifts(t, h, userID, activityID, "recalculate-all")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("running activity recalculate-all status=%d, want 400; body=%s",
+			rec.Code, rec.Body.String())
+	}
+
+	// Assert structured error code.
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode 400 body: %v; raw=%s", err, rec.Body.String())
+	}
+	if body.Code != "NOT_LIFT_ELIGIBLE" {
+		t.Errorf("problem code=%q, want NOT_LIFT_ELIGIBLE", body.Code)
+	}
+
+	// Candidate row must be untouched.
+	if !candidateExists(t, db, candID) {
+		t.Error("candidate deleted by running-activity recalculate-all — eligibility guard failed")
+	}
+	// lift_count must be unchanged (DELETE was skipped).
+	if got := liftCount(t, db, activityID); got != 3 {
+		t.Errorf("lift_count = %d after rejected recalculate-all, want 3 (unchanged)", got)
 	}
 }
