@@ -52,7 +52,7 @@ func run() error {
 
 	var tsRendered []byte
 	if *tsOut != "" {
-		rendered, err := applicablemodifiers.RenderTS(*subsystem, keys)
+		rendered, err := applicablemodifiers.RenderTS(*exportPrefix, keys)
 		if err != nil {
 			return fmt.Errorf("render TS: %w", err)
 		}
