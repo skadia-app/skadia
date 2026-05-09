@@ -34,6 +34,11 @@ describe('liftDisplayLabel', () => {
     expect(liftDisplayLabel(c)).toEqual({ name: 'example chairlift', type: 'Sessellift' })
   })
 
+  it('uses Seilbahn (not Pendelbahn) for cable_car', () => {
+    const c = makeCandidate({ osm_name: null, osm_aerialway: 'cable_car' })
+    expect(liftDisplayLabel(c)).toEqual({ type: 'Seilbahn' })
+  })
+
   it('returns only type for whitelisted aerialway without name', () => {
     const c = makeCandidate({ osm_name: null, osm_aerialway: 'gondola' })
     expect(liftDisplayLabel(c)).toEqual({ type: 'Gondelbahn' })

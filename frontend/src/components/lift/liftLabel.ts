@@ -10,7 +10,7 @@ import type { LiftCandidate } from '@/api/types'
  * Order is roughly by passenger-lift relevance.
  */
 export const AERIALWAY_LABELS: Record<string, string> = {
-  cable_car: 'Pendelbahn',
+  cable_car: 'Seilbahn',
   gondola: 'Gondelbahn',
   mixed_lift: 'Kombilift',
   chair_lift: 'Sessellift',
