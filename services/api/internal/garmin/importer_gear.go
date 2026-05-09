@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/gear"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -50,7 +51,7 @@ type garminGearDTO struct {
 
 type garminGearDefaults struct {
 	Sports     []string
-	Predicates []sport.GearDefaultPredicate
+	Predicates []gear.GearDefaultPredicate
 }
 
 func (g *GearImporter) Detect(src ExportSource) (bool, int, error) {
@@ -171,10 +172,10 @@ func garminDefaultSportsForDTO(dto garminGearDTO, defaults map[string]garminGear
 	return nil
 }
 
-func garminDefaultPredicatesForDTO(dto garminGearDTO, defaults map[string]garminGearDefaults) []sport.GearDefaultPredicate {
+func garminDefaultPredicatesForDTO(dto garminGearDTO, defaults map[string]garminGearDefaults) []gear.GearDefaultPredicate {
 	for _, key := range garminGearDefaultKeys(dto.GearPk, dto.UUID) {
 		if defaultSet, ok := defaults[key]; ok {
-			return append([]sport.GearDefaultPredicate(nil), defaultSet.Predicates...)
+			return append([]gear.GearDefaultPredicate(nil), defaultSet.Predicates...)
 		}
 	}
 	return nil
@@ -243,22 +244,22 @@ func garminGearDefaultKeys(gearPk int64, uuid string) []string {
 	return keys
 }
 
-func garminGearDefaultPredicate(rawSport string) (sport.GearDefaultPredicate, bool) {
+func garminGearDefaultPredicate(rawSport string) (gear.GearDefaultPredicate, bool) {
 	for _, source := range []sport.Source{sport.SourceGarminCourse, sport.SourceFITFile} {
 		result, err := sport.ResolveSport(sport.ResolveInput{Source: source, RawSport: strings.TrimSpace(rawSport)})
 		if err == nil && result.Resolved && result.Tuple.SportType != "" {
-			if _, err := sport.NormalizeGearDefaultSports([]string{result.Tuple.SportType}); err == nil {
-				predicate, ok := sport.GearDefaultPredicateForSource(source, rawSport)
+			if _, err := gear.NormalizeGearDefaultSports([]string{result.Tuple.SportType}); err == nil {
+				predicate, ok := gear.GearDefaultPredicateForSource(source, rawSport)
 				if ok {
 					return predicate, true
 				}
 			}
 		}
 	}
-	return sport.GearDefaultPredicate{}, false
+	return gear.GearDefaultPredicate{}, false
 }
 
-func garminGearDefaultPredicateKey(predicate sport.GearDefaultPredicate) string {
+func garminGearDefaultPredicateKey(predicate gear.GearDefaultPredicate) string {
 	key := predicate.SportType
 	if predicate.SubType != nil {
 		key += ":" + *predicate.SubType

@@ -26,6 +26,15 @@ func TestModifierPatchHasGeneratedFieldsForModifierPatchKeys(t *testing.T) {
 	}
 }
 
+func TestSportModifierExists(t *testing.T) {
+	if !SportModifierExists("is_electric") {
+		t.Fatal("expected true for known key")
+	}
+	if SportModifierExists("nonexistent_key") {
+		t.Fatal("expected false for unknown key")
+	}
+}
+
 func TestModifierValuesHasGeneratedFieldsForActivityStateKeys(t *testing.T) {
 	typ := reflect.TypeOf(ModifierValues{})
 	for _, key := range SportModifierKeysWithCapability("activity_state") {

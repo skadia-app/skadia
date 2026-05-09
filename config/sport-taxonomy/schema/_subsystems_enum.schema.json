@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skadia.local/schema/sport-taxonomy/_subsystems_enum.schema.json",
+  "$defs": {
+    "subsystemName": {
+      "type": "string",
+      "enum": [
+      "gear",
+      "rules",
+      "dataimport",
+      "shadowfs",
+      "routefilter",
+      "bestefforts",
+      "heatmap",
+      "quick-edit"
+      ]
+    }
+  }
+}

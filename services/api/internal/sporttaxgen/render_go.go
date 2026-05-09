@@ -139,15 +139,6 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("\tActionParam string\n")
 	buf.WriteString("\tShadowFSToken string\n")
 	buf.WriteString("\tCapabilities map[string]bool\n")
-	buf.WriteString("\tTagSync *SportModifierTagSync\n")
-	buf.WriteString("}\n\n")
-	buf.WriteString("type SportModifierTagSync struct {\n")
-	buf.WriteString("\tSystemTag string\n")
-	buf.WriteString("\tColor string\n")
-	buf.WriteString("\tDescription string\n")
-	buf.WriteString("\tReadonlySync bool\n")
-	buf.WriteString("\tOnlySportType string\n")
-	buf.WriteString("\tLabelContext string\n")
 	buf.WriteString("}\n\n")
 
 	buf.WriteString("var generatedSportModifiers = []SportModifierDef{\n")
@@ -156,9 +147,6 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 		fmt.Fprintf(&buf, "\t\tKey: %q, LabelDE: %q, GoField: %q, TSField: %q, JSONKey: %q,\n", modifier.Key, modifier.Labels["de"], modifier.GoField, modifier.TSField, modifier.JSONKey)
 		fmt.Fprintf(&buf, "\t\tActivityColumn: %q, ApplicabilitySource: %q, ActionName: %q, ActionParam: %q, ShadowFSToken: %q,\n", modifier.ActivityColumn, modifier.ApplicabilitySource, modifier.ActionName, modifier.ActionParam, modifier.ShadowFSToken)
 		fmt.Fprintf(&buf, "\t\tCapabilities: %s,\n", renderGoModifierCapabilities(modifier.Capabilities))
-		if modifier.TagSync != nil {
-			fmt.Fprintf(&buf, "\t\tTagSync: &SportModifierTagSync{SystemTag: %q, Color: %q, Description: %q, ReadonlySync: %t, OnlySportType: %q, LabelContext: %q},\n", modifier.TagSync.SystemTag, modifier.TagSync.Color, modifier.TagSync.Description, boolValue(modifier.TagSync.ReadonlySync), modifier.TagSync.OnlySportType, modifier.TagSync.LabelContext)
-		}
 		buf.WriteString("\t},\n")
 	}
 	buf.WriteString("}\n\n")
@@ -180,7 +168,22 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("\treturn SportModifierDef{}, false\n")
 	buf.WriteString("}\n\n")
 
+	// sportModifierCapabilityNames is the closed set of capability keys the
+	// schema admits (config/sport-taxonomy/schema/modifiers.schema.json
+	// $defs.capabilities required). The capability lookups below panic for
+	// any string outside this set so typo'd lookups and stale references to
+	// capabilities removed in the 2026-05-08 decoupling fail loudly instead
+	// of silently returning empty/false.
+	buf.WriteString("var sportModifierCapabilityNames = map[string]struct{}{\n")
+	for _, capability := range modifierCapabilityNames() {
+		fmt.Fprintf(&buf, "\t%q: {},\n", capability)
+	}
+	buf.WriteString("}\n\n")
+
 	buf.WriteString("func SportModifierKeysWithCapability(capability string) []string {\n")
+	buf.WriteString("\tif _, ok := sportModifierCapabilityNames[capability]; !ok {\n")
+	buf.WriteString("\t\tpanic(\"sport: unknown modifier capability \\\"\" + capability + \"\\\"; valid keys are activity_state, modifier_filter, modifier_patch, taxonomy_default\")\n")
+	buf.WriteString("\t}\n")
 	buf.WriteString("\tkeys := make([]string, 0, len(generatedSportModifiers))\n")
 	buf.WriteString("\tfor _, modifier := range generatedSportModifiers {\n")
 	buf.WriteString("\t\tif modifier.Capabilities[capability] {\n")
@@ -191,6 +194,9 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("}\n\n")
 
 	buf.WriteString("func SportModifierHasCapability(key, capability string) bool {\n")
+	buf.WriteString("\tif _, ok := sportModifierCapabilityNames[capability]; !ok {\n")
+	buf.WriteString("\t\tpanic(\"sport: unknown modifier capability \\\"\" + capability + \"\\\"; valid keys are activity_state, modifier_filter, modifier_patch, taxonomy_default\")\n")
+	buf.WriteString("\t}\n")
 	buf.WriteString("\tfor _, modifier := range generatedSportModifiers {\n")
 	buf.WriteString("\t\tif modifier.Key == key {\n")
 	buf.WriteString("\t\t\treturn modifier.Capabilities[capability]\n")
@@ -207,15 +213,20 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("\treturn modifier.LabelDE\n")
 	buf.WriteString("}\n\n")
 
+	buf.WriteString("func SportModifierExists(key string) bool {\n")
+	buf.WriteString("\tfor _, modifier := range generatedSportModifiers {\n")
+	buf.WriteString("\t\tif modifier.Key == key {\n")
+	buf.WriteString("\t\t\treturn true\n")
+	buf.WriteString("\t\t}\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("\treturn false\n")
+	buf.WriteString("}\n\n")
+
 	buf.WriteString("func cloneSportModifierDef(modifier SportModifierDef) SportModifierDef {\n")
 	buf.WriteString("\tclone := modifier\n")
 	buf.WriteString("\tclone.Capabilities = make(map[string]bool, len(modifier.Capabilities))\n")
 	buf.WriteString("\tfor key, enabled := range modifier.Capabilities {\n")
 	buf.WriteString("\t\tclone.Capabilities[key] = enabled\n")
-	buf.WriteString("\t}\n")
-	buf.WriteString("\tif modifier.TagSync != nil {\n")
-	buf.WriteString("\t\ttagSync := *modifier.TagSync\n")
-	buf.WriteString("\t\tclone.TagSync = &tagSync\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\treturn clone\n")
 	buf.WriteString("}\n")

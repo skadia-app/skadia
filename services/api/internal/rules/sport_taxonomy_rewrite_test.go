@@ -96,7 +96,7 @@ func TestSportTaxonomyRewriteActionsRejectsModifierWriteConflict(t *testing.T) {
 }
 
 func TestRuleTaxonomyRewriteDeduplicatesGeneratedModifierWrites(t *testing.T) {
-	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+	for _, key := range RulesApplicableModifierKeys {
 		def, ok := sport.SportModifierByKey(key)
 		if !ok {
 			t.Fatalf("missing generated modifier %q", key)

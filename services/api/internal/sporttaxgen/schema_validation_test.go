@@ -193,6 +193,15 @@ func compileJSONSchemaForTest(t *testing.T, schemaPath string) *jsonschema.Schem
 	if err := compiler.AddResource(schemaPath, doc); err != nil {
 		t.Fatalf("add schema resource %s: %v", schemaPath, err)
 	}
+	// modifiers.schema.json $refs the generated subsystem enum fragment; register it.
+	if schemaPath == "config/sport-taxonomy/schema/modifiers.schema.json" {
+		const enumFragPath = "config/sport-taxonomy/schema/_subsystems_enum.schema.json"
+		const enumFragURL = "https://skadia.local/schema/sport-taxonomy/_subsystems_enum.schema.json"
+		frag := loadJSONSchemaDocumentForTest(t, enumFragPath)
+		if err := compiler.AddResource(enumFragURL, frag); err != nil {
+			t.Fatalf("add subsystems enum fragment resource: %v", err)
+		}
+	}
 	schema, err := compiler.Compile(schemaPath)
 	if err != nil {
 		t.Fatalf("compile schema %s: %v", schemaPath, err)

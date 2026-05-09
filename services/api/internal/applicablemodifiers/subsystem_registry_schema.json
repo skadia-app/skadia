@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skadia.local/schema/applicable-modifiers/subsystems.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["subsystems"],
+  "properties": {
+    "subsystems": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/subsystem"}
+    }
+  },
+  "$defs": {
+    "subsystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "ts_export_prefix"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "go_package": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "go_out": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ts_export_prefix": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9]*$"
+        },
+        "ts_out": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "if": {
+        "required": ["go_out"]
+      },
+      "then": {
+        "required": ["go_package"]
+      }
+    }
+  }
+}

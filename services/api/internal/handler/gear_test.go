@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skadia-app/skadia/services/api/internal/sport"
+	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
 )
 
 func TestNormalizeGearDefaultSportsForRequestRejectsInvalidValues(t *testing.T) {
@@ -38,7 +38,7 @@ func TestNormalizeGearDefaultSportsForRequestRejectsInvalidValues(t *testing.T) 
 }
 
 func TestNormalizeGearDefaultSportsForStorageAllowsImportedDefaults(t *testing.T) {
-	got, err := sport.NormalizeGearDefaultSports([]string{"fitness_equipment"})
+	got, err := gearpkg.NormalizeGearDefaultSports([]string{"fitness_equipment"})
 	if err != nil {
 		t.Fatalf("NormalizeGearDefaultSports() error = %v", err)
 	}

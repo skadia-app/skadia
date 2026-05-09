@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/applicablemodifiers"
 	"github.com/skadia-app/skadia/services/api/internal/sporttaxgen"
 )
 
@@ -77,7 +78,7 @@ func TestRenderAliasesFromDirUsesGearDefaultProjectionSource(t *testing.T) {
 		t.Fatalf("write gear defaults config: %v", err)
 	}
 
-	goAliases, _, _, aliasesExist, err := renderAliasesFromDir(repoPathForMainTest(t, "config/sport-taxonomy/aliases"), configPath, taxonomy, modifiers)
+	goAliases, _, _, aliasesExist, err := renderAliasesFromDir(repoPathForMainTest(t, "config/sport-taxonomy/aliases"), configPath, taxonomy, modifiers, loadMainTestSourceAliasPredicate(t))
 	if err != nil {
 		t.Fatalf("renderAliasesFromDir() error = %v", err)
 	}
@@ -155,6 +156,22 @@ func loadMainTestModifiers(t *testing.T) sporttaxgen.ModifierRegistry {
 		t.Fatalf("load modifiers: %v", err)
 	}
 	return modifiers
+}
+
+func loadMainTestSourceAliasPredicate(t *testing.T) func(string) bool {
+	t.Helper()
+	keys, err := applicablemodifiers.LoadForSubsystem(repoPathForMainTest(t, "config/sport-taxonomy/modifiers.yaml"), "dataimport")
+	if err != nil {
+		t.Fatalf("load dataimport applicable modifiers: %v", err)
+	}
+	set := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		set[k] = struct{}{}
+	}
+	return func(key string) bool {
+		_, ok := set[key]
+		return ok
+	}
 }
 
 func repoRootForMainTest(t *testing.T) string {

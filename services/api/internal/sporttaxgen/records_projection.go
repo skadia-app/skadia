@@ -362,8 +362,8 @@ func validateRecordMatchRule(rule RecordMatchRule, idx projectionIndexes, modifi
 		if value == nil {
 			return fmt.Errorf("modifier %q must be true or false", key)
 		}
-		if err := modifiers.ValidateModifierKeyForCapability(key, "record_grouping", "records projection"); err != nil {
-			return err
+		if _, ok := modifiers.ModifierByKey(key); !ok {
+			return fmt.Errorf("records projection: unknown modifier key %q", key)
 		}
 	}
 	return nil

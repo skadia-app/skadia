@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/skadia-app/skadia/services/api/internal/sport"
+	"github.com/skadia-app/skadia/services/api/internal/routefilter"
 )
 
 func TestRouteModifierFiltersUseGeneratedRouteFilterKeys(t *testing.T) {
-	keys := sport.SportModifierKeysWithCapability("route_filter")
+	keys := routefilter.RoutingApplicableModifierKeys
 	if strings.Join(keys, ",") != "is_electric,is_indoor,is_virtual,is_commute" {
 		t.Fatalf("route_filter keys = %v", keys)
 	}

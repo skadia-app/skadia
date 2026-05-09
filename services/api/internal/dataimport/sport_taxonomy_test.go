@@ -6,8 +6,54 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/gear"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
+
+// TestApplyGearDefaultsConsumesGearApplicableModifierKeys pins that the
+// gearDefaultPredicatesRowValue serialiser only emits keys from
+// gear.GearApplicableModifierKeys.  is_commute must not appear even when the
+// predicate's ModifierPatch carries a non-nil IsCommute value, because
+// is_commute is not in the gear applicable-modifiers list.
+func TestApplyGearDefaultsConsumesGearApplicableModifierKeys(t *testing.T) {
+	electric := true
+	commute := true
+	patch := sport.ModifierPatch{IsElectric: &electric, IsCommute: &commute}
+	predicates := []gear.GearDefaultPredicate{
+		{SportType: "cycling", Modifiers: &patch},
+	}
+
+	rows := gearDefaultPredicatesRowValue(predicates)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	obj, ok := rows[0].(map[string]any)
+	if !ok {
+		t.Fatalf("row is %T, want map[string]any", rows[0])
+	}
+	modifiers, ok := obj["modifiers"].(map[string]any)
+	if !ok {
+		t.Fatalf("modifiers field = %#v (%T), want map[string]any", obj["modifiers"], obj["modifiers"])
+	}
+	if modifiers["is_electric"] != true {
+		t.Errorf("is_electric = %v, want true", modifiers["is_electric"])
+	}
+	if _, exists := modifiers["is_commute"]; exists {
+		t.Errorf("is_commute must not appear in gear predicate modifiers, got %v", modifiers["is_commute"])
+	}
+	// mergeGearDefaultPredicateModifierPatch must likewise only copy GearApplicableModifierKeys.
+	existing := sport.ModifierPatch{}
+	merged := mergeGearDefaultPredicateModifierPatch(&existing, patch)
+	if merged == nil {
+		t.Fatal("merged predicate is nil, expected non-nil due to is_electric=true")
+	}
+	if merged.IsElectric == nil || !*merged.IsElectric {
+		t.Errorf("merged.IsElectric = %v, want true", merged.IsElectric)
+	}
+	if merged.IsCommute != nil {
+		t.Errorf("merged.IsCommute must be nil (not a gear modifier key), got %v", *merged.IsCommute)
+	}
+}
 
 func TestNormalizeSportTaxonomyImportRowActivities(t *testing.T) {
 	row := map[string]any{

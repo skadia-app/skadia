@@ -1,5 +1,6 @@
 import type { Activity } from '@/api/types'
-import { modifierFromTSField, modifierJSONKey, modifierKeysForCapability, modifierLabel, modifierTagSync, modifierTagSyncOnlySportType, modifierTSField, type SportModifierKey, type SportModifierTSField } from '@/lib/sportModifiers'
+import { modifierFromTSField, modifierJSONKey, modifierLabel, modifierTagSync, modifierTagSyncOnlySportType, modifierTSField, type SportModifierKey, type SportModifierTSField } from '@/lib/sportModifiers'
+import { QuickEditApplicableModifierKeys } from '@/lib/generatedQuickEditApplicableModifiers'
 import type { updateActivity } from '@/api/activities'
 
 export type ActivityQuickEditPatch = Parameters<typeof updateActivity>[1]
@@ -19,7 +20,7 @@ export interface ActivityQuickEditDraft {
 }
 
 const COUPLED_TAGS = new Set(
-  modifierKeysForCapability('quick_edit')
+  QuickEditApplicableModifierKeys
     .flatMap((key) => {
       const tag = modifierTagSync(key)?.systemTag
       return tag ? [normalizedTagName(tag)] : []
@@ -93,7 +94,7 @@ export function buildActivityQuickEditPatch(activity: Activity, draft: ActivityQ
   }
   if (activity.sport_type !== draft.sportType) patch.sport_type = draft.sportType
   if (!sameNullableString(activity.sub_type, subType)) patch.sub_type = subType || null
-  for (const modifierKey of modifierKeysForCapability('quick_edit')) {
+  for (const modifierKey of QuickEditApplicableModifierKeys) {
     const jsonKey = modifierJSONKey(modifierKey) as keyof ActivityQuickEditPatch & keyof Activity
     const selected = quickEditModifierSelected(draft, modifierKey)
     if (activity[jsonKey] !== selected) {
@@ -158,7 +159,7 @@ export function quickEditTagDraftAfterToggle(
   const tags = selected ? uniqueTags([...withoutTag, tag]) : withoutTag
   const next: ActivityQuickEditDraft = { ...draft, tags }
 
-  for (const modifierKey of modifierKeysForCapability('quick_edit')) {
+  for (const modifierKey of QuickEditApplicableModifierKeys) {
     const sync = modifierTagSync(modifierKey)
     if (!sync || normalizedTagName(sync.systemTag) !== key) continue
     const onlySportType = modifierTagSyncOnlySportType(modifierKey)
@@ -187,15 +188,15 @@ export function quickEditTagDraftAfterModifier(
 }
 
 function normalizeQuickEditModifierKey(modifier: SportModifierKey | SportModifierTSField): SportModifierKey | null {
-  if (modifierKeysForCapability('quick_edit').includes(modifier as SportModifierKey)) {
+  if (QuickEditApplicableModifierKeys.includes(modifier as SportModifierKey)) {
     return modifier as SportModifierKey
   }
   const key = modifierFromTSField(modifier)
-  return key && modifierKeysForCapability('quick_edit').includes(key) ? key : null
+  return key && QuickEditApplicableModifierKeys.includes(key) ? key : null
 }
 
 function setQuickEditModifier(draft: ActivityQuickEditDraft, modifier: SportModifierKey, selected: boolean) {
-  if (!modifierKeysForCapability('quick_edit').includes(modifier)) return
+  if (!QuickEditApplicableModifierKeys.includes(modifier)) return
   const field = modifierTSField(modifier)
   draft.modifiers = { ...draft.modifiers, [field]: selected }
   if (modifier === HEATMAP_LOCKING_MODIFIER) draft.excludeFromHeatmap = selected
@@ -207,7 +208,7 @@ export function quickEditModifierSelected(draft: ActivityQuickEditDraft, modifie
 
 export function quickEditSyncedModifierForTag(draft: ActivityQuickEditDraft, tagName: string): SportModifierKey | null {
   const tagKey = normalizedTagName(tagName)
-  for (const modifierKey of modifierKeysForCapability('quick_edit')) {
+  for (const modifierKey of QuickEditApplicableModifierKeys) {
     const sync = modifierTagSync(modifierKey)
     if (!sync || normalizedTagName(sync.systemTag) !== tagKey) continue
     const onlySportType = modifierTagSyncOnlySportType(modifierKey)
@@ -232,7 +233,7 @@ export function quickEditTagRemovalLabel(draft: ActivityQuickEditDraft, tagName:
 
 function quickEditModifiersFromActivity(activity: Activity): Partial<Record<SportModifierTSField, boolean>> {
   const modifiers: Partial<Record<SportModifierTSField, boolean>> = {}
-  for (const modifierKey of modifierKeysForCapability('quick_edit')) {
+  for (const modifierKey of QuickEditApplicableModifierKeys) {
     const jsonKey = modifierJSONKey(modifierKey) as keyof Activity
     modifiers[modifierTSField(modifierKey)] = Boolean(activity[jsonKey])
   }

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/rules"
+	"github.com/skadia-app/skadia/services/api/internal/gear"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -99,7 +100,7 @@ func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []target
 		if err != nil {
 			return fmt.Errorf("default_sport_predicates: %w", err)
 		}
-		normalized, err := sport.NormalizeGearDefaultPredicates(predicates)
+		normalized, err := gear.NormalizeGearDefaultPredicates(predicates)
 		if err != nil {
 			return fmt.Errorf("default_sport_predicates: %w", err)
 		}
@@ -114,7 +115,7 @@ func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []target
 		return fmt.Errorf("default_for_sports: %w", err)
 	}
 	canonicalTopLevel := make([]string, 0, len(values))
-	predicates := make([]sport.GearDefaultPredicate, 0, len(values))
+	predicates := make([]gear.GearDefaultPredicate, 0, len(values))
 	for _, raw := range values {
 		if strings.TrimSpace(raw) == "" {
 			continue
@@ -124,19 +125,19 @@ func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []target
 			return fmt.Errorf("default_for_sports: %w", err)
 		}
 		canonicalTopLevel = append(canonicalTopLevel, tuple.SportType)
-		predicate, ok := sport.GearDefaultPredicateForSource(sport.SourceLegacy, raw)
+		predicate, ok := gear.GearDefaultPredicateForSource(sport.SourceLegacy, raw)
 		if ok {
 			predicate.Modifiers = mergeGearDefaultPredicateModifierPatch(predicate.Modifiers, patch)
 			predicates = append(predicates, predicate)
 		}
 	}
-	normalized, err := sport.NormalizeGearDefaultSports(canonicalTopLevel)
+	normalized, err := gear.NormalizeGearDefaultSports(canonicalTopLevel)
 	if err != nil {
 		return fmt.Errorf("default_for_sports: %w", err)
 	}
 	row["default_for_sports"] = normalized
 	if hasPredicates {
-		normalizedPredicates, err := sport.NormalizeGearDefaultPredicates(predicates)
+		normalizedPredicates, err := gear.NormalizeGearDefaultPredicates(predicates)
 		if err != nil {
 			return fmt.Errorf("default_sport_predicates: %w", err)
 		}
@@ -145,7 +146,7 @@ func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []target
 	return nil
 }
 
-func gearDefaultPredicatesRowValue(predicates []sport.GearDefaultPredicate) []any {
+func gearDefaultPredicatesRowValue(predicates []gear.GearDefaultPredicate) []any {
 	out := make([]any, 0, len(predicates))
 	for _, predicate := range predicates {
 		obj := map[string]any{"sport_type": predicate.SportType}
@@ -154,7 +155,7 @@ func gearDefaultPredicatesRowValue(predicates []sport.GearDefaultPredicate) []an
 		}
 		if predicate.Modifiers != nil {
 			modifiers := map[string]any{}
-			for _, key := range sport.SportModifierKeysWithCapability("gear_default") {
+			for _, key := range gear.GearApplicableModifierKeys {
 				if value := sport.ModifierPatchValue(*predicate.Modifiers, key); value != nil {
 					modifiers[key] = *value
 				}
@@ -168,7 +169,7 @@ func gearDefaultPredicatesRowValue(predicates []sport.GearDefaultPredicate) []an
 	return out
 }
 
-func gearDefaultPredicatesFromRowValue(value any) ([]sport.GearDefaultPredicate, error) {
+func gearDefaultPredicatesFromRowValue(value any) ([]gear.GearDefaultPredicate, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -179,7 +180,7 @@ func gearDefaultPredicatesFromRowValue(value any) ([]sport.GearDefaultPredicate,
 	if !ok || len(raw) == 0 || strings.TrimSpace(string(raw)) == "null" {
 		return nil, nil
 	}
-	var predicates []sport.GearDefaultPredicate
+	var predicates []gear.GearDefaultPredicate
 	if err := json.Unmarshal(raw, &predicates); err != nil {
 		return nil, err
 	}
@@ -191,7 +192,7 @@ func mergeGearDefaultPredicateModifierPatch(existing *sport.ModifierPatch, patch
 		existing = &sport.ModifierPatch{}
 	}
 	merged := *existing
-	for _, key := range sport.SportModifierKeysWithCapability("gear_default") {
+	for _, key := range gear.GearApplicableModifierKeys {
 		if value := sport.ModifierPatchValue(patch, key); value != nil {
 			sport.SetModifierPatchValue(&merged, key, value)
 		}
@@ -215,7 +216,7 @@ func applyModifierPatchToRow(row map[string]any, patch sport.ModifierPatch) {
 }
 
 func mergeImportModifierPatch(a, b sport.ModifierPatch) sport.ModifierPatch {
-	for _, key := range sport.SportModifierKeysWithCapability("source_alias") {
+	for _, key := range DataimportApplicableModifierKeys {
 		if value := sport.ModifierPatchValue(b, key); value != nil {
 			sport.SetModifierPatchValue(&a, key, value)
 		}
@@ -224,7 +225,7 @@ func mergeImportModifierPatch(a, b sport.ModifierPatch) sport.ModifierPatch {
 }
 
 func applyPatchToModifierFilters(filters map[string]any, patch sport.ModifierPatch) {
-	for _, key := range sport.SportModifierKeysWithCapability("source_alias") {
+	for _, key := range DataimportApplicableModifierKeys {
 		if value := sport.ModifierPatchValue(patch, key); value != nil {
 			filters[key] = *value
 		}

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/skadia-app/skadia/services/api/internal/sport"
+	"github.com/skadia-app/skadia/services/api/internal/gear"
 )
 
 func TestMapStravaDefaultSportsUsesTopLevelCanonicalSports(t *testing.T) {
@@ -81,7 +81,7 @@ func TestMapStravaDefaultSportPredicatesPreservesSubtypeAndModifiers(t *testing.
 	assertGearPredicate(t, got[3], "cycling", "", false, true)
 }
 
-func assertGearPredicate(t *testing.T, got sport.GearDefaultPredicate, sportType, subType string, electric, virtual bool) {
+func assertGearPredicate(t *testing.T, got gear.GearDefaultPredicate, sportType, subType string, electric, virtual bool) {
 	t.Helper()
 	if got.SportType != sportType {
 		t.Fatalf("SportType = %q, want %q", got.SportType, sportType)

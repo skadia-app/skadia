@@ -17,6 +17,22 @@ func modifierRegistryForTest() ModifierRegistry {
 	return registry
 }
 
+// sourceAliasPredicateForTest returns a predicate for modifier applicability in
+// the dataimport subsystem. The applicable keys are owned by the dataimport
+// package (generated); the sporttaxgen tests use a local copy to avoid an
+// import-cycle through sporttaxgen → dataimport → sport → sporttaxgen.
+// Update this list when dataimport/applicable_modifiers_generated.go changes.
+func sourceAliasPredicateForTest() func(string) bool {
+	applicable := map[string]bool{
+		"is_electric": true,
+		"is_indoor":   true,
+		"is_virtual":  true,
+	}
+	return func(key string) bool {
+		return applicable[key]
+	}
+}
+
 func TestLoadSourceAliasesAcceptsModifierPatches(t *testing.T) {
 	source, err := LoadSourceAliases(strings.NewReader(`
 source: strava
@@ -31,7 +47,7 @@ aliases:
   sport_type: running
   sub_type: treadmill
   modifiers: {is_indoor: true}
-`), "strava", aliasTestTaxonomy(), modifierRegistryForTest())
+`), "strava", aliasTestTaxonomy(), modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err != nil {
 		t.Fatalf("LoadSourceAliases() error = %v", err)
 	}
@@ -46,7 +62,7 @@ source: strava
 aliases:
 - raw: Ride
   sport_type: cycling
-`), "gpx", aliasTestTaxonomy(), modifierRegistryForTest())
+`), "gpx", aliasTestTaxonomy(), modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err == nil {
 		t.Fatal("LoadSourceAliases accepted source filename mismatch")
 	}
@@ -60,7 +76,7 @@ aliases:
   sport_type: cycling
 - raw: ride
   sport_type: running
-`), "gpx", aliasTestTaxonomy(), modifierRegistryForTest())
+`), "gpx", aliasTestTaxonomy(), modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err == nil {
 		t.Fatal("LoadSourceAliases accepted duplicate raw")
 	}
@@ -74,7 +90,7 @@ aliases:
   sport_type: cycling
 - raw: ride
   sport_type: running
-`), "gpx", aliasTestTaxonomy(), modifierRegistryForTest())
+`), "gpx", aliasTestTaxonomy(), modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err == nil {
 		t.Fatal("LoadSourceAliases accepted duplicate raw after trim")
 	}
@@ -86,7 +102,7 @@ source: gpx
 aliases:
 - raw: ride
   sport_type: does_not_exist
-`), "gpx", aliasTestTaxonomy(), modifierRegistryForTest())
+`), "gpx", aliasTestTaxonomy(), modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err == nil {
 		t.Fatal("LoadSourceAliases accepted dangling sport_type")
 	}
@@ -99,7 +115,7 @@ aliases:
 - raw: ride
   sport_type: cycling
   sub_type: does_not_exist
-`), "gpx", aliasTestTaxonomy(), modifierRegistryForTest())
+`), "gpx", aliasTestTaxonomy(), modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err == nil {
 		t.Fatal("LoadSourceAliases accepted dangling sub_type")
 	}
@@ -112,7 +128,7 @@ aliases:
 - raw: Commute
   sport_type: cycling
   modifiers: {is_commute: true}
-`), "strava", aliasTestTaxonomy(), modifierRegistryForTest())
+`), "strava", aliasTestTaxonomy(), modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err == nil {
 		t.Fatal("LoadSourceAliases accepted is_commute modifier")
 	}
@@ -133,7 +149,7 @@ aliases:
   sport_type: cycling
 `),
 	}
-	sources, err := LoadSourceAliasFiles(readers, aliasTestTaxonomy(), modifierRegistryForTest())
+	sources, err := LoadSourceAliasFiles(readers, aliasTestTaxonomy(), modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err != nil {
 		t.Fatalf("LoadSourceAliasFiles() error = %v", err)
 	}
@@ -156,11 +172,11 @@ aliases:
   sport_type: running
   sub_type: treadmill
   modifiers: {is_indoor: true}
-`), "strava", aliasTestTaxonomy(), modifierRegistryForTest())
+`), "strava", aliasTestTaxonomy(), modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err != nil {
 		t.Fatalf("LoadSourceAliases() error = %v", err)
 	}
-	got, err := RenderGoSourceAliases([]SourceAliases{source}, modifierRegistryForTest())
+	got, err := RenderGoSourceAliases([]SourceAliases{source}, modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err != nil {
 		t.Fatalf("RenderGoSourceAliases() error = %v", err)
 	}
@@ -184,7 +200,7 @@ func TestRenderGoSourceAliasesSupportsRouteOnlyNamespace(t *testing.T) {
 		Aliases: []SourceAlias{
 			{Raw: "alpine ski", SportType: "alpine_skiing"},
 		},
-	}}, modifierRegistryForTest())
+	}}, modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err != nil {
 		t.Fatalf("RenderGoSourceAliases() error = %v", err)
 	}
@@ -201,7 +217,7 @@ func TestRenderTSSourceAliasesEmitsLegacyAliases(t *testing.T) {
 			{Raw: "e_bike", SportType: "cycling", Modifiers: SourceAliasModifiers{"is_electric": ptrBoolForTest(true)}},
 			{Raw: "wheelchair_push_walk", RawSub: "indoor_wheelchair_walk", SportType: "wheelchair_push", SubType: "walk_speed", Modifiers: SourceAliasModifiers{"is_indoor": ptrBoolForTest(true)}},
 		},
-	}}, modifierRegistryForTest())
+	}}, modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err != nil {
 		t.Fatalf("RenderTSSourceAliases() error = %v", err)
 	}
@@ -222,7 +238,7 @@ func TestRenderGoSourceAliasesRejectsUnknownNamespace(t *testing.T) {
 	_, err := RenderGoSourceAliases([]SourceAliases{{
 		Source:  "not_a_source",
 		Aliases: []SourceAlias{{Raw: "Ride", SportType: "cycling"}},
-	}}, modifierRegistryForTest())
+	}}, modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err == nil {
 		t.Fatal("RenderGoSourceAliases accepted unknown namespace")
 	}
@@ -379,7 +395,7 @@ func TestLoadGearDefaultProjectionConfigLoadsRepositoryFixture(t *testing.T) {
 		stem := strings.TrimSuffix(filepath.Base(match), filepath.Ext(match))
 		files[stem] = file
 	}
-	sources, err := LoadSourceAliasFiles(files, taxonomy, modifierRegistryForTest())
+	sources, err := LoadSourceAliasFiles(files, taxonomy, modifierRegistryForTest(), sourceAliasPredicateForTest())
 	if err != nil {
 		t.Fatalf("LoadSourceAliasFiles() error = %v", err)
 	}
@@ -468,7 +484,7 @@ func TestCurrentAliasesRouteFitnessActivitiesToCanonicalSports(t *testing.T) {
 				t.Fatalf("open aliases: %v", err)
 			}
 			defer file.Close()
-			aliases, err := LoadSourceAliases(file, tc.source, taxonomy, modifierRegistryForTest())
+			aliases, err := LoadSourceAliases(file, tc.source, taxonomy, modifierRegistryForTest(), sourceAliasPredicateForTest())
 			if err != nil {
 				t.Fatalf("LoadSourceAliases() error = %v", err)
 			}
