@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -31,11 +32,16 @@ type systemModifierTagSyncQuerier interface {
 // want resynced; call something else for an empty set". Passing an empty or
 // nil slice returns an error without opening a transaction.
 //
+// caller is a short identifier for the call site (e.g. "bulk_modifier_assign",
+// "stage1_enrichment"). It populates the caller label on the resync_calls_total
+// Prometheus counter. Pass "" to fall back to "unknown".
+//
 // Callers must NOT wrap downloads, parsing, stream writes, or enrichment
 // file IO inside fn. Long-running work belongs OUTSIDE the helper; only
 // the SQL block that needs the skip gate should run here.
 func (db *DB) WithSystemModifierTagSyncSuspended(
 	ctx context.Context,
+	caller string,
 	activityIDs []string,
 	fn func(ctx context.Context, tx pgx.Tx) error,
 ) (err error) {
@@ -44,6 +50,9 @@ func (db *DB) WithSystemModifierTagSyncSuspended(
 	}
 	if len(activityIDs) == 0 {
 		return fmt.Errorf("WithSystemModifierTagSyncSuspended: empty activityIDs")
+	}
+	if caller == "" {
+		caller = "unknown"
 	}
 
 	// Validate and dedupe before opening a transaction so callers see a
@@ -54,6 +63,11 @@ func (db *DB) WithSystemModifierTagSyncSuspended(
 	deduped, err := validateAndDedupeSystemModifierActivityIDs(activityIDs)
 	if err != nil {
 		return err
+	}
+
+	m := db.syncMetrics
+	if m == nil {
+		m = defaultSyncMetrics()
 	}
 
 	tx, err := db.Pool.Begin(ctx)
@@ -86,6 +100,17 @@ func (db *DB) WithSystemModifierTagSyncSuspended(
 
 	// validateAndDedupeSystemModifierActivityIDs returned a non-empty slice or
 	// an error; if we got here, deduped is guaranteed to have at least one ID.
+	var gateStart time.Time
+	// Record skip-gate duration (SET LOCAL through commit/rollback) after the
+	// full commit path completes, so the observation includes commit-flush time
+	// as stated in the metric help text.
+	defer func() {
+		if !gateStart.IsZero() && err == nil {
+			m.skipGateActiveSeconds.Observe(time.Since(gateStart).Seconds())
+		}
+	}()
+
+	gateStart = time.Now()
 	if _, e := tx.Exec(ctx, `SET LOCAL skadia.skip_system_modifier_tag_sync = 'true'`); e != nil {
 		err = fmt.Errorf("set skip flag: %w", e)
 		return err
@@ -96,7 +121,12 @@ func (db *DB) WithSystemModifierTagSyncSuspended(
 		return err
 	}
 
-	if _, e := tx.Exec(ctx, `SELECT skadia_resync_system_modifier_tags($1::uuid[])`, deduped); e != nil {
+	var junctionsInserted, junctionsDeleted, tagsPromoted, removalsDropped, systemTagsSeeded int
+	if e := tx.QueryRow(ctx,
+		`SELECT junctions_inserted, junctions_deleted, tags_promoted, removals_dropped, system_tags_seeded
+		 FROM skadia_resync_system_modifier_tags($1::uuid[])`,
+		deduped,
+	).Scan(&junctionsInserted, &junctionsDeleted, &tagsPromoted, &removalsDropped, &systemTagsSeeded); e != nil {
 		err = fmt.Errorf("resync: %w", e)
 		return err
 	}
@@ -105,6 +135,27 @@ func (db *DB) WithSystemModifierTagSyncSuspended(
 	if e := tx.Commit(ctx); e != nil {
 		err = fmt.Errorf("commit: %w", e)
 		return err
+	}
+
+	// Record metrics only after a successful commit so a rollback leaves
+	// all counters unchanged.
+	m.resyncCallsTotal.WithLabelValues(caller).Inc()
+	m.resyncActivitiesProcessed.Observe(float64(len(deduped)))
+	// skipGateActiveSeconds is observed by the defer above.
+	if junctionsInserted > 0 {
+		m.repairsTotal.WithLabelValues("junction_inserted").Add(float64(junctionsInserted))
+	}
+	if junctionsDeleted > 0 {
+		m.repairsTotal.WithLabelValues("junction_deleted").Add(float64(junctionsDeleted))
+	}
+	if tagsPromoted > 0 {
+		m.repairsTotal.WithLabelValues("tag_promoted").Add(float64(tagsPromoted))
+	}
+	if removalsDropped > 0 {
+		m.repairsTotal.WithLabelValues("removal_dropped").Add(float64(removalsDropped))
+	}
+	if systemTagsSeeded > 0 {
+		m.repairsTotal.WithLabelValues("system_tag_seeded").Add(float64(systemTagsSeeded))
 	}
 	return nil
 }

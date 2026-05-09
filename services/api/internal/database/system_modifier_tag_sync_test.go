@@ -100,7 +100,7 @@ func TestWithSystemModifierTagSyncSuspendedResyncsBeforeCommit(t *testing.T) {
 	db, _, ids := systemModifierTagSyncTestDB(t)
 	ctx := context.Background()
 
-	err := db.WithSystemModifierTagSyncSuspended(ctx, ids, func(ctx context.Context, tx pgx.Tx) error {
+	err := db.WithSystemModifierTagSyncSuspended(ctx, "test", ids, func(ctx context.Context, tx pgx.Tx) error {
 		// Bulk-flip is_indoor for two of the three activities. With the
 		// skip flag set, the BEFORE UPDATE trigger must NOT add 'Indoor'
 		// to the tags array or insert the activity_tags junction.
@@ -133,7 +133,7 @@ func TestWithSystemModifierTagSyncSuspendedRollsBackOnUpdateError(t *testing.T) 
 	ctx := context.Background()
 
 	wantErr := errors.New("intentional fn failure")
-	err := db.WithSystemModifierTagSyncSuspended(ctx, ids, func(ctx context.Context, tx pgx.Tx) error {
+	err := db.WithSystemModifierTagSyncSuspended(ctx, "test", ids, func(ctx context.Context, tx pgx.Tx) error {
 		if _, e := tx.Exec(ctx, `UPDATE activities SET is_indoor = true WHERE id = ANY($1::uuid[])`, ids); e != nil {
 			t.Fatalf("update failed: %v", e)
 		}
@@ -175,7 +175,7 @@ func TestWithSystemModifierTagSyncSuspendedRejectsMalformedUUID(t *testing.T) {
 	fnCalled := false
 	// Mix valid UUIDs with one malformed entry at index 1.
 	poisonIDs := []string{ids[0], "not-a-valid-uuid", ids[1]}
-	err := db.WithSystemModifierTagSyncSuspended(ctx, poisonIDs, func(ctx context.Context, tx pgx.Tx) error {
+	err := db.WithSystemModifierTagSyncSuspended(ctx, "test", poisonIDs, func(ctx context.Context, tx pgx.Tx) error {
 		fnCalled = true
 		return nil
 	})
@@ -217,7 +217,7 @@ func TestWithSystemModifierTagSyncSuspendedRejectsEmptyAfterDedupe(t *testing.T)
 	ctx := context.Background()
 
 	fnCalled := false
-	err := db.WithSystemModifierTagSyncSuspended(ctx, []string{"", "", ""}, func(ctx context.Context, tx pgx.Tx) error {
+	err := db.WithSystemModifierTagSyncSuspended(ctx, "test", []string{"", "", ""}, func(ctx context.Context, tx pgx.Tx) error {
 		fnCalled = true
 		return nil
 	})
@@ -245,7 +245,7 @@ func TestWithSystemModifierTagSyncSuspendedDeduplicatesIDs(t *testing.T) {
 	// prepared-statement cache collisions).
 	withDupes := []string{ids[0], ids[1], ids[0], "", ids[1], ids[2], ids[0]}
 
-	err := db.WithSystemModifierTagSyncSuspended(ctx, withDupes, func(ctx context.Context, tx pgx.Tx) error {
+	err := db.WithSystemModifierTagSyncSuspended(ctx, "test", withDupes, func(ctx context.Context, tx pgx.Tx) error {
 		// Flip all three activities to is_indoor=true; with the skip flag set
 		// the trigger will not add the tag — resync repairs this at commit.
 		_, err := tx.Exec(ctx, `UPDATE activities SET is_indoor = true WHERE id = ANY($1::uuid[])`, ids)
@@ -297,7 +297,7 @@ func TestWithSystemModifierTagSyncSuspendedEmptySliceReturnsError(t *testing.T) 
 	db, _, _ := systemModifierTagSyncTestDB(t)
 	ctx := context.Background()
 
-	err := db.WithSystemModifierTagSyncSuspended(ctx, []string{}, func(ctx context.Context, tx pgx.Tx) error {
+	err := db.WithSystemModifierTagSyncSuspended(ctx, "test", []string{}, func(ctx context.Context, tx pgx.Tx) error {
 		t.Fatal("fn must not be called when activityIDs is empty")
 		return nil
 	})
@@ -310,7 +310,7 @@ func TestWithSystemModifierTagSyncSuspendedNilSliceReturnsError(t *testing.T) {
 	db, _, _ := systemModifierTagSyncTestDB(t)
 	ctx := context.Background()
 
-	err := db.WithSystemModifierTagSyncSuspended(ctx, nil, func(ctx context.Context, tx pgx.Tx) error {
+	err := db.WithSystemModifierTagSyncSuspended(ctx, "test", nil, func(ctx context.Context, tx pgx.Tx) error {
 		t.Fatal("fn must not be called when activityIDs is nil")
 		return nil
 	})
@@ -346,7 +346,7 @@ func TestWithSystemModifierTagSyncSuspendedRollsBackOnPanic(t *testing.T) {
 	var recovered any
 	func() {
 		defer func() { recovered = recover() }()
-		_ = db.WithSystemModifierTagSyncSuspended(ctx, []string{target}, func(ctx context.Context, tx pgx.Tx) error {
+		_ = db.WithSystemModifierTagSyncSuspended(ctx, "test", []string{target}, func(ctx context.Context, tx pgx.Tx) error {
 			if _, err := tx.Exec(ctx, `UPDATE activities SET is_indoor = true WHERE id = $1`, target); err != nil {
 				t.Fatalf("update inside fn: %v", err)
 			}

@@ -2177,7 +2177,7 @@ func (db *DB) UpdateActivityParserMetrics(ctx context.Context, activityID string
 // the normal trigger path and not call this method.
 func (db *DB) UpdateActivityMetricsWithSportAndModifiers(ctx context.Context, activityID string, data *model.ActivityData) error {
 	query, args := buildActivityMetricsUpdateSQL(activityID, data, true)
-	err := db.WithSystemModifierTagSyncSuspended(ctx, []string{activityID}, func(ctx context.Context, tx pgx.Tx) error {
+	err := db.WithSystemModifierTagSyncSuspended(ctx, "metrics_sport_modifiers", []string{activityID}, func(ctx context.Context, tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, query, args...); err != nil {
 			return fmt.Errorf("update activity metrics (with modifiers): %w", err)
 		}

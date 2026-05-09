@@ -399,6 +399,8 @@ BEGIN
       AND t.user_id = a.user_id
       AND t.name IN ('Indoor', 'Pendeln', 'virtuell', 'E-Bike')
       AND t.is_system = false;
+    GET DIAGNOSTICS v_row_count = ROW_COUNT;
+    v_tags_promoted := v_row_count;
 
     -- 1b. Insert missing system tags for every user owning an affected
     --     activity. ON CONFLICT skips users whose tag was just promoted or
@@ -432,6 +434,8 @@ BEGIN
           OR (t.name = 'E-Bike'   AND a.sport_type = 'cycling' AND COALESCE(a.is_electric, false))
       )
     ON CONFLICT (activity_id, tag_id) DO NOTHING;
+    GET DIAGNOSTICS v_row_count = ROW_COUNT;
+    v_junctions_inserted := v_row_count;
 
     -- 2b. Reconcile activities.tags TEXT[] with modifier flags. Reserved
     --     system names are stripped from the array, then re-added based on
@@ -481,6 +485,8 @@ BEGIN
           OR (t.name = 'virtuell' AND NOT COALESCE(a.is_virtual,  false))
           OR (t.name = 'E-Bike'   AND (a.sport_type <> 'cycling' OR NOT COALESCE(a.is_electric, false)))
       );
+    GET DIAGNOSTICS v_row_count = ROW_COUNT;
+    v_junctions_deleted := v_row_count;
 
     -- 3. Drop stale activity_tag_removals for system tags whose modifier
     --    flag now says the tag should be present. Otherwise the removal row
@@ -497,6 +503,8 @@ BEGIN
           OR (t.name = 'virtuell' AND COALESCE(a.is_virtual,  false))
           OR (t.name = 'E-Bike'   AND a.sport_type = 'cycling' AND COALESCE(a.is_electric, false))
       );
+    GET DIAGNOSTICS v_row_count = ROW_COUNT;
+    v_removals_dropped := v_row_count;
 
     -- 4. Recompute activity_count for the four reserved system tags
     --    reachable from the affected user set. Tags belonging to other

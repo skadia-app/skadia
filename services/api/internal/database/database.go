@@ -13,6 +13,9 @@ import (
 type DB struct {
 	Pool          *pgxpool.Pool
 	terraInflight singleflight.Group // deduplicates concurrent terra incognita computations per user
+	// syncMetrics holds Prometheus instruments for WithSystemModifierTagSyncSuspended.
+	// Nil means "use the package default". Tests inject an isolated registry.
+	syncMetrics *systemModifierTagSyncMetrics
 }
 
 func New(ctx context.Context, databaseURL string) (*DB, error) {
