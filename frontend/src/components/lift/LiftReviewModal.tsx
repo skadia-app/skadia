@@ -149,9 +149,24 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
     qc.invalidateQueries({ queryKey: ['lift-candidates-inspector', activityId] })
   }, [qc, activityId])
 
+  // apiFetch returns Response on every status — including 4xx/5xx. Mutations
+  // that participate in Promise.allSettled-based failure counting (F9) must
+  // throw on !ok so the caller can distinguish fulfilled vs rejected. This
+  // helper also surfaces RFC7807 problem+json bodies (Slot 2's F12 pattern).
+  const throwOnError = async (res: Response): Promise<Response> => {
+    if (!res.ok) {
+      const body = await res.json().catch(() => null) as { code?: string; detail?: string } | null
+      throw Object.assign(new Error(body?.detail ?? `HTTP ${res.status}`), {
+        status: res.status,
+        code: body?.code,
+      })
+    }
+    return res
+  }
+
   const confirmAllMutation = useMutation({
     mutationFn: () =>
-      apiFetch(`/api/v1/activities/${activityId}/lifts/confirm-all`, { method: 'POST' }),
+      apiFetch(`/api/v1/activities/${activityId}/lifts/confirm-all`, { method: 'POST' }).then(throwOnError),
     onSuccess: () => {
       invalidateAfterBulk()
       setBulkActionDone(true)
@@ -161,7 +176,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   const rejectAllMutation = useMutation({
     mutationFn: () =>
-      apiFetch(`/api/v1/activities/${activityId}/lifts/reject-all`, { method: 'POST' }),
+      apiFetch(`/api/v1/activities/${activityId}/lifts/reject-all`, { method: 'POST' }).then(throwOnError),
     onSuccess: () => {
       invalidateAfterBulk()
       setBulkActionDone(true)
@@ -171,7 +186,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   const acknowledgeMutation = useMutation({
     mutationFn: () =>
-      apiFetch(`/api/v1/activities/${activityId}/lifts/acknowledge`, { method: 'POST' }),
+      apiFetch(`/api/v1/activities/${activityId}/lifts/acknowledge`, { method: 'POST' }).then(throwOnError),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['activity', activityId] })
     },
@@ -179,24 +194,13 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   const confirmMutation = useMutation({
     mutationFn: (cid: string) =>
-      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}/confirm`, { method: 'POST' }),
+      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}/confirm`, { method: 'POST' }).then(throwOnError),
     onSuccess: () => invalidateAfterBulk(),
   })
 
   const unconfirmMutation = useMutation({
-    mutationFn: async (cid: string) => {
-      const res = await apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}/unconfirm`, { method: 'PATCH' })
-      if (!res.ok) {
-        // Backend returns RFC7807-style problem+json with `code` for 409/404;
-        // fall back gracefully when the body is empty or not JSON.
-        const body = await res.json().catch(() => null) as { code?: string; detail?: string } | null
-        throw Object.assign(new Error(body?.detail ?? `Unconfirm fehlgeschlagen (HTTP ${res.status})`), {
-          status: res.status,
-          code: body?.code,
-        })
-      }
-      return res
-    },
+    mutationFn: (cid: string) =>
+      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}/unconfirm`, { method: 'PATCH' }).then(throwOnError),
     onSuccess: () => invalidateAfterBulk(),
     onError: (err: Error & { code?: string }) => {
       const msg = err.code === 'ALREADY_REJECTED'
@@ -212,19 +216,19 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   const rejectMutation = useMutation({
     mutationFn: (cid: string) =>
-      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}`, { method: 'DELETE' }),
+      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}`, { method: 'DELETE' }).then(throwOnError),
     onSuccess: () => invalidateAfterBulk(),
   })
 
   const restoreMutation = useMutation({
     mutationFn: (cid: string) =>
-      apiFetch(`/api/v1/lift-candidates/${cid}/restore`, { method: 'POST' }),
+      apiFetch(`/api/v1/lift-candidates/${cid}/restore`, { method: 'POST' }).then(throwOnError),
     onSuccess: () => invalidateAfterBulk(),
   })
 
   const recalcMutation = useMutation({
     mutationFn: () =>
-      apiFetch(`/api/v1/activities/${activityId}/lifts/recalculate-all`, { method: 'POST' }),
+      apiFetch(`/api/v1/activities/${activityId}/lifts/recalculate-all`, { method: 'POST' }).then(throwOnError),
     onSuccess: () => {
       invalidateAfterBulk()
       setShowRecalcConfirm(false)
