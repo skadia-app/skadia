@@ -108,7 +108,7 @@ func run() error {
 		*gearDefaultProjectionSource = filepath.Join(*repoRoot, "config", "sport-taxonomy", "projections", "gear_defaults.yaml")
 	}
 	if *dataimportApplicableModifiersSource == "" {
-		*dataimportApplicableModifiersSource = filepath.Join(*repoRoot, "config", "dataimport", "applicable_modifiers.yaml")
+		*dataimportApplicableModifiersSource = filepath.Join(*repoRoot, "config", "sport-taxonomy", "modifiers.yaml")
 	}
 	if *goAliasesOut == "" {
 		*goAliasesOut = filepath.Join(*repoRoot, "services", "api", "internal", "sport", "aliases_generated.go")
@@ -230,7 +230,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("render TypeScript records projection: %w", err)
 	}
-	dataimportApplicableKeys, err := applicablemodifiers.Load(*dataimportApplicableModifiersSource)
+	dataimportApplicableKeys, err := applicablemodifiers.LoadForSubsystem(*dataimportApplicableModifiersSource, "dataimport")
 	if err != nil {
 		return fmt.Errorf("load dataimport applicable modifiers: %w", err)
 	}
