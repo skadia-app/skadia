@@ -806,8 +806,10 @@ describe('LiftReviewModal — D.2: pause-gap banner', () => {
     await waitFor(() => {
       const banner = screen.getByTestId('pause-gap-banner')
       expect(banner).not.toBeNull()
-      expect(banner.textContent).toMatch(/1 Pause/)
-      expect(banner.textContent).not.toMatch(/Pausen/)
+      // Singular: count says "1 Pause", not "1 Pausen". The trailing
+      // explanation may use the plural noun generically ("über Pausen…").
+      expect(banner.textContent).toMatch(/1 Pause\s*\(/)
+      expect(banner.textContent).not.toMatch(/1 Pausen/)
     })
   })
 
@@ -869,13 +871,13 @@ describe('LiftReviewModal — D.2: pause-gap banner', () => {
 
 // ── UX fix-pass (2026-05-09): Fix 4 + Fix 6a ────────────────────────────────
 
-describe('LiftReviewModal — Fix 4: updated banner wording (Phase 11.11)', () => {
+describe('LiftReviewModal — banner wording (Phase 11.11+)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiFetch.mockResolvedValue({ ok: true, json: async () => twoHeuristicCandidates })
   })
 
-  it('banner contains new wording fragment about dashed-orange teleport sections', async () => {
+  it('banner is a compact pill with help-modal trigger semantics', async () => {
     mockFetchStreams.mockResolvedValue([
       { time: '2024-01-01T09:00:00Z', lat: 47.0, lng: 11.0 },
       { time: '2024-01-01T09:02:00Z', lat: 47.1, lng: 11.1 }, // 120s gap
@@ -897,11 +899,13 @@ describe('LiftReviewModal — Fix 4: updated banner wording (Phase 11.11)', () =
 
     await waitFor(() => {
       const banner = screen.getByTestId('pause-gap-banner')
-      expect(banner.textContent).toMatch(/Teleportations-Abschnitte aber gestrichelt-orange/)
-      // New standalone sentence (promoted from parenthetical)
-      expect(banner.textContent).toMatch(/Er verlangt zusammenhängende Stream-Daten/)
-      // Dropped final sentence must not appear
-      expect(banner.textContent).not.toMatch(/Falls dort ein Lift erwartet/)
+      // Compact pill: count + threshold + short explanation, click opens help modal.
+      expect(banner.textContent).toMatch(/1 Pause/)
+      expect(banner.textContent).toMatch(/>75s/)
+      expect(banner.textContent).toMatch(/über Pausen kann der Detektor keinen Lift erkennen/)
+      // Old verbose phrasing removed (banner now opens help modal for the long form).
+      expect(banner.textContent).not.toMatch(/Teleportations-Abschnitte/)
+      expect(banner.textContent).not.toMatch(/Sliding-Window/)
     })
   })
 
