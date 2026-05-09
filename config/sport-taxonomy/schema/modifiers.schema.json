@@ -67,10 +67,7 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": ["gear", "rules", "dataimport", "shadowfs", "routefilter", "bestefforts", "heatmap", "quick-edit"]
-          }
+          "items": {"$ref": "https://skadia.local/schema/sport-taxonomy/_subsystems_enum.schema.json#/$defs/subsystemName"}
         }
       }
     }
