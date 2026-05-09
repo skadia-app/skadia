@@ -13,6 +13,7 @@ modifiers:
       modifier_filter: true
       modifier_patch: true
       taxonomy_default: false
+    subsystems: [bestefforts, dataimport, gear, heatmap, quick-edit, routefilter, rules, shadowfs]
 
   - key: is_indoor
     labels: {de: Indoor}
@@ -28,6 +29,7 @@ modifiers:
       modifier_filter: true
       modifier_patch: true
       taxonomy_default: true
+    subsystems: [bestefforts, dataimport, gear, quick-edit, routefilter, rules, shadowfs]
 
   - key: is_virtual
     labels: {de: Virtuell}
@@ -43,6 +45,7 @@ modifiers:
       modifier_filter: true
       modifier_patch: true
       taxonomy_default: false
+    subsystems: [bestefforts, dataimport, gear, quick-edit, routefilter, rules, shadowfs]
 
   - key: is_commute
     labels: {de: Pendeln}
@@ -58,3 +61,4 @@ modifiers:
       modifier_filter: true
       modifier_patch: true
       taxonomy_default: false
+    subsystems: [heatmap, routefilter, rules, shadowfs]
