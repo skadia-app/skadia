@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { HelpCircle } from 'lucide-react'
+import { HelpCircle, Flame } from 'lucide-react'
 import { buildLayerStyle } from '@/lib/mapStyles'
 import { useMapLayers } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
@@ -578,11 +578,11 @@ export default function LiftInspectorMap({
           without color vision. Fix 6a: each row has a native title tooltip.
           Phase 11.9: HelpCircle in top-right corner of legend triggers LiftHelpModal. */}
       <div
-        className="absolute top-2 left-2 z-10 rounded-lg bg-white/90 dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-700 shadow-sm px-2 py-1.5 text-xs space-y-1"
+        className="absolute top-2 left-2 z-10 rounded-lg bg-white/90 dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-700 shadow-md px-3 py-2.5 text-xs space-y-1"
         aria-label="Kartenlegende"
       >
         <div className="flex items-center justify-between gap-2 mb-0.5">
-          <span className="text-neutral-500 dark:text-neutral-400 font-medium text-[10px] uppercase tracking-wide">Legende</span>
+          <span className="text-neutral-500 dark:text-neutral-400 font-medium text-[11px] uppercase tracking-wide">Legende</span>
           {onOpenHelp && (
             <button
               onClick={onOpenHelp}
@@ -662,9 +662,7 @@ export default function LiftInspectorMap({
                 : 'text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white',
             ].join(' ')}
           >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 2C8.5 6 6 9 6 13a6 6 0 0012 0c0-2.5-1-4.5-2.5-6.5C14.5 8.5 13.5 10 13 12c-.5-1.5-.5-3 0-5.5C12.5 5 12.2 3.5 12 2z"/>
-            </svg>
+            <Flame className="w-3.5 h-3.5" aria-hidden="true" />
             Heatmap
           </button>
         </div>

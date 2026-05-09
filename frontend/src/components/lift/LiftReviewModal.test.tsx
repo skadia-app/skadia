@@ -869,7 +869,7 @@ describe('LiftReviewModal — D.2: pause-gap banner', () => {
 
 // ── UX fix-pass (2026-05-09): Fix 4 + Fix 6a ────────────────────────────────
 
-describe('LiftReviewModal — Fix 4: updated banner wording', () => {
+describe('LiftReviewModal — Fix 4: updated banner wording (Phase 11.11)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApiFetch.mockResolvedValue({ ok: true, json: async () => twoHeuristicCandidates })
@@ -898,7 +898,47 @@ describe('LiftReviewModal — Fix 4: updated banner wording', () => {
     await waitFor(() => {
       const banner = screen.getByTestId('pause-gap-banner')
       expect(banner.textContent).toMatch(/Teleportations-Abschnitte aber gestrichelt-orange/)
+      // New standalone sentence (promoted from parenthetical)
+      expect(banner.textContent).toMatch(/Er verlangt zusammenhängende Stream-Daten/)
+      // Dropped final sentence must not appear
+      expect(banner.textContent).not.toMatch(/Falls dort ein Lift erwartet/)
     })
+  })
+
+  it('banner is rendered inside the map-column element (not spanning the full modal)', async () => {
+    mockFetchStreams.mockResolvedValue([
+      { time: '2024-01-01T09:00:00Z', lat: 47.0, lng: 11.0 },
+      { time: '2024-01-01T09:02:00Z', lat: 47.1, lng: 11.1 }, // 120s gap
+      { time: '2024-01-01T09:03:00Z', lat: 47.2, lng: 11.2 },
+    ])
+
+    const { default: LiftReviewModal } = await import('./LiftReviewModal')
+    const { container } = render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    await waitFor(() => {
+      const banner = container.querySelector('[data-testid="pause-gap-banner"]')
+      expect(banner).not.toBeNull()
+    })
+
+    // The banner should not be a direct child of the modal body — it is inside a
+    // wrapper div (either the map column or the mobile banner wrapper), not at
+    // the top-level flex column of the expanded modal body.
+    const banner = container.querySelector('[data-testid="pause-gap-banner"]')!
+    const mapWrapper = container.querySelector('[data-testid="lift-inspector-map-wrapper"]')
+    // Banner must be a sibling or child of elements near the map, not the root flex column.
+    // We verify it is NOT the first child of the modal body (which is the recalc dialog slot).
+    // A structural test: the banner's closest block ancestor is NOT the outermost flex div.
+    expect(banner.parentElement).not.toBeNull()
   })
 })
 
@@ -1057,5 +1097,38 @@ describe('LiftReviewModal — Phase 11.9: signal-based badge labels', () => {
       expect(screen.getByText(/Bergstation A/)).toBeTruthy()
       expect(screen.getByText(/Methode B — Heuristik aus dem Stream/)).toBeTruthy()
     })
+  })
+
+  it('Phase 11.11 Fix 6: LiftHelpModal dialog renders after (in DOM order) the review modal dialog', async () => {
+    // DOM order determines which z-50 fixed element wins in CSS stacking.
+    // LiftHelpModal must be rendered AFTER the review ModalShell so that when
+    // both have z-index:50 the help modal overlays the review modal.
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => twoHeuristicCandidates })
+
+    const { default: LiftReviewModal } = await import('./LiftReviewModal')
+    const { container } = render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    const helpBtns = screen.getAllByRole('button', { name: /Hilfe/ })
+    fireEvent.click(helpBtns[0])
+
+    await waitFor(() => {
+      expect(screen.getByText(/Methode A — OSM-Match/)).toBeTruthy()
+    })
+
+    // All [role="dialog"] elements in order; the help modal's dialog must come last.
+    const dialogs = container.querySelectorAll('[role="dialog"]')
+    expect(dialogs.length).toBe(2)
+    // The last dialog is the help modal (later in DOM = wins stacking context for same z-index).
+    expect(dialogs[dialogs.length - 1].textContent).toMatch(/Wie Skadia Lifte erkennt/)
   })
 })

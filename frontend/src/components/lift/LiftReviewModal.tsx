@@ -386,7 +386,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   // ── Expanded mode ─────────────────────────────────────────────────────────────
   const listPanel = (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col overflow-hidden">
       {multiSelectMode && selectedIds.size > 0 && (
         <div className="flex items-center gap-2 px-3 py-2 bg-neutral-50 dark:bg-neutral-800 border-b border-neutral-200 dark:border-neutral-700 text-xs shrink-0">
           <span className="text-neutral-600 dark:text-neutral-400 font-medium">
@@ -408,7 +408,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
           </button>
         </div>
       )}
-      <ul className="flex-1 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
+      <ul className="overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
         {displayedCandidates.map((c, idx) => {
           const isHighlighted = c.id === highlightedId
           const isHeuristic = c.source === 'heuristic'
@@ -637,8 +637,6 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   return (
     <>
-      {/* Phase 11.9: LiftHelpModal — opened by any of the three HelpCircle buttons */}
-      <LiftHelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
     <ModalShell onClose={handleClose} maxWidth="!max-w-[95vw] w-[95vw]">
       <div className="relative flex flex-col" style={{ height: 'calc(90dvh - 48px)', minHeight: '480px' }}>
         {recalcDialog}
@@ -652,9 +650,9 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
             <button
               onClick={() => setHelpOpen(true)}
               aria-label="Hilfe zur Lifterkennung öffnen"
-              className="text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200 cursor-pointer transition-colors"
+              className="text-neutral-400 dark:text-neutral-500 hover:text-accent-DEFAULT dark:hover:text-accent-DEFAULT cursor-pointer transition-colors"
             >
-              <HelpCircle className="w-4 h-4" aria-hidden="true" />
+              <HelpCircle className="w-5 h-5" aria-hidden="true" />
             </button>
           </div>
           <button
@@ -666,49 +664,51 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
           </button>
         </div>
 
-        {/* D.2: Pause-gap banner — visible above both desktop and mobile layouts.
-            Only shown when streams are loaded and contain at least one gap > 75s.
-            Fix 4: updated wording — the line IS drawn continuously; gaps are marked
-            with dashed-amber bridges; the detector limitation is explained explicitly.
-            Phase 11.9: HelpCircle (Position 2) triggers LiftHelpModal. */}
-        {pauseGapCount > 0 && (
-          <div
-            className="shrink-0 mb-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
-            role="note"
-            data-testid="pause-gap-banner"
-          >
-            <span className="flex items-start gap-1.5">
-              <span className="flex-1">
-                <span className="font-semibold">
-                  ⚠ Aufzeichnung enthält {pauseGapCount} Pause{pauseGapCount > 1 ? 'n' : ''} (&gt;{PAUSE_GAP_THRESHOLD_S}s).
-                </span>{' '}
-                Die Karte zeichnet die Linie durchgängig, markiert die Teleportations-Abschnitte aber gestrichelt-orange.
-                Solche Lücken werden vom Detektor{' '}
-                <span className="font-semibold">nicht</span> als Lift erkannt (er verlangt zusammenhängende
-                Stream-Daten innerhalb seines Sliding-Windows). Falls dort ein Lift erwartet wird, prüfe
-                die Abschnitte vor und nach der Pause separat.
-              </span>
-              <button
-                onClick={() => setHelpOpen(true)}
-                aria-label="Hilfe zur Lifterkennung öffnen"
-                className="shrink-0 text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 cursor-pointer transition-colors mt-0.5"
-              >
-                <HelpCircle className="w-4 h-4" aria-hidden="true" />
-              </button>
-            </span>
-          </div>
-        )}
-
         {isDesktop ? (
           // Desktop: Fix 3 — 70/30 split map/list (map gets more, list narrower).
           <>
             <div className="flex flex-1 gap-3 min-h-0">
-              {/* Map — 70% */}
-              <div className="flex-[7] min-h-0">
+              {/* Map — 70%; h-full propagates explicit height to map container so
+                  MapLibre clientHeight is non-zero on mount. Banner is an absolute
+                  inset overlay at the top so it doesn't affect map initialization. */}
+              <div className="relative flex-[7] min-h-0 h-full">
+                {/* D.2: Pause-gap banner — inset inside the map column, two-line layout.
+                    Absolute overlay so the map container beneath it retains full size.
+                    z-20 keeps it above the map's z-10 legend/controls.
+                    Phase 11.9: HelpCircle (Position 2) triggers LiftHelpModal. */}
+                {pauseGapCount > 0 && (
+                  <div
+                    className="absolute top-2 left-2 right-2 z-20 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50/95 dark:bg-amber-900/90 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 pointer-events-auto"
+                    role="note"
+                    data-testid="pause-gap-banner"
+                  >
+                    <div className="flex items-start gap-1.5">
+                      <div className="flex-1 space-y-1">
+                        <p className="font-semibold">
+                          ⚠ Aufzeichnung enthält {pauseGapCount} Pause{pauseGapCount > 1 ? 'n' : ''} (&gt;{PAUSE_GAP_THRESHOLD_S}s).
+                        </p>
+                        <p>
+                          Die Karte zeichnet die Linie durchgängig, markiert die Teleportations-Abschnitte
+                          aber gestrichelt-orange. Solche Lücken werden vom Detektor{' '}
+                          <span className="font-semibold">nicht</span> als Lift erkannt.
+                          Er verlangt zusammenhängende Stream-Daten innerhalb seines Sliding-Windows.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setHelpOpen(true)}
+                        aria-label="Hilfe zur Lifterkennung öffnen"
+                        className="shrink-0 text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 cursor-pointer transition-colors mt-0.5"
+                      >
+                        <HelpCircle className="w-4 h-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {mapPanel}
               </div>
-              {/* List — 30% */}
-              <div className="flex-[3] min-h-0 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden">
+              {/* List — 30%; overflow-y-auto on the wrapper so the list scrolls when
+                  it overflows, but does not expand to fill whitespace when it's short. */}
+              <div className="flex-[3] min-h-0 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-y-auto">
                 {listPanel}
               </div>
             </div>
@@ -736,12 +736,42 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                 </button>
               ))}
             </div>
-            {/* Active tab content */}
-            <div className="flex-1 min-h-0">
-              {mobileTab === 'list'
-                ? <div className="h-full border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden">{listPanel}</div>
-                : mapPanel
-              }
+            {/* Active tab content — banner shown above map on mobile when map tab is active */}
+            <div className="flex flex-col flex-1 min-h-0 gap-2">
+              {mobileTab === 'map' && pauseGapCount > 0 && (
+                <div
+                  className="shrink-0 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+                  role="note"
+                  data-testid="pause-gap-banner"
+                >
+                  <div className="flex items-start gap-1.5">
+                    <div className="flex-1 space-y-1">
+                      <p className="font-semibold">
+                        ⚠ Aufzeichnung enthält {pauseGapCount} Pause{pauseGapCount > 1 ? 'n' : ''} (&gt;{PAUSE_GAP_THRESHOLD_S}s).
+                      </p>
+                      <p>
+                        Die Karte zeichnet die Linie durchgängig, markiert die Teleportations-Abschnitte
+                        aber gestrichelt-orange. Solche Lücken werden vom Detektor{' '}
+                        <span className="font-semibold">nicht</span> als Lift erkannt.
+                        Er verlangt zusammenhängende Stream-Daten innerhalb seines Sliding-Windows.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setHelpOpen(true)}
+                      aria-label="Hilfe zur Lifterkennung öffnen"
+                      className="shrink-0 text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 cursor-pointer transition-colors mt-0.5"
+                    >
+                      <HelpCircle className="w-4 h-4" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="flex-1 min-h-0">
+                {mobileTab === 'list'
+                  ? <div className="h-full border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden">{listPanel}</div>
+                  : mapPanel
+                }
+              </div>
             </div>
             {/* Sticky footer */}
             <div className="mt-3 shrink-0">
@@ -751,6 +781,9 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
         )}
       </div>
     </ModalShell>
+      {/* Phase 11.9 / Fix 6: LiftHelpModal rendered AFTER ModalShell so its z-50
+          fixed overlay wins over the review modal's z-50 via DOM order. */}
+      <LiftHelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
     </>
   )
 }
