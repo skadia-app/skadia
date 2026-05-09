@@ -60,6 +60,8 @@ func TestMigration_SystemModifierTagSyncDeclaresRequiredContracts(t *testing.T) 
 		"CREATE OR REPLACE FUNCTION sync_virtual_tag_insert()",
 		"CREATE OR REPLACE FUNCTION sync_virtual_tag_insert_junction()",
 		"skadia.skip_system_modifier_tag_sync",
+		"CREATE OR REPLACE FUNCTION sync_system_tag_rename_into_activities_tags()",
+		"AFTER UPDATE OF name ON tags",
 	} {
 		if !strings.Contains(upSQL, needle) {
 			t.Fatalf("up migration missing %q", needle)
@@ -70,6 +72,7 @@ func TestMigration_SystemModifierTagSyncDeclaresRequiredContracts(t *testing.T) 
 		"DROP INDEX IF EXISTS idx_activity_tags_tag_id_activity_id",
 		"CREATE OR REPLACE FUNCTION sync_system_flags_and_tags()",
 		"CREATE OR REPLACE FUNCTION sync_virtual_tag()",
+		"DROP FUNCTION IF EXISTS sync_system_tag_rename_into_activities_tags",
 	} {
 		if !strings.Contains(downSQL, needle) {
 			t.Fatalf("down migration missing %q", needle)
@@ -237,6 +240,15 @@ func damageSystemModifierState(t *testing.T, ctx context.Context, tx pgx.Tx, f s
 	// 1. Drop every link except virtuell↔virtual (delete-protection trigger).
 	//    For Indoor we want to start with a missing junction row + missing
 	//    array entry, plus a stale removal row even though is_indoor=true.
+	//    Use the skip flag so the AFTER-DELETE reconcile trigger introduced
+	//    in m.1 does not undo the damage by flipping modifier columns AND
+	//    does not recompute tags.activity_count (step 4 deliberately sets
+	//    counts to 9999 to verify that resync repairs them; without the skip
+	//    flag the m.1 trigger would recompute on each junction delete and
+	//    leave counts at a different stale value before resync even runs).
+	if _, err := tx.Exec(ctx, `SET LOCAL skadia.skip_system_modifier_tag_sync = 'true'`); err != nil {
+		t.Fatalf("damage: set skip flag: %v", err)
+	}
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM activity_tags at
 		USING tags t
@@ -246,6 +258,9 @@ func damageSystemModifierState(t *testing.T, ctx context.Context, tx pgx.Tx, f s
 		  AND at.activity_id IN ($2, $3, $4)
 	`, f.user1ID, f.cyclingElectricID, f.runningElectricID, f.indoorID); err != nil {
 		t.Fatalf("damage: delete junctions: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `SET LOCAL skadia.skip_system_modifier_tag_sync = 'false'`); err != nil {
+		t.Fatalf("damage: unset skip flag: %v", err)
 	}
 
 	// 2. Strip names from activities.tags arrays without letting Direction A
@@ -1090,6 +1105,64 @@ func snapshotSystemModifierFunctionBodies(t *testing.T, ctx context.Context, tx 
 	} else {
 		out["__skadia_resync_system_modifier_tags_present__"] = "no"
 	}
+
+	// Tag-rename propagation function presence (m.2). Round-trip down/up must
+	// drop and recreate it cleanly.
+	var renamePresent int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+		WHERE n.nspname = 'public' AND p.proname = 'sync_system_tag_rename_into_activities_tags'
+	`).Scan(&renamePresent); err != nil {
+		t.Fatalf("snapshot rename function presence: %v", err)
+	}
+	if renamePresent > 0 {
+		out["__sync_system_tag_rename_into_activities_tags_present__"] = "yes"
+	} else {
+		out["__sync_system_tag_rename_into_activities_tags_present__"] = "no"
+	}
+
+	// m.1 trigger def (AFTER DELETE on activity_tags). If down.sql forgets to
+	// drop it or up.sql forgets to recreate it, the round-trip catches the gap.
+	var junctionDeleteTrigDef string
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE((
+			SELECT pg_get_triggerdef(t.oid)
+			FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+			WHERE t.tgname = 'trg_sync_system_modifier_tags_on_junction_delete'
+		), '')
+	`).Scan(&junctionDeleteTrigDef); err != nil {
+		t.Fatalf("snapshot trg_sync_system_modifier_tags_on_junction_delete: %v", err)
+	}
+	out["__trg_sync_system_modifier_tags_on_junction_delete__"] = junctionDeleteTrigDef
+
+	// m.2 trigger def (AFTER UPDATE OF name on tags). Same round-trip guard.
+	var renameTrigDef string
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE((
+			SELECT pg_get_triggerdef(t.oid)
+			FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+			WHERE t.tgname = 'trg_sync_system_tag_rename_into_activities_tags'
+		), '')
+	`).Scan(&renameTrigDef); err != nil {
+		t.Fatalf("snapshot trg_sync_system_tag_rename_into_activities_tags: %v", err)
+	}
+	out["__trg_sync_system_tag_rename_into_activities_tags__"] = renameTrigDef
+
+	// idx_activity_tags_tag_id_activity_id existence. Stored as "yes"/"no" so
+	// the reflect.DeepEqual comparison catches down forgetting to drop it or
+	// up forgetting to recreate it.
+	var indexExists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE indexname = 'idx_activity_tags_tag_id_activity_id')
+	`).Scan(&indexExists); err != nil {
+		t.Fatalf("snapshot idx_activity_tags_tag_id_activity_id: %v", err)
+	}
+	if indexExists {
+		out["__idx_activity_tags_tag_id_activity_id_exists__"] = "yes"
+	} else {
+		out["__idx_activity_tags_tag_id_activity_id_exists__"] = "no"
+	}
+
 	return out
 }
 
@@ -1782,4 +1855,408 @@ func TestTriggerDirectionAGuardLeavesCorruptOLDUnmediated(t *testing.T) {
 		t.Fatalf("post-resync: 'Indoor' not in tags array after resync with is_indoor=true, got %v", postResyncTags)
 	}
 	hasSystemTagLink(t, ctx, tx, f.userID, activityID, "Indoor", true)
+}
+
+// TestActivityTagsDeleteTriggerFlipsModifierColumn covers the m.1 DELETE-trigger
+// contract: a direct DELETE FROM activity_tags against a registry-backed
+// reserved-name junction must reconcile the activity row — flip the modifier
+// column to false, strip the literal from activities.tags, and recompute the
+// tag's activity_count. Without this trigger, an admin SQL DELETE would leave
+// is_indoor=true while the junction is gone (denormalisation drift).
+func TestActivityTagsDeleteTriggerFlipsModifierColumn(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeDirectionAFixture(t, ctx, tx)
+
+	// Insert an indoor activity. Triggers populate the junction + tags array.
+	actID := insertActivity(t, ctx, tx, f.userID, "rowing", true, false, false, false, []string{})
+	hasSystemTagLink(t, ctx, tx, f.userID, actID, "Indoor", true)
+	assertModifierFlag(t, ctx, tx, actID, "is_indoor", true)
+	activityHasTag(t, ctx, tx, actID, "Indoor", true)
+
+	// Direct DELETE on the junction (admin SQL path).
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2
+	`, actID, f.indoorTagID); err != nil {
+		t.Fatalf("direct delete junction: %v", err)
+	}
+
+	// Modifier column flipped to false; literal stripped from tags array;
+	// junction gone; activity_count decreased.
+	assertModifierFlag(t, ctx, tx, actID, "is_indoor", false)
+	activityHasTag(t, ctx, tx, actID, "Indoor", false)
+	hasSystemTagLink(t, ctx, tx, f.userID, actID, "Indoor", false)
+	if got := tagActivityCount(t, ctx, tx, f.indoorTagID); got != 0 {
+		t.Fatalf("Indoor tag activity_count = %d, want 0", got)
+	}
+}
+
+// TestActivityTagsDeleteTriggerSkipFlag covers the bulk-helper contract: under
+// skadia.skip_system_modifier_tag_sync the DELETE trigger must no-op so the
+// caller-managed transaction owns reconciliation through resync.
+func TestActivityTagsDeleteTriggerSkipFlag(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeDirectionAFixture(t, ctx, tx)
+	actID := insertActivity(t, ctx, tx, f.userID, "rowing", true, false, false, false, []string{})
+
+	if _, err := tx.Exec(ctx, `SET LOCAL skadia.skip_system_modifier_tag_sync = 'true'`); err != nil {
+		t.Fatalf("set skip flag: %v", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2
+	`, actID, f.indoorTagID); err != nil {
+		t.Fatalf("delete with skip flag: %v", err)
+	}
+
+	// Modifier column unchanged — resync owns reconciliation.
+	assertModifierFlag(t, ctx, tx, actID, "is_indoor", true)
+	// Tag literal still in array (trigger did not strip).
+	activityHasTag(t, ctx, tx, actID, "Indoor", true)
+}
+
+// TestActivityTagsDeleteTriggerNonReservedTagIsNoOp ensures the DELETE trigger
+// only fires for the four registry-backed reserved-name system tags. Deleting
+// a custom user tag's junction must not touch modifier columns or the tags
+// array — the caller's UPDATE owns array maintenance for non-reserved tags.
+func TestActivityTagsDeleteTriggerNonReservedTagIsNoOp(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeDirectionAFixture(t, ctx, tx)
+
+	// Custom user tag with a non-reserved name.
+	var customTagID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description, activity_count)
+		VALUES ($1, 'Berg', '#AABBCC', '#FFFFFF', 'custom', false, false, '', 0)
+		RETURNING id
+	`, f.userID).Scan(&customTagID); err != nil {
+		t.Fatalf("insert custom tag: %v", err)
+	}
+
+	actID := insertActivity(t, ctx, tx, f.userID, "rowing", true, false, false, false, []string{"Berg"})
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES ($1, $2, 'manual')
+	`, actID, customTagID); err != nil {
+		t.Fatalf("insert custom junction: %v", err)
+	}
+
+	// Pre-condition: is_indoor=true, 'Indoor' AND 'Berg' in tags.
+	assertModifierFlag(t, ctx, tx, actID, "is_indoor", true)
+	activityHasTag(t, ctx, tx, actID, "Berg", true)
+
+	// Delete only the custom tag junction.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2
+	`, actID, customTagID); err != nil {
+		t.Fatalf("delete custom junction: %v", err)
+	}
+
+	// Modifier column untouched, 'Indoor' still in array, 'Berg' still in
+	// the array because the trigger does NOT manage non-reserved tags
+	// (caller owns array maintenance for those).
+	assertModifierFlag(t, ctx, tx, actID, "is_indoor", true)
+	activityHasTag(t, ctx, tx, actID, "Indoor", true)
+	activityHasTag(t, ctx, tx, actID, "Berg", true)
+}
+
+// TestActivityTagsDeleteTriggerCASCADEFromTagsDelete covers the tag-deletion
+// path. Reserved-name system tags are protected by prevent_system_tag_delete
+// so a direct DELETE FROM tags is impossible while is_system=true. The
+// realistic path that triggers CASCADE on activity_tags for a reserved-name
+// row is the demote-then-delete sequence (user removes the system shape,
+// then deletes the now-custom tag). Our AFTER DELETE trigger fires per
+// cascaded row. By that point the tag row is_system=false, so the trigger
+// must NOT flip the modifier column for non-system rows — confirming the
+// is_system=true gate matches the registry contract.
+func TestActivityTagsDeleteTriggerCASCADEFromTagsDelete(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeDirectionAFixture(t, ctx, tx)
+
+	act1 := insertActivity(t, ctx, tx, f.userID, "rowing", true, false, false, false, []string{})
+	act2 := insertActivity(t, ctx, tx, f.userID, "running", true, false, false, false, []string{})
+
+	hasSystemTagLink(t, ctx, tx, f.userID, act1, "Indoor", true)
+	hasSystemTagLink(t, ctx, tx, f.userID, act2, "Indoor", true)
+
+	// Demote: is_system=false. This makes prevent_system_tag_delete tolerate
+	// the subsequent DELETE.
+	if _, err := tx.Exec(ctx, `UPDATE tags SET is_system = false WHERE id = $1`, f.indoorTagID); err != nil {
+		t.Fatalf("demote tag: %v", err)
+	}
+
+	// Delete the (now custom) tag. CASCADE removes both junctions; our
+	// AFTER DELETE trigger fires per row but the is_system gate skips the
+	// modifier reconciliation since the tag is no longer a registry-backed
+	// system tag. No recursion, no error.
+	if _, err := tx.Exec(ctx, `DELETE FROM tags WHERE id = $1`, f.indoorTagID); err != nil {
+		t.Fatalf("delete demoted tag (CASCADE): %v", err)
+	}
+
+	// Junctions gone (CASCADE). Modifier columns and array UNCHANGED because
+	// the tag is_system=false at the moment the trigger reads it.
+	var stillThere bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM activity_tags WHERE activity_id = $1 AND tag_id = $2)`, act1, f.indoorTagID).Scan(&stillThere); err != nil {
+		t.Fatalf("query junction existence: %v", err)
+	}
+	if stillThere {
+		t.Fatalf("CASCADE failed: junction still present for act1")
+	}
+	assertModifierFlag(t, ctx, tx, act1, "is_indoor", true)
+	assertModifierFlag(t, ctx, tx, act2, "is_indoor", true)
+}
+
+// TestActivityTagsDeleteTriggerEBikeStrip covers the cycling-only E-Bike
+// branch: deleting the E-Bike junction on a cycling activity must flip
+// is_electric=false. The tag literal is stripped from the tags array and
+// activity_count is decremented.
+func TestActivityTagsDeleteTriggerEBikeStrip(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeDirectionAFixture(t, ctx, tx)
+
+	actID := insertActivity(t, ctx, tx, f.userID, "cycling", false, true, false, false, []string{})
+	hasSystemTagLink(t, ctx, tx, f.userID, actID, "E-Bike", true)
+	assertModifierFlag(t, ctx, tx, actID, "is_electric", true)
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2
+	`, actID, f.eBikeTagID); err != nil {
+		t.Fatalf("delete E-Bike junction: %v", err)
+	}
+
+	assertModifierFlag(t, ctx, tx, actID, "is_electric", false)
+	activityHasTag(t, ctx, tx, actID, "E-Bike", false)
+	if got := tagActivityCount(t, ctx, tx, f.eBikeTagID); got != 0 {
+		t.Fatalf("E-Bike tag activity_count = %d, want 0", got)
+	}
+}
+
+// TestActivityTagsDeleteTriggerEBikeStripPreservesFlagOnNonCycling encodes the
+// 000350 design contract that is_electric is a generic modifier flag and is
+// preserved on non-cycling activities even when an orphan E-Bike junction is
+// deleted. Migration 000350's one-time cleanup pass relies on this — the
+// cleanup strips orphan E-Bike junctions from non-cycling activities while
+// keeping is_electric=true on those rows so user-meaningful data isn't lost.
+func TestActivityTagsDeleteTriggerEBikeStripPreservesFlagOnNonCycling(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeDirectionAFixture(t, ctx, tx)
+
+	// Create a non-cycling activity with is_electric=true. The standard
+	// trigger does not link E-Bike for non-cycling, so we insert the
+	// junction manually under the skip flag (defensive orphan scenario).
+	actID := insertActivity(t, ctx, tx, f.userID, "running", false, true, false, false, []string{})
+	if _, err := tx.Exec(ctx, `SET LOCAL skadia.skip_system_modifier_tag_sync = 'true'`); err != nil {
+		t.Fatalf("set skip flag: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES ($1, $2, 'manual')
+	`, actID, f.eBikeTagID); err != nil {
+		t.Fatalf("insert orphan E-Bike junction: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `SET LOCAL skadia.skip_system_modifier_tag_sync = 'false'`); err != nil {
+		t.Fatalf("unset skip flag: %v", err)
+	}
+
+	// Pre-condition: orphan junction present, is_electric=true.
+	hasSystemTagLink(t, ctx, tx, f.userID, actID, "E-Bike", true)
+	assertModifierFlag(t, ctx, tx, actID, "is_electric", true)
+
+	// DELETE the orphan junction. The trigger should strip the tag literal
+	// from the array (if present) but PRESERVE is_electric=true.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2
+	`, actID, f.eBikeTagID); err != nil {
+		t.Fatalf("delete orphan E-Bike junction: %v", err)
+	}
+
+	// Flag preserved (000350 design contract); junction gone.
+	assertModifierFlag(t, ctx, tx, actID, "is_electric", true)
+	hasSystemTagLink(t, ctx, tx, f.userID, actID, "E-Bike", false)
+	activityHasTag(t, ctx, tx, actID, "E-Bike", false)
+}
+
+// TestTagRenameTriggerPropagatesIntoActivitiesTagsArray verifies that an
+// UPDATE on a system tag's name propagates into every activities.tags TEXT[]
+// array that contains the OLD literal. Junction tag_id stays unchanged
+// (junction is keyed on tag_id, not name) and modifier columns are
+// untouched (rename does not change semantic membership).
+func TestTagRenameTriggerPropagatesIntoActivitiesTagsArray(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeDirectionAFixture(t, ctx, tx)
+
+	// Insert an indoor activity. Triggers populate junction + 'Indoor' in tags.
+	actID := insertActivity(t, ctx, tx, f.userID, "rowing", true, false, false, false, []string{})
+	hasSystemTagLink(t, ctx, tx, f.userID, actID, "Indoor", true)
+	activityHasTag(t, ctx, tx, actID, "Indoor", true)
+	assertModifierFlag(t, ctx, tx, actID, "is_indoor", true)
+
+	// Rename the system Indoor tag. Without the propagation trigger, the
+	// activities.tags array would still say 'Indoor' even though the tag row
+	// is now named 'Hallensport'.
+	if _, err := tx.Exec(ctx, `UPDATE tags SET name = 'Hallensport' WHERE id = $1`, f.indoorTagID); err != nil {
+		t.Fatalf("rename Indoor tag: %v", err)
+	}
+
+	// Array now reflects the new name.
+	activityHasTag(t, ctx, tx, actID, "Hallensport", true)
+	activityHasTag(t, ctx, tx, actID, "Indoor", false)
+
+	// Junction unchanged: tag_id is the same row, still linked.
+	var junctionTagID string
+	if err := tx.QueryRow(ctx, `
+		SELECT tag_id FROM activity_tags WHERE activity_id = $1 AND tag_id = $2
+	`, actID, f.indoorTagID).Scan(&junctionTagID); err != nil {
+		t.Fatalf("junction must still exist for renamed tag: %v", err)
+	}
+	if junctionTagID != f.indoorTagID {
+		t.Fatalf("junction tag_id = %s, want %s", junctionTagID, f.indoorTagID)
+	}
+
+	// Modifier column unchanged: rename does not alter semantic membership.
+	assertModifierFlag(t, ctx, tx, actID, "is_indoor", true)
+}
+
+// TestTagRenameTriggerSkipFlag verifies that under the bulk-helper skip flag
+// the rename propagation is suppressed — the caller-managed transaction owns
+// reconciliation through skadia_resync_system_modifier_tags or its own
+// array UPDATEs.
+func TestTagRenameTriggerSkipFlag(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeDirectionAFixture(t, ctx, tx)
+
+	actID := insertActivity(t, ctx, tx, f.userID, "rowing", true, false, false, false, []string{})
+	activityHasTag(t, ctx, tx, actID, "Indoor", true)
+
+	if _, err := tx.Exec(ctx, `SET LOCAL skadia.skip_system_modifier_tag_sync = 'true'`); err != nil {
+		t.Fatalf("set skip flag: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE tags SET name = 'Hallensport' WHERE id = $1`, f.indoorTagID); err != nil {
+		t.Fatalf("rename Indoor tag under skip: %v", err)
+	}
+
+	// Array unchanged — propagation was suppressed.
+	activityHasTag(t, ctx, tx, actID, "Indoor", true)
+	activityHasTag(t, ctx, tx, actID, "Hallensport", false)
+}
+
+// TestTagRenameTriggerNonSystemTagDoesNotPropagate documents the narrow-scope
+// boundary: non-system tag renames intentionally do NOT propagate into
+// activities.tags arrays. The bug class exists for non-system tags too, but
+// fixing it is a separate UX-driven decision (does the user expect the array
+// to follow a custom-tag rename, or is the array a snapshot of past state?)
+// that belongs in a follow-up phase.
+func TestTagRenameTriggerNonSystemTagDoesNotPropagate(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeDirectionAFixture(t, ctx, tx)
+
+	// Insert a custom (non-system) tag.
+	var customTagID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description, activity_count)
+		VALUES ($1, 'Tour', '#AABBCC', '#FFFFFF', 'custom', false, false, '', 0)
+		RETURNING id
+	`, f.userID).Scan(&customTagID); err != nil {
+		t.Fatalf("insert custom tag: %v", err)
+	}
+
+	// Insert an activity tagged with the custom 'Tour' name; junction too.
+	actID := insertActivity(t, ctx, tx, f.userID, "rowing", false, false, false, false, []string{"Tour"})
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES ($1, $2, 'manual')
+	`, actID, customTagID); err != nil {
+		t.Fatalf("insert custom junction: %v", err)
+	}
+
+	// Rename the custom tag.
+	if _, err := tx.Exec(ctx, `UPDATE tags SET name = 'Wandern' WHERE id = $1`, customTagID); err != nil {
+		t.Fatalf("rename custom tag: %v", err)
+	}
+
+	// Documented gap: array literal does NOT follow custom-tag rename.
+	activityHasTag(t, ctx, tx, actID, "Tour", true)
+	activityHasTag(t, ctx, tx, actID, "Wandern", false)
+}
+
+// TestTagRenameTriggerCrossUserIsolation verifies the trigger's
+// WHERE user_id = NEW.user_id clause: renaming user A's system Indoor tag
+// must not touch user B's activities.tags arrays even though user B has a
+// row with the same name. Tags is unique on (user_id, name), so each user
+// owns their own row scoped by user_id.
+func TestTagRenameTriggerCrossUserIsolation(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+
+	// Two users, each with their own system Indoor tag.
+	userA := uuid.NewString()
+	userB := uuid.NewString()
+	for _, u := range []struct{ id, prefix string }{
+		{userA, "renA_"},
+		{userB, "renB_"},
+	} {
+		short := u.id[:8]
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
+			VALUES ($1, $2, $3, true, 'test', false)
+		`, u.id, u.prefix+short, u.prefix+short+"@example.com"); err != nil {
+			t.Fatalf("insert user %s: %v", u.id, err)
+		}
+	}
+	var indoorA, indoorB string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description, activity_count)
+		VALUES ($1, 'Indoor', '#3B82F6', '#FFFFFF', 'system', true, false, '', 0)
+		RETURNING id
+	`, userA).Scan(&indoorA); err != nil {
+		t.Fatalf("insert userA Indoor: %v", err)
+	}
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description, activity_count)
+		VALUES ($1, 'Indoor', '#3B82F6', '#FFFFFF', 'system', true, false, '', 0)
+		RETURNING id
+	`, userB).Scan(&indoorB); err != nil {
+		t.Fatalf("insert userB Indoor: %v", err)
+	}
+
+	// Each user has an indoor activity. Triggers populate the tag array.
+	actA := insertActivity(t, ctx, tx, userA, "rowing", true, false, false, false, []string{})
+	actB := insertActivity(t, ctx, tx, userB, "rowing", true, false, false, false, []string{})
+	activityHasTag(t, ctx, tx, actA, "Indoor", true)
+	activityHasTag(t, ctx, tx, actB, "Indoor", true)
+
+	// Rename ONLY userA's Indoor tag.
+	if _, err := tx.Exec(ctx, `UPDATE tags SET name = 'Hallensport' WHERE id = $1`, indoorA); err != nil {
+		t.Fatalf("rename userA Indoor tag: %v", err)
+	}
+
+	// userA's array followed the rename.
+	activityHasTag(t, ctx, tx, actA, "Hallensport", true)
+	activityHasTag(t, ctx, tx, actA, "Indoor", false)
+
+	// userB's array is UNCHANGED — cross-user isolation.
+	activityHasTag(t, ctx, tx, actB, "Indoor", true)
+	activityHasTag(t, ctx, tx, actB, "Hallensport", false)
+}
+
+// TestTagRenameTriggerWithMultipleArrayEntries verifies that array_replace
+// preserves position and adjacent unrelated entries. Tags = ['X', 'Indoor',
+// 'Y'] should become ['X', 'Hallensport', 'Y'] — same length, same order,
+// only the matching slot replaced.
+func TestTagRenameTriggerWithMultipleArrayEntries(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeDirectionAFixture(t, ctx, tx)
+
+	// Insert with the array already populated. The INSERT trigger derives
+	// is_indoor from the 'Indoor' literal (Direction A on INSERT).
+	actID := insertActivity(t, ctx, tx, f.userID, "rowing", false, false, false, false, []string{"X", "Indoor", "Y"})
+	got := queryTagsArray(t, ctx, tx, actID)
+	if !reflect.DeepEqual(got, []string{"X", "Indoor", "Y"}) {
+		t.Fatalf("pre-rename tags = %v, want [X Indoor Y]", got)
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE tags SET name = 'Hallensport' WHERE id = $1`, f.indoorTagID); err != nil {
+		t.Fatalf("rename Indoor tag: %v", err)
+	}
+
+	// Order preserved, only the matching slot replaced.
+	got = queryTagsArray(t, ctx, tx, actID)
+	if !reflect.DeepEqual(got, []string{"X", "Hallensport", "Y"}) {
+		t.Fatalf("post-rename tags = %v, want [X Hallensport Y]", got)
+	}
 }

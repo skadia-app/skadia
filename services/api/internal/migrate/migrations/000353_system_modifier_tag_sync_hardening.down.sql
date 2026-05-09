@@ -2,6 +2,10 @@
 
 SELECT pg_advisory_xact_lock(hashtext('system_modifier_tag_sync_hardening'), 1);
 
+DROP TRIGGER IF EXISTS trg_sync_system_tag_rename_into_activities_tags ON tags;
+DROP FUNCTION IF EXISTS sync_system_tag_rename_into_activities_tags();
+DROP TRIGGER IF EXISTS trg_sync_system_modifier_tags_on_junction_delete ON activity_tags;
+DROP FUNCTION IF EXISTS sync_system_modifier_tags_on_junction_delete();
 DROP FUNCTION IF EXISTS skadia_resync_system_modifier_tags(UUID[]);
 DROP INDEX IF EXISTS idx_activity_tags_tag_id_activity_id;
 
