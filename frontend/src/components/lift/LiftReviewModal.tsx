@@ -5,7 +5,11 @@ import { apiFetch } from '@/lib/auth'
 import { fetchActivityStreams } from '@/api/activities'
 import { useToast } from '@/lib/toast'
 import type { Activity, LiftCandidate, StreamPoint } from '@/api/types'
-import LiftInspectorMap from './LiftInspectorMap'
+import LiftInspectorMap, { splitTrackAtGaps } from './LiftInspectorMap'
+
+// Matches PAUSE_GAP_THRESHOLD_S in LiftInspectorMap — must stay in sync with
+// backend enrichment/lifts/window.go SmartRecMaxGapS default (75s).
+const PAUSE_GAP_THRESHOLD_S = 75
 
 interface LiftReviewModalProps {
   open: boolean
@@ -625,6 +629,13 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
     </div>
   ) : null
 
+  // D.2: compute pause-gap count once from the loaded streams.
+  const pauseGapCount = (() => {
+    if (streams.length === 0) return 0
+    const segments = splitTrackAtGaps(streams, PAUSE_GAP_THRESHOLD_S)
+    return Math.max(0, segments.length - 1)
+  })()
+
   return (
     <ModalShell onClose={handleClose} maxWidth="!max-w-[95vw] w-[95vw]">
       <div className="relative flex flex-col" style={{ height: 'calc(90dvh - 48px)', minHeight: '480px' }}>
@@ -643,6 +654,24 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
             ✕
           </button>
         </div>
+
+        {/* D.2: Pause-gap banner — visible above both desktop and mobile layouts.
+            Only shown when streams are loaded and contain at least one gap > 75s. */}
+        {pauseGapCount > 0 && (
+          <div
+            className="shrink-0 mb-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+            role="note"
+            data-testid="pause-gap-banner"
+          >
+            <span className="font-semibold">
+              ⚠ Aufzeichnung enthält {pauseGapCount} Pause{pauseGapCount > 1 ? 'n' : ''}.
+            </span>{' '}
+            Die Karte zeigt die Lücken als Unterbrechung statt als gerade Linie. Lifte, die eine
+            Pause-Lücke (&gt; 75 s) überspannen, werden vom Detektor{' '}
+            <span className="font-semibold">nicht</span> erkannt — falls dort ein Lift erwartet
+            wird, prüfe die Abschnitte vor und nach der Pause separat.
+          </div>
+        )}
 
         {isDesktop ? (
           // Desktop: 60/40 split map/list

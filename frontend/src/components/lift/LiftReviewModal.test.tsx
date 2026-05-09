@@ -79,6 +79,20 @@ vi.mock('@/lib/mapStyles', () => ({
   buildLayerStyle: vi.fn(() => ({ version: 8, sources: {}, layers: [] })),
 }))
 
+vi.mock('@/lib/theme', () => ({
+  useTheme: vi.fn(() => ({ theme: 'light', toggle: vi.fn(), setTheme: vi.fn() })),
+}))
+
+vi.mock('@/providers/UserProvider', () => ({
+  useCurrentUserId: vi.fn(() => 'user-abc'),
+}))
+
+vi.mock('@/lib/mapHeatmap', () => ({
+  addHeatmapLayers: vi.fn(),
+  removeHeatmapLayers: vi.fn(),
+  buildHeatmapTileUrl: vi.fn((uid: string) => `https://tiles.example/${uid}`),
+}))
+
 import { apiFetch } from '@/lib/auth'
 import { fetchActivityStreams } from '@/api/activities'
 const mockApiFetch = apiFetch as ReturnType<typeof vi.fn>
@@ -749,6 +763,99 @@ describe('LiftReviewModal — Critic fix regressions', () => {
     await waitFor(() => {
       const markers = screen.getAllByText(/keine Karten-Spur/)
       expect(markers.length).toBeGreaterThan(0)
+    })
+  })
+})
+
+// ── Phase 11.7: D.2 — pause-gap banner in expanded modal ──────────────────
+
+describe('LiftReviewModal — D.2: pause-gap banner', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => twoHeuristicCandidates })
+  })
+
+  it('banner renders with correct count when streams contain gaps', async () => {
+    // Two points with 120s gap (> 75s threshold) → 1 gap → 1 Pause
+    mockFetchStreams.mockResolvedValue([
+      { time: '2024-01-01T09:00:00Z', lat: 47.0, lng: 11.0 },
+      { time: '2024-01-01T09:02:00Z', lat: 47.1, lng: 11.1 }, // 120s gap
+      { time: '2024-01-01T09:03:00Z', lat: 47.2, lng: 11.2 },
+    ])
+
+    const { default: LiftReviewModal } = await import('./LiftReviewModal')
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    await waitFor(() => {
+      const banner = screen.getByTestId('pause-gap-banner')
+      expect(banner).not.toBeNull()
+      expect(banner.textContent).toMatch(/1 Pause/)
+      expect(banner.textContent).not.toMatch(/Pausen/)
+    })
+  })
+
+  it('banner absent when no gaps present in streams', async () => {
+    // Two consecutive points 30s apart — below threshold
+    mockFetchStreams.mockResolvedValue([
+      { time: '2024-01-01T09:00:00Z', lat: 47.0, lng: 11.0 },
+      { time: '2024-01-01T09:00:30Z', lat: 47.1, lng: 11.1 },
+      { time: '2024-01-01T09:01:00Z', lat: 47.2, lng: 11.2 },
+    ])
+
+    const { default: LiftReviewModal } = await import('./LiftReviewModal')
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('pause-gap-banner')).toBeNull()
+    })
+  })
+
+  it('banner uses plural form for 2+ pauses', async () => {
+    // Three segments → 2 gaps
+    mockFetchStreams.mockResolvedValue([
+      { time: '2024-01-01T09:00:00Z', lat: 47.0, lng: 11.0 },
+      { time: '2024-01-01T09:02:00Z', lat: 47.1, lng: 11.1 }, // 120s gap
+      { time: '2024-01-01T09:03:00Z', lat: 47.2, lng: 11.2 },
+      { time: '2024-01-01T09:05:00Z', lat: 47.3, lng: 11.3 }, // 120s gap
+      { time: '2024-01-01T09:06:00Z', lat: 47.4, lng: 11.4 },
+    ])
+
+    const { default: LiftReviewModal } = await import('./LiftReviewModal')
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    await waitFor(() => {
+      const banner = screen.getByTestId('pause-gap-banner')
+      expect(banner.textContent).toMatch(/2 Pausen/)
     })
   })
 })
