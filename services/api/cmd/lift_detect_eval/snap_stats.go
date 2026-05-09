@@ -5,11 +5,11 @@ package main
 // to produce empirical evidence for the F1-coverage-threshold question.
 //
 // Privacy: the aggregation never emits raw GPS coordinates, no specific lift
-// names, and no local filenames.
+// names, and no corpus filenames containing user-private region names.
 // Region labels in the report are derived from the leading numeric prefix of
-// the case-file's top-level directory (e.g. `7_mtb-park case/foo.fit` → `region_7`)
+// the case-file's top-level directory (e.g. `<N>_<region>/foo.fit` → `region_<N>`)
 // or fall back to a stable hash; so the same case maps to the same region
-// label across runs without leaking the directory's German name.
+// label across runs without leaking the directory's real name.
 
 import (
 	"context"
@@ -428,7 +428,7 @@ func bbox(pts []lifts.StreamPoint) (minLat, minLon, maxLat, maxLon float64, ok b
 }
 
 // regionLabelFromCaseFile turns a manifest case-file path like
-// "7_mtb-park case/foo.fit" into the privacy-safe label "region_7". When the
+// "<N>_<region>/foo.fit" into the privacy-safe label "region_<N>". When the
 // leading directory has no leading digits (e.g. "NEGATIV/", "Ski/") we
 // fall back to a stable 8-bit FNV hash so the same directory always maps
 // to the same `region_h<NN>` label without leaking its real name.

@@ -97,6 +97,12 @@ traefik/dynamic/redirect.yml
 
 # Codex CLI trust marker (per-project)
 .codex
+
+# Convention for local-only data referenced from documentation: anything
+# under .private/ stays out of the repository. Recipes and examples may
+# suggest this path as a default for local corpora, calibration history,
+# or per-developer scratch state — adoption is opt-in.
+.private/
 CLAUDE.md
 CLAUDE.MD
 frontend/CLAUDE.md
