@@ -54,6 +54,8 @@ DECLARE
     v_commute_now  BOOLEAN;
     v_electric_was BOOLEAN;
     v_electric_now BOOLEAN;
+    -- Critic #5: deterministic lock ordering — collected before any outbound write
+    v_reserved_tag_ids UUID[];
 BEGIN
     IF TG_OP = 'INSERT' THEN
         -- Direction A: tags TEXT[] → modifier flags (always runs).
@@ -63,6 +65,9 @@ BEGIN
             IF NEW.sport_type = 'cycling' THEN
                 NEW.is_electric := COALESCE(NEW.is_electric, false) OR 'E-Bike' = ANY(COALESCE(NEW.tags, '{}'));
             ELSIF 'E-Bike' = ANY(COALESCE(NEW.tags, '{}')) THEN
+                -- Non-cycling insert: strip E-Bike from the array unconditionally.
+                -- This is a consistency correction on the row being inserted, not
+                -- outbound junction/count work, so it is not gated on skip flag.
                 NEW.tags := array_remove(NEW.tags, 'E-Bike');
             END IF;
         END IF;
@@ -85,9 +90,9 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- UPDATE Direction A: tags TEXT[] changed → flags (always runs, but only when
-    -- the relevant reserved-name slot membership actually changed between OLD and NEW).
-    -- reserved-name slot guard (Critic #3): only re-derive flags on real slot changes
+    -- UPDATE Direction A (inbound): tags TEXT[] changed → flags (always runs, even
+    -- under skip flag). Only re-derives flags when the relevant slot membership
+    -- actually changed between OLD and NEW (Critic #3 slot-guard).
     IF NEW.tags IS DISTINCT FROM OLD.tags THEN
         v_indoor_was   := 'Indoor'  = ANY(COALESCE(OLD.tags, '{}'));
         v_indoor_now   := 'Indoor'  = ANY(COALESCE(NEW.tags, '{}'));
@@ -103,41 +108,60 @@ BEGIN
             NEW.is_commute := v_commute_now;
         END IF;
 
-        IF NEW.sport_type = 'cycling' THEN
-            IF v_electric_was IS DISTINCT FROM v_electric_now THEN
-                NEW.is_electric := v_electric_now;
-            END IF;
-        ELSIF 'E-Bike' = ANY(COALESCE(NEW.tags, '{}')) THEN
-            -- Non-cycling row carries an 'E-Bike' tag string: strip it. The
-            -- accompanying junction/count cleanup is outbound and gated.
-            NEW.tags := array_remove(NEW.tags, 'E-Bike');
-            IF NOT v_skip_outbound THEN
-                SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'E-Bike' AND is_system = true LIMIT 1;
-                IF v_tag_id IS NOT NULL THEN
-                    DELETE FROM activity_tags WHERE activity_id = NEW.id AND tag_id = v_tag_id;
-                    UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
-                END IF;
-            END IF;
+        IF NEW.sport_type = 'cycling' AND v_electric_was IS DISTINCT FROM v_electric_now THEN
+            NEW.is_electric := v_electric_now;
         END IF;
     END IF;
 
-    -- Direction B/C/D below is outbound. Skip entirely under the skip flag.
+    -- Outbound work (Directions A-outbound + B + C + D): skip entirely when the
+    -- skip flag is set. Callers that set the flag must call
+    -- skadia_resync_system_modifier_tags() before commit to reconcile state.
     IF v_skip_outbound THEN
         RETURN NEW;
     END IF;
 
+    -- Critic #5: acquire row locks on all reserved system tag rows for this user
+    -- in primary-key order before any outbound write. Two concurrent paths that
+    -- touch different subsets of these tags (e.g. one flips Indoor then E-Bike,
+    -- another does the inverse) will both acquire locks in the same order (sorted
+    -- by UUID), preventing lock-cycle deadlocks.
+    SELECT array_agg(id ORDER BY id) INTO v_reserved_tag_ids
+    FROM tags
+    WHERE user_id = NEW.user_id
+      AND name IN ('Indoor', 'Pendeln', 'virtuell', 'E-Bike')
+      AND is_system = true;
+
+    IF v_reserved_tag_ids IS NOT NULL AND cardinality(v_reserved_tag_ids) > 0 THEN
+        PERFORM 1 FROM tags WHERE id = ANY(v_reserved_tag_ids) ORDER BY id FOR UPDATE;
+    END IF;
+
+    -- Direction A (outbound portion): non-cycling E-Bike strip. When a tags-array
+    -- UPDATE carries 'E-Bike' on a non-cycling activity, strip both the array entry
+    -- and the junction row. Gating both on NOT v_skip_outbound (the skip-return
+    -- above) ensures mid-tx reads stay self-consistent (Critic #13).
+    IF NEW.tags IS DISTINCT FROM OLD.tags
+       AND NEW.sport_type <> 'cycling'
+       AND 'E-Bike' = ANY(COALESCE(NEW.tags, '{}'))
+    THEN
+        NEW.tags := array_remove(NEW.tags, 'E-Bike');
+        SELECT id INTO v_tag_id FROM tags WHERE id = ANY(v_reserved_tag_ids) AND name = 'E-Bike';
+        IF v_tag_id IS NOT NULL THEN
+            DELETE FROM activity_tags WHERE activity_id = NEW.id AND tag_id = v_tag_id;
+            UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
+        END IF;
+    END IF;
+
     -- Direction B: is_indoor → Indoor.
     IF NEW.is_indoor IS DISTINCT FROM OLD.is_indoor THEN
+        SELECT id INTO v_tag_id FROM tags WHERE id = ANY(v_reserved_tag_ids) AND name = 'Indoor';
         IF NEW.is_indoor AND NOT ('Indoor' = ANY(COALESCE(NEW.tags, '{}'))) THEN
             NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'Indoor');
-            SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'Indoor' AND is_system = true LIMIT 1;
             IF v_tag_id IS NOT NULL THEN
                 INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
                 UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
             END IF;
         ELSIF NOT NEW.is_indoor AND 'Indoor' = ANY(COALESCE(NEW.tags, '{}')) THEN
             NEW.tags := array_remove(NEW.tags, 'Indoor');
-            SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'Indoor' AND is_system = true LIMIT 1;
             IF v_tag_id IS NOT NULL THEN
                 DELETE FROM activity_tags WHERE activity_id = NEW.id AND tag_id = v_tag_id;
                 UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
@@ -147,7 +171,7 @@ BEGIN
 
     -- Direction C: is_electric / sport_type → cycling-only E-Bike.
     IF NEW.is_electric IS DISTINCT FROM OLD.is_electric OR NEW.sport_type IS DISTINCT FROM OLD.sport_type THEN
-        SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'E-Bike' AND is_system = true LIMIT 1;
+        SELECT id INTO v_tag_id FROM tags WHERE id = ANY(v_reserved_tag_ids) AND name = 'E-Bike';
 
         IF v_tag_id IS NOT NULL AND NEW.sport_type = 'cycling' AND NEW.is_electric AND NOT ('E-Bike' = ANY(COALESCE(NEW.tags, '{}'))) THEN
             NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'E-Bike');
@@ -167,16 +191,15 @@ BEGIN
 
     -- Direction D: is_commute → Pendeln.
     IF NEW.is_commute IS DISTINCT FROM OLD.is_commute THEN
+        SELECT id INTO v_tag_id FROM tags WHERE id = ANY(v_reserved_tag_ids) AND name = 'Pendeln';
         IF NEW.is_commute AND NOT ('Pendeln' = ANY(COALESCE(NEW.tags, '{}'))) THEN
             NEW.tags := array_append(COALESCE(NEW.tags, '{}'), 'Pendeln');
-            SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'Pendeln' AND is_system = true LIMIT 1;
             IF v_tag_id IS NOT NULL THEN
                 INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
                 UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
             END IF;
         ELSIF NOT NEW.is_commute AND 'Pendeln' = ANY(COALESCE(NEW.tags, '{}')) THEN
             NEW.tags := array_remove(NEW.tags, 'Pendeln');
-            SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'Pendeln' AND is_system = true LIMIT 1;
             IF v_tag_id IS NOT NULL THEN
                 DELETE FROM activity_tags WHERE activity_id = NEW.id AND tag_id = v_tag_id;
                 UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
@@ -196,13 +219,27 @@ AS $$
 DECLARE
     v_tag_id UUID;
     v_skip_outbound BOOLEAN := COALESCE(current_setting('skadia.skip_system_modifier_tag_sync', true), 'false') = 'true';
+    -- Critic #5: deterministic lock ordering
+    v_reserved_tag_ids UUID[];
 BEGIN
     IF v_skip_outbound THEN
         RETURN NULL;
     END IF;
 
+    -- Critic #5: lock all reserved system tag rows for this user in PK order
+    -- before any write so concurrent INSERT paths cannot deadlock.
+    SELECT array_agg(id ORDER BY id) INTO v_reserved_tag_ids
+    FROM tags
+    WHERE user_id = NEW.user_id
+      AND name IN ('Indoor', 'Pendeln', 'virtuell', 'E-Bike')
+      AND is_system = true;
+
+    IF v_reserved_tag_ids IS NOT NULL AND cardinality(v_reserved_tag_ids) > 0 THEN
+        PERFORM 1 FROM tags WHERE id = ANY(v_reserved_tag_ids) ORDER BY id FOR UPDATE;
+    END IF;
+
     IF COALESCE(NEW.is_indoor, false) THEN
-        SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'Indoor' AND is_system = true LIMIT 1;
+        SELECT id INTO v_tag_id FROM tags WHERE id = ANY(v_reserved_tag_ids) AND name = 'Indoor';
         IF v_tag_id IS NOT NULL THEN
             INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
             UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
@@ -210,7 +247,7 @@ BEGIN
     END IF;
 
     IF NEW.sport_type = 'cycling' AND COALESCE(NEW.is_electric, false) THEN
-        SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'E-Bike' AND is_system = true LIMIT 1;
+        SELECT id INTO v_tag_id FROM tags WHERE id = ANY(v_reserved_tag_ids) AND name = 'E-Bike';
         IF v_tag_id IS NOT NULL THEN
             INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
             UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;
@@ -218,7 +255,7 @@ BEGIN
     END IF;
 
     IF COALESCE(NEW.is_commute, false) THEN
-        SELECT id INTO v_tag_id FROM tags WHERE user_id = NEW.user_id AND name = 'Pendeln' AND is_system = true LIMIT 1;
+        SELECT id INTO v_tag_id FROM tags WHERE id = ANY(v_reserved_tag_ids) AND name = 'Pendeln';
         IF v_tag_id IS NOT NULL THEN
             INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES (NEW.id, v_tag_id, 'trigger') ON CONFLICT (activity_id, tag_id) DO NOTHING;
             UPDATE tags SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = v_tag_id) WHERE id = v_tag_id;

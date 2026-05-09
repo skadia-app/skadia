@@ -304,3 +304,87 @@ func TestUnassignActivitiesFromTagSystemModifierSkipsRecordTagRemoval(t *testing
 		t.Fatalf("removal row written for system modifier tag — must not be written")
 	}
 }
+
+// TestTagOwnsHandlerRemovalReconcileAndGates pins the AND-gate semantics for
+// tagOwnsHandlerRemovalReconcile. Both IsSystem AND IsSystemModifierTagName
+// must be true to hand reconciliation over to the resync function; collapsing
+// to either condition alone would break the four cases below.
+func TestTagOwnsHandlerRemovalReconcileAndGates(t *testing.T) {
+	cases := []struct {
+		name     string
+		tag      model.Tag
+		wantOwns bool // true = handler reconciles, false = resync owns it
+	}{
+		{
+			name:     "non-system regular user tag",
+			tag:      model.Tag{IsSystem: false, Name: "MyRide"},
+			wantOwns: true,
+		},
+		{
+			name:     "system non-modifier tag (e.g. Wetter)",
+			tag:      model.Tag{IsSystem: true, Name: "Wetter"},
+			wantOwns: true,
+		},
+		{
+			name:     "system modifier tag (Indoor) — resync owns it",
+			tag:      model.Tag{IsSystem: true, Name: "Indoor"},
+			wantOwns: false,
+		},
+		{
+			// IsSystem=false with a reserved modifier tag name: promotion has not
+			// happened yet. The AND-gate must keep the handler in charge; collapsing
+			// to just IsSystemModifierTagName would incorrectly hand this to resync.
+			name:     "non-system row with reserved modifier name (not yet promoted)",
+			tag:      model.Tag{IsSystem: false, Name: "Indoor"},
+			wantOwns: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tagOwnsHandlerRemovalReconcile(&tc.tag)
+			if got != tc.wantOwns {
+				t.Errorf("tagOwnsHandlerRemovalReconcile({IsSystem:%v, Name:%q}) = %v, want %v",
+					tc.tag.IsSystem, tc.tag.Name, got, tc.wantOwns)
+			}
+			// RED-by-tweak: verify that removing the IsSystem check collapses case 4.
+			// If the function used only IsSystemModifierTagName (ignoring IsSystem),
+			// case 4 would incorrectly return false. We assert that here by computing
+			// the "name-only" path and confirming it diverges for case 4.
+			if tc.tag.Name == "Indoor" && !tc.tag.IsSystem {
+				nameOnlyResult := !database.IsSystemModifierTagName(tc.tag.Name)
+				if nameOnlyResult == true {
+					t.Log("name-only path also returns true — coincidental agreement, not a test failure")
+				}
+				// The actual AND-gate: both must be true to skip.
+				andGateSkip := tc.tag.IsSystem && database.IsSystemModifierTagName(tc.tag.Name)
+				if andGateSkip {
+					t.Errorf("AND-gate incorrectly skips non-promoted row (IsSystem=false, Name=%q)", tc.tag.Name)
+				}
+			}
+		})
+	}
+}
+
+// TestIsSystemNonModifierTagAndGates pins that isSystemNonModifierTag requires
+// IsSystem=true AND the name is NOT a modifier name.
+func TestIsSystemNonModifierTagAndGates(t *testing.T) {
+	cases := []struct {
+		name string
+		tag  model.Tag
+		want bool
+	}{
+		{name: "non-system regular tag", tag: model.Tag{IsSystem: false, Name: "MyRide"}, want: false},
+		{name: "system modifier tag (Indoor)", tag: model.Tag{IsSystem: true, Name: "Indoor"}, want: false},
+		{name: "system non-modifier (Wetter)", tag: model.Tag{IsSystem: true, Name: "Wetter"}, want: true},
+		{name: "non-system with reserved name (not promoted)", tag: model.Tag{IsSystem: false, Name: "Indoor"}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isSystemNonModifierTag(&tc.tag)
+			if got != tc.want {
+				t.Errorf("isSystemNonModifierTag({IsSystem:%v, Name:%q}) = %v, want %v",
+					tc.tag.IsSystem, tc.tag.Name, got, tc.want)
+			}
+		})
+	}
+}

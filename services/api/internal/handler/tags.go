@@ -494,6 +494,28 @@ func (h *Handler) ServeTagCover(w http.ResponseWriter, r *http.Request) {
 	serveResolvedFile(w, r, resolved)
 }
 
+// tagOwnsHandlerRemovalReconcile reports whether the handler is responsible
+// for clearing this tag's activity_tag_removals row on assign. The resync
+// function skadia_resync_system_modifier_tags owns that row for
+// registry-backed system modifier tags (Indoor, Pendeln, virtuell, E-Bike);
+// the handler must skip those. All other tags — regular user tags AND
+// non-modifier system tags such as Wettkampf, Wetter, Frost — keep the
+// handler-level path. Both IsSystem AND IsSystemModifierTagName must be true
+// to skip: a non-promoted row with IsSystem=false and a reserved name still
+// belongs to the handler.
+func tagOwnsHandlerRemovalReconcile(tag *model.Tag) bool {
+	return !(tag.IsSystem && database.IsSystemModifierTagName(tag.Name))
+}
+
+// isSystemNonModifierTag reports whether a tag is a system tag that is NOT
+// a registry-backed modifier tag. The unassign path calls RecordTagRemoval
+// only for these tags (system modifier tags have their own resync path;
+// regular user tags are never auto-assigned by enrichment so they need no
+// removal record). Both IsSystem AND NOT IsSystemModifierTagName must hold.
+func isSystemNonModifierTag(tag *model.Tag) bool {
+	return tag.IsSystem && !database.IsSystemModifierTagName(tag.Name)
+}
+
 // AssignActivitiesToTag manually assigns a list of activities to a tag.
 // POST /api/v1/tags/{id}/assign-activities
 // Body: {"activity_ids": ["id1", "id2"]}
@@ -541,7 +563,7 @@ func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) 
 	// For system modifier tags, activity_tag_removals reconcile is handled by
 	// skadia_resync_system_modifier_tags inside the helper tx; a second
 	// ClearTagRemoval call from the handler would be a redundant double-write.
-	if !(tag.IsSystem && database.IsSystemModifierTagName(tag.Name)) {
+	if tagOwnsHandlerRemovalReconcile(tag) {
 		for _, actID := range accepted {
 			if err := h.DB.ClearTagRemoval(r.Context(), actID, tagID); err != nil {
 				slog.Warn("clear tag removal", "err", err, "activity", actID, "tag", tagID)
@@ -827,7 +849,7 @@ func (h *Handler) UnassignActivitiesFromTag(w http.ResponseWriter, r *http.Reque
 	// For system modifier tags, activity_tag_removals reconcile is handled by
 	// skadia_resync_system_modifier_tags inside the helper tx; recording a
 	// removal from the handler would be a redundant double-write.
-	if tag.IsSystem && !database.IsSystemModifierTagName(tag.Name) {
+	if isSystemNonModifierTag(tag) {
 		for _, actID := range accepted {
 			if err := h.DB.RecordTagRemoval(r.Context(), actID, tagID); err != nil {
 				slog.Warn("record tag removal", "err", err, "activity", actID, "tag", tagID)
