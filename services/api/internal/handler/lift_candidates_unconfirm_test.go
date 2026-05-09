@@ -215,8 +215,9 @@ func TestUnconfirmLiftCandidate_RetractsLiftTag(t *testing.T) {
 
 // ----- F12 structured-error tests ----------------------------------------
 
-// assertLiftProblemCode decodes the response body as a liftProblemDetail and
-// asserts the code field matches wantCode. Fails the test on decode error.
+// assertLiftProblemCode decodes the response body as a model.ProblemDetail
+// (via its structured `code` field — see httputil.WriteProblem) and asserts
+// the code matches wantCode. Fails the test on decode error.
 func assertLiftProblemCode(t *testing.T, rec *httptest.ResponseRecorder, wantCode string) {
 	t.Helper()
 	var body struct {

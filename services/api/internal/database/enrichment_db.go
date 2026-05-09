@@ -786,14 +786,14 @@ func (db *DB) UnconfirmLiftCandidate(ctx context.Context, userID, candidateID, a
 	).Scan(&returnedActivityID); err != nil {
 		return err
 	}
-	if err := db.recomputeLiftStatsTx(ctx, tx, userID, returnedActivityID); err != nil {
+	gearIDs, err := db.recomputeLiftStatsTx(ctx, tx, userID, returnedActivityID)
+	if err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("unconfirm lift candidate: commit: %w", err)
 	}
-	// Sanity probe runs post-commit, mirroring the pattern in recomputeLiftStats.
-	db.warnIfLiftAggregatesExceedRaw(ctx, userID, returnedActivityID)
+	db.afterLiftStatsCommit(ctx, userID, returnedActivityID, gearIDs)
 	return nil
 }
 
@@ -1430,13 +1430,14 @@ func (db *DB) ConfirmAllLiftCandidates(ctx context.Context, userID, activityID s
 		return fmt.Errorf("confirm-all lift candidates: update candidates: %w", err)
 	}
 
-	if err := db.recomputeLiftStatsTx(ctx, tx, userID, activityID); err != nil {
+	gearIDs, err := db.recomputeLiftStatsTx(ctx, tx, userID, activityID)
+	if err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("confirm-all lift candidates: commit: %w", err)
 	}
-	db.warnIfLiftAggregatesExceedRaw(ctx, userID, activityID)
+	db.afterLiftStatsCommit(ctx, userID, activityID, gearIDs)
 	return nil
 }
 
@@ -1482,13 +1483,14 @@ func (db *DB) RejectAllLiftCandidates(ctx context.Context, userID, activityID st
 		return fmt.Errorf("reject-all lift candidates: update candidates: %w", err)
 	}
 
-	if err := db.recomputeLiftStatsTx(ctx, tx, userID, activityID); err != nil {
+	gearIDs, err := db.recomputeLiftStatsTx(ctx, tx, userID, activityID)
+	if err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("reject-all lift candidates: commit: %w", err)
 	}
-	db.warnIfLiftAggregatesExceedRaw(ctx, userID, activityID)
+	db.afterLiftStatsCommit(ctx, userID, activityID, gearIDs)
 	return nil
 }
 
@@ -1624,12 +1626,13 @@ func (db *DB) RestoreLiftCandidate(ctx context.Context, userID, candidateID stri
 		return "", err
 	}
 
-	if err := db.recomputeLiftStatsTx(ctx, tx, userID, activityID); err != nil {
+	gearIDs, err := db.recomputeLiftStatsTx(ctx, tx, userID, activityID)
+	if err != nil {
 		return "", err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", fmt.Errorf("restore lift candidate: commit: %w", err)
 	}
-	db.warnIfLiftAggregatesExceedRaw(ctx, userID, activityID)
+	db.afterLiftStatsCommit(ctx, userID, activityID, gearIDs)
 	return activityID, nil
 }

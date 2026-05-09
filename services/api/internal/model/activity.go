@@ -117,8 +117,8 @@ type Activity struct {
 	// = acknowledge). NULL means the modal should show on next visit.
 	// Phase 4d migration 000350.
 	LiftsAcknowledgedAt *time.Time `json:"lifts_acknowledged_at,omitempty"`
-	ElevationSource        string   `json:"elevation_source,omitempty" db:"elevation_source"`
-	DistanceSource         string   `json:"distance_source,omitempty" db:"distance_source"`
+	ElevationSource     string     `json:"elevation_source,omitempty" db:"elevation_source"`
+	DistanceSource      string     `json:"distance_source,omitempty" db:"distance_source"`
 	// Multisport parent/child
 	ParentID   *string `json:"parent_id,omitempty"`
 	ChildCount int     `json:"child_count,omitempty"` // Computed, not in DB
@@ -432,12 +432,17 @@ type PMCDay struct {
 	SportGroup string  `json:"sport_group,omitempty"` // empty = "__combined__" (legacy), sport-specific rows use e.g. "cycling"
 }
 
-// ProblemDetail is an RFC 7807 error response.
+// ProblemDetail is an RFC 7807 error response, optionally extended with a
+// machine-readable code field (RFC 9457 §3.1.4 style) for callers that need
+// to distinguish multiple causes within the same status code without
+// string-matching the detail text. Existing WriteError callers leave Code
+// empty so the body stays a backwards-compatible RFC 7807 shape via omitempty.
 type ProblemDetail struct {
 	Type     string `json:"type"`
 	Title    string `json:"title"`
 	Status   int    `json:"status"`
 	Detail   string `json:"detail"`
+	Code     string `json:"code,omitempty"`
 	Instance string `json:"instance,omitempty"`
 }
 

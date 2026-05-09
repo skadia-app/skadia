@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -16,35 +15,6 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
-
-// liftProblemDetail is an RFC 7807 problem+json body extended with a machine-
-// readable code field for lift-endpoint errors. Used where the frontend needs
-// to distinguish multiple 409/404 causes without string-matching detail text.
-type liftProblemDetail struct {
-	Type     string `json:"type"`
-	Title    string `json:"title"`
-	Status   int    `json:"status"`
-	Detail   string `json:"detail"`
-	Code     string `json:"code"`
-	Instance string `json:"instance,omitempty"`
-}
-
-// writeLiftError writes a structured lift problem+json response.
-func writeLiftError(w http.ResponseWriter, status int, title, detail, code, instance string) {
-	problem := liftProblemDetail{
-		Type:     "https://skadia.io/errors/lift/" + code,
-		Title:    title,
-		Status:   status,
-		Detail:   detail,
-		Code:     code,
-		Instance: instance,
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(problem); err != nil {
-		slog.Error("failed to encode lift problem JSON", "error", err)
-	}
-}
 
 // reapplyRulesAfterLiftChange re-fires the rules engine with the narrow
 // trigger 'on_enrichment_complete' so the lift_detected SystemRule (and any
@@ -169,7 +139,7 @@ func (h *Handler) ConfirmLiftCandidate(w http.ResponseWriter, r *http.Request) {
 //   - 409 WRONG_SOURCE     — candidate is OSM-sourced
 //   - 409 ALREADY_REJECTED — candidate has rejected_by_user=true
 //   - 404 NOT_FOUND        — missing, wrong activity, or wrong owner (collapsed
-//                            to one status to avoid existence/owner leak)
+//     to one status to avoid existence/owner leak)
 func (h *Handler) UnconfirmLiftCandidate(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -203,7 +173,7 @@ func (h *Handler) UnconfirmLiftCandidate(w http.ResponseWriter, r *http.Request)
 	switch {
 	case errors.Is(probeErr, pgx.ErrNoRows):
 		// Row does not exist at all.
-		writeLiftError(w, http.StatusNotFound, "Cannot unconfirm",
+		httputil.WriteProblem(w, http.StatusNotFound, "Cannot unconfirm",
 			"lift candidate not found", "NOT_FOUND", r.URL.Path)
 		return
 	case probeErr != nil:
@@ -214,17 +184,17 @@ func (h *Handler) UnconfirmLiftCandidate(w http.ResponseWriter, r *http.Request)
 	// Collapse wrong-activity and wrong-owner into NOT_FOUND to avoid leaking
 	// existence of candidates belonging to another user (AGENTS.md multi-user rule).
 	if probeActivityID != activityID {
-		writeLiftError(w, http.StatusNotFound, "Cannot unconfirm",
+		httputil.WriteProblem(w, http.StatusNotFound, "Cannot unconfirm",
 			"lift candidate not found", "NOT_FOUND", r.URL.Path)
 		return
 	}
 	if probeRejected {
-		writeLiftError(w, http.StatusConflict, "Cannot unconfirm",
+		httputil.WriteProblem(w, http.StatusConflict, "Cannot unconfirm",
 			"candidate is already soft-rejected; restore it first", "ALREADY_REJECTED", r.URL.Path)
 		return
 	}
 	if probeSource != "heuristic" {
-		writeLiftError(w, http.StatusConflict, "Cannot unconfirm",
+		httputil.WriteProblem(w, http.StatusConflict, "Cannot unconfirm",
 			"only heuristic candidates can be unconfirmed; use the reject path for OSM candidates",
 			"WRONG_SOURCE", r.URL.Path)
 		return
@@ -233,7 +203,7 @@ func (h *Handler) UnconfirmLiftCandidate(w http.ResponseWriter, r *http.Request)
 	if err := h.DB.UnconfirmLiftCandidate(r.Context(), userID, candID, activityID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Race: candidate was modified between probe and update — treat as NOT_FOUND.
-			writeLiftError(w, http.StatusNotFound, "Cannot unconfirm",
+			httputil.WriteProblem(w, http.StatusNotFound, "Cannot unconfirm",
 				"lift candidate not found", "NOT_FOUND", r.URL.Path)
 			return
 		}
@@ -433,7 +403,7 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 		subType = *activity.SubType
 	}
 	if !lifts.IsLiftRelevant(activity.SportType, subType, activity.IsIndoor, activity.IsElectric, activity.IsVirtual) {
-		writeLiftError(w, http.StatusBadRequest, "Cannot recalculate",
+		httputil.WriteProblem(w, http.StatusBadRequest, "Cannot recalculate",
 			"sport "+activity.SportType+" hat keine Lift-Erkennung",
 			"NOT_LIFT_ELIGIBLE", r.URL.Path)
 		return

@@ -33,11 +33,27 @@ func WriteJSONNoCache(w http.ResponseWriter, status int, v any) {
 
 // WriteError writes an RFC 7807 problem detail response.
 func WriteError(w http.ResponseWriter, status int, title, detail, instance string) {
+	WriteProblem(w, status, title, detail, "", instance)
+}
+
+// WriteProblem writes an RFC 7807 problem+json response with an optional
+// machine-readable code field. When code is non-empty, the type URI uses
+// the code instead of the status-text slug — this lets the frontend switch
+// on code without parsing the URI. Existing WriteError callers (no code)
+// keep their original status-text URI for backwards compatibility.
+func WriteProblem(w http.ResponseWriter, status int, title, detail, code, instance string) {
+	typeURI := "https://skadia.io/errors/"
+	if code != "" {
+		typeURI += code
+	} else {
+		typeURI += strings.ReplaceAll(http.StatusText(status), " ", "-")
+	}
 	problem := model.ProblemDetail{
-		Type:     "https://skadia.io/errors/" + strings.ReplaceAll(http.StatusText(status), " ", "-"),
+		Type:     typeURI,
 		Title:    title,
 		Status:   status,
 		Detail:   detail,
+		Code:     code,
 		Instance: instance,
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
