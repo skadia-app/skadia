@@ -5,7 +5,7 @@ import { buildLayerStyle } from '@/lib/mapStyles'
 import { useMapLayers } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
 import { useTheme } from '@/lib/theme'
-import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl } from '@/lib/mapHeatmap'
+import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmapColor } from '@/lib/mapHeatmap'
 import { useCurrentUserId } from '@/providers/UserProvider'
 import type { MapLayer } from '@/api/mapLayers'
 import type { LiftCandidate, StreamPoint } from '@/api/types'
@@ -420,7 +420,9 @@ export default function LiftInspectorMap({
     if (showHeatmap && userId && userId !== 'anon') {
       // Insert heatmap below lift-line layers so lift polylines remain on top.
       const firstLiftLayer = candidates[0] ? `lift-line-${candidates[0].id}` : undefined
-      addHeatmapLayers(m, buildHeatmapTileUrl(userId), '#ff6b35', firstLiftLayer)
+      // Reuse the user's persisted heatmap color from MapPage (localStorage)
+      // so the inspector view stays consistent with the global map.
+      addHeatmapLayers(m, buildHeatmapTileUrl(userId), loadHeatmapColor(), firstLiftLayer)
     }
   }, [showHeatmap, mapReady, styleVersion, userId, candidates])
 
