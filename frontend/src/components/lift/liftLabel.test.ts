@@ -24,8 +24,16 @@ function makeCandidate(overrides: Partial<LiftCandidate>): LiftCandidate {
 }
 
 describe('liftDisplayLabel', () => {
-  it('returns empty for heuristic candidates regardless of OSM fields', () => {
+  it('returns name + type for heuristic candidates that snapped to an OSM segment', () => {
+    // Phase 4c snap pipeline: heuristic source can carry JOIN-derived osm_*
+    // fields when segment_effort_id snapped to an OSM lift. We treat those
+    // exactly like source='osm' rows.
     const c = makeCandidate({ source: 'heuristic', osm_name: 'example chairlift', osm_aerialway: 'chair_lift' })
+    expect(liftDisplayLabel(c)).toEqual({ name: 'example chairlift', type: 'Sessellift' })
+  })
+
+  it('returns empty for heuristic candidates without an OSM snap', () => {
+    const c = makeCandidate({ source: 'heuristic', osm_name: null, osm_aerialway: null })
     expect(liftDisplayLabel(c)).toEqual({})
   })
 
