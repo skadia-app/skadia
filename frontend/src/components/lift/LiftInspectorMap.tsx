@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import { HelpCircle } from 'lucide-react'
 import { buildLayerStyle } from '@/lib/mapStyles'
 import { useMapLayers } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
@@ -20,6 +21,7 @@ interface LiftInspectorMapProps {
   streams: StreamPoint[]
   highlightedCandidateId: string | null
   onCandidateClick: (id: string) => void
+  onOpenHelp?: () => void
 }
 
 // Returns the map line color for a lift candidate.
@@ -110,31 +112,56 @@ export function pickDefaultBase(
 }
 
 /**
+ * Display labels keyed by (source / confidence) — never exposes backend IDs.
+ * Exported so LiftReviewModal can share the same lookup without duplication.
+ */
+export const CONFIDENCE_LABEL = {
+  osm:      'OSM-Treffer',
+  high:     'Heuristik (Speed + Steigung)',
+  medium:   'Heuristik (Höhenrate)',
+  bidir:    'Heuristik (Talquerung)',
+  rejected: 'Abgelehnt',
+} as const
+
+/**
  * Tooltip descriptions for each confidence/source variant.
  * Exported so LiftReviewModal can reuse the same strings for badge title attributes
  * without duplicating them.
  */
-export const CONFIDENCE_DESCRIPTIONS: Record<string, string> = {
-  'OSM-Treffer':
-    'OSM-gematchter Lift (Methode A) — Geometrie-basierter Treffer, sofort gezählt.',
-  'Heuristik (hoch)':
-    'Heuristik-Detektor mit klarem Aufwärts-Signal (stabile Geschwindigkeit + steiler Gradient).',
-  'Heuristik (mittel)':
-    'Heuristik-Detektor ohne brauchbares Speed-Signal — nur über Höhenmeter pro Sekunde erkannt.',
-  'Heuristik (bidirektional)':
-    'Aerial-Tramway-Pendelmuster: hin- und Rückfahrt in einer Aufzeichnung mit geringer Netto-Höhe aber großer kumulativer Höhenänderung.',
-  'Abgelehnt':
-    'Vom Nutzer per Soft-Reject markiert — wird nicht in Lifetime-Stats gezählt, kann wiederhergestellt werden.',
+export const CONFIDENCE_DESCRIPTIONS: Record<keyof typeof CONFIDENCE_LABEL, string> = {
+  osm:
+    'Geometrie-Match gegen einen OSM-Lift-Eintrag (Methode A). Zählt sofort, ohne Review.',
+  high:
+    'Heuristik-Detektor: stabile Geschwindigkeit + ausreichend steiler Gradient — klares Lift-Signal aus den Sensordaten.',
+  medium:
+    'Heuristik-Detektor ohne brauchbares Speed-Signal — nur über Höhenmeter pro Sekunde erkannt (typisch bei Smart-Recording).',
+  bidir:
+    'Pendel-Seilbahn die ein Tal überquert: das Cable hat ein U-förmiges Höhenprofil, bei dem die Netto-Höhenänderung klein ist aber kumulativ viele Höhenmeter zurückgelegt werden. EINE Liftfahrt, nicht zwei. Häufig bei Talquerungs-Cable-Cars.',
+  rejected:
+    'Per Soft-Reject ausgeblendet — wird nicht in Lifetime-Stats gezählt; "Wiederherstellen" macht es rückgängig.',
+}
+
+/**
+ * Maps a LiftCandidate to its CONFIDENCE_LABEL key for display purposes.
+ * The backend's `confidence` field values ('high'|'medium'|'bidir') remain unchanged;
+ * only the UI display text is signal-based.
+ */
+export function getConfidenceKey(c: LiftCandidate): keyof typeof CONFIDENCE_LABEL {
+  if (c.rejected_by_user) return 'rejected'
+  if (c.source === 'osm') return 'osm'
+  if (c.confidence === 'high') return 'high'
+  if (c.confidence === 'bidir') return 'bidir'
+  return 'medium'
 }
 
 // Legend entry definition matching liftColor() — keeps color encoding and
 // text label in sync (F16 a11y: dual channel, color + text).
-const LEGEND_ENTRIES: { dot: string; label: string; dashed?: boolean }[] = [
-  { dot: '#3b82f6', label: 'OSM-Treffer' },
-  { dot: '#22c55e', label: 'Heuristik (hoch)' },
-  { dot: '#f97316', label: 'Heuristik (mittel)' },
-  { dot: '#8b5cf6', label: 'Heuristik (bidirektional)' },
-  { dot: '#ef4444', label: 'Abgelehnt', dashed: true },
+const LEGEND_ENTRIES: { dot: string; key: keyof typeof CONFIDENCE_LABEL; dashed?: boolean }[] = [
+  { dot: '#3b82f6', key: 'osm' },
+  { dot: '#22c55e', key: 'high' },
+  { dot: '#f97316', key: 'medium' },
+  { dot: '#8b5cf6', key: 'bidir' },
+  { dot: '#ef4444', key: 'rejected', dashed: true },
 ]
 
 export default function LiftInspectorMap({
@@ -142,6 +169,7 @@ export default function LiftInspectorMap({
   streams,
   highlightedCandidateId,
   onCandidateClick,
+  onOpenHelp,
 }: LiftInspectorMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -547,16 +575,29 @@ export default function LiftInspectorMap({
 
       {/* F16: on-map legend — color swatch + German text label for each line type.
           Both channels (color + text) are present so the encoding is accessible
-          without color vision. Fix 6a: each row has a native title tooltip. */}
+          without color vision. Fix 6a: each row has a native title tooltip.
+          Phase 11.9: HelpCircle in top-right corner of legend triggers LiftHelpModal. */}
       <div
         className="absolute top-2 left-2 z-10 rounded-lg bg-white/90 dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-700 shadow-sm px-2 py-1.5 text-xs space-y-1"
         aria-label="Kartenlegende"
       >
+        <div className="flex items-center justify-between gap-2 mb-0.5">
+          <span className="text-neutral-500 dark:text-neutral-400 font-medium text-[10px] uppercase tracking-wide">Legende</span>
+          {onOpenHelp && (
+            <button
+              onClick={onOpenHelp}
+              aria-label="Hilfe zur Lifterkennungslegende öffnen"
+              className="text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200 cursor-pointer transition-colors"
+            >
+              <HelpCircle className="w-4 h-4" aria-hidden="true" />
+            </button>
+          )}
+        </div>
         {LEGEND_ENTRIES.map(entry => (
           <div
-            key={entry.label}
+            key={entry.key}
             className="flex items-center gap-1.5"
-            title={CONFIDENCE_DESCRIPTIONS[entry.label]}
+            title={CONFIDENCE_DESCRIPTIONS[entry.key]}
           >
             <span
               aria-hidden="true"
@@ -571,7 +612,7 @@ export default function LiftInspectorMap({
                   : {}),
               }}
             />
-            <span className="text-neutral-700 dark:text-neutral-300">{entry.label}</span>
+            <span className="text-neutral-700 dark:text-neutral-300">{CONFIDENCE_LABEL[entry.key]}</span>
           </div>
         ))}
       </div>
