@@ -1,0 +1,81 @@
+# Schema example for the eval manifest consumed by `cmd/lift_detect_eval`.
+#
+# Coordinates and identifiers in this file are synthetic. The real corpus is
+# kept outside the repository (gitignored) so that real activity coordinates,
+# lift names, and database identifiers stay out of the public history. A loader
+# unit test parses this file to guard the schema against silent drift.
+#
+# Recipe: docs/documentation/dev/subsystems/geo-lift-detection.md, section
+# "Adding a new training fixture".
+#
+# Schema (one entry per fixture file, parsed by `manifest.go`):
+#
+#   file               (required)  path of the activity file relative to the
+#                                  evaluation root passed via `-root`
+#   expected_rides_min (required)  inclusive lower bound on the detected ride
+#                                  count for this activity
+#   expected_rides_max (required)  inclusive upper bound; equal to min for an
+#                                  exact match
+#   distinct_lifts     (optional)  informational; the eval only checks the
+#                                  ride count
+#   sport              (required)  passed to the detector via
+#                                  DefaultDetectorConfig(sport). Detector
+#                                  branches only on "cycling" (case-insensitive,
+#                                  enables the road-climb boundary guard); any
+#                                  other value yields the default config.
+#                                  In production, an upstream sport-eligibility
+#                                  gate (lifts.IsLiftRelevant in
+#                                  services/api/internal/enrichment/lifts/
+#                                  relevance.go) admits only:
+#                                    alpine_skiing, snowboarding,
+#                                    cross_country_skiing, hiking, mountaineering
+#                                  plus cycling (sub_type not in
+#                                  {indoor_cycling, spin}); is_indoor/is_virtual
+#                                  must be false. Any other sport is silently
+#                                  skipped in production. The eval harness
+#                                  bypasses this gate, so use a value from the
+#                                  eligible set if eval results should reflect
+#                                  production behaviour.
+#   notes              (optional)  free-form context; useful for documenting
+#                                  edge cases the fixture is meant to protect
+
+cases:
+  # Single-section gondola, alpine skiing.
+  - file: alpha_resort/run_a.fit
+    expected_rides_min: 5
+    expected_rides_max: 5
+    distinct_lifts: 2
+    sport: ski
+    notes: "Two named lifts, 4 ascents on lift A, 1 ascent on lift B."
+
+  # Multi-section gondola with intermediate stations counted as separate
+  # segments. The detector may merge or split mid-stations depending on
+  # cable-hold duration; the min/max range absorbs that ambiguity.
+  - file: beta_resort/run_b.gpx
+    expected_rides_min: 4
+    expected_rides_max: 5
+    distinct_lifts: 3
+    sport: ski
+    notes: "Three-section cable. Mid-station hold ~30 s — borderline merge."
+
+  # Cycling activity with no lift ride. Belongs to the false-positive corpus:
+  # the road-climb guard only kicks in for sport=cycling, so any FP here is a
+  # detector regression. expected_rides=0.
+  - file: negativ/road_climb.fit
+    expected_rides_min: 0
+    expected_rides_max: 0
+    distinct_lifts: 0
+    sport: cycling
+    notes: "Steady paved climb. Must not register as a lift."
+
+  # Cross-country skiing activity that climbs on foot/skin without using a
+  # lift. Eligible by sport for production lift detection (skitours often do
+  # use lifts before the climb), so the false-positive bar matters here.
+  # expected_rides=0 keeps the bar at the same code path the real pipeline
+  # would run.
+  - file: negativ/skitour.gpx
+    expected_rides_min: 0
+    expected_rides_max: 0
+    distinct_lifts: 0
+    sport: cross_country_skiing
+    notes: "Skin track climb, no cable. Sinuosity + hike-band gates must reject."
