@@ -605,6 +605,13 @@ func (db *DB) GetVisitedPOIs(ctx context.Context, userID string) ([]VisitedPOI, 
 }
 
 // LiftCandidate represents an unconfirmed lift ride detected by ML.
+//
+// OsmName / OsmAerialway are populated only when source='osm' and the row
+// chains through segment_efforts → segments → osm_lifts. They are nil for
+// heuristic candidates and for OSM rows whose segment_effort_id has been
+// detached. Frontend filters on a whitelist of known aerialway values; raw
+// values are forwarded as-is so the whitelist can evolve without a backend
+// release.
 type LiftCandidate struct {
 	ID              string    `json:"id"`
 	ActivityID      string    `json:"activity_id"`
@@ -619,6 +626,8 @@ type LiftCandidate struct {
 	RejectedByUser  bool      `json:"rejected_by_user"`
 	Source          string    `json:"source"`
 	SegmentEffortID *string   `json:"segment_effort_id"`
+	OsmName         *string   `json:"osm_name,omitempty"`
+	OsmAerialway    *string   `json:"osm_aerialway,omitempty"`
 }
 
 type LiftCandidateFilter struct {
@@ -627,6 +636,9 @@ type LiftCandidateFilter struct {
 }
 
 func (db *DB) GetLiftCandidates(ctx context.Context, activityID, userID string, filter LiftCandidateFilter) ([]LiftCandidate, error) {
+	// LEFT JOINs so heuristic candidates (segment_effort_id IS NULL) and OSM
+	// rows whose segments / osm_lifts row was meanwhile dropped still come
+	// back with NULL osm_name / osm_aerialway rather than being filtered out.
 	query := `
 		SELECT
 			alc.id::text,
@@ -641,9 +653,14 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID, userID string, 
 			alc.confirmed,
 			alc.rejected_by_user,
 			alc.source,
-			alc.segment_effort_id::text
+			alc.segment_effort_id::text,
+			ol.name,
+			ol.aerialway
 		FROM activity_lift_candidates alc
 		JOIN activities a ON a.id = alc.activity_id
+		LEFT JOIN segment_efforts se ON se.id = alc.segment_effort_id
+		LEFT JOIN segments s ON s.id = se.segment_id
+		LEFT JOIN osm_lifts ol ON ol.osm_id = s.osm_lift_id
 		WHERE alc.activity_id = $1 AND a.user_id = $2
 	`
 	args := []any{activityID, userID}
@@ -666,7 +683,8 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID, userID string, 
 		var c LiftCandidate
 		if err := rows.Scan(&c.ID, &c.ActivityID, &c.StartedAt, &c.EndedAt,
 			&c.DurationS, &c.AscentM, &c.DescentM, &c.DistanceM, &c.Confidence,
-			&c.Confirmed, &c.RejectedByUser, &c.Source, &c.SegmentEffortID); err != nil {
+			&c.Confirmed, &c.RejectedByUser, &c.Source, &c.SegmentEffortID,
+			&c.OsmName, &c.OsmAerialway); err != nil {
 			return nil, err
 		}
 		result = append(result, c)
