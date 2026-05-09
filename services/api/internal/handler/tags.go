@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
@@ -153,6 +155,35 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 		var f float64
 		if err := json.Unmarshal(*req.Lng, &f); err == nil {
 			lng = &f
+		}
+	}
+
+	// Guard: renaming a system modifier tag to another reserved name would reach
+	// the DB as a UNIQUE-violation with no useful error message. Detect and reject
+	// early with a 409 so the frontend shows a clear explanation.
+	// Only fires when (a) the request changes the name, (b) the existing tag is a
+	// promoted system modifier tag (IsSystem=true AND IsSystemModifierTagName), and
+	// (c) the new name is also reserved. Non-system rows with a reserved name (not
+	// yet promoted) are not blocked here; regular renames of system tags to
+	// non-reserved names pass through to the m.2 trigger for propagation.
+	if req.Name != "" {
+		existing, loadErr := h.DB.GetTagByID(r.Context(), tagID, userID)
+		if loadErr != nil {
+			slog.Error("update tag: load existing tag failed", "error", loadErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
+			return
+		}
+		if existing == nil {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+			return
+		}
+		if existing.IsSystem && database.IsSystemModifierTagName(existing.Name) &&
+			req.Name != existing.Name && database.IsSystemModifierTagName(req.Name) {
+			httputil.WriteError(w, http.StatusConflict, "Conflict",
+				fmt.Sprintf("cannot rename system modifier tag %q to another reserved name %q; reserved names (Indoor, Pendeln, virtuell, E-Bike) are bound to specific modifier columns and cannot be aliased",
+					existing.Name, req.Name),
+				r.URL.Path)
+			return
 		}
 	}
 
@@ -493,6 +524,28 @@ func (h *Handler) ServeTagCover(w http.ResponseWriter, r *http.Request) {
 	serveResolvedFile(w, r, resolved)
 }
 
+// tagOwnsHandlerRemovalReconcile reports whether the handler is responsible
+// for clearing this tag's activity_tag_removals row on assign. The resync
+// function skadia_resync_system_modifier_tags owns that row for
+// registry-backed system modifier tags (Indoor, Pendeln, virtuell, E-Bike);
+// the handler must skip those. All other tags — regular user tags AND
+// non-modifier system tags such as Wettkampf, Wetter, Frost — keep the
+// handler-level path. Both IsSystem AND IsSystemModifierTagName must be true
+// to skip: a non-promoted row with IsSystem=false and a reserved name still
+// belongs to the handler.
+func tagOwnsHandlerRemovalReconcile(tag *model.Tag) bool {
+	return !(tag.IsSystem && database.IsSystemModifierTagName(tag.Name))
+}
+
+// isSystemNonModifierTag reports whether a tag is a system tag that is NOT
+// a registry-backed modifier tag. The unassign path calls RecordTagRemoval
+// only for these tags (system modifier tags have their own resync path;
+// regular user tags are never auto-assigned by enrichment so they need no
+// removal record). Both IsSystem AND NOT IsSystemModifierTagName must hold.
+func isSystemNonModifierTag(tag *model.Tag) bool {
+	return tag.IsSystem && !database.IsSystemModifierTagName(tag.Name)
+}
+
 // AssignActivitiesToTag manually assigns a list of activities to a tag.
 // POST /api/v1/tags/{id}/assign-activities
 // Body: {"activity_ids": ["id1", "id2"]}
@@ -515,37 +568,61 @@ func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Clear any removal records — user is explicitly re-adding this tag.
-	for _, actID := range req.ActivityIDs {
-		if err := h.DB.ClearTagRemoval(r.Context(), actID, tagID); err != nil {
-			slog.Warn("clear tag removal", "err", err, "activity", actID, "tag", tagID)
-		}
+	tag, tagErr := h.DB.GetTagByID(r.Context(), tagID, userID)
+	if tagErr != nil {
+		slog.Error("assign activities: get tag failed", "tag_id", tagID, "error", tagErr)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
+		return
+	}
+	if tag == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+		return
 	}
 
-	if err := h.DB.AssignActivitiesToTag(r.Context(), tagID, userID, req.ActivityIDs); err != nil {
+	accepted, err := h.DB.AssignActivitiesToTag(r.Context(), tagID, userID, req.ActivityIDs)
+	if err != nil {
 		slog.Error("assign activities to tag failed", "tag_id", tagID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to assign activities", r.URL.Path)
 		return
 	}
+
+	// Clear removal records only for IDs the DB layer actually accepted.
+	// Cross-user IDs and (for cycling-only E-Bike) non-cycling IDs are silently
+	// dropped upstream — no removal record, file refresh, or backfill should run
+	// for them.
+	// For system modifier tags, activity_tag_removals reconcile is handled by
+	// skadia_resync_system_modifier_tags inside the helper tx; a second
+	// ClearTagRemoval call from the handler would be a redundant double-write.
+	if tagOwnsHandlerRemovalReconcile(tag) {
+		for _, actID := range accepted {
+			if err := h.DB.ClearTagRemoval(r.Context(), actID, tagID); err != nil {
+				slog.Warn("clear tag removal", "err", err, "activity", actID, "tag", tagID)
+			}
+		}
+	}
 	if !deferActivityFileRefresh(r) {
-		for _, actID := range req.ActivityIDs {
+		for _, actID := range accepted {
 			h.refreshActivityFilePathBestEffort(r.Context(), userID, actID, "")
 		}
 	}
 
-	// Location-Pin-Trigger: fetch weather/sun-times for indoor activities that now have a location via this tag.
-	// recompute=false: only fill activities that have no data yet (newly assigned).
-	activityIDs := req.ActivityIDs
-	go func() {
-		ctx2, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		if err := h.backfillWeatherForLocationTag(ctx2, userID, tagID, activityIDs, false); err != nil {
-			slog.Warn("location tag weather backfill failed", "tag_id", tagID, "error", err)
-		}
-		if err := h.backfillSunTimesForLocationTag(ctx2, userID, tagID, activityIDs, false); err != nil {
-			slog.Warn("location tag sun times backfill failed", "tag_id", tagID, "error", err)
-		}
-	}()
+	// Location-Pin-Trigger: fetch weather/sun-times for indoor activities that
+	// now have a location via this tag. recompute=false: only fill activities
+	// that have no data yet (newly assigned). Skip when nothing was accepted —
+	// the goroutine would do empty-set queries and burn a goroutine for no work.
+	if len(accepted) > 0 {
+		activityIDs := accepted
+		go func() {
+			ctx2, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			if err := h.backfillWeatherForLocationTag(ctx2, userID, tagID, activityIDs, false); err != nil {
+				slog.Warn("location tag weather backfill failed", "tag_id", tagID, "error", err)
+			}
+			if err := h.backfillSunTimesForLocationTag(ctx2, userID, tagID, activityIDs, false); err != nil {
+				slog.Warn("location tag sun times backfill failed", "tag_id", tagID, "error", err)
+			}
+		}()
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -790,22 +867,27 @@ func (h *Handler) UnassignActivitiesFromTag(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := h.DB.UnassignActivitiesFromTag(r.Context(), tagID, userID, req.ActivityIDs); err != nil {
+	accepted, err := h.DB.UnassignActivitiesFromTag(r.Context(), tagID, userID, req.ActivityIDs)
+	if err != nil {
 		slog.Error("unassign activities from tag failed", "tag_id", tagID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to unassign activities", r.URL.Path)
 		return
 	}
 
-	// If this is a system tag, record the removal so enrichment won't re-add it.
-	if tag.IsSystem {
-		for _, actID := range req.ActivityIDs {
+	// Record removals only for IDs the DB layer actually accepted. Cross-user
+	// IDs are dropped upstream and must never produce a removal record.
+	// For system modifier tags, activity_tag_removals reconcile is handled by
+	// skadia_resync_system_modifier_tags inside the helper tx; recording a
+	// removal from the handler would be a redundant double-write.
+	if isSystemNonModifierTag(tag) {
+		for _, actID := range accepted {
 			if err := h.DB.RecordTagRemoval(r.Context(), actID, tagID); err != nil {
 				slog.Warn("record tag removal", "err", err, "activity", actID, "tag", tagID)
 			}
 		}
 	}
 	if !deferActivityFileRefresh(r) {
-		for _, actID := range req.ActivityIDs {
+		for _, actID := range accepted {
 			h.refreshActivityFilePathBestEffort(r.Context(), userID, actID, "")
 		}
 	}

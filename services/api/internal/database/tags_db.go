@@ -923,21 +923,53 @@ func (db *DB) GetTagIDsByNamesAndCategory(ctx context.Context, userID, category 
 }
 
 // AssignActivitiesToTag links multiple activities to a tag (manual assignment).
-// Inserts into activity_tags junction table and syncs activities.tags TEXT[] cache.
-func (db *DB) AssignActivitiesToTag(ctx context.Context, tagID, userID string, activityIDs []string) error {
+// Activity IDs not owned by userID are silently dropped before any write.
+//
+// For registry-backed system modifier tags (Indoor / Pendeln / virtuell /
+// cycling-only E-Bike) the function flips the corresponding modifier column
+// inside WithSystemModifierTagSyncSuspended and lets the resync function
+// repair activities.tags, the activity_tags junction, removal records, and
+// activity_count atomically. For E-Bike specifically, non-cycling activities
+// are filtered out so is_electric is never set on a running/walking row.
+//
+// For all other tags the function inserts activity_tags rows and updates the
+// activities.tags TEXT[] cache as before.
+//
+// Returns the list of activity IDs the operation actually accepted (after
+// user-scope and sport filtering). The caller MUST scope post-write side
+// effects (RecordTagRemoval clears, file-path refresh, async backfill) to
+// these IDs only.
+func (db *DB) AssignActivitiesToTag(ctx context.Context, tagID, userID string, activityIDs []string) ([]string, error) {
 	if len(activityIDs) == 0 {
-		return nil
+		return nil, nil
 	}
-	// Resolve tag name for updating the denormalized TEXT[] cache.
-	var tagName string
-	if err := db.Pool.QueryRow(ctx,
-		`SELECT name FROM tags WHERE id = $1 AND user_id = $2`, tagID, userID,
-	).Scan(&tagName); err != nil {
-		return fmt.Errorf("assign activities to tag: resolve tag name: %w", err)
+	tagName, isSystem, err := db.resolveOwnedTagForSync(ctx, tagID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("assign activities to tag: resolve tag: %w", err)
 	}
-	for _, actID := range activityIDs {
+
+	owned, sportByID, err := db.ownedActivityIDsWithSport(ctx, userID, activityIDs)
+	if err != nil {
+		return nil, fmt.Errorf("assign activities to tag: filter owned: %w", err)
+	}
+	if len(owned) == 0 {
+		return nil, nil
+	}
+
+	if sync, ok := matchSystemModifierTagSync(tagName); ok && isSystem {
+		accepted := filterActivitiesForModifierAssign(owned, sportByID, sync.OnlySportType)
+		if len(accepted) == 0 {
+			return nil, nil
+		}
+		if err := db.applyModifierFlagToActivities(ctx, accepted, ModifierKey(sync.ModifierKey), true); err != nil {
+			return nil, fmt.Errorf("assign activities to tag: system modifier path: %w", err)
+		}
+		return accepted, nil
+	}
+
+	for _, actID := range owned {
 		if err := db.LinkActivityTag(ctx, actID, tagID, "manual"); err != nil {
-			return fmt.Errorf("assign activities to tag: link %s: %w", actID, err)
+			return nil, fmt.Errorf("assign activities to tag: link %s: %w", actID, err)
 		}
 		// Keep denormalized TEXT[] cache in sync.
 		// COALESCE guards against NULL tags array: NOT ($2 = ANY(NULL)) → NULL → FALSE, skips update.
@@ -946,28 +978,58 @@ func (db *DB) AssignActivitiesToTag(ctx context.Context, tagID, userID string, a
 			 WHERE id = $1 AND user_id = $3 AND NOT ($2 = ANY(COALESCE(tags, '{}')))`,
 			actID, tagName, userID)
 	}
-	return nil
+	return owned, nil
 }
 
 // UnassignActivitiesFromTag removes multiple activities from a tag.
-// Deletes from activity_tags junction table and syncs activities.tags TEXT[] cache.
-func (db *DB) UnassignActivitiesFromTag(ctx context.Context, tagID, userID string, activityIDs []string) error {
+// Activity IDs not owned by userID are silently dropped before any write.
+//
+// For registry-backed system modifier tags the function clears the modifier
+// column inside WithSystemModifierTagSyncSuspended and lets resync repair
+// the denormalized state. For all other tags the function deletes the
+// junction rows, syncs the TEXT[] cache, and recomputes activity_count.
+//
+// Returns the list of activity IDs the operation actually accepted.
+func (db *DB) UnassignActivitiesFromTag(ctx context.Context, tagID, userID string, activityIDs []string) ([]string, error) {
 	if len(activityIDs) == 0 {
-		return nil
+		return nil, nil
 	}
-	// Resolve tag name for updating the denormalized TEXT[] cache.
-	var tagName string
-	if err := db.Pool.QueryRow(ctx,
-		`SELECT name FROM tags WHERE id = $1 AND user_id = $2`, tagID, userID,
-	).Scan(&tagName); err != nil {
-		return fmt.Errorf("unassign activities from tag: resolve tag name: %w", err)
+	tagName, isSystem, err := db.resolveOwnedTagForSync(ctx, tagID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("unassign activities from tag: resolve tag: %w", err)
 	}
-	for _, actID := range activityIDs {
+
+	owned, sportByID, err := db.ownedActivityIDsWithSport(ctx, userID, activityIDs)
+	if err != nil {
+		return nil, fmt.Errorf("unassign activities from tag: filter owned: %w", err)
+	}
+	if len(owned) == 0 {
+		return nil, nil
+	}
+
+	if sync, ok := matchSystemModifierTagSync(tagName); ok && isSystem {
+		// Apply the same OnlySportType filter on unassign as on assign so that
+		// returning IDs from this function is semantically consistent: only IDs
+		// where the modifier flag had (or could have had) an effect are included
+		// in accepted. For unrestricted modifiers (Indoor, Pendeln, virtuell)
+		// onlySportType is "" and filterActivitiesForModifierAssign returns owned
+		// unchanged.
+		accepted := filterActivitiesForModifierAssign(owned, sportByID, sync.OnlySportType)
+		if len(accepted) == 0 {
+			return nil, nil
+		}
+		if err := db.applyModifierFlagToActivities(ctx, accepted, ModifierKey(sync.ModifierKey), false); err != nil {
+			return nil, fmt.Errorf("unassign activities from tag: system modifier path: %w", err)
+		}
+		return accepted, nil
+	}
+
+	for _, actID := range owned {
 		_, err := db.Pool.Exec(ctx,
 			`DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2`,
 			actID, tagID)
 		if err != nil {
-			return fmt.Errorf("unassign activities from tag: delete %s: %w", actID, err)
+			return nil, fmt.Errorf("unassign activities from tag: delete %s: %w", actID, err)
 		}
 		// Keep denormalized TEXT[] cache in sync.
 		_, _ = db.Pool.Exec(ctx,
@@ -976,38 +1038,184 @@ func (db *DB) UnassignActivitiesFromTag(ctx context.Context, tagID, userID strin
 			actID, tagName, userID)
 	}
 
-	// Update activity_count from junction table
-	_, err := db.Pool.Exec(ctx,
+	// Update activity_count from junction table.
+	if _, err := db.Pool.Exec(ctx,
 		`UPDATE tags
 		 SET activity_count = (SELECT COUNT(DISTINCT activity_id) FROM activity_tags WHERE tag_id = $1)
 		 WHERE id = $1`,
-		tagID)
-	if err != nil {
-		return fmt.Errorf("unassign activities from tag: update count: %w", err)
+		tagID); err != nil {
+		return nil, fmt.Errorf("unassign activities from tag: update count: %w", err)
 	}
-	return nil
+	return owned, nil
+}
+
+// resolveOwnedTagForSync looks up the tag by id+user. The user-scope WHERE
+// clause guarantees a same-name tag owned by another user is invisible: the
+// caller's "Indoor" stays a regular custom tag for them and never gets
+// treated as the current user's system sync tag.
+func (db *DB) resolveOwnedTagForSync(ctx context.Context, tagID, userID string) (name string, isSystem bool, err error) {
+	err = db.Pool.QueryRow(ctx,
+		`SELECT name, is_system FROM tags WHERE id = $1 AND user_id = $2`,
+		tagID, userID,
+	).Scan(&name, &isSystem)
+	return
+}
+
+// ownedActivityIDsWithSport returns the subset of activityIDs that belong to
+// userID, plus a side map of activity_id → sport_type for the cycling-only
+// E-Bike filter. Order follows the input (modulo dropped IDs) so test
+// fixtures and operator commands stay deterministic.
+func (db *DB) ownedActivityIDsWithSport(ctx context.Context, userID string, activityIDs []string) ([]string, map[string]string, error) {
+	if len(activityIDs) == 0 {
+		return nil, nil, nil
+	}
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id::text, sport_type
+		 FROM activities
+		 WHERE user_id = $1 AND id = ANY($2)`,
+		userID, activityIDs,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("query owned activities: %w", err)
+	}
+	defer rows.Close()
+
+	sportByID := make(map[string]string, len(activityIDs))
+	for rows.Next() {
+		var id, sport string
+		if err := rows.Scan(&id, &sport); err != nil {
+			return nil, nil, fmt.Errorf("scan owned activity: %w", err)
+		}
+		sportByID[id] = sport
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("iterate owned activities: %w", err)
+	}
+
+	owned := make([]string, 0, len(sportByID))
+	seen := make(map[string]struct{}, len(sportByID))
+	for _, id := range activityIDs {
+		if _, ok := sportByID[id]; !ok {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		owned = append(owned, id)
+	}
+	return owned, sportByID, nil
+}
+
+// matchSystemModifierTagSync returns the registry entry whose SystemTagName
+// equals tagName (case-sensitive — the registry intentionally pins exact
+// strings like "E-Bike" / "virtuell"). The boolean is false when no entry
+// matches.
+func matchSystemModifierTagSync(tagName string) (systemModifierTagSync, bool) {
+	if tagName == "" {
+		return systemModifierTagSync{}, false
+	}
+	for _, sync := range systemModifierTagSyncs() {
+		if sync.SystemTagName == tagName {
+			return sync, true
+		}
+	}
+	return systemModifierTagSync{}, false
+}
+
+// filterActivitiesForModifierAssign drops activities whose sport_type does
+// not match an OnlySportType-restricted modifier (currently cycling-only
+// E-Bike). For unrestricted modifiers (Indoor / Pendeln / virtuell) this
+// returns owned unchanged.
+func filterActivitiesForModifierAssign(owned []string, sportByID map[string]string, onlySportType string) []string {
+	if onlySportType == "" {
+		return owned
+	}
+	out := make([]string, 0, len(owned))
+	for _, id := range owned {
+		if sportByID[id] == onlySportType {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// ModifierKey identifies one of the four registry-backed system modifier
+// columns on activities. Using a typed constant prevents string-typo bugs
+// at the API surface.
+type ModifierKey string
+
+const (
+	ModifierIndoor   ModifierKey = "is_indoor"
+	ModifierCommute  ModifierKey = "is_commute"
+	ModifierVirtual  ModifierKey = "is_virtual"
+	ModifierElectric ModifierKey = "is_electric"
+)
+
+// Column returns the activities-table column name for this modifier key.
+// The constant value is the column name verbatim. The indirection localizes
+// the validation (which keys are recognized) to one place; it does NOT
+// decouple the constant value from the column name.
+func (k ModifierKey) Column() (string, bool) {
+	switch k {
+	case ModifierIndoor, ModifierCommute, ModifierVirtual, ModifierElectric:
+		return string(k), true
+	}
+	return "", false
+}
+
+// applyModifierFlagToActivities flips a modifier column to value on the
+// given (already-owned, already-sport-filtered) activity IDs and lets the
+// resync function repair the denormalised tag surfaces. The whole
+// modifier-flag-write + resync block runs in one transaction; either both
+// succeed or neither does.
+//
+// The column name is derived from the registry, not hardcoded, so a future
+// fifth modifier with tag_sync gets covered automatically once the
+// systemModifierTagSyncDatabaseCoverage table is updated.
+func (db *DB) applyModifierFlagToActivities(ctx context.Context, activityIDs []string, key ModifierKey, value bool) error {
+	column, ok := key.Column()
+	if !ok {
+		return fmt.Errorf("apply modifier flag: unknown modifier key %q", key)
+	}
+	return db.WithSystemModifierTagSyncSuspended(ctx, "bulk_modifier_assign", activityIDs, func(ctx context.Context, tx pgx.Tx) error {
+		// SQL identifier comes from the registry, not user input — fmt.Sprintf
+		// is safe here. validEnrichmentCols already covers these column names
+		// for the enrichment path; the registry is the parallel allowlist.
+		query := fmt.Sprintf(`UPDATE activities SET %s = $1 WHERE id = ANY($2::uuid[])`, column)
+		if _, err := tx.Exec(ctx, query, value, activityIDs); err != nil {
+			return fmt.Errorf("update modifier column %s: %w", column, err)
+		}
+		return nil
+	})
 }
 
 // LinkActivityTag links a tag to an activity with the given assignment type.
 // If the link already exists, it's silently ignored (ON CONFLICT DO NOTHING).
 // Also updates the tag's activity_count denormalized field.
 func (db *DB) LinkActivityTag(ctx context.Context, activityID, tagID, assignedBy string) error {
+	return linkActivityTagExec(ctx, db.Pool, activityID, tagID, assignedBy)
+}
+
+// linkActivityTagExec runs the LinkActivityTag SQL against any pgx querier
+// (pool or tx). The tx-aware path is used by Stage1 inside the
+// WithSystemModifierTagSyncSuspended helper so the link insert, the count
+// refresh, and the modifier-tag resync all roll back together on failure.
+func linkActivityTagExec(ctx context.Context, q systemModifierTagSyncQuerier, activityID, tagID, assignedBy string) error {
 	// Insert link with ON CONFLICT DO NOTHING
-	_, err := db.Pool.Exec(ctx,
+	if _, err := q.Exec(ctx,
 		`INSERT INTO activity_tags (activity_id, tag_id, assigned_by) VALUES ($1, $2, $3)
 		 ON CONFLICT (activity_id, tag_id) DO NOTHING`,
-		activityID, tagID, assignedBy)
-	if err != nil {
+		activityID, tagID, assignedBy); err != nil {
 		return fmt.Errorf("link activity tag: %w", err)
 	}
 
 	// Update activity_count from junction table
-	_, err = db.Pool.Exec(ctx,
+	if _, err := q.Exec(ctx,
 		`UPDATE tags
 		 SET activity_count = (SELECT COUNT(DISTINCT activity_id) FROM activity_tags WHERE tag_id = $1)
 		 WHERE id = $1`,
-		tagID)
-	if err != nil {
+		tagID); err != nil {
 		return fmt.Errorf("link activity tag: update count: %w", err)
 	}
 	return nil

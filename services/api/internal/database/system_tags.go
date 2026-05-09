@@ -62,6 +62,25 @@ func systemTagNameForModifier(modifierKey string) string {
 	return ""
 }
 
+// IsSystemModifierTagName reports whether tagName is the reserved system tag
+// name of a registry-backed tag_sync modifier (e.g. "Indoor", "Pendeln",
+// "virtuell", "E-Bike"). Used by HTTP handlers to decide whether removal
+// records should be written by the handler or are reconciled by the resync
+// function inside the helper transaction.
+//
+// Name-matching contract (Critic Round-2 #11): the match is exact-string and
+// case-sensitive. "indoor" and "Indoor" are different names; unicode lookalikes
+// and whitespace variants are not detected. The SQL trigger bodies and the
+// skadia_resync_system_modifier_tags function hard-code the same string
+// literals — renaming a reserved tag requires updating the sport/modifiers.yaml
+// registry entry (which regenerates modifiers_generated.go), AND the SQL in
+// the 000353 hardening migration, in the same atomic commit. The parity test
+// TestSystemModifierReservedNameLiteralsMatchRegistry enforces this at CI time.
+func IsSystemModifierTagName(tagName string) bool {
+	_, ok := matchSystemModifierTagSync(tagName)
+	return ok
+}
+
 func systemRuleNameForModifierSync(modifier sport.SportModifierDef) string {
 	if modifier.TagSync != nil && modifier.TagSync.OnlySportType != "" {
 		return modifier.TagSync.SystemTag
