@@ -192,6 +192,7 @@ var jobTypeLabels = map[string]string{
 	"shadowfs_rename":               "Dateispeicher-Umbenennung",
 	"compression_toggle":            "Datenkompression umschalten",
 	"device_orphan_cleanup":         "Verwaiste Geräte bereinigen",
+	"lift_recompute":                "Lift-Erkennung neu berechnen",
 }
 
 func jobCompletionTitle(jobType string, entityName *string, failed bool) string {

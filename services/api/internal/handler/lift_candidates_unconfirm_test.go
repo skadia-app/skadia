@@ -4,19 +4,23 @@ package handler
 //
 // Coverage:
 //   1. Success: confirmed heuristic candidate → 204, confirmed=false, lift_count=0.
-//   2. OSM source → 404 (unconfirm restricted to heuristic).
-//   3. Already rejected (rejected_by_user=true) → 404.
-//   4. Different user → 404 (multi-user isolation).
+//   2. OSM source → 409 WRONG_SOURCE (F12: structured error; previously generic 404).
+//   3. Already rejected (rejected_by_user=true) → 409 ALREADY_REJECTED (F12: structured error).
+//   4. Different user → 404 (multi-user isolation, activity-ownership check fires first).
 //   5. Rule retraction: after unconfirm the lift_detected system tag is removed.
+//   6. Non-existent candidate ID → 404 NOT_FOUND (F12: structured error with code field).
+//   7. Wrong activity ID → 404 NOT_FOUND (F12: collapses to NOT_FOUND to avoid owner-leak).
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -108,9 +112,9 @@ func TestUnconfirmLiftCandidate_Success(t *testing.T) {
 	}
 }
 
-// TestUnconfirmLiftCandidate_OSMSourceReturns404: unconfirm is restricted to
-// heuristic rows; an OSM-sourced candidate must return 404.
-func TestUnconfirmLiftCandidate_OSMSourceReturns404(t *testing.T) {
+// TestUnconfirmLiftCandidate_OSMSourceReturns409: unconfirm is restricted to
+// heuristic rows; an OSM-sourced candidate must return 409 WRONG_SOURCE (F12).
+func TestUnconfirmLiftCandidate_OSMSourceReturns409(t *testing.T) {
 	h, db := liftCandidatesHandlerSetup(t)
 	userID := insertTestUser(t, db.Pool)
 	activityID := insertMinimalActivity(t, db, userID)
@@ -120,9 +124,10 @@ func TestUnconfirmLiftCandidate_OSMSourceReturns404(t *testing.T) {
 	candID := insertUnifiedLiftCandidate(t, db, activityID, start, "osm", true, nil)
 
 	rec := callUnconfirmHandler(t, h, userID, activityID, candID)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("OSM unconfirm status=%d, want 404; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("OSM unconfirm status=%d, want 409; body=%s", rec.Code, rec.Body.String())
 	}
+	assertLiftProblemCode(t, rec, "WRONG_SOURCE")
 
 	// Row must be untouched.
 	if !isConfirmed(t, db, candID) {
@@ -130,9 +135,9 @@ func TestUnconfirmLiftCandidate_OSMSourceReturns404(t *testing.T) {
 	}
 }
 
-// TestUnconfirmLiftCandidate_AlreadyRejectedReturns404: a soft-rejected row
-// (rejected_by_user=true) must not be unconfirmable — return 404.
-func TestUnconfirmLiftCandidate_AlreadyRejectedReturns404(t *testing.T) {
+// TestUnconfirmLiftCandidate_AlreadyRejectedReturns409: a soft-rejected row
+// (rejected_by_user=true) must not be unconfirmable — return 409 ALREADY_REJECTED (F12).
+func TestUnconfirmLiftCandidate_AlreadyRejectedReturns409(t *testing.T) {
 	h, db := liftCandidatesHandlerSetup(t)
 	userID := insertTestUser(t, db.Pool)
 	activityID := insertMinimalActivity(t, db, userID)
@@ -141,9 +146,10 @@ func TestUnconfirmLiftCandidate_AlreadyRejectedReturns404(t *testing.T) {
 	candID := insertRejectedLiftCandidate(t, db, activityID, start)
 
 	rec := callUnconfirmHandler(t, h, userID, activityID, candID)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("rejected candidate unconfirm status=%d, want 404; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("rejected candidate unconfirm status=%d, want 409; body=%s", rec.Code, rec.Body.String())
 	}
+	assertLiftProblemCode(t, rec, "ALREADY_REJECTED")
 
 	// Row must be untouched (rejected_by_user still true).
 	var rejectedByUser bool
@@ -204,5 +210,61 @@ func TestUnconfirmLiftCandidate_RetractsLiftTag(t *testing.T) {
 
 	if hasLiftTag(t, db, activityID) {
 		t.Error("Lift tag still present after unconfirm — rule retraction did not fire")
+	}
+}
+
+// ----- F12 structured-error tests ----------------------------------------
+
+// assertLiftProblemCode decodes the response body as a liftProblemDetail and
+// asserts the code field matches wantCode. Fails the test on decode error.
+func assertLiftProblemCode(t *testing.T, rec *httptest.ResponseRecorder, wantCode string) {
+	t.Helper()
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("assertLiftProblemCode: decode body: %v; raw=%s", err, rec.Body.String())
+	}
+	if body.Code != wantCode {
+		t.Errorf("problem code=%q, want %q", body.Code, wantCode)
+	}
+}
+
+// TestUnconfirmLiftCandidate_NonExistentCandidateReturns404WithCode: a
+// completely unknown candidate UUID must return 404 NOT_FOUND with code (F12).
+func TestUnconfirmLiftCandidate_NonExistentCandidateReturns404WithCode(t *testing.T) {
+	h, db := liftCandidatesHandlerSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	ghostID := uuid.NewString()
+	rec := callUnconfirmHandler(t, h, userID, activityID, ghostID)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("non-existent candidate status=%d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+	assertLiftProblemCode(t, rec, "NOT_FOUND")
+}
+
+// TestUnconfirmLiftCandidate_WrongActivityIDReturns404WithCode: a candidate
+// that belongs to a different activity must return 404 NOT_FOUND (collapses
+// cross-activity case to avoid candidate-existence leak, F12).
+func TestUnconfirmLiftCandidate_WrongActivityIDReturns404WithCode(t *testing.T) {
+	h, db := liftCandidatesHandlerSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityA := insertMinimalActivity(t, db, userID)
+	activityB := insertMinimalActivity(t, db, userID)
+
+	// Candidate belongs to activityA; request uses activityB as the URL param.
+	candID := insertConfirmedHeuristicCandidate(t, db, activityA)
+
+	rec := callUnconfirmHandler(t, h, userID, activityB, candID)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("wrong-activity unconfirm status=%d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+	assertLiftProblemCode(t, rec, "NOT_FOUND")
+
+	// Original candidate must be untouched.
+	if !isConfirmed(t, db, candID) {
+		t.Error("confirmed flag altered by wrong-activity unconfirm — isolation failed")
 	}
 }
