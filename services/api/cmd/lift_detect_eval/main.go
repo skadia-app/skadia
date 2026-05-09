@@ -18,7 +18,10 @@ func main() {
 	dump := flag.String("dump", "", "print CSV of stream points for the given file (relative to -root) and exit")
 	summary := flag.String("summary", "", "print 30s-bucket summary for the given file (relative to -root) and exit")
 	rides := flag.String("rides", "", "print CSV of detected ride boundaries (idx,start_t,end_t,dur_s,asc_m,desc_m,conf,start_lat,start_lng,end_lat,end_lng) for the given file and exit")
-	sport := flag.String("sport", "ski", "sport profile for -rides mode (ignored in -dump/-summary)")
+	boundaries := flag.String("boundaries", "", "print per-ride boundary-offset table (best matching GT lift, both endpoint orientations, ✓/○/⚠/✗ tolerance band) for the given file and exit; requires -gt and optionally -gt-key")
+	gtPath := flag.String("gt", "", "path to local station-marker YAML (e.g. local-station-markers.yaml); used by -boundaries")
+	gtKey := flag.String("gt-key", "", "case.file key in the GT YAML; defaults to the value of -boundaries (relative to -root)")
+	sport := flag.String("sport", "ski", "sport profile for -rides / -boundaries (ignored in -dump/-summary)")
 	dbURL := flag.String("db", "", "postgres URL; when set together with --snap-stats, runs the OSM-snap pipeline against the live osm_lifts table for empirical action/coverage stats")
 	snapStats := flag.Bool("snap-stats", false, "after eval, run the snap pipeline against osm_lifts and print the per-region action/coverage table (requires --db)")
 	snapStatsJSON := flag.Bool("snap-stats-json", false, "instead of the table, emit the snap-stats result as JSON on stdout (implies --snap-stats)")
@@ -81,6 +84,66 @@ func main() {
 				r.DurationS, r.AscentM, r.DescentM, r.Confidence,
 				sLat, sLng, sAlt, eLat, eLng, eAlt)
 		}
+		return
+	}
+
+	if *boundaries != "" {
+		full := filepath.Join(*root, *boundaries)
+		var (
+			pts []lifts.StreamPoint
+			err error
+		)
+		switch strings.ToLower(filepath.Ext(*boundaries)) {
+		case ".fit":
+			pts, err = loadFITPoints(full)
+		case ".gpx":
+			pts, err = loadGPXPoints(full)
+		default:
+			fmt.Fprintf(os.Stderr, "unsupported extension: %s\n", *boundaries)
+			os.Exit(2)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if *gtPath == "" {
+			fmt.Fprintln(os.Stderr, "-boundaries requires -gt <station-marker yaml>")
+			os.Exit(2)
+		}
+		key := *gtKey
+		if key == "" {
+			key = *boundaries
+		}
+		gtCase, err := loadBoundCase(*gtPath, key)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		detected := lifts.DetectHeuristic(pts, lifts.DefaultDetectorConfig(*sport))
+		eps := make([]rideEndpoints, 0, len(detected))
+		for i, r := range detected {
+			ep := rideEndpoints{idx: i, durS: r.DurationS, ascM: r.AscentM, descM: r.DescentM, conf: r.Confidence}
+			for _, p := range pts {
+				if p.Time.Before(r.StartedAt) {
+					continue
+				}
+				if p.Lat != nil && p.Lng != nil {
+					ep.sLat, ep.sLng = *p.Lat, *p.Lng
+					break
+				}
+			}
+			for k := len(pts) - 1; k >= 0; k-- {
+				if pts[k].Time.After(r.EndedAt) {
+					continue
+				}
+				if pts[k].Lat != nil && pts[k].Lng != nil {
+					ep.eLat, ep.eLng = *pts[k].Lat, *pts[k].Lng
+					break
+				}
+			}
+			eps = append(eps, ep)
+		}
+		printBoundaries(os.Stdout, eps, gtCase.Lifts)
 		return
 	}
 
