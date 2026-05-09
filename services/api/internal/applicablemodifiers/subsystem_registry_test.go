@@ -20,7 +20,9 @@ func TestLoadSubsystemRegistryCountAndNames(t *testing.T) {
 		t.Fatalf("got %d subsystems, want 8", len(subs))
 	}
 
-	// Verify order matches the master script (lines 18-25 of generate-applicable-modifiers.sh).
+	// Verify order matches config/applicable-modifiers/subsystems.yaml — the
+	// registry YAML is the single source of truth for subsystem ordering;
+	// scripts/generate-applicable-modifiers.sh consumes it via --registry.
 	wantNames := []string{"gear", "rules", "dataimport", "shadowfs", "routefilter", "bestefforts", "heatmap", "quick-edit"}
 	for i, want := range wantNames {
 		if subs[i].Name != want {

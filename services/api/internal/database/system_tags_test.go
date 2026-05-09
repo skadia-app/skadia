@@ -113,8 +113,17 @@ func TestSystemModifierTagSyncDatabaseCoverageNamesMissingModifierKey(t *testing
 		registryWithTagSync[key] = sync.SystemTag
 	}
 
+	// Iterate in sorted key order so failure output is deterministic
+	// across runs (map iteration order is randomised in Go).
+	registryKeys := make([]string, 0, len(registryWithTagSync))
+	for k := range registryWithTagSync {
+		registryKeys = append(registryKeys, k)
+	}
+	sort.Strings(registryKeys)
+
 	var missingDBCoverage []string
-	for key, want := range registryWithTagSync {
+	for _, key := range registryKeys {
+		want := registryWithTagSync[key]
 		_, covered := systemModifierTagSyncDatabaseCoverage[key]
 		_, excluded := systemModifierTagSyncDatabaseExclusions[key]
 		if !covered && !excluded {
@@ -152,6 +161,31 @@ func TestSystemModifierTagSyncDatabaseCoverageNamesMissingModifierKey(t *testing
 			t.Errorf("systemModifierTagSyncs() does not expose modifier %q; "+
 				"the generated registry says it has tag_sync but the helper drops it", key)
 		}
+	}
+}
+
+// TestSystemTagSyncRegistryHasNoOrphanModifierKeys ensures every entry in
+// tags.SystemTagSyncs references a modifier key that exists in the sport
+// modifier registry. The tagsgen codegen rejects orphan keys at generation
+// time (services/api/cmd/tagsgen/main.go: cross-reference against
+// sport.SportModifierExists), but a hand-edit of system_tags_generated.go
+// would otherwise slip past every other parity test in this file because
+// the existing checks iterate sport.SportModifierKeys() and skip keys for
+// which tags.SystemTagSyncByModifierKey returns false. This test runs the
+// reverse direction so an orphan in the generated registry fails loudly
+// regardless of how it got there.
+func TestSystemTagSyncRegistryHasNoOrphanModifierKeys(t *testing.T) {
+	var orphans []string
+	for _, s := range tags.SystemTagSyncs {
+		if !sport.SportModifierExists(s.ModifierKey) {
+			orphans = append(orphans, s.ModifierKey)
+		}
+	}
+	if len(orphans) > 0 {
+		sort.Strings(orphans)
+		t.Fatalf("tags.SystemTagSyncs references modifier keys not present in sport.SportModifierKeys(): %v; "+
+			"either remove the entry from config/tags/system_tags.yaml (and regenerate via "+
+			"scripts/generate-tags.sh) or add the modifier to config/sport-taxonomy/modifiers.yaml", orphans)
 	}
 }
 
