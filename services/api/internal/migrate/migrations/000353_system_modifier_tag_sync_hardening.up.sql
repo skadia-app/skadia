@@ -561,6 +561,19 @@ BEGIN
         RETURN NULL;
     END IF;
 
+    -- Skip when called inside another trigger's body. The only legitimate
+    -- purpose of this trigger is to repair denormalised state when a direct
+    -- DELETE FROM activity_tags bypasses the activities-table trigger
+    -- orchestration. When sync_system_flags_and_tags (sport-change cascade)
+    -- emits DELETE FROM activity_tags, attempting to re-UPDATE the same
+    -- mid-update activities row raises SQLSTATE 27000 ("tuple to be updated
+    -- was already modified") — and the outer trigger is already
+    -- orchestrating both the modifier flag and the tags array. Direct
+    -- admin-SQL DELETE runs at depth 1 and still fires the repair below.
+    IF pg_trigger_depth() > 1 THEN
+        RETURN NULL;
+    END IF;
+
     -- Resolve the tag the deleted junction pointed at. AFTER DELETE on
     -- activity_tags fires before any cascaded DELETE on tags commits, so
     -- the tag row is still readable for direct DELETEs. For CASCADE-from-
