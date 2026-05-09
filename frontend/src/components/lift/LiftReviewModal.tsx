@@ -1,11 +1,18 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { HelpCircle } from 'lucide-react'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { apiFetch } from '@/lib/auth'
 import { fetchActivityStreams } from '@/api/activities'
 import { useToast } from '@/lib/toast'
 import type { Activity, LiftCandidate, StreamPoint } from '@/api/types'
-import LiftInspectorMap, { splitTrackAtGaps, CONFIDENCE_DESCRIPTIONS } from './LiftInspectorMap'
+import LiftInspectorMap, {
+  splitTrackAtGaps,
+  CONFIDENCE_LABEL,
+  CONFIDENCE_DESCRIPTIONS,
+  getConfidenceKey,
+} from './LiftInspectorMap'
+import LiftHelpModal from './LiftHelpModal'
 
 // Matches PAUSE_GAP_THRESHOLD_S in LiftInspectorMap — must stay in sync with
 // backend enrichment/lifts/window.go SmartRecMaxGapS default (75s).
@@ -40,46 +47,30 @@ function useIsDesktop(): boolean {
 // Color-coded source+confidence badge matching the inspector map's liftColor() colors.
 // Uses both color AND text to be accessible without color vision (F16 a11y fix).
 // Fix 6a: each badge has a title attribute from CONFIDENCE_DESCRIPTIONS.
-function sourceConfidenceBadge(source: string, confidence: string, rejectedByUser: boolean) {
-  if (rejectedByUser) {
-    return (
-      <span
-        className="inline-flex items-center gap-1 rounded-full text-xs font-medium px-2 py-0.5"
-        style={{ backgroundColor: '#fef2f2', color: '#dc2626', border: '1px dashed #ef4444' }}
-        title={CONFIDENCE_DESCRIPTIONS['Abgelehnt']}
-      >
-        <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#ef4444', display: 'inline-block' }} />
-        Abgelehnt
-      </span>
-    )
+// Phase 11.9: labels and descriptions sourced from centralised CONFIDENCE_LABEL /
+// CONFIDENCE_DESCRIPTIONS exports in LiftInspectorMap — single source of truth.
+function sourceConfidenceBadge(c: LiftCandidate) {
+  const key = getConfidenceKey(c)
+  const label = CONFIDENCE_LABEL[key]
+  const description = CONFIDENCE_DESCRIPTIONS[key]
+
+  const styleMap: Record<typeof key, { bg: string; text: string; dot: string; border?: string }> = {
+    rejected: { bg: '#fef2f2', text: '#dc2626', dot: '#ef4444', border: '1px dashed #ef4444' },
+    osm:      { bg: '#eff6ff', text: '#1d4ed8', dot: '#3b82f6' },
+    high:     { bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' },
+    bidir:    { bg: '#f5f3ff', text: '#7c3aed', dot: '#8b5cf6' },
+    medium:   { bg: '#fff7ed', text: '#c2410c', dot: '#f97316' },
   }
-  if (source === 'osm') {
-    return (
-      <span
-        className="inline-flex items-center gap-1 rounded-full text-xs font-medium px-2 py-0.5"
-        style={{ backgroundColor: '#eff6ff', color: '#1d4ed8' }}
-        title={CONFIDENCE_DESCRIPTIONS['OSM-Treffer']}
-      >
-        <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#3b82f6', display: 'inline-block' }} />
-        OSM-Treffer
-      </span>
-    )
-  }
-  // Heuristic — confidence determines color
-  const confMap: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-    high:  { label: 'Heuristik (hoch)',          bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' },
-    bidir: { label: 'Heuristik (bidirektional)',  bg: '#f5f3ff', text: '#7c3aed', dot: '#8b5cf6' },
-    medium:{ label: 'Heuristik (mittel)',         bg: '#fff7ed', text: '#c2410c', dot: '#f97316' },
-  }
-  const meta = confMap[confidence] ?? { label: `Heuristik (${confidence})`, bg: '#f5f5f5', text: '#525252', dot: '#a3a3a3' }
+  const meta = styleMap[key]
+
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full text-xs font-medium px-2 py-0.5"
-      style={{ backgroundColor: meta.bg, color: meta.text }}
-      title={CONFIDENCE_DESCRIPTIONS[meta.label]}
+      style={{ backgroundColor: meta.bg, color: meta.text, border: meta.border }}
+      title={description}
     >
       <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: meta.dot, display: 'inline-block' }} />
-      {meta.label}
+      {label}
     </span>
   )
 }
@@ -124,6 +115,9 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
   const [multiSelectMode, setMultiSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showRecalcConfirm, setShowRecalcConfirm] = useState(false)
+  // Phase 11.9: help modal state — shared across all three HelpCircle triggers
+  // (legend, pause-gap banner, modal header).
+  const [helpOpen, setHelpOpen] = useState(false)
   const listItemRefs = useRef<Map<string, HTMLElement>>(new Map())
   const isDesktop = useIsDesktop()
 
@@ -452,7 +446,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                 <span className="font-medium text-neutral-700 dark:text-neutral-300 shrink-0">
                   L{String(idx + 1).padStart(2, '0')}
                 </span>
-                {sourceConfidenceBadge(c.source, c.confidence, c.rejected_by_user)}
+                {sourceConfidenceBadge(c)}
                 {!c.rejected_by_user && (
                   <span className={`text-xs font-medium shrink-0 ${
                     c.confirmed ? 'text-green-600 dark:text-green-400' : 'text-neutral-400'
@@ -554,6 +548,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
       streams={streams}
       highlightedCandidateId={highlightedId}
       onCandidateClick={handleCandidateClick}
+      onOpenHelp={() => setHelpOpen(true)}
     />
   )
 
@@ -641,15 +636,27 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
   })()
 
   return (
+    <>
+      {/* Phase 11.9: LiftHelpModal — opened by any of the three HelpCircle buttons */}
+      <LiftHelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
     <ModalShell onClose={handleClose} maxWidth="!max-w-[95vw] w-[95vw]">
       <div className="relative flex flex-col" style={{ height: 'calc(90dvh - 48px)', minHeight: '480px' }}>
         {recalcDialog}
 
-        {/* Header */}
+        {/* Header — HelpCircle (Position 3) opens LiftHelpModal */}
         <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
-          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            Lifte prüfen
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+              Lifte prüfen
+            </h2>
+            <button
+              onClick={() => setHelpOpen(true)}
+              aria-label="Hilfe zur Lifterkennung öffnen"
+              className="text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-200 cursor-pointer transition-colors"
+            >
+              <HelpCircle className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
           <button
             onClick={handleClose}
             aria-label="Schließen"
@@ -662,21 +669,33 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
         {/* D.2: Pause-gap banner — visible above both desktop and mobile layouts.
             Only shown when streams are loaded and contain at least one gap > 75s.
             Fix 4: updated wording — the line IS drawn continuously; gaps are marked
-            with dashed-amber bridges; the detector limitation is explained explicitly. */}
+            with dashed-amber bridges; the detector limitation is explained explicitly.
+            Phase 11.9: HelpCircle (Position 2) triggers LiftHelpModal. */}
         {pauseGapCount > 0 && (
           <div
             className="shrink-0 mb-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
             role="note"
             data-testid="pause-gap-banner"
           >
-            <span className="font-semibold">
-              ⚠ Aufzeichnung enthält {pauseGapCount} Pause{pauseGapCount > 1 ? 'n' : ''} (&gt;{PAUSE_GAP_THRESHOLD_S}s).
-            </span>{' '}
-            Die Karte zeichnet die Linie durchgängig, markiert die Teleportations-Abschnitte aber gestrichelt-orange.
-            Solche Lücken werden vom Detektor{' '}
-            <span className="font-semibold">nicht</span> als Lift erkannt (er verlangt zusammenhängende
-            Stream-Daten innerhalb seines Sliding-Windows). Falls dort ein Lift erwartet wird, prüfe
-            die Abschnitte vor und nach der Pause separat.
+            <span className="flex items-start gap-1.5">
+              <span className="flex-1">
+                <span className="font-semibold">
+                  ⚠ Aufzeichnung enthält {pauseGapCount} Pause{pauseGapCount > 1 ? 'n' : ''} (&gt;{PAUSE_GAP_THRESHOLD_S}s).
+                </span>{' '}
+                Die Karte zeichnet die Linie durchgängig, markiert die Teleportations-Abschnitte aber gestrichelt-orange.
+                Solche Lücken werden vom Detektor{' '}
+                <span className="font-semibold">nicht</span> als Lift erkannt (er verlangt zusammenhängende
+                Stream-Daten innerhalb seines Sliding-Windows). Falls dort ein Lift erwartet wird, prüfe
+                die Abschnitte vor und nach der Pause separat.
+              </span>
+              <button
+                onClick={() => setHelpOpen(true)}
+                aria-label="Hilfe zur Lifterkennung öffnen"
+                className="shrink-0 text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 cursor-pointer transition-colors mt-0.5"
+              >
+                <HelpCircle className="w-4 h-4" aria-hidden="true" />
+              </button>
+            </span>
           </div>
         )}
 
@@ -732,5 +751,6 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
         )}
       </div>
     </ModalShell>
+    </>
   )
 }

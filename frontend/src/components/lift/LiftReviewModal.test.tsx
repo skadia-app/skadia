@@ -561,8 +561,8 @@ describe('LiftInspectorMap', () => {
     expect(container.querySelector('[data-testid="lift-inspector-map"]')).toBeTruthy()
   })
 
-  // F16: legend is rendered with all expected German labels
-  it('F16: legend overlay is rendered with German category labels', async () => {
+  // F16: legend is rendered with all expected German labels (Phase 11.9 signal-based)
+  it('F16: legend overlay is rendered with signal-based category labels', async () => {
     const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
     render(
       <ToastProvider>
@@ -577,9 +577,9 @@ describe('LiftInspectorMap', () => {
       </ToastProvider>,
     )
     expect(screen.getByText('OSM-Treffer')).toBeTruthy()
-    expect(screen.getByText('Heuristik (hoch)')).toBeTruthy()
-    expect(screen.getByText('Heuristik (mittel)')).toBeTruthy()
-    expect(screen.getByText('Heuristik (bidirektional)')).toBeTruthy()
+    expect(screen.getByText('Heuristik (Speed + Steigung)')).toBeTruthy()
+    expect(screen.getByText('Heuristik (Höhenrate)')).toBeTruthy()
+    expect(screen.getByText('Heuristik (Talquerung)')).toBeTruthy()
     expect(screen.getByText('Abgelehnt')).toBeTruthy()
   })
 })
@@ -939,6 +939,123 @@ describe('LiftReviewModal — Fix 6a: badge title tooltips', () => {
       el => el.textContent?.includes('OSM-Treffer'),
     )
     expect(osmBadge).toBeTruthy()
-    expect(osmBadge!.getAttribute('title')).toContain('Geometrie-basierter Treffer')
+    expect(osmBadge!.getAttribute('title')).toContain('Geometrie-Match')
+  })
+})
+
+// ── Phase 11.9: signal-based labels + help modal triggers ────────────────────
+
+describe('LiftReviewModal — Phase 11.9: signal-based badge labels', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFetchStreams.mockResolvedValue([])
+  })
+
+  it('bidir candidate shows "Heuristik (Talquerung)" badge (not bidirektional)', async () => {
+    const bidirCandidates = makeCandidates([
+      { id: 'bidir-1', source: 'heuristic' as const, confidence: 'bidir', confirmed: false },
+    ])
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => bidirCandidates })
+
+    const { default: LiftReviewModal } = await import('./LiftReviewModal')
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={bidirCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    await waitFor(() => {
+      // Both the legend entry and the row badge use this label — getAllByText is correct.
+      expect(screen.getAllByText('Heuristik (Talquerung)').length).toBeGreaterThan(0)
+    })
+    expect(screen.queryByText('Heuristik (bidirektional)')).toBeNull()
+  })
+
+  it('bidir candidate badge tooltip contains "Pendel-Seilbahn"', async () => {
+    const bidirCandidates = makeCandidates([
+      { id: 'bidir-2', source: 'heuristic' as const, confidence: 'bidir', confirmed: false },
+    ])
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => bidirCandidates })
+
+    const { default: LiftReviewModal } = await import('./LiftReviewModal')
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={bidirCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    await waitFor(() => {
+      const badgesWithTitle = document.querySelectorAll('[title]')
+      const bidirBadge = Array.from(badgesWithTitle).find(
+        el => el.textContent?.includes('Heuristik (Talquerung)'),
+      )
+      expect(bidirBadge).toBeTruthy()
+      expect(bidirBadge!.getAttribute('title')).toContain('Pendel-Seilbahn')
+    })
+  })
+
+  it('help modal opens when header HelpCircle is clicked', async () => {
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => twoHeuristicCandidates })
+
+    const { default: LiftReviewModal } = await import('./LiftReviewModal')
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    // Enter expanded mode to see the header
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    // Click the header HelpCircle button
+    const helpBtns = screen.getAllByRole('button', { name: /Hilfe/ })
+    expect(helpBtns.length).toBeGreaterThan(0)
+    fireEvent.click(helpBtns[0])
+
+    // LiftHelpModal should open — look for Methode A heading
+    await waitFor(() => {
+      expect(screen.getByText(/Methode A — OSM-Match/)).toBeTruthy()
+    })
+  })
+
+  it('help modal content includes "Talquerung" and "Bergstation A"', async () => {
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => twoHeuristicCandidates })
+
+    const { default: LiftReviewModal } = await import('./LiftReviewModal')
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    const helpBtns = screen.getAllByRole('button', { name: /Hilfe/ })
+    fireEvent.click(helpBtns[0])
+
+    await waitFor(() => {
+      expect(screen.getByText(/Bergstation A/)).toBeTruthy()
+      expect(screen.getByText(/Methode B — Heuristik aus dem Stream/)).toBeTruthy()
+    })
   })
 })

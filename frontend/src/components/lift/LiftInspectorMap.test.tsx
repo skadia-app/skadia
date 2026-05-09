@@ -15,6 +15,10 @@
  *   Fix 5b: gap-bridges source has MultiLineString with N segments = number of gaps.
  *   Fix 5c: direction-arrow markers count is in expected range for coords length.
  *   Fix 6a: legend rows have title attributes from CONFIDENCE_DESCRIPTIONS.
+ * Phase 11.9:
+ *   getConfidenceKey returns correct key for each fixture variant.
+ *   Legend renders all 5 entries with new signal-based label texts.
+ *   Legend has a HelpCircle button with matching aria-label.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'
@@ -291,7 +295,7 @@ describe('LiftInspectorMap — F10: candidates prop change re-renders layers', (
 describe('LiftInspectorMap — F16: legend overlay', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it('renders all five legend labels in German', async () => {
+  it('renders all five legend labels with signal-based naming (Phase 11.9)', async () => {
     const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
     render(
       <LiftInspectorMap
@@ -302,11 +306,16 @@ describe('LiftInspectorMap — F16: legend overlay', () => {
       />,
       { wrapper },
     )
+    // Phase 11.9 labels — signal-based, no direction bias
     expect(screen.getByText('OSM-Treffer')).toBeTruthy()
-    expect(screen.getByText('Heuristik (hoch)')).toBeTruthy()
-    expect(screen.getByText('Heuristik (mittel)')).toBeTruthy()
-    expect(screen.getByText('Heuristik (bidirektional)')).toBeTruthy()
+    expect(screen.getByText('Heuristik (Speed + Steigung)')).toBeTruthy()
+    expect(screen.getByText('Heuristik (Höhenrate)')).toBeTruthy()
+    expect(screen.getByText('Heuristik (Talquerung)')).toBeTruthy()
     expect(screen.getByText('Abgelehnt')).toBeTruthy()
+    // Old labels must NOT appear
+    expect(screen.queryByText('Heuristik (hoch)')).toBeNull()
+    expect(screen.queryByText('Heuristik (mittel)')).toBeNull()
+    expect(screen.queryByText('Heuristik (bidirektional)')).toBeNull()
   })
 
   it('legend is always visible (not behind empty-stream overlay)', async () => {
@@ -630,5 +639,93 @@ describe('LiftInspectorMap — Fix 6a: legend row title attributes', () => {
       expect(row.getAttribute('title')).toBeTruthy()
       expect(row.getAttribute('title')!.length).toBeGreaterThan(10)
     })
+  })
+})
+
+// ── Phase 11.9: getConfidenceKey + HelpCircle ────────────────────────────────
+
+describe('getConfidenceKey — Phase 11.9', () => {
+  it('returns "rejected" for a rejected candidate regardless of source', async () => {
+    const { getConfidenceKey } = await import('./LiftInspectorMap')
+    expect(getConfidenceKey(makeCandidate({ rejected_by_user: true, source: 'heuristic', confidence: 'high' }))).toBe('rejected')
+    expect(getConfidenceKey(makeCandidate({ rejected_by_user: true, source: 'osm', confidence: 'high' }))).toBe('rejected')
+  })
+
+  it('returns "osm" for non-rejected OSM candidates', async () => {
+    const { getConfidenceKey } = await import('./LiftInspectorMap')
+    expect(getConfidenceKey(makeCandidate({ rejected_by_user: false, source: 'osm', confidence: 'high' }))).toBe('osm')
+  })
+
+  it('returns "high" for heuristic confidence=high', async () => {
+    const { getConfidenceKey } = await import('./LiftInspectorMap')
+    expect(getConfidenceKey(makeCandidate({ rejected_by_user: false, source: 'heuristic', confidence: 'high' }))).toBe('high')
+  })
+
+  it('returns "bidir" for heuristic confidence=bidir', async () => {
+    const { getConfidenceKey } = await import('./LiftInspectorMap')
+    expect(getConfidenceKey(makeCandidate({ rejected_by_user: false, source: 'heuristic', confidence: 'bidir' }))).toBe('bidir')
+  })
+
+  it('returns "medium" for heuristic confidence=medium (fallback)', async () => {
+    const { getConfidenceKey } = await import('./LiftInspectorMap')
+    expect(getConfidenceKey(makeCandidate({ rejected_by_user: false, source: 'heuristic', confidence: 'medium' }))).toBe('medium')
+  })
+})
+
+describe('LiftInspectorMap — Phase 11.9: HelpCircle in legend', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('legend has a HelpCircle button with aria-label containing "Hilfe"', async () => {
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+    const { container } = render(
+      <LiftInspectorMap
+        candidates={[]}
+        streams={[]}
+        highlightedCandidateId={null}
+        onCandidateClick={() => {}}
+        onOpenHelp={() => {}}
+      />,
+      { wrapper },
+    )
+    const legend = container.querySelector('[aria-label="Kartenlegende"]')
+    expect(legend).not.toBeNull()
+    const helpBtn = legend!.querySelector('button[aria-label*="Hilfe"]')
+    expect(helpBtn).not.toBeNull()
+  })
+
+  it('clicking the legend HelpCircle calls onOpenHelp', async () => {
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+    const onOpenHelp = vi.fn()
+    const { container } = render(
+      <LiftInspectorMap
+        candidates={[]}
+        streams={[]}
+        highlightedCandidateId={null}
+        onCandidateClick={() => {}}
+        onOpenHelp={onOpenHelp}
+      />,
+      { wrapper },
+    )
+    const legend = container.querySelector('[aria-label="Kartenlegende"]')
+    const helpBtn = legend!.querySelector('button[aria-label*="Hilfe"]') as HTMLButtonElement
+    fireEvent.click(helpBtn)
+    expect(onOpenHelp).toHaveBeenCalledOnce()
+  })
+
+  it('legend HelpCircle is NOT rendered when onOpenHelp is not provided', async () => {
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+    const { container } = render(
+      <LiftInspectorMap
+        candidates={[]}
+        streams={[]}
+        highlightedCandidateId={null}
+        onCandidateClick={() => {}}
+      />,
+      { wrapper },
+    )
+    const legend = container.querySelector('[aria-label="Kartenlegende"]')
+    expect(legend).not.toBeNull()
+    const helpBtn = legend!.querySelector('button[aria-label*="Hilfe"]')
+    expect(helpBtn).toBeNull()
   })
 })
