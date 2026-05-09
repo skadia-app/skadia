@@ -119,7 +119,7 @@ export const CONFIDENCE_LABEL = {
   osm:      'OSM-Treffer',
   high:     'Heuristik (Speed + Steigung)',
   medium:   'Heuristik (Höhenrate)',
-  bidir:    'Heuristik (Talquerung)',
+  bidir:    'Heuristik (bidirektional)',
   rejected: 'Abgelehnt',
 } as const
 
@@ -136,7 +136,7 @@ export const CONFIDENCE_DESCRIPTIONS: Record<keyof typeof CONFIDENCE_LABEL, stri
   medium:
     'Heuristik-Detektor ohne brauchbares Speed-Signal — nur über Höhenmeter pro Sekunde erkannt (typisch bei Smart-Recording).',
   bidir:
-    'Pendel-Seilbahn die ein Tal überquert: das Cable hat ein U-förmiges Höhenprofil, bei dem die Netto-Höhenänderung klein ist aber kumulativ viele Höhenmeter zurückgelegt werden. EINE Liftfahrt, nicht zwei. Häufig bei Talquerungs-Cable-Cars.',
+    'Lift mit U- oder ∩-förmigem Höhenprofil — das Cable bewegt sich während dieser einen Fahrt sowohl auf- als auch abwärts. „Bidirektional" bezieht sich auf die Höhenbewegung der Cable, nicht auf die Richtung des Nutzers (kein Hin-und-zurück).',
   rejected:
     'Per Soft-Reject ausgeblendet — wird nicht in Lifetime-Stats gezählt; "Wiederherstellen" macht es rückgängig.',
 }

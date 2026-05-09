@@ -579,7 +579,7 @@ describe('LiftInspectorMap', () => {
     expect(screen.getByText('OSM-Treffer')).toBeTruthy()
     expect(screen.getByText('Heuristik (Speed + Steigung)')).toBeTruthy()
     expect(screen.getByText('Heuristik (Höhenrate)')).toBeTruthy()
-    expect(screen.getByText('Heuristik (Talquerung)')).toBeTruthy()
+    expect(screen.getByText('Heuristik (bidirektional)')).toBeTruthy()
     expect(screen.getByText('Abgelehnt')).toBeTruthy()
   })
 })
@@ -951,7 +951,7 @@ describe('LiftReviewModal — Phase 11.9: signal-based badge labels', () => {
     mockFetchStreams.mockResolvedValue([])
   })
 
-  it('bidir candidate shows "Heuristik (Talquerung)" badge (not bidirektional)', async () => {
+  it('bidir candidate shows "Heuristik (bidirektional)" badge (not Talquerung)', async () => {
     const bidirCandidates = makeCandidates([
       { id: 'bidir-1', source: 'heuristic' as const, confidence: 'bidir', confirmed: false },
     ])
@@ -972,12 +972,12 @@ describe('LiftReviewModal — Phase 11.9: signal-based badge labels', () => {
 
     await waitFor(() => {
       // Both the legend entry and the row badge use this label — getAllByText is correct.
-      expect(screen.getAllByText('Heuristik (Talquerung)').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Heuristik (bidirektional)').length).toBeGreaterThan(0)
     })
-    expect(screen.queryByText('Heuristik (bidirektional)')).toBeNull()
+    expect(screen.queryByText('Heuristik (Talquerung)')).toBeNull()
   })
 
-  it('bidir candidate badge tooltip contains "Pendel-Seilbahn"', async () => {
+  it('bidir candidate badge tooltip contains "Höhenbewegung der Cable"', async () => {
     const bidirCandidates = makeCandidates([
       { id: 'bidir-2', source: 'heuristic' as const, confidence: 'bidir', confirmed: false },
     ])
@@ -999,10 +999,10 @@ describe('LiftReviewModal — Phase 11.9: signal-based badge labels', () => {
     await waitFor(() => {
       const badgesWithTitle = document.querySelectorAll('[title]')
       const bidirBadge = Array.from(badgesWithTitle).find(
-        el => el.textContent?.includes('Heuristik (Talquerung)'),
+        el => el.textContent?.includes('Heuristik (bidirektional)'),
       )
       expect(bidirBadge).toBeTruthy()
-      expect(bidirBadge!.getAttribute('title')).toContain('Pendel-Seilbahn')
+      expect(bidirBadge!.getAttribute('title')).toContain('Höhenbewegung der Cable')
     })
   })
 
