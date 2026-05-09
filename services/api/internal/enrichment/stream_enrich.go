@@ -71,6 +71,12 @@ type StreamEnrichmentSettings struct {
 	EnableStopDetection     bool
 	EnableAscentDetection   bool
 	EnableIntervalDetection bool
+
+	// SkipGearRefresh suppresses the per-activity gear-stats refresh inside
+	// enrichStreamLifts / RecomputeLiftStats. Set this in bulk-recompute
+	// paths (e.g. the backfill CLI) where a single UpdateGearStats call per
+	// affected gear replaces N redundant per-activity refreshes.
+	SkipGearRefresh bool
 }
 
 // StreamSettingsFromModel converts a model.EnrichmentSettings into the smaller
@@ -159,13 +165,20 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 		}
 	}
 
+	// Capture SkipGearRefresh in a closure so the lifts module can forward it
+	// to enrichStreamLiftsOpts without changing the shared module fn signature.
+	skipGear := settings.SkipGearRefresh
+	liftFn := func(ctx context.Context, db *database.DB, userID, activityID string, stream []EnrichmentStreamPoint) error {
+		return enrichStreamLiftsOpts(ctx, db, userID, activityID, stream, skipGear)
+	}
+
 	type module struct {
 		name    string
 		enabled bool
 		fn      func(context.Context, *database.DB, string, string, []EnrichmentStreamPoint) error
 	}
 	modules := []module{
-		{"lifts", settings.EnableLiftDetection, enrichStreamLifts},
+		{"lifts", settings.EnableLiftDetection, liftFn},
 		{"stops", settings.EnableStopDetection, enrichStreamStops},
 		{"ascents", settings.EnableAscentDetection, enrichStreamAscents},
 		{"intervals", settings.EnableIntervalDetection, enrichStreamIntervals},

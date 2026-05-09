@@ -15,23 +15,30 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
 )
 
-// liftEnrichAdvisoryLockNs scopes the per-activity advisory-lock key so it
+// LiftEnrichAdvisoryLockNs scopes the per-activity advisory-lock key so it
 // cannot collide with other features that hash activity_id into an int64
 // lock space. The 32-bit FNV-1a hash of the activity UUID occupies the low
 // half; this namespace tag occupies the high half.
 //
-//	key = (liftEnrichAdvisoryLockNs << 32) | fnv32a(activityID)
+//	key = (LiftEnrichAdvisoryLockNs << 32) | fnv32a(activityID)
 //
 // Mnemonic value 0x4C494654 spells "LIFT" in ASCII.
-const liftEnrichAdvisoryLockNs int64 = 0x4C494654
+//
+// Exported so the backfill CLI (cmd/lift_recompute_all) can acquire the same
+// per-activity advisory lock before its pre-delete step, preventing races
+// between CLI and in-progress enrichStreamLifts runs.
+const LiftEnrichAdvisoryLockNs int64 = 0x4C494654
 
-// liftEnrichLockKey derives the advisory-lock key for one activity_id. It
+// LiftEnrichLockKey derives the advisory-lock key for one activity_id. It
 // combines the namespace tag with a 32-bit FNV-1a hash of the activity UUID
 // to yield a stable int64 that pg_advisory_lock accepts directly.
-func liftEnrichLockKey(activityID string) int64 {
+//
+// Exported so the backfill CLI can acquire the identical lock to prevent races
+// with enrichStreamLifts on the same activity.
+func LiftEnrichLockKey(activityID string) int64 {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(activityID))
-	return (liftEnrichAdvisoryLockNs << 32) | int64(h.Sum32())
+	return (LiftEnrichAdvisoryLockNs << 32) | int64(h.Sum32())
 }
 
 // enrichStreamLifts is the lift-detection adapter (Phase 4c — three-stage
@@ -50,6 +57,19 @@ func enrichStreamLifts(
 	db *database.DB,
 	userID, activityID string,
 	stream []EnrichmentStreamPoint,
+) error {
+	return enrichStreamLiftsOpts(ctx, db, userID, activityID, stream, false)
+}
+
+// enrichStreamLiftsOpts is the internal variant that accepts a skipGearRefresh
+// flag. enrichStreamLifts delegates here with skipGearRefresh=false so the
+// module dispatch table keeps the fixed fn signature.
+func enrichStreamLiftsOpts(
+	ctx context.Context,
+	db *database.DB,
+	userID, activityID string,
+	stream []EnrichmentStreamPoint,
+	skipGearRefresh bool,
 ) error {
 	// Critic F18 — serialize concurrent re-enrichments of the same activity.
 	//
@@ -75,7 +95,7 @@ func enrichStreamLifts(
 		return fmt.Errorf("enrichStreamLifts: acquire conn for advisory lock: %w", err)
 	}
 	defer lockConn.Release()
-	lockKey := liftEnrichLockKey(activityID)
+	lockKey := LiftEnrichLockKey(activityID)
 	var locked bool
 	if err := lockConn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockKey).Scan(&locked); err != nil {
 		return fmt.Errorf("enrichStreamLifts: try advisory lock: %w", err)
@@ -375,7 +395,11 @@ func enrichStreamLifts(
 		return fmt.Errorf("enrichStreamLifts: commit tx: %w", err)
 	}
 
-	if err := db.RecomputeLiftStats(ctx, userID, activityID); err != nil {
+	var recomputeOpts []database.RecomputeOpt
+	if skipGearRefresh {
+		recomputeOpts = append(recomputeOpts, database.WithSkipGearRefresh())
+	}
+	if err := db.RecomputeLiftStats(ctx, userID, activityID, recomputeOpts...); err != nil {
 		return fmt.Errorf("enrichStreamLifts: recompute lift stats: %w", err)
 	}
 

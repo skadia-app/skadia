@@ -18,21 +18,21 @@ import (
 // liftAdvisoryLockNs is the high-half namespace tag for per-activity
 // advisory locks coordinating concurrent lift-detection writes. The
 // lift-detection enrichment pipeline (services/api/internal/enrichment/
-// lift_enrich.go) uses the SAME constant under the local name
-// liftEnrichAdvisoryLockNs — both code paths must hash to identical
+// lift_enrich.go) uses the SAME constant under the exported name
+// LiftEnrichAdvisoryLockNs — both code paths must hash to identical
 // keys so that an in-progress enrichStreamLifts run blocks a concurrent
 // InsertHeuristicCandidateIfNotRejected call (and vice versa) on the
 // same activity_id.
 //
 // Keep this value in lockstep with services/api/internal/enrichment/
-// lift_enrich.go's liftEnrichAdvisoryLockNs constant. The mnemonic
+// lift_enrich.go's LiftEnrichAdvisoryLockNs constant. The mnemonic
 // 0x4C494654 spells "LIFT" in ASCII.
 const liftAdvisoryLockNs int64 = 0x4C494654
 
 // liftAdvisoryLockKey derives the int64 advisory-lock key for one
 // activity_id. The 32-bit FNV-1a hash of the UUID occupies the low
 // half; the namespace tag occupies the high half. Mirrors
-// liftEnrichLockKey in services/api/internal/enrichment/lift_enrich.go
+// LiftEnrichLockKey in services/api/internal/enrichment/lift_enrich.go
 // so both packages compute the same key for the same activity.
 func liftAdvisoryLockKey(activityID string) int64 {
 	h := fnv.New32a()
@@ -829,6 +829,17 @@ func skipGearRefresh() recomputeOpt {
 	return func(o *recomputeOpts) { o.skipGearRefresh = true }
 }
 
+// WithSkipGearRefresh returns a RecomputeOpt that suppresses the per-activity
+// gear-stats refresh inside RecomputeLiftStats. Use this in bulk-recompute
+// paths (e.g. the backfill CLI) where a single UpdateGearStats call per
+// affected gear replaces N redundant per-activity refreshes.
+func WithSkipGearRefresh() RecomputeOpt {
+	return func(o *recomputeOpts) { o.skipGearRefresh = true }
+}
+
+// RecomputeOpt is a functional option for RecomputeLiftStats.
+type RecomputeOpt = recomputeOpt
+
 func (db *DB) recomputeLiftStats(ctx context.Context, userID, activityID string, opts ...recomputeOpt) error {
 	// F6 fix: UPDATE activities.lift_* and the dependent gear-stats refresh
 	// must commit atomically. Pre-fix the UPDATE ran on db.Pool (auto-commit)
@@ -1115,8 +1126,10 @@ func (db *DB) refreshActivityGearStatsTx(ctx context.Context, tx pgx.Tx, userID,
 }
 
 // RecomputeLiftStats is the exported entry-point for the enrichment adapter.
-func (db *DB) RecomputeLiftStats(ctx context.Context, userID, activityID string) error {
-	return db.recomputeLiftStats(ctx, userID, activityID)
+// Pass WithSkipGearRefresh() to suppress the per-activity gear-stats refresh
+// when the caller handles gear stats in bulk (e.g. the backfill CLI).
+func (db *DB) RecomputeLiftStats(ctx context.Context, userID, activityID string, opts ...RecomputeOpt) error {
+	return db.recomputeLiftStats(ctx, userID, activityID, opts...)
 }
 
 // HeuristicCandidateInput carries the fields needed for one heuristic lift
