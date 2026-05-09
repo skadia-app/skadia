@@ -10,12 +10,12 @@ import (
 
 func TestQuickEditFrontendTSMatchesYAML(t *testing.T) {
 	// Paths are relative to the package directory (services/api/cmd/applicablemodifiersgen).
-	yamlPath := filepath.Join("..", "..", "..", "..", "config", "frontend", "applicable_modifiers.yaml")
+	modifiersPath := filepath.Join("..", "..", "..", "..", "config", "sport-taxonomy", "modifiers.yaml")
 	tsPath := filepath.Join("..", "..", "..", "..", "frontend", "src", "lib", "generatedQuickEditApplicableModifiers.ts")
 
-	keys, err := applicablemodifiers.Load(yamlPath)
+	keys, err := applicablemodifiers.LoadForSubsystem(modifiersPath, "quick-edit")
 	if err != nil {
-		t.Fatalf("load yaml: %v", err)
+		t.Fatalf("load modifiers: %v", err)
 	}
 
 	// RenderTS is called with the subsystem name (same value passed via --subsystem to the CLI).
@@ -30,6 +30,6 @@ func TestQuickEditFrontendTSMatchesYAML(t *testing.T) {
 	}
 
 	if string(got) != want {
-		t.Fatal("ts file is stale; run scripts/generate-frontend-applicable-modifiers.sh")
+		t.Fatal("ts file is stale; run scripts/generate-applicable-modifiers.sh")
 	}
 }
