@@ -202,7 +202,7 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
               und die Unterbrechung länger als 75 Sekunden dauert, kann der Detektor keinen
               Lift über diese Lücke hinweg erkennen — er braucht zusammenhängende Stream-Daten
               in seinem gleitenden Zeitfenster. Die Karte zeigt die Lücke als gestrichelte
-              orange Linie damit du siehst <em>wo</em> die Pause war.
+              graue Linie damit du siehst <em>wo</em> die Pause war.
             </p>
           </section>
         </div>
