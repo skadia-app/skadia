@@ -2073,6 +2073,45 @@ func TestActivityTagsDeleteTriggerEBikeStripPreservesFlagOnNonCycling(t *testing
 	activityHasTag(t, ctx, tx, actID, "E-Bike", false)
 }
 
+// TestActivityTagsDeleteTriggerSkipsInsideOuterTriggerCascade pins the contract
+// that the m.1 AFTER DELETE trigger does NOT re-update activities when the
+// activity_tags DELETE was emitted from inside another trigger's body
+// (pg_trigger_depth() > 1). Without this gate, an UPDATE on activities that
+// fires sync_system_flags_and_tags BEFORE UPDATE — which itself executes
+// DELETE FROM activity_tags as part of the sport-change orchestration —
+// would re-enter the m.1 trigger and try to UPDATE the same mid-update
+// activities row, raising "tuple to be updated was already modified by an
+// operation triggered by the current command" (SQLSTATE 27000).
+//
+// The 000350 cycling-electric tag sync regression test reproduces this in
+// full; this test pins the m.1-internal contract directly.
+func TestActivityTagsDeleteTriggerSkipsInsideOuterTriggerCascade(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeDirectionAFixture(t, ctx, tx)
+
+	// Cycling activity with is_electric=true → triggers populate the E-Bike
+	// junction and 'E-Bike' in tags.
+	actID := insertActivity(t, ctx, tx, f.userID, "cycling", false, true, false, false, []string{})
+	hasSystemTagLink(t, ctx, tx, f.userID, actID, "E-Bike", true)
+	activityHasTag(t, ctx, tx, actID, "E-Bike", true)
+	assertModifierFlag(t, ctx, tx, actID, "is_electric", true)
+
+	// Sport-change cascade: sync_system_flags_and_tags BEFORE UPDATE detects
+	// the move away from cycling and emits DELETE FROM activity_tags. The m.1
+	// trigger must skip when pg_trigger_depth() > 1, otherwise we hit
+	// SQLSTATE 27000 here.
+	if _, err := tx.Exec(ctx, `UPDATE activities SET sport_type = 'running' WHERE id = $1`, actID); err != nil {
+		t.Fatalf("change cycling to running: %v", err)
+	}
+
+	// Outer trigger orchestrated the transition: junction gone, array
+	// reflects the move, is_electric preserved on non-cycling per 000350
+	// design contract.
+	hasSystemTagLink(t, ctx, tx, f.userID, actID, "E-Bike", false)
+	activityHasTag(t, ctx, tx, actID, "E-Bike", false)
+	assertModifierFlag(t, ctx, tx, actID, "is_electric", true)
+}
+
 // TestTagRenameTriggerPropagatesIntoActivitiesTagsArray verifies that an
 // UPDATE on a system tag's name propagates into every activities.tags TEXT[]
 // array that contains the OLD literal. Junction tag_id stays unchanged
