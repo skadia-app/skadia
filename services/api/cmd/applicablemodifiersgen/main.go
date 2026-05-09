@@ -35,6 +35,8 @@ func run() error {
 	repoRoot := flag.String("repo-root", "", "repo root path; go_out/ts_out in registry are relative to this (required with --all)")
 	knownSubsystemsOut := flag.String("known-subsystems-out", "", "path to write generated knownSubsystems Go file")
 	schemaEnumOut := flag.String("schema-enum-out", "", "path to write generated subsystems enum JSONSchema fragment")
+	registrySchema := flag.String("registry-schema", "", "path to canonical subsystem registry JSONSchema (required with --schema-embed-out)")
+	schemaEmbedOut := flag.String("schema-embed-out", "", "path to write the embedded copy of the subsystem registry schema (kept in sync with --registry-schema)")
 
 	flag.Parse()
 
@@ -43,7 +45,7 @@ func run() error {
 	}
 
 	if *all {
-		return runAll(*source, *registry, *repoRoot, *knownSubsystemsOut, *schemaEnumOut, *check)
+		return runAll(*source, *registry, *repoRoot, *knownSubsystemsOut, *schemaEnumOut, *registrySchema, *schemaEmbedOut, *check)
 	}
 	return runSingle(*source, *subsystem, *exportPrefix, *goOut, *tsOut, *check)
 }
@@ -114,7 +116,7 @@ func runSingle(source, subsystem, exportPrefix, goOut, tsOut string, check bool)
 // runAll generates all subsystems from the registry YAML, and optionally writes
 // the knownSubsystems Go file and the subsystems enum JSONSchema fragment.
 // repoRoot is prepended to repo-relative go_out/ts_out paths from the registry.
-func runAll(source, registryPath, repoRoot, knownSubsystemsOut, schemaEnumOut string, check bool) error {
+func runAll(source, registryPath, repoRoot, knownSubsystemsOut, schemaEnumOut, registrySchema, schemaEmbedOut string, check bool) error {
 	if registryPath == "" {
 		return fmt.Errorf("--registry is required with --all")
 	}
@@ -166,6 +168,26 @@ func runAll(source, registryPath, repoRoot, knownSubsystemsOut, schemaEnumOut st
 		} else {
 			if err := os.WriteFile(schemaEnumOut, []byte(rendered), 0o644); err != nil {
 				failures = append(failures, fmt.Sprintf("write schema enum fragment: %v", err))
+			}
+		}
+	}
+
+	// Sync the embedded copy of the subsystem registry schema from the canonical source.
+	if schemaEmbedOut != "" {
+		if registrySchema == "" {
+			failures = append(failures, "--registry-schema is required with --schema-embed-out")
+		} else {
+			canonical, err := os.ReadFile(registrySchema)
+			if err != nil {
+				failures = append(failures, fmt.Sprintf("read canonical registry schema: %v", err))
+			} else if check {
+				if err := checkFile(schemaEmbedOut, canonical); err != nil {
+					failures = append(failures, err.Error())
+				}
+			} else {
+				if err := os.WriteFile(schemaEmbedOut, canonical, 0o644); err != nil {
+					failures = append(failures, fmt.Sprintf("write schema embed: %v", err))
+				}
 			}
 		}
 	}
