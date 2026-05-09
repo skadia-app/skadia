@@ -47,6 +47,7 @@ AS $$
 DECLARE
     v_tag_id UUID;
     v_skip_outbound BOOLEAN := COALESCE(current_setting('skadia.skip_system_modifier_tag_sync', true), 'false') = 'true';
+    v_rename_in_progress BOOLEAN := COALESCE(current_setting('skadia.tag_rename_in_progress', true), 'false') = 'true';
     -- reserved-name slot guard (Critic #3): compare OLD/NEW membership per slot
     v_indoor_was   BOOLEAN;
     v_indoor_now   BOOLEAN;
@@ -57,6 +58,15 @@ DECLARE
     -- Critic #5: deterministic lock ordering — collected before any outbound write
     v_reserved_tag_ids UUID[];
 BEGIN
+    -- Tag-rename propagation path: a rename only swaps a literal in the
+    -- tags array. Modifier semantics are unchanged (the row still means
+    -- the same thing, only the label differs), so every branch of this
+    -- trigger must short-circuit. Otherwise the slot-guard would mis-fire
+    -- on the OLD-literal disappearing.
+    IF v_rename_in_progress THEN
+        RETURN NEW;
+    END IF;
+
     IF TG_OP = 'INSERT' THEN
         -- Direction A: tags TEXT[] → modifier flags (always runs).
         IF NEW.tags IS NOT NULL THEN
@@ -274,7 +284,12 @@ AS $$
 DECLARE
     v_tag_id UUID;
     v_skip_outbound BOOLEAN := COALESCE(current_setting('skadia.skip_system_modifier_tag_sync', true), 'false') = 'true';
+    v_rename_in_progress BOOLEAN := COALESCE(current_setting('skadia.tag_rename_in_progress', true), 'false') = 'true';
 BEGIN
+    IF v_rename_in_progress THEN
+        RETURN NEW;
+    END IF;
+
     IF NEW.is_virtual IS DISTINCT FROM OLD.is_virtual THEN
         IF NEW.is_virtual THEN
             IF NOT v_skip_outbound THEN
@@ -346,15 +361,29 @@ $$;
 -- 3. Resync function: set-based repair for the four registry-backed system
 --    tags. Operations are bounded by p_activity_ids and scoped to each
 --    activity's user_id; rows from other users are never touched.
+--
+--    Returns a single row with repair counts for observability:
+--      junctions_inserted  — activity_tags rows added
+--      junctions_deleted   — activity_tags rows removed
+--      tags_promoted       — manual tag rows promoted to system shape
+--      removals_dropped    — activity_tag_removals rows dropped
+--      system_tags_seeded  — system tag rows created for users that lacked them
 CREATE OR REPLACE FUNCTION skadia_resync_system_modifier_tags(p_activity_ids UUID[])
-RETURNS VOID
+RETURNS TABLE(junctions_inserted INT, junctions_deleted INT, tags_promoted INT, removals_dropped INT, system_tags_seeded INT)
 LANGUAGE plpgsql
 SET search_path = public
 AS $$
 DECLARE
     v_affected_tag_ids UUID[];
+    v_row_count        INT;
+    v_junctions_inserted  INT := 0;
+    v_junctions_deleted   INT := 0;
+    v_tags_promoted       INT := 0;
+    v_removals_dropped    INT := 0;
+    v_system_tags_seeded  INT := 0;
 BEGIN
     IF p_activity_ids IS NULL OR cardinality(p_activity_ids) = 0 THEN
+        RETURN QUERY SELECT 0, 0, 0, 0, 0;
         RETURN;
     END IF;
 
@@ -385,6 +414,8 @@ BEGIN
     ) AS n(name, color, text_color, description)
     WHERE a.id = ANY(p_activity_ids)
     ON CONFLICT (user_id, name) DO NOTHING;
+    GET DIAGNOSTICS v_row_count = ROW_COUNT;
+    v_system_tags_seeded := v_row_count;
 
     -- 2a. Insert missing junctions FIRST (before any deletes) so the
     --     virtuell delete-protection trigger never sees a missing row
@@ -488,5 +519,170 @@ BEGIN
         SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = tags.id)
         WHERE id = ANY(v_affected_tag_ids);
     END IF;
+
+    RETURN QUERY SELECT v_junctions_inserted, v_junctions_deleted, v_tags_promoted, v_removals_dropped, v_system_tags_seeded;
 END;
 $$;
+
+-- 4. Skip-gated AFTER DELETE trigger on activity_tags. A direct DELETE
+--    against a registry-backed reserved-name junction (admin SQL, or any
+--    code path that forgets the paired UPDATE on activities) would leave
+--    the modifier column stale. The trigger flips the modifier column to
+--    false, strips the literal from activities.tags, and recomputes the
+--    tag's activity_count.
+--
+--    The activities UPDATE re-fires sync_system_flags_and_tags BEFORE
+--    UPDATE; that path's outbound work is a no-op because the tags array
+--    no longer contains the reserved name (we already removed it) and
+--    the junction is already gone (idempotent DELETE).
+--
+--    Skip-flag (skadia.skip_system_modifier_tag_sync) suppresses the
+--    trigger for caller-managed bulk paths that own reconciliation via
+--    skadia_resync_system_modifier_tags.
+CREATE OR REPLACE FUNCTION sync_system_modifier_tags_on_junction_delete() RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+    v_skip_outbound BOOLEAN := COALESCE(current_setting('skadia.skip_system_modifier_tag_sync', true), 'false') = 'true';
+    v_tag_name TEXT;
+    v_is_system BOOLEAN;
+    v_user_id UUID;
+BEGIN
+    IF v_skip_outbound THEN
+        RETURN NULL;
+    END IF;
+
+    -- Resolve the tag the deleted junction pointed at. AFTER DELETE on
+    -- activity_tags fires before any cascaded DELETE on tags commits, so
+    -- the tag row is still readable for direct DELETEs. For CASCADE-from-
+    -- tags-delete, the tag row is gone or is_system=false; either way the
+    -- gate below skips reconciliation, which is the contract.
+    SELECT t.name, t.is_system, t.user_id
+      INTO v_tag_name, v_is_system, v_user_id
+      FROM tags t WHERE t.id = OLD.tag_id;
+
+    IF v_tag_name IS NULL OR NOT COALESCE(v_is_system, false) THEN
+        RETURN NULL;
+    END IF;
+
+    IF v_tag_name = 'Indoor' THEN
+        UPDATE activities
+        SET is_indoor = false,
+            tags = array_remove(COALESCE(tags, ARRAY[]::text[]), 'Indoor')
+        WHERE id = OLD.activity_id
+          AND user_id = v_user_id;
+    ELSIF v_tag_name = 'Pendeln' THEN
+        UPDATE activities
+        SET is_commute = false,
+            tags = array_remove(COALESCE(tags, ARRAY[]::text[]), 'Pendeln')
+        WHERE id = OLD.activity_id
+          AND user_id = v_user_id;
+    ELSIF v_tag_name = 'virtuell' THEN
+        UPDATE activities
+        SET is_virtual = false,
+            tags = array_remove(COALESCE(tags, ARRAY[]::text[]), 'virtuell')
+        WHERE id = OLD.activity_id
+          AND user_id = v_user_id;
+    ELSIF v_tag_name = 'E-Bike' THEN
+        -- Cycling-only contract: is_electric is a generic flag preserved on
+        -- non-cycling activities even when an orphan E-Bike junction is
+        -- removed (per 000350 design). On cycling activities, flip the flag
+        -- to false to keep tag and flag in sync.
+        UPDATE activities
+        SET is_electric = CASE WHEN sport_type = 'cycling' THEN false ELSE is_electric END,
+            tags = array_remove(COALESCE(tags, ARRAY[]::text[]), 'E-Bike')
+        WHERE id = OLD.activity_id
+          AND user_id = v_user_id;
+    ELSE
+        -- Non-reserved system tag (none exist today, but defensive) — no
+        -- modifier column to flip.
+        RETURN NULL;
+    END IF;
+
+    -- activity_count is recomputed by the BEFORE UPDATE trigger
+    -- (sync_system_flags_and_tags Direction B) that fires on the activities
+    -- UPDATE above. A second UPDATE here would be redundant.
+
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_sync_system_modifier_tags_on_junction_delete ON activity_tags;
+CREATE TRIGGER trg_sync_system_modifier_tags_on_junction_delete
+    AFTER DELETE ON activity_tags
+    FOR EACH ROW
+    EXECUTE FUNCTION sync_system_modifier_tags_on_junction_delete();
+
+-- 5. Tag-rename propagation. UPDATE tags SET name = 'NewName' WHERE id = ...
+--    does not propagate into activities.tags TEXT[] arrays — junctions track
+--    tag_id (correct), but the denormalised array carries the OLD literal
+--    that no longer matches anything. Add an AFTER UPDATE OF (name) trigger
+--    that array_replaces the OLD name with the NEW name across every
+--    activity owned by the same user.
+--
+--    Narrow scope: system tags only (OLD.is_system = true OR NEW.is_system =
+--    true). The non-system tag rename gap is documented as a follow-up — it
+--    is a UX-driven decision (does the user expect the array to follow the
+--    rename, or is the array a snapshot?) that belongs in a separate phase.
+--
+--    The trigger does NOT touch modifier columns. Modifier sync is bound to
+--    tag_id semantics, not to the literal in the tags array, so a rename is
+--    a no-op for modifier flags.
+--
+--    Skip-flag (skadia.skip_system_modifier_tag_sync) suppresses the
+--    propagation for caller-managed bulk paths that own reconciliation via
+--    skadia_resync_system_modifier_tags.
+--
+--    FOR EACH ROW (not statement-level) so a multi-row UPDATE renaming
+--    several tags in one statement still propagates per-row correctly.
+CREATE OR REPLACE FUNCTION sync_system_tag_rename_into_activities_tags() RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+    v_skip_outbound BOOLEAN := COALESCE(current_setting('skadia.skip_system_modifier_tag_sync', true), 'false') = 'true';
+BEGIN
+    IF v_skip_outbound THEN
+        RETURN NULL;
+    END IF;
+
+    -- Narrow scope: only fire when at least one side of the rename is a
+    -- system tag. Non-system tag renames are intentionally out of scope.
+    IF NOT (COALESCE(OLD.is_system, false) OR COALESCE(NEW.is_system, false)) THEN
+        RETURN NULL;
+    END IF;
+
+    -- No-op if the name did not actually change (defensive — the trigger is
+    -- already gated on UPDATE OF name, but PG fires that on any UPDATE that
+    -- targets the column even if the value is unchanged).
+    IF OLD.name IS NOT DISTINCT FROM NEW.name THEN
+        RETURN NULL;
+    END IF;
+
+    -- The activities UPDATE re-fires sync_system_flags_and_tags BEFORE
+    -- UPDATE. Direction A (inbound tags-array → modifier flag slot guard)
+    -- would see the OLD reserved literal disappear from the array and flip
+    -- the modifier column to false; the outbound branches would also fire
+    -- spuriously. A rename is a no-op for modifier semantics — the row's
+    -- meaning has not changed, only the label — so suppress all trigger
+    -- branches for the duration of the propagation UPDATE via a dedicated
+    -- in-progress gate. The dedicated gate is separate from the skip flag
+    -- because the skip flag intentionally keeps Direction A inbound active
+    -- (a tags-array-driven write under that flag must still derive flags).
+    PERFORM set_config('skadia.tag_rename_in_progress', 'true', true);
+    UPDATE activities
+    SET tags = array_replace(tags, OLD.name, NEW.name)
+    WHERE user_id = NEW.user_id
+      AND OLD.name = ANY(tags);
+    PERFORM set_config('skadia.tag_rename_in_progress', 'false', true);
+
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_sync_system_tag_rename_into_activities_tags ON tags;
+CREATE TRIGGER trg_sync_system_tag_rename_into_activities_tags
+    AFTER UPDATE OF name ON tags
+    FOR EACH ROW
+    EXECUTE FUNCTION sync_system_tag_rename_into_activities_tags();
