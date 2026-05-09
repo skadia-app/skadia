@@ -36,12 +36,9 @@ func run() error {
 		return fmt.Errorf("--export-prefix is required")
 	}
 
-	keys, err := applicablemodifiers.Load(*source)
+	keys, err := applicablemodifiers.LoadForSubsystem(*source, *subsystem)
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
-	}
-	if err := applicablemodifiers.ValidateKeys(keys); err != nil {
-		return fmt.Errorf("validate: %w", err)
 	}
 
 	var goRendered []byte

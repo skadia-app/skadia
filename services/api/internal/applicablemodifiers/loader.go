@@ -39,6 +39,35 @@ type document struct {
 	ApplicableModifiers []string `yaml:"applicable_modifiers"`
 }
 
+// LoadForSubsystem reads a modifiers.yaml file (the canonical sport-taxonomy
+// modifiers registry) and returns the keys of modifiers that declare the given
+// subsystem in their `subsystems:` audience array, in YAML order.
+func LoadForSubsystem(modifiersPath, subsystem string) ([]string, error) {
+	data, err := os.ReadFile(modifiersPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", modifiersPath, err)
+	}
+	var doc struct {
+		Modifiers []struct {
+			Key        string   `yaml:"key"`
+			Subsystems []string `yaml:"subsystems"`
+		} `yaml:"modifiers"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", modifiersPath, err)
+	}
+	var keys []string
+	for _, m := range doc.Modifiers {
+		for _, s := range m.Subsystems {
+			if s == subsystem {
+				keys = append(keys, m.Key)
+				break
+			}
+		}
+	}
+	return keys, nil
+}
+
 // Load reads a subsystem applicable_modifiers YAML file, validates it against the
 // embedded JSONSchema, and returns the list of modifier keys.
 func Load(path string) ([]string, error) {
