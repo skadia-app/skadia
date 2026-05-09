@@ -141,9 +141,12 @@ Adding a modifier:
 
 The modifier registry is strict build-time input. Deploy the generator/code that
 knows a new capability before adding that capability to `modifiers.yaml`.
-`rule_condition` and `rule_action` are intentionally symmetrical today: rule
-modifiers are exposed as condition and action pairs, not condition-only or
-action-only controls.
+Subsystem-specific routing (previously expressed as capability flags such as
+`rule_condition`, `rule_action`, `gear_default`, `route_filter`,
+`heatmap_filter`, `record_grouping`, `shadowfs_label`, and `source_alias`) is
+now expressed through the `subsystems: []` audience array on each modifier.
+See `config/applicable-modifiers/subsystems.yaml` and
+`scripts/generate-applicable-modifiers.sh`.
 
 Stored activity modifiers still require explicit storage and importer work:
 adding a stored modifier means adding the activity column/migration, Go model
