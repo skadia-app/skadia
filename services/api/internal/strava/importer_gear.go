@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/gear"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -88,7 +89,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			}
 
 			var defaultSports []string
-			var defaultPredicates []sport.GearDefaultPredicate
+			var defaultPredicates []gear.GearDefaultPredicate
 			if sports != "" {
 				defaultSports, defaultPredicates = mapStravaDefaultSportDefaults(sports)
 			}
@@ -149,7 +150,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			}
 
 			var defaultSports []string
-			var defaultPredicates []sport.GearDefaultPredicate
+			var defaultPredicates []gear.GearDefaultPredicate
 			if sports != "" {
 				defaultSports, defaultPredicates = mapStravaDefaultSportDefaults(sports)
 			}
@@ -260,19 +261,19 @@ func mapStravaDefaultSports(sports string) []string {
 	return defaultSports
 }
 
-func mapStravaDefaultSportPredicates(sports string) []sport.GearDefaultPredicate {
+func mapStravaDefaultSportPredicates(sports string) []gear.GearDefaultPredicate {
 	_, predicates := mapStravaDefaultSportDefaults(sports)
 	return predicates
 }
 
-func mapStravaDefaultSportDefaults(sports string) ([]string, []sport.GearDefaultPredicate) {
+func mapStravaDefaultSportDefaults(sports string) ([]string, []gear.GearDefaultPredicate) {
 	// Detect separator: pipe takes precedence (English export).
 	sep := ","
 	if strings.Contains(sports, "|") {
 		sep = "|"
 	}
 	var defaultSports []string
-	var predicates []sport.GearDefaultPredicate
+	var predicates []gear.GearDefaultPredicate
 	seenSports := make(map[string]bool)
 	seenPredicates := make(map[string]bool)
 	for s := range strings.SplitSeq(sports, sep) {
@@ -280,7 +281,7 @@ func mapStravaDefaultSportDefaults(sports string) ([]string, []sport.GearDefault
 		if s == "" {
 			continue
 		}
-		predicate, ok := sport.GearDefaultPredicateForSource(sport.SourceStrava, s)
+		predicate, ok := gear.GearDefaultPredicateForSource(sport.SourceStrava, s)
 		if !ok || predicate.SportType == "" {
 			continue
 		}
@@ -297,7 +298,7 @@ func mapStravaDefaultSportDefaults(sports string) ([]string, []sport.GearDefault
 	return defaultSports, predicates
 }
 
-func gearDefaultPredicateKey(predicate sport.GearDefaultPredicate) string {
+func gearDefaultPredicateKey(predicate gear.GearDefaultPredicate) string {
 	key := predicate.SportType
 	if predicate.SubType != nil {
 		key += ":" + *predicate.SubType

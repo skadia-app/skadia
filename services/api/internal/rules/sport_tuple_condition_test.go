@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
 func TestEvaluateSportTupleInMatchesSubtypeAndModifiersAtomically(t *testing.T) {
@@ -155,7 +153,7 @@ func TestValidateSportTupleConditionAcceptsJSONRawMessageValue(t *testing.T) {
 }
 
 func TestRuleTupleConditionUsesGeneratedModifierKeys(t *testing.T) {
-	for _, key := range sport.SportModifierKeysWithCapability("rule_condition") {
+	for _, key := range RulesApplicableModifierKeys {
 		condition := Condition{
 			Field: "sport_tuple",
 			Op:    "in",

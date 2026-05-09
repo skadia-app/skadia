@@ -8,25 +8,23 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
+	"github.com/skadia-app/skadia/services/api/internal/tags"
 	"github.com/google/uuid"
 )
 
 func TestSystemModifierTagSyncsMatchGeneratedRegistry(t *testing.T) {
+	// Build expected values from the tags package (single source of truth after Phase 8).
 	want := map[string]systemModifierTagSync{}
-	for _, key := range sport.SportModifierKeys() {
-		modifier, ok := sport.SportModifierByKey(key)
-		if !ok || modifier.TagSync == nil {
-			continue
-		}
-		want[key] = systemModifierTagSync{
-			ModifierKey:   key,
-			SystemTagName: modifier.TagSync.SystemTag,
-			SystemType:    modifier.ActionParam + "_sync",
-			RuleName:      systemRuleNameForModifierSync(modifier),
-			OnlySportType: modifier.TagSync.OnlySportType,
-			Color:         modifier.TagSync.Color,
-			Description:   modifier.TagSync.Description,
-			ReadonlySync:  modifier.TagSync.ReadonlySync,
+	for _, s := range tags.SystemTagSyncs {
+		want[s.ModifierKey] = systemModifierTagSync{
+			ModifierKey:   s.ModifierKey,
+			SystemTagName: s.SystemTag,
+			SystemType:    systemTypeForModifierKey(s.ModifierKey),
+			RuleName:      systemRuleNameForTagSync(s),
+			OnlySportType: s.OnlySportType,
+			Color:         s.Color,
+			Description:   s.Description,
+			ReadonlySync:  s.ReadonlySync,
 		}
 	}
 
@@ -34,8 +32,18 @@ func TestSystemModifierTagSyncsMatchGeneratedRegistry(t *testing.T) {
 	for _, sync := range systemModifierTagSyncs() {
 		got[sync.ModifierKey] = sync
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("system modifier tag syncs = %#v, want %#v", got, want)
+
+	for key, wantSync := range want {
+		gotSync, ok := got[key]
+		if !ok {
+			t.Fatalf("missing modifier key %q in systemModifierTagSyncs()", key)
+		}
+		if gotSync != wantSync {
+			t.Fatalf("systemModifierTagSync[%q] = %#v, want %#v", key, gotSync, wantSync)
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d syncs, want %d", len(got), len(want))
 	}
 
 	for _, row := range []struct {
@@ -98,15 +106,24 @@ var systemModifierTagSyncDatabaseExclusions = map[string]string{
 func TestSystemModifierTagSyncDatabaseCoverageNamesMissingModifierKey(t *testing.T) {
 	registryWithTagSync := map[string]string{}
 	for _, key := range sport.SportModifierKeys() {
-		modifier, ok := sport.SportModifierByKey(key)
-		if !ok || modifier.TagSync == nil {
+		sync, ok := tags.SystemTagSyncByModifierKey(key)
+		if !ok {
 			continue
 		}
-		registryWithTagSync[key] = modifier.TagSync.SystemTag
+		registryWithTagSync[key] = sync.SystemTag
 	}
 
+	// Iterate in sorted key order so failure output is deterministic
+	// across runs (map iteration order is randomised in Go).
+	registryKeys := make([]string, 0, len(registryWithTagSync))
+	for k := range registryWithTagSync {
+		registryKeys = append(registryKeys, k)
+	}
+	sort.Strings(registryKeys)
+
 	var missingDBCoverage []string
-	for key, want := range registryWithTagSync {
+	for _, key := range registryKeys {
+		want := registryWithTagSync[key]
 		_, covered := systemModifierTagSyncDatabaseCoverage[key]
 		_, excluded := systemModifierTagSyncDatabaseExclusions[key]
 		if !covered && !excluded {
@@ -118,7 +135,7 @@ func TestSystemModifierTagSyncDatabaseCoverageNamesMissingModifierKey(t *testing
 			continue
 		}
 		if covered && systemModifierTagSyncDatabaseCoverage[key] != want {
-			t.Errorf("modifier %q system tag = %q, want %q (registry TagSync.SystemTag)",
+			t.Errorf("modifier %q system tag = %q, want %q (tags.SystemTagSync.SystemTag)",
 				key, systemModifierTagSyncDatabaseCoverage[key], want)
 		}
 	}
@@ -144,6 +161,31 @@ func TestSystemModifierTagSyncDatabaseCoverageNamesMissingModifierKey(t *testing
 			t.Errorf("systemModifierTagSyncs() does not expose modifier %q; "+
 				"the generated registry says it has tag_sync but the helper drops it", key)
 		}
+	}
+}
+
+// TestSystemTagSyncRegistryHasNoOrphanModifierKeys ensures every entry in
+// tags.SystemTagSyncs references a modifier key that exists in the sport
+// modifier registry. The tagsgen codegen rejects orphan keys at generation
+// time (services/api/cmd/tagsgen/main.go: cross-reference against
+// sport.SportModifierExists), but a hand-edit of system_tags_generated.go
+// would otherwise slip past every other parity test in this file because
+// the existing checks iterate sport.SportModifierKeys() and skip keys for
+// which tags.SystemTagSyncByModifierKey returns false. This test runs the
+// reverse direction so an orphan in the generated registry fails loudly
+// regardless of how it got there.
+func TestSystemTagSyncRegistryHasNoOrphanModifierKeys(t *testing.T) {
+	var orphans []string
+	for _, s := range tags.SystemTagSyncs {
+		if !sport.SportModifierExists(s.ModifierKey) {
+			orphans = append(orphans, s.ModifierKey)
+		}
+	}
+	if len(orphans) > 0 {
+		sort.Strings(orphans)
+		t.Fatalf("tags.SystemTagSyncs references modifier keys not present in sport.SportModifierKeys(): %v; "+
+			"either remove the entry from config/tags/system_tags.yaml (and regenerate via "+
+			"scripts/generate-tags.sh) or add the modifier to config/sport-taxonomy/modifiers.yaml", orphans)
 	}
 }
 

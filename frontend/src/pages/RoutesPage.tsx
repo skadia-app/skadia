@@ -14,7 +14,7 @@ import { fmtDist } from '@/lib/format'
 import { triggerBlobDownload } from '@/lib/utils'
 import { sportDetailLabel, normalizeSportTuple, routeSportOptions } from '@/lib/sportTaxonomy'
 import { ROUTE_MODIFIER_LABELS, type RouteModifierKey } from '@/lib/routeModifierLabels'
-import { modifierKeysForCapability } from '@/lib/sportModifiers'
+import { RoutingApplicableModifierKeys } from '@/lib/generatedRoutingApplicableModifiers'
 
 // ── Sport type labels for filter dropdown ─────────────────────────────────────
 
@@ -36,7 +36,7 @@ const SPORT_TYPE_COLORS: Record<string, string> = {
 
 type SortOption = 'created_at' | 'name' | 'distance' | 'elevation'
 type ModifierFilter = 'any' | 'true' | 'false'
-const ROUTE_MODIFIER_KEYS = modifierKeysForCapability('route_filter') as RouteModifierKey[]
+const ROUTE_MODIFIER_KEYS = [...RoutingApplicableModifierKeys] as RouteModifierKey[]
 
 const SORT_LABELS: Record<SortOption, string> = {
   created_at: 'Neueste',

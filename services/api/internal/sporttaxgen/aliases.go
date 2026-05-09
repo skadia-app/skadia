@@ -24,7 +24,12 @@ type SourceAlias struct {
 
 type SourceAliasModifiers map[string]*bool
 
-func LoadSourceAliases(r io.Reader, filenameStem string, taxonomy Taxonomy, modifiers ModifierRegistry) (SourceAliases, error) {
+// LoadSourceAliases parses and validates a source alias file.
+// sourceAliasIsApplicable is a predicate that determines which modifier keys are
+// valid in alias modifier patches; it is supplied by the caller rather than derived
+// from the ModifierRegistry's source_alias capability so that dataimport can own
+// its applicable-modifier list without creating an import cycle.
+func LoadSourceAliases(r io.Reader, filenameStem string, taxonomy Taxonomy, modifiers ModifierRegistry, sourceAliasIsApplicable func(string) bool) (SourceAliases, error) {
 	var source SourceAliases
 	dec := yaml.NewDecoder(r)
 	dec.KnownFields(true)
@@ -74,7 +79,7 @@ func LoadSourceAliases(r io.Reader, filenameStem string, taxonomy Taxonomy, modi
 				if value == nil {
 					return SourceAliases{}, fmt.Errorf("source aliases %q aliases[%d]: modifier %q must be true or false", filenameStem, i, key)
 				}
-				if err := modifiers.ValidateModifierKeyForCapability(key, "source_alias", fmt.Sprintf("source aliases %q aliases[%d]", filenameStem, i)); err != nil {
+				if err := modifiers.ValidateModifierKeyForCapability(key, sourceAliasIsApplicable, fmt.Sprintf("source aliases %q aliases[%d]", filenameStem, i)); err != nil {
 					return SourceAliases{}, err
 				}
 			}
@@ -83,7 +88,7 @@ func LoadSourceAliases(r io.Reader, filenameStem string, taxonomy Taxonomy, modi
 	return source, nil
 }
 
-func LoadSourceAliasFiles(files map[string]io.Reader, taxonomy Taxonomy, modifiers ModifierRegistry) ([]SourceAliases, error) {
+func LoadSourceAliasFiles(files map[string]io.Reader, taxonomy Taxonomy, modifiers ModifierRegistry, sourceAliasIsApplicable func(string) bool) ([]SourceAliases, error) {
 	sources := make([]SourceAliases, 0, len(files))
 	filenameStems := make([]string, 0, len(files))
 	for filenameStem := range files {
@@ -92,7 +97,7 @@ func LoadSourceAliasFiles(files map[string]io.Reader, taxonomy Taxonomy, modifie
 	sort.Strings(filenameStems)
 	for _, filenameStem := range filenameStems {
 		file := files[filenameStem]
-		source, err := LoadSourceAliases(file, filenameStem, taxonomy, modifiers)
+		source, err := LoadSourceAliases(file, filenameStem, taxonomy, modifiers, sourceAliasIsApplicable)
 		if err != nil {
 			return nil, err
 		}

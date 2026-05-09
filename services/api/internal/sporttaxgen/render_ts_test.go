@@ -73,8 +73,6 @@ func TestRenderTSModifiersEmitsMetadata(t *testing.T) {
 		"actionName: 'set_electric'",
 		"actionParam: 'electric'",
 		"shadowFSToken: 'electric'",
-		"systemTag: 'E-Bike'",
-		"onlySportType: 'cycling'",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("RenderTSModifiers() missing %q:\n%s", want, got)

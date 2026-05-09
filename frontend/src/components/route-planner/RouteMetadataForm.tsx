@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchTags } from '@/api/tags'
 import { routeSportOptions } from '@/lib/sportTaxonomy'
 import { ROUTE_MODIFIER_LABELS } from '@/lib/routeModifierLabels'
-import { modifierKeysForCapability } from '@/lib/sportModifiers'
+import { RoutingApplicableModifierKeys } from '@/lib/generatedRoutingApplicableModifiers'
 import type { Tag } from '@/api/tags'
 
 // ─── BRouter profiles ─────────────────────────────────────────────────────────
@@ -210,7 +210,7 @@ export default function RouteMetadataForm({ initialValues, currentProfile, onCha
     is_virtual: { checked: isVirtual, setChecked: setIsVirtual },
     is_commute: { checked: isCommute, setChecked: setIsCommute },
   }
-  const modifierControls = modifierKeysForCapability('route_filter').map((key) => ({
+  const modifierControls = RoutingApplicableModifierKeys.map((key) => ({
     key: key as keyof typeof modifierState,
     label: ROUTE_MODIFIER_LABELS[key],
     ...modifierState[key as keyof typeof modifierState],

@@ -120,7 +120,7 @@ func recordRuleMatches(rule RecordMatchRule, sportType, subType string, modifier
 	if recordSubTypeListMatches(rule.ExcludeSubTypes, subType) {
 		return false
 	}
-	for _, key := range sport.SportModifierKeysWithCapability("record_grouping") {
+	for _, key := range RecordsApplicableModifierKeys {
 		want := rule.Modifiers[key]
 		if want != nil && *want != modifiers[key] {
 			return false

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/skadia-app/skadia/services/api/internal/sport"
+	"github.com/skadia-app/skadia/services/api/internal/tags"
 )
 
 type ruleActionMap map[string]any
@@ -20,7 +21,7 @@ type systemModifier struct {
 
 func systemModifiers() []systemModifier {
 	out := make([]systemModifier, 0)
-	for _, key := range sport.SportModifierKeysWithCapability("rule_action") {
+	for _, key := range RulesApplicableModifierKeys {
 		def, ok := sport.SportModifierByKey(key)
 		if !ok {
 			continue
@@ -31,9 +32,9 @@ func systemModifiers() []systemModifier {
 			Param:     def.ActionParam,
 			HumanName: def.LabelDE,
 		}
-		if def.TagSync != nil {
-			modifier.TagName = def.TagSync.SystemTag
-			modifier.OnlySportType = def.TagSync.OnlySportType
+		if s, ok := tags.SystemTagSyncByModifierKey(key); ok {
+			modifier.TagName = s.SystemTag
+			modifier.OnlySportType = s.OnlySportType
 		}
 		out = append(out, modifier)
 	}

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/applicablemodifiers"
 	"github.com/skadia-app/skadia/services/api/internal/sporttaxgen"
 )
 
@@ -44,6 +45,7 @@ func run() error {
 	tsRecordsProjectionOut := flag.String("ts-records-projection-out", "", "generated TypeScript records projection output path")
 	aliasSourceDir := flag.String("alias-source-dir", "", "source-specific sport alias YAML directory")
 	gearDefaultProjectionSource := flag.String("gear-default-projection-source", "", "gear default projection YAML source")
+	dataimportApplicableModifiersSource := flag.String("dataimport-applicable-modifiers-source", "", "dataimport applicable_modifiers YAML source")
 	goAliasesOut := flag.String("go-aliases-out", "", "generated Go source aliases output path")
 	tsAliasesOut := flag.String("ts-aliases-out", "", "generated TypeScript source aliases output path")
 	tsGearDefaultsOut := flag.String("ts-gear-defaults-out", "", "generated TypeScript gear default projection output path")
@@ -104,6 +106,9 @@ func run() error {
 	}
 	if *gearDefaultProjectionSource == "" {
 		*gearDefaultProjectionSource = filepath.Join(*repoRoot, "config", "sport-taxonomy", "projections", "gear_defaults.yaml")
+	}
+	if *dataimportApplicableModifiersSource == "" {
+		*dataimportApplicableModifiersSource = filepath.Join(*repoRoot, "config", "sport-taxonomy", "modifiers.yaml")
 	}
 	if *goAliasesOut == "" {
 		*goAliasesOut = filepath.Join(*repoRoot, "services", "api", "internal", "sport", "aliases_generated.go")
@@ -225,7 +230,19 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("render TypeScript records projection: %w", err)
 	}
-	renderedGoAliases, renderedTSAliases, renderedTSGearDefaults, aliasesExist, err := renderAliasesFromDir(*aliasSourceDir, *gearDefaultProjectionSource, taxonomy, modifierRegistry)
+	dataimportApplicableKeys, err := applicablemodifiers.LoadForSubsystem(*dataimportApplicableModifiersSource, "dataimport")
+	if err != nil {
+		return fmt.Errorf("load dataimport applicable modifiers: %w", err)
+	}
+	dataimportApplicableSet := make(map[string]struct{}, len(dataimportApplicableKeys))
+	for _, k := range dataimportApplicableKeys {
+		dataimportApplicableSet[k] = struct{}{}
+	}
+	sourceAliasIsApplicable := func(key string) bool {
+		_, ok := dataimportApplicableSet[key]
+		return ok
+	}
+	renderedGoAliases, renderedTSAliases, renderedTSGearDefaults, aliasesExist, err := renderAliasesFromDir(*aliasSourceDir, *gearDefaultProjectionSource, taxonomy, modifierRegistry, sourceAliasIsApplicable)
 	if err != nil {
 		return err
 	}
@@ -309,7 +326,7 @@ func run() error {
 	return nil
 }
 
-func renderAliasesFromDir(dir, gearDefaultProjectionSource string, taxonomy sporttaxgen.Taxonomy, modifiers sporttaxgen.ModifierRegistry) ([]byte, []byte, []byte, bool, error) {
+func renderAliasesFromDir(dir, gearDefaultProjectionSource string, taxonomy sporttaxgen.Taxonomy, modifiers sporttaxgen.ModifierRegistry, sourceAliasIsApplicable func(string) bool) ([]byte, []byte, []byte, bool, error) {
 	if _, err := os.Stat(dir); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil, nil, false, nil
@@ -336,7 +353,7 @@ func renderAliasesFromDir(dir, gearDefaultProjectionSource string, taxonomy spor
 		stem := strings.TrimSuffix(filepath.Base(match), filepath.Ext(match))
 		files[stem] = file
 	}
-	sources, err := sporttaxgen.LoadSourceAliasFiles(files, taxonomy, modifiers)
+	sources, err := sporttaxgen.LoadSourceAliasFiles(files, taxonomy, modifiers, sourceAliasIsApplicable)
 	if err != nil {
 		return nil, nil, nil, false, fmt.Errorf("load source aliases: %w", err)
 	}
@@ -353,11 +370,11 @@ func renderAliasesFromDir(dir, gearDefaultProjectionSource string, taxonomy spor
 	if err != nil {
 		return nil, nil, nil, false, fmt.Errorf("build gear default projection: %w", err)
 	}
-	renderedGo, err := sporttaxgen.RenderGoSourceAliasesWithGearDefaults(sources, gearDefaults, modifiers)
+	renderedGo, err := sporttaxgen.RenderGoSourceAliasesWithGearDefaults(sources, gearDefaults, modifiers, sourceAliasIsApplicable)
 	if err != nil {
 		return nil, nil, nil, false, fmt.Errorf("render Go source aliases: %w", err)
 	}
-	renderedTSAliases, err := sporttaxgen.RenderTSSourceAliases(sources, modifiers)
+	renderedTSAliases, err := sporttaxgen.RenderTSSourceAliases(sources, modifiers, sourceAliasIsApplicable)
 	if err != nil {
 		return nil, nil, nil, false, fmt.Errorf("render TypeScript source aliases: %w", err)
 	}

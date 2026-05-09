@@ -25,32 +25,20 @@ type ModifierDefinition struct {
 	ActionParam         string               `yaml:"action_param"`
 	ShadowFSToken       string               `yaml:"shadowfs_token"`
 	Capabilities        ModifierCapabilities `yaml:"capabilities"`
-	TagSync             *ModifierTagSync     `yaml:"tag_sync"`
+	// Subsystems lists the consumer subsystems that include this modifier in their applicable set.
+	// Values are the --subsystem flag values used by applicablemodifiersgen.
+	Subsystems []string `yaml:"subsystems"`
 }
 
+// ModifierCapabilities holds the four sport-internal capabilities.
+// Subsystem-specific capabilities (gear_default, route_filter, rule_condition/action,
+// heatmap_filter, record_grouping, shadowfs_label, source_alias, quick_edit) are
+// now owned by per-subsystem applicable_modifiers_generated.go files.
 type ModifierCapabilities struct {
-	SourceAlias     *bool `yaml:"source_alias"`
-	ModifierPatch   *bool `yaml:"modifier_patch"`
 	ActivityState   *bool `yaml:"activity_state"`
 	ModifierFilter  *bool `yaml:"modifier_filter"`
-	RuleCondition   *bool `yaml:"rule_condition"`
-	RuleAction      *bool `yaml:"rule_action"`
-	RouteFilter     *bool `yaml:"route_filter"`
-	HeatmapFilter   *bool `yaml:"heatmap_filter"`
-	GearDefault     *bool `yaml:"gear_default"`
-	RecordGrouping  *bool `yaml:"record_grouping"`
-	ShadowFSLabel   *bool `yaml:"shadowfs_label"`
-	QuickEdit       *bool `yaml:"quick_edit"`
+	ModifierPatch   *bool `yaml:"modifier_patch"`
 	TaxonomyDefault *bool `yaml:"taxonomy_default"`
-}
-
-type ModifierTagSync struct {
-	SystemTag     string `yaml:"system_tag"`
-	Color         string `yaml:"color"`
-	Description   string `yaml:"description"`
-	ReadonlySync  *bool  `yaml:"readonly_sync"`
-	OnlySportType string `yaml:"only_sport_type"`
-	LabelContext  string `yaml:"label_context"`
 }
 
 var modifierIdentifierPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
@@ -58,18 +46,9 @@ var shadowFSTokenPattern = modifierIdentifierPattern
 
 func modifierCapabilityNames() []string {
 	return []string{
-		"source_alias",
-		"modifier_patch",
 		"activity_state",
 		"modifier_filter",
-		"rule_condition",
-		"rule_action",
-		"route_filter",
-		"heatmap_filter",
-		"gear_default",
-		"record_grouping",
-		"shadowfs_label",
-		"quick_edit",
+		"modifier_patch",
 		"taxonomy_default",
 	}
 }
@@ -117,43 +96,36 @@ func (r ModifierRegistry) ModifierKeysWithCapability(capability string) []string
 	return keys
 }
 
-func (r ModifierRegistry) ValidateModifierKeyForCapability(key, capability, surface string) error {
+// HasCapability reports whether the modifier with the given key supports the named capability.
+// Returns false if the key is unknown.
+func (r ModifierRegistry) HasCapability(key, capability string) bool {
 	modifier, ok := r.ModifierByKey(key)
 	if !ok {
+		return false
+	}
+	return modifier.Capabilities.Enabled(capability)
+}
+
+// ValidateModifierKeyForCapability checks that key is a known modifier and that isApplicable(key) is true.
+// isApplicable encodes the capability predicate for the target subsystem.
+func (r ModifierRegistry) ValidateModifierKeyForCapability(key string, isApplicable func(string) bool, surface string) error {
+	if _, ok := r.ModifierByKey(key); !ok {
 		return fmt.Errorf("%s: unknown modifier key %q", surface, key)
 	}
-	if !modifier.Capabilities.Enabled(capability) {
-		return fmt.Errorf("%s: modifier %q does not support capability %q", surface, key, capability)
+	if !isApplicable(key) {
+		return fmt.Errorf("%s: modifier %q is not applicable", surface, key)
 	}
 	return nil
 }
 
 func (c ModifierCapabilities) Enabled(capability string) bool {
 	switch capability {
-	case "source_alias":
-		return boolValue(c.SourceAlias)
-	case "modifier_patch":
-		return boolValue(c.ModifierPatch)
 	case "activity_state":
 		return boolValue(c.ActivityState)
 	case "modifier_filter":
 		return boolValue(c.ModifierFilter)
-	case "rule_condition":
-		return boolValue(c.RuleCondition)
-	case "rule_action":
-		return boolValue(c.RuleAction)
-	case "route_filter":
-		return boolValue(c.RouteFilter)
-	case "heatmap_filter":
-		return boolValue(c.HeatmapFilter)
-	case "gear_default":
-		return boolValue(c.GearDefault)
-	case "record_grouping":
-		return boolValue(c.RecordGrouping)
-	case "shadowfs_label":
-		return boolValue(c.ShadowFSLabel)
-	case "quick_edit":
-		return boolValue(c.QuickEdit)
+	case "modifier_patch":
+		return boolValue(c.ModifierPatch)
 	case "taxonomy_default":
 		return boolValue(c.TaxonomyDefault)
 	default:
@@ -229,8 +201,13 @@ func validateModifierRegistry(registry ModifierRegistry) error {
 		if err := validateModifierCapabilities(modifier); err != nil {
 			return err
 		}
-		if err := validateModifierTagSync(modifier); err != nil {
-			return err
+		if len(modifier.Subsystems) == 0 {
+			return fmt.Errorf("modifier %q: subsystems must not be empty", modifier.Key)
+		}
+		for _, s := range modifier.Subsystems {
+			if _, ok := knownSubsystems[s]; !ok {
+				return fmt.Errorf("modifier %q: unknown subsystem %q", modifier.Key, s)
+			}
 		}
 	}
 	return nil
@@ -242,80 +219,25 @@ func validateModifierCapabilities(modifier ModifierDefinition) error {
 			return fmt.Errorf("modifier %q: missing capabilities.%s", modifier.Key, capability)
 		}
 	}
-	if boolValue(modifier.Capabilities.RuleCondition) != boolValue(modifier.Capabilities.RuleAction) {
-		return fmt.Errorf("modifier %q: rule_condition and rule_action must match", modifier.Key)
-	}
-	if boolValue(modifier.Capabilities.QuickEdit) && !boolValue(modifier.Capabilities.ModifierPatch) {
-		return fmt.Errorf("modifier %q: quick_edit requires modifier_patch", modifier.Key)
-	}
 	if boolValue(modifier.Capabilities.TaxonomyDefault) && !boolValue(modifier.Capabilities.ModifierPatch) {
 		return fmt.Errorf("modifier %q: taxonomy_default requires modifier_patch", modifier.Key)
-	}
-	if boolValue(modifier.Capabilities.GearDefault) && !boolValue(modifier.Capabilities.ModifierPatch) {
-		return fmt.Errorf("modifier %q: gear_default requires modifier_patch", modifier.Key)
-	}
-	if boolValue(modifier.Capabilities.RecordGrouping) && !boolValue(modifier.Capabilities.ActivityState) {
-		return fmt.Errorf("modifier %q: record_grouping requires activity_state", modifier.Key)
-	}
-	if boolValue(modifier.Capabilities.HeatmapFilter) && !boolValue(modifier.Capabilities.ModifierFilter) {
-		return fmt.Errorf("modifier %q: heatmap_filter requires modifier_filter", modifier.Key)
 	}
 	return nil
 }
 
 func (c ModifierCapabilities) pointer(capability string) *bool {
 	switch capability {
-	case "source_alias":
-		return c.SourceAlias
-	case "modifier_patch":
-		return c.ModifierPatch
 	case "activity_state":
 		return c.ActivityState
 	case "modifier_filter":
 		return c.ModifierFilter
-	case "rule_condition":
-		return c.RuleCondition
-	case "rule_action":
-		return c.RuleAction
-	case "route_filter":
-		return c.RouteFilter
-	case "heatmap_filter":
-		return c.HeatmapFilter
-	case "gear_default":
-		return c.GearDefault
-	case "record_grouping":
-		return c.RecordGrouping
-	case "shadowfs_label":
-		return c.ShadowFSLabel
-	case "quick_edit":
-		return c.QuickEdit
+	case "modifier_patch":
+		return c.ModifierPatch
 	case "taxonomy_default":
 		return c.TaxonomyDefault
 	default:
 		return nil
 	}
-}
-
-func validateModifierTagSync(modifier ModifierDefinition) error {
-	if modifier.TagSync == nil {
-		return nil
-	}
-	if modifier.TagSync.SystemTag == "" {
-		return fmt.Errorf("modifier %q: tag_sync.system_tag is required", modifier.Key)
-	}
-	if !validHex.MatchString(modifier.TagSync.Color) {
-		return fmt.Errorf("modifier %q: invalid tag_sync.color %q", modifier.Key, modifier.TagSync.Color)
-	}
-	if modifier.TagSync.Description == "" {
-		return fmt.Errorf("modifier %q: tag_sync.description is required", modifier.Key)
-	}
-	if modifier.TagSync.ReadonlySync == nil {
-		return fmt.Errorf("modifier %q: tag_sync.readonly_sync is required", modifier.Key)
-	}
-	if modifier.TagSync.OnlySportType != "" && modifier.TagSync.LabelContext == "" {
-		return fmt.Errorf("modifier %q: tag_sync.only_sport_type requires label_context", modifier.Key)
-	}
-	return nil
 }
 
 func boolValue(value *bool) bool {

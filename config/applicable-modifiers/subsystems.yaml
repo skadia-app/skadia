@@ -1,0 +1,43 @@
+subsystems:
+  - name: gear
+    go_package: gear
+    go_out: services/api/internal/gear/applicable_modifiers_generated.go
+    ts_export_prefix: Gear
+    ts_out: frontend/src/lib/generatedGearApplicableModifiers.ts
+
+  - name: rules
+    go_package: rules
+    go_out: services/api/internal/rules/applicable_modifiers_generated.go
+    ts_export_prefix: Rules
+    ts_out: frontend/src/lib/generatedRulesApplicableModifiers.ts
+
+  - name: dataimport
+    go_package: dataimport
+    go_out: services/api/internal/dataimport/applicable_modifiers_generated.go
+    ts_export_prefix: Dataimport
+
+  - name: shadowfs
+    go_package: shadowfs
+    go_out: services/api/internal/shadowfs/applicable_modifiers_generated.go
+    ts_export_prefix: Shadowfs
+
+  - name: routefilter
+    go_package: routefilter
+    go_out: services/api/internal/routefilter/applicable_modifiers_generated.go
+    ts_export_prefix: Routing
+    ts_out: frontend/src/lib/generatedRoutingApplicableModifiers.ts
+
+  - name: bestefforts
+    go_package: bestefforts
+    go_out: services/api/internal/bestefforts/applicable_modifiers_generated.go
+    ts_export_prefix: Records
+
+  - name: heatmap
+    go_package: heatmap
+    go_out: services/api/internal/heatmap/applicable_modifiers_generated.go
+    ts_export_prefix: Heatmap
+    ts_out: frontend/src/lib/generatedHeatmapApplicableModifiers.ts
+
+  - name: quick-edit
+    ts_export_prefix: QuickEdit
+    ts_out: frontend/src/lib/generatedQuickEditApplicableModifiers.ts

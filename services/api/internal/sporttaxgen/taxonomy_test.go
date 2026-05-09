@@ -227,7 +227,6 @@ func TestValidateTaxonomyModifierRegistryRejectsMissingApplicabilityForRegistere
 	template.ActionName = "set_has_assist"
 	template.ActionParam = "has_assist"
 	template.ShadowFSToken = "has_assist"
-	template.TagSync = nil
 	modifiers.Modifiers = append(modifiers.Modifiers, template)
 
 	if err := ValidateTaxonomyModifierRegistry(taxonomy, modifiers); err == nil {

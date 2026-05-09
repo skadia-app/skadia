@@ -9,26 +9,11 @@ modifiers:
     action_param: electric
     shadowfs_token: electric
     capabilities:
-      source_alias: true
-      modifier_patch: true
       activity_state: true
       modifier_filter: true
-      rule_condition: true
-      rule_action: true
-      route_filter: true
-      heatmap_filter: true
-      gear_default: true
-      record_grouping: true
-      shadowfs_label: true
-      quick_edit: true
+      modifier_patch: true
       taxonomy_default: false
-    tag_sync:
-      system_tag: E-Bike
-      color: "#16A34A"
-      description: Automatisch bei elektrischen Radfahrten
-      readonly_sync: true
-      only_sport_type: cycling
-      label_context: cycling
+    subsystems: [bestefforts, dataimport, gear, heatmap, quick-edit, routefilter, rules, shadowfs]
 
   - key: is_indoor
     labels: {de: Indoor}
@@ -40,24 +25,11 @@ modifiers:
     action_param: indoor
     shadowfs_token: indoor
     capabilities:
-      source_alias: true
-      modifier_patch: true
       activity_state: true
       modifier_filter: true
-      rule_condition: true
-      rule_action: true
-      route_filter: true
-      heatmap_filter: false
-      gear_default: true
-      record_grouping: true
-      shadowfs_label: true
-      quick_edit: true
+      modifier_patch: true
       taxonomy_default: true
-    tag_sync:
-      system_tag: Indoor
-      color: "#3B82F6"
-      description: Automatisch bei Indoor-Aktivitäten
-      readonly_sync: true
+    subsystems: [bestefforts, dataimport, gear, quick-edit, routefilter, rules, shadowfs]
 
   - key: is_virtual
     labels: {de: Virtuell}
@@ -69,24 +41,11 @@ modifiers:
     action_param: virtual
     shadowfs_token: virtual
     capabilities:
-      source_alias: true
-      modifier_patch: true
       activity_state: true
       modifier_filter: true
-      rule_condition: true
-      rule_action: true
-      route_filter: true
-      heatmap_filter: false
-      gear_default: true
-      record_grouping: true
-      shadowfs_label: true
-      quick_edit: true
+      modifier_patch: true
       taxonomy_default: false
-    tag_sync:
-      system_tag: virtuell
-      color: "#8B5CF6"
-      description: Automatisch bei virtuellen Aktivitäten
-      readonly_sync: true
+    subsystems: [bestefforts, dataimport, gear, quick-edit, routefilter, rules, shadowfs]
 
   - key: is_commute
     labels: {de: Pendeln}
@@ -98,21 +57,8 @@ modifiers:
     action_param: commute
     shadowfs_token: commute
     capabilities:
-      source_alias: false
-      modifier_patch: true
       activity_state: true
       modifier_filter: true
-      rule_condition: true
-      rule_action: true
-      route_filter: true
-      heatmap_filter: true
-      gear_default: false
-      record_grouping: false
-      shadowfs_label: true
-      quick_edit: false
+      modifier_patch: true
       taxonomy_default: false
-    tag_sync:
-      system_tag: Pendeln
-      color: "#6B7280"
-      description: Automatisch bei Pendel-Aktivitäten
-      readonly_sync: false
+    subsystems: [heatmap, routefilter, rules, shadowfs]

@@ -6,6 +6,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/google/uuid"
 )
@@ -77,7 +78,7 @@ func TestCreateGearStoresDefaultSportPredicates(t *testing.T) {
 		Name:             "E-MTB",
 		Type:             "bike",
 		DefaultForSports: []string{"cycling"},
-		DefaultSportPredicates: []sport.GearDefaultPredicate{{
+		DefaultSportPredicates: []gearpkg.GearDefaultPredicate{{
 			SportType: "cycling",
 			SubType:   &mountain,
 			Modifiers: &sport.ModifierPatch{IsElectric: boolPtr(true)},
@@ -118,7 +119,7 @@ func TestFindDefaultGearPrefersPredicatesOverLegacyTopLevel(t *testing.T) {
 		Name:             "E-MTB",
 		Type:             "bike",
 		DefaultForSports: []string{"cycling"},
-		DefaultSportPredicates: []sport.GearDefaultPredicate{{
+		DefaultSportPredicates: []gearpkg.GearDefaultPredicate{{
 			SportType: "cycling",
 			SubType:   &mountain,
 			Modifiers: &sport.ModifierPatch{IsElectric: boolPtr(true)},

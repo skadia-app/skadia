@@ -256,7 +256,7 @@ func validateRuleProjection(projection RuleProjection, taxonomy Taxonomy, modifi
 	}
 
 	modifierKeys := map[string]struct{}{}
-	wantModifierKeys := modifiers.ModifierKeysWithCapability("rule_condition")
+	wantModifierKeys := modifiers.ModifierKeys()
 	gotModifierKeys := make([]string, 0, len(projection.Modifiers))
 	for i, modifier := range projection.Modifiers {
 		if modifier.Key == "" {
@@ -272,12 +272,6 @@ func validateRuleProjection(projection RuleProjection, taxonomy Taxonomy, modifi
 		def, ok := modifiers.ModifierByKey(modifier.Key)
 		if !ok {
 			return fmt.Errorf("modifier %q: missing registry definition", modifier.Key)
-		}
-		if err := modifiers.ValidateModifierKeyForCapability(modifier.Key, "rule_condition", "rule projection"); err != nil {
-			return err
-		}
-		if err := modifiers.ValidateModifierKeyForCapability(modifier.Key, "rule_action", "rule projection"); err != nil {
-			return err
 		}
 		if modifier.Labels["de"] != def.Labels["de"] {
 			return fmt.Errorf("modifier %q: label %q must come from registry label %q", modifier.Key, modifier.Labels["de"], def.Labels["de"])
@@ -299,12 +293,12 @@ func validateRuleProjection(projection RuleProjection, taxonomy Taxonomy, modifi
 	return nil
 }
 
+// ruleModifierConfigsFromRegistry returns one config per modifier in the registry.
+// All modifiers participate in rule conditions and actions; rule applicability is
+// now owned by the rules subsystem (rules.RulesApplicableModifierKeys).
 func ruleModifierConfigsFromRegistry(modifiers ModifierRegistry) []RuleModifierConfig {
 	out := make([]RuleModifierConfig, 0, len(modifiers.Modifiers))
 	for _, modifier := range modifiers.Modifiers {
-		if !modifier.Capabilities.Enabled("rule_condition") || !modifier.Capabilities.Enabled("rule_action") {
-			continue
-		}
 		out = append(out, RuleModifierConfig{
 			Key:                     modifier.Key,
 			Labels:                  cloneLocaleMap(modifier.Labels),
