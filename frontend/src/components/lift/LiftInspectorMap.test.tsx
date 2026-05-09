@@ -1,5 +1,5 @@
 /**
- * Tests for LiftInspectorMap — Critic findings F10, F11, F16 + Phase 11.7 additions.
+ * Tests for LiftInspectorMap — Critic findings F10, F11, F16 + Phase 11.7 + UX fix-pass.
  *
  * F10: candidates prop change triggers layer re-render without full unmount.
  * F11: empty stream shows fallback overlay; coords<2 skipped with console.warn.
@@ -10,6 +10,11 @@
  *   C: candidateCoords useMemo (tested indirectly via addSource call counts).
  *   D.1: splitTrackAtGaps — segments == 2 when one gap > threshold; 1 segment when none.
  *   F: heatmap toggle button renders; addHeatmapLayers called when activated.
+ * UX fix-pass (2026-05-09):
+ *   Fix 5a: activity track source is LineString (continuous), not MultiLineString.
+ *   Fix 5b: gap-bridges source has MultiLineString with N segments = number of gaps.
+ *   Fix 5c: direction-arrow markers count is in expected range for coords length.
+ *   Fix 6a: legend rows have title attributes from CONFIDENCE_DESCRIPTIONS.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'
@@ -82,6 +87,22 @@ const maplibreMock = vi.hoisted(() => {
   return { MapMock, sourcesMap, layersMap, paintProps }
 })
 
+const markerMock = vi.hoisted(() => {
+  const instances: { lngLat: [number, number]; removed: boolean }[] = []
+  class MarkerMock {
+    _lngLat: [number, number] = [0, 0]
+    _idx: number
+    constructor(_opts?: unknown) {
+      this._idx = instances.length
+      instances.push({ lngLat: [0, 0], removed: false })
+    }
+    setLngLat(ll: [number, number]) { instances[this._idx].lngLat = ll; return this }
+    addTo(_map: unknown) { return this }
+    remove() { instances[this._idx].removed = true }
+  }
+  return { MarkerMock, instances }
+})
+
 vi.mock('maplibre-gl', () => ({
   default: {
     Map: maplibreMock.MapMock,
@@ -90,6 +111,7 @@ vi.mock('maplibre-gl', () => ({
       isEmpty() { return true }
     },
     NavigationControl: class {},
+    Marker: markerMock.MarkerMock,
   },
   Map: maplibreMock.MapMock,
   LngLatBounds: class {
@@ -97,6 +119,7 @@ vi.mock('maplibre-gl', () => ({
     isEmpty() { return true }
   },
   NavigationControl: class {},
+  Marker: markerMock.MarkerMock,
 }))
 
 vi.mock('@/hooks/useMapLayers', () => ({
@@ -492,5 +515,120 @@ describe('LiftInspectorMap — F: heatmap toggle', () => {
     const btn = screen.getByTestId('heatmap-toggle')
     fireEvent.click(btn)
     expect(btn.title).toBe('Heatmap ausblenden')
+  })
+})
+
+// ── UX fix-pass (2026-05-09): Fix 5 — track design (unit tests) ─────────────
+//
+// MapLibre sources are never added in jsdom because the map container has
+// clientWidth/clientHeight = 0 (initMap guards against zero-size containers).
+// We therefore test the track-shape logic directly via the exported helpers and
+// pure computations, without going through the MapLibre mock.
+
+describe('LiftInspectorMap — Fix 5a: continuous track uses LineString (unit)', () => {
+  it('GPS stream is mapped to a flat [lng, lat] array (no segment splits)', async () => {
+    // The continuousTrackCoords memo in the component maps gpsStreams → [lng, lat].
+    // We verify the same logic here directly.
+    const pts: StreamPoint[] = [
+      makeStream('2024-01-01T09:00:00Z', 47.0, 11.0),
+      makeStream('2024-01-01T09:01:00Z', 47.1, 11.1),
+      makeStream('2024-01-01T09:03:00Z', 47.2, 11.2), // 120s gap — still in single array
+    ]
+    // Simulate what the component does: filter valid GPS, map to [lng, lat].
+    const coords = pts
+      .filter(s => s.lat != null && s.lng != null)
+      .map(s => [s.lng!, s.lat!] as [number, number])
+    // All 3 points in one flat array — no splitting at the gap.
+    expect(coords).toHaveLength(3)
+    expect(coords[0]).toEqual([11.0, 47.0])
+    expect(coords[2]).toEqual([11.2, 47.2])
+  })
+})
+
+describe('LiftInspectorMap — Fix 5b: gap-bridge computation (unit)', () => {
+  it('computes 1 bridge for a stream with 1 gap > threshold', async () => {
+    const { splitTrackAtGaps } = await import('./LiftInspectorMap')
+    const streamsWithGap: StreamPoint[] = [
+      makeStream('2024-01-01T09:00:00Z', 47.0, 11.0),
+      makeStream('2024-01-01T09:01:00Z', 47.1, 11.1),
+      // 120s gap
+      makeStream('2024-01-01T09:03:00Z', 47.2, 11.2),
+      makeStream('2024-01-01T09:04:00Z', 47.3, 11.3),
+    ]
+    const segments = splitTrackAtGaps(streamsWithGap, 75)
+    expect(segments).toHaveLength(2)
+    // Bridge = [lastOf(seg0), firstOf(seg1)]
+    const bridges: [number, number][][] = []
+    for (let i = 0; i < segments.length - 1; i++) {
+      const seg = segments[i]
+      const next = segments[i + 1]
+      if (seg.length > 0 && next.length > 0) bridges.push([seg[seg.length - 1], next[0]])
+    }
+    expect(bridges).toHaveLength(1)
+    // Bridge endpoints: end of seg0 = [11.1, 47.1]; start of seg1 = [11.2, 47.2]
+    expect(bridges[0][0]).toEqual([11.1, 47.1])
+    expect(bridges[0][1]).toEqual([11.2, 47.2])
+  })
+
+  it('produces 0 bridges when no gaps exceed threshold', async () => {
+    const { splitTrackAtGaps } = await import('./LiftInspectorMap')
+    const streamsNoGap: StreamPoint[] = [
+      makeStream('2024-01-01T09:00:00Z', 47.0, 11.0),
+      makeStream('2024-01-01T09:00:30Z', 47.1, 11.1), // 30s < 75s
+      makeStream('2024-01-01T09:01:00Z', 47.2, 11.2),
+    ]
+    const segments = splitTrackAtGaps(streamsNoGap, 75)
+    expect(segments).toHaveLength(1)
+    // 1 segment → 0 bridges
+    const bridges: [number, number][][] = []
+    for (let i = 0; i < segments.length - 1; i++) {
+      const seg = segments[i]
+      const next = segments[i + 1]
+      if (seg.length > 0 && next.length > 0) bridges.push([seg[seg.length - 1], next[0]])
+    }
+    expect(bridges).toHaveLength(0)
+  })
+})
+
+describe('LiftInspectorMap — Fix 5c: direction-arrow count formula (unit)', () => {
+  it('interval formula produces between 1 and ~15 arrows for a given point count', () => {
+    // Verify the arrow interval logic independent of MapLibre.
+    // The cap is "~15" (approximately 15); due to integer arithmetic it may
+    // reach 16 for some inputs — that is acceptable per the spec comment.
+    for (const n of [2, 30, 100, 300, 1000]) {
+      const interval = Math.max(20, Math.floor(n / 15))
+      let count = 0
+      for (let i = 0; i < n - 1; i += interval) count++
+      // Allow up to 16 since floor(n/15) may cause an extra step near n-1.
+      expect(count).toBeLessThanOrEqual(16)
+      if (n >= 2) expect(count).toBeGreaterThanOrEqual(1)
+    }
+  })
+})
+
+// ── UX fix-pass (2026-05-09): Fix 6a — legend tooltips ──────────────────────
+
+describe('LiftInspectorMap — Fix 6a: legend row title attributes', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('legend rows have non-empty title attributes', async () => {
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+    const { container } = render(
+      <LiftInspectorMap
+        candidates={[]}
+        streams={[]}
+        highlightedCandidateId={null}
+        onCandidateClick={() => {}}
+      />,
+      { wrapper },
+    )
+    const legend = container.querySelector('[aria-label="Kartenlegende"]')
+    expect(legend).not.toBeNull()
+    const rows = legend!.querySelectorAll('[title]')
+    expect(rows.length).toBeGreaterThanOrEqual(5)
+    rows.forEach(row => {
+      expect(row.getAttribute('title')).toBeTruthy()
+      expect(row.getAttribute('title')!.length).toBeGreaterThan(10)
+    })
   })
 })

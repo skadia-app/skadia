@@ -5,7 +5,7 @@ import { apiFetch } from '@/lib/auth'
 import { fetchActivityStreams } from '@/api/activities'
 import { useToast } from '@/lib/toast'
 import type { Activity, LiftCandidate, StreamPoint } from '@/api/types'
-import LiftInspectorMap, { splitTrackAtGaps } from './LiftInspectorMap'
+import LiftInspectorMap, { splitTrackAtGaps, CONFIDENCE_DESCRIPTIONS } from './LiftInspectorMap'
 
 // Matches PAUSE_GAP_THRESHOLD_S in LiftInspectorMap — must stay in sync with
 // backend enrichment/lifts/window.go SmartRecMaxGapS default (75s).
@@ -39,12 +39,14 @@ function useIsDesktop(): boolean {
 
 // Color-coded source+confidence badge matching the inspector map's liftColor() colors.
 // Uses both color AND text to be accessible without color vision (F16 a11y fix).
+// Fix 6a: each badge has a title attribute from CONFIDENCE_DESCRIPTIONS.
 function sourceConfidenceBadge(source: string, confidence: string, rejectedByUser: boolean) {
   if (rejectedByUser) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded-full text-xs font-medium px-2 py-0.5"
         style={{ backgroundColor: '#fef2f2', color: '#dc2626', border: '1px dashed #ef4444' }}
+        title={CONFIDENCE_DESCRIPTIONS['Abgelehnt']}
       >
         <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#ef4444', display: 'inline-block' }} />
         Abgelehnt
@@ -56,6 +58,7 @@ function sourceConfidenceBadge(source: string, confidence: string, rejectedByUse
       <span
         className="inline-flex items-center gap-1 rounded-full text-xs font-medium px-2 py-0.5"
         style={{ backgroundColor: '#eff6ff', color: '#1d4ed8' }}
+        title={CONFIDENCE_DESCRIPTIONS['OSM-Treffer']}
       >
         <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#3b82f6', display: 'inline-block' }} />
         OSM-Treffer
@@ -73,6 +76,7 @@ function sourceConfidenceBadge(source: string, confidence: string, rejectedByUse
     <span
       className="inline-flex items-center gap-1 rounded-full text-xs font-medium px-2 py-0.5"
       style={{ backgroundColor: meta.bg, color: meta.text }}
+      title={CONFIDENCE_DESCRIPTIONS[meta.label]}
     >
       <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: meta.dot, display: 'inline-block' }} />
       {meta.label}
@@ -656,7 +660,9 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
         </div>
 
         {/* D.2: Pause-gap banner — visible above both desktop and mobile layouts.
-            Only shown when streams are loaded and contain at least one gap > 75s. */}
+            Only shown when streams are loaded and contain at least one gap > 75s.
+            Fix 4: updated wording — the line IS drawn continuously; gaps are marked
+            with dashed-amber bridges; the detector limitation is explained explicitly. */}
         {pauseGapCount > 0 && (
           <div
             className="shrink-0 mb-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
@@ -664,25 +670,26 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
             data-testid="pause-gap-banner"
           >
             <span className="font-semibold">
-              ⚠ Aufzeichnung enthält {pauseGapCount} Pause{pauseGapCount > 1 ? 'n' : ''}.
+              ⚠ Aufzeichnung enthält {pauseGapCount} Pause{pauseGapCount > 1 ? 'n' : ''} (&gt;{PAUSE_GAP_THRESHOLD_S}s).
             </span>{' '}
-            Die Karte zeigt die Lücken als Unterbrechung statt als gerade Linie. Lifte, die eine
-            Pause-Lücke (&gt; 75 s) überspannen, werden vom Detektor{' '}
-            <span className="font-semibold">nicht</span> erkannt — falls dort ein Lift erwartet
-            wird, prüfe die Abschnitte vor und nach der Pause separat.
+            Die Karte zeichnet die Linie durchgängig, markiert die Teleportations-Abschnitte aber gestrichelt-orange.
+            Solche Lücken werden vom Detektor{' '}
+            <span className="font-semibold">nicht</span> als Lift erkannt (er verlangt zusammenhängende
+            Stream-Daten innerhalb seines Sliding-Windows). Falls dort ein Lift erwartet wird, prüfe
+            die Abschnitte vor und nach der Pause separat.
           </div>
         )}
 
         {isDesktop ? (
-          // Desktop: 60/40 split map/list
+          // Desktop: Fix 3 — 70/30 split map/list (map gets more, list narrower).
           <>
             <div className="flex flex-1 gap-3 min-h-0">
-              {/* Map — 60% */}
-              <div className="flex-[3] min-h-0">
+              {/* Map — 70% */}
+              <div className="flex-[7] min-h-0">
                 {mapPanel}
               </div>
-              {/* List — 40% */}
-              <div className="flex-[2] min-h-0 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden">
+              {/* List — 30% */}
+              <div className="flex-[3] min-h-0 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden">
                 {listPanel}
               </div>
             </div>
