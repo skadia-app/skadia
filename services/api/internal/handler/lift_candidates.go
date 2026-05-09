@@ -164,8 +164,12 @@ func (h *Handler) ConfirmLiftCandidate(w http.ResponseWriter, r *http.Request) {
 // PATCH /api/v1/activities/{id}/lift-candidates/{cid}/unconfirm
 //
 // Restricted to source='heuristic' AND NOT rejected_by_user — see
-// database.UnconfirmLiftCandidate for the rationale. A 0-row UPDATE (wrong
-// source, already-rejected row, wrong owner, wrong activity) returns 404.
+// database.UnconfirmLiftCandidate for the rationale. The handler probes the
+// row first and returns a structured RFC7807 problem+json with a `code` field:
+//   - 409 WRONG_SOURCE     — candidate is OSM-sourced
+//   - 409 ALREADY_REJECTED — candidate has rejected_by_user=true
+//   - 404 NOT_FOUND        — missing, wrong activity, or wrong owner (collapsed
+//                            to one status to avoid existence/owner leak)
 func (h *Handler) UnconfirmLiftCandidate(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
