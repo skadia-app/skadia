@@ -109,6 +109,24 @@ export function pickDefaultBase(
   return layers[0]
 }
 
+/**
+ * Tooltip descriptions for each confidence/source variant.
+ * Exported so LiftReviewModal can reuse the same strings for badge title attributes
+ * without duplicating them.
+ */
+export const CONFIDENCE_DESCRIPTIONS: Record<string, string> = {
+  'OSM-Treffer':
+    'OSM-gematchter Lift (Methode A) — Geometrie-basierter Treffer, sofort gezählt.',
+  'Heuristik (hoch)':
+    'Heuristik-Detektor mit klarem Aufwärts-Signal (stabile Geschwindigkeit + steiler Gradient).',
+  'Heuristik (mittel)':
+    'Heuristik-Detektor ohne brauchbares Speed-Signal — nur über Höhenmeter pro Sekunde erkannt.',
+  'Heuristik (bidirektional)':
+    'Aerial-Tramway-Pendelmuster: hin- und Rückfahrt in einer Aufzeichnung mit geringer Netto-Höhe aber großer kumulativer Höhenänderung.',
+  'Abgelehnt':
+    'Vom Nutzer per Soft-Reject markiert — wird nicht in Lifetime-Stats gezählt, kann wiederhergestellt werden.',
+}
+
 // Legend entry definition matching liftColor() — keeps color encoding and
 // text label in sync (F16 a11y: dual channel, color + text).
 const LEGEND_ENTRIES: { dot: string; label: string; dashed?: boolean }[] = [
@@ -131,6 +149,10 @@ export default function LiftInspectorMap({
   // Track which candidate IDs currently have sources/layers on the map so we
   // can remove stale ones when the candidates prop changes (F10 fix).
   const mountedCandidateIdsRef = useRef<Set<string>>(new Set())
+  // Refs for track coords — updated each render so addTrackLayer closures always
+  // see the latest data even when Effect 1 runs only once.
+  const continuousTrackCoordsRef = useRef<[number, number][]>([])
+  const gapBridgesRef = useRef<[number, number][][]>([])
   const { base } = useMapLayers()
   const { data: caps } = useCapabilities()
   const { theme } = useTheme()
@@ -169,13 +191,38 @@ export default function LiftInspectorMap({
   )
   const hasStream = gpsStreams.length >= 2
 
-  // D.1 — Split the activity track at pause gaps > PAUSE_GAP_THRESHOLD_S.
-  // Produces a MultiLineString coordinates array so gaps render as polyline
-  // breaks rather than straight teleportation lines.
+  // Fix 5a — Continuous LineString of all valid GPS coords.
+  // The track is drawn as one unbroken line; gap bridges are rendered as a
+  // separate dashed-amber overlay layer so discontinuities are still visible.
+  const continuousTrackCoords = useMemo(
+    () => gpsStreams.map(s => [s.lng, s.lat] as [number, number]),
+    [gpsStreams],
+  )
+
+  // Fix 5b — Keep splitTrackAtGaps for gap-bridge computation.
+  // The bridge for each adjacent segment pair is the two-point line
+  // [lastOf(seg_i), firstOf(seg_{i+1})].
   const trackSegments = useMemo(
     () => splitTrackAtGaps(streams, PAUSE_GAP_THRESHOLD_S),
     [streams],
   )
+
+  const gapBridges = useMemo((): [number, number][][] => {
+    if (trackSegments.length < 2) return []
+    const bridges: [number, number][][] = []
+    for (let i = 0; i < trackSegments.length - 1; i++) {
+      const seg = trackSegments[i]
+      const next = trackSegments[i + 1]
+      if (seg.length > 0 && next.length > 0) {
+        bridges.push([seg[seg.length - 1], next[0]])
+      }
+    }
+    return bridges
+  }, [trackSegments])
+
+  // Keep refs in sync so the Effect-1 closure ([] deps) sees latest coords.
+  continuousTrackCoordsRef.current = continuousTrackCoords
+  gapBridgesRef.current = gapBridges
 
   // C. Memoize per-candidate coords keyed on [candidates, streams] — avoids
   // recomputing streamSegmentForLift (O(|streams|) per candidate) on every
@@ -203,13 +250,17 @@ export default function LiftInspectorMap({
 
     const addTrackLayer = (m: maplibregl.Map) => {
       if (m.getSource('inspector-track')) return
-      // D.1: activity track rendered as MultiLineString so pause-gaps break the
-      // polyline visually instead of teleporting straight through the gap.
+      // Fix 5a: activity track as continuous LineString — all valid GPS coords.
+      // Gap-bridge overlay (inspector-track-bridges) renders the teleport segments
+      // in dashed amber so discontinuities are visible without breaking the line.
+      // Read from ref so this closure always uses the latest coords even with [] deps.
+      const coords = continuousTrackCoordsRef.current
+      const bridges = gapBridgesRef.current
       m.addSource('inspector-track', {
         type: 'geojson',
         data: {
           type: 'Feature',
-          geometry: { type: 'MultiLineString', coordinates: trackSegments },
+          geometry: { type: 'LineString', coordinates: coords },
           properties: {},
         },
       })
@@ -221,11 +272,33 @@ export default function LiftInspectorMap({
         paint: { 'line-color': '#999999', 'line-width': 2, 'line-opacity': 0.7 },
       })
 
-      // Fit to all GPS points across all segments.
-      const allCoords = trackSegments.flat()
-      if (allCoords.length >= 2) {
+      // Fix 5b: dashed-amber bridge layer over each gap section, inserted above
+      // the gray track line so the gap is clearly marked.
+      m.addSource('inspector-track-bridges', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: { type: 'MultiLineString', coordinates: bridges },
+          properties: {},
+        },
+      })
+      m.addLayer({
+        id: 'inspector-track-bridges-line',
+        type: 'line',
+        source: 'inspector-track-bridges',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#f59e0b',
+          'line-width': 3,
+          'line-dasharray': [2, 2],
+          'line-opacity': 0.95,
+        },
+      })
+
+      // Fit to all GPS points.
+      if (coords.length >= 2) {
         const bounds = new maplibregl.LngLatBounds()
-        for (const coord of allCoords) bounds.extend(coord)
+        for (const coord of coords) bounds.extend(coord)
         m.fitBounds(bounds, { padding: 40, maxZoom: 16, animate: false })
       }
     }
@@ -426,6 +499,34 @@ export default function LiftInspectorMap({
     }
   }, [showHeatmap, mapReady, styleVersion, userId, candidates])
 
+  // ── Effect 5: direction arrows — HTML Marker arrows along the continuous track ──
+  // Markers are DOM elements and survive style switches, but we include styleVersion
+  // so the effect re-runs after a style reload for safety. Capped at ~15 arrows.
+  useEffect(() => {
+    const m = mapRef.current
+    if (!m || !mapReady) return
+    const markers: maplibregl.Marker[] = []
+    const n = continuousTrackCoords.length
+    if (n < 2) return
+    const interval = Math.max(20, Math.floor(n / 15))
+    for (let i = 0; i < n - 1; i += interval) {
+      const [lng1, lat1] = continuousTrackCoords[i]
+      const next = continuousTrackCoords[Math.min(i + 5, n - 1)]
+      const [lng2, lat2] = next
+      const bearingDeg = (Math.atan2(lng2 - lng1, lat2 - lat1) * 180) / Math.PI
+      const el = document.createElement('div')
+      el.style.pointerEvents = 'none'
+      el.innerHTML = `<svg width="14" height="14" viewBox="0 0 20 20" style="transform: rotate(${bearingDeg}deg);"><path d="M10 2 L16 16 L10 13 L4 16 Z" fill="#525252" stroke="#fff" stroke-width="1.2"/></svg>`
+      markers.push(
+        new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
+          .setLngLat([lng1, lat1])
+          .addTo(m),
+      )
+    }
+    return () => markers.forEach(mk => mk.remove())
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [continuousTrackCoords, mapReady, styleVersion])
+
   return (
     <div className="relative w-full h-full" data-testid="lift-inspector-map-wrapper">
       <div
@@ -446,13 +547,17 @@ export default function LiftInspectorMap({
 
       {/* F16: on-map legend — color swatch + German text label for each line type.
           Both channels (color + text) are present so the encoding is accessible
-          without color vision. */}
+          without color vision. Fix 6a: each row has a native title tooltip. */}
       <div
         className="absolute top-2 left-2 z-10 rounded-lg bg-white/90 dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-700 shadow-sm px-2 py-1.5 text-xs space-y-1"
         aria-label="Kartenlegende"
       >
         {LEGEND_ENTRIES.map(entry => (
-          <div key={entry.label} className="flex items-center gap-1.5">
+          <div
+            key={entry.label}
+            className="flex items-center gap-1.5"
+            title={CONFIDENCE_DESCRIPTIONS[entry.label]}
+          >
             <span
               aria-hidden="true"
               style={{
@@ -471,9 +576,10 @@ export default function LiftInspectorMap({
         ))}
       </div>
 
-      {/* A + F: top-right control strip — base-layer picker and heatmap toggle.
-          Positioned below the MapLibre NavigationControl (~88px tall at top-right). */}
-      <div className="absolute top-28 right-2 z-10 flex flex-col gap-1.5 items-end">
+      {/* Fix 2: A + F controls grouped top-right, just below NavigationControl.
+          NavigationControl is ~96px tall at top-right so we use top-[100px] to
+          sit flush below it. Both picker and heatmap toggle share one card. */}
+      <div className="absolute top-[100px] right-2 z-10 flex flex-col gap-1.5 items-end">
         {/* A. Base-layer picker — only rendered when more than one base layer is available. */}
         {base.length > 1 && (
           <select
@@ -501,7 +607,8 @@ export default function LiftInspectorMap({
           </select>
         )}
 
-        {/* F. Heatmap toggle button — same visual pattern as MultiTrackMap.tsx:255-271. */}
+        {/* F. Heatmap toggle button — same visual pattern as MultiTrackMap.tsx:255-271.
+            Grouped in the same top-right cluster as the layer picker (Fix 2). */}
         <div className="bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-lg shadow-md px-2 py-1">
           <button
             onClick={() => setShowHeatmap(v => !v)}

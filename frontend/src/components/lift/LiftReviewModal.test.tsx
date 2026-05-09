@@ -45,7 +45,12 @@ const maplibreMock = vi.hoisted(() => {
     getCanvas = vi.fn(() => ({ style: { cursor: '' } }))
     setPaintProperty = vi.fn()
   }
-  return { MapMock, LngLatBoundsMock, maps: [] as MapMock[] }
+  class MarkerMock {
+    setLngLat(_ll: unknown) { return this }
+    addTo(_m: unknown) { return this }
+    remove() {}
+  }
+  return { MapMock, LngLatBoundsMock, MarkerMock, maps: [] as MapMock[] }
 })
 
 vi.mock('maplibre-gl', () => ({
@@ -53,10 +58,12 @@ vi.mock('maplibre-gl', () => ({
     Map: maplibreMock.MapMock,
     LngLatBounds: maplibreMock.LngLatBoundsMock,
     NavigationControl: class {},
+    Marker: maplibreMock.MarkerMock,
   },
   Map: maplibreMock.MapMock,
   LngLatBounds: maplibreMock.LngLatBoundsMock,
   NavigationControl: class {},
+  Marker: maplibreMock.MarkerMock,
 }))
 
 vi.mock('@/lib/auth', () => ({
@@ -857,5 +864,81 @@ describe('LiftReviewModal — D.2: pause-gap banner', () => {
       const banner = screen.getByTestId('pause-gap-banner')
       expect(banner.textContent).toMatch(/2 Pausen/)
     })
+  })
+})
+
+// ── UX fix-pass (2026-05-09): Fix 4 + Fix 6a ────────────────────────────────
+
+describe('LiftReviewModal — Fix 4: updated banner wording', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => twoHeuristicCandidates })
+  })
+
+  it('banner contains new wording fragment about dashed-orange teleport sections', async () => {
+    mockFetchStreams.mockResolvedValue([
+      { time: '2024-01-01T09:00:00Z', lat: 47.0, lng: 11.0 },
+      { time: '2024-01-01T09:02:00Z', lat: 47.1, lng: 11.1 }, // 120s gap
+      { time: '2024-01-01T09:03:00Z', lat: 47.2, lng: 11.2 },
+    ])
+
+    const { default: LiftReviewModal } = await import('./LiftReviewModal')
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    await waitFor(() => {
+      const banner = screen.getByTestId('pause-gap-banner')
+      expect(banner.textContent).toMatch(/Teleportations-Abschnitte aber gestrichelt-orange/)
+    })
+  })
+})
+
+describe('LiftReviewModal — Fix 6a: badge title tooltips', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFetchStreams.mockResolvedValue([])
+  })
+
+  it('OSM candidate badge has title matching CONFIDENCE_DESCRIPTIONS', async () => {
+    const osmCandidates = makeCandidates([
+      { id: 'osm-x', source: 'osm' as const, confidence: 'high', confirmed: true },
+    ])
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => osmCandidates })
+
+    const { default: LiftReviewModal } = await import('./LiftReviewModal')
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={osmCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    await waitFor(() => {
+      // OSM-Treffer badge must be present
+      const badges = screen.getAllByText('OSM-Treffer')
+      expect(badges.length).toBeGreaterThan(0)
+    })
+
+    // Find the badge span with the title attribute
+    const badgesWithTitle = document.querySelectorAll('[title]')
+    const osmBadge = Array.from(badgesWithTitle).find(
+      el => el.textContent?.includes('OSM-Treffer'),
+    )
+    expect(osmBadge).toBeTruthy()
+    expect(osmBadge!.getAttribute('title')).toContain('Geometrie-basierter Treffer')
   })
 })
