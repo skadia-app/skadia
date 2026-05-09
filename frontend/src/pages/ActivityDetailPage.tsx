@@ -195,11 +195,17 @@ export default function ActivityDetailPage() {
   })
 
   // Lift candidates — needed for review modal trigger logic.
+  // Gate fires when the activity has confirmed lifts (lift_count > 0) OR when the
+  // user has not yet reviewed heuristic candidates (lifts_acknowledged_at == null),
+  // because a freshly-imported activity with only heuristic detections has lift_count=0
+  // until the user confirms — the null ack-timestamp is the reliable "unreviewed" signal.
   const { data: liftCandidates } = useQuery<LiftCandidate[]>({
     queryKey: ['lift-candidates', activeActivityId],
     queryFn: () =>
       apiFetch(`/api/v1/activities/${activeActivityId}/lifts/candidates`).then(r => r.json()),
-    enabled: !!activeActivityId && (activity?.lift_count ?? 0) > 0,
+    enabled: !!activeActivityId && (
+      (activity?.lift_count ?? 0) > 0 || activity?.lifts_acknowledged_at == null
+    ),
   })
 
   const unreviewedHeuristicCount = (liftCandidates ?? []).filter(

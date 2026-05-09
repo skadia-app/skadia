@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { apiFetch } from '@/lib/auth'
 import { fetchActivityStreams } from '@/api/activities'
+import { useToast } from '@/lib/toast'
 import type { Activity, LiftCandidate, StreamPoint } from '@/api/types'
 import LiftInspectorMap from './LiftInspectorMap'
 
@@ -17,8 +18,13 @@ type ModalMode = 'compact' | 'expanded'
 type MobileTab = 'list' | 'map'
 
 function useIsDesktop(): boolean {
-  const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 1024)
+  // Guard against SSR / environments without window (e.g. test runners using jsdom
+  // with a narrow viewport) — default false so mobile layout is the safe fallback.
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' ? window.innerWidth >= 1024 : false,
+  )
   useEffect(() => {
+    if (typeof window === 'undefined') return
     const mq = window.matchMedia('(min-width: 1024px)')
     const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches)
     mq.addEventListener('change', handler)
@@ -27,14 +33,56 @@ function useIsDesktop(): boolean {
   return isDesktop
 }
 
-// Source badge label
+// Color-coded source+confidence badge matching the inspector map's liftColor() colors.
+// Uses both color AND text to be accessible without color vision (F16 a11y fix).
+function sourceConfidenceBadge(source: string, confidence: string, rejectedByUser: boolean) {
+  if (rejectedByUser) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full text-xs font-medium px-2 py-0.5"
+        style={{ backgroundColor: '#fef2f2', color: '#dc2626', border: '1px dashed #ef4444' }}
+      >
+        <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#ef4444', display: 'inline-block' }} />
+        Abgelehnt
+      </span>
+    )
+  }
+  if (source === 'osm') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full text-xs font-medium px-2 py-0.5"
+        style={{ backgroundColor: '#eff6ff', color: '#1d4ed8' }}
+      >
+        <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#3b82f6', display: 'inline-block' }} />
+        OSM-Treffer
+      </span>
+    )
+  }
+  // Heuristic — confidence determines color
+  const confMap: Record<string, { label: string; bg: string; text: string; dot: string }> = {
+    high:  { label: 'Heuristik (hoch)',          bg: '#f0fdf4', text: '#15803d', dot: '#22c55e' },
+    bidir: { label: 'Heuristik (bidirektional)',  bg: '#f5f3ff', text: '#7c3aed', dot: '#8b5cf6' },
+    medium:{ label: 'Heuristik (mittel)',         bg: '#fff7ed', text: '#c2410c', dot: '#f97316' },
+  }
+  const meta = confMap[confidence] ?? { label: `Heuristik (${confidence})`, bg: '#f5f5f5', text: '#525252', dot: '#a3a3a3' }
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full text-xs font-medium px-2 py-0.5"
+      style={{ backgroundColor: meta.bg, color: meta.text }}
+    >
+      <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: meta.dot, display: 'inline-block' }} />
+      {meta.label}
+    </span>
+  )
+}
+
+// Legacy helpers kept for compact-mode summary (not used in list rows).
 function sourceBadge(source: string) {
   return source === 'osm'
     ? <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium px-2 py-0.5">OSM</span>
     : <span className="inline-flex items-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 text-xs font-medium px-2 py-0.5">Heuristik</span>
 }
 
-// Confidence badge label
 function confidenceBadge(confidence: string) {
   const labels: Record<string, string> = { high: 'Hoch', medium: 'Mittel', bidir: 'Bidirektional' }
   return (
@@ -59,6 +107,7 @@ function formatDistance(m?: number | null): string {
 export default function LiftReviewModal({ open, onClose, activity, candidates }: LiftReviewModalProps) {
   const activityId = activity.id
   const qc = useQueryClient()
+  const { addToast } = useToast()
 
   const [bulkActionDone, setBulkActionDone] = useState(false)
   const [mode, setMode] = useState<ModalMode>('compact')
@@ -197,19 +246,53 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
   })
 
   const handleBulkConfirm = async () => {
-    for (const id of bulkHeuristicIds) {
-      await confirmMutation.mutateAsync(id)
+    const results = await Promise.allSettled(
+      bulkHeuristicIds.map(id => confirmMutation.mutateAsync(id)),
+    )
+    const failed = results.filter(r => r.status === 'rejected').length
+    const succeeded = results.length - failed
+    if (failed === 0) {
+      // All succeeded — exit multi-select mode and show brief confirmation.
+      setSelectedIds(new Set())
+      setMultiSelectMode(false)
+      if (succeeded > 1) {
+        addToast({
+          type: 'success',
+          title: succeeded === 1 ? '1 Lift bestätigt' : `${succeeded} Lifte bestätigt`,
+        })
+      }
+    } else {
+      // Partial failure — keep selection open so the user can retry failed items.
+      addToast({
+        type: 'error',
+        title: `${succeeded} von ${results.length} bestätigt — ${failed} fehlgeschlagen`,
+        duration: 0,
+      })
     }
-    setSelectedIds(new Set())
-    setMultiSelectMode(false)
   }
 
   const handleBulkReject = async () => {
-    for (const id of bulkHeuristicIds) {
-      await rejectMutation.mutateAsync(id)
+    const results = await Promise.allSettled(
+      bulkHeuristicIds.map(id => rejectMutation.mutateAsync(id)),
+    )
+    const failed = results.filter(r => r.status === 'rejected').length
+    const succeeded = results.length - failed
+    if (failed === 0) {
+      setSelectedIds(new Set())
+      setMultiSelectMode(false)
+      if (succeeded > 1) {
+        addToast({
+          type: 'success',
+          title: succeeded === 1 ? '1 Lift abgelehnt' : `${succeeded} Lifte abgelehnt`,
+        })
+      }
+    } else {
+      addToast({
+        type: 'error',
+        title: `${succeeded} von ${results.length} abgelehnt — ${failed} fehlgeschlagen`,
+        duration: 0,
+      })
     }
-    setSelectedIds(new Set())
-    setMultiSelectMode(false)
   }
 
   if (!open) return null
@@ -302,6 +385,13 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
         {displayedCandidates.map((c, idx) => {
           const isHighlighted = c.id === highlightedId
           const isHeuristic = c.source === 'heuristic'
+          // Check whether the activity stream covers this lift's time range with
+          // at least 2 GPS points — candidates without it cannot be shown on the map.
+          const hasMapTrack = streams.filter(s => {
+            if (s.lat == null || s.lng == null) return false
+            const t = new Date(s.time).getTime()
+            return t >= new Date(c.started_at).getTime() && t <= new Date(c.ended_at).getTime()
+          }).length >= 2
 
           return (
             <li
@@ -329,18 +419,25 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                 <span className="font-medium text-neutral-700 dark:text-neutral-300 shrink-0">
                   L{String(idx + 1).padStart(2, '0')}
                 </span>
-                {sourceBadge(c.source)}
-                {confidenceBadge(c.confidence)}
-                <span className={`text-xs font-medium shrink-0 ${
-                  c.rejected_by_user ? 'text-red-500' : c.confirmed ? 'text-green-600 dark:text-green-400' : 'text-neutral-400'
-                }`}>
-                  {statusLabel(c)}
-                </span>
+                {sourceConfidenceBadge(c.source, c.confidence, c.rejected_by_user)}
+                {!c.rejected_by_user && (
+                  <span className={`text-xs font-medium shrink-0 ${
+                    c.confirmed ? 'text-green-600 dark:text-green-400' : 'text-neutral-400'
+                  }`}>
+                    {c.confirmed ? 'bestätigt' : 'offen'}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
                 <span>{formatDistance(c.distance_m)}</span>
                 <span>+{Math.round(c.ascent_m ?? 0)} m</span>
                 {(c.descent_m ?? 0) > 0 && <span>−{Math.round(c.descent_m!)} m</span>}
+                {/* Warn when stream data does not cover this lift's time range — map will not show a track. */}
+                {!hasMapTrack && (
+                  <span className="text-amber-600 dark:text-amber-400" title="Stream-Daten fehlen für diesen Zeitraum">
+                    (keine Karten-Spur)
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2 flex-wrap mt-0.5" onClick={e => e.stopPropagation()}>
                 {/* Method B (heuristic) action buttons */}
@@ -436,6 +533,14 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
       >
         Alle bestätigen
       </button>
+      {/* F8: expanded mode parity — compact mode has "Alle ablehnen", expanded mode must too. */}
+      <button
+        onClick={() => rejectAllMutation.mutate()}
+        disabled={confirmAllMutation.isPending || rejectAllMutation.isPending}
+        className="cursor-pointer rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        Alle ablehnen
+      </button>
       <button
         onClick={() => {
           setMultiSelectMode(v => !v)
@@ -497,7 +602,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   return (
     <ModalShell onClose={handleClose} maxWidth="!max-w-[95vw] w-[95vw]">
-      <div className="relative flex flex-col" style={{ height: 'calc(90vh - 48px)', minHeight: '480px' }}>
+      <div className="relative flex flex-col" style={{ height: 'calc(90dvh - 48px)', minHeight: '480px' }}>
         {recalcDialog}
 
         {/* Header */}
