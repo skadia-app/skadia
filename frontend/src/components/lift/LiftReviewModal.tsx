@@ -737,7 +737,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                         </p>
                         <p>
                           Die Karte zeichnet die Linie durchgängig, markiert die Teleportations-Abschnitte
-                          aber gestrichelt-orange. Solche Lücken werden vom Detektor{' '}
+                          aber gestrichelt. Solche Lücken werden vom Detektor{' '}
                           <span className="font-semibold">nicht</span> als Lift erkannt.
                         </p>
                       </div>

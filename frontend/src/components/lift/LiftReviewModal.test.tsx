@@ -901,7 +901,7 @@ describe('LiftReviewModal — banner wording (Phase 11.11+)', () => {
       expect(banner.textContent).toMatch(/Aufzeichnung enthält 1 Pause/)
       expect(banner.textContent).toMatch(/>75s/)
       expect(banner.textContent).toMatch(/Teleportations-Abschnitte/)
-      expect(banner.textContent).toMatch(/gestrichelt-orange/)
+      expect(banner.textContent).toMatch(/gestrichelt/)
       expect(banner.textContent).toMatch(/nicht.*als Lift erkannt/)
     })
   })

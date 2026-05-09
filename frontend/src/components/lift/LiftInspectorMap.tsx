@@ -310,16 +310,21 @@ export default function LiftInspectorMap({
           properties: {},
         },
       })
+      // Pause-bridges painted in the same gray as the track but dashed and a
+      // touch heavier so the gap is visible without recruiting a colour that
+      // the legend already binds to one of the heuristic classes (orange = medium,
+      // amber overlapped visually with that). Track-coloured dashes read as
+      // 'track, but interrupted'.
       m.addLayer({
         id: 'inspector-track-bridges-line',
         type: 'line',
         source: 'inspector-track-bridges',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
-          'line-color': '#f59e0b',
-          'line-width': 3,
-          'line-dasharray': [2, 2],
-          'line-opacity': 0.95,
+          'line-color': '#999999',
+          'line-width': 2,
+          'line-dasharray': [3, 3],
+          'line-opacity': 0.7,
         },
       })
 
@@ -401,28 +406,42 @@ export default function LiftInspectorMap({
   }, [baseLayer, caps])
 
   // A. Style-switch effect — triggers when the user changes the base-layer via
-  // the picker. Does nothing on first render (map not yet created) or when the
-  // selected layer matches what was used for map init.
+  // the picker. The map is initially created with `baseLayer` already selected;
+  // we must NOT call setStyle() on first render or it triggers a redundant
+  // "rebuild from scratch" that leaves isStyleLoaded() = false during the very
+  // window where Effect 2 tries to add lift-line layers — which then silently
+  // skips because the style isn't ready. So on the first render after the map
+  // exists we just snapshot the initial baseLayer.id and bail.
   const prevBaseLayerIdRef = useRef<number | undefined>(undefined)
   useEffect(() => {
     const m = mapRef.current
     if (!m || !baseLayer) return
+    if (prevBaseLayerIdRef.current === undefined) {
+      prevBaseLayerIdRef.current = baseLayer.id
+      return
+    }
     if (prevBaseLayerIdRef.current === baseLayer.id) return
     prevBaseLayerIdRef.current = baseLayer.id
     const style = buildLayerStyle(baseLayer, caps ?? {})
     if (style) {
       m.setStyle(style as import('maplibre-gl').StyleSpecification | string)
-      // onStyleLoad fires after setStyle completes; it clears mountedCandidateIdsRef
-      // and increments styleVersion to trigger the candidates + heatmap effects.
     }
   }, [baseLayer, caps])
 
   // ── Effect 2: candidates — re-renders lift polylines when the prop changes ────
   // Triggered by changes to candidates (e.g. soft-reject mid-session) so the
   // dashed-rejected line updates without needing a modal close/reopen (F10 fix).
+  //
+  // Gate on `mapReady` rather than `m.isStyleLoaded()`. The latter returns
+  // false transiently after we addSource() inside onStyleLoad (the new sources
+  // are flagged "pending" until MapLibre's next idle tick), which means Effect 2
+  // would bail right after a style.load and never get re-invoked. mapReady is
+  // sticky-true once `load` has fired and is enough to guarantee addSource/
+  // addLayer work — they are synchronous style mutations that don't require all
+  // sources to be loaded.
   useEffect(() => {
     const m = mapRef.current
-    if (!m || !m.isStyleLoaded()) return
+    if (!m || !mapReady) return
 
     const incoming = new Set(candidates.map(c => c.id))
 
@@ -499,9 +518,10 @@ export default function LiftInspectorMap({
   }, [candidates, candidateCoords, mapReady, styleVersion])
 
   // ── Effect 3: highlight — updates line width/color when selection changes ─────
+  // Gate on mapReady, see Effect 2 rationale.
   useEffect(() => {
     const m = mapRef.current
-    if (!m || !m.isStyleLoaded()) return
+    if (!m || !mapReady) return
     for (const c of candidates) {
       const layerId = `lift-line-${c.id}`
       if (!m.getLayer(layerId)) continue
@@ -509,14 +529,14 @@ export default function LiftInspectorMap({
       m.setPaintProperty(layerId, 'line-width', highlighted ? 7 : 4)
       m.setPaintProperty(layerId, 'line-color', highlighted ? '#e879f9' : liftColor(c))
     }
-  }, [highlightedCandidateId, candidates])
+  }, [highlightedCandidateId, candidates, mapReady])
 
   // ── Effect 4: heatmap — adds / removes heatmap layers when toggle changes ─────
   // styleVersion in deps ensures the heatmap is re-added after a style switch
-  // (style.load wipes all custom layers).
+  // (style.load wipes all custom layers). Gate on mapReady, see Effect 2 rationale.
   useEffect(() => {
     const m = mapRef.current
-    if (!m || !m.isStyleLoaded()) return
+    if (!m || !mapReady) return
     removeHeatmapLayers(m)
     if (showHeatmap && userId && userId !== 'anon') {
       // Insert heatmap below lift-line layers so lift polylines remain on top.
@@ -580,11 +600,10 @@ export default function LiftInspectorMap({
         </div>
       )}
 
-      {/* Toolbar top-left — layer picker as inline pill-buttons + heatmap toggle
-          as a sibling card. Mirrors the MultiTrackMap fullscreen pattern
-          (MultiTrackMap.tsx:236-279) so map controls stay visually consistent
-          across the app. NavigationControl owns top-right (MapLibre default). */}
-      <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 flex-wrap pointer-events-auto">
+      {/* Toolbar bottom-left — layer picker as inline pill-buttons + heatmap toggle
+          as a sibling card. NavigationControl owns top-right (MapLibre default),
+          legend sits top-left, controls bottom-left. */}
+      <div className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 flex-wrap pointer-events-auto">
         {base.length > 1 && (
           <div className="flex items-center gap-0.5 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-lg shadow-md p-0.5">
             {base.map(l => (
@@ -621,10 +640,10 @@ export default function LiftInspectorMap({
         </div>
       </div>
 
-      {/* Legend bottom-left — same position pattern as MultiTrackMap. Shows the
-          line-style → meaning mapping plus a help-icon that opens LiftHelpModal. */}
+      {/* Legend top-left — line-style → meaning mapping plus a help-icon that
+          opens LiftHelpModal. */}
       <div
-        className="absolute bottom-3 left-3 z-10 rounded-lg bg-white/90 dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-700 shadow-md px-3 py-2 text-xs space-y-1 pointer-events-auto"
+        className="absolute top-3 left-3 z-10 rounded-lg bg-white/90 dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-700 shadow-md px-3 py-2 text-xs space-y-1 pointer-events-auto"
         aria-label="Kartenlegende"
       >
         <div className="flex items-center justify-between gap-2 mb-0.5">
