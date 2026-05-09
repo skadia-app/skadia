@@ -1,12 +1,14 @@
 package database
 
 import (
-	"os"
+	"context"
 	"reflect"
-	"strings"
+	"sort"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
+	"github.com/google/uuid"
 )
 
 func TestSystemModifierTagSyncsMatchGeneratedRegistry(t *testing.T) {
@@ -72,20 +74,133 @@ func TestReadonlySystemModifierSyncRulesPreserveEBikeScope(t *testing.T) {
 	}
 }
 
-func TestSeedUserUsesModifierTagSyncMetadata(t *testing.T) {
-	source, err := os.ReadFile("tags_db.go")
-	if err != nil {
-		t.Fatalf("read tags_db.go: %v", err)
-	}
-	text := string(source)
-	for _, needle := range []string{
-		"for _, sync := range systemModifierTagSyncs()",
-		"for _, sync := range readonlySystemModifierTagSyncs()",
-		"sync.SystemTagName",
-		"sync.SystemType",
-	} {
-		if !strings.Contains(text, needle) {
-			t.Fatalf("SeedUser must use generated modifier tag-sync metadata; missing %q", needle)
+// systemModifierTagSyncDatabaseCoverage names every registry-backed
+// tag_sync modifier the database layer must cover. The Go-side parity test
+// asserts that the systemModifierTagSyncs() helper exposes exactly these
+// keys (modulo entries in systemModifierTagSyncDatabaseExclusions). A
+// future fifth modifier with tag_sync that lacks Go coverage must fail
+// this test loudly, naming its key.
+var systemModifierTagSyncDatabaseCoverage = map[string]string{
+	"is_indoor":   "Indoor",
+	"is_commute":  "Pendeln",
+	"is_virtual":  "virtuell",
+	"is_electric": "E-Bike",
+}
+
+// systemModifierTagSyncDatabaseExclusions mirrors the SQL-side exclusions:
+// a registry tag_sync modifier that intentionally has NO Go-side handling
+// must list itself here with a tracking reason. Empty in the initial
+// implementation.
+var systemModifierTagSyncDatabaseExclusions = map[string]string{
+	// "future_modifier": "reason and tracking plan",
+}
+
+func TestSystemModifierTagSyncDatabaseCoverageNamesMissingModifierKey(t *testing.T) {
+	registryWithTagSync := map[string]string{}
+	for _, key := range sport.SportModifierKeys() {
+		modifier, ok := sport.SportModifierByKey(key)
+		if !ok || modifier.TagSync == nil {
+			continue
 		}
+		registryWithTagSync[key] = modifier.TagSync.SystemTag
+	}
+
+	var missingDBCoverage []string
+	for key, want := range registryWithTagSync {
+		_, covered := systemModifierTagSyncDatabaseCoverage[key]
+		_, excluded := systemModifierTagSyncDatabaseExclusions[key]
+		if !covered && !excluded {
+			missingDBCoverage = append(missingDBCoverage, key)
+			continue
+		}
+		if covered && excluded {
+			t.Errorf("modifier key %q is both covered and excluded; pick one", key)
+			continue
+		}
+		if covered && systemModifierTagSyncDatabaseCoverage[key] != want {
+			t.Errorf("modifier %q system tag = %q, want %q (registry TagSync.SystemTag)",
+				key, systemModifierTagSyncDatabaseCoverage[key], want)
+		}
+	}
+	if len(missingDBCoverage) > 0 {
+		sort.Strings(missingDBCoverage)
+		t.Fatalf("modifier keys have tag_sync in the generated registry but are missing "+
+			"from systemModifierTagSyncDatabaseCoverage: %v; add each entry or list in "+
+			"systemModifierTagSyncDatabaseExclusions with a tracking plan", missingDBCoverage)
+	}
+	for key := range systemModifierTagSyncDatabaseCoverage {
+		if _, ok := registryWithTagSync[key]; !ok {
+			t.Errorf("systemModifierTagSyncDatabaseCoverage entry %q references a modifier that "+
+				"no longer has tag_sync in the generated registry", key)
+		}
+	}
+	// Cross-check the existing helper now resolves the same set of keys.
+	exposed := map[string]bool{}
+	for _, sync := range systemModifierTagSyncs() {
+		exposed[sync.ModifierKey] = true
+	}
+	for key := range systemModifierTagSyncDatabaseCoverage {
+		if !exposed[key] {
+			t.Errorf("systemModifierTagSyncs() does not expose modifier %q; "+
+				"the generated registry says it has tag_sync but the helper drops it", key)
+		}
+	}
+}
+
+func TestSeedUserUsesModifierTagSyncMetadata(t *testing.T) {
+	// DB-backed: call SeedSystemDefaults for a fresh user and verify that the
+	// four registry-backed modifier system tags (Indoor, Pendeln, virtuell,
+	// E-Bike) exist with is_system=true. This replaces the former file-grep.
+	pool := testdb.Open(t)
+	ctx := context.Background()
+
+	userID := uuid.NewString()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO users (id, username, email, email_verified, registration_source)
+		 VALUES ($1, $2, $3, true, 'test')`,
+		userID, "smtseed-"+userID[:8], "smtseed-"+userID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM activity_tag_removals WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)`, userID)
+		_, _ = pool.Exec(bg, `DELETE FROM activity_tags WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)`, userID)
+		_, _ = pool.Exec(bg, `DELETE FROM automation_rules WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(bg, `UPDATE tags SET is_system = false WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(bg, `DELETE FROM tags WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(bg, `DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	db := &DB{Pool: pool}
+	if err := db.SeedSystemDefaults(ctx, userID); err != nil {
+		t.Fatalf("SeedSystemDefaults: %v", err)
+	}
+
+	// Query for the four reserved modifier system tags.
+	rows, err := pool.Query(ctx,
+		`SELECT name FROM tags WHERE user_id = $1 AND is_system = true AND name IN ('Indoor', 'Pendeln', 'virtuell', 'E-Bike')
+		 ORDER BY name`,
+		userID)
+	if err != nil {
+		t.Fatalf("query modifier system tags: %v", err)
+	}
+	defer rows.Close()
+
+	var got []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows error: %v", err)
+	}
+
+	want := []string{"E-Bike", "Indoor", "Pendeln", "virtuell"}
+	sort.Strings(got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("modifier system tags after seed = %v, want %v", got, want)
 	}
 }

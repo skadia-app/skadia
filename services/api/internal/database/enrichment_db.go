@@ -63,6 +63,7 @@ var validEnrichmentCols = map[string]bool{
 	"is_indoor":            true,
 	"is_electric":          true,
 	"is_virtual":           true,
+	"is_commute":           true,
 	// Activity metadata (manual activity, recompute, importers)
 	"title":           true,
 	"title_is_manual": true,
@@ -119,6 +120,15 @@ func (db *DB) GetGeoTags(ctx context.Context, activityID string) ([]model.GeoTag
 // UpdateEnrichmentFields updates enrichment-related fields on an activity.
 // Always overwrites existing values — use UpdateEnrichmentFieldsSafe for lock-free fill-in semantics.
 func (db *DB) UpdateEnrichmentFields(ctx context.Context, activityID string, fields map[string]any) error {
+	return updateEnrichmentFieldsExec(ctx, db.Pool, activityID, fields)
+}
+
+// updateEnrichmentFieldsExec runs the UpdateEnrichmentFields SQL against any
+// pgx querier (pool, tx, or the systemModifierTagSyncQuerier interface). This
+// is the tx-aware path used by the WithSystemModifierTagSyncSuspended helper
+// when a caller needs to write enrichment fields atomically alongside system
+// modifier tag updates.
+func updateEnrichmentFieldsExec(ctx context.Context, q systemModifierTagSyncQuerier, activityID string, fields map[string]any) error {
 	if len(fields) == 0 {
 		return nil
 	}
@@ -142,8 +152,7 @@ func (db *DB) UpdateEnrichmentFields(ctx context.Context, activityID string, fie
 	}
 
 	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
-	_, err := db.Pool.Exec(ctx, query, args...)
-	if err != nil {
+	if _, err := q.Exec(ctx, query, args...); err != nil {
 		return fmt.Errorf("update enrichment fields: %w", err)
 	}
 	return nil
