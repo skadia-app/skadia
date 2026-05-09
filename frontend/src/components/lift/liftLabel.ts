@@ -26,16 +26,20 @@ export const AERIALWAY_LABELS: Record<string, string> = {
 /**
  * Returns the display name and type label for a lift candidate.
  *
- *   - For source !== 'osm': returns {} (heuristic candidates have no OSM data).
- *   - For OSM rows whose aerialway is not in the whitelist (e.g. 'goods',
- *     unknown values, or NULL): returns {} — we deliberately show nothing
- *     rather than an unsupported / wrong-category label.
- *   - For OSM rows with a whitelisted type: returns { type } and, if the
- *     OSM row carries a name, also { name }. Both are plain strings the
- *     caller can render directly.
+ *   - When osm_aerialway is NULL or not in the whitelist (e.g. 'goods',
+ *     unknown values): returns {} — we deliberately show nothing rather than
+ *     an unsupported / wrong-category label. Pure heuristic candidates that
+ *     never snapped to an OSM segment fall into this branch.
+ *   - When osm_aerialway is whitelisted: returns { type } and, if the OSM
+ *     row carries a name, also { name }. Both are plain strings the caller
+ *     can render directly.
+ *
+ * The function is source-agnostic: heuristic candidates that snapped to an
+ * OSM lift via segment_effort_id (Phase 4c snap pipeline) carry the same
+ * JOIN-derived osm_aerialway/osm_name as source='osm' candidates and get a
+ * chip on equal footing.
  */
 export function liftDisplayLabel(c: LiftCandidate): { name?: string; type?: string } {
-  if (c.source !== 'osm') return {}
   const aerialway = c.osm_aerialway ?? ''
   const type = AERIALWAY_LABELS[aerialway]
   if (!type) return {}
