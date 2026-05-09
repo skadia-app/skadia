@@ -106,11 +106,11 @@ var systemModifierTagSyncDatabaseExclusions = map[string]string{
 func TestSystemModifierTagSyncDatabaseCoverageNamesMissingModifierKey(t *testing.T) {
 	registryWithTagSync := map[string]string{}
 	for _, key := range sport.SportModifierKeys() {
-		modifier, ok := sport.SportModifierByKey(key)
-		if !ok || modifier.TagSync == nil {
+		sync, ok := tags.SystemTagSyncByModifierKey(key)
+		if !ok {
 			continue
 		}
-		registryWithTagSync[key] = modifier.TagSync.SystemTag
+		registryWithTagSync[key] = sync.SystemTag
 	}
 
 	var missingDBCoverage []string
@@ -126,7 +126,7 @@ func TestSystemModifierTagSyncDatabaseCoverageNamesMissingModifierKey(t *testing
 			continue
 		}
 		if covered && systemModifierTagSyncDatabaseCoverage[key] != want {
-			t.Errorf("modifier %q system tag = %q, want %q (registry TagSync.SystemTag)",
+			t.Errorf("modifier %q system tag = %q, want %q (tags.SystemTagSync.SystemTag)",
 				key, systemModifierTagSyncDatabaseCoverage[key], want)
 		}
 	}
