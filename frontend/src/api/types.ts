@@ -472,6 +472,12 @@ export interface LiftCandidate {
   rejected_by_user: boolean
   source: LiftCandidateSource
   segment_effort_id: string | null
+  // Populated only when source === 'osm' AND the OSM-lifts row for the matched
+  // segment is still present. Frontend filters osm_aerialway through a fixed
+  // whitelist (see liftDisplayLabel) so unsupported / freight-only types
+  // ('goods', etc.) render as if no metadata were available.
+  osm_name?: string | null
+  osm_aerialway?: string | null
 }
 
 export interface DataVisibility {

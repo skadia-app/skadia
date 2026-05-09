@@ -29,6 +29,8 @@ type unifiedLiftCandidateResponse struct {
 	RejectedByUser  bool      `json:"rejected_by_user"`
 	Source          string    `json:"source"`
 	SegmentEffortID *string   `json:"segment_effort_id"`
+	OsmName         *string   `json:"osm_name"`
+	OsmAerialway    *string   `json:"osm_aerialway"`
 }
 
 func liftCandidatesHandlerSetup(t *testing.T) (*Handler, *database.DB) {

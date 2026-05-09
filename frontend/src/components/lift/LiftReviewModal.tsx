@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { HelpCircle } from 'lucide-react'
+import { HelpCircle, Check, X, Undo2 } from 'lucide-react'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { apiFetch } from '@/lib/auth'
 import { fetchActivityStreams } from '@/api/activities'
@@ -13,6 +13,7 @@ import LiftInspectorMap, {
   getConfidenceKey,
 } from './LiftInspectorMap'
 import LiftHelpModal from './LiftHelpModal'
+import { liftDisplayLabel } from './liftLabel'
 
 // Matches PAUSE_GAP_THRESHOLD_S in LiftInspectorMap — must stay in sync with
 // backend enrichment/lifts/window.go SmartRecMaxGapS default (75s).
@@ -420,6 +421,18 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
             return t >= new Date(c.started_at).getTime() && t <= new Date(c.ended_at).getTime()
           }).length >= 2
 
+          // OSM-derived display label — empty object for heuristic rows or
+          // OSM rows whose aerialway is not whitelisted (defensive: better
+          // empty than wrong-category).
+          const label = liftDisplayLabel(c)
+          const idLabel = `L${String(idx + 1).padStart(2, '0')}`
+
+          // Compact icon-button styling — shared across all action variants
+          // so the row stays visually quiet.
+          const iconBtn =
+            'cursor-pointer inline-flex items-center justify-center w-7 h-7 rounded-md ' +
+            'border transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+
           return (
             <li
               key={c.id}
@@ -428,10 +441,11 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                 else listItemRefs.current.delete(c.id)
               }}
               onClick={() => handleListItemClick(c.id)}
-              className={`flex flex-col gap-1.5 px-3 py-2.5 cursor-pointer transition-colors text-sm
+              className={`px-3 py-2.5 cursor-pointer transition-colors text-sm
                 ${isHighlighted ? 'bg-fuchsia-50 dark:bg-fuchsia-950/30' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}`}
             >
-              <div className="flex items-center gap-2 flex-wrap">
+              {/* Row 1 — identifier + name (when known) + action icons */}
+              <div className="flex items-start gap-2">
                 {/* Multi-select checkbox — only for heuristic candidates */}
                 {multiSelectMode && isHeuristic && (
                   <input
@@ -440,22 +454,113 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                     onChange={e => { e.stopPropagation(); toggleMultiSelect(c.id) }}
                     onClick={e => e.stopPropagation()}
                     aria-label={`Lift ${idx + 1} auswählen`}
-                    className="rounded border-neutral-300 dark:border-neutral-600 cursor-pointer"
+                    className="mt-0.5 rounded border-neutral-300 dark:border-neutral-600 cursor-pointer"
                   />
                 )}
-                <span className="font-medium text-neutral-700 dark:text-neutral-300 shrink-0">
-                  L{String(idx + 1).padStart(2, '0')}
-                </span>
+                <div className="flex-1 min-w-0 flex items-baseline gap-1.5 flex-wrap">
+                  <span className="font-medium text-neutral-700 dark:text-neutral-300 shrink-0">
+                    {idLabel}
+                  </span>
+                  {label.name && (
+                    <>
+                      <span className="text-neutral-400 dark:text-neutral-600" aria-hidden="true">·</span>
+                      <span className="font-medium text-neutral-900 dark:text-neutral-100 truncate">
+                        {label.name}
+                      </span>
+                    </>
+                  )}
+                  {label.type && (
+                    <span className="text-xs text-neutral-500 dark:text-neutral-400 truncate">
+                      {label.name ? `(${label.type})` : label.type}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                  {/* Method B (heuristic) action icons */}
+                  {isHeuristic && c.confirmed && !c.rejected_by_user && (
+                    <button
+                      onClick={() => unconfirmMutation.mutate(c.id)}
+                      disabled={unconfirmMutation.isPending}
+                      aria-label="Rückgängig machen"
+                      title="Rückgängig"
+                      className={`${iconBtn} border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800`}
+                    >
+                      <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
+                  )}
+                  {isHeuristic && !c.confirmed && !c.rejected_by_user && (
+                    <>
+                      <button
+                        onClick={() => confirmMutation.mutate(c.id)}
+                        disabled={confirmMutation.isPending}
+                        aria-label="Bestätigen"
+                        title="Bestätigen"
+                        className={`${iconBtn} border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20`}
+                      >
+                        <Check className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                      <button
+                        onClick={() => rejectMutation.mutate(c.id)}
+                        disabled={rejectMutation.isPending}
+                        aria-label="Ablehnen"
+                        title="Ablehnen"
+                        className={`${iconBtn} border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20`}
+                      >
+                        <X className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                    </>
+                  )}
+                  {isHeuristic && c.rejected_by_user && (
+                    <button
+                      onClick={() => restoreMutation.mutate(c.id)}
+                      disabled={restoreMutation.isPending}
+                      aria-label="Wiederherstellen"
+                      title="Wiederherstellen"
+                      className={`${iconBtn} border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800`}
+                    >
+                      <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
+                  )}
+                  {/* Method A (osm) action icons */}
+                  {c.source === 'osm' && c.confirmed && !c.rejected_by_user && (
+                    <button
+                      onClick={() => rejectMutation.mutate(c.id)}
+                      disabled={rejectMutation.isPending}
+                      aria-label="Ablehnen"
+                      title="Ablehnen"
+                      className={`${iconBtn} border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20`}
+                    >
+                      <X className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
+                  )}
+                  {c.source === 'osm' && c.rejected_by_user && (
+                    <button
+                      onClick={() => restoreMutation.mutate(c.id)}
+                      disabled={restoreMutation.isPending}
+                      aria-label="Wiederherstellen"
+                      title="Wiederherstellen"
+                      className={`${iconBtn} border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800`}
+                    >
+                      <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Row 2 — detection method + status (compact, single line) */}
+              <div className="mt-1 flex items-center gap-2 text-xs flex-wrap">
                 {sourceConfidenceBadge(c)}
                 {!c.rejected_by_user && (
-                  <span className={`text-xs font-medium shrink-0 ${
-                    c.confirmed ? 'text-green-600 dark:text-green-400' : 'text-neutral-400'
+                  <span className={`shrink-0 ${
+                    c.confirmed ? 'text-green-600 dark:text-green-400' : 'text-neutral-400 dark:text-neutral-500'
                   }`}>
-                    {c.confirmed ? 'bestätigt' : 'offen'}
+                    · {c.confirmed ? 'bestätigt' : 'offen'}
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
+
+              {/* Row 3 — distance / ascent / descent */}
+              <div className="mt-1 flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
                 <span>{formatDistance(c.distance_m)}</span>
                 <span>+{Math.round(c.ascent_m ?? 0)} m</span>
                 {(c.descent_m ?? 0) > 0 && <span>−{Math.round(c.descent_m!)} m</span>}
@@ -464,70 +569,6 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                   <span className="text-amber-600 dark:text-amber-400" title="Stream-Daten fehlen für diesen Zeitraum">
                     (keine Karten-Spur)
                   </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 flex-wrap mt-0.5" onClick={e => e.stopPropagation()}>
-                {/* Method B (heuristic) action buttons */}
-                {isHeuristic && c.confirmed && !c.rejected_by_user && (
-                  <button
-                    onClick={() => unconfirmMutation.mutate(c.id)}
-                    disabled={unconfirmMutation.isPending}
-                    aria-label="Rückgängig machen"
-                    className="cursor-pointer rounded px-2 py-0.5 border border-neutral-300 dark:border-neutral-600 text-xs text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50"
-                  >
-                    ↶ Rückgängig
-                  </button>
-                )}
-                {isHeuristic && !c.confirmed && !c.rejected_by_user && (
-                  <>
-                    <button
-                      onClick={() => confirmMutation.mutate(c.id)}
-                      disabled={confirmMutation.isPending}
-                      aria-label="Bestätigen"
-                      className="cursor-pointer rounded px-2 py-0.5 border border-green-500 text-xs text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-50"
-                    >
-                      ✓ Bestätigen
-                    </button>
-                    <button
-                      onClick={() => rejectMutation.mutate(c.id)}
-                      disabled={rejectMutation.isPending}
-                      aria-label="Ablehnen"
-                      className="cursor-pointer rounded px-2 py-0.5 border border-red-400 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
-                    >
-                      ✗ Ablehnen
-                    </button>
-                  </>
-                )}
-                {isHeuristic && c.rejected_by_user && (
-                  <button
-                    onClick={() => restoreMutation.mutate(c.id)}
-                    disabled={restoreMutation.isPending}
-                    aria-label="Wiederherstellen"
-                    className="cursor-pointer rounded px-2 py-0.5 border border-neutral-300 dark:border-neutral-600 text-xs text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50"
-                  >
-                    ↶ Wiederherstellen
-                  </button>
-                )}
-                {/* Method A (osm) action buttons */}
-                {c.source === 'osm' && c.confirmed && !c.rejected_by_user && (
-                  <button
-                    onClick={() => rejectMutation.mutate(c.id)}
-                    disabled={rejectMutation.isPending}
-                    aria-label="Ablehnen"
-                    className="cursor-pointer rounded px-2 py-0.5 border border-red-400 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
-                  >
-                    ✗ Ablehnen
-                  </button>
-                )}
-                {c.source === 'osm' && c.rejected_by_user && (
-                  <button
-                    onClick={() => restoreMutation.mutate(c.id)}
-                    disabled={restoreMutation.isPending}
-                    aria-label="Wiederherstellen"
-                    className="cursor-pointer rounded px-2 py-0.5 border border-neutral-300 dark:border-neutral-600 text-xs text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50"
-                  >
-                    ↶ Wiederherstellen
-                  </button>
                 )}
               </div>
             </li>
