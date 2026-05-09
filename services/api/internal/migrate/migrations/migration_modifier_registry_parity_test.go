@@ -245,13 +245,13 @@ func assertSameStringSet(t *testing.T, got, want []string) {
 // modifier that adds a tag_sync block but no SQL trigger/resync coverage
 // must fail this test loudly, naming its key.
 func TestSystemModifierTagSyncSQLCoverageMatchesGeneratedRegistry(t *testing.T) {
-	registryKeys := map[string]sport.SportModifierTagSync{}
+	registryKeys := map[string]tags.SystemTagSync{}
 	for _, key := range sport.SportModifierKeys() {
-		modifier, ok := sport.SportModifierByKey(key)
-		if !ok || modifier.TagSync == nil {
+		sync, ok := tags.SystemTagSyncByModifierKey(key)
+		if !ok {
 			continue
 		}
-		registryKeys[key] = *modifier.TagSync
+		registryKeys[key] = sync
 	}
 
 	// Every registry key must either be covered or explicitly excluded.
@@ -372,7 +372,7 @@ func TestSystemModifierTagSyncSQLCoverageReferencedByResyncMigration(t *testing.
 // arbitrary registry snapshot. Extracted so the hard-fail-on-missing-key
 // behaviour can be exercised without mutating the generated sport registry.
 func collectMissingCoverageKeys(
-	registryKeys map[string]sport.SportModifierTagSync,
+	registryKeys map[string]tags.SystemTagSync,
 	coverage map[string]systemModifierTagSyncSQLCoverageEntry,
 	exclusions map[string]string,
 ) []string {
@@ -392,14 +392,14 @@ func collectMissingCoverageKeys(
 // parity loop produces a non-empty missing-key list (and would t.Fatalf) when
 // the registry contains a key not present in coverage or exclusions.
 //
-// Direct mutation of sport.SportModifierByKey is not possible because the
-// generated registry is an immutable sync.OnceValue. Instead, a synthetic
+// Direct mutation of tags.SystemTagSyncs is not possible because the
+// generated registry is a fixed package-level slice. Instead, a synthetic
 // registry snapshot is passed directly to collectMissingCoverageKeys so the
 // hard-fail path is exercised without an in-process registry change.
 func TestSystemModifierTagSyncSQLCoverageRejectsMissingKey(t *testing.T) {
 	// Synthetic registry with one key that has no coverage or exclusion entry.
-	synthetic := map[string]sport.SportModifierTagSync{
-		"is_future": {SystemTag: "Future", ReadonlySync: true},
+	synthetic := map[string]tags.SystemTagSync{
+		"is_future": {ModifierKey: "is_future", SystemTag: "Future", ReadonlySync: true},
 	}
 	missing := collectMissingCoverageKeys(synthetic, systemModifierTagSyncSQLCoverage, systemModifierTagSyncSQLExclusions)
 	if len(missing) == 0 {
@@ -482,7 +482,7 @@ func readHardeningSQLOrFatalf(t *testing.T) string {
 //
 // The trigger and resync SQL hard-code reserved names as single-quoted SQL
 // string literals (e.g. 'Indoor', 'E-Bike'). The Go registry stores the same
-// names as SportModifierTagSync.SystemTag. If either side is renamed without
+// names as tags.SystemTagSync.SystemTag. If either side is renamed without
 // updating the other, this test fails loudly before any data corruption occurs.
 //
 // Matching is exact-string and case-sensitive: 'indoor' and 'Indoor' are
@@ -501,11 +501,11 @@ func TestSystemModifierReservedNameLiteralsMatchRegistry(t *testing.T) {
 	// Collect every registry tag_sync SystemTag.
 	registryTags := map[string]string{} // SystemTag → modifier key
 	for _, key := range sport.SportModifierKeys() {
-		modifier, ok := sport.SportModifierByKey(key)
-		if !ok || modifier.TagSync == nil {
+		sync, ok := tags.SystemTagSyncByModifierKey(key)
+		if !ok {
 			continue
 		}
-		registryTags[modifier.TagSync.SystemTag] = key
+		registryTags[sync.SystemTag] = key
 	}
 
 	// Every registry tag must appear as a single-quoted SQL literal in the SQL.
@@ -570,8 +570,8 @@ func TestSystemModifierOnlySportTypeHasSQLCoverage(t *testing.T) {
 	upSQL := readHardeningSQLOrFatalf(t)
 
 	for _, key := range sport.SportModifierKeys() {
-		modifier, ok := sport.SportModifierByKey(key)
-		if !ok || modifier.TagSync == nil || modifier.TagSync.OnlySportType == "" {
+		sync, ok := tags.SystemTagSyncByModifierKey(key)
+		if !ok || sync.OnlySportType == "" {
 			continue
 		}
 
@@ -585,20 +585,20 @@ func TestSystemModifierOnlySportTypeHasSQLCoverage(t *testing.T) {
 			t.Errorf("modifier %q has OnlySportType=%q in registry but is absent from "+
 				"systemModifierTagSyncSQLCoverage and systemModifierTagSyncSQLExclusions; "+
 				"add it to one of these maps (Critic #12)",
-				key, modifier.TagSync.OnlySportType)
+				key, sync.OnlySportType)
 			continue
 		}
-		if cov.OnlySportType != modifier.TagSync.OnlySportType {
+		if cov.OnlySportType != sync.OnlySportType {
 			// Already caught by TestSystemModifierTagSyncSQLCoverageMatchesGeneratedRegistry;
 			// report here too for locality.
 			t.Errorf("modifier %q OnlySportType mismatch: coverage=%q registry=%q",
-				key, cov.OnlySportType, modifier.TagSync.OnlySportType)
+				key, cov.OnlySportType, sync.OnlySportType)
 		}
 
 		// Assert the sport-type guard appears in the SQL next to this modifier's
 		// system tag name. We require both to appear in the resync function body.
-		tagLiteral := "'" + modifier.TagSync.SystemTag + "'"
-		sportGuard := "sport_type = '" + modifier.TagSync.OnlySportType + "'"
+		tagLiteral := "'" + sync.SystemTag + "'"
+		sportGuard := "sport_type = '" + sync.OnlySportType + "'"
 
 		if !strings.Contains(upSQL, tagLiteral) {
 			t.Errorf("modifier %q: system tag literal %s not found in hardening SQL (Critic #12)",
@@ -607,7 +607,7 @@ func TestSystemModifierOnlySportTypeHasSQLCoverage(t *testing.T) {
 		if !strings.Contains(upSQL, sportGuard) {
 			t.Errorf("modifier %q: sport-type guard %q not found in hardening SQL; "+
 				"the SQL resync function must filter by OnlySportType=%q for modifier %q (Critic #12)",
-				key, sportGuard, modifier.TagSync.OnlySportType, key)
+				key, sportGuard, sync.OnlySportType, key)
 		}
 	}
 
@@ -619,15 +619,15 @@ func TestSystemModifierOnlySportTypeHasSQLCoverage(t *testing.T) {
 		if cov.OnlySportType == "" {
 			continue
 		}
-		modifier, ok := sport.SportModifierByKey(key)
-		if !ok || modifier.TagSync == nil {
+		sync, ok := tags.SystemTagSyncByModifierKey(key)
+		if !ok {
 			t.Errorf("coverage entry %q has OnlySportType=%q but the registry no longer has a TagSync block for it",
 				key, cov.OnlySportType)
 			continue
 		}
-		if modifier.TagSync.OnlySportType != cov.OnlySportType {
+		if sync.OnlySportType != cov.OnlySportType {
 			t.Errorf("coverage entry %q OnlySportType=%q but registry says %q; update the coverage map",
-				key, cov.OnlySportType, modifier.TagSync.OnlySportType)
+				key, cov.OnlySportType, sync.OnlySportType)
 		}
 	}
 }
