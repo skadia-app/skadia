@@ -41,12 +41,12 @@ describe('LiftHelpModal', () => {
     expect(screen.getByText(/Bergstation A/)).toBeTruthy()
   })
 
-  it('renders the "Wichtig:" altitude-vs-direction clarification (Phase 11.10)', () => {
+  it('renders the "Wichtig:" route-vs-direction clarification', () => {
     render(<LiftHelpModal open={true} onClose={() => {}} />)
-    // The strong "Wichtig:" label must be present
     expect(screen.getByText(/Wichtig:/)).toBeTruthy()
-    // Content about altitude movement of the cable (not user direction)
-    expect(screen.getByText(/Höhenbewegung der Cable/)).toBeTruthy()
+    // Content explaining bidir refers to the lift route shape, not user direction
+    expect(screen.getByText(/Verlauf der/)).toBeTruthy()
+    expect(screen.getByText(/nicht auf die Richtung der Fahrt/)).toBeTruthy()
   })
 
   it('renders the pause-gaps section', () => {

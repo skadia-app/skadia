@@ -437,7 +437,7 @@ describe('splitTrackAtGaps', () => {
 describe('LiftInspectorMap — A: layer picker', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it('layer-picker shows one <option> per base layer when base.length > 1', async () => {
+  it('layer-picker shows one pill button per base layer when base.length > 1', async () => {
     const { useMapLayers } = await import('@/hooks/useMapLayers')
     const mockUseMapLayers = useMapLayers as ReturnType<typeof vi.fn>
     mockUseMapLayers.mockReturnValue({
@@ -448,7 +448,7 @@ describe('LiftInspectorMap — A: layer picker', () => {
     })
 
     const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
-    const { container } = render(
+    render(
       <LiftInspectorMap
         candidates={[]}
         streams={[]}
@@ -458,13 +458,12 @@ describe('LiftInspectorMap — A: layer picker', () => {
       { wrapper },
     )
 
-    const select = container.querySelector('select[aria-label="Karten-Stil wählen"]')
-    expect(select).not.toBeNull()
-    const options = select!.querySelectorAll('option')
-    expect(options.length).toBe(2)
+    // Pill toolbar (MultiTrackMap-style) — one button per base layer.
+    expect(screen.getByRole('button', { name: 'OpenStreetMap' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Satellit' })).toBeTruthy()
   })
 
-  it('layer picker is NOT rendered when only one base layer exists', async () => {
+  it('layer-picker pills are NOT rendered when only one base layer exists', async () => {
     const { useMapLayers } = await import('@/hooks/useMapLayers')
     const mockUseMapLayers = useMapLayers as ReturnType<typeof vi.fn>
     mockUseMapLayers.mockReturnValue({
@@ -474,7 +473,7 @@ describe('LiftInspectorMap — A: layer picker', () => {
     })
 
     const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
-    const { container } = render(
+    render(
       <LiftInspectorMap
         candidates={[]}
         streams={[]}
@@ -484,8 +483,7 @@ describe('LiftInspectorMap — A: layer picker', () => {
       { wrapper },
     )
 
-    const select = container.querySelector('select[aria-label="Karten-Stil wählen"]')
-    expect(select).toBeNull()
+    expect(screen.queryByRole('button', { name: 'OpenStreetMap' })).toBeNull()
   })
 })
 

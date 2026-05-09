@@ -57,6 +57,21 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                     deine GPS-Spur knapp neben der OSM-Geometrie verlaufen und der Match feuert
                     fälschlich. Du kannst OSM-Treffer einzeln über „Ablehnen" entfernen.
                   </p>
+                  <p>
+                    <strong>Lift fehlt oder ist falsch eingetragen?</strong> Wenn du sicher bist, dass deine
+                    GPS-Spur korrekt ist, der Lift in OSM aber deutlich versetzt liegt oder ganz fehlt,
+                    kannst du OpenStreetMap selbst korrigieren — eine kurze Einführung dazu findest
+                    du auf{' '}
+                    <a
+                      href="https://openstreetmap.de/beitragen/osm-zugang/"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-accent-DEFAULT hover:underline"
+                    >
+                      openstreetmap.de/beitragen
+                    </a>
+                    . Skadia übernimmt deine Änderung automatisch beim nächsten OSM-Update.
+                  </p>
                 </dd>
               </div>
               <div>
@@ -98,7 +113,9 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                   </div>
                   <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed">
                     Der eindeutigste Fall: stabile Geschwindigkeit mit deutlichem Gradient.
-                    Greift wenn dein Speedsensor brauchbare Werte liefert.
+                    Greift wenn dein Speedsensor während der Liftfahrt non-Null-Werte liefert —
+                    typisch bei Schleppliften (Ski/Snowboard hat Bodenkontakt) oder wenn die
+                    Geschwindigkeit aus GPS abgeleitet wird.
                   </p>
                 </div>
               </div>
@@ -115,9 +132,11 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                     Heuristik (Höhenrate)
                   </div>
                   <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed">
-                    Der Speedsensor lieferte nichts brauchbares (z.B. Smart-Recording, Stationsphasen)
-                    — der Detektor verlässt sich nur auf die Höhenmeter pro Sekunde.
-                    Niedrigere Konfidenz, prüfe ggf. selbst.
+                    Greift wenn ein Speedsensor zwar montiert ist, aber während der Liftfahrt
+                    keine brauchbare Geschwindigkeit liefert (Ski/Snowboard ohne Bodenkontakt in
+                    Gondel oder Sessellift) oder Smart-Recording die Speed-Werte ganz fallen lässt.
+                    Der Detektor verlässt sich dann nur auf die Höhenmeter pro Sekunde — niedrigere
+                    Konfidenz, prüfe ggf. selbst.
                   </p>
                 </div>
               </div>
@@ -134,23 +153,24 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                     Heuristik (bidirektional)
                   </div>
                   <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-2">
-                    Klasse für Lifte, deren Höhenprofil während einer einzigen Fahrt sowohl
-                    Anstieg als auch Abstieg enthält. Die Netto-Höhenänderung am Endpunkt ist
-                    klein, obwohl die Cable kumulativ viele Höhenmeter zurücklegt.
+                    Klasse für Lifte mit U- oder ∩-förmigem Höhenprofil: Start- und Endpunkt
+                    liegen auf ähnlicher Höhe, dazwischen sinkt oder steigt die Trasse aber
+                    deutlich. Beim Befahren ergeben sich dadurch sowohl Anstieg als auch
+                    Abstieg, obwohl die Netto-Höhenänderung am Ende klein ist.
                   </p>
                   <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-3">
-                    <strong>Wichtig:</strong> Die Bezeichnung bezieht sich auf die Höhenbewegung der Cable,
-                    nicht auf die Richtung der Fahrt. Eine bidirektionale Klassifizierung
-                    beschreibt eine Liftfahrt mit U- oder ∩-Profil — kein Hin-und-Rück-Trip;
-                    letzteres wären zwei separate Fahrten und werden vom Detector auch so
-                    gezählt.
+                    <strong>Wichtig:</strong> Die Bezeichnung bezieht sich auf den Verlauf der
+                    Liftstrecke, nicht auf die Richtung der Fahrt. Eine bidirektionale
+                    Klassifizierung beschreibt eine einzige Liftfahrt entlang einer U- oder
+                    ∩-förmigen Trasse — kein Hin-und-Rück-Trip; letzteres wären zwei separate
+                    Fahrten und werden vom Detektor auch so gezählt.
                   </p>
                   <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-2">
                     Typische Fälle:
                   </p>
                   <ul className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-3 list-disc list-inside space-y-1">
-                    <li>Talquerung (∪) — Cable verbindet zwei Bergstationen ähnlicher Höhe und hängt zwischen ihnen ins Tal ab.</li>
-                    <li>Bergquerung (∩) — Cable führt von der Talstation über einen Grat hinüber zu einer Alm oder einem Hof auf vergleichbarer Höhe.</li>
+                    <li>Talquerung (∪) — die Trasse verbindet zwei Bergstationen ähnlicher Höhe und hängt zwischen ihnen ins Tal ab.</li>
+                    <li>Bergquerung (∩) — die Trasse führt von der Talstation über einen Grat hinüber zu einer Alm oder einem Hof auf vergleichbarer Höhe.</li>
                   </ul>
                   <pre
                     className="text-xs leading-tight font-mono bg-neutral-100 dark:bg-neutral-800 rounded-lg px-4 py-3 overflow-x-auto text-neutral-700 dark:text-neutral-300"
@@ -162,7 +182,7 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                               Tal ~2000 m`}
                   </pre>
                   <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mt-3">
-                    Der Detector kann beide Geometrien nicht voneinander unterscheiden — er
+                    Der Detektor kann beide Geometrien nicht voneinander unterscheiden — er
                     sieht in beiden Fällen einen horizontal direkten Pfad, stabile
                     Geschwindigkeit und kumulierte Höhenmeter, die sich zu einer kleinen
                     Netto-Änderung aufsummieren.
@@ -179,10 +199,10 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
             </h3>
             <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed">
               Wenn dein Gerät die Aufzeichnung pausiert (Smart-Recording / Auto-Pause / Sleep)
-              und der Gap länger als 75 Sekunden dauert, kann der Detektor keinen Lift über
-              diese Lücke hinweg erkennen — er braucht zusammenhängende Stream-Daten in
-              seinem Sliding-Window. Die Karte zeigt die Lücke als gestrichelte orange Linie
-              damit du siehst <em>wo</em> die Pause war.
+              und die Unterbrechung länger als 75 Sekunden dauert, kann der Detektor keinen
+              Lift über diese Lücke hinweg erkennen — er braucht zusammenhängende Stream-Daten
+              in seinem gleitenden Zeitfenster. Die Karte zeigt die Lücke als gestrichelte
+              orange Linie damit du siehst <em>wo</em> die Pause war.
             </p>
           </section>
         </div>
