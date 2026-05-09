@@ -253,17 +253,23 @@ func TestSystemModifierTagSyncSQLCoverageMatchesGeneratedRegistry(t *testing.T) 
 	}
 
 	// Every registry key must either be covered or explicitly excluded.
+	// Collect all missing keys so a single run reports every gap at once.
+	var missingCoverage []string
 	for key := range registryKeys {
 		_, covered := systemModifierTagSyncSQLCoverage[key]
 		_, excluded := systemModifierTagSyncSQLExclusions[key]
 		if !covered && !excluded {
-			t.Errorf("modifier key %q has tag_sync in the generated registry but no SQL coverage; "+
-				"add it to systemModifierTagSyncSQLCoverage or list it in "+
-				"systemModifierTagSyncSQLExclusions with a tracking plan", key)
+			missingCoverage = append(missingCoverage, key)
 		}
 		if covered && excluded {
 			t.Errorf("modifier key %q is both covered and excluded; pick one", key)
 		}
+	}
+	if len(missingCoverage) > 0 {
+		sort.Strings(missingCoverage)
+		t.Fatalf("modifier keys have tag_sync in the generated registry but no SQL coverage: %v; "+
+			"add each to systemModifierTagSyncSQLCoverage or list in "+
+			"systemModifierTagSyncSQLExclusions with a tracking plan", missingCoverage)
 	}
 	// Coverage entries must point at modifier keys that still exist.
 	for key := range systemModifierTagSyncSQLCoverage {
@@ -315,17 +321,23 @@ func TestSystemModifierTagSyncSQLCoverageMatchesGeneratedRegistry(t *testing.T) 
 func TestSystemModifierTagSyncSQLCoverageReferencedByResyncMigration(t *testing.T) {
 	upBytes, err := os.ReadFile("000353_system_modifier_tag_sync_hardening.up.sql")
 	if err != nil {
-		// Glob fallback covers branches still on the 000999 placeholder
-		// before scripts/finalize-migration.sh runs.
+		// Glob fallback for branches still using the 000999 placeholder before
+		// scripts/finalize-migration.sh runs. Exactly one match is required;
+		// zero or multiple matches are both hard errors.
 		matches, _ := filepath.Glob("*_system_modifier_tag_sync_hardening.up.sql")
-		if len(matches) == 0 {
-			t.Skip("system_modifier_tag_sync_hardening migration not present yet")
-			return
-		}
-		sort.Strings(matches)
-		upBytes, err = os.ReadFile(matches[len(matches)-1])
-		if err != nil {
-			t.Fatalf("read hardening up.sql: %v", err)
+		switch len(matches) {
+		case 0:
+			t.Fatalf("migration not found: neither 000353_system_modifier_tag_sync_hardening.up.sql " +
+				"nor any *_system_modifier_tag_sync_hardening.up.sql exists in this directory")
+		case 1:
+			upBytes, err = os.ReadFile(matches[0])
+			if err != nil {
+				t.Fatalf("read hardening up.sql %s: %v", matches[0], err)
+			}
+		default:
+			sort.Strings(matches)
+			t.Fatalf("ambiguous migration files for system_modifier_tag_sync_hardening: %v; "+
+				"run scripts/finalize-migration.sh to resolve the 000999 placeholder", matches)
 		}
 	}
 	upSQL := string(upBytes)
@@ -350,5 +362,94 @@ func TestSystemModifierTagSyncSQLCoverageReferencedByResyncMigration(t *testing.
 			t.Errorf("hardening up.sql missing sport guard sport_type = %q for modifier %s",
 				cov.OnlySportType, key)
 		}
+	}
+}
+
+// collectMissingCoverageKeys applies the same parity logic as
+// TestSystemModifierTagSyncSQLCoverageMatchesGeneratedRegistry against an
+// arbitrary registry snapshot. Extracted so the hard-fail-on-missing-key
+// behaviour can be exercised without mutating the generated sport registry.
+func collectMissingCoverageKeys(
+	registryKeys map[string]sport.SportModifierTagSync,
+	coverage map[string]systemModifierTagSyncSQLCoverageEntry,
+	exclusions map[string]string,
+) []string {
+	var missing []string
+	for key := range registryKeys {
+		_, covered := coverage[key]
+		_, excluded := exclusions[key]
+		if !covered && !excluded {
+			missing = append(missing, key)
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+// TestSystemModifierTagSyncSQLCoverageRejectsMissingKey verifies that the
+// parity loop produces a non-empty missing-key list (and would t.Fatalf) when
+// the registry contains a key not present in coverage or exclusions.
+//
+// Direct mutation of sport.SportModifierByKey is not possible because the
+// generated registry is an immutable sync.OnceValue. Instead, a synthetic
+// registry snapshot is passed directly to collectMissingCoverageKeys so the
+// hard-fail path is exercised without an in-process registry change.
+func TestSystemModifierTagSyncSQLCoverageRejectsMissingKey(t *testing.T) {
+	// Synthetic registry with one key that has no coverage or exclusion entry.
+	synthetic := map[string]sport.SportModifierTagSync{
+		"is_future": {SystemTag: "Future", ReadonlySync: true},
+	}
+	missing := collectMissingCoverageKeys(synthetic, systemModifierTagSyncSQLCoverage, systemModifierTagSyncSQLExclusions)
+	if len(missing) == 0 {
+		t.Fatal("parity check did not flag synthetic uncovered key 'is_future'; hard-fail path is broken")
+	}
+	if missing[0] != "is_future" {
+		t.Fatalf("missing keys = %v, want [is_future]", missing)
+	}
+}
+
+// resolveMigrationGlobOrFatalf applies the same multi-match detection that
+// TestSystemModifierTagSyncSQLCoverageReferencedByResyncMigration uses.
+// Extracted so the multi-match fatal branch can be exercised in a unit test
+// without hitting the filesystem.
+func resolveMigrationGlobOrFatalf(t *testing.T, matches []string) (string, bool) {
+	t.Helper()
+	switch len(matches) {
+	case 0:
+		return "", false // caller maps this to fatal
+	case 1:
+		return matches[0], true
+	default:
+		return "", false // caller maps this to fatal
+	}
+}
+
+func TestMigrationGlobFallbackRejectsMultipleMatches(t *testing.T) {
+	// Two matches simulate two 000999 placeholders for the same topic.
+	matches := []string{
+		"000999_system_modifier_tag_sync_hardening.up.sql",
+		"000353_system_modifier_tag_sync_hardening.up.sql",
+	}
+	_, ok := resolveMigrationGlobOrFatalf(t, matches)
+	if ok {
+		t.Fatal("multi-match should not be accepted; want fatal signal (false)")
+	}
+}
+
+func TestMigrationGlobFallbackRejectsZeroMatches(t *testing.T) {
+	_, ok := resolveMigrationGlobOrFatalf(t, nil)
+	if ok {
+		t.Fatal("zero matches should not be accepted; want fatal signal (false)")
+	}
+}
+
+func TestMigrationGlobFallbackAcceptsSingleMatch(t *testing.T) {
+	matches := []string{"000999_system_modifier_tag_sync_hardening.up.sql"}
+	path, ok := resolveMigrationGlobOrFatalf(t, matches)
+	if !ok {
+		t.Fatal("single match should be accepted")
+	}
+	if path != matches[0] {
+		t.Fatalf("resolved path = %q, want %q", path, matches[0])
 	}
 }

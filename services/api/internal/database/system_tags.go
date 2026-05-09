@@ -62,6 +62,16 @@ func systemTagNameForModifier(modifierKey string) string {
 	return ""
 }
 
+// IsSystemModifierTagName reports whether tagName is the reserved system tag
+// name of a registry-backed tag_sync modifier (e.g. "Indoor", "Pendeln",
+// "virtuell", "E-Bike"). Used by HTTP handlers to decide whether removal
+// records should be written by the handler or are reconciled by the resync
+// function inside the helper transaction.
+func IsSystemModifierTagName(tagName string) bool {
+	_, ok := matchSystemModifierTagSync(tagName)
+	return ok
+}
+
 func systemRuleNameForModifierSync(modifier sport.SportModifierDef) string {
 	if modifier.TagSync != nil && modifier.TagSync.OnlySportType != "" {
 		return modifier.TagSync.SystemTag

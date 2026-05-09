@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
@@ -515,6 +516,17 @@ func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	tag, tagErr := h.DB.GetTagByID(r.Context(), tagID, userID)
+	if tagErr != nil {
+		slog.Error("assign activities: get tag failed", "tag_id", tagID, "error", tagErr)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
+		return
+	}
+	if tag == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+		return
+	}
+
 	accepted, err := h.DB.AssignActivitiesToTag(r.Context(), tagID, userID, req.ActivityIDs)
 	if err != nil {
 		slog.Error("assign activities to tag failed", "tag_id", tagID, "error", err)
@@ -522,13 +534,18 @@ func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Clear removal records and refresh side effects only for IDs the DB layer
-	// actually accepted. Cross-user IDs and (for cycling-only E-Bike) non-
-	// cycling IDs are silently dropped upstream — no removal record, file
-	// refresh, or backfill should run for them.
-	for _, actID := range accepted {
-		if err := h.DB.ClearTagRemoval(r.Context(), actID, tagID); err != nil {
-			slog.Warn("clear tag removal", "err", err, "activity", actID, "tag", tagID)
+	// Clear removal records only for IDs the DB layer actually accepted.
+	// Cross-user IDs and (for cycling-only E-Bike) non-cycling IDs are silently
+	// dropped upstream — no removal record, file refresh, or backfill should run
+	// for them.
+	// For system modifier tags, activity_tag_removals reconcile is handled by
+	// skadia_resync_system_modifier_tags inside the helper tx; a second
+	// ClearTagRemoval call from the handler would be a redundant double-write.
+	if !(tag.IsSystem && database.IsSystemModifierTagName(tag.Name)) {
+		for _, actID := range accepted {
+			if err := h.DB.ClearTagRemoval(r.Context(), actID, tagID); err != nil {
+				slog.Warn("clear tag removal", "err", err, "activity", actID, "tag", tagID)
+			}
 		}
 	}
 	if !deferActivityFileRefresh(r) {
@@ -805,10 +822,12 @@ func (h *Handler) UnassignActivitiesFromTag(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Record removals + refresh side effects only for IDs the DB layer actually
-	// accepted. Cross-user IDs are dropped upstream and must never produce a
-	// removal record or file refresh under the current user.
-	if tag.IsSystem {
+	// Record removals only for IDs the DB layer actually accepted. Cross-user
+	// IDs are dropped upstream and must never produce a removal record.
+	// For system modifier tags, activity_tag_removals reconcile is handled by
+	// skadia_resync_system_modifier_tags inside the helper tx; recording a
+	// removal from the handler would be a redundant double-write.
+	if tag.IsSystem && !database.IsSystemModifierTagName(tag.Name) {
 		for _, actID := range accepted {
 			if err := h.DB.RecordTagRemoval(r.Context(), actID, tagID); err != nil {
 				slog.Warn("record tag removal", "err", err, "activity", actID, "tag", tagID)

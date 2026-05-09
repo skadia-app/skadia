@@ -47,6 +47,13 @@ AS $$
 DECLARE
     v_tag_id UUID;
     v_skip_outbound BOOLEAN := COALESCE(current_setting('skadia.skip_system_modifier_tag_sync', true), 'false') = 'true';
+    -- reserved-name slot guard (Critic #3): compare OLD/NEW membership per slot
+    v_indoor_was   BOOLEAN;
+    v_indoor_now   BOOLEAN;
+    v_commute_was  BOOLEAN;
+    v_commute_now  BOOLEAN;
+    v_electric_was BOOLEAN;
+    v_electric_now BOOLEAN;
 BEGIN
     IF TG_OP = 'INSERT' THEN
         -- Direction A: tags TEXT[] → modifier flags (always runs).
@@ -78,13 +85,28 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- UPDATE Direction A: tags TEXT[] changed → flags (always runs).
+    -- UPDATE Direction A: tags TEXT[] changed → flags (always runs, but only when
+    -- the relevant reserved-name slot membership actually changed between OLD and NEW).
+    -- reserved-name slot guard (Critic #3): only re-derive flags on real slot changes
     IF NEW.tags IS DISTINCT FROM OLD.tags THEN
-        NEW.is_indoor := 'Indoor' = ANY(COALESCE(NEW.tags, '{}'));
-        NEW.is_commute := 'Pendeln' = ANY(COALESCE(NEW.tags, '{}'));
+        v_indoor_was   := 'Indoor'  = ANY(COALESCE(OLD.tags, '{}'));
+        v_indoor_now   := 'Indoor'  = ANY(COALESCE(NEW.tags, '{}'));
+        v_commute_was  := 'Pendeln' = ANY(COALESCE(OLD.tags, '{}'));
+        v_commute_now  := 'Pendeln' = ANY(COALESCE(NEW.tags, '{}'));
+        v_electric_was := 'E-Bike'  = ANY(COALESCE(OLD.tags, '{}'));
+        v_electric_now := 'E-Bike'  = ANY(COALESCE(NEW.tags, '{}'));
+
+        IF v_indoor_was IS DISTINCT FROM v_indoor_now THEN
+            NEW.is_indoor := v_indoor_now;
+        END IF;
+        IF v_commute_was IS DISTINCT FROM v_commute_now THEN
+            NEW.is_commute := v_commute_now;
+        END IF;
 
         IF NEW.sport_type = 'cycling' THEN
-            NEW.is_electric := 'E-Bike' = ANY(COALESCE(NEW.tags, '{}'));
+            IF v_electric_was IS DISTINCT FROM v_electric_now THEN
+                NEW.is_electric := v_electric_now;
+            END IF;
         ELSIF 'E-Bike' = ANY(COALESCE(NEW.tags, '{}')) THEN
             -- Non-cycling row carries an 'E-Bike' tag string: strip it. The
             -- accompanying junction/count cleanup is outbound and gated.
@@ -420,6 +442,11 @@ BEGIN
     WHERE a.id = ANY(p_activity_ids);
 
     IF v_affected_tag_ids IS NOT NULL AND cardinality(v_affected_tag_ids) > 0 THEN
+        -- deterministic lock fence (Critic #12): ORDER BY id ensures two concurrent
+        -- helper transactions acquire row locks in the same order, preventing deadlocks
+        -- when both touch the same tag IDs from different activity subsets.
+        PERFORM 1 FROM tags WHERE id = ANY(v_affected_tag_ids) ORDER BY id FOR UPDATE;
+
         UPDATE tags
         SET activity_count = (SELECT COUNT(*) FROM activity_tags WHERE tag_id = tags.id)
         WHERE id = ANY(v_affected_tag_ids);

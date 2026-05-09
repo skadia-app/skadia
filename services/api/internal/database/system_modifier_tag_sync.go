@@ -26,10 +26,9 @@ type systemModifierTagSyncQuerier interface {
 // before commit. If fn or the resync call returns an error, the entire
 // transaction rolls back and no row is changed.
 //
-// An empty or nil activityIDs slice runs fn inside a transaction WITHOUT
-// setting the skip flag and WITHOUT calling resync — there is nothing to
-// suppress and nothing to repair, so the helper degrades gracefully into
-// a plain "begin → fn → commit" path.
+// activityIDs must be non-empty: the helper's contract is "you have IDs you
+// want resynced; call something else for an empty set". Passing an empty or
+// nil slice returns an error without opening a transaction.
 //
 // Callers must NOT wrap downloads, parsing, stream writes, or enrichment
 // file IO inside fn. Long-running work belongs OUTSIDE the helper; only
@@ -41,6 +40,9 @@ func (db *DB) WithSystemModifierTagSyncSuspended(
 ) (err error) {
 	if fn == nil {
 		return fmt.Errorf("WithSystemModifierTagSyncSuspended: fn is nil")
+	}
+	if len(activityIDs) == 0 {
+		return fmt.Errorf("WithSystemModifierTagSyncSuspended: empty activityIDs")
 	}
 
 	deduped := dedupeSystemModifierActivityIDs(activityIDs)

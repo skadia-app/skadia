@@ -215,9 +215,11 @@ func TestAssignActivitiesToTagSystemModifierTagMixedOwnedSubsetIsApplied(t *test
 }
 
 func TestUnassignActivitiesFromTagSystemModifierTagRecordRemovalScopedToAccepted(t *testing.T) {
-	// Bulk-unassign Indoor with a mix of owned + cross-user IDs.
-	// RecordTagRemoval should fire only for the owned ID; cross-user must
-	// never get a removal record under the primary's tagID.
+	// Bulk-unassign Indoor (system modifier tag) with a mix of owned + cross-user IDs.
+	// For system modifier tags, RecordTagRemoval must NOT fire — the modifier flag
+	// (is_indoor=false) is the authoritative state; activity_tag_removals is only
+	// written for non-system-modifier tags. Cross-user activity must never
+	// get a removal record under any circumstance.
 	h, db, primaryID, otherID := systemSyncHandlerEnv(t)
 	ctx := context.Background()
 	primaryRunID := insertHandlerSyncActivity(t, db, primaryID, "running")
@@ -234,10 +236,71 @@ func TestUnassignActivitiesFromTagSystemModifierTagRecordRemovalScopedToAccepted
 		t.Fatalf("status = %d, body = %s, want 204", w.Code, w.Body.String())
 	}
 
-	if !removalRecorded(t, db, primaryRunID, indoorTagID) {
-		t.Fatalf("primary removal not recorded — RecordTagRemoval skipped accepted ID")
+	// System modifier tag: RecordTagRemoval must NOT be called — modifier flag is authoritative.
+	// system tag removal/unrecord is reconciled by skadia_resync_system_modifier_tags inside the helper tx.
+	if removalRecorded(t, db, primaryRunID, indoorTagID) {
+		t.Fatalf("removal recorded for primary system-modifier-tag activity — must not be written for system modifier tags")
 	}
 	if removalRecorded(t, db, otherRunID, indoorTagID) {
 		t.Fatalf("removal recorded for cross-user activity — must never happen")
+	}
+}
+
+func TestAssignActivitiesToTagSystemModifierSkipsClearTagRemoval(t *testing.T) {
+	// Assign a system modifier tag (E-Bike cycling) to a cycling activity that has
+	// a pre-existing removal record. The handler must NOT call ClearTagRemoval
+	// directly; the resync inside the helper tx handles it instead. The net result
+	// is the same (removal cleared), but the path must not double-write.
+	// We verify the end state (removal cleared) and that a non-cycling activity's
+	// removal stays (it was not accepted by the DB layer).
+	h, db, primaryID, _ := systemSyncHandlerEnv(t)
+	ctx := context.Background()
+	cyclingID := insertHandlerSyncActivity(t, db, primaryID, "cycling")
+	runningID := insertHandlerSyncActivity(t, db, primaryID, "running")
+	ebikeTagID := mustHandlerSystemTagID(t, db, primaryID, "E-Bike")
+
+	// Pre-record removals on both.
+	for _, id := range []string{cyclingID, runningID} {
+		if err := db.RecordTagRemoval(ctx, id, ebikeTagID); err != nil {
+			t.Fatalf("RecordTagRemoval %s: %v", id, err)
+		}
+	}
+
+	w := callAssign(t, h, primaryID, ebikeTagID, []string{cyclingID, runningID})
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	// Cycling activity: removal must be cleared by the resync (not the handler).
+	if removalRecorded(t, db, cyclingID, ebikeTagID) {
+		t.Fatalf("cycling E-Bike removal still recorded after assign — resync should have cleared it")
+	}
+	// Running activity: was not accepted (cycling-only), so its removal must stay.
+	if !removalRecorded(t, db, runningID, ebikeTagID) {
+		t.Fatalf("running E-Bike removal was cleared — must stay because it was not accepted")
+	}
+}
+
+func TestUnassignActivitiesFromTagSystemModifierSkipsRecordTagRemoval(t *testing.T) {
+	// Assign then unassign a system modifier tag (Indoor). Assert no removal row
+	// is created in activity_tag_removals — for system modifier tags, the modifier
+	// flag (is_indoor=false) is the removal record, not the activity_tag_removals table.
+	// system tag removal/unrecord is reconciled by skadia_resync_system_modifier_tags inside the helper tx.
+	h, db, primaryID, _ := systemSyncHandlerEnv(t)
+	ctx := context.Background()
+	runID := insertHandlerSyncActivity(t, db, primaryID, "running")
+	indoorTagID := mustHandlerSystemTagID(t, db, primaryID, "Indoor")
+
+	if _, err := db.AssignActivitiesToTag(ctx, indoorTagID, primaryID, []string{runID}); err != nil {
+		t.Fatalf("seed assign: %v", err)
+	}
+
+	w := callUnassign(t, h, primaryID, indoorTagID, []string{runID})
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	if removalRecorded(t, db, runID, indoorTagID) {
+		t.Fatalf("removal row written for system modifier tag — must not be written")
 	}
 }

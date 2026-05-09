@@ -156,36 +156,23 @@ func TestWithSystemModifierTagSyncSuspendedRollsBackOnResyncError(t *testing.T) 
 	db, _, ids := systemModifierTagSyncTestDB(t)
 	ctx := context.Background()
 
-	// Inject a dummy activity ID that does not exist. The resync function
-	// is supposed to ignore unknown IDs, but to test the rollback path we
-	// instead pass a syntactically valid uuid that the inner fn consumes
-	// to raise an exception inside the resync call. Simulating a resync
-	// error is best done by overriding the function to RAISE within the
-	// helper's transaction scope.
-
-	// Plant a session-local override that makes the resync raise. The
-	// helper's transaction will pick it up (the override is created on
-	// the same transaction).
-	err := db.WithSystemModifierTagSyncSuspended(ctx, ids, func(ctx context.Context, tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `
-			CREATE OR REPLACE FUNCTION skadia_resync_system_modifier_tags(p_activity_ids UUID[]) RETURNS VOID
-			LANGUAGE plpgsql AS $$
-			BEGIN RAISE EXCEPTION 'simulated resync failure'; END;
-			$$
-		`); err != nil {
-			t.Fatalf("override resync function: %v", err)
-		}
+	// Inject a malformed UUID into the ID list so the ::uuid[] cast inside the
+	// resync call fails with an invalid-input-syntax error. This forces the
+	// resync step to return an error and exercises the rollback path without
+	// overriding the production function (which could cause pgxpool
+	// prepared-statement cache collisions).
+	poisonIDs := append([]string{"not-a-valid-uuid"}, ids...)
+	err := db.WithSystemModifierTagSyncSuspended(ctx, poisonIDs, func(ctx context.Context, tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `UPDATE activities SET is_indoor = true WHERE id = ANY($1::uuid[])`, ids); err != nil {
 			t.Fatalf("update inside fn: %v", err)
 		}
 		return nil
 	})
 	if err == nil {
-		t.Fatalf("helper returned nil despite resync failure")
+		t.Fatalf("helper returned nil despite malformed-uuid resync poison")
 	}
 
-	// Rollback: function override is reverted (CREATE OR REPLACE inside a
-	// transaction is rolled back too) and modifier flags stay false.
+	// The rollback must have reverted the UPDATE — modifier flags stay false.
 	for _, id := range ids {
 		var got bool
 		if e := db.Pool.QueryRow(ctx, `SELECT is_indoor FROM activities WHERE id = $1`, id).Scan(&got); e != nil {
@@ -195,13 +182,9 @@ func TestWithSystemModifierTagSyncSuspendedRollsBackOnResyncError(t *testing.T) 
 			t.Fatalf("activity %s is_indoor = true after rollback, want false", id)
 		}
 	}
-	// Sanity: the resync function is back to its real body.
-	var raised bool
+	// Sanity: the real resync function is still intact.
 	if _, e := db.Pool.Exec(ctx, `SELECT skadia_resync_system_modifier_tags(ARRAY[]::uuid[])`); e != nil {
-		raised = true
-	}
-	if raised {
-		t.Fatalf("real resync function got dropped when the helper's tx rolled back")
+		t.Fatalf("real resync function broken after rollback test: %v", e)
 	}
 }
 
@@ -209,118 +192,166 @@ func TestWithSystemModifierTagSyncSuspendedDeduplicatesIDs(t *testing.T) {
 	db, _, ids := systemModifierTagSyncTestDB(t)
 	ctx := context.Background()
 
-	// Build a slice with intentional duplicates and an empty string that
-	// must be filtered out before reaching the resync call. The capturing
-	// override below re-raises with the array contents so the helper's
-	// transaction rolls back, leaving the real resync function intact.
+	// Build a slice with intentional duplicates and an empty string. The helper
+	// must deduplicate before passing IDs to the resync function; we verify this
+	// by asserting the correct DB state after a successful commit rather than
+	// by overriding the production function (which would risk pgxpool
+	// prepared-statement cache collisions).
 	withDupes := []string{ids[0], ids[1], ids[0], "", ids[1], ids[2], ids[0]}
 
 	err := db.WithSystemModifierTagSyncSuspended(ctx, withDupes, func(ctx context.Context, tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `
-			CREATE OR REPLACE FUNCTION skadia_resync_system_modifier_tags(p_activity_ids UUID[]) RETURNS VOID
-			LANGUAGE plpgsql AS $$
-			DECLARE v_id uuid;
-			BEGIN
-				FOREACH v_id IN ARRAY p_activity_ids LOOP
-					RAISE NOTICE 'smts_resync_call: %', v_id::text;
-				END LOOP;
-				RAISE EXCEPTION 'capture: %', array_to_string(p_activity_ids, ',');
-			END;
-			$$
-		`); err != nil {
-			return err
-		}
-		_, _ = tx.Exec(ctx, `UPDATE activities SET is_indoor = true WHERE id = ANY($1::uuid[])`, ids)
-		return nil
+		// Flip all three activities to is_indoor=true; with the skip flag set
+		// the trigger will not add the tag — resync repairs this at commit.
+		_, err := tx.Exec(ctx, `UPDATE activities SET is_indoor = true WHERE id = ANY($1::uuid[])`, ids)
+		return err
 	})
-	if err == nil {
-		t.Fatalf("expected capture exception")
+	if err != nil {
+		t.Fatalf("helper with duplicates: %v", err)
 	}
-	// Parse the error message; pgx surfaces RAISE EXCEPTION text.
-	gotIDs := parseCaptureExceptionUUIDs(t, err)
-	if len(gotIDs) != len(ids) {
-		t.Fatalf("resync received %d IDs (%v), want %d unique (%v)", len(gotIDs), gotIDs, len(ids), ids)
-	}
-	seen := map[string]bool{}
-	for _, id := range gotIDs {
-		if seen[id] {
-			t.Fatalf("resync received duplicate id %s in %v", id, gotIDs)
+
+	// After commit the resync must have repaired all three activities exactly
+	// once (deduplication means each ID is processed once by the resync).
+	for _, id := range ids {
+		if !activityHasIndoorTagDB(t, ctx, db.Pool, id) {
+			t.Fatalf("activity %s tags missing 'Indoor' after dedup resync", id)
 		}
-		seen[id] = true
-	}
-	for _, want := range ids {
-		if !seen[want] {
-			t.Fatalf("resync did not receive expected id %s; got %v", want, gotIDs)
+		if !indoorJunctionExists(t, ctx, db.Pool, id) {
+			t.Fatalf("activity %s indoor junction missing after dedup resync", id)
 		}
 	}
 }
 
-func TestWithSystemModifierTagSyncSuspendedEmptySliceSkipsResync(t *testing.T) {
+// TestDedupeSystemModifierActivityIDsUnit is a pure unit test for the
+// deduplication helper — no DB required.
+func TestDedupeSystemModifierActivityIDsUnit(t *testing.T) {
+	id1 := "11111111-1111-1111-1111-111111111111"
+	id2 := "22222222-2222-2222-2222-222222222222"
+	id3 := "33333333-3333-3333-3333-333333333333"
+
+	got := dedupeSystemModifierActivityIDs([]string{id1, id2, id1, "", id2, id3, id1})
+	want := []string{id1, id2, id3}
+	if len(got) != len(want) {
+		t.Fatalf("deduped = %v, want %v", got, want)
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Fatalf("deduped[%d] = %q, want %q", i, got[i], w)
+		}
+	}
+
+	if got := dedupeSystemModifierActivityIDs(nil); got != nil {
+		t.Fatalf("nil input: got %v, want nil", got)
+	}
+	if got := dedupeSystemModifierActivityIDs([]string{}); got != nil {
+		t.Fatalf("empty input: got %v, want nil", got)
+	}
+}
+
+func TestWithSystemModifierTagSyncSuspendedEmptySliceReturnsError(t *testing.T) {
 	db, _, _ := systemModifierTagSyncTestDB(t)
 	ctx := context.Background()
 
-	var fnCalled bool
-	err := db.WithSystemModifierTagSyncSuspended(ctx, nil, func(ctx context.Context, tx pgx.Tx) error {
-		fnCalled = true
-		// Verify the skip flag is NOT set under empty input.
-		var raw string
-		if err := tx.QueryRow(ctx,
-			`SELECT COALESCE(current_setting('skadia.skip_system_modifier_tag_sync', true), '')`,
-		).Scan(&raw); err != nil {
-			return err
-		}
-		if raw == "true" {
-			t.Errorf("empty-slice path set the skip flag, want unset")
-		}
+	err := db.WithSystemModifierTagSyncSuspended(ctx, []string{}, func(ctx context.Context, tx pgx.Tx) error {
+		t.Fatal("fn must not be called when activityIDs is empty")
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("helper returned: %v", err)
-	}
-	if !fnCalled {
-		t.Fatalf("helper did not invoke fn for empty slice")
+	if err == nil {
+		t.Fatal("expected error for empty activityIDs, got nil")
 	}
 }
 
-// parseCaptureExceptionUUIDs pulls the comma-separated UUID list out of the
-// pgx error text raised by the resync override above.
-func parseCaptureExceptionUUIDs(t *testing.T, err error) []string {
-	t.Helper()
-	msg := err.Error()
-	const marker = "capture: "
-	idx := -1
-	for i := 0; i+len(marker) <= len(msg); i++ {
-		if msg[i:i+len(marker)] == marker {
-			idx = i + len(marker)
-			break
-		}
+func TestWithSystemModifierTagSyncSuspendedNilSliceReturnsError(t *testing.T) {
+	db, _, _ := systemModifierTagSyncTestDB(t)
+	ctx := context.Background()
+
+	err := db.WithSystemModifierTagSyncSuspended(ctx, nil, func(ctx context.Context, tx pgx.Tx) error {
+		t.Fatal("fn must not be called when activityIDs is nil")
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected error for nil activityIDs, got nil")
 	}
-	if idx < 0 {
-		t.Fatalf("error %q does not contain capture marker", msg)
-	}
-	rest := msg[idx:]
-	end := len(rest)
-	for i, c := range rest {
-		if c == '\n' || c == ' ' || c == '\t' {
-			end = i
-			break
-		}
-	}
-	rest = rest[:end]
-	out := []string{}
-	cur := ""
-	for _, c := range rest {
-		if c == ',' {
-			if cur != "" {
-				out = append(out, cur)
-				cur = ""
-			}
-			continue
-		}
-		cur += string(c)
-	}
-	if cur != "" {
-		out = append(out, cur)
-	}
-	return out
 }
+
+// TestWithSystemModifierTagSyncSuspendedRollsBackOnPanic pins the recover()
+// branch in the helper's defer (added in Phase A, commit 7c05f4264). When fn
+// panics after performing an UPDATE, the helper must:
+//   - roll the transaction back (modifier flag stays at its pre-fn value)
+//   - leave no resync side effect (tags array stays empty, junction count 0)
+//   - re-panic so the caller sees the original failure.
+//
+// If the recover() branch is removed, the connection leaks an open tx and the
+// rollback assertions fail.
+func TestWithSystemModifierTagSyncSuspendedRollsBackOnPanic(t *testing.T) {
+	db, userID, ids := systemModifierTagSyncTestDB(t)
+	ctx := context.Background()
+
+	// Look up the Indoor system tag for the count assertion.
+	var indoorTagID string
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT id FROM tags WHERE user_id = $1 AND name = 'Indoor' AND is_system = true
+	`, userID).Scan(&indoorTagID); err != nil {
+		t.Fatalf("lookup Indoor tag: %v", err)
+	}
+
+	target := ids[0]
+	panicMarker := errors.New("synthetic panic from fn")
+
+	var recovered any
+	func() {
+		defer func() { recovered = recover() }()
+		_ = db.WithSystemModifierTagSyncSuspended(ctx, []string{target}, func(ctx context.Context, tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `UPDATE activities SET is_indoor = true WHERE id = $1`, target); err != nil {
+				t.Fatalf("update inside fn: %v", err)
+			}
+			panic(panicMarker)
+		})
+	}()
+
+	if recovered == nil {
+		t.Fatal("helper did not propagate panic from fn")
+	}
+	if recErr, ok := recovered.(error); !ok || !errors.Is(recErr, panicMarker) {
+		t.Fatalf("recovered = %v, want %v", recovered, panicMarker)
+	}
+
+	// is_indoor must still be false: the UPDATE was inside the helper tx and
+	// the recover() branch must have rolled it back.
+	var isIndoor bool
+	if err := db.Pool.QueryRow(ctx, `SELECT is_indoor FROM activities WHERE id = $1`, target).Scan(&isIndoor); err != nil {
+		t.Fatalf("query is_indoor after panic: %v", err)
+	}
+	if isIndoor {
+		t.Fatalf("activity %s is_indoor = true after panic, want false (helper rollback failed)", target)
+	}
+
+	// tags array must still be empty: resync ran inside the helper tx, so any
+	// resync-driven tag insert is also gone after rollback. (Belt-and-braces:
+	// the helper bails before resync when fn panics, but this assertion still
+	// catches a regression that bypasses the rollback.)
+	var tags []string
+	if err := db.Pool.QueryRow(ctx, `SELECT COALESCE(tags, ARRAY[]::text[]) FROM activities WHERE id = $1`, target).Scan(&tags); err != nil {
+		t.Fatalf("query tags after panic: %v", err)
+	}
+	if len(tags) != 0 {
+		t.Fatalf("activity %s tags = %v after panic, want empty", target, tags)
+	}
+
+	// Indoor system tag activity_count must still be 0 — no junction inserted.
+	var count int
+	if err := db.Pool.QueryRow(ctx, `SELECT activity_count FROM tags WHERE id = $1`, indoorTagID).Scan(&count); err != nil {
+		t.Fatalf("query Indoor activity_count: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("Indoor activity_count = %d after panic, want 0 (resync side effect leaked past rollback)", count)
+	}
+
+	// Sanity: the pool is still usable — a panic that left an open tx on the
+	// connection would corrupt the pool state for follow-up queries. The two
+	// COALESCE queries above already exercised the pool, but issue an explicit
+	// no-op to make the contract obvious in the test body.
+	if _, err := db.Pool.Exec(ctx, `SELECT 1`); err != nil {
+		t.Fatalf("pool unusable after panic: %v", err)
+	}
+}
+

@@ -397,3 +397,46 @@ func containsString(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+func TestUnassignActivitiesFromTagEBikeSkipsNonCyclingActivities(t *testing.T) {
+	// Setup: cycling A1 with is_electric=true, running A2 with is_electric=false.
+	// Unassign E-Bike with [A1, A2]. Only A1 should be in accepted; A2 must be
+	// untouched (no modifier change, no junction row, no removal row).
+	db, userID, _ := tagSystemModifierSyncTestDB(t)
+	ctx := context.Background()
+
+	cyclingID := insertSyncTestActivity(t, db, userID, "cycling")
+	runningID := insertSyncTestActivity(t, db, userID, "running")
+	ebikeTagID := mustSystemTagID(t, db, userID, "E-Bike")
+
+	// Assign E-Bike to the cycling activity first so there is state to unassign.
+	if _, err := db.AssignActivitiesToTag(ctx, ebikeTagID, userID, []string{cyclingID}); err != nil {
+		t.Fatalf("seed assign cycling: %v", err)
+	}
+	if st := loadActivityTagState(t, db, cyclingID); !st.IsElectric {
+		t.Fatalf("cycling is_electric = false after seed assign, want true")
+	}
+
+	accepted, err := db.UnassignActivitiesFromTag(ctx, ebikeTagID, userID, []string{cyclingID, runningID})
+	if err != nil {
+		t.Fatalf("UnassignActivitiesFromTag: %v", err)
+	}
+
+	// Only the cycling activity should be in accepted.
+	if len(accepted) != 1 || accepted[0] != cyclingID {
+		t.Fatalf("accepted = %v, want [%s] (cycling only)", accepted, cyclingID)
+	}
+
+	// Cycling activity must have is_electric cleared.
+	if st := loadActivityTagState(t, db, cyclingID); st.IsElectric {
+		t.Fatalf("cycling is_electric = true after unassign, want false")
+	}
+
+	// Running activity must be completely untouched.
+	if st := loadActivityTagState(t, db, runningID); st.IsElectric {
+		t.Fatalf("running is_electric = true, must remain false (never had E-Bike)")
+	}
+	if hasJunctionRow(t, db, runningID, ebikeTagID) {
+		t.Fatalf("running activity has E-Bike junction row, must have none")
+	}
+}
