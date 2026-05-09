@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -45,12 +46,27 @@ func (db *DB) WithSystemModifierTagSyncSuspended(
 		return fmt.Errorf("WithSystemModifierTagSyncSuspended: empty activityIDs")
 	}
 
-	deduped := dedupeSystemModifierActivityIDs(activityIDs)
+	// Validate and dedupe before opening a transaction so callers see a
+	// structured error (with the offending index) instead of a Postgres
+	// cast failure mid-tx, and so the skip-gate invariant holds: if
+	// post-dedupe the slice is empty, the contract is violated and we
+	// return an error rather than running fn without the gate set.
+	deduped, err := validateAndDedupeSystemModifierActivityIDs(activityIDs)
+	if err != nil {
+		return err
+	}
 
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
+
+	// commitAttempted is set to true immediately before tx.Commit so the
+	// defer knows whether the tx is still open. After Commit returns (with
+	// or without an error), pgx marks the connection closed — calling
+	// Rollback on it would return pgx.ErrTxClosed, which callers should
+	// never see as a spurious error on top of the real commit failure.
+	commitAttempted := false
 	defer func() {
 		if r := recover(); r != nil {
 			// A panic from fn or one of the SQL helpers must roll the
@@ -60,18 +76,19 @@ func (db *DB) WithSystemModifierTagSyncSuspended(
 			_ = tx.Rollback(ctx)
 			panic(r)
 		}
-		if err != nil {
-			// Best-effort rollback; ignore rollback errors so the original
-			// failure remains the outer return value.
+		if err != nil && !commitAttempted {
+			// Real pre-commit failure: the tx is still open, roll it back.
 			_ = tx.Rollback(ctx)
 		}
+		// If commitAttempted is true, the tx is already closed regardless
+		// of whether Commit succeeded or failed — skip the redundant Rollback.
 	}()
 
-	if len(deduped) > 0 {
-		if _, e := tx.Exec(ctx, `SET LOCAL skadia.skip_system_modifier_tag_sync = 'true'`); e != nil {
-			err = fmt.Errorf("set skip flag: %w", e)
-			return err
-		}
+	// validateAndDedupeSystemModifierActivityIDs returned a non-empty slice or
+	// an error; if we got here, deduped is guaranteed to have at least one ID.
+	if _, e := tx.Exec(ctx, `SET LOCAL skadia.skip_system_modifier_tag_sync = 'true'`); e != nil {
+		err = fmt.Errorf("set skip flag: %w", e)
+		return err
 	}
 
 	if e := fn(ctx, tx); e != nil {
@@ -79,16 +96,36 @@ func (db *DB) WithSystemModifierTagSyncSuspended(
 		return err
 	}
 
-	if len(deduped) > 0 {
-		if _, e := tx.Exec(ctx, `SELECT skadia_resync_system_modifier_tags($1::uuid[])`, deduped); e != nil {
-			err = fmt.Errorf("resync: %w", e)
-			return err
-		}
+	if _, e := tx.Exec(ctx, `SELECT skadia_resync_system_modifier_tags($1::uuid[])`, deduped); e != nil {
+		err = fmt.Errorf("resync: %w", e)
+		return err
 	}
 
+	commitAttempted = true
 	if e := tx.Commit(ctx); e != nil {
 		err = fmt.Errorf("commit: %w", e)
 		return err
+	}
+	return nil
+}
+
+// assertSystemModifierTagSyncSkipFlagSet verifies that the
+// skadia.skip_system_modifier_tag_sync session variable is 'true' on the
+// given transaction. This guards the Tx-variant methods that are only safe
+// to call from inside WithSystemModifierTagSyncSuspended: if a caller passes
+// an unflagged tx the resync function will not run at commit, leaving
+// denormalised tag state inconsistent.
+func assertSystemModifierTagSyncSkipFlagSet(ctx context.Context, tx pgx.Tx, callerName string) error {
+	// current_setting with missing_ok=true returns NULL when the variable was
+	// never set in this session. COALESCE converts that to the empty string so
+	// we can scan into a plain string without a pgx null-scan error.
+	var skip string
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(current_setting('skadia.skip_system_modifier_tag_sync', true), '')`).Scan(&skip); err != nil {
+		return fmt.Errorf("%s: cannot read skip flag: %w", callerName, err)
+	}
+	if skip != "true" {
+		return fmt.Errorf("%s: skadia.skip_system_modifier_tag_sync is not 'true' on this transaction; call from inside WithSystemModifierTagSyncSuspended", callerName)
 	}
 	return nil
 }
@@ -99,6 +136,9 @@ func (db *DB) WithSystemModifierTagSyncSuspended(
 // outside the helper continues to call LinkActivityTag, which runs on the
 // pool and lets the per-row trigger sync denormalized state immediately.
 func (db *DB) LinkActivityTagTx(ctx context.Context, tx pgx.Tx, activityID, tagID, assignedBy string) error {
+	if err := assertSystemModifierTagSyncSkipFlagSet(ctx, tx, "LinkActivityTagTx"); err != nil {
+		return err
+	}
 	return linkActivityTagExec(ctx, tx, activityID, tagID, assignedBy)
 }
 
@@ -107,12 +147,47 @@ func (db *DB) LinkActivityTagTx(ctx context.Context, tx pgx.Tx, activityID, tagI
 // that already has the system modifier tag sync skip flag established (i.e.
 // from WithSystemModifierTagSyncSuspended).
 func (db *DB) UpdateEnrichmentFieldsTx(ctx context.Context, tx pgx.Tx, activityID string, fields map[string]any) error {
+	if err := assertSystemModifierTagSyncSkipFlagSet(ctx, tx, "UpdateEnrichmentFieldsTx"); err != nil {
+		return err
+	}
 	return updateEnrichmentFieldsExec(ctx, tx, activityID, fields)
+}
+
+// validateAndDedupeSystemModifierActivityIDs validates UUID shape and
+// deduplicates. It returns an error if any element is not a valid UUID or if
+// all elements are empty strings (which would violate the caller's contract of
+// providing at least one real activity ID). Validation happens before any
+// transaction opens so callers see a structured error with the offending index
+// rather than a Postgres cast failure mid-tx.
+func validateAndDedupeSystemModifierActivityIDs(ids []string) ([]string, error) {
+	out := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for i, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, err := uuid.Parse(id); err != nil {
+			return nil, fmt.Errorf("WithSystemModifierTagSyncSuspended: invalid activity ID %q at index %d: %w", id, i, err)
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("WithSystemModifierTagSyncSuspended: no valid activity IDs after deduplication (input had %d element(s), all empty or duplicate)", len(ids))
+	}
+	return out, nil
 }
 
 // dedupeSystemModifierActivityIDs preserves first-seen order and drops empty
 // strings. Order preservation keeps test fixtures and operator command-line
 // inspection deterministic; the resync function does not depend on order.
+//
+// This function does NOT validate UUID shape; use
+// validateAndDedupeSystemModifierActivityIDs for production call paths that
+// need pre-tx validation.
 func dedupeSystemModifierActivityIDs(ids []string) []string {
 	if len(ids) == 0 {
 		return nil

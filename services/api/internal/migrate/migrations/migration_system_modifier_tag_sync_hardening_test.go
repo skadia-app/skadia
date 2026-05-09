@@ -20,6 +20,7 @@ import (
 	"context"
 	"os"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -1030,10 +1031,35 @@ func TestSkadiaResyncSystemModifierTagsActivityCountUnderConcurrency(t *testing.
 	}
 }
 
+// normalizeFunctionDefText normalizes a pg_get_functiondef() string so that
+// cosmetic differences between two semantically equivalent function bodies do
+// not cause false round-trip failures (Critic Round-2 #10). Normalization
+// rules applied in order:
+//
+//  1. Strip single-line SQL comments (-- ... \n) — pg may or may not emit them
+//     depending on how the body was stored.
+//  2. Collapse runs of whitespace (space, tab, newline) to a single space.
+//  3. Trim leading/trailing whitespace.
+//
+// This is intentionally coarse: the goal is resilience to reformatting, not
+// full semantic equivalence. If two bodies differ only in whitespace or
+// comment placement they are considered equal; if they differ in actual SQL
+// keywords, identifiers, or string literals they are still different.
+func normalizeFunctionDefText(s string) string {
+	// Strip -- line comments (everything from -- to end of line).
+	commentRE := regexp.MustCompile(`--[^\n]*`)
+	s = commentRE.ReplaceAllString(s, "")
+	// Collapse all whitespace runs to a single space.
+	wsRE := regexp.MustCompile(`\s+`)
+	s = wsRE.ReplaceAllString(s, " ")
+	return strings.TrimSpace(s)
+}
+
 // snapshotSystemModifierFunctionBodies captures pg_get_functiondef() text for
 // each trigger function 000353 redefines plus a 0/1 marker for the new
-// skadia_resync_system_modifier_tags function. The bodies are sensitive to
-// CREATE-OR-REPLACE ordering — round-trip tests use deep-equality on this map.
+// skadia_resync_system_modifier_tags function. Function bodies are normalized
+// before storage so round-trip comparisons are resilient to cosmetic whitespace
+// or comment-placement differences in the up SQL (Critic Round-2 #10).
 func snapshotSystemModifierFunctionBodies(t *testing.T, ctx context.Context, tx pgx.Tx) map[string]string {
 	t.Helper()
 	out := make(map[string]string, 6)
@@ -1050,7 +1076,7 @@ func snapshotSystemModifierFunctionBodies(t *testing.T, ctx context.Context, tx 
 			WHERE n.nspname = 'public' AND p.proname = $1`, name).Scan(&body); err != nil {
 			t.Fatalf("snapshot %s: %v", name, err)
 		}
-		out[name] = body
+		out[name] = normalizeFunctionDefText(body)
 	}
 	var resyncPresent int
 	if err := tx.QueryRow(ctx, `
@@ -1208,12 +1234,175 @@ func snapshotResyncState(t *testing.T, ctx context.Context, tx pgx.Tx, userID st
 	return snap
 }
 
-// TestSkadiaResyncSystemModifierTagsIsIdempotent calls the resync function
-// five times in succession against the same scenario and asserts the resulting
-// state after the first call equals the state after the fifth call. Pins the
-// architectural idempotency claim — a future caller adding a non-idempotent
-// operation (e.g. unconditional INSERT, count += 1, RAISE NOTICE side effect
-// on rows) would surface as snapshot_after_1 != snapshot_after_5.
+// assertResyncSnapshot compares two snapshots field by field and fails t with
+// a descriptive diff when they diverge. Used by the mutation-convergence test
+// to report exactly which layer drifted after each mutation round.
+func assertResyncSnapshot(t *testing.T, label string, got, want resyncStateSnapshot) {
+	t.Helper()
+	if reflect.DeepEqual(got, want) {
+		return
+	}
+	if !reflect.DeepEqual(got.tagsArrays, want.tagsArrays) {
+		t.Errorf("%s: tags arrays diverged:\n  got =%v\n  want=%v", label, got.tagsArrays, want.tagsArrays)
+	}
+	if !reflect.DeepEqual(got.junctionPairs, want.junctionPairs) {
+		t.Errorf("%s: junction pairs diverged:\n  got =%v\n  want=%v", label, got.junctionPairs, want.junctionPairs)
+	}
+	if !reflect.DeepEqual(got.tagCounts, want.tagCounts) {
+		t.Errorf("%s: tag counts diverged:\n  got =%v\n  want=%v", label, got.tagCounts, want.tagCounts)
+	}
+	if !reflect.DeepEqual(got.tagIsSystem, want.tagIsSystem) {
+		t.Errorf("%s: tag is_system diverged:\n  got =%v\n  want=%v", label, got.tagIsSystem, want.tagIsSystem)
+	}
+	if !reflect.DeepEqual(got.removalPairs, want.removalPairs) {
+		t.Errorf("%s: removal pairs diverged:\n  got =%v\n  want=%v", label, got.removalPairs, want.removalPairs)
+	}
+	t.FailNow()
+}
+
+// injectMutationRound re-damages the state in a way that is distinct from the
+// previous round. Each round targets a different activity and a different
+// flavour of denormalization so the convergence assertion is non-trivial.
+//
+// round=1: stale removal row for indoorID; is_commute cleared in activities.tags but flag left true.
+// round=2: stale E-Bike junction for runningElectricID (wrong sport); commute array entry absent.
+// round=3: is_virtual=true activity has junction deleted directly (bypassing the protection trigger
+//
+//	via session_replication_role=replica), stale removal for Indoor.
+//
+// Triggers are disabled during tag-array writes so Direction A does not
+// flip modifier flags back as a side effect of the damage injection.
+func injectMutationRound(t *testing.T, ctx context.Context, tx pgx.Tx, f systemModifierTagSyncFixture, round int) {
+	t.Helper()
+	disableTriggers := func() {
+		for _, stmt := range []string{
+			`ALTER TABLE activities DISABLE TRIGGER trg_sync_system_flags_and_tags`,
+			`ALTER TABLE activities DISABLE TRIGGER trg_sync_virtual_tag`,
+		} {
+			if _, err := tx.Exec(ctx, stmt); err != nil {
+				t.Fatalf("mutation round %d: disable trigger: %v", round, err)
+			}
+		}
+	}
+	enableTriggers := func() {
+		for _, stmt := range []string{
+			`ALTER TABLE activities ENABLE TRIGGER trg_sync_system_flags_and_tags`,
+			`ALTER TABLE activities ENABLE TRIGGER trg_sync_virtual_tag`,
+		} {
+			if _, err := tx.Exec(ctx, stmt); err != nil {
+				t.Fatalf("mutation round %d: enable trigger: %v", round, err)
+			}
+		}
+	}
+
+	switch round {
+	case 1:
+		// Stale removal row for Indoor when is_indoor=true; Pendeln stripped from array.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO activity_tag_removals (activity_id, tag_id)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+		`, f.indoorID, f.indoorTagID); err != nil {
+			t.Fatalf("round 1: insert stale removal: %v", err)
+		}
+		disableTriggers()
+		if _, err := tx.Exec(ctx, `UPDATE activities SET tags = array_remove(tags, 'Pendeln') WHERE id = $1`, f.commuteID); err != nil {
+			t.Fatalf("round 1: strip Pendeln: %v", err)
+		}
+		enableTriggers()
+
+	case 2:
+		// E-Bike junction injected for a non-cycling activity (running-electric):
+		// flag is true but sport_type is wrong, so the junction must NOT be there.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO activity_tags (activity_id, tag_id, assigned_by)
+			VALUES ($1, $2, 'mutation_test')
+			ON CONFLICT DO NOTHING
+		`, f.runningElectricID, f.eBikeTagID); err != nil {
+			t.Fatalf("round 2: inject stale E-Bike junction: %v", err)
+		}
+		// Also strip Indoor from the array while is_indoor=true.
+		disableTriggers()
+		if _, err := tx.Exec(ctx, `UPDATE activities SET tags = array_remove(tags, 'Indoor') WHERE id = $1`, f.indoorID); err != nil {
+			t.Fatalf("round 2: strip Indoor: %v", err)
+		}
+		enableTriggers()
+
+	case 3:
+		// Delete the virtuell junction directly via session_replication_role=replica
+		// to bypass the protect_virtual_tag_removal trigger, leaving is_virtual=true
+		// but no junction row. Also insert stale removal for Indoor.
+		if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = 'replica'`); err != nil {
+			t.Fatalf("round 3: set replica role: %v", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM activity_tags at
+			USING tags tg
+			WHERE at.tag_id = tg.id
+			  AND tg.user_id = $1
+			  AND tg.name = 'virtuell'
+			  AND at.activity_id = $2
+		`, f.user1ID, f.virtualID); err != nil {
+			t.Fatalf("round 3: delete virtuell junction via replica role: %v", err)
+		}
+		if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = 'origin'`); err != nil {
+			t.Fatalf("round 3: restore replica role: %v", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO activity_tag_removals (activity_id, tag_id)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING
+		`, f.indoorID, f.indoorTagID); err != nil {
+			t.Fatalf("round 3: insert stale Indoor removal: %v", err)
+		}
+
+	default:
+		t.Fatalf("injectMutationRound: unknown round %d", round)
+	}
+}
+
+// TestSkadiaResyncSystemModifierTagsConvergesUnderMutation proves that the
+// resync function converges to the same consistent state across multiple
+// rounds of intervening damage — not just that successive identical calls are
+// no-ops (Critic Round-2 #3).
+//
+// Protocol: call resync → capture canonical snapshot → inject a mutation
+// that is different from the previous round → call resync again → assert
+// the resulting snapshot equals the canonical one. Repeat for three mutation
+// rounds. Each round's pre-state is materially different from the previous,
+// and each post-state must be byte-for-byte identical.
+func TestSkadiaResyncSystemModifierTagsConvergesUnderMutation(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeSystemModifierTagSyncFixture(t, ctx, tx)
+	damageSystemModifierState(t, ctx, tx, f)
+
+	activityIDs := []string{
+		f.cyclingElectricID, f.runningElectricID, f.virtualID, f.commuteID, f.indoorID,
+	}
+	tagIDs := []string{
+		f.indoorTagID, f.pendelnTagID, f.virtuellTagID, f.eBikeTagID,
+		f.unrelatedTagID, f.user2EBikeManualTagID,
+	}
+
+	// Initial resync: repair all damage from damageSystemModifierState.
+	callResync(t, ctx, tx, activityIDs...)
+	canonical := snapshotResyncState(t, ctx, tx, f.user1ID, activityIDs, tagIDs)
+
+	// Three mutation rounds. Each round: inject a different form of damage,
+	// call resync, verify convergence to the canonical snapshot.
+	for round := 1; round <= 3; round++ {
+		injectMutationRound(t, ctx, tx, f, round)
+		callResync(t, ctx, tx, activityIDs...)
+		after := snapshotResyncState(t, ctx, tx, f.user1ID, activityIDs, tagIDs)
+		assertResyncSnapshot(t, "round "+string(rune('0'+round)), after, canonical)
+	}
+}
+
+// TestSkadiaResyncSystemModifierTagsIsIdempotent verifies that successive
+// identical calls to the resync function on an already-consistent state are
+// strict no-ops: snapshot_after_1 == snapshot_after_5. Complements
+// TestSkadiaResyncSystemModifierTagsConvergesUnderMutation (which tests
+// convergence under mutation) by separately pinning the no-op property.
 func TestSkadiaResyncSystemModifierTagsIsIdempotent(t *testing.T) {
 	ctx, tx := beginMigrationTx(t)
 	f := makeSystemModifierTagSyncFixture(t, ctx, tx)
@@ -1236,24 +1425,361 @@ func TestSkadiaResyncSystemModifierTagsIsIdempotent(t *testing.T) {
 		callResync(t, ctx, tx, activityIDs...)
 	}
 	snapAfter5 := snapshotResyncState(t, ctx, tx, f.user1ID, activityIDs, tagIDs)
+	assertResyncSnapshot(t, "idempotency_after_5", snapAfter5, snapAfter1)
+}
 
-	if !reflect.DeepEqual(snapAfter1, snapAfter5) {
-		// Diff per field to make the failure actionable.
-		if !reflect.DeepEqual(snapAfter1.tagsArrays, snapAfter5.tagsArrays) {
-			t.Errorf("tags arrays drifted across resyncs:\n  after_1=%v\n  after_5=%v", snapAfter1.tagsArrays, snapAfter5.tagsArrays)
-		}
-		if !reflect.DeepEqual(snapAfter1.junctionPairs, snapAfter5.junctionPairs) {
-			t.Errorf("junction pairs drifted:\n  after_1=%v\n  after_5=%v", snapAfter1.junctionPairs, snapAfter5.junctionPairs)
-		}
-		if !reflect.DeepEqual(snapAfter1.tagCounts, snapAfter5.tagCounts) {
-			t.Errorf("tag counts drifted:\n  after_1=%v\n  after_5=%v", snapAfter1.tagCounts, snapAfter5.tagCounts)
-		}
-		if !reflect.DeepEqual(snapAfter1.tagIsSystem, snapAfter5.tagIsSystem) {
-			t.Errorf("tag is_system drifted:\n  after_1=%v\n  after_5=%v", snapAfter1.tagIsSystem, snapAfter5.tagIsSystem)
-		}
-		if !reflect.DeepEqual(snapAfter1.removalPairs, snapAfter5.removalPairs) {
-			t.Errorf("removal pairs drifted:\n  after_1=%v\n  after_5=%v", snapAfter1.removalPairs, snapAfter5.removalPairs)
-		}
-		t.FailNow()
+// TestTriggerAcquiresReservedTagLocksInDeterministicOrder runs two concurrent
+// transactions, each of which flips different modifier columns on the same
+// activity (touching Indoor then E-Bike in one goroutine and E-Bike then
+// Indoor in the other). Without the Critic-#5 PK-order lock fence the two
+// UPDATE triggers could grab row-locks in opposite orders → deadlock. With the
+// fence, both transactions lock the reserved tag rows in the same UUID order so
+// no cycle can form.
+//
+// The test starts N iterations in parallel; each iteration opens two
+// transactions and races them. A deadlock surfaces as a pgx error containing
+// "deadlock detected". The test asserts zero deadlock errors.
+func TestTriggerAcquiresReservedTagLocksInDeterministicOrder(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+	const iterations = 50
+
+	// Shared fixture: one user, four system tags, one activity.
+	userID := uuid.NewString()
+	short := userID[:8]
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
+		VALUES ($1, $2, $3, true, 'test', false)
+	`, userID, "dlk_"+short, "dlk_"+short+"@example.com"); err != nil {
+		t.Fatalf("insert user: %v", err)
 	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+			t.Logf("cleanup user: %v", err)
+		}
+	})
+	for _, name := range []string{"Indoor", "Pendeln", "virtuell", "E-Bike"} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description, activity_count)
+			VALUES ($1, $2, '#000000', '#FFFFFF', 'system', true, false, '', 0)
+		`, userID, name); err != nil {
+			t.Fatalf("insert %s tag: %v", name, err)
+		}
+	}
+
+	var activityID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, tags, is_indoor, is_electric, started_at)
+		VALUES ($1, $2, 'dl-test', 'cycling', NULL, ARRAY['E-Bike','Indoor']::text[], true, true, now())
+		RETURNING id
+	`, uuid.NewString(), userID).Scan(&activityID); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+
+	// runToggle opens a transaction and flips firstCol then secondCol on the
+	// activity, touching two different reserved tag rows in each direction.
+	runToggle := func(errc chan<- error, firstCol, secondCol string) {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			errc <- err
+			return
+		}
+		defer func() {
+			if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+				// committed — ignore
+			}
+		}()
+		// allowed modifier columns — whitelist to prevent accidental injection.
+		allowed := map[string]bool{"is_indoor": true, "is_electric": true, "is_commute": true}
+		if !allowed[firstCol] || !allowed[secondCol] {
+			errc <- nil // skip invalid combos silently
+			return
+		}
+		// Each UPDATE triggers sync_system_flags_and_tags, which acquires
+		// the lock fence before doing outbound work.
+		for _, col := range []string{firstCol, secondCol} {
+			if _, err := tx.Exec(ctx, `UPDATE activities SET `+col+` = NOT `+col+` WHERE id = $1`, activityID); err != nil {
+				errc <- err
+				return
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			errc <- err
+			return
+		}
+		errc <- nil
+	}
+
+	for i := 0; i < iterations; i++ {
+		errc := make(chan error, 2)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); runToggle(errc, "is_indoor", "is_electric") }()
+		go func() { defer wg.Done(); runToggle(errc, "is_electric", "is_indoor") }()
+		wg.Wait()
+		close(errc)
+		for err := range errc {
+			if err != nil && strings.Contains(err.Error(), "deadlock detected") {
+				t.Fatalf("iteration %d: deadlock detected — PK-order lock fence did not prevent it: %v", i, err)
+			}
+			// serialization failures (40001) are acceptable under concurrent load;
+			// only deadlocks (40P01) indicate the ordering bug.
+		}
+	}
+}
+
+// TestTriggerSkipFlagPreservesMidTxArrayConsistency verifies Critic-#13:
+// under the skip flag, the trigger must not mutate activities.tags without
+// also mutating activity_tags in the same step. The test scenario:
+//
+//  1. Insert a cycling+electric activity so it starts with E-Bike in both
+//     activities.tags and activity_tags.
+//  2. Set skip=true.
+//  3. UPDATE sport_type to 'running' (non-cycling). Before the fix the trigger
+//     stripped E-Bike from activities.tags unconditionally while leaving
+//     activity_tags intact → mid-tx inconsistency. After the fix, skip
+//     suppresses both.
+//  4. Inside the same tx, SELECT activities.tags and activity_tags — assert
+//     both agree (E-Bike present in both, or absent in both).
+//  5. Commit. After commit, call the resync and assert E-Bike is gone from both
+//     (the modifier flag no longer applies to a non-cycling activity).
+//
+// RED-by-tweak validation: after the test passes, inverting the assertion in
+// step 4 ("want present" → "want absent") must fail.
+func TestTriggerSkipFlagPreservesMidTxArrayConsistency(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	// Setup: user + four system tags + one cycling-electric activity.
+	userID := uuid.NewString()
+	short := userID[:8]
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
+		VALUES ($1, $2, $3, true, 'test', false)
+	`, userID, "skp_"+short, "skp_"+short+"@example.com"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+			t.Logf("cleanup user: %v", err)
+		}
+	})
+	for _, name := range []string{"Indoor", "Pendeln", "virtuell", "E-Bike"} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description, activity_count)
+			VALUES ($1, $2, '#000000', '#FFFFFF', 'system', true, false, '', 0)
+		`, userID, name); err != nil {
+			t.Fatalf("insert %s tag: %v", name, err)
+		}
+	}
+	var activityID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, tags, is_electric, started_at)
+		VALUES ($1, $2, 'skip-test', 'cycling', NULL, ARRAY[]::text[], true, now())
+		RETURNING id
+	`, uuid.NewString(), userID).Scan(&activityID); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+	// After the INSERT trigger fires, E-Bike should be in activities.tags and
+	// in activity_tags. Verify the pre-condition.
+	var hasBikeInArray bool
+	if err := pool.QueryRow(ctx, `
+		SELECT 'E-Bike' = ANY(COALESCE(tags, '{}')) FROM activities WHERE id = $1
+	`, activityID).Scan(&hasBikeInArray); err != nil {
+		t.Fatalf("pre-condition query: %v", err)
+	}
+	if !hasBikeInArray {
+		t.Fatalf("pre-condition: E-Bike not in activities.tags after INSERT trigger")
+	}
+
+	// Open a new transaction to exercise the skip-flag path.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && err.Error() != "tx is closed" {
+			t.Logf("rollback: %v", err)
+		}
+	}()
+
+	// Enable skip flag.
+	if _, err := tx.Exec(ctx, `SET LOCAL skadia.skip_system_modifier_tag_sync = 'true'`); err != nil {
+		t.Fatalf("set skip flag: %v", err)
+	}
+
+	// Change sport_type to running (non-cycling). Without the fix the trigger
+	// strips E-Bike from activities.tags but not from activity_tags.
+	if _, err := tx.Exec(ctx, `UPDATE activities SET sport_type = 'running' WHERE id = $1`, activityID); err != nil {
+		t.Fatalf("update sport_type: %v", err)
+	}
+
+	// Mid-tx consistency check: activities.tags and activity_tags must agree.
+	var arrayHasBike bool
+	if err := tx.QueryRow(ctx, `
+		SELECT 'E-Bike' = ANY(COALESCE(tags, '{}')) FROM activities WHERE id = $1
+	`, activityID).Scan(&arrayHasBike); err != nil {
+		t.Fatalf("mid-tx array query: %v", err)
+	}
+	var junctionHasBike bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM activity_tags at
+			JOIN tags t ON t.id = at.tag_id
+			WHERE at.activity_id = $1 AND t.user_id = $2 AND t.name = 'E-Bike' AND t.is_system = true
+		)
+	`, activityID, userID).Scan(&junctionHasBike); err != nil {
+		t.Fatalf("mid-tx junction query: %v", err)
+	}
+
+	// Both must agree: either both present or both absent.
+	if arrayHasBike != junctionHasBike {
+		t.Fatalf("mid-tx inconsistency: activities.tags has E-Bike=%v but activity_tags has E-Bike=%v (Critic #13 regression)",
+			arrayHasBike, junctionHasBike)
+	}
+
+	// Commit the transaction (sport_type=running, is_electric=true, skip was set).
+	// The resync below will reconcile the final state.
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	// Post-commit: run the resync to apply the canonical final state.
+	if _, err := pool.Exec(ctx, `SELECT skadia_resync_system_modifier_tags($1::uuid[])`, []string{activityID}); err != nil {
+		t.Fatalf("resync: %v", err)
+	}
+
+	// After resync: non-cycling activity must not have E-Bike in either place.
+	var postArrayHasBike bool
+	if err := pool.QueryRow(ctx, `
+		SELECT 'E-Bike' = ANY(COALESCE(tags, '{}')) FROM activities WHERE id = $1
+	`, activityID).Scan(&postArrayHasBike); err != nil {
+		t.Fatalf("post-commit array query: %v", err)
+	}
+	if postArrayHasBike {
+		t.Fatalf("post-resync: E-Bike still in activities.tags for non-cycling activity")
+	}
+	var postJunctionHasBike bool
+	if err := pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM activity_tags at
+			JOIN tags t ON t.id = at.tag_id
+			WHERE at.activity_id = $1 AND t.user_id = $2 AND t.name = 'E-Bike' AND t.is_system = true
+		)
+	`, activityID, userID).Scan(&postJunctionHasBike); err != nil {
+		t.Fatalf("post-commit junction query: %v", err)
+	}
+	if postJunctionHasBike {
+		t.Fatalf("post-resync: E-Bike junction still present for non-cycling activity")
+	}
+}
+
+// TestTriggerDirectionAGuardLeavesCorruptOLDUnmediated pins the Critic Round-2
+// #4 trade-off: the slot-guard in the Direction-A UPDATE trigger compares
+// OLD.tags membership to NEW.tags membership. When OLD.tags is NULL (a
+// pre-353 inconsistency where is_indoor=true but tags was never populated),
+// the slot-guard expression `'Indoor' = ANY(NULL)` evaluates to NULL (treated
+// as false). If NEW.tags is '{}' (also not containing 'Indoor'), neither
+// OLD nor NEW membership changed, so the guard suppresses re-derivation and
+// is_indoor stays true even though tags is now empty — the activity is
+// "corrupt by design" after an unrelated tag edit.
+//
+// This is intentional: the trigger's job is slot-change detection, not
+// arbitrary state repair. Manual repair is the job of
+// skadia_resync_system_modifier_tags, which IS able to converge the state
+// correctly. The test asserts both halves of the contract:
+//
+//  1. After an unrelated tag UPDATE on a corrupt-OLD activity,
+//     is_indoor=true and tags={} — no auto-heal by the trigger.
+//  2. After calling skadia_resync_system_modifier_tags, the state converges
+//     using the modifier flag as the source of truth: is_indoor=true is
+//     preserved, 'Indoor' is added back to tags, and the junction is
+//     inserted. The flag wins — corrupt was tags=NULL, not is_indoor=true.
+func TestTriggerDirectionAGuardLeavesCorruptOLDUnmediated(t *testing.T) {
+	ctx, tx := beginMigrationTx(t)
+	f := makeDirectionAFixture(t, ctx, tx)
+
+	// Seed an activity with is_indoor=true but tags=NULL, bypassing triggers
+	// via session_replication_role=replica. This models a pre-353 row where
+	// the modifier flag and the tags array were never in sync.
+	activityID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = 'replica'`); err != nil {
+		t.Fatalf("set replica role: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, tags, is_indoor, started_at)
+		VALUES ($1, $2, 'corrupt-old-test', 'rowing', NULL, NULL, true, now())
+	`, activityID, f.userID); err != nil {
+		t.Fatalf("insert corrupt activity: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `SET LOCAL session_replication_role = 'origin'`); err != nil {
+		t.Fatalf("restore origin role: %v", err)
+	}
+
+	// Verify the pre-condition: is_indoor=true, tags IS NULL.
+	var preIsIndoor bool
+	var preTagsIsNull bool
+	if err := tx.QueryRow(ctx, `
+		SELECT is_indoor, tags IS NULL FROM activities WHERE id = $1
+	`, activityID).Scan(&preIsIndoor, &preTagsIsNull); err != nil {
+		t.Fatalf("pre-condition query: %v", err)
+	}
+	if !preIsIndoor {
+		t.Fatalf("pre-condition: is_indoor must be true")
+	}
+	if !preTagsIsNull {
+		t.Fatalf("pre-condition: tags must be NULL (corrupt state)")
+	}
+
+	// Perform an unrelated tag UPDATE: set tags to '{}'. This does NOT touch
+	// the 'Indoor' slot in either OLD or NEW (NULL→{} means 'Indoor'=ANY(NULL)
+	// is NULL/false in OLD, 'Indoor'=ANY('{}') is false in NEW — slot stable).
+	// Pre-353 the trigger would re-derive is_indoor from NEW.tags, flipping it
+	// to false. Post-353 the slot-guard suppresses that re-derivation.
+	if _, err := tx.Exec(ctx, `UPDATE activities SET tags = '{}'::text[] WHERE id = $1`, activityID); err != nil {
+		t.Fatalf("unrelated tag update: %v", err)
+	}
+
+	// Assert Part 1: corrupt state is preserved — no auto-heal by the trigger.
+	// is_indoor must still be true even though tags is now empty.
+	var postUpdateIsIndoor bool
+	var postUpdateTags []string
+	if err := tx.QueryRow(ctx, `
+		SELECT is_indoor, COALESCE(tags, ARRAY[]::text[]) FROM activities WHERE id = $1
+	`, activityID).Scan(&postUpdateIsIndoor, &postUpdateTags); err != nil {
+		t.Fatalf("post-update query: %v", err)
+	}
+	if !postUpdateIsIndoor {
+		t.Fatalf("Critic #4 contract broken: trigger auto-healed is_indoor=false after unrelated tag update on corrupt-OLD activity; expected is_indoor=true (manual repair via resync only)")
+	}
+	if containsStr(postUpdateTags, "Indoor") {
+		t.Fatalf("post-update: 'Indoor' unexpectedly appeared in tags array after unrelated update, got %v", postUpdateTags)
+	}
+
+	// Assert Part 2: after calling skadia_resync_system_modifier_tags, the
+	// state converges using the modifier flag as truth (resync rebuilds the
+	// tags array from is_indoor/is_commute/is_virtual/is_electric and inserts
+	// matching junctions). is_indoor=true on the corrupt row therefore wins:
+	// 'Indoor' is added back to tags and the junction is inserted. The flag
+	// is authoritative; the corrupt half was tags=NULL, not is_indoor=true.
+	callResync(t, ctx, tx, activityID)
+
+	var postResyncIsIndoor bool
+	var postResyncTags []string
+	if err := tx.QueryRow(ctx, `
+		SELECT is_indoor, COALESCE(tags, ARRAY[]::text[]) FROM activities WHERE id = $1
+	`, activityID).Scan(&postResyncIsIndoor, &postResyncTags); err != nil {
+		t.Fatalf("post-resync query: %v", err)
+	}
+	// Resync derives the canonical state from modifier flags. is_indoor=true
+	// means the resync ADDS 'Indoor' back to tags and the junction. This is
+	// correct: is_indoor=true is the truth; the corrupt state was tags=NULL,
+	// not is_indoor=true being wrong.
+	if !postResyncIsIndoor {
+		t.Fatalf("post-resync: is_indoor was cleared by resync; flag is authoritative when tags was corrupt-NULL")
+	}
+	if !containsStr(postResyncTags, "Indoor") {
+		t.Fatalf("post-resync: 'Indoor' not in tags array after resync with is_indoor=true, got %v", postResyncTags)
+	}
+	hasSystemTagLink(t, ctx, tx, f.userID, activityID, "Indoor", true)
 }

@@ -5,11 +5,14 @@ package database
 // suppress per-row trigger work for the registry-backed system modifier tags.
 // Every test boots a fresh user via testdb.Open and asserts both the
 // transaction lifecycle and the resync side effects.
+//
+// Finding #18 tests (assertSystemModifierTagSyncSkipFlagSet) are at the bottom.
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
@@ -152,39 +155,82 @@ func TestWithSystemModifierTagSyncSuspendedRollsBackOnUpdateError(t *testing.T) 
 	}
 }
 
-func TestWithSystemModifierTagSyncSuspendedRollsBackOnResyncError(t *testing.T) {
+// TestWithSystemModifierTagSyncSuspendedRejectsMalformedUUID verifies that
+// UUID validation fires before the transaction opens. After Critic Round-2
+// finding #8 landed, the helper validates all UUIDs via uuid.Parse before
+// calling Pool.Begin — a malformed ID is therefore rejected at the validation
+// stage, not at the Postgres ::uuid[] cast inside the resync call.
+//
+// The former TestWithSystemModifierTagSyncSuspendedRollsBackOnResyncError used
+// a malformed UUID to force a mid-tx cast failure; that injection no longer
+// reaches the resync step. The rollback-on-fn-error path is already covered by
+// TestWithSystemModifierTagSyncSuspendedRollsBackOnUpdateError. A separate test
+// that specifically exercises the resync-step error path would require a
+// session-level trigger or advisory lock injection that goes beyond what the
+// helper's narrow SQL surface exposes, so it is deferred (Critic Round-2 #15).
+func TestWithSystemModifierTagSyncSuspendedRejectsMalformedUUID(t *testing.T) {
 	db, _, ids := systemModifierTagSyncTestDB(t)
 	ctx := context.Background()
 
-	// Inject a malformed UUID into the ID list so the ::uuid[] cast inside the
-	// resync call fails with an invalid-input-syntax error. This forces the
-	// resync step to return an error and exercises the rollback path without
-	// overriding the production function (which could cause pgxpool
-	// prepared-statement cache collisions).
-	poisonIDs := append([]string{"not-a-valid-uuid"}, ids...)
+	fnCalled := false
+	// Mix valid UUIDs with one malformed entry at index 1.
+	poisonIDs := []string{ids[0], "not-a-valid-uuid", ids[1]}
 	err := db.WithSystemModifierTagSyncSuspended(ctx, poisonIDs, func(ctx context.Context, tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `UPDATE activities SET is_indoor = true WHERE id = ANY($1::uuid[])`, ids); err != nil {
-			t.Fatalf("update inside fn: %v", err)
-		}
+		fnCalled = true
 		return nil
 	})
 	if err == nil {
-		t.Fatalf("helper returned nil despite malformed-uuid resync poison")
+		t.Fatal("helper returned nil despite malformed UUID at index 1")
+	}
+	if fnCalled {
+		t.Fatal("fn was called; validation must reject before opening tx")
+	}
+	// Error message must name the offending value and its index.
+	errStr := err.Error()
+	if !strings.Contains(errStr, "not-a-valid-uuid") {
+		t.Errorf("error %q does not mention offending value", errStr)
+	}
+	if !strings.Contains(errStr, "index 1") {
+		t.Errorf("error %q does not mention index 1", errStr)
 	}
 
-	// The rollback must have reverted the UPDATE — modifier flags stay false.
+	// Sanity: the activities table is untouched — no tx was opened.
 	for _, id := range ids {
 		var got bool
 		if e := db.Pool.QueryRow(ctx, `SELECT is_indoor FROM activities WHERE id = $1`, id).Scan(&got); e != nil {
 			t.Fatalf("query is_indoor: %v", e)
 		}
 		if got {
-			t.Fatalf("activity %s is_indoor = true after rollback, want false", id)
+			t.Fatalf("activity %s is_indoor = true; no tx should have been opened", id)
 		}
 	}
-	// Sanity: the real resync function is still intact.
-	if _, e := db.Pool.Exec(ctx, `SELECT skadia_resync_system_modifier_tags(ARRAY[]::uuid[])`); e != nil {
-		t.Fatalf("real resync function broken after rollback test: %v", e)
+}
+
+// TestWithSystemModifierTagSyncSuspendedRejectsEmptyAfterDedupe verifies that
+// an all-empty-string input is rejected BEFORE opening a transaction.
+// Previously an input like ["", "", ""] passed the len>0 gate, reached
+// deduplication which returned nil, then the two len(deduped)>0 blocks both
+// became false — fn ran without the skip flag set and without a resync call,
+// silently violating the helper's contract.
+func TestWithSystemModifierTagSyncSuspendedRejectsEmptyAfterDedupe(t *testing.T) {
+	db, _, _ := systemModifierTagSyncTestDB(t)
+	ctx := context.Background()
+
+	fnCalled := false
+	err := db.WithSystemModifierTagSyncSuspended(ctx, []string{"", "", ""}, func(ctx context.Context, tx pgx.Tx) error {
+		fnCalled = true
+		return nil
+	})
+	if err == nil {
+		t.Fatal("helper returned nil for all-empty-string input; expected error")
+	}
+	if fnCalled {
+		t.Fatal("fn was called; validation must reject before opening tx")
+	}
+	// Error message must indicate the post-dedupe-empty condition.
+	errStr := err.Error()
+	if !strings.Contains(errStr, "no valid activity IDs") && !strings.Contains(errStr, "empty") {
+		t.Errorf("error %q does not describe the empty-after-dedupe condition", errStr)
 	}
 }
 
@@ -352,6 +398,89 @@ func TestWithSystemModifierTagSyncSuspendedRollsBackOnPanic(t *testing.T) {
 	// no-op to make the contract obvious in the test body.
 	if _, err := db.Pool.Exec(ctx, `SELECT 1`); err != nil {
 		t.Fatalf("pool unusable after panic: %v", err)
+	}
+}
+
+// TestLinkActivityTagTxRejectsUnflaggedTx verifies that LinkActivityTagTx returns
+// an error when called on a transaction that does not have the
+// skadia.skip_system_modifier_tag_sync flag set. A future caller that bypasses
+// WithSystemModifierTagSyncSuspended must fail loudly rather than silently
+// producing inconsistent denormalised state.
+func TestLinkActivityTagTxRejectsUnflaggedTx(t *testing.T) {
+	db, userID, ids := systemModifierTagSyncTestDB(t)
+	ctx := context.Background()
+
+	// Look up the Indoor system tag ID.
+	var indoorTagID string
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT id FROM tags WHERE user_id = $1 AND name = 'Indoor' AND is_system = true
+	`, userID).Scan(&indoorTagID); err != nil {
+		t.Fatalf("lookup Indoor tag: %v", err)
+	}
+
+	// Open a plain transaction without setting the skip flag.
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	err = db.LinkActivityTagTx(ctx, tx, ids[0], indoorTagID, "test")
+	if err == nil {
+		t.Fatal("LinkActivityTagTx returned nil on unflagged tx; expected error")
+	}
+	if !strings.Contains(err.Error(), "skip_system_modifier_tag_sync") {
+		t.Errorf("error %q does not mention the skip flag", err.Error())
+	}
+}
+
+// TestUpdateEnrichmentFieldsTxRejectsUnflaggedTx mirrors
+// TestLinkActivityTagTxRejectsUnflaggedTx for the UpdateEnrichmentFieldsTx method.
+func TestUpdateEnrichmentFieldsTxRejectsUnflaggedTx(t *testing.T) {
+	db, _, ids := systemModifierTagSyncTestDB(t)
+	ctx := context.Background()
+
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	err = db.UpdateEnrichmentFieldsTx(ctx, tx, ids[0], map[string]any{"is_indoor": true})
+	if err == nil {
+		t.Fatal("UpdateEnrichmentFieldsTx returned nil on unflagged tx; expected error")
+	}
+	if !strings.Contains(err.Error(), "skip_system_modifier_tag_sync") {
+		t.Errorf("error %q does not mention the skip flag", err.Error())
+	}
+}
+
+// TestLinkActivityTagTxAcceptsFlaggedTx verifies that LinkActivityTagTx succeeds
+// when the skip flag is set, confirming the assertion does not fire false positives.
+func TestLinkActivityTagTxAcceptsFlaggedTx(t *testing.T) {
+	db, userID, ids := systemModifierTagSyncTestDB(t)
+	ctx := context.Background()
+
+	var indoorTagID string
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT id FROM tags WHERE user_id = $1 AND name = 'Indoor' AND is_system = true
+	`, userID).Scan(&indoorTagID); err != nil {
+		t.Fatalf("lookup Indoor tag: %v", err)
+	}
+
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Set the flag manually — simulating what WithSystemModifierTagSyncSuspended does.
+	if _, err := tx.Exec(ctx, `SET LOCAL skadia.skip_system_modifier_tag_sync = 'true'`); err != nil {
+		t.Fatalf("set skip flag: %v", err)
+	}
+
+	if err := db.LinkActivityTagTx(ctx, tx, ids[0], indoorTagID, "test"); err != nil {
+		t.Fatalf("LinkActivityTagTx on flagged tx returned error: %v", err)
 	}
 }
 

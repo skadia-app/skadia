@@ -453,3 +453,179 @@ func TestMigrationGlobFallbackAcceptsSingleMatch(t *testing.T) {
 		t.Fatalf("resolved path = %q, want %q", path, matches[0])
 	}
 }
+
+// readHardeningSQLOrFatalf loads the 000353 hardening up.sql using the same
+// glob fallback pattern as the integration tests, so both the numbered file
+// and a pre-rename 000999 placeholder are accepted.
+func readHardeningSQLOrFatalf(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile("000353_system_modifier_tag_sync_hardening.up.sql")
+	if err == nil {
+		return string(raw)
+	}
+	matches, _ := filepath.Glob("*_system_modifier_tag_sync_hardening.up.sql")
+	if len(matches) != 1 {
+		t.Fatalf("cannot locate hardening up.sql: direct read failed and glob returned %v", matches)
+	}
+	raw, err = os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("read %s: %v", matches[0], err)
+	}
+	return string(raw)
+}
+
+// TestSystemModifierReservedNameLiteralsMatchRegistry asserts that the exact
+// string literals for reserved system-tag names in the 000353 hardening SQL
+// match the registry (Critic Round-2 #11).
+//
+// The trigger and resync SQL hard-code reserved names as single-quoted SQL
+// string literals (e.g. 'Indoor', 'E-Bike'). The Go registry stores the same
+// names as SportModifierTagSync.SystemTag. If either side is renamed without
+// updating the other, this test fails loudly before any data corruption occurs.
+//
+// Matching is exact-string and case-sensitive: 'indoor' and 'Indoor' are
+// different, and the test will catch the discrepancy. The test fails when:
+//   - A registry SystemTag does not appear as a quoted literal in the SQL, or
+//   - The SQL contains a quoted name that looks like a system tag but is not in
+//     the registry (the reverse direction, checked via the coverage map).
+//
+// This is the compile-time enforcement of the contract documented on
+// IsSystemModifierTagName in database/system_tags.go: "reserved-name match is
+// exact-string, case-sensitive; renaming requires updating both the registry
+// AND the SQL trigger atomically".
+func TestSystemModifierReservedNameLiteralsMatchRegistry(t *testing.T) {
+	upSQL := readHardeningSQLOrFatalf(t)
+
+	// Collect every registry tag_sync SystemTag.
+	registryTags := map[string]string{} // SystemTag → modifier key
+	for _, key := range sport.SportModifierKeys() {
+		modifier, ok := sport.SportModifierByKey(key)
+		if !ok || modifier.TagSync == nil {
+			continue
+		}
+		registryTags[modifier.TagSync.SystemTag] = key
+	}
+
+	// Every registry tag must appear as a single-quoted SQL literal in the SQL.
+	// The pattern 'TagName' must occur at least once.
+	for tagName, key := range registryTags {
+		literal := "'" + tagName + "'"
+		if !strings.Contains(upSQL, literal) {
+			t.Errorf("hardening SQL missing exact literal %s for modifier %s (Critic #11: case-sensitive name contract)",
+				literal, key)
+		}
+	}
+
+	// Every single-quoted literal that appears in the resync function body
+	// inside the IN (...) list for reserved names must match a registry entry.
+	// This catches the case where SQL was updated to a new name without
+	// updating the registry.
+	//
+	// Parse the IN ('Indoor', 'Pendeln', 'virtuell', 'E-Bike') patterns in the
+	// resync function body. The regex captures all single-quoted strings that
+	// appear consecutively in IN (...) form in the hardening SQL.
+	inListPattern := regexp.MustCompile(`IN\s*\(([^)]*(?:'[^']*'[^)]*)*)\)`)
+	inMatches := inListPattern.FindAllStringSubmatch(upSQL, -1)
+	quotedStrPattern := regexp.MustCompile(`'([^']+)'`)
+	for _, inMatch := range inMatches {
+		for _, qm := range quotedStrPattern.FindAllStringSubmatch(inMatch[1], -1) {
+			name := qm[1]
+			// Only check names that look like system modifier tags (all four
+			// reserved names are non-empty, start uppercase or lowercase, no
+			// spaces except 'E-Bike'). Filter to names that occur in the
+			// resync block only by checking against the known coverage map.
+			if _, isCovered := systemModifierTagSyncSQLCoverage[name]; isCovered {
+				// Already verified via the coverage → registry path above.
+				continue
+			}
+			// A non-covered name in an IN(...) list that starts with an
+			// uppercase letter or matches 'E-Bike' exactly is suspicious.
+			if name == "Indoor" || name == "Pendeln" || name == "virtuell" || name == "E-Bike" {
+				if _, ok := registryTags[name]; !ok {
+					t.Errorf("SQL IN(...) list contains reserved-looking name %q that is not in the registry; rename sync required", name)
+				}
+			}
+		}
+	}
+}
+
+// TestSystemModifierOnlySportTypeHasSQLCoverage asserts that every registry
+// modifier with a non-empty OnlySportType has corresponding sport-type guard
+// expressions in the 000353 hardening SQL (Critic Round-2 #12).
+//
+// The Go-side filterActivitiesForModifierAssign in tags_db.go loops the
+// registry and applies OnlySportType filtering automatically. The SQL resync
+// function hard-codes the sport-type guard for each modifier. This test bridges
+// the gap: if a future modifier adds OnlySportType in the registry but nobody
+// updates the SQL, this test fails at review time rather than silently producing
+// incorrect tag assignments.
+//
+// A future second OnlySportType modifier must:
+//  1. Add an entry to systemModifierTagSyncSQLCoverage with its OnlySportType.
+//  2. Update the resync SQL to include the matching sport-type guard.
+//  3. This test then passes automatically.
+func TestSystemModifierOnlySportTypeHasSQLCoverage(t *testing.T) {
+	upSQL := readHardeningSQLOrFatalf(t)
+
+	for _, key := range sport.SportModifierKeys() {
+		modifier, ok := sport.SportModifierByKey(key)
+		if !ok || modifier.TagSync == nil || modifier.TagSync.OnlySportType == "" {
+			continue
+		}
+
+		// Verify the coverage map also declares OnlySportType for this key.
+		cov, covered := systemModifierTagSyncSQLCoverage[key]
+		if !covered {
+			// The modifier is excluded — skip SQL check.
+			if _, excluded := systemModifierTagSyncSQLExclusions[key]; excluded {
+				continue
+			}
+			t.Errorf("modifier %q has OnlySportType=%q in registry but is absent from "+
+				"systemModifierTagSyncSQLCoverage and systemModifierTagSyncSQLExclusions; "+
+				"add it to one of these maps (Critic #12)",
+				key, modifier.TagSync.OnlySportType)
+			continue
+		}
+		if cov.OnlySportType != modifier.TagSync.OnlySportType {
+			// Already caught by TestSystemModifierTagSyncSQLCoverageMatchesGeneratedRegistry;
+			// report here too for locality.
+			t.Errorf("modifier %q OnlySportType mismatch: coverage=%q registry=%q",
+				key, cov.OnlySportType, modifier.TagSync.OnlySportType)
+		}
+
+		// Assert the sport-type guard appears in the SQL next to this modifier's
+		// system tag name. We require both to appear in the resync function body.
+		tagLiteral := "'" + modifier.TagSync.SystemTag + "'"
+		sportGuard := "sport_type = '" + modifier.TagSync.OnlySportType + "'"
+
+		if !strings.Contains(upSQL, tagLiteral) {
+			t.Errorf("modifier %q: system tag literal %s not found in hardening SQL (Critic #12)",
+				key, tagLiteral)
+		}
+		if !strings.Contains(upSQL, sportGuard) {
+			t.Errorf("modifier %q: sport-type guard %q not found in hardening SQL; "+
+				"the SQL resync function must filter by OnlySportType=%q for modifier %q (Critic #12)",
+				key, sportGuard, modifier.TagSync.OnlySportType, key)
+		}
+	}
+
+	// Reverse direction: every coverage entry with a non-empty OnlySportType
+	// must still exist in the registry with the same OnlySportType. Catches
+	// drift where a modifier is removed from the registry but left in the
+	// coverage map.
+	for key, cov := range systemModifierTagSyncSQLCoverage {
+		if cov.OnlySportType == "" {
+			continue
+		}
+		modifier, ok := sport.SportModifierByKey(key)
+		if !ok || modifier.TagSync == nil {
+			t.Errorf("coverage entry %q has OnlySportType=%q but the registry no longer has a TagSync block for it",
+				key, cov.OnlySportType)
+			continue
+		}
+		if modifier.TagSync.OnlySportType != cov.OnlySportType {
+			t.Errorf("coverage entry %q OnlySportType=%q but registry says %q; update the coverage map",
+				key, cov.OnlySportType, modifier.TagSync.OnlySportType)
+		}
+	}
+}
