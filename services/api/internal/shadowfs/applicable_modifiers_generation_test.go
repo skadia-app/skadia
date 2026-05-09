@@ -10,8 +10,8 @@ import (
 )
 
 func TestGeneratedGoFileMatchesYAML(t *testing.T) {
-	yamlPath := filepath.Join("..", "..", "..", "..", "config", "shadowfs", "applicable_modifiers.yaml")
-	keys, err := applicablemodifiers.Load(yamlPath)
+	modifiersPath := filepath.Join("..", "..", "..", "..", "config", "sport-taxonomy", "modifiers.yaml")
+	keys, err := applicablemodifiers.LoadForSubsystem(modifiersPath, "shadowfs")
 	if err != nil {
 		t.Fatalf("load YAML: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestGeneratedGoFileMatchesYAML(t *testing.T) {
 		t.Fatalf("read generated: %v", err)
 	}
 	if string(got) != want {
-		t.Fatalf("generated file is stale. Run scripts/generate-shadowfs-applicable-modifiers.sh.\nFirst diff line:\n%s",
+		t.Fatalf("generated file is stale. Run scripts/generate-applicable-modifiers.sh.\nFirst diff line:\n%s",
 			firstDiffLineShadowfs(string(got), want))
 	}
 }

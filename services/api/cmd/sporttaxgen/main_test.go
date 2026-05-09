@@ -160,7 +160,7 @@ func loadMainTestModifiers(t *testing.T) sporttaxgen.ModifierRegistry {
 
 func loadMainTestSourceAliasPredicate(t *testing.T) func(string) bool {
 	t.Helper()
-	keys, err := applicablemodifiers.Load(repoPathForMainTest(t, "config/dataimport/applicable_modifiers.yaml"))
+	keys, err := applicablemodifiers.LoadForSubsystem(repoPathForMainTest(t, "config/sport-taxonomy/modifiers.yaml"), "dataimport")
 	if err != nil {
 		t.Fatalf("load dataimport applicable modifiers: %v", err)
 	}
