@@ -999,7 +999,7 @@ func (db *DB) UnassignActivitiesFromTag(ctx context.Context, tagID, userID strin
 		return nil, fmt.Errorf("unassign activities from tag: resolve tag: %w", err)
 	}
 
-	owned, _, err := db.ownedActivityIDsWithSport(ctx, userID, activityIDs)
+	owned, sportByID, err := db.ownedActivityIDsWithSport(ctx, userID, activityIDs)
 	if err != nil {
 		return nil, fmt.Errorf("unassign activities from tag: filter owned: %w", err)
 	}
@@ -1008,13 +1008,20 @@ func (db *DB) UnassignActivitiesFromTag(ctx context.Context, tagID, userID strin
 	}
 
 	if sync, ok := matchSystemModifierTagSync(tagName); ok && isSystem {
-		// No sport filter on unassign: clearing is_electric on a non-cycling
-		// row is a no-op at the trigger level, and the resync repairs any
-		// stale junction or array entry the same way for every owned ID.
-		if err := db.applyModifierFlagToActivities(ctx, owned, sync.ModifierKey, false); err != nil {
+		// Apply the same OnlySportType filter on unassign as on assign so that
+		// returning IDs from this function is semantically consistent: only IDs
+		// where the modifier flag had (or could have had) an effect are included
+		// in accepted. For unrestricted modifiers (Indoor, Pendeln, virtuell)
+		// onlySportType is "" and filterActivitiesForModifierAssign returns owned
+		// unchanged.
+		accepted := filterActivitiesForModifierAssign(owned, sportByID, sync.OnlySportType)
+		if len(accepted) == 0 {
+			return nil, nil
+		}
+		if err := db.applyModifierFlagToActivities(ctx, accepted, sync.ModifierKey, false); err != nil {
 			return nil, fmt.Errorf("unassign activities from tag: system modifier path: %w", err)
 		}
-		return owned, nil
+		return accepted, nil
 	}
 
 	for _, actID := range owned {
