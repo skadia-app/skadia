@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -154,6 +155,35 @@ func (h *Handler) UpdateTag(w http.ResponseWriter, r *http.Request) {
 		var f float64
 		if err := json.Unmarshal(*req.Lng, &f); err == nil {
 			lng = &f
+		}
+	}
+
+	// Guard: renaming a system modifier tag to another reserved name would reach
+	// the DB as a UNIQUE-violation with no useful error message. Detect and reject
+	// early with a 409 so the frontend shows a clear explanation.
+	// Only fires when (a) the request changes the name, (b) the existing tag is a
+	// promoted system modifier tag (IsSystem=true AND IsSystemModifierTagName), and
+	// (c) the new name is also reserved. Non-system rows with a reserved name (not
+	// yet promoted) are not blocked here; regular renames of system tags to
+	// non-reserved names pass through to the m.2 trigger for propagation.
+	if req.Name != "" {
+		existing, loadErr := h.DB.GetTagByID(r.Context(), tagID, userID)
+		if loadErr != nil {
+			slog.Error("update tag: load existing tag failed", "error", loadErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load tag", r.URL.Path)
+			return
+		}
+		if existing == nil {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "tag not found", r.URL.Path)
+			return
+		}
+		if existing.IsSystem && database.IsSystemModifierTagName(existing.Name) &&
+			req.Name != existing.Name && database.IsSystemModifierTagName(req.Name) {
+			httputil.WriteError(w, http.StatusConflict, "Conflict",
+				fmt.Sprintf("cannot rename system modifier tag %q to another reserved name %q; reserved names (Indoor, Pendeln, virtuell, E-Bike) are bound to specific modifier columns and cannot be aliased",
+					existing.Name, req.Name),
+				r.URL.Path)
+			return
 		}
 	}
 

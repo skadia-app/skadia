@@ -305,6 +305,101 @@ func TestUnassignActivitiesFromTagSystemModifierSkipsRecordTagRemoval(t *testing
 	}
 }
 
+// callUpdateTag sends a PATCH/UpdateTag request for the given tag and returns
+// the recorder. Only the fields in the body map that are non-zero are relevant;
+// the chi route context is set so chi.URLParam("id") resolves correctly.
+func callUpdateTag(t *testing.T, h *Handler, userID, tagID string, body map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tags/"+tagID, bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", tagID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	h.UpdateTag(w, req)
+	return w
+}
+
+// TestUpdateTagRejectsSystemRenameToReservedName verifies that renaming a
+// promoted system modifier tag (Indoor) to another reserved name (E-Bike)
+// returns 409 with a message that mentions "reserved name".
+func TestUpdateTagRejectsSystemRenameToReservedName(t *testing.T) {
+	h, db, userID, _ := systemSyncHandlerEnv(t)
+	indoorTagID := mustHandlerSystemTagID(t, db, userID, "Indoor")
+
+	w := callUpdateTag(t, h, userID, indoorTagID, map[string]any{"name": "E-Bike"})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body = %s, want 409", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); !containsSubstring(body, "reserved name") {
+		t.Errorf("response body %q does not mention 'reserved name'", body)
+	}
+}
+
+// TestUpdateTagAllowsSystemRenameToNonReservedName confirms the guard does not
+// over-block legitimate renames of a system modifier tag to a non-reserved name
+// (e.g. Indoor → Hallensport). The m.2 trigger handles propagation.
+func TestUpdateTagAllowsSystemRenameToNonReservedName(t *testing.T) {
+	h, db, userID, _ := systemSyncHandlerEnv(t)
+	indoorTagID := mustHandlerSystemTagID(t, db, userID, "Indoor")
+
+	w := callUpdateTag(t, h, userID, indoorTagID, map[string]any{"name": "Hallensport"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s, want 200", w.Code, w.Body.String())
+	}
+}
+
+// TestUpdateTagAllowsRegularUserTagRenameToReservedName confirms a non-system
+// tag (is_system=false) renamed to a reserved name ("Indoor") is not blocked by
+// the handler guard. Promotion is handled by the resync function per the
+// existing hard-reservation contract; the handler must not interfere.
+//
+// SeedSystemDefaults creates an Indoor system tag for every test user, so we
+// remove it before the test to avoid a DB UNIQUE-constraint collision that
+// would obscure which code path rejected the request. The cleanup restores
+// is_system=false so the seedSystemSyncUser t.Cleanup can safely delete rows.
+func TestUpdateTagAllowsRegularUserTagRenameToReservedName(t *testing.T) {
+	h, db, userID, _ := systemSyncHandlerEnv(t)
+	ctx := context.Background()
+
+	// Remove the seeded Indoor tag so the rename target slot is free.
+	// The delete-system-tag trigger requires is_system=false first.
+	if _, err := db.Pool.Exec(ctx, `UPDATE tags SET is_system = false WHERE user_id = $1 AND name = 'Indoor'`, userID); err != nil {
+		t.Fatalf("demote Indoor system tag: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `DELETE FROM tags WHERE user_id = $1 AND name = 'Indoor'`, userID); err != nil {
+		t.Fatalf("delete Indoor system tag: %v", err)
+	}
+
+	// Insert a plain user tag (is_system=false).
+	tag, err := db.CreateTag(ctx, userID, "MeinTag", "#FF0000", "#FFFFFF", false, nil, nil, "", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateTag: %v", err)
+	}
+
+	w := callUpdateTag(t, h, userID, tag.ID, map[string]any{"name": "Indoor"})
+	// The guard must NOT return 409 for a non-system tag being renamed to a
+	// reserved name. Any non-409 response (200 success or other DB error) means
+	// the guard correctly stayed out of the way.
+	if w.Code == http.StatusConflict {
+		t.Fatalf("status = 409 Conflict — guard incorrectly blocked non-system tag rename to reserved name; body = %s", w.Body.String())
+	}
+}
+
+// containsSubstring is a small helper to avoid importing strings in test files.
+func containsSubstring(s, sub string) bool {
+	return len(s) >= len(sub) && func() bool {
+		for i := 0; i <= len(s)-len(sub); i++ {
+			if s[i:i+len(sub)] == sub {
+				return true
+			}
+		}
+		return false
+	}()
+}
+
 // TestTagOwnsHandlerRemovalReconcileAndGates pins the AND-gate semantics for
 // tagOwnsHandlerRemovalReconcile. Both IsSystem AND IsSystemModifierTagName
 // must be true to hand reconciliation over to the resync function; collapsing
