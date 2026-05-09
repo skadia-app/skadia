@@ -544,5 +544,4 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
 }
 
 export default memo(MapFilters)
-// Cast: HeatmapApplicableModifierKeys contains only valid SportModifierKey values.
-const MAP_MODIFIER_KEYS = HeatmapApplicableModifierKeys as unknown as string[]
+const MAP_MODIFIER_KEYS = [...HeatmapApplicableModifierKeys]

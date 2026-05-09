@@ -56,6 +56,12 @@ jobs:
       - name: Check generated sport taxonomy artifacts
         run: scripts/generate-sport-taxonomy.sh --check
 
+      - name: Check generated applicable modifier artifacts
+        run: scripts/generate-applicable-modifiers.sh --check
+
+      - name: Check generated system tag artifacts
+        run: scripts/generate-tags.sh --check
+
   migration-tests:
     name: Tests / Migrations
     runs-on: ubuntu-24.04

@@ -4,12 +4,15 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root/services/api"
 source="$repo_root/config/sport-taxonomy/modifiers.yaml"
 
+# Capture caller flags (e.g. --check) before they are shadowed by function positional args.
+script_flags=("$@")
+
 generate() {
   local sub="$1" prefix="$2" goout="$3" tsout="$4"
   local args=(--subsystem "$sub" --export-prefix "$prefix" --source "$source")
   [ -n "$goout" ] && args+=(--go-out "$goout")
   [ -n "$tsout" ] && args+=(--ts-out "$tsout")
-  go run ./cmd/applicablemodifiersgen "${args[@]}"
+  go run ./cmd/applicablemodifiersgen "${args[@]}" "${script_flags[@]}"
 }
 
 generate gear        Gear        "$repo_root/services/api/internal/gear/applicable_modifiers_generated.go"        "$repo_root/frontend/src/lib/generatedGearApplicableModifiers.ts"
