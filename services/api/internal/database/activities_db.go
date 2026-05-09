@@ -2150,9 +2150,51 @@ func (db *DB) DeleteSensors(ctx context.Context, activityID string) error {
 	return nil
 }
 
-// UpdateActivityMetrics updates all parser-derived fields on an activity.
-// If skipSportType is true, sport_type and sub_type are NOT overwritten (manual override).
-func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data *model.ActivityData, skipSportType bool) error {
+// UpdateActivityParserMetrics updates all parser-derived fields on an activity
+// in "metric-only" mode: sport_type, sub_type, fit_sport_id, fit_sub_sport_id,
+// is_indoor, is_electric, is_virtual, and is_commute are NOT touched. This is
+// the path taken when the user has manually overridden sport_type or did not
+// request the sport_type recompute scope; leaving the system modifier columns
+// alone means the BEFORE UPDATE trigger has no Direction-B/C/D work to do.
+func (db *DB) UpdateActivityParserMetrics(ctx context.Context, activityID string, data *model.ActivityData) error {
+	query, args := buildActivityMetricsUpdateSQL(activityID, data, false)
+	if _, err := db.Pool.Exec(ctx, query, args...); err != nil {
+		return fmt.Errorf("update activity parser metrics: %w", err)
+	}
+	return nil
+}
+
+// UpdateActivityMetricsWithSportAndModifiers updates all parser-derived fields
+// AND the sport/modifier columns (sport_type, sub_type, is_indoor, is_electric,
+// is_virtual, is_commute, …). The single UPDATE statement runs inside the
+// WithSystemModifierTagSyncSuspended helper so the per-row trigger does NOT
+// rewrite tags / activity_tags / activity_count for the row; instead the bounded
+// resync at commit repairs denormalized state set-based for exactly this id.
+//
+// Use this on batch reprocess paths that already know the affected activity id
+// (single-activity recompute included — the helper degrades to a plain tx with
+// one resync call). Single-row manual edits and gear.ApplyRuleChange MUST keep
+// the normal trigger path and not call this method.
+func (db *DB) UpdateActivityMetricsWithSportAndModifiers(ctx context.Context, activityID string, data *model.ActivityData) error {
+	query, args := buildActivityMetricsUpdateSQL(activityID, data, true)
+	err := db.WithSystemModifierTagSyncSuspended(ctx, []string{activityID}, func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, query, args...); err != nil {
+			return fmt.Errorf("update activity metrics (with modifiers): %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("update activity metrics with sport and modifiers: %w", err)
+	}
+	return nil
+}
+
+// buildActivityMetricsUpdateSQL constructs the parameterised UPDATE statement
+// that rewrites parser-derived fields on an activity. When includeSportAndModifiers
+// is false, sport_type / sub_type / fit_sport_id / fit_sub_sport_id and the four
+// system modifier flags (is_indoor, is_electric, is_virtual, is_commute) are
+// omitted from the SET list — see UpdateActivityParserMetrics for context.
+func buildActivityMetricsUpdateSQL(activityID string, data *model.ActivityData, includeSportAndModifiers bool) (string, []any) {
 	args := []any{activityID} // $1
 	argIdx := 2
 
@@ -2171,7 +2213,7 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	sets = append(sets, fmt.Sprintf("parsed_sub_type = %s", idx()))
 	args = append(args, nilIfEmpty(data.SubType))
 
-	if !skipSportType {
+	if includeSportAndModifiers {
 		sets = append(sets, fmt.Sprintf("sport_type = %s", idx()))
 		args = append(args, data.SportType)
 		sets = append(sets, fmt.Sprintf("sub_type = %s", idx()))
@@ -2257,14 +2299,19 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	args = append(args, sessionF64Metric(data.AvgCoreTemperatureC, data.AvgCoreTemperatureCValid))
 	sets = append(sets, fmt.Sprintf("threshold_power_w = %s", idx()))
 	args = append(args, sessionIntMetric(data.ThresholdPowerW, data.ThresholdPowerWValid))
-	sets = append(sets, fmt.Sprintf("is_indoor = %s", idx()))
-	args = append(args, data.IsIndoor)
-	sets = append(sets, fmt.Sprintf("is_electric = %s", idx()))
-	args = append(args, data.IsElectric)
-	sets = append(sets, fmt.Sprintf("is_virtual = %s", idx()))
-	args = append(args, data.IsVirtual)
-	sets = append(sets, fmt.Sprintf("is_commute = %s", idx()))
-	args = append(args, data.IsCommute)
+	if includeSportAndModifiers {
+		// is_indoor/is_electric/is_virtual/is_commute drive the system modifier
+		// tag triggers. Skip them in parser-metrics-only mode so the trigger
+		// has no Direction-B/C/D work to do for this UPDATE.
+		sets = append(sets, fmt.Sprintf("is_indoor = %s", idx()))
+		args = append(args, data.IsIndoor)
+		sets = append(sets, fmt.Sprintf("is_electric = %s", idx()))
+		args = append(args, data.IsElectric)
+		sets = append(sets, fmt.Sprintf("is_virtual = %s", idx()))
+		args = append(args, data.IsVirtual)
+		sets = append(sets, fmt.Sprintf("is_commute = %s", idx()))
+		args = append(args, data.IsCommute)
+	}
 	sets = append(sets, fmt.Sprintf("has_gps = %s", idx()))
 	args = append(args, data.HasGPS)
 
@@ -2578,11 +2625,7 @@ func (db *DB) UpdateActivityMetrics(ctx context.Context, activityID string, data
 	sets = append(sets, "enrichment_status = 'pending'")
 
 	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1", strings.Join(sets, ", "))
-	_, err := db.Pool.Exec(ctx, query, args...)
-	if err != nil {
-		return fmt.Errorf("update activity metrics: %w", err)
-	}
-	return nil
+	return query, args
 }
 
 // ReprocessFilter defines optional filters for batch reprocessing.

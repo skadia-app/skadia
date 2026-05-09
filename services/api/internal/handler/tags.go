@@ -515,37 +515,45 @@ func (h *Handler) AssignActivitiesToTag(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Clear any removal records — user is explicitly re-adding this tag.
-	for _, actID := range req.ActivityIDs {
-		if err := h.DB.ClearTagRemoval(r.Context(), actID, tagID); err != nil {
-			slog.Warn("clear tag removal", "err", err, "activity", actID, "tag", tagID)
-		}
-	}
-
-	if err := h.DB.AssignActivitiesToTag(r.Context(), tagID, userID, req.ActivityIDs); err != nil {
+	accepted, err := h.DB.AssignActivitiesToTag(r.Context(), tagID, userID, req.ActivityIDs)
+	if err != nil {
 		slog.Error("assign activities to tag failed", "tag_id", tagID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to assign activities", r.URL.Path)
 		return
 	}
+
+	// Clear removal records and refresh side effects only for IDs the DB layer
+	// actually accepted. Cross-user IDs and (for cycling-only E-Bike) non-
+	// cycling IDs are silently dropped upstream — no removal record, file
+	// refresh, or backfill should run for them.
+	for _, actID := range accepted {
+		if err := h.DB.ClearTagRemoval(r.Context(), actID, tagID); err != nil {
+			slog.Warn("clear tag removal", "err", err, "activity", actID, "tag", tagID)
+		}
+	}
 	if !deferActivityFileRefresh(r) {
-		for _, actID := range req.ActivityIDs {
+		for _, actID := range accepted {
 			h.refreshActivityFilePathBestEffort(r.Context(), userID, actID, "")
 		}
 	}
 
-	// Location-Pin-Trigger: fetch weather/sun-times for indoor activities that now have a location via this tag.
-	// recompute=false: only fill activities that have no data yet (newly assigned).
-	activityIDs := req.ActivityIDs
-	go func() {
-		ctx2, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		if err := h.backfillWeatherForLocationTag(ctx2, userID, tagID, activityIDs, false); err != nil {
-			slog.Warn("location tag weather backfill failed", "tag_id", tagID, "error", err)
-		}
-		if err := h.backfillSunTimesForLocationTag(ctx2, userID, tagID, activityIDs, false); err != nil {
-			slog.Warn("location tag sun times backfill failed", "tag_id", tagID, "error", err)
-		}
-	}()
+	// Location-Pin-Trigger: fetch weather/sun-times for indoor activities that
+	// now have a location via this tag. recompute=false: only fill activities
+	// that have no data yet (newly assigned). Skip when nothing was accepted —
+	// the goroutine would do empty-set queries and burn a goroutine for no work.
+	if len(accepted) > 0 {
+		activityIDs := accepted
+		go func() {
+			ctx2, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			if err := h.backfillWeatherForLocationTag(ctx2, userID, tagID, activityIDs, false); err != nil {
+				slog.Warn("location tag weather backfill failed", "tag_id", tagID, "error", err)
+			}
+			if err := h.backfillSunTimesForLocationTag(ctx2, userID, tagID, activityIDs, false); err != nil {
+				slog.Warn("location tag sun times backfill failed", "tag_id", tagID, "error", err)
+			}
+		}()
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -790,22 +798,25 @@ func (h *Handler) UnassignActivitiesFromTag(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := h.DB.UnassignActivitiesFromTag(r.Context(), tagID, userID, req.ActivityIDs); err != nil {
+	accepted, err := h.DB.UnassignActivitiesFromTag(r.Context(), tagID, userID, req.ActivityIDs)
+	if err != nil {
 		slog.Error("unassign activities from tag failed", "tag_id", tagID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to unassign activities", r.URL.Path)
 		return
 	}
 
-	// If this is a system tag, record the removal so enrichment won't re-add it.
+	// Record removals + refresh side effects only for IDs the DB layer actually
+	// accepted. Cross-user IDs are dropped upstream and must never produce a
+	// removal record or file refresh under the current user.
 	if tag.IsSystem {
-		for _, actID := range req.ActivityIDs {
+		for _, actID := range accepted {
 			if err := h.DB.RecordTagRemoval(r.Context(), actID, tagID); err != nil {
 				slog.Warn("record tag removal", "err", err, "activity", actID, "tag", tagID)
 			}
 		}
 	}
 	if !deferActivityFileRefresh(r) {
-		for _, actID := range req.ActivityIDs {
+		for _, actID := range accepted {
 			h.refreshActivityFilePathBestEffort(r.Context(), userID, actID, "")
 		}
 	}
