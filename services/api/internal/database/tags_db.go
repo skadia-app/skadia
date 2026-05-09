@@ -961,7 +961,7 @@ func (db *DB) AssignActivitiesToTag(ctx context.Context, tagID, userID string, a
 		if len(accepted) == 0 {
 			return nil, nil
 		}
-		if err := db.applyModifierFlagToActivities(ctx, accepted, sync.ModifierKey, true); err != nil {
+		if err := db.applyModifierFlagToActivities(ctx, accepted, ModifierKey(sync.ModifierKey), true); err != nil {
 			return nil, fmt.Errorf("assign activities to tag: system modifier path: %w", err)
 		}
 		return accepted, nil
@@ -1018,7 +1018,7 @@ func (db *DB) UnassignActivitiesFromTag(ctx context.Context, tagID, userID strin
 		if len(accepted) == 0 {
 			return nil, nil
 		}
-		if err := db.applyModifierFlagToActivities(ctx, accepted, sync.ModifierKey, false); err != nil {
+		if err := db.applyModifierFlagToActivities(ctx, accepted, ModifierKey(sync.ModifierKey), false); err != nil {
 			return nil, fmt.Errorf("unassign activities from tag: system modifier path: %w", err)
 		}
 		return accepted, nil
@@ -1140,6 +1140,29 @@ func filterActivitiesForModifierAssign(owned []string, sportByID map[string]stri
 	return out
 }
 
+// ModifierKey identifies one of the four registry-backed system modifier
+// columns on activities. Using a typed constant prevents string-typo bugs
+// at the API surface.
+type ModifierKey string
+
+const (
+	ModifierIndoor   ModifierKey = "is_indoor"
+	ModifierCommute  ModifierKey = "is_commute"
+	ModifierVirtual  ModifierKey = "is_virtual"
+	ModifierElectric ModifierKey = "is_electric"
+)
+
+// Column returns the activities-table column name for this modifier key.
+// Today the constant value is the column name verbatim, but the indirection
+// matches the registry pattern and tolerates a future rename in one place.
+func (k ModifierKey) Column() (string, bool) {
+	switch k {
+	case ModifierIndoor, ModifierCommute, ModifierVirtual, ModifierElectric:
+		return string(k), true
+	}
+	return "", false
+}
+
 // applyModifierFlagToActivities flips a modifier column to value on the
 // given (already-owned, already-sport-filtered) activity IDs and lets the
 // resync function repair the denormalised tag surfaces. The whole
@@ -1149,10 +1172,10 @@ func filterActivitiesForModifierAssign(owned []string, sportByID map[string]stri
 // The column name is derived from the registry, not hardcoded, so a future
 // fifth modifier with tag_sync gets covered automatically once the
 // systemModifierTagSyncDatabaseCoverage table is updated.
-func (db *DB) applyModifierFlagToActivities(ctx context.Context, activityIDs []string, modifierKey string, value bool) error {
-	column, ok := modifierColumnForKey(modifierKey)
+func (db *DB) applyModifierFlagToActivities(ctx context.Context, activityIDs []string, key ModifierKey, value bool) error {
+	column, ok := key.Column()
 	if !ok {
-		return fmt.Errorf("apply modifier flag: unknown modifier key %q", modifierKey)
+		return fmt.Errorf("apply modifier flag: unknown modifier key %q", key)
 	}
 	return db.WithSystemModifierTagSyncSuspended(ctx, activityIDs, func(ctx context.Context, tx pgx.Tx) error {
 		// SQL identifier comes from the registry, not user input — fmt.Sprintf
@@ -1164,19 +1187,6 @@ func (db *DB) applyModifierFlagToActivities(ctx context.Context, activityIDs []s
 		}
 		return nil
 	})
-}
-
-// modifierColumnForKey resolves a registry modifier key (e.g. is_indoor) to
-// the activities column name. Today the registry's ActionParam is the column
-// name verbatim, but matching by registry rather than re-deriving keeps a
-// future renaming in one place.
-func modifierColumnForKey(modifierKey string) (string, bool) {
-	switch modifierKey {
-	case "is_indoor", "is_commute", "is_virtual", "is_electric":
-		return modifierKey, true
-	default:
-		return "", false
-	}
 }
 
 // LinkActivityTag links a tag to an activity with the given assignment type.
