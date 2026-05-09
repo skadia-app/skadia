@@ -581,15 +581,18 @@ export default function LiftInspectorMap({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [continuousTrackCoords, mapReady, styleVersion])
 
-  return (
-    <div className="relative w-full h-full" data-testid="lift-inspector-map-wrapper">
-      {/* Map-container uses absolute inset-0 so it always fills the relative
-          parent regardless of intermediate flex height-propagation issues. The
-          neutral background means the container is visible (not pure modal-white)
-          even before MapLibre paints its first tile. */}
+    // The outer wrapper is the positioning context for legend / picker / heatmap
+    // overlays (z-10+). min-h-[480px] is a safety net: if the flex-height
+    // cascade collapses to 0 (modal layout edge cases, missing min-h-0 somewhere
+    // up the tree), the wrapper still gives the map container a non-zero size.
+    // The map container itself is a plain w-full h-full child — NOT absolute,
+    // because MapLibre overrides `position: absolute` on its container with
+    // `position: relative` during init, which would null out inset-0 stretching.
+    return (
+    <div className="relative w-full h-full min-h-[480px]" data-testid="lift-inspector-map-wrapper">
       <div
         ref={mapContainerRef}
-        className="absolute inset-0 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
+        className="w-full h-full rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
         data-testid="lift-inspector-map"
       />
 
@@ -648,12 +651,12 @@ export default function LiftInspectorMap({
       </div>
 
       {/* Layer-Picker + Heatmap-Toggle as one cohesive card directly below the
-          NavigationControl. Position is measured live via ResizeObserver
-          (navControlBottom) so the card stays flush even if the control's
-          height changes (theme / i18n / additional buttons). */}
+          NavigationControl. Once the map is ready, position is measured live
+          via ResizeObserver (navControlBottom). Before that we anchor to top-2
+          so the card doesn't hang in the middle of an empty map area. */}
       <div
-        className="absolute right-2 z-10 flex flex-col rounded-lg bg-white/95 dark:bg-neutral-900/95 border border-neutral-200 dark:border-neutral-700 shadow-md overflow-hidden"
-        style={{ top: navControlBottom }}
+        className="absolute right-2 z-10 flex flex-col min-w-[150px] rounded-lg bg-white/95 dark:bg-neutral-900/95 border border-neutral-200 dark:border-neutral-700 shadow-md overflow-hidden"
+        style={{ top: mapReady ? navControlBottom : 8 }}
       >
         {/* A. Base-layer picker — only rendered when more than one base layer is available. */}
         {base.length > 1 && (

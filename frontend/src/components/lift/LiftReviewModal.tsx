@@ -441,7 +441,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                 else listItemRefs.current.delete(c.id)
               }}
               onClick={() => handleListItemClick(c.id)}
-              className={`px-3 py-2.5 cursor-pointer transition-colors text-sm
+              className={`px-3 py-1.5 cursor-pointer transition-colors text-sm
                 ${isHighlighted ? 'bg-fuchsia-50 dark:bg-fuchsia-950/30' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}`}
             >
               {/* Row 1 — identifier + name (when known) + action icons */}
@@ -548,7 +548,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
               </div>
 
               {/* Row 2 — detection method + status (compact, single line) */}
-              <div className="mt-1 flex items-center gap-2 text-xs flex-wrap">
+              <div className="mt-0.5 flex items-center gap-2 text-xs flex-wrap">
                 {sourceConfidenceBadge(c)}
                 {!c.rejected_by_user && (
                   <span className={`shrink-0 ${
@@ -560,7 +560,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
               </div>
 
               {/* Row 3 — distance / ascent / descent */}
-              <div className="mt-1 flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
+              <div className="mt-0.5 flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400 flex-wrap">
                 <span>{formatDistance(c.distance_m)}</span>
                 <span>+{Math.round(c.ascent_m ?? 0)} m</span>
                 {(c.descent_m ?? 0) > 0 && <span>−{Math.round(c.descent_m!)} m</span>}
@@ -713,28 +713,40 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                   MapLibre clientHeight is non-zero on mount. Banner is an absolute
                   inset overlay at the top so it doesn't affect map initialization. */}
               <div className="relative flex-[7] min-h-0 h-full">
-                {/* Pause-gap banner — compact pill, centred above the map.
-                    Absolute overlay so the map container beneath it retains full
-                    size. max-w-md keeps it from overlapping the legend (top-left)
-                    or the layer-picker / heatmap card (top-right). z-20 keeps it
-                    above the map's z-10 legend/controls. */}
+                {/* Pause-gap banner — informative two-line note centred above
+                    the map. max-w keeps it from overlapping the legend
+                    (top-left) or the layer-picker / heatmap card (top-right).
+                    z-20 keeps it above the map's z-10 legend/controls. */}
                 {pauseGapCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setHelpOpen(true)}
-                    className="absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-md w-[min(26rem,calc(100%-16rem))] rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50/95 dark:bg-amber-900/90 px-3 py-1.5 text-xs text-amber-800 dark:text-amber-200 shadow-md text-left flex items-center gap-2 hover:bg-amber-100/95 dark:hover:bg-amber-900 cursor-pointer transition-colors"
-                    aria-label="Pause-Lücken-Hinweis — Hilfe öffnen"
+                  <div
+                    className="absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-xl w-[min(38rem,calc(100%-18rem))] rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50/95 dark:bg-amber-900/90 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 shadow-md"
+                    role="note"
                     data-testid="pause-gap-banner"
                   >
-                    <span className="shrink-0 text-base leading-none" aria-hidden="true">⚠</span>
-                    <span className="flex-1 leading-tight">
-                      <span className="font-semibold">
-                        {pauseGapCount} Pause{pauseGapCount > 1 ? 'n' : ''} (&gt;{PAUSE_GAP_THRESHOLD_S}s)
-                      </span>{' '}
-                      <span className="opacity-90">— über Pausen kann der Detektor keinen Lift erkennen.</span>
-                    </span>
-                    <HelpCircle className="w-4 h-4 shrink-0 opacity-70" aria-hidden="true" />
-                  </button>
+                    <div className="flex items-start gap-2">
+                      <span className="shrink-0 text-base leading-none mt-0.5" aria-hidden="true">⚠</span>
+                      <div className="flex-1 space-y-1 leading-snug">
+                        <p>
+                          <span className="font-semibold">
+                            Aufzeichnung enthält {pauseGapCount} Pause{pauseGapCount > 1 ? 'n' : ''} (&gt;{PAUSE_GAP_THRESHOLD_S}s).
+                          </span>
+                        </p>
+                        <p>
+                          Die Karte zeichnet die Linie durchgängig, markiert die Teleportations-Abschnitte
+                          aber gestrichelt-orange. Solche Lücken werden vom Detektor{' '}
+                          <span className="font-semibold">nicht</span> als Lift erkannt.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setHelpOpen(true)}
+                        aria-label="Hilfe zur Lifterkennung öffnen"
+                        className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-100 cursor-pointer transition-colors"
+                      >
+                        <HelpCircle className="w-4 h-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
                 )}
                 {mapPanel}
               </div>

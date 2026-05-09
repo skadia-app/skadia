@@ -806,8 +806,7 @@ describe('LiftReviewModal — D.2: pause-gap banner', () => {
     await waitFor(() => {
       const banner = screen.getByTestId('pause-gap-banner')
       expect(banner).not.toBeNull()
-      // Singular: count says "1 Pause", not "1 Pausen". The trailing
-      // explanation may use the plural noun generically ("über Pausen…").
+      // Singular form: count says "1 Pause", not "1 Pausen".
       expect(banner.textContent).toMatch(/1 Pause\s*\(/)
       expect(banner.textContent).not.toMatch(/1 Pausen/)
     })
@@ -877,7 +876,7 @@ describe('LiftReviewModal — banner wording (Phase 11.11+)', () => {
     mockApiFetch.mockResolvedValue({ ok: true, json: async () => twoHeuristicCandidates })
   })
 
-  it('banner is a compact pill with help-modal trigger semantics', async () => {
+  it('banner shows full explanatory text with HelpCircle trigger', async () => {
     mockFetchStreams.mockResolvedValue([
       { time: '2024-01-01T09:00:00Z', lat: 47.0, lng: 11.0 },
       { time: '2024-01-01T09:02:00Z', lat: 47.1, lng: 11.1 }, // 120s gap
@@ -899,13 +898,11 @@ describe('LiftReviewModal — banner wording (Phase 11.11+)', () => {
 
     await waitFor(() => {
       const banner = screen.getByTestId('pause-gap-banner')
-      // Compact pill: count + threshold + short explanation, click opens help modal.
-      expect(banner.textContent).toMatch(/1 Pause/)
+      expect(banner.textContent).toMatch(/Aufzeichnung enthält 1 Pause/)
       expect(banner.textContent).toMatch(/>75s/)
-      expect(banner.textContent).toMatch(/über Pausen kann der Detektor keinen Lift erkennen/)
-      // Old verbose phrasing removed (banner now opens help modal for the long form).
-      expect(banner.textContent).not.toMatch(/Teleportations-Abschnitte/)
-      expect(banner.textContent).not.toMatch(/Sliding-Window/)
+      expect(banner.textContent).toMatch(/Teleportations-Abschnitte/)
+      expect(banner.textContent).toMatch(/gestrichelt-orange/)
+      expect(banner.textContent).toMatch(/nicht.*als Lift erkannt/)
     })
   })
 
