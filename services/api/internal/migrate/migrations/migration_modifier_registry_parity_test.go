@@ -316,6 +316,29 @@ func TestSystemModifierTagSyncSQLCoverageMatchesGeneratedRegistry(t *testing.T) 
 	}
 }
 
+// TestSystemTagSyncRegistryHasNoOrphanModifierKeysSQL is the SQL-side mirror
+// of the runtime check in services/api/internal/database/system_tags_test.go:
+// every entry in tags.SystemTagSyncs must reference a modifier key that
+// exists in the sport modifier registry. The tagsgen codegen catches this
+// at generation time, but the SQL parity tests above iterate
+// sport.SportModifierKeys() and skip keys missing from tags.SystemTagSyncs,
+// so an orphan key would slip through. This test runs the reverse direction
+// so the SQL side fails loudly too.
+func TestSystemTagSyncRegistryHasNoOrphanModifierKeysSQL(t *testing.T) {
+	var orphans []string
+	for _, s := range tags.SystemTagSyncs {
+		if !sport.SportModifierExists(s.ModifierKey) {
+			orphans = append(orphans, s.ModifierKey)
+		}
+	}
+	if len(orphans) > 0 {
+		sort.Strings(orphans)
+		t.Fatalf("tags.SystemTagSyncs references modifier keys not present in sport.SportModifierKeys(): %v; "+
+			"either remove the entry from config/tags/system_tags.yaml (and regenerate via "+
+			"scripts/generate-tags.sh) or add the modifier to config/sport-taxonomy/modifiers.yaml", orphans)
+	}
+}
+
 // TestSystemModifierTagSyncSQLCoverageReferencedByResyncMigration cross-checks
 // that the actual resync migration body references each covered modifier's
 // activity column and system tag name. Without this guard a developer could

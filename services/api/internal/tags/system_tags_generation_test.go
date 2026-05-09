@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -71,17 +70,3 @@ func findRepoRoot(t *testing.T) string {
 	}
 }
 
-// firstDiffLine returns the first differing line in "got: ... want: ..." form.
-func firstDiffLine(got, want string) string {
-	gotLines := strings.Split(got, "\n")
-	wantLines := strings.Split(want, "\n")
-	for i := 0; i < len(gotLines) && i < len(wantLines); i++ {
-		if gotLines[i] != wantLines[i] {
-			return "got:  " + gotLines[i] + "\nwant: " + wantLines[i]
-		}
-	}
-	if len(gotLines) != len(wantLines) {
-		return "got and want have different line counts"
-	}
-	return "(no diff found)"
-}
