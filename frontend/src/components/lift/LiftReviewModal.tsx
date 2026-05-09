@@ -470,12 +470,17 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                     </>
                   )}
                   {label.type && (
-                    <span className="text-xs text-neutral-500 dark:text-neutral-400 truncate">
-                      {label.name ? `(${label.type})` : label.type}
-                    </span>
+                    <>
+                      {label.name && (
+                        <span className="text-neutral-400 dark:text-neutral-600" aria-hidden="true">·</span>
+                      )}
+                      <span className="text-neutral-500 dark:text-neutral-400 truncate">
+                        {label.type}
+                      </span>
+                    </>
                   )}
                 </div>
-                <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
                   {/* Method B (heuristic) action icons */}
                   {isHeuristic && c.confirmed && !c.rejected_by_user && (
                     <button
@@ -709,10 +714,9 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
           // Desktop: Fix 3 — 70/30 split map/list (map gets more, list narrower).
           <>
             <div className="flex flex-1 gap-3 min-h-0">
-              {/* Map — 70%; h-full propagates explicit height to map container so
-                  MapLibre clientHeight is non-zero on mount. Banner is an absolute
-                  inset overlay at the top so it doesn't affect map initialization. */}
-              <div className="relative flex-[7] min-h-0 h-full">
+              {/* Map — gets the lion's share. min-h-0 so flex doesn't refuse to
+                  shrink, h-full propagates the column height to the map container. */}
+              <div className="relative flex-[8] min-h-0 h-full">
                 {/* Pause-gap banner — informative two-line note centred above
                     the map. max-w keeps it from overlapping the legend
                     (top-left) or the layer-picker / heatmap card (top-right).
@@ -750,9 +754,9 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                 )}
                 {mapPanel}
               </div>
-              {/* List — 30%; overflow-y-auto on the wrapper so the list scrolls when
-                  it overflows, but does not expand to fill whitespace when it's short. */}
-              <div className="flex-[3] min-h-0 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-y-auto">
+              {/* List — narrower (≈22%); overflow-y-auto on the wrapper so the
+                  list scrolls when it overflows but doesn't expand to fill. */}
+              <div className="flex-[2.5] min-h-0 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-y-auto">
                 {listPanel}
               </div>
             </div>

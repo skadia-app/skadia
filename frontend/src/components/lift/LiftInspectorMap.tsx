@@ -198,11 +198,6 @@ export default function LiftInspectorMap({
   // re-run after a style switch even when their other deps haven't changed.
   const [styleVersion, setStyleVersion] = useState(0)
 
-  // NavigationControl height — measured via ResizeObserver so the heatmap+picker
-  // group below it stays flush even if the control's height changes (theme,
-  // i18n label growth, additional buttons added in the future).
-  const [navControlBottom, setNavControlBottom] = useState(96)
-
   // Synchronise selectedBaseLayer when base[] resolves: if not yet set (or if
   // the previously selected layer disappeared from the list), pick the smart
   // default. A user's explicit picker choice is preserved as long as the layer
@@ -405,27 +400,6 @@ export default function LiftInspectorMap({
     initMapRef.current?.()
   }, [baseLayer, caps])
 
-  // Measure NavigationControl height so the heatmap+picker group stacks flush
-  // beneath it. Uses ResizeObserver on the .maplibregl-ctrl-top-right container
-  // (where MapLibre injects nav controls). Falls back to the default 96px if
-  // the element isn't found yet.
-  useEffect(() => {
-    if (!mapReady) return
-    const root = mapContainerRef.current
-    if (!root) return
-    const navWrapper = root.querySelector<HTMLElement>('.maplibregl-ctrl-top-right')
-    if (!navWrapper) return
-    const measure = () => {
-      const rect = navWrapper.getBoundingClientRect()
-      // 8px gap below the control before the next group starts.
-      if (rect.height > 0) setNavControlBottom(Math.round(rect.height) + 8)
-    }
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(navWrapper)
-    return () => ro.disconnect()
-  }, [mapReady])
-
   // A. Style-switch effect — triggers when the user changes the base-layer via
   // the picker. Does nothing on first render (map not yet created) or when the
   // selected layer matches what was used for map init.
@@ -606,12 +580,51 @@ export default function LiftInspectorMap({
         </div>
       )}
 
-      {/* F16: on-map legend — color swatch + German text label for each line type.
-          Both channels (color + text) are present so the encoding is accessible
-          without color vision. Fix 6a: each row has a native title tooltip.
-          Phase 11.9: HelpCircle in top-right corner of legend triggers LiftHelpModal. */}
+      {/* Toolbar top-left — layer picker as inline pill-buttons + heatmap toggle
+          as a sibling card. Mirrors the MultiTrackMap fullscreen pattern
+          (MultiTrackMap.tsx:236-279) so map controls stay visually consistent
+          across the app. NavigationControl owns top-right (MapLibre default). */}
+      <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 flex-wrap pointer-events-auto">
+        {base.length > 1 && (
+          <div className="flex items-center gap-0.5 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-lg shadow-md p-0.5">
+            {base.map(l => (
+              <button
+                key={l.id}
+                onClick={() => setSelectedBaseLayer(l)}
+                className={[
+                  'px-2 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer',
+                  selectedBaseLayer?.id === l.id
+                    ? 'bg-accent-DEFAULT text-white'
+                    : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700',
+                ].join(' ')}
+              >
+                {l.name}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-1 bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-lg shadow-md px-2 py-1">
+          <button
+            onClick={() => setShowHeatmap(v => !v)}
+            title={showHeatmap ? 'Heatmap ausblenden' : 'Heatmap einblenden'}
+            data-testid="heatmap-toggle"
+            className={[
+              'flex items-center gap-1.5 text-xs font-medium rounded-md px-1.5 py-0.5 transition-colors cursor-pointer',
+              showHeatmap
+                ? 'text-accent-DEFAULT'
+                : 'text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white',
+            ].join(' ')}
+          >
+            <Flame className="w-3.5 h-3.5" aria-hidden="true" />
+            Heatmap
+          </button>
+        </div>
+      </div>
+
+      {/* Legend bottom-left — same position pattern as MultiTrackMap. Shows the
+          line-style → meaning mapping plus a help-icon that opens LiftHelpModal. */}
       <div
-        className="absolute top-2 left-2 z-10 rounded-lg bg-white/90 dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-700 shadow-md px-3 py-2.5 text-xs space-y-1"
+        className="absolute bottom-3 left-3 z-10 rounded-lg bg-white/90 dark:bg-neutral-900/90 border border-neutral-200 dark:border-neutral-700 shadow-md px-3 py-2 text-xs space-y-1 pointer-events-auto"
         aria-label="Kartenlegende"
       >
         <div className="flex items-center justify-between gap-2 mb-0.5">
@@ -648,57 +661,6 @@ export default function LiftInspectorMap({
             <span className="text-neutral-700 dark:text-neutral-300">{CONFIDENCE_LABEL[entry.key]}</span>
           </div>
         ))}
-      </div>
-
-      {/* Layer-Picker + Heatmap-Toggle as one cohesive card directly below the
-          NavigationControl. Once the map is ready, position is measured live
-          via ResizeObserver (navControlBottom). Before that we anchor to top-2
-          so the card doesn't hang in the middle of an empty map area. */}
-      <div
-        className="absolute right-2 z-10 flex flex-col min-w-[150px] rounded-lg bg-white/95 dark:bg-neutral-900/95 border border-neutral-200 dark:border-neutral-700 shadow-md overflow-hidden"
-        style={{ top: mapReady ? navControlBottom : 8 }}
-      >
-        {/* A. Base-layer picker — only rendered when more than one base layer is available. */}
-        {base.length > 1 && (
-          <select
-            value={selectedBaseLayer?.id ?? ''}
-            onChange={e => {
-              const id = Number(e.target.value)
-              const layer = base.find(l => l.id === id)
-              if (layer) setSelectedBaseLayer(layer)
-            }}
-            aria-label="Karten-Stil wählen"
-            className="
-              bg-transparent border-0 border-b border-neutral-200 dark:border-neutral-700
-              px-2.5 py-1.5 text-xs
-              text-neutral-700 dark:text-neutral-300
-              cursor-pointer
-              focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT
-            "
-          >
-            {base.map(l => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-        )}
-
-        {/* F. Heatmap toggle button — visual pattern matches MultiTrackMap.tsx:255-271. */}
-        <button
-          onClick={() => setShowHeatmap(v => !v)}
-          title={showHeatmap ? 'Heatmap ausblenden' : 'Heatmap einblenden'}
-          data-testid="heatmap-toggle"
-          className={[
-            'flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 transition-colors cursor-pointer',
-            showHeatmap
-              ? 'text-accent-DEFAULT bg-accent-DEFAULT/10'
-              : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800',
-          ].join(' ')}
-        >
-          <Flame className="w-3.5 h-3.5" aria-hidden="true" />
-          Heatmap
-        </button>
       </div>
     </div>
   )
