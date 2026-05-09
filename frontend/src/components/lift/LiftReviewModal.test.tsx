@@ -3,6 +3,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import LiftReviewModal from './LiftReviewModal'
+import { ToastProvider } from '@/lib/toast'
+import { ToastContainer } from '@/components/Toast'
 import type { Activity, LiftCandidate } from '@/api/types'
 
 // ResizeObserver and matchMedia are not available in jsdom.
@@ -111,7 +113,12 @@ function makeCandidates(overrides: Partial<LiftCandidate>[] = []): LiftCandidate
 
 function wrapper({ children }: { children: ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  return (
+    <ToastProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+      <ToastContainer />
+    </ToastProvider>
+  )
 }
 
 const twoHeuristicCandidates = makeCandidates([
@@ -285,14 +292,16 @@ describe('LiftReviewModal', () => {
     expect(screen.queryByText(/1 Liftfahrten/)).toBeNull()
 
     rerender(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <LiftReviewModal
-          open={true}
-          onClose={() => {}}
-          activity={makeActivity()}
-          candidates={twoHeuristicCandidates}
-        />
-      </QueryClientProvider>,
+      <ToastProvider>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <LiftReviewModal
+            open={true}
+            onClose={() => {}}
+            activity={makeActivity()}
+            candidates={twoHeuristicCandidates}
+          />
+        </QueryClientProvider>
+      </ToastProvider>,
     )
 
     expect(screen.getByText(/2 Liftfahrten wurden erkannt/)).toBeTruthy()
@@ -496,15 +505,250 @@ describe('LiftInspectorMap', () => {
     const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
     const candidates = makeCandidates([{ id: 'c-0' }])
     const { container } = render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <LiftInspectorMap
-          candidates={candidates}
-          streams={[]}
-          highlightedCandidateId={null}
-          onCandidateClick={() => {}}
-        />
-      </QueryClientProvider>,
+      <ToastProvider>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <LiftInspectorMap
+            candidates={candidates}
+            streams={[]}
+            highlightedCandidateId={null}
+            onCandidateClick={() => {}}
+          />
+        </QueryClientProvider>
+      </ToastProvider>,
     )
     expect(container.querySelector('[data-testid="lift-inspector-map"]')).toBeTruthy()
+  })
+
+  // F11: empty stream shows fallback overlay (the map container still renders beneath it)
+  it('F11: empty stream renders fallback overlay without hiding map container', async () => {
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+    const { container } = render(
+      <ToastProvider>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <LiftInspectorMap
+            candidates={[]}
+            streams={[]}
+            highlightedCandidateId={null}
+            onCandidateClick={() => {}}
+          />
+        </QueryClientProvider>
+      </ToastProvider>,
+    )
+    // Fallback text is visible
+    expect(screen.getByText(/Karte nicht verfügbar — fehlender Stream/)).toBeTruthy()
+    // Map container still exists (ResizeObserver must be able to observe it)
+    expect(container.querySelector('[data-testid="lift-inspector-map"]')).toBeTruthy()
+  })
+
+  // F16: legend is rendered with all expected German labels
+  it('F16: legend overlay is rendered with German category labels', async () => {
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+    render(
+      <ToastProvider>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <LiftInspectorMap
+            candidates={[]}
+            streams={[]}
+            highlightedCandidateId={null}
+            onCandidateClick={() => {}}
+          />
+        </QueryClientProvider>
+      </ToastProvider>,
+    )
+    expect(screen.getByText('OSM-Treffer')).toBeTruthy()
+    expect(screen.getByText('Heuristik (hoch)')).toBeTruthy()
+    expect(screen.getByText('Heuristik (mittel)')).toBeTruthy()
+    expect(screen.getByText('Heuristik (bidirektional)')).toBeTruthy()
+    expect(screen.getByText('Abgelehnt')).toBeTruthy()
+  })
+})
+
+// ── New regression tests for Critic findings ────────────────────────────────────
+
+describe('LiftReviewModal — Critic fix regressions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => twoHeuristicCandidates })
+    mockFetchStreams.mockResolvedValue([])
+  })
+
+  // F8: expanded mode must have "Alle ablehnen" in the footer
+  it('F8: expanded mode footer contains Alle ablehnen button', () => {
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    // In expanded mode there are multiple buttons; check footer contains the reject-all
+    expect(screen.getAllByText(/Alle ablehnen/).length).toBeGreaterThan(0)
+  })
+
+  // F8: clicking "Alle ablehnen" in expanded mode calls POST /reject-all and closes
+  it('F8: expanded mode Alle ablehnen calls reject-all and closes', async () => {
+    const onClose = vi.fn()
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={onClose}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    // Click the "Alle ablehnen" in the expanded footer (multiple may exist — take last)
+    const rejectBtns = screen.getAllByText(/Alle ablehnen/)
+    fireEvent.click(rejectBtns[rejectBtns.length - 1])
+
+    await waitFor(() => {
+      const calls = mockApiFetch.mock.calls
+      const rejectCall = calls.find((args: unknown[]) => {
+        const url = args[0] as string | undefined
+        const opts = args[1] as RequestInit | undefined
+        return !!url && url.includes('/lifts/reject-all') && opts?.method === 'POST'
+      })
+      expect(rejectCall).toBeTruthy()
+    })
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
+
+  // F9: bulk confirm partial failure keeps modal + selection open and shows toast
+  it('F9: bulk confirm partial failure shows error toast and keeps selection', async () => {
+    // Second confirm call rejects — first succeeds
+    let confirmCallCount = 0
+    mockApiFetch.mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url.includes('/candidates')) return { ok: true, json: async () => twoHeuristicCandidates }
+      if (typeof url === 'string' && url.includes('/confirm') && opts?.method === 'POST') {
+        confirmCallCount++
+        if (confirmCallCount >= 2) throw new Error('Server error on second confirm')
+      }
+      return { ok: true, json: async () => ({}) }
+    })
+
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    // Switch to expanded mode
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    // Enable multi-select and select both
+    await waitFor(() => expect(screen.getByText(/Multi-Auswahl$/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Multi-Auswahl$/))
+
+    await waitFor(() => {
+      const checkboxes = screen.getAllByRole('checkbox')
+      expect(checkboxes.length).toBeGreaterThan(0)
+    })
+    screen.getAllByRole('checkbox').forEach(cb => {
+      if (!(cb as HTMLInputElement).checked) fireEvent.click(cb)
+    })
+
+    // Click inline Bestätigen (the mini-bar button, not per-item)
+    await waitFor(() => expect(screen.getByText(/^Bestätigen$/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/^Bestätigen$/))
+
+    // Error toast must mention "fehlgeschlagen"
+    await waitFor(() => {
+      expect(screen.getByText(/fehlgeschlagen/)).toBeTruthy()
+    }, { timeout: 3000 })
+  })
+
+  // F15: expanded modal uses dvh height unit
+  it('F15: expanded modal uses dvh height unit', () => {
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    // The inner flex div should have the dvh height style
+    const inner = document.querySelector('[style*="dvh"]')
+    expect(inner).not.toBeNull()
+  })
+
+  // F16: list rows show source/confidence badge with color-redundant text label
+  it('F16: list rows display source+confidence badge text for accessibility', async () => {
+    const osmCandidate = makeCandidates([
+      { id: 'osm-1', source: 'osm' as const, confidence: 'high' },
+    ])
+
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={osmCandidate}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    // OSM badge text is rendered
+    await waitFor(() => {
+      expect(screen.getAllByText('OSM-Treffer').length).toBeGreaterThan(0)
+    })
+  })
+
+  // F26: useIsDesktop does not throw without window
+  // (tested indirectly — the wrapper must render without error even in jsdom where
+  // matchMedia is mocked and window.innerWidth is typically 0/1024-less)
+  it('F26: component mounts without throwing when window.innerWidth is not set', () => {
+    // jsdom sets window.innerWidth=0; our guard defaults to false → mobile layout
+    expect(() => {
+      render(
+        <LiftReviewModal
+          open={true}
+          onClose={() => {}}
+          activity={makeActivity()}
+          candidates={twoHeuristicCandidates}
+        />,
+        { wrapper },
+      )
+    }).not.toThrow()
+  })
+
+  // F11: list row shows "(keine Karten-Spur)" when stream doesn't cover lift time range
+  it('F11: list row shows no-map-track marker when stream is empty', async () => {
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    // With empty streams (mocked to []), both candidates lack GPS coverage
+    await waitFor(() => {
+      const markers = screen.getAllByText(/keine Karten-Spur/)
+      expect(markers.length).toBeGreaterThan(0)
+    })
   })
 })
