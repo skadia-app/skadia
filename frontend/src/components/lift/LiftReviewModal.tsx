@@ -184,9 +184,30 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
   })
 
   const unconfirmMutation = useMutation({
-    mutationFn: (cid: string) =>
-      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}/unconfirm`, { method: 'PATCH' }),
+    mutationFn: async (cid: string) => {
+      const res = await apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}/unconfirm`, { method: 'PATCH' })
+      if (!res.ok) {
+        // Backend returns RFC7807-style problem+json with `code` for 409/404;
+        // fall back gracefully when the body is empty or not JSON.
+        const body = await res.json().catch(() => null) as { code?: string; detail?: string } | null
+        throw Object.assign(new Error(body?.detail ?? `Unconfirm fehlgeschlagen (HTTP ${res.status})`), {
+          status: res.status,
+          code: body?.code,
+        })
+      }
+      return res
+    },
     onSuccess: () => invalidateAfterBulk(),
+    onError: (err: Error & { code?: string }) => {
+      const msg = err.code === 'ALREADY_REJECTED'
+        ? 'Bereits abgelehnt — Liste aktualisiert.'
+        : err.code === 'WRONG_SOURCE'
+        ? 'OSM-Treffer kann nicht zurückgesetzt werden.'
+        : err.message
+      addToast({ type: 'error', title: msg })
+      // Re-fetch so the modal reflects the actual server-side state.
+      invalidateAfterBulk()
+    },
   })
 
   const rejectMutation = useMutation({
