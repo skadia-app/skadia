@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
-	"strings"
 	"text/template"
 )
 
@@ -87,14 +86,3 @@ func RenderTS(exportPrefix string, keys []string) (string, error) {
 	return buf.String(), nil
 }
 
-// toPascalCase converts a snake_case or lowercase name to PascalCase.
-func toPascalCase(s string) string {
-	parts := strings.FieldsFunc(s, func(r rune) bool { return r == '_' || r == '-' })
-	var b strings.Builder
-	for _, p := range parts {
-		if len(p) > 0 {
-			b.WriteString(strings.ToUpper(p[:1]) + p[1:])
-		}
-	}
-	return b.String()
-}
