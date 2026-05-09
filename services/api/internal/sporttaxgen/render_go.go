@@ -168,7 +168,22 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("\treturn SportModifierDef{}, false\n")
 	buf.WriteString("}\n\n")
 
+	// sportModifierCapabilityNames is the closed set of capability keys the
+	// schema admits (config/sport-taxonomy/schema/modifiers.schema.json
+	// $defs.capabilities required). The capability lookups below panic for
+	// any string outside this set so typo'd lookups and stale references to
+	// capabilities removed in the 2026-05-08 decoupling fail loudly instead
+	// of silently returning empty/false.
+	buf.WriteString("var sportModifierCapabilityNames = map[string]struct{}{\n")
+	for _, capability := range modifierCapabilityNames() {
+		fmt.Fprintf(&buf, "\t%q: {},\n", capability)
+	}
+	buf.WriteString("}\n\n")
+
 	buf.WriteString("func SportModifierKeysWithCapability(capability string) []string {\n")
+	buf.WriteString("\tif _, ok := sportModifierCapabilityNames[capability]; !ok {\n")
+	buf.WriteString("\t\tpanic(\"sport: unknown modifier capability \\\"\" + capability + \"\\\"; valid keys are activity_state, modifier_filter, modifier_patch, taxonomy_default\")\n")
+	buf.WriteString("\t}\n")
 	buf.WriteString("\tkeys := make([]string, 0, len(generatedSportModifiers))\n")
 	buf.WriteString("\tfor _, modifier := range generatedSportModifiers {\n")
 	buf.WriteString("\t\tif modifier.Capabilities[capability] {\n")
@@ -179,6 +194,9 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("}\n\n")
 
 	buf.WriteString("func SportModifierHasCapability(key, capability string) bool {\n")
+	buf.WriteString("\tif _, ok := sportModifierCapabilityNames[capability]; !ok {\n")
+	buf.WriteString("\t\tpanic(\"sport: unknown modifier capability \\\"\" + capability + \"\\\"; valid keys are activity_state, modifier_filter, modifier_patch, taxonomy_default\")\n")
+	buf.WriteString("\t}\n")
 	buf.WriteString("\tfor _, modifier := range generatedSportModifiers {\n")
 	buf.WriteString("\t\tif modifier.Key == key {\n")
 	buf.WriteString("\t\t\treturn modifier.Capabilities[capability]\n")

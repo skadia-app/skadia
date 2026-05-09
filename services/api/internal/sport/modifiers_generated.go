@@ -56,7 +56,17 @@ func SportModifierByKey(key string) (SportModifierDef, bool) {
 	return SportModifierDef{}, false
 }
 
+var sportModifierCapabilityNames = map[string]struct{}{
+	"activity_state":   {},
+	"modifier_filter":  {},
+	"modifier_patch":   {},
+	"taxonomy_default": {},
+}
+
 func SportModifierKeysWithCapability(capability string) []string {
+	if _, ok := sportModifierCapabilityNames[capability]; !ok {
+		panic("sport: unknown modifier capability \"" + capability + "\"; valid keys are activity_state, modifier_filter, modifier_patch, taxonomy_default")
+	}
 	keys := make([]string, 0, len(generatedSportModifiers))
 	for _, modifier := range generatedSportModifiers {
 		if modifier.Capabilities[capability] {
@@ -67,6 +77,9 @@ func SportModifierKeysWithCapability(capability string) []string {
 }
 
 func SportModifierHasCapability(key, capability string) bool {
+	if _, ok := sportModifierCapabilityNames[capability]; !ok {
+		panic("sport: unknown modifier capability \"" + capability + "\"; valid keys are activity_state, modifier_filter, modifier_patch, taxonomy_default")
+	}
 	for _, modifier := range generatedSportModifiers {
 		if modifier.Key == key {
 			return modifier.Capabilities[capability]

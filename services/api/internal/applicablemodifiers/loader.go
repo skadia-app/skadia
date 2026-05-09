@@ -10,6 +10,12 @@ import (
 // LoadForSubsystem reads a modifiers.yaml file (the canonical sport-taxonomy
 // modifiers registry) and returns the keys of modifiers that declare the given
 // subsystem in their `subsystems:` audience array, in YAML order.
+//
+// LoadForSubsystem returns an error when subsystem is not declared by any
+// modifier in modifiersPath. Empty-on-unknown was a drift hazard: a caller
+// asking for "heatmaps" (typo of "heatmap") or "gear-defaults" (a stale name
+// after a rename) would receive an empty slice and behave as if no modifier
+// matched the subsystem. Failing loudly forces the caller to fix the name.
 func LoadForSubsystem(modifiersPath, subsystem string) ([]string, error) {
 	data, err := os.ReadFile(modifiersPath)
 	if err != nil {
@@ -24,14 +30,22 @@ func LoadForSubsystem(modifiersPath, subsystem string) ([]string, error) {
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", modifiersPath, err)
 	}
-	var keys []string
+	var (
+		keys  []string
+		known bool
+	)
 	for _, m := range doc.Modifiers {
 		for _, s := range m.Subsystems {
 			if s == subsystem {
 				keys = append(keys, m.Key)
+				known = true
 				break
 			}
 		}
+	}
+	if !known {
+		return nil, fmt.Errorf("subsystem %q not declared by any modifier in %s; "+
+			"check for a typo or a stale subsystem name", subsystem, modifiersPath)
 	}
 	return keys, nil
 }
