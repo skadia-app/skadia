@@ -44,19 +44,6 @@ type ModifierCapabilities struct {
 var modifierIdentifierPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 var shadowFSTokenPattern = modifierIdentifierPattern
 
-// knownSubsystems is the set of valid subsystem names for the subsystems[] field.
-// These match the --subsystem flag values used by applicablemodifiersgen.
-var knownSubsystems = map[string]struct{}{
-	"gear":        {},
-	"rules":       {},
-	"dataimport":  {},
-	"shadowfs":    {},
-	"routefilter": {},
-	"bestefforts": {},
-	"heatmap":     {},
-	"quick-edit":  {},
-}
-
 func modifierCapabilityNames() []string {
 	return []string{
 		"activity_state",
