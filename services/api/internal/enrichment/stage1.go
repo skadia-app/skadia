@@ -688,7 +688,7 @@ func runStage1ModifierTagBlock(
 	autoTagsToAdd []string,
 	systemTagPlan []stage1SystemTagIntent,
 ) error {
-	return db.WithSystemModifierTagSyncSuspended(ctx, []string{activityID}, func(ctx context.Context, tx pgx.Tx) error {
+	return db.WithSystemModifierTagSyncSuspended(ctx, "stage1_enrichment", []string{activityID}, func(ctx context.Context, tx pgx.Tx) error {
 		// 1. Upsert + link every system tag in plan order. Any failure here
 		// rolls back the whole block — no half-applied state.
 		for _, intent := range systemTagPlan {

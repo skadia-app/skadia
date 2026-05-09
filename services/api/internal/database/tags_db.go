@@ -1153,8 +1153,9 @@ const (
 )
 
 // Column returns the activities-table column name for this modifier key.
-// Today the constant value is the column name verbatim, but the indirection
-// matches the registry pattern and tolerates a future rename in one place.
+// The constant value is the column name verbatim. The indirection localizes
+// the validation (which keys are recognized) to one place; it does NOT
+// decouple the constant value from the column name.
 func (k ModifierKey) Column() (string, bool) {
 	switch k {
 	case ModifierIndoor, ModifierCommute, ModifierVirtual, ModifierElectric:
@@ -1177,7 +1178,7 @@ func (db *DB) applyModifierFlagToActivities(ctx context.Context, activityIDs []s
 	if !ok {
 		return fmt.Errorf("apply modifier flag: unknown modifier key %q", key)
 	}
-	return db.WithSystemModifierTagSyncSuspended(ctx, activityIDs, func(ctx context.Context, tx pgx.Tx) error {
+	return db.WithSystemModifierTagSyncSuspended(ctx, "bulk_modifier_assign", activityIDs, func(ctx context.Context, tx pgx.Tx) error {
 		// SQL identifier comes from the registry, not user input — fmt.Sprintf
 		// is safe here. validEnrichmentCols already covers these column names
 		// for the enrichment path; the registry is the parallel allowlist.
