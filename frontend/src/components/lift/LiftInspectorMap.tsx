@@ -10,6 +10,7 @@ import { addHeatmapLayers, removeHeatmapLayers, buildHeatmapTileUrl, loadHeatmap
 import { useCurrentUserId } from '@/providers/UserProvider'
 import type { MapLayer } from '@/api/mapLayers'
 import type { LiftCandidate, StreamPoint } from '@/api/types'
+import { liftDisplayLabel } from './liftLabel'
 
 // Pause gaps longer than this threshold are treated as hard breaks — no lift
 // candidate spanning the gap will be detected. MUST stay in sync with backend
@@ -164,6 +165,82 @@ const LEGEND_ENTRIES: { dot: string; key: keyof typeof CONFIDENCE_LABEL; dashed?
   { dot: '#ef4444', key: 'rejected', dashed: true },
 ]
 
+// Endpoint-marker colours used for start (cyan) and end (magenta) of every
+// lift candidate. The values mirror the VIZ debug tool's GT-Tal / GT-Berg
+// markers so users who switch between the two have a consistent visual
+// vocabulary for "start of the ride" vs "end of the ride".
+const ENDPOINT_COLOR_START = '#06b6d4'
+const ENDPOINT_COLOR_END = '#ec4899'
+
+function createEndpointMarkerEl(color: string): HTMLDivElement {
+  const el = document.createElement('div')
+  el.style.cssText = [
+    'width: 12px',
+    'height: 12px',
+    'border-radius: 50%',
+    `background: ${color}`,
+    'border: 2px solid #ffffff',
+    'box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45)',
+    'cursor: pointer',
+    'transition: transform 120ms ease-out',
+  ].join('; ')
+  el.addEventListener('mouseenter', () => { el.style.transform = 'scale(1.4)' })
+  el.addEventListener('mouseleave', () => { el.style.transform = '' })
+  return el
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c])
+}
+
+function formatTimeHMS(iso: string): string {
+  return new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+/**
+ * Builds the HTML body for the popup that appears when the user clicks on a
+ * lift polyline or one of its endpoint markers. Layout:
+ *
+ *   L01 · Start            (or "L01 · Ende", or just "L01" for line clicks)
+ *   example chairlift · Sessellift
+ *   ● OSM-Treffer · bestätigt
+ *   1.3 km · +280m · −5m
+ *   14:29:01 → 14:43:31 · 870s
+ *
+ * All inputs go through escapeHtml() so user-provided strings (osm_name)
+ * cannot inject markup.
+ */
+function buildLiftPopupHTML(
+  c: LiftCandidate,
+  idLabel: string,
+  label: { name?: string; type?: string },
+  origin: 'start' | 'end' | 'line',
+): string {
+  const detection = CONFIDENCE_LABEL[getConfidenceKey(c)]
+  const status = c.rejected_by_user ? 'abgelehnt' : (c.confirmed ? 'bestätigt' : 'offen')
+  const distance = c.distance_m == null
+    ? '–'
+    : c.distance_m >= 1000 ? `${(c.distance_m / 1000).toFixed(1)} km` : `${Math.round(c.distance_m)} m`
+  const heading = origin === 'start'
+    ? `${idLabel} · Start`
+    : origin === 'end'
+    ? `${idLabel} · Ende`
+    : idLabel
+  const nameAndType = [label.name, label.type].filter(Boolean).join(' · ')
+  const descPart = (c.descent_m ?? 0) > 0 ? ` · −${Math.round(c.descent_m!)} m` : ''
+  return [
+    '<div style="font-size:12px; line-height:1.5; min-width:180px;">',
+    `  <div style="font-weight:600; color:#171717;">${escapeHtml(heading)}</div>`,
+    nameAndType
+      ? `  <div style="color:#525252; margin-bottom:4px;">${escapeHtml(nameAndType)}</div>`
+      : '',
+    `  <div style="color:#525252;">${escapeHtml(detection)} · ${escapeHtml(status)}</div>`,
+    `  <div style="margin-top:4px; color:#171717;">${escapeHtml(distance)} · +${Math.round(c.ascent_m)} m${escapeHtml(descPart)}</div>`,
+    `  <div style="color:#525252; margin-top:2px;">${escapeHtml(formatTimeHMS(c.started_at))} → ${escapeHtml(formatTimeHMS(c.ended_at))} · ${c.duration_s}s</div>`,
+    '</div>',
+  ].join('\n')
+}
+
 export default function LiftInspectorMap({
   candidates,
   streams,
@@ -177,6 +254,36 @@ export default function LiftInspectorMap({
   // Track which candidate IDs currently have sources/layers on the map so we
   // can remove stale ones when the candidates prop changes (F10 fix).
   const mountedCandidateIdsRef = useRef<Set<string>>(new Set())
+  // Endpoint markers per candidate (start, end). Survives style switches —
+  // MapLibre Markers are body-attached DOM elements, independent of style.
+  const mountedLiftMarkersRef = useRef<Map<string, [maplibregl.Marker, maplibregl.Marker]>>(new Map())
+  // Single popup instance reused for every click (so a new click closes the
+  // previous popup automatically — MapLibre Popup.addTo replaces the existing
+  // anchor when the same instance is reused).
+  const popupRef = useRef<maplibregl.Popup | null>(null)
+  // Latest candidates list — used inside click handlers (which are bound once
+  // per layer add) to look up the current state for popup rendering.
+  const candidatesRef = useRef<LiftCandidate[]>([])
+  candidatesRef.current = candidates
+
+  // Single popup helper — closes the previous one and opens a new one at the
+  // given location with the candidate's metadata. Reuses one Popup instance
+  // so successive clicks behave like a tooltip rather than stacking.
+  const openLiftPopup = (
+    m: maplibregl.Map,
+    lngLat: [number, number],
+    c: LiftCandidate,
+    idLabel: string,
+    origin: 'start' | 'end' | 'line',
+  ) => {
+    if (popupRef.current) {
+      popupRef.current.remove()
+    }
+    popupRef.current = new maplibregl.Popup({ offset: 12, closeButton: true, closeOnClick: false, maxWidth: '260px' })
+      .setLngLat(lngLat)
+      .setHTML(buildLiftPopupHTML(c, idLabel, liftDisplayLabel(c), origin))
+      .addTo(m)
+  }
   // Refs for track coords — updated each render so addTrackLayer closures always
   // see the latest data even when Effect 1 runs only once.
   const continuousTrackCoordsRef = useRef<[number, number][]>([])
@@ -506,7 +613,17 @@ export default function LiftInspectorMap({
           },
         })
 
-        m.on('click', layerId, () => onCandidateClick(c.id))
+        // Click on the lift line: scroll the corresponding list row into view
+        // AND open a popup at the click point with the candidate's metadata.
+        // candidatesRef is read at click-time so confirmed/rejected updates
+        // since the layer was first mounted are reflected in the popup.
+        m.on('click', layerId, e => {
+          onCandidateClick(c.id)
+          const cur = candidatesRef.current.find(x => x.id === c.id) ?? c
+          const idx = candidatesRef.current.findIndex(x => x.id === c.id)
+          const idLabel = idx >= 0 ? `L${String(idx + 1).padStart(2, '0')}` : c.id.slice(0, 8)
+          openLiftPopup(m, e.lngLat.toArray() as [number, number], cur, idLabel, 'line')
+        })
         m.on('mouseenter', layerId, () => { m.getCanvas().style.cursor = 'pointer' })
         m.on('mouseleave', layerId, () => { m.getCanvas().style.cursor = '' })
         mountedCandidateIdsRef.current.add(c.id)
@@ -574,6 +691,82 @@ export default function LiftInspectorMap({
     return () => markers.forEach(mk => mk.remove())
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [continuousTrackCoords, mapReady, styleVersion])
+
+  // ── Effect 6: endpoint markers — cyan (start) + magenta (end) per candidate ─
+  // Markers are DOM-attached and survive style switches, so we don't include
+  // styleVersion in deps (would cause flicker on every base-layer change).
+  // Click on a marker opens the popup with the candidate's metadata.
+  useEffect(() => {
+    const m = mapRef.current
+    if (!m || !mapReady) return
+
+    const incoming = new Set(candidates.map(c => c.id))
+
+    // Remove markers for candidates no longer present.
+    for (const [oldId, [s, e]] of mountedLiftMarkersRef.current) {
+      if (!incoming.has(oldId)) {
+        s.remove()
+        e.remove()
+        mountedLiftMarkersRef.current.delete(oldId)
+      }
+    }
+
+    for (const c of candidates) {
+      const coords = candidateCoords.get(c.id) ?? []
+      if (coords.length < 2) continue
+
+      const startCoord = coords[0]
+      const endCoord = coords[coords.length - 1]
+      const existing = mountedLiftMarkersRef.current.get(c.id)
+
+      if (existing) {
+        // Update positions in case the underlying time range changed (rare).
+        existing[0].setLngLat(startCoord)
+        existing[1].setLngLat(endCoord)
+        continue
+      }
+
+      const startEl = createEndpointMarkerEl(ENDPOINT_COLOR_START)
+      const endEl = createEndpointMarkerEl(ENDPOINT_COLOR_END)
+      startEl.title = 'Start des Lifts'
+      endEl.title = 'Ende des Lifts'
+
+      const handleEndpointClick = (origin: 'start' | 'end', coord: [number, number]) => (ev: MouseEvent) => {
+        ev.stopPropagation()
+        const cur = candidatesRef.current.find(x => x.id === c.id) ?? c
+        const idx = candidatesRef.current.findIndex(x => x.id === c.id)
+        const idLabel = idx >= 0 ? `L${String(idx + 1).padStart(2, '0')}` : c.id.slice(0, 8)
+        onCandidateClick(c.id)
+        openLiftPopup(m, coord, cur, idLabel, origin)
+      }
+      startEl.addEventListener('click', handleEndpointClick('start', startCoord))
+      endEl.addEventListener('click', handleEndpointClick('end', endCoord))
+
+      const startMarker = new maplibregl.Marker({ element: startEl }).setLngLat(startCoord).addTo(m)
+      const endMarker = new maplibregl.Marker({ element: endEl }).setLngLat(endCoord).addTo(m)
+      mountedLiftMarkersRef.current.set(c.id, [startMarker, endMarker])
+    }
+
+    // Cleanup on unmount only — let entries persist between renders so
+    // markers don't flicker on every state update.
+    return undefined
+  // candidatesRef is intentionally read inside handlers; deps cover the
+  // structural change set (new/removed candidates and their coords).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidates, candidateCoords, mapReady])
+
+  // Cleanup markers + popup on full unmount.
+  useEffect(() => {
+    return () => {
+      for (const [, [s, e]] of mountedLiftMarkersRef.current) {
+        s.remove()
+        e.remove()
+      }
+      mountedLiftMarkersRef.current.clear()
+      popupRef.current?.remove()
+      popupRef.current = null
+    }
+  }, [])
 
     // The outer wrapper is the positioning context for legend / picker / heatmap
     // overlays (z-10+). min-h-[480px] is a safety net: if the flex-height
