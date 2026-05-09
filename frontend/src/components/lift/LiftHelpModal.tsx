@@ -44,11 +44,19 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                 <dt className="font-semibold text-neutral-900 dark:text-neutral-100 mb-1">
                   Methode A — OSM-Match
                 </dt>
-                <dd className="text-neutral-600 dark:text-neutral-400 leading-relaxed">
-                  Deine GPS-Spur wird gegen die OpenStreetMap-Lift-Geometrie verglichen.
-                  Wenn ein Abschnitt deiner Aktivität auf einem als Lift markierten OSM-Segment liegt,
-                  ist der Match eindeutig — diese Lifte werden sofort gezählt, ohne dass du sie bestätigen musst.
-                  Voraussetzung: der Lift muss in OSM existieren und korrekt getaggt sein.
+                <dd className="text-neutral-600 dark:text-neutral-400 leading-relaxed space-y-2">
+                  <p>
+                    Deine GPS-Spur wird gegen die OpenStreetMap-Lift-Geometrie verglichen.
+                    Wenn ein Abschnitt deiner Aktivität auf einem als Lift markierten OSM-Segment liegt,
+                    wird er sofort als Lift gezählt — ohne Review-Pflicht. Voraussetzung: der Lift
+                    muss in OSM existieren und korrekt getaggt sein.
+                  </p>
+                  <p>
+                    <strong>Trotzdem ablehnbar:</strong> der Match ist geometrisch, nicht semantisch.
+                    Wenn du z.B. mit dem E-Bike unterhalb der Liftspur bergauf gefahren bist, kann
+                    deine GPS-Spur knapp neben der OSM-Geometrie verlaufen und der Match feuert
+                    fälschlich. Du kannst OSM-Treffer einzeln über „Ablehnen" entfernen.
+                  </p>
                 </dd>
               </div>
               <div>

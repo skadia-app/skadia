@@ -198,6 +198,11 @@ export default function LiftInspectorMap({
   // re-run after a style switch even when their other deps haven't changed.
   const [styleVersion, setStyleVersion] = useState(0)
 
+  // NavigationControl height — measured via ResizeObserver so the heatmap+picker
+  // group below it stays flush even if the control's height changes (theme,
+  // i18n label growth, additional buttons added in the future).
+  const [navControlBottom, setNavControlBottom] = useState(96)
+
   // Synchronise selectedBaseLayer when base[] resolves: if not yet set (or if
   // the previously selected layer disappeared from the list), pick the smart
   // default. A user's explicit picker choice is preserved as long as the layer
@@ -400,6 +405,27 @@ export default function LiftInspectorMap({
     initMapRef.current?.()
   }, [baseLayer, caps])
 
+  // Measure NavigationControl height so the heatmap+picker group stacks flush
+  // beneath it. Uses ResizeObserver on the .maplibregl-ctrl-top-right container
+  // (where MapLibre injects nav controls). Falls back to the default 96px if
+  // the element isn't found yet.
+  useEffect(() => {
+    if (!mapReady) return
+    const root = mapContainerRef.current
+    if (!root) return
+    const navWrapper = root.querySelector<HTMLElement>('.maplibregl-ctrl-top-right')
+    if (!navWrapper) return
+    const measure = () => {
+      const rect = navWrapper.getBoundingClientRect()
+      // 8px gap below the control before the next group starts.
+      if (rect.height > 0) setNavControlBottom(Math.round(rect.height) + 8)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(navWrapper)
+    return () => ro.disconnect()
+  }, [mapReady])
+
   // A. Style-switch effect — triggers when the user changes the base-layer via
   // the picker. Does nothing on first render (map not yet created) or when the
   // selected layer matches what was used for map init.
@@ -557,9 +583,13 @@ export default function LiftInspectorMap({
 
   return (
     <div className="relative w-full h-full" data-testid="lift-inspector-map-wrapper">
+      {/* Map-container uses absolute inset-0 so it always fills the relative
+          parent regardless of intermediate flex height-propagation issues. The
+          neutral background means the container is visible (not pure modal-white)
+          even before MapLibre paints its first tile. */}
       <div
         ref={mapContainerRef}
-        className="w-full h-full rounded-lg overflow-hidden"
+        className="absolute inset-0 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800"
         data-testid="lift-inspector-map"
       />
 
@@ -617,10 +647,14 @@ export default function LiftInspectorMap({
         ))}
       </div>
 
-      {/* Fix 2: A + F controls grouped top-right, just below NavigationControl.
-          NavigationControl is ~96px tall at top-right so we use top-[100px] to
-          sit flush below it. Both picker and heatmap toggle share one card. */}
-      <div className="absolute top-[100px] right-2 z-10 flex flex-col gap-1.5 items-end">
+      {/* Layer-Picker + Heatmap-Toggle as one cohesive card directly below the
+          NavigationControl. Position is measured live via ResizeObserver
+          (navControlBottom) so the card stays flush even if the control's
+          height changes (theme / i18n / additional buttons). */}
+      <div
+        className="absolute right-2 z-10 flex flex-col rounded-lg bg-white/95 dark:bg-neutral-900/95 border border-neutral-200 dark:border-neutral-700 shadow-md overflow-hidden"
+        style={{ top: navControlBottom }}
+      >
         {/* A. Base-layer picker — only rendered when more than one base layer is available. */}
         {base.length > 1 && (
           <select
@@ -632,12 +666,11 @@ export default function LiftInspectorMap({
             }}
             aria-label="Karten-Stil wählen"
             className="
-              rounded-lg bg-white/90 dark:bg-neutral-900/90
-              border border-neutral-200 dark:border-neutral-700
-              shadow-sm px-2 py-1 text-xs
+              bg-transparent border-0 border-b border-neutral-200 dark:border-neutral-700
+              px-2.5 py-1.5 text-xs
               text-neutral-700 dark:text-neutral-300
               cursor-pointer
-              focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT
+              focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT
             "
           >
             {base.map(l => (
@@ -648,24 +681,21 @@ export default function LiftInspectorMap({
           </select>
         )}
 
-        {/* F. Heatmap toggle button — same visual pattern as MultiTrackMap.tsx:255-271.
-            Grouped in the same top-right cluster as the layer picker (Fix 2). */}
-        <div className="bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm rounded-lg shadow-md px-2 py-1">
-          <button
-            onClick={() => setShowHeatmap(v => !v)}
-            title={showHeatmap ? 'Heatmap ausblenden' : 'Heatmap einblenden'}
-            data-testid="heatmap-toggle"
-            className={[
-              'flex items-center gap-1.5 text-xs font-medium rounded-md px-1.5 py-0.5 transition-colors cursor-pointer',
-              showHeatmap
-                ? 'text-accent-DEFAULT'
-                : 'text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white',
-            ].join(' ')}
-          >
-            <Flame className="w-3.5 h-3.5" aria-hidden="true" />
-            Heatmap
-          </button>
-        </div>
+        {/* F. Heatmap toggle button — visual pattern matches MultiTrackMap.tsx:255-271. */}
+        <button
+          onClick={() => setShowHeatmap(v => !v)}
+          title={showHeatmap ? 'Heatmap ausblenden' : 'Heatmap einblenden'}
+          data-testid="heatmap-toggle"
+          className={[
+            'flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 transition-colors cursor-pointer',
+            showHeatmap
+              ? 'text-accent-DEFAULT bg-accent-DEFAULT/10'
+              : 'text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800',
+          ].join(' ')}
+        >
+          <Flame className="w-3.5 h-3.5" aria-hidden="true" />
+          Heatmap
+        </button>
       </div>
     </div>
   )
