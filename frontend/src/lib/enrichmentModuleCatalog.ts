@@ -9,6 +9,8 @@ export type EnrichmentModuleName =
   | 'borders'
   | 'stops'
   | 'lifts'
+  | 'lifts_osm'
+  | 'lifts_heuristic'
   | 'surfaces'
   | 'ascents'
   | 'intervals'
@@ -19,10 +21,12 @@ export type ReprocessPolicy =
   | { type: 'standalone'; scope: string; group: 'stream' | 'geo' }
   | { type: 'coveredBy'; scope: string }
   | { type: 'stage1Covered' }
+  | { type: 'inherited' }
   | { type: 'notReprocessable'; reason: string }
 
 export interface AnalysisModule {
   name: EnrichmentModuleName
+  parentName?: EnrichmentModuleName
   label: string
   description: string
   field: keyof EnrichmentSettings
@@ -105,6 +109,26 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
     icon: 'M4 4v16h2V4H4zm14 0v16h2V4h-2zM8 8l4-4 4 4M12 4v12',
   },
   {
+    name: 'lifts_osm',
+    parentName: 'lifts',
+    label: 'OSM-Snap',
+    description: 'Snappt Heuristik-Rides auf bekannte Lift-Geometrien aus OSM (höchste Genauigkeit, braucht OSM-Daten in der Region).',
+    field: 'enable_lift_detection_osm',
+    requiresML: false,
+    reprocess: { type: 'inherited' },
+    icon: 'M4 4v16h2V4H4zm14 0v16h2V4h-2zM8 8l4-4 4 4M12 4v12',
+  },
+  {
+    name: 'lifts_heuristic',
+    parentName: 'lifts',
+    label: 'Heuristik',
+    description: 'Erkennt Liftfahrten anhand von Bewegungsmustern (Geschwindigkeit, Steigung, Konstanz). Funktioniert ohne OSM-Daten.',
+    field: 'enable_lift_detection_heuristic',
+    requiresML: false,
+    reprocess: { type: 'inherited' },
+    icon: 'M4 4v16h2V4H4zm14 0v16h2V4h-2zM8 8l4-4 4 4M12 4v12',
+  },
+  {
     name: 'surfaces',
     label: 'Untergrundtypen',
     description: 'Erkennt Wegtypen, Oberflächen und Wald-/Schutzgebietsanteile sowie Wege-Schwierigkeiten (SAC/MTB/Klettersteig).',
@@ -167,6 +191,7 @@ export function reprocessScopeForModule(moduleName: string): string[] | null {
       return [module.reprocess.scope]
     case 'stage1Covered':
     case 'notReprocessable':
+    case 'inherited':
       return null
   }
 }
