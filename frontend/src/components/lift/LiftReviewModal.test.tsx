@@ -986,6 +986,130 @@ describe('LiftReviewModal — Fix 6a: badge title tooltips', () => {
 
 // ── Phase 11.9: signal-based labels + help modal triggers ────────────────────
 
+// ── F5: JobPhase state-machine polling ──────────────────────────────────────
+
+describe('LiftReviewModal — F5: JobPhase state-machine', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFetchStreams.mockResolvedValue([])
+    mockApiFetch.mockResolvedValue({ ok: true, json: async () => twoHeuristicCandidates })
+  })
+
+  // The state-machine transitions (idle→starting→running→done) are driven by
+  // onJobStarted from LiftDetectionHeader, which is a separate component that
+  // requires its own mock setup. The key testable invariant here is that the
+  // modal renders without errors in all variants and the jobRunning prop flows
+  // through correctly to LiftDetectionHeader.
+
+  it('F5: modal renders in compact mode without polling active', () => {
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+    // In compact mode the polling is inactive (jobPhase=idle) — no jobs/active call.
+    expect(screen.getByText(/Lifte erkannt/)).toBeTruthy()
+    const jobsActiveCalls = mockApiFetch.mock.calls.filter(
+      (args: unknown[]) => typeof args[0] === 'string' && (args[0] as string).includes('/jobs/active'),
+    )
+    expect(jobsActiveCalls.length).toBe(0)
+  })
+
+  it('F5: modal mounts without throwing in expanded mode (state-machine idle)', () => {
+    expect(() => {
+      render(
+        <LiftReviewModal
+          open={true}
+          onClose={() => {}}
+          activity={makeActivity()}
+          candidates={twoHeuristicCandidates}
+        />,
+        { wrapper },
+      )
+      fireEvent.click(screen.getByText(/Prüfen/))
+    }).not.toThrow()
+  })
+})
+
+// ── F9: recalcMutation 409 onError ───────────────────────────────────────────
+
+describe('LiftReviewModal — F9: recalcMutation 409 error handling', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFetchStreams.mockResolvedValue([])
+  })
+
+  it('F9: 409 from recalculate-all in confirm dialog shows warning toast and keeps modal open', async () => {
+    const onClose = vi.fn()
+    mockApiFetch.mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url.includes('/candidates')) return { ok: true, json: async () => twoHeuristicCandidates }
+      if (url.includes('/recalculate-all') && opts?.method === 'POST') {
+        // throwOnError will throw because !ok
+        return { ok: false, status: 409, json: async () => ({ code: 'LIFT_RECOMPUTE_RUNNING', detail: 'Job already running' }) }
+      }
+      return { ok: true, json: async () => ({}) }
+    })
+
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={onClose}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+    await waitFor(() => expect(screen.getByText(/Neu erkennen/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Neu erkennen/))
+    await waitFor(() => expect(screen.getByText(/Alle erkannten Liftfahrten/)).toBeTruthy())
+
+    fireEvent.click(screen.getByText(/Ja, neu erkennen/))
+
+    // Warning toast must appear — modal stays open (onClose not called).
+    await waitFor(() => {
+      expect(screen.getByText(/Job läuft bereits/)).toBeTruthy()
+    })
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('F9: non-409 error from recalculate-all shows error toast', async () => {
+    mockApiFetch.mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url.includes('/candidates')) return { ok: true, json: async () => twoHeuristicCandidates }
+      if (url.includes('/recalculate-all') && opts?.method === 'POST') {
+        return { ok: false, status: 500, json: async () => ({ detail: 'Internal server error' }) }
+      }
+      return { ok: true, json: async () => ({}) }
+    })
+
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+    await waitFor(() => expect(screen.getByText(/Neu erkennen/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Neu erkennen/))
+    await waitFor(() => expect(screen.getByText(/Alle erkannten Liftfahrten/)).toBeTruthy())
+
+    fireEvent.click(screen.getByText(/Ja, neu erkennen/))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Fehler beim Neuberechnen/)).toBeTruthy()
+    })
+  })
+})
+
 describe('LiftReviewModal — Phase 11.9: signal-based badge labels', () => {
   beforeEach(() => {
     vi.clearAllMocks()

@@ -29,6 +29,14 @@ interface LiftReviewModalProps {
 
 type ModalMode = 'compact' | 'expanded'
 type MobileTab = 'list' | 'map'
+// F5: state-machine for the lift_recompute polling lifecycle.
+// idle      — no job in flight
+// starting  — job was triggered; waiting for the first poll showing running=true
+// running   — at least one poll confirmed running=true; waiting for running=false
+// done      — transition from running→false observed; invalidation fired
+type JobPhase = 'idle' | 'starting' | 'running' | 'done'
+// Maximum time (ms) to wait in 'starting' before giving up.
+const JOB_START_TIMEOUT_MS = 30_000
 
 function useIsDesktop(): boolean {
   // Guard against SSR / environments without window (e.g. test runners using jsdom
@@ -120,13 +128,15 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
   // Phase 11.9: help modal state — shared across all three HelpCircle triggers
   // (legend, pause-gap banner, modal header).
   const [helpOpen, setHelpOpen] = useState(false)
-  // Phase 5 (lift-detection-toggles): poll for running lift_recompute job.
-  // This is a polling-only fallback because no SSE event exists for lift_recompute completion.
-  const [jobRunning, setJobRunning] = useState(false)
+  // F5: state machine for lift_recompute polling lifecycle — see JobPhase above.
+  const [jobPhase, setJobPhase] = useState<JobPhase>('idle')
+  // Expose a derived boolean to child components that only need a binary signal.
+  const jobRunning = jobPhase === 'starting' || jobPhase === 'running'
+  const startTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const listItemRefs = useRef<Map<string, HTMLElement>>(new Map())
   const isDesktop = useIsDesktop()
 
-  // Poll /jobs/active every 2 s while a lift_recompute job is in flight for this activity.
+  // Poll /jobs/active every 2 s while a job may be in flight (starting or running).
   // TanStack Query v5 removed onSuccess from useQuery — side effects live in useEffect.
   const { data: liftJobRunning } = useQuery({
     queryKey: ['lift-recompute-poll', activityId],
@@ -141,15 +151,46 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
     enabled: jobRunning,
   })
 
-  // When the poll returns false while we thought a job was running, the job finished.
+  // State-machine transitions on each poll result.
   useEffect(() => {
-    if (jobRunning && liftJobRunning === false) {
-      setJobRunning(false)
+    if (jobPhase === 'starting' && liftJobRunning === true) {
+      // First true observation — job is now confirmed running.
+      setJobPhase('running')
+    } else if (jobPhase === 'running' && liftJobRunning === false) {
+      // Job finished — fire invalidation and move to done.
+      setJobPhase('done')
       qc.invalidateQueries({ queryKey: ['lift-candidates', activityId] })
       qc.invalidateQueries({ queryKey: ['lift-candidates-inspector', activityId] })
       qc.invalidateQueries({ queryKey: ['activity', activityId] })
     }
-  }, [liftJobRunning, jobRunning, qc, activityId])
+    // 'starting' + false: worker hasn't picked up yet — stay in starting.
+    // 'done' / 'idle': no action needed from poll results.
+  }, [liftJobRunning, jobPhase, qc, activityId])
+
+  // Timeout guard: if stuck in 'starting' for too long, transition to 'done'
+  // so the UI doesn't spin forever when a job never appears in the active list.
+  useEffect(() => {
+    if (jobPhase === 'starting') {
+      startTimeoutRef.current = setTimeout(() => {
+        setJobPhase(prev => {
+          if (prev !== 'starting') return prev
+          addToast({ type: 'warning', title: 'Job nicht gestartet — bitte erneut versuchen' })
+          return 'done'
+        })
+      }, JOB_START_TIMEOUT_MS)
+    } else {
+      if (startTimeoutRef.current !== null) {
+        clearTimeout(startTimeoutRef.current)
+        startTimeoutRef.current = null
+      }
+    }
+    return () => {
+      if (startTimeoutRef.current !== null) {
+        clearTimeout(startTimeoutRef.current)
+        startTimeoutRef.current = null
+      }
+    }
+  }, [jobPhase, addToast])
 
   const unreviewedCandidates = candidates.filter(
     c => c.source === 'heuristic' && !c.confirmed && !c.rejected_by_user,
@@ -265,6 +306,13 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
       invalidateAfterBulk()
       setShowRecalcConfirm(false)
       onClose()
+    },
+    onError: (err: Error & { status?: number; code?: string }) => {
+      if (err.status === 409 || err.code === 'LIFT_RECOMPUTE_RUNNING') {
+        addToast({ type: 'warning', title: 'Job läuft bereits — bitte warten' })
+      } else {
+        addToast({ type: 'error', title: 'Fehler beim Neuberechnen', duration: 0 })
+      }
     },
   })
 
@@ -743,7 +791,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
         <LiftDetectionHeader
           activityId={activityId}
           jobRunning={jobRunning}
-          onJobStarted={() => setJobRunning(true)}
+          onJobStarted={() => setJobPhase('starting')}
         />
 
         {isDesktop ? (
