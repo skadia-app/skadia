@@ -148,7 +148,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			}
 		}
 
-		tracker.Completed(ctx, gear.ID)
+		tracker.Completed(ctx, "")
 		result.Imported++
 	}
 

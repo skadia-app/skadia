@@ -120,7 +120,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 				continue
 			}
 			bikeNameToID[name] = gearItem.ID
-			tracker.Completed(ctx, gearItem.ID)
+			tracker.Completed(ctx, "")
 			result.Imported++
 			slog.Info("strava gear: imported bike", "name", displayName, "id", gearItem.ID)
 		}
@@ -186,7 +186,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 				tracker.Error(ctx, err)
 				continue
 			}
-			tracker.Completed(ctx, gearItem.ID)
+			tracker.Completed(ctx, "")
 			result.Imported++
 			slog.Info("strava gear: imported shoes", "name", displayName, "id", gearItem.ID)
 		}

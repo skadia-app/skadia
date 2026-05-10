@@ -218,7 +218,9 @@ type ActivityTimeMatch struct {
 // corresponding import_log entry (linked via metadata->>'queue_id') from
 // 'queued' to 'completed'. Both updates run in one transaction so the UI
 // doesn't show a stale "In Queue" badge after manual assignment.
-func (db *DB) ResolveImportQueueItem(ctx context.Context, id, userID string) error {
+// activityID may be empty (e.g. resolving without an activity assignment);
+// when non-empty it is written to the import_log.activity_id column.
+func (db *DB) ResolveImportQueueItem(ctx context.Context, id, userID, activityID string) error {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("resolve queue: begin tx: %w", err)
@@ -234,13 +236,17 @@ func (db *DB) ResolveImportQueueItem(ctx context.Context, id, userID string) err
 		return fmt.Errorf("resolve queue: update queue: %w", err)
 	}
 
+	var actPtr *string
+	if activityID != "" {
+		actPtr = &activityID
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE import_log
-		SET status = 'completed', updated_at = NOW()
+		SET status = 'completed', activity_id = COALESCE($3, activity_id), updated_at = NOW()
 		WHERE user_id = $1
 		  AND status = 'queued'
 		  AND metadata->>'queue_id' = $2`,
-		userID, id,
+		userID, id, actPtr,
 	); err != nil {
 		return fmt.Errorf("resolve queue: update log: %w", err)
 	}

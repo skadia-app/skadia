@@ -154,9 +154,12 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 				continue
 			}
 			switch orphanResult.Status {
-			case "queued", "matched":
+			case "queued":
 				result.Imported++
-				tracker.Completed(ctx, "")
+				tracker.Queued(ctx, orphanResult.QueueEntryID)
+			case "matched":
+				result.Imported++
+				tracker.Completed(ctx, orphanResult.ActivityID)
 			default:
 				result.Skipped++
 				tracker.Skipped(ctx, "duplicate", nil)

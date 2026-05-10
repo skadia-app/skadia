@@ -80,7 +80,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		handled, routeErr := garmin.RouteFITByType(r.Context(), h.DB, h.ShadowFS, decompressed, userID, ftype)
 		if routeErr != nil {
 			sz := int64(len(decompressed))
-			tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", header.Filename, &sz, nil, model.ImportTypeMonitoring)
+			tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", header.Filename, &sz, nil, garmin.ImportTypeForFITType(ftype))
 			tracker.Processing(r.Context())
 			tracker.SetFileHash(r.Context(), hashStr)
 			tracker.Error(r.Context(), routeErr)
@@ -90,10 +90,9 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 		if handled {
 			sz := int64(len(decompressed))
-			tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", header.Filename, &sz, nil, model.ImportTypeMonitoring)
+			tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", header.Filename, &sz, nil, garmin.ImportTypeForFITType(ftype))
 			tracker.Processing(r.Context())
 			tracker.SetFileHash(r.Context(), hashStr)
-			tracker.SetImportType(r.Context(), garmin.ImportTypeForFITType(ftype))
 			tracker.Completed(r.Context(), "")
 			httputil.WriteJSON(w, http.StatusOK, map[string]any{
 				"status":    "completed",

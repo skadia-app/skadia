@@ -58,12 +58,77 @@ func TestGetImports_ImportTypeQueryParam(t *testing.T) {
 	}
 }
 
+// TestGetImports_UnknownIsNullFilter verifies that ?import_type=unknown returns only
+// entries whose import_type column is NULL (i.e. IS NULL filter, not a string match).
+func TestGetImports_UnknownIsNullFilter(t *testing.T) {
+	pool := testdb.Open(t)
+	userID := insertTestUser(t, pool)
+	h := newTestHandler(t, pool)
+	db := h.DB
+
+	// Insert an entry with NULL import_type (no ImportType pointer)
+	if _, err := db.InsertImportLog(context.Background(), model.ImportLogEntry{
+		UserID: userID, SourcePlatform: "upload", Filename: "noType.fit",
+		Status: "completed",
+	}); err != nil {
+		t.Fatalf("insert null-type entry: %v", err)
+	}
+
+	// Insert an entry with a known import_type ("photo")
+	photoType := model.ImportTypePhoto
+	if _, err := db.InsertImportLog(context.Background(), model.ImportLogEntry{
+		UserID: userID, SourcePlatform: "upload", Filename: "photo.jpg",
+		Status: "completed", ImportType: &photoType,
+	}); err != nil {
+		t.Fatalf("insert photo entry: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/api/v1/imports?import_type=unknown", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, userID))
+	w := httptest.NewRecorder()
+
+	h.GetImports(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Entries []model.ImportLogEntry `json:"entries"`
+		Total   int                    `json:"total"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Total != 1 || len(resp.Entries) != 1 {
+		t.Fatalf("want 1 null-type entry, got total=%d len=%d", resp.Total, len(resp.Entries))
+	}
+	if !strings.Contains(resp.Entries[0].Filename, "noType.fit") {
+		t.Fatalf("want noType.fit, got %s", resp.Entries[0].Filename)
+	}
+}
+
 func TestGetImports_InvalidImportTypeReturns400(t *testing.T) {
 	pool := testdb.Open(t)
 	h := newTestHandler(t, pool)
 	userID := insertTestUser(t, pool)
 
 	req := httptest.NewRequest("GET", "/api/v1/imports?import_type=foto", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, userID))
+	w := httptest.NewRecorder()
+
+	h.GetImports(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: want 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetImports_InvalidStatusReturns400(t *testing.T) {
+	pool := testdb.Open(t)
+	h := newTestHandler(t, pool)
+	userID := insertTestUser(t, pool)
+
+	req := httptest.NewRequest("GET", "/api/v1/imports?status=invalid", nil)
 	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, userID))
 	w := httptest.NewRecorder()
 

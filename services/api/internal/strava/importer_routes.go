@@ -135,7 +135,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 		eg := elevGain
 		el := elevLoss
 
-		routeDBID, err := p.DB.CreateRouteFromImport(ctx, p.UserID, &model.RouteImportData{
+		_, err = p.DB.CreateRouteFromImport(ctx, p.UserID, &model.RouteImportData{
 			Name:               name,
 			SportType:          sportType,
 			SubType:            subType,
@@ -155,7 +155,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 			tracker.Error(ctx, err)
 			continue
 		}
-		tracker.Completed(ctx, routeDBID)
+		tracker.Completed(ctx, "")
 		result.Imported++
 	}
 

@@ -183,6 +183,9 @@ func (h *Handler) processMediaPDF(r *http.Request, userID, filename, ct string, 
 		tracker.Queued(r.Context(), *res.QueueID)
 	} else if res.Error != nil {
 		tracker.Error(r.Context(), fmt.Errorf("%s", *res.Error))
+	} else {
+		// Defensive: queueMediaFile should always return either QueueID or Error.
+		tracker.Error(r.Context(), fmt.Errorf("queueMediaFile returned without QueueID or Error"))
 	}
 	return res
 }

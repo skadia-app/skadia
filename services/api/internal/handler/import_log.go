@@ -27,13 +27,23 @@ func (h *Handler) GetImports(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 
+	validStatuses := map[string]struct{}{
+		"pending": {}, "processing": {}, "completed": {},
+		"skipped": {}, "error": {}, "queued": {},
+	}
+
 	var statusFilter []string
 	if raw := q.Get("status"); raw != "" {
 		for s := range strings.SplitSeq(raw, ",") {
 			s = strings.TrimSpace(s)
-			if s != "" {
-				statusFilter = append(statusFilter, s)
+			if s == "" {
+				continue
 			}
+			if _, ok := validStatuses[s]; !ok {
+				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid status: "+s, r.URL.Path)
+				return
+			}
+			statusFilter = append(statusFilter, s)
 		}
 	}
 

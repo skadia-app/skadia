@@ -53,6 +53,7 @@ func (db *DB) NewImportTracker(ctx context.Context, userID, platform, filename s
 
 // SetImportType updates the import_type for this tracker entry.
 // Use when the type isn't known at tracker creation time.
+// An empty importType writes NULL (same coercion as NewImportTracker).
 func (t *ImportTracker) SetImportType(ctx context.Context, importType string) {
 	if t.logID == "" {
 		return
@@ -60,9 +61,14 @@ func (t *ImportTracker) SetImportType(ctx context.Context, importType string) {
 	if importType != "" && !model.IsValidImportType(importType) {
 		slog.Warn("import_log: unknown import_type in SetImportType", "type", importType, "id", t.logID)
 	}
+	var importTypePtr *string
+	if importType != "" {
+		v := importType
+		importTypePtr = &v
+	}
 	if _, err := t.db.Pool.Exec(ctx,
 		`UPDATE import_log SET import_type = $2 WHERE id = $1`,
-		t.logID, importType,
+		t.logID, importTypePtr,
 	); err != nil {
 		slog.Warn("import_log: failed to set import_type", "id", t.logID, "error", err)
 	}
