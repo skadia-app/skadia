@@ -1,26 +1,17 @@
 package enrichment
 
-import (
-	"context"
-	"fmt"
+// Bulk settings caching for enrichment loops.
+//
+// ReEnrichBatch (re_enrich.go) loads EnrichmentSettings once per user before
+// the per-activity loop and passes the snapshot directly to
+// enrichStreamLiftsCore. This avoids one SELECT per activity while keeping
+// the per-activity override pointers (which reside on the Activity row, not
+// on EnrichmentSettings) resolved correctly inside the core.
+//
+// The lift_recompute_all CLI (cmd/lift_recompute_all) dispatches through
+// RunStreamEnrichment → enrichStreamLiftsOpts, which loads settings per
+// activity. The per-activity refresh is intentional there: the CLI processes
+// activities across a long time window where settings may change, and the
+// additional round-trips against a local Postgres instance are negligible
+// compared to the PostGIS snap pipeline work.
 
-	"github.com/skadia-app/skadia/services/api/internal/database"
-	"github.com/skadia-app/skadia/services/api/internal/model"
-)
-
-// withCachedEnrichmentSettings runs fn with EnrichmentSettings loaded once for
-// userID. Use in bulk re-enrichment loops to avoid one SELECT per activity.
-// The loaded settings are immutable for the duration of the call; fn must not
-// modify the pointer.
-func withCachedEnrichmentSettings(
-	ctx context.Context,
-	db *database.DB,
-	userID string,
-	fn func(*model.EnrichmentSettings) error,
-) error {
-	settings, err := db.GetEnrichmentSettings(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("withCachedEnrichmentSettings: load settings: %w", err)
-	}
-	return fn(settings)
-}
