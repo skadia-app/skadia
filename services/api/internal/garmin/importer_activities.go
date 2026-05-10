@@ -135,7 +135,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if params.JobID != "" {
 			batchIDPtr = &params.JobID
 		}
-		tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", ref.fileName, nil, batchIDPtr, "activity")
+		tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", ref.fileName, nil, batchIDPtr, model.ImportTypeActivity)
 		tracker.Processing(ctx)
 
 		fileBytes, err := readFileFromZipCached(zipReaders, filepath.Join(params.Source.BaseDir(), ref.zipPath), ref.fileName)

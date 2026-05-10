@@ -39,6 +39,10 @@ func (h *Handler) GetImports(w http.ResponseWriter, r *http.Request) {
 
 	sourcePlatform := q.Get("source_platform")
 	importType := q.Get("import_type")
+	if importType != "" && importType != "unknown" && !model.IsValidImportType(importType) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid import_type", r.URL.Path)
+		return
+	}
 
 	limit := 50
 	if v := q.Get("limit"); v != "" {

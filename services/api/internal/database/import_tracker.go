@@ -2,7 +2,7 @@ package database
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"log/slog"
 	"time"
 
@@ -28,7 +28,7 @@ func (db *DB) NewImportTracker(ctx context.Context, userID, platform, filename s
 		slog.Warn("import_log: unknown import_type",
 			"type", importType, "platform", platform, "file", filename)
 	}
-	// Empty-string-guard — sonst landet "" statt NULL in der Spalte.
+	// Empty-string guard — otherwise "" lands in the column instead of NULL.
 	var importTypePtr *string
 	if importType != "" {
 		v := importType
@@ -79,7 +79,7 @@ func (t *ImportTracker) Queued(ctx context.Context, queueID string) {
 		return
 	}
 	elapsed := int(time.Since(t.start).Milliseconds())
-	meta := []byte(fmt.Sprintf(`{"queue_id":%q}`, queueID))
+	meta, _ := json.Marshal(map[string]string{"queue_id": queueID})
 	_, err := t.db.Pool.Exec(ctx, `
 		UPDATE import_log
 		SET status = 'queued',

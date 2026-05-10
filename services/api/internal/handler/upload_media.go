@@ -122,9 +122,9 @@ func (h *Handler) processMediaImage(r *http.Request, userID, filename, ct string
 		case res.Error != nil:
 			tracker.Error(r.Context(), fmt.Errorf("%s", *res.Error))
 		default:
-			// Critic F50: defensive — queueMediaFile sollte immer entweder QueueID
-			// oder Error setzen. Falls beides nil ist, würde der Tracker auf
-			// 'pending' verharren und vom Indicator gepollt werden.
+			// Defensive: queueMediaFile should always return either QueueID or Error.
+			// Without this branch, the tracker would stay 'pending' forever and keep
+			// being polled by the queue indicator.
 			tracker.Error(r.Context(), fmt.Errorf("queueMediaFile returned without QueueID or Error"))
 		}
 		return res

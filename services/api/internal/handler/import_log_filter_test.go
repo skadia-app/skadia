@@ -57,3 +57,19 @@ func TestGetImports_ImportTypeQueryParam(t *testing.T) {
 		t.Fatalf("want img.jpg, got %s", resp.Entries[0].Filename)
 	}
 }
+
+func TestGetImports_InvalidImportTypeReturns400(t *testing.T) {
+	pool := testdb.Open(t)
+	h := newTestHandler(t, pool)
+	userID := insertTestUser(t, pool)
+
+	req := httptest.NewRequest("GET", "/api/v1/imports?import_type=foto", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, userID))
+	w := httptest.NewRecorder()
+
+	h.GetImports(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: want 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
