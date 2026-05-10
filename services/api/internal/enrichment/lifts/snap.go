@@ -492,6 +492,26 @@ func computeIsReverseFromSamples(samples []StreamPoint, ride RideWithIndices, li
 	return IsReverseHeading(rideBearing, liftBearingDeg)
 }
 
+// MethodACoverageGapForAllOSM is the pure-OSM variant of Stage 3: it emits
+// one Stage3PlanEntry for every OSM candidate unconditionally (no covered-map
+// filter). Used when the heuristic detector is disabled — rides is nil and
+// the snap pipeline emits nothing, so every OSM lift must be probed.
+//
+// The 75 m / ≥2 samples / ≥30 s window gate in insertStage3SegmentEffortTx
+// still applies; lifts with insufficient sample coverage are silently dropped
+// there, not here.
+func MethodACoverageGapForAllOSM(osmCandidates []OSMLiftCandidate) []Stage3PlanEntry {
+	plan := make([]Stage3PlanEntry, 0, len(osmCandidates))
+	for i := range osmCandidates {
+		plan = append(plan, Stage3PlanEntry{
+			OSMCandidateIdx:    i,
+			IsLiftSegmentMatch: true,
+			IsMethodAOnly:      true,
+		})
+	}
+	return plan
+}
+
 // MethodACoverageGap is Stage 3: for every OSM lift that no Stage-1 or
 // Stage-2 ride physically corresponds to, emit a Stage3PlanEntry. The caller
 // is responsible for running the per-lift time-window SQL and inserting one

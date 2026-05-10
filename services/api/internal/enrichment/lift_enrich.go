@@ -13,6 +13,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // LiftEnrichAdvisoryLockNs scopes the per-activity advisory-lock key so it
@@ -61,15 +62,47 @@ func enrichStreamLifts(
 	return enrichStreamLiftsOpts(ctx, db, userID, activityID, stream, false)
 }
 
-// enrichStreamLiftsOpts is the internal variant that accepts a skipGearRefresh
-// flag. enrichStreamLifts delegates here with skipGearRefresh=false so the
-// module dispatch table keeps the fixed fn signature.
+// enrichStreamLiftsOpts loads the user enrichment settings, then calls
+// enrichStreamLiftsCore with those settings so the core can resolve the final
+// LiftDetectionOpts after it fetches the Activity (for activity-level override
+// pointers). The skipGearRefresh flag forwards to RecomputeLiftStats (bulk
+// re-enrichment paths set it to avoid N redundant gear-stat refreshes).
 func enrichStreamLiftsOpts(
 	ctx context.Context,
 	db *database.DB,
 	userID, activityID string,
 	stream []EnrichmentStreamPoint,
 	skipGearRefresh bool,
+) error {
+	settings, err := db.GetEnrichmentSettings(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("enrichStreamLiftsOpts: get enrichment settings: %w", err)
+	}
+	return enrichStreamLiftsCore(ctx, db, userID, activityID, stream, skipGearRefresh, settings)
+}
+
+// enrichStreamLiftsCore is the internal variant that accepts pre-loaded
+// EnrichmentSettings. It resolves LiftDetectionOpts after fetching the Activity
+// (which it must do anyway for sport-type gating) so that per-activity override
+// pointers are applied before any mode-dispatch. All callers that have already
+// loaded settings (e.g. bulk re-enrichment loops) call this directly to avoid
+// a per-activity settings round-trip.
+//
+// Mode dispatch (from resolved opts):
+//   - Both false → early return before cleanup Tx, no DB writes.
+//   - Heuristic=false, OSMSnap=true → pure-OSM: MethodACoverageGapForAllOSM
+//     emits one Stage3PlanEntry per OSM candidate; inserted via
+//     insertStage3SegmentEffortsBatched.
+//   - Heuristic=true, OSMSnap=false → heuristic-only: rides stay as
+//     heuristic candidates, no snap stages.
+//   - Both true → current full pipeline behavior.
+func enrichStreamLiftsCore(
+	ctx context.Context,
+	db *database.DB,
+	userID, activityID string,
+	stream []EnrichmentStreamPoint,
+	skipGearRefresh bool,
+	settings *model.EnrichmentSettings,
 ) error {
 	// Critic F18 — serialize concurrent re-enrichments of the same activity.
 	//
@@ -135,6 +168,27 @@ func enrichStreamLiftsOpts(
 		return nil
 	}
 
+	// Resolve the effective detection opts for this activity, incorporating
+	// the per-activity override pointers that were loaded with the Activity
+	// above. The master toggle and user-level sub-settings come from settings;
+	// the override pointers are nullable (nil = inherit user setting).
+	opts := lifts.EffectiveLiftDetectionOpts(
+		settings.EnableLiftDetection,
+		settings.EnableLiftDetectionOSM,
+		settings.EnableLiftDetectionHeuristic,
+		act.LiftDetectionOSMOverride,
+		act.LiftDetectionHeuristicOverride,
+	)
+
+	// Both-off: early return before the cleanup Tx — no DB writes at all.
+	// This intentionally leaves existing lift candidates intact; clearing them
+	// is the user's responsibility via the explicit Reset path (Phase 3).
+	if !opts.Heuristic && !opts.OSMSnap {
+		slog.Debug("enrichStreamLifts: both heuristic and OSM-snap disabled, skipping",
+			"activity_id", activityID)
+		return nil
+	}
+
 	// Phase 4c.5.1: when osm_lifts is empty the snap stages cannot run, but
 	// the heuristic detector still does — its rides land as unsegmented
 	// heuristic candidates (the user-confirm flow takes over from there).
@@ -164,6 +218,8 @@ func enrichStreamLiftsOpts(
 	// 1. Heuristic detection (in-process) — index-bearing variant so Stage 2
 	//    can correlate ride boundaries against the underlying samples for
 	//    cable-hold signal evaluation.
+	//    When heuristic is disabled, rides stays nil; Stage 1 and Stage 2 are
+	//    nil-safe (they range over the slice) and produce no output.
 	streamPts := make([]lifts.StreamPoint, 0, len(stream))
 	for _, sp := range stream {
 		streamPts = append(streamPts, lifts.StreamPoint{
@@ -175,7 +231,10 @@ func enrichStreamLiftsOpts(
 			DistanceM: sp.DistanceM,
 		})
 	}
-	rides := lifts.DetectHeuristicWithIndices(streamPts, lifts.DefaultDetectorConfig(act.SportType))
+	var rides []lifts.RideWithIndices
+	if opts.Heuristic {
+		rides = lifts.DetectHeuristicWithIndices(streamPts, lifts.DefaultDetectorConfig(act.SportType))
+	}
 
 	// 2. Pre-fetch OSM-lift candidates in the activity neighbourhood with
 	//    their resolved segment_id + segment_version_id, length and bearing.
@@ -186,9 +245,12 @@ func enrichStreamLiftsOpts(
 	//    pure reads of pre-existing data (osm_lifts + activity_tracks +
 	//    segments) that the Tx neither modifies nor depends on. Running them
 	//    on db.Pool keeps the Tx window short.
+	//
+	//    When OSM-snap is disabled we skip both OSM candidate loading and all
+	//    snap stages — rides stay as heuristic-only candidates.
 	var osmCandidates []lifts.OSMLiftCandidate
 	var overlaps []lifts.RideOSMOverlap
-	if hasOSM {
+	if hasOSM && opts.OSMSnap {
 		osmCandidates, err = loadOSMLiftCandidates(ctx, db, activityID, userID)
 		if err != nil {
 			return fmt.Errorf("enrichStreamLifts: load osm candidates: %w", err)
@@ -199,13 +261,36 @@ func enrichStreamLiftsOpts(
 		}
 	}
 
-	// 3. Pipeline. With no OSM candidates Stage 1 + 2 emit Passthrough
-	//    for every ride, Stage 3 plans nothing — every ride lands as a
-	//    heuristic-only candidate, which is the Phase 4c.5.1 contract.
+	// 3. Pipeline. Mode dispatch based on resolved opts:
+	//    - pure-OSM (heuristic=false, OSMSnap=true): MethodACoverageGapForAllOSM
+	//      emits one Stage3PlanEntry per OSM candidate; snap stages are nil-safe
+	//      no-ops with rides=nil.
+	//    - heuristic-only (heuristic=true, OSMSnap=false): stages 1/2/3 are
+	//      skipped; all rides become heuristic-only candidates.
+	//    - both-on: full pipeline (Stage 1 → 2 → Stage 3 coverage gap).
 	//    Pure in-memory; no DB access.
-	stage1 := lifts.SnapToOSMLifts(rides, osmCandidates, overlaps, streamPts, nil)
-	stage2 := lifts.MergeMultiRideForOSM(stage1, rides, osmCandidates, overlaps, streamPts)
-	stage3 := lifts.MethodACoverageGap(stage2, osmCandidates)
+	var stage2 []lifts.SnapResult
+	var stage3 []lifts.Stage3PlanEntry
+	if opts.OSMSnap {
+		if opts.Heuristic {
+			// Full pipeline: snap rides against OSM, then Stage 3 fills remaining.
+			stage1 := lifts.SnapToOSMLifts(rides, osmCandidates, overlaps, streamPts, nil)
+			stage2 = lifts.MergeMultiRideForOSM(stage1, rides, osmCandidates, overlaps, streamPts)
+			stage3 = lifts.MethodACoverageGap(stage2, osmCandidates)
+		} else {
+			// Pure-OSM: no heuristic rides, probe every OSM candidate via Stage 3.
+			stage3 = lifts.MethodACoverageGapForAllOSM(osmCandidates)
+		}
+	} else {
+		// Heuristic-only (both-off already returned above).
+		// Run Stage 1 with no OSM candidates so every ride gets SnapActionPassthrough,
+		// then Stage 2 (also a no-op with no multi-ride groups). This reuses the
+		// existing write loop (which handles SnapActionPassthrough by calling
+		// insertHeuristicCandidateTx) without duplicating code.
+		stage1 := lifts.SnapToOSMLifts(rides, nil, nil, streamPts, nil)
+		stage2 = lifts.MergeMultiRideForOSM(stage1, rides, nil, nil, streamPts)
+		// stage3 remains nil — no Stage-3 candidates in heuristic-only mode.
+	}
 
 	// 4. Atomic destructive cleanup + rebuild — Codex N5a (Option B).
 	//
@@ -371,19 +456,18 @@ func enrichStreamLiftsOpts(
 		}
 	}
 
-	// 6. Stage 3 — for OSM lifts no Stage-1/2 ride covered, run the legacy
-	//    per-lift time-window SQL (extract samples within 75m of the lift,
-	//    derive duration/ascent/bearing) and emit one segment_efforts plus
-	//    one audit-only candidate (source='osm', confirmed=true).
-	for _, plan := range stage3 {
-		osm := osmCandidates[plan.OSMCandidateIdx]
-		ok, err := insertStage3SegmentEffortTx(ctx, db, tx, userID, activityID, osm)
+	// 6. Stage 3 — for OSM lifts no Stage-1/2 ride covered (or, in pure-OSM
+	//    mode, for every OSM lift), run the time-window SQL (extract samples
+	//    within 75m, derive duration/ascent/bearing) and emit one
+	//    segment_efforts plus one audit-only candidate (source='osm',
+	//    confirmed=true). Uses UNNEST batch inserts to reduce roundtrips to
+	//    ≤2 INSERTs for any number of plan entries.
+	if len(stage3) > 0 {
+		n, err := insertStage3SegmentEffortsBatched(ctx, db, tx, userID, activityID, osmCandidates, stage3)
 		if err != nil {
-			return fmt.Errorf("enrichStreamLifts: stage 3 insert: %w", err)
+			return fmt.Errorf("enrichStreamLifts: stage 3 batch insert: %w", err)
 		}
-		if ok {
-			osmMatches++
-		}
+		osmMatches += n
 	}
 
 	// Commit the cleanup + rebuild atomically. RecomputeLiftStats runs on
@@ -769,6 +853,244 @@ func lookupCanonicalSegmentEffortIDTx(ctx context.Context, tx pgx.Tx, activityID
 		return "", fmt.Errorf("lookup: %w", err)
 	}
 	return id, nil
+}
+
+// stage3Row holds the derived metrics for one Stage-3 plan entry after the
+// per-lift time-window read, ready for the batched INSERT path.
+type stage3Row struct {
+	effortID  string
+	osm       lifts.OSMLiftCandidate
+	startedAt time.Time
+	endedAt   time.Time
+	durationS int
+	ascentM   float64
+	isReverse bool
+	auditRide lifts.LiftRide
+}
+
+// insertStage3SegmentEffortsBatched processes all Stage-3 plan entries with
+// batched UNNEST INSERTs: one INSERT for segment_efforts and one INSERT for
+// audit candidates, regardless of how many lifts are in the plan. The per-lift
+// time-window reads (ST_DWithin) still run sequentially — batching them is not
+// feasible because each query returns a variable-length row set.
+//
+// Returns the count of successfully processed lifts (those that passed the
+// 75 m / ≥2 samples / ≥30 s window gate). Falls back to the single-row path
+// for the rejected-window pre-check (still uses IsRejectedAnySourceInWindow
+// per lift before the batch INSERT phase).
+func insertStage3SegmentEffortsBatched(
+	ctx context.Context,
+	db *database.DB,
+	tx pgx.Tx,
+	userID, activityID string,
+	osmCandidates []lifts.OSMLiftCandidate,
+	plans []lifts.Stage3PlanEntry,
+) (int, error) {
+	if len(plans) == 0 {
+		return 0, nil
+	}
+	// Phase 1: per-lift time-window reads and reject-filter pre-checks.
+	// Collect the rows that will be batch-inserted.
+	rows := make([]stage3Row, 0, len(plans))
+	for _, plan := range plans {
+		osm := osmCandidates[plan.OSMCandidateIdx]
+		row, ok, err := readStage3WindowRow(ctx, db, userID, activityID, osm)
+		if err != nil {
+			return 0, fmt.Errorf("stage3 window read: %w", err)
+		}
+		if !ok {
+			continue
+		}
+		suppressed, err := db.IsRejectedAnySourceInWindow(ctx, activityID, row.startedAt, row.endedAt)
+		if err != nil {
+			return 0, fmt.Errorf("stage3 check rejected window: %w", err)
+		}
+		if suppressed {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+
+	// Phase 2: batch INSERT segment_efforts via UNNEST.
+	n := len(rows)
+	ids := make([]string, n)
+	activityIDs := make([]string, n)
+	segIDs := make([]string, n)
+	svIDs := make([]string, n)
+	startedAts := make([]time.Time, n)
+	durationSs := make([]int, n)
+	distanceMs := make([]float64, n)
+	ascentMs := make([]float64, n)
+	isReverses := make([]bool, n)
+	isMethodAOnlys := make([]bool, n)
+	for i, r := range rows {
+		ids[i] = r.effortID
+		activityIDs[i] = activityID
+		segIDs[i] = r.osm.SegmentID
+		svIDs[i] = r.osm.SegmentVersionID
+		startedAts[i] = r.startedAt
+		durationSs[i] = r.durationS
+		distanceMs[i] = r.osm.LengthM
+		ascentMs[i] = r.ascentM
+		isReverses[i] = r.isReverse
+		isMethodAOnlys[i] = true
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO segment_efforts
+			(id, activity_id, segment_id, segment_version_id, user_id,
+			 started_at, elapsed_time_s, distance_m, elevation_gain_m,
+			 is_reverse, sport_type, sub_type, in_leaderboard,
+			 is_lift_segment_match, is_method_a_only, is_cable_hold_merge)
+		SELECT
+			u.id, u.activity_id, u.segment_id, u.segment_version_id, a.user_id,
+			u.started_at, u.elapsed_time_s, u.distance_m, u.elevation_gain_m,
+			u.is_reverse, a.sport_type, COALESCE(NULLIF(a.sub_type, ''), 'generic'), false,
+			true, u.is_method_a_only, false
+		FROM UNNEST(
+			$1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[],
+			$5::timestamptz[], $6::int[], $7::float8[], $8::float8[],
+			$9::bool[], $10::bool[]
+		) AS u(id, activity_id, segment_id, segment_version_id,
+		       started_at, elapsed_time_s, distance_m, elevation_gain_m,
+		       is_reverse, is_method_a_only)
+		JOIN activities a ON a.id = u.activity_id AND a.user_id = $11
+		ON CONFLICT DO NOTHING
+	`, ids, activityIDs, segIDs, svIDs,
+		startedAts, durationSs, distanceMs, ascentMs,
+		isReverses, isMethodAOnlys, userID)
+	if err != nil {
+		return 0, fmt.Errorf("stage3 batch segment_efforts insert: %w", err)
+	}
+
+	// Phase 3: batch INSERT audit candidates.
+	auStartedAts := make([]time.Time, n)
+	auEndedAts := make([]time.Time, n)
+	auDurationSs := make([]int, n)
+	auAscentMs := make([]float64, n)
+	auDistanceMs := make([]float64, n)
+	auConfidences := make([]string, n)
+	auEffortIDs := make([]string, n)
+	for i, r := range rows {
+		auStartedAts[i] = r.startedAt
+		auEndedAts[i] = r.endedAt
+		auDurationSs[i] = r.durationS
+		auAscentMs[i] = r.ascentM
+		auDistanceMs[i] = r.osm.LengthM
+		auConfidences[i] = "high"
+		auEffortIDs[i] = r.effortID
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO activity_lift_candidates
+			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
+			 confidence, confirmed, source, segment_effort_id)
+		SELECT $1, u.started_at, u.ended_at, u.duration_s, u.ascent_m, 0, u.distance_m,
+		       u.confidence, true, 'osm', u.segment_effort_id
+		FROM UNNEST(
+			$2::timestamptz[], $3::timestamptz[], $4::int[],
+			$5::float8[], $6::float8[], $7::text[], $8::uuid[]
+		) AS u(started_at, ended_at, duration_s, ascent_m, distance_m, confidence, segment_effort_id)
+		WHERE EXISTS (SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id = $9)
+		ON CONFLICT (activity_id, started_at) DO UPDATE
+		SET source = EXCLUDED.source,
+		    segment_effort_id = EXCLUDED.segment_effort_id,
+		    confirmed = EXCLUDED.confirmed
+	`, activityID,
+		auStartedAts, auEndedAts, auDurationSs,
+		auAscentMs, auDistanceMs, auConfidences, auEffortIDs,
+		userID)
+	if err != nil {
+		return 0, fmt.Errorf("stage3 batch audit candidate insert: %w", err)
+	}
+
+	return len(rows), nil
+}
+
+// readStage3WindowRow runs the per-lift time-window read for one OSM lift:
+// extracts samples within 75m, derives duration/ascent/bearing/isReverse.
+// Returns (row, true, nil) on success, (zero, false, nil) when the lift
+// does not pass the 30s / ≥2 samples floor, or (zero, false, err) on DB error.
+func readStage3WindowRow(
+	ctx context.Context,
+	db *database.DB,
+	userID, activityID string,
+	osm lifts.OSMLiftCandidate,
+) (stage3Row, bool, error) {
+	type windowSample struct {
+		t         time.Time
+		altitudeM *float64
+		lat       *float64
+		lng       *float64
+	}
+	dbRows, err := db.Pool.Query(ctx, `
+		SELECT ast.time, ast.altitude_m, ast.lat, ast.lng
+		FROM activity_streams ast
+		JOIN activities a ON a.id = ast.activity_id
+		WHERE ast.activity_id = $1
+		  AND a.user_id = $3
+		  AND ast.lat IS NOT NULL
+		  AND ST_DWithin(
+			ST_SetSRID(ST_MakePoint(ast.lng, ast.lat), 4326)::geography,
+			(SELECT geom::geography FROM osm_lifts WHERE osm_id = $2),
+			75
+		  )
+		ORDER BY ast.time
+	`, activityID, osm.OSMID, userID)
+	if err != nil {
+		return stage3Row{}, false, fmt.Errorf("time-window query: %w", err)
+	}
+	var pts []windowSample
+	for dbRows.Next() {
+		var r windowSample
+		if err := dbRows.Scan(&r.t, &r.altitudeM, &r.lat, &r.lng); err != nil {
+			dbRows.Close()
+			return stage3Row{}, false, fmt.Errorf("scan: %w", err)
+		}
+		pts = append(pts, r)
+	}
+	dbRows.Close()
+	if err := dbRows.Err(); err != nil {
+		return stage3Row{}, false, fmt.Errorf("rows: %w", err)
+	}
+	if len(pts) < 2 {
+		return stage3Row{}, false, nil
+	}
+	startedAt := pts[0].t
+	endedAt := pts[len(pts)-1].t
+	durationS := int(endedAt.Sub(startedAt).Seconds())
+	if durationS < 30 {
+		return stage3Row{}, false, nil
+	}
+	var ascentM float64
+	if first, last := pts[0].altitudeM, pts[len(pts)-1].altitudeM; first != nil && last != nil && *last > *first {
+		ascentM = *last - *first
+	}
+	var trackBearing float64
+	if first, last := pts[0], pts[len(pts)-1]; first.lat != nil && last.lat != nil && first.lng != nil && last.lng != nil {
+		trackBearing = lifts.BearingDeg(*first.lat, *first.lng, *last.lat, *last.lng)
+	}
+	isReverse := lifts.IsReverseHeading(trackBearing, osm.BearingDeg)
+	row := stage3Row{
+		effortID:  uuid.NewString(),
+		osm:       osm,
+		startedAt: startedAt,
+		endedAt:   endedAt,
+		durationS: durationS,
+		ascentM:   ascentM,
+		isReverse: isReverse,
+		auditRide: lifts.LiftRide{
+			StartedAt:  startedAt,
+			EndedAt:    endedAt,
+			DurationS:  durationS,
+			AscentM:    ascentM,
+			DescentM:   0,
+			DistanceM:  osm.LengthM,
+			Confidence: "high",
+		},
+	}
+	return row, true, nil
 }
 
 // insertStage3SegmentEffortTx runs the legacy Method-A per-lift time-

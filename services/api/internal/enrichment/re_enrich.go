@@ -144,8 +144,20 @@ func reEnrichActivity(ctx context.Context, db *database.DB, userID, activityID s
 			switch m {
 			case "lifts":
 				if streamSettings.EnableLiftDetection {
-					if err := enrichStreamLifts(ctx, db, userID, activityID, stream); err != nil {
-						slog.Warn("re-enrich: lifts failed", "activity_id", activityID, "error", err)
+					// Use pre-loaded settings (avoids one SELECT per activity).
+					// Activity override pointers are resolved inside enrichStreamLiftsCore
+					// after GetActivity (which the core runs for sport-type gating).
+					liftSettings := settings
+					if liftSettings == nil {
+						// Fallback: load settings inline when the bulk caller did not supply them.
+						if s, err := db.GetEnrichmentSettings(ctx, userID); err == nil {
+							liftSettings = s
+						}
+					}
+					if liftSettings != nil {
+						if err := enrichStreamLiftsCore(ctx, db, userID, activityID, stream, false, liftSettings); err != nil {
+							slog.Warn("re-enrich: lifts failed", "activity_id", activityID, "error", err)
+						}
 					}
 				}
 			case "stops":
