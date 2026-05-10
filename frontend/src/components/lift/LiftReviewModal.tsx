@@ -14,6 +14,7 @@ import LiftInspectorMap, {
 } from './LiftInspectorMap'
 import LiftHelpModal from './LiftHelpModal'
 import { liftDisplayLabel } from './liftLabel'
+import LiftDetectionHeader from './LiftDetectionHeader'
 
 // Matches PAUSE_GAP_THRESHOLD_S in LiftInspectorMap — must stay in sync with
 // backend enrichment/lifts/window.go SmartRecMaxGapS default (75s).
@@ -119,8 +120,36 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
   // Phase 11.9: help modal state — shared across all three HelpCircle triggers
   // (legend, pause-gap banner, modal header).
   const [helpOpen, setHelpOpen] = useState(false)
+  // Phase 5 (lift-detection-toggles): poll for running lift_recompute job.
+  // This is a polling-only fallback because no SSE event exists for lift_recompute completion.
+  const [jobRunning, setJobRunning] = useState(false)
   const listItemRefs = useRef<Map<string, HTMLElement>>(new Map())
   const isDesktop = useIsDesktop()
+
+  // Poll /jobs/active every 2 s while a lift_recompute job is in flight for this activity.
+  // TanStack Query v5 removed onSuccess from useQuery — side effects live in useEffect.
+  const { data: liftJobRunning } = useQuery({
+    queryKey: ['lift-recompute-poll', activityId],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/v1/jobs/active`)
+      const body = await res.json() as { jobs: Array<{ job_type: string; entity_id?: string; status: string }> }
+      return body.jobs.some(
+        j => j.job_type === 'lift_recompute' && j.entity_id === activityId && j.status === 'running',
+      )
+    },
+    refetchInterval: jobRunning ? 2000 : false,
+    enabled: jobRunning,
+  })
+
+  // When the poll returns false while we thought a job was running, the job finished.
+  useEffect(() => {
+    if (jobRunning && liftJobRunning === false) {
+      setJobRunning(false)
+      qc.invalidateQueries({ queryKey: ['lift-candidates', activityId] })
+      qc.invalidateQueries({ queryKey: ['lift-candidates-inspector', activityId] })
+      qc.invalidateQueries({ queryKey: ['activity', activityId] })
+    }
+  }, [liftJobRunning, jobRunning, qc, activityId])
 
   const unreviewedCandidates = candidates.filter(
     c => c.source === 'heuristic' && !c.confirmed && !c.rejected_by_user,
@@ -709,6 +738,13 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
             ✕
           </button>
         </div>
+
+        {/* Phase 5: per-activity detection-mode toggles — shown in expanded mode only */}
+        <LiftDetectionHeader
+          activityId={activityId}
+          jobRunning={jobRunning}
+          onJobStarted={() => setJobRunning(true)}
+        />
 
         {isDesktop ? (
           // Desktop: Fix 3 — 70/30 split map/list (map gets more, list narrower).
