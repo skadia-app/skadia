@@ -67,6 +67,36 @@ func TestEffectiveLiftDetectionOpts(t *testing.T) {
 		{name: "master_on/user_ff/override_T_F", masterEnabled: true, userOSM: false, userHeuristic: false, overrideOSM: boolPtr(true), overrideHeuristic: boolPtr(false), wantOSM: true, wantHeuristic: false},
 		{name: "master_on/user_ff/override_F_T", masterEnabled: true, userOSM: false, userHeuristic: false, overrideOSM: boolPtr(false), overrideHeuristic: boolPtr(true), wantOSM: false, wantHeuristic: true},
 		{name: "master_on/user_ff/override_F_F", masterEnabled: true, userOSM: false, userHeuristic: false, overrideOSM: boolPtr(false), overrideHeuristic: boolPtr(false), wantOSM: false, wantHeuristic: false},
+
+		// master=true, user_tf (OSM on, heuristic off): previously missing permutations.
+		{name: "master_on/user_tf/override_nil_nil", masterEnabled: true, userOSM: true, userHeuristic: false, wantOSM: true, wantHeuristic: false},
+		{name: "master_on/user_tf/override_T_nil", masterEnabled: true, userOSM: true, userHeuristic: false, overrideOSM: boolPtr(true), wantOSM: true, wantHeuristic: false},
+		{name: "master_on/user_tf/override_F_nil", masterEnabled: true, userOSM: true, userHeuristic: false, overrideOSM: boolPtr(false), wantOSM: false, wantHeuristic: false},
+		{name: "master_on/user_tf/override_nil_T", masterEnabled: true, userOSM: true, userHeuristic: false, overrideHeuristic: boolPtr(true), wantOSM: true, wantHeuristic: true},
+		{name: "master_on/user_tf/override_nil_F", masterEnabled: true, userOSM: true, userHeuristic: false, overrideHeuristic: boolPtr(false), wantOSM: true, wantHeuristic: false},
+		{name: "master_on/user_tf/override_T_T", masterEnabled: true, userOSM: true, userHeuristic: false, overrideOSM: boolPtr(true), overrideHeuristic: boolPtr(true), wantOSM: true, wantHeuristic: true},
+		{name: "master_on/user_tf/override_T_F", masterEnabled: true, userOSM: true, userHeuristic: false, overrideOSM: boolPtr(true), overrideHeuristic: boolPtr(false), wantOSM: true, wantHeuristic: false},
+		{name: "master_on/user_tf/override_F_T", masterEnabled: true, userOSM: true, userHeuristic: false, overrideOSM: boolPtr(false), overrideHeuristic: boolPtr(true), wantOSM: false, wantHeuristic: true},
+		{name: "master_on/user_tf/override_F_F", masterEnabled: true, userOSM: true, userHeuristic: false, overrideOSM: boolPtr(false), overrideHeuristic: boolPtr(false), wantOSM: false, wantHeuristic: false},
+
+		// master=true, user_ft (OSM off, heuristic on): previously missing permutations.
+		{name: "master_on/user_ft/override_nil_nil", masterEnabled: true, userOSM: false, userHeuristic: true, wantOSM: false, wantHeuristic: true},
+		{name: "master_on/user_ft/override_T_nil", masterEnabled: true, userOSM: false, userHeuristic: true, overrideOSM: boolPtr(true), wantOSM: true, wantHeuristic: true},
+		{name: "master_on/user_ft/override_F_nil", masterEnabled: true, userOSM: false, userHeuristic: true, overrideOSM: boolPtr(false), wantOSM: false, wantHeuristic: true},
+		{name: "master_on/user_ft/override_nil_T", masterEnabled: true, userOSM: false, userHeuristic: true, overrideHeuristic: boolPtr(true), wantOSM: false, wantHeuristic: true},
+		{name: "master_on/user_ft/override_nil_F", masterEnabled: true, userOSM: false, userHeuristic: true, overrideHeuristic: boolPtr(false), wantOSM: false, wantHeuristic: false},
+		{name: "master_on/user_ft/override_T_T", masterEnabled: true, userOSM: false, userHeuristic: true, overrideOSM: boolPtr(true), overrideHeuristic: boolPtr(true), wantOSM: true, wantHeuristic: true},
+		{name: "master_on/user_ft/override_T_F", masterEnabled: true, userOSM: false, userHeuristic: true, overrideOSM: boolPtr(true), overrideHeuristic: boolPtr(false), wantOSM: true, wantHeuristic: false},
+		{name: "master_on/user_ft/override_F_T", masterEnabled: true, userOSM: false, userHeuristic: true, overrideOSM: boolPtr(false), overrideHeuristic: boolPtr(true), wantOSM: false, wantHeuristic: true},
+		{name: "master_on/user_ft/override_F_F", masterEnabled: true, userOSM: false, userHeuristic: true, overrideOSM: boolPtr(false), overrideHeuristic: boolPtr(false), wantOSM: false, wantHeuristic: false},
+
+		// master=false, user_tf and user_ft: same all-false contract as other master=false rows.
+		{name: "master_off/user_tf/override_nil_nil", masterEnabled: false, userOSM: true, userHeuristic: false, wantOSM: false, wantHeuristic: false},
+		{name: "master_off/user_tf/override_T_T", masterEnabled: false, userOSM: true, userHeuristic: false, overrideOSM: boolPtr(true), overrideHeuristic: boolPtr(true), wantOSM: false, wantHeuristic: false},
+		{name: "master_off/user_tf/override_F_F", masterEnabled: false, userOSM: true, userHeuristic: false, overrideOSM: boolPtr(false), overrideHeuristic: boolPtr(false), wantOSM: false, wantHeuristic: false},
+		{name: "master_off/user_ft/override_nil_nil", masterEnabled: false, userOSM: false, userHeuristic: true, wantOSM: false, wantHeuristic: false},
+		{name: "master_off/user_ft/override_T_T", masterEnabled: false, userOSM: false, userHeuristic: true, overrideOSM: boolPtr(true), overrideHeuristic: boolPtr(true), wantOSM: false, wantHeuristic: false},
+		{name: "master_off/user_ft/override_F_F", masterEnabled: false, userOSM: false, userHeuristic: true, overrideOSM: boolPtr(false), overrideHeuristic: boolPtr(false), wantOSM: false, wantHeuristic: false},
 	}
 
 	for _, c := range cases {
