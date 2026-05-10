@@ -180,12 +180,60 @@ func enrichStreamLiftsCore(
 		act.LiftDetectionHeuristicOverride,
 	)
 
-	// Both-off: early return before the cleanup Tx — no DB writes at all.
-	// This intentionally leaves existing lift candidates intact; clearing them
-	// is the user's responsibility via the explicit Reset path (Phase 3).
+	// Both-off: delete existing non-rejected candidates so stale rows from a
+	// previous enabled run do not persist after the user disables detection.
+	// Soft-rejected rows (rejected_by_user=true) are preserved — they are
+	// user-authored audit traces and must not be erased by a settings change.
+	// The corresponding segment_efforts for previously-inserted OSM snaps are
+	// also removed; a future re-enable will re-derive them from the stream.
+	// (Critic F7 fix: the earlier "early-return before cleanup Tx" silently
+	// left stale candidates that would reappear once detection was re-enabled,
+	// contradicting the both-off semantic.)
 	if !opts.Heuristic && !opts.OSMSnap {
-		slog.Debug("enrichStreamLifts: both heuristic and OSM-snap disabled, skipping",
+		slog.Debug("enrichStreamLifts: both heuristic and OSM-snap disabled, cleaning up stale candidates",
 			"activity_id", activityID)
+		cleanTx, err := db.Pool.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("enrichStreamLifts: both-off begin tx: %w", err)
+		}
+		defer cleanTx.Rollback(ctx) //nolint:errcheck
+		if _, err := cleanTx.Exec(ctx, `
+			DELETE FROM activity_lift_candidates alc
+			USING activities a
+			WHERE alc.activity_id = $1 AND a.id = alc.activity_id AND a.user_id = $2
+			  AND NOT alc.rejected_by_user
+		`, activityID, userID); err != nil {
+			return fmt.Errorf("enrichStreamLifts: both-off delete candidates: %w", err)
+		}
+		if _, err := cleanTx.Exec(ctx, `
+			UPDATE activity_lift_candidates alc
+			SET segment_effort_id = NULL
+			FROM activities a
+			WHERE alc.activity_id = $1
+			  AND a.id = alc.activity_id
+			  AND a.user_id = $2
+			  AND alc.rejected_by_user = true
+			  AND alc.segment_effort_id IS NOT NULL
+		`, activityID, userID); err != nil {
+			return fmt.Errorf("enrichStreamLifts: both-off null-out rejected segment_effort_id: %w", err)
+		}
+		if _, err := cleanTx.Exec(ctx, `
+			DELETE FROM segment_efforts se
+			USING activities a, segments s
+			WHERE se.activity_id = $1
+			  AND a.id = se.activity_id
+			  AND a.user_id = $2
+			  AND s.id = se.segment_id
+			  AND s.segment_type = 'lift'
+		`, activityID, userID); err != nil {
+			return fmt.Errorf("enrichStreamLifts: both-off delete lift segment_efforts: %w", err)
+		}
+		if err := cleanTx.Commit(ctx); err != nil {
+			return fmt.Errorf("enrichStreamLifts: both-off commit: %w", err)
+		}
+		if err := db.RecomputeLiftStats(ctx, userID, activityID); err != nil {
+			return fmt.Errorf("enrichStreamLifts: both-off recompute lift stats: %w", err)
+		}
 		return nil
 	}
 
@@ -912,6 +960,29 @@ func insertStage3SegmentEffortsBatched(
 	}
 	if len(rows) == 0 {
 		return 0, nil
+	}
+
+	// Deduplicate on startedAt to avoid UNIQUE (activity_id, started_at)
+	// conflicts in activity_lift_candidates. Two parallel OSM lifts whose
+	// 75 m time-window queries return the same sample set produce identical
+	// startedAt values. The batched INSERT uses ON CONFLICT DO UPDATE, so
+	// the second row would silently overwrite the first lift's
+	// segment_effort_id on the audit row — leaving the first segment_effort
+	// orphaned and bypassing recomputeLiftStats deduplication (F14 fix).
+	// We keep the first occurrence per startedAt (OSM candidate order is
+	// stable, so this is deterministic across re-enrichment runs).
+	{
+		seen := make(map[string]struct{}, len(rows))
+		deduped := rows[:0]
+		for _, r := range rows {
+			key := r.startedAt.UTC().Format("20060102T150405.999999999Z")
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			deduped = append(deduped, r)
+		}
+		rows = deduped
 	}
 
 	// Phase 2: batch INSERT segment_efforts via UNNEST.
