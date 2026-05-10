@@ -294,6 +294,18 @@ func DetectHeuristicWithIndices(rows []StreamPoint, cfg DetectorConfig) []RideWi
 		prevFinalEnd = finalEnd
 		i = finalEnd + 1
 	}
+	// Saddle-cable recovery pass: rescues short fast-flat saddle cables
+	// (the calibrated saddle-cable corpus case — top-station → mid-
+	// station, 163 s, mass 43 m, speedCV ≈ 0.17) that the main forward
+	// walk misses because the cable's alt profile dips through a saddle
+	// and total alt-mass falls below the 60 m floorMetric. Recovery
+	// scans uncovered stream windows for cable-class signatures and
+	// gates admission with a dual-position anchor against `raw`'s
+	// endpoints. Cycling activities have no detected lifts → no anchors
+	// → recovery returns `raw` unchanged. Recovered rides are tagged
+	// "bidir" so the downstream mid-station splitter can still split
+	// them at mid-stations if applicable.
+	raw = recoverSaddleCables(raw, rows, cfg)
 	// Mid-lift-split merge pass: a pylon stop, mid-station glitch, or a
 	// brief recording pause splits one physical lift ride into two adjacent
 	// candidates. Conservative criteria (per "FP > gap-bridging"):
@@ -310,6 +322,12 @@ func DetectHeuristicWithIndices(rows []StreamPoint, cfg DetectorConfig) []RideWi
 	// Splitting it there into two sub-rides recovers the missing seg3
 	// match in the per-lift count.
 	merged = splitAtMidStations(merged, rows, cfg)
+	// Pure-descent reclassification: bidir rides whose full-ride stats
+	// describe a descending gondola (very low ascent, monotonic drop,
+	// straight chord, low CV) get promoted to "high" for per-direction
+	// confidence accuracy. Operates post-merge / post-split so the gate
+	// sees the final ride boundaries.
+	merged = reclassifyPureDescentRides(merged, rows, cfg)
 	out := make([]RideWithIndices, len(merged))
 	for k, r := range merged {
 		out[k] = RideWithIndices{
@@ -967,9 +985,10 @@ func classify(ws stats, cfg DetectorConfig) string {
 		// Ascending lifts only for the "high" branch — a clean
 		// 60–90 s ski descent at constant speed and low sinuosity also
 		// passes the gradient/CV gates, so we restrict "high" to the
-		// going-up signature. (True downhill cable cars are rare and
-		// will need an explicit OSM-anchored or sport-flag path; today
-		// none of the training corpus contains one.)
+		// going-up signature. (Pure-descent gondolas reach "high" via
+		// the post-hoc reclassifyPureDescentRides pass downstream of
+		// merge / split, where full-ride stats give a tighter
+		// discriminator than the 30 s seed window.)
 		if ws.altRateMs >= 0.05 && gradient > cfg.MinGradient {
 			return "high"
 		}

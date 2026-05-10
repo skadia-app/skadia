@@ -784,3 +784,446 @@ func buildMultiStationGondolaTraversal(base time.Time) []StreamPoint {
 	}
 	return pts
 }
+
+// buildShortFastFlatSaddle mirrors the calibrated saddle-cable corpus
+// case (a return-trip mid-section gondola: top-station → mid-station,
+// ~163 s) in a form the upstream forward-walk seed never latches onto:
+// boarding plateau → cable with an alt dip below the boarding point →
+// climb to a higher mid-station platform.
+//
+// Stream layout (1 Hz, 220 s):
+//
+//	[0,30)    s pre-cable boarding ramp — alt 2107.5 flat, speed 0.4 →
+//	            5.0 m/s ramp into cable. Pre-cable so the recovery pass
+//	            sees a non-cable segment up front (must not falsely admit
+//	            this part).
+//	[30,40)   s cable startup — alt 2107 → 2104, speed 5.0 m/s steady.
+//	[40,90)   s cable saddle dip — alt 2104 → 2095 (-9 m, rate -0.18 m/s),
+//	            speed 5.0 m/s steady.
+//	[90,160)  s cable saddle climb — alt 2095 → 2127 (+32 m, rate
+//	            +0.46 m/s), speed 5.0 m/s steady.
+//	[160,220) s post-cable mid-station platform — alt 2127 flat, speed
+//	            0.5 m/s. Excluded from the cable proper.
+//
+// Cable proper (s ∈ [30,160)): mean speed 5.0 m/s, speed CV ≈ 0, asc ≈
+// 32 m, desc ≈ 12 m, mass ≈ 44 m, duration 130 s — fits inside the
+// recovery pre-conditions exactly. The full stream (220 s) extends beyond
+// to ensure the recovery pass distinguishes cable from boarding/idle.
+func buildShortFastFlatSaddle(base time.Time) []StreamPoint {
+	pts := make([]StreamPoint, 0, 220)
+	for i := 0; i < 220; i++ {
+		ts := base.Add(time.Duration(i) * time.Second)
+		var x, alt, v float64
+		switch {
+		case i < 30:
+			x = 0.5 * float64(i)
+			alt = 2107.5
+			v = 0.4 + (4.6/29.0)*float64(i)
+		case i < 40:
+			x = 15.0 + 5.0*float64(i-30)
+			alt = 2107.5 - 3.5*float64(i-30)/10.0
+			v = 5.0
+		case i < 90:
+			frac := float64(i-40) / 50.0
+			x = 15.0 + 5.0*10.0 + 5.0*float64(i-40)
+			alt = 2104.0 - 9.0*frac
+			v = 5.0
+		case i < 160:
+			frac := float64(i-90) / 70.0
+			x = 15.0 + 5.0*10.0 + 5.0*50.0 + 5.0*float64(i-90)
+			alt = 2095.0 + 32.0*frac
+			v = 5.0
+		default:
+			x = 15.0 + 5.0*10.0 + 5.0*50.0 + 5.0*70.0 + 0.5*float64(i-160)
+			alt = 2127.0
+			v = 0.5
+		}
+		pts = append(pts, streamPoint(ts, x, 0, alt, v))
+	}
+	return pts
+}
+
+// buildSkiingTraverseSaddle keeps the same alt profile as
+// buildShortFastFlatSaddle but replaces the steady cable speed with a
+// human-powered traverse pattern (4–15 m/s, CV ≈ 0.3). Used to assert the
+// recovery pass rejects skiing/biking flows that happen to cross a saddle
+// with similar geometry.
+func buildSkiingTraverseSaddle(base time.Time) []StreamPoint {
+	pts := make([]StreamPoint, 0, 220)
+	skiPattern := []float64{12.0, 6.0, 14.0, 5.0, 10.0, 8.0, 13.0, 4.0, 11.0, 7.0}
+	for i := 0; i < 220; i++ {
+		ts := base.Add(time.Duration(i) * time.Second)
+		var x, alt, v float64
+		switch {
+		case i < 30:
+			x = 0.5 * float64(i)
+			alt = 2107.5
+			v = 0.5
+		case i < 160:
+			ti := i - 30
+			vSki := skiPattern[ti%len(skiPattern)]
+			x = 15.0 + 8.5*float64(ti)
+			switch {
+			case ti < 10:
+				alt = 2107.5 - 3.5*float64(ti)/10.0
+			case ti < 60:
+				alt = 2104.0 - 9.0*float64(ti-10)/50.0
+			default:
+				alt = 2095.0 + 32.0*float64(ti-60)/70.0
+			}
+			v = vSki
+		default:
+			x = 15.0 + 8.5*130.0 + 0.5*float64(i-160)
+			alt = 2127.0
+			v = 0.5
+		}
+		pts = append(pts, streamPoint(ts, x, 0, alt, v))
+	}
+	return pts
+}
+
+// buildHighMassClimb produces a steady cable climb whose alt mass exceeds
+// the 80 m cap. The recovery pass must skip it because the upstream
+// extender / floor would have admitted it as a real lift candidate; we
+// don't want the recovery pass to double-count or steal candidates.
+func buildHighMassClimb(base time.Time) []StreamPoint {
+	pts := make([]StreamPoint, 0, 220)
+	for i := 0; i < 220; i++ {
+		ts := base.Add(time.Duration(i) * time.Second)
+		var x, alt, v float64
+		switch {
+		case i < 30:
+			x = 0.5 * float64(i)
+			alt = 1900.0
+			v = 0.5
+		case i < 160:
+			ti := i - 30
+			x = 15.0 + 5.0*float64(ti)
+			alt = 1900.0 + float64(ti)*150.0/130.0
+			v = 5.0
+		default:
+			x = 15.0 + 5.0*130.0 + 0.5*float64(i-160)
+			alt = 2050.0
+			v = 0.5
+		}
+		pts = append(pts, streamPoint(ts, x, 0, alt, v))
+	}
+	return pts
+}
+
+// TestBugF_RecoverSaddleCables_AdmitsShortFastFlatSaddle is the positive
+// test. Given the calibrated saddle-cable stream and two anchor rides
+// whose endpoints sit near the cable's start and end positions, the
+// recovery pass must emit exactly one bidir ride covering the cable
+// proper. The two anchors model the corpus case where the missing
+// return-trip's endpoints match the previous outbound's top station
+// and the next return segment's mid station.
+//
+// Pre-fix RED (without G1): emits 1 ride from `nil` input — but that
+// signals the dual-anchor gate is missing. Post-fix GREEN: emits 1
+// ride only when both endpoints anchor; with the anchors below the
+// output is `[anchor1, recovered, anchor2]`.
+func TestBugF_RecoverSaddleCables_AdmitsShortFastFlatSaddle(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildShortFastFlatSaddle(base)
+	anchors := mockAnchorRides(pts)
+
+	out := recoverSaddleCables(anchors, pts, DefaultDetectorConfig("ski"))
+	if len(out) != 3 {
+		t.Fatalf("got %d output rides, want 3 (2 anchors + 1 recovered)", len(out))
+	}
+	// Locate the recovered ride: anchors carry confidence="high"; the
+	// recovery pass tags its emission "bidir".
+	var recovered *LiftRide
+	for i := range out {
+		if out[i].ride.Confidence == "bidir" {
+			r := out[i].ride
+			recovered = &r
+			break
+		}
+	}
+	if recovered == nil {
+		t.Fatal("expected a recovered ride with confidence=\"bidir\", got none")
+	}
+	durS := recovered.EndedAt.Sub(recovered.StartedAt).Seconds()
+	if durS < 90 {
+		t.Errorf("recovered ride duration = %.0fs, want ≥ 90s", durS)
+	}
+	mass := recovered.AscentM + recovered.DescentM
+	if mass < saddleCableMinMassM || mass > saddleCableMaxMassM {
+		t.Errorf("recovered ride mass = %.0fm, want in [%.0f,%.0f]", mass, saddleCableMinMassM, saddleCableMaxMassM)
+	}
+}
+
+// TestBugF_RecoverSaddleCables_RejectsHighSpeedCV pins the central FP
+// guard: the speed-CV gate keeps human-powered traverses (skiing,
+// biking) out of the recovery pass even when they cross a saddle with
+// the same alt geometry as a real cable.
+func TestBugF_RecoverSaddleCables_RejectsHighSpeedCV(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildSkiingTraverseSaddle(base)
+
+	out := recoverSaddleCables(nil, pts, DefaultDetectorConfig("ski"))
+	if len(out) != 0 {
+		t.Errorf("got %d output rides, want 0 (skiing traverse rejected by speedCV gate)", len(out))
+	}
+}
+
+// TestBugF_RecoverSaddleCables_RejectsTooLargeMass pins the upper alt-mass
+// cap: a real lift-class climb (alt-mass > 80 m) is left to the upstream
+// detector — the recovery pass must not double-emit.
+func TestBugF_RecoverSaddleCables_RejectsTooLargeMass(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildHighMassClimb(base)
+
+	out := recoverSaddleCables(nil, pts, DefaultDetectorConfig("ski"))
+	if len(out) != 0 {
+		t.Errorf("got %d output rides, want 0 (high-mass climb left to upstream detector)", len(out))
+	}
+}
+
+// TestBugF_RecoverSaddleCables_PassesThroughCoveredWindow guards against
+// double-emission: when the upstream detector already produced a ride
+// covering the saddle window, the recovery pass must skip it.
+func TestBugF_RecoverSaddleCables_PassesThroughCoveredWindow(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildShortFastFlatSaddle(base)
+
+	parent := rideWithIdx{
+		ride: LiftRide{
+			StartedAt:  pts[0].Time,
+			EndedAt:    pts[len(pts)-1].Time,
+			DurationS:  int(pts[len(pts)-1].Time.Sub(pts[0].Time).Seconds()),
+			AscentM:    32,
+			DescentM:   12,
+			DistanceM:  650,
+			Confidence: "bidir",
+		},
+		startIdx: 0,
+		endIdx:   len(pts) - 1,
+	}
+
+	out := recoverSaddleCables([]rideWithIdx{parent}, pts, DefaultDetectorConfig("ski"))
+	if len(out) != 1 {
+		t.Errorf("got %d output rides, want 1 (covered window must not double-emit)", len(out))
+	}
+}
+
+// TestBugF_RecoverSaddleCables_RejectsTooShort pins the duration floor.
+// A 60 s synth that otherwise satisfies every gate must be rejected
+// because cable trips below 90 s are below the corpus minimum and more
+// likely glitches.
+func TestBugF_RecoverSaddleCables_RejectsTooShort(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	full := buildShortFastFlatSaddle(base)
+	pts := full[:90]
+
+	out := recoverSaddleCables(nil, pts, DefaultDetectorConfig("ski"))
+	if len(out) != 0 {
+		t.Errorf("got %d output rides, want 0 (duration < 90s rejected)", len(out))
+	}
+}
+
+// mockAnchorRides synthesises two placeholder rides whose stream-index
+// endpoints sit inside the boarding/disembark stationary windows of
+// `buildShortFastFlatSaddle`-shape fixtures (220 samples, cable proper
+// in [30,160)). The first anchor ends at i=10 (~10 m from the cable
+// start at i=30), the second starts at i=210 (~25 m from the cable end
+// at i=160) — both well inside the 100 m anchor radius. Used by the
+// dual-position-anchor positive cases.
+func mockAnchorRides(pts []StreamPoint) []rideWithIdx {
+	if len(pts) < 215 {
+		panic("mockAnchorRides expects ≥215 samples")
+	}
+	return []rideWithIdx{
+		{
+			ride: LiftRide{
+				StartedAt:  pts[0].Time,
+				EndedAt:    pts[10].Time,
+				DurationS:  10,
+				AscentM:    5,
+				Confidence: "high",
+			},
+			startIdx: 0,
+			endIdx:   10,
+		},
+		{
+			ride: LiftRide{
+				StartedAt:  pts[210].Time,
+				EndedAt:    pts[len(pts)-1].Time,
+				DurationS:  9,
+				AscentM:    5,
+				Confidence: "high",
+			},
+			startIdx: 210,
+			endIdx:   len(pts) - 1,
+		},
+	}
+}
+
+// TestBugF_RecoverSaddleCables_DualAnchor_RejectsWithoutAnchors pins
+// the FP-guard that distinguishes saddle-cable return-trip recoveries
+// from cycling-cruise / ski-traverse saddle motion. The cable signature
+// alone is not enough — the recovery only emits when both endpoints sit
+// within ≈100 m of an existing detected ride's endpoint, anchoring the
+// candidate to known lift infrastructure in the same activity. Cycling
+// activities have zero detected rides → no anchors → recovery off.
+//
+// Pre-fix RED: pre-G1 recoverSaddleCables ignores the input slice and
+// emits 1 ride based on signature alone (the cable-class gates pass).
+// Post-fix GREEN: dual-anchor gate rejects when input is empty.
+func TestBugF_RecoverSaddleCables_DualAnchor_RejectsWithoutAnchors(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildShortFastFlatSaddle(base)
+
+	out := recoverSaddleCables(nil, pts, DefaultDetectorConfig("ski"))
+	if len(out) != 0 {
+		t.Errorf("got %d output rides, want 0 (no input rides → dual-anchor gate rejects)", len(out))
+	}
+}
+
+// TestBugF_RecoverSaddleCables_DualAnchor_RejectsOnlyStartAnchor
+// guards against single-sided geo matches: a cable whose START matches
+// a previously-detected ride but whose END does not is not a valid
+// recovery candidate (could be a stationary GPS spike or an unrelated
+// stream segment that happens to share the start anchor).
+//
+// Pre-fix RED: pre-G1 emits 1 recovered ride regardless of anchor count.
+// Post-fix GREEN: only-start anchor → no emit (only the input ride
+// survives in the output).
+func TestBugF_RecoverSaddleCables_DualAnchor_RejectsOnlyStartAnchor(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildShortFastFlatSaddle(base)
+
+	startAnchor := []rideWithIdx{
+		{
+			ride: LiftRide{
+				StartedAt:  pts[0].Time,
+				EndedAt:    pts[10].Time,
+				DurationS:  10,
+				AscentM:    5,
+				Confidence: "high",
+			},
+			startIdx: 0,
+			endIdx:   10,
+		},
+	}
+
+	out := recoverSaddleCables(startAnchor, pts, DefaultDetectorConfig("ski"))
+	if len(out) != 1 {
+		t.Errorf("got %d output rides, want 1 (only the start-anchor passes through; no recovery)", len(out))
+	}
+}
+
+// buildHighSinuosityCable mirrors the calibrated bikepark-FP shape: a
+// 130 s window where the user rolls around a lift-top trail at cable-
+// class speed (≈3 m/s, low CV) with a mild saddle alt profile (asc 9,
+// desc 30 → mass 39 m, in band) but the GPS path winds heavily — cum-
+// dist far exceeds the straight-line displacement. Real cables hang in
+// near-straight catenaries (sinuosity ≈ 1.0); a meandering bike-trail
+// loop has sinuosity ≥ 5. Sensor speed (`SpeedMs`) reports the actual
+// motion at ~3 m/s and stays low-CV; haversine cum-dist over the curved
+// path explodes the sinuosity gate.
+func buildHighSinuosityCable(base time.Time) []StreamPoint {
+	pts := make([]StreamPoint, 0, 220)
+	for i := 0; i < 220; i++ {
+		ts := base.Add(time.Duration(i) * time.Second)
+		var x, y, alt, v float64
+		switch {
+		case i < 30:
+			// Boarding stationary
+			x = 0.5 * float64(i)
+			y = 0
+			alt = 2107.5
+			v = 0.4
+		case i < 160:
+			// Curvy cable-speed loop. Net x advance 15→145 (130 m
+			// straight); y oscillates ±60 m every ~5 s — cum-dist over
+			// the path is several hundred metres, sinuosity ≈ 6.
+			ti := i - 30
+			x = 15 + 1.0*float64(ti)
+			y = 60 * math.Sin(float64(ti)*1.26)
+			// Saddle alt: -9 m over 50 s, then +32 m over 80 s
+			switch {
+			case ti < 50:
+				alt = 2107.5 - 9.0*float64(ti)/50.0
+			default:
+				alt = 2098.5 + 32.0*float64(ti-50)/80.0
+			}
+			v = 3.0
+		default:
+			x = 145 + 0.5*float64(i-160)
+			y = 0
+			alt = 2127
+			v = 0.5
+		}
+		pts = append(pts, streamPoint(ts, x, y, alt, v))
+	}
+	return pts
+}
+
+// TestBugF_RecoverSaddleCables_RejectsHighSinuosityCable pins the
+// straight-line gate that distinguishes a real saddle-cable ride
+// (gondola hangs in a catenary; sinuosity ≈ 1.0 since the GPS path
+// matches the straight chord) from a bikepark / connector loop where
+// the user winds around a lift-top area at cable-class speed and mild
+// saddle alt. The dual-anchor gate alone admits this FP because both
+// loop endpoints sit near the lift-top anchor — sinuosity is the cheap
+// physical discriminator.
+//
+// Pre-fix RED: dual-anchor admits the high-sinuosity cable.
+// Post-fix GREEN: sinuosity gate rejects, only anchors pass through.
+func TestBugF_RecoverSaddleCables_RejectsHighSinuosityCable(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildHighSinuosityCable(base)
+	anchors := mockAnchorRides(pts)
+
+	out := recoverSaddleCables(anchors, pts, DefaultDetectorConfig("ski"))
+	if len(out) != 2 {
+		t.Errorf("got %d output rides, want 2 (high sinuosity rejected; only the 2 anchors pass through)", len(out))
+	}
+}
+
+// TestBugG_ReclassifyPureDescent_PromotesGondolaDescent pins the
+// post-hoc reclassification gate. A bidir ride whose full window
+// describes a downhill gondola (the calibrated pure-descent case: alt
+// drop 515 m over 300 s, asc ≈ 0, sin ≈ 1.0, CV ≈ 0.0) gets promoted
+// to "high"
+// so per-direction labelling reflects reality. The reused fixture is
+// the same as TestBugC2_PureDescentCable; the test pins the
+// confidence promotion that the post-hoc pass adds on top of the
+// existing detection.
+//
+// The pre-fix detector returns the ride as "bidir" because the
+// per-window classifier requires altRateMs ≥ 0.05 (ascending) for
+// "high". The post-hoc pass operates on full-ride stats where the
+// pure-descent shape is unambiguous.
+func TestBugG_ReclassifyPureDescent_PromotesGondolaDescent(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildPureDescentCable(base)
+	rides := DetectHeuristic(pts, DefaultDetectorConfig("ski"))
+	if len(rides) != 1 {
+		t.Fatalf("got %d rides, want 1 (one continuous gondola descent)", len(rides))
+	}
+	if rides[0].Confidence != "high" {
+		t.Errorf("confidence = %q, want \"high\" (pure-descent reclassification)", rides[0].Confidence)
+	}
+}
+
+// TestBugG_ReclassifyPureDescent_PreservesSaddleBidir guards the
+// neighbouring case: a saddle-shape bidir ride (ascent + descent both
+// present, e.g. the calibrated saddle-cable case) must NOT be
+// promoted. The 1 %
+// ascent-ratio cap rejects any ride with a meaningful climb component.
+func TestBugG_ReclassifyPureDescent_PreservesSaddleBidir(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildSaddleCrossingBidir(base)
+
+	rides := DetectHeuristic(pts, DefaultDetectorConfig("ski"))
+	if len(rides) != 1 {
+		t.Fatalf("got %d rides, want 1 (saddle bidir)", len(rides))
+	}
+	if rides[0].Confidence != "bidir" {
+		t.Errorf("confidence = %q, want \"bidir\" (saddle preserves bidir)", rides[0].Confidence)
+	}
+}
