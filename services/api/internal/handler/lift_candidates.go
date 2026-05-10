@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -409,6 +410,21 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// F1: 409 guard MUST run BEFORE the destructive RecalculateActivityLifts
+	// (DELETE + clear lifts_acknowledged_at). Previously the check ran after,
+	// which meant a duplicate request would wipe candidates the still-running
+	// job had just produced — exactly the data-loss the 409 was meant to
+	// prevent. Reorder: check, then recalc.
+	if running, existingJobID, checkErr := h.DB.HasRunningLiftRecomputeJob(r.Context(), userID, activityID); checkErr != nil {
+		slog.Warn("recalculate lifts: could not check for running job", "activity_id", activityID, "error", checkErr)
+	} else if running && existingJobID != nil {
+		httputil.WriteProblemWithJob(w, http.StatusConflict,
+			"Re-Detect job already running",
+			"a lift_recompute job for this activity is already running",
+			"LIFT_RECOMPUTE_RUNNING", *existingJobID, r.URL.Path)
+		return
+	}
+
 	if err := h.DB.RecalculateActivityLifts(r.Context(), userID, activityID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
@@ -419,32 +435,34 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// 409 guard: reject the request when a lift_recompute job is already
-	// running for this (user, activity) to prevent a wasted delete+re-detect
-	// cycle that would overwrite in-progress results with stale data.
-	if running, existingJobID, checkErr := h.DB.HasRunningLiftRecomputeJob(r.Context(), userID, activityID); checkErr != nil {
-		slog.Warn("recalculate lifts: could not check for running job", "activity_id", activityID, "error", checkErr)
-	} else if running && existingJobID != nil {
-		httputil.WriteJSON(w, http.StatusConflict, map[string]string{
-			"error":  "Re-Detect job already running",
-			"job_id": *existingJobID,
-		})
-		return
-	}
-
-	// F2: enqueue lift re-enrichment as a background job AFTER the DELETE
-	// transaction commits. Returning 204 immediately prevents client disconnect
-	// from leaving the activity in a "wiped but not re-detected" state, and
-	// avoids blocking the caller for long enrichment runs.
-	//
-	// Job type "lift_recompute" appears in the background_jobs progress feed.
-	// On enqueue failure the job row is skipped (best-effort progress tracking)
-	// and the goroutine runs without a tracked job — the re-enrichment itself
-	// is still attempted, matching the guarantee of the previous synchronous path.
+	// F17: enqueue lift re-enrichment as a background job AFTER the DELETE
+	// transaction commits. Job-insert failure is now fatal: a unique_violation
+	// (23505) means a concurrent caller raced past the F1 check between the
+	// SELECT and the INSERT — translate to the same 409 LIFT_RECOMPUTE_RUNNING
+	// shape; any other error is a 500. We must NOT start the re-enrichment
+	// goroutine when the insert fails, because then progress would not be
+	// tracked at all and a retry could compound the problem.
 	jobID, jobErr := h.DB.InsertBackgroundJob(r.Context(), userID, "lift_recompute", &activityID, nil, 1)
 	if jobErr != nil {
-		slog.Warn("recalculate lifts: failed to insert background job (continuing without tracking)",
+		if isLiftRecomputeUniqueViolation(jobErr) {
+			// Race-loser path: the F3-widened idx_bg_jobs_one_running rejected
+			// the insert because another request slipped in between our
+			// HasRunningLiftRecomputeJob check and this INSERT.
+			if running, existingJobID, _ := h.DB.HasRunningLiftRecomputeJob(r.Context(), userID, activityID); running && existingJobID != nil {
+				httputil.WriteProblemWithJob(w, http.StatusConflict,
+					"Re-Detect job already running",
+					"a lift_recompute job for this activity is already running",
+					"LIFT_RECOMPUTE_RUNNING", *existingJobID, r.URL.Path)
+				return
+			}
+			// Unique violation but no row visible — extremely unlikely (would
+			// require the conflicting job to complete in the same instant).
+			// Fall through to 500 so the caller retries.
+		}
+		slog.Error("recalculate lifts: failed to insert background job",
 			"activity_id", activityID, "error", jobErr)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
+		return
 	}
 
 	// Capture copies for the goroutine (request values must not be read after
@@ -452,25 +470,31 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 	capturedUserID := userID
 	capturedActivityID := activityID
 	capturedJobID := jobID
-	capturedJobInserted := jobErr == nil
 
 	go func() {
 		ctx := context.Background()
 		if err := h.dispatchLiftReEnrichmentBackground(ctx, capturedUserID, capturedActivityID); err != nil {
 			slog.Warn("recalculate lifts: background re-enrichment failed (non-fatal)",
 				"activity_id", capturedActivityID, "error", err)
-			if capturedJobInserted {
-				_ = h.DB.CompleteBackgroundJob(ctx, capturedJobID, true, "re-enrichment failed")
-			}
+			_ = h.DB.CompleteBackgroundJob(ctx, capturedJobID, true, "re-enrichment failed")
 			return
 		}
-		if capturedJobInserted {
-			_ = h.DB.UpdateBackgroundJobProgress(ctx, capturedJobID, 1)
-			_ = h.DB.CompleteBackgroundJob(ctx, capturedJobID, false, "")
-		}
+		_ = h.DB.UpdateBackgroundJobProgress(ctx, capturedJobID, 1)
+		_ = h.DB.CompleteBackgroundJob(ctx, capturedJobID, false, "")
 	}()
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// isLiftRecomputeUniqueViolation reports whether err is a Postgres unique-
+// violation on idx_bg_jobs_one_running — i.e. a concurrent lift_recompute
+// insert lost the race against the F3-widened guard.
+func isLiftRecomputeUniqueViolation(err error) bool {
+	pgErr, ok := errors.AsType[*pgconn.PgError](err)
+	if !ok {
+		return false
+	}
+	return pgErr.Code == "23505" && pgErr.ConstraintName == "idx_bg_jobs_one_running"
 }
 
 // dispatchLiftReEnrichmentBackground fires lift-only stream enrichment for the
