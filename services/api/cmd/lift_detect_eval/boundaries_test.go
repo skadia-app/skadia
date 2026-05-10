@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"math"
 	"strings"
 	"testing"
@@ -148,6 +149,79 @@ func TestMatchRideOrientationAware(t *testing.T) {
 			t.Errorf("id = %q, malformed lift must be skipped", id)
 		}
 	})
+}
+
+// TestWriteBoundariesJSONShape pins the JSON schema downstream diff tooling
+// relies on. Privacy: only offsets are emitted, never the raw GT or ride
+// coordinates — matching the text writer's contract that "only the numeric
+// table reaches stdout, so output stays privacy-safe" (boundaries.go).
+func TestWriteBoundariesJSONShape(t *testing.T) {
+	gtLifts := []boundLift{
+		{ID: "alpha", P1: []float64{0.0, 0.0}, P2: []float64{0.01, 0.0}},
+		{ID: "beta", P1: []float64{1.0, 1.0}, P2: []float64{1.01, 1.0}},
+	}
+	rides := []rideEndpoints{
+		{idx: 0, sLat: 0.00004, sLng: 0.0, eLat: 0.01004, eLng: 0.0, durS: 300, ascM: 100, descM: 0, conf: "high"},
+		{idx: 1, sLat: 0.00004, sLng: 0.0, eLat: 0.01004, eLng: 0.0, durS: 320, ascM: 100, descM: 0, conf: "medium"},
+	}
+
+	var buf bytes.Buffer
+	writeBoundariesJSON(&buf, "synth.gpx", rides, gtLifts)
+
+	var parsed BoundariesJSON
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("not valid JSON: %v\n--- payload ---\n%s", err, buf.String())
+	}
+
+	if parsed.FormatVersion != 1 {
+		t.Errorf("format_version = %d, want 1", parsed.FormatVersion)
+	}
+	if parsed.File != "synth.gpx" {
+		t.Errorf("file = %q, want synth.gpx", parsed.File)
+	}
+
+	// Privacy guard: payload must not echo any of the input lat/lng triples.
+	for _, secret := range []string{"0.01004", "1.01", "0.00004"} {
+		if strings.Contains(buf.String(), secret) {
+			t.Errorf("JSON leaks coordinate %q — privacy contract broken\n--- payload ---\n%s", secret, buf.String())
+		}
+	}
+
+	if len(parsed.Rides) != 2 {
+		t.Fatalf("rides len = %d, want 2", len(parsed.Rides))
+	}
+	r0 := parsed.Rides[0]
+	if r0.Idx != 0 || r0.BestGT != "alpha" {
+		t.Errorf("rides[0] idx=%d best_gt=%q, want 0/alpha", r0.Idx, r0.BestGT)
+	}
+	if r0.Tolerance != "✓" {
+		t.Errorf("rides[0].tolerance = %q, want ✓ (offsets ~4m)", r0.Tolerance)
+	}
+	if r0.Confidence != "high" {
+		t.Errorf("rides[0].confidence = %q, want high", r0.Confidence)
+	}
+	if r0.MaxOffM > 10 {
+		t.Errorf("rides[0].max_off_m = %.2f, want ≤10m for synthetic ~4m offsets", r0.MaxOffM)
+	}
+
+	// Per-lift counts: alpha matched twice, beta matched zero times — both
+	// must appear so a downstream diff sees beta=0 as a value, not absence.
+	if len(parsed.PerLiftCounts) != 2 {
+		t.Fatalf("per_lift_counts len = %d, want 2 (matched + unmatched)", len(parsed.PerLiftCounts))
+	}
+	byID := map[string]LiftCountReport{}
+	for _, c := range parsed.PerLiftCounts {
+		byID[c.ID] = c
+	}
+	if byID["alpha"].Count != 2 {
+		t.Errorf("per_lift_counts[alpha].count = %d, want 2", byID["alpha"].Count)
+	}
+	if byID["beta"].Count != 0 {
+		t.Errorf("per_lift_counts[beta].count = %d, want 0", byID["beta"].Count)
+	}
+	if len(byID["alpha"].Rides) != 2 || byID["alpha"].Rides[0] != 0 {
+		t.Errorf("per_lift_counts[alpha].rides = %v, want [0 1]", byID["alpha"].Rides)
+	}
 }
 
 // TestPrintBoundariesIncludesGlyphAndCounts smoke-tests the output writer:
