@@ -80,7 +80,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		handled, routeErr := garmin.RouteFITByType(r.Context(), h.DB, h.ShadowFS, decompressed, userID, ftype)
 		if routeErr != nil {
 			sz := int64(len(decompressed))
-			tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", header.Filename, &sz, nil, "monitoring")
+			tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", header.Filename, &sz, nil, model.ImportTypeMonitoring)
 			tracker.Processing(r.Context())
 			tracker.SetFileHash(r.Context(), hashStr)
 			tracker.Error(r.Context(), routeErr)
@@ -90,7 +90,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 		if handled {
 			sz := int64(len(decompressed))
-			tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", header.Filename, &sz, nil, "monitoring")
+			tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", header.Filename, &sz, nil, model.ImportTypeMonitoring)
 			tracker.Processing(r.Context())
 			tracker.SetFileHash(r.Context(), hashStr)
 			tracker.SetImportType(r.Context(), garmin.ImportTypeForFITType(ftype))
@@ -124,7 +124,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		if len(activities) > 1 {
 			// Import log for multisport FIT activity
 			msSz := int64(len(decompressed))
-			msTracker := h.DB.NewImportTracker(r.Context(), userID, "upload", filename, &msSz, nil, "activity")
+			msTracker := h.DB.NewImportTracker(r.Context(), userID, "upload", filename, &msSz, nil, model.ImportTypeActivity)
 			msTracker.Processing(r.Context())
 			msTracker.SetFileHash(r.Context(), hashStr)
 
@@ -191,7 +191,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 		// Import log for single-session FIT activity
 		sz := int64(len(decompressed))
-		tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", filename, &sz, nil, "activity")
+		tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", filename, &sz, nil, model.ImportTypeActivity)
 		tracker.Processing(r.Context())
 		tracker.SetFileHash(r.Context(), hashStr)
 
@@ -336,7 +336,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	// Import log for GPX/TCX activity
 	sz := int64(len(decompressed))
-	tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", filename, &sz, nil, "activity")
+	tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", filename, &sz, nil, model.ImportTypeActivity)
 	tracker.Processing(r.Context())
 	tracker.SetFileHash(r.Context(), hashStr)
 

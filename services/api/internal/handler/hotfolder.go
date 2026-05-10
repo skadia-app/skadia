@@ -44,7 +44,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 	}
 
 	// 2. Insert import_log entry (status=pending) + transition to processing
-	tracker := h.DB.NewImportTracker(ctx, userID, "hotfolder", filename, &fileSize, nil, "activity")
+	tracker := h.DB.NewImportTracker(ctx, userID, "hotfolder", filename, &fileSize, nil, model.ImportTypeActivity)
 	tracker.Processing(ctx)
 
 	// 3. Read file

@@ -653,6 +653,8 @@ func (m *MonitoringFITImporter) Import(ctx context.Context, params ImportParams)
 // a warning so future FIT types surface in logs.
 func ImportTypeForFITType(ftype uint8) string {
 	switch ftype {
+	case fitFileTypeActivity:
+		return "activity"
 	case fitFileTypeWorkout:
 		return "workout"
 	case fitFileTypeCourse:

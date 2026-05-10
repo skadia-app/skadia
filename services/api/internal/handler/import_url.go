@@ -264,7 +264,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		sessions, multiErr := fitimport.ParseMultiSessionFIT(fileBytes, filename)
 		if multiErr == nil && len(sessions) >= 2 {
 			msSz := int64(len(fileBytes))
-			msTracker := h.DB.NewImportTracker(ctx, userID, "url", filename, &msSz, nil, "activity")
+			msTracker := h.DB.NewImportTracker(ctx, userID, "url", filename, &msSz, nil, model.ImportTypeActivity)
 			msTracker.Processing(ctx)
 			msTracker.SetFileHash(ctx, hashStr)
 
@@ -330,7 +330,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 
 	// Import tracking
 	sz := int64(len(fileBytes))
-	tracker := h.DB.NewImportTracker(ctx, userID, "url", filename, &sz, nil, "activity")
+	tracker := h.DB.NewImportTracker(ctx, userID, "url", filename, &sz, nil, model.ImportTypeActivity)
 	tracker.Processing(ctx)
 	tracker.SetFileHash(ctx, hashStr)
 

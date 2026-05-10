@@ -16,4 +16,4 @@ ALTER TABLE import_log
 -- Composite index for filtered history queries (user_id + import_type).
 -- Explicit name makes the down-migration deterministic.
 CREATE INDEX import_log_user_id_import_type_idx
-  ON import_log (user_id, import_type);
+  ON import_log (user_id, import_type, created_at DESC);
