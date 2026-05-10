@@ -2286,6 +2286,28 @@ func extendCandidateBackward(rows []StreamPoint, oldStart, end int, kind string,
 	// backward (45 s ≈ two probed windows). Prevents the bypass from absorbing an entire boarding queue
 	// whose horizontal speed happens to match cable cruise.
 	const maxCablePlateauBackS = 45.0
+	// Boarding-plateau hard-boundary (Bug-E): tracks consecutive low-
+	// speed samples encountered walking back. When ≥ 5 consecutive
+	// samples land below 1.5 m/s AND the current alt sits ≥ 10 m
+	// below initialAlt (rules out mid-cable pylon stops at the same
+	// alt as the cable proper), the walk has crossed into a true
+	// boarding plateau — pin start to the latest plateau sample + 1
+	// (the first non-plateau sample on the cable side) and break
+	// before the walk overshoots into the preceding ski approach
+	// where path zigzag would inflate sinuosity past MaxSinuosity
+	// and validateRide would discard the entire extension.
+	const plateauLowSpdThresh = 1.5
+	const plateauMinConsec = 5
+	const plateauMinAltDropM = 10.0
+	// plateauMaxCumDistM caps the path length over the consec samples.
+	// A true boarding plateau is near-stationary (skiers shuffling
+	// 0.5–1.0 m total over 5 s); a mid-cable horizontal section keeps
+	// the cabin at cable-class speed (4 m/s × 5 s = 20 m motion). The
+	// 3 m cap admits stationary boarding shuffle and rejects motion.
+	const plateauMaxCumDistM = 3.0
+	plateauConsec := 0
+	plateauLatestIdx := -1
+	plateauCumDist := 0.0
 	sliceTopIdx := oldStart
 	sinCheckCounter := 0
 	cablePlateauTopIdx := -1
@@ -2302,6 +2324,42 @@ func extendCandidateBackward(rows []StreamPoint, oldStart, end int, kind string,
 		// is the speed entering 'cur' from 'prv', exactly what we want when
 		// deciding whether to absorb prv into the ride.
 		spd, spdOK := effectiveSpeedCfg(rows, start, cfg)
+		// Boarding-plateau hard-boundary (Bug-E): a sustained low-
+		// speed cluster while walking backward at significant alt
+		// drop below initialAlt is a true boarding plateau. Pin
+		// start to plateauLatestIdx+1 and break — the alt-drop guard
+		// prevents mid-cable pylon stops (at the cable's alt) from
+		// triggering the gate. Runs before isStop so the cluster
+		// counter sees every plateau sample (isStop's < 0.7 m/s
+		// cap is stricter than this gate's 1.5 m/s).
+		if spdOK && spd < plateauLowSpdThresh {
+			if plateauConsec == 0 {
+				plateauLatestIdx = start
+				plateauCumDist = 0.0
+			} else if cur.Lat != nil && cur.Lng != nil &&
+				rows[start+1].Lat != nil && rows[start+1].Lng != nil {
+				// Walking back: the segment crossed in this iteration
+				// connects rows[start] (cur) to rows[start+1] (the
+				// previously-walked cur, one step later in time).
+				plateauCumDist += Haversine(*cur.Lat, *cur.Lng, *rows[start+1].Lat, *rows[start+1].Lng)
+			}
+			plateauConsec++
+			if plateauConsec >= plateauMinConsec && !math.IsNaN(initialAlt) &&
+				rows[start].AltitudeM != nil &&
+				initialAlt-*rows[start].AltitudeM >= plateauMinAltDropM &&
+				plateauCumDist < plateauMaxCumDistM {
+				dprintf("BACK BREAK boarding-plateau consec=%d at start=%d t=%s alt=%.1f init=%.1f cumDist=%.1f pin->latest+1=%d\n",
+					plateauConsec, start, cur.Time.Format("15:04:05"), *rows[start].AltitudeM, initialAlt, plateauCumDist, plateauLatestIdx+1)
+				if plateauLatestIdx+1 <= oldStart && plateauLatestIdx+1 > start {
+					start = plateauLatestIdx + 1
+				}
+				break
+			}
+		} else {
+			plateauConsec = 0
+			plateauLatestIdx = -1
+			plateauCumDist = 0.0
+		}
 		isStop := spdOK && spd < cfg.MinSpeedMs
 		if isStop {
 			if stopStartIdx == -1 {
