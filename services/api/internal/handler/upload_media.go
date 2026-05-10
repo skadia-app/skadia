@@ -107,42 +107,84 @@ func (h *Handler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 // processMediaImage handles a single image file in the media upload flow.
+// Tracker is created at start (status=pending) and finalised based on outcome.
+// Synchronous flow — no Processing() transition needed.
 func (h *Handler) processMediaImage(r *http.Request, userID, filename, ct string, data []byte) mediaUploadResult {
+	hash := fmt.Sprintf("%x", sha256.Sum256(data))
+	sz := int64(len(data))
+	tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", filename, &sz, nil, model.ImportTypePhoto)
+	tracker.SetFileHash(r.Context(), hash)
+
+	finaliseQueued := func(res mediaUploadResult) mediaUploadResult {
+		switch {
+		case res.QueueID != nil:
+			tracker.Queued(r.Context(), *res.QueueID)
+		case res.Error != nil:
+			tracker.Error(r.Context(), fmt.Errorf("%s", *res.Error))
+		default:
+			// Critic F50: defensive — queueMediaFile sollte immer entweder QueueID
+			// oder Error setzen. Falls beides nil ist, würde der Tracker auf
+			// 'pending' verharren und vom Indicator gepollt werden.
+			tracker.Error(r.Context(), fmt.Errorf("queueMediaFile returned without QueueID or Error"))
+		}
+		return res
+	}
+
 	takenAt, lat, lng, locationSource := extractExifData(data, ct)
 
 	if takenAt == nil {
-		// No EXIF timestamp — queue for manual review
-		return h.queueMediaFile(r, userID, filename, ct, data, "image_no_exif", nil)
+		return finaliseQueued(h.queueMediaFile(r, userID, filename, ct, data, "image_no_exif", nil))
 	}
 
-	// Find activities whose time window covers this timestamp
 	matches, err := h.DB.FindActivitiesCoveringTime(r.Context(), userID, *takenAt)
 	if err != nil {
 		slog.Error("upload media: find activities by time failed", "error", err)
-		return h.queueMediaFile(r, userID, filename, ct, data, "image_ambiguous", nil)
+		return finaliseQueued(h.queueMediaFile(r, userID, filename, ct, data, "image_ambiguous", nil))
 	}
 
 	switch len(matches) {
 	case 1:
-		// Exactly one match — auto-assign
-		return h.autoAssignPhoto(r, userID, filename, ct, data, matches[0], takenAt, lat, lng, locationSource)
+		result := h.autoAssignPhoto(r, userID, filename, ct, data, hash, matches[0], takenAt, lat, lng, locationSource)
+		switch result.Status {
+		case "assigned":
+			if result.ActivityID != nil {
+				tracker.Completed(r.Context(), *result.ActivityID)
+			}
+		case "duplicate":
+			tracker.Skipped(r.Context(), "duplicate", result.ActivityID)
+		case "error":
+			if result.Error != nil {
+				tracker.Error(r.Context(), fmt.Errorf("%s", *result.Error))
+			}
+		}
+		return result
 	case 0:
-		// No match — queue with no candidates
-		return h.queueMediaFile(r, userID, filename, ct, data, "image_ambiguous", nil)
+		return finaliseQueued(h.queueMediaFile(r, userID, filename, ct, data, "image_ambiguous", nil))
 	default:
-		// Multiple matches — queue with candidate IDs
 		candidateIDs := make([]string, len(matches))
 		for i, m := range matches {
 			candidateIDs[i] = m.ID
 		}
 		meta := map[string]any{"candidate_ids": candidateIDs}
-		return h.queueMediaFile(r, userID, filename, ct, data, "image_ambiguous", meta)
+		return finaliseQueued(h.queueMediaFile(r, userID, filename, ct, data, "image_ambiguous", meta))
 	}
 }
 
 // processMediaPDF handles a single PDF file in the media upload flow.
+// PDFs always queue (no auto-classification yet); tracker is finalised to 'queued'.
 func (h *Handler) processMediaPDF(r *http.Request, userID, filename, ct string, data []byte) mediaUploadResult {
-	return h.queueMediaFile(r, userID, filename, ct, data, "pdf_untyped", nil)
+	hash := fmt.Sprintf("%x", sha256.Sum256(data))
+	sz := int64(len(data))
+	tracker := h.DB.NewImportTracker(r.Context(), userID, "upload", filename, &sz, nil, model.ImportTypeDocument)
+	tracker.SetFileHash(r.Context(), hash)
+
+	res := h.queueMediaFile(r, userID, filename, ct, data, "pdf_untyped", nil)
+	if res.QueueID != nil {
+		tracker.Queued(r.Context(), *res.QueueID)
+	} else if res.Error != nil {
+		tracker.Error(r.Context(), fmt.Errorf("%s", *res.Error))
+	}
+	return res
 }
 
 // autoAssignPhoto stores a photo directly into the activity_photos table.
@@ -150,6 +192,7 @@ func (h *Handler) autoAssignPhoto(
 	r *http.Request,
 	userID, filename, ct string,
 	data []byte,
+	hash string,
 	match database.ActivityTimeMatch,
 	takenAt *time.Time,
 	lat, lng *float64,
@@ -167,11 +210,11 @@ func (h *Handler) autoAssignPhoto(
 	thumbData, _ := imageutil.Resize(data, 200, 200, 80)
 
 	ext := imageExtFromContentType(ct)
-	hash := fmt.Sprintf("%x", sha256.Sum256(data))
 
 	// Duplikat-Prüfung: gleiches Foto in derselben Aktivität überspringen
 	if exists, err := h.DB.ActivityPhotoExistsByHashAndActivity(r.Context(), userID, hash, match.ID); err == nil && exists {
-		return mediaUploadResult{Filename: filename, Status: "duplicate"}
+		dupActivityID := match.ID
+		return mediaUploadResult{Filename: filename, Status: "duplicate", ActivityID: &dupActivityID}
 	}
 
 	mediaBucket := mediaBucketName()
