@@ -342,6 +342,65 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 	return nil
 }
 
+// GetLiftDetectionOverride returns the per-activity override pointers for
+// lift detection. Returns (nil, nil, nil) when both DB columns are NULL.
+// Caller must have verified ownership before calling.
+func (db *DB) GetLiftDetectionOverride(ctx context.Context, activityID string) (osm, heuristic *bool, err error) {
+	err = db.Pool.QueryRow(ctx,
+		`SELECT lift_detection_osm_override, lift_detection_heuristic_override FROM activities WHERE id = $1`,
+		activityID,
+	).Scan(&osm, &heuristic)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, nil
+	}
+	return osm, heuristic, err
+}
+
+// SetLiftDetectionOverride writes the provided override values for an activity.
+// Each pointer is applied independently: nil means "leave that column unchanged",
+// non-nil means "write this value". A single UPDATE with COALESCE is used for
+// atomicity — both columns are resolved in one statement.
+func (db *DB) SetLiftDetectionOverride(ctx context.Context, activityID string, osm, heuristic *bool) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE activities
+		SET
+			lift_detection_osm_override       = COALESCE($2, lift_detection_osm_override),
+			lift_detection_heuristic_override  = COALESCE($3, lift_detection_heuristic_override)
+		WHERE id = $1
+	`, activityID, osm, heuristic)
+	return err
+}
+
+// ResetLiftDetectionOverride sets both per-activity override columns to NULL,
+// causing the pipeline to fall back to the user-level settings.
+func (db *DB) ResetLiftDetectionOverride(ctx context.Context, activityID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE activities
+		SET lift_detection_osm_override = NULL, lift_detection_heuristic_override = NULL
+		WHERE id = $1
+	`, activityID)
+	return err
+}
+
+// HasRunningLiftRecomputeJob reports whether a lift_recompute job with
+// status='running' already exists for the given (userID, activityID) pair.
+// Returns (true, &jobID, nil) when found; (false, nil, nil) when not found.
+func (db *DB) HasRunningLiftRecomputeJob(ctx context.Context, userID, activityID string) (bool, *string, error) {
+	var jobID string
+	err := db.Pool.QueryRow(ctx, `
+		SELECT id FROM background_jobs
+		WHERE user_id = $1 AND entity_id = $2 AND job_type = 'lift_recompute' AND status = 'running'
+		LIMIT 1
+	`, userID, activityID).Scan(&jobID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil, nil
+	}
+	if err != nil {
+		return false, nil, err
+	}
+	return true, &jobID, nil
+}
+
 // BackfillActivity holds the minimal data needed for backfill operations.
 type BackfillActivity struct {
 	ID        string
