@@ -116,7 +116,13 @@ func (h *Handler) PutLiftDetectionConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.DB.SetLiftDetectionOverride(r.Context(), activityID, body.OSM, body.Heuristic); err != nil {
+	// F2: SetLiftDetectionOverride is now user-scoped; the pre-check above
+	// already guards ownership, but passing userID into the UPDATE is
+	// defence-in-depth.
+	// F18: a no-op PUT (body matches the stored values) intentionally returns
+	// RowsAffected=0; we still respond 204 because the resulting state is what
+	// the client requested.
+	if _, err := h.DB.SetLiftDetectionOverride(r.Context(), userID, activityID, body.OSM, body.Heuristic); err != nil {
 		slog.Error("PutLiftDetectionConfig: set override failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
@@ -145,7 +151,7 @@ func (h *Handler) DeleteLiftDetectionConfig(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := h.DB.ResetLiftDetectionOverride(r.Context(), activityID); err != nil {
+	if err := h.DB.ResetLiftDetectionOverride(r.Context(), userID, activityID); err != nil {
 		slog.Error("DeleteLiftDetectionConfig: reset override failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
