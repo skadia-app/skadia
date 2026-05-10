@@ -7,11 +7,11 @@ import (
 )
 
 func TestMigration_ImportType_AddsColumnAndStatusQueued(t *testing.T) {
-	upBytes, err := os.ReadFile("000999_import_type.up.sql")
+	upBytes, err := os.ReadFile("000354_import_type.up.sql")
 	if err != nil {
 		t.Fatalf("read up.sql: %v", err)
 	}
-	downBytes, err := os.ReadFile("000999_import_type.down.sql")
+	downBytes, err := os.ReadFile("000354_import_type.down.sql")
 	if err != nil {
 		t.Fatalf("read down.sql: %v", err)
 	}
