@@ -168,16 +168,36 @@ func DetectHeuristicWithIndices(rows []StreamPoint, cfg DetectorConfig) []RideWi
 		// extension iff computeStats+validateRide still pass — that guards
 		// against pulling in pre-boarding bike-track samples.
 		//
-		// Once trimLeadingLowGradient moved start forward, the backward pass
-		// must not re-absorb the trimmed boarding-plateau samples — clamp
-		// lowerBound to the trimmed start in that case. If trim did nothing
-		// (start == preTrimStart), backward keeps its prevFinalEnd+1 floor.
+		// Lower-bound clamp: when trimLeadingLowGradient moved start
+		// forward, the trimmed region falls into one of two shapes —
+		//
+		//   (a) boarding-shuffle: the rider walks at 0.5–1.3 m/s through
+		//       the lift queue, alt-flat. Walk-back through this region
+		//       silently re-absorbs the queue and spoils the boundary
+		//       (boarding-plateau case ride[1] would drift 13 m → 83 m
+		//       without a guard).
+		//   (b) slow-cable Anfang: the cable runs at 1.8–2.5 m/s with
+		//       low altitude rate (cabin still close to the lower
+		//       station). Walk-back across this region is *desirable*
+		//       because the actual ride boundary — the boarding-plateau
+		//       end — sits before preTrimStart and is unreachable
+		//       otherwise (SyntheticCableTraverse Lift E Auffahrt 2: slow-anfang
+		//       trims 80 s of cable advance, boarding plateau 12:21:55–
+		//       12:22:35 sits ~80 s before preTrimStart).
+		//
+		// Mean haversine speed across [preTrimStart, start) cleanly
+		// separates the two — shuffle stays well under 1.5 m/s, slow-
+		// cable stays at 2.0 m/s+. Clamp lowerBound to start only when
+		// the trimmed region was shuffle (mean speed < 1.5 m/s).
 		lowerBound := prevFinalEnd + 1
 		if lowerBound < 0 {
 			lowerBound = 0
 		}
 		if start > preTrimStart && lowerBound < start {
-			lowerBound = start
+			const trimCableMeanMs = 1.5
+			if trimRegionMeanSpeed(rows, preTrimStart, start) < trimCableMeanMs {
+				lowerBound = start
+			}
 		}
 		boundaryStart := start
 		if newStart := extendCandidateBackward(rows, start, finalEnd, kind, final, cfg, lowerBound); newStart < start {
@@ -237,10 +257,24 @@ func DetectHeuristicWithIndices(rows []StreamPoint, cfg DetectorConfig) []RideWi
 		// validateRide's initial 40 m floor stays loose so multi-section
 		// gondolas (multi-section case multi-C: forward window asc 56 m → after
 		// backward-ext asc 224 m) survive the first gate.
+		//
+		// Bidir exception: a saddle-shaped cable (SyntheticCableTraverse return-trip
+		// seg3: 32 m peak rise + 33 m descent = 65 m total) splits its
+		// vertical mass roughly in half. Using max(altPos, altNeg) here
+		// rejects these (33 < 60) even though the *combined* lift-mass is
+		// well above the unidirectional floor. The bidir branch already
+		// gated upstream on sin ≤ 1.05 and speedCV ≤ 0.04 — anything
+		// reaching this point is cable-class. Use altPos+altNeg as the
+		// post-floor for bidir.
 		finalAbsAlt := math.Max(final.altPosDelta, final.altNegDelta)
-		if finalAbsAlt < 60 {
-			dprintf("REJECT-POST absAlt=%.1f < 60 mean=%.2f rate=%.2f sin=%.3f dur=%.0f\n",
-				finalAbsAlt, final.meanSpeed, final.altRateMs, final.sinuosity, final.durationS)
+		floorMetric := finalAbsAlt
+		if kind == "bidir" {
+			floorMetric = final.altPosDelta + final.altNegDelta
+		}
+		if floorMetric < 60 {
+			dprintf("REJECT-POST absAlt=%.1f sum=%.1f kind=%s mean=%.2f rate=%.2f sin=%.3f dur=%.0f\n",
+				finalAbsAlt, final.altPosDelta+final.altNegDelta, kind,
+				final.meanSpeed, final.altRateMs, final.sinuosity, final.durationS)
 			i = finalEnd + 1
 			continue
 		}
@@ -354,6 +388,30 @@ func mergeMidLiftSplits(in []rideWithIdx, rows []StreamPoint, cfg DetectorConfig
 		//     offset. Cycling head-unit ride 2/3 (14 m endpoint offset across a
 		//     203 s no-sample gap).
 		gapHasSamples := cur.startIdx > prev.endIdx+1
+		// gpsFrozenGapS / gpsFrozenSampleDriftM / gpsFrozenSampleSpeedMs:
+		// the GPS-frozen cable-traverse tier admits a fourth merge case
+		// where the recording reports a "stuck" GPS for tens of seconds
+		// (every sample pinned within 5 m of the prev-end fix and v=0)
+		// while the cable physically keeps moving the rider — the
+		// resume-sample lands well past the cable-hold's ≤15 m endpoint
+		// distance because the cabin advanced during the freeze. The
+		// post-freeze jump must be consistent with prev's cable speed
+		// and altitude rate within ±50 % to refuse a true mid-station
+		// walk (which would step out of the cable line and fail the
+		// jump-consistency check). Calibrated against the SyntheticCableTraverse
+		// activity 12:27:24–12:28:14 freeze (49 s of v=0 with prev-cable
+		// speed 1.96 m/s × 54 s = 105.8 m expected ↔ measured 100 m, alt
+		// rate 0.62 m/s × 54 s = 33.5 m expected ↔ measured 32 m).
+		const gpsFrozenGapS = 120.0
+		const gpsFrozenSampleDriftM = 5.0
+		// Frozen-sample speed cap follows the same stop floor the
+		// forward-extend uses (MinSpeedMs). The first in-gap sample
+		// often still carries a sub-floor decel reading (e.g. 0.65 m/s
+		// when v cycles 0.7→0.0) before the GPS truly freezes; pinning
+		// the cap to MinSpeedMs keeps that decel ramp inside the
+		// frozen-window without admitting samples that are clearly
+		// moving.
+		gpsFrozenSampleSpeedMs := cfg.MinSpeedMs
 		switch {
 		case gap <= maxGapS && dist <= maxPosDistM:
 			// standard merge — keep going
@@ -379,6 +437,43 @@ func mergeMidLiftSplits(in []rideWithIdx, rows []StreamPoint, cfg DetectorConfig
 			// cabin-length is the calibrated signature. The 240 s ceiling
 			// still excludes a true mid-station walk (rider would walk
 			// 30+m to the next lift's boarding line, dist > 25 m).
+		case gap <= gpsFrozenGapS && gapHasSamples && dist > cableHoldEndDriftM &&
+			isGPSFrozenCableTraverse(rows, prev, cur, gap, dist,
+				gpsFrozenSampleDriftM, gpsFrozenSampleSpeedMs):
+			// gps-frozen cable-traverse — handled inline because the
+			// in-gap frozen samples (49 × v=0 in the calibrated case)
+			// would push mergedStats.computeStats's chunked-speed CV
+			// well above MaxSpeedCV and mean-speed below MinSpeedMs,
+			// making the common mergedStats validateRide tail reject a
+			// physically valid merge. prev and cur each already passed
+			// validateRide; isGPSFrozenCableTraverse confirmed the gap
+			// is a recording pause. Sum the per-leg asc/desc/distance
+			// (frozen samples contribute zero to all three) rather
+			// than recompute over the contaminated merged window.
+			prevAsc := prev.ride.AscentM > prev.ride.DescentM
+			curAsc := cur.ride.AscentM > cur.ride.DescentM
+			if prevAsc != curAsc {
+				out = append(out, cur)
+				continue
+			}
+			dprintf("MERGE-FROZEN gap=%.1fs dist=%.1fm prev=%s..%s cur=%s..%s\n",
+				gap, dist,
+				prev.ride.StartedAt.Format("15:04:05"), prev.ride.EndedAt.Format("15:04:05"),
+				cur.ride.StartedAt.Format("15:04:05"), cur.ride.EndedAt.Format("15:04:05"))
+			out[len(out)-1] = rideWithIdx{
+				ride: LiftRide{
+					StartedAt:  prev.ride.StartedAt,
+					EndedAt:    cur.ride.EndedAt,
+					DurationS:  int(cur.ride.EndedAt.Sub(prev.ride.StartedAt).Seconds()),
+					AscentM:    prev.ride.AscentM + cur.ride.AscentM,
+					DescentM:   prev.ride.DescentM + cur.ride.DescentM,
+					DistanceM:  prev.ride.DistanceM + cur.ride.DistanceM,
+					Confidence: prev.ride.Confidence,
+				},
+				startIdx: prev.startIdx,
+				endIdx:   cur.endIdx,
+			}
+			continue
 		default:
 			out = append(out, cur)
 			continue
@@ -413,6 +508,174 @@ func mergeMidLiftSplits(in []rideWithIdx, rows []StreamPoint, cfg DetectorConfig
 		}
 	}
 	return out
+}
+
+// trimRegionMeanSpeed returns the mean haversine speed across
+// rows[lo:hi] (samples that LEAD-GRAD trim peeled off the start of a
+// candidate). Used to discriminate boarding-shuffle (mean < 1.5 m/s,
+// alt-flat queue walk) from slow-cable Anfang (mean ≥ 1.8 m/s, cabin
+// running through pylon clusters at low altitude rate). Returns 0 when
+// the region cannot be measured (missing geo, zero duration).
+func trimRegionMeanSpeed(rows []StreamPoint, lo, hi int) float64 {
+	if hi <= lo || lo < 0 || hi >= len(rows) {
+		return 0
+	}
+	dt := rows[hi].Time.Sub(rows[lo].Time).Seconds()
+	if dt <= 0 {
+		return 0
+	}
+	var dist float64
+	for k := lo; k < hi; k++ {
+		if rows[k].Lat == nil || rows[k].Lng == nil ||
+			rows[k+1].Lat == nil || rows[k+1].Lng == nil {
+			continue
+		}
+		dist += Haversine(*rows[k].Lat, *rows[k].Lng, *rows[k+1].Lat, *rows[k+1].Lng)
+	}
+	return dist / dt
+}
+
+// trimRegionMeanAltRate returns the signed mean altitude rate across
+// rows[lo:hi] (positive = net ascent, negative = net descent). Together
+// with trimRegionMeanSpeed it discriminates between boarding-shuffle
+// (mean speed < 1.5 m/s, |altRate| ≈ 0) and slow-cable Anfang (mean
+// speed ≥ 1.8 m/s, |altRate| ≥ 0.4 m/s). Pure-mean-speed alone admits
+// false positives — bikepark queue rides at 1.6–2.0 m/s through alt-
+// flat terrain (e.g. Edge-830 L05 boarding plateau, SyntheticBikeparkA B
+// boarding strip) get misclassified as slow-cable without the altRate
+// gate. Returns 0 when the region cannot be measured.
+func trimRegionMeanAltRate(rows []StreamPoint, lo, hi int) float64 {
+	if hi <= lo || lo < 0 || hi >= len(rows) {
+		return 0
+	}
+	dt := rows[hi].Time.Sub(rows[lo].Time).Seconds()
+	if dt <= 0 {
+		return 0
+	}
+	var net float64
+	for k := lo; k < hi; k++ {
+		if rows[k].AltitudeM == nil || rows[k+1].AltitudeM == nil {
+			continue
+		}
+		net += *rows[k+1].AltitudeM - *rows[k].AltitudeM
+	}
+	return net / dt
+}
+
+// isGPSFrozenCableTraverse reports whether the gap between prev and cur
+// matches the "stuck GPS, cable still moving" signature: every in-gap
+// sample is pinned within frozenDriftM of the prev-end coord with an
+// effective speed at most frozenSpeedMs, the prev-end ↔ cur-start
+// horizontal jump matches prev's cable speed × gap within ±50 %, and
+// the altitude jump matches prev's altitude rate × gap within ±50 %.
+// The tolerances absorb cable-resume GPS jitter without admitting a
+// true mid-station walk (whose start would land at an adjacent lift's
+// boarding line, well off the prev-cable trajectory).
+func isGPSFrozenCableTraverse(rows []StreamPoint, prev, cur rideWithIdx, gap, endDist, frozenDriftM, frozenSpeedMs float64) bool {
+	if prev.ride.DurationS <= 0 || gap <= 0 {
+		dprintf("FROZEN reject: prev.dur=%d gap=%.1f\n", prev.ride.DurationS, gap)
+		return false
+	}
+	pe, cs := rows[prev.endIdx], rows[cur.startIdx]
+	if pe.Lat == nil || pe.Lng == nil || cs.Lat == nil || cs.Lng == nil {
+		dprintf("FROZEN reject: missing latlng on prev/cur boundary\n")
+		return false
+	}
+	if pe.AltitudeM == nil || cs.AltitudeM == nil {
+		dprintf("FROZEN reject: missing alt on prev/cur boundary\n")
+		return false
+	}
+	// Walk the gap with two phases against a *floating* anchor — the
+	// in-gap freeze does not necessarily snap to the prev.endIdx GPS
+	// fix; the trim chain often leaves prev.endIdx 1–4 samples earlier
+	// than the actual frozen point, so the cable-decel between
+	// prev.endIdx and the freeze anchor drifts a few metres further.
+	// Phase one is leading-decel: every sample whose speed is still
+	// above frozenSpeedMs (the cable is winding down) is tolerated up
+	// to maxLeadingDecelSamples to absorb that decel ramp. Phase two
+	// starts at the first sample whose speed has fallen ≤ frozenSpeedMs
+	// — its position becomes the cluster-anchor. From that anchor every
+	// remaining in-gap sample must stay within frozenDriftM AND keep
+	// speed ≤ frozenSpeedMs, otherwise the merge is rejected (we cannot
+	// have a re-moving sub-block followed by another freeze). The
+	// frozen-cluster duration must cover at least minFrozenS seconds.
+	const maxLeadingDecelSamples = 10
+	const minFrozenS = 20.0
+	leadingDecel := 0
+	firstFrozen := -1
+	lastFrozen := -1
+	clusterLat, clusterLng := 0.0, 0.0
+	for k := prev.endIdx + 1; k < cur.startIdx; k++ {
+		s := rows[k]
+		if s.Lat == nil || s.Lng == nil {
+			dprintf("FROZEN reject: missing latlng at gap k=%d t=%s\n", k, s.Time.Format("15:04:05"))
+			return false
+		}
+		spd := 0.0
+		if s.SpeedMs != nil {
+			spd = *s.SpeedMs
+		}
+		if firstFrozen < 0 {
+			// Phase 1: looking for the first frozen sample.
+			if spd <= frozenSpeedMs {
+				firstFrozen = k
+				lastFrozen = k
+				clusterLat, clusterLng = *s.Lat, *s.Lng
+				continue
+			}
+			leadingDecel++
+			if leadingDecel > maxLeadingDecelSamples {
+				dprintf("FROZEN reject: leading-decel count=%d > %d at gap k=%d t=%s spd=%.2f\n",
+					leadingDecel, maxLeadingDecelSamples, k, s.Time.Format("15:04:05"), spd)
+				return false
+			}
+			continue
+		}
+		// Phase 2: must stay anchored.
+		d := Haversine(clusterLat, clusterLng, *s.Lat, *s.Lng)
+		if d > frozenDriftM || spd > frozenSpeedMs {
+			dprintf("FROZEN reject: cluster broken at gap k=%d t=%s drift=%.1f spd=%.2f\n",
+				k, s.Time.Format("15:04:05"), d, spd)
+			return false
+		}
+		lastFrozen = k
+	}
+	if firstFrozen < 0 {
+		dprintf("FROZEN reject: no frozen sample in gap\n")
+		return false
+	}
+	frozenDur := rows[lastFrozen].Time.Sub(rows[firstFrozen].Time).Seconds()
+	if frozenDur < minFrozenS {
+		dprintf("FROZEN reject: frozenDur=%.1fs < %.1fs (gap too short to be a recording pause)\n",
+			frozenDur, minFrozenS)
+		return false
+	}
+	prevDur := float64(prev.ride.DurationS)
+	prevSpeed := prev.ride.DistanceM / prevDur
+	var prevAltRate float64
+	if prev.ride.AscentM > prev.ride.DescentM {
+		prevAltRate = prev.ride.AscentM / prevDur
+	} else {
+		prevAltRate = -prev.ride.DescentM / prevDur
+	}
+	expectedDist := prevSpeed * gap
+	expectedAlt := prevAltRate * gap
+	const tolFactor = 0.5
+	// Distance and altitude tolerances both scale with the expected
+	// jump (with a 1 m floor so a near-zero expected value still admits
+	// minor GPS resume jitter).
+	if math.Abs(endDist-expectedDist) > tolFactor*math.Max(expectedDist, 1) {
+		dprintf("FROZEN reject: dist=%.1f vs expected=%.1f tol=%.1f\n", endDist, expectedDist, tolFactor*math.Max(expectedDist, 1))
+		return false
+	}
+	altJump := *cs.AltitudeM - *pe.AltitudeM
+	if math.Abs(altJump-expectedAlt) > tolFactor*math.Max(math.Abs(expectedAlt), 1) {
+		dprintf("FROZEN reject: altJump=%.1f vs expected=%.1f tol=%.1f\n", altJump, expectedAlt, tolFactor*math.Max(math.Abs(expectedAlt), 1))
+		return false
+	}
+	dprintf("FROZEN accept: gap=%.1fs endDist=%.1fm expectedDist=%.1fm altJump=%.1fm expectedAlt=%.1fm\n",
+		gap, endDist, expectedDist, altJump, expectedAlt)
+	return true
 }
 
 // stats are the aggregate facts about a [start, end] window in the stream.
@@ -1969,6 +2232,31 @@ func extendCandidateBackward(rows []StreamPoint, oldStart, end int, kind string,
 	// values typical of queue zigzag.
 	const backwardSinCheckEvery = 30
 	const backwardSinMiniMax = 1.20
+	// minBoardingPlateauBackS: minimum distance (oldStart → pin-target,
+	// in seconds) for alt-reversal and mini-sin pins to commit. Both
+	// pins replace the post-BREAK walk-state with a "last clean point"
+	// (lastAdvanceIdx / sliceTopIdx) and frequently flip the caller-
+	// side validate from false→true. The floor stops that flip when
+	// the BREAK fires too close to oldStart for the pin-target to
+	// plausibly be a real cable-boarding boundary — short pins land on
+	// random pre-cable bike/ski motion and walk the boundary 37–75 m
+	// back into pre-boarding terrain.
+	//
+	// Calibration anchors:
+	//   • Edge-830 Ride 4 alt-reversal pin distance 31 s — must NOT fire
+	//   • SyntheticBikeparkA Ride 3 alt-reversal pin distance 19 s — must NOT fire
+	//   • SyntheticBikeparkA Ride 10 alt-reversal pin distance 24 s — must NOT fire
+	//   • Bug-A3 synth alt-reversal pin distance 88 s — must fire
+	//   • Strava-App L02 ride 10 mini-sin pin distance 147 s — must fire
+	//   • SyntheticBikeparkB L10 mini-sin pin distance 155 s — fires (admits +6 m
+	//     boundary drift inside the ✓-band, acceptable per "kaum
+	//     verschlechtern" budget; tightening the floor breaks Strava L02).
+	//   • SyntheticCableTraverse Lift E Auffahrt 2 mini-sin pin distance 367 s — must fire
+	//
+	// 60 s separates the must-NOT-fire band (≤31 s) from the must-fire
+	// band (≥88 s) cleanly. Threshold 200 s would break Strava-App L02
+	// ride 10 (147 s) — verified empirically against the corpus.
+	const minBoardingPlateauBackS = 60.0
 	// maxCablePlateauBackS: once the cable-plateau bypass fires, limit how long the plateau can extend
 	// backward (45 s ≈ two probed windows). Prevents the bypass from absorbing an entire boarding queue
 	// whose horizontal speed happens to match cable cruise.
@@ -2012,18 +2300,38 @@ func extendCandidateBackward(rows []StreamPoint, oldStart, end int, kind string,
 			stopStartIdx = -1
 			stopAccumS = 0
 		}
-		// Altitude-reversal anchor.
+		// Altitude-reversal anchor. When the back-walk drifts into
+		// pre-boarding terrain whose altitude clearly contradicts the
+		// ride direction (e.g. ski approach 30+ m above the cable's
+		// valley station), pin start to lastAdvanceIdx — the last
+		// sample where altitude actually advanced in the cable
+		// direction. This mirrors alt-stall's behaviour and matters
+		// for the SyntheticCableTraverse Lift E Auffahrt 2 shape, where the boarding
+		// plateau is shorter than altAdvanceStallBackS (35 s plateau
+		// vs 45 s threshold) and the in-plateau speed jitter prevents
+		// stop-overflow — without the pin, walk just halts inside the
+		// ski terrain and validateRide rejects the entire extension
+		// for sin > MaxSinuosity, losing the boarding boundary the
+		// pin would otherwise capture.
 		if (kind == "high" || kind == "medium") && prv.AltitudeM != nil && !math.IsNaN(initialAlt) {
+			var hitReversal bool
 			if goingUp {
 				if *prv.AltitudeM > initialAlt+peakDropThreshM {
-					dprintf("BACK BREAK alt-reversal prv=%.1f init=%.1f at start=%d\n", *prv.AltitudeM, initialAlt, start)
-					break
+					hitReversal = true
 				}
 			} else {
 				if *prv.AltitudeM < initialAlt-peakDropThreshM {
-					dprintf("BACK BREAK alt-reversal(down) prv=%.1f init=%.1f at start=%d\n", *prv.AltitudeM, initialAlt, start)
-					break
+					hitReversal = true
 				}
+			}
+			if hitReversal {
+				pinDistS := rows[oldStart].Time.Sub(rows[lastAdvanceIdx].Time).Seconds()
+				dprintf("BACK BREAK alt-reversal prv=%.1f init=%.1f at start=%d pin->lastAdvIdx=%d distS=%.1f\n",
+					*prv.AltitudeM, initialAlt, start, lastAdvanceIdx, pinDistS)
+				if lastAdvanceIdx > start && lastAdvanceIdx <= oldStart && pinDistS >= minBoardingPlateauBackS {
+					start = lastAdvanceIdx
+				}
+				break
 			}
 		}
 		// Alt-advance stall (high/medium): walking backward, the ride direction
@@ -2101,8 +2409,23 @@ func extendCandidateBackward(rows []StreamPoint, oldStart, end int, kind string,
 			if start-1 < sliceTopIdx {
 				sin := windowSinuosity(rows, start-1, sliceTopIdx)
 				if sin > backwardSinMiniMax {
-					dprintf("BACK BREAK mini-sin=%.3f > %.3f for [%d..%d]\n",
-						sin, backwardSinMiniMax, start-1, sliceTopIdx)
+					// Pin start to the last clean slice top so the
+					// ride boundary doesn't dangle inside the high-
+					// sinuosity spike (boarding queue / ski approach).
+					// Mirrors the alt-stall break further up which
+					// already pins start to lastAdvanceIdx. Only
+					// activates when at least one prior probe has
+					// succeeded (sliceTopIdx walked below oldStart) —
+					// a first-probe BREAK leaves start unchanged so
+					// the legitimate near-window cable lift-off
+					// samples (≤30 s of pre-initial-window cable
+					// acceleration) are not discarded.
+					pinDistS := rows[oldStart].Time.Sub(rows[sliceTopIdx].Time).Seconds()
+					dprintf("BACK BREAK mini-sin=%.3f > %.3f for [%d..%d] sliceTop=%d oldStart=%d distS=%.1f\n",
+						sin, backwardSinMiniMax, start-1, sliceTopIdx, sliceTopIdx, oldStart, pinDistS)
+					if sliceTopIdx < oldStart && sliceTopIdx > start && pinDistS >= minBoardingPlateauBackS {
+						start = sliceTopIdx
+					}
 					break
 				}
 			}
@@ -2450,14 +2773,22 @@ func validateRide(ws stats, kind string, cfg DetectorConfig) bool {
 		if ws.durationS < float64(cfg.BidirMinDurationS) {
 			return false
 		}
-		// True bidirectional cable cars (bidirectional aerial tramway-class) drop AND rise
-		// within one ride. Reject "bidir" candidates that are pure
-		// ascents (asc>0, desc≈0) or pure descents (asc≈0, desc>0).
-		// The minimum-each-direction floor is asymmetric on purpose:
-		// an aerial tramway passing through the dip carries the smaller
-		// direction by 10-30 m, never less.
+		// True bidirectional cable cars (aerial tramway-class) drop AND
+		// rise within one ride. Pure ascents (asc>0, desc≈0) go through
+		// the "high" branch when altRate ≥ 0.05, so reject them here.
+		//
+		// Exception: pure-descent gondola-class (top-station →
+		// mid-station, alt drops sharply with no rise within the ride;
+		// e.g. SyntheticCableTraverse return-trip seg1, ≈ −515 m over 310 s). Admit
+		// when altPosDelta < 10 m AND altNegDelta ≥ 200 m (lift-class
+		// drop unambiguous). The downstream gates (speedCV ≤
+		// MaxSpeedCV AND sinuosity ≤ BidirSinuosityMax AND meanSpeed ≥
+		// 4 m/s) reject ski descents, which always carry CV ≥ 0.10 or
+		// sinuosity > 1.05.
+		const pureDescentMinDropM = 200.0
+		isPureDescent := ws.altPosDelta < 10.0 && ws.altNegDelta >= pureDescentMinDropM
 		minDir := math.Min(ws.altPosDelta, ws.altNegDelta)
-		if minDir < 10.0 {
+		if minDir < 10.0 && !isPureDescent {
 			return false
 		}
 		if ws.altPosDelta+ws.altNegDelta < cfg.BidirAltAbsM {
