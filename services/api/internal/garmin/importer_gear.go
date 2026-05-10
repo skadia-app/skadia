@@ -91,6 +91,11 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 	items := wrapper[0].GearDTOS
 	total := len(items)
 
+	var batchIDPtr *string
+	if params.JobID != "" {
+		batchIDPtr = &params.JobID
+	}
+
 	for i, dto := range items {
 		if params.OnProgress != nil {
 			params.OnProgress(i+1, total, "gear: "+dto.CustomMakeModel)
@@ -98,6 +103,9 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 		create := gearCreateFromGarminDTO(dto, defaultSports)
 		gearName := create.Name
+
+		tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", gearName, nil, batchIDPtr, model.ImportTypeGear)
+		tracker.Processing(ctx)
 
 		status := "active"
 		if strings.EqualFold(dto.GearStatusName, "RETIRED") || strings.EqualFold(dto.GearStatusName, "NOT_ACTIVE") {
@@ -116,6 +124,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 		}
 		if exists {
 			result.Skipped++
+			tracker.Skipped(ctx, "duplicate", nil)
 			continue
 		}
 
@@ -123,6 +132,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 		if err != nil {
 			slog.Warn("garmin gear: create gear failed", "name", gearName, "error", err)
 			result.Errors = append(result.Errors, "create gear "+gearName+": "+err.Error())
+			tracker.Error(ctx, err)
 			continue
 		}
 
@@ -138,6 +148,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			}
 		}
 
+		tracker.Completed(ctx, gear.ID)
 		result.Imported++
 	}
 
