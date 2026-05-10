@@ -240,7 +240,8 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 			route_duplicate_hausdorff_m, route_duplicate_length_diff_km,
 			video_clip_frames, phash_threshold_bits,
 			geocode_fallback_provider, geocode_fallback_url, geocode_fallback_timeout_s,
-			summit_detection_radius_m, enable_difficulty_scales`,
+			summit_detection_radius_m, enable_difficulty_scales,
+			enable_lift_detection_osm, enable_lift_detection_heuristic`,
 		userID,
 	).Scan(
 		&s.UserID, &s.EnableSummitDetection, &s.EnableWeatherEnrichment,
@@ -255,6 +256,7 @@ func (db *DB) GetEnrichmentSettings(ctx context.Context, userID string) (*model.
 		&s.VideoClipFrames, &s.PhashThresholdBits,
 		&s.GeocodeFallbackProvider, &s.GeocodeFallbackURL, &s.GeocodeFallbackTimeoutS,
 		&s.SummitDetectionRadiusM, &s.EnableDifficultyScales,
+		&s.EnableLiftDetectionOSM, &s.EnableLiftDetectionHeuristic,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get enrichment settings: %w", err)
@@ -278,12 +280,14 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			route_duplicate_hausdorff_m, route_duplicate_length_diff_km,
 			video_clip_frames, phash_threshold_bits,
 			geocode_fallback_provider, geocode_fallback_url, geocode_fallback_timeout_s,
-			summit_detection_radius_m, enable_difficulty_scales
+			summit_detection_radius_m, enable_difficulty_scales,
+			enable_lift_detection_osm, enable_lift_detection_heuristic
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
 			$13, $14, $15, $16, $17, $18, $19, $20,
 			$21, $22, $23, $24, $25, $26,
-			$27, $28, $29, $30, $31
+			$27, $28, $29, $30, $31,
+			$32, $33
 		)
 		ON CONFLICT (user_id) DO UPDATE SET
 			enable_summit_detection = $2,
@@ -315,7 +319,9 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 			geocode_fallback_url = $28,
 			geocode_fallback_timeout_s = $29,
 			summit_detection_radius_m = $30,
-			enable_difficulty_scales = $31`,
+			enable_difficulty_scales = $31,
+			enable_lift_detection_osm = $32,
+			enable_lift_detection_heuristic = $33`,
 		userID, s.EnableSummitDetection, s.EnableWeatherEnrichment,
 		s.EnableStopDetection, s.EnableAscentDetection,
 		s.EnableAutoNaming, s.EnableLapDetection, s.ClimbMinGradientPct, s.ClimbMinElevationM,
@@ -328,6 +334,7 @@ func (db *DB) UpdateEnrichmentSettings(ctx context.Context, userID string, s *mo
 		s.VideoClipFrames, s.PhashThresholdBits,
 		s.GeocodeFallbackProvider, s.GeocodeFallbackURL, s.GeocodeFallbackTimeoutS,
 		s.SummitDetectionRadiusM, s.EnableDifficultyScales,
+		s.EnableLiftDetectionOSM, s.EnableLiftDetectionHeuristic,
 	)
 	if err != nil {
 		return fmt.Errorf("update enrichment settings: %w", err)
