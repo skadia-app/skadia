@@ -591,3 +591,196 @@ func buildSaddleCrossingBidir(base time.Time) []StreamPoint {
 	return pts
 }
 
+// TestBugD_SplitAtMidStations_DetectsSignatureAndSplits unit-tests the
+// post-detection split pass in isolation, bypassing the upstream
+// detector. Given a synthetic stream that mirrors the SyntheticCableTraverse ride-10
+// shape (seg2 descent → mid-station-2 plateau → seg3 saddle) and a
+// pre-constructed bidir parent ride spanning the entire stream, the
+// pass must emit two sub-rides split at the mid-station plateau.
+//
+// Mid-station signature in the real stream at 09:04:06–09:04:36:
+//   - sin spike (1.42 then 1.06) — cable winds around the station
+//   - speed dip (≤1.0 m/s for ≥30 s) — cabin briefly halts at platform
+//   - alt plateau (|Δalt| < 5 m for ≥30 s) — station floor is flat
+//
+// Tested in isolation so a synth that does not pass the upstream
+// stall-on-descent gate can still drive the splitter — the integration
+// path through DetectHeuristic is exercised by the corpus eval (see
+// scripts/lift_eval_diff.sh and the b2b_seg3 count assertion in
+// the SyntheticCableTraverse GT manifest).
+func TestBugD_SplitAtMidStations_DetectsSignatureAndSplits(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildMultiStationGondolaTraversal(base)
+
+	// Pre-constructed bidir parent ride spanning the entire synth stream
+	// — simulates what the upstream detector emits for ride 10 in the
+	// real corpus (a single bidir ride covering seg2 + seg3 merged).
+	parent := rideWithIdx{
+		ride: LiftRide{
+			StartedAt:  pts[0].Time,
+			EndedAt:    pts[len(pts)-1].Time,
+			DurationS:  int(pts[len(pts)-1].Time.Sub(pts[0].Time).Seconds()),
+			AscentM:    34, // seg3 saddle ascent
+			DescentM:   342,
+			DistanceM:  1400,
+			Confidence: "bidir",
+		},
+		startIdx: 0,
+		endIdx:   len(pts) - 1,
+	}
+
+	out := splitAtMidStations([]rideWithIdx{parent}, pts, DefaultDetectorConfig("ski"))
+	if len(out) != 2 {
+		t.Fatalf("got %d output rides, want 2 (seg2 + seg3 should split at mid-station signature)", len(out))
+	}
+
+	// Sub-ride 1 = seg2 descent, ends near the mid-station plateau.
+	end1 := out[0].ride.EndedAt.Sub(base).Seconds()
+	if end1 < 220 || end1 > 320 {
+		t.Errorf("first ride end = %.0f s, want 220-320 s (near mid-station plateau)", end1)
+	}
+	if out[0].ride.DescentM < 250 {
+		t.Errorf("first ride descent = %.1f m, want ≥ 250 m (seg2 mid1→mid2 ≈ 310 m)", out[0].ride.DescentM)
+	}
+
+	// Sub-ride 2 = seg3 saddle, starts at the same mid-station boundary.
+	start2 := out[1].ride.StartedAt.Sub(base).Seconds()
+	if start2 < 220 || start2 > 300 {
+		t.Errorf("second ride start = %.0f s, want 220-300 s (resumes from mid-station)", start2)
+	}
+	if out[1].ride.AscentM < 15 || out[1].ride.DescentM < 15 {
+		t.Errorf("second ride saddle: asc=%.1f, desc=%.1f, want both ≥ 15 m (seg3 saddle)",
+			out[1].ride.AscentM, out[1].ride.DescentM)
+	}
+
+	// The split point must lie strictly between the two rides.
+	if out[1].ride.StartedAt.Before(out[0].ride.EndedAt) {
+		t.Errorf("rides overlap: out[0].end=%v, out[1].start=%v",
+			out[0].ride.EndedAt, out[1].ride.StartedAt)
+	}
+}
+
+// TestBugD_SplitAtMidStations_NoSignaturePassThrough guards the no-op
+// path: a candidate that has no mid-station signature inside its window
+// must come out unchanged. Uses the canonical BugC1 saddle stream — a
+// single legitimate saddle-bidir cable that should NOT be split.
+func TestBugD_SplitAtMidStations_NoSignaturePassThrough(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildSaddleCrossingBidir(base)
+
+	parent := rideWithIdx{
+		ride: LiftRide{
+			StartedAt:  pts[0].Time,
+			EndedAt:    pts[len(pts)-1].Time,
+			DurationS:  int(pts[len(pts)-1].Time.Sub(pts[0].Time).Seconds()),
+			AscentM:    32,
+			DescentM:   37,
+			DistanceM:  900,
+			Confidence: "bidir",
+		},
+		startIdx: 0,
+		endIdx:   len(pts) - 1,
+	}
+
+	out := splitAtMidStations([]rideWithIdx{parent}, pts, DefaultDetectorConfig("ski"))
+	if len(out) != 1 {
+		t.Errorf("got %d output rides, want 1 (legitimate saddle-bidir, no mid-station)", len(out))
+	}
+}
+
+// TestBugD_SplitAtMidStations_SkipsNonBidir guards against splitting
+// regular (high/medium) rides — those have monotonic profiles and never
+// look like multi-station traversals. Pin the contract so a future
+// refactor doesn't accidentally widen the scope.
+func TestBugD_SplitAtMidStations_SkipsNonBidir(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildMultiStationGondolaTraversal(base)
+
+	parent := rideWithIdx{
+		ride: LiftRide{
+			StartedAt:  pts[0].Time,
+			EndedAt:    pts[len(pts)-1].Time,
+			Confidence: "high",
+		},
+		startIdx: 0,
+		endIdx:   len(pts) - 1,
+	}
+
+	out := splitAtMidStations([]rideWithIdx{parent}, pts, DefaultDetectorConfig("ski"))
+	if len(out) != 1 {
+		t.Errorf("got %d output rides, want 1 (non-bidir rides must pass through unchanged)", len(out))
+	}
+}
+
+// buildMultiStationGondolaTraversal mirrors the SyntheticCableTraverse ride-10 shape
+// (08:58:53–09:08:31, 578 s, asc=40, desc=346, conf=bidir):
+//
+//	[0,240)   s seg2 descent — alt 2415 → 2105, x advances 0 → 600 m,
+//	            speed 4.0 m/s steady, sin ≈ 1.0 (straight cable).
+//	[240,270) s mid-station-2 plateau — x near 600 m, alt 2103 m flat,
+//	            speed 0.5 m/s, y zigzags ±5 m for one 30 s block to
+//	            drive sinuosity above 1.4 (cable winds around station).
+//	[270,510) s seg3 saddle — x advances 600 → 1400 m, alt rises to
+//	            2126, dips to 2096, settles at 2107 (saddle profile),
+//	            speed 4.0 m/s steady, sin ≈ 1.0.
+//
+// Plateau is kept at 30 s rather than 60 s because the existing stop-
+// resume bridge in the forward extender accumulates ≥60 s before
+// emitting BREAK bidir-sin; with 30 s the candidate keeps growing past
+// the station and the ride lands as one bidir spanning [0,510]. That is
+// the pre-fix RED state this test pins.
+func buildMultiStationGondolaTraversal(base time.Time) []StreamPoint {
+	pts := make([]StreamPoint, 0, 511)
+	for i := 0; i <= 510; i++ {
+		ts := base.Add(time.Duration(i) * time.Second)
+		var x, y, alt, v float64
+		switch {
+		case i < 240:
+			// seg2 descent, linear.
+			x = float64(i) * 600.0 / 240.0
+			y = 0
+			alt = 2415.0 - float64(i)*310.0/240.0
+			v = 4.0
+		case i < 271:
+			// Mid-station plateau (31 samples = 30 s span) with
+			// y-zigzag for sin spike.
+			x = 600.0
+			zig := i - 240
+			switch zig % 4 {
+			case 0:
+				y = 0
+			case 1:
+				y = 5
+			case 2:
+				y = 0
+			case 3:
+				y = -5
+			}
+			alt = 2103.0
+			v = 0.5
+		case i < 331:
+			// seg3 ascent leg of saddle: 2103 → 2126 over 60 s.
+			ti := float64(i - 271)
+			x = 600.0 + ti*200.0/60.0
+			y = 0
+			alt = 2103.0 + ti*23.0/60.0
+			v = 4.0
+		case i < 451:
+			// seg3 descent leg: 2126 → 2096 over 120 s.
+			ti := float64(i - 331)
+			x = 800.0 + ti*400.0/120.0
+			y = 0
+			alt = 2126.0 - ti*30.0/120.0
+			v = 4.0
+		default:
+			// seg3 final climb: 2096 → 2107 over 60 s.
+			ti := float64(i - 451)
+			x = 1200.0 + ti*200.0/60.0
+			y = 0
+			alt = 2096.0 + ti*11.0/60.0
+			v = 4.0
+		}
+		pts = append(pts, streamPoint(ts, x, y, alt, v))
+	}
+	return pts
+}
