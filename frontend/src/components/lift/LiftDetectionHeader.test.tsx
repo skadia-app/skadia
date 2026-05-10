@@ -77,7 +77,7 @@ describe('LiftDetectionHeader — Override-Badge', () => {
     await renderHeader({ config: makeConfig({ override: { osm: false, heuristic: null } }) })
     await waitFor(() => {
       expect(screen.getByTestId('override-badge')).toBeTruthy()
-      expect(screen.getByTestId('override-badge').textContent).toMatch(/eigene Einstellungen/)
+      expect(screen.getByTestId('override-badge').textContent).toMatch(/Override gesetzt/)
     })
   })
 
@@ -207,7 +207,9 @@ describe('LiftDetectionHeader — Reset button', () => {
 
     await waitFor(() => {
       expect(mockDelete).toHaveBeenCalledWith('act-1')
-      expect(screen.getByText(/zurückgesetzt/)).toBeTruthy()
+      // Toast message includes "zurückgesetzt"; the override badge also contains
+      // "zurückgesetzt" after F11 copy change — use title div class to disambiguate.
+      expect(screen.getByText(/Aktivitätsspezifische Einstellung zurückgesetzt/)).toBeTruthy()
     })
   })
 })
