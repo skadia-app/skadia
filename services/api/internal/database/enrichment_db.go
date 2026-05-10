@@ -360,25 +360,42 @@ func (db *DB) GetLiftDetectionOverride(ctx context.Context, activityID string) (
 // Each pointer is applied independently: nil means "leave that column unchanged",
 // non-nil means "write this value". A single UPDATE with COALESCE is used for
 // atomicity — both columns are resolved in one statement.
-func (db *DB) SetLiftDetectionOverride(ctx context.Context, activityID string, osm, heuristic *bool) error {
-	_, err := db.Pool.Exec(ctx, `
+//
+// F2: scope by user_id as defence-in-depth — even though the handler verifies
+// activity ownership before calling this, an explicit user_id check on the
+// UPDATE prevents a TOCTOU race or future caller from mutating another user's
+// row. F18: an extra IS DISTINCT FROM clause skips no-op UPDATEs (PUT with the
+// already-stored values), which would otherwise dirty WAL and cache lines for
+// nothing. Returns the number of rows actually updated.
+func (db *DB) SetLiftDetectionOverride(ctx context.Context, userID, activityID string, osm, heuristic *bool) (int64, error) {
+	tag, err := db.Pool.Exec(ctx, `
 		UPDATE activities
 		SET
-			lift_detection_osm_override       = COALESCE($2, lift_detection_osm_override),
-			lift_detection_heuristic_override  = COALESCE($3, lift_detection_heuristic_override)
+			lift_detection_osm_override       = COALESCE($3, lift_detection_osm_override),
+			lift_detection_heuristic_override = COALESCE($4, lift_detection_heuristic_override)
 		WHERE id = $1
-	`, activityID, osm, heuristic)
-	return err
+		  AND user_id = $2
+		  AND (
+		        lift_detection_osm_override       IS DISTINCT FROM COALESCE($3, lift_detection_osm_override)
+		     OR lift_detection_heuristic_override IS DISTINCT FROM COALESCE($4, lift_detection_heuristic_override)
+		  )
+	`, activityID, userID, osm, heuristic)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 // ResetLiftDetectionOverride sets both per-activity override columns to NULL,
 // causing the pipeline to fall back to the user-level settings.
-func (db *DB) ResetLiftDetectionOverride(ctx context.Context, activityID string) error {
+//
+// F2: scoped by user_id (see SetLiftDetectionOverride note).
+func (db *DB) ResetLiftDetectionOverride(ctx context.Context, userID, activityID string) error {
 	_, err := db.Pool.Exec(ctx, `
 		UPDATE activities
 		SET lift_detection_osm_override = NULL, lift_detection_heuristic_override = NULL
-		WHERE id = $1
-	`, activityID)
+		WHERE id = $1 AND user_id = $2
+	`, activityID, userID)
 	return err
 }
 

@@ -428,6 +428,76 @@ func TestRecalculateActivityLifts_F1_NoDataLossOnConflict(t *testing.T) {
 	}
 }
 
+// TestSetLiftDetectionOverride_F2_CrossUserRejected verifies the DB-level
+// defence-in-depth user_id scoping on SetLiftDetectionOverride. User B's UPDATE
+// on User A's activity must affect 0 rows.
+func TestSetLiftDetectionOverride_F2_CrossUserRejected(t *testing.T) {
+	_, db := liftDetectionConfigSetup(t)
+	userA := insertTestUser(t, db.Pool)
+	userB := insertTestUser(t, db.Pool)
+	activityA := insertMinimalActivity(t, db, userA)
+
+	tr := true
+	rows, err := db.SetLiftDetectionOverride(context.Background(), userB, activityA, &tr, &tr)
+	if err != nil {
+		t.Fatalf("SetLiftDetectionOverride: %v", err)
+	}
+	if rows != 0 {
+		t.Errorf("RowsAffected=%d, want 0 (cross-user UPDATE must not match)", rows)
+	}
+
+	// Verify the row stayed untouched.
+	var osm, heu *bool
+	if err := db.Pool.QueryRow(context.Background(),
+		`SELECT lift_detection_osm_override, lift_detection_heuristic_override FROM activities WHERE id = $1`,
+		activityA).Scan(&osm, &heu); err != nil {
+		t.Fatalf("query overrides: %v", err)
+	}
+	if osm != nil || heu != nil {
+		t.Errorf("overrides modified by cross-user UPDATE: osm=%v heu=%v", osm, heu)
+	}
+}
+
+// TestSetLiftDetectionOverride_F18_NoOpSkipped verifies that re-PUTing the
+// same body returns RowsAffected=0 (the IS DISTINCT FROM clause skips the
+// no-op write). First PUT writes, second PUT is a no-op.
+func TestSetLiftDetectionOverride_F18_NoOpSkipped(t *testing.T) {
+	_, db := liftDetectionConfigSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	tr := true
+	fa := false
+	ctx := context.Background()
+
+	// First write: must affect 1 row.
+	rows1, err := db.SetLiftDetectionOverride(ctx, userID, activityID, &tr, &fa)
+	if err != nil {
+		t.Fatalf("first PUT: %v", err)
+	}
+	if rows1 != 1 {
+		t.Errorf("first PUT RowsAffected=%d, want 1", rows1)
+	}
+
+	// Identical second write: must be a no-op (RowsAffected=0).
+	rows2, err := db.SetLiftDetectionOverride(ctx, userID, activityID, &tr, &fa)
+	if err != nil {
+		t.Fatalf("second PUT: %v", err)
+	}
+	if rows2 != 0 {
+		t.Errorf("idempotent PUT RowsAffected=%d, want 0 (F18 no-op skip)", rows2)
+	}
+
+	// Changing one column → 1 row.
+	rows3, err := db.SetLiftDetectionOverride(ctx, userID, activityID, &fa, nil)
+	if err != nil {
+		t.Fatalf("change PUT: %v", err)
+	}
+	if rows3 != 1 {
+		t.Errorf("change PUT RowsAffected=%d, want 1", rows3)
+	}
+}
+
 // TestRecalculateActivityLifts_F17_JobInsertConflict409 verifies that when
 // InsertBackgroundJob fails with a unique_violation on idx_bg_jobs_one_running
 // (concurrent insert raced past F1's check), the handler returns 409
