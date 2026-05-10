@@ -1088,6 +1088,12 @@ export default function ActivitiesPage() {
         </div>
 
         <div className="flex items-center gap-4">
+          <Link
+            to="/workouts"
+            className="text-xs text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+          >
+            Workouts
+          </Link>
           {/* Suche (server-side, debounced) */}
           <div className="relative">
             {isFetching && activities.length > 0 ? (
