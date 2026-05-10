@@ -580,7 +580,7 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 	}
 
 	// 4. Cleanup: mark resolved + delete temp files
-	if resolveErr := s.DB.ResolveImportQueueItem(ctx, queueEntryID, userID); resolveErr != nil {
+	if resolveErr := s.DB.ResolveImportQueueItem(ctx, queueEntryID, userID, targetActivityID); resolveErr != nil {
 		slog.Warn("importer: ResolveImportQueueItem failed", "id", queueEntryID, "err", resolveErr)
 	}
 

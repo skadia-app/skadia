@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
@@ -666,9 +667,9 @@ func (e *Engine) writeImportLog(
 	id := uuid.New().String()
 	_, err = e.DB.Exec(ctx, `
 		INSERT INTO import_log
-			(id, user_id, source_platform, filename, status, duration_ms, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, id, userID, "gdpr_import", "gdpr_export.zip", status, durationMs, meta)
+			(id, user_id, source_platform, filename, status, duration_ms, metadata, import_type)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, id, userID, "gdpr_import", "gdpr_export.zip", status, durationMs, meta, model.ImportTypeArchive)
 	return err
 }
 
