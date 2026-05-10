@@ -17,7 +17,8 @@ type importLogResponse struct {
 
 // GetImports godoc
 // GET /api/v1/imports
-// Query params: status (comma-separated), source_platform, limit, offset
+// Query params: status (comma-separated), source_platform, import_type, limit, offset
+// import_type: activity | route | workout | monitoring | photo | video | document | gear | segment | archive | unknown (= IS NULL)
 func (h *Handler) GetImports(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -37,6 +38,7 @@ func (h *Handler) GetImports(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sourcePlatform := q.Get("source_platform")
+	importType := q.Get("import_type")
 
 	limit := 50
 	if v := q.Get("limit"); v != "" {
@@ -52,7 +54,7 @@ func (h *Handler) GetImports(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	entries, total, err := h.DB.ListImportLog(r.Context(), userID, statusFilter, sourcePlatform, "", limit, offset)
+	entries, total, err := h.DB.ListImportLog(r.Context(), userID, statusFilter, sourcePlatform, importType, limit, offset)
 	if err != nil {
 		slog.Error("list import log", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load import log", r.URL.Path)
