@@ -109,7 +109,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		if params.JobID != "" {
 			batchIDPtr = &params.JobID
 		}
-		tracker := params.DB.NewImportTracker(ctx, params.UserID, "strava", logFilename, nil, batchIDPtr)
+		tracker := params.DB.NewImportTracker(ctx, params.UserID, "strava", logFilename, nil, batchIDPtr, "activity")
 		tracker.Processing(ctx)
 
 		// --- Parse Strava activity ID ---

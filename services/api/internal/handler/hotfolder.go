@@ -44,7 +44,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 	}
 
 	// 2. Insert import_log entry (status=pending) + transition to processing
-	tracker := h.DB.NewImportTracker(ctx, userID, "hotfolder", filename, &fileSize, nil)
+	tracker := h.DB.NewImportTracker(ctx, userID, "hotfolder", filename, &fileSize, nil, "activity")
 	tracker.Processing(ctx)
 
 	// 3. Read file
@@ -75,6 +75,7 @@ func (h *Handler) UploadFromFile(ctx context.Context, userID, filePath string) e
 			return routeErr
 		}
 		if handled {
+			tracker.SetImportType(ctx, garmin.ImportTypeForFITType(ftype))
 			tracker.Completed(ctx, "")
 			meta, _ := json.Marshal(map[string]any{
 				"fit_file_type": ftype,
