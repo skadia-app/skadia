@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   useLiftDetectionConfig,
   usePutLiftDetectionConfig,
@@ -72,12 +73,12 @@ function ToggleRow({ label, checked, disabled, onChange, testId }: ToggleRowProp
 
 export default function LiftDetectionHeader({ activityId, jobRunning, onJobStarted }: LiftDetectionHeaderProps) {
   const { addToast } = useToast()
+  const qc = useQueryClient()
   const { data, isLoading } = useLiftDetectionConfig(activityId)
   const putMutation = usePutLiftDetectionConfig(activityId)
   const resetMutation = useResetLiftDetectionConfig(activityId)
 
   const [local, setLocal] = useState<LocalSettings | null>(null)
-  const [isApplying, setIsApplying] = useState(false)
 
   // Sync local state when query data arrives or changes (e.g. after reset).
   useEffect(() => {
@@ -85,6 +86,39 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
       setLocal(deriveLocalSettings(data))
     }
   }, [data])
+
+  // F8: Apply is a two-step operation (PUT settings → POST recalculate-all) wrapped in
+  // useMutation so TanStack Query tracks isPending and the onSuccess handler invalidates
+  // lift-candidate queries in addition to the config query (which putMutation already covers).
+  const applyMutation = useMutation({
+    mutationFn: async (settings: LocalSettings) => {
+      await putMutation.mutateAsync({ osm: settings.osm, heuristic: settings.heuristic })
+      const res = await apiFetch(`/api/v1/activities/${activityId}/lifts/recalculate-all`, {
+        method: 'POST',
+      })
+      return res
+    },
+    onSuccess: async (res) => {
+      // Invalidate lift-candidate caches regardless of whether job was already running.
+      qc.invalidateQueries({ queryKey: ['lift-candidates', activityId] })
+      qc.invalidateQueries({ queryKey: ['lift-candidates-inspector', activityId] })
+      qc.invalidateQueries({ queryKey: ['activity', activityId] })
+      if (res.status === 409) {
+        addToast({ type: 'info', title: 'Job läuft bereits — bitte warten' })
+        onJobStarted()
+      } else if (res.ok) {
+        onJobStarted()
+      } else {
+        const body = await res.json().catch(() => ({})) as Record<string, unknown>
+        const msg = typeof body.message === 'string' ? body.message : `Fehler ${res.status}`
+        addToast({ type: 'error', title: msg })
+      }
+    },
+    onError: (err) => {
+      const msg = err instanceof ApiError ? err.body : (err instanceof Error ? err.message : 'Unbekannter Fehler')
+      addToast({ type: 'error', title: msg })
+    },
+  })
 
   if (isLoading || !data || !local) {
     return (
@@ -97,39 +131,12 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
 
   const masterOff = !data.master_enabled
   const override = hasActiveOverride(data)
+  const isApplying = applyMutation.isPending
   const allDisabled = masterOff || jobRunning || isApplying
 
-  const handleApply = async () => {
-    setIsApplying(true)
-    try {
-      await putMutation.mutateAsync({ osm: local.osm, heuristic: local.heuristic })
-      // Now trigger recalculate-all. Use apiFetch directly to inspect the response
-      // status — recalcMutation in the parent already uses throwOnError, but here
-      // we need to distinguish 409 from 202 without closing the modal.
-      const res = await apiFetch(`/api/v1/activities/${activityId}/lifts/recalculate-all`, {
-        method: 'POST',
-      })
-      if (res.status === 409) {
-        addToast({
-          type: 'info',
-          title: 'Job läuft bereits — bitte warten',
-        })
-        // The job is running — activate polling state via onJobStarted so the
-        // parent can show a spinner and poll for completion.
-        onJobStarted()
-      } else if (res.ok) {
-        onJobStarted()
-      } else {
-        const body = await res.json().catch(() => ({})) as Record<string, unknown>
-        const msg = typeof body.message === 'string' ? body.message : `Fehler ${res.status}`
-        addToast({ type: 'error', title: msg })
-      }
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.body : (err instanceof Error ? err.message : 'Unbekannter Fehler')
-      addToast({ type: 'error', title: msg })
-    } finally {
-      setIsApplying(false)
-    }
+  const handleApply = () => {
+    if (!local) return
+    applyMutation.mutate(local)
   }
 
   const handleReset = async () => {
@@ -156,7 +163,7 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
             className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs font-medium px-2 py-0.5"
             data-testid="override-badge"
           >
-            Aktivität nutzt eigene Einstellungen
+            Override gesetzt (kann zurückgesetzt werden)
           </span>
         )}
         {jobRunning && (
