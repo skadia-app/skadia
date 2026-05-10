@@ -117,8 +117,16 @@ type Activity struct {
 	// = acknowledge). NULL means the modal should show on next visit.
 	// Phase 4d migration 000350.
 	LiftsAcknowledgedAt *time.Time `json:"lifts_acknowledged_at,omitempty"`
-	ElevationSource     string     `json:"elevation_source,omitempty" db:"elevation_source"`
-	DistanceSource      string     `json:"distance_source,omitempty" db:"distance_source"`
+	// LiftDetectionOSMOverride overrides the user-level enable_lift_detection_osm
+	// setting for this activity. NULL means use the user setting.
+	// Migration 000350.
+	LiftDetectionOSMOverride *bool `json:"lift_detection_osm_override,omitempty"`
+	// LiftDetectionHeuristicOverride overrides the user-level
+	// enable_lift_detection_heuristic setting for this activity.
+	// NULL means use the user setting. Migration 000350.
+	LiftDetectionHeuristicOverride *bool  `json:"lift_detection_heuristic_override,omitempty"`
+	ElevationSource                string `json:"elevation_source,omitempty" db:"elevation_source"`
+	DistanceSource                 string `json:"distance_source,omitempty" db:"distance_source"`
 	// Multisport parent/child
 	ParentID   *string `json:"parent_id,omitempty"`
 	ChildCount int     `json:"child_count,omitempty"` // Computed, not in DB
@@ -573,17 +581,17 @@ type EnrichmentSettings struct {
 	// Each flag controls whether the corresponding enrichment module runs.
 	// Default: true (all modules enabled for new and existing users).
 	// Note: module string literals ("summits", "lifts" etc.) in Go/NATS are stable identifiers.
-	EnableForestDetection     bool `json:"enable_forest_detection"`
-	EnableWaterDetection      bool `json:"enable_water_detection"`
-	EnableSettlementDetection bool `json:"enable_settlement_detection"`
-	EnableBorderDetection     bool `json:"enable_border_detection"`
-	EnableLiftDetection            bool `json:"enable_lift_detection"`
-	EnableLiftDetectionOSM         bool `json:"enable_lift_detection_osm"`
-	EnableLiftDetectionHeuristic   bool `json:"enable_lift_detection_heuristic"`
-	EnableSurfaceDetection         bool `json:"enable_surface_detection"`
-	EnableDifficultyScales    bool `json:"enable_difficulty_scales"`
-	EnableIntervalDetection   bool `json:"enable_interval_detection"`
-	EnableEmbeddings          bool `json:"enable_embeddings"`
+	EnableForestDetection        bool `json:"enable_forest_detection"`
+	EnableWaterDetection         bool `json:"enable_water_detection"`
+	EnableSettlementDetection    bool `json:"enable_settlement_detection"`
+	EnableBorderDetection        bool `json:"enable_border_detection"`
+	EnableLiftDetection          bool `json:"enable_lift_detection"`
+	EnableLiftDetectionOSM       bool `json:"enable_lift_detection_osm"`
+	EnableLiftDetectionHeuristic bool `json:"enable_lift_detection_heuristic"`
+	EnableSurfaceDetection       bool `json:"enable_surface_detection"`
+	EnableDifficultyScales       bool `json:"enable_difficulty_scales"`
+	EnableIntervalDetection      bool `json:"enable_interval_detection"`
+	EnableEmbeddings             bool `json:"enable_embeddings"`
 
 	// Photo preview size: "2048" (default), "4k", or "original" (Migration 000120).
 	PhotoPreviewSize string `json:"photo_preview_size"`
