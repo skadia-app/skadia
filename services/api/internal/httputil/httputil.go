@@ -63,6 +63,33 @@ func WriteProblem(w http.ResponseWriter, status int, title, detail, code, instan
 	}
 }
 
+// WriteProblemWithJob writes an RFC 7807/9457 problem+json response with a
+// machine-readable code and an optional job_id extension member. Used for 409
+// responses where the caller needs the job ID to track progress (e.g. a
+// re-detect endpoint that found a running job for the same resource).
+func WriteProblemWithJob(w http.ResponseWriter, status int, title, detail, code, jobID, instance string) {
+	typeURI := "https://skadia.io/errors/"
+	if code != "" {
+		typeURI += code
+	} else {
+		typeURI += strings.ReplaceAll(http.StatusText(status), " ", "-")
+	}
+	problem := model.ProblemDetail{
+		Type:     typeURI,
+		Title:    title,
+		Status:   status,
+		Detail:   detail,
+		Code:     code,
+		Instance: instance,
+		JobID:    jobID,
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(problem); err != nil {
+		slog.Error("failed to encode JSON response", "error", err)
+	}
+}
+
 // RequireUserID extracts the user ID from the request context.
 // Returns ("", false) and writes 401 if not present.
 func RequireUserID(w http.ResponseWriter, r *http.Request) (string, bool) {

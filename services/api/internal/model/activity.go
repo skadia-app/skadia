@@ -452,6 +452,11 @@ type ProblemDetail struct {
 	Detail   string `json:"detail"`
 	Code     string `json:"code,omitempty"`
 	Instance string `json:"instance,omitempty"`
+	// JobID is an optional RFC 9457 §3.2 extension member: when a 409 rejects
+	// the request because a background job is already running for the same
+	// resource, the caller can subscribe to /api/jobs/<JobID> for progress
+	// without parsing Detail. Empty → omitted.
+	JobID string `json:"job_id,omitempty"`
 }
 
 // ActivityWithPath is a lightweight struct used for shadow FS rename operations.

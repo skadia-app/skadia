@@ -383,13 +383,20 @@ func (db *DB) ResetLiftDetectionOverride(ctx context.Context, activityID string)
 }
 
 // HasRunningLiftRecomputeJob reports whether a lift_recompute job with
-// status='running' already exists for the given (userID, activityID) pair.
+// status IN ('running','queued') already exists for the given (userID,
+// activityID) pair. Counting 'queued' is required because the F3-widened
+// idx_bg_jobs_one_running covers both states — the check must agree, otherwise
+// a queued-but-not-yet-started job would slip past the 409 guard and then fail
+// at InsertBackgroundJob with a unique_violation we'd have to translate back.
 // Returns (true, &jobID, nil) when found; (false, nil, nil) when not found.
 func (db *DB) HasRunningLiftRecomputeJob(ctx context.Context, userID, activityID string) (bool, *string, error) {
 	var jobID string
 	err := db.Pool.QueryRow(ctx, `
 		SELECT id FROM background_jobs
-		WHERE user_id = $1 AND entity_id = $2 AND job_type = 'lift_recompute' AND status = 'running'
+		WHERE user_id = $1
+		  AND entity_id = $2
+		  AND job_type = 'lift_recompute'
+		  AND status IN ('running', 'queued')
 		LIMIT 1
 	`, userID, activityID).Scan(&jobID)
 	if errors.Is(err, pgx.ErrNoRows) {
