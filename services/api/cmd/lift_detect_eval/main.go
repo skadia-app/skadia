@@ -22,10 +22,28 @@ func main() {
 	gtPath := flag.String("gt", "", "path to local station-marker YAML (e.g. local-station-markers.yaml); used by -boundaries")
 	gtKey := flag.String("gt-key", "", "case.file key in the GT YAML; defaults to the value of -boundaries (relative to -root)")
 	sport := flag.String("sport", "ski", "sport profile for -rides / -boundaries (ignored in -dump/-summary)")
+	format := flag.String("format", "text", "output format for -manifest and -boundaries: text|json (default text). JSON enables machine-readable diffs via -diff.")
+	diffMode := flag.Bool("diff", false, "diff mode: compare two JSON eval reports produced earlier with -format json. Requires -baseline and -current; auto-detects manifest vs boundaries shape.")
+	diffBaseline := flag.String("baseline", "", "path to the baseline JSON report (used by -diff)")
+	diffCurrent := flag.String("current", "", "path to the current JSON report (used by -diff)")
+	marginalBandM := flag.Float64("marginal-band-m", 10.0, "diff: max allowed offset delta in metres inside the same tolerance band before it counts as a regression (default 10)")
 	dbURL := flag.String("db", "", "postgres URL; when set together with --snap-stats, runs the OSM-snap pipeline against the live osm_lifts table for empirical action/coverage stats")
 	snapStats := flag.Bool("snap-stats", false, "after eval, run the snap pipeline against osm_lifts and print the per-region action/coverage table (requires --db)")
 	snapStatsJSON := flag.Bool("snap-stats-json", false, "instead of the table, emit the snap-stats result as JSON on stdout (implies --snap-stats)")
 	flag.Parse()
+
+	if *diffMode {
+		if *diffBaseline == "" || *diffCurrent == "" {
+			fmt.Fprintln(os.Stderr, "-diff requires -baseline <file> and -current <file>")
+			os.Exit(2)
+		}
+		exit, err := runDiff(*diffBaseline, *diffCurrent, *marginalBandM, os.Stdout)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		os.Exit(exit)
+	}
 
 	if *rides != "" {
 		full := filepath.Join(*root, *rides)
@@ -143,6 +161,13 @@ func main() {
 			}
 			eps = append(eps, ep)
 		}
+		if *format == "json" {
+			if err := writeBoundariesJSON(os.Stdout, *boundaries, eps, gtCase.Lifts); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
+			}
+			return
+		}
 		printBoundaries(os.Stdout, eps, gtCase.Lifts)
 		return
 	}
@@ -239,11 +264,20 @@ func main() {
 	// In --snap-stats-json mode stdout is reserved for the machine-readable
 	// JSON document; the human-readable eval report goes to stderr so it
 	// stays visible without contaminating the parsed JSON. Default mode keeps
-	// the historical contract (eval report on stdout).
+	// the historical contract (eval report on stdout). With -format json the
+	// eval report itself becomes the machine-readable payload on stdout.
 	var exit int
-	if *snapStatsJSON {
+	switch {
+	case *format == "json":
+		var err error
+		exit, err = writeReportJSON(results, os.Stdout)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+	case *snapStatsJSON:
 		exit = printReportTo(results, *verbose, os.Stderr)
-	} else {
+	default:
 		exit = printReport(results, *verbose)
 	}
 
