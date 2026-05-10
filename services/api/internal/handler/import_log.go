@@ -52,7 +52,7 @@ func (h *Handler) GetImports(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	entries, total, err := h.DB.ListImportLog(r.Context(), userID, statusFilter, sourcePlatform, limit, offset)
+	entries, total, err := h.DB.ListImportLog(r.Context(), userID, statusFilter, sourcePlatform, "", limit, offset)
 	if err != nil {
 		slog.Error("list import log", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load import log", r.URL.Path)
