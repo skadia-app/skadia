@@ -115,15 +115,15 @@ type Activity struct {
 	// LiftsAcknowledgedAt is set when the user has reviewed lift candidates
 	// (confirm-all/reject-all/single-action via review modal, or X-close
 	// = acknowledge). NULL means the modal should show on next visit.
-	// Phase 4d migration 000350.
+	// Phase 4d migration 000357.
 	LiftsAcknowledgedAt *time.Time `json:"lifts_acknowledged_at,omitempty"`
 	// LiftDetectionOSMOverride overrides the user-level enable_lift_detection_osm
 	// setting for this activity. NULL means use the user setting.
-	// Migration 000350.
+	// Migration 000357.
 	LiftDetectionOSMOverride *bool `json:"lift_detection_osm_override,omitempty"`
 	// LiftDetectionHeuristicOverride overrides the user-level
 	// enable_lift_detection_heuristic setting for this activity.
-	// NULL means use the user setting. Migration 000350.
+	// NULL means use the user setting. Migration 000357.
 	LiftDetectionHeuristicOverride *bool  `json:"lift_detection_heuristic_override,omitempty"`
 	ElevationSource                string `json:"elevation_source,omitempty" db:"elevation_source"`
 	DistanceSource                 string `json:"distance_source,omitempty" db:"distance_source"`
