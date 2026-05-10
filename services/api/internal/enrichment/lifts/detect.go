@@ -304,6 +304,12 @@ func DetectHeuristicWithIndices(rows []StreamPoint, cfg DetectorConfig) []RideWi
 	//     two ascends is never the right merge)
 	//   - merged window still validateRide()s under the original kind
 	merged := mergeMidLiftSplits(raw, rows, cfg)
+	// Multi-station-cable split: a bidir candidate that traversed two
+	// physical cable segments (SyntheticCableTraverse seg2+seg3 forward) shows a
+	// sustained mid-station alt-plateau in the middle of its window.
+	// Splitting it there into two sub-rides recovers the missing seg3
+	// match in the per-lift count.
+	merged = splitAtMidStations(merged, rows, cfg)
 	out := make([]RideWithIndices, len(merged))
 	for k, r := range merged {
 		out[k] = RideWithIndices{
