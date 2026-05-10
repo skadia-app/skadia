@@ -70,6 +70,11 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 		}
 	}
 
+	var batchIDPtr *string
+	if p.JobID != "" {
+		batchIDPtr = &p.JobID
+	}
+
 	result := &ImportResult{}
 
 	for _, f := range files {
@@ -90,10 +95,14 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 				p.OnProgress(idx+1, total, "courses: "+course.CourseName)
 			}
 
+			tracker := p.DB.NewImportTracker(ctx, p.UserID, "garmin", course.CourseName, nil, batchIDPtr, model.ImportTypeRoute)
+			tracker.Processing(ctx)
+
 			geojson := geoPointsToGeoJSON(course.GeoPoints)
 			if geojson == "" {
 				slog.Warn("garmin courses: skipping course with < 2 points", "name", course.CourseName)
 				result.Skipped++
+				tracker.Skipped(ctx, "no_geometry", nil)
 				continue
 			}
 
@@ -116,10 +125,12 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 			if err != nil {
 				slog.Warn("garmin courses: dup check failed", "name", course.CourseName, "error", err)
 				result.Errors = append(result.Errors, "dup check "+course.CourseName+": "+err.Error())
+				tracker.Error(ctx, err)
 				continue
 			}
 			if dup != nil {
 				result.Skipped++
+				tracker.Skipped(ctx, "duplicate", nil)
 				continue
 			}
 
@@ -130,7 +141,7 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 			elevLoss := course.ElevationLoss
 			d := distM
 
-			_, err = p.DB.CreateRouteFromImport(ctx, p.UserID, &model.RouteImportData{
+			routeID, err := p.DB.CreateRouteFromImport(ctx, p.UserID, &model.RouteImportData{
 				Name:               course.CourseName,
 				SportType:          sportType,
 				SubType:            subType,
@@ -148,8 +159,10 @@ func (i *CoursesImporter) Import(ctx context.Context, p ImportParams) (*ImportRe
 			if err != nil {
 				slog.Warn("garmin courses: create route failed", "name", course.CourseName, "error", err)
 				result.Errors = append(result.Errors, "create "+course.CourseName+": "+err.Error())
+				tracker.Error(ctx, err)
 				continue
 			}
+			tracker.Completed(ctx, routeID)
 			result.Imported++
 		}
 	}
