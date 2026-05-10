@@ -12,6 +12,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // MediaImporter imports photos from the Strava export's media/ directory.
@@ -51,6 +52,11 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 	total := len(rows) - 1
 	slog.Info("strava media: found photos", "count", total, "mapped", len(uuidToActivityID))
 
+	var batchIDPtr *string
+	if params.JobID != "" {
+		batchIDPtr = &params.JobID
+	}
+
 	for i, row := range rows[1:] {
 		if ctx.Err() != nil {
 			break
@@ -76,6 +82,13 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 		// Detect content type from file bytes + extension fallback.
 		contentType := detectMediaContentType(data, relPath)
 		isVideo := isVideoContentType(contentType)
+
+		importType := model.ImportTypePhoto
+		if isVideo {
+			importType = model.ImportTypeVideo
+		}
+		tracker := params.DB.NewImportTracker(ctx, params.UserID, "strava", filepath.Base(relPath), nil, batchIDPtr, importType)
+		tracker.Processing(ctx)
 
 		// EXIF: extract taken_at and GPS coords (only for images, not videos).
 		var takenAt *time.Time
@@ -121,26 +134,32 @@ func (m *MediaImporter) Import(ctx context.Context, params ImportParams) (*Impor
 			if processErr != nil {
 				slog.Warn("strava media: ProcessPhoto failed", "file", relPath, "error", processErr)
 				result.Errors = append(result.Errors, fmt.Sprintf("process %s: %s", relPath, processErr))
+				tracker.Error(ctx, processErr)
 				continue
 			}
 			switch photoResult.Status {
 			case "duplicate_exact", "duplicate_phash":
 				result.Skipped++
+				tracker.Skipped(ctx, "duplicate", nil)
 			default:
 				result.Imported++
+				tracker.Completed(ctx, activityID)
 			}
 		} else {
 			orphanResult, orphanErr := params.ImportService.ProcessOrphanPhoto(ctx, params.UserID, data, photoMeta)
 			if orphanErr != nil {
 				slog.Warn("strava media: ProcessOrphanPhoto failed", "file", relPath, "error", orphanErr)
 				result.Errors = append(result.Errors, fmt.Sprintf("orphan %s: %s", relPath, orphanErr))
+				tracker.Error(ctx, orphanErr)
 				continue
 			}
 			switch orphanResult.Status {
 			case "queued", "matched":
 				result.Imported++
+				tracker.Completed(ctx, "")
 			default:
 				result.Skipped++
+				tracker.Skipped(ctx, "duplicate", nil)
 			}
 		}
 	}
