@@ -1,6 +1,6 @@
 package migrations_test
 
-// Integration tests for migration 000350_lift_review_state.
+// Integration tests for migration 000357_lift_review_state.
 //
 // Verifies:
 //   1. rejected_by_user column exists with NOT NULL + DEFAULT FALSE.

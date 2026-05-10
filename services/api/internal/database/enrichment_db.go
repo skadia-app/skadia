@@ -1630,7 +1630,7 @@ func (db *DB) AcknowledgeLifts(ctx context.Context, userID, activityID string) e
 //   - DELETE all coupled lift segment_efforts rows (segment_type='lift')
 //     for the activity. There is no DB-level FK from
 //     activity_lift_candidates.segment_effort_id to segment_efforts (the
-//     hypertable's composite PK is not referenceable; see migration 000349
+//     hypertable's composite PK is not referenceable; see migration 000356
 //     comment), so the DELETE is explicit.
 //   - SET activities.lifts_acknowledged_at = NULL.
 //

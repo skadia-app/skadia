@@ -1,6 +1,6 @@
 package migrations_test
 
-// Integration tests for migration 000349_activity_lift_candidates_unified.
+// Integration tests for migration 000356_activity_lift_candidates_unified.
 //
 // Phase 4c — OSM-Snap-Pipeline. The migration:
 //   1. Adds activity_lift_candidates.source TEXT NOT NULL DEFAULT 'heuristic'
