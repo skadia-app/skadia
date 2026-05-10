@@ -1227,3 +1227,121 @@ func TestBugG_ReclassifyPureDescent_PreservesSaddleBidir(t *testing.T) {
 		t.Errorf("confidence = %q, want \"bidir\" (saddle preserves bidir)", rides[0].Confidence)
 	}
 }
+
+// buildSlowChairliftWithBoardingAndConveyor mirrors the calibrated
+// horizontal-loading late-start corpus case: a slow chairlift /
+// detachable T-bar where the user enters via a stationary boarding
+// plateau, glides through a horizontal conveyor-loading ramp at
+// cable-class speed, and only then reaches the cable proper. The
+// per-window classifier latches on the cable proper and trims start
+// forward; backward extension walks past the conveyor and into the
+// preceding ski approach, where path zigzag inflates sinuosity above
+// MaxSinuosity and validateRide rejects the entire extension. The
+// ride is left starting deep inside the cable, missing the boarding
+// boundary and the conveyor entry.
+//
+// Stream layout (1 Hz, 800 s):
+//
+//	[0,30)    s ski approach: alt 2050 → 1898 (-152 m drop), speed
+//	            4–7 m/s with x/y zigzag — sinuosity ≥ 1.30 across this
+//	            block.
+//	[30,60)   s boarding plateau: alt 1897.5 flat (±0.3 m), speed
+//	            0.2–1.5 m/s shuffle. 30 samples — clearly above the
+//	            5-sample plateau-detect floor.
+//	[60,180)  s conveyor loading: alt 1897.5 → 1914 (+16.5 m, rate
+//	            0.14 m/s), speed 1–3 m/s irregular. Cable-band speeds
+//	            but very low gradient.
+//	[180,720) s cable cruise: alt 1914 → 2280 (+366 m, rate 0.68 m/s),
+//	            speed 1.87 m/s near-constant — the steady chairlift
+//	            cruise that classify locks onto.
+//	[720,800) s disembark plateau: alt 2280 flat, speed 0.5 m/s.
+//
+// The ride should start at the boarding-plateau end (s ≈ 60) once
+// the boarding-plateau hard-boundary detector is in place. Without
+// the fix, the backward walk overshoots into the ski approach,
+// validateRide rejects (sin from zigzag), and start stays on the
+// cable cruise side near s ≈ 180–240.
+func buildSlowChairliftWithBoardingAndConveyor(base time.Time) []StreamPoint {
+	pts := make([]StreamPoint, 0, 800)
+	for i := 0; i < 800; i++ {
+		ts := base.Add(time.Duration(i) * time.Second)
+		var x, y, alt, v float64
+		switch {
+		case i < 30:
+			// Ski approach: zigzag y-axis, x advances 0..150 m,
+			// altitude drops 2050 → 1898 (-152 m). Mean speed 5 m/s,
+			// sinuosity well above 1.30.
+			x = 5.0 * float64(i)
+			y = 18.0 * math.Sin(float64(i)*1.6)
+			alt = 2050.0 - 152.0/29.0*float64(i)
+			v = 5.0
+		case i < 60:
+			// Boarding plateau: x near-stationary at 150, alt 1897.5
+			// flat, speed 0.2–1.5 m/s shuffle.
+			x = 150.0 + 0.5*float64(i-30)
+			y = 0
+			alt = 1897.5
+			// Pseudo-shuffle pattern: 4 sub-second speeds repeating.
+			shuffle := []float64{0.4, 1.2, 0.6, 1.0, 0.3, 1.4, 0.7, 0.2, 1.1, 0.8}
+			v = shuffle[(i-30)%len(shuffle)]
+		case i < 180:
+			// Conveyor loading: alt rises 1897.5 → 1914 (slow rate),
+			// speed at cable-class steady so the combined window CV
+			// stays below validateRide's cap (the plateau is the only
+			// CV-noise source the recovery has to survive).
+			x = 165.0 + 1.87*float64(i-60)
+			y = 0
+			alt = 1897.5 + 16.5*float64(i-60)/120.0
+			v = 1.87
+		case i < 720:
+			// Cable cruise: alt rises 1914 → 2280 monotonically,
+			// speed steady 1.87 m/s. x continues the conveyor's
+			// linear advance so the conveyor → cable boundary has
+			// no GPS discontinuity (which would inflate sinuosity
+			// and trip the mini-sin guard).
+			x = 165.0 + 1.87*float64(i-60)
+			y = 0
+			alt = 1914.0 + 366.0*float64(i-180)/540.0
+			v = 1.87
+		default:
+			// Disembark plateau
+			x = 165.0 + 1.87*float64(720-60)
+			y = 0
+			alt = 2280.0
+			v = 0.5
+		}
+		pts = append(pts, streamPoint(ts, x, y, alt, v))
+	}
+	return pts
+}
+
+// TestBugE_BackwardWalk_StopsAtBoardingPlateauHardBoundary pins the
+// fix for the horizontal-loading late-start pattern. The synth fixture
+// embeds a 30 s boarding plateau between a high-sinuosity ski approach
+// and a 540 s cable cruise. Without the boarding-plateau hard-boundary
+// gate, the backward walk overshoots into the ski approach and the
+// extended sinuosity (≥ 1.40) trips validateRide; the ride stays on
+// the cable side, missing 100+ s of the boarding + conveyor phase.
+//
+// Pre-fix RED: ride start lands inside the cable cruise (≥ s 150).
+// Post-fix GREEN: ride start lands at the plateau end (s ∈ [55, 75]).
+func TestBugE_BackwardWalk_StopsAtBoardingPlateauHardBoundary(t *testing.T) {
+	base := time.Unix(0, 0).UTC()
+	pts := buildSlowChairliftWithBoardingAndConveyor(base)
+
+	rides := DetectHeuristic(pts, DefaultDetectorConfig("ski"))
+	if len(rides) != 1 {
+		t.Fatalf("got %d rides, want 1 (one continuous chairlift)", len(rides))
+	}
+	startOffsetS := rides[0].StartedAt.Sub(base).Seconds()
+	// Allow [55, 80] — the gate aims for the plateau end (s ≈ 60)
+	// with ±15 s tolerance for slice-top alignment.
+	if startOffsetS < 55 || startOffsetS > 80 {
+		t.Errorf("ride start at s=%.0f, want ∈ [55, 80] (plateau end)", startOffsetS)
+	}
+	// Sanity: ride should span boarding-plateau end through the
+	// disembark plateau (~660 s) capturing both conveyor and cable.
+	if rides[0].DurationS < 600 {
+		t.Errorf("ride duration = %d s, want ≥ 600 s (boarding+conveyor+cable)", rides[0].DurationS)
+	}
+}
