@@ -1509,6 +1509,9 @@ func main() {
 			r.Post("/activities/{id}/lifts/reject-all", h.RejectAllLiftCandidates)
 			r.Post("/activities/{id}/lifts/acknowledge", h.AcknowledgeLifts)
 			r.Post("/activities/{id}/lifts/recalculate-all", h.RecalculateActivityLifts)
+			r.Get("/activities/{id}/lifts/detection-config", h.GetLiftDetectionConfig)
+			r.Put("/activities/{id}/lifts/detection-config", h.PutLiftDetectionConfig)
+			r.Delete("/activities/{id}/lifts/detection-config", h.DeleteLiftDetectionConfig)
 			r.Post("/lift-candidates/{id}/restore", h.RestoreLiftCandidate)
 			r.Post("/lifts/recalculate-all", h.RecalculateLifts)
 

@@ -419,6 +419,19 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// 409 guard: reject the request when a lift_recompute job is already
+	// running for this (user, activity) to prevent a wasted delete+re-detect
+	// cycle that would overwrite in-progress results with stale data.
+	if running, existingJobID, checkErr := h.DB.HasRunningLiftRecomputeJob(r.Context(), userID, activityID); checkErr != nil {
+		slog.Warn("recalculate lifts: could not check for running job", "activity_id", activityID, "error", checkErr)
+	} else if running && existingJobID != nil {
+		httputil.WriteJSON(w, http.StatusConflict, map[string]string{
+			"error":  "Re-Detect job already running",
+			"job_id": *existingJobID,
+		})
+		return
+	}
+
 	// F2: enqueue lift re-enrichment as a background job AFTER the DELETE
 	// transaction commits. Returning 204 immediately prevents client disconnect
 	// from leaving the activity in a "wiped but not re-detected" state, and
