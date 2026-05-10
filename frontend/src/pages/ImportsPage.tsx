@@ -16,6 +16,7 @@ import {
   ChevronUp,
   ArrowDownToLine,
   ExternalLink,
+  Inbox,
 } from 'lucide-react'
 import { useImportQueue, useImportHistory } from '@/hooks/useImportLog'
 import type { ImportLogEntry } from '@/api/imports'
@@ -143,6 +144,13 @@ function StatusBadge({ status }: { status: string }) {
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
           <XCircle className="w-3 h-3" />
           Fehler
+        </span>
+      )
+    case 'queued':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+          <Inbox className="h-3 w-3" />
+          In Queue
         </span>
       )
     default:
@@ -283,12 +291,14 @@ const PAGE_SIZE = 50
 
 function HistorySection() {
   const [sourcePlatformFilter, setSourcePlatformFilter] = useState('')
+  const [importTypeFilter, setImportTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [offset, setOffset] = useState(0)
   const [expandedErrors, setExpandedErrors] = useState<Set<string>>(new Set())
 
   const params = {
     source_platform: sourcePlatformFilter || undefined,
+    import_type: importTypeFilter || undefined,
     status: statusFilter || undefined,
     limit: PAGE_SIZE,
     offset,
@@ -305,6 +315,11 @@ function HistorySection() {
 
   const handleStatusChange = (v: string) => {
     setStatusFilter(v)
+    setOffset(0)
+  }
+
+  const handleTypeChange = (v: string) => {
+    setImportTypeFilter(v)
     setOffset(0)
   }
 
@@ -347,9 +362,31 @@ function HistorySection() {
           <option value="">Alle Quellen</option>
           <option value="hotfolder">Hotfolder</option>
           <option value="upload">Upload</option>
+          <option value="url">URL</option>
           <option value="garmin">Garmin</option>
           <option value="strava">Strava</option>
           <option value="komoot">Komoot</option>
+          <option value="gdpr_import">DSGVO-Import</option>
+        </select>
+
+        <select
+          value={importTypeFilter}
+          onChange={(e) => handleTypeChange(e.target.value)}
+          className={selectClass}
+          aria-label="Typ filtern"
+        >
+          <option value="">Alle Typen</option>
+          <option value="activity">Aktivität</option>
+          <option value="route">Route</option>
+          <option value="workout">Workout</option>
+          <option value="monitoring">Monitoring</option>
+          <option value="photo">Foto</option>
+          <option value="video">Video</option>
+          <option value="document">Dokument</option>
+          <option value="gear">Gear</option>
+          <option value="segment">Segment</option>
+          <option value="archive">Archiv</option>
+          <option value="unknown">Unbekannt</option>
         </select>
 
         <select
@@ -363,6 +400,7 @@ function HistorySection() {
           <option value="processing">Verarbeitung</option>
           <option value="completed">Fertig</option>
           <option value="skipped">Duplikat</option>
+          <option value="queued">In Queue</option>
           <option value="error">Fehler</option>
         </select>
       </div>

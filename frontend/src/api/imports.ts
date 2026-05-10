@@ -12,6 +12,7 @@ export interface ImportLogEntry {
   error_msg?: string
   duration_ms?: number
   metadata?: Record<string, unknown>
+  import_type?: string
   created_at: string
   updated_at: string
 }
@@ -24,6 +25,7 @@ export interface ImportLogResponse {
 export interface ImportLogParams {
   status?: string
   source_platform?: string
+  import_type?: string
   limit?: number
   offset?: number
 }
@@ -32,6 +34,7 @@ export async function getImports(params: ImportLogParams = {}): Promise<ImportLo
   const searchParams = new URLSearchParams()
   if (params.status) searchParams.set('status', params.status)
   if (params.source_platform) searchParams.set('source_platform', params.source_platform)
+  if (params.import_type) searchParams.set('import_type', params.import_type)
   if (params.limit !== undefined) searchParams.set('limit', String(params.limit))
   if (params.offset !== undefined) searchParams.set('offset', String(params.offset))
 
