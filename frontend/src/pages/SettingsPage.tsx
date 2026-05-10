@@ -152,6 +152,10 @@ function AutomatischeAnalysenSection() {
                             const next = !(settings[child.field] ?? true)
                             mut.mutate({ [child.field]: next })
                           }}
+                          // F21: mut.isPending is a single mutation shared across all toggles.
+                          // A PUT for any field locks every sub-toggle until the request settles.
+                          // Per-field mutation scoping requires restructuring this section into
+                          // individual useMutation hooks per field — tracked as a follow-up task.
                           disabled={isLoading || mut.isPending || parentDisabled}
                           className={`mt-0.5 ${parentDisabled ? 'cursor-not-allowed' : ''}`}
                           aria-label={`${child.label} aktivieren`}
