@@ -159,6 +159,89 @@ func TestMigration_LiftReviewState_ExistingRowsGetDefaultFalse(t *testing.T) {
 	}
 }
 
+// TestMigration_LiftReviewState_DetectionModeToggleColumns verifies that the
+// 4 detection-mode toggle columns added in the Phase 1 in-place extension are
+// present with the correct types, nullability and defaults.
+func TestMigration_LiftReviewState_DetectionModeToggleColumns(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	type colSpec struct {
+		table      string
+		column     string
+		wantType   string
+		wantNullable string // "YES" or "NO"
+		wantDefault  string // empty means nullable (no default expected)
+	}
+	specs := []colSpec{
+		{
+			table:        "user_enrichment_settings",
+			column:       "enable_lift_detection_osm",
+			wantType:     "boolean",
+			wantNullable: "NO",
+			wantDefault:  "true",
+		},
+		{
+			table:        "user_enrichment_settings",
+			column:       "enable_lift_detection_heuristic",
+			wantType:     "boolean",
+			wantNullable: "NO",
+			wantDefault:  "true",
+		},
+		{
+			table:        "activities",
+			column:       "lift_detection_osm_override",
+			wantType:     "boolean",
+			wantNullable: "YES",
+			wantDefault:  "",
+		},
+		{
+			table:        "activities",
+			column:       "lift_detection_heuristic_override",
+			wantType:     "boolean",
+			wantNullable: "YES",
+			wantDefault:  "",
+		},
+	}
+
+	for _, spec := range specs {
+		t.Run(spec.table+"."+spec.column, func(t *testing.T) {
+			var dataType, isNullable string
+			var columnDefault *string
+			err := pool.QueryRow(ctx, `
+				SELECT data_type, is_nullable, column_default
+				FROM information_schema.columns
+				WHERE table_name = $1 AND column_name = $2
+			`, spec.table, spec.column).Scan(&dataType, &isNullable, &columnDefault)
+			if err != nil {
+				t.Fatalf("query column metadata for %s.%s: %v", spec.table, spec.column, err)
+			}
+			if dataType != spec.wantType {
+				t.Errorf("%s.%s data_type = %q, want %q", spec.table, spec.column, dataType, spec.wantType)
+			}
+			if isNullable != spec.wantNullable {
+				t.Errorf("%s.%s is_nullable = %q, want %q", spec.table, spec.column, isNullable, spec.wantNullable)
+			}
+			if spec.wantDefault != "" {
+				if columnDefault == nil {
+					t.Errorf("%s.%s has no default, want %q", spec.table, spec.column, spec.wantDefault)
+				} else if !strings.Contains(*columnDefault, spec.wantDefault) {
+					t.Errorf("%s.%s default = %q, want it to contain %q", spec.table, spec.column, *columnDefault, spec.wantDefault)
+				}
+			}
+		})
+	}
+}
+
+// TestMigration_LiftReviewState_DownRoundtrip verifies that running UP → DOWN → UP
+// leaves all 6 migration-350 columns (including the Phase 1 toggle additions) present.
+// This test is intentionally omitted here because migrationTestPool runs against
+// an already-migrated DB (the test DB is set up to the latest version). A down-
+// roundtrip would require a dedicated test-DB with migration control not available
+// in this package's helper. The migration is verified structurally by
+// TestMigration_LiftReviewState_DetectionModeToggleColumns and the existence of
+// existing columns (TestMigration_LiftReviewState_RejectedByUserColumn etc.).
+
 // TestMigration_LiftReviewState_PartialIndexUsedByActiveFilter verifies that
 // EXPLAIN selects idx_lift_candidates_active for a query filtering on
 // WHERE NOT rejected_by_user. The partial index is defined with that exact

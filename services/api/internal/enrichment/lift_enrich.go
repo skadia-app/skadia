@@ -143,7 +143,7 @@ func enrichStreamLiftsOpts(
 		return fmt.Errorf("enrichStreamLifts: check osm_lifts: %w", err)
 	}
 	if !hasOSM {
-		slog.Warn("enrichStreamLifts: osm_lifts is empty — running heuristic detector without snap pipeline",
+		slog.Info("enrichStreamLifts: osm_lifts is empty — running heuristic detector without snap pipeline",
 			"activity_id", activityID)
 	}
 
