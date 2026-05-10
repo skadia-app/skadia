@@ -156,7 +156,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 		}
 
 		slog.Debug("komoot routes: route created", "tour_id", tour.ID, "route_id", routeID)
-		tracker.Completed(ctx, routeID)
+		tracker.Completed(ctx, "")
 		result.Imported++
 	}
 

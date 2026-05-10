@@ -661,6 +661,9 @@ func ImportTypeForFITType(ftype uint8) string {
 		return "route"
 	case fitFileTypeSegment:
 		return "segment"
+	// Sport profile FITs (type 3) are intentionally bucketed as "monitoring" to match
+	// Garmin Connect export grouping — they are config blobs, not measurement data,
+	// but the user-facing import history groups them with health uploads.
 	case fitFileTypeWeight,
 		fitFileTypeMonitoringA, fitFileTypeMonitoringDaily, fitFileTypeMonitoringB,
 		fitFileTypeSleep, fitFileTypeSpO2, fitFileTypeMonitorMain,
