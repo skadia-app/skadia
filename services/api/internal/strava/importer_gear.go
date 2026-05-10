@@ -46,6 +46,11 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 	// Maps Strava bike name → skadia gear ID (for component assignment)
 	bikeNameToID := make(map[string]string)
 
+	var batchIDPtr *string
+	if params.JobID != "" {
+		batchIDPtr = &params.JobID
+	}
+
 	// --- Bikes ---
 	if rows, err := params.Source.ReadCSV("bikes.csv"); err == nil && len(rows) >= 2 {
 		hdr := CSVHeader(rows[0])
@@ -63,6 +68,9 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			// Derive a meaningful display name
 			displayName := buildGearName(name, brand, modelStr)
 
+			tracker := params.DB.NewImportTracker(ctx, params.UserID, "strava", displayName, nil, batchIDPtr, model.ImportTypeGear)
+			tracker.Processing(ctx)
+
 			// Detect e-bike
 			gearType := "bike"
 			if strings.Contains(strings.ToLower(sports), "e-bike") || strings.Contains(strings.ToLower(displayName), "e-bike") {
@@ -77,6 +85,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			if exists {
 				result.Skipped++
 				bikeNameToID[name] = gearID
+				tracker.Skipped(ctx, "duplicate", nil)
 				continue
 			}
 
@@ -103,15 +112,17 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 				DefaultSportPredicates: defaultPredicates,
 			}
 
-			gear, err := params.DB.CreateGear(ctx, params.UserID, create)
+			gearItem, err := params.DB.CreateGear(ctx, params.UserID, create)
 			if err != nil {
 				slog.Warn("strava gear: create bike failed", "name", displayName, "error", err)
 				result.Errors = append(result.Errors, "create bike "+displayName+": "+err.Error())
+				tracker.Error(ctx, err)
 				continue
 			}
-			bikeNameToID[name] = gear.ID
+			bikeNameToID[name] = gearItem.ID
+			tracker.Completed(ctx, "")
 			result.Imported++
-			slog.Info("strava gear: imported bike", "name", displayName, "id", gear.ID)
+			slog.Info("strava gear: imported bike", "name", displayName, "id", gearItem.ID)
 		}
 	}
 
@@ -131,6 +142,9 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 			displayName := buildGearName(name, brand, modelStr)
 
+			tracker := params.DB.NewImportTracker(ctx, params.UserID, "strava", displayName, nil, batchIDPtr, model.ImportTypeGear)
+			tracker.Processing(ctx)
+
 			// Check for duplicate by name
 			exists, _, err := params.DB.GearExistsByNameForUser(ctx, params.UserID, displayName)
 			if err != nil {
@@ -138,6 +152,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			}
 			if exists {
 				result.Skipped++
+				tracker.Skipped(ctx, "duplicate", nil)
 				continue
 			}
 
@@ -164,14 +179,16 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 				DefaultSportPredicates: defaultPredicates,
 			}
 
-			gear, err := params.DB.CreateGear(ctx, params.UserID, create)
+			gearItem, err := params.DB.CreateGear(ctx, params.UserID, create)
 			if err != nil {
 				slog.Warn("strava gear: create shoes failed", "name", displayName, "error", err)
 				result.Errors = append(result.Errors, "create shoes "+displayName+": "+err.Error())
+				tracker.Error(ctx, err)
 				continue
 			}
+			tracker.Completed(ctx, "")
 			result.Imported++
-			slog.Info("strava gear: imported shoes", "name", displayName, "id", gear.ID)
+			slog.Info("strava gear: imported shoes", "name", displayName, "id", gearItem.ID)
 		}
 	}
 

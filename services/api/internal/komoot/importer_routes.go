@@ -56,16 +56,26 @@ func (i *RoutesImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 	total := len(planned)
 	slog.Info("komoot routes: found planned tours", "count", total)
 
+	var batchIDPtr *string
+	if p.BatchID != "" {
+		batchIDPtr = &p.BatchID
+	}
+
 	for idx, tour := range planned {
 		if p.OnProgress != nil {
 			p.OnProgress(idx+1, total, fmt.Sprintf("routes: %d/%d %s", idx+1, total, tour.Name))
 		}
+
+		logFilename := fmt.Sprintf("%d.gpx", tour.ID)
+		tracker := p.DB.NewImportTracker(ctx, p.UserID, "komoot", logFilename, nil, batchIDPtr, model.ImportTypeRoute)
+		tracker.Processing(ctx)
 
 		// Download GPX
 		gpxBytes, err := i.Client.DownloadGPX(ctx, tour.ID)
 		if err != nil {
 			slog.Warn("komoot routes: GPX download failed", "tour_id", tour.ID, "error", err)
 			result.Errors = append(result.Errors, fmt.Sprintf("gpx download tour %d: %s", tour.ID, err))
+			tracker.Error(ctx, err)
 			continue
 		}
 
@@ -74,6 +84,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 		if err != nil || geojson == "" {
 			slog.Warn("komoot routes: GPX parse failed", "tour_id", tour.ID, "error", err)
 			result.Errors = append(result.Errors, fmt.Sprintf("gpx parse tour %d: %s", tour.ID, err))
+			tracker.Error(ctx, err)
 			continue
 		}
 
@@ -112,6 +123,7 @@ func (i *RoutesImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 		if dup != nil {
 			slog.Debug("komoot routes: duplicate found", "tour_id", tour.ID, "existing_id", dup.ExistingRouteID, "confidence", dup.Confidence)
 			result.Skipped++
+			tracker.Skipped(ctx, "duplicate", nil)
 			continue
 		}
 
@@ -139,10 +151,12 @@ func (i *RoutesImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 		if err != nil {
 			slog.Warn("komoot routes: create route failed", "tour_id", tour.ID, "error", err)
 			result.Errors = append(result.Errors, fmt.Sprintf("create route tour %d: %s", tour.ID, err))
+			tracker.Error(ctx, err)
 			continue
 		}
 
 		slog.Debug("komoot routes: route created", "tour_id", tour.ID, "route_id", routeID)
+		tracker.Completed(ctx, "")
 		result.Imported++
 	}
 

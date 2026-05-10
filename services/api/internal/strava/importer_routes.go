@@ -55,6 +55,11 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 		}
 	}
 
+	var batchIDPtr *string
+	if p.JobID != "" {
+		batchIDPtr = &p.JobID
+	}
+
 	result := &ImportResult{}
 
 	for _, row := range rows[1:] {
@@ -76,6 +81,9 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 			continue
 		}
 
+		tracker := p.DB.NewImportTracker(ctx, p.UserID, "strava", gpxFile, nil, batchIDPtr, model.ImportTypeRoute)
+		tracker.Processing(ctx)
+
 		gpxPath := gpxFile
 		if !strings.HasPrefix(gpxPath, "routes/") {
 			gpxPath = "routes/" + gpxPath
@@ -86,12 +94,14 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 		gpxBytes, err := p.Source.ReadFile(gpxPath)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("read gpx %s: %v", gpxPath, err))
+			tracker.Error(ctx, err)
 			continue
 		}
 
 		geojson, distM, elevGain, elevLoss, err := importer.GPXToGeoJSON(gpxBytes)
 		if err != nil || geojson == "" {
 			result.Errors = append(result.Errors, fmt.Sprintf("parse gpx %s: %v", gpxPath, err))
+			tracker.Error(ctx, err)
 			continue
 		}
 
@@ -110,10 +120,12 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 		)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("dup check %s: %v", name, err))
+			tracker.Error(ctx, err)
 			continue
 		}
 		if dup != nil {
 			result.Skipped++
+			tracker.Skipped(ctx, "duplicate", nil)
 			continue
 		}
 
@@ -140,8 +152,10 @@ func (i *RoutesImporter) Import(ctx context.Context, p ImportParams) (*ImportRes
 		})
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("create route %s: %v", name, err))
+			tracker.Error(ctx, err)
 			continue
 		}
+		tracker.Completed(ctx, "")
 		result.Imported++
 	}
 
