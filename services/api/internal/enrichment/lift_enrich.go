@@ -392,7 +392,7 @@ func enrichStreamLiftsCore(
 	// row. There is no DB-level FK from activity_lift_candidates →
 	// segment_efforts (the hypertable's composite PK is not referenceable),
 	// so an explicit NULL update is the only way to keep the audit row
-	// orphan-free. The column is nullable since migration 000356. NULL is
+	// orphan-free. The column is nullable since migration 000357. NULL is
 	// the correct soft-reject state (matches the heuristic-rejected case
 	// where the candidate never had a segment_effort).
 	//

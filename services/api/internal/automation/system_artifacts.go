@@ -11,7 +11,7 @@ package automation
 // SQL CHECK whitelist on automation_rules.system_type — required a new
 // migration for every system_type addition (000176, 000220, 000260, 000261,
 // 000268, 000288 — all just to expand the whitelist or seed a row). The CHECK
-// constraint was dropped in migration 000355_drop_system_type_check_for_code_validation;
+// constraint was dropped in migration 000356_drop_system_type_check_for_code_validation;
 // validation is now done in IsValidSystemType below.
 
 import (
@@ -173,7 +173,7 @@ const SystemArtifactsVersion = 2
 const sweepAdvisoryLockKey int64 = 0x5c46c1f770b0 // "SCA L1FT" mnemonic
 
 // IsValidSystemType replaces the SQL CHECK constraint that migration
-// 000355_drop_system_type_check_for_code_validation dropped. Verified
+// 000356_drop_system_type_check_for_code_validation dropped. Verified
 // callsites that write automation_rules.system_type
 // (grep at plan time, services/api/internal/):
 //
