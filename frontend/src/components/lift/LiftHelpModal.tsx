@@ -48,8 +48,8 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                   <p>
                     Deine GPS-Spur wird gegen die OpenStreetMap-Lift-Geometrie verglichen.
                     Wenn ein Abschnitt deiner Aktivität auf einem als Lift markierten OSM-Segment liegt,
-                    wird er sofort als Lift gezählt — ohne Review-Pflicht. Voraussetzung: der Lift
-                    muss in OSM existieren und korrekt getaggt sein.
+                    wird er sofort als Lift gezählt. Voraussetzung: der Lift muss in OSM existieren,
+                    korrekt getaggt sein und in der lokalen Datenbank importiert sein.
                   </p>
                   <p>
                     <strong>Trotzdem ablehnbar:</strong> der Match ist geometrisch, nicht semantisch.
@@ -59,18 +59,17 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                   </p>
                   <p>
                     <strong>Lift fehlt oder ist falsch eingetragen?</strong> Wenn du sicher bist, dass deine
-                    GPS-Spur korrekt ist, der Lift in OSM aber deutlich versetzt liegt oder ganz fehlt,
-                    kannst du OpenStreetMap selbst korrigieren — eine kurze Einführung dazu findest
-                    du auf{' '}
+                    GPS-Spur korrekt ist, der Lift in OSM aber versetzt liegt oder fehlt, kannst du
+                    OpenStreetMap selbst korrigieren:{' '}
                     <a
-                      href="https://openstreetmap.de/beitragen/osm-zugang/"
+                      href="https://wiki.openstreetmap.org/wiki/How_to_contribute"
                       target="_blank"
                       rel="noreferrer"
                       className="text-accent-DEFAULT hover:underline"
                     >
                       openstreetmap.de/beitragen
                     </a>
-                    . Skadia übernimmt deine Änderung automatisch beim nächsten OSM-Update.
+                    . Skadia übernimmt deine Änderung beim nächsten OSM-Import.
                   </p>
                 </dd>
               </div>
@@ -190,6 +189,51 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                 </div>
               </div>
             </div>
+          </section>
+
+          {/* Pipeline modes / toggles */}
+          <section>
+            <h3 className="font-semibold text-base text-neutral-900 dark:text-neutral-100 mb-2">
+              Pipeline-Modi (an-/abschaltbar)
+            </h3>
+            <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-3">
+              Du kannst die beiden Methoden einzeln ein- oder ausschalten — global in den
+              Profil-Einstellungen unter „Lift-Erkennung", oder pro Aktivität direkt oben im
+              Review-Modal über die Toggles <strong>„OSM-Snap"</strong> und{' '}
+              <strong>„Heuristik"</strong>.
+            </p>
+            <dl className="text-neutral-600 dark:text-neutral-400 leading-relaxed space-y-2 mb-3">
+              <div>
+                <dt className="font-medium text-neutral-900 dark:text-neutral-100">Beide an (Default)</dt>
+                <dd>OSM-Match hat Priorität, Heuristik füllt Lücken wo OSM nichts liefert.</dd>
+              </div>
+              <div>
+                <dt className="font-medium text-neutral-900 dark:text-neutral-100">Nur OSM-Snap</dt>
+                <dd>
+                  Reine Geometrie-Matches gegen importierte OSM-Lifte. Schnell, kein
+                  Bestätigungsschritt nötig — aber findet keine fehlenden Lifte.
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium text-neutral-900 dark:text-neutral-100">Nur Heuristik</dt>
+                <dd>
+                  Reine Stream-Analyse. Findet auch Lifte die nicht in OSM stehen, jede
+                  Detektion landet als Vorschlag zur Bestätigung im Review-Modal.
+                </dd>
+              </div>
+              <div>
+                <dt className="font-medium text-neutral-900 dark:text-neutral-100">Beide aus</dt>
+                <dd>
+                  Keine automatische Erkennung. Manuelle Soft-Rejects und bestätigte Lifte
+                  bleiben erhalten.
+                </dd>
+              </div>
+            </dl>
+            <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed">
+              Änderst du eine Einstellung, wird die Aktivität im Hintergrund neu analysiert
+              („Anwenden"). Läuft bereits ein Job, bekommst du dezent
+              <em> „Job läuft bereits — bitte warten"</em>.
+            </p>
           </section>
 
           {/* Pause gaps */}
