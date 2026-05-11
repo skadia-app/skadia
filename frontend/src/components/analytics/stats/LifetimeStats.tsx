@@ -71,8 +71,8 @@ function StreakBadge({ label, count, isRecord }: StreakBadgeProps) {
 function LoadingSkeleton() {
   return (
     <div className="space-y-6 animate-pulse">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {Array.from({ length: 6 }).map((_, i) => (
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        {Array.from({ length: 7 }).map((_, i) => (
           <div key={i} className="rounded-xl p-4 border border-neutral-200 dark:border-neutral-800 bg-neutral-100 dark:bg-neutral-800 h-20" />
         ))}
       </div>
@@ -116,8 +116,13 @@ export default function LifetimeStats() {
           unit="km"
         />
         <StatCard
-          label="Höhenmeter"
+          label="Höhenmeter ↑"
           value={fmtNum(data.total_elevation_m)}
+          unit="m"
+        />
+        <StatCard
+          label="Höhenmeter ↓"
+          value={fmtNum(data.total_elevation_loss_m)}
           unit="m"
         />
         <StatCard
@@ -137,7 +142,7 @@ export default function LifetimeStats() {
       {/* Fun facts */}
       {(() => {
         const earthLaps = data.total_distance_m / 40_075_000
-        return (earthLaps >= 0.01 || data.moon_trips > 0 || data.everest_count > 0) && (
+        return (earthLaps >= 0.01 || data.moon_trips > 0 || data.everest_count > 0 || data.everest_count_down > 0) && (
           <div>
             <h3 className="text-sm font-semibold text-neutral-600 dark:text-neutral-400 mb-3 uppercase tracking-wide">
               Spass-Fakten
@@ -159,6 +164,12 @@ export default function LifetimeStats() {
                 <FunFact
                   emoji="⛰️"
                   text={`${fmtNum(data.everest_count)}× den Mount Everest bestiegen`}
+                />
+              )}
+              {data.everest_count_down > 0 && (
+                <FunFact
+                  emoji="⛰️"
+                  text={`${fmtNum(data.everest_count_down)}× den Mount Everest abgestiegen`}
                 />
               )}
             </div>
