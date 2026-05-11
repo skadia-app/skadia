@@ -3217,14 +3217,6 @@ var Schema = GearSchema{
 			ModifierKeys:             []string{},
 		},
 		{
-			Key:                      "climbing_harness",
-			LabelDE:                  "Klettergurt",
-			Scope:                    "climb",
-			DefaultAssignmentRoleKey: "worn",
-			AttributeKeys:            []string{},
-			ModifierKeys:             []string{},
-		},
-		{
 			Key:                      "climb.harness",
 			LabelDE:                  "Klettergurt",
 			Scope:                    "climb",

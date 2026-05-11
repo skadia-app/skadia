@@ -2,11 +2,13 @@ package database
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/google/uuid"
 )
@@ -50,6 +52,149 @@ func TestCreateGearStoresDefaultSportPredicates(t *testing.T) {
 	}
 	if gear.DefaultSportPredicates[0].SubType == nil || *gear.DefaultSportPredicates[0].SubType != "mountain" {
 		t.Fatalf("DefaultSportPredicates = %#v, want mountain subtype", gear.DefaultSportPredicates)
+	}
+}
+
+func TestCreateChainRotationRejectsOutOfGearMembers(t *testing.T) {
+	db, userID := gearTestDB(t)
+	ctx := context.Background()
+	gearA, err := db.CreateGear(ctx, userID, &model.GearCreate{Name: "Bike A", Type: "bike"})
+	if err != nil {
+		t.Fatalf("CreateGear A: %v", err)
+	}
+	gearB, err := db.CreateGear(ctx, userID, &model.GearCreate{Name: "Bike B", Type: "bike"})
+	if err != nil {
+		t.Fatalf("CreateGear B: %v", err)
+	}
+	compA, err := db.CreateComponent(ctx, gearA.ID, &model.GearComponentCreate{Name: "Kette A", Type: "chain"})
+	if err != nil {
+		t.Fatalf("CreateComponent A: %v", err)
+	}
+	compB, err := db.CreateComponent(ctx, gearB.ID, &model.GearComponentCreate{Name: "Kette B", Type: "chain"})
+	if err != nil {
+		t.Fatalf("CreateComponent B: %v", err)
+	}
+
+	_, err = db.CreateChainRotation(ctx, userID, gearA.ID, &ChainRotationGroupCreate{
+		Name:         "Kettenrotation",
+		ComponentIDs: []string{compA.ID, compB.ID},
+	})
+	if !errors.Is(err, ErrComponentNotFound) {
+		t.Fatalf("CreateChainRotation err = %v, want ErrComponentNotFound", err)
+	}
+}
+
+func TestCreateChainRotationRejectsForeignGear(t *testing.T) {
+	db, userID := gearTestDB(t)
+	ctx := context.Background()
+	otherUserID := uuid.NewString()
+	if _, err := db.Pool.Exec(ctx,
+		`INSERT INTO users (id, username, email, email_verified, registration_source)
+		 VALUES ($1, $2, $3, true, 'test')`,
+		otherUserID, "gear-"+otherUserID[:8], "gear-"+otherUserID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert other user: %v", err)
+	}
+	foreignGear, err := db.CreateGear(ctx, otherUserID, &model.GearCreate{Name: "Foreign Bike", Type: "bike"})
+	if err != nil {
+		t.Fatalf("CreateGear foreign: %v", err)
+	}
+
+	_, err = db.CreateChainRotation(ctx, userID, foreignGear.ID, &ChainRotationGroupCreate{
+		Name:         "Kettenrotation",
+		ComponentIDs: []string{uuid.NewString(), uuid.NewString()},
+	})
+	if !errors.Is(err, ErrGearNotFound) {
+		t.Fatalf("CreateChainRotation err = %v, want ErrGearNotFound", err)
+	}
+}
+
+func TestInsertGearDocumentPersistsDocumentMetadata(t *testing.T) {
+	db, userID := gearTestDB(t)
+	ctx := context.Background()
+	gear, err := db.CreateGear(ctx, userID, &model.GearCreate{Name: "Bike", Type: "bike"})
+	if err != nil {
+		t.Fatalf("CreateGear: %v", err)
+	}
+	amount := 42.5
+	date := "2026-05-11"
+	currency := "EUR"
+	doc, err := db.InsertGearDocument(ctx, &model.GearDocument{
+		UserID:           userID,
+		GearID:           &gear.ID,
+		DocType:          "receipt",
+		OriginalFilename: "receipt.pdf",
+		ContentType:      "application/pdf",
+		FileSizeBytes:    1234,
+		DocumentDate:     &date,
+		DocumentAmount:   &amount,
+		DocumentCurrency: &currency,
+	})
+	if err != nil {
+		t.Fatalf("InsertGearDocument: %v", err)
+	}
+	if doc.DocumentDate == nil || *doc.DocumentDate != date {
+		t.Fatalf("DocumentDate = %#v, want %q", doc.DocumentDate, date)
+	}
+	if doc.DocumentAmount == nil || *doc.DocumentAmount != amount {
+		t.Fatalf("DocumentAmount = %#v, want %.2f", doc.DocumentAmount, amount)
+	}
+	if doc.DocumentCurrency == nil || *doc.DocumentCurrency != currency {
+		t.Fatalf("DocumentCurrency = %#v, want %q", doc.DocumentCurrency, currency)
+	}
+}
+
+func TestDeleteServiceEventRestoresPreviousIntervalReset(t *testing.T) {
+	db, userID := gearTestDB(t)
+	ctx := context.Background()
+	gear, err := db.CreateGear(ctx, userID, &model.GearCreate{Name: "Bike", Type: "bike"})
+	if err != nil {
+		t.Fatalf("CreateGear: %v", err)
+	}
+	component, err := db.CreateComponent(ctx, gear.ID, &model.GearComponentCreate{Name: "Kette", Type: "chain"})
+	if err != nil {
+		t.Fatalf("CreateComponent: %v", err)
+	}
+	interval, err := db.CreateServiceInterval(ctx, component.ID, &model.GearServiceIntervalCreate{
+		Name:          "Tauschen",
+		MetricKey:     "distance_m",
+		IntervalValue: 500,
+	})
+	if err != nil {
+		t.Fatalf("CreateServiceInterval: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE gear_components SET total_distance_m = 100 WHERE id = $1`, component.ID); err != nil {
+		t.Fatalf("set distance 100: %v", err)
+	}
+	first, err := db.CreateServiceEvent(ctx, component.ID, &ServiceEventCreate{
+		IntervalID:  &interval.ID,
+		PerformedAt: time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("CreateServiceEvent first: %v", err)
+	}
+	if first.ID == "" {
+		t.Fatal("first service event has no ID")
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE gear_components SET total_distance_m = 200 WHERE id = $1`, component.ID); err != nil {
+		t.Fatalf("set distance 200: %v", err)
+	}
+	second, err := db.CreateServiceEvent(ctx, component.ID, &ServiceEventCreate{
+		IntervalID:  &interval.ID,
+		PerformedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("CreateServiceEvent second: %v", err)
+	}
+
+	if err := db.DeleteServiceEvent(ctx, second.ID); err != nil {
+		t.Fatalf("DeleteServiceEvent: %v", err)
+	}
+	intervals, err := db.ListServiceIntervals(ctx, component.ID)
+	if err != nil {
+		t.Fatalf("ListServiceIntervals: %v", err)
+	}
+	if len(intervals) != 1 || intervals[0].LastServiceMetricValue == nil || *intervals[0].LastServiceMetricValue != 100 {
+		t.Fatalf("LastServiceMetricValue after delete = %#v, want 100", intervals)
 	}
 }
 

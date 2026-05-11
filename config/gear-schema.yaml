@@ -3158,12 +3158,6 @@ gear_types:
     default_assignment_role_key: worn
 
   # ---- Climb ----
-  # Legacy stub key retained for backward-compatibility with gear items created before Phase 9.
-  - key: climbing_harness
-    label_de: Klettergurt
-    scope: climb
-    default_assignment_role_key: worn
-
   - key: climb.harness
     label_de: Klettergurt
     scope: climb

@@ -318,6 +318,17 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                 _metrics["processed_total"] += 1
                 logger.info("document processed: %s (success=%s)", doc_id, success)
 
+                try:
+                    pool = await get_pool()
+                    async with pool.acquire() as conn:
+                        await conn.execute(
+                            "UPDATE gear_documents SET processing_status = $1 WHERE id = $2",
+                            "processed" if success else "failed",
+                            doc_id,
+                        )
+                except Exception as e:
+                    logger.warning("failed to update document processing status for %s: %s", doc_id, e)
+
                 # PDF→Markdown Konvertierung (best-effort)
                 if success:
                     extracted_text = data.get("extracted_text", "") or ""

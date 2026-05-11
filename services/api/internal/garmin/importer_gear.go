@@ -114,7 +114,11 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 		garminID := dto.UUID
 		if garminID == "" {
-			garminID = strings.TrimSpace(strings.Join([]string{dto.GearTypeName, dto.CustomMakeModel}, "_"))
+			if dto.GearPk != 0 {
+				garminID = fmt.Sprintf("pk:%d", dto.GearPk)
+			} else {
+				garminID = strings.TrimSpace(strings.Join([]string{dto.GearTypeName, dto.CustomMakeModel}, "_"))
+			}
 		}
 
 		// Check if already imported (by garmin_gear_id)

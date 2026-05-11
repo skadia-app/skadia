@@ -850,6 +850,8 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['service-events', componentId] })
       queryClient.invalidateQueries({ queryKey: ['service-intervals', componentId] })
+      queryClient.invalidateQueries({ queryKey: ['maintenance-alerts'] })
+      queryClient.invalidateQueries({ queryKey: ['gear-detail'] })
       setAdding(false)
       setDescription('')
       setCost('')
@@ -862,6 +864,9 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
     mutationFn: deleteServiceEvent,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['service-events', componentId] })
+      queryClient.invalidateQueries({ queryKey: ['service-intervals', componentId] })
+      queryClient.invalidateQueries({ queryKey: ['maintenance-alerts'] })
+      queryClient.invalidateQueries({ queryKey: ['gear-detail'] })
     },
   })
 
@@ -886,6 +891,7 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
     mutationFn: deleteServiceInterval,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['service-intervals', componentId] })
+      queryClient.invalidateQueries({ queryKey: ['maintenance-alerts'] })
     },
   })
 

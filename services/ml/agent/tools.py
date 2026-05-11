@@ -1725,7 +1725,8 @@ async def _get_gear_for_activity(pool, user_id, activity_id):
 async def _get_gear_documents(pool, user_id, gear_id):
     from uuid import UUID as UUIDType
     rows = await pool.fetch(
-        "SELECT doc_type, original_filename, extracted_data, processing_status, created_at::date AS date "
+        "SELECT doc_type, original_filename, document_date, document_amount, document_currency, "
+        "extracted_data, processing_status, created_at::date AS date "
         "FROM gear_documents "
         "WHERE gear_id = $1 AND user_id = $2 "
         "ORDER BY created_at",
@@ -1743,8 +1744,8 @@ async def _get_gear_documents(pool, user_id, gear_id):
         ed = doc.get("extracted_data") or {}
         if isinstance(ed, dict):
             try:
-                amount = float(ed.get("total_amount") or ed.get("amount") or 0)
-                currency = ed.get("currency", "")
+                amount = float(doc.get("document_amount") or ed.get("total_amount") or ed.get("amount") or 0)
+                currency = doc.get("document_currency") or ed.get("currency", "")
                 if amount:
                     total_cost += amount
                     if currency and not total_cost_currency:

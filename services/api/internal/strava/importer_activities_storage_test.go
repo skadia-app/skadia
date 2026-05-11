@@ -47,6 +47,17 @@ func TestBuildStravaCSVSourceFileUsesCanonicalActivityTags(t *testing.T) {
 	}
 }
 
+func TestStravaActivityGearNameReadsLocalizedAndEnglishColumns(t *testing.T) {
+	germanHeader := map[string]int{"Ausrüstung": 1}
+	if got := stravaActivityGearName([]string{"Morning Ride", "Propain Tyee 2020"}, germanHeader); got != "Propain Tyee 2020" {
+		t.Fatalf("German gear name = %q, want Propain Tyee 2020", got)
+	}
+	englishHeader := map[string]int{"Activity Gear": 0}
+	if got := stravaActivityGearName([]string{"ASICS GEL-Kayano 2011"}, englishHeader); got != "ASICS GEL-Kayano 2011" {
+		t.Fatalf("English gear name = %q, want ASICS GEL-Kayano 2011", got)
+	}
+}
+
 func TestBuildStravaCSVSourceFileHashIgnoresCanonicalSportMapping(t *testing.T) {
 	startedAt := time.Date(2026, 5, 3, 9, 8, 0, 0, time.UTC)
 	hdr := map[string]int{"Name": 0, "Activity ID": 1}

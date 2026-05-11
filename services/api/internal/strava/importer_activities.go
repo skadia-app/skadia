@@ -140,6 +140,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 
 		// --- Get file path ---
 		filename := colVal(row, hdr["Dateiname"])
+		gearName := stravaActivityGearName(row, hdr)
 
 		// --- Build ActivityData ---
 		activityName := colVal(row, hdr["Name der Aktivität"])
@@ -472,6 +473,9 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			tracker.Error(ctx, err)
 			continue
 		}
+		if gearName != "" {
+			assignStravaActivityGear(ctx, params, actResult.ActivityID, gearName, stravaID)
+		}
 
 		if actResult.Status == "skipped" {
 			result.Skipped++
@@ -553,6 +557,30 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 		"errors", len(result.Errors),
 	)
 	return result, nil
+}
+
+func stravaActivityGearName(row []string, hdr map[string]int) string {
+	for _, col := range []string{"Ausrüstung", "Aktivitätsausrüstung", "Activity Gear", "Gear"} {
+		if value := strings.TrimSpace(colVal(row, hdr[col])); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func assignStravaActivityGear(ctx context.Context, params ImportParams, activityID, gearName string, stravaID int64) {
+	exists, gearID, err := params.DB.GearExistsByNameForUser(ctx, params.UserID, gearName)
+	if err != nil {
+		slog.Warn("strava activities: gear lookup failed", "strava_id", stravaID, "gear", gearName, "error", err)
+		return
+	}
+	if !exists {
+		slog.Debug("strava activities: gear not found for activity assignment", "strava_id", stravaID, "gear", gearName)
+		return
+	}
+	if err := database.SetPrimaryGearForActivityTx(ctx, params.DB.Pool, activityID, gearID, "import"); err != nil {
+		slog.Warn("strava activities: gear assignment failed", "strava_id", stravaID, "gear", gearName, "error", err)
+	}
 }
 
 func csvRowToMap(row []string, hdr map[string]int) map[string]string {

@@ -55,3 +55,17 @@ func TestGarminGearDecodeAppliesActivityTypeDefaults(t *testing.T) {
 		t.Fatalf("mountain predicate = %#v", preds[1])
 	}
 }
+
+func TestParseGearActivityAssignmentUsesActivityAndGearIdentifiers(t *testing.T) {
+	activityID, gearIDs := parseGearActivityAssignment(json.RawMessage(`{
+		"activityId": 987654321,
+		"gearPk": 123,
+		"gearUuid": "gear-uuid-123"
+	}`))
+	if activityID != 987654321 {
+		t.Fatalf("activityID = %d, want 987654321", activityID)
+	}
+	if len(gearIDs) != 2 || gearIDs[0] != "gear-uuid-123" || gearIDs[1] != "pk:123" {
+		t.Fatalf("gearIDs = %#v, want uuid and pk fallback", gearIDs)
+	}
+}

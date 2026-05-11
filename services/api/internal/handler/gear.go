@@ -728,6 +728,10 @@ func (h *Handler) CreateChainRotation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	gearID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyGearOwnership(r.Context(), gearID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
 
 	create, ok := httputil.DecodeJSON[database.ChainRotationGroupCreate](w, r)
 	if !ok {
@@ -744,6 +748,10 @@ func (h *Handler) CreateChainRotation(w http.ResponseWriter, r *http.Request) {
 
 	group, err := h.DB.CreateChainRotation(r.Context(), userID, gearID, &create)
 	if err != nil {
+		if errors.Is(err, database.ErrGearNotFound) || errors.Is(err, database.ErrComponentNotFound) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "chain rotation members must belong to this gear", r.URL.Path)
+			return
+		}
 		slog.Error("create chain rotation failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create chain rotation", r.URL.Path)
 		return
@@ -1411,6 +1419,20 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 	}
 
 	doc := cfg.buildDoc(userID, docType, titlePtr, header.Filename, contentType, int64(len(data)), hashStr)
+	if documentDate := strings.TrimSpace(r.FormValue("document_date")); documentDate != "" {
+		doc.DocumentDate = &documentDate
+	}
+	if amountValue := strings.TrimSpace(r.FormValue("document_amount")); amountValue != "" {
+		amount, parseErr := strconv.ParseFloat(amountValue, 64)
+		if parseErr != nil || amount < 0 {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "document_amount must be a non-negative number", r.URL.Path)
+			return
+		}
+		doc.DocumentAmount = &amount
+	}
+	if currency := strings.TrimSpace(r.FormValue("document_currency")); currency != "" {
+		doc.DocumentCurrency = &currency
+	}
 
 	result, err := h.DB.InsertGearDocument(r.Context(), doc)
 	if err != nil {
@@ -1444,6 +1466,9 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 			isTextPDF = true
 			if err := h.DB.UpdateGearDocumentText(r.Context(), result.ID, text); err != nil {
 				slog.Warn("failed to update extracted text", "doc_id", result.ID, "error", err)
+			} else {
+				result.ExtractedText = &text
+				result.ProcessingStatus = "processed"
 			}
 		}
 	}

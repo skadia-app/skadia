@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -112,6 +114,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 	// UploadedFiles filenames contain upload file IDs, not the activity IDs shown
 	// in Garmin Connect URLs — the summarizedActivities JSON has the real IDs.
 	activityIDMap := loadActivityIDMap(params.Source)
+	gearAssignments := loadGearActivityAssignments(params.Source)
 
 	// Cache open ZIP readers to avoid re-opening per file.
 	zipReaders := make(map[string]*zip.ReadCloser)
@@ -269,6 +272,7 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 			tracker.Error(ctx, processErr)
 			continue
 		}
+		assignGarminActivityGear(ctx, params, actResult.ActivityID, meta.GarminActivityID, gearAssignments)
 
 		if actResult.Status == "skipped" {
 			result.Skipped++
@@ -303,8 +307,8 @@ func (a *ActivitiesImporter) Import(ctx context.Context, params ImportParams) (*
 				FileName:    safeFileName,
 				SizeBytes:   int64(len(fileBytes)),
 				FileHash:    hashStr,
-					Tags: shadowfs.ActivitySchemaTags(importer.ActivitySchemaTagsInputFromData(format, "garmin", data)),
-				}, bytes.NewReader(fileBytes))
+				Tags:        shadowfs.ActivitySchemaTags(importer.ActivitySchemaTagsInputFromData(format, "garmin", data)),
+			}, bytes.NewReader(fileBytes))
 			if putErr != nil {
 				slog.Warn("garmin activities: ShadowFS.Put failed", "file", ref.fileName, "error", putErr)
 			} else {
@@ -385,6 +389,68 @@ func resolveGarminActivityID(activityIDMap map[int64]int64, startTime time.Time)
 	id := activityIDMap[startTime.Unix()]
 	// id == 0 means either not found or ambiguous — both cases: skip write.
 	return id
+}
+
+func loadGearActivityAssignments(src ExportSource) map[int64][]string {
+	files, err := src.FindFiles("DI_CONNECT/DI-Connect-Fitness/*_gear.json")
+	if err != nil || len(files) == 0 {
+		return nil
+	}
+	type fileRoot []struct {
+		GearActivityDTOs []json.RawMessage `json:"gearActivityDTOs"`
+	}
+	assignments := map[int64][]string{}
+	for _, f := range files {
+		var root fileRoot
+		if err := src.ReadJSON(f, &root); err != nil {
+			slog.Warn("garmin activities: cannot read gear activity assignments", "file", f, "err", err)
+			continue
+		}
+		for _, section := range root {
+			for _, raw := range section.GearActivityDTOs {
+				activityID, gearIDs := parseGearActivityAssignment(raw)
+				if activityID <= 0 || len(gearIDs) == 0 {
+					continue
+				}
+				assignments[activityID] = append(assignments[activityID], gearIDs...)
+			}
+		}
+	}
+	return assignments
+}
+
+func parseGearActivityAssignment(raw json.RawMessage) (int64, []string) {
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return 0, nil
+	}
+	activityID := numberAsInt64(obj["activityId"], obj["activityID"], obj["activityPk"], obj["activityPK"])
+	gearPk := numberAsInt64(obj["gearPk"], obj["gearId"], obj["gearID"])
+	gearUUID := stringValue(obj["gearUuid"], obj["gearUUID"], obj["uuid"])
+	var gearIDs []string
+	if gearUUID != "" {
+		gearIDs = append(gearIDs, strings.TrimSpace(gearUUID))
+	}
+	if gearPk != 0 {
+		gearIDs = append(gearIDs, fmt.Sprintf("pk:%d", gearPk))
+	}
+	return activityID, gearIDs
+}
+
+func assignGarminActivityGear(ctx context.Context, params ImportParams, activityID string, garminActivityID int64, assignments map[int64][]string) {
+	if garminActivityID <= 0 || len(assignments) == 0 {
+		return
+	}
+	for _, garminGearID := range assignments[garminActivityID] {
+		gearID, err := params.DB.FindGearIDByGarminID(ctx, params.UserID, garminGearID)
+		if err != nil {
+			continue
+		}
+		if err := database.SetPrimaryGearForActivityTx(ctx, params.DB.Pool, activityID, gearID, "import"); err != nil {
+			slog.Warn("garmin activities: gear assignment failed", "activity_id", garminActivityID, "gear_id", garminGearID, "error", err)
+		}
+		return
+	}
 }
 
 // isActivityFile returns true for FIT, GPX, TCX files (not CSV etc.)
