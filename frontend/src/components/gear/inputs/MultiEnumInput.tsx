@@ -14,6 +14,7 @@ export interface MultiEnumInputProps {
   value: string[]
   options: OptionValue[]
   onChange: (value: string[]) => void
+  allowFreeText?: boolean
   disabled?: boolean
 }
 
@@ -22,6 +23,7 @@ export default function MultiEnumInput({
   value,
   options,
   onChange,
+  allowFreeText = false,
   disabled = false,
 }: MultiEnumInputProps) {
   const inputId = id ?? 'multi-enum-input'
@@ -42,9 +44,19 @@ export default function MultiEnumInput({
   }, [options, selectedSet, query])
 
   const selectedOptions = useMemo(
-    () => options.filter((o) => selectedSet.has(o.key)),
-    [options, selectedSet],
+    () => value.map(key => options.find(o => o.key === key) ?? { key, labelDe: key }),
+    [options, value],
   )
+
+  const customValue = query.trim()
+  const exactOption = options.some(
+    o => o.key.toLowerCase() === customValue.toLowerCase() ||
+      o.labelDe.toLowerCase() === customValue.toLowerCase(),
+  )
+  const showCustomOption = allowFreeText &&
+    customValue !== '' &&
+    !selectedSet.has(customValue) &&
+    !exactOption
 
   function addOption(key: string) {
     if (selectedSet.has(key)) return // dedupe guard
@@ -113,8 +125,9 @@ export default function MultiEnumInput({
             role="listbox"
             className="absolute z-30 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg"
           >
-            {available.length > 0 ? (
-              available.map((opt) => (
+            {available.length > 0 || showCustomOption ? (
+              <>
+                {available.map((opt) => (
                 <button
                   key={opt.key}
                   type="button"
@@ -126,7 +139,20 @@ export default function MultiEnumInput({
                 >
                   {opt.labelDe}
                 </button>
-              ))
+                ))}
+                {showCustomOption && (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={false}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => addOption(customValue)}
+                    className="block w-full px-3 py-2 text-left text-sm text-accent-700 dark:text-accent-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+                  >
+                    "{customValue}" verwenden
+                  </button>
+                )}
+              </>
             ) : (
               <div className="px-3 py-2 text-sm text-neutral-400">{STRINGS.noOptions}</div>
             )}

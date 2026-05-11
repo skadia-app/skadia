@@ -20,6 +20,32 @@ describe('GearForm', () => {
     expect(screen.queryByPlaceholderText('z.B. MTB, Rennrad, Trail')).not.toBeInTheDocument()
   })
 
+  it('submits a manually entered type under the current scope', () => {
+    const onSave = vi.fn()
+    render(
+      <GearForm
+        categoryScope="diving"
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Name *'), { target: { value: 'Backup-Dose' } })
+    const typeInput = screen.getByRole('combobox', { name: 'Typ' })
+    fireEvent.focus(typeInput)
+    fireEvent.change(typeInput, { target: { value: 'dos' } })
+    expect(screen.getByText('Eigenen Typ verwenden: dos')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Backup-Dose',
+      type: 'other',
+      scope: 'diving',
+      sub_type: 'dos',
+    }))
+  })
+
   it('derives predicate defaults from stored predicates when saving', () => {
     const onSave = vi.fn()
     render(
@@ -358,19 +384,18 @@ describe('GearForm — recommended values + custom dropdown + mullet', () => {
         onCancel={() => {}}
       />,
     )
-    // Find the wheel_size select
-    const wheelSelect = document.querySelector('#gear-attr-bike\\.wheel_size') as HTMLSelectElement | null
-    expect(wheelSelect).not.toBeNull()
+    const wheelInput = document.querySelector('#gear-attr-bike\\.wheel_size') as HTMLInputElement | null
+    expect(wheelInput).not.toBeNull()
+    fireEvent.focus(wheelInput!)
 
-    // The first non-empty option should contain "empfohlen" and reference a recommended value
-    const options = Array.from(wheelSelect!.options).filter(o => o.value !== '')
+    // The first option should contain "empfohlen" and reference a recommended value.
+    const options = screen.getAllByRole('option')
     expect(options.length).toBeGreaterThan(0)
-    // Recommended options carry "(empfohlen)" in their text
     const firstActualOption = options[0]
     expect(firstActualOption.textContent).toContain('empfohlen')
   })
 
-  it('TestCustomDropdownEntryEnablesTextInput — picking Custom-Wert reveals inline text input', () => {
+  it('TestCustomDropdownEntryEnablesTextInput — free text option is accepted inline', () => {
     render(
       <GearForm
         gear={gearFixture({ type: 'bike.mtb.enduro', name: 'Enduro' })}
@@ -378,16 +403,17 @@ describe('GearForm — recommended values + custom dropdown + mullet', () => {
         onCancel={() => {}}
       />,
     )
-    const wheelSelect = document.querySelector('#gear-attr-bike\\.wheel_size') as HTMLSelectElement | null
-    expect(wheelSelect).not.toBeNull()
+    const wheelInput = document.querySelector('#gear-attr-bike\\.wheel_size') as HTMLInputElement | null
+    expect(wheelInput).not.toBeNull()
 
-    // Choose the custom sentinel option
-    fireEvent.change(wheelSelect!, { target: { value: '__custom__' } })
+    fireEvent.focus(wheelInput!)
+    fireEvent.change(wheelInput!, { target: { value: '26.25' } })
+    fireEvent.click(screen.getByText('"26.25" verwenden'))
 
-    // After selecting custom, a text input should appear in place of the select
     const customInput = document.querySelector('#gear-attr-bike\\.wheel_size') as HTMLInputElement | null
     expect(customInput).not.toBeNull()
     expect(customInput!.tagName.toLowerCase()).toBe('input')
+    expect(customInput).toHaveValue('26.25')
   })
 
   it('TestMulletToggleSwapsToTwoPickers — checking Mullet reveals Vorne + Hinten pickers', () => {

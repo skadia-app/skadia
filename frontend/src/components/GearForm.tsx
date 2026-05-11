@@ -9,6 +9,7 @@ import { gearTypeOptionsForScope, gearTypeAttributes, gearTypeScope, optionSetOp
 import type { GearCategoryScope, GearTypeOption } from '@/lib/gearSchemaTypes'
 import ComponentSlotList from '@/components/gear/ComponentSlotList'
 import { isAttributeVisible, type EvalContext } from '@/lib/gearConditionEval'
+import SearchableEnumInput from '@/components/gear/inputs/SearchableEnumInput'
 
 // ── Scope-aware placeholders ──────────────────────────────────────────────────
 
@@ -92,6 +93,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
 
   const [name, setName] = useState(gear?.name ?? '')
   const [type, setType] = useState(gear?.type ?? '')
+  const [customTypeLabel, setCustomTypeLabel] = useState('')
   const [subType, setSubType] = useState(gear?.sub_type ?? '')
   const [brand, setBrand] = useState(gear?.brand ?? '')
   const [model, setModel] = useState(gear?.model ?? '')
@@ -205,6 +207,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
 
   function handleTypeChange(nextType: string) {
     setType(nextType)
+    if (nextType) setCustomTypeLabel('')
     if (schema.gearTypes.some(gt => gt.key === nextType)) {
       setSubType('')
     }
@@ -227,9 +230,14 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!name.trim() || !type) return
+    const customType = customTypeLabel.trim()
+    const payloadType = type || (customType ? 'other' : '')
+    if (!name.trim() || !payloadType) return
     if (hasDuplicateDefaultPredicates) return
     const defaultSportPredicates = predicatesFromRows(defaultPredicateRows)
+    const payloadSubType = type
+      ? (showCustomSubType ? subType.trim() || null : null)
+      : customType || null
 
     const allowedAttributeKeys = new Set(selectedAttributes.map(attr => attr.key))
     const payloadAttributes = Object.fromEntries(
@@ -239,8 +247,9 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
 
     onSave({
       name: name.trim(),
-      type,
-      sub_type: showCustomSubType ? subType.trim() || null : null,
+      type: payloadType,
+      scope,
+      sub_type: payloadSubType,
       brand: brand.trim() || null,
       model: model.trim() || null,
       purchased_at: purchasedAt || null,
@@ -278,6 +287,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
         placeholder="Typ suchen..."
         listboxLabel="Typ-Vorschläge"
         onChange={handleTypeChange}
+        onCustomValueChange={setCustomTypeLabel}
       />
 
       {/* Custom sub-type for schema-unknown types */}
@@ -472,7 +482,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
         </button>
         <button
           type="submit"
-          disabled={isSaving || !name.trim() || !type || hasDuplicateDefaultPredicates}
+          disabled={isSaving || !name.trim() || (!type && !customTypeLabel.trim()) || hasDuplicateDefaultPredicates}
           className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
         >
           {isSaving ? 'Speichert...' : 'Speichern'}
@@ -729,8 +739,6 @@ function GearAttributeFields({
 
 // ── Single gear attribute input ───────────────────────────────────────────────
 
-const CUSTOM_VALUE_SENTINEL = '__custom__'
-
 interface GearAttributeInputProps {
   schema: ReturnType<typeof getActiveSchema>
   attr: Attribute
@@ -746,16 +754,11 @@ function GearAttributeInput({
   recommendedValues,
   onChange,
 }: GearAttributeInputProps) {
-  const [customMode, setCustomMode] = useState(false)
   const currentValue = values[attr.key] ?? ''
   const inputId = `gear-attr-${attr.key}`
 
   const opts = optionSetOptions(schema, attr.optionSetKey)
   const hasOptions = opts.length > 0
-
-  // Detect if current value is custom (not in opts list)
-  const isCurrentCustom =
-    hasOptions && currentValue !== '' && !opts.some(o => o.key === currentValue)
 
   // Recommended option keys for quick lookup
   const recommendedSet = useMemo(
@@ -763,83 +766,38 @@ function GearAttributeInput({
     [recommendedValues],
   )
 
-  // Split opts into recommended-first, then divider, then rest
+  // Split opts into recommended-first, then rest. The shared searchable input
+  // accepts custom values directly; no native-select sentinel is needed.
   const sortedOpts = useMemo(() => {
     if (!recommendedValues || recommendedValues.length === 0 || opts.length === 0) return null
     const rec = opts.filter(o => recommendedSet.has(o.key))
     const rest = opts.filter(o => !recommendedSet.has(o.key))
     return { rec, rest }
   }, [opts, recommendedValues, recommendedSet])
-
-  // Show inline custom input when user picks the sentinel or current value is already custom
-  const showCustomInput = customMode || isCurrentCustom
-
-  function handleSelectChange(newVal: string) {
-    if (newVal === CUSTOM_VALUE_SENTINEL) {
-      setCustomMode(true)
-      // Don't clear existing value yet — let user type in the text input
-    } else {
-      setCustomMode(false)
-      onChange(attr.key, newVal)
-    }
-  }
+  const searchableOptions = useMemo(() => {
+    if (!sortedOpts) return opts
+    return [
+      ...sortedOpts.rec.map(opt => ({
+        ...opt,
+        labelDe: `★ ${opt.labelDe} (empfohlen)`,
+      })),
+      ...sortedOpts.rest,
+    ]
+  }, [opts, sortedOpts])
 
   if (hasOptions) {
     return (
       <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
         {attr.labelDe}
-        {showCustomInput ? (
-          <div className="mt-1 flex gap-2">
-            <input
-              id={inputId}
-              type="text"
-              value={currentValue}
-              onChange={(e) => onChange(attr.key, e.target.value)}
-              placeholder="Eigener Wert..."
-              className="flex-1 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setCustomMode(false)
-                onChange(attr.key, '')
-              }}
-              className="px-2 py-1 text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
-            >
-              ✕
-            </button>
-          </div>
-        ) : (
-          <select
+        <div className="mt-1">
+          <SearchableEnumInput
             id={inputId}
             value={currentValue}
-            onChange={(e) => handleSelectChange(e.target.value)}
-            className="mt-1 w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
-          >
-            <option value="">Bitte wählen...</option>
-            {sortedOpts ? (
-              <>
-                {sortedOpts.rec.map(opt => (
-                  <option key={opt.key} value={opt.key}>
-                    ★ {opt.labelDe} (empfohlen)
-                  </option>
-                ))}
-                {sortedOpts.rest.length > 0 && sortedOpts.rec.length > 0 && (
-                  <option disabled value="">──────────</option>
-                )}
-                {sortedOpts.rest.map(opt => (
-                  <option key={opt.key} value={opt.key}>{opt.labelDe}</option>
-                ))}
-              </>
-            ) : (
-              opts.map(opt => (
-                <option key={opt.key} value={opt.key}>{opt.labelDe}</option>
-              ))
-            )}
-            <option disabled value="">──────────</option>
-            <option value={CUSTOM_VALUE_SENTINEL}>+ Custom-Wert</option>
-          </select>
-        )}
+            options={searchableOptions}
+            onChange={(v) => onChange(attr.key, v)}
+            allowFreeText
+          />
+        </div>
       </label>
     )
   }
@@ -868,6 +826,7 @@ function SearchableOptionSelect({
   placeholder,
   listboxLabel,
   onChange,
+  onCustomValueChange,
 }: {
   label: string
   value: string
@@ -875,6 +834,7 @@ function SearchableOptionSelect({
   placeholder: string
   listboxLabel: string
   onChange: (value: string) => void
+  onCustomValueChange?: (value: string) => void
 }) {
   const inputId = `${label.toLowerCase()}-combobox`
   const [open, setOpen] = useState(false)
@@ -890,10 +850,21 @@ function SearchableOptionSelect({
     if (!needle || selected?.label === query) return options
     return options.filter(opt => opt.label.toLowerCase().includes(needle))
   }, [options, query, selected])
+  const customValue = selected?.label === query ? '' : query.trim()
+  const exactOption = options.some(opt => opt.label.toLowerCase() === customValue.toLowerCase())
+  const showCustomOption = customValue !== '' && !exactOption
 
   function choose(opt: GearTypeOption) {
     onChange(opt.value)
+    onCustomValueChange?.('')
     setQuery(opt.label)
+    setOpen(false)
+  }
+
+  function chooseCustom() {
+    onChange('')
+    onCustomValueChange?.(customValue)
+    setQuery(customValue)
     setOpen(false)
   }
 
@@ -925,9 +896,11 @@ function SearchableOptionSelect({
           }
         }}
         onChange={(e) => {
-          setQuery(e.target.value)
+          const nextQuery = e.target.value
+          setQuery(nextQuery)
           setOpen(true)
           if (value) onChange('')
+          onCustomValueChange?.(nextQuery.trim())
         }}
         placeholder={placeholder}
         className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
@@ -939,8 +912,9 @@ function SearchableOptionSelect({
           aria-label={listboxLabel}
           className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 shadow-lg"
         >
-          {filtered.length > 0 ? (
-            filtered.map(opt => (
+          {filtered.length > 0 || showCustomOption ? (
+            <>
+              {filtered.map(opt => (
               <button
                 key={opt.value}
                 type="button"
@@ -952,7 +926,20 @@ function SearchableOptionSelect({
               >
                 {opt.label}
               </button>
-            ))
+              ))}
+              {showCustomOption && (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={chooseCustom}
+                  className="block w-full px-3 py-2 text-left text-sm text-accent-700 dark:text-accent-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer"
+                >
+                  Eigenen Typ verwenden: {customValue}
+                </button>
+              )}
+            </>
           ) : (
             <div className="px-3 py-2 text-sm text-neutral-400">Keine Treffer</div>
           )}
