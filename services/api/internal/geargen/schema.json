@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skadia.local/schema/gear/gear-schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "assignment_roles", "option_sets", "attributes", "gear_types"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "assignment_roles": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/assignment_role"}
+    },
+    "option_sets": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/option_set"}
+    },
+    "unit_groups": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/unit_group"}
+    },
+    "attributes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/attribute"}
+    },
+    "gear_types": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/gear_type"}
+    },
+    "component_types": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/component_type"}
+    }
+  },
+  "$defs": {
+    "assignment_role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label_de"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "label_de": {"type": "string", "minLength": 1},
+        "unique_per_activity": {"type": "boolean"}
+      }
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label_de"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.]*$"},
+        "label_de": {"type": "string", "minLength": 1}
+      }
+    },
+    "option_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "options"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.]*$"},
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/option"}
+        }
+      }
+    },
+    "unit_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label_de", "allowed_units"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "label_de": {"type": "string", "minLength": 1},
+        "allowed_units": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "canonical_unit": {"type": "string", "minLength": 1}
+      }
+    },
+    "attribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label_de", "value_type"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.]*$"},
+        "label_de": {"type": "string", "minLength": 1},
+        "value_type": {
+          "type": "string",
+          "enum": ["number", "string", "enum", "enum_with_freetext", "geometry", "object", "boolean", "date", "unit_number", "search_enum", "multi_enum"]
+        },
+        "option_set_key": {"type": "string"},
+        "unit_group": {"type": "string"},
+        "allowed_units": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "required": {"type": "boolean"},
+        "show_when": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["field", "value"],
+          "properties": {
+            "field": {"type": "string"},
+            "value": {"type": "string"}
+          }
+        },
+        "visible_when": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/condition"}
+        },
+        "applies_to_gear_when": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/condition"}
+        },
+        "kombi_group": {"type": "string", "minLength": 1},
+        "subfields": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/attribute"}
+        }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "op"],
+      "properties": {
+        "ref": {"type": "string", "minLength": 1},
+        "op": {
+          "type": "string",
+          "enum": ["eq", "neq", "in", "not_in", "is_set", "is_unset"]
+        },
+        "value": {
+          "type": ["string", "number", "boolean", "null"]
+        },
+        "values": {
+          "type": "array",
+          "items": {"type": ["string", "number", "boolean"]}
+        }
+      }
+    },
+    "recommended_attribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "values": {
+          "type": "array",
+          "items": {"type": ["string", "number", "boolean"]}
+        }
+      }
+    },
+    "recommended_constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attributes": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/recommended_attribute"}
+        }
+      }
+    },
+    "predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sport_type"],
+      "properties": {
+        "sport_type": {"type": "string", "minLength": 1},
+        "sub_type": {"type": "string", "minLength": 1}
+      }
+    },
+    "gear_type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label_de", "scope", "default_assignment_role_key"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.]*$"},
+        "label_de": {"type": "string", "minLength": 1},
+        "scope": {
+          "type": "string",
+          "enum": ["bike", "shoes", "winter", "water", "diving", "climb", "apparel", "other"]
+        },
+        "parent_key": {"type": "string"},
+        "default_assignment_role_key": {"type": "string"},
+        "attribute_keys": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "modifier_keys": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "applicable_sports": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/predicate"}
+        },
+        "slots": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/gear_type_slot"}
+        },
+        "recommended": {"$ref": "#/$defs/recommended_constraints"}
+      }
+    },
+    "gear_type_slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label_de", "component_type"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "label_de": {"type": "string", "minLength": 1},
+        "component_type": {"type": "string"},
+        "optional": {"type": "boolean"}
+      }
+    },
+    "component_type": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label_de"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.]*$"},
+        "label_de": {"type": "string", "minLength": 1},
+        "parent_key": {"type": "string"},
+        "subtype_keys": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "attribute_keys": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    }
+  }
+}
