@@ -5,7 +5,7 @@ import { Anchor, Bike, Footprints, Mountain, Package, Radio, Shirt, Smartphone, 
 import { fetchGear, createGear, fetchGearDocuments, downloadGearDocumentBlob } from '@/api/gear'
 import { fetchDevices } from '@/api/hardware'
 import type { Gear, GearStatus } from '@/api/types'
-import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
+import { formatElevationGain } from '@/lib/utils'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { getActiveSchema } from '@/lib/gearSchema'
 import { gearMatchesCategoryScope, gearTypeLabel } from '@/lib/gearSchemaHelpers'
@@ -400,7 +400,7 @@ function GearCard({ gear }: { gear: Gear }) {
           <div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400">Distanz</div>
             <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
-              {formatDistance(gear.total_distance_m)}
+              {formatGearCardDistance(gear.total_distance_m)}
             </div>
           </div>
           <div>
@@ -412,7 +412,7 @@ function GearCard({ gear }: { gear: Gear }) {
           <div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400">Zeit</div>
             <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
-              {formatDuration(gear.total_time_s)}
+              {formatGearCardDuration(gear.total_time_s)}
             </div>
           </div>
           <div>
@@ -437,6 +437,7 @@ function SportBadges({ predicates }: { predicates: import('@/api/types').GearDef
   const seen = new Set<string>()
   const sports: string[] = []
   for (const p of predicates) {
+    if (p.sport_type === 'generic') continue
     if (!seen.has(p.sport_type)) {
       seen.add(p.sport_type)
       sports.push(p.sport_type)
@@ -464,6 +465,18 @@ function SportBadges({ predicates }: { predicates: import('@/api/types').GearDef
       )}
     </div>
   )
+}
+
+function formatGearCardDistance(meters: number | null | undefined): string {
+  if (meters == null || isNaN(meters)) return '—'
+  if (meters >= 1000) return `${Math.round(meters / 1000)} km`
+  return `${Math.round(meters)} m`
+}
+
+function formatGearCardDuration(seconds: number | null | undefined): string {
+  if (seconds == null || isNaN(seconds)) return '—'
+  if (seconds >= 3600) return `${Math.round(seconds / 3600)} h`
+  return `${Math.floor(seconds / 60)} min`
 }
 
 function StatusBadge({ status }: { status: GearStatus }) {

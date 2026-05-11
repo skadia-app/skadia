@@ -152,30 +152,52 @@ describe('GearDetailPage tabs', () => {
     expect(screen.getByRole('tab', { name: 'Stammdaten' })).not.toHaveAttribute('data-state', 'active')
   })
 
-  it('TestComponentsTabHasExactlyOneHierarchyAndOneCRUDSection', async () => {
-    // Regression guard: components tab must render exactly one hierarchy section
-    // (GearComponentsTab, read-only tree) and exactly one CRUD section (ComponentsList).
-    // A second render of either widget would cause duplication and state divergence.
+  it('TestComponentsTabShowsEditableListWithoutFlatHierarchy', async () => {
+    // Flat component lists should not be duplicated by the read-only hierarchy.
+    // The editable CRUD list is the primary surface.
     renderPage('/gear/g1?tab=components')
 
-    await waitFor(() => {
-      expect(screen.getByTestId('components-hierarchy')).toBeInTheDocument()
-    })
+    expect(await screen.findByTestId('components-crud')).toBeInTheDocument()
 
-    expect(screen.getAllByTestId('components-hierarchy')).toHaveLength(1)
     expect(screen.getAllByTestId('components-crud')).toHaveLength(1)
+    expect(screen.queryByTestId('components-hierarchy')).not.toBeInTheDocument()
   })
 
-  it('TestComponentsTabShowsChainRotationBeforeComponentListsAndNoSetups', async () => {
+  it('TestComponentsTabShowsChainRotationBeforeEditableComponentsAndNoSetups', async () => {
     renderPage('/gear/g1?tab=components')
 
     const rotationHeading = await screen.findByRole('heading', { name: 'Ketten-Rotation' })
-    const hierarchyHeading = screen.getByRole('heading', { name: 'Hierarchie' })
+    const componentsHeading = screen.getByRole('heading', { name: 'Komponenten' })
 
     expect(
-      Boolean(rotationHeading.compareDocumentPosition(hierarchyHeading) & Node.DOCUMENT_POSITION_FOLLOWING),
+      Boolean(rotationHeading.compareDocumentPosition(componentsHeading) & Node.DOCUMENT_POSITION_FOLLOWING),
     ).toBe(true)
     expect(screen.queryByRole('heading', { name: 'Setups' })).not.toBeInTheDocument()
+  })
+
+  it('TestComponentsTabShowsHierarchyAfterEditableListOnlyForNestedComponents', async () => {
+    const childComponent: GearComponent = {
+      ...MOCK_COMPONENT,
+      id: 'c-child',
+      parent_component_id: 'c1',
+      name: 'Kettenblatt',
+      type: 'bike.chainring',
+    }
+    vi.mocked(fetchGearDetail).mockResolvedValue({
+      ...MOCK_GEAR,
+      components: [MOCK_COMPONENT, childComponent],
+    })
+
+    renderPage('/gear/g1?tab=components')
+
+    const crudSection = await screen.findByTestId('components-crud')
+    const hierarchySection = screen.getByTestId('components-hierarchy')
+
+    expect(screen.getAllByTestId('components-hierarchy')).toHaveLength(1)
+    expect(screen.getAllByTestId('components-crud')).toHaveLength(1)
+    expect(
+      Boolean(crudSection.compareDocumentPosition(hierarchySection) & Node.DOCUMENT_POSITION_FOLLOWING),
+    ).toBe(true)
   })
 
   it('TestSetupsUrlFallsBackToComponentsForNonBikeGear', async () => {
@@ -193,11 +215,9 @@ describe('GearDetailPage tabs', () => {
     expect(screen.queryByRole('tab', { name: 'Setups' })).not.toBeInTheDocument()
   })
 
-  it('TestComponentEditViaCRUDPropagatesToHierarchy', async () => {
-    // Regression anchor: both the hierarchy (GearComponentsTab) and the CRUD list
-    // (ComponentsList) read from the same gear.components source. After an edit
-    // triggers invalidateQueries, the refetch must update both sections atomically.
-    // This test protects against future refactors that decouple the data sources.
+  it('TestComponentEditViaCRUDUpdatesEditableList', async () => {
+    // Regression anchor: ComponentsList reads from gear.components. After an
+    // edit triggers invalidateQueries, the refetch must update the visible row.
     const user = userEvent.setup()
 
     const renamedComponent: GearComponent = { ...MOCK_COMPONENT, name: 'Neue Kette' }
@@ -211,11 +231,10 @@ describe('GearDetailPage tabs', () => {
 
     renderPage('/gear/g1?tab=components')
 
-    // Wait for hierarchy to show original component name.
+    // Wait for the editable list to show original component name.
     await waitFor(() => {
-      expect(screen.getByTestId('component-c1')).toBeInTheDocument()
+      expect(screen.getByTestId('components-crud')).toHaveTextContent('Testkette')
     })
-    expect(screen.getByTestId('component-c1')).toHaveTextContent('Testkette')
 
     // Click "Bearbeiten" in the CRUD section to open the edit form.
     // Scope to the CRUD section to avoid ambiguity with other edit controls.
@@ -232,9 +251,9 @@ describe('GearDetailPage tabs', () => {
     const saveButton = screen.getByRole('button', { name: 'Speichern' })
     await user.click(saveButton)
 
-    // After refetch, hierarchy must reflect the new name.
+    // After refetch, the editable list must reflect the new name.
     await waitFor(() => {
-      expect(screen.getByTestId('component-c1')).toHaveTextContent('Neue Kette')
+      expect(screen.getByTestId('components-crud')).toHaveTextContent('Neue Kette')
     })
   })
 

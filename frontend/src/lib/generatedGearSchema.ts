@@ -261,6 +261,10 @@ export const gearSchema: GearSchema = {
       "key": "bike.wheel_size",
       "options": [
         {
+          "key": "mullet",
+          "labelDe": "Mullet (vorne/hinten separat)"
+        },
+        {
           "key": "36",
           "labelDe": "36 Zoll"
         },

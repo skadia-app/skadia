@@ -59,8 +59,10 @@ interface GearFormProps {
 // ── Sport-predicate types (Plan-1-Konsum: GearApplicableModifierKeys) ─────────
 
 type ModifierChoice = 'any' | 'true' | 'false'
+type GearModifierValues = Partial<Record<SportModifierKey, boolean>>
 const GEAR_DEFAULT_MODIFIER_KEYS = [...GearApplicableModifierKeys] as SportModifierKey[]
 const GEAR_DEFAULT_HIDDEN_DUPLICATE_SPORTS = new Set(['hang_gliding', 'sky_diving'])
+const GEAR_MODIFIER_ATTRIBUTE_KEY = 'bike.modifier'
 
 interface GearPredicateRow {
   id: string
@@ -118,6 +120,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
       Object.entries(raw as Record<string, unknown>).map(([k, v]) => [k, v == null ? '' : String(v)]),
     )
   })
+  const [modifiers, setModifiers] = useState<GearModifierValues>(() => modifierValuesFromGear(gear))
   const [notes, setNotes] = useState(gear?.notes ?? '')
   const [weightG, setWeightG] = useState(gear?.weight_g?.toString() ?? '')
   const [components, setComponents] = useState<GearComponent[]>(gear?.components ?? [])
@@ -146,7 +149,9 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
 
   const selectedSchemaType = lookupGearType(type)
   const showCustomSubType = type !== '' && (!selectedSchemaType || type === 'other')
-  const selectedAttributes = type ? gearTypeAttributes(schema, type) : []
+  const selectedAttributes = type
+    ? gearTypeAttributes(schema, type).filter(attr => attr.key !== GEAR_MODIFIER_ATTRIBUTE_KEY)
+    : []
   const hasSlots = (selectedSchemaType?.slots?.length ?? 0) > 0
 
   const sportOptions = useMemo(
@@ -161,6 +166,10 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
 
   function setAttribute(key: string, value: string) {
     setAttributes(prev => ({ ...prev, [key]: value }))
+  }
+
+  function setModifier(key: SportModifierKey, value: boolean) {
+    setModifiers(prev => ({ ...prev, [key]: value }))
   }
 
   function handleComponentSave(data: Partial<GearComponent>, existingId?: string) {
@@ -251,9 +260,18 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
       : customType || null
 
     const allowedAttributeKeys = new Set(selectedAttributes.map(attr => attr.key))
+    const isMullet = attributes[MULLET_WHEEL_PAIR.unified] === 'mullet'
     const payloadAttributes = Object.fromEntries(
       Object.entries(attributes)
-        .filter(([key, value]) => allowedAttributeKeys.has(key) && value !== ''),
+        .filter(([key, value]) => {
+          if (!allowedAttributeKeys.has(key) || value === '') return false
+          if ((key === MULLET_WHEEL_PAIR.front || key === MULLET_WHEEL_PAIR.rear) && !isMullet) return false
+          return true
+        }),
+    )
+    const payloadModifiers = Object.fromEntries(
+      Object.entries(scope === 'bike' ? modifiers : {})
+        .filter(([, value]) => value === true),
     )
 
     onSave({
@@ -267,6 +285,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
       applicable_sport_predicates: defaultSportPredicates,
       notes: notes.trim() || null,
       attributes: payloadAttributes,
+      modifiers: payloadModifiers,
       weight_g: weightG ? parseInt(weightG, 10) : null,
       components: hasSlots ? components : undefined,
     })
@@ -316,6 +335,10 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
             placeholder={SUB_TYPE_PLACEHOLDER[scope]}
           />
         </div>
+      )}
+
+      {scope === 'bike' && (
+        <GearModifierToggles values={modifiers} onChange={setModifier} />
       )}
 
       {/* Brand & Model */}
@@ -503,14 +526,42 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
   )
 }
 
+function GearModifierToggles({
+  values,
+  onChange,
+}: {
+  values: GearModifierValues
+  onChange: (key: SportModifierKey, value: boolean) => void
+}) {
+  return (
+    <fieldset className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/40 px-3 py-3">
+      <legend className="px-1 text-sm font-medium text-neutral-700 dark:text-neutral-300">
+        Merkmale
+      </legend>
+      <div className="flex flex-wrap gap-x-5 gap-y-2">
+        {GEAR_DEFAULT_MODIFIER_KEYS.map((key) => (
+          <label key={key} className="inline-flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={values[key] === true}
+              onChange={(e) => onChange(key, e.target.checked)}
+              className="h-4 w-4 rounded border-neutral-300 text-accent-DEFAULT focus:ring-2 focus:ring-accent-DEFAULT"
+            />
+            <span>{modifierLabel(key)}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
+
 // ── Schema-driven attribute fields ───────────────────────────────────────────
 //
 // Renders the gear-level attribute fields with:
 //   - visibility filtering via isAttributeVisible
 //   - recommended values surfaced at the top of dropdowns with an "empfohlen" tag
 //   - "+ Custom-Wert" free-text entry for constrained fields
-//   - mullet toggle for wheel-size (collapses wheel_size_front / wheel_size_rear
-//     into a single toggle + two pickers when activated)
+//   - mullet wheel-size mode (wheel_size = mullet reveals front/rear pickers)
 //   - kombi side-by-side layout for shock eye-to-eye + stroke fields
 
 const MULLET_WHEEL_PAIR = {
@@ -534,9 +585,6 @@ function GearAttributeFields({
   recommended,
   onChange,
 }: GearAttributeFieldsProps) {
-  // Mullet toggle state
-  const [mulletEnabled, setMulletEnabled] = useState(false)
-
   // Build eval context for visibility: self = current gear attributes
   const evalCtx: EvalContext = useMemo(
     () => ({ self: values, gear: values }),
@@ -553,24 +601,15 @@ function GearAttributeFields({
   }, [recommended])
 
   // Determine which attributes to skip entirely vs. show (visibility + mullet)
+  const mulletEnabled = values[MULLET_WHEEL_PAIR.unified] === 'mullet'
   const skippedKeys = useMemo(() => {
     const s = new Set<string>()
-    if (mulletEnabled) {
-      s.add(MULLET_WHEEL_PAIR.unified)
-    } else {
+    s.add(MULLET_WHEEL_PAIR.rear)
+    if (!mulletEnabled) {
       s.add(MULLET_WHEEL_PAIR.front)
-      s.add(MULLET_WHEEL_PAIR.rear)
     }
     return s
   }, [mulletEnabled])
-
-  // Whether the current gear type supports mullet (i.e. has both _front and _rear)
-  const hasMulletPair = useMemo(
-    () =>
-      attributes.some(a => a.key === MULLET_WHEEL_PAIR.front) &&
-      attributes.some(a => a.key === MULLET_WHEEL_PAIR.rear),
-    [attributes],
-  )
 
   // Build kombi-group membership map from schema: group key → attributes in order.
   // Attributes without a kombiGroup are not in this map.
@@ -595,44 +634,6 @@ function GearAttributeFields({
 
     // Visibility check (same_item mode for gear-level attributes)
     if (!isAttributeVisible(attr, evalCtx, { mode: 'same_item' })) continue
-
-    // Mullet toggle — rendered alongside the unified wheel-size field
-    if (attr.key === MULLET_WHEEL_PAIR.unified && hasMulletPair) {
-      rows.push(
-        <div key="mullet-group" className="col-span-full grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-          <GearAttributeInput
-            schema={schema}
-            attr={attr}
-            values={values}
-            recommendedValues={recommendedMap.get(attr.key)}
-            onChange={onChange}
-          />
-          <div className="flex items-center gap-2 pb-1">
-            <input
-              id="mullet-toggle"
-              type="checkbox"
-              checked={mulletEnabled}
-              onChange={(e) => {
-                setMulletEnabled(e.target.checked)
-                // Clear mullet fields when disabling
-                if (!e.target.checked) {
-                  onChange(MULLET_WHEEL_PAIR.front, '')
-                  onChange(MULLET_WHEEL_PAIR.rear, '')
-                } else {
-                  // Clear unified field when enabling
-                  onChange(MULLET_WHEEL_PAIR.unified, '')
-                }
-              }}
-              className="h-4 w-4 rounded border-neutral-300 text-accent-DEFAULT focus:ring-2 focus:ring-accent-DEFAULT"
-            />
-            <label htmlFor="mullet-toggle" className="text-sm text-neutral-600 dark:text-neutral-400 cursor-pointer">
-              Mullet (unterschiedliche Laufradgrößen vorne/hinten)
-            </label>
-          </div>
-        </div>,
-      )
-      continue
-    }
 
     // Mullet expanded pickers (front + rear side-by-side)
     if (attr.key === MULLET_WHEEL_PAIR.front && mulletEnabled) {
@@ -995,6 +996,20 @@ function ModifierSelect({
 function predicateRowsFromGear(gear: Gear | null | undefined): GearPredicateRow[] {
   const predicates = gear?.applicable_sport_predicates ?? []
   return predicates.map((predicate, index) => predicateRowFromPredicate(predicate, index))
+}
+
+function modifierValuesFromGear(gear: Gear | null | undefined): GearModifierValues {
+  const out: GearModifierValues = {}
+  const rawModifiers = gear?.modifiers ?? {}
+  for (const key of GEAR_DEFAULT_MODIFIER_KEYS) {
+    const value = rawModifiers[key]
+    if (value === true || value === 'true') out[key] = true
+  }
+
+  const legacyModifier = String((gear?.attributes as Record<string, unknown> | null | undefined)?.[GEAR_MODIFIER_ATTRIBUTE_KEY] ?? '')
+  if (legacyModifier === 'ebike' || legacyModifier === 'ebike.speed') out.is_electric = true
+  if (legacyModifier === 'virtual') out.is_virtual = true
+  return out
 }
 
 function predicateRowFromPredicate(predicate: GearDefaultSportPredicate, index: number): GearPredicateRow {

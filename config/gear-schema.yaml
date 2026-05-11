@@ -59,6 +59,7 @@ option_sets:
       - {key: wood, label_de: Holz}
   - key: bike.wheel_size
     options:
+      - {key: mullet, label_de: "Mullet (vorne/hinten separat)"}
       - {key: "36", label_de: "36 Zoll"}
       - {key: "32", label_de: "32 Zoll"}
       - {key: "29", label_de: "29 Zoll"}

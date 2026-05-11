@@ -172,6 +172,7 @@ var Schema = GearSchema{
 			{Key: "wood", LabelDE: "Holz"},
 		}},
 		{Key: "bike.wheel_size", Options: []OptionValue{
+			{Key: "mullet", LabelDE: "Mullet (vorne/hinten separat)"},
 			{Key: "36", LabelDE: "36 Zoll"},
 			{Key: "32", LabelDE: "32 Zoll"},
 			{Key: "29", LabelDE: "29 Zoll"},
