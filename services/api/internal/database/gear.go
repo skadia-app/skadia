@@ -4017,31 +4017,9 @@ func (db *DB) MergeGear(ctx context.Context, userID, primaryID, secondaryID stri
 	}
 
 	// 4. Recompute analytics totals on primary so distance/time/elevation
-	// reflect the merged set of activities. Mirrors the SQL pattern used in
-	// migration 000355's final analytics-recompute step.
-	if _, err = tx.Exec(ctx, `
-		UPDATE gear g
-		   SET total_distance_m       = COALESCE(src.total_distance_m, 0),
-		       total_moving_time_s    = COALESCE(src.total_moving_time_s, 0),
-		       total_time_s           = COALESCE(src.total_time_s, 0),
-		       total_elevation_gain_m = COALESCE(src.total_elevation_gain_m, 0),
-		       total_elevation_loss_m = COALESCE(src.total_elevation_loss_m, 0),
-		       total_activities       = COALESCE(src.total_activities, 0)
-		  FROM (
-		      SELECT
-		          COALESCE(SUM(COALESCE(aga.distance_m_override,    a.distance_m,    0)), 0) AS total_distance_m,
-		          COALESCE(SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)), 0) AS total_moving_time_s,
-		          COALESCE(SUM(COALESCE(a.elapsed_time_s,    0)), 0)                          AS total_time_s,
-		          COALESCE(SUM(COALESCE(a.elevation_gain_m,  0)), 0)                          AS total_elevation_gain_m,
-		          COALESCE(SUM(COALESCE(a.elevation_loss_m,  0)), 0)                          AS total_elevation_loss_m,
-		          COUNT(*)                                                                     AS total_activities
-		      FROM activity_gear_assignments aga
-		      JOIN activities a ON a.id = aga.activity_id
-		      WHERE aga.gear_id = $1
-		        AND NOT a.is_group_secondary
-		  ) src
-		 WHERE g.id = $1
-	`, primaryID); err != nil {
+	// reflect the merged set of activities and the same lift-subtracted net
+	// semantics as normal gear refreshes.
+	if err = db.refreshGearAndDependentUsageStatsOwnerVerifiedOn(ctx, tx, primaryID); err != nil {
 		return fmt.Errorf("recompute primary totals: %w", err)
 	}
 
@@ -4056,7 +4034,13 @@ func (db *DB) MergeGear(ctx context.Context, userID, primaryID, secondaryID stri
 		return fmt.Errorf("delete secondary gear: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if err := db.EvaluateGearUsageRulesForGear(ctx, []string{primaryID}); err != nil {
+		slog.Warn("evaluate gear usage rules", "gear_id", primaryID, "error", err)
+	}
+	return nil
 }
 
 // VerifyGearOwnership returns nil if the gear belongs to the user, pgx.ErrNoRows otherwise.
@@ -4306,11 +4290,22 @@ func (db *DB) GetGearSummary(ctx context.Context, userID string, filter GearSumm
 	var summary GearSummary
 	err := db.Pool.QueryRow(ctx, `
 		SELECT
-		  COALESCE(SUM(COALESCE(aga.distance_m_override, a.distance_m, 0)), 0)        AS total_distance_m,
+		  COALESCE(SUM(COALESCE(
+		    aga.distance_m_override,
+		    GREATEST(0,
+		      COALESCE(a.distance_m, 0) -
+		      CASE WHEN a.exclude_lift_subtraction THEN 0 ELSE COALESCE(a.lift_distance_m, 0) END),
+		    0)), 0)                                                                  AS total_distance_m,
 		  COALESCE(SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)), 0)  AS total_moving_time_s,
 		  COALESCE(SUM(COALESCE(a.elapsed_time_s, 0)), 0)                              AS total_time_s,
-		  COALESCE(SUM(COALESCE(a.elevation_gain_m, 0)), 0)                            AS total_elevation_gain_m,
-		  COALESCE(SUM(COALESCE(a.elevation_loss_m, 0)), 0)                            AS total_elevation_loss_m,
+		  COALESCE(SUM(GREATEST(0,
+		    COALESCE(a.elevation_gain_m, 0) -
+		    CASE WHEN a.exclude_lift_subtraction THEN 0 ELSE COALESCE(a.lift_ascent_m, 0) END)), 0)
+		                                                                                 AS total_elevation_gain_m,
+		  COALESCE(SUM(GREATEST(0,
+		    COALESCE(a.elevation_loss_m, 0) -
+		    CASE WHEN a.exclude_lift_subtraction THEN 0 ELSE COALESCE(a.lift_descent_m, 0) END)), 0)
+		                                                                                 AS total_elevation_loss_m,
 		  COUNT(DISTINCT a.id)                                                          AS activity_count,
 		  COUNT(DISTINCT aga.gear_id)                                                   AS gear_count
 		FROM activities a

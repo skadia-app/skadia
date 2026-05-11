@@ -154,6 +154,58 @@ func TestRecomputeLiftStats_SnapDoesNotDoubleCount(t *testing.T) {
 	}
 }
 
+func TestRecomputeLiftStats_ReverseSegmentEffortCountsAsDescent(t *testing.T) {
+	fx := newLiftDedupFixture(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC().Truncate(time.Second)
+	effortID := uuid.NewString()
+	if _, err := fx.pool.Exec(ctx, `
+		INSERT INTO segment_efforts
+			(id, activity_id, segment_id, segment_version_id, user_id,
+			 started_at, elapsed_time_s, distance_m, elevation_gain_m,
+			 is_reverse, sport_type, sub_type, in_leaderboard, is_lift_segment_match)
+		VALUES ($1, $2, $3, $4, $5, $6, 240, 700, 180, true,
+		        'skiing', 'generic', false, true)
+	`, effortID, fx.activityID, fx.segmentID, fx.versionID, fx.userID, now); err != nil {
+		t.Fatalf("segment_effort: %v", err)
+	}
+	if _, err := fx.pool.Exec(ctx, `
+		INSERT INTO activity_lift_candidates
+			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
+			 confidence, confirmed, source, segment_effort_id)
+		VALUES ($1, $2, $3, 240, 0, 180, 700, 'high', true, 'osm', $4)
+	`, fx.activityID, now, now.Add(4*time.Minute), effortID); err != nil {
+		t.Fatalf("audit candidate: %v", err)
+	}
+
+	db := &database.DB{Pool: fx.pool}
+	if err := db.RecomputeLiftStats(ctx, fx.userID, fx.activityID); err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+
+	var liftCount int
+	var liftAsc, liftDesc, liftDist float64
+	if err := fx.pool.QueryRow(ctx, `
+		SELECT lift_count, lift_ascent_m, lift_descent_m, lift_distance_m
+		FROM activities WHERE id = $1
+	`, fx.activityID).Scan(&liftCount, &liftAsc, &liftDesc, &liftDist); err != nil {
+		t.Fatalf("query stats: %v", err)
+	}
+	if liftCount != 1 {
+		t.Errorf("lift_count = %d, want 1", liftCount)
+	}
+	if liftAsc != 0 {
+		t.Errorf("lift_ascent_m = %.0f, want 0 for reverse lift effort", liftAsc)
+	}
+	if liftDesc != 180 {
+		t.Errorf("lift_descent_m = %.0f, want reverse effort elevation_gain_m", liftDesc)
+	}
+	if liftDist != 700 {
+		t.Errorf("lift_distance_m = %.0f, want 700", liftDist)
+	}
+}
+
 // TestRecomputeLiftStats_HeuristicOnlyConfirmed: a heuristic candidate
 // (segment_effort_id IS NULL) is confirmed by the user → counts once, no
 // segment_effort exists.

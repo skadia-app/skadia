@@ -26,6 +26,13 @@ interface LiftSectionProps {
   onOpenReview?: () => void
 }
 
+async function throwOnError(res: Response): Promise<Response> {
+  if (res.ok) return res
+  const body = await res.json().catch(() => ({})) as Record<string, unknown>
+  const msg = typeof body.message === 'string' ? body.message : `HTTP ${res.status}`
+  throw new Error(msg)
+}
+
 export default function LiftSection({ activity, onToggleExclude, onOpenReview }: LiftSectionProps) {
   const activityId = activity.id
   const liftCount = activity.lift_count ?? 0
@@ -44,7 +51,7 @@ export default function LiftSection({ activity, onToggleExclude, onOpenReview }:
 
   const confirm = useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${id}/confirm`, { method: 'POST' }),
+      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${id}/confirm`, { method: 'POST' }).then(throwOnError),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['lift-candidates', activityId] })
       qc.invalidateQueries({ queryKey: ['activity', activityId] })
@@ -53,7 +60,7 @@ export default function LiftSection({ activity, onToggleExclude, onOpenReview }:
 
   const reject = useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${id}`, { method: 'DELETE' }),
+      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${id}`, { method: 'DELETE' }).then(throwOnError),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['lift-candidates', activityId] })
       qc.invalidateQueries({ queryKey: ['activity', activityId] })
@@ -62,7 +69,7 @@ export default function LiftSection({ activity, onToggleExclude, onOpenReview }:
 
   const unconfirm = useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${id}/unconfirm`, { method: 'PATCH' }),
+      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${id}/unconfirm`, { method: 'PATCH' }).then(throwOnError),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['lift-candidates', activityId] })
       qc.invalidateQueries({ queryKey: ['activity', activityId] })

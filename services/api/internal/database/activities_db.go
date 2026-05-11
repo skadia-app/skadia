@@ -1557,6 +1557,11 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 			return nil, fmt.Errorf("update activity: set gear: %w", err)
 		}
 	}
+	if update.ExcludeLiftSubtraction != nil {
+		if _, err := db.RefreshGearUsageForActivityMetricChange(ctx, id, userID); err != nil {
+			return nil, fmt.Errorf("update activity: refresh gear usage: %w", err)
+		}
+	}
 
 	return db.GetActivity(ctx, id)
 }

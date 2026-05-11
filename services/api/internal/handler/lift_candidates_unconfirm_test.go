@@ -246,6 +246,32 @@ func TestUnconfirmLiftCandidate_NonExistentCandidateReturns404WithCode(t *testin
 	assertLiftProblemCode(t, rec, "NOT_FOUND")
 }
 
+func TestConfirmLiftCandidate_NonExistentCandidateReturns404WithCode(t *testing.T) {
+	h, db := liftCandidatesHandlerSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	ghostID := uuid.NewString()
+	rec := callConfirmHandler(t, h, userID, activityID, ghostID)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("non-existent candidate confirm status=%d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+	assertLiftProblemCode(t, rec, "NOT_FOUND")
+}
+
+func TestRejectLiftCandidate_NonExistentCandidateReturns404WithCode(t *testing.T) {
+	h, db := liftCandidatesHandlerSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	ghostID := uuid.NewString()
+	rec := callRejectHandler(t, h, userID, activityID, ghostID)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("non-existent candidate reject status=%d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+	assertLiftProblemCode(t, rec, "NOT_FOUND")
+}
+
 // TestUnconfirmLiftCandidate_WrongActivityIDReturns404WithCode: a candidate
 // that belongs to a different activity must return 404 NOT_FOUND (collapses
 // cross-activity case to avoid candidate-existence leak, F12).

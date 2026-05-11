@@ -291,6 +291,9 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	if err := e.runJSONBRemap(ctx, idMap, input.TargetUserID); err != nil {
 		return result, fmt.Errorf("RunImport phase 9 (JSONB remap): %w", err)
 	}
+	if err := refreshImportedTagAutomationState(ctx, e.DB, input.TargetUserID); err != nil {
+		return result, fmt.Errorf("RunImport phase 9 (tag automation state): %w", err)
+	}
 	result.PhasesCompleted++
 
 	// Phase 10: Enrichment.
@@ -311,6 +314,19 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	// ── 10. Result ────────────────────────────────────────────────────────────
 	result.Duration = time.Since(start)
 	return result, nil
+}
+
+func refreshImportedTagAutomationState(ctx context.Context, pool *pgxpool.Pool, userID string) error {
+	_, err := pool.Exec(ctx, `
+		UPDATE tags t SET has_automation = EXISTS (
+			SELECT 1 FROM automation_rules ar
+			WHERE ar.user_id = t.user_id AND ar.is_active = true
+			  AND (ar.actions::text LIKE '%' || t.id::text || '%' OR COALESCE(ar.branches::text, '') LIKE '%' || t.id::text || '%')
+		) WHERE t.user_id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("refresh tag automation state: %w", err)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

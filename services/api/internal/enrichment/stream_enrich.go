@@ -77,6 +77,11 @@ type StreamEnrichmentSettings struct {
 	// paths (e.g. the backfill CLI) where a single UpdateGearStats call per
 	// affected gear replaces N redundant per-activity refreshes.
 	SkipGearRefresh bool
+
+	// FailOnModuleError makes RunStreamEnrichment return the first enabled
+	// module error instead of only logging it. Keep false for import-time
+	// best-effort enrichment; set true for user-visible single-module jobs.
+	FailOnModuleError bool
 }
 
 // StreamSettingsFromModel converts a model.EnrichmentSettings into the smaller
@@ -113,7 +118,7 @@ func allStreamEnabled() StreamEnrichmentSettings {
 
 // RunStreamEnrichment executes stream-based enrichment modules for an activity.
 // Analog to RunGeoEnrichment: modules are run in sequence; failures are logged
-// per module and do not abort subsequent modules.
+// per module and do not abort subsequent modules unless FailOnModuleError is set.
 //
 // The activity stream (a compressed TimescaleDB hypertable) is loaded ONCE and
 // shared across all modules to avoid repeated decompression overhead.
@@ -198,6 +203,9 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 				"activity_id", activityID,
 				"error", err,
 			)
+			if settings.FailOnModuleError {
+				return fmt.Errorf("stream enrichment module %s: %w", m.name, err)
+			}
 		}
 	}
 

@@ -10,6 +10,7 @@ import type { LiftDetectionConfigResponse } from '@/hooks/useLiftDetectionConfig
 import { useToast } from '@/lib/toast'
 import { apiFetch } from '@/lib/auth'
 import { ApiError } from '@/api/client'
+import { fetchActiveJobs } from '@/api/jobs'
 
 interface LiftDetectionHeaderProps {
   activityId: string
@@ -71,6 +72,13 @@ function ToggleRow({ label, checked, disabled, onChange, testId }: ToggleRowProp
   )
 }
 
+async function hasRunningLiftRecompute(activityId: string): Promise<boolean> {
+  const data = await fetchActiveJobs()
+  return data.jobs.some(
+    j => j.job_type === 'lift_recompute' && j.entity_id === activityId && j.status === 'running',
+  )
+}
+
 export default function LiftDetectionHeader({ activityId, jobRunning, onJobStarted }: LiftDetectionHeaderProps) {
   const { addToast } = useToast()
   const qc = useQueryClient()
@@ -92,6 +100,9 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
   // lift-candidate queries in addition to the config query (which putMutation already covers).
   const applyMutation = useMutation({
     mutationFn: async (settings: LocalSettings) => {
+      if (await hasRunningLiftRecompute(activityId)) {
+        return { ok: false, status: 409 } as Response
+      }
       await putMutation.mutateAsync({ osm: settings.osm, heuristic: settings.heuristic })
       const res = await apiFetch(`/api/v1/activities/${activityId}/lifts/recalculate-all`, {
         method: 'POST',
@@ -141,7 +152,27 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
 
   const handleReset = async () => {
     try {
+      if (await hasRunningLiftRecompute(activityId)) {
+        addToast({ type: 'info', title: 'Job läuft bereits — bitte warten' })
+        onJobStarted()
+        return
+      }
       await resetMutation.mutateAsync()
+      const res = await apiFetch(`/api/v1/activities/${activityId}/lifts/recalculate-all`, {
+        method: 'POST',
+      })
+      if (res.status === 409) {
+        addToast({ type: 'info', title: 'Job läuft bereits — bitte warten' })
+        onJobStarted()
+        return
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as Record<string, unknown>
+        const msg = typeof body.message === 'string' ? body.message : `Fehler ${res.status}`
+        addToast({ type: 'error', title: msg })
+        return
+      }
+      onJobStarted()
       addToast({ type: 'success', title: 'Aktivitätsspezifische Einstellung zurückgesetzt' })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Fehler beim Zurücksetzen'

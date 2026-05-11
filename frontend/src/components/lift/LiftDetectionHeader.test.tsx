@@ -14,17 +14,23 @@ vi.mock('@/api/liftDetectionConfig', () => ({
   deleteLiftDetectionConfig: vi.fn(),
 }))
 
+vi.mock('@/api/jobs', () => ({
+  fetchActiveJobs: vi.fn(),
+}))
+
 vi.mock('@/lib/auth', () => ({
   apiFetch: vi.fn(),
 }))
 
 import { getLiftDetectionConfig, putLiftDetectionConfig, deleteLiftDetectionConfig } from '@/api/liftDetectionConfig'
+import { fetchActiveJobs } from '@/api/jobs'
 import { apiFetch } from '@/lib/auth'
 
 const mockGet = getLiftDetectionConfig as ReturnType<typeof vi.fn>
 const mockPut = putLiftDetectionConfig as ReturnType<typeof vi.fn>
 const mockDelete = deleteLiftDetectionConfig as ReturnType<typeof vi.fn>
 const mockApiFetch = apiFetch as ReturnType<typeof vi.fn>
+const mockFetchActiveJobs = fetchActiveJobs as ReturnType<typeof vi.fn>
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -145,7 +151,10 @@ describe('LiftDetectionHeader — disabled state', () => {
 })
 
 describe('LiftDetectionHeader — Apply button', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFetchActiveJobs.mockResolvedValue({ jobs: [] })
+  })
 
   it('Apply calls PUT then recalculate-all (202) and invokes onJobStarted', async () => {
     const onJobStarted = vi.fn()
@@ -185,13 +194,48 @@ describe('LiftDetectionHeader — Apply button', () => {
       expect(onJobStarted).toHaveBeenCalled()
     })
   })
+
+  it('Apply checks for a running lift job before persisting override settings', async () => {
+    const onJobStarted = vi.fn()
+    mockFetchActiveJobs.mockResolvedValue({
+      jobs: [
+        {
+          id: 'job-1',
+          job_type: 'lift_recompute',
+          status: 'running',
+          entity_id: 'act-1',
+          progress_current: 0,
+          progress_total: 1,
+          started_at: '2026-05-11T00:00:00Z',
+        },
+      ],
+    })
+    mockPut.mockResolvedValue(undefined)
+    mockApiFetch.mockResolvedValue({ ok: true, status: 202 })
+
+    await renderHeader({ onJobStarted })
+
+    await waitFor(() => expect(screen.getByTestId('apply-button')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('apply-button'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Job läuft bereits/)).toBeTruthy()
+      expect(onJobStarted).toHaveBeenCalled()
+    })
+    expect(mockPut).not.toHaveBeenCalled()
+    expect(mockApiFetch).not.toHaveBeenCalled()
+  })
 })
 
 describe('LiftDetectionHeader — Reset button', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFetchActiveJobs.mockResolvedValue({ jobs: [] })
+  })
 
-  it('Reset calls DELETE and shows success toast', async () => {
+  it('Reset calls DELETE, starts recalculation, and shows success toast', async () => {
     mockDelete.mockResolvedValue(undefined)
+    mockApiFetch.mockResolvedValue({ ok: true, status: 202 })
     // Re-fetch after reset returns no override
     mockGet
       .mockResolvedValueOnce(makeConfig({ override: { osm: true, heuristic: null } }))
@@ -207,6 +251,10 @@ describe('LiftDetectionHeader — Reset button', () => {
 
     await waitFor(() => {
       expect(mockDelete).toHaveBeenCalledWith('act-1')
+      expect(mockApiFetch).toHaveBeenCalledWith(
+        '/api/v1/activities/act-1/lifts/recalculate-all',
+        { method: 'POST' },
+      )
       // Toast message includes "zurückgesetzt"; the override badge also contains
       // "zurückgesetzt" after F11 copy change — use title div class to disambiguate.
       expect(screen.getByText(/Aktivitätsspezifische Einstellung zurückgesetzt/)).toBeTruthy()

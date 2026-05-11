@@ -26,6 +26,13 @@ export function invalidateQueriesForCompletedJob(queryClient: QueryClient, job: 
     return
   }
 
+  if (job.job_type === 'lift_recompute' && job.entity_id) {
+    queryClient.invalidateQueries({ queryKey: ['activity', job.entity_id] })
+    queryClient.invalidateQueries({ queryKey: ['lift-candidates', job.entity_id] })
+    queryClient.invalidateQueries({ queryKey: ['lift-candidates-inspector', job.entity_id] })
+    return
+  }
+
   if (job.job_type === 'recompute_multisport') {
     queryClient.invalidateQueries({ queryKey: ['activities'] })
     if (job.entity_id) {

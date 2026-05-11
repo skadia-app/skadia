@@ -3,8 +3,9 @@
 -- Run grep first: grep -r "rejected_by_user\|lifts_acknowledged_at\|lift_detection_osm_override\|lift_detection_heuristic_override\|enable_lift_detection_osm\|enable_lift_detection_heuristic" services/api/ frontend/src/
 -- must be empty (global CLAUDE.md "Database column drops" rule).
 
--- Phase 6 (F3) revert idx_bg_jobs_one_running to the 000285 shape:
+-- Phase 6 (F3) revert background_jobs uniqueness to the 000285 shape:
 -- UNIQUE (user_id, job_type) WHERE status='running'.
+DROP INDEX IF EXISTS idx_bg_jobs_one_lift_recompute;
 DROP INDEX IF EXISTS idx_bg_jobs_one_running;
 CREATE UNIQUE INDEX idx_bg_jobs_one_running
     ON background_jobs (user_id, job_type)

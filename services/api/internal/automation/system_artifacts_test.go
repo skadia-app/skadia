@@ -7,8 +7,10 @@ package automation
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -201,9 +203,9 @@ func TestSystemTypeWhitelist_RejectsUnknown(t *testing.T) {
 
 func TestSystemRules_TriggerEventInWhitelist(t *testing.T) {
 	allowed := map[string]bool{
-		"on_import":               true,
-		"on_enrichment_complete":  true,
-		"on_manual_apply":         true,
+		"on_import":              true,
+		"on_enrichment_complete": true,
+		"on_manual_apply":        true,
 	}
 	for _, r := range SystemRules {
 		if !allowed[r.TriggerEvent] {
@@ -225,6 +227,71 @@ func TestEnsureSystemArtifacts_TagBeforeRule(t *testing.T) {
 			t.Errorf("SystemRule %q references TagName %q which is not in SystemTags",
 				r.SystemType, r.TagName)
 		}
+	}
+}
+
+func TestEnsureSystemArtifacts_PromotesExistingCustomTagNameCollision(t *testing.T) {
+	pool := systemArtifactsTestPool(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	db := &database.DB{Pool: pool}
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto)
+		VALUES ($1, 'Lift', '#000000', '#FFFFFF', 'custom', false, false)
+	`, userID); err != nil {
+		t.Fatalf("insert custom Lift tag: %v", err)
+	}
+
+	if err := EnsureSystemArtifacts(ctx, db, userID); err != nil {
+		t.Fatalf("EnsureSystemArtifacts: %v", err)
+	}
+
+	var isSystem bool
+	var category string
+	var ruleCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT is_system, category
+		FROM tags
+		WHERE user_id = $1 AND name = 'Lift'
+	`, userID).Scan(&isSystem, &category); err != nil {
+		t.Fatalf("query Lift tag: %v", err)
+	}
+	if !isSystem || category != "system" {
+		t.Fatalf("Lift collision was not promoted to system tag: is_system=%v category=%q", isSystem, category)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM automation_rules
+		WHERE user_id = $1 AND is_system = true AND system_type = 'lift_detected'
+	`, userID).Scan(&ruleCount); err != nil {
+		t.Fatalf("query lift rule count: %v", err)
+	}
+	if ruleCount != 1 {
+		t.Fatalf("lift_detected rule count = %d, want 1", ruleCount)
+	}
+}
+
+func TestEnsureSystemArtifacts_SetsHasAutomationForSeededRuleTags(t *testing.T) {
+	pool := systemArtifactsTestPool(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	db := &database.DB{Pool: pool}
+
+	if err := EnsureSystemArtifacts(ctx, db, userID); err != nil {
+		t.Fatalf("EnsureSystemArtifacts: %v", err)
+	}
+
+	var hasAutomation bool
+	if err := pool.QueryRow(ctx, `
+		SELECT has_automation
+		FROM tags
+		WHERE user_id = $1 AND name = 'Lift'
+	`, userID).Scan(&hasAutomation); err != nil {
+		t.Fatalf("query Lift tag has_automation: %v", err)
+	}
+	if !hasAutomation {
+		t.Fatal("Lift tag has_automation=false after seeding lift_detected rule")
 	}
 }
 
@@ -318,6 +385,61 @@ func TestEnsureSystemArtifactsForAllUsers_AdvisoryLock(t *testing.T) {
 	}
 }
 
+func TestEnsureSystemArtifactsForAllUsers_DoesNotRetrySameFailingUserForever(t *testing.T) {
+	pool := systemArtifactsTestPool(t)
+	ctx := context.Background()
+	failUserID := createTestUser(t, pool)
+	okUserID := createTestUser(t, pool)
+	db := &database.DB{Pool: pool}
+
+	suffix := failUserID[:8]
+	triggerName := "test_fail_system_artifacts_tags_" + suffix
+	functionName := "test_fail_system_artifacts_tags_fn_" + suffix
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN
+			IF NEW.user_id = %s::uuid THEN
+				RAISE EXCEPTION 'intentional system artifact test failure';
+			END IF;
+			RETURN NEW;
+		END
+		$$;
+		CREATE TRIGGER %s
+		BEFORE INSERT ON tags
+		FOR EACH ROW EXECUTE FUNCTION %s();
+	`, functionName, quoteLiteral(failUserID), triggerName, functionName)); err != nil {
+		t.Fatalf("install failing trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), fmt.Sprintf(`DROP TRIGGER IF EXISTS %s ON tags`, triggerName))
+		_, _ = pool.Exec(context.Background(), fmt.Sprintf(`DROP FUNCTION IF EXISTS %s()`, functionName))
+	})
+
+	runCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	if err := EnsureSystemArtifactsForAllUsers(runCtx, db); err != nil {
+		t.Fatalf("sweep should finish one pass despite a per-user failure, got: %v", err)
+	}
+
+	var failVersion, okVersion int
+	if err := pool.QueryRow(ctx,
+		`SELECT system_artifacts_version FROM users WHERE id = $1`, failUserID,
+	).Scan(&failVersion); err != nil {
+		t.Fatalf("read fail user version: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT system_artifacts_version FROM users WHERE id = $1`, okUserID,
+	).Scan(&okVersion); err != nil {
+		t.Fatalf("read ok user version: %v", err)
+	}
+	if failVersion != 0 {
+		t.Fatalf("failing user version = %d, want 0 for retry on a future sweep", failVersion)
+	}
+	if okVersion != SystemArtifactsVersion {
+		t.Fatalf("ok user version = %d, want %d", okVersion, SystemArtifactsVersion)
+	}
+}
+
 // helpers ---------------------------------------------------------------
 
 func namesFromTagSpecs(specs []SystemTagSpec) []string {
@@ -334,4 +456,8 @@ func systemTypesFromRuleSpecs(specs []SystemRuleSpec) []string {
 		out[i] = s.SystemType
 	}
 	return out
+}
+
+func quoteLiteral(s string) string {
+	return "'" + s + "'"
 }

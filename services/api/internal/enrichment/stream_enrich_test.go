@@ -2,6 +2,7 @@ package enrichment
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,5 +177,37 @@ func TestRunStreamEnrichment_LiftDetectionDisabledSkipsModule(t *testing.T) {
 	}
 	if !stillExists {
 		t.Error("sentinel candidate was deleted — enrichStreamLifts ran despite EnableLiftDetection=false")
+	}
+}
+
+func TestRunStreamEnrichment_LiftOnlyStrictReturnsModuleError(t *testing.T) {
+	pool := liftTestPool(t)
+	ctx := context.Background()
+	userID := liftTestUser(t, pool)
+	activityID := liftTestActivity(t, pool, userID)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activity_streams (activity_id, time, lat, lng)
+		VALUES ($1, $2, 47.0, 11.0), ($1, $3, 47.01, 11.01)
+	`, activityID, now, now.Add(30*time.Second)); err != nil {
+		t.Fatalf("insert streams: %v", err)
+	}
+
+	db := &database.DB{Pool: pool}
+	settings := StreamEnrichmentSettings{
+		EnableLiftDetection:     true,
+		EnableStopDetection:     false,
+		EnableAscentDetection:   false,
+		EnableIntervalDetection: false,
+		FailOnModuleError:       true,
+	}
+
+	err := RunStreamEnrichment(ctx, db, "not-a-uuid", activityID, settings)
+	if err == nil {
+		t.Fatal("RunStreamEnrichment returned nil for strict lift module failure")
+	}
+	if !strings.Contains(err.Error(), "module lifts") {
+		t.Fatalf("error=%q, want module lifts context", err.Error())
 	}
 }

@@ -90,6 +90,12 @@ function getSportEmoji(sportType: string): string {
   return map[normalized.sportType] ?? '●'
 }
 
+export function shouldRenderLiftSection(
+  activity: Pick<Activity, 'lift_count'>,
+  unreviewedHeuristicCount: number,
+): boolean {
+  return (activity.lift_count ?? 0) > 0 || unreviewedHeuristicCount > 0
+}
 
 export default function ActivityDetailPage() {
   const { id: urlId } = useParams<{ id: string }>()
@@ -1059,7 +1065,7 @@ export default function ActivityDetailPage() {
       <IntervalSection activityId={activity.id} sportType={activity.sport_type} />
 
       {/* Liftfahrten */}
-      {(activity.lift_count ?? 0) > 0 ? (
+      {shouldRenderLiftSection(activity, unreviewedHeuristicCount) ? (
         <LiftSection
           activity={activity}
           onToggleExclude={async (v) => {

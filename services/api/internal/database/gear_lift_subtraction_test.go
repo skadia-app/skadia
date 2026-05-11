@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 type gearLiftFixture struct {
@@ -53,6 +54,10 @@ func newGearLiftFixture(t *testing.T) gearLiftFixture {
 }
 
 func (fx gearLiftFixture) insertActivity(t *testing.T, distanceM, elapsedS, ascentM, descentM float64, liftDistanceM, liftAscentM, liftDescentM *float64) string {
+	return fx.insertActivityForGear(t, fx.gearID, distanceM, elapsedS, ascentM, descentM, liftDistanceM, liftAscentM, liftDescentM)
+}
+
+func (fx gearLiftFixture) insertActivityForGear(t *testing.T, gearID string, distanceM, elapsedS, ascentM, descentM float64, liftDistanceM, liftAscentM, liftDescentM *float64) string {
 	t.Helper()
 	ctx := context.Background()
 	activityID := uuid.NewString()
@@ -71,7 +76,7 @@ func (fx gearLiftFixture) insertActivity(t *testing.T, distanceM, elapsedS, asce
 	if _, err := fx.pool.Exec(ctx, `
 		INSERT INTO activity_gear_assignments (user_id, activity_id, gear_id, role_key, source)
 		VALUES ($1, $2, $3, 'primary', 'user')`,
-		fx.userID, activityID, fx.gearID); err != nil {
+		fx.userID, activityID, gearID); err != nil {
 		t.Fatalf("insert activity gear assignment: %v", err)
 	}
 	return activityID
@@ -117,6 +122,91 @@ func TestGearLiftSubtraction_UpdateGearStatsNetsLiftTotals(t *testing.T) {
 	}
 	if totalActivities != 2 {
 		t.Fatalf("total_activities = %d, want 2", totalActivities)
+	}
+}
+
+func TestGearLiftSubtraction_SummaryUsesNetLiftTotals(t *testing.T) {
+	fx := newGearLiftFixture(t)
+
+	fx.insertActivity(t, 10000, 1800, 900, 600, ptrFloat64(2000), ptrFloat64(250), ptrFloat64(120))
+
+	summary, err := fx.db.GetGearSummary(context.Background(), fx.userID, GearSummaryFilter{})
+	if err != nil {
+		t.Fatalf("GetGearSummary: %v", err)
+	}
+	if summary.TotalDistanceM != 8000 {
+		t.Fatalf("summary total_distance_m = %.0f, want 8000", summary.TotalDistanceM)
+	}
+	if summary.TotalElevationGainM != 650 {
+		t.Fatalf("summary total_elevation_gain_m = %.0f, want 650", summary.TotalElevationGainM)
+	}
+	if summary.TotalElevationLossM != 480 {
+		t.Fatalf("summary total_elevation_loss_m = %.0f, want 480", summary.TotalElevationLossM)
+	}
+}
+
+func TestGearLiftSubtraction_MergeGearUsesNetLiftTotals(t *testing.T) {
+	fx := newGearLiftFixture(t)
+	ctx := context.Background()
+
+	secondaryID := uuid.NewString()
+	if _, err := fx.pool.Exec(ctx, `
+		INSERT INTO gear (id, user_id, name, type, scope)
+		VALUES ($1, $2, 'Lift Merge Secondary', 'bike', 'bike')`,
+		secondaryID, fx.userID); err != nil {
+		t.Fatalf("insert secondary gear: %v", err)
+	}
+	fx.insertActivityForGear(t, secondaryID, 10000, 1800, 900, 600, ptrFloat64(2000), ptrFloat64(250), ptrFloat64(120))
+
+	if err := fx.db.MergeGear(ctx, fx.userID, fx.gearID, secondaryID); err != nil {
+		t.Fatalf("MergeGear: %v", err)
+	}
+
+	var totalDistance, totalElevationGain, totalElevationLoss float64
+	if err := fx.pool.QueryRow(ctx, `
+		SELECT total_distance_m, total_elevation_gain_m, total_elevation_loss_m
+		FROM gear WHERE id = $1`, fx.gearID).Scan(&totalDistance, &totalElevationGain, &totalElevationLoss); err != nil {
+		t.Fatalf("query primary gear totals: %v", err)
+	}
+	if totalDistance != 8000 {
+		t.Fatalf("total_distance_m = %.0f, want 8000", totalDistance)
+	}
+	if totalElevationGain != 650 {
+		t.Fatalf("total_elevation_gain_m = %.0f, want 650", totalElevationGain)
+	}
+	if totalElevationLoss != 480 {
+		t.Fatalf("total_elevation_loss_m = %.0f, want 480", totalElevationLoss)
+	}
+}
+
+func TestGearLiftSubtraction_UpdateActivityExcludeRefreshesGearTotals(t *testing.T) {
+	fx := newGearLiftFixture(t)
+	ctx := context.Background()
+	activityID := fx.insertActivity(t, 10000, 1800, 900, 600, ptrFloat64(2000), ptrFloat64(250), ptrFloat64(120))
+
+	if err := fx.db.UpdateGearStatsOwnerVerified(ctx, fx.gearID); err != nil {
+		t.Fatalf("initial UpdateGearStatsOwnerVerified: %v", err)
+	}
+
+	exclude := true
+	if _, err := fx.db.UpdateActivity(ctx, activityID, fx.userID, &model.ActivityUpdate{ExcludeLiftSubtraction: &exclude}); err != nil {
+		t.Fatalf("UpdateActivity: %v", err)
+	}
+
+	var totalDistance, totalElevationGain, totalElevationLoss float64
+	if err := fx.pool.QueryRow(ctx, `
+		SELECT total_distance_m, total_elevation_gain_m, total_elevation_loss_m
+		FROM gear WHERE id = $1`, fx.gearID).Scan(&totalDistance, &totalElevationGain, &totalElevationLoss); err != nil {
+		t.Fatalf("query gear totals: %v", err)
+	}
+	if totalDistance != 10000 {
+		t.Fatalf("total_distance_m = %.0f, want 10000", totalDistance)
+	}
+	if totalElevationGain != 900 {
+		t.Fatalf("total_elevation_gain_m = %.0f, want 900", totalElevationGain)
+	}
+	if totalElevationLoss != 600 {
+		t.Fatalf("total_elevation_loss_m = %.0f, want 600", totalElevationLoss)
 	}
 }
 
@@ -182,6 +272,97 @@ func TestRecomputeLiftStats_SkipGearRefreshLeavesGearTotalsUntouched(t *testing.
 	}
 }
 
+func TestRecalculateActivityLifts_RefreshesGearTotalsAfterReset(t *testing.T) {
+	fx := newGearLiftFixture(t)
+	ctx := context.Background()
+	activityID := fx.insertActivity(t, 10000, 1800, 900, 600, ptrFloat64(2000), ptrFloat64(250), ptrFloat64(120))
+
+	if err := fx.db.UpdateGearStatsOwnerVerified(ctx, fx.gearID); err != nil {
+		t.Fatalf("initial UpdateGearStatsOwnerVerified: %v", err)
+	}
+
+	if err := fx.db.RecalculateActivityLifts(ctx, fx.userID, activityID); err != nil {
+		t.Fatalf("RecalculateActivityLifts: %v", err)
+	}
+
+	var liftDistance, totalDistance, totalElevationGain, totalElevationLoss float64
+	if err := fx.pool.QueryRow(ctx, `
+		SELECT COALESCE(a.lift_distance_m, 0), g.total_distance_m,
+		       g.total_elevation_gain_m, g.total_elevation_loss_m
+		FROM activities a
+		JOIN activity_gear_assignments aga ON aga.activity_id = a.id
+		JOIN gear g ON g.id = aga.gear_id
+		WHERE a.id = $1`, activityID).Scan(
+		&liftDistance, &totalDistance, &totalElevationGain, &totalElevationLoss,
+	); err != nil {
+		t.Fatalf("query activity and gear totals: %v", err)
+	}
+	if liftDistance != 0 {
+		t.Fatalf("lift_distance_m = %.0f, want 0", liftDistance)
+	}
+	if totalDistance != 10000 {
+		t.Fatalf("total_distance_m = %.0f, want refreshed gross 10000", totalDistance)
+	}
+	if totalElevationGain != 900 {
+		t.Fatalf("total_elevation_gain_m = %.0f, want refreshed gross 900", totalElevationGain)
+	}
+	if totalElevationLoss != 600 {
+		t.Fatalf("total_elevation_loss_m = %.0f, want refreshed gross 600", totalElevationLoss)
+	}
+}
+
+func TestResetSoftRejectedLiftCandidates_RecomputesAggregatesAndGearTotals(t *testing.T) {
+	fx := newGearLiftFixture(t)
+	ctx := context.Background()
+	activityID := fx.insertActivity(t, 10000, 1800, 900, 600, nil, nil, nil)
+	insertRejectedConfirmedLiftCandidate(t, fx.pool, activityID, 2000, 250, 120)
+
+	if err := fx.db.RecomputeLiftStats(ctx, fx.userID, activityID); err != nil {
+		t.Fatalf("initial RecomputeLiftStats: %v", err)
+	}
+
+	cleared, activities, err := fx.db.ResetSoftRejectedLiftCandidates(ctx, fx.userID)
+	if err != nil {
+		t.Fatalf("ResetSoftRejectedLiftCandidates: %v", err)
+	}
+	if cleared != 1 {
+		t.Fatalf("cleared=%d, want 1", cleared)
+	}
+	if activities != 1 {
+		t.Fatalf("activities=%d, want 1", activities)
+	}
+
+	var rejected bool
+	var liftDistance, totalDistance, totalElevationGain, totalElevationLoss float64
+	if err := fx.pool.QueryRow(ctx, `
+		SELECT alc.rejected_by_user, COALESCE(a.lift_distance_m, 0),
+		       g.total_distance_m, g.total_elevation_gain_m, g.total_elevation_loss_m
+		FROM activity_lift_candidates alc
+		JOIN activities a ON a.id = alc.activity_id
+		JOIN activity_gear_assignments aga ON aga.activity_id = a.id
+		JOIN gear g ON g.id = aga.gear_id
+		WHERE a.id = $1`, activityID).Scan(
+		&rejected, &liftDistance, &totalDistance, &totalElevationGain, &totalElevationLoss,
+	); err != nil {
+		t.Fatalf("query reset state: %v", err)
+	}
+	if rejected {
+		t.Fatal("rejected_by_user = true after reset, want false")
+	}
+	if liftDistance != 2000 {
+		t.Fatalf("lift_distance_m = %.0f, want 2000", liftDistance)
+	}
+	if totalDistance != 8000 {
+		t.Fatalf("total_distance_m = %.0f, want net 8000", totalDistance)
+	}
+	if totalElevationGain != 650 {
+		t.Fatalf("total_elevation_gain_m = %.0f, want net 650", totalElevationGain)
+	}
+	if totalElevationLoss != 480 {
+		t.Fatalf("total_elevation_loss_m = %.0f, want net 480", totalElevationLoss)
+	}
+}
+
 func TestRecomputeLiftStats_RejectsForeignActivity(t *testing.T) {
 	fx := newGearLiftFixture(t)
 	ctx := context.Background()
@@ -235,5 +416,19 @@ func insertConfirmedLiftCandidate(t *testing.T, pool *pgxpool.Pool, activityID s
 			VALUES ($1, $2, $3, 300, $4, $5, $6, 'high', true, 'heuristic')`,
 		activityID, startedAt, startedAt.Add(5*time.Minute), ascentM, descentM, distanceM); err != nil {
 		t.Fatalf("insert lift candidate: %v", err)
+	}
+}
+
+func insertRejectedConfirmedLiftCandidate(t *testing.T, pool *pgxpool.Pool, activityID string, distanceM, ascentM, descentM float64) {
+	t.Helper()
+	ctx := context.Background()
+	startedAt := time.Now().UTC().Truncate(time.Second)
+	if _, err := pool.Exec(ctx, `
+			INSERT INTO activity_lift_candidates
+				(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
+				 confidence, confirmed, source, rejected_by_user)
+			VALUES ($1, $2, $3, 300, $4, $5, $6, 'high', true, 'heuristic', true)`,
+		activityID, startedAt, startedAt.Add(5*time.Minute), ascentM, descentM, distanceM); err != nil {
+		t.Fatalf("insert rejected lift candidate: %v", err)
 	}
 }

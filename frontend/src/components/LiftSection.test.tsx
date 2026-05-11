@@ -166,6 +166,46 @@ describe('LiftSection', () => {
     })
   })
 
+  it('does not invalidate activity or candidates when confirm returns non-OK', async () => {
+    const candidates = makeCandidates([
+      { id: 'h-open', source: 'heuristic', confirmed: false, ascent_m: 120, descent_m: 0 },
+    ])
+    mockApiFetch.mockImplementation((url: string) => {
+      if (url.includes('/lifts/candidates')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(candidates) })
+      }
+      return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ message: 'boom' }) })
+    })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
+
+    render(
+      <QueryClientProvider client={qc}>
+        <LiftSection
+          activity={makeActivity({ lift_count: 1 })}
+          onToggleExclude={async () => {}}
+        />
+      </QueryClientProvider>,
+    )
+
+    fireEvent.click(await screen.findByText(/✓ Bestätigen/))
+
+    await waitFor(() => {
+      const confirmCall = mockApiFetch.mock.calls.find(
+        (args: unknown[]) => {
+          const url = args[0] as string | undefined
+          const opts = args[1] as RequestInit | undefined
+          return !!url && url.includes('/lift-candidates/h-open/confirm') && opts?.method === 'POST'
+        },
+      )
+      expect(confirmCall).toBeTruthy()
+    })
+    await waitFor(() => {
+      expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['activity', 'act-1'] })
+      expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['lift-candidates', 'act-1'] })
+    })
+  })
+
   it('shows singular Liftfahrt for liftCount === 1', async () => {
     mockApiFetch.mockResolvedValue({ json: () => Promise.resolve([]) })
 

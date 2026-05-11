@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -124,6 +125,11 @@ func (h *Handler) ConfirmLiftCandidate(w http.ResponseWriter, r *http.Request) {
 
 	candID := chi.URLParam(r, "cid")
 	if err := h.DB.ConfirmLiftCandidate(r.Context(), userID, candID, activityID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			httputil.WriteProblem(w, http.StatusNotFound, "Cannot confirm",
+				"lift candidate not found", "NOT_FOUND", r.URL.Path)
+			return
+		}
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
 	}
@@ -237,6 +243,11 @@ func (h *Handler) RejectLiftCandidate(w http.ResponseWriter, r *http.Request) {
 
 	candID := chi.URLParam(r, "cid")
 	if err := h.DB.RejectLiftCandidate(r.Context(), userID, candID, activityID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			httputil.WriteProblem(w, http.StatusNotFound, "Cannot reject",
+				"lift candidate not found", "NOT_FOUND", r.URL.Path)
+			return
+		}
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
 		return
 	}
@@ -362,7 +373,7 @@ func (h *Handler) AcknowledgeLifts(w http.ResponseWriter, r *http.Request) {
 // Hard-resets lift detection state for one activity (User-Quote 2026-05-08
 // #5): DELETE all candidates (including rejected), DELETE coupled lift
 // segment_efforts, clear lifts_acknowledged_at, then trigger re-enrichment
-// AFTER the transaction commits in a background goroutine (F2 fix: async
+// from a pre-created background job (F2 fix: async
 // dispatch prevents client-disconnect from leaving the activity in a
 // half-reset state and avoids blocking long enrichment runs).
 //
@@ -425,28 +436,14 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := h.DB.RecalculateActivityLifts(r.Context(), userID, activityID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
-			return
-		}
-		slog.Error("recalculate activity lifts failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
-		return
-	}
-
-	// F17: enqueue lift re-enrichment as a background job AFTER the DELETE
-	// transaction commits. Job-insert failure is now fatal: a unique_violation
-	// (23505) means a concurrent caller raced past the F1 check between the
-	// SELECT and the INSERT — translate to the same 409 LIFT_RECOMPUTE_RUNNING
-	// shape; any other error is a 500. We must NOT start the re-enrichment
-	// goroutine when the insert fails, because then progress would not be
-	// tracked at all and a retry could compound the problem.
+	// Create the tracked job before the destructive reset. If the INSERT cannot
+	// be guaranteed, the existing candidates and lift aggregates must remain
+	// untouched so the user can retry without data loss.
 	jobID, jobErr := h.DB.InsertBackgroundJob(r.Context(), userID, "lift_recompute", &activityID, nil, 1)
 	if jobErr != nil {
 		if isLiftRecomputeUniqueViolation(jobErr) {
-			// Race-loser path: the F3-widened idx_bg_jobs_one_running rejected
-			// the insert because another request slipped in between our
+			// Race-loser path: the lift-recompute unique index rejected the
+			// insert because another request slipped in between our
 			// HasRunningLiftRecomputeJob check and this INSERT.
 			if running, existingJobID, _ := h.DB.HasRunningLiftRecomputeJob(r.Context(), userID, activityID); running && existingJobID != nil {
 				httputil.WriteProblemWithJob(w, http.StatusConflict,
@@ -465,6 +462,17 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if err := h.DB.RecalculateActivityLifts(r.Context(), userID, activityID); err != nil {
+		_ = h.DB.CompleteBackgroundJob(r.Context(), jobID, true, err.Error())
+		if errors.Is(err, pgx.ErrNoRows) {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
+			return
+		}
+		slog.Error("recalculate activity lifts failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
+		return
+	}
+
 	// Capture copies for the goroutine (request values must not be read after
 	// ServeHTTP returns — the goroutine must use context.Background()).
 	capturedUserID := userID
@@ -476,7 +484,7 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 		if err := h.dispatchLiftReEnrichmentBackground(ctx, capturedUserID, capturedActivityID); err != nil {
 			slog.Warn("recalculate lifts: background re-enrichment failed (non-fatal)",
 				"activity_id", capturedActivityID, "error", err)
-			_ = h.DB.CompleteBackgroundJob(ctx, capturedJobID, true, "re-enrichment failed")
+			_ = h.DB.CompleteBackgroundJob(ctx, capturedJobID, true, err.Error())
 			return
 		}
 		_ = h.DB.UpdateBackgroundJobProgress(ctx, capturedJobID, 1)
@@ -487,14 +495,13 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 }
 
 // isLiftRecomputeUniqueViolation reports whether err is a Postgres unique-
-// violation on idx_bg_jobs_one_running — i.e. a concurrent lift_recompute
-// insert lost the race against the F3-widened guard.
+// violation on the lift_recompute background_jobs guard.
 func isLiftRecomputeUniqueViolation(err error) bool {
 	pgErr, ok := errors.AsType[*pgconn.PgError](err)
 	if !ok {
 		return false
 	}
-	return pgErr.Code == "23505" && pgErr.ConstraintName == "idx_bg_jobs_one_running"
+	return pgErr.Code == "23505" && pgErr.ConstraintName == "idx_bg_jobs_one_lift_recompute"
 }
 
 // dispatchLiftReEnrichmentBackground fires lift-only stream enrichment for the
@@ -503,9 +510,10 @@ func isLiftRecomputeUniqueViolation(err error) bool {
 func (h *Handler) dispatchLiftReEnrichmentBackground(ctx context.Context, userID, activityID string) error {
 	settings, err := h.DB.GetEnrichmentSettings(ctx, userID)
 	if err != nil || settings == nil {
-		slog.Warn("recalculate lifts: load enrichment settings failed; skipping re-enrichment",
-			"activity_id", activityID, "error", err)
-		return nil // settings unavailable is non-fatal; skip enrichment silently
+		if err == nil {
+			err = errors.New("enrichment settings not found")
+		}
+		return fmt.Errorf("recalculate lifts: load enrichment settings: %w", err)
 	}
 	if !settings.EnableLiftDetection {
 		slog.Info("recalculate lifts: lift detection disabled for user; skipping re-enrichment",
@@ -514,6 +522,7 @@ func (h *Handler) dispatchLiftReEnrichmentBackground(ctx context.Context, userID
 	}
 	streamSettings := enrichment.StreamEnrichmentSettings{
 		EnableLiftDetection: true,
+		FailOnModuleError:   true,
 	}
 	return enrichment.RunStreamEnrichment(ctx, h.DB, userID, activityID, streamSettings)
 }

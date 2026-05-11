@@ -10,177 +10,127 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 )
 
-// TestLiftRecomputeAll_DeletesStaleCandidates verifies that the pre-deletion step
-// removes non-rejected candidates (confirmed=true and confirmed=false alike)
-// before re-enrichment, so that the activity does not carry stale candidate rows.
-func TestLiftRecomputeAll_DeletesStaleCandidates(t *testing.T) {
+func TestLiftRecomputeAll_ListEligibleActivitiesMirrorsLiftRelevance(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := context.Background()
 
-	// Insert minimal user.
 	userID := uuid.New().String()
 	_, err := pool.Exec(ctx,
 		`INSERT INTO users (id, username, email, email_verified, registration_source)
 		 VALUES ($1, $2, $3, true, 'test')`,
 		userID,
-		"backfill_stale_"+userID[:8],
-		"backfill_stale_"+userID[:8]+"@example.com",
+		"backfill_eligible_"+userID[:8],
+		"backfill_eligible_"+userID[:8]+"@example.com",
 	)
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	t.Cleanup(func() {
 		bg := context.Background()
-		pool.Exec(bg, "DELETE FROM activity_lift_candidates WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)", userID) //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM activities WHERE user_id = $1", userID)                                                                //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM users WHERE id = $1", userID)                                                                          //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activities WHERE user_id = $1", userID) //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM users WHERE id = $1", userID)           //nolint:errcheck
 	})
 
-	// Insert a ski activity.
-	activityID := uuid.New().String()
 	now := time.Now().UTC().Truncate(time.Second)
-	_, err = pool.Exec(ctx, `
-		INSERT INTO activities (id, user_id, sport_type, started_at, ended_at, file_hash)
-		VALUES ($1, $2, 'alpine_skiing', $3, $4, $5)
-	`, activityID, userID, now, now.Add(2*time.Hour), uuid.New().String())
-	if err != nil {
-		t.Fatalf("insert activity: %v", err)
+	insertActivity := func(sportType, subType string, isIndoor, isVirtual bool, liftCount int) string {
+		t.Helper()
+		id := uuid.New().String()
+		_, err := pool.Exec(ctx, `
+			INSERT INTO activities
+				(id, user_id, sport_type, sub_type, started_at, ended_at, file_hash,
+				 is_indoor, is_virtual, lift_count)
+			VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9, $10)
+		`, id, userID, sportType, subType, now, now.Add(2*time.Hour), uuid.New().String(), isIndoor, isVirtual, liftCount)
+		if err != nil {
+			t.Fatalf("insert activity (%s/%s): %v", sportType, subType, err)
+		}
+		return id
 	}
 
-	// Pre-seed 3 confirmed=true and 2 confirmed=false candidates (none rejected).
-	// Each candidate gets a distinct started_at to avoid the unique constraint on
-	// (activity_id, started_at).
-	var candidateSeq int
-	insertCandidate := func(confirmed bool) {
-		t.Helper()
-		offset := time.Duration(candidateSeq) * 10 * time.Minute
-		candidateSeq++
-		start := now.Add(offset)
-		end := start.Add(time.Minute)
-		_, err := pool.Exec(ctx, `
-			INSERT INTO activity_lift_candidates
-				(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m, confidence, confirmed)
-			VALUES ($1, $2, $3, 60, 100, 0, 600, 'high', $4)
-		`, activityID, start, end, confirmed)
-		if err != nil {
-			t.Fatalf("insert candidate (confirmed=%v): %v", confirmed, err)
+	wantHiking := insertActivity("hiking", "", false, false, 0)
+	wantCycling := insertActivity("cycling", "mountain", false, false, 0)
+	wantExistingLift := insertActivity("running", "", true, false, 2)
+	excludedIndoor := insertActivity("hiking", "", true, false, 0)
+	excludedVirtual := insertActivity("snowboarding", "", false, true, 0)
+	excludedSpin := insertActivity("cycling", "spin", false, false, 0)
+
+	activities, err := listLiftEligibleActivities(ctx, pool, userID, 0, 20)
+	if err != nil {
+		t.Fatalf("listLiftEligibleActivities: %v", err)
+	}
+	got := map[string]bool{}
+	for _, activity := range activities {
+		got[activity.ID] = true
+	}
+	for _, id := range []string{wantHiking, wantCycling, wantExistingLift} {
+		if !got[id] {
+			t.Fatalf("eligible activity %s missing from result %#v", id, got)
 		}
 	}
-	insertCandidate(true)
-	insertCandidate(true)
-	insertCandidate(true)
-	insertCandidate(false)
-	insertCandidate(false)
-
-	// Verify pre-condition: 5 candidates exist.
-	var preCnt int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activity_lift_candidates WHERE activity_id = $1`, activityID).Scan(&preCnt); err != nil {
-		t.Fatalf("count pre: %v", err)
-	}
-	if preCnt != 5 {
-		t.Fatalf("pre-condition: want 5 candidates, got %d", preCnt)
-	}
-
-	// Run the pre-deletion (the step the CLI performs before RunStreamEnrichment).
-	deleted, err := deleteNonRejectedCandidates(ctx, pool, activityID, userID)
-	if err != nil {
-		t.Fatalf("deleteNonRejectedCandidates: %v", err)
-	}
-	if deleted != 5 {
-		t.Errorf("deleted = %d, want 5", deleted)
-	}
-
-	// All non-rejected candidates are gone.
-	var postCnt int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activity_lift_candidates WHERE activity_id = $1`, activityID).Scan(&postCnt); err != nil {
-		t.Fatalf("count post: %v", err)
-	}
-	if postCnt != 0 {
-		t.Errorf("post-delete count = %d, want 0", postCnt)
+	for _, id := range []string{excludedIndoor, excludedVirtual, excludedSpin} {
+		if got[id] {
+			t.Fatalf("excluded activity %s present in result %#v", id, got)
+		}
 	}
 }
 
-// TestLiftRecomputeAll_PreservesUserRejects verifies that rejected_by_user=true
-// candidates survive the pre-deletion step that the backfill CLI performs before
-// re-running RunStreamEnrichment.
-func TestLiftRecomputeAll_PreservesUserRejects(t *testing.T) {
+func TestLiftRecomputeAll_ListActivityGearIDsUsesAssignments(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := context.Background()
 
 	userID := uuid.New().String()
-	_, err := pool.Exec(ctx,
+	if _, err := pool.Exec(ctx,
 		`INSERT INTO users (id, username, email, email_verified, registration_source)
 		 VALUES ($1, $2, $3, true, 'test')`,
 		userID,
-		"backfill_rej_"+userID[:8],
-		"backfill_rej_"+userID[:8]+"@example.com",
-	)
-	if err != nil {
+		"backfill_gears_"+userID[:8],
+		"backfill_gears_"+userID[:8]+"@example.com",
+	); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 	t.Cleanup(func() {
 		bg := context.Background()
-		pool.Exec(bg, "DELETE FROM activity_lift_candidates WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)", userID) //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM activities WHERE user_id = $1", userID)                                                                //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM users WHERE id = $1", userID)                                                                          //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM users WHERE id = $1", userID) //nolint:errcheck
 	})
 
-	activityID := uuid.New().String()
 	now := time.Now().UTC().Truncate(time.Second)
-	_, err = pool.Exec(ctx, `
+	activityID := uuid.New().String()
+	if _, err := pool.Exec(ctx, `
 		INSERT INTO activities (id, user_id, sport_type, started_at, ended_at, file_hash)
 		VALUES ($1, $2, 'alpine_skiing', $3, $4, $5)
-	`, activityID, userID, now, now.Add(2*time.Hour), uuid.New().String())
-	if err != nil {
+	`, activityID, userID, now, now.Add(2*time.Hour), uuid.NewString()); err != nil {
 		t.Fatalf("insert activity: %v", err)
 	}
+	gearA := uuid.NewString()
+	gearB := uuid.NewString()
+	for _, gearID := range []string{gearA, gearB} {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO gear (id, user_id, name, type, scope)
+			VALUES ($1, $2, $3, 'bike', 'bike')`,
+			gearID, userID, "Gear "+gearID[:8]); err != nil {
+			t.Fatalf("insert gear: %v", err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activity_gear_assignments (user_id, activity_id, gear_id, role_key, source)
+		VALUES ($1, $2, $3, 'primary', 'user'),
+		       ($1, $2, $4, 'sensor', 'user')`,
+		userID, activityID, gearA, gearB); err != nil {
+		t.Fatalf("insert assignments: %v", err)
+	}
 
-	// Insert one soft-rejected candidate and one normal (non-rejected) candidate.
-	_, err = pool.Exec(ctx, `
-		INSERT INTO activity_lift_candidates
-			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m, confidence, confirmed, source, rejected_by_user)
-		VALUES ($1, $2, $3, 120, 200, 0, 1000, 'high', false, 'heuristic', true)
-	`, activityID, now, now.Add(2*time.Minute))
+	gearIDs, err := listActivityGearIDs(ctx, pool, activityID, userID)
 	if err != nil {
-		t.Fatalf("insert rejected candidate: %v", err)
+		t.Fatalf("listActivityGearIDs: %v", err)
 	}
-	_, err = pool.Exec(ctx, `
-		INSERT INTO activity_lift_candidates
-			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m, confidence, confirmed)
-		VALUES ($1, $2, $3, 60, 100, 0, 600, 'high', false)
-	`, activityID, now.Add(5*time.Minute), now.Add(6*time.Minute))
-	if err != nil {
-		t.Fatalf("insert normal candidate: %v", err)
+	got := map[string]bool{}
+	for _, gearID := range gearIDs {
+		got[gearID] = true
 	}
-
-	// Pre-condition: 2 candidates.
-	var preCnt int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activity_lift_candidates WHERE activity_id = $1`, activityID).Scan(&preCnt); err != nil {
-		t.Fatalf("count pre: %v", err)
-	}
-	if preCnt != 2 {
-		t.Fatalf("pre-condition: want 2 candidates, got %d", preCnt)
-	}
-
-	// Run pre-deletion: only the non-rejected candidate should be removed.
-	deleted, err := deleteNonRejectedCandidates(ctx, pool, activityID, userID)
-	if err != nil {
-		t.Fatalf("deleteNonRejectedCandidates: %v", err)
-	}
-	if deleted != 1 {
-		t.Errorf("deleted = %d, want 1 (only the non-rejected row)", deleted)
-	}
-
-	// The soft-rejected row must still exist.
-	var rejCnt int
-	if err := pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM activity_lift_candidates
-		WHERE activity_id = $1 AND rejected_by_user = true
-	`, activityID).Scan(&rejCnt); err != nil {
-		t.Fatalf("count rejected: %v", err)
-	}
-	if rejCnt != 1 {
-		t.Errorf("rejected_by_user count = %d, want 1 (soft-reject must survive)", rejCnt)
+	for _, gearID := range []string{gearA, gearB} {
+		if !got[gearID] {
+			t.Fatalf("gear %s missing from %v", gearID, gearIDs)
+		}
 	}
 }
 
@@ -631,7 +581,7 @@ func TestMain_ListUsersFilterDeletedAt(t *testing.T) {
 		bg := context.Background()
 		for _, uid := range []string{activeUser, deletedUser} {
 			pool.Exec(bg, "DELETE FROM user_enrichment_settings WHERE user_id = $1", uid) //nolint:errcheck
-			pool.Exec(bg, "DELETE FROM users WHERE id = $1", uid)                          //nolint:errcheck
+			pool.Exec(bg, "DELETE FROM users WHERE id = $1", uid)                         //nolint:errcheck
 		}
 	})
 
