@@ -6,6 +6,20 @@ import GearForm from './GearForm'
 import type { Gear } from '@/api/types'
 
 describe('GearForm', () => {
+  it('hides custom subtype input until a type is selected in scoped create forms', () => {
+    render(
+      <GearForm
+        categoryScope="diving"
+        onSave={vi.fn()}
+        onCancel={() => {}}
+      />,
+    )
+
+    expect(screen.getByPlaceholderText('z.B. Atemregler Set')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Untertyp')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('z.B. MTB, Rennrad, Trail')).not.toBeInTheDocument()
+  })
+
   it('derives predicate defaults from stored predicates when saving', () => {
     const onSave = vi.fn()
     render(

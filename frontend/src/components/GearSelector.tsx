@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchGear } from '@/api/gear'
 import { apiClient } from '@/api/client'
+import { getActiveSchema } from '@/lib/gearSchema'
+import { gearTypeLabel as schemaGearTypeLabel } from '@/lib/gearSchemaHelpers'
 
 interface GearSelectorProps {
   activityId: string
@@ -60,13 +62,5 @@ export default function GearSelector({ activityId, currentGearId }: GearSelector
 }
 
 function gearTypeLabel(type: string): string {
-  const labels: Record<string, string> = {
-    bike: 'Fahrrad',
-    shoes: 'Laufschuhe',
-    goggles: 'Schwimmbrille',
-    ski: 'Ski',
-    paddle: 'Paddel',
-    other: 'Sonstiges',
-  }
-  return labels[type] ?? type
+  return schemaGearTypeLabel(getActiveSchema(), type)
 }

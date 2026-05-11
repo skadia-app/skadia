@@ -8,7 +8,7 @@ import type { Gear, GearStatus } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { getActiveSchema } from '@/lib/gearSchema'
-import { gearTypeMatchesScope } from '@/lib/gearSchemaHelpers'
+import { gearMatchesCategoryScope, gearTypeLabel } from '@/lib/gearSchemaHelpers'
 import {
   GEAR_CATEGORY_LABELS,
   isGearCategoryScope,
@@ -68,7 +68,7 @@ export default function GearPage() {
   if (typeFilter) {
     const categoryScope = parseGearScope(typeFilter)
     const filtered = gear?.filter(g => {
-      if (categoryScope) return gearTypeMatchesScope(g.type, categoryScope, schema)
+      if (categoryScope) return gearMatchesCategoryScope(g, categoryScope, schema)
       return true
     }) ?? []
 
@@ -170,7 +170,7 @@ export default function GearPage() {
 
   // Category tile overview — 8 gear scopes + hardware
   const scopeCount = (scope: GearCategoryScope) =>
-    gear?.filter(g => gearTypeMatchesScope(g.type, scope, schema)).length ?? 0
+    gear?.filter(g => gearMatchesCategoryScope(g, scope, schema)).length ?? 0
 
   const recorderCount = recorders?.length ?? 0
   const sensorCount = sensors?.length ?? 0
@@ -324,8 +324,7 @@ function GearCard({ gear }: { gear: Gear }) {
 
   // Use schema path label when available; fall back to hardcoded label.
   const typeDisplay = (() => {
-    const gt = schema.gearTypes.find(t => t.key === gear.type)
-    return gt?.labelDe ?? gear.type
+    return gearTypeLabel(schema, gear.type)
   })()
 
   return (

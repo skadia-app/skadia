@@ -5,8 +5,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { getActiveSchema } from '@/lib/gearSchema'
-import { gearTypePathLabel, gearTypeAttributes } from '@/lib/gearSchemaHelpers'
-import { type GearCategoryScope, isGearCategoryScope } from '@/lib/gearSchemaTypes'
+import { gearTypeAttributes, gearTypeLabel as schemaGearTypeLabel, gearTypeScope } from '@/lib/gearSchemaHelpers'
+import { type GearCategoryScope } from '@/lib/gearSchemaTypes'
 import {
   fetchGearDetail, updateGear, updateGearStatus,
   createComponent, updateComponent, deleteComponent,
@@ -125,7 +125,7 @@ export default function GearDetailPage() {
           <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Bearbeiten</h2>
           <GearForm
             gear={gear}
-            categoryScope={categoryScopeForType(gear.type)}
+            categoryScope={categoryScopeForGear(gear)}
             onSave={(data) => updateMutation.mutate(data)}
             onCancel={() => setEditing(false)}
             isSaving={updateMutation.isPending}
@@ -195,6 +195,7 @@ function GearDetailTabs({ gear, costSummary, activeTab, onTabChange, onSportsSav
   const hasGeometry = attrs.some(
     (a) => a.valueType === 'geometry' && a.subfields && a.subfields.length > 0,
   )
+  const isBike = gearTypeScope(schema, gear.type, gear.scope) === 'bike'
 
   return (
     <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as GearDetailTab)}>
@@ -292,10 +293,10 @@ function GearDetailTabs({ gear, costSummary, activeTab, onTabChange, onSportsSav
         <section data-testid="components-crud">
           <ComponentsList gearId={gear.id} gearType={gear.type} components={gear.components ?? []} />
         </section>
-        {gear.type === 'bike' && (
+        {isBike && (
           <ChainRotationSection gearId={gear.id} components={gear.components ?? []} />
         )}
-        {gear.type === 'bike' && (
+        {isBike && (
           <BikeSetupsSection gearId={gear.id} />
         )}
       </TabsContent>
@@ -611,7 +612,7 @@ function TransferDialog({ componentId, currentGearId, onClose }: {
         >
           <option value="">Ziel wählen...</option>
           {targets.map(g => (
-            <option key={g.id} value={g.id}>{g.name} ({gearTypeLabel(g.type)})</option>
+            <option key={g.id} value={g.id}>{g.name} ({schemaGearTypeLabel(getActiveSchema(), g.type)})</option>
           ))}
         </select>
         <button
@@ -2166,31 +2167,13 @@ function formatDateShort(dateStr: string): string {
   }
 }
 
-function gearTypeLabel(type: string): string {
-  const labels: Record<string, string> = {
-    bike: 'Fahrrad',
-    shoes: 'Laufschuhe',
-    goggles: 'Schwimmbrille',
-    ski: 'Ski',
-    paddle: 'Paddel',
-    other: 'Sonstiges',
-  }
-  return labels[type] ?? type
-}
-
 // Schema-driven type label; falls back to hardcoded table for unknown keys.
 function gearTypeLabelResolved(type: string): string {
-  const schema = getActiveSchema()
-  const path = gearTypePathLabel(schema, type)
-  return path !== type ? path : gearTypeLabel(type)
+  return schemaGearTypeLabel(getActiveSchema(), type)
 }
 
-function categoryScopeForType(typeKey: string): GearCategoryScope {
-  const schema = getActiveSchema()
-  const gt = schema.gearTypes.find(t => t.key === typeKey)
-  const scope = gt?.scope
-  if (scope && isGearCategoryScope(scope)) return scope
-  return 'other'
+function categoryScopeForGear(gear: Gear): GearCategoryScope {
+  return gearTypeScope(getActiveSchema(), gear.type, gear.scope)
 }
 
 function subTypeLabel(subType: string): string {
