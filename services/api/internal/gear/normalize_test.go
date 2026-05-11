@@ -222,8 +222,10 @@ func TestNormalizeManualGearDefaultSports(t *testing.T) {
 }
 
 // Verifies that NormalizeGearDefaultPredicates accepts only modifier keys
-// declared in config/gear/applicable_modifiers.yaml (is_electric, is_indoor,
-// is_virtual) and rejects others (is_commute).
+// generated for the gear subsystem from config/applicable-modifiers/subsystems.yaml
+// and config/sport-taxonomy/modifiers.yaml::subsystems (is_electric,
+// is_indoor, is_virtual) and rejects other sport-taxonomy modifiers
+// (is_commute).
 func TestGearNormalizeDefaultsOnlyAppliesGearApplicableModifiers(t *testing.T) {
 	t.Run("accepts is_electric", func(t *testing.T) {
 		got, err := gear.NormalizeGearDefaultPredicates([]gear.GearDefaultPredicate{{

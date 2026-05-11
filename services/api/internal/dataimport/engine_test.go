@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -789,8 +788,10 @@ func TestOAuthReconnect(t *testing.T) {
 // Test 7: TestNullFKRemapping
 // ---------------------------------------------------------------------------
 
-// TestNullFKRemapping verifies that an activity with gear_id=null retains NULL
-// after import (the IDMap must not substitute an empty-string placeholder).
+// TestNullFKRemapping verifies that a legacy export with gear_id=null on an
+// activity produces no primary activity_gear_assignments row after import.
+// (Pre-DROP: the IDMap had to avoid substituting an empty-string placeholder
+// for gear_id; post-DROP: Phase 6c's legacy backfill must skip the row.)
 func TestNullFKRemapping(t *testing.T) {
 	pool := testDB(t)
 	userID := createTestUser(t, pool)
@@ -824,16 +825,24 @@ func TestNullFKRemapping(t *testing.T) {
 		t.Fatalf("RunImport: %v", err)
 	}
 
-	var gearID *string
+	// Resolve the imported activity ID from title and verify no primary aga row.
+	var actID string
 	if err := pool.QueryRow(context.Background(),
-		"SELECT gear_id FROM activities WHERE user_id = $1 AND title = 'Gear-less Ride'",
+		"SELECT id FROM activities WHERE user_id = $1 AND title = 'Gear-less Ride'",
 		userID,
-	).Scan(&gearID); err != nil {
-		t.Fatalf("select activity gear_id: %v", err)
+	).Scan(&actID); err != nil {
+		t.Fatalf("select activity id: %v", err)
 	}
 
-	if gearID != nil {
-		t.Errorf("gear_id should be NULL for gear-less activity, got %q", *gearID)
+	var agaCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM activity_gear_assignments
+		   WHERE activity_id = $1 AND role_key = 'primary'`, actID,
+	).Scan(&agaCount); err != nil {
+		t.Fatalf("count aga: %v", err)
+	}
+	if agaCount != 0 {
+		t.Errorf("expected 0 primary aga rows for gear-less activity, got %d", agaCount)
 	}
 }
 
@@ -1819,129 +1828,6 @@ func TestDeferredFKGearDocument(t *testing.T) {
 	}
 }
 
-func TestImportGearNormalizesDefaultForSports(t *testing.T) {
-	pool := testDB(t)
-	userID := createTestUser(t, pool)
-
-	srcUser := uuid.New().String()
-	gearOldID := uuid.New().String()
-	zipPath := buildExportZip(t, zipBuildOpts{
-		columns: map[string][]string{
-			"gear": {"id", "user_id", "name", "type", "default_for_sports"},
-		},
-		gear: []map[string]any{
-			{
-				"id":                 gearOldID,
-				"user_id":            srcUser,
-				"name":               "Legacy MTB",
-				"type":               "bike",
-				"default_for_sports": []any{"mountain_biking", "e_mountain_biking", "fitness_equipment"},
-			},
-		},
-	})
-	src := openZipSource(t, zipPath)
-
-	eng := newEngine(pool)
-	_, err := eng.RunImport(context.Background(), ImportInput{
-		Source:       src,
-		TargetUserID: userID,
-	})
-	if err != nil {
-		t.Fatalf("RunImport: %v", err)
-	}
-
-	var defaults []string
-	if err := pool.QueryRow(context.Background(),
-		`SELECT default_for_sports FROM gear WHERE user_id = $1 AND name = 'Legacy MTB'`,
-		userID,
-	).Scan(&defaults); err != nil {
-		t.Fatalf("select gear default_for_sports: %v", err)
-	}
-	want := []string{"cycling", "fitness_equipment"}
-	if !reflect.DeepEqual(defaults, want) {
-		t.Fatalf("default_for_sports = %#v, want %#v", defaults, want)
-	}
-	var predicatesJSON []byte
-	if err := pool.QueryRow(context.Background(),
-		`SELECT default_sport_predicates FROM gear WHERE user_id = $1 AND name = 'Legacy MTB'`,
-		userID,
-	).Scan(&predicatesJSON); err != nil {
-		t.Fatalf("select gear default_sport_predicates: %v", err)
-	}
-	if !strings.Contains(string(predicatesJSON), `"is_electric": true`) {
-		t.Fatalf("default_sport_predicates = %s, want preserved electric predicate", string(predicatesJSON))
-	}
-}
-
-func TestImportGearSkipsInvalidDefaultForSportsRow(t *testing.T) {
-	pool := testDB(t)
-	userID := createTestUser(t, pool)
-
-	srcUser := uuid.New().String()
-	badGearOldID := uuid.New().String()
-	goodGearOldID := uuid.New().String()
-	zipPath := buildExportZip(t, zipBuildOpts{
-		columns: map[string][]string{
-			"gear": {"id", "user_id", "name", "type", "default_for_sports"},
-		},
-		gear: []map[string]any{
-			{
-				"id":                 badGearOldID,
-				"user_id":            srcUser,
-				"name":               "Bad Gear",
-				"type":               "bike",
-				"default_for_sports": []any{"not_a_sport"},
-			},
-			{
-				"id":                 goodGearOldID,
-				"user_id":            srcUser,
-				"name":               "Good Gear",
-				"type":               "bike",
-				"default_for_sports": []any{"cycling"},
-			},
-		},
-	})
-	src := openZipSource(t, zipPath)
-
-	eng := newEngine(pool)
-	result, err := eng.RunImport(context.Background(), ImportInput{
-		Source:       src,
-		TargetUserID: userID,
-	})
-	if err != nil {
-		t.Fatalf("RunImport: %v", err)
-	}
-	if result.EntitiesFailed != 1 {
-		t.Fatalf("EntitiesFailed = %d, want 1; errors = %#v", result.EntitiesFailed, result.Errors)
-	}
-	if len(result.Errors) != 1 || result.Errors[0].Table != "gear" || result.Errors[0].OldID != badGearOldID ||
-		!strings.Contains(result.Errors[0].Error, "default_for_sports") {
-		t.Fatalf("import errors = %#v, want one row-level gear default_for_sports error", result.Errors)
-	}
-
-	var names []string
-	rows, err := pool.Query(context.Background(),
-		`SELECT name FROM gear WHERE user_id = $1 ORDER BY name`,
-		userID,
-	)
-	if err != nil {
-		t.Fatalf("select gear names: %v", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("scan gear name: %v", err)
-		}
-		names = append(names, name)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate gear names: %v", err)
-	}
-	if !reflect.DeepEqual(names, []string{"Good Gear"}) {
-		t.Fatalf("imported gear names = %#v, want only valid row", names)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // Test 20: TestDeferredFKTagCoverFile

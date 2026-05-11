@@ -203,6 +203,25 @@ func allTables() []tableSpec {
 			FKFields: []string{"component_id", "gear_id"},
 		},
 		{
+			// gear_schema_definitions has only a user_id FK; no Phase-2/3 table FKs.
+			// Phase 3 so it lands before Phase-4 tables that may reference gear.
+			Name:    "gear_schema_definitions",
+			Phase:   3,
+			PKField: "id",
+		},
+		{
+			// gear_component_swap_events FK to gear (Phase 3) and optionally to
+			// gear_components (Phase 4). retired_component_id / new_component_id are
+			// nullable. They are deferred so Phase 5b resolves them after all UUID
+			// remappings are done; this avoids phantom UUID generation when the
+			// referenced component wasn't included in the export.
+			Name:     "gear_component_swap_events",
+			Phase:    4,
+			PKField:  "id",
+			FKFields: []string{"gear_id"},
+			Deferred: []string{"retired_component_id", "new_component_id"},
+		},
+		{
 			// Must come before gear_service_events (events.interval_id → intervals.id).
 			Name:     "gear_service_intervals",
 			Phase:    4,
@@ -261,15 +280,28 @@ func allTables() []tableSpec {
 		// ── Phase 5: Activities + files ────────────────────────────────────────
 
 		{
+			// gear_id was dropped from activities (Wave-5/Cluster I); legacy
+			// exports still carry the field on the row but Phase 5 captures
+			// it directly via rawRow["gear_id"] and Phase 6c synthesizes the
+			// activity_gear_assignments row. Listing it here would have no
+			// effect (it is no longer a target column) but is misleading.
 			Name:     "activities",
 			Phase:    5,
 			PKField:  "id",
-			FKFields: []string{"gear_id", "recording_group_id", "file_id", "sidecar_file_id", "parent_id", "recording_device_id", "workout_id"},
+			FKFields: []string{"recording_group_id", "file_id", "sidecar_file_id", "parent_id", "recording_device_id", "workout_id"},
 			Deferred: []string{"parent_id"},
 		},
 
 		// ── Phase 6: Activity-dependent ────────────────────────────────────────
 
+		{
+			// activity_gear_assignments FK to gear (Phase 3) and activities (Phase 5).
+			// Phase 6 so that activities are already imported before assignments are inserted.
+			Name:     "activity_gear_assignments",
+			Phase:    6,
+			PKField:  "id",
+			FKFields: []string{"gear_id", "activity_id"},
+		},
 		{
 			Name:            "activity_fusion_memberships",
 			Phase:           6,

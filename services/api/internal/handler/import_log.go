@@ -17,8 +17,7 @@ type importLogResponse struct {
 
 // GetImports godoc
 // GET /api/v1/imports
-// Query params: status (comma-separated), source_platform, import_type, limit, offset
-// import_type: activity | route | workout | monitoring | photo | video | document | gear | segment | archive | unknown (= IS NULL)
+// Query params: status (comma-separated), source_platform, limit, offset
 func (h *Handler) GetImports(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -27,32 +26,17 @@ func (h *Handler) GetImports(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 
-	validStatuses := map[string]struct{}{
-		"pending": {}, "processing": {}, "completed": {},
-		"skipped": {}, "error": {}, "queued": {},
-	}
-
 	var statusFilter []string
 	if raw := q.Get("status"); raw != "" {
 		for s := range strings.SplitSeq(raw, ",") {
 			s = strings.TrimSpace(s)
-			if s == "" {
-				continue
+			if s != "" {
+				statusFilter = append(statusFilter, s)
 			}
-			if _, ok := validStatuses[s]; !ok {
-				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid status: "+s, r.URL.Path)
-				return
-			}
-			statusFilter = append(statusFilter, s)
 		}
 	}
 
 	sourcePlatform := q.Get("source_platform")
-	importType := q.Get("import_type")
-	if importType != "" && importType != "unknown" && !model.IsValidImportType(importType) {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid import_type", r.URL.Path)
-		return
-	}
 
 	limit := 50
 	if v := q.Get("limit"); v != "" {
@@ -68,7 +52,7 @@ func (h *Handler) GetImports(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	entries, total, err := h.DB.ListImportLog(r.Context(), userID, statusFilter, sourcePlatform, importType, limit, offset)
+	entries, total, err := h.DB.ListImportLog(r.Context(), userID, statusFilter, sourcePlatform, limit, offset)
 	if err != nil {
 		slog.Error("list import log", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load import log", r.URL.Path)

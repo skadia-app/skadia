@@ -8,14 +8,15 @@ import (
 
 // LifetimeStats holds aggregated lifetime statistics for a user.
 type LifetimeStats struct {
-	TotalActivities   int64   `json:"total_activities"`
-	TotalDistanceM    float64 `json:"total_distance_m"`
-	TotalElevationM   float64 `json:"total_elevation_m"`
-	TotalMovingTimeS  int64   `json:"total_moving_time_s"`
-	TotalElapsedTimeS int64   `json:"total_elapsed_time_s"`
-	TotalCalories     int64   `json:"total_calories"`
-	ActiveDays        int64   `json:"active_days"`
-	Countries         int64   `json:"countries"`
+	TotalActivities     int64   `json:"total_activities"`
+	TotalDistanceM      float64 `json:"total_distance_m"`
+	TotalElevationM     float64 `json:"total_elevation_m"`      // gain
+	TotalElevationLossM float64 `json:"total_elevation_loss_m"` // descent — relevant for ski/downhill gear
+	TotalMovingTimeS    int64   `json:"total_moving_time_s"`
+	TotalElapsedTimeS   int64   `json:"total_elapsed_time_s"`
+	TotalCalories       int64   `json:"total_calories"`
+	ActiveDays          int64   `json:"active_days"`
+	Countries           int64   `json:"countries"`
 }
 
 // GetLifetimeStats returns aggregated lifetime statistics for a user.
@@ -24,14 +25,15 @@ type LifetimeStats struct {
 func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause string, args []any) (*LifetimeStats, error) {
 	query := `
 		SELECT
-			COUNT(*)                             AS total_activities,
-			COALESCE(SUM(distance_m), 0)        AS total_distance_m,
-			COALESCE(SUM(elevation_gain_m), 0)  AS total_elevation_m,
-			COALESCE(SUM(moving_time_s), 0)     AS total_moving_time_s,
-			COALESCE(SUM(elapsed_time_s), 0)    AS total_elapsed_time_s,
-			COALESCE(SUM(total_calories), 0)    AS total_calories,
+			COUNT(*)                                  AS total_activities,
+			COALESCE(SUM(distance_m), 0)              AS total_distance_m,
+			COALESCE(SUM(elevation_gain_m), 0)        AS total_elevation_m,
+			COALESCE(SUM(elevation_loss_m), 0)        AS total_elevation_loss_m,
+			COALESCE(SUM(moving_time_s), 0)           AS total_moving_time_s,
+			COALESCE(SUM(elapsed_time_s), 0)          AS total_elapsed_time_s,
+			COALESCE(SUM(total_calories), 0)          AS total_calories,
 			COUNT(DISTINCT (a.started_at AT TIME ZONE COALESCE(a.timezone, 'UTC'))::date) AS active_days,
-			COUNT(DISTINCT start_country)        AS countries
+			COUNT(DISTINCT start_country)              AS countries
 		FROM activities a
 		WHERE a.user_id = $1` + whereClause
 
@@ -41,6 +43,7 @@ func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause s
 		&s.TotalActivities,
 		&s.TotalDistanceM,
 		&s.TotalElevationM,
+		&s.TotalElevationLossM,
 		&s.TotalMovingTimeS,
 		&s.TotalElapsedTimeS,
 		&s.TotalCalories,
@@ -55,13 +58,16 @@ func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause s
 
 // GetEddingtonData returns per-day aggregated values sorted descending for
 // Eddington number calculation.
-// metric: "km" → SUM(distance_m)/1000, "elevation" → SUM(elevation_gain_m)
+// metric: "km" → SUM(distance_m)/1000, "elevation" → SUM(elevation_gain_m),
+//         "descent" → SUM(elevation_loss_m)
 func (db *DB) GetEddingtonData(ctx context.Context, userID string, metric string, whereClause string, args []any) ([]float64, error) {
 	// Use whitelisted metric to avoid injection.
 	var aggExpr string
 	switch metric {
 	case "elevation":
 		aggExpr = "COALESCE(SUM(elevation_gain_m), 0)"
+	case "descent":
+		aggExpr = "COALESCE(SUM(elevation_loss_m), 0)"
 	default:
 		// default: km
 		aggExpr = "COALESCE(SUM(distance_m), 0) / 1000.0"
@@ -108,7 +114,7 @@ type DistributionRow struct {
 
 // GetDistribution returns activity distribution by sport, country, gear, or distance bucket.
 // distType: "sport"|"country"|"gear"|"distance_bucket"
-// metric: "count"|"distance_m"|"elevation_gain_m"|"moving_time_s"
+// metric: "count"|"distance_m"|"elevation_gain_m"|"elevation_loss_m"|"moving_time_s"
 func (db *DB) GetDistribution(ctx context.Context, userID string, distType string, metric string, whereClause string, args []any) ([]DistributionRow, error) {
 	// Whitelist metric to avoid injection.
 	var valueExpr string
@@ -117,6 +123,8 @@ func (db *DB) GetDistribution(ctx context.Context, userID string, distType strin
 		valueExpr = "COALESCE(SUM(a.distance_m), 0)"
 	case "elevation_gain_m":
 		valueExpr = "COALESCE(SUM(a.elevation_gain_m), 0)"
+	case "elevation_loss_m":
+		valueExpr = "COALESCE(SUM(a.elevation_loss_m), 0)"
 	case "moving_time_s":
 		valueExpr = "COALESCE(SUM(a.moving_time_s), 0)"
 	default:
@@ -132,7 +140,9 @@ func (db *DB) GetDistribution(ctx context.Context, userID string, distType strin
 	case "gear":
 		labelExpr = "COALESCE(g.name, 'No Gear')"
 		groupBy = "COALESCE(g.name, 'No Gear')"
-		joinClause = "LEFT JOIN gear g ON g.id = a.gear_id"
+		// Join via assignment table (primary role).
+		joinClause = `LEFT JOIN activity_gear_assignments aga ON aga.activity_id = a.id AND aga.role_key = 'primary'
+		LEFT JOIN gear g ON g.id = aga.gear_id AND g.user_id = a.user_id`
 	case "distance_bucket":
 		labelExpr = `CASE
 			WHEN a.distance_m IS NULL OR a.distance_m = 0 THEN 'No distance'

@@ -2,6 +2,8 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +16,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/sixdouglas/suncalc"
 
+	"github.com/skadia-app/skadia/services/api/internal/gearcompat"
+	"github.com/skadia-app/skadia/services/api/internal/gearmetrics"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/rules"
 	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
@@ -21,9 +25,14 @@ import (
 )
 
 // gearSelectCols are the columns returned by gear queries.
-const gearSelectCols = `id, user_id, name, type, sub_type, brand, model,
-	total_distance_m, total_time_s, total_elevation_gain_m, total_activities,
-	purchased_at, retired_at, is_retired, status, default_for_sports, default_sport_predicates, notes, created_at`
+// total_moving_time_s + total_elevation_loss_m are aggregated server-side
+// (recompute-flow in RecomputeGearAggregates) and exposed for ski / downhill
+// disciplines where descent and moving-time are the primary load metrics.
+const gearSelectCols = `id, user_id, name, type, scope, sub_type, brand, model,
+	total_distance_m, total_time_s, total_moving_time_s,
+	total_elevation_gain_m, total_elevation_loss_m, total_activities,
+	purchased_at, retired_at, is_retired, status, applicable_sport_predicates, notes, created_at,
+	attributes, modifiers`
 
 // scanGear scans a gear row into a model.Gear.
 // pgx v5 uses binary protocol for dates (OID 1082) which cannot be scanned
@@ -31,11 +40,13 @@ const gearSelectCols = `id, user_id, name, type, sub_type, brand, model,
 func scanGear(row pgx.Row) (*model.Gear, error) {
 	var g model.Gear
 	var purchasedAt, retiredAt pgtype.Date
-	var predicateJSON []byte
+	var predicateJSON, attributesJSON, modifiersJSON []byte
 	err := row.Scan(
-		&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
-		&g.TotalDistanceM, &g.TotalTimeS, &g.TotalElevationGainM, &g.TotalActivities,
-		&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &predicateJSON, &g.Notes, &g.CreatedAt,
+		&g.ID, &g.UserID, &g.Name, &g.Type, &g.Scope, &g.SubType, &g.Brand, &g.Model,
+		&g.TotalDistanceM, &g.TotalTimeS, &g.TotalMovingTimeS,
+		&g.TotalElevationGainM, &g.TotalElevationLossM, &g.TotalActivities,
+		&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &predicateJSON, &g.Notes, &g.CreatedAt,
+		&attributesJSON, &modifiersJSON,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -51,39 +62,83 @@ func scanGear(row pgx.Row) (*model.Gear, error) {
 		s := retiredAt.Time.Format("2006-01-02")
 		g.RetiredAt = &s
 	}
-	if g.DefaultForSports == nil {
-		g.DefaultForSports = []string{}
-	}
 	if len(predicateJSON) > 0 {
-		if err := json.Unmarshal(predicateJSON, &g.DefaultSportPredicates); err != nil {
-			return nil, fmt.Errorf("scan gear default_sport_predicates: %w", err)
+		if err := json.Unmarshal(predicateJSON, &g.ApplicableSportPredicates); err != nil {
+			return nil, fmt.Errorf("scan gear applicable_sport_predicates: %w", err)
 		}
 	}
-	if g.DefaultSportPredicates == nil {
-		g.DefaultSportPredicates = []gearpkg.GearDefaultPredicate{}
+	if g.ApplicableSportPredicates == nil {
+		g.ApplicableSportPredicates = []gearpkg.GearDefaultPredicate{}
+	}
+	// Keep legacy field in sync for backward compatibility.
+	g.DefaultSportPredicates = g.ApplicableSportPredicates
+	if len(attributesJSON) > 0 && string(attributesJSON) != "{}" {
+		if err := json.Unmarshal(attributesJSON, &g.Attributes); err != nil {
+			return nil, fmt.Errorf("scan gear attributes: %w", err)
+		}
+	}
+	if g.Attributes == nil {
+		g.Attributes = map[string]any{}
+	}
+	if len(modifiersJSON) > 0 && string(modifiersJSON) != "{}" {
+		if err := json.Unmarshal(modifiersJSON, &g.Modifiers); err != nil {
+			return nil, fmt.Errorf("scan gear modifiers: %w", err)
+		}
+	}
+	if g.Modifiers == nil {
+		g.Modifiers = map[string]any{}
 	}
 	return &g, nil
 }
 
 // componentSelectCols are the columns returned by component queries.
-const componentSelectCols = `id, gear_id, parent_component_id, name, type, brand, model,
-	total_distance_m, total_elevation_gain_m, total_time_s,
+// Includes the 000355 columns: type_key, slot_key, preset_gear_type_key,
+// attributes, plus descent / moving-time / activities totals.
+const componentSelectCols = `id, gear_id, parent_component_id, name, type, type_key, slot_key,
+	preset_gear_type_key,
+	brand, model,
+	total_distance_m, total_elevation_gain_m, total_elevation_loss_m,
+	total_time_s, total_moving_time_s, total_activities,
+	attributes,
 	purchase_price, purchase_date, weight_g, serial_number,
 	installed_at, removed_at, is_retired, status, notes`
 
-// scanComponent scans a component row into a model.GearComponent.
-func scanComponent(row pgx.Row) (*model.GearComponent, error) {
-	var c model.GearComponent
+// scanComponentRow scans the columns listed in componentSelectCols (in order)
+// into c. attributesJSON is unmarshaled into c.Attributes. ErrNoRows is
+// surfaced to the caller so it can decide whether absent rows are an error.
+func scanComponentRow(c *model.GearComponent, row pgx.Row) error {
+	var attributesJSON []byte
 	err := row.Scan(
-		&c.ID, &c.GearID, &c.ParentComponentID, &c.Name, &c.Type, &c.Brand, &c.Model,
-		&c.TotalDistanceM, &c.TotalElevationGainM, &c.TotalTimeS,
+		&c.ID, &c.GearID, &c.ParentComponentID, &c.Name, &c.Type,
+		&c.TypeKey, &c.SlotKey, &c.PresetGearTypeKey, &c.Brand, &c.Model,
+		&c.TotalDistanceM, &c.TotalElevationGainM, &c.TotalElevationLossM,
+		&c.TotalTimeS, &c.TotalMovingTimeS, &c.TotalActivities,
+		&attributesJSON,
 		&c.PurchasePrice, &c.PurchaseDate, &c.WeightG, &c.SerialNumber,
 		&c.InstalledAt, &c.RemovedAt, &c.IsRetired, &c.Status, &c.Notes,
 	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
 	if err != nil {
+		return err
+	}
+	if len(attributesJSON) > 0 && string(attributesJSON) != "{}" {
+		if err := json.Unmarshal(attributesJSON, &c.Attributes); err != nil {
+			return fmt.Errorf("scan component attributes: %w", err)
+		}
+	}
+	if c.Attributes == nil {
+		c.Attributes = map[string]any{}
+	}
+	return nil
+}
+
+// scanComponent scans a component row into a model.GearComponent.
+// Returns (nil, nil) when the row is absent (pgx.ErrNoRows).
+func scanComponent(row pgx.Row) (*model.GearComponent, error) {
+	var c model.GearComponent
+	if err := scanComponentRow(&c, row); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &c, nil
@@ -112,11 +167,13 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 	for rows.Next() {
 		var g model.Gear
 		var purchasedAt, retiredAt pgtype.Date
-		var predicateJSON []byte
+		var predicateJSON, attributesJSON, modifiersJSON []byte
 		if err := rows.Scan(
-			&g.ID, &g.UserID, &g.Name, &g.Type, &g.SubType, &g.Brand, &g.Model,
-			&g.TotalDistanceM, &g.TotalTimeS, &g.TotalElevationGainM, &g.TotalActivities,
-			&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &g.DefaultForSports, &predicateJSON, &g.Notes, &g.CreatedAt,
+			&g.ID, &g.UserID, &g.Name, &g.Type, &g.Scope, &g.SubType, &g.Brand, &g.Model,
+			&g.TotalDistanceM, &g.TotalTimeS, &g.TotalMovingTimeS,
+			&g.TotalElevationGainM, &g.TotalElevationLossM, &g.TotalActivities,
+			&purchasedAt, &retiredAt, &g.IsRetired, &g.Status, &predicateJSON, &g.Notes, &g.CreatedAt,
+			&attributesJSON, &modifiersJSON,
 		); err != nil {
 			return nil, fmt.Errorf("scan gear: %w", err)
 		}
@@ -128,16 +185,30 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 			s := retiredAt.Time.Format("2006-01-02")
 			g.RetiredAt = &s
 		}
-		if g.DefaultForSports == nil {
-			g.DefaultForSports = []string{}
-		}
 		if len(predicateJSON) > 0 {
-			if err := json.Unmarshal(predicateJSON, &g.DefaultSportPredicates); err != nil {
-				return nil, fmt.Errorf("scan gear default_sport_predicates: %w", err)
+			if err := json.Unmarshal(predicateJSON, &g.ApplicableSportPredicates); err != nil {
+				return nil, fmt.Errorf("scan gear applicable_sport_predicates: %w", err)
 			}
 		}
-		if g.DefaultSportPredicates == nil {
-			g.DefaultSportPredicates = []gearpkg.GearDefaultPredicate{}
+		if g.ApplicableSportPredicates == nil {
+			g.ApplicableSportPredicates = []gearpkg.GearDefaultPredicate{}
+		}
+		g.DefaultSportPredicates = g.ApplicableSportPredicates
+		if len(attributesJSON) > 0 && string(attributesJSON) != "{}" {
+			if err := json.Unmarshal(attributesJSON, &g.Attributes); err != nil {
+				return nil, fmt.Errorf("scan gear attributes: %w", err)
+			}
+		}
+		if g.Attributes == nil {
+			g.Attributes = map[string]any{}
+		}
+		if len(modifiersJSON) > 0 && string(modifiersJSON) != "{}" {
+			if err := json.Unmarshal(modifiersJSON, &g.Modifiers); err != nil {
+				return nil, fmt.Errorf("scan gear modifiers: %w", err)
+			}
+		}
+		if g.Modifiers == nil {
+			g.Modifiers = map[string]any{}
 		}
 		items = append(items, g)
 	}
@@ -151,11 +222,16 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 }
 
 func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearCreate) (*model.Gear, error) {
-	sports, err := gearpkg.NormalizeGearDefaultSports(create.DefaultForSports)
-	if err != nil {
-		return nil, fmt.Errorf("create gear: %w", err)
+	// Three-state merge: prefer ApplicableSportPredicates, fall back to
+	// DefaultSportPredicates; nil pointer means "not sent / use default".
+	// A non-nil pointer to an empty slice explicitly clears predicates.
+	var rawPredicates []gearpkg.GearDefaultPredicate
+	if create.ApplicableSportPredicates != nil {
+		rawPredicates = *create.ApplicableSportPredicates
+	} else if create.DefaultSportPredicates != nil {
+		rawPredicates = *create.DefaultSportPredicates
 	}
-	predicates, err := gearpkg.NormalizeGearDefaultPredicates(create.DefaultSportPredicates)
+	predicates, err := gearpkg.NormalizeGearDefaultPredicates(rawPredicates)
 	if err != nil {
 		return nil, fmt.Errorf("create gear: %w", err)
 	}
@@ -164,17 +240,76 @@ func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearC
 		return nil, fmt.Errorf("create gear: %w", err)
 	}
 
-	g, err := scanGear(db.Pool.QueryRow(ctx,
-		`INSERT INTO gear (user_id, name, type, sub_type, brand, model, purchased_at, default_for_sports, default_sport_predicates, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+	// Derive scope from type key via schema; unknown types default to "other".
+	scope := create.Scope
+	if scope == "" {
+		if gt, ok := gearpkg.LookupGearType(create.Type); ok {
+			scope = gt.Scope
+		}
+		if scope == "" {
+			scope = "other"
+		}
+	}
+
+	attrs := create.Attributes
+	if attrs == nil {
+		attrs = map[string]any{}
+	}
+	attrsJSON, err := json.Marshal(attrs)
+	if err != nil {
+		return nil, fmt.Errorf("create gear: marshal attributes: %w", err)
+	}
+	mods := create.Modifiers
+	if mods == nil {
+		mods = map[string]any{}
+	}
+	modsJSON, err := json.Marshal(mods)
+	if err != nil {
+		return nil, fmt.Errorf("create gear: marshal modifiers: %w", err)
+	}
+
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create gear: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	g, err := scanGear(tx.QueryRow(ctx,
+		`INSERT INTO gear (user_id, name, type, scope, sub_type, brand, model, purchased_at,
+		                   applicable_sport_predicates, notes, attributes, modifiers)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11::jsonb, $12::jsonb)
 		 RETURNING `+gearSelectCols,
-		userID, create.Name, create.Type, create.SubType, create.Brand, create.Model,
-		create.PurchasedAt, sports, string(predicateJSON), create.Notes,
+		userID, create.Name, create.Type, scope, create.SubType, create.Brand, create.Model,
+		create.PurchasedAt, string(predicateJSON), create.Notes,
+		string(attrsJSON), string(modsJSON),
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create gear: %w", err)
 	}
-	g.Components = []model.GearComponent{}
+
+	// Strip client-supplied IDs on create — they'd never collide with anything
+	// that exists yet, but accepting them is a foot-gun for callers that copy
+	// payloads between gear items.
+	if len(create.Components) > 0 {
+		clean := make([]model.GearComponentInput, len(create.Components))
+		for i, c := range create.Components {
+			c.ID = ""
+			clean[i] = c
+		}
+		if err := db.ApplyGearComponents(ctx, tx, g.ID, userID, clean); err != nil {
+			return nil, fmt.Errorf("create gear: apply components: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("create gear: commit: %w", err)
+	}
+
+	// Re-read components so the response reflects server-assigned IDs.
+	components, err := db.listComponents(ctx, g.ID)
+	if err != nil {
+		return nil, err
+	}
+	g.Components = components
 	return g, nil
 }
 
@@ -225,15 +360,21 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 	if update.IsRetired != nil {
 		b.Set("is_retired", *update.IsRetired)
 	}
-	if update.DefaultForSports != nil {
-		sports, err := gearpkg.NormalizeGearDefaultSports(update.DefaultForSports)
-		if err != nil {
-			return nil, fmt.Errorf("update gear: %w", err)
-		}
-		b.Set("default_for_sports", sports)
+	// Three-state merge: prefer ApplicableSportPredicates, fall back to
+	// DefaultSportPredicates. A nil pointer means the field was not sent —
+	// leave the DB column unchanged. A non-nil pointer to an empty slice
+	// explicitly clears the column to [].
+	var rawPredicates []gearpkg.GearDefaultPredicate
+	updatePredicates := false
+	if update.ApplicableSportPredicates != nil {
+		rawPredicates = *update.ApplicableSportPredicates
+		updatePredicates = true
+	} else if update.DefaultSportPredicates != nil {
+		rawPredicates = *update.DefaultSportPredicates
+		updatePredicates = true
 	}
-	if update.DefaultSportPredicates != nil {
-		predicates, err := gearpkg.NormalizeGearDefaultPredicates(update.DefaultSportPredicates)
+	if updatePredicates {
+		predicates, err := gearpkg.NormalizeGearDefaultPredicates(rawPredicates)
 		if err != nil {
 			return nil, fmt.Errorf("update gear: %w", err)
 		}
@@ -242,8 +383,29 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 			return nil, fmt.Errorf("update gear: %w", err)
 		}
 		idx := b.NextIdx()
-		b.SetExpr(fmt.Sprintf("default_sport_predicates = $%d::jsonb", idx), string(predicateJSON))
+		b.SetExpr(fmt.Sprintf("applicable_sport_predicates = $%d::jsonb", idx), string(predicateJSON))
 		b.idx++
+	}
+	if update.Attributes != nil {
+		attrsJSON, err := json.Marshal(update.Attributes)
+		if err != nil {
+			return nil, fmt.Errorf("update gear: marshal attributes: %w", err)
+		}
+		idx := b.NextIdx()
+		b.SetExpr(fmt.Sprintf("attributes = $%d::jsonb", idx), string(attrsJSON))
+		b.idx++
+	}
+	if update.Modifiers != nil {
+		modsJSON, err := json.Marshal(update.Modifiers)
+		if err != nil {
+			return nil, fmt.Errorf("update gear: marshal modifiers: %w", err)
+		}
+		idx := b.NextIdx()
+		b.SetExpr(fmt.Sprintf("modifiers = $%d::jsonb", idx), string(modsJSON))
+		b.idx++
+	}
+	if update.Scope != nil {
+		b.Set("scope", *update.Scope)
 	}
 	if update.Notes != nil {
 		b.Set("notes", *update.Notes)
@@ -252,22 +414,48 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 		b.Set("weight_g", *update.WeightG)
 	}
 
-	if !b.HasSets() {
-		return db.GetGear(ctx, id)
-	}
-
-	args := append(b.Args(), id)
-	query := fmt.Sprintf(
-		`UPDATE gear SET %s WHERE id = $%d RETURNING `+gearSelectCols,
-		b.Clause(), b.NextIdx(),
-	)
-
-	g, err := scanGear(db.Pool.QueryRow(ctx, query, args...))
+	// Open a tx so the gear UPDATE and component diff land atomically.
+	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("update gear: %w", err)
+		return nil, fmt.Errorf("update gear: begin tx: %w", err)
 	}
-	if g == nil {
-		return nil, nil
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var g *model.Gear
+	if b.HasSets() {
+		args := append(b.Args(), id)
+		query := fmt.Sprintf(
+			`UPDATE gear SET %s WHERE id = $%d RETURNING `+gearSelectCols,
+			b.Clause(), b.NextIdx(),
+		)
+		g, err = scanGear(tx.QueryRow(ctx, query, args...))
+		if err != nil {
+			return nil, fmt.Errorf("update gear: %w", err)
+		}
+		if g == nil {
+			return nil, nil
+		}
+	} else {
+		// No top-level fields changed — just look up the row inside the tx so
+		// downstream component-apply still has a consistent owner snapshot.
+		g, err = scanGear(tx.QueryRow(ctx,
+			`SELECT `+gearSelectCols+` FROM gear WHERE id = $1`, id,
+		))
+		if err != nil {
+			return nil, fmt.Errorf("update gear: lookup: %w", err)
+		}
+		if g == nil {
+			return nil, nil
+		}
+	}
+
+	if update.Components != nil {
+		if err := db.ApplyGearComponents(ctx, tx, id, g.UserID, *update.Components); err != nil {
+			return nil, fmt.Errorf("update gear: apply components: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("update gear: commit: %w", err)
 	}
 
 	components, err := db.listComponents(ctx, id)
@@ -294,7 +482,8 @@ func (db *DB) RetireGear(ctx context.Context, id string) error {
 //   - gear_components.gear_id ON DELETE CASCADE  -> components are deleted
 //   - component_assignments.gear_id ON DELETE CASCADE -> assignments are deleted
 //   - chain_rotation_groups.gear_id ON DELETE CASCADE -> rotation groups are deleted
-//   - activities.gear_id ON DELETE SET NULL -> activity references are nullified
+//   - activity_gear_assignments.gear_id ON DELETE CASCADE -> activity-gear links are removed
+//     (replaced the legacy activities.gear_id ON DELETE SET NULL after 000355)
 func (db *DB) DeleteGear(ctx context.Context, userID, gearID string) error {
 	tag, err := db.Pool.Exec(ctx,
 		`DELETE FROM gear WHERE id = $1 AND user_id = $2`,
@@ -340,12 +529,7 @@ func (db *DB) listComponents(ctx context.Context, gearID string) ([]model.GearCo
 	var items []model.GearComponent
 	for rows.Next() {
 		var c model.GearComponent
-		if err := rows.Scan(
-			&c.ID, &c.GearID, &c.ParentComponentID, &c.Name, &c.Type, &c.Brand, &c.Model,
-			&c.TotalDistanceM, &c.TotalElevationGainM, &c.TotalTimeS,
-			&c.PurchasePrice, &c.PurchaseDate, &c.WeightG, &c.SerialNumber,
-			&c.InstalledAt, &c.RemovedAt, &c.IsRetired, &c.Status, &c.Notes,
-		); err != nil {
+		if err := scanComponentRow(&c, rows); err != nil {
 			return nil, fmt.Errorf("scan component: %w", err)
 		}
 		items = append(items, c)
@@ -362,11 +546,12 @@ func (db *DB) listComponents(ctx context.Context, gearID string) ([]model.GearCo
 func (db *DB) CreateComponent(ctx context.Context, gearID string, create *model.GearComponentCreate) (*model.GearComponent, error) {
 	c, err := scanComponent(db.Pool.QueryRow(ctx,
 		`INSERT INTO gear_components (gear_id, parent_component_id, name, type, brand, model,
-		  purchase_price, purchase_date, weight_g, serial_number, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		  purchase_price, purchase_date, weight_g, serial_number, notes, preset_gear_type_key)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		 RETURNING `+componentSelectCols,
 		gearID, create.ParentComponentID, create.Name, create.Type, create.Brand, create.Model,
 		create.PurchasePrice, create.PurchaseDate, create.WeightG, create.SerialNumber, create.Notes,
+		create.PresetGearTypeKey,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create component: %w", err)
@@ -374,7 +559,156 @@ func (db *DB) CreateComponent(ctx context.Context, gearID string, create *model.
 	return c, nil
 }
 
-func (db *DB) UpdateComponent(ctx context.Context, id string, name, typ *string, brand, modelStr, notes *string, isRetired *bool, purchasePrice *float64, purchaseDate, serialNumber *string, weightG *int) (*model.GearComponent, error) {
+// ApplyGearComponents reconciles the gear_components rows belonging to a gear
+// item with the desired list. The gear/userID pair is verified explicitly on
+// every UPDATE/DELETE so a malicious payload cannot edit another user's
+// components by sending a foreign id.
+//
+// Diff semantics:
+//   - row in DB but not in desired (matched by id) → DELETE
+//   - row in desired with empty/zero id            → INSERT
+//   - row in both                                  → UPDATE the editable fields
+//
+// Server-only analytics columns (totals, activity counts) and timestamps are
+// never written from the client.
+func (db *DB) ApplyGearComponents(ctx context.Context, tx pgx.Tx, gearID, userID string, desired []model.GearComponentInput) error {
+	// Defense-in-depth: confirm the gear belongs to userID before any write.
+	var ownerID string
+	if err := tx.QueryRow(ctx,
+		`SELECT user_id FROM gear WHERE id = $1`, gearID,
+	).Scan(&ownerID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrGearNotFound
+		}
+		return fmt.Errorf("apply components: lookup gear owner: %w", err)
+	}
+	if ownerID != userID {
+		return ErrGearNotFound
+	}
+
+	existingRows, err := tx.Query(ctx,
+		`SELECT id FROM gear_components WHERE gear_id = $1`, gearID,
+	)
+	if err != nil {
+		return fmt.Errorf("apply components: list existing: %w", err)
+	}
+	existingIDs := map[string]struct{}{}
+	for existingRows.Next() {
+		var id string
+		if err := existingRows.Scan(&id); err != nil {
+			existingRows.Close()
+			return fmt.Errorf("apply components: scan id: %w", err)
+		}
+		existingIDs[id] = struct{}{}
+	}
+	existingRows.Close()
+	if err := existingRows.Err(); err != nil {
+		return fmt.Errorf("apply components: iterate existing: %w", err)
+	}
+
+	desiredIDs := map[string]struct{}{}
+	for _, item := range desired {
+		if item.ID != "" {
+			desiredIDs[item.ID] = struct{}{}
+		}
+	}
+
+	// Phase 1: delete rows present in DB but not in desired.
+	// Constrained to gear_id so a forged id cannot reach another gear.
+	for id := range existingIDs {
+		if _, keep := desiredIDs[id]; keep {
+			continue
+		}
+		tag, err := tx.Exec(ctx,
+			`DELETE FROM gear_components WHERE id = $1 AND gear_id = $2`,
+			id, gearID,
+		)
+		if err != nil {
+			return fmt.Errorf("apply components: delete %s: %w", id, err)
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("apply components: delete %s: row vanished mid-tx", id)
+		}
+	}
+
+	// Phase 2: upsert each desired row.
+	for _, item := range desired {
+		attrs := item.Attributes
+		if attrs == nil {
+			attrs = map[string]any{}
+		}
+		attrsJSON, err := json.Marshal(attrs)
+		if err != nil {
+			return fmt.Errorf("apply components: marshal attributes: %w", err)
+		}
+
+		isRetired := false
+		if item.IsRetired != nil {
+			isRetired = *item.IsRetired
+		}
+
+		if item.ID == "" {
+			// INSERT — id is generated server-side.
+			if _, err := tx.Exec(ctx,
+				`INSERT INTO gear_components (gear_id, parent_component_id, name, type, type_key, slot_key,
+				   preset_gear_type_key,
+				   brand, model, purchase_price, purchase_date, weight_g, serial_number,
+				   is_retired, notes, attributes)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)`,
+				gearID, item.ParentComponentID, item.Name, item.Type, item.TypeKey, item.SlotKey,
+				item.PresetGearTypeKey,
+				item.Brand, item.Model, item.PurchasePrice, item.PurchaseDate, item.WeightG, item.SerialNumber,
+				isRetired, item.Notes, string(attrsJSON),
+			); err != nil {
+				return fmt.Errorf("apply components: insert: %w", err)
+			}
+			continue
+		}
+
+		// UPDATE — gear_id is also in the WHERE so a forged id pointing at
+		// another gear (and thus another user's data) cannot be touched.
+		if _, ok := existingIDs[item.ID]; !ok {
+			return fmt.Errorf("apply components: id %s not found on gear %s", item.ID, gearID)
+		}
+		tag, err := tx.Exec(ctx,
+			`UPDATE gear_components
+			    SET parent_component_id   = $1,
+			        name                  = $2,
+			        type                  = $3,
+			        type_key              = $4,
+			        slot_key              = $5,
+			        preset_gear_type_key  = $6,
+			        brand                 = $7,
+			        model                 = $8,
+			        purchase_price        = $9,
+			        purchase_date         = $10,
+			        weight_g              = $11,
+			        serial_number         = $12,
+			        is_retired            = $13,
+			        notes                 = $14,
+			        attributes            = $15::jsonb
+			  WHERE id = $16 AND gear_id = $17`,
+			item.ParentComponentID, item.Name, item.Type, item.TypeKey, item.SlotKey,
+			item.PresetGearTypeKey,
+			item.Brand, item.Model, item.PurchasePrice, item.PurchaseDate, item.WeightG, item.SerialNumber,
+			isRetired, item.Notes, string(attrsJSON),
+			item.ID, gearID,
+		)
+		if err != nil {
+			return fmt.Errorf("apply components: update %s: %w", item.ID, err)
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("apply components: update %s: id not on gear %s", item.ID, gearID)
+		}
+	}
+
+	return nil
+}
+
+// UpdateComponent applies a single-field PATCH to gear_components. nil
+// pointers leave the column unchanged. presetGearTypeKey supports clearing the
+// preset back to NULL by passing a pointer to the empty string.
+func (db *DB) UpdateComponent(ctx context.Context, id string, name, typ *string, brand, modelStr, notes *string, isRetired *bool, purchasePrice *float64, purchaseDate, serialNumber *string, weightG *int, presetGearTypeKey *string) (*model.GearComponent, error) {
 	b := newSetBuilder(1)
 
 	if name != nil {
@@ -406,6 +740,14 @@ func (db *DB) UpdateComponent(ctx context.Context, id string, name, typ *string,
 	}
 	if weightG != nil {
 		b.Set("weight_g", *weightG)
+	}
+	if presetGearTypeKey != nil {
+		// Empty string clears the preset (column allows NULL).
+		if *presetGearTypeKey == "" {
+			b.Set("preset_gear_type_key", nil)
+		} else {
+			b.Set("preset_gear_type_key", *presetGearTypeKey)
+		}
 	}
 
 	if !b.HasSets() {
@@ -441,6 +783,106 @@ func (db *DB) DeleteComponent(ctx context.Context, id string) error {
 		return ErrComponentNotFound
 	}
 	return nil
+}
+
+// RemoveComponent soft-removes a component: sets status to 'stored', stamps
+// removed_at, and closes any open component_assignment row. The component row
+// is kept for history.
+func (db *DB) RemoveComponent(ctx context.Context, id string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin remove component: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `
+		UPDATE gear_components
+		SET status = 'stored', removed_at = NOW()
+		WHERE id = $1 AND status != 'retired'`, id)
+	if err != nil {
+		return fmt.Errorf("remove component: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrComponentNotFound
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE component_assignments
+		SET removed_at = NOW()
+		WHERE component_id = $1 AND removed_at IS NULL`, id); err != nil {
+		return fmt.Errorf("close component assignment: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+// UpdateComponentStatus transitions a component to a new status ('active',
+// 'stored', or 'retired'). The UPDATE is scoped to components owned by userID
+// via the gear table — callers therefore don't have to verify ownership
+// separately for the status change.
+//
+// Side effects:
+//   - stored / retired: stamp removed_at (if not already set) and close any
+//     open component_assignments row.
+//   - active: clear removed_at on gear_components and open a fresh
+//     component_assignments row IF no open one already exists. This keeps
+//     metric-attribution joins (LEFT JOIN component_assignments WHERE
+//     removed_at IS NULL) returning the reactivated component.
+func (db *DB) UpdateComponentStatus(ctx context.Context, id, userID, status string) error {
+	if status != "active" && status != "stored" && status != "retired" {
+		return fmt.Errorf("invalid component status %q", status)
+	}
+	isRetired := status == "retired"
+
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin update component status: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Scope the UPDATE by the owning user via the gear table.
+	tag, err := tx.Exec(ctx, `
+		UPDATE gear_components gc
+		SET status = $2,
+		    is_retired = $3,
+		    removed_at = CASE
+		        WHEN $2 IN ('stored', 'retired') THEN COALESCE(gc.removed_at, NOW())
+		        WHEN $2 = 'active' THEN NULL
+		        ELSE gc.removed_at
+		    END
+		FROM gear g
+		WHERE gc.id = $1 AND gc.gear_id = g.id AND g.user_id = $4`,
+		id, status, isRetired, userID)
+	if err != nil {
+		return fmt.Errorf("update component status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrComponentNotFound
+	}
+
+	if status == "stored" || status == "retired" {
+		if _, err := tx.Exec(ctx, `
+			UPDATE component_assignments
+			SET removed_at = NOW()
+			WHERE component_id = $1 AND removed_at IS NULL`, id); err != nil {
+			return fmt.Errorf("close component assignment: %w", err)
+		}
+	}
+
+	if status == "active" {
+		// Open a fresh assignment row if none is currently open. Idempotent on
+		// repeated reactivation of an already-active component.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO component_assignments (component_id, gear_id, installed_at)
+			SELECT gc.id, gc.gear_id, NOW()
+			FROM gear_components gc
+			WHERE gc.id = $1
+			  AND NOT EXISTS (
+			    SELECT 1 FROM component_assignments ca
+			    WHERE ca.component_id = gc.id AND ca.removed_at IS NULL
+			  )`, id); err != nil {
+			return fmt.Errorf("open component assignment: %w", err)
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
 // --- Component Transfer ---
@@ -486,19 +928,89 @@ func (db *DB) TransferComponent(ctx context.Context, componentID, fromGearID, to
 		return fmt.Errorf("commit transfer: %w", err)
 	}
 
-	// Update stats for both gears (outside tx, best-effort)
-	_ = db.UpdateGearStats(ctx, fromGearID)
-	_ = db.UpdateGearStats(ctx, toGearID)
+	// Update stats for both gears (outside tx, best-effort).
+	// Ownership of both gears was verified by the handler before TransferComponent
+	// was called (VerifyGearOwnership for toGearID, component-to-gear path for fromGearID).
+	_ = db.UpdateGearStatsOwnerVerified(ctx, fromGearID)
+	_ = db.UpdateGearStatsOwnerVerified(ctx, toGearID)
 
 	return nil
 }
 
+// ComponentTransferEligibility holds the schema-relevant fields needed to
+// decide whether a component may be transferred to a target gear.
+type ComponentTransferEligibility struct {
+	Component  gearcompat.Component
+	TargetGear gearcompat.Gear
+	// FromGearID is the current (source) gear the component is attached to.
+	// Used by the handler to record the transfer correctly.
+	FromGearID string
+}
+
+// GetComponentTransferEligibilityOwnerVerified fetches the schema-classification
+// fields for componentID and the target gear's type key. Returns a non-nil error
+// when either row is not found or the query fails.
+//
+// The caller MUST verify ownership of componentID and toGearID (e.g. via
+// VerifyComponentOwnership / VerifyGearOwnership) before invoking this function.
+// This function trusts the caller — it does not re-check user_id ownership.
+func (db *DB) GetComponentTransferEligibilityOwnerVerified(ctx context.Context, componentID, toGearID string) (ComponentTransferEligibility, error) {
+	// Fetch component classification (type_key + preset_gear_type_key) and the
+	// current gear's type in one query.
+	var compTypeKey, presetGearTypeKey *string
+	var sourceGearTypeKey string
+	var fromGearID string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT gc.type_key, gc.preset_gear_type_key, g.type, g.id
+		 FROM gear_components gc
+		 JOIN gear g ON g.id = gc.gear_id
+		 WHERE gc.id = $1`,
+		componentID,
+	).Scan(&compTypeKey, &presetGearTypeKey, &sourceGearTypeKey, &fromGearID)
+	if err != nil {
+		return ComponentTransferEligibility{}, fmt.Errorf("get component eligibility: %w", err)
+	}
+
+	// Fetch target gear type.
+	var targetTypeKey string
+	err = db.Pool.QueryRow(ctx,
+		`SELECT type FROM gear WHERE id = $1`,
+		toGearID,
+	).Scan(&targetTypeKey)
+	if err != nil {
+		return ComponentTransferEligibility{}, fmt.Errorf("get target gear type: %w", err)
+	}
+
+	comp := gearcompat.Component{
+		SourceGearTypeKey: sourceGearTypeKey,
+		PresetGearTypeKey: presetGearTypeKey,
+	}
+	if compTypeKey != nil {
+		comp.TypeKey = *compTypeKey
+	}
+
+	return ComponentTransferEligibility{
+		Component:  comp,
+		TargetGear: gearcompat.Gear{TypeKey: targetTypeKey},
+		FromGearID: fromGearID,
+	}, nil
+}
+
 // --- Component History ---
 
-func (db *DB) GetComponentHistory(ctx context.Context, componentID string) ([]model.ComponentAssignment, error) {
+// GetComponentHistoryOwnerVerified returns the ordered assignment history for
+// componentID (most-recent first).
+//
+// The caller MUST verify ownership of componentID via VerifyComponentOwnership
+// (or via an upstream RLS-scoped query) before invoking this function.
+// This function trusts the caller — it does not re-check user_id ownership.
+func (db *DB) GetComponentHistoryOwnerVerified(ctx context.Context, componentID string) ([]model.ComponentAssignment, error) {
 	rows, err := db.Pool.Query(ctx,
 		`SELECT id, component_id, gear_id, installed_at::text, removed_at::text,
-		 COALESCE(distance_m, 0), COALESCE(elevation_gain_m, 0), COALESCE(time_s, 0), notes
+		 COALESCE(distance_m, 0), COALESCE(elevation_gain_m, 0),
+		 COALESCE(elevation_loss_m, 0), COALESCE(moving_time_s, 0),
+		 COALESCE(time_s, 0), COALESCE(activities_count, 0), notes,
+		 COALESCE(attributes, '{}'::jsonb)
 		 FROM component_assignments WHERE component_id = $1
 		 ORDER BY installed_at DESC`, componentID,
 	)
@@ -510,11 +1022,21 @@ func (db *DB) GetComponentHistory(ctx context.Context, componentID string) ([]mo
 	var items []model.ComponentAssignment
 	for rows.Next() {
 		var a model.ComponentAssignment
+		var attrsJSON []byte
 		if err := rows.Scan(
 			&a.ID, &a.ComponentID, &a.GearID, &a.InstalledAt, &a.RemovedAt,
-			&a.DistanceM, &a.ElevationGainM, &a.TimeS, &a.Notes,
+			&a.DistanceM, &a.ElevationGainM, &a.ElevationLossM, &a.MovingTimeS,
+			&a.TimeS, &a.ActivitiesCount, &a.Notes, &attrsJSON,
 		); err != nil {
 			return nil, fmt.Errorf("scan component assignment: %w", err)
+		}
+		if len(attrsJSON) > 0 && string(attrsJSON) != "{}" {
+			if err := json.Unmarshal(attrsJSON, &a.Attributes); err != nil {
+				return nil, fmt.Errorf("scan component assignment attributes: %w", err)
+			}
+		}
+		if a.Attributes == nil {
+			a.Attributes = map[string]any{}
 		}
 		items = append(items, a)
 	}
@@ -532,9 +1054,11 @@ func (db *DB) GetComponentHistory(ctx context.Context, componentID string) ([]mo
 func (db *DB) GetChainRotation(ctx context.Context, gearID string) (*model.ChainRotationGroup, error) {
 	var g model.ChainRotationGroup
 	err := db.Pool.QueryRow(ctx,
-		`SELECT id, user_id, gear_id, name, swap_interval_km, swap_interval_hm, created_at::text
+		`SELECT id, user_id, gear_id, name, swap_interval_km, swap_interval_hm,
+		        swap_interval_metric_key, swap_interval_value, created_at::text
 		 FROM chain_rotation_groups WHERE gear_id = $1`, gearID,
-	).Scan(&g.ID, &g.UserID, &g.GearID, &g.Name, &g.SwapIntervalKM, &g.SwapIntervalHM, &g.CreatedAt)
+	).Scan(&g.ID, &g.UserID, &g.GearID, &g.Name, &g.SwapIntervalKM, &g.SwapIntervalHM,
+		&g.SwapIntervalMetricKey, &g.SwapIntervalValue, &g.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -553,7 +1077,8 @@ func (db *DB) GetChainRotation(ctx context.Context, gearID string) (*model.Chain
 func (db *DB) listChainMembers(ctx context.Context, groupID string) ([]model.ChainRotationMember, error) {
 	rows, err := db.Pool.Query(ctx,
 		`SELECT m.id, m.group_id, m.component_id, COALESCE(gc.name, ''), m.position, m.is_active,
-		 m.total_distance_m, m.total_elevation_gain_m, m.last_swapped_at::text
+		 m.total_distance_m, m.total_elevation_gain_m, m.total_elevation_loss_m,
+		 m.total_moving_time_s, m.total_time_s, m.total_activities, m.last_swapped_at::text
 		 FROM chain_rotation_members m
 		 LEFT JOIN gear_components gc ON gc.id = m.component_id
 		 WHERE m.group_id = $1
@@ -569,7 +1094,8 @@ func (db *DB) listChainMembers(ctx context.Context, groupID string) ([]model.Cha
 		var m model.ChainRotationMember
 		if err := rows.Scan(
 			&m.ID, &m.GroupID, &m.ComponentID, &m.ComponentName, &m.Position, &m.IsActive,
-			&m.TotalDistanceM, &m.TotalElevationGainM, &m.LastSwappedAt,
+			&m.TotalDistanceM, &m.TotalElevationGainM, &m.TotalElevationLossM,
+			&m.TotalMovingTimeS, &m.TotalTimeS, &m.TotalActivities, &m.LastSwappedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan chain member: %w", err)
 		}
@@ -586,10 +1112,12 @@ func (db *DB) listChainMembers(ctx context.Context, groupID string) ([]model.Cha
 
 // ChainRotationGroupCreate is the input for creating a chain rotation group.
 type ChainRotationGroupCreate struct {
-	Name           string   `json:"name"`
-	SwapIntervalKM *float64 `json:"swap_interval_km,omitempty"`
-	SwapIntervalHM *float64 `json:"swap_interval_hm,omitempty"`
-	ComponentIDs   []string `json:"component_ids"`
+	Name                  string   `json:"name"`
+	SwapIntervalKM        *float64 `json:"swap_interval_km,omitempty"`
+	SwapIntervalHM        *float64 `json:"swap_interval_hm,omitempty"`
+	SwapIntervalMetricKey *string  `json:"swap_interval_metric_key,omitempty"`
+	SwapIntervalValue     *float64 `json:"swap_interval_value,omitempty"`
+	ComponentIDs          []string `json:"component_ids"`
 }
 
 func (db *DB) CreateChainRotation(ctx context.Context, userID, gearID string, create *ChainRotationGroupCreate) (*model.ChainRotationGroup, error) {
@@ -601,11 +1129,14 @@ func (db *DB) CreateChainRotation(ctx context.Context, userID, gearID string, cr
 
 	var g model.ChainRotationGroup
 	err = tx.QueryRow(ctx,
-		`INSERT INTO chain_rotation_groups (user_id, gear_id, name, swap_interval_km, swap_interval_hm)
-		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING id, user_id, gear_id, name, swap_interval_km, swap_interval_hm, created_at::text`,
+		`INSERT INTO chain_rotation_groups (user_id, gear_id, name, swap_interval_km, swap_interval_hm, swap_interval_metric_key, swap_interval_value)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 RETURNING id, user_id, gear_id, name, swap_interval_km, swap_interval_hm,
+		           swap_interval_metric_key, swap_interval_value, created_at::text`,
 		userID, gearID, create.Name, create.SwapIntervalKM, create.SwapIntervalHM,
-	).Scan(&g.ID, &g.UserID, &g.GearID, &g.Name, &g.SwapIntervalKM, &g.SwapIntervalHM, &g.CreatedAt)
+		create.SwapIntervalMetricKey, create.SwapIntervalValue,
+	).Scan(&g.ID, &g.UserID, &g.GearID, &g.Name, &g.SwapIntervalKM, &g.SwapIntervalHM,
+		&g.SwapIntervalMetricKey, &g.SwapIntervalValue, &g.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create chain rotation: %w", err)
 	}
@@ -631,12 +1162,27 @@ func (db *DB) CreateChainRotation(ctx context.Context, userID, gearID string, cr
 	return db.GetChainRotation(ctx, gearID)
 }
 
-func (db *DB) UpdateChainRotation(ctx context.Context, groupID string, intervalKM, intervalHM *float64) error {
-	_, err := db.Pool.Exec(ctx,
-		`UPDATE chain_rotation_groups SET swap_interval_km = $1, swap_interval_hm = $2 WHERE id = $3`,
-		intervalKM, intervalHM, groupID,
+// UpdateChainRotation updates the swap-interval fields and, when name is non-nil,
+// renames the rotation group. nil-valued pointers leave the corresponding column
+// unchanged.
+func (db *DB) UpdateChainRotation(ctx context.Context, groupID string, name *string, intervalKM, intervalHM *float64, intervalMetricKey *string, intervalValue *float64) error {
+	b := newSetBuilder(1)
+	if name != nil {
+		b.Set("name", *name)
+	}
+	// The interval columns are always written (nullable) to keep the legacy
+	// "clear by sending null" contract intact.
+	b.Set("swap_interval_km", intervalKM)
+	b.Set("swap_interval_hm", intervalHM)
+	b.Set("swap_interval_metric_key", intervalMetricKey)
+	b.Set("swap_interval_value", intervalValue)
+
+	args := append(b.Args(), groupID)
+	query := fmt.Sprintf(
+		`UPDATE chain_rotation_groups SET %s WHERE id = $%d`,
+		b.Clause(), b.NextIdx(),
 	)
-	if err != nil {
+	if _, err := db.Pool.Exec(ctx, query, args...); err != nil {
 		return fmt.Errorf("update chain rotation: %w", err)
 	}
 	return nil
@@ -720,7 +1266,7 @@ type ServiceEventCreate struct {
 func (db *DB) ListServiceEvents(ctx context.Context, componentID string) ([]model.GearServiceEvent, error) {
 	rows, err := db.Pool.Query(ctx,
 		`SELECT id, component_id, interval_id, performed_at::text, distance_at_m,
-		 description, cost, notes, created_at::text
+		 description, cost, notes, metric_snapshot, created_at::text
 		 FROM gear_service_events WHERE component_id = $1
 		 ORDER BY performed_at DESC`, componentID,
 	)
@@ -734,7 +1280,7 @@ func (db *DB) ListServiceEvents(ctx context.Context, componentID string) ([]mode
 		var e model.GearServiceEvent
 		if err := rows.Scan(
 			&e.ID, &e.ComponentID, &e.IntervalID, &e.PerformedAt, &e.DistanceAtM,
-			&e.Description, &e.Cost, &e.Notes, &e.CreatedAt,
+			&e.Description, &e.Cost, &e.Notes, &e.MetricSnapshot, &e.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan service event: %w", err)
 		}
@@ -751,19 +1297,71 @@ func (db *DB) ListServiceEvents(ctx context.Context, componentID string) ([]mode
 
 func (db *DB) CreateServiceEvent(ctx context.Context, componentID string, create *ServiceEventCreate) (*model.GearServiceEvent, error) {
 	var e model.GearServiceEvent
-	err := db.Pool.QueryRow(ctx,
-		`INSERT INTO gear_service_events (component_id, interval_id, performed_at, distance_at_m, description, cost, notes)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin service event: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var metricKey *string
+	if create.IntervalID != nil {
+		var key string
+		if err := tx.QueryRow(ctx, `
+			SELECT gsi.metric_key
+			FROM gear_service_intervals gsi
+			WHERE gsi.id = $1 AND gsi.component_id = $2`,
+			*create.IntervalID, componentID,
+		).Scan(&key); err != nil {
+			return nil, fmt.Errorf("verify service interval: %w", err)
+		}
+		metricKey = &key
+	}
+
+	err = tx.QueryRow(ctx,
+		`WITH snapshot AS (
+		     SELECT jsonb_build_object(
+		         'distance_m', COALESCE(total_distance_m, 0),
+		         'moving_time_s', COALESCE(total_moving_time_s, 0),
+		         'elapsed_time_s', COALESCE(total_time_s, 0),
+		         'activity_count', COALESCE(total_activities, 0),
+		         'elevation_gain_m', COALESCE(total_elevation_gain_m, 0),
+		         'elevation_loss_m', COALESCE(total_elevation_loss_m, 0)
+		     ) AS value
+		     FROM gear_components
+		     WHERE id = $1
+		 )
+		 INSERT INTO gear_service_events (component_id, interval_id, performed_at, distance_at_m, description, cost, notes, metric_snapshot)
+		 SELECT $1, $2, $3, $4, $5, $6, $7, value FROM snapshot
 		 RETURNING id, component_id, interval_id, performed_at::text, distance_at_m,
-		   description, cost, notes, created_at::text`,
+		   description, cost, notes, metric_snapshot, created_at::text`,
 		componentID, create.IntervalID, create.PerformedAt, create.DistanceAtM,
 		create.Description, create.Cost, create.Notes,
 	).Scan(
 		&e.ID, &e.ComponentID, &e.IntervalID, &e.PerformedAt, &e.DistanceAtM,
-		&e.Description, &e.Cost, &e.Notes, &e.CreatedAt,
+		&e.Description, &e.Cost, &e.Notes, &e.MetricSnapshot, &e.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create service event: %w", err)
+	}
+
+	// Reset the interval's last_service_metric_value to the snapshot value for that metric.
+	if metricKey != nil {
+		value := e.MetricSnapshot[*metricKey]
+		_, err = tx.Exec(ctx, `
+			UPDATE gear_service_intervals
+			SET last_service_at = $1,
+			    last_service_metric_value = $2,
+			    last_service_distance_m = CASE WHEN metric_key = 'distance_m' THEN $2 ELSE last_service_distance_m END
+			WHERE id = $3 AND component_id = $4`,
+			create.PerformedAt, value, *create.IntervalID, componentID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("reset service interval: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit service event: %w", err)
 	}
 	return &e, nil
 }
@@ -772,6 +1370,128 @@ func (db *DB) DeleteServiceEvent(ctx context.Context, eventID string) error {
 	tag, err := db.Pool.Exec(ctx, `DELETE FROM gear_service_events WHERE id = $1`, eventID)
 	if err != nil {
 		return fmt.Errorf("delete service event: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrServiceEventNotFound
+	}
+	return nil
+}
+
+// --- Service Intervals ---
+
+const serviceIntervalSelectCols = `id, component_id, name, interval_type, metric_key, interval_value,
+	is_recurring, last_service_at::text, last_service_distance_m, last_service_metric_value, next_due_at::text`
+
+func scanServiceInterval(row pgx.Row) (*model.GearServiceInterval, error) {
+	var interval model.GearServiceInterval
+	err := row.Scan(
+		&interval.ID, &interval.ComponentID, &interval.Name, &interval.IntervalType, &interval.MetricKey,
+		&interval.IntervalValue, &interval.IsRecurring, &interval.LastServiceAt,
+		&interval.LastServiceDistanceM, &interval.LastServiceMetricValue, &interval.NextDueAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &interval, nil
+}
+
+func (db *DB) ListServiceIntervals(ctx context.Context, componentID string) ([]model.GearServiceInterval, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT `+serviceIntervalSelectCols+`
+		 FROM gear_service_intervals
+		 WHERE component_id = $1
+		 ORDER BY name`, componentID)
+	if err != nil {
+		return nil, fmt.Errorf("list service intervals: %w", err)
+	}
+	defer rows.Close()
+	var items []model.GearServiceInterval
+	for rows.Next() {
+		var item model.GearServiceInterval
+		if err := rows.Scan(
+			&item.ID, &item.ComponentID, &item.Name, &item.IntervalType, &item.MetricKey,
+			&item.IntervalValue, &item.IsRecurring, &item.LastServiceAt,
+			&item.LastServiceDistanceM, &item.LastServiceMetricValue, &item.NextDueAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan service interval: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list service intervals: %w", err)
+	}
+	if items == nil {
+		items = []model.GearServiceInterval{}
+	}
+	return items, nil
+}
+
+func (db *DB) CreateServiceInterval(ctx context.Context, componentID string, create *model.GearServiceIntervalCreate) (*model.GearServiceInterval, error) {
+	if !gearmetrics.IsServiceMetric(create.MetricKey) {
+		return nil, fmt.Errorf("unsupported service metric %q", create.MetricKey)
+	}
+	if create.IntervalValue <= 0 {
+		return nil, fmt.Errorf("interval value must be positive")
+	}
+	isRecurring := true
+	if create.IsRecurring != nil {
+		isRecurring = *create.IsRecurring
+	}
+	interval, err := scanServiceInterval(db.Pool.QueryRow(ctx, `
+		INSERT INTO gear_service_intervals (component_id, name, interval_type, metric_key, interval_value, is_recurring, last_service_at)
+		VALUES ($1, $2, $3, $3, $4, $5, $6)
+		RETURNING `+serviceIntervalSelectCols,
+		componentID, create.Name, create.MetricKey, create.IntervalValue, isRecurring, create.LastServiceAt,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("create service interval: %w", err)
+	}
+	return interval, nil
+}
+
+func (db *DB) UpdateServiceInterval(ctx context.Context, intervalID string, update *model.GearServiceIntervalUpdate) (*model.GearServiceInterval, error) {
+	b := newSetBuilder(1)
+	if update.Name != nil {
+		b.Set("name", *update.Name)
+	}
+	if update.MetricKey != nil {
+		if !gearmetrics.IsServiceMetric(*update.MetricKey) {
+			return nil, fmt.Errorf("unsupported service metric %q", *update.MetricKey)
+		}
+		b.Set("metric_key", *update.MetricKey)
+		b.Set("interval_type", *update.MetricKey)
+	}
+	if update.IntervalValue != nil {
+		if *update.IntervalValue <= 0 {
+			return nil, fmt.Errorf("interval value must be positive")
+		}
+		b.Set("interval_value", *update.IntervalValue)
+	}
+	if update.IsRecurring != nil {
+		b.Set("is_recurring", *update.IsRecurring)
+	}
+	if update.LastServiceAt != nil {
+		b.Set("last_service_at", *update.LastServiceAt)
+	}
+	if !b.HasSets() {
+		return scanServiceInterval(db.Pool.QueryRow(ctx, `SELECT `+serviceIntervalSelectCols+` FROM gear_service_intervals WHERE id = $1`, intervalID))
+	}
+	args := append(b.Args(), intervalID)
+	query := fmt.Sprintf(`UPDATE gear_service_intervals SET %s WHERE id = $%d RETURNING `+serviceIntervalSelectCols, b.Clause(), b.NextIdx())
+	interval, err := scanServiceInterval(db.Pool.QueryRow(ctx, query, args...))
+	if err != nil {
+		return nil, fmt.Errorf("update service interval: %w", err)
+	}
+	return interval, nil
+}
+
+func (db *DB) DeleteServiceInterval(ctx context.Context, intervalID string) error {
+	tag, err := db.Pool.Exec(ctx, `DELETE FROM gear_service_intervals WHERE id = $1`, intervalID)
+	if err != nil {
+		return fmt.Errorf("delete service interval: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrServiceEventNotFound
@@ -825,19 +1545,23 @@ func (db *DB) GetMaintenanceAlerts(ctx context.Context, userID string) ([]model.
 		`SELECT g.id, g.name, gc.id, gc.name, gsi.name, gsi.interval_type,
 		 CASE
 		   WHEN gsi.interval_type = 'distance_m' THEN
-		     gc.total_distance_m - COALESCE(gsi.last_service_distance_m, 0) >= gsi.interval_value
+		     gc.total_distance_m - COALESCE(gsi.last_service_metric_value, 0) >= gsi.interval_value
+		   WHEN gsi.interval_type = 'elevation_loss_m' THEN
+		     gc.total_elevation_loss_m - COALESCE(gsi.last_service_metric_value, 0) >= gsi.interval_value
 		   ELSE false
 		 END AS is_overdue,
 		 CASE
 		   WHEN gsi.interval_type = 'distance_m' THEN
-		     gc.total_distance_m - COALESCE(gsi.last_service_distance_m, 0)
+		     gc.total_distance_m - COALESCE(gsi.last_service_metric_value, 0)
+		   WHEN gsi.interval_type = 'elevation_loss_m' THEN
+		     gc.total_elevation_loss_m - COALESCE(gsi.last_service_metric_value, 0)
 		   ELSE 0
 		 END AS current_value,
 		 gsi.interval_value
 		 FROM gear_service_intervals gsi
 		 JOIN gear_components gc ON gc.id = gsi.component_id
 		 JOIN gear g ON g.id = gc.gear_id
-		 WHERE g.user_id = $1 AND g.is_retired = false AND gc.is_retired = false
+		 WHERE g.user_id = $1 AND g.status != 'retired' AND gc.is_retired = false
 		 ORDER BY is_overdue DESC, current_value DESC`, userID,
 	)
 	if err != nil {
@@ -867,7 +1591,7 @@ func (db *DB) GetMaintenanceAlerts(ctx context.Context, userID string) ([]model.
 
 // --- Automation Rules ---
 
-const ruleSelectCols = `id, user_id, name, is_active, priority, conditions, conditions_logic, condition_groups, actions, times_applied, created_at, is_system, system_type, trigger_event, stop_on_match, apply_retroactively, last_evaluated_at, last_matched_count, branches`
+const ruleSelectCols = `id, user_id, name, is_active, priority, conditions, conditions_logic, condition_groups, actions, times_applied, created_at, is_system, system_type, trigger_event, stop_on_match, apply_retroactively, last_evaluated_at, last_matched_count, last_warning_at, last_warning_code, last_warning_message, branches`
 
 func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 	var r model.AutomationRule
@@ -877,7 +1601,9 @@ func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
 		&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
-		&r.LastEvaluatedAt, &r.LastMatchedCount, &r.Branches,
+		&r.LastEvaluatedAt, &r.LastMatchedCount,
+		&r.LastWarningAt, &r.LastWarningCode, &r.LastWarningMsg,
+		&r.Branches,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -911,7 +1637,9 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 				        %s,
 				        ar.created_at, ar.is_system, ar.system_type,
 				        ar.trigger_event, ar.stop_on_match, ar.apply_retroactively,
-				        ar.last_evaluated_at, ar.last_matched_count, ar.branches
+				        ar.last_evaluated_at, ar.last_matched_count,
+				        ar.last_warning_at, ar.last_warning_code, ar.last_warning_message,
+				        ar.branches
 				 FROM automation_rules ar WHERE ar.user_id = $1 ORDER BY ar.priority, ar.name`, timesAppliedExpr)
 	rows, err := db.Pool.Query(ctx, query, args...)
 	if err != nil {
@@ -928,7 +1656,9 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 			&r.Actions, &r.TimesApplied, &r.CreatedAt,
 			&r.IsSystem, &r.SystemType,
 			&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
-			&r.LastEvaluatedAt, &r.LastMatchedCount, &r.Branches,
+			&r.LastEvaluatedAt, &r.LastMatchedCount,
+			&r.LastWarningAt, &r.LastWarningCode, &r.LastWarningMsg,
+			&r.Branches,
 		); err != nil {
 			return nil, fmt.Errorf("scan rule: %w", err)
 		}
@@ -973,7 +1703,9 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
 		&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
-		&r.LastEvaluatedAt, &r.LastMatchedCount, &r.Branches,
+		&r.LastEvaluatedAt, &r.LastMatchedCount,
+		&r.LastWarningAt, &r.LastWarningCode, &r.LastWarningMsg,
+		&r.Branches,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create rule: %w", err)
@@ -1088,7 +1820,9 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
 		&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
-		&r.LastEvaluatedAt, &r.LastMatchedCount, &r.Branches,
+		&r.LastEvaluatedAt, &r.LastMatchedCount,
+		&r.LastWarningAt, &r.LastWarningCode, &r.LastWarningMsg,
+		&r.Branches,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -1163,19 +1897,612 @@ func (db *DB) IncrementRuleApplied(ctx context.Context, id string) error {
 	return nil
 }
 
+func (db *DB) SetRuleWarning(ctx context.Context, ruleID, userID, code, message string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE automation_rules
+		SET last_warning_at = NOW(), last_warning_code = $1, last_warning_message = $2
+		WHERE id = $3 AND user_id = $4`,
+		code, message, ruleID, userID)
+	if err != nil {
+		return fmt.Errorf("set rule warning: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) ClearRuleWarning(ctx context.Context, ruleID, userID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE automation_rules
+		SET last_warning_at = NULL, last_warning_code = NULL, last_warning_message = NULL
+		WHERE id = $1 AND user_id = $2`,
+		ruleID, userID)
+	if err != nil {
+		return fmt.Errorf("clear rule warning: %w", err)
+	}
+	return nil
+}
+
+// ValidateRuleGearAssignment checks whether gearID may be assigned to
+// activityID by an automation rule. It validates ownership and that the
+// gear is not retired before the activity's started_at date. Returns
+// (valid, reason, error); reason is non-empty when valid is false.
+func (db *DB) ValidateRuleGearAssignment(ctx context.Context, activityID, userID, gearID string) (bool, string, error) {
+	if gearID == "" {
+		return false, "gear_id is empty", nil
+	}
+
+	var gearExists bool
+	var valid bool
+	err := db.Pool.QueryRow(ctx, `
+		SELECT
+			COUNT(g.id) > 0 AS gear_exists,
+			COALESCE(BOOL_OR(
+				g.user_id = a.user_id
+				AND (
+					NOT g.is_retired
+					OR (g.retired_at IS NOT NULL AND a.started_at::date <= g.retired_at)
+				)
+			), false) AS valid
+		FROM activities a
+		LEFT JOIN gear g ON g.id = $3
+		WHERE a.id = $1 AND a.user_id = $2`,
+		activityID, userID, gearID,
+	).Scan(&gearExists, &valid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, "activity no longer exists", nil
+	}
+	if err != nil {
+		return false, "", fmt.Errorf("validate rule gear assignment: %w", err)
+	}
+	if !gearExists {
+		return false, "gear no longer exists or belongs to another user", nil
+	}
+	if !valid {
+		return false, "gear is retired for this activity date", nil
+	}
+	return true, "", nil
+}
+
 // --- Gear stats update ---
 
-func (db *DB) UpdateGearStats(ctx context.Context, gearID string) error {
+// UpdateGearStatsOwnerVerified refreshes the aggregate counters on the gear row
+// for gearID (total_distance_m, total_time_s, total_moving_time_s,
+// total_elevation_gain_m, total_elevation_loss_m, total_activities).
+//
+// The caller MUST verify ownership of gearID via VerifyGearOwnership
+// (or via an upstream RLS-scoped query) before invoking this function.
+// This function trusts the caller — it does not re-check user_id ownership.
+func (db *DB) UpdateGearStatsOwnerVerified(ctx context.Context, gearID string) error {
 	_, err := db.Pool.Exec(ctx,
 		`UPDATE gear SET
-		   total_distance_m = COALESCE((SELECT SUM(COALESCE(a.distance_m, 0)) FROM activities a WHERE a.gear_id = $1 AND NOT a.is_group_secondary), 0),
-		   total_time_s = COALESCE((SELECT SUM(COALESCE(a.elapsed_time_s, 0)) FROM activities a WHERE a.gear_id = $1 AND NOT a.is_group_secondary), 0),
-		   total_elevation_gain_m = COALESCE((SELECT SUM(COALESCE(a.elevation_gain_m, 0)) FROM activities a WHERE a.gear_id = $1 AND NOT a.is_group_secondary), 0),
-		   total_activities = COALESCE((SELECT COUNT(*) FROM activities a WHERE a.gear_id = $1 AND NOT a.is_group_secondary), 0)
+		   total_distance_m = COALESCE((
+		      SELECT SUM(COALESCE(aga.distance_m_override, a.distance_m, 0))
+		      FROM activity_gear_assignments aga
+		      JOIN activities a ON a.id = aga.activity_id
+		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
+		   ), 0),
+		   total_moving_time_s = COALESCE((
+		      SELECT SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0))
+		      FROM activity_gear_assignments aga
+		      JOIN activities a ON a.id = aga.activity_id
+		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
+		   ), 0),
+		   total_time_s = COALESCE((
+		      SELECT SUM(COALESCE(a.elapsed_time_s, 0))
+		      FROM activity_gear_assignments aga
+		      JOIN activities a ON a.id = aga.activity_id
+		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
+		   ), 0),
+		   total_elevation_gain_m = COALESCE((
+		      SELECT SUM(COALESCE(a.elevation_gain_m, 0))
+		      FROM activity_gear_assignments aga
+		      JOIN activities a ON a.id = aga.activity_id
+		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
+		   ), 0),
+		   total_elevation_loss_m = COALESCE((
+		      SELECT SUM(COALESCE(a.elevation_loss_m, 0))
+		      FROM activity_gear_assignments aga
+		      JOIN activities a ON a.id = aga.activity_id
+		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
+		   ), 0),
+		   total_activities = COALESCE((
+		      SELECT COUNT(*)
+		      FROM activity_gear_assignments aga
+		      JOIN activities a ON a.id = aga.activity_id
+		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
+		   ), 0)
 		 WHERE id = $1`, gearID,
 	)
 	if err != nil {
 		return fmt.Errorf("update gear stats: %w", err)
+	}
+	return nil
+}
+
+// UpdateComponentUsageStatsOwnerVerified refreshes per-component usage counters
+// by aggregating activity_gear_assignments that fall within the component's
+// installation window. Writes both gear_components.total_* aggregates and the
+// per-assignment counters on component_assignments. Boundary uses the
+// assignment's installed_at/removed_at, falling back to the component's
+// installed_at/removed_at if no per-assignment row exists yet.
+//
+// The caller MUST verify ownership of componentID (e.g. via VerifyComponentOwnership
+// or via an upstream RLS-scoped query) before invoking this function.
+// This function trusts the caller — it does not re-check user_id ownership.
+func (db *DB) UpdateComponentUsageStatsOwnerVerified(ctx context.Context, componentID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		WITH usage AS (
+			SELECT
+				gc.id AS component_id,
+				ca.id AS assignment_id,
+				COALESCE(SUM(COALESCE(aga.distance_m_override, a.distance_m, 0)), 0) AS distance_m,
+				COALESCE(SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)), 0) AS moving_time_s,
+				COALESCE(SUM(COALESCE(a.elapsed_time_s, 0)), 0) AS time_s,
+				COALESCE(SUM(COALESCE(a.elevation_gain_m, 0)), 0) AS elevation_gain_m,
+				COALESCE(SUM(COALESCE(a.elevation_loss_m, 0)), 0) AS elevation_loss_m,
+				COUNT(a.id) AS activities_count
+			FROM gear_components gc
+			LEFT JOIN component_assignments ca ON ca.component_id = gc.id AND ca.removed_at IS NULL
+			LEFT JOIN activity_gear_assignments aga ON aga.gear_id = gc.gear_id
+			LEFT JOIN activities a ON a.id = aga.activity_id
+				AND NOT a.is_group_secondary
+				AND a.started_at >= COALESCE(ca.installed_at, gc.installed_at, '-infinity'::timestamptz)
+				AND a.started_at < COALESCE(ca.removed_at, gc.removed_at, 'infinity'::timestamptz)
+			WHERE gc.id = $1
+			GROUP BY gc.id, ca.id
+		),
+		update_component AS (
+			UPDATE gear_components gc
+			SET total_distance_m = usage.distance_m,
+			    total_moving_time_s = usage.moving_time_s,
+			    total_time_s = usage.time_s,
+			    total_elevation_gain_m = usage.elevation_gain_m,
+			    total_elevation_loss_m = usage.elevation_loss_m,
+			    total_activities = usage.activities_count
+			FROM usage
+			WHERE gc.id = usage.component_id
+			RETURNING usage.*
+		)
+		UPDATE component_assignments ca
+		SET distance_m = update_component.distance_m,
+		    moving_time_s = update_component.moving_time_s,
+		    time_s = update_component.time_s,
+		    elevation_gain_m = update_component.elevation_gain_m,
+		    elevation_loss_m = update_component.elevation_loss_m,
+		    activities_count = update_component.activities_count
+		FROM update_component
+		WHERE ca.id = update_component.assignment_id`, componentID)
+	if err != nil {
+		return fmt.Errorf("update component usage stats: %w", err)
+	}
+	return nil
+}
+
+// UpdateChainRotationMemberStatsOwnerVerified refreshes per-member usage
+// counters for a single chain-rotation member. Only activities that occurred
+// AFTER the member's last swap (or after the rotation group's creation if never
+// swapped) AND while the member's component was installed are counted. When the
+// join produces no rows (e.g. the only assignment was deleted), the counters are
+// reset to zero.
+//
+// The caller MUST verify ownership of memberID (via the parent gear's ownership
+// or via an upstream RLS-scoped query) before invoking this function.
+// This function trusts the caller — it does not re-check user_id ownership.
+func (db *DB) UpdateChainRotationMemberStatsOwnerVerified(ctx context.Context, memberID string) error {
+	tag, err := db.Pool.Exec(ctx, `
+		UPDATE chain_rotation_members cm
+		SET total_distance_m = COALESCE(src.distance_m, 0),
+		    total_moving_time_s = COALESCE(src.moving_time_s, 0),
+		    total_time_s = COALESCE(src.time_s, 0),
+		    total_elevation_gain_m = COALESCE(src.elevation_gain_m, 0),
+		    total_elevation_loss_m = COALESCE(src.elevation_loss_m, 0),
+		    total_activities = COALESCE(src.activities_count, 0)
+		FROM (
+			SELECT
+				cm.id AS member_id,
+				SUM(COALESCE(aga.distance_m_override, a.distance_m, 0)) AS distance_m,
+				SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)) AS moving_time_s,
+				SUM(COALESCE(a.elapsed_time_s, 0)) AS time_s,
+				SUM(COALESCE(a.elevation_gain_m, 0)) AS elevation_gain_m,
+				SUM(COALESCE(a.elevation_loss_m, 0)) AS elevation_loss_m,
+				COUNT(a.id) AS activities_count
+			FROM chain_rotation_members cm
+			JOIN chain_rotation_groups crg ON crg.id = cm.group_id
+			JOIN gear_components gc ON gc.id = cm.component_id
+			JOIN activity_gear_assignments aga ON aga.gear_id = crg.gear_id
+			JOIN activities a ON a.id = aga.activity_id
+			WHERE cm.id = $1
+			  AND NOT a.is_group_secondary
+			  AND a.started_at >= COALESCE(cm.last_swapped_at, crg.created_at)
+			  AND a.started_at >= COALESCE(gc.installed_at, '-infinity'::timestamptz)
+			  AND a.started_at < COALESCE(gc.removed_at, 'infinity'::timestamptz)
+			GROUP BY cm.id
+		) src
+		WHERE cm.id = $1 AND cm.id = src.member_id`, memberID)
+	if err != nil {
+		return fmt.Errorf("update chain rotation member stats: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		_, err = db.Pool.Exec(ctx, `
+			UPDATE chain_rotation_members
+			SET total_distance_m = 0,
+			    total_moving_time_s = 0,
+			    total_time_s = 0,
+			    total_elevation_gain_m = 0,
+			    total_elevation_loss_m = 0,
+			    total_activities = 0
+			WHERE id = $1`, memberID)
+		if err != nil {
+			return fmt.Errorf("reset chain rotation member stats: %w", err)
+		}
+	}
+	return nil
+}
+
+// ListActiveComponentIDsForGearOwnerVerified returns the IDs of all
+// currently-installed, non-retired components mounted on the given gear. Used
+// to fan out usage-stat refreshes across all components when a gear's activity
+// assignments change.
+//
+// The caller MUST verify ownership of gearID via VerifyGearOwnership
+// (or via an upstream RLS-scoped query) before invoking this function.
+// This function trusts the caller — it does not re-check user_id ownership.
+func (db *DB) ListActiveComponentIDsForGearOwnerVerified(ctx context.Context, gearID string) ([]string, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id::text
+		FROM gear_components
+		WHERE gear_id = $1
+		  AND removed_at IS NULL
+		  AND is_retired = false`, gearID)
+	if err != nil {
+		return nil, fmt.Errorf("list active components: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// ListImpactedChainRotationMemberIDsForGearOwnerVerified returns IDs of all
+// chain-rotation members whose group is attached to the given gear and that are
+// currently participating in the rotation (either marked active OR have a swap
+// history). Used to fan out member-stat refreshes when a gear's activity totals
+// change.
+//
+// The caller MUST verify ownership of gearID via VerifyGearOwnership
+// (or via an upstream RLS-scoped query) before invoking this function.
+// This function trusts the caller — it does not re-check user_id ownership.
+func (db *DB) ListImpactedChainRotationMemberIDsForGearOwnerVerified(ctx context.Context, gearID string) ([]string, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT cm.id::text
+		FROM chain_rotation_members cm
+		JOIN chain_rotation_groups crg ON crg.id = cm.group_id
+		WHERE crg.gear_id = $1
+		  AND (cm.is_active = true OR cm.last_swapped_at IS NOT NULL)`, gearID)
+	if err != nil {
+		return nil, fmt.Errorf("list impacted chain members: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// RefreshGearAndDependentUsageStatsOwnerVerified refreshes gear-level totals
+// plus the totals of every active component and every impacted chain-rotation
+// member tied to that gear. After updating counters it invokes gear-lifecycle
+// rule evaluation for the gear; rule errors are logged and do not abort the
+// refresh.
+//
+// Call this whenever an activity_gear_assignments row or an activity metric
+// (distance/time/elevation) changes.
+//
+// The caller MUST verify ownership of gearID via VerifyGearOwnership
+// (or via an upstream RLS-scoped query) before invoking this function.
+// This function trusts the caller — it does not re-check user_id ownership.
+func (db *DB) RefreshGearAndDependentUsageStatsOwnerVerified(ctx context.Context, gearID string) error {
+	if err := db.UpdateGearStatsOwnerVerified(ctx, gearID); err != nil {
+		return err
+	}
+	componentIDs, err := db.ListActiveComponentIDsForGearOwnerVerified(ctx, gearID)
+	if err != nil {
+		return err
+	}
+	for _, componentID := range componentIDs {
+		if err := db.UpdateComponentUsageStatsOwnerVerified(ctx, componentID); err != nil {
+			return err
+		}
+	}
+	memberIDs, err := db.ListImpactedChainRotationMemberIDsForGearOwnerVerified(ctx, gearID)
+	if err != nil {
+		return err
+	}
+	for _, memberID := range memberIDs {
+		if err := db.UpdateChainRotationMemberStatsOwnerVerified(ctx, memberID); err != nil {
+			return err
+		}
+	}
+	if err := db.EvaluateGearUsageRulesForGear(ctx, []string{gearID}); err != nil {
+		slog.Warn("evaluate gear usage rules", "gear_id", gearID, "error", err)
+	}
+	return nil
+}
+
+// RefreshGearUsageForActivityMetricChange refreshes usage stats for every gear
+// assigned to the given activity. Called by UpdateActivityParserMetrics and
+// UpdateActivityMetricsWithSportAndModifiers after the activity row is updated.
+// The userID is enforced on both the assignment and the activity to keep the
+// multi-user invariant; rows that do not match are silently ignored.
+func (db *DB) RefreshGearUsageForActivityMetricChange(ctx context.Context, activityID string, userID string) ([]string, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT DISTINCT aga.gear_id::text
+		FROM activity_gear_assignments aga
+		JOIN activities a ON a.id = aga.activity_id
+		WHERE aga.activity_id = $1
+		  AND aga.user_id = $2
+		  AND a.user_id = $2`, activityID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var impacted []string
+	for rows.Next() {
+		var gearID string
+		if err := rows.Scan(&gearID); err != nil {
+			return nil, err
+		}
+		if err := db.RefreshGearAndDependentUsageStatsOwnerVerified(ctx, gearID); err != nil {
+			return nil, err
+		}
+		impacted = append(impacted, gearID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(impacted) > 0 {
+		if err := db.EvaluateGearUsageRulesForGear(ctx, impacted); err != nil {
+			slog.Warn("evaluate gear usage rules", "activity_id", activityID, "user_id", userID, "error", err)
+		}
+	}
+	return impacted, nil
+}
+
+// EvaluateGearUsageRulesForGear evaluates all active on_gear_usage_update rules
+// for the owners of the given gear IDs. For each matching (rule, gear) pair it
+// upserts a row in gear_rule_action_state and increments times_applied when the
+// rule body has changed since the last match.
+//
+// An early-exit query checks whether any qualifying rules exist before loading
+// gear stats; for users with no on_gear_usage_update rules this costs one
+// EXISTS query instead of a full gear + rules scan.
+func (db *DB) EvaluateGearUsageRulesForGear(ctx context.Context, gearIDs []string) error {
+	if len(gearIDs) == 0 {
+		return nil
+	}
+	// Fast path: skip all work when no active on_gear_usage_update rules exist
+	// for any owner of the supplied gear IDs. The subquery resolves user_ids
+	// from the gear table, keeping the check self-contained.
+	var hasRules bool
+	err := db.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM automation_rules ar
+			JOIN gear g ON g.user_id = ar.user_id AND g.id = ANY($1::uuid[])
+			WHERE ar.trigger_event = 'on_gear_usage_update'
+			  AND ar.is_active = true
+			LIMIT 1
+		)`, gearIDs).Scan(&hasRules)
+	if err != nil {
+		return fmt.Errorf("check gear usage rules existence: %w", err)
+	}
+	if !hasRules {
+		return nil
+	}
+	rows, err := db.Pool.Query(ctx, `
+		SELECT id::text, user_id::text, total_distance_m, total_moving_time_s, total_time_s,
+		       total_elevation_gain_m, total_elevation_loss_m, total_activities
+		FROM gear
+		WHERE id = ANY($1::uuid[]) AND is_retired = false`, gearIDs)
+	if err != nil {
+		return fmt.Errorf("list gear usage rule candidates: %w", err)
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		userID  string
+		gearID  string
+		gearMap map[string]any
+	}
+	var candidates []candidate
+	userIDs := map[string]bool{}
+	for rows.Next() {
+		var c candidate
+		var totalDistance, totalGain, totalLoss float64
+		var totalMoving, totalTime, totalActivities int
+		if err := rows.Scan(&c.gearID, &c.userID, &totalDistance, &totalMoving, &totalTime, &totalGain, &totalLoss, &totalActivities); err != nil {
+			return fmt.Errorf("scan gear usage rule candidate: %w", err)
+		}
+		c.gearMap = map[string]any{
+			"gear_id":                     c.gearID,
+			"gear_total_distance_m":       totalDistance,
+			"gear_total_moving_time_s":    totalMoving,
+			"gear_total_time_s":           totalTime,
+			"gear_total_elevation_gain_m": totalGain,
+			"gear_total_elevation_loss_m": totalLoss,
+			"gear_total_activities":       totalActivities,
+		}
+		candidates = append(candidates, c)
+		userIDs[c.userID] = true
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("list gear usage rule candidates: %w", err)
+	}
+	for userID := range userIDs {
+		rulesForUser, err := db.ListRules(ctx, userID)
+		if err != nil {
+			return err
+		}
+		for _, rule := range rulesForUser {
+			if !rule.IsActive || rule.TriggerEvent != "on_gear_usage_update" {
+				continue
+			}
+			matched := 0
+			for _, c := range candidates {
+				if c.userID != userID || !evaluateGearUsageRuleMap(rule, c.gearMap) {
+					continue
+				}
+				signature := gearUsageRuleSignature(rule)
+				changed, err := db.recordGearRuleActionState(ctx, userID, rule.ID, c.gearID, signature)
+				if err != nil {
+					return err
+				}
+				if changed {
+					if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
+						return err
+					}
+				}
+				matched++
+			}
+			if matched > 0 {
+				if _, err := db.Pool.Exec(ctx,
+					`UPDATE automation_rules SET last_evaluated_at = NOW(), last_matched_count = $1 WHERE id = $2 AND user_id = $3`,
+					matched, rule.ID, userID); err != nil {
+					return fmt.Errorf("update gear usage rule stats: %w", err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func evaluateGearUsageRuleMap(rule model.AutomationRule, gearMap map[string]any) bool {
+	if len(rule.ConditionGroups) > 0 && string(rule.ConditionGroups) != "null" {
+		var groups []rules.ConditionGroup
+		if err := json.Unmarshal(rule.ConditionGroups, &groups); err == nil && len(groups) > 0 {
+			return rules.EvaluateGroups(groups, gearMap)
+		}
+	}
+	if len(rule.Conditions) > 0 && string(rule.Conditions) != "null" {
+		var conditions []rules.Condition
+		if err := json.Unmarshal(rule.Conditions, &conditions); err == nil && len(conditions) > 0 {
+			return rules.Evaluate(conditions, gearMap)
+		}
+	}
+	return false
+}
+
+func gearUsageRuleSignature(rule model.AutomationRule) string {
+	raw, _ := json.Marshal([]json.RawMessage{rule.Conditions, rule.ConditionGroups, rule.Actions})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func (db *DB) recordGearRuleActionState(ctx context.Context, userID, ruleID, gearID, signature string) (bool, error) {
+	var changed bool
+	err := db.Pool.QueryRow(ctx, `
+		INSERT INTO gear_rule_action_state (user_id, rule_id, gear_id, last_signature)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (rule_id, gear_id)
+		DO UPDATE SET last_matched_at = NOW(), last_signature = EXCLUDED.last_signature
+		WHERE gear_rule_action_state.last_signature IS DISTINCT FROM EXCLUDED.last_signature
+		RETURNING true`,
+		userID, ruleID, gearID, signature,
+	).Scan(&changed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("record gear rule action state: %w", err)
+	}
+	return changed, nil
+}
+
+// SetPrimaryGearForActivityTx upserts the primary activity_gear_assignments row
+// for activityID to point at gearID. The activity's user_id is read from the
+// activities table (never from caller input) so the multi-user invariant holds:
+// the activity_gear_assignments_user_match trigger requires
+// aga.user_id = activities.user_id = gear.user_id.
+//
+// If a primary aga row already exists for the activity, it is updated in place
+// (gear_id, source, updated_at). Otherwise a new row is inserted. The partial
+// unique index idx_activity_gear_assignments_one_primary on
+// (activity_id) WHERE role_key='primary' enforces single-primary semantics.
+//
+// Caller-supplied source must be one of: 'user', 'rule', 'import', 'legacy',
+// 'fusion'. Use 'user' for direct UI assignments, 'rule' for automation,
+// 'fusion' for fusion-merge gear inheritance, 'import' for GDPR import.
+//
+// gearID must be a non-empty UUID string. Use ClearPrimaryGearForActivityTx
+// to remove the primary assignment.
+func SetPrimaryGearForActivityTx(ctx context.Context, q Querier, activityID, gearID, source string) error {
+	if gearID == "" {
+		return fmt.Errorf("SetPrimaryGearForActivityTx: gearID must not be empty")
+	}
+	if source == "" {
+		source = "user"
+	}
+	_, err := q.Exec(ctx, `
+		INSERT INTO activity_gear_assignments
+			(id, user_id, activity_id, gear_id, role_key, source, quantity)
+		SELECT gen_random_uuid(), a.user_id, a.id, $2::uuid, 'primary', $3, 1
+		FROM activities a
+		WHERE a.id = $1::uuid
+		ON CONFLICT (activity_id) WHERE role_key = 'primary'
+		DO UPDATE SET
+			gear_id    = EXCLUDED.gear_id,
+			source     = EXCLUDED.source,
+			updated_at = now()
+	`, activityID, gearID, source)
+	if err != nil {
+		return fmt.Errorf("set primary gear assignment: %w", err)
+	}
+	return nil
+}
+
+// ClearPrimaryGearForActivityTx removes the primary activity_gear_assignments
+// row for the given activity. No-op when none exists.
+func ClearPrimaryGearForActivityTx(ctx context.Context, q Querier, activityID string) error {
+	_, err := q.Exec(ctx, `
+		DELETE FROM activity_gear_assignments
+		 WHERE activity_id = $1::uuid AND role_key = 'primary'
+	`, activityID)
+	if err != nil {
+		return fmt.Errorf("clear primary gear assignment: %w", err)
+	}
+	return nil
+}
+
+// SetPrimaryGearForActivityIfUnsetTx upserts primary aga only when no primary
+// row currently exists. Used by automation rules so manual assignments are not
+// overwritten by rule-driven defaults.
+func SetPrimaryGearForActivityIfUnsetTx(ctx context.Context, q Querier, activityID, gearID, source string) error {
+	if gearID == "" {
+		return fmt.Errorf("SetPrimaryGearForActivityIfUnsetTx: gearID must not be empty")
+	}
+	if source == "" {
+		source = "rule"
+	}
+	_, err := q.Exec(ctx, `
+		INSERT INTO activity_gear_assignments
+			(id, user_id, activity_id, gear_id, role_key, source, quantity)
+		SELECT gen_random_uuid(), a.user_id, a.id, $2::uuid, 'primary', $3, 1
+		FROM activities a
+		WHERE a.id = $1::uuid
+		ON CONFLICT (activity_id) WHERE role_key = 'primary'
+		DO NOTHING
+	`, activityID, gearID, source)
+	if err != nil {
+		return fmt.Errorf("conditional set primary gear assignment: %w", err)
 	}
 	return nil
 }
@@ -1197,26 +2524,19 @@ func (db *DB) AssignGearByRulesForActivity(ctx context.Context, userID, activity
 		return nil
 	}
 
-	_, err = db.Pool.Exec(ctx,
-		`UPDATE activities SET gear_id = $1 WHERE id = $2 AND gear_id IS NULL`,
-		gearID, activityID,
-	)
-	if err != nil {
-		return fmt.Errorf("assign gear: %w", err)
-	}
-	return nil
+	// Only assign if no primary aga row exists yet (preserves prior manual
+	// or import-derived assignments; matches pre-DROP behaviour of the
+	// `WHERE gear_id IS NULL` guard on the legacy activities.gear_id update).
+	return SetPrimaryGearForActivityIfUnsetTx(ctx, db.Pool, activityID, gearID, "rule")
 }
 
 func (db *DB) findDefaultGearForActivity(ctx context.Context, userID string, activityTuple sport.Tuple, modifiers sport.ModifierValues) (string, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, default_for_sports, default_sport_predicates
+		`SELECT id, applicable_sport_predicates
 		 FROM gear
 		 WHERE user_id = $1
-		   AND is_retired = false
-		   AND (
-		     COALESCE(cardinality(default_for_sports), 0) > 0
-		     OR jsonb_array_length(COALESCE(default_sport_predicates, '[]'::jsonb)) > 0
-		   )
+		   AND status != 'retired'
+		   AND jsonb_array_length(COALESCE(applicable_sport_predicates, '[]'::jsonb)) > 0
 		 ORDER BY created_at`, userID,
 	)
 	if err != nil {
@@ -1226,9 +2546,8 @@ func (db *DB) findDefaultGearForActivity(ctx context.Context, userID string, act
 
 	for rows.Next() {
 		var gearID string
-		var defaultSports []string
 		var predicateJSON []byte
-		if err := rows.Scan(&gearID, &defaultSports, &predicateJSON); err != nil {
+		if err := rows.Scan(&gearID, &predicateJSON); err != nil {
 			return "", fmt.Errorf("scan default gear: %w", err)
 		}
 		var predicates []gearpkg.GearDefaultPredicate
@@ -1237,16 +2556,8 @@ func (db *DB) findDefaultGearForActivity(ctx context.Context, userID string, act
 				return "", fmt.Errorf("scan default gear predicates: %w", err)
 			}
 		}
-		if len(predicates) > 0 {
-			for _, predicate := range predicates {
-				if gearpkg.GearDefaultPredicateMatchesActivity(predicate, activityTuple.SportType, activityTuple.SubType, modifiers) {
-					return gearID, nil
-				}
-			}
-			continue
-		}
-		for _, defaultSport := range defaultSports {
-			if defaultSport == activityTuple.SportType {
+		for _, predicate := range predicates {
+			if gearpkg.GearDefaultPredicateMatchesActivity(predicate, activityTuple.SportType, activityTuple.SubType, modifiers) {
 				return gearID, nil
 			}
 		}
@@ -1275,7 +2586,8 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 			a.avg_power_w, a.max_power_w, a.min_power_w, a.normalized_power_w, a.tss, a.trimp,
 			a.avg_temperature_c, a.min_temperature_c, a.max_temperature_c,
 			a.start_city, a.start_state, a.start_country, a.start_country_code, a.end_city,
-			a.gear_id::text,
+			(SELECT aga.gear_id::text FROM activity_gear_assignments aga
+			 WHERE aga.activity_id = a.id AND aga.role_key = 'primary' LIMIT 1) AS gear_id,
 			a.tags,
 			a.started_at,
 			ST_Y(a.start_location::geometry) AS start_lat,
@@ -1741,8 +3053,14 @@ func (db *DB) getSegmentEffortsForActivity(ctx context.Context, activityID strin
 func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field string, value any) error {
 	switch field {
 	case "gear_id":
-		_, err := db.Pool.Exec(ctx, `UPDATE activities SET gear_id = $1 WHERE id = $2`, value, activityID)
-		return err
+		gearID, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("gear_id rule change: value must be a UUID string, got %T", value)
+		}
+		if gearID == "" {
+			return ClearPrimaryGearForActivityTx(ctx, db.Pool, activityID)
+		}
+		return SetPrimaryGearForActivityTx(ctx, db.Pool, activityID, gearID, "rule")
 	case "add_tag":
 		tagID, ok := value.(string)
 		if !ok {
@@ -1905,14 +3223,14 @@ func (db *DB) ApplyRuleChange(ctx context.Context, activityID string, field stri
 
 const bikeSetupCols = `id, gear_id, name, rider_weight_kg, intended_use, notes,
 	suspension_front, suspension_rear, tires, contact_points, brakes, drivetrain,
-	is_active, created_at::text, updated_at::text`
+	is_active, component_snapshot, created_at::text, updated_at::text`
 
 func scanBikeSetup(row pgx.Row) (*model.BikeSetup, error) {
 	var s model.BikeSetup
 	err := row.Scan(
 		&s.ID, &s.GearID, &s.Name, &s.RiderWeightKg, &s.IntendedUse, &s.Notes,
 		&s.SuspensionFront, &s.SuspensionRear, &s.Tires, &s.ContactPoints, &s.Brakes, &s.Drivetrain,
-		&s.IsActive, &s.CreatedAt, &s.UpdatedAt,
+		&s.IsActive, &s.ComponentSnapshot, &s.CreatedAt, &s.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -1921,6 +3239,74 @@ func scanBikeSetup(row pgx.Row) (*model.BikeSetup, error) {
 		return nil, err
 	}
 	return &s, nil
+}
+
+// componentSnapshotEnvelope is the versioned JSONB envelope stored in
+// bike_setups.component_snapshot. Version 1 fields must never be renamed;
+// future versions add new top-level fields.
+type componentSnapshotEnvelope struct {
+	Version    int                    `json:"version"`
+	CapturedAt string                 `json:"captured_at"` // RFC3339
+	Components []componentSnapshotV1  `json:"components"`
+}
+
+type componentSnapshotV1 struct {
+	ID                string          `json:"id"`
+	Name              string          `json:"name"`
+	Type              string          `json:"type"`
+	TypeKey           *string         `json:"type_key,omitempty"`
+	SlotKey           *string         `json:"slot_key,omitempty"`
+	Brand             *string         `json:"brand,omitempty"`
+	Model             *string         `json:"model,omitempty"`
+	Attributes        json.RawMessage `json:"attributes,omitempty"`
+	PresetGearTypeKey *string         `json:"preset_gear_type_key,omitempty"`
+	InstalledAt       *string         `json:"installed_at,omitempty"`
+	RemovedAt         *string         `json:"removed_at,omitempty"`
+	Status            string          `json:"status"`
+}
+
+// buildComponentSnapshotForGear captures the current gear_components state for
+// the given gearID and serialises it as a componentSnapshotEnvelope (version 1).
+func (db *DB) buildComponentSnapshotForGear(ctx context.Context, gearID string) (json.RawMessage, error) {
+	components, err := db.listComponents(ctx, gearID)
+	if err != nil {
+		return nil, fmt.Errorf("build component snapshot: %w", err)
+	}
+	items := make([]componentSnapshotV1, 0, len(components))
+	for _, c := range components {
+		var attrsRaw json.RawMessage
+		if len(c.Attributes) > 0 {
+			b, err := json.Marshal(c.Attributes)
+			if err != nil {
+				return nil, fmt.Errorf("build component snapshot marshal attrs: %w", err)
+			}
+			attrsRaw = b
+		}
+		items = append(items, componentSnapshotV1{
+			ID:                c.ID,
+			Name:              c.Name,
+			Type:              c.Type,
+			TypeKey:           c.TypeKey,
+			SlotKey:           c.SlotKey,
+			Brand:             c.Brand,
+			Model:             c.Model,
+			Attributes:        attrsRaw,
+			PresetGearTypeKey: c.PresetGearTypeKey,
+			InstalledAt:       c.InstalledAt,
+			RemovedAt:         c.RemovedAt,
+			Status:            c.Status,
+		})
+	}
+	envelope := componentSnapshotEnvelope{
+		Version:    1,
+		CapturedAt: time.Now().UTC().Format(time.RFC3339),
+		Components: items,
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, fmt.Errorf("build component snapshot marshal envelope: %w", err)
+	}
+	return raw, nil
 }
 
 func (db *DB) ListBikeSetups(ctx context.Context, gearID string) ([]model.BikeSetup, error) {
@@ -1938,7 +3324,7 @@ func (db *DB) ListBikeSetups(ctx context.Context, gearID string) ([]model.BikeSe
 		if err := rows.Scan(
 			&s.ID, &s.GearID, &s.Name, &s.RiderWeightKg, &s.IntendedUse, &s.Notes,
 			&s.SuspensionFront, &s.SuspensionRear, &s.Tires, &s.ContactPoints, &s.Brakes, &s.Drivetrain,
-			&s.IsActive, &s.CreatedAt, &s.UpdatedAt,
+			&s.IsActive, &s.ComponentSnapshot, &s.CreatedAt, &s.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan bike setup: %w", err)
 		}
@@ -1954,14 +3340,24 @@ func (db *DB) ListBikeSetups(ctx context.Context, gearID string) ([]model.BikeSe
 }
 
 func (db *DB) CreateBikeSetup(ctx context.Context, gearID string, create *model.BikeSetupCreate) (*model.BikeSetup, error) {
+	var snapshot json.RawMessage
+	if create.CaptureComponents {
+		var err error
+		snapshot, err = db.buildComponentSnapshotForGear(ctx, gearID)
+		if err != nil {
+			return nil, fmt.Errorf("create bike setup: capture snapshot: %w", err)
+		}
+	}
 	s, err := scanBikeSetup(db.Pool.QueryRow(ctx,
 		`INSERT INTO bike_setups (gear_id, name, rider_weight_kg, intended_use, notes,
-		  suspension_front, suspension_rear, tires, contact_points, brakes, drivetrain, is_active)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		  suspension_front, suspension_rear, tires, contact_points, brakes, drivetrain,
+		  is_active, component_snapshot)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		 RETURNING `+bikeSetupCols,
 		gearID, create.Name, create.RiderWeightKg, create.IntendedUse, create.Notes,
 		create.SuspensionFront, create.SuspensionRear, create.Tires,
 		create.ContactPoints, create.Brakes, create.Drivetrain, create.IsActive,
+		snapshot,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create bike setup: %w", err)
@@ -2004,6 +3400,32 @@ func (db *DB) UpdateBikeSetup(ctx context.Context, id string, update *model.Bike
 	}
 	if update.IsActive != nil {
 		b.Set("is_active", *update.IsActive)
+	}
+
+	// CaptureComponents three-state:
+	//   nil  → leave component_snapshot unchanged (no-op)
+	//   true → rebuild snapshot from current gear_components
+	//   false → clear snapshot (set to NULL)
+	if update.CaptureComponents != nil {
+		if *update.CaptureComponents {
+			// Fetch gear_id so we can look up components.
+			var gearID string
+			if err := db.Pool.QueryRow(ctx,
+				`SELECT gear_id FROM bike_setups WHERE id = $1`, id,
+			).Scan(&gearID); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return nil, nil
+				}
+				return nil, fmt.Errorf("update bike setup: fetch gear_id for snapshot: %w", err)
+			}
+			snapshot, err := db.buildComponentSnapshotForGear(ctx, gearID)
+			if err != nil {
+				return nil, fmt.Errorf("update bike setup: capture snapshot: %w", err)
+			}
+			b.Set("component_snapshot", snapshot)
+		} else {
+			b.Set("component_snapshot", nil)
+		}
 	}
 
 	if !b.HasSets() {
@@ -2336,8 +3758,13 @@ func (db *DB) ListPendingReviewGear(ctx context.Context, userID string) ([]model
 }
 
 // MergeGear merges secondaryID into primaryID.
-// Fields of the secondary fill gaps of the primary (via COALESCE), activities and components are
-// reassigned, and the secondary record is deleted — all within a single transaction.
+// Fields of the secondary fill gaps of the primary (via COALESCE), activities,
+// activity_gear_assignments, and components are reassigned, and the secondary
+// record is deleted — all within a single transaction.
+//
+// aga.gear_id has ON DELETE CASCADE on gear, so the final
+// `DELETE FROM gear WHERE id = secondaryID` would destroy any aga row still
+// pointing at the secondary. We reassign aga rows to primaryID before the DELETE.
 func (db *DB) MergeGear(ctx context.Context, userID, primaryID, secondaryID string) error {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
@@ -2363,13 +3790,35 @@ func (db *DB) MergeGear(ctx context.Context, userID, primaryID, secondaryID stri
 		return fmt.Errorf("merge gear fields: %w", err)
 	}
 
-	// 2. Reassign activities from secondary to primary
-	_, err = tx.Exec(ctx,
-		`UPDATE activities SET gear_id = $1 WHERE gear_id = $2 AND user_id = $3`,
-		primaryID, secondaryID, userID,
-	)
-	if err != nil {
-		return fmt.Errorf("reassign activities: %w", err)
+	// 2. Reassign aga rows from secondary to primary, before the secondary
+	// gear is deleted (ON DELETE CASCADE on aga.gear_id would otherwise
+	// drop user-source rows). Conflict resolution on the partial-unique
+	// idx_activity_gear_assignments_one_primary: if the same activity already
+	// has a primary aga row pointing at primaryID (rare; happens when both
+	// gears were assigned to the activity at different roles), keep the
+	// older row by created_at and delete the secondary one before the UPDATE.
+	if _, err = tx.Exec(ctx, `
+		DELETE FROM activity_gear_assignments aga_sec
+		 USING activity_gear_assignments aga_prim
+		 WHERE aga_sec.gear_id  = $2
+		   AND aga_prim.gear_id = $1
+		   AND aga_sec.activity_id = aga_prim.activity_id
+		   AND aga_sec.role_key    = aga_prim.role_key
+		   AND aga_sec.user_id     = $3
+		   AND aga_prim.user_id    = $3
+		   AND aga_sec.created_at >= aga_prim.created_at
+	`, primaryID, secondaryID, userID); err != nil {
+		return fmt.Errorf("merge gear: dedupe aga conflicts: %w", err)
+	}
+
+	if _, err = tx.Exec(ctx, `
+		UPDATE activity_gear_assignments
+		   SET gear_id    = $1,
+		       updated_at = now()
+		 WHERE gear_id = $2
+		   AND user_id = $3
+	`, primaryID, secondaryID, userID); err != nil {
+		return fmt.Errorf("reassign aga rows: %w", err)
 	}
 
 	// 3. Reassign components from secondary to primary
@@ -2381,7 +3830,39 @@ func (db *DB) MergeGear(ctx context.Context, userID, primaryID, secondaryID stri
 		return fmt.Errorf("reassign components: %w", err)
 	}
 
-	// 4. Delete secondary gear item
+	// 4. Recompute analytics totals on primary so distance/time/elevation
+	// reflect the merged set of activities. Mirrors the SQL pattern used in
+	// migration 000355's final analytics-recompute step.
+	if _, err = tx.Exec(ctx, `
+		UPDATE gear g
+		   SET total_distance_m       = COALESCE(src.total_distance_m, 0),
+		       total_moving_time_s    = COALESCE(src.total_moving_time_s, 0),
+		       total_time_s           = COALESCE(src.total_time_s, 0),
+		       total_elevation_gain_m = COALESCE(src.total_elevation_gain_m, 0),
+		       total_elevation_loss_m = COALESCE(src.total_elevation_loss_m, 0),
+		       total_activities       = COALESCE(src.total_activities, 0)
+		  FROM (
+		      SELECT
+		          COALESCE(SUM(COALESCE(aga.distance_m_override,    a.distance_m,    0)), 0) AS total_distance_m,
+		          COALESCE(SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)), 0) AS total_moving_time_s,
+		          COALESCE(SUM(COALESCE(a.elapsed_time_s,    0)), 0)                          AS total_time_s,
+		          COALESCE(SUM(COALESCE(a.elevation_gain_m,  0)), 0)                          AS total_elevation_gain_m,
+		          COALESCE(SUM(COALESCE(a.elevation_loss_m,  0)), 0)                          AS total_elevation_loss_m,
+		          COUNT(*)                                                                     AS total_activities
+		      FROM activity_gear_assignments aga
+		      JOIN activities a ON a.id = aga.activity_id
+		      WHERE aga.gear_id = $1
+		        AND NOT a.is_group_secondary
+		  ) src
+		 WHERE g.id = $1
+	`, primaryID); err != nil {
+		return fmt.Errorf("recompute primary totals: %w", err)
+	}
+
+	// 5. Delete secondary gear item. After the aga reassignment above, the
+	// CASCADE on aga.gear_id is a no-op (no aga rows still point at
+	// secondaryID); only chain_rotation_groups, gear_documents etc. that
+	// genuinely belong to the secondary cascade away.
 	_, err = tx.Exec(ctx,
 		`DELETE FROM gear WHERE id = $1 AND user_id = $2`, secondaryID, userID,
 	)
@@ -2426,6 +3907,17 @@ func (db *DB) VerifyServiceEventOwnership(ctx context.Context, eventID, userID s
 		 JOIN gear_components gc ON gse.component_id = gc.id
 		 JOIN gear g ON gc.gear_id = g.id
 		 WHERE gse.id = $1 AND g.user_id = $2`, eventID, userID,
+	).Scan(&id)
+}
+
+// VerifyServiceIntervalOwnership returns nil if the service interval's component's gear belongs to the user.
+func (db *DB) VerifyServiceIntervalOwnership(ctx context.Context, intervalID, userID string) error {
+	var id string
+	return db.Pool.QueryRow(ctx,
+		`SELECT gsi.id FROM gear_service_intervals gsi
+		 JOIN gear_components gc ON gsi.component_id = gc.id
+		 JOIN gear g ON gc.gear_id = g.id
+		 WHERE gsi.id = $1 AND g.user_id = $2`, intervalID, userID,
 	).Scan(&id)
 }
 
@@ -2495,7 +3987,9 @@ func (db *DB) GetRuleBySystemType(ctx context.Context, userID, systemType string
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
 		&r.IsSystem, &r.SystemType,
 		&r.TriggerEvent, &r.StopOnMatch, &r.ApplyRetroactive,
-		&r.LastEvaluatedAt, &r.LastMatchedCount, &r.Branches,
+		&r.LastEvaluatedAt, &r.LastMatchedCount,
+		&r.LastWarningAt, &r.LastWarningCode, &r.LastWarningMsg,
+		&r.Branches,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -2504,4 +3998,287 @@ func (db *DB) GetRuleBySystemType(ctx context.Context, userID, systemType string
 		return nil, fmt.Errorf("get rule by system type: %w", err)
 	}
 	return &r, nil
+}
+
+// --- Gear idempotency keys ---
+
+// IdempotencyResult holds the result of a gear idempotency key touch.
+type IdempotencyResult struct {
+	ResponseJSON []byte
+	StatusCode   int  // HTTP status of the stored response (0 when not yet stored)
+	Inserted     bool // true = cache miss; false = replayed
+}
+
+// TouchGearIdempotencyKey upserts a key row with an empty placeholder response.
+// Returns (result, nil) where result.Inserted=true means cache miss (caller
+// must run the mutation and call UpdateGearIdempotencyResponse).
+// result.Inserted=false means replay — result.ResponseJSON and result.StatusCode
+// hold the stored body and the original HTTP status code.
+func (db *DB) TouchGearIdempotencyKey(ctx context.Context, userID, route, key string) (*IdempotencyResult, error) {
+	var respJSON []byte
+	var statusCode int16
+	var inserted bool
+	err := db.Pool.QueryRow(ctx, `
+		INSERT INTO gear_idempotency_keys (user_id, route, key, response_jsonb, response_status_code)
+		VALUES ($1, $2, $3, 'null'::jsonb, 0)
+		ON CONFLICT (user_id, route, key) DO UPDATE
+			SET key = EXCLUDED.key
+		RETURNING response_jsonb, response_status_code, (xmax = 0) AS inserted`,
+		userID, route, key,
+	).Scan(&respJSON, &statusCode, &inserted)
+	if err != nil {
+		return nil, fmt.Errorf("touch idempotency key: %w", err)
+	}
+	return &IdempotencyResult{ResponseJSON: respJSON, StatusCode: int(statusCode), Inserted: inserted}, nil
+}
+
+// UpdateGearIdempotencyResponse stores the final response body and HTTP status
+// for a key after a mutation. Callers invoke this only when
+// TouchGearIdempotencyKey returned Inserted=true.
+func (db *DB) UpdateGearIdempotencyResponse(ctx context.Context, userID, route, key string, statusCode int, responseJSON []byte) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE gear_idempotency_keys
+		SET response_jsonb       = $4::jsonb,
+		    response_status_code = $5
+		WHERE user_id = $1 AND route = $2 AND key = $3`,
+		userID, route, key, string(responseJSON), int16(statusCode),
+	)
+	if err != nil {
+		return fmt.Errorf("update idempotency response: %w", err)
+	}
+	return nil
+}
+
+// --- Gear lookup-by-name ---
+
+// GearNameCandidate is a slim gear row returned for name-ambiguity resolution.
+type GearNameCandidate struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Type        string  `json:"type"`
+	PurchasedAt *string `json:"purchased_at,omitempty"`
+}
+
+// FindGearByName returns 0 candidates (no match), 1 candidate (unique match),
+// or >1 candidates (ambiguous) for the given name within a user's gear.
+func (db *DB) FindGearByName(ctx context.Context, userID, name string) ([]GearNameCandidate, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, name, type, purchased_at
+		 FROM gear
+		 WHERE user_id = $1 AND name = $2
+		 ORDER BY created_at`,
+		userID, name,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("find gear by name: %w", err)
+	}
+	defer rows.Close()
+
+	var candidates []GearNameCandidate
+	for rows.Next() {
+		var c GearNameCandidate
+		var purchasedAt pgtype.Date
+		if err := rows.Scan(&c.ID, &c.Name, &c.Type, &purchasedAt); err != nil {
+			return nil, fmt.Errorf("scan gear name candidate: %w", err)
+		}
+		if purchasedAt.Valid {
+			s := purchasedAt.Time.Format("2006-01-02")
+			c.PurchasedAt = &s
+		}
+		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("find gear by name: %w", err)
+	}
+	return candidates, nil
+}
+
+// --- Gear summary ---
+
+// GearSummaryFilter holds filter parameters for the gear summary aggregation.
+type GearSummaryFilter struct {
+	Scope          *string
+	TypeKey        *string
+	Since          *string // YYYY-MM-DD
+	Until          *string // YYYY-MM-DD (exclusive)
+	IncludeRetired bool
+}
+
+// GearSummary holds aggregated gear usage totals.
+type GearSummary struct {
+	TotalDistanceM      float64 `json:"total_distance_m"`
+	TotalMovingTimeS    int64   `json:"total_moving_time_s"`
+	TotalTimeS          int64   `json:"total_time_s"`
+	TotalElevationGainM float64 `json:"total_elevation_gain_m"`
+	TotalElevationLossM float64 `json:"total_elevation_loss_m"`
+	ActivityCount       int64   `json:"activity_count"`
+	GearCount           int64   `json:"gear_count"`
+}
+
+// GetGearSummary returns aggregated usage statistics for a user's gear items.
+func (db *DB) GetGearSummary(ctx context.Context, userID string, filter GearSummaryFilter) (*GearSummary, error) {
+	var summary GearSummary
+	err := db.Pool.QueryRow(ctx, `
+		SELECT
+		  COALESCE(SUM(COALESCE(aga.distance_m_override, a.distance_m, 0)), 0)        AS total_distance_m,
+		  COALESCE(SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)), 0)  AS total_moving_time_s,
+		  COALESCE(SUM(COALESCE(a.elapsed_time_s, 0)), 0)                              AS total_time_s,
+		  COALESCE(SUM(COALESCE(a.elevation_gain_m, 0)), 0)                            AS total_elevation_gain_m,
+		  COALESCE(SUM(COALESCE(a.elevation_loss_m, 0)), 0)                            AS total_elevation_loss_m,
+		  COUNT(DISTINCT a.id)                                                          AS activity_count,
+		  COUNT(DISTINCT aga.gear_id)                                                   AS gear_count
+		FROM activities a
+		JOIN activity_gear_assignments aga ON aga.activity_id = a.id AND aga.role_key = 'primary' AND aga.user_id = $1
+		JOIN gear g ON g.id = aga.gear_id AND g.user_id = a.user_id
+		WHERE a.user_id = $1
+		  AND NOT a.is_group_secondary
+		  AND ($2::text IS NULL OR g.scope = $2)
+		  AND ($3::text IS NULL OR g.type = $3)
+		  AND ($4::date IS NULL OR a.started_at >= $4)
+		  AND ($5::date IS NULL OR a.started_at <  $5)
+		  AND ($6::bool OR g.is_retired = false)`,
+		userID,
+		filter.Scope,
+		filter.TypeKey,
+		filter.Since,
+		filter.Until,
+		filter.IncludeRetired,
+	).Scan(
+		&summary.TotalDistanceM,
+		&summary.TotalMovingTimeS,
+		&summary.TotalTimeS,
+		&summary.TotalElevationGainM,
+		&summary.TotalElevationLossM,
+		&summary.ActivityCount,
+		&summary.GearCount,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get gear summary: %w", err)
+	}
+	return &summary, nil
+}
+
+// --- Gear component swap ---
+
+// SwapComponentResult holds the result of an atomic component swap.
+type SwapComponentResult struct {
+	RetiredComponentID *string `json:"retired_component_id,omitempty"`
+	NewComponentID     string  `json:"new_component_id"`
+	SwapEventID        string  `json:"swap_event_id"`
+}
+
+// SwapGearComponent atomically retires oldComponentID (if provided), inserts
+// newComponent, and records a swap event. Runs inside a transaction.
+func (db *DB) SwapGearComponent(ctx context.Context, userID, gearID, slotKey string, oldComponentID *string, newCreate *model.GearComponentCreate, swapDate, swapReason *string) (*SwapComponentResult, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("swap component: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var retiredID *string
+	if oldComponentID != nil && *oldComponentID != "" {
+		// Retire old component at swap date.
+		var retiredAt interface{}
+		if swapDate != nil && *swapDate != "" {
+			retiredAt = *swapDate
+		} else {
+			retiredAt = "now()"
+		}
+		var swapDateStr interface{} = swapDate
+		tag, err := tx.Exec(ctx,
+			`UPDATE gear_components
+			 SET is_retired = true, status = 'retired', removed_at = $1
+			 WHERE id = $2 AND gear_id = $3`,
+			swapDateStr, *oldComponentID, gearID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("swap component: retire old: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return nil, fmt.Errorf("swap component: old component %s not found on gear %s", *oldComponentID, gearID)
+		}
+		_ = retiredAt
+		retiredID = oldComponentID
+	}
+
+	// Insert new component.
+	var newComponentID string
+	err = tx.QueryRow(ctx,
+		`INSERT INTO gear_components (gear_id, parent_component_id, name, type, brand, model,
+		  purchase_price, purchase_date, weight_g, serial_number, notes)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		 RETURNING id`,
+		gearID, newCreate.ParentComponentID, newCreate.Name, newCreate.Type,
+		newCreate.Brand, newCreate.Model,
+		newCreate.PurchasePrice, newCreate.PurchaseDate,
+		newCreate.WeightG, newCreate.SerialNumber, newCreate.Notes,
+	).Scan(&newComponentID)
+	if err != nil {
+		return nil, fmt.Errorf("swap component: insert new: %w", err)
+	}
+
+	// Record swap event.
+	var swapEventID string
+	var swapDateVal interface{}
+	if swapDate != nil && *swapDate != "" {
+		swapDateVal = *swapDate
+	} else {
+		swapDateVal = "now()"
+	}
+	_ = swapDateVal
+	err = tx.QueryRow(ctx,
+		`INSERT INTO gear_component_swap_events
+		  (user_id, gear_id, slot_key, retired_component_id, new_component_id, swap_date, swap_reason)
+		 VALUES ($1, $2, $3, $4, $5, COALESCE($6::timestamptz, now()), $7)
+		 RETURNING id`,
+		userID, gearID, slotKey, retiredID, newComponentID, swapDate, swapReason,
+	).Scan(&swapEventID)
+	if err != nil {
+		return nil, fmt.Errorf("swap component: insert swap event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("swap component: commit: %w", err)
+	}
+
+	return &SwapComponentResult{
+		RetiredComponentID: retiredID,
+		NewComponentID:     newComponentID,
+		SwapEventID:        swapEventID,
+	}, nil
+}
+
+// ComponentNameCandidate is a slim component row for name-ambiguity resolution.
+type ComponentNameCandidate struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// FindComponentsByName returns all active components on a gear item with the given name.
+func (db *DB) FindComponentsByName(ctx context.Context, gearID, name string) ([]ComponentNameCandidate, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, name, type FROM gear_components
+		 WHERE gear_id = $1 AND name = $2 AND is_retired = false
+		 ORDER BY id`,
+		gearID, name,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("find components by name: %w", err)
+	}
+	defer rows.Close()
+
+	var candidates []ComponentNameCandidate
+	for rows.Next() {
+		var c ComponentNameCandidate
+		if err := rows.Scan(&c.ID, &c.Name, &c.Type); err != nil {
+			return nil, fmt.Errorf("scan component name candidate: %w", err)
+		}
+		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("find components by name: %w", err)
+	}
+	return candidates, nil
 }

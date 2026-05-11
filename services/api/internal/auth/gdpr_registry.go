@@ -45,8 +45,11 @@ var GDPRRegistry = map[string]TableCategory{
 	"gear":                        Export,
 	"gear_components":             Export,
 	"gear_documents":              Export,
-	"gear_service_events":         Export,
-	"gear_service_intervals":      Export,
+	"activity_gear_assignments":     Export, // gear-to-activity link with role/slot/quantity (Mig 000355)
+	"gear_component_swap_events":   Export, // component swap history (Mig 000355)
+	"gear_schema_definitions":      Export, // user-custom schema overrides (Mig 000355)
+	"gear_service_events":          Export,
+	"gear_service_intervals":       Export,
 	"llm_user_config":             Export,
 	"ml_user_settings":            Export,
 	"oauth_connections":           Export, // Metadaten; Tokens in Deny-List
@@ -141,8 +144,11 @@ var GDPRRegistry = map[string]TableCategory{
 	"device_tokens":          System,
 	"server_settings":        System,
 	"email_tokens":           System,
-	"garmin_import_jobs":     System,
-	"garmin_import_mappings": System,
+	"garmin_import_jobs":       System,
+	"garmin_import_mappings":   System,
+	"gear_idempotency_keys":    System, // transient dedup state; best-effort 24 h TTL via pg_cron when available; Go-side hourly fallback ticker when not (Mig 000355)
+	// System: state is fully reproducible from automation_rules + gear; no historical signal lost (Plan 2026-05-08 §11).
+	"gear_rule_action_state": System,
 	// hotfolder_imports removed — table never existed in DB (stale aspirational entry, Mig cleanup)
 	"import_queue":       System, // transiente Import-Queue
 	"komoot_credentials": System,
@@ -223,6 +229,9 @@ var ExportedTables = []string{
 	"activity_developer_apps",
 	"routing_profiles",
 	"activity_fusion_memberships",
+	"activity_gear_assignments",
+	"gear_component_swap_events",
+	"gear_schema_definitions",
 	// Health tables are exported dynamically via database.AllHealthTables():
 	"health_daily_summary",
 	"health_sleep",

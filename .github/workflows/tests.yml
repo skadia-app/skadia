@@ -62,6 +62,9 @@ jobs:
       - name: Check generated system tag artifacts
         run: scripts/generate-tags.sh --check
 
+      - name: Check generated gear schema artifacts
+        run: scripts/generate-gear-schema.sh --check
+
   migration-tests:
     name: Tests / Migrations
     runs-on: ubuntu-24.04

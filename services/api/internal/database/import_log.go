@@ -16,14 +16,21 @@ func (db *DB) InsertImportLog(ctx context.Context, entry model.ImportLogEntry) (
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO import_log
 			(user_id, source_platform, filename, file_hash, file_size_bytes,
-			 status, activity_id, error_msg, duration_ms, metadata, batch_id, skip_reason,
-			 import_type)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			 status, activity_id, error_msg, duration_ms, metadata, batch_id, skip_reason)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id`,
-		entry.UserID, entry.SourcePlatform, entry.Filename, entry.FileHash,
-		entry.FileSizeBytes, entry.Status, entry.ActivityID, entry.ErrorMsg,
-		entry.DurationMs, entry.Metadata, entry.BatchID, entry.SkipReason,
-		entry.ImportType,
+		entry.UserID,
+		entry.SourcePlatform,
+		entry.Filename,
+		entry.FileHash,
+		entry.FileSizeBytes,
+		entry.Status,
+		entry.ActivityID,
+		entry.ErrorMsg,
+		entry.DurationMs,
+		entry.Metadata,
+		entry.BatchID,
+		entry.SkipReason,
 	).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("insert import log: %w", err)
@@ -94,9 +101,8 @@ func (db *DB) UpdateImportLogMetadata(ctx context.Context, id string, metadata [
 }
 
 // ListImportLog returns paginated import_log entries for a user, with optional filters.
-// importType: "" = no filter; "unknown" = import_type IS NULL; other = import_type = value.
 // Returns (entries, total, error).
-func (db *DB) ListImportLog(ctx context.Context, userID string, statusFilter []string, sourcePlatform string, importType string, limit, offset int) ([]model.ImportLogEntry, int, error) {
+func (db *DB) ListImportLog(ctx context.Context, userID string, statusFilter []string, sourcePlatform string, limit, offset int) ([]model.ImportLogEntry, int, error) {
 	args := []any{userID}
 	paramIdx := 2
 
@@ -118,24 +124,18 @@ func (db *DB) ListImportLog(ctx context.Context, userID string, statusFilter []s
 		paramIdx++
 	}
 
-	if importType == "unknown" {
-		whereClause += " AND import_type IS NULL"
-	} else if importType != "" {
-		whereClause += fmt.Sprintf(" AND import_type = $%d", paramIdx)
-		args = append(args, importType)
-		paramIdx++
-	}
-
+	// COUNT query
 	var total int
 	countSQL := "SELECT COUNT(*) FROM import_log " + whereClause
 	if err := db.Pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count import log: %w", err)
 	}
 
+	// Data query
 	dataSQL := fmt.Sprintf(`
 		SELECT id, user_id, source_platform, filename, file_hash, file_size_bytes,
 		       status, activity_id, error_msg, duration_ms, metadata,
-		       batch_id, skip_reason, import_type, created_at, updated_at
+		       batch_id, skip_reason, created_at, updated_at
 		FROM import_log
 		%s
 		ORDER BY created_at DESC
@@ -155,10 +155,21 @@ func (db *DB) ListImportLog(ctx context.Context, userID string, statusFilter []s
 		var entry model.ImportLogEntry
 		var metaBytes []byte
 		if err := rows.Scan(
-			&entry.ID, &entry.UserID, &entry.SourcePlatform, &entry.Filename,
-			&entry.FileHash, &entry.FileSizeBytes, &entry.Status, &entry.ActivityID,
-			&entry.ErrorMsg, &entry.DurationMs, &metaBytes, &entry.BatchID,
-			&entry.SkipReason, &entry.ImportType, &entry.CreatedAt, &entry.UpdatedAt,
+			&entry.ID,
+			&entry.UserID,
+			&entry.SourcePlatform,
+			&entry.Filename,
+			&entry.FileHash,
+			&entry.FileSizeBytes,
+			&entry.Status,
+			&entry.ActivityID,
+			&entry.ErrorMsg,
+			&entry.DurationMs,
+			&metaBytes,
+			&entry.BatchID,
+			&entry.SkipReason,
+			&entry.CreatedAt,
+			&entry.UpdatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan import log: %w", err)
 		}

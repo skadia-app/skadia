@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -195,16 +196,15 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Set gear with ownership check.
+	// Set gear with ownership check. Writes the primary aga row directly;
+	// the multi-user trigger enforces aga.user_id = activity.user_id = gear.user_id.
 	if req.GearID != "" {
 		var gearExists bool
 		_ = h.DB.Pool.QueryRow(r.Context(),
 			"SELECT EXISTS(SELECT 1 FROM gear WHERE id = $1 AND user_id = $2)",
 			req.GearID, userID).Scan(&gearExists)
 		if gearExists {
-			if _, err := h.DB.Pool.Exec(r.Context(),
-				"UPDATE activities SET gear_id = $2 WHERE id = $1",
-				activity.ID, req.GearID); err != nil {
+			if err := database.SetPrimaryGearForActivityTx(r.Context(), h.DB.Pool, activity.ID, req.GearID, "user"); err != nil {
 				slog.Warn("manual activity: set gear failed", "id", activity.ID, "error", err)
 			}
 		}

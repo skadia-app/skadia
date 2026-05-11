@@ -4208,10 +4208,11 @@ func TestFusionMerge_GearCopyFailureReturnsWarning(t *testing.T) {
 	actA := insertMinimalActivity(t, db, userID)
 	actB := insertMinimalActivity(t, db, userID)
 
-	// Give actB a gear_id so copyGearIfPresent will attempt the UPDATE.
+	// Give actB a primary gear assignment so copyGearIfPresent attempts the
+	// aga upsert on the merged activity (which the mock tx below fails).
 	gearID := uuid.New().String()
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO gear (id, user_id, name, type) VALUES ($1, $2, 'test-gear', 'bike')`,
+		`INSERT INTO gear (id, user_id, name, type, scope) VALUES ($1, $2, 'test-gear', 'bike', 'bike')`,
 		gearID, userID,
 	); err != nil {
 		t.Fatalf("insert gear: %v", err)
@@ -4219,11 +4220,12 @@ func TestFusionMerge_GearCopyFailureReturnsWarning(t *testing.T) {
 	t.Cleanup(func() {
 		pool.Exec(context.Background(), "DELETE FROM gear WHERE id = $1", gearID) //nolint:errcheck
 	})
-	if _, err := pool.Exec(ctx,
-		`UPDATE activities SET gear_id = $1 WHERE id = $2`,
-		gearID, actB,
-	); err != nil {
-		t.Fatalf("set gear on actB: %v", err)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activity_gear_assignments
+			(id, user_id, activity_id, gear_id, role_key, source, quantity)
+		VALUES (gen_random_uuid(), $1, $2, $3, 'primary', 'test', 1)
+	`, userID, actB, gearID); err != nil {
+		t.Fatalf("set gear on actB via aga: %v", err)
 	}
 
 	// Load activities to populate the map (mirrors what loadAndVerifyActivities does).
@@ -4246,9 +4248,11 @@ func TestFusionMerge_GearCopyFailureReturnsWarning(t *testing.T) {
 	}
 	defer realTx.Rollback(ctx) //nolint:errcheck
 
+	// copyGearIfPresent now writes activity_gear_assignments via an
+	// INSERT … ON CONFLICT upsert. Match on the aga INSERT to inject failure.
 	mt := &mockTx{
 		Tx:          realTx,
-		shouldFail:  sqlContains("gear_id = $2"),
+		shouldFail:  sqlContains("INSERT INTO activity_gear_assignments"),
 		injectedErr: injectedErr,
 	}
 

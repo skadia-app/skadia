@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,8 @@ import (
 	"github.com/alexedwards/argon2id"
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/auth"
@@ -892,6 +895,12 @@ func main() {
 		})
 	}
 
+	// gear_idempotency_keys TTL cleanup fallback.
+	// pg_cron handles this when available (registered in migration 000355).
+	// On dev/test instances without pg_cron, start a Go-side hourly ticker
+	// that deletes rows older than 24 hours so the table stays bounded.
+	startGearIdempotencyCleanupIfNoPgCron(ctx, db)
+
 	// Readiness reconcile (daily, 5-minute initial delay, graceful shutdown).
 	// Finds active users whose readiness cache is stale and triggers recomputation.
 	// Skipped when NATS is unavailable (pub == nil).
@@ -1323,6 +1332,8 @@ func main() {
 
 			r.Get("/capabilities", h.GetCapabilities)
 
+			r.Get("/gear/schema", h.GetGearSchema)
+			r.Get("/gear/summary", h.GetGearSummary)
 			r.Get("/gear", h.ListGear)
 			r.Post("/gear", h.CreateGear)
 			r.Get("/gear/component-presets", h.ListComponentPresets)
@@ -1331,6 +1342,7 @@ func main() {
 			r.Get("/gear/duplicate-candidates", h.GetGearDuplicateCandidates)
 			r.Patch("/gear/{id}/review", h.PatchGearReview)
 			r.Get("/gear/{id}/costs", h.GetGearCosts)
+			r.Post("/gear/{id}/components/swap", h.SwapComponent)
 			r.Get("/gear/{id}", h.GetGear)
 			r.Put("/gear/{id}", h.UpdateGear)
 			r.Delete("/gear/{id}", h.DeleteGear)
@@ -1353,11 +1365,17 @@ func main() {
 			r.Post("/gear/setups/{id}/activate", h.ActivateBikeSetup)
 			r.Put("/gear/components/{id}", h.UpdateComponent)
 			r.Delete("/gear/components/{id}", h.DeleteComponent)
+			r.Post("/gear/components/{id}/remove", h.RemoveComponent)
+			r.Patch("/gear/components/{id}/status", h.UpdateComponentStatus)
 			r.Post("/gear/components/{id}/transfer", h.TransferComponent)
 			r.Get("/gear/components/{id}/history", h.GetComponentHistory)
 			r.Get("/gear/components/{id}/services", h.ListServiceEvents)
 			r.Post("/gear/components/{id}/services", h.CreateServiceEvent)
 			r.Delete("/gear/services/{id}", h.DeleteServiceEvent)
+			r.Get("/gear/components/{id}/service-intervals", h.ListServiceIntervals)
+			r.Post("/gear/components/{id}/service-intervals", h.CreateServiceInterval)
+			r.Put("/gear/service-intervals/{id}", h.UpdateServiceInterval)
+			r.Delete("/gear/service-intervals/{id}", h.DeleteServiceInterval)
 			r.Post("/gear/components/{id}/documents", h.UploadComponentDocument)
 			r.Get("/gear/components/{id}/documents", h.ListComponentDocuments)
 
@@ -1845,4 +1863,51 @@ func parseDuration(s string, defaultVal time.Duration) time.Duration {
 		return defaultVal
 	}
 	return d
+}
+
+// gearIdempotencyCleanupEnabled reports whether the Go-side fallback cleanup
+// goroutine should be started. Returns true (enable) when pg_cron is absent.
+// Separated from startGearIdempotencyCleanupIfNoPgCron for unit testability.
+func gearIdempotencyCleanupEnabled(ctx context.Context, pool *pgxpool.Pool) bool {
+	var hasCron bool
+	err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='pg_cron')`).Scan(&hasCron)
+	if err != nil {
+		slog.Warn("gear_idempotency_keys: pg_cron check failed, assuming absent", "error", err)
+		return true // assume absent on error so cleanup still runs
+	}
+	return !hasCron
+}
+
+// startGearIdempotencyCleanupIfNoPgCron starts a Go-side hourly cleanup
+// goroutine for gear_idempotency_keys when pg_cron is not installed.
+// The pg_cron job is registered in migration 000355; this goroutine acts as a
+// best-effort fallback so dev/test instances without pg_cron stay bounded.
+// Uses shutdown.Go so the goroutine participates in graceful server shutdown.
+func startGearIdempotencyCleanupIfNoPgCron(ctx context.Context, db *database.DB) {
+	if !gearIdempotencyCleanupEnabled(ctx, db.Pool) {
+		slog.Info("gear_idempotency_keys: pg_cron present, skipping Go-side fallback cleanup")
+		return
+	}
+	slog.Info("gear_idempotency_keys: pg_cron absent — starting Go-side hourly TTL cleanup goroutine")
+	shutdown.Go("gear-idempotency-cleanup", func(ctx context.Context) {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				res, execErr := db.Pool.Exec(ctx,
+					`DELETE FROM gear_idempotency_keys WHERE created_at < NOW() - INTERVAL '24 hours'`)
+				if execErr != nil {
+					// context.Canceled/DeadlineExceeded means the server is shutting down — not an error worth logging.
+					if !errors.Is(execErr, context.Canceled) && !errors.Is(execErr, context.DeadlineExceeded) {
+						slog.Warn("gear_idempotency_keys: hourly cleanup failed", "error", execErr)
+					}
+				} else {
+					slog.Info("gear_idempotency_keys: hourly cleanup", "deleted", res.RowsAffected())
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	})
 }
