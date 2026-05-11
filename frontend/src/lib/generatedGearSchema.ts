@@ -7192,14 +7192,6 @@ export const gearSchema: GearSchema = {
       "modifierKeys": []
     },
     {
-      "key": "climbing_harness",
-      "labelDe": "Klettergurt",
-      "scope": "climb",
-      "defaultAssignmentRoleKey": "worn",
-      "attributeKeys": [],
-      "modifierKeys": []
-    },
-    {
       "key": "climb.harness",
       "labelDe": "Klettergurt",
       "scope": "climb",

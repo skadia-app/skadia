@@ -1069,6 +1069,9 @@ type GearDocument struct {
 	FileSizeBytes    int64     `json:"file_size_bytes"`
 	FileHash         *string   `json:"file_hash,omitempty"`
 	FileID           *string   `json:"file_id,omitempty"` // user_files registry ID
+	DocumentDate     *string   `json:"document_date,omitempty"`
+	DocumentAmount   *float64  `json:"document_amount,omitempty"`
+	DocumentCurrency *string   `json:"document_currency,omitempty"`
 	ExtractedText    *string   `json:"extracted_text,omitempty"`
 	ProcessingStatus string    `json:"processing_status"`
 	CreatedAt        time.Time `json:"created_at"`

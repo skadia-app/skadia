@@ -240,6 +240,22 @@ func (db *DB) GearExistsByGarminID(ctx context.Context, userID, garminGearID str
 	return exists, nil
 }
 
+// FindGearIDByGarminID returns the local gear ID for a Garmin gear identifier.
+func (db *DB) FindGearIDByGarminID(ctx context.Context, userID, garminGearID string) (string, error) {
+	var id string
+	err := db.Pool.QueryRow(ctx,
+		`SELECT id FROM gear WHERE user_id = $1 AND garmin_gear_id = $2 LIMIT 1`,
+		userID, garminGearID,
+	).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrGearNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
 // SetUserBirthDateIfNull sets birth_date on users only when it is not already set.
 func (db *DB) SetUserBirthDateIfNull(ctx context.Context, userID, isoDate string) error {
 	_, err := db.Pool.Exec(ctx,

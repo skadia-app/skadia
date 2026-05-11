@@ -1130,7 +1130,9 @@ func (db *DB) CreateChainRotation(ctx context.Context, userID, gearID string, cr
 	var g model.ChainRotationGroup
 	err = tx.QueryRow(ctx,
 		`INSERT INTO chain_rotation_groups (user_id, gear_id, name, swap_interval_km, swap_interval_hm, swap_interval_metric_key, swap_interval_value)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 SELECT $1, g.id, $3, $4, $5, $6, $7
+		 FROM gear g
+		 WHERE g.id = $2 AND g.user_id = $1
 		 RETURNING id, user_id, gear_id, name, swap_interval_km, swap_interval_hm,
 		           swap_interval_metric_key, swap_interval_value, created_at::text`,
 		userID, gearID, create.Name, create.SwapIntervalKM, create.SwapIntervalHM,
@@ -1138,10 +1140,26 @@ func (db *DB) CreateChainRotation(ctx context.Context, userID, gearID string, cr
 	).Scan(&g.ID, &g.UserID, &g.GearID, &g.Name, &g.SwapIntervalKM, &g.SwapIntervalHM,
 		&g.SwapIntervalMetricKey, &g.SwapIntervalValue, &g.CreatedAt)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrGearNotFound
+		}
 		return nil, fmt.Errorf("create chain rotation: %w", err)
 	}
 
-	// Create members
+	var validComponentCount int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(*)
+		   FROM gear_components
+		  WHERE gear_id = $1
+		    AND id = ANY($2::uuid[])`,
+		gearID, create.ComponentIDs,
+	).Scan(&validComponentCount); err != nil {
+		return nil, fmt.Errorf("validate chain members: %w", err)
+	}
+	if validComponentCount != len(create.ComponentIDs) {
+		return nil, ErrComponentNotFound
+	}
+
 	for i, compID := range create.ComponentIDs {
 		isActive := i == 0 // First component is active
 		_, err = tx.Exec(ctx,
@@ -1367,12 +1385,94 @@ func (db *DB) CreateServiceEvent(ctx context.Context, componentID string, create
 }
 
 func (db *DB) DeleteServiceEvent(ctx context.Context, eventID string) error {
-	tag, err := db.Pool.Exec(ctx, `DELETE FROM gear_service_events WHERE id = $1`, eventID)
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin delete service event: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var componentID string
+	var intervalID *string
+	err = tx.QueryRow(ctx,
+		`SELECT component_id::text, interval_id::text FROM gear_service_events WHERE id = $1`,
+		eventID,
+	).Scan(&componentID, &intervalID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrServiceEventNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("load service event: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `DELETE FROM gear_service_events WHERE id = $1`, eventID)
 	if err != nil {
 		return fmt.Errorf("delete service event: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrServiceEventNotFound
+	}
+	if intervalID != nil {
+		if err := recomputeServiceIntervalAfterEventDelete(ctx, tx, componentID, *intervalID); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit delete service event: %w", err)
+	}
+	return nil
+}
+
+func recomputeServiceIntervalAfterEventDelete(ctx context.Context, tx pgx.Tx, componentID, intervalID string) error {
+	var metricKey string
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(metric_key, interval_type) FROM gear_service_intervals WHERE id = $1 AND component_id = $2`,
+		intervalID, componentID,
+	).Scan(&metricKey); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("load service interval metric: %w", err)
+	}
+
+	var performedAt time.Time
+	var value float64
+	err := tx.QueryRow(ctx, `
+		SELECT performed_at,
+		       COALESCE((metric_snapshot ->> $2)::double precision, 0)
+		  FROM gear_service_events
+		 WHERE interval_id = $1
+		   AND component_id = $3
+		 ORDER BY performed_at DESC, created_at DESC
+		 LIMIT 1`,
+		intervalID, metricKey, componentID,
+	).Scan(&performedAt, &value)
+	if errors.Is(err, pgx.ErrNoRows) {
+		_, err = tx.Exec(ctx, `
+			UPDATE gear_service_intervals
+			   SET last_service_at = NULL,
+			       last_service_metric_value = 0,
+			       last_service_distance_m = CASE WHEN metric_key = 'distance_m' THEN 0 ELSE last_service_distance_m END
+			 WHERE id = $1 AND component_id = $2`,
+			intervalID, componentID,
+		)
+		if err != nil {
+			return fmt.Errorf("reset service interval after event delete: %w", err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("find previous service event: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE gear_service_intervals
+		   SET last_service_at = $1,
+		       last_service_metric_value = $2,
+		       last_service_distance_m = CASE WHEN metric_key = 'distance_m' THEN $2 ELSE last_service_distance_m END
+		 WHERE id = $3 AND component_id = $4`,
+		performedAt, value, intervalID, componentID,
+	)
+	if err != nil {
+		return fmt.Errorf("restore service interval after event delete: %w", err)
 	}
 	return nil
 }
@@ -3483,11 +3583,11 @@ func (db *DB) DeleteBikeSetup(ctx context.Context, id string) error {
 
 // --- Gear Documents ---
 
-const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id, extracted_text, processing_status, created_at`
+const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id, document_date::text, document_amount::double precision, document_currency, extracted_text, processing_status, created_at`
 
 func scanGearDocument(row pgx.Row) (*model.GearDocument, error) {
 	var d model.GearDocument
-	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt)
+	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -3526,10 +3626,10 @@ func (db *DB) GearDocumentExistsByHashAndComponent(ctx context.Context, userID, 
 
 func (db *DB) InsertGearDocument(ctx context.Context, doc *model.GearDocument) (*model.GearDocument, error) {
 	return scanGearDocument(db.Pool.QueryRow(ctx, `
-		INSERT INTO gear_documents (user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO gear_documents (user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id, document_date, document_amount, document_currency)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, COALESCE($14, 'EUR'))
 		RETURNING `+gearDocSelectCols,
-		doc.UserID, doc.GearID, doc.ComponentID, doc.ServiceEventID, doc.DocType, doc.Title, doc.OriginalFilename, doc.ContentType, doc.FileSizeBytes, doc.FileHash, doc.FileID,
+		doc.UserID, doc.GearID, doc.ComponentID, doc.ServiceEventID, doc.DocType, doc.Title, doc.OriginalFilename, doc.ContentType, doc.FileSizeBytes, doc.FileHash, doc.FileID, doc.DocumentDate, doc.DocumentAmount, doc.DocumentCurrency,
 	))
 }
 
@@ -3542,7 +3642,7 @@ func (db *DB) ListGearDocuments(ctx context.Context, gearID string) ([]model.Gea
 	var docs []model.GearDocument
 	for rows.Next() {
 		var d model.GearDocument
-		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan gear document: %w", err)
 		}
 		docs = append(docs, d)
@@ -3565,7 +3665,7 @@ func (db *DB) ListComponentDocuments(ctx context.Context, componentID string) ([
 	var docs []model.GearDocument
 	for rows.Next() {
 		var d model.GearDocument
-		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan component document: %w", err)
 		}
 		docs = append(docs, d)
@@ -3730,7 +3830,7 @@ func (db *DB) GetGearCostSummary(ctx context.Context, gearID string) (*model.Gea
 // UpdateGearDocumentText updates the extracted_text field of a gear document.
 func (db *DB) UpdateGearDocumentText(ctx context.Context, docID, text string) error {
 	_, err := db.Pool.Exec(ctx,
-		`UPDATE gear_documents SET extracted_text = $1, processing_status = 'done' WHERE id = $2`,
+		`UPDATE gear_documents SET extracted_text = $1, processing_status = 'processed' WHERE id = $2`,
 		text, docID,
 	)
 	return err

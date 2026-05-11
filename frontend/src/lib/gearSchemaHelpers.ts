@@ -35,16 +35,14 @@ const LEGACY_GEAR_TYPE_LABELS: Record<string, string> = {
   goggles: 'Brille/Goggle',
   ski: 'Ski',
   paddle: 'Paddel',
+  climbing_harness: 'Klettergurt',
   other: 'Sonstiges',
 }
 
 const LEGACY_GEAR_TYPE_SCOPES: Partial<Record<string, GearCategoryScope>> = {
   e_bike: 'bike',
+  climbing_harness: 'climb',
 }
-
-const HIDDEN_MANUAL_GEAR_TYPE_KEYS = new Set([
-  'climbing_harness',
-])
 
 export function gearTypeLabel(schema: GearSchema, typeKey: string): string {
   const path = gearTypePathLabel(schema, typeKey)
@@ -100,7 +98,6 @@ function hasManualChild(schema: GearSchema, typeKey: string): boolean {
 export function gearTypeOptionsForScope(schema: GearSchema, scope: GearCategoryScope): GearTypeOption[] {
   return schema.gearTypes
     .filter(gt => gearTypeMatchesScope(gt.key, scope, schema))
-    .filter(gt => !HIDDEN_MANUAL_GEAR_TYPE_KEYS.has(gt.key))
     .filter(gt => gt.defaultAssignmentRoleKey !== 'consumable')
     .filter(gt => !hasManualChild(schema, gt.key))
     .map(gt => ({ value: gt.key, label: gearTypePathLabel(schema, gt.key) }))

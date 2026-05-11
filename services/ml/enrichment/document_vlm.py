@@ -45,6 +45,17 @@ Format:
 Wenn ein Feld unbekannt ist, setze es auf null. Gib NUR valides JSON zurueck, kein Markdown."""
 
 
+def _gear_type_and_scope(raw_type: Optional[str]) -> tuple[str, str]:
+    value = (raw_type or "").strip().lower()
+    if value in {"clothing", "apparel"}:
+        return "apparel", "apparel"
+    if value in {"shoe", "shoes"}:
+        return "shoes", "shoes"
+    if value in {"bike", "bicycle", "frame"}:
+        return "bike", "bike"
+    return "other", "other"
+
+
 async def _get_user_prompt(pool, user_id: str, prompt_type: str) -> str:
     """Lädt den benutzerdefinierten Prompt oder gibt den Default zurück."""
     col = "ocr_invoice_prompt" if prompt_type == "invoice" else "ocr_gear_prompt"
@@ -170,27 +181,32 @@ async def process_document(
             logger.info("image extraction failed, falling back to text extraction for %s", doc_id)
             result = await extract_from_text(extracted_text, prompt)
 
-    if not result or not result.get("products"):
-        logger.info("no products extracted from document %s", doc_id)
+    if not result:
+        logger.info("document extraction failed for %s", doc_id)
         return False
+    if not result.get("products"):
+        logger.info("no products extracted from document %s", doc_id)
+        return True
 
     # Gear-Vorschlaege in DB schreiben
     async with pool.acquire() as conn:
         for product in result["products"]:
             if not product.get("name"):
                 continue
+            type_key, scope = _gear_type_and_scope(product.get("type"))
             await conn.execute(
                 """
-                INSERT INTO gear (id, user_id, name, type, brand, model,
+                INSERT INTO gear (id, user_id, name, type, scope, brand, model,
                                   purchase_price, currency, review_status,
                                   source_document_id, created_at)
-                VALUES (gen_random_uuid(), $1, $2, $3, $4, $5,
-                        $6, $7, 'pending_review', $8, NOW())
+                VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6,
+                        $7, $8, 'pending_review', $9, NOW())
                 ON CONFLICT DO NOTHING
                 """,
                 user_id,
                 product.get("name", "Unbekanntes Produkt"),
-                product.get("type", "other"),
+                type_key,
+                scope,
                 product.get("brand"),
                 product.get("model"),
                 product.get("price"),
