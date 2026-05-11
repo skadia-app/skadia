@@ -85,28 +85,6 @@ function sourceConfidenceBadge(c: LiftCandidate) {
   )
 }
 
-// Legacy helpers kept for compact-mode summary (not used in list rows).
-function sourceBadge(source: string) {
-  return source === 'osm'
-    ? <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium px-2 py-0.5">OSM</span>
-    : <span className="inline-flex items-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 text-xs font-medium px-2 py-0.5">Heuristik</span>
-}
-
-function confidenceBadge(confidence: string) {
-  const labels: Record<string, string> = { high: 'Hoch', medium: 'Mittel', bidir: 'Bidirektional' }
-  return (
-    <span className="inline-flex items-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 text-xs px-2 py-0.5">
-      {labels[confidence] ?? confidence}
-    </span>
-  )
-}
-
-function statusLabel(c: LiftCandidate): string {
-  if (c.rejected_by_user) return 'abgelehnt'
-  if (c.confirmed) return 'bestätigt'
-  return 'offen'
-}
-
 function formatDistance(m?: number | null): string {
   if (m == null) return '–'
   if (m >= 1000) return `${(m / 1000).toFixed(1)} km`

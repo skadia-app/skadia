@@ -196,6 +196,7 @@ export interface LifetimeStats {
   total_activities: number
   total_distance_m: number
   total_elevation_m: number
+  total_elevation_loss_m: number
   total_moving_time_s: number
   total_elapsed_time_s: number
   total_calories: number
@@ -204,6 +205,7 @@ export interface LifetimeStats {
   earth_laps: number
   moon_trips: number
   everest_count: number
+  everest_count_down: number
   current_day_streak: number
   max_day_streak: number
   lift_ride_count: number

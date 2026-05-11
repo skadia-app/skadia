@@ -936,6 +936,7 @@ describe('LiftReviewModal — banner wording (Phase 11.11+)', () => {
     // the top-level flex column of the expanded modal body.
     const banner = container.querySelector('[data-testid="pause-gap-banner"]')!
     const mapWrapper = container.querySelector('[data-testid="lift-inspector-map-wrapper"]')
+    expect(mapWrapper).not.toBeNull()
     // Banner must be a sibling or child of elements near the map, not the root flex column.
     // We verify it is NOT the first child of the modal body (which is the recalc dialog slot).
     // A structural test: the banner's closest block ancestor is NOT the outermost flex div.

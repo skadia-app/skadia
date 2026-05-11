@@ -335,8 +335,8 @@ export interface ActivitiesResponse {
 export interface StreamPoint {
   // ── Bestehend (10 Felder) ──
   time: string
-  lat?: number
-  lng?: number
+  lat?: number | null
+  lng?: number | null
   altitude_m?: number
   speed_ms?: number
   distance_m?: number

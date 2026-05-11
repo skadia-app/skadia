@@ -61,7 +61,7 @@ const maplibreMock = vi.hoisted(() => {
   class MapMock {
     _sources: Record<string, GeoJSONSourceMock> = {}
     addControl = vi.fn()
-    on = vi.fn((event: string, arg2: unknown, arg3?: unknown) => {
+    on = vi.fn((event: string, arg2: unknown, _arg3?: unknown) => {
       // Immediately invoke 'load' and 'style.load' callbacks so layers get added in tests.
       if ((event === 'load' || event === 'style.load') && typeof arg2 === 'function') {
         setTimeout(arg2, 0)
