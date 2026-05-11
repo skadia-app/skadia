@@ -4,6 +4,7 @@ import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
+import { CircleHelp } from 'lucide-react'
 import { getActiveSchema } from '@/lib/gearSchema'
 import { gearTypeAttributes, gearTypeLabel as schemaGearTypeLabel, gearTypeScope } from '@/lib/gearSchemaHelpers'
 import { type GearCategoryScope } from '@/lib/gearSchemaTypes'
@@ -1613,6 +1614,7 @@ function SetupSection({ label, defaultOpen = false, children }: SetupSectionProp
   return (
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-lg">
       <button
+        type="button"
         onClick={() => setOpen(!open)}
         className="w-full flex items-center justify-between px-3 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 cursor-pointer"
       >
@@ -1633,8 +1635,8 @@ function JsonField({ label, value, onChange, placeholder }: {
   placeholder?: string
 }) {
   return (
-    <div>
-      <label className="block text-xs text-neutral-500 mb-1">{label}</label>
+    <label className="block">
+      <span className="block text-xs text-neutral-500 mb-1">{label}</span>
       <input
         type="text"
         value={value}
@@ -1642,8 +1644,53 @@ function JsonField({ label, value, onChange, placeholder }: {
         placeholder={placeholder}
         className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
       />
-    </div>
+    </label>
   )
+}
+
+function SelectField({ label, value, onChange, options }: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  options: Array<{ value: string; label: string }>
+}) {
+  return (
+    <label className="block">
+      <span className="block text-xs text-neutral-500 mb-1">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+      >
+        {options.map(option => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function jsonValue(source: Record<string, any>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = source[key]
+    if (value !== undefined && value !== null && value !== '') return String(value)
+  }
+  return ''
+}
+
+function jsonString(source: Record<string, any>, key: string): string {
+  const value = source[key]
+  return typeof value === 'string' ? value : ''
+}
+
+function tirePressureBarValue(source: Record<string, any>, barKey: string, psiKey: string): string {
+  const barValue = source[barKey]
+  if (barValue !== undefined && barValue !== null && barValue !== '') return String(barValue)
+
+  const psi = Number(source[psiKey])
+  if (!Number.isFinite(psi)) return ''
+  const bar = psi / 14.5037738
+  return String(Math.round(bar * 100) / 100)
 }
 
 function BikeSetupsSection({ gearId }: { gearId: string }) {
@@ -1956,15 +2003,16 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
   const [srLsc, setSrLsc] = useState(sr.lsc?.toString() ?? '')
   const [srHsc, setSrHsc] = useState(sr.hsc?.toString() ?? '')
   const [srSag, setSrSag] = useState(sr.sag_pct?.toString() ?? '')
+  const [flipchipPosition, setFlipchipPosition] = useState(jsonString(sr, 'flipchip_position'))
 
   // Tires
   const t = setup?.tires ?? {}
   const [tireFront, setTireFront] = useState(t.front_model ?? '')
   const [tireRear, setTireRear] = useState(t.rear_model ?? '')
-  const [tireFrontPsi, setTireFrontPsi] = useState(t.front_pressure_psi?.toString() ?? '')
-  const [tireRearPsi, setTireRearPsi] = useState(t.rear_pressure_psi?.toString() ?? '')
-  const [tireFrontWidth, setTireFrontWidth] = useState(t.front_width_mm?.toString() ?? '')
-  const [tireRearWidth, setTireRearWidth] = useState(t.rear_width_mm?.toString() ?? '')
+  const [tireFrontBar, setTireFrontBar] = useState(tirePressureBarValue(t, 'front_pressure_bar', 'front_pressure_psi'))
+  const [tireRearBar, setTireRearBar] = useState(tirePressureBarValue(t, 'rear_pressure_bar', 'rear_pressure_psi'))
+  const [tireFrontWidth, setTireFrontWidth] = useState(jsonValue(t, 'front_width_in', 'front_width_mm'))
+  const [tireRearWidth, setTireRearWidth] = useState(jsonValue(t, 'rear_width_in', 'rear_width_mm'))
 
   // Contact points
   const cp = setup?.contact_points ?? {}
@@ -2020,12 +2068,12 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
         ['travel_mm', srTravel], ['pressure_psi', srPressure],
         ['lsr', srLsr], ['hsr', srHsr],
         ['lsc', srLsc], ['hsc', srHsc],
-        ['sag_pct', srSag],
+        ['sag_pct', srSag], ['flipchip_position', flipchipPosition],
       ]),
       tires: buildJson([
         ['front_model', tireFront], ['rear_model', tireRear],
-        ['front_pressure_psi', tireFrontPsi], ['rear_pressure_psi', tireRearPsi],
-        ['front_width_mm', tireFrontWidth], ['rear_width_mm', tireRearWidth],
+        ['front_pressure_bar', tireFrontBar], ['rear_pressure_bar', tireRearBar],
+        ['front_width_in', tireFrontWidth], ['rear_width_in', tireRearWidth],
       ]),
       contact_points: buildJson([
         ['saddle_height_mm', saddleHeight], ['saddle_model', saddleModel],
@@ -2080,17 +2128,27 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
           <JsonField label="HSR – High Speed Rebound (Klicks)" value={srHsr} onChange={setSrHsr} placeholder="2" />
           <JsonField label="LSC – Low Speed Compression (Klicks)" value={srLsc} onChange={setSrLsc} placeholder="4" />
           <JsonField label="HSC – High Speed Compression (Klicks)" value={srHsc} onChange={setSrHsc} placeholder="1" />
+          <SelectField
+            label="Flipchip-Position"
+            value={flipchipPosition}
+            onChange={setFlipchipPosition}
+            options={[
+              { value: '', label: 'Nicht gesetzt' },
+              { value: 'high', label: 'High' },
+              { value: 'low', label: 'Low' },
+            ]}
+          />
         </div>
       </SetupSection>
 
       <SetupSection label="Reifen">
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           <JsonField label="Vorne: Modell" value={tireFront} onChange={setTireFront} placeholder="Maxxis Minion DHF" />
-          <JsonField label="Vorne: Breite (mm)" value={tireFrontWidth} onChange={setTireFrontWidth} placeholder="2.5" />
-          <JsonField label="Vorne: Druck (PSI)" value={tireFrontPsi} onChange={setTireFrontPsi} placeholder="24" />
+          <JsonField label="Vorne: Breite (Zoll)" value={tireFrontWidth} onChange={setTireFrontWidth} placeholder="2.5" />
+          <JsonField label="Vorne: Druck (bar)" value={tireFrontBar} onChange={setTireFrontBar} placeholder="1.7" />
           <JsonField label="Hinten: Modell" value={tireRear} onChange={setTireRear} placeholder="Maxxis Dissector" />
-          <JsonField label="Hinten: Breite (mm)" value={tireRearWidth} onChange={setTireRearWidth} placeholder="2.4" />
-          <JsonField label="Hinten: Druck (PSI)" value={tireRearPsi} onChange={setTireRearPsi} placeholder="26" />
+          <JsonField label="Hinten: Breite (Zoll)" value={tireRearWidth} onChange={setTireRearWidth} placeholder="2.4" />
+          <JsonField label="Hinten: Druck (bar)" value={tireRearBar} onChange={setTireRearBar} placeholder="1.8" />
         </div>
       </SetupSection>
 
@@ -2151,11 +2209,11 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
         <span className="text-sm text-neutral-700 dark:text-neutral-300">
           Komponenten mitsichern{' '}
           <span
-            className="inline-block align-middle text-neutral-400 cursor-help"
+            className="inline-block align-[-2px] text-neutral-400 cursor-help"
             title="Komponenten-Snapshot dient nur als Verlaufs-Information — die aktuell verbauten Komponenten werden beim Aktivieren eines Setups nicht verändert."
             aria-label="Komponenten-Snapshot dient nur als Verlaufs-Information — die aktuell verbauten Komponenten werden beim Aktivieren eines Setups nicht verändert."
           >
-            ⓘ
+            <CircleHelp aria-hidden="true" size={14} />
           </span>
         </span>
       </label>

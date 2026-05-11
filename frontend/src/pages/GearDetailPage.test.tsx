@@ -544,6 +544,60 @@ describe('BikeSetupsSection — Dropdown-Header', () => {
     })
   })
 
+  it('TestBikeSetupFormUsesBikeUnitsAndFlipchipPosition', async () => {
+    const user = userEvent.setup()
+    const newSetup: BikeSetup = { ...MOCK_SETUP_1, id: 's11', name: 'Unit Setup', is_active: false }
+    vi.mocked(listBikeSetups).mockResolvedValue([MOCK_SETUP_1])
+    vi.mocked(createBikeSetup).mockResolvedValue(newSetup)
+
+    renderPage('/gear/g1?tab=components')
+
+    await screen.findByRole('combobox', { name: /Setup auswählen/i })
+    await user.click(screen.getByRole('button', { name: '+ Neu' }))
+
+    await user.type(await screen.findByPlaceholderText('z.B. Trail Setup, Bikepark, Winter'), 'Unit Setup')
+    await user.click(screen.getByRole('button', { name: 'Dämpfer' }))
+    await user.click(screen.getByRole('button', { name: 'Reifen' }))
+    expect(screen.getByLabelText('Flipchip-Position')).toBeInTheDocument()
+    expect(screen.getByLabelText('Vorne: Breite (Zoll)')).toBeInTheDocument()
+    expect(screen.getByLabelText('Vorne: Druck (bar)')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Vorne: Breite (mm)')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Vorne: Druck (PSI)')).not.toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Flipchip-Position'), 'low')
+    await user.type(screen.getByLabelText('Vorne: Breite (Zoll)'), '2.5')
+    await user.type(screen.getByLabelText('Vorne: Druck (bar)'), '1.7')
+
+    const saveButtons = screen.getAllByRole('button', { name: 'Speichern' })
+    await user.click(saveButtons[0])
+
+    await waitFor(() => {
+      expect(createBikeSetup).toHaveBeenCalledWith(
+        'g1',
+        expect.objectContaining({
+          suspension_rear: expect.objectContaining({ flipchip_position: 'low' }),
+          tires: expect.objectContaining({
+            front_width_in: 2.5,
+            front_pressure_bar: 1.7,
+          }),
+        }),
+      )
+    })
+  })
+
+  it('TestBikeSetupCaptureComponentsHelpUsesIconWithoutBrokenGlyph', async () => {
+    const user = userEvent.setup()
+    vi.mocked(listBikeSetups).mockResolvedValue([MOCK_SETUP_1])
+
+    renderPage('/gear/g1?tab=components')
+
+    await screen.findByRole('combobox', { name: /Setup auswählen/i })
+    await user.click(screen.getByRole('button', { name: '+ Neu' }))
+
+    expect(screen.getByLabelText(/Komponenten-Snapshot dient nur als Verlaufs-Information/i)).toBeInTheDocument()
+    expect(screen.queryByText('ⓘ')).not.toBeInTheDocument()
+  })
+
   it('TestBikeSetupSnapshotRendersInfoBanner', async () => {
     // Render a setup with component_snapshot; expand the collapsible; assert info banner.
     const user = userEvent.setup()
