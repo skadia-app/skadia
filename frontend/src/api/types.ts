@@ -636,7 +636,7 @@ export interface Gear {
   created_at: string
   // Fields added to mirror model.Gear — present on GET responses but not
   // required for all PATCH/PUT payloads (all optional here).
-  /** Visibility scope — e.g. "personal". Server-defined; treat as opaque string. */
+  /** Gear category scope derived from the schema, e.g. "bike" or "diving". */
   scope?: string
   /**
    * User-configured default sport predicates that determine which activities

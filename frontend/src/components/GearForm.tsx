@@ -5,7 +5,7 @@ import { modifierLabel, type SportModifierKey } from '@/lib/sportModifiers'
 import { GearApplicableModifierKeys } from '@/lib/generatedGearApplicableModifiers'
 import { getActiveSchema, lookupGearType } from '@/lib/gearSchema'
 import type { Attribute, RecommendedAttribute } from '@/lib/gearSchema'
-import { gearTypeOptionsForScope, gearTypeAttributes, optionSetOptions } from '@/lib/gearSchemaHelpers'
+import { gearTypeOptionsForScope, gearTypeAttributes, gearTypeScope, optionSetOptions } from '@/lib/gearSchemaHelpers'
 import type { GearCategoryScope, GearTypeOption } from '@/lib/gearSchemaTypes'
 import ComponentSlotList from '@/components/gear/ComponentSlotList'
 import { isAttributeVisible, type EvalContext } from '@/lib/gearConditionEval'
@@ -32,6 +32,17 @@ const WEIGHT_PLACEHOLDER: Record<GearCategoryScope, string> = {
   climb: 'z.B. 400',
   apparel: 'z.B. 200',
   other: 'z.B. 850',
+}
+
+const SUB_TYPE_PLACEHOLDER: Record<GearCategoryScope, string> = {
+  bike: 'z.B. Winter, Alltag, Rennen',
+  shoes: 'z.B. Straße, Trail, Winter',
+  winter: 'z.B. Piste, Tour, Powder',
+  water: 'z.B. See, Tour, Training',
+  diving: 'z.B. Kaltwasser, Reise, Backup',
+  climb: 'z.B. Halle, Fels, Alpin',
+  apparel: 'z.B. Sommer, Winter, Regen',
+  other: 'z.B. Trainingsmatte, Helm, Werkzeugset',
 }
 
 // ── Form prop types ───────────────────────────────────────────────────────────
@@ -64,11 +75,7 @@ interface GearPredicateOption {
 
 function scopeForType(typeKey: string): GearCategoryScope {
   if (!typeKey) return 'other'
-  const schema = getActiveSchema()
-  const gt = schema.gearTypes.find(t => t.key === typeKey)
-  const scope = gt?.scope as GearCategoryScope | undefined
-  if (scope && scope in NAME_PLACEHOLDER) return scope
-  return 'other'
+  return gearTypeScope(getActiveSchema(), typeKey)
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -125,7 +132,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
   }, [gear, scope, type, typeOptions])
 
   const selectedSchemaType = lookupGearType(type)
-  const showCustomSubType = !selectedSchemaType || type === 'other'
+  const showCustomSubType = type !== '' && (!selectedSchemaType || type === 'other')
   const selectedAttributes = type ? gearTypeAttributes(schema, type) : []
   const hasSlots = (selectedSchemaType?.slots?.length ?? 0) > 0
 
@@ -285,7 +292,7 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
             value={subType}
             onChange={(e) => setSubType(e.target.value)}
             className="w-full border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
-            placeholder={type === 'other' ? 'z.B. Trainingsmatte, Helm, Werkzeugset' : 'z.B. MTB, Rennrad, Trail'}
+            placeholder={SUB_TYPE_PLACEHOLDER[scope]}
           />
         </div>
       )}

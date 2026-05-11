@@ -5,6 +5,8 @@ import { fetchGear } from '@/api/gear'
 import { fetchDevices } from '@/api/hardware'
 import type { Gear } from '@/api/types'
 import type { Device } from '@/api/hardware'
+import { getActiveSchema } from '@/lib/gearSchema'
+import { gearTypeLabel as schemaGearTypeLabel, gearTypeScope } from '@/lib/gearSchemaHelpers'
 
 export type GearFilterState = 'include' | 'exclude'
 
@@ -32,28 +34,22 @@ interface Props {
   compact?: boolean
 }
 
-export function gearTypeIcon(type: string): string {
+export function gearTypeIcon(type: string, scope?: string | null): string {
   const icons: Record<string, string> = {
     bike: '🚲',
     shoes: '👟',
-    goggles: '🥽',
-    ski: '⛷',
-    paddle: '🛶',
+    winter: '⛷',
+    water: '🛶',
+    diving: '🥽',
+    climb: '🧗',
+    apparel: '👕',
     other: '🎒',
   }
-  return icons[type] ?? '🎒'
+  return icons[gearTypeScope(getActiveSchema(), type, scope)] ?? '🎒'
 }
 
 function gearTypeLabel(type: string): string {
-  const labels: Record<string, string> = {
-    bike: 'Fahrrad',
-    shoes: 'Laufschuhe',
-    goggles: 'Schwimmbrille',
-    ski: 'Ski',
-    paddle: 'Paddel',
-    other: 'Sonstiges',
-  }
-  return labels[type] ?? type
+  return schemaGearTypeLabel(getActiveSchema(), type)
 }
 
 function deviceLabel(d: Device): string {
@@ -220,7 +216,7 @@ export default function GearFilterInput({
                     className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-sm rounded-md border transition-colors cursor-pointer text-left ${stateStyle(state)}`}
                   >
                     <span className="flex-shrink-0" aria-hidden="true">
-                      {gearTypeIcon(gear.type)}
+                      {gearTypeIcon(gear.type, gear.scope)}
                     </span>
                     <span className={`text-neutral-800 dark:text-neutral-200 ${state === 'exclude' ? 'line-through' : ''}`}>
                       {gear.name}

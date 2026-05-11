@@ -427,6 +427,20 @@ const MOCK_SETUP_WITH_SNAPSHOT: BikeSetup = {
 }
 
 describe('BikeSetupsSection — Dropdown-Header', () => {
+  it('TestBikeSetupsRenderForScopedBikeLeafType', async () => {
+    vi.mocked(fetchGearDetail).mockResolvedValue({
+      ...MOCK_GEAR,
+      type: 'bike.mtb.enduro',
+      scope: 'bike',
+    })
+    vi.mocked(listBikeSetups).mockResolvedValue([])
+
+    renderPage('/gear/g1?tab=components')
+
+    expect(await screen.findByRole('heading', { name: 'Setups' })).toBeInTheDocument()
+    expect(screen.getByText('Noch kein Setup angelegt')).toBeInTheDocument()
+  })
+
   it('TestBikeSetupDropdownSwitchesSelectedSetup', async () => {
     // Render with 2 setups; select the inactive one via the dropdown.
     const user = userEvent.setup()

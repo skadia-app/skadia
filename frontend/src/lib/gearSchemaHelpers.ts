@@ -4,6 +4,7 @@
 import type { GearSchema, GearType, Attribute, OptionValue } from './generatedGearSchema'
 import type { GearDefaultSportPredicate } from '@/api/types'
 import type { GearCategoryScope, GearTypeOption } from './gearSchemaTypes'
+import { isGearCategoryScope } from './gearSchemaTypes'
 
 // ── Path label helpers ────────────────────────────────────────────────────────
 
@@ -27,13 +28,40 @@ export function gearTypePathLabel(schema: GearSchema, typeKey: string): string {
   return path.map(item => item.labelDe).join(' / ')
 }
 
+const LEGACY_GEAR_TYPE_LABELS: Record<string, string> = {
+  bike: 'Fahrrad',
+  shoes: 'Schuhe',
+  goggles: 'Brille/Goggle',
+  ski: 'Ski',
+  paddle: 'Paddel',
+  other: 'Sonstiges',
+}
+
+export function gearTypeLabel(schema: GearSchema, typeKey: string): string {
+  const path = gearTypePathLabel(schema, typeKey)
+  return path !== typeKey ? path : (LEGACY_GEAR_TYPE_LABELS[typeKey] ?? typeKey)
+}
+
+export function gearTypeScope(schema: GearSchema, typeKey: string, fallbackScope?: string | null): GearCategoryScope {
+  if (isGearCategoryScope(fallbackScope)) return fallbackScope
+  const scope = schema.gearTypes.find(t => t.key === typeKey)?.scope
+  return isGearCategoryScope(scope) ? scope : 'other'
+}
+
+export function gearMatchesCategoryScope(
+  gear: { type: string; scope?: string | null },
+  scope: GearCategoryScope,
+  schema: GearSchema,
+): boolean {
+  return gearTypeScope(schema, gear.type, gear.scope) === scope
+}
+
 // ── Scope-aware type options ──────────────────────────────────────────────────
 
 // Checks whether a gear type (by its scope field) belongs to a category scope.
 // The generated GearType has a 'scope' field set by the YAML generator.
 export function gearTypeMatchesScope(typeKey: string, scope: GearCategoryScope, schema: GearSchema): boolean {
-  const gt = schema.gearTypes.find(t => t.key === typeKey)
-  return (gt?.scope ?? 'other') === scope
+  return gearTypeScope(schema, typeKey) === scope
 }
 
 function hasManualChild(schema: GearSchema, typeKey: string): boolean {
