@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/gear"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -97,32 +97,31 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 				modelPtr = &modelStr
 			}
 
-			var defaultSports []string
-			var defaultPredicates []gear.GearDefaultPredicate
+			var applicablePredicates *[]gear.GearDefaultPredicate
 			if sports != "" {
-				defaultSports, defaultPredicates = mapStravaDefaultSportDefaults(sports)
+				_, preds := mapStravaDefaultSportDefaults(sports)
+				applicablePredicates = &preds
 			}
 
 			create := &model.GearCreate{
-				Name:                   displayName,
-				Type:                   gearType,
-				Brand:                  brandPtr,
-				Model:                  modelPtr,
-				DefaultForSports:       defaultSports,
-				DefaultSportPredicates: defaultPredicates,
+				Name:                      displayName,
+				Type:                      gearType,
+				Brand:                     brandPtr,
+				Model:                     modelPtr,
+				ApplicableSportPredicates: applicablePredicates,
 			}
 
-			gearItem, err := params.DB.CreateGear(ctx, params.UserID, create)
+			gear, err := params.DB.CreateGear(ctx, params.UserID, create)
 			if err != nil {
 				slog.Warn("strava gear: create bike failed", "name", displayName, "error", err)
 				result.Errors = append(result.Errors, "create bike "+displayName+": "+err.Error())
 				tracker.Error(ctx, err)
 				continue
 			}
-			bikeNameToID[name] = gearItem.ID
+			bikeNameToID[name] = gear.ID
 			tracker.Completed(ctx, "")
 			result.Imported++
-			slog.Info("strava gear: imported bike", "name", displayName, "id", gearItem.ID)
+			slog.Info("strava gear: imported bike", "name", displayName, "id", gear.ID)
 		}
 	}
 
@@ -164,22 +163,21 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 				modelPtr = &modelStr
 			}
 
-			var defaultSports []string
-			var defaultPredicates []gear.GearDefaultPredicate
+			var applicablePredicates *[]gear.GearDefaultPredicate
 			if sports != "" {
-				defaultSports, defaultPredicates = mapStravaDefaultSportDefaults(sports)
+				_, preds := mapStravaDefaultSportDefaults(sports)
+				applicablePredicates = &preds
 			}
 
 			create := &model.GearCreate{
-				Name:                   displayName,
-				Type:                   "shoes",
-				Brand:                  brandPtr,
-				Model:                  modelPtr,
-				DefaultForSports:       defaultSports,
-				DefaultSportPredicates: defaultPredicates,
+				Name:                      displayName,
+				Type:                      "shoes",
+				Brand:                     brandPtr,
+				Model:                     modelPtr,
+				ApplicableSportPredicates: applicablePredicates,
 			}
 
-			gearItem, err := params.DB.CreateGear(ctx, params.UserID, create)
+			gear, err := params.DB.CreateGear(ctx, params.UserID, create)
 			if err != nil {
 				slog.Warn("strava gear: create shoes failed", "name", displayName, "error", err)
 				result.Errors = append(result.Errors, "create shoes "+displayName+": "+err.Error())
@@ -188,7 +186,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			}
 			tracker.Completed(ctx, "")
 			result.Imported++
-			slog.Info("strava gear: imported shoes", "name", displayName, "id", gearItem.ID)
+			slog.Info("strava gear: imported shoes", "name", displayName, "id", gear.ID)
 		}
 	}
 
@@ -269,13 +267,6 @@ func buildGearName(name, brand, model string) string {
 		return brand
 	}
 	return "Unbekannte Ausrüstung"
-}
-
-// mapStravaDefaultSports converts Strava sport strings to Skadia sport types.
-// Handles both comma-separated (German export) and pipe-separated (English export).
-func mapStravaDefaultSports(sports string) []string {
-	defaultSports, _ := mapStravaDefaultSportDefaults(sports)
-	return defaultSports
 }
 
 func mapStravaDefaultSportPredicates(sports string) []gear.GearDefaultPredicate {

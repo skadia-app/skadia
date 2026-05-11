@@ -83,9 +83,9 @@ func TestMigrationSQLModifierContractsMatchGeneratedRegistry(t *testing.T) {
 	})
 
 	t.Run("gear default predicates", func(t *testing.T) {
-		upSQL := currentUpMigrationSQLForFunction(t, "fn_validate_gear_default_predicates")
+		upSQL := currentUpMigrationSQLForFunction(t, "fn_validate_gear_applicable_sport_predicates")
 		block := sqlSectionBetween(t, upSQL,
-			"CREATE OR REPLACE FUNCTION fn_validate_gear_default_predicates",
+			"CREATE OR REPLACE FUNCTION fn_validate_gear_applicable_sport_predicates",
 			"ALTER TABLE gear",
 		)
 		assertSameStringSet(t, modifierKeysAllowedBySQLValidator(block), gear.GearApplicableModifierKeys)

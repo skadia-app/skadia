@@ -223,7 +223,7 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	if input.OnProgress != nil {
 		input.OnProgress(ProgressEvent{Phase: 5, PhasesTotal: totalPhases, Message: "Importing activities..."})
 	}
-	activityCount, err := e.runPhase5Activities(ctx, input, idMap, schemaMap, manifest.SchemaMigration, result, &deferredFKs)
+	activityCount, legacyGearAssignments, err := e.runPhase5Activities(ctx, input, idMap, schemaMap, manifest.SchemaMigration, result, &deferredFKs)
 	if err != nil {
 		return result, fmt.Errorf("RunImport phase 5: %w", err)
 	}
@@ -241,6 +241,15 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 		if err := e.runSingleTXPhase(ctx, 6, phase6Specs, input, idMap, schemaMap, manifest.SchemaMigration, result, &deferredFKs); err != nil {
 			return result, fmt.Errorf("RunImport phase 6: %w", err)
 		}
+	}
+	// Phase 6c: legacy-export gear_id backfill. The activities.gear_id column
+	// was dropped in 000355's final block; legacy exports may still carry a
+	// gear_id field per activity row. We captured (newActID → newGearID)
+	// during Phase 5; insert a primary aga row for any (act, gear) pair that
+	// doesn't already have a primary assignment from Phase 6's user-authoritative
+	// activity_gear_assignments.json. ON CONFLICT DO NOTHING keeps user rows.
+	if err := e.backfillLegacyGearAssignments(ctx, input.TargetUserID, legacyGearAssignments); err != nil {
+		return result, fmt.Errorf("RunImport phase 6c (legacy gear backfill): %w", err)
 	}
 	result.PhasesCompleted++
 
@@ -431,6 +440,12 @@ func (e *Engine) runSingleTXPhase(
 // runPhase5Activities imports activities with per-activity transactions.
 // Files are already imported in Phase 0; no file handling here.
 // Uses streaming JSON decoding to avoid loading all activities into memory.
+//
+// The returned map[newActivityID]newGearID captures the legacy activities.gear_id
+// field present on rows from older exports. The activities.gear_id column was
+// dropped, so the value is no longer written to the activities row; Phase 6c
+// uses the map to backfill activity_gear_assignments rows for activities that
+// have no aga row from the export.
 func (e *Engine) runPhase5Activities(
 	ctx context.Context,
 	input ImportInput,
@@ -439,30 +454,31 @@ func (e *Engine) runPhase5Activities(
 	exportMigration int,
 	result *ImportResult,
 	deferredFKs *[]deferredFK,
-) (int, error) {
+) (int, map[string]string, error) {
 	allTbls := allTables()
 	allTbls = append(allTbls, healthTables()...)
 	activitySpec := findSpec("activities", allTbls)
 
+	legacyGearAssignments := make(map[string]string)
 	rc, err := input.Source.OpenData("data/activities.json")
 	if err != nil {
 		// No activities file — skip.
-		return 0, nil
+		return 0, legacyGearAssignments, nil
 	}
 	defer rc.Close()
 
 	dec := json.NewDecoder(rc)
 	openTok, err := dec.Token()
 	if err != nil {
-		return 0, fmt.Errorf("runPhase5Activities: read opening token: %w", err)
+		return 0, legacyGearAssignments, fmt.Errorf("runPhase5Activities: read opening token: %w", err)
 	}
 	switch v := openTok.(type) {
 	case json.Delim:
 		if v != '[' {
-			return 0, fmt.Errorf("runPhase5Activities: expected JSON array, got %q", v)
+			return 0, legacyGearAssignments, fmt.Errorf("runPhase5Activities: expected JSON array, got %q", v)
 		}
 	default:
-		return 0, nil // null or scalar → no activities
+		return 0, legacyGearAssignments, nil // null or scalar → no activities
 	}
 
 	// Determine export columns — lazy from first row if metadata unavailable.
@@ -482,7 +498,7 @@ func (e *Engine) runPhase5Activities(
 	for dec.More() {
 		var rawRow map[string]any
 		if err := dec.Decode(&rawRow); err != nil {
-			return activityCount, fmt.Errorf("runPhase5Activities: decode row %d: %w", i, err)
+			return activityCount, legacyGearAssignments, fmt.Errorf("runPhase5Activities: decode row %d: %w", i, err)
 		}
 
 		if !colsReady {
@@ -518,10 +534,15 @@ func (e *Engine) runPhase5Activities(
 			}
 		}
 
+		// Capture legacy activities.gear_id (column was dropped in 000355) so
+		// Phase 6c can synthesize an activity_gear_assignments row when the
+		// export does not carry data/activity_gear_assignments.json.
+		legacyOldGearID, _ := stringVal(rawRow["gear_id"])
+
 		// Per-activity transaction.
 		tx, err := e.DB.Begin(ctx)
 		if err != nil {
-			return activityCount, fmt.Errorf("activity row %d: begin tx: %w", i, err)
+			return activityCount, legacyGearAssignments, fmt.Errorf("activity row %d: begin tx: %w", i, err)
 		}
 
 		rowIDMap := idMap.Clone()
@@ -550,7 +571,7 @@ func (e *Engine) runPhase5Activities(
 
 		if err := tx.Commit(ctx); err != nil {
 			tx.Rollback(ctx) //nolint:errcheck
-			return activityCount, fmt.Errorf("activity row %d: commit: %w", i, err)
+			return activityCount, legacyGearAssignments, fmt.Errorf("activity row %d: commit: %w", i, err)
 		}
 
 		if shouldCommitRowState(activitySpec, res) {
@@ -570,6 +591,19 @@ func (e *Engine) runPhase5Activities(
 			result.EntitiesSkipped++
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("table activities row %d: skipped (FK target missing)", i))
+		}
+
+		// Record (newActID, newGearID) for Phase 6c backfill on accepted rows
+		// only. Skipped/failed rows have no activity in the DB and would be
+		// orphan keys.
+		if shouldCommitRowState(activitySpec, res) && legacyOldGearID != "" {
+			newActID, _ := stringVal(prepared[activitySpec.PKField])
+			if newActID != "" {
+				newGearID := idMap.Get(legacyOldGearID)
+				if newGearID != "" {
+					legacyGearAssignments[newActID] = newGearID
+				}
+			}
 		}
 
 		// Progress every 50 activities.
@@ -593,7 +627,53 @@ func (e *Engine) runPhase5Activities(
 			fmt.Sprintf("%d activities reference files not found in the export — sensor data (streams) cannot be reconstructed", activitiesWithMissingFile))
 	}
 
-	return activityCount, nil
+	return activityCount, legacyGearAssignments, nil
+}
+
+// backfillLegacyGearAssignments synthesizes activity_gear_assignments rows
+// from the legacy activities.gear_id values captured during Phase 5. The
+// activities.gear_id column was dropped (000355 final block) so this map is
+// the only path by which legacy exports can populate aga.
+//
+// Idempotency: ON CONFLICT DO NOTHING on the partial-unique primary index
+// keeps user-authoritative aga rows from data/activity_gear_assignments.json
+// (Phase 6) untouched. We bind every row to userID so cross-user aga rows
+// cannot be created even if the legacy map were polluted.
+//
+// Source 'legacy' marks these rows as derived from activities.gear_id rather
+// than from an explicit aga export row.
+func (e *Engine) backfillLegacyGearAssignments(ctx context.Context, userID string, legacy map[string]string) error {
+	if len(legacy) == 0 {
+		return nil
+	}
+	tx, err := e.DB.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("backfill legacy aga: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	for activityID, gearID := range legacy {
+		// Bind aga.user_id and assert via the activities/gear FK that they
+		// actually belong to userID — the user_match trigger does the deep
+		// check; this guard pre-rejects orphan keys early with a clean message.
+		_, err := tx.Exec(ctx, `
+			INSERT INTO activity_gear_assignments
+				(id, user_id, activity_id, gear_id, role_key, source, quantity)
+			SELECT gen_random_uuid(), $1::uuid, a.id, g.id, 'primary', 'legacy', 1
+			FROM activities a
+			JOIN gear g ON g.id = $3::uuid AND g.user_id = $1::uuid
+			WHERE a.id = $2::uuid AND a.user_id = $1::uuid
+			ON CONFLICT (activity_id) WHERE role_key = 'primary' DO NOTHING
+		`, userID, activityID, gearID)
+		if err != nil {
+			return fmt.Errorf("backfill legacy aga (act=%s gear=%s): %w", activityID, gearID, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("backfill legacy aga: commit: %w", err)
+	}
+	return nil
 }
 
 // runPhase5b resolves deferred FK columns collected during earlier phases.

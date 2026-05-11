@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -29,6 +31,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
+	"github.com/skadia-app/skadia/services/api/internal/gearcompat"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
@@ -39,6 +42,40 @@ func (h *Handler) ListGear(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+
+	// Lookup-by-name: ?name= returns a single item or 409 on ambiguity.
+	if name := r.URL.Query().Get("name"); name != "" {
+		candidates, err := h.DB.FindGearByName(r.Context(), userID, name)
+		if err != nil {
+			slog.Error("find gear by name failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to find gear", r.URL.Path)
+			return
+		}
+		if len(candidates) == 0 {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+			return
+		}
+		if len(candidates) > 1 {
+			httputil.WriteMachineError(w, http.StatusConflict, "gear.name_ambiguous",
+				"multiple gear items match the given name",
+				map[string]any{"candidates": candidates})
+			return
+		}
+		// Unique match — load full gear item.
+		item, err := h.DB.GetGear(r.Context(), candidates[0].ID)
+		if err != nil {
+			slog.Error("get gear by name failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
+			return
+		}
+		if item == nil || item.UserID != userID {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+			return
+		}
+		httputil.WriteJSON(w, http.StatusOK, item)
+		return
+	}
+
 	status := r.URL.Query().Get("status")
 
 	items, err := h.DB.ListGear(r.Context(), userID, status)
@@ -57,7 +94,14 @@ func (h *Handler) CreateGear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	create, ok := httputil.DecodeJSON[model.GearCreate](w, r)
+	// Idempotency-Key replay check.
+	if replayed, done := checkIdempotencyKey(w, r, h, userID, "POST /gear"); done {
+		if replayed {
+			return
+		}
+	}
+
+	create, ok := decodeJSONIdempotent[model.GearCreate](w, r, h, userID, "POST /gear")
 	if !ok {
 		return
 	}
@@ -69,16 +113,86 @@ func (h *Handler) CreateGear(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "type is required", r.URL.Path)
 		return
 	}
-	sports, ok := normalizeGearDefaultSportsForRequest(w, r, create.DefaultForSports)
+
+	// Validate type against the compiled schema, allowing a small legacy allow-list
+	// for types that existed in production before the schema was formalized.
+	// Legacy allow-list per Plan 2026-05-08 §10 (gear-rebuild on taxonomy) — backfill migration removes it.
+	if !isKnownGearType(create.Type) {
+		// Deterministic 4xx: store so replays return 400 without re-validating.
+		errBody := httputil.MachineError{Error: "gear.unknown_gear_type", Message: "unknown gear type",
+			Details: map[string]any{"type": create.Type}}
+		storeIdempotencyResponse(r, h, userID, "POST /gear", http.StatusBadRequest, errBody)
+		httputil.WriteMachineError(w, http.StatusBadRequest, errBody.Error, errBody.Message, errBody.Details)
+		return
+	}
+
+	// Default scope from the gear-type schema when the caller omits it.
+	// The DB column is free TEXT; API-layer defaulting ensures new rows are
+	// pre-populated with a sensible scope without requiring the caller to know it.
+	if create.Scope == "" {
+		if gt, ok := gearpkg.LookupGearType(create.Type); ok {
+			create.Scope = gt.Scope
+		}
+	}
+
+	// Scope validation (API layer only — DB column is free TEXT).
+	if create.Scope != "" {
+		if verr := gearpkg.ValidateScope(create.Scope); verr != nil {
+			// Deterministic 4xx: store so replays return 400 without re-validating.
+			errBody := httputil.MachineError{Error: verr.Code, Message: verr.Message,
+				Details: map[string]any{"field": "scope", "reason": verr.Message}}
+			storeIdempotencyResponse(r, h, userID, "POST /gear", http.StatusBadRequest, errBody)
+			httputil.WriteMachineError(w, http.StatusBadRequest, errBody.Error, errBody.Message, errBody.Details)
+			return
+		}
+	}
+
+	// Attributes validation against schema.
+	if verr := gearpkg.ValidateAttributes(create.Type, create.Attributes); verr != nil {
+		// Deterministic 4xx: store so replays return 400 without re-validating.
+		errBody := httputil.MachineError{Error: verr.Code, Message: verr.Message,
+			Details: map[string]any{"attribute": verr.Field, "reason": verr.Message}}
+		storeIdempotencyResponse(r, h, userID, "POST /gear", http.StatusBadRequest, errBody)
+		httputil.WriteMachineError(w, http.StatusBadRequest, errBody.Error, errBody.Message, errBody.Details)
+		return
+	}
+
+	// Modifiers validation.
+	if verr := gearpkg.ValidateModifiers(create.Modifiers); verr != nil {
+		// Deterministic 4xx: store so replays return 400 without re-validating.
+		errBody := httputil.MachineError{Error: verr.Code, Message: verr.Message,
+			Details: map[string]any{"modifier": verr.Field, "reason": verr.Message}}
+		storeIdempotencyResponse(r, h, userID, "POST /gear", http.StatusBadRequest, errBody)
+		httputil.WriteMachineError(w, http.StatusBadRequest, errBody.Error, errBody.Message, errBody.Details)
+		return
+	}
+
+	// Normalize applicable_sport_predicates (validates against sport taxonomy).
+	// Three-state pointer semantics: prefer ApplicableSportPredicates, fall back
+	// to DefaultSportPredicates. When both are nil (field absent or null — NOT
+	// explicit []), compute defaults from the taxonomy projection so new gear
+	// items are pre-populated with sensible sport bindings. Explicit [] (non-nil
+	// pointer to empty slice) is respected as "user wants no sport filter".
+	var rawPredicates []gearpkg.GearDefaultPredicate
+	if create.ApplicableSportPredicates != nil {
+		rawPredicates = *create.ApplicableSportPredicates
+	} else if create.DefaultSportPredicates != nil {
+		rawPredicates = *create.DefaultSportPredicates
+	} else {
+		computed, computeErr := gearpkg.ComputeApplicableSportPredicates(create.Type, create.Modifiers)
+		if computeErr != nil {
+			slog.Error("compute applicable sport predicates failed", "error", computeErr, "type", create.Type)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to compute sport predicates", r.URL.Path)
+			return
+		}
+		rawPredicates = computed
+	}
+	predicates, ok := h.normalizeGearApplicablePredicatesIdempotent(w, r, userID, "POST /gear", rawPredicates)
 	if !ok {
 		return
 	}
-	predicates, ok := normalizeGearDefaultPredicatesForRequest(w, r, create.DefaultSportPredicates)
-	if !ok {
-		return
-	}
-	create.DefaultForSports = sports
-	create.DefaultSportPredicates = predicates
+	create.ApplicableSportPredicates = &predicates
+	create.DefaultSportPredicates = &predicates
 
 	gear, err := h.DB.CreateGear(r.Context(), userID, &create)
 	if err != nil {
@@ -87,6 +201,7 @@ func (h *Handler) CreateGear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	storeIdempotencyResponse(r, h, userID, "POST /gear", http.StatusCreated, gear)
 	httputil.WriteJSON(w, http.StatusCreated, gear)
 }
 
@@ -138,23 +253,75 @@ func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if update.DefaultForSports != nil {
-		sports, err := gearpkg.NormalizeGearDefaultSports(update.DefaultForSports)
-		if err != nil {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+
+	// Validate the new type when the caller is changing it.
+	if update.Type != nil && !isKnownGearType(*update.Type) {
+		httputil.WriteMachineError(w, http.StatusBadRequest, "gear.unknown_gear_type",
+			"unknown gear type",
+			map[string]any{"type": *update.Type})
+		return
+	}
+
+	// Scope validation.
+	if update.Scope != nil && *update.Scope != "" {
+		if verr := gearpkg.ValidateScope(*update.Scope); verr != nil {
+			httputil.WriteMachineError(w, http.StatusBadRequest, verr.Code, verr.Message,
+				map[string]any{"field": "scope", "reason": verr.Message})
 			return
 		}
-		if sports == nil {
-			sports = []string{}
-		}
-		update.DefaultForSports = sports
 	}
-	if update.DefaultSportPredicates != nil {
-		predicates, ok := normalizeGearDefaultPredicatesForRequest(w, r, update.DefaultSportPredicates)
+
+	// Attributes validation — use updated type if present, else existing type.
+	typeKey := existing.Type
+	if update.Type != nil {
+		typeKey = *update.Type
+	}
+	if update.Attributes != nil {
+		if verr := gearpkg.ValidateAttributes(typeKey, update.Attributes); verr != nil {
+			httputil.WriteMachineError(w, http.StatusBadRequest, verr.Code, verr.Message,
+				map[string]any{"attribute": verr.Field, "reason": verr.Message})
+			return
+		}
+	} else if update.Type != nil && *update.Type != existing.Type {
+		// Type is changing but no new attributes were provided: re-validate the
+		// existing attributes against the new type so stale keys are rejected.
+		if verr := gearpkg.ValidateAttributes(typeKey, existing.Attributes); verr != nil {
+			httputil.WriteMachineError(w, http.StatusUnprocessableEntity, verr.Code, verr.Message,
+				map[string]any{"attribute": verr.Field, "reason": verr.Message})
+			return
+		}
+	}
+
+	// Modifiers validation.
+	if update.Modifiers != nil {
+		if verr := gearpkg.ValidateModifiers(update.Modifiers); verr != nil {
+			httputil.WriteMachineError(w, http.StatusBadRequest, verr.Code, verr.Message,
+				map[string]any{"modifier": verr.Field, "reason": verr.Message})
+			return
+		}
+	}
+
+	// Normalize applicable_sport_predicates.
+	// Three-state pointer semantics: prefer ApplicableSportPredicates, fall back
+	// to DefaultSportPredicates. A nil pointer means the field was not sent —
+	// leave the DB column unchanged. A non-nil pointer to an empty slice
+	// explicitly clears sport predicates.
+	var rawPredicatesForNorm []gearpkg.GearDefaultPredicate
+	updatePredicatesInHandler := false
+	if update.ApplicableSportPredicates != nil {
+		rawPredicatesForNorm = *update.ApplicableSportPredicates
+		updatePredicatesInHandler = true
+	} else if update.DefaultSportPredicates != nil {
+		rawPredicatesForNorm = *update.DefaultSportPredicates
+		updatePredicatesInHandler = true
+	}
+	if updatePredicatesInHandler {
+		predicates, ok := normalizeGearApplicablePredicatesForRequest(w, r, rawPredicatesForNorm)
 		if !ok {
 			return
 		}
-		update.DefaultSportPredicates = predicates
+		update.ApplicableSportPredicates = &predicates
+		update.DefaultSportPredicates = &predicates
 	}
 
 	gear, err := h.DB.UpdateGear(r.Context(), id, &update)
@@ -171,19 +338,20 @@ func (h *Handler) UpdateGear(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, gear)
 }
 
-func normalizeGearDefaultSportsForRequest(w http.ResponseWriter, r *http.Request, values []string) ([]string, bool) {
-	sports, err := gearpkg.NormalizeManualGearDefaultSports(values)
-	if err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
-		return nil, false
-	}
-	return sports, true
-}
-
 func normalizeGearDefaultPredicatesForRequest(w http.ResponseWriter, r *http.Request, values []gearpkg.GearDefaultPredicate) ([]gearpkg.GearDefaultPredicate, bool) {
 	predicates, err := gearpkg.NormalizeGearDefaultPredicates(values)
 	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return nil, false
+	}
+	return predicates, true
+}
+
+func normalizeGearApplicablePredicatesForRequest(w http.ResponseWriter, r *http.Request, values []gearpkg.GearDefaultPredicate) ([]gearpkg.GearDefaultPredicate, bool) {
+	predicates, err := gearpkg.NormalizeGearDefaultPredicates(values)
+	if err != nil {
+		httputil.WriteMachineError(w, http.StatusBadRequest, "gear.unknown_sport_predicate", err.Error(),
+			map[string]any{"reason": err.Error()})
 		return nil, false
 	}
 	return predicates, true
@@ -334,23 +502,24 @@ func (h *Handler) UpdateComponent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type updateComponentReq struct {
-		Name          *string  `json:"name,omitempty"`
-		Type          *string  `json:"type,omitempty"`
-		Brand         *string  `json:"brand,omitempty"`
-		Model         *string  `json:"model,omitempty"`
-		Notes         *string  `json:"notes,omitempty"`
-		IsRetired     *bool    `json:"is_retired,omitempty"`
-		PurchasePrice *float64 `json:"purchase_price,omitempty"`
-		PurchaseDate  *string  `json:"purchase_date,omitempty"`
-		SerialNumber  *string  `json:"serial_number,omitempty"`
-		WeightG       *int     `json:"weight_g,omitempty"`
+		Name              *string  `json:"name,omitempty"`
+		Type              *string  `json:"type,omitempty"`
+		Brand             *string  `json:"brand,omitempty"`
+		Model             *string  `json:"model,omitempty"`
+		Notes             *string  `json:"notes,omitempty"`
+		IsRetired         *bool    `json:"is_retired,omitempty"`
+		PurchasePrice     *float64 `json:"purchase_price,omitempty"`
+		PurchaseDate      *string  `json:"purchase_date,omitempty"`
+		SerialNumber      *string  `json:"serial_number,omitempty"`
+		WeightG           *int     `json:"weight_g,omitempty"`
+		PresetGearTypeKey *string  `json:"preset_gear_type_key,omitempty"`
 	}
 	req, ok := httputil.DecodeJSON[updateComponentReq](w, r)
 	if !ok {
 		return
 	}
 
-	component, err := h.DB.UpdateComponent(r.Context(), id, req.Name, req.Type, req.Brand, req.Model, req.Notes, req.IsRetired, req.PurchasePrice, req.PurchaseDate, req.SerialNumber, req.WeightG)
+	component, err := h.DB.UpdateComponent(r.Context(), id, req.Name, req.Type, req.Brand, req.Model, req.Notes, req.IsRetired, req.PurchasePrice, req.PurchaseDate, req.SerialNumber, req.WeightG, req.PresetGearTypeKey)
 	if err != nil {
 		slog.Error("update component failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update component", r.URL.Path)
@@ -401,6 +570,55 @@ func (h *Handler) DeleteComponent(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) RemoveComponent(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if err := h.DB.VerifyComponentOwnership(r.Context(), id, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		return
+	}
+	if err := h.DB.RemoveComponent(r.Context(), id); err != nil {
+		if errors.Is(err, database.ErrComponentNotFound) {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+			return
+		}
+		slog.Error("remove component failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to remove component", r.URL.Path)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) UpdateComponentStatus(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if err := h.DB.VerifyComponentOwnership(r.Context(), id, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		return
+	}
+	req, ok := httputil.DecodeJSON[struct {
+		Status string `json:"status"`
+	}](w, r)
+	if !ok {
+		return
+	}
+	if err := h.DB.UpdateComponentStatus(r.Context(), id, userID, req.Status); err != nil {
+		if errors.Is(err, database.ErrComponentNotFound) {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+			return
+		}
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) TransferComponent(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
@@ -427,31 +645,27 @@ func (h *Handler) TransferComponent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the component to find current gear
-	history, err := h.DB.GetComponentHistory(r.Context(), componentID)
+	eligibility, err := h.DB.GetComponentTransferEligibilityOwnerVerified(r.Context(), componentID, req.ToGearID)
 	if err != nil {
-		slog.Error("get component history for transfer failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get component", r.URL.Path)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component or target gear not found", r.URL.Path)
+		return
+	}
+	schema, err := h.DB.GetEffectiveGearSchema(r.Context(), userID)
+	if err != nil {
+		slog.Error("load gear schema for component transfer failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load gear schema", r.URL.Path)
+		return
+	}
+	// preset_gear_type_key check is implicit via gearcompat.CanTransferComponent:
+	// when the component has a preset, the target must match that preset or a
+	// descendant of it; otherwise the type/source-type fallback applies.
+	if !gearcompat.CanTransferComponent(eligibility.Component, eligibility.TargetGear, schema) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
+			"component is not compatible with target gear type", r.URL.Path)
 		return
 	}
 
-	var fromGearID string
-	for _, a := range history {
-		if a.RemovedAt == nil {
-			fromGearID = a.GearID
-			break
-		}
-	}
-	if fromGearID == "" {
-		// Fallback: get gear_id directly from the component
-		gear, err := h.DB.GetGear(r.Context(), req.ToGearID)
-		if err != nil || gear == nil {
-			httputil.WriteError(w, http.StatusNotFound, "Not Found", "target gear not found", r.URL.Path)
-			return
-		}
-		// Use a simple query to get the current gear_id
-		fromGearID = "" // Will still work with transfer
-	}
+	fromGearID := eligibility.FromGearID
 
 	if err := h.DB.TransferComponent(r.Context(), componentID, fromGearID, req.ToGearID); err != nil {
 		slog.Error("transfer component failed", "error", err)
@@ -473,7 +687,7 @@ func (h *Handler) GetComponentHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	history, err := h.DB.GetComponentHistory(r.Context(), componentID)
+	history, err := h.DB.GetComponentHistoryOwnerVerified(r.Context(), componentID)
 	if err != nil {
 		slog.Error("get component history failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get component history", r.URL.Path)
@@ -590,14 +804,33 @@ func (h *Handler) UpdateChainRotation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req, ok := httputil.DecodeJSON[struct {
-		SwapIntervalKM *float64 `json:"swap_interval_km"`
-		SwapIntervalHM *float64 `json:"swap_interval_hm"`
+		Name                  *string  `json:"name,omitempty"`
+		SwapIntervalKM        *float64 `json:"swap_interval_km"`
+		SwapIntervalHM        *float64 `json:"swap_interval_hm"`
+		SwapIntervalMetricKey *string  `json:"swap_interval_metric_key"`
+		SwapIntervalValue     *float64 `json:"swap_interval_value"`
 	}](w, r)
 	if !ok {
 		return
 	}
 
-	if err := h.DB.UpdateChainRotation(r.Context(), groupID, req.SwapIntervalKM, req.SwapIntervalHM); err != nil {
+	// Trim + length-validate name when present. An empty trimmed name is
+	// rejected because the column is NOT NULL and an empty UI value is almost
+	// certainly a mistake on the client side.
+	if req.Name != nil {
+		trimmed := strings.TrimSpace(*req.Name)
+		if trimmed == "" {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name must not be empty", r.URL.Path)
+			return
+		}
+		if len(trimmed) > 100 {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name too long (max 100 characters)", r.URL.Path)
+			return
+		}
+		req.Name = &trimmed
+	}
+
+	if err := h.DB.UpdateChainRotation(r.Context(), groupID, req.Name, req.SwapIntervalKM, req.SwapIntervalHM, req.SwapIntervalMetricKey, req.SwapIntervalValue); err != nil {
 		slog.Error("update chain rotation failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update chain rotation", r.URL.Path)
 		return
@@ -717,6 +950,97 @@ func (h *Handler) DeleteServiceEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) ListServiceIntervals(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	componentID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyComponentOwnership(r.Context(), componentID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		return
+	}
+	intervals, err := h.DB.ListServiceIntervals(r.Context(), componentID)
+	if err != nil {
+		slog.Error("list service intervals failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list service intervals", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, intervals)
+}
+
+func (h *Handler) CreateServiceInterval(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	componentID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyComponentOwnership(r.Context(), componentID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "component not found", r.URL.Path)
+		return
+	}
+	create, ok := httputil.DecodeJSON[model.GearServiceIntervalCreate](w, r)
+	if !ok {
+		return
+	}
+	if create.Name == "" || create.MetricKey == "" || create.IntervalValue <= 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "name, metric_key, and positive interval_value are required", r.URL.Path)
+		return
+	}
+	interval, err := h.DB.CreateServiceInterval(r.Context(), componentID, &create)
+	if err != nil {
+		slog.Error("create service interval failed", "error", err)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "failed to create service interval", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusCreated, interval)
+}
+
+func (h *Handler) UpdateServiceInterval(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	intervalID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyServiceIntervalOwnership(r.Context(), intervalID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "service interval not found", r.URL.Path)
+		return
+	}
+	update, ok := httputil.DecodeJSON[model.GearServiceIntervalUpdate](w, r)
+	if !ok {
+		return
+	}
+	interval, err := h.DB.UpdateServiceInterval(r.Context(), intervalID, &update)
+	if err != nil {
+		slog.Error("update service interval failed", "error", err)
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "failed to update service interval", r.URL.Path)
+		return
+	}
+	if interval == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "service interval not found", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, interval)
+}
+
+func (h *Handler) DeleteServiceInterval(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	intervalID := chi.URLParam(r, "id")
+	if err := h.DB.VerifyServiceIntervalOwnership(r.Context(), intervalID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "service interval not found", r.URL.Path)
+		return
+	}
+	if err := h.DB.DeleteServiceInterval(r.Context(), intervalID); err != nil {
+		slog.Error("delete service interval failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete service interval", r.URL.Path)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -856,6 +1180,7 @@ func (h *Handler) ActivateBikeSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// activation does NOT mutate gear_components; component_snapshot is read-only history.
 	setup, err := h.DB.ActivateBikeSetup(r.Context(), id)
 	if err != nil {
 		slog.Error("activate bike setup failed", "error", err)
@@ -1446,4 +1771,325 @@ func (h *Handler) GetGearCosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, summary)
+}
+
+// --- Idempotency key helpers (DB-backed, 24h TTL via pg_cron) ---
+
+// checkIdempotencyKey reads the Idempotency-Key header. If present:
+//   - replayed=true, done=true  → key was seen before; response already written
+//   - replayed=false, done=true → DB error; response written
+//   - replayed=false, done=false → key inserted; caller must run mutation and call storeIdempotencyResponse
+//
+// If the header is absent, returns replayed=false, done=false (no-op).
+func checkIdempotencyKey(w http.ResponseWriter, r *http.Request, h *Handler, userID, route string) (replayed, done bool) {
+	key := r.Header.Get("Idempotency-Key")
+	if key == "" {
+		return false, false
+	}
+	result, err := h.DB.TouchGearIdempotencyKey(r.Context(), userID, route, key)
+	if err != nil {
+		slog.Error("idempotency key touch failed", "error", err, "route", route)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "idempotency key error", r.URL.Path)
+		return false, true
+	}
+	if !result.Inserted {
+		// Replay: re-emit stored response.
+		if string(result.ResponseJSON) == "null" || len(result.ResponseJSON) == 0 {
+			// In-flight race: the first request hasn't stored its response yet.
+			// Treat as a cache miss so this request runs the handler too, keeping
+			// the two concurrent requests racing rather than returning nothing.
+			return false, false
+		}
+		// Replay using the original HTTP status so 201 Created and 4xx errors
+		// are preserved faithfully instead of always emitting 200 OK.
+		replayStatus := result.StatusCode
+		if replayStatus == 0 {
+			// Pre-migration rows lack a stored status; default conservatively to 200.
+			replayStatus = http.StatusOK
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(replayStatus)
+		_, _ = w.Write(result.ResponseJSON)
+		_, _ = w.Write([]byte("\n"))
+		return true, true
+	}
+	return false, false
+}
+
+// storeIdempotencyResponse persists the response body and HTTP status for a
+// completed mutation so future replays return an identical response.
+// Best-effort: errors are only logged, never propagated to the caller.
+//
+// Only deterministic responses should be stored: successful mutations (2xx)
+// and request-body-driven validation errors (4xx). Transient failures (5xx)
+// must NOT be stored — the caller must not invoke this function for 5xx paths.
+//
+// Auth failures (401/403) are not request-body-driven and must NOT be stored —
+// they depend on session state. Callers must not invoke this function for them.
+func storeIdempotencyResponse(r *http.Request, h *Handler, userID, route string, statusCode int, body any) {
+	key := r.Header.Get("Idempotency-Key")
+	if key == "" {
+		return
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		slog.Warn("idempotency: marshal response failed", "error", err)
+		return
+	}
+	if err := h.DB.UpdateGearIdempotencyResponse(r.Context(), userID, route, key, statusCode, data); err != nil {
+		slog.Warn("idempotency: store response failed", "error", err)
+	}
+}
+
+// captureResponseWriter buffers a single error response (status + body) so it
+// can be persisted as an idempotency replay before being written to the real
+// response writer. Used for deterministic 4xx paths inside helpers that
+// already write directly to a ResponseWriter (DecodeJSON, normalize…).
+//
+// Usage: pass a *captureResponseWriter to the helper, check captured.status
+// after the helper returns. If status is in the deterministic-4xx range, call
+// storeIdempotencyResponse with the captured raw body, then flush the same
+// bytes to the real writer.
+type captureResponseWriter struct {
+	header http.Header
+	body   bytes.Buffer
+	status int
+}
+
+func newCaptureResponseWriter() *captureResponseWriter {
+	return &captureResponseWriter{header: http.Header{}}
+}
+
+func (c *captureResponseWriter) Header() http.Header { return c.header }
+func (c *captureResponseWriter) Write(b []byte) (int, error) {
+	return c.body.Write(b)
+}
+func (c *captureResponseWriter) WriteHeader(status int) {
+	if c.status == 0 {
+		c.status = status
+	}
+}
+
+// flushTo copies the captured headers, status, and body to the real writer.
+func (c *captureResponseWriter) flushTo(w http.ResponseWriter) {
+	for k, vv := range c.header {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+	if c.status != 0 {
+		w.WriteHeader(c.status)
+	}
+	_, _ = w.Write(c.body.Bytes())
+}
+
+// decodeJSONIdempotent wraps httputil.DecodeJSON with idempotency persistence.
+// On decode failure it captures the 400 body, persists it as the idempotency
+// response (so replays return the identical 400), and flushes the captured
+// response to w. Caller behaves exactly like with the bare DecodeJSON: returns
+// (zero, false) means "stop processing".
+//
+// Idempotency is opt-in via the Idempotency-Key request header; when absent
+// this is a transparent pass-through to DecodeJSON (still emits the 400 to w).
+func decodeJSONIdempotent[T any](w http.ResponseWriter, r *http.Request, h *Handler, userID, route string) (T, bool) {
+	cap := newCaptureResponseWriter()
+	v, ok := httputil.DecodeJSON[T](cap, r)
+	if ok {
+		// Successful decode: nothing buffered, fall through.
+		return v, true
+	}
+	// Decode failed. Persist the captured 400 (deterministic given request body)
+	// before flushing, so a replay returns the same body even if the second
+	// request bytes differ.
+	if cap.status >= 400 && cap.status < 500 {
+		storeIdempotencyResponse(r, h, userID, route, cap.status, json.RawMessage(cap.body.Bytes()))
+	}
+	cap.flushTo(w)
+	return v, false
+}
+
+// normalizeGearApplicablePredicatesIdempotent wraps the normalize helper with
+// idempotency persistence. Same pattern as decodeJSONIdempotent: captures the
+// 400 body, persists it, then flushes.
+func (h *Handler) normalizeGearApplicablePredicatesIdempotent(
+	w http.ResponseWriter, r *http.Request, userID, route string,
+	values []gearpkg.GearDefaultPredicate,
+) ([]gearpkg.GearDefaultPredicate, bool) {
+	cap := newCaptureResponseWriter()
+	predicates, ok := normalizeGearApplicablePredicatesForRequest(cap, r, values)
+	if ok {
+		return predicates, true
+	}
+	if cap.status >= 400 && cap.status < 500 {
+		storeIdempotencyResponse(r, h, userID, route, cap.status, json.RawMessage(cap.body.Bytes()))
+	}
+	cap.flushTo(w)
+	return nil, false
+}
+
+// writeErrorIdempotent emits a problem-detail 4xx response and persists it as
+// the idempotency replay body. Used for SwapComponent early-validation paths
+// that previously called httputil.WriteError directly.
+func writeErrorIdempotent(
+	w http.ResponseWriter, r *http.Request, h *Handler, userID, route string,
+	status int, title, detail string,
+) {
+	cap := newCaptureResponseWriter()
+	httputil.WriteError(cap, status, title, detail, r.URL.Path)
+	if cap.status >= 400 && cap.status < 500 {
+		storeIdempotencyResponse(r, h, userID, route, cap.status, json.RawMessage(cap.body.Bytes()))
+	}
+	cap.flushTo(w)
+}
+
+// --- Gear summary endpoint ---
+
+// GetGearSummary returns aggregated usage statistics across a user's gear.
+func (h *Handler) GetGearSummary(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	filter := database.GearSummaryFilter{}
+	if scope := q.Get("scope"); scope != "" {
+		filter.Scope = &scope
+	}
+	if typeKey := q.Get("type_key"); typeKey != "" {
+		filter.TypeKey = &typeKey
+	}
+	if since := q.Get("since"); since != "" {
+		filter.Since = &since
+	}
+	if until := q.Get("until"); until != "" {
+		filter.Until = &until
+	}
+	if raw := q.Get("include_retired"); raw != "" {
+		parsed, parseErr := strconv.ParseBool(raw)
+		if parseErr != nil {
+			httputil.WriteMachineError(w, http.StatusBadRequest, "gear.invalid_param",
+				"include_retired must be a boolean (true/false/1/0)",
+				map[string]any{"param": "include_retired", "value": raw})
+			return
+		}
+		filter.IncludeRetired = parsed
+	}
+
+	summary, err := h.DB.GetGearSummary(r.Context(), userID, filter)
+	if err != nil {
+		slog.Error("get gear summary failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear summary", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, summary)
+}
+
+// --- Component swap endpoint ---
+
+// swapComponentRequest is the request body for the component swap endpoint.
+type swapComponentRequest struct {
+	SlotKey                   string                    `json:"slot_key"`
+	NewComponentPayload       *model.GearComponentCreate `json:"new_component_payload,omitempty"`
+	ExistingComponentLookupByName string                `json:"existing_component_lookup_by_name,omitempty"`
+	SwapDate                  *string                   `json:"swap_date,omitempty"`
+	SwapReason                *string                   `json:"swap_reason,omitempty"`
+}
+
+// SwapComponent atomically retires an existing component and assigns a new one,
+// recording a swap event in gear_component_swap_events.
+func (h *Handler) SwapComponent(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	gearID := chi.URLParam(r, "id")
+
+	// Ownership check BEFORE idempotency write to prevent leaking idempotency
+	// state when the caller doesn't own the gear.
+	existing, err := h.DB.GetGear(r.Context(), gearID)
+	if err != nil {
+		slog.Error("swap component: get gear failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get gear", r.URL.Path)
+		return
+	}
+	if existing == nil || existing.UserID != userID {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
+
+	// Idempotency-Key check (ownership verified above).
+	swapRoute := "POST /gear/" + gearID + "/components/swap"
+	if replayed, done := checkIdempotencyKey(w, r, h, userID, swapRoute); done {
+		if replayed {
+			return
+		}
+	}
+
+	req, ok := decodeJSONIdempotent[swapComponentRequest](w, r, h, userID, swapRoute)
+	if !ok {
+		return
+	}
+	if req.SlotKey == "" {
+		writeErrorIdempotent(w, r, h, userID, swapRoute, http.StatusBadRequest, "Bad Request", "slot_key is required")
+		return
+	}
+	if req.NewComponentPayload == nil {
+		writeErrorIdempotent(w, r, h, userID, swapRoute, http.StatusBadRequest, "Bad Request", "new_component_payload is required")
+		return
+	}
+	if req.NewComponentPayload.Name == "" {
+		writeErrorIdempotent(w, r, h, userID, swapRoute, http.StatusBadRequest, "Bad Request", "new_component_payload.name is required")
+		return
+	}
+
+	// Look up old component by name if requested.
+	var oldComponentID *string
+	if req.ExistingComponentLookupByName != "" {
+		comps, err := h.DB.FindComponentsByName(r.Context(), gearID, req.ExistingComponentLookupByName)
+		if err != nil {
+			slog.Error("swap component: find old component failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to find component", r.URL.Path)
+			return
+		}
+		if len(comps) == 0 {
+			httputil.WriteMachineError(w, http.StatusNotFound, "gear.component_not_found",
+				"no component found with that name",
+				map[string]any{"name": req.ExistingComponentLookupByName})
+			return
+		}
+		if len(comps) > 1 {
+			httputil.WriteMachineError(w, http.StatusConflict, "gear.name_ambiguous",
+				"multiple components match the given name",
+				map[string]any{"candidates": comps})
+			return
+		}
+		oldComponentID = &comps[0].ID
+	}
+
+	result, err := h.DB.SwapGearComponent(r.Context(), userID, gearID, req.SlotKey,
+		oldComponentID, req.NewComponentPayload, req.SwapDate, req.SwapReason)
+	if err != nil {
+		slog.Error("swap component failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to swap component", r.URL.Path)
+		return
+	}
+
+	storeIdempotencyResponse(r, h, userID, swapRoute, http.StatusCreated, result)
+	httputil.WriteJSON(w, http.StatusCreated, result)
+}
+
+// gearTypeLegacyAllowList contains gear type keys that are not in the current
+// schema but exist in production data from before the schema was formalized.
+// Legacy allow-list per Plan 2026-05-08 §10 (gear-rebuild on taxonomy) — backfill migration removes it.
+var gearTypeLegacyAllowList = map[string]bool{
+	"e_bike": true, // legacy electric bike type; maps to scope='bike' via migration backfill
+}
+
+// isKnownGearType returns true when the type key is present in the compiled
+// schema OR in the legacy allow-list.
+func isKnownGearType(typeKey string) bool {
+	if _, ok := gearpkg.LookupGearType(typeKey); ok {
+		return true
+	}
+	return gearTypeLegacyAllowList[typeKey]
 }

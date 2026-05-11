@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/gear"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -165,12 +165,18 @@ func gearCreateFromGarminDTO(dto garminGearDTO, defaultSports map[string]garminG
 	if dto.DateBegin != "" {
 		purchasedAt = &dto.DateBegin
 	}
+	// garminDefaultPredicatesForDTO returns nil when no defaults are known for
+	// this device — nil maps to "field not sent, compute from taxonomy".
+	preds := garminDefaultPredicatesForDTO(dto, defaultSports)
+	var applicablePredicates *[]gear.GearDefaultPredicate
+	if preds != nil {
+		applicablePredicates = &preds
+	}
 	return &model.GearCreate{
-		Name:                   gearName,
-		Type:                   mapGearType(dto.GearTypeName),
-		PurchasedAt:            purchasedAt,
-		DefaultForSports:       garminDefaultSportsForDTO(dto, defaultSports),
-		DefaultSportPredicates: garminDefaultPredicatesForDTO(dto, defaultSports),
+		Name:                      gearName,
+		Type:                      mapGearType(dto.GearTypeName),
+		PurchasedAt:               purchasedAt,
+		ApplicableSportPredicates: applicablePredicates,
 	}
 }
 

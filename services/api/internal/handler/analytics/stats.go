@@ -181,18 +181,20 @@ func calculateWeekStreaks(days []time.Time) (currentWeekStreak, maxWeekStreak in
 
 // lifetimeResponse is the JSON response for GET /lifetime-stats.
 type lifetimeResponse struct {
-	TotalActivities   int64   `json:"total_activities"`
-	TotalDistanceM    float64 `json:"total_distance_m"`
-	TotalElevationM   float64 `json:"total_elevation_m"`
-	TotalMovingTimeS  int64   `json:"total_moving_time_s"`
-	TotalElapsedTimeS int64   `json:"total_elapsed_time_s"`
-	TotalCalories     int64   `json:"total_calories"`
-	ActiveDays        int64   `json:"active_days"`
-	Countries         int64   `json:"countries"`
+	TotalActivities     int64   `json:"total_activities"`
+	TotalDistanceM      float64 `json:"total_distance_m"`
+	TotalElevationM     float64 `json:"total_elevation_m"`      // gain
+	TotalElevationLossM float64 `json:"total_elevation_loss_m"` // descent
+	TotalMovingTimeS    int64   `json:"total_moving_time_s"`
+	TotalElapsedTimeS   int64   `json:"total_elapsed_time_s"`
+	TotalCalories       int64   `json:"total_calories"`
+	ActiveDays          int64   `json:"active_days"`
+	Countries           int64   `json:"countries"`
 	// Fun metrics
-	EarthLaps    float64 `json:"earth_laps"`
-	MoonTrips    float64 `json:"moon_trips"`
-	EverestCount float64 `json:"everest_count"`
+	EarthLaps        float64 `json:"earth_laps"`
+	MoonTrips        float64 `json:"moon_trips"`
+	EverestCount     float64 `json:"everest_count"`      // ascent ÷ Everest height
+	EverestCountDown float64 `json:"everest_count_down"` // descent ÷ Everest height
 	// Streaks
 	CurrentDayStreak int `json:"current_day_streak"`
 	MaxDayStreak     int `json:"max_day_streak"`
@@ -223,19 +225,21 @@ func (h *Handler) GetLifetimeStats(w http.ResponseWriter, r *http.Request) {
 	currentStreak, maxStreak, _ := calculateDayStreaks(activeDays)
 
 	resp := lifetimeResponse{
-		TotalActivities:   stats.TotalActivities,
-		TotalDistanceM:    stats.TotalDistanceM,
-		TotalElevationM:   stats.TotalElevationM,
-		TotalMovingTimeS:  stats.TotalMovingTimeS,
-		TotalElapsedTimeS: stats.TotalElapsedTimeS,
-		TotalCalories:     stats.TotalCalories,
-		ActiveDays:        stats.ActiveDays,
-		Countries:         stats.Countries,
-		EarthLaps:         stats.TotalDistanceM / 40_075_000,
-		MoonTrips:         stats.TotalDistanceM / 768_800_000,
-		EverestCount:      stats.TotalElevationM / 8849,
-		CurrentDayStreak:  currentStreak,
-		MaxDayStreak:      maxStreak,
+		TotalActivities:     stats.TotalActivities,
+		TotalDistanceM:      stats.TotalDistanceM,
+		TotalElevationM:     stats.TotalElevationM,
+		TotalElevationLossM: stats.TotalElevationLossM,
+		TotalMovingTimeS:    stats.TotalMovingTimeS,
+		TotalElapsedTimeS:   stats.TotalElapsedTimeS,
+		TotalCalories:       stats.TotalCalories,
+		ActiveDays:          stats.ActiveDays,
+		Countries:           stats.Countries,
+		EarthLaps:           stats.TotalDistanceM / 40_075_000,
+		MoonTrips:           stats.TotalDistanceM / 768_800_000,
+		EverestCount:        stats.TotalElevationM / 8849,
+		EverestCountDown:    stats.TotalElevationLossM / 8849,
+		CurrentDayStreak:    currentStreak,
+		MaxDayStreak:        maxStreak,
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, resp)

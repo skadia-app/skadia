@@ -150,6 +150,12 @@ func RenderTSModifiers(registry ModifierRegistry) ([]byte, error) {
 		fmt.Fprintf(&buf, "    actionParam: %s,\n", tsString(modifier.ActionParam))
 		fmt.Fprintf(&buf, "    shadowFSToken: %s,\n", tsString(modifier.ShadowFSToken))
 		fmt.Fprintf(&buf, "    capabilities: %s,\n", tsModifierCapabilities(modifier.Capabilities))
+		if len(modifier.RecommendedFor) > 0 {
+			fmt.Fprintf(&buf, "    recommendedFor: %s,\n", tsStringArray(modifier.RecommendedFor))
+		}
+		if len(modifier.NotRecommendedFor) > 0 {
+			fmt.Fprintf(&buf, "    notRecommendedFor: %s,\n", tsStringArray(modifier.NotRecommendedFor))
+		}
 		buf.WriteString("  },\n")
 	}
 	buf.WriteString("] as const\n")

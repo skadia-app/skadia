@@ -6,7 +6,13 @@ import type { YearProgressionResponse, YearProgressionRollingResponse } from '@/
 export type YearProgressionMode = 'progress' | 'rolling'
 
 // Metric keys shared between chart and modal.
-export type MetricKey = 'distance_m' | 'elevation_gain_m' | 'moving_time_s' | 'tss' | 'total_calories'
+export type MetricKey =
+  | 'distance_m'
+  | 'elevation_gain_m'
+  | 'elevation_loss_m'
+  | 'moving_time_s'
+  | 'tss'
+  | 'total_calories'
 
 interface UseYearProgressionArgs {
   mode: YearProgressionMode

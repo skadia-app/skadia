@@ -85,6 +85,28 @@ func HandleDBErr(w http.ResponseWriter, r *http.Request, err error, notFoundMsg 
 	return true
 }
 
+// MachineError is the machine-readable error response shape for API consumers
+// (LLM tool calls, automation clients) that need stable error codes.
+type MachineError struct {
+	Error   string         `json:"error"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details,omitempty"`
+}
+
+// WriteMachineError writes a machine-readable JSON error (not RFC 7807).
+// Use for gear/schema validation endpoints where callers process the error code.
+func WriteMachineError(w http.ResponseWriter, status int, code, message string, details map[string]any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(MachineError{
+		Error:   code,
+		Message: message,
+		Details: details,
+	}); err != nil {
+		slog.Error("failed to encode machine error response", "error", err)
+	}
+}
+
 // ParsePagination reads limit/offset from query params with defaults and bounds.
 func ParsePagination(r *http.Request, defaultLimit, maxLimit int) (limit, offset int) {
 	limit = defaultLimit

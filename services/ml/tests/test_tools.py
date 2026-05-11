@@ -14,6 +14,7 @@ def test_all_tools_defined():
         "query_geo_features", "query_segments", "get_analytics",
         "search_routes", "run_sql",
         "get_gear_for_activity", "get_gear_documents",
+        "gear_list", "gear_component_detail", "gear_service_events", "gear_summary",
         "get_activity_detail", "search_photos_by_content",
         "search_pois_nearby", "search_trails_by_difficulty", "plan_route",
         "search_pois_on_route", "get_isochrone", "query_coverage",

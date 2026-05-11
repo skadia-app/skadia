@@ -834,20 +834,28 @@ func fusionMergeActivityTags(ctx context.Context, q database.Querier, targetID, 
 	return warnings, nil
 }
 
-// copyGearIfPresent copies the gear from a source activity to the merged activity.
+// copyGearIfPresent copies the gear from a source activity to the merged activity
+// by upserting the merged activity's primary aga row. Also flips has_edits=true.
 // Non-fatal: gear is user-visible but can be reassigned manually after merge.
-// The guard on gearID prevents an unnecessary UPDATE when the source has no gear set.
+// The guard on gearID prevents an unnecessary write when the source has no gear set.
 // Returns a non-empty warning string if the copy failed; returns "" on success.
 func (h *Handler) copyGearIfPresent(ctx context.Context, tx database.Querier, mergedID, srcID string, gearID *string) string {
 	if gearID == nil || *gearID == "" {
 		return ""
 	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE activities SET gear_id = $2, has_edits = true WHERE id = $1`,
-		mergedID, *gearID,
-	); err != nil {
+	if err := database.SetPrimaryGearForActivityTx(ctx, tx, mergedID, *gearID, "fusion"); err != nil {
 		slog.Warn("fusion-merge: gear copy failed",
 			"action", "fusion_merge_gear_copy_nonfatal",
+			"merged_id", mergedID,
+			"src", srcID,
+			"error", err)
+		return "gear could not be copied — please reassign it manually after merge"
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE activities SET has_edits = true WHERE id = $1`,
+		mergedID,
+	); err != nil {
+		slog.Warn("fusion-merge: has_edits flip after gear copy failed",
 			"merged_id", mergedID,
 			"src", srcID,
 			"error", err)
@@ -1276,7 +1284,7 @@ func createMergedActivity(ctx context.Context, q database.Querier, src *model.Ac
 			source, source_device,
 			visibility, enrichment_status, has_edits,
 			original_file_format, original_filename,
-			gear_id, tags,
+			tags,
 			hide_map, data_visibility,
 			start_city, end_city, start_state, start_country, start_country_code,
 			is_round_trip, intensity, time_of_day,
@@ -1373,7 +1381,7 @@ func createMergedActivity(ctx context.Context, q database.Querier, src *model.Ac
 			source, source_device,
 			visibility, 'pending', TRUE,
 			original_file_format, original_filename,
-			gear_id, tags,
+			tags,
 			hide_map, data_visibility,
 			start_city, end_city, start_state, start_country, start_country_code,
 			is_round_trip, intensity, time_of_day,

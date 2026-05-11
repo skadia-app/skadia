@@ -309,7 +309,6 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 			fit_sport_id, fit_sub_sport_id,
 			title, description,
 			is_indoor, is_electric,
-			gear_id,
 			visibility,
 			enrichment_status,
 			source, source_device,
@@ -328,7 +327,6 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 			fit_sport_id, fit_sub_sport_id,
 			$3, description,
 			is_indoor, is_electric,
-			gear_id,
 			visibility,
 			'pending',
 			source, source_device,
@@ -377,6 +375,20 @@ func (h *Handler) SplitActivity(w http.ResponseWriter, r *http.Request) {
 		slog.Error("split: create new activity failed", "id", activityID, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to create split activity", r.URL.Path)
 		return
+	}
+
+	// Mirror the source activity's primary gear assignment onto the new activity.
+	// Best-effort: split should not fail if no gear was assigned. Source value
+	// 'split' is informational; the row remains semantically a primary assignment.
+	if _, err := h.DB.Pool.Exec(r.Context(), `
+		INSERT INTO activity_gear_assignments
+			(id, user_id, activity_id, gear_id, role_key, source, quantity)
+		SELECT gen_random_uuid(), aga.user_id, $2::uuid, aga.gear_id, 'primary', 'split', 1
+		FROM activity_gear_assignments aga
+		WHERE aga.activity_id = $1::uuid AND aga.role_key = 'primary'
+		ON CONFLICT (activity_id) WHERE role_key = 'primary' DO NOTHING
+	`, activityID, newID); err != nil {
+		slog.Warn("split: copy gear assignment to new activity failed", "id", activityID, "new_id", newID, "error", err)
 	}
 
 	// Copy part2 streams to the new activity.

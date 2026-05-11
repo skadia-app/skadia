@@ -42,21 +42,16 @@ func TestGarminGearDecodeAppliesActivityTypeDefaults(t *testing.T) {
 
 	defaults := garminDefaultSportsByGear(wrapper[0])
 	create := gearCreateFromGarminDTO(wrapper[0].GearDTOS[0], defaults)
-	want := []string{"cycling", "running"}
-	if len(create.DefaultForSports) != len(want) {
-		t.Fatalf("DefaultForSports = %#v, want %#v", create.DefaultForSports, want)
+	if create.ApplicableSportPredicates == nil {
+		t.Fatal("ApplicableSportPredicates is nil, want three predicates")
 	}
-	for i := range want {
-		if create.DefaultForSports[i] != want[i] {
-			t.Fatalf("DefaultForSports = %#v, want %#v", create.DefaultForSports, want)
-		}
+	preds := *create.ApplicableSportPredicates
+	if len(preds) != 3 {
+		t.Fatalf("ApplicableSportPredicates = %#v, want three predicates", preds)
 	}
-	if len(create.DefaultSportPredicates) != 3 {
-		t.Fatalf("DefaultSportPredicates = %#v, want three predicates", create.DefaultSportPredicates)
-	}
-	if create.DefaultSportPredicates[1].SportType != "cycling" ||
-		create.DefaultSportPredicates[1].SubType == nil ||
-		*create.DefaultSportPredicates[1].SubType != "mountain" {
-		t.Fatalf("mountain predicate = %#v", create.DefaultSportPredicates[1])
+	if preds[1].SportType != "cycling" ||
+		preds[1].SubType == nil ||
+		*preds[1].SubType != "mountain" {
+		t.Fatalf("mountain predicate = %#v", preds[1])
 	}
 }

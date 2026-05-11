@@ -45,6 +45,8 @@ func safeMetricColumn(metric string) string {
 		return "distance_m"
 	case "elevation_gain_m":
 		return "elevation_gain_m"
+	case "elevation_loss_m":
+		return "elevation_loss_m"
 	case "moving_time_s":
 		return "moving_time_s"
 	case "tss":

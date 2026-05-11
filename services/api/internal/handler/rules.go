@@ -69,6 +69,10 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
+	if err := rules.ValidateGearConditionJSON(create.Conditions, create.ConditionGroups, create.Branches); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 	if create.Actions, err = rules.NormalizeRuleActions(create.Actions, tagNames); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
@@ -110,6 +114,18 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := rewriteUpdateRuleSportTaxonomy(&update); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+	var updateConditions json.RawMessage
+	var updateConditionGroups json.RawMessage
+	if update.Conditions != nil {
+		updateConditions = *update.Conditions
+	}
+	if update.ConditionGroups != nil {
+		updateConditionGroups = *update.ConditionGroups
+	}
+	if err := rules.ValidateGearConditionJSON(updateConditions, updateConditionGroups, update.Branches); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}

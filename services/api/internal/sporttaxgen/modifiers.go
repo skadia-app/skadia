@@ -28,6 +28,11 @@ type ModifierDefinition struct {
 	// Subsystems lists the consumer subsystems that include this modifier in their applicable set.
 	// Values are the --subsystem flag values used by applicablemodifiersgen.
 	Subsystems []string `yaml:"subsystems"`
+	// RecommendedFor and NotRecommendedFor are gear_type keys for which this
+	// modifier is (or is not) a typical choice. UX hint only — never used to
+	// gate writes. Step 2X populates real values; Step 1 ships the structure.
+	RecommendedFor    []string `yaml:"recommended_for,omitempty"`
+	NotRecommendedFor []string `yaml:"not_recommended_for,omitempty"`
 }
 
 // ModifierCapabilities holds the four sport-internal capabilities.

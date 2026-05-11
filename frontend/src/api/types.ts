@@ -620,18 +620,36 @@ export interface Gear {
   model?: string | null
   total_distance_m: number
   total_elevation_gain_m: number
+  total_elevation_loss_m: number
   total_time_s: number
+  total_moving_time_s: number
   total_activities: number
   purchased_at?: string | null
   retired_at?: string | null
   is_retired: boolean
   status: GearStatus
-  default_for_sports: string[]
-  default_sport_predicates: GearDefaultSportPredicate[]
+  applicable_sport_predicates: GearDefaultSportPredicate[]
   notes?: string | null
+  attributes?: Record<string, unknown> | null
   weight_g?: number | null
   components?: GearComponent[]
   created_at: string
+  // Fields added to mirror model.Gear — present on GET responses but not
+  // required for all PATCH/PUT payloads (all optional here).
+  /** Visibility scope — e.g. "personal". Server-defined; treat as opaque string. */
+  scope?: string
+  /**
+   * User-configured default sport predicates that determine which activities
+   * this gear is auto-assigned to. Mirrors gear.GearDefaultPredicate in Go.
+   * Null when the server omits the field (older responses).
+   */
+  default_sport_predicates?: GearDefaultSportPredicate[] | null
+  /** Freeform modifier map. Shape depends on the gear schema; treat as unknown. */
+  modifiers?: Record<string, unknown> | null
+  /** Human-review status for admin flows — e.g. "confirmed" | "rejected". */
+  review_status?: string
+  /** ID of the source document (e.g. receipt) linked to this gear item. */
+  source_document_id?: string | null
 }
 
 export interface GearComponent {
@@ -640,11 +658,24 @@ export interface GearComponent {
   parent_component_id?: string | null
   name: string
   type: string
+  /** Matches a schema type key; null when the component was added without a type preset */
+  type_key?: string | null
+  /** Matches a GearTypeSlot.key; null for freely-added components */
+  slot_key?: string | null
+  /**
+   * Optional gear-type lock: when set, this component can only be transferred
+   * to a gear whose type matches this key (or any descendant via the
+   * GearType.parentKey chain). Server-enforced at transfer time.
+   */
+  preset_gear_type_key?: string | null
   brand?: string | null
   model?: string | null
   total_distance_m: number
   total_elevation_gain_m: number
+  total_elevation_loss_m: number
+  total_moving_time_s: number
   total_time_s: number
+  total_activities: number
   purchase_price?: number | null
   purchase_date?: string | null
   weight_g?: number | null
@@ -654,22 +685,34 @@ export interface GearComponent {
   is_retired: boolean
   status: GearStatus
   notes?: string | null
+  /** Schema-driven component attributes, keyed by attribute key */
+  attributes?: Record<string, unknown> | null
 }
 
 export interface ComponentAssignment {
   id: string
   component_id: string
   gear_id: string
-  gear_name: string
   installed_at: string
   removed_at?: string | null
+  distance_m: number
+  elevation_gain_m: number
+  elevation_loss_m: number
+  moving_time_s: number
+  time_s: number
+  activities_count: number
+  attributes?: Record<string, unknown> | null
+  notes?: string | null
 }
 
 export interface ChainRotationGroup {
   id: string
   gear_id: string
   name: string
-  swap_interval_km: number
+  swap_interval_km?: number | null
+  swap_interval_hm?: number | null
+  swap_interval_metric_key?: string | null
+  swap_interval_value?: number | null
   members: ChainRotationMember[]
   created_at: string
 }
@@ -681,7 +724,14 @@ export interface ChainRotationMember {
   component_name: string
   position: number
   is_active: boolean
-  distance_since_swap_m: number
+  distance_since_swap_m?: number
+  total_distance_m: number
+  total_elevation_gain_m: number
+  total_elevation_loss_m: number
+  total_moving_time_s: number
+  total_time_s: number
+  total_activities: number
+  last_swapped_at?: string | null
 }
 
 export interface GearServiceEvent {
@@ -690,10 +740,25 @@ export interface GearServiceEvent {
   interval_id?: string | null
   performed_at: string
   distance_at_m?: number | null
+  metric_snapshot?: Record<string, number> | null
   description?: string | null
   cost?: number | null
   notes?: string | null
   created_at: string
+}
+
+export interface GearServiceInterval {
+  id: string
+  component_id: string
+  name: string
+  interval_type: string
+  metric_key: string
+  interval_value: number
+  is_recurring: boolean
+  last_service_at?: string | null
+  last_service_distance_m?: number | null
+  last_service_metric_value?: number | null
+  next_due_at?: string | null
 }
 
 export interface ComponentTypePreset {
@@ -716,6 +781,27 @@ export interface MaintenanceAlert {
   threshold_value: number
 }
 
+export interface BikeSetupComponentEntry {
+  id: string
+  name: string
+  type: string
+  type_key?: string | null
+  slot_key?: string | null
+  brand?: string | null
+  model?: string | null
+  attributes?: Record<string, any> | null
+  preset_gear_type_key?: string | null
+  installed_at?: string | null
+  removed_at?: string | null
+  status: string
+}
+
+export interface BikeSetupComponentSnapshot {
+  version: number
+  captured_at: string
+  components: BikeSetupComponentEntry[]
+}
+
 export interface BikeSetup {
   id: string
   gear_id: string
@@ -730,6 +816,9 @@ export interface BikeSetup {
   brakes?: Record<string, any> | null
   drivetrain?: Record<string, any> | null
   is_active: boolean
+  /** Optional passive snapshot of gear_components at save time. Read-only history;
+   *  activation does NOT mutate live gear_components. */
+  component_snapshot?: BikeSetupComponentSnapshot | null
   created_at: string
   updated_at: string
 }
@@ -764,7 +853,7 @@ export interface AutomationRule {
   name: string
   is_active: boolean
   priority: number
-  trigger_event: 'on_import' | 'on_enrichment_complete' | 'on_manual_apply'
+  trigger_event: 'on_import' | 'on_enrichment_complete' | 'on_manual_apply' | 'on_gear_usage_update'
   stop_on_match: boolean
   apply_retroactively: boolean
   conditions: RuleCondition[]
@@ -776,6 +865,9 @@ export interface AutomationRule {
   times_applied: number
   last_evaluated_at?: string
   last_matched_count?: number
+  last_warning_at?: string | null
+  last_warning_code?: string | null
+  last_warning_message?: string | null
   is_system: boolean
   system_type: string | null
   created_at: string

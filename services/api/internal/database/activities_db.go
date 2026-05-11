@@ -715,7 +715,9 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.source, a.source_device,
 			a.tags, a.visibility, a.enrichment_status, a.original_filename, a.original_file_format,
 			a.start_city, a.end_city, a.start_state, a.start_country, a.start_country_code,
-			a.is_round_trip, a.intensity, a.time_of_day, a.sunrise_at, a.sunset_at, a.gear_id,
+			a.is_round_trip, a.intensity, a.time_of_day, a.sunrise_at, a.sunset_at,
+			(SELECT aga.gear_id FROM activity_gear_assignments aga
+			 WHERE aga.activity_id = a.id AND aga.role_key = 'primary' LIMIT 1) AS gear_id,
 			a.created_at, a.updated_at,
 			a.has_gps,
 			a.location_lat, a.location_lng,
@@ -1022,7 +1024,10 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 	}
 	if filters.GearID != "" {
 		idx++
-		conds = append(conds, fmt.Sprintf("gear_id = $%d", idx))
+		conds = append(conds, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM activity_gear_assignments aga"+
+				" WHERE aga.activity_id = activities.id AND aga.gear_id = $%d::uuid AND aga.role_key = 'primary')",
+			idx))
 		args = append(args, filters.GearID)
 	}
 	if filters.Search != "" {
@@ -1055,12 +1060,18 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 	}
 	if len(filters.IncludeGear) > 0 {
 		idx++
-		conds = append(conds, fmt.Sprintf("gear_id = ANY($%d)", idx))
+		conds = append(conds, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM activity_gear_assignments aga"+
+				" WHERE aga.activity_id = activities.id AND aga.gear_id = ANY($%d::uuid[]) AND aga.role_key = 'primary')",
+			idx))
 		args = append(args, filters.IncludeGear)
 	}
 	if len(filters.ExcludeGear) > 0 {
 		idx++
-		conds = append(conds, fmt.Sprintf("(gear_id IS NULL OR gear_id != ALL($%d))", idx))
+		conds = append(conds, fmt.Sprintf(
+			"NOT EXISTS (SELECT 1 FROM activity_gear_assignments aga"+
+				" WHERE aga.activity_id = activities.id AND aga.gear_id = ANY($%d::uuid[]) AND aga.role_key = 'primary')",
+			idx))
 		args = append(args, filters.ExcludeGear)
 	}
 	if len(filters.IncludeDevices) > 0 {
@@ -1433,13 +1444,23 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	if update.DataVisibility != nil {
 		b.Set("data_visibility", update.DataVisibility)
 	}
+	// gear_id is no longer a column on activities; it is derived from
+	// activity_gear_assignments (primary role). We capture the desired state
+	// here and apply it after the activities UPDATE finishes.
+	var (
+		clearPrimaryGear bool
+		setPrimaryGearID string
+	)
 	if update.GearID != nil {
 		if string(update.GearID) == "null" {
-			b.SetExpr("gear_id = NULL")
+			clearPrimaryGear = true
 		} else {
 			var gearID string
 			if err := json.Unmarshal(update.GearID, &gearID); err == nil && gearID != "" {
-				b.Set("gear_id", gearID)
+				setPrimaryGearID = gearID
+			} else if err == nil {
+				// Empty string explicitly sent → treat as clear.
+				clearPrimaryGear = true
 			}
 		}
 	}
@@ -1492,19 +1513,42 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 		b.Set("sport_conflict_pending", false)
 	}
 
-	if !b.HasSets() {
-		return db.GetActivity(ctx, id)
+	if b.HasSets() {
+		args := append([]any{id, userID}, b.Args()...)
+		query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1 AND user_id = $2", b.Clause())
+		if _, err := db.Pool.Exec(ctx, query, args...); err != nil {
+			return nil, fmt.Errorf("update activity: %w", err)
+		}
+		if clearSportConflict {
+			if err := db.ResolveImportQueueByActivity(ctx, userID, id); err != nil {
+				slog.Warn("update activity: failed to resolve sport conflict queue", "activity_id", id, "user_id", userID, "error", err)
+			}
+		}
 	}
 
-	args := append([]any{id, userID}, b.Args()...)
-	query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1 AND user_id = $2", b.Clause())
-	_, err := db.Pool.Exec(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("update activity: %w", err)
-	}
-	if clearSportConflict {
-		if err := db.ResolveImportQueueByActivity(ctx, userID, id); err != nil {
-			slog.Warn("update activity: failed to resolve sport conflict queue", "activity_id", id, "user_id", userID, "error", err)
+	// Apply primary gear assignment outside of the activities UPDATE — it lives
+	// in activity_gear_assignments since the activities.gear_id column was
+	// dropped. We rely on the user-match trigger to enforce that gear belongs
+	// to the same user as the activity (and reject cross-user assignments).
+	if clearPrimaryGear {
+		if err := ClearPrimaryGearForActivityTx(ctx, db.Pool, id); err != nil {
+			return nil, fmt.Errorf("update activity: clear gear: %w", err)
+		}
+	} else if setPrimaryGearID != "" {
+		// Verify the gear belongs to the same user before writing the aga row.
+		// This produces a clean error instead of relying on the trigger raise.
+		var owns bool
+		if err := db.Pool.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM gear WHERE id = $1 AND user_id = $2)`,
+			setPrimaryGearID, userID,
+		).Scan(&owns); err != nil {
+			return nil, fmt.Errorf("update activity: verify gear ownership: %w", err)
+		}
+		if !owns {
+			return nil, fmt.Errorf("update activity: gear %s does not belong to user %s", setPrimaryGearID, userID)
+		}
+		if err := SetPrimaryGearForActivityTx(ctx, db.Pool, id, setPrimaryGearID, "user"); err != nil {
+			return nil, fmt.Errorf("update activity: set gear: %w", err)
 		}
 	}
 
@@ -2161,6 +2205,30 @@ func (db *DB) UpdateActivityParserMetrics(ctx context.Context, activityID string
 	if _, err := db.Pool.Exec(ctx, query, args...); err != nil {
 		return fmt.Errorf("update activity parser metrics: %w", err)
 	}
+	return db.refreshGearUsageForActivity(ctx, activityID)
+}
+
+// refreshGearUsageForActivity is a private helper that looks up the activity's
+// owner and calls RefreshGearUsageForActivityMetricChange. Used by both metric-
+// update paths (parser-only and parser+sport+modifiers). Activities without an
+// owner (deleted between the UPDATE and the lookup) are silently ignored.
+func (db *DB) refreshGearUsageForActivity(ctx context.Context, activityID string) error {
+	var userID string
+	err := db.Pool.QueryRow(ctx, `SELECT user_id::text FROM activities WHERE id = $1`, activityID).Scan(&userID)
+	if err != nil {
+		// Activity vanished between the UPDATE and the lookup, or never existed:
+		// nothing to refresh. Surface only unexpected errors.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("lookup activity owner for gear-usage refresh: %w", err)
+	}
+	if userID == "" {
+		return nil
+	}
+	if _, err := db.RefreshGearUsageForActivityMetricChange(ctx, activityID, userID); err != nil {
+		return fmt.Errorf("refresh gear usage after activity metrics update: %w", err)
+	}
 	return nil
 }
 
@@ -2186,7 +2254,7 @@ func (db *DB) UpdateActivityMetricsWithSportAndModifiers(ctx context.Context, ac
 	if err != nil {
 		return fmt.Errorf("update activity metrics with sport and modifiers: %w", err)
 	}
-	return nil
+	return db.refreshGearUsageForActivity(ctx, activityID)
 }
 
 // buildActivityMetricsUpdateSQL constructs the parameterised UPDATE statement
