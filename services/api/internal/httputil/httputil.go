@@ -33,12 +33,55 @@ func WriteJSONNoCache(w http.ResponseWriter, status int, v any) {
 
 // WriteError writes an RFC 7807 problem detail response.
 func WriteError(w http.ResponseWriter, status int, title, detail, instance string) {
+	WriteProblem(w, status, title, detail, "", instance)
+}
+
+// WriteProblem writes an RFC 7807 problem+json response with an optional
+// machine-readable code field. When code is non-empty, the type URI uses
+// the code instead of the status-text slug — this lets the frontend switch
+// on code without parsing the URI. Existing WriteError callers (no code)
+// keep their original status-text URI for backwards compatibility.
+func WriteProblem(w http.ResponseWriter, status int, title, detail, code, instance string) {
+	typeURI := "https://skadia.io/errors/"
+	if code != "" {
+		typeURI += code
+	} else {
+		typeURI += strings.ReplaceAll(http.StatusText(status), " ", "-")
+	}
 	problem := model.ProblemDetail{
-		Type:     "https://skadia.io/errors/" + strings.ReplaceAll(http.StatusText(status), " ", "-"),
+		Type:     typeURI,
 		Title:    title,
 		Status:   status,
 		Detail:   detail,
+		Code:     code,
 		Instance: instance,
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(problem); err != nil {
+		slog.Error("failed to encode JSON response", "error", err)
+	}
+}
+
+// WriteProblemWithJob writes an RFC 7807/9457 problem+json response with a
+// machine-readable code and an optional job_id extension member. Used for 409
+// responses where the caller needs the job ID to track progress (e.g. a
+// re-detect endpoint that found a running job for the same resource).
+func WriteProblemWithJob(w http.ResponseWriter, status int, title, detail, code, jobID, instance string) {
+	typeURI := "https://skadia.io/errors/"
+	if code != "" {
+		typeURI += code
+	} else {
+		typeURI += strings.ReplaceAll(http.StatusText(status), " ", "-")
+	}
+	problem := model.ProblemDetail{
+		Type:     typeURI,
+		Title:    title,
+		Status:   status,
+		Detail:   detail,
+		Code:     code,
+		Instance: instance,
+		JobID:    jobID,
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)

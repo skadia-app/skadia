@@ -1,0 +1,39 @@
+format_version: 1
+scenario_kind: slow_chairlift
+rides_expected: 1
+rides:
+  - ride_index: 0
+    confidence: high
+    start_anchor: valley_a
+    end_anchor: upper_a
+    promotion_distance:
+      start_m: 0
+      end_m: 0
+    expected:
+      duration_s: 420
+      ascent_m: 134.4
+      descent_m: 0
+      distance_m: 924
+    tolerance:
+      start_distance_growth_m: 30
+      end_distance_growth_m: 30
+      ascent_m: 8
+      descent_m: 5
+      distance_m: 30
+      duration_s: 20
+      confidence: class_match
+anchors:
+  valley_a:
+    x_m: 0
+    y_m: 0
+  upper_a:
+    x_m: 924
+    y_m: 0
+fixture_content_hash: e98f5663461fe6519ca80db9e610047b4352a1c19192bad9220ade86727cbd2e
+# detector_verdict_hash is informational only — hash drift is logged but not a
+# test failure (see loadCanonicalFixture: t.Logf on mismatch, not t.Errorf).
+# The hash covers DurationS, AscentM, DescentM, round(DistanceM), Confidence
+# via math.Float64bits; it may change on Go toolchain upgrades or CPU
+# instruction-set variations. Update by running the canonical fixture smoke test
+# and copying the "current detector verdict hash" from the log output.
+detector_verdict_hash: 9055f14308df5e08

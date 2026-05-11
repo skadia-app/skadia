@@ -55,6 +55,8 @@ class _NdArray:
 
 
 _np.ndarray = _NdArray
+_np.bool_ = bool
+_np.isscalar = lambda obj: not isinstance(obj, _NdArray)
 _np.array = lambda *a, **kw: _NdArray()
 _np.arange = lambda *a, **kw: _NdArray()
 _np.cumsum = lambda *a, **kw: _NdArray()
@@ -90,11 +92,8 @@ except Exception:  # noqa: BLE001
     doc_vlm.convert_to_markdown = lambda *a, **kw: None
     doc_vlm.process_document = lambda *a, **kw: None
     doc_vlm.upload_to_s3 = lambda *a, **kw: None
-    enr_lifts = types.ModuleType("enrichment")
     sys.modules.setdefault("enrichment", enr)
     sys.modules["enrichment.document_vlm"] = doc_vlm
-    # `from enrichment import enrich_lifts` — provide a stub
-    sys.modules["enrichment"].enrich_lifts = lambda *a, **kw: None
 
 import nats_consumer  # noqa: E402
 import analytics.readiness as readiness_mod  # noqa: E402

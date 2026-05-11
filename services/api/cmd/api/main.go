@@ -24,6 +24,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/auth"
+	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/config"
@@ -415,6 +416,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Phase 4b.A.4: idempotent system-artifact backfill. Replaces the previous
+	// pattern of writing a one-shot migration for each new system rule. Safe
+	// to call on every startup — gated by users.system_artifacts_version
+	// (per-user) and pg_try_advisory_lock(sweepAdvisoryLockKey) across pods.
+	// Per-user failures log but do not abort startup.
+	if err := automation.EnsureSystemArtifactsForAllUsers(ctx, db); err != nil {
+		slog.Warn("system-artifacts backfill at startup failed (non-fatal)", "error", err)
+	}
+
 	// Ensure TimescaleDB Continuous Aggregates exist (cannot be created inside
 	// golang-migrate transactions — see migration 000242 placeholder).
 	if err := garmin.EnsureMonitoringDailyCA(ctx, db.Pool); err != nil {
@@ -494,9 +504,8 @@ func main() {
 
 	// Mark all jobs that were still 'running' at startup as failed.
 	// These are leftovers from the previous server process (crash or restart).
-	// This must happen before InsertBackgroundJobGuarded calls so the partial-
-	// unique index (user_id, job_type WHERE status='running') does not block
-	// new jobs from being inserted.
+	// This must happen before InsertBackgroundJob calls so the partial unique
+	// background-job indexes do not block new jobs from being inserted.
 	if _, cleanErr := db.Pool.Exec(context.Background(), `
 		UPDATE background_jobs
 		SET status = 'failed',
@@ -1487,9 +1496,23 @@ func main() {
 			r.Get("/activities/{id}/segments", h.GetActivitySegmentEfforts)
 			r.Get("/activities/{id}/detected-laps", h.GetActivityDetectedLaps)
 			r.Get("/activities/{id}/stops", h.GetActivityStops)
+			r.Get("/activities/{id}/lifts/candidates", h.GetLiftCandidates)
 			r.Get("/activities/{id}/lift-candidates", h.GetLiftCandidates)
 			r.Post("/activities/{id}/lift-candidates/{cid}/confirm", h.ConfirmLiftCandidate)
+			r.Patch("/activities/{id}/lift-candidates/{cid}/unconfirm", h.UnconfirmLiftCandidate)
 			r.Delete("/activities/{id}/lift-candidates/{cid}", h.RejectLiftCandidate)
+			// Phase 6.3.1: bulk endpoints + acknowledge + activity-scoped recalculate.
+			// The user-wide /lifts/recalculate-all below is disjoint (clear-only,
+			// no DELETE, no re-enrichment); both endpoints co-exist by design.
+			r.Post("/activities/{id}/lifts/confirm-all", h.ConfirmAllLiftCandidates)
+			r.Post("/activities/{id}/lifts/reject-all", h.RejectAllLiftCandidates)
+			r.Post("/activities/{id}/lifts/acknowledge", h.AcknowledgeLifts)
+			r.Post("/activities/{id}/lifts/recalculate-all", h.RecalculateActivityLifts)
+			r.Get("/activities/{id}/lifts/detection-config", h.GetLiftDetectionConfig)
+			r.Put("/activities/{id}/lifts/detection-config", h.PutLiftDetectionConfig)
+			r.Delete("/activities/{id}/lifts/detection-config", h.DeleteLiftDetectionConfig)
+			r.Post("/lift-candidates/{id}/restore", h.RestoreLiftCandidate)
+			r.Post("/lifts/recalculate-all", h.RecalculateLifts)
 
 			// Track Editor
 			r.Get("/activities/{id}/edits", h.GetActivityEdits)

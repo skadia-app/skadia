@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/automation"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -66,6 +68,21 @@ func assertRowCount(t *testing.T, pool *pgxpool.Pool, table, userID string, expe
 	}
 	if count != expected {
 		t.Errorf("assertRowCount(%s, user=%s): want %d, got %d", table, userID, expected, count)
+	}
+}
+
+func assertNamedRowCount(t *testing.T, pool *pgxpool.Pool, table, userID, name string, expected int) {
+	t.Helper()
+	var count int
+	err := pool.QueryRow(context.Background(),
+		fmt.Sprintf(`SELECT COUNT(*) FROM %q WHERE user_id = $1 AND name = $2`, table),
+		userID, name,
+	).Scan(&count)
+	if err != nil {
+		t.Fatalf("assertNamedRowCount(%s): %v", table, err)
+	}
+	if count != expected {
+		t.Errorf("assertNamedRowCount(%s, user=%s, name=%s): want %d, got %d", table, userID, name, expected, count)
 	}
 }
 
@@ -503,7 +520,7 @@ func TestConflictMergeID(t *testing.T) {
 	_ = result
 
 	// Exactly one tag named "Commute" for this user.
-	assertRowCount(t, pool, "tags", userID, 1)
+	assertNamedRowCount(t, pool, "tags", userID, "Commute", 1)
 
 	// The activity_tags row must reference the existing tag ID.
 	var linkedTagID string
@@ -1060,7 +1077,7 @@ func TestExportImportRoundtrip(t *testing.T) {
 	_ = result
 
 	// Verify row counts.
-	assertRowCount(t, pool, "tags", userID, 1)
+	assertNamedRowCount(t, pool, "tags", userID, "Roundtrip Tag", 1)
 	assertRowCount(t, pool, "activities", userID, 1)
 	assertRowCount(t, pool, "training_zones", userID, 1)
 
@@ -1258,7 +1275,7 @@ func TestJSONBRoundtrip(t *testing.T) {
 	actions := []any{
 		map[string]any{"type": "add_tag", "params": map[string]any{"tag_id": uuid.New().String()}},
 	}
-	conditions := map[string]any{"sport_type": "running"}
+	conditions := []any{map[string]any{"field": "sport_type", "op": "eq", "value": "running"}}
 
 	zipPath := buildExportZip(t, zipBuildOpts{
 		columns: map[string][]string{
@@ -1353,7 +1370,7 @@ func TestJSONBRemapping(t *testing.T) {
 					"name":       "JSONB Remap Rule",
 					"is_active":  true,
 					"priority":   1,
-					"conditions": map[string]any{},
+					"conditions": []any{},
 					"actions":    actions,
 				},
 			}),
@@ -1406,6 +1423,290 @@ func TestJSONBRemapping(t *testing.T) {
 	}
 	if gotTagID != newTagID {
 		t.Errorf("tag_id remapped to %q, want new DB tag ID %q", gotTagID, newTagID)
+	}
+}
+
+func TestActivityLiftCandidatesImportRoundtripPreservesRejectedByUser(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	srcUser := uuid.New().String()
+	actOldID := uuid.New().String()
+	candidateOldID := uuid.New().String()
+	now := time.Now().UTC()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: currentSchemaMigration(t, pool),
+		columns: map[string][]string{
+			"activities": {
+				"id", "user_id", "title", "sport_type", "started_at", "ended_at",
+				"visibility", "is_manual_entry", "created_at", "updated_at",
+			},
+			"activity_lift_candidates": {
+				"id", "activity_id", "started_at", "ended_at", "duration_s",
+				"ascent_m", "distance_m", "descent_m", "confidence", "confirmed",
+				"source", "rejected_by_user", "created_at",
+			},
+		},
+		activities: []map[string]any{
+			{
+				"id": actOldID, "user_id": srcUser, "title": "Rejected Lift Import",
+				"sport_type": "cycling", "started_at": now.Format(time.RFC3339),
+				"ended_at":   now.Add(time.Hour).Format(time.RFC3339),
+				"visibility": "private", "is_manual_entry": false,
+				"created_at": now.Format(time.RFC3339), "updated_at": now.Format(time.RFC3339),
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/activity_lift_candidates.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id": candidateOldID, "activity_id": actOldID,
+					"started_at": now.Add(10 * time.Minute).Format(time.RFC3339),
+					"ended_at":   now.Add(15 * time.Minute).Format(time.RFC3339),
+					"duration_s": 300, "ascent_m": 42.5, "distance_m": 700.0,
+					"descent_m": 3.0, "confidence": "high", "confirmed": false,
+					"source": "heuristic", "rejected_by_user": true,
+					"created_at": now.Format(time.RFC3339),
+				},
+			}),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	if _, err := newEngine(pool).RunImport(ctx, ImportInput{Source: src, TargetUserID: userID}); err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	var rejected bool
+	var source string
+	var activityID string
+	if err := pool.QueryRow(ctx, `
+		SELECT lc.rejected_by_user, lc.source, lc.activity_id::text
+		FROM activity_lift_candidates lc
+		JOIN activities a ON a.id = lc.activity_id
+		WHERE a.user_id = $1 AND a.title = 'Rejected Lift Import'
+	`, userID).Scan(&rejected, &source, &activityID); err != nil {
+		t.Fatalf("query imported lift candidate: %v", err)
+	}
+	if !rejected {
+		t.Fatal("rejected_by_user did not survive import")
+	}
+	if source != "heuristic" {
+		t.Fatalf("source = %q, want heuristic", source)
+	}
+	if activityID == actOldID {
+		t.Fatal("activity_id was not remapped from the source export UUID")
+	}
+}
+
+func TestGearImportMapsLegacyDefaultSportPredicatesToApplicableSportPredicates(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	srcUser := uuid.New().String()
+	gearOldID := uuid.New().String()
+	now := time.Now().UTC()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: 354,
+		columns: map[string][]string{
+			"gear": {
+				"id", "user_id", "name", "type", "status",
+				"default_sport_predicates", "created_at", "updated_at",
+			},
+		},
+		gear: []map[string]any{
+			{
+				"id": gearOldID, "user_id": srcUser, "name": "Legacy Predicate Bike",
+				"type": "bike", "status": "active",
+				"default_sport_predicates": []map[string]any{
+					{"sport_type": "cycling"},
+				},
+				"created_at": now.Format(time.RFC3339), "updated_at": now.Format(time.RFC3339),
+			},
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	if _, err := newEngine(pool).RunImport(ctx, ImportInput{Source: src, TargetUserID: userID}); err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	var predicates []byte
+	if err := pool.QueryRow(ctx, `
+		SELECT applicable_sport_predicates
+		FROM gear
+		WHERE user_id = $1 AND name = 'Legacy Predicate Bike'
+	`, userID).Scan(&predicates); err != nil {
+		t.Fatalf("query gear predicates: %v", err)
+	}
+	if !bytes.Contains(predicates, []byte(`"sport_type": "cycling"`)) &&
+		!bytes.Contains(predicates, []byte(`"sport_type":"cycling"`)) {
+		t.Fatalf("applicable_sport_predicates did not receive legacy predicate: %s", predicates)
+	}
+}
+
+func TestGearImportPreservesCurrentApplicableSportPredicates(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	srcUser := uuid.New().String()
+	gearOldID := uuid.New().String()
+	now := time.Now().UTC()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: currentSchemaMigration(t, pool),
+		columns: map[string][]string{
+			"gear": {
+				"id", "user_id", "name", "type", "status",
+				"applicable_sport_predicates", "created_at", "updated_at",
+			},
+		},
+		gear: []map[string]any{
+			{
+				"id": gearOldID, "user_id": srcUser, "name": "Current Predicate Shoes",
+				"type": "shoes", "status": "active",
+				"applicable_sport_predicates": []map[string]any{
+					{"sport_type": "running"},
+				},
+				"created_at": now.Format(time.RFC3339), "updated_at": now.Format(time.RFC3339),
+			},
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	if _, err := newEngine(pool).RunImport(ctx, ImportInput{Source: src, TargetUserID: userID}); err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	var predicates []byte
+	if err := pool.QueryRow(ctx, `
+		SELECT applicable_sport_predicates
+		FROM gear
+		WHERE user_id = $1 AND name = 'Current Predicate Shoes'
+	`, userID).Scan(&predicates); err != nil {
+		t.Fatalf("query gear predicates: %v", err)
+	}
+	if !bytes.Contains(predicates, []byte(`"sport_type": "running"`)) &&
+		!bytes.Contains(predicates, []byte(`"sport_type":"running"`)) {
+		t.Fatalf("applicable_sport_predicates did not preserve current predicate: %s", predicates)
+	}
+}
+
+func TestAutomationRuleImportDoesNotLetSeededSystemRuleSwallowExportedState(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	db := &database.DB{Pool: pool}
+	if err := automation.EnsureSystemArtifacts(ctx, db, userID); err != nil {
+		t.Fatalf("seed system artifacts: %v", err)
+	}
+
+	srcUser := uuid.New().String()
+	srcLiftTagID := uuid.New().String()
+	srcRuleID := uuid.New().String()
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: currentSchemaMigration(t, pool),
+		columns: map[string][]string{
+			"tags": {"id", "user_id", "name", "color", "text_color", "category", "is_system"},
+			"automation_rules": {
+				"id", "user_id", "name", "is_active", "priority", "conditions",
+				"actions", "is_system", "system_type", "trigger_event",
+			},
+		},
+		tags: []map[string]any{
+			{
+				"id": srcLiftTagID, "user_id": srcUser, "name": "Lift",
+				"color": "#111111", "text_color": "#FFFFFF", "category": "system",
+				"is_system": true,
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/automation_rules.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id": srcRuleID, "user_id": srcUser, "name": "Lift",
+					"is_active": false, "priority": -123,
+					"conditions": []map[string]any{{"field": "has_lift", "op": "eq", "value": true}},
+					"actions": []map[string]any{
+						{"action": "add_tag", "params": map[string]any{"tag_id": srcLiftTagID}},
+					},
+					"is_system": true, "system_type": "lift_detected",
+					"trigger_event": "on_enrichment_complete",
+				},
+			}),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	if _, err := newEngine(pool).RunImport(ctx, ImportInput{Source: src, TargetUserID: userID}); err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	var isActive bool
+	var priority int
+	if err := pool.QueryRow(ctx, `
+		SELECT is_active, priority
+		FROM automation_rules
+		WHERE user_id = $1 AND is_system = true AND system_type = 'lift_detected'
+	`, userID).Scan(&isActive, &priority); err != nil {
+		t.Fatalf("query system rule: %v", err)
+	}
+	if isActive {
+		t.Fatal("imported system rule is_active=false was swallowed by pre-seeded rule")
+	}
+	if priority != -123 {
+		t.Fatalf("priority = %d, want imported value -123", priority)
+	}
+}
+
+func TestAutomationRuleImportAcceptsLegacyObjectConditions(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	srcUser := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: currentSchemaMigration(t, pool),
+		columns: map[string][]string{
+			"automation_rules": {"id", "user_id", "name", "is_active", "priority", "conditions", "actions"},
+		},
+		extraFiles: map[string][]byte{
+			"data/automation_rules.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id": uuid.New().String(), "user_id": srcUser,
+					"name": "Legacy Conditions Object", "is_active": true, "priority": 7,
+					"conditions": map[string]any{
+						"operator": "AND",
+						"rules": []map[string]any{
+							{"field": "distance_m", "op": "gte", "value": 1000},
+						},
+					},
+					"actions": []map[string]any{},
+				},
+			}),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	if _, err := newEngine(pool).RunImport(ctx, ImportInput{Source: src, TargetUserID: userID}); err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+
+	var conditions []byte
+	if err := pool.QueryRow(ctx, `
+		SELECT conditions
+		FROM automation_rules
+		WHERE user_id = $1 AND name = 'Legacy Conditions Object'
+	`, userID).Scan(&conditions); err != nil {
+		t.Fatalf("query imported rule: %v", err)
+	}
+	if !bytes.HasPrefix(bytes.TrimSpace(conditions), []byte("[")) {
+		t.Fatalf("legacy object conditions were not normalized to array: %s", conditions)
 	}
 }
 
@@ -1827,7 +2128,6 @@ func TestDeferredFKGearDocument(t *testing.T) {
 		t.Errorf("gear.source_document_id %q does not reference an existing gear_documents row", *srcDocID)
 	}
 }
-
 
 // ---------------------------------------------------------------------------
 // Test 20: TestDeferredFKTagCoverFile
@@ -2743,7 +3043,7 @@ func TestJSONBRemapNullColumn(t *testing.T) {
 					"name":       "NullConditionGroups",
 					"is_active":  true,
 					"priority":   1,
-					"conditions": map[string]any{},
+					"conditions": []any{},
 					"actions":    []map[string]any{{"type": "add_tag", "params": map[string]any{"tag_id": tagOldID}}},
 					// condition_groups intentionally absent → DB default NULL
 				},
@@ -2813,7 +3113,7 @@ func TestJSONBRemapPreservesNullWhenSiblingColumnChanges(t *testing.T) {
 					"name":             "NullSiblingColumn",
 					"is_active":        true,
 					"priority":         1,
-					"conditions":       map[string]any{},
+					"conditions":       []any{},
 					"condition_groups": nil,
 					"actions":          []map[string]any{{"type": "add_tag", "params": map[string]any{"tag_id": tagOldID}}},
 				},
@@ -3129,7 +3429,7 @@ func TestJSONBRemapMissingEntity(t *testing.T) {
 					"name":       "MissingGearRule",
 					"is_active":  true,
 					"priority":   1,
-					"conditions": map[string]any{},
+					"conditions": []any{},
 					"actions": []any{
 						map[string]any{
 							"type":   "set_gear",

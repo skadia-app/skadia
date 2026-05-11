@@ -141,20 +141,38 @@ mapfile -t affected < <(
 )
 for f in "${affected[@]}"; do
     [[ -f "$f" ]] || continue
+    # Skip symbolic links — `sed -i` follows symlinks and materialises the
+    # link as a regular file with the target's content. Repo symlinks like
+    # CLAUDE.md/GEMINI.md → AGENTS.md must stay as links. The diff would
+    # not normally include them, but `xargs grep -l "${PLACEHOLDER}_"` does
+    # match the *target's* content, dragging the link in.
+    if [[ -L "$f" ]]; then
+        echo "  skip symlink: $f"
+        continue
+    fi
     for topic in "${topics[@]}"; do
         new_num="${topic_to_num[$topic]}"
         sed -i "s/${PLACEHOLDER}_${topic}/${new_num}_${topic}/g" "$f"
     done
-    # Also handle migration_NNN_test.go-style references.
-    for topic in "${topics[@]}"; do
-        new_num="${topic_to_num[$topic]}"
-        # Topic-less but PLACEHOLDER-prefixed test names get the topic's number.
-        # Only if exactly one topic — otherwise ambiguous, leave for manual fix.
-        if [[ ${#topics[@]} -eq 1 ]]; then
-            sed -i "s/migration_${PLACEHOLDER}_test/migration_${new_num}_test/g" "$f"
-        fi
-    done
 done
+
+# Bare `migration_${PLACEHOLDER}_test.go`-style references are intentionally
+# NOT auto-patched: the convention (CLAUDE.md + memory:feedback_migration_placeholder_pattern)
+# is topic-named tests (`migration_<Topic>_test.go`), so any surviving bare
+# `migration_000999_test` reference is either a historic plan-doc pointing at
+# a *different* topic's placeholder or a legacy test we no longer create. A
+# blanket sed would clobber historic plan-docs that reference older 000999
+# topics (this happened before the guard was added). Warn instead.
+bare_test_hits=$(
+    printf '%s\n' "${affected[@]}" \
+        | xargs -r grep -nE "migration_${PLACEHOLDER}_test" 2>/dev/null || true
+)
+if [[ -n "$bare_test_hits" ]]; then
+    echo
+    echo "WARN: bare 'migration_${PLACEHOLDER}_test' references found — review manually:"
+    echo "$bare_test_hits" | head -20
+    echo "(use topic-named tests per CLAUDE.md: migration_<Topic>_test.go)"
+fi
 
 # Step 6: Bare PLACEHOLDER references (e.g., "Migration 000999" in prose).
 bare_hits=$(

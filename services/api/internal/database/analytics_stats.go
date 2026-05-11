@@ -8,15 +8,21 @@ import (
 
 // LifetimeStats holds aggregated lifetime statistics for a user.
 type LifetimeStats struct {
-	TotalActivities     int64   `json:"total_activities"`
+	TotalActivities int64 `json:"total_activities"`
+	// TotalDistanceM, TotalElevationM, and TotalElevationLossM are net of lift
+	// distance/ascent/descent unless an activity explicitly opts out.
 	TotalDistanceM      float64 `json:"total_distance_m"`
-	TotalElevationM     float64 `json:"total_elevation_m"`      // gain
-	TotalElevationLossM float64 `json:"total_elevation_loss_m"` // descent — relevant for ski/downhill gear
+	TotalElevationM     float64 `json:"total_elevation_m"`
+	TotalElevationLossM float64 `json:"total_elevation_loss_m"`
 	TotalMovingTimeS    int64   `json:"total_moving_time_s"`
 	TotalElapsedTimeS   int64   `json:"total_elapsed_time_s"`
 	TotalCalories       int64   `json:"total_calories"`
 	ActiveDays          int64   `json:"active_days"`
 	Countries           int64   `json:"countries"`
+	LiftRideCount       int64   `json:"lift_ride_count"`
+	LiftAscentM         float64 `json:"lift_ascent_m"`
+	LiftDescentM        float64 `json:"lift_descent_m"`
+	LiftDistanceM       float64 `json:"lift_distance_m"`
 }
 
 // GetLifetimeStats returns aggregated lifetime statistics for a user.
@@ -25,17 +31,31 @@ type LifetimeStats struct {
 func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause string, args []any) (*LifetimeStats, error) {
 	query := `
 		SELECT
-			COUNT(*)                                  AS total_activities,
-			COALESCE(SUM(distance_m), 0)              AS total_distance_m,
-			COALESCE(SUM(elevation_gain_m), 0)        AS total_elevation_m,
-			COALESCE(SUM(elevation_loss_m), 0)        AS total_elevation_loss_m,
-			COALESCE(SUM(moving_time_s), 0)           AS total_moving_time_s,
-			COALESCE(SUM(elapsed_time_s), 0)          AS total_elapsed_time_s,
-			COALESCE(SUM(total_calories), 0)          AS total_calories,
+			COUNT(*)                                                   AS total_activities,
+			COALESCE(SUM(GREATEST(0,
+				COALESCE(distance_m, 0) -
+				CASE WHEN exclude_lift_subtraction THEN 0
+				     ELSE COALESCE(lift_distance_m, 0) END)), 0)       AS total_distance_m,
+			COALESCE(SUM(GREATEST(0,
+				COALESCE(elevation_gain_m, 0) -
+				CASE WHEN exclude_lift_subtraction THEN 0
+				     ELSE COALESCE(lift_ascent_m, 0) END)), 0)         AS total_elevation_m,
+			COALESCE(SUM(GREATEST(0,
+				COALESCE(elevation_loss_m, 0) -
+				CASE WHEN exclude_lift_subtraction THEN 0
+				     ELSE COALESCE(lift_descent_m, 0) END)), 0)        AS total_elevation_loss_m,
+			COALESCE(SUM(moving_time_s), 0)                            AS total_moving_time_s,
+			COALESCE(SUM(elapsed_time_s), 0)                           AS total_elapsed_time_s,
+			COALESCE(SUM(total_calories), 0)                           AS total_calories,
 			COUNT(DISTINCT (a.started_at AT TIME ZONE COALESCE(a.timezone, 'UTC'))::date) AS active_days,
-			COUNT(DISTINCT start_country)              AS countries
+			COUNT(DISTINCT start_country)                              AS countries,
+			COALESCE(SUM(COALESCE(lift_count, 0)), 0)                  AS lift_ride_count,
+			COALESCE(SUM(COALESCE(lift_ascent_m, 0)), 0)               AS lift_ascent_m,
+			COALESCE(SUM(COALESCE(lift_descent_m, 0)), 0)              AS lift_descent_m,
+			COALESCE(SUM(COALESCE(lift_distance_m, 0)), 0)             AS lift_distance_m
 		FROM activities a
-		WHERE a.user_id = $1` + whereClause
+		WHERE a.user_id = $1
+		  AND NOT a.is_group_secondary` + whereClause
 
 	allArgs := append([]any{userID}, args...)
 	var s LifetimeStats
@@ -49,6 +69,10 @@ func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause s
 		&s.TotalCalories,
 		&s.ActiveDays,
 		&s.Countries,
+		&s.LiftRideCount,
+		&s.LiftAscentM,
+		&s.LiftDescentM,
+		&s.LiftDistanceM,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get lifetime stats: %w", err)
@@ -58,25 +82,37 @@ func (db *DB) GetLifetimeStats(ctx context.Context, userID string, whereClause s
 
 // GetEddingtonData returns per-day aggregated values sorted descending for
 // Eddington number calculation.
-// metric: "km" → SUM(distance_m)/1000, "elevation" → SUM(elevation_gain_m),
-//         "descent" → SUM(elevation_loss_m)
+// metric: "km" returns net distance, "elevation" returns net ascent, and
+// "descent" returns net descent.
 func (db *DB) GetEddingtonData(ctx context.Context, userID string, metric string, whereClause string, args []any) ([]float64, error) {
 	// Use whitelisted metric to avoid injection.
 	var aggExpr string
 	switch metric {
 	case "elevation":
-		aggExpr = "COALESCE(SUM(elevation_gain_m), 0)"
+		// Per-row floor before SUM so a single bad row cannot produce a negative day total.
+		aggExpr = `COALESCE(SUM(GREATEST(0,
+				COALESCE(elevation_gain_m, 0) -
+				CASE WHEN exclude_lift_subtraction THEN 0
+				     ELSE COALESCE(lift_ascent_m, 0) END)), 0)`
 	case "descent":
-		aggExpr = "COALESCE(SUM(elevation_loss_m), 0)"
+		// Per-row floor before SUM so a single bad row cannot produce a negative day total.
+		aggExpr = `COALESCE(SUM(GREATEST(0,
+				COALESCE(elevation_loss_m, 0) -
+				CASE WHEN exclude_lift_subtraction THEN 0
+				     ELSE COALESCE(lift_descent_m, 0) END)), 0)`
 	default:
-		// default: km
-		aggExpr = "COALESCE(SUM(distance_m), 0) / 1000.0"
+		// default: km — per-row floor before SUM, then convert to km.
+		aggExpr = `COALESCE(SUM(GREATEST(0,
+				COALESCE(distance_m, 0) -
+				CASE WHEN exclude_lift_subtraction THEN 0
+				     ELSE COALESCE(lift_distance_m, 0) END)), 0) / 1000.0`
 	}
 
 	query := `
 		SELECT ` + aggExpr + ` AS value
 		FROM activities a
-		WHERE a.user_id = $1` + whereClause + `
+		WHERE a.user_id = $1
+		  AND NOT a.is_group_secondary` + whereClause + `
 		GROUP BY (a.started_at AT TIME ZONE COALESCE(a.timezone, 'UTC'))::date
 		ORDER BY value DESC`
 
@@ -116,15 +152,28 @@ type DistributionRow struct {
 // distType: "sport"|"country"|"gear"|"distance_bucket"
 // metric: "count"|"distance_m"|"elevation_gain_m"|"elevation_loss_m"|"moving_time_s"
 func (db *DB) GetDistribution(ctx context.Context, userID string, distType string, metric string, whereClause string, args []any) ([]DistributionRow, error) {
+	netDistanceExpr := `GREATEST(0,
+		COALESCE(a.distance_m, 0) -
+		CASE WHEN a.exclude_lift_subtraction THEN 0
+		     ELSE COALESCE(a.lift_distance_m, 0) END)`
+	netAscentExpr := `GREATEST(0,
+		COALESCE(a.elevation_gain_m, 0) -
+		CASE WHEN a.exclude_lift_subtraction THEN 0
+		     ELSE COALESCE(a.lift_ascent_m, 0) END)`
+	netDescentExpr := `GREATEST(0,
+		COALESCE(a.elevation_loss_m, 0) -
+		CASE WHEN a.exclude_lift_subtraction THEN 0
+		     ELSE COALESCE(a.lift_descent_m, 0) END)`
+
 	// Whitelist metric to avoid injection.
 	var valueExpr string
 	switch metric {
 	case "distance_m":
-		valueExpr = "COALESCE(SUM(a.distance_m), 0)"
+		valueExpr = "COALESCE(SUM(" + netDistanceExpr + "), 0)"
 	case "elevation_gain_m":
-		valueExpr = "COALESCE(SUM(a.elevation_gain_m), 0)"
+		valueExpr = "COALESCE(SUM(" + netAscentExpr + "), 0)"
 	case "elevation_loss_m":
-		valueExpr = "COALESCE(SUM(a.elevation_loss_m), 0)"
+		valueExpr = "COALESCE(SUM(" + netDescentExpr + "), 0)"
 	case "moving_time_s":
 		valueExpr = "COALESCE(SUM(a.moving_time_s), 0)"
 	default:
@@ -145,12 +194,12 @@ func (db *DB) GetDistribution(ctx context.Context, userID string, distType strin
 		LEFT JOIN gear g ON g.id = aga.gear_id AND g.user_id = a.user_id`
 	case "distance_bucket":
 		labelExpr = `CASE
-			WHEN a.distance_m IS NULL OR a.distance_m = 0 THEN 'No distance'
-			WHEN a.distance_m < 5000    THEN '<5 km'
-			WHEN a.distance_m < 10000   THEN '5–10 km'
-			WHEN a.distance_m < 20000   THEN '10–20 km'
-			WHEN a.distance_m < 50000   THEN '20–50 km'
-			WHEN a.distance_m < 100000  THEN '50–100 km'
+			WHEN ` + netDistanceExpr + ` = 0 THEN 'No distance'
+			WHEN ` + netDistanceExpr + ` < 5000    THEN '<5 km'
+			WHEN ` + netDistanceExpr + ` < 10000   THEN '5–10 km'
+			WHEN ` + netDistanceExpr + ` < 20000   THEN '10–20 km'
+			WHEN ` + netDistanceExpr + ` < 50000   THEN '20–50 km'
+			WHEN ` + netDistanceExpr + ` < 100000  THEN '50–100 km'
 			ELSE '100+ km'
 		END`
 		groupBy = labelExpr
@@ -173,7 +222,8 @@ func (db *DB) GetDistribution(ctx context.Context, userID string, distType strin
 			)                            AS percentage
 		FROM activities a
 		` + joinClause + `
-		WHERE a.user_id = $1` + whereClause + `
+		WHERE a.user_id = $1
+		  AND NOT a.is_group_secondary` + whereClause + `
 		GROUP BY ` + groupBy + `
 		ORDER BY value DESC`
 

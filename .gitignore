@@ -97,6 +97,23 @@ traefik/dynamic/redirect.yml
 
 # Codex CLI trust marker (per-project)
 .codex
+
+# Go compiled cmd binaries (`go build ./cmd/<name>` from services/api/ drops the
+# binary into services/api/<name>). Source lives in services/api/cmd/<name>/.
+services/api/api
+services/api/migrate
+services/api/restore
+services/api/lift_recompute_all
+services/api/lift_detect_debug
+services/api/lift_detect_eval
+services/api/lift_detect_viz
+services/api/landmark_admissibility_check
+
+# Convention for local-only data referenced from documentation: anything
+# under .private/ stays out of the repository. Recipes and examples may
+# suggest this path as a default for local corpora, calibration history,
+# or per-developer scratch state — adoption is opt-in.
+.private/
 CLAUDE.md
 CLAUDE.MD
 frontend/CLAUDE.md

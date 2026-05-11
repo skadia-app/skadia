@@ -17,6 +17,10 @@ package auth
 // NOTE: TOTP/2FA is not yet implemented. When totp_secret and recovery_codes
 // are introduced, add them back here.
 var ExportDenyColumns = map[string][]string{
-	"users":             {"password_hash"},
+	// system_artifacts_version is system metadata (not PII) added by Phase 4b.A.
+	// It tracks the EnsureSystemArtifacts seed version for the user and is
+	// internal to the rules-engine pipeline — exposing it in the GDPR export
+	// would leak implementation details with no value to the user.
+	"users":             {"password_hash", "system_artifacts_version"},
 	"oauth_connections": {"access_token", "refresh_token"},
 }

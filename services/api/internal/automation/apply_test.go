@@ -86,6 +86,19 @@ func TestShouldEvaluateRule(t *testing.T) {
 			model.AutomationRule{IsActive: true, TriggerEvent: "on_manual_apply"},
 			"on_manual_apply", true,
 		},
+		// Phase 4b.B.5.1 — lift_detected uses on_enrichment_complete; it must
+		// fire when the lift candidate handlers re-run rules with that trigger
+		// and stay quiet when an on_import sweep runs.
+		{
+			"lift_detected fires on_enrichment_complete",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_enrichment_complete", SystemType: new("lift_detected")},
+			"on_enrichment_complete", true,
+		},
+		{
+			"lift_detected does NOT fire on_import",
+			model.AutomationRule{IsActive: true, TriggerEvent: "on_enrichment_complete", SystemType: new("lift_detected")},
+			"on_import", false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -358,6 +358,34 @@ func TestEvalCondition_EnrichmentFields(t *testing.T) {
 	}
 }
 
+// TestEvaluate_HasLift verifies the boolean has_lift enrichment field added
+// in Phase 4b.B.2. Mirrors the has_summit case above; the field is populated
+// in database/gear.go::buildActivityMap from derefInt(liftCount) > 0.
+func TestEvaluate_HasLift(t *testing.T) {
+	makeGroups := func(c rules.Condition) []rules.ConditionGroup {
+		return []rules.ConditionGroup{{Logic: "and", Conditions: []rules.Condition{c}}}
+	}
+	with := map[string]any{"has_lift": true, "lift_count": 3}
+	without := map[string]any{"has_lift": false, "lift_count": 0}
+
+	// has_lift = true matches
+	if !rules.EvaluateGroups(makeGroups(rules.Condition{Field: "has_lift", Op: "eq", Value: true}), with) {
+		t.Error("has_lift=true should match has_lift eq true")
+	}
+	// has_lift = false does not match true-condition
+	if rules.EvaluateGroups(makeGroups(rules.Condition{Field: "has_lift", Op: "eq", Value: true}), without) {
+		t.Error("has_lift=false should NOT match has_lift eq true")
+	}
+	// lift_count gte 3 matches
+	if !rules.EvaluateGroups(makeGroups(rules.Condition{Field: "lift_count", Op: "gte", Value: float64(3)}), with) {
+		t.Error("lift_count=3 should match lift_count gte 3")
+	}
+	// lift_count gte 5 does not match (only 3)
+	if rules.EvaluateGroups(makeGroups(rules.Condition{Field: "lift_count", Op: "gte", Value: float64(5)}), with) {
+		t.Error("lift_count=3 should NOT match lift_count gte 5")
+	}
+}
+
 func TestEvalCondition_HasTag_Neq(t *testing.T) {
 	activity := map[string]any{
 		"tags": []string{"indoor", "frost"},

@@ -20,6 +20,16 @@ export function invalidateQueriesForCompletedJob(queryClient: QueryClient, job: 
     queryClient.invalidateQueries({ queryKey: ['activity-streams', job.entity_id] })
     queryClient.invalidateQueries({ queryKey: ['activity-sensors', job.entity_id] })
     queryClient.invalidateQueries({ queryKey: ['activity-track-summary', job.entity_id] })
+    // Lift candidates may change when reprocess includes the lift module — refresh
+    // so the activity-detail review modal/banner reacts to newly detected rides.
+    queryClient.invalidateQueries({ queryKey: ['lift-candidates', job.entity_id] })
+    return
+  }
+
+  if (job.job_type === 'lift_recompute' && job.entity_id) {
+    queryClient.invalidateQueries({ queryKey: ['activity', job.entity_id] })
+    queryClient.invalidateQueries({ queryKey: ['lift-candidates', job.entity_id] })
+    queryClient.invalidateQueries({ queryKey: ['lift-candidates-inspector', job.entity_id] })
     return
   }
 
@@ -28,6 +38,11 @@ export function invalidateQueriesForCompletedJob(queryClient: QueryClient, job: 
     if (job.entity_id) {
       queryClient.invalidateQueries({ queryKey: ['activity', job.entity_id] })
       queryClient.invalidateQueries({ queryKey: ['activity-children', job.entity_id] })
+      // Multisport re-processing reruns lift detection on the parent activity.
+      queryClient.invalidateQueries({ queryKey: ['lift-candidates', job.entity_id] })
+    } else {
+      // No entity_id — broadcast-invalidate all lift-candidate lists.
+      queryClient.invalidateQueries({ queryKey: ['lift-candidates'] })
     }
     queryClient.invalidateQueries({ queryKey: ['activity-track-summary'] })
     return
@@ -40,6 +55,8 @@ export function invalidateQueriesForCompletedJob(queryClient: QueryClient, job: 
   ) {
     queryClient.invalidateQueries({ queryKey: ['activities'] })
     queryClient.invalidateQueries({ queryKey: ['activity-track-summary'] })
+    // Bulk reprocessing reruns lift detection on all activities — broadcast-invalidate.
+    queryClient.invalidateQueries({ queryKey: ['lift-candidates'] })
     return
   }
 

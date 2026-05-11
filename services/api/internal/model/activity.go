@@ -112,8 +112,21 @@ type Activity struct {
 	LiftDescentM           *float64 `json:"lift_descent_m,omitempty"`
 	LiftDurationS          *int     `json:"lift_duration_s,omitempty"`
 	ExcludeLiftSubtraction bool     `json:"exclude_lift_subtraction"`
-	ElevationSource        string   `json:"elevation_source,omitempty" db:"elevation_source"`
-	DistanceSource         string   `json:"distance_source,omitempty" db:"distance_source"`
+	// LiftsAcknowledgedAt is set when the user has reviewed lift candidates
+	// (confirm-all/reject-all/single-action via review modal, or X-close
+	// = acknowledge). NULL means the modal should show on next visit.
+	// Phase 4d migration 000358.
+	LiftsAcknowledgedAt *time.Time `json:"lifts_acknowledged_at,omitempty"`
+	// LiftDetectionOSMOverride overrides the user-level enable_lift_detection_osm
+	// setting for this activity. NULL means use the user setting.
+	// Migration 000358.
+	LiftDetectionOSMOverride *bool `json:"lift_detection_osm_override,omitempty"`
+	// LiftDetectionHeuristicOverride overrides the user-level
+	// enable_lift_detection_heuristic setting for this activity.
+	// NULL means use the user setting. Migration 000358.
+	LiftDetectionHeuristicOverride *bool  `json:"lift_detection_heuristic_override,omitempty"`
+	ElevationSource                string `json:"elevation_source,omitempty" db:"elevation_source"`
+	DistanceSource                 string `json:"distance_source,omitempty" db:"distance_source"`
 	// Multisport parent/child
 	ParentID   *string `json:"parent_id,omitempty"`
 	ChildCount int     `json:"child_count,omitempty"` // Computed, not in DB
@@ -427,13 +440,23 @@ type PMCDay struct {
 	SportGroup string  `json:"sport_group,omitempty"` // empty = "__combined__" (legacy), sport-specific rows use e.g. "cycling"
 }
 
-// ProblemDetail is an RFC 7807 error response.
+// ProblemDetail is an RFC 7807 error response, optionally extended with a
+// machine-readable code field (RFC 9457 §3.1.4 style) for callers that need
+// to distinguish multiple causes within the same status code without
+// string-matching the detail text. Existing WriteError callers leave Code
+// empty so the body stays a backwards-compatible RFC 7807 shape via omitempty.
 type ProblemDetail struct {
 	Type     string `json:"type"`
 	Title    string `json:"title"`
 	Status   int    `json:"status"`
 	Detail   string `json:"detail"`
+	Code     string `json:"code,omitempty"`
 	Instance string `json:"instance,omitempty"`
+	// JobID is an optional RFC 9457 §3.2 extension member: when a 409 rejects
+	// the request because a background job is already running for the same
+	// resource, the caller can subscribe to /api/jobs/<JobID> for progress
+	// without parsing Detail. Empty → omitted.
+	JobID string `json:"job_id,omitempty"`
 }
 
 // ActivityWithPath is a lightweight struct used for shadow FS rename operations.
@@ -563,15 +586,17 @@ type EnrichmentSettings struct {
 	// Each flag controls whether the corresponding enrichment module runs.
 	// Default: true (all modules enabled for new and existing users).
 	// Note: module string literals ("summits", "lifts" etc.) in Go/NATS are stable identifiers.
-	EnableForestDetection     bool `json:"enable_forest_detection"`
-	EnableWaterDetection      bool `json:"enable_water_detection"`
-	EnableSettlementDetection bool `json:"enable_settlement_detection"`
-	EnableBorderDetection     bool `json:"enable_border_detection"`
-	EnableLiftDetection       bool `json:"enable_lift_detection"`
-	EnableSurfaceDetection    bool `json:"enable_surface_detection"`
-	EnableDifficultyScales    bool `json:"enable_difficulty_scales"`
-	EnableIntervalDetection   bool `json:"enable_interval_detection"`
-	EnableEmbeddings          bool `json:"enable_embeddings"`
+	EnableForestDetection        bool `json:"enable_forest_detection"`
+	EnableWaterDetection         bool `json:"enable_water_detection"`
+	EnableSettlementDetection    bool `json:"enable_settlement_detection"`
+	EnableBorderDetection        bool `json:"enable_border_detection"`
+	EnableLiftDetection          bool `json:"enable_lift_detection"`
+	EnableLiftDetectionOSM       bool `json:"enable_lift_detection_osm"`
+	EnableLiftDetectionHeuristic bool `json:"enable_lift_detection_heuristic"`
+	EnableSurfaceDetection       bool `json:"enable_surface_detection"`
+	EnableDifficultyScales       bool `json:"enable_difficulty_scales"`
+	EnableIntervalDetection      bool `json:"enable_interval_detection"`
+	EnableEmbeddings             bool `json:"enable_embeddings"`
 
 	// Photo preview size: "2048" (default), "4k", or "original" (Migration 000120).
 	PhotoPreviewSize string `json:"photo_preview_size"`

@@ -431,6 +431,9 @@ func (e *Engine) insertRow(
 	if spec.Name == "file_attachments" && (row["file_id"] == nil || row["entity_id"] == nil) {
 		return skippedWithWarning, nil
 	}
+	if spec.Name == "automation_rules" {
+		return e.insertAutomationRule(ctx, tx, spec, row, idMap, oldID, userID, insertCols, geometryCols)
+	}
 
 	switch spec.Conflict {
 	case cmMergeID:
@@ -461,6 +464,121 @@ func (e *Engine) insertRow(
 	default: // cmInsert, cmReplace (delete already done), cmUpsert
 		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols)
 	}
+}
+
+func (e *Engine) insertAutomationRule(
+	ctx context.Context,
+	tx pgx.Tx,
+	spec tableSpec,
+	row map[string]any,
+	idMap *IDMap,
+	oldID string,
+	userID string,
+	insertCols []string,
+	geometryCols map[string]bool,
+) (insertResult, error) {
+	isSystem := boolValue(row["is_system"])
+	existingID, found, err := findAutomationRuleForImport(ctx, tx, userID, row, isSystem)
+	if err != nil {
+		return failed, err
+	}
+	if !found {
+		return e.doInsert(ctx, tx, spec, row, insertCols, geometryCols)
+	}
+	if oldID != "" {
+		idMap.Set(oldID, existingID)
+	}
+	if isSystem {
+		if err := updateExistingSystemAutomationRule(ctx, tx, existingID, userID, row, insertCols); err != nil {
+			return failed, err
+		}
+	}
+	return skipped, nil
+}
+
+func findAutomationRuleForImport(ctx context.Context, tx pgx.Tx, userID string, row map[string]any, isSystem bool) (string, bool, error) {
+	var query string
+	var args []any
+	if isSystem {
+		systemType, ok := stringVal(row["system_type"])
+		if !ok || strings.TrimSpace(systemType) == "" {
+			return "", false, nil
+		}
+		query = `
+			SELECT id::text
+			FROM automation_rules
+			WHERE user_id = $1 AND is_system = true AND system_type = $2
+			LIMIT 1`
+		args = []any{userID, systemType}
+	} else {
+		name, ok := stringVal(row["name"])
+		if !ok || strings.TrimSpace(name) == "" {
+			return "", false, nil
+		}
+		query = `
+			SELECT id::text
+			FROM automation_rules
+			WHERE user_id = $1 AND is_system = false AND name = $2
+			LIMIT 1`
+		args = []any{userID, name}
+	}
+
+	var existingID string
+	err := tx.QueryRow(ctx, query, args...).Scan(&existingID)
+	if err == pgx.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("find automation_rules import match: %w", err)
+	}
+	return existingID, true, nil
+}
+
+func updateExistingSystemAutomationRule(ctx context.Context, tx pgx.Tx, existingID, userID string, row map[string]any, insertCols []string) error {
+	mutable := map[string]bool{
+		"name":                true,
+		"is_active":           true,
+		"priority":            true,
+		"conditions":          true,
+		"conditions_logic":    true,
+		"condition_groups":    true,
+		"actions":             true,
+		"trigger_event":       true,
+		"stop_on_match":       true,
+		"apply_retroactively": true,
+		"branches":            true,
+	}
+	var sets []string
+	var args []any
+	for _, col := range insertCols {
+		if !mutable[col] {
+			continue
+		}
+		val, ok := row[col]
+		if !ok {
+			continue
+		}
+		converted, err := convertValue(val, col)
+		if err != nil {
+			return fmt.Errorf("update automation_rules.%s: %w", col, err)
+		}
+		args = append(args, converted)
+		sets = append(sets, fmt.Sprintf("%s = $%d", pgx.Identifier{col}.Sanitize(), len(args)))
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	args = append(args, existingID, userID)
+	query := fmt.Sprintf(
+		`UPDATE automation_rules SET %s WHERE id = $%d AND user_id = $%d AND is_system = true`,
+		strings.Join(sets, ", "),
+		len(args)-1,
+		len(args),
+	)
+	if _, err := tx.Exec(ctx, query, args...); err != nil {
+		return fmt.Errorf("update existing system automation rule: %w", err)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

@@ -67,15 +67,28 @@ func GetEnrichmentStream(ctx context.Context, db *database.DB, activityID string
 // stream-enrichment modules. Pass allStreamEnabled() to run every module
 // regardless of user preferences.
 type StreamEnrichmentSettings struct {
+	EnableLiftDetection     bool
 	EnableStopDetection     bool
 	EnableAscentDetection   bool
 	EnableIntervalDetection bool
+
+	// SkipGearRefresh suppresses the per-activity gear-stats refresh inside
+	// enrichStreamLifts / RecomputeLiftStats. Set this in bulk-recompute
+	// paths (e.g. the backfill CLI) where a single UpdateGearStats call per
+	// affected gear replaces N redundant per-activity refreshes.
+	SkipGearRefresh bool
+
+	// FailOnModuleError makes RunStreamEnrichment return the first enabled
+	// module error instead of only logging it. Keep false for import-time
+	// best-effort enrichment; set true for user-visible single-module jobs.
+	FailOnModuleError bool
 }
 
 // StreamSettingsFromModel converts a model.EnrichmentSettings into the smaller
 // StreamEnrichmentSettings struct used by RunStreamEnrichment.
 func StreamSettingsFromModel(s *model.EnrichmentSettings) StreamEnrichmentSettings {
 	return StreamEnrichmentSettings{
+		EnableLiftDetection:     s.EnableLiftDetection,
 		EnableStopDetection:     s.EnableStopDetection,
 		EnableAscentDetection:   s.EnableAscentDetection,
 		EnableIntervalDetection: s.EnableIntervalDetection,
@@ -91,6 +104,7 @@ func streamSettingsFromModel(s *model.EnrichmentSettings) StreamEnrichmentSettin
 // true, used as a fallback when no user settings are available.
 func AllStreamEnabled() StreamEnrichmentSettings {
 	return StreamEnrichmentSettings{
+		EnableLiftDetection:     true,
 		EnableStopDetection:     true,
 		EnableAscentDetection:   true,
 		EnableIntervalDetection: true,
@@ -104,15 +118,23 @@ func allStreamEnabled() StreamEnrichmentSettings {
 
 // RunStreamEnrichment executes stream-based enrichment modules for an activity.
 // Analog to RunGeoEnrichment: modules are run in sequence; failures are logged
-// per module and do not abort subsequent modules.
+// per module and do not abort subsequent modules unless FailOnModuleError is set.
 //
 // The activity stream (a compressed TimescaleDB hypertable) is loaded ONCE and
 // shared across all modules to avoid repeated decompression overhead.
 //
 // Modules:
+//   - lifts     → enrichStreamLifts     (Method-A OSM-snap + Method-B heuristic)
 //   - stops     → enrichStreamStops     (stop detection + POI matching)
 //   - ascents   → enrichStreamAscents   (climb detection)
 //   - intervals → enrichStreamIntervals (interval detection)
+//
+// Lift detection runs first because its output (lift time-windows) can serve
+// as hint context for downstream stop/ascent modules — a cable-car ride is
+// neither a "stop" nor an "ascent" even though it superficially resembles
+// both. Cross-module suppression is out of scope for Phase 4 (the slot is
+// reserved here so module ordering becomes a deliberate choice rather than
+// list-append happenstance).
 func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityID string, settings StreamEnrichmentSettings) error {
 	slog.Info("running stream enrichment (Go SQL)", "activity_id", activityID)
 
@@ -148,12 +170,20 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 		}
 	}
 
+	// Capture SkipGearRefresh in a closure so the lifts module can forward it
+	// to enrichStreamLiftsOpts without changing the shared module fn signature.
+	skipGear := settings.SkipGearRefresh
+	liftFn := func(ctx context.Context, db *database.DB, userID, activityID string, stream []EnrichmentStreamPoint) error {
+		return enrichStreamLiftsOpts(ctx, db, userID, activityID, stream, skipGear)
+	}
+
 	type module struct {
 		name    string
 		enabled bool
 		fn      func(context.Context, *database.DB, string, string, []EnrichmentStreamPoint) error
 	}
 	modules := []module{
+		{"lifts", settings.EnableLiftDetection, liftFn},
 		{"stops", settings.EnableStopDetection, enrichStreamStops},
 		{"ascents", settings.EnableAscentDetection, enrichStreamAscents},
 		{"intervals", settings.EnableIntervalDetection, enrichStreamIntervals},
@@ -173,6 +203,9 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 				"activity_id", activityID,
 				"error", err,
 			)
+			if settings.FailOnModuleError {
+				return fmt.Errorf("stream enrichment module %s: %w", m.name, err)
+			}
 		}
 	}
 

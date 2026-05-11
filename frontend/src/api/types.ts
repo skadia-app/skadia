@@ -165,6 +165,8 @@ export interface Activity {
   lift_descent_m?: number | null
   lift_duration_s?: number | null
   exclude_lift_subtraction?: boolean | null
+  // ISO timestamp; null = user has not yet reviewed heuristic lift candidates.
+  lifts_acknowledged_at?: string | null
   elevation_source?: string | null
   distance_source?: string | null
   // Multisport parent/child
@@ -333,8 +335,8 @@ export interface ActivitiesResponse {
 export interface StreamPoint {
   // ── Bestehend (10 Felder) ──
   time: string
-  lat?: number
-  lng?: number
+  lat?: number | null
+  lng?: number | null
   altitude_m?: number
   speed_ms?: number
   distance_m?: number
@@ -454,6 +456,30 @@ export interface StreamPoint {
   running_smoothness_pct?: number  // 0–100 %
 }
 
+export type LiftCandidateSource = 'heuristic' | 'osm'
+
+export interface LiftCandidate {
+  id: string
+  activity_id: string
+  started_at: string
+  ended_at: string
+  duration_s: number
+  ascent_m: number
+  descent_m?: number | null
+  distance_m?: number | null
+  confidence: string
+  confirmed: boolean
+  rejected_by_user: boolean
+  source: LiftCandidateSource
+  segment_effort_id: string | null
+  // Populated only when source === 'osm' AND the OSM-lifts row for the matched
+  // segment is still present. Frontend filters osm_aerialway through a fixed
+  // whitelist (see liftDisplayLabel) so unsupported / freight-only types
+  // ('goods', etc.) render as if no metadata were available.
+  osm_name?: string | null
+  osm_aerialway?: string | null
+}
+
 export interface DataVisibility {
   speed: boolean
   heart_rate: boolean
@@ -520,6 +546,8 @@ export interface EnrichmentSettings {
   enable_settlement_detection: boolean
   enable_border_detection: boolean
   enable_lift_detection: boolean
+  enable_lift_detection_osm: boolean
+  enable_lift_detection_heuristic: boolean
   enable_surface_detection: boolean
   enable_difficulty_scales: boolean
   enable_interval_detection: boolean

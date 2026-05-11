@@ -628,6 +628,9 @@ func gdprExportTables() []gdprExportTableSpec {
 		{"data/activity_gear_assignments.json", "activity_gear_assignments", "user_id = $1 ORDER BY created_at DESC"},
 		{"data/gear_component_swap_events.json", "gear_component_swap_events", "user_id = $1 ORDER BY swap_date DESC"},
 		{"data/gear_schema_definitions.json", "gear_schema_definitions", "user_id = $1"},
+		// Phase 4d: rejected_by_user is user-authored; join through activities
+		// to scope by user_id (activity_lift_candidates has no direct user_id column).
+		{"data/activity_lift_candidates.json", "activity_lift_candidates", "activity_id IN (SELECT id FROM activities WHERE user_id = $1) ORDER BY activity_id, started_at"},
 	}
 }
 

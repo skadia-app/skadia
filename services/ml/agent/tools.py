@@ -33,6 +33,7 @@ _SPORT_TYPES = [
     "rock_climbing", "flying", "hang_gliding", "sky_diving", "jumpmaster",
     "horseback_riding", "hunting", "motorcycling", "driving", "boxing",
     "mixed_martial_arts", "tactical", "multisport", "transition",
+    "archery", "geocaching", "mobility", "shooting", "skateboarding",
     "generic", "unknown", "skiing", "canoeing",
 ]
 

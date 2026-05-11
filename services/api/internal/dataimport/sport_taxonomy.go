@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/skadia-app/skadia/services/api/internal/rules"
 	"github.com/skadia-app/skadia/services/api/internal/gear"
+	"github.com/skadia-app/skadia/services/api/internal/rules"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -31,7 +31,7 @@ func normalizeSportTaxonomyImportRow(table string, row map[string]any, targetCol
 			return nil, err
 		}
 	case "gear":
-		if err := normalizeGearImportRow(row); err != nil {
+		if err := normalizeGearImportRow(row, targetCols); err != nil {
 			return nil, err
 		}
 	case "segments":
@@ -92,20 +92,51 @@ func normalizeSingleSportType(row map[string]any, sportKey string) error {
 	return nil
 }
 
-func normalizeGearImportRow(row map[string]any) error {
-	rawPredicateValue, ok := row["default_sport_predicates"]
+func normalizeGearImportRow(row map[string]any, targetCols []targetColumn) error {
+	if targetHasColumn(targetCols, "scope") {
+		rawScope, hasScope := stringValue(row["scope"])
+		if !hasScope || strings.TrimSpace(rawScope) == "" {
+			scope := "other"
+			if typeKey, ok := stringValue(row["type"]); ok {
+				if gt, found := gear.LookupGearType(strings.TrimSpace(typeKey)); found && gt.Scope != "" {
+					scope = gt.Scope
+				}
+			}
+			row["scope"] = scope
+		}
+	}
+
+	predicateColumn := "default_sport_predicates"
+	rawPredicateValue, ok := row["applicable_sport_predicates"]
+	if ok {
+		predicateColumn = "applicable_sport_predicates"
+	} else {
+		rawPredicateValue, ok = row["default_sport_predicates"]
+	}
 	if !ok {
 		return nil
 	}
 	predicates, err := gearDefaultPredicatesFromRowValue(rawPredicateValue)
 	if err != nil {
-		return fmt.Errorf("default_sport_predicates: %w", err)
+		return fmt.Errorf("%s: %w", predicateColumn, err)
 	}
 	normalized, err := gear.NormalizeGearDefaultPredicates(predicates)
 	if err != nil {
-		return fmt.Errorf("default_sport_predicates: %w", err)
+		return fmt.Errorf("%s: %w", predicateColumn, err)
 	}
-	row["default_sport_predicates"] = gearDefaultPredicatesRowValue(normalized)
+	targetColumn := predicateColumn
+	if targetHasColumn(targetCols, "applicable_sport_predicates") {
+		targetColumn = "applicable_sport_predicates"
+	} else if targetHasColumn(targetCols, "default_sport_predicates") {
+		targetColumn = "default_sport_predicates"
+	}
+	row[targetColumn] = gearDefaultPredicatesRowValue(normalized)
+	if targetColumn != "default_sport_predicates" {
+		delete(row, "default_sport_predicates")
+	}
+	if targetColumn != "applicable_sport_predicates" {
+		delete(row, "applicable_sport_predicates")
+	}
 	return nil
 }
 
@@ -327,6 +358,9 @@ func normalizePredicateList(value any) ([]any, sport.ModifierPatch, error) {
 }
 
 func normalizeAutomationRuleSportJSON(row map[string]any) error {
+	if err := normalizeLegacyAutomationRuleConditions(row); err != nil {
+		return err
+	}
 	input := rules.SportTaxonomyRuleJSON{}
 	if raw, ok, err := rawMessageFromRowValue(row["conditions"]); err != nil {
 		return fmt.Errorf("conditions: %w", err)
@@ -373,6 +407,51 @@ func normalizeAutomationRuleSportJSON(row map[string]any) error {
 			return fmt.Errorf("actions: %w", err)
 		}
 	}
+	return nil
+}
+
+func normalizeLegacyAutomationRuleConditions(row map[string]any) error {
+	value, ok := row["conditions"]
+	if !ok || value == nil {
+		return nil
+	}
+	raw, ok, err := rawMessageFromRowValue(value)
+	if err != nil {
+		return fmt.Errorf("conditions: %w", err)
+	}
+	if !ok || !startsWithObject(raw) {
+		return nil
+	}
+	var legacy struct {
+		Operator string          `json:"operator"`
+		Rules    json.RawMessage `json:"rules"`
+	}
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return fmt.Errorf("conditions: decode legacy object: %w", err)
+	}
+	if len(legacy.Rules) == 0 || strings.TrimSpace(string(legacy.Rules)) == "null" {
+		return nil
+	}
+	if !startsWithJSONDelim(legacy.Rules, '[') {
+		return nil
+	}
+	logic := strings.ToLower(strings.TrimSpace(legacy.Operator))
+	if logic == "" {
+		logic = "and"
+	}
+	if logic == "or" {
+		var conditionList []any
+		if err := json.Unmarshal(legacy.Rules, &conditionList); err != nil {
+			return fmt.Errorf("conditions.rules: %w", err)
+		}
+		row["conditions"] = []any{}
+		row["condition_groups"] = []any{
+			map[string]any{"logic": "or", "conditions": conditionList},
+		}
+		row["conditions_logic"] = "and"
+		return nil
+	}
+	row["conditions"] = json.RawMessage(legacy.Rules)
 	return nil
 }
 
@@ -581,4 +660,13 @@ func rawMessageFromRowValue(value any) (json.RawMessage, bool, error) {
 		}
 		return raw, true, nil
 	}
+}
+
+func startsWithObject(raw json.RawMessage) bool {
+	return startsWithJSONDelim(raw, '{')
+}
+
+func startsWithJSONDelim(raw json.RawMessage, delim byte) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return len(trimmed) > 0 && trimmed[0] == delim
 }
