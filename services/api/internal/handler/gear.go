@@ -1518,6 +1518,9 @@ func extractPDFText(pdfData []byte) string {
 	}
 	tmpFile.Close()
 
+	// The API container runs with HOME=/nonexistent. pdfcpu exits the process
+	// if it cannot initialize its config dir, so use the built-in defaults.
+	pdfcpuapi.DisableConfigDir()
 	conf := pdfcpumodel.NewDefaultConfiguration()
 	outDir, err := os.MkdirTemp("", "pdfcpu-out-*")
 	if err != nil {
