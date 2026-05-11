@@ -1,21 +1,40 @@
 name: gear
 description: "Ausrüstung, Verschleiß, km-Stand, Wartung, Kosten"
 schema_excerpt: |
-  gear: id UUID, user_id, name TEXT, type TEXT (shoes/bike/...), sub_type TEXT,
-    brand TEXT, model TEXT, total_distance_m REAL, total_time_s BIGINT,
-    total_activities INT, total_elevation_gain_m REAL, purchased_at DATE,
-    status TEXT (active/stored/retired), purchase_price REAL
-  gear_components: id, gear_id, name TEXT, type TEXT, distance_m REAL, installed_at DATE
+  gear: id UUID, user_id, name TEXT, type TEXT (e.g. bike.mtb/bike.gravel/shoes.running),
+    scope TEXT (bike/shoes/other), sub_type TEXT, brand TEXT, model TEXT,
+    total_distance_m REAL, total_time_s BIGINT, total_elevation_gain_m REAL,
+    total_activities INT, purchased_at DATE, retired_at DATE, is_retired BOOL,
+    status TEXT (active/stored/retired),
+    applicable_sport_predicates JSONB (sport bindings, e.g. [{sport_type:cycling}]),
+    attributes JSONB (type-specific fields per schema, e.g. frame_size, weight_g),
+    modifiers JSONB (boolean flags, e.g. {is_electric: true})
+  gear_components: id, gear_id, name TEXT, type TEXT (chain/tire/cassette/brake_pad/…),
+    brand TEXT, model TEXT, total_distance_m REAL, total_elevation_gain_m REAL,
+    total_time_s BIGINT, installed_at DATE, removed_at DATE, is_retired BOOL, status TEXT
+  gear_service_events: id, component_id, performed_at DATE, event_type TEXT,
+    description TEXT, notes TEXT
 domain_knowledge: |
   - Laufschuhe: Lebensdauer 600-1000 km (je nach Modell/Untergrund)
   - Fahrradkette: ~3000-5000 km, Kassette: ~10.000 km
   - Bremsbeläge: ~5000-10.000 km (Scheibenbremse)
   - Reifen (Rennrad): ~3000-6000 km, MTB: ~2000-4000 km
   - Status: active = in Gebrauch, stored = eingelagert, retired = ausgemustert
+  - Mehrdeutige Namen: Wenn GET /api/gear?name=X mit 409 und gear.name_ambiguous
+    antwortet, enthält die Response eine candidates-Liste. Dann beim User nachfragen
+    welches Gerät gemeint ist und mit der konkreten gear_id wiederholen.
+  - gear_list filtert per status, scope, oder type-Präfix (z.B. 'bike' trifft alle bike.*-Typen). Ohne status-Filter werden nur nicht-ausgemusterte Gegenstände zurückgegeben (is_retired=false); include_retired=true für alle.
+  - gear_summary aggregiert km/Höhenmeter über mehrere Ausrüstungsgegenstände.
+  - gear_component_detail zeigt Komponenten (Kette, Reifen, …) mit km-Stand.
+  - gear_service_events zeigt Wartungshistorie pro Komponente oder Gerät.
 tools:
   - get_gear_stats
   - get_gear_for_activity
   - get_gear_documents
+  - gear_list
+  - gear_component_detail
+  - gear_service_events
+  - gear_summary
 few_shot_examples:
   - q: "Wie viele km haben meine Laufschuhe?"
     tool: get_gear_stats
@@ -23,7 +42,17 @@ few_shot_examples:
     answer: "3 aktive Laufschuhe: Nike Pegasus 41 (623 km — bald wechseln!), Hoka Mach 6 (234 km), Brooks Ghost 16 (89 km)."
   - q: "Was haben meine Laufschuhe gekostet?"
     steps:
-      - tool: get_gear_stats
-        args: {"gear_type": "shoes"}
+      - tool: gear_list
+        args: {"scope": "shoes", "status": "active"}
       - tool: get_gear_documents
         args: {"gear_id": "<id from previous step>"}
+  - q: "Wieviele km bin ich mit allen Rädern letztes Jahr gefahren?"
+    tool: gear_summary
+    args: '{"scope": "bike", "since": "2025-01-01", "until": "2026-01-01"}'
+    answer: "Mit allen Rädern 2025: 12.340 km auf 287 Aktivitäten."
+  - q: "Wann habe ich mein MTB zuletzt gewartet?"
+    steps:
+      - tool: gear_list
+        args: {"type": "bike.mtb"}
+      - tool: gear_service_events
+        args: {"gear_id": "<id from previous step>", "order": "desc", "limit": 1}
