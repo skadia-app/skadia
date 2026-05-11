@@ -14,6 +14,33 @@ modifiers:
       modifier_patch: true
       taxonomy_default: false
     subsystems: [bestefforts, dataimport, gear, heatmap, quick-edit, routefilter, rules, shadowfs]
+    # Soft per-gear_type recommendations. UX hint only — backend never enforces.
+    # recommended_for: gear types where an electric drive is well-established.
+    # not_recommended_for: gear types where an electric drive is atypical.
+    recommended_for:
+      - bike.city.citybike
+      - bike.city.dutch
+      - bike.city.urban
+      - bike.city.fitness
+      - bike.city.folding
+      - bike.city.cruiser
+      - bike.trekking.trekking
+      - bike.trekking.expedition
+      - bike.cargo.long_john
+      - bike.cargo.longtail
+      - bike.cargo.backpacker
+      - bike.mtb.all_mountain_trail
+      - bike.mtb.enduro
+      - bike.gravel.gravelbike
+    not_recommended_for:
+      - bike.road.track
+      - bike.mtb.trial
+      - bike.bmx.race
+      - bike.bmx.freestyle
+      - bike.bmx.dirt
+      - bike.bmx.flatland
+      - bike.kids
+      - bike.balance
 
   - key: is_indoor
     labels: {de: Indoor}

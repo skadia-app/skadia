@@ -2,7 +2,6 @@ package dataimport
 
 import (
 	"encoding/json"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -274,78 +273,6 @@ func TestNormalizeSportTaxonomyImportRowDropsParentOnlyPredicateSubType(t *testi
 	predicate := predicates[0].(map[string]any)
 	if _, ok := predicate["sub_type"]; ok {
 		t.Fatalf("predicate kept parent-only sub_type: %#v", predicate)
-	}
-}
-
-func TestNormalizeSportTaxonomyImportRowGearDefaultSports(t *testing.T) {
-	row := map[string]any{
-		"default_for_sports": []any{"mountain_biking", "e_mountain_biking", "cycling", "fitness_equipment"},
-	}
-
-	got, err := normalizeSportTaxonomyImportRow("gear", row, []targetColumn{{Name: "default_for_sports"}, {Name: "default_sport_predicates"}})
-	if err != nil {
-		t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
-	}
-	want := []string{"cycling", "fitness_equipment"}
-	if !reflect.DeepEqual(got["default_for_sports"], want) {
-		t.Fatalf("default_for_sports = %#v (%T), want %#v", got["default_for_sports"], got["default_for_sports"], want)
-	}
-	predicates, ok := got["default_sport_predicates"].([]any)
-	if !ok {
-		t.Fatalf("default_sport_predicates = %#v (%T), want []any", got["default_sport_predicates"], got["default_sport_predicates"])
-	}
-	if len(predicates) != 4 {
-		t.Fatalf("predicate count = %d, want 4: %#v", len(predicates), predicates)
-	}
-	mountainElectric, ok := predicates[1].(map[string]any)
-	if !ok {
-		t.Fatalf("second predicate = %#v", predicates[1])
-	}
-	modifiers, ok := mountainElectric["modifiers"].(map[string]any)
-	if !ok || modifiers["is_electric"] != true {
-		t.Fatalf("second predicate modifiers = %#v", mountainElectric["modifiers"])
-	}
-}
-
-func TestNormalizeSportTaxonomyImportRowGearDefaultSportsEmpty(t *testing.T) {
-	tests := []struct {
-		name string
-		row  map[string]any
-		want any
-	}{
-		{name: "nil value", row: map[string]any{"default_for_sports": nil}, want: []string{}},
-		{name: "missing export key", row: map[string]any{}, want: nil},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := normalizeSportTaxonomyImportRow("gear", tt.row, []targetColumn{{Name: "default_for_sports"}})
-			if err != nil {
-				t.Fatalf("normalizeSportTaxonomyImportRow: %v", err)
-			}
-			if !reflect.DeepEqual(got["default_for_sports"], tt.want) {
-				t.Fatalf("default_for_sports = %#v (%T), want %#v", got["default_for_sports"], got["default_for_sports"], tt.want)
-			}
-		})
-	}
-}
-
-func TestNormalizeSportTaxonomyImportRowRejectsInvalidGearDefaultSport(t *testing.T) {
-	tests := []struct {
-		name string
-		row  map[string]any
-	}{
-		{name: "tuple shaped storage", row: map[string]any{"default_for_sports": []any{"cycling:mountain"}}},
-		{name: "unknown sport", row: map[string]any{"default_for_sports": []any{"not_a_sport"}}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := normalizeSportTaxonomyImportRow("gear", tt.row, []targetColumn{{Name: "default_for_sports"}})
-			if err == nil || !strings.Contains(err.Error(), "default_for_sports") {
-				t.Fatalf("error: got %v, want default_for_sports error", err)
-			}
-		})
 	}
 }
 

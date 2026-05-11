@@ -821,6 +821,178 @@ ALL_TOOL_DEFINITIONS = [
             },
         },
     },
+    # ── 22. gear_list ────────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "gear_list",
+            "description": (
+                "List the user's gear items with usage totals (distance, activities, status). "
+                "Use for 'Wieviele Schuhe habe ich?', 'Zeig mir alle aktiven Fahrräder', "
+                "'Welche Ausrüstung nutze ich gerade?'. "
+                "Supports filtering by type (e.g. bike.mtb), scope (e.g. bike, shoes), "
+                "and status. Without filters returns active gear (is_retired=false) ordered "
+                "by total distance. Pass include_retired=true to include retired items, or "
+                "pass status='retired' to list only retired gear. "
+                "Do NOT use for aggregated km-totals across gear — use gear_summary for that. "
+                "Do NOT use to look up components (chain, tire) — use gear_component_detail."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["active", "stored", "retired"],
+                        "description": (
+                            "Filter by gear status. When set, overrides include_retired. "
+                            "Omit to return all non-retired gear."
+                        ),
+                    },
+                    "type": {
+                        "type": "string",
+                        "description": (
+                            "Filter by gear type key from schema "
+                            "(e.g. 'bike.mtb', 'bike.gravel', 'shoes.running'). "
+                            "Partial prefix match: 'bike' matches all bike types."
+                        ),
+                    },
+                    "scope": {
+                        "type": "string",
+                        "description": "Filter by scope category (e.g. 'bike', 'shoes', 'other')",
+                    },
+                    "include_retired": {
+                        "type": "boolean",
+                        "description": (
+                            "Set to true to include retired gear in the results. "
+                            "Ignored when status is explicitly set."
+                        ),
+                    },
+                },
+            },
+        },
+    },
+
+    # ── 23. gear_component_detail ─────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "gear_component_detail",
+            "description": (
+                "List components (chain, tire, cassette, brake pad, …) attached to a gear item "
+                "with their usage totals. Use for 'Wieviel ist die Kette schon gelaufen?', "
+                "'Welche Komponenten hat mein MTB?', 'Wann wurde die Kassette zuletzt gewechselt?'. "
+                "Requires gear_id — use gear_list first if the ID is unknown. "
+                "Do NOT use for service events — use gear_service_events for maintenance history."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "gear_id": {
+                        "type": "string",
+                        "description": "UUID of the gear item whose components to list",
+                    },
+                    "component_type": {
+                        "type": "string",
+                        "description": (
+                            "Optional type filter (e.g. 'chain', 'tire', 'cassette', "
+                            "'brake_pad', 'handlebar')"
+                        ),
+                    },
+                    "include_retired": {
+                        "type": "boolean",
+                        "description": "Include retired/replaced components (default false)",
+                        "default": False,
+                    },
+                },
+                "required": ["gear_id"],
+            },
+        },
+    },
+
+    # ── 24. gear_service_events ────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "gear_service_events",
+            "description": (
+                "List service and maintenance events for a gear item's components: "
+                "last service date, service type, notes. "
+                "Use for 'Wann habe ich mein MTB zuletzt gewartet?', "
+                "'Wann wurden die Bremsbeläge zuletzt gewechselt?', "
+                "'Letzte Wartung meines Rennrads'. "
+                "Events are attached to components, not to the gear item directly — "
+                "if gear_id is given, returns events across all components of that gear."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "gear_id": {
+                        "type": "string",
+                        "description": "UUID of the gear item (returns events for all its components)",
+                    },
+                    "component_id": {
+                        "type": "string",
+                        "description": "UUID of a specific component (alternative to gear_id)",
+                    },
+                    "order": {
+                        "type": "string",
+                        "enum": ["asc", "desc"],
+                        "description": "Sort order by performed_at (default: desc = most recent first)",
+                        "default": "desc",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max events to return (default 10)",
+                        "default": 10,
+                    },
+                },
+            },
+        },
+    },
+
+    # ── 25. gear_summary ───────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "gear_summary",
+            "description": (
+                "Aggregate total km, elevation, activity count across multiple gear items. "
+                "Use for 'Wieviele km bin ich mit allen Rädern letztes Jahr gefahren?', "
+                "'Gesamtkilometer mit meinen Laufschuhen 2025', "
+                "'Wie viel Höhenmeter habe ich mit Rennrädern gesammelt?'. "
+                "Supports date range (since/until), scope, type_key, and retired gear inclusion. "
+                "Do NOT use for single-item stats — use gear_list for that. "
+                "Do NOT use for activity-level queries — use aggregate_stats instead."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "scope": {
+                        "type": "string",
+                        "description": "Filter by gear scope (e.g. 'bike', 'shoes', 'other')",
+                    },
+                    "type_key": {
+                        "type": "string",
+                        "description": "Filter by gear type key (e.g. 'bike.mtb', 'shoes.running')",
+                    },
+                    "since": {
+                        "type": "string",
+                        "description": "Start date ISO 8601 (YYYY-MM-DD, inclusive)",
+                    },
+                    "until": {
+                        "type": "string",
+                        "description": "End date ISO 8601 (YYYY-MM-DD, exclusive)",
+                    },
+                    "include_retired": {
+                        "type": "boolean",
+                        "description": "Include activities on retired gear (default false)",
+                        "default": False,
+                    },
+                },
+            },
+        },
+    },
+
     # ── 21. query_coverage ──────────────────────────────────────────────────
     {
         "type": "function",
@@ -948,6 +1120,10 @@ async def execute_tool(pool, user_id: UUID, tool_name: str, args: dict) -> dict:
         "run_sql": _run_sql,
         "get_gear_for_activity": _get_gear_for_activity,
         "get_gear_documents": _get_gear_documents,
+        "gear_list": _gear_list,
+        "gear_component_detail": _gear_component_detail,
+        "gear_service_events": _gear_service_events,
+        "gear_summary": _gear_summary,
         "get_activity_detail": _get_activity_detail,
         "search_photos_by_content": _search_photos_by_content,
         "search_pois_nearby": _search_pois_nearby,
@@ -1014,8 +1190,14 @@ async def _query_activities(
         params.append(f"%{title_search}%")
         conditions.append(f"a.title ILIKE ${len(params)}")
     if gear_id:
+        # gear_id is no longer a column on activities; primary assignment lives
+        # in activity_gear_assignments. EXISTS keeps the WHERE shape simple.
         params.append(UUIDType(gear_id))
-        conditions.append(f"a.gear_id = ${len(params)}")
+        conditions.append(
+            f"EXISTS (SELECT 1 FROM activity_gear_assignments aga "
+            f"WHERE aga.activity_id = a.id AND aga.role_key = 'primary' "
+            f"AND aga.gear_id = ${len(params)})"
+        )
 
     where = " AND ".join(conditions)
     query = (
@@ -1248,7 +1430,7 @@ async def _get_gear_stats(pool, user_id, gear_id=None, gear_type=None):
         params.append(UUIDType(gear_id))
         conditions.append(f"id = ${len(params)}")
     else:
-        conditions.append("status = 'active'")
+        conditions.append("is_retired = false")
 
     if gear_type:
         params.append(gear_type)
@@ -1528,7 +1710,10 @@ async def _get_gear_for_activity(pool, user_id, activity_id):
         "ROUND((g.total_distance_m / 1000.0)::numeric, 0) AS total_distance_km, "
         "g.total_activities, g.status "
         "FROM gear g "
-        "JOIN activities a ON a.gear_id = g.id "
+        "JOIN activity_gear_assignments aga "
+        "  ON aga.gear_id = g.id AND aga.role_key = 'primary' "
+        "JOIN activities a "
+        "  ON a.id = aga.activity_id AND a.user_id = aga.user_id "
         "WHERE a.id = $1 AND a.user_id = $2",
         UUIDType(activity_id), user_id,
     )
@@ -1575,6 +1760,163 @@ async def _get_gear_documents(pool, user_id, gear_id):
     return result
 
 
+async def _gear_list(pool, user_id, status=None, type=None, scope=None, include_retired=False):
+    """List gear items with usage totals, optionally filtered by status/type/scope.
+
+    Default behaviour excludes retired gear (is_retired = false) unless
+    status is explicitly passed or include_retired is True, mirroring the
+    server-side API convention.
+    """
+    conditions = ["user_id = $1"]
+    params: list = [user_id]
+
+    if status:
+        # Explicit status filter overrides the include_retired default.
+        params.append(status)
+        conditions.append(f"status = ${len(params)}")
+    elif not include_retired:
+        conditions.append("is_retired = false")
+
+    if scope:
+        params.append(scope)
+        conditions.append(f"scope = ${len(params)}")
+    if type:
+        # Support prefix match: 'bike' matches 'bike.mtb', 'bike.gravel', etc.
+        params.append(type + "%")
+        conditions.append(f"type LIKE ${len(params)}")
+
+    where = " AND ".join(conditions)
+    rows = await pool.fetch(
+        f"SELECT id, name, type, scope, brand, model, status, is_retired, "
+        f"ROUND((total_distance_m / 1000.0)::numeric, 1) AS total_distance_km, "
+        f"total_activities, total_time_s "
+        f"FROM gear WHERE {where} ORDER BY total_distance_m DESC",
+        *params,
+    )
+    return {"gear": [dict(r) for r in rows], "count": len(rows)}
+
+
+async def _gear_component_detail(pool, user_id, gear_id, component_type=None, include_retired=False):
+    """List components for a gear item, with usage totals."""
+    from uuid import UUID as UUIDType
+
+    # Verify ownership before returning component data.
+    owner = await pool.fetchrow(
+        "SELECT id FROM gear WHERE id = $1 AND user_id = $2",
+        UUIDType(gear_id), user_id,
+    )
+    if not owner:
+        return {"error": "Gear item not found or not owned by user", "components": []}
+
+    conditions = ["gc.gear_id = $1"]
+    params: list = [UUIDType(gear_id)]
+
+    if not include_retired:
+        conditions.append("gc.is_retired = false")
+    if component_type:
+        params.append(component_type)
+        conditions.append(f"gc.type = ${len(params)}")
+
+    where = " AND ".join(conditions)
+    rows = await pool.fetch(
+        f"SELECT gc.id, gc.name, gc.type, gc.brand, gc.model, gc.is_retired, gc.status, "
+        f"ROUND((gc.total_distance_m / 1000.0)::numeric, 1) AS total_distance_km, "
+        f"gc.total_elevation_gain_m, gc.total_time_s, "
+        f"gc.installed_at, gc.removed_at "
+        f"FROM gear_components gc WHERE {where} ORDER BY gc.name",
+        *params,
+    )
+    return {"components": [dict(r) for r in rows], "count": len(rows)}
+
+
+async def _gear_service_events(pool, user_id, gear_id=None, component_id=None, order="desc", limit=10):
+    """List service events for a gear item (across all its components) or a specific component."""
+    from uuid import UUID as UUIDType
+
+    if not gear_id and not component_id:
+        return {"error": "Either gear_id or component_id is required", "events": []}
+
+    order_sql = "DESC" if order == "desc" else "ASC"
+
+    if component_id:
+        # Verify ownership via component → gear → user chain.
+        owner = await pool.fetchrow(
+            "SELECT gc.id FROM gear_components gc "
+            "JOIN gear g ON g.id = gc.gear_id "
+            "WHERE gc.id = $1 AND g.user_id = $2",
+            UUIDType(component_id), user_id,
+        )
+        if not owner:
+            return {"error": "Component not found or not owned by user", "events": []}
+        rows = await pool.fetch(
+            f"SELECT gse.id, gse.performed_at, gse.event_type, gse.description, gse.notes, "
+            f"gc.name AS component_name, gc.type AS component_type "
+            f"FROM gear_service_events gse "
+            f"JOIN gear_components gc ON gc.id = gse.component_id "
+            f"WHERE gse.component_id = $1 "
+            f"ORDER BY gse.performed_at {order_sql} LIMIT $2",
+            UUIDType(component_id), limit,
+        )
+    else:
+        # Events across all components of a gear item — verify ownership first.
+        owner = await pool.fetchrow(
+            "SELECT id FROM gear WHERE id = $1 AND user_id = $2",
+            UUIDType(gear_id), user_id,
+        )
+        if not owner:
+            return {"error": "Gear item not found or not owned by user", "events": []}
+        rows = await pool.fetch(
+            f"SELECT gse.id, gse.performed_at, gse.event_type, gse.description, gse.notes, "
+            f"gc.name AS component_name, gc.type AS component_type "
+            f"FROM gear_service_events gse "
+            f"JOIN gear_components gc ON gc.id = gse.component_id "
+            f"WHERE gc.gear_id = $1 "
+            f"ORDER BY gse.performed_at {order_sql} LIMIT $2",
+            UUIDType(gear_id), limit,
+        )
+    return {"events": [dict(r) for r in rows], "count": len(rows)}
+
+
+async def _gear_summary(pool, user_id, scope=None, type_key=None, since=None, until=None, include_retired=False):
+    """Aggregate km, elevation, and activity count across gear items matching the filters."""
+    row = await pool.fetchrow(
+        """
+        SELECT
+          COALESCE(SUM(COALESCE(aga.distance_m_override, a.distance_m, 0)), 0)       AS total_distance_m,
+          COALESCE(SUM(COALESCE(a.elevation_gain_m, 0)), 0)                           AS total_elevation_gain_m,
+          COALESCE(SUM(COALESCE(a.elapsed_time_s, 0)), 0)                             AS total_time_s,
+          COUNT(DISTINCT a.id)                                                         AS activity_count,
+          COUNT(DISTINCT aga.gear_id)                                                  AS gear_count
+        FROM activity_gear_assignments aga
+        JOIN activities a ON a.id = aga.activity_id
+        JOIN gear g       ON g.id = aga.gear_id
+        WHERE aga.user_id = $1
+          AND NOT a.is_group_secondary
+          AND ($2::text IS NULL OR g.scope = $2)
+          AND ($3::text IS NULL OR g.type LIKE $3)
+          AND ($4::date IS NULL OR a.started_at >= $4)
+          AND ($5::date IS NULL OR a.started_at <  $5)
+          AND ($6::bool OR g.is_retired = false)
+        """,
+        user_id,
+        scope,
+        (type_key + "%") if type_key else None,
+        since,
+        until,
+        include_retired,
+    )
+    if row is None:
+        return {"total_distance_km": 0.0, "total_elevation_gain_m": 0.0,
+                "total_time_s": 0, "activity_count": 0, "gear_count": 0}
+    return {
+        "total_distance_km": round(float(row["total_distance_m"]) / 1000.0, 1),
+        "total_elevation_gain_m": round(float(row["total_elevation_gain_m"]), 0),
+        "total_time_s": int(row["total_time_s"]),
+        "activity_count": int(row["activity_count"]),
+        "gear_count": int(row["gear_count"]),
+    }
+
+
 async def _get_activity_detail(pool, user_id, activity_id):
     from uuid import UUID as UUIDType
     row = await pool.fetchrow(
@@ -1587,7 +1929,9 @@ async def _get_activity_detail(pool, user_id, activity_id):
         "(SELECT COUNT(*) FROM activity_photos ap WHERE ap.activity_id = a.id) AS photo_count, "
         "(SELECT COUNT(*) FROM activity_geo_tags gt WHERE gt.activity_id = a.id) AS geo_tag_count "
         "FROM activities a "
-        "LEFT JOIN gear g ON g.id = a.gear_id "
+        "LEFT JOIN activity_gear_assignments aga "
+        "  ON aga.activity_id = a.id AND aga.role_key = 'primary' "
+        "LEFT JOIN gear g ON g.id = aga.gear_id AND g.user_id = a.user_id "
         "WHERE a.id = $1 AND a.user_id = $2",
         UUIDType(activity_id), user_id,
     )

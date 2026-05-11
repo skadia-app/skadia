@@ -1,7 +1,9 @@
 // Package gear owns gear-defaulting logic: predicates that bind gear items to
 // activities by sport_type/sub_type/modifier criteria. The neutral
-// gear-applicable modifier list is generated from
-// config/gear/applicable_modifiers.yaml into applicable_modifiers_generated.go.
+// gear-applicable modifier list is generated from the subsystem registry
+// (config/applicable-modifiers/subsystems.yaml) and the sport-taxonomy
+// modifier audience list (config/sport-taxonomy/modifiers.yaml::subsystems)
+// into applicable_modifiers_generated.go.
 //
 // Sport taxonomy data (Tuple, ModifierPatch, ModifierValues, GearDefaultSportOption,
 // the Source-keyed alias maps) lives in internal/sport. gear → sport imports
@@ -235,4 +237,31 @@ func gearDefaultPredicateKey(predicate GearDefaultPredicate) string {
 		}
 	}
 	return key
+}
+
+// AllScopes returns the de-duplicated set of scope values defined in the gear schema.
+// Derived from Schema.GearTypes at call time; not generated.
+func AllScopes() []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, gt := range Schema.GearTypes {
+		if gt.Scope == "" {
+			continue
+		}
+		if _, ok := seen[gt.Scope]; !ok {
+			seen[gt.Scope] = struct{}{}
+			out = append(out, gt.Scope)
+		}
+	}
+	return out
+}
+
+// IsValidScope reports whether scope is a known scope value in the gear schema.
+func IsValidScope(scope string) bool {
+	for _, s := range AllScopes() {
+		if s == scope {
+			return true
+		}
+	}
+	return false
 }

@@ -364,61 +364,6 @@ func TestBuildGearDefaultProjectionExcludesRouteOnlyAliases(t *testing.T) {
 	}
 }
 
-func TestLoadGearDefaultProjectionConfigLoadsRepositoryFixture(t *testing.T) {
-	taxonomyFile, err := os.Open("../../../../config/sport-taxonomy/sports.yaml")
-	if err != nil {
-		t.Fatalf("open sports.yaml: %v", err)
-	}
-	defer taxonomyFile.Close()
-	taxonomy, err := LoadTaxonomy(taxonomyFile)
-	if err != nil {
-		t.Fatalf("load sports.yaml: %v", err)
-	}
-
-	matches, err := filepath.Glob("../../../../config/sport-taxonomy/aliases/*.yaml")
-	if err != nil {
-		t.Fatalf("glob aliases: %v", err)
-	}
-	files := make(map[string]io.Reader, len(matches))
-	opened := make([]*os.File, 0, len(matches))
-	defer func() {
-		for _, file := range opened {
-			_ = file.Close()
-		}
-	}()
-	for _, match := range matches {
-		file, err := os.Open(match)
-		if err != nil {
-			t.Fatalf("open aliases %s: %v", match, err)
-		}
-		opened = append(opened, file)
-		stem := strings.TrimSuffix(filepath.Base(match), filepath.Ext(match))
-		files[stem] = file
-	}
-	sources, err := LoadSourceAliasFiles(files, taxonomy, modifierRegistryForTest(), sourceAliasPredicateForTest())
-	if err != nil {
-		t.Fatalf("LoadSourceAliasFiles() error = %v", err)
-	}
-	configFile, err := os.Open("../../../../config/sport-taxonomy/projections/gear_defaults.yaml")
-	if err != nil {
-		t.Fatalf("open gear_defaults.yaml: %v", err)
-	}
-	defer configFile.Close()
-	config, err := LoadGearDefaultProjectionConfig(configFile, sources)
-	if err != nil {
-		t.Fatalf("LoadGearDefaultProjectionConfig() error = %v", err)
-	}
-	if !stringSlicesEqual(config.ProjectionSources, []string{"strava"}) {
-		t.Fatalf("projection_sources = %v, want [strava]", config.ProjectionSources)
-	}
-	projection, err := BuildGearDefaultProjection(taxonomy, sources, config)
-	if err != nil {
-		t.Fatalf("BuildGearDefaultProjection() error = %v", err)
-	}
-	if len(projection.Sources) != 1 || projection.Sources[0].Source != "strava" {
-		t.Fatalf("projected sources = %#v, want only strava", projection.Sources)
-	}
-}
 
 func TestBuildGearDefaultProjectionIncludesConfiguredGarminAliases(t *testing.T) {
 	projection, err := BuildGearDefaultProjection(aliasTestTaxonomy(), []SourceAliases{

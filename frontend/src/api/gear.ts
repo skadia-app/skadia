@@ -3,7 +3,7 @@ import { getToken } from '@/lib/auth'
 import type {
   Gear, MaintenanceAlert, GearStatus,
   ComponentAssignment, ChainRotationGroup,
-  GearServiceEvent, ComponentTypePreset,
+  GearServiceEvent, GearServiceInterval, ComponentTypePreset,
   BikeSetup, GearDocument,
   GearCostSummary,
 } from './types'
@@ -43,12 +43,57 @@ export async function createComponent(gearId: string, data: any): Promise<any> {
   return apiClient(`/gear/${gearId}/components`, { method: 'POST', body: data })
 }
 
-export async function updateComponent(id: string, data: any): Promise<any> {
-  return apiClient(`/gear/components/${id}`, { method: 'PUT', body: data })
+/**
+ * Payload for updateComponent PUT. All fields are optional (nil = unchanged).
+ *
+ * preset_gear_type_key three-state:
+ *   undefined  — leave unchanged
+ *   null       — clear the lock (set column to NULL)
+ *   string     — set to the given gear-type key
+ *
+ * The backend clears via an empty string sentinel, not JSON null. The
+ * updateComponent function translates null → "" transparently so callers can
+ * use the more idiomatic null/undefined distinction.
+ */
+export interface UpdateComponentPayload {
+  name?: string
+  type?: string
+  brand?: string | null
+  model?: string | null
+  notes?: string | null
+  is_retired?: boolean
+  purchase_price?: number | null
+  purchase_date?: string | null
+  serial_number?: string | null
+  weight_g?: number | null
+  /** Three-state: undefined = unchanged, null = clear, string = set */
+  preset_gear_type_key?: string | null
+}
+
+export async function updateComponent(id: string, data: UpdateComponentPayload | Record<string, unknown>): Promise<any> {
+  // Translate preset_gear_type_key: null → "" so the backend clears the
+  // column. The server treats a nil Go pointer (JSON null) as "unchanged"
+  // and an empty-string pointer as "clear to NULL".
+  let body: Record<string, unknown> = { ...data }
+  if ('preset_gear_type_key' in body && body.preset_gear_type_key === null) {
+    body = { ...body, preset_gear_type_key: '' }
+  }
+  return apiClient(`/gear/components/${id}`, { method: 'PUT', body })
 }
 
 export async function deleteComponent(id: string): Promise<void> {
   return apiClient(`/gear/components/${id}`, { method: 'DELETE' })
+}
+
+export async function removeComponent(id: string): Promise<void> {
+  return apiClient(`/gear/components/${id}/remove`, { method: 'POST' })
+}
+
+export async function updateComponentStatus(
+  id: string,
+  status: 'active' | 'stored' | 'retired',
+): Promise<void> {
+  return apiClient(`/gear/components/${id}/status`, { method: 'PATCH', body: { status } })
 }
 
 export async function transferComponent(componentId: string, toGearId: string): Promise<void> {
@@ -68,7 +113,9 @@ export async function getChainRotation(gearId: string): Promise<ChainRotationGro
 
 export async function createChainRotation(gearId: string, data: {
   name: string
-  swap_interval_km: number
+  swap_interval_km?: number
+  swap_interval_metric_key?: string
+  swap_interval_value?: number
   component_ids: string[]
 }): Promise<ChainRotationGroup> {
   return apiClient<ChainRotationGroup>(`/gear/${gearId}/chain-rotation`, {
@@ -84,8 +131,11 @@ export async function swapChain(gearId: string): Promise<ChainRotationGroup> {
 }
 
 export async function updateChainRotation(groupId: string, data: Partial<{
+  name: string
   swap_interval_km: number
   swap_interval_hm: number
+  swap_interval_metric_key: string
+  swap_interval_value: number
 }>): Promise<void> {
   return apiClient(`/gear/chain-rotation/${groupId}`, {
     method: 'PUT',
@@ -103,6 +153,7 @@ export async function listServiceEvents(componentId: string): Promise<GearServic
 
 export async function createServiceEvent(componentId: string, data: {
   performed_at: string
+  interval_id?: string | null
   description?: string | null
   cost?: number | null
   notes?: string | null
@@ -111,6 +162,22 @@ export async function createServiceEvent(componentId: string, data: {
     method: 'POST',
     body: data,
   })
+}
+
+export async function listServiceIntervals(componentId: string): Promise<GearServiceInterval[]> {
+  return apiClient<GearServiceInterval[]>(`/gear/components/${componentId}/service-intervals`)
+}
+
+export async function createServiceInterval(componentId: string, data: Partial<GearServiceInterval>): Promise<GearServiceInterval> {
+  return apiClient<GearServiceInterval>(`/gear/components/${componentId}/service-intervals`, { method: 'POST', body: data })
+}
+
+export async function updateServiceInterval(id: string, data: Partial<GearServiceInterval>): Promise<GearServiceInterval> {
+  return apiClient<GearServiceInterval>(`/gear/service-intervals/${id}`, { method: 'PUT', body: data })
+}
+
+export async function deleteServiceInterval(id: string): Promise<void> {
+  return apiClient(`/gear/service-intervals/${id}`, { method: 'DELETE' })
 }
 
 export async function deleteServiceEvent(eventId: string): Promise<void> {
@@ -132,11 +199,21 @@ export async function listBikeSetups(gearId: string): Promise<BikeSetup[]> {
   return apiClient<BikeSetup[]>(`/gear/${gearId}/setups`)
 }
 
-export async function createBikeSetup(gearId: string, data: Partial<BikeSetup>): Promise<BikeSetup> {
+/** Payload for createBikeSetup. capture_components is a transient server-side
+ *  flag — when true the server builds a component_snapshot from the current
+ *  gear_components state. The field is consumed by the API and never stored
+ *  as-is; it does not appear on the returned BikeSetup. */
+export type BikeSetupCreatePayload = Partial<BikeSetup> & { capture_components?: boolean }
+
+/** Payload for updateBikeSetup. capture_components three-state:
+ *  undefined → leave snapshot as-is; true → re-capture; false → clear. */
+export type BikeSetupUpdatePayload = Partial<BikeSetup> & { capture_components?: boolean }
+
+export async function createBikeSetup(gearId: string, data: BikeSetupCreatePayload): Promise<BikeSetup> {
   return apiClient<BikeSetup>(`/gear/${gearId}/setups`, { method: 'POST', body: data })
 }
 
-export async function updateBikeSetup(id: string, data: Partial<BikeSetup>): Promise<BikeSetup> {
+export async function updateBikeSetup(id: string, data: BikeSetupUpdatePayload): Promise<BikeSetup> {
   return apiClient<BikeSetup>(`/gear/setups/${id}`, { method: 'PUT', body: data })
 }
 

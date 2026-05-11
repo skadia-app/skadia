@@ -14,13 +14,17 @@ type SportModifierDef struct {
 	ActionParam         string
 	ShadowFSToken       string
 	Capabilities        map[string]bool
+	RecommendedFor      []string
+	NotRecommendedFor   []string
 }
 
 var generatedSportModifiers = []SportModifierDef{
 	{
 		Key: "is_electric", LabelDE: "E-Antrieb", GoField: "IsElectric", TSField: "isElectric", JSONKey: "is_electric",
 		ActivityColumn: "is_electric", ApplicabilitySource: "modifier_applicability.is_electric", ActionName: "set_electric", ActionParam: "electric", ShadowFSToken: "electric",
-		Capabilities: map[string]bool{"activity_state": true, "modifier_filter": true, "modifier_patch": true, "taxonomy_default": false},
+		Capabilities:      map[string]bool{"activity_state": true, "modifier_filter": true, "modifier_patch": true, "taxonomy_default": false},
+		RecommendedFor:    []string{"bike.city.citybike", "bike.city.dutch", "bike.city.urban", "bike.city.fitness", "bike.city.folding", "bike.city.cruiser", "bike.trekking.trekking", "bike.trekking.expedition", "bike.cargo.long_john", "bike.cargo.longtail", "bike.cargo.backpacker", "bike.mtb.all_mountain_trail", "bike.mtb.enduro", "bike.gravel.gravelbike"},
+		NotRecommendedFor: []string{"bike.road.track", "bike.mtb.trial", "bike.bmx.race", "bike.bmx.freestyle", "bike.bmx.dirt", "bike.bmx.flatland", "bike.kids", "bike.balance"},
 	},
 	{
 		Key: "is_indoor", LabelDE: "Indoor", GoField: "IsIndoor", TSField: "isIndoor", JSONKey: "is_indoor",
@@ -110,6 +114,12 @@ func cloneSportModifierDef(modifier SportModifierDef) SportModifierDef {
 	clone.Capabilities = make(map[string]bool, len(modifier.Capabilities))
 	for key, enabled := range modifier.Capabilities {
 		clone.Capabilities[key] = enabled
+	}
+	if len(modifier.RecommendedFor) > 0 {
+		clone.RecommendedFor = append([]string(nil), modifier.RecommendedFor...)
+	}
+	if len(modifier.NotRecommendedFor) > 0 {
+		clone.NotRecommendedFor = append([]string(nil), modifier.NotRecommendedFor...)
 	}
 	return clone
 }

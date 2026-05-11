@@ -1,12 +1,19 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Bike, Footprints, Package, Smartphone, Radio } from 'lucide-react'
+import { Anchor, Bike, Footprints, Mountain, Package, Radio, Shirt, Smartphone, Snowflake, Waves } from 'lucide-react'
 import { fetchGear, createGear, fetchGearDocuments, getGearDocumentUrl } from '@/api/gear'
 import { fetchDevices } from '@/api/hardware'
-import type { Gear, GearDefaultSportPredicate, GearStatus } from '@/api/types'
+import type { Gear, GearStatus } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
-import { sportDetailLabel, sportLabel } from '@/lib/sportTaxonomy'
+import { sportLabel } from '@/lib/sportTaxonomy'
+import { getActiveSchema } from '@/lib/gearSchema'
+import { gearTypeMatchesScope } from '@/lib/gearSchemaHelpers'
+import {
+  GEAR_CATEGORY_LABELS,
+  isGearCategoryScope,
+  type GearCategoryScope,
+} from '@/lib/gearSchemaTypes'
 import GearForm from '@/components/GearForm'
 import MaintenanceAlerts from '@/components/MaintenanceAlerts'
 import GearMergePanel from '@/components/GearMergePanel'
@@ -18,6 +25,10 @@ const STATUS_CHIPS: { value: GearStatus | undefined; label: string }[] = [
   { value: 'retired', label: 'Ausgemustert' },
 ]
 
+function parseGearScope(raw: string | null): GearCategoryScope | null {
+  return isGearCategoryScope(raw) ? raw : null
+}
+
 export default function GearPage() {
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
@@ -25,6 +36,8 @@ export default function GearPage() {
   const [statusFilter, setStatusFilter] = useState<GearStatus | undefined>('active')
   const [showForm, setShowForm] = useState(false)
   const [showMerge, setShowMerge] = useState(false)
+
+  const schema = getActiveSchema()
 
   const { data: gear, isLoading: gearLoading } = useQuery({
     queryKey: ['gear', statusFilter],
@@ -51,21 +64,17 @@ export default function GearPage() {
     },
   })
 
-  // If a type filter is set via query param, show filtered gear list
+  // Filtered view — when ?type= is set in the URL
   if (typeFilter) {
-    const isBikeType = (type: string) => type === 'bike' || type === 'e_bike'
+    const categoryScope = parseGearScope(typeFilter)
     const filtered = gear?.filter(g => {
-      if (typeFilter === 'bike') return isBikeType(g.type)
-      if (typeFilter === 'shoes') return g.type === 'shoes'
-      if (typeFilter === 'other') return !isBikeType(g.type) && g.type !== 'shoes'
+      if (categoryScope) return gearTypeMatchesScope(g.type, categoryScope, schema)
       return true
     }) ?? []
 
-    const typeTitle: Record<string, string> = {
-      bike: 'Räder',
-      shoes: 'Schuhe',
-      other: 'Zubehör',
-    }
+    const titleLabel = categoryScope
+      ? GEAR_CATEGORY_LABELS[categoryScope]
+      : typeFilter
 
     if (gearLoading) {
       return <div className="flex items-center justify-center h-64 text-neutral-400">Lade Ausrüstung...</div>
@@ -82,7 +91,7 @@ export default function GearPage() {
               ← Ausrüstung
             </Link>
             <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-              {typeTitle[typeFilter] ?? typeFilter}
+              {titleLabel}
             </h1>
           </div>
           <div className="flex items-center gap-3">
@@ -131,6 +140,7 @@ export default function GearPage() {
           <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
             <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Neue Ausrüstung</h2>
             <GearForm
+              categoryScope={categoryScope ?? 'other'}
               onSave={(data) => createMutation.mutate(data)}
               onCancel={() => setShowForm(false)}
               isSaving={createMutation.isPending}
@@ -158,35 +168,71 @@ export default function GearPage() {
     )
   }
 
-  // No type filter — show category tiles
-  const isBike = (type: string) => type === 'bike' || type === 'e_bike'
-  const bikeCount = gear?.filter(g => isBike(g.type)).length ?? 0
-  const shoesCount = gear?.filter(g => g.type === 'shoes').length ?? 0
-  const otherCount = gear?.filter(g => !isBike(g.type) && g.type !== 'shoes').length ?? 0
+  // Category tile overview — 8 gear scopes + hardware
+  const scopeCount = (scope: GearCategoryScope) =>
+    gear?.filter(g => gearTypeMatchesScope(g.type, scope, schema)).length ?? 0
+
   const recorderCount = recorders?.length ?? 0
   const sensorCount = sensors?.length ?? 0
 
   const categories = [
     {
       to: '/gear?type=bike',
-      title: 'Räder',
-      description: 'Fahrräder, Rennräder, MTBs und Zubehör verwalten',
+      title: GEAR_CATEGORY_LABELS.bike,
+      description: 'Fahrräder, Rennräder, Gravelbikes und MTBs',
       icon: Bike,
-      count: bikeCount,
+      count: scopeCount('bike'),
     },
     {
       to: '/gear?type=shoes',
-      title: 'Schuhe',
-      description: 'Laufschuhe, Radsportschuhe und Sportschuhe verwalten',
+      title: GEAR_CATEGORY_LABELS.shoes,
+      description: 'Laufschuhe, Trailschuhe und Sportschuhe',
       icon: Footprints,
-      count: shoesCount,
+      count: scopeCount('shoes'),
+    },
+    {
+      to: '/gear?type=winter',
+      title: GEAR_CATEGORY_LABELS.winter,
+      description: 'Ski, Snowboards, Stöcke und Schneeschuhe',
+      icon: Snowflake,
+      count: scopeCount('winter'),
+    },
+    {
+      to: '/gear?type=water',
+      title: GEAR_CATEGORY_LABELS.water,
+      description: 'SUP, Boards, Boote, Paddel und Segel',
+      icon: Waves,
+      count: scopeCount('water'),
+    },
+    {
+      to: '/gear?type=diving',
+      title: GEAR_CATEGORY_LABELS.diving,
+      description: 'Tauchcomputer, Flaschen, Atemregler und Anzüge',
+      icon: Anchor,
+      count: scopeCount('diving'),
+    },
+    {
+      // climb scope — items added in Phase 9; tile visible now, count = 0 until then
+      to: '/gear?type=climb',
+      title: GEAR_CATEGORY_LABELS.climb,
+      description: 'Kletterausrüstung, Gurte, Helme und Seile',
+      icon: Mountain,
+      count: scopeCount('climb'),
+    },
+    {
+      // apparel scope — items added in Phase 9; tile visible now, count = 0 until then
+      to: '/gear?type=apparel',
+      title: GEAR_CATEGORY_LABELS.apparel,
+      description: 'Trikots, Hosen, Jacken und Sportbekleidung',
+      icon: Shirt,
+      count: scopeCount('apparel'),
     },
     {
       to: '/gear?type=other',
-      title: 'Zubehör',
-      description: 'Helme, Bekleidung und sonstiges Zubehör verwalten',
+      title: GEAR_CATEGORY_LABELS.other,
+      description: 'Weitere Ausrüstung ohne eigene Kategorie',
       icon: Package,
-      count: otherCount,
+      count: scopeCount('other'),
     },
     {
       to: '/hardware/recorder',
@@ -273,7 +319,14 @@ function GearCardImage({ gearId }: { gearId: string }) {
 }
 
 function GearCard({ gear }: { gear: Gear }) {
+  const schema = getActiveSchema()
   const elevGain = formatElevationGain(gear.total_elevation_gain_m)
+
+  // Use schema path label when available; fall back to hardcoded label.
+  const typeDisplay = (() => {
+    const gt = schema.gearTypes.find(t => t.key === gear.type)
+    return gt?.labelDe ?? gear.type
+  })()
 
   return (
     <Link
@@ -291,7 +344,7 @@ function GearCard({ gear }: { gear: Gear }) {
               {gear.name}
             </h3>
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              {gearTypeLabel(gear.type)}
+              {typeDisplay}
               {gear.brand && ` - ${gear.brand}`}
               {gear.model && ` ${gear.model}`}
             </p>
@@ -309,7 +362,7 @@ function GearCard({ gear }: { gear: Gear }) {
           <div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400">Höhe</div>
             <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 tabular-nums">
-              {elevGain ?? '\u2014'}
+              {elevGain ?? '—'}
             </div>
           </div>
           <div>
@@ -326,56 +379,47 @@ function GearCard({ gear }: { gear: Gear }) {
           </div>
         </div>
 
-        {gearDefaultLabels(gear).length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-3">
-            {gearDefaultLabels(gear).map(({ key, label }) => (
-              <span
-                key={key}
-                className="px-1.5 py-0.5 rounded text-xs bg-orange-50 text-accent-600 dark:bg-orange-900/20 dark:text-orange-400"
-              >
-                {label}
-              </span>
-            ))}
-          </div>
-        )}
+        <SportBadges predicates={gear.applicable_sport_predicates} />
       </div>
     </Link>
   )
 }
 
-function gearDefaultLabels(gear: Gear): { key: string; label: string }[] {
-  const predicates = gear.default_sport_predicates ?? []
-  if (predicates.length > 0) {
-    return predicates.map((predicate, index) => ({
-      key: gearDefaultPredicateKey(predicate, index),
-      label: formatGearDefaultPredicate(predicate),
-    }))
+// Schema covers all legacy gear type keys (bike, shoes, goggles, ski, paddle, other) — no fallback needed.
+function SportBadges({ predicates }: { predicates: import('@/api/types').GearDefaultSportPredicate[] }) {
+  if (!predicates || predicates.length === 0) return null
+
+  // Deduplicate by sport_type; preserve insertion order.
+  const seen = new Set<string>()
+  const sports: string[] = []
+  for (const p of predicates) {
+    if (!seen.has(p.sport_type)) {
+      seen.add(p.sport_type)
+      sports.push(p.sport_type)
+    }
   }
-  return gear.default_for_sports.map((sport) => ({
-    key: sport,
-    label: sportLabel(sport),
-  }))
-}
 
-function formatGearDefaultPredicate(predicate: GearDefaultSportPredicate): string {
-  const parts = [sportDetailLabel(predicate.sport_type, predicate.sub_type)]
-  const modifiers = predicate.modifiers
-  if (modifiers?.is_electric === true) parts.push('E-Antrieb')
-  if (modifiers?.is_indoor === true) parts.push('Indoor')
-  if (modifiers?.is_virtual === true) parts.push('Virtuell')
-  return parts.join(' · ')
-}
+  const MAX_VISIBLE = 3
+  const visible = sports.slice(0, MAX_VISIBLE)
+  const overflow = sports.length - MAX_VISIBLE
 
-function gearDefaultPredicateKey(predicate: GearDefaultSportPredicate, index: number): string {
-  const modifiers = predicate.modifiers
-  return [
-    predicate.sport_type,
-    predicate.sub_type ?? '',
-    modifiers?.is_electric === true ? 'electric' : '',
-    modifiers?.is_indoor === true ? 'indoor' : '',
-    modifiers?.is_virtual === true ? 'virtual' : '',
-    index.toString(),
-  ].join(':')
+  return (
+    <div className="flex flex-wrap gap-1 mt-3">
+      {visible.map((s) => (
+        <span
+          key={s}
+          className="px-1.5 py-0.5 rounded text-xs bg-orange-50 text-accent-600 dark:bg-orange-900/20 dark:text-orange-400"
+        >
+          {sportLabel(s)}
+        </span>
+      ))}
+      {overflow > 0 && (
+        <span className="px-1.5 py-0.5 rounded text-xs bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+          +{overflow}
+        </span>
+      )}
+    </div>
+  )
 }
 
 function StatusBadge({ status }: { status: GearStatus }) {
@@ -393,16 +437,4 @@ function StatusBadge({ status }: { status: GearStatus }) {
       {labels[status] ?? status}
     </span>
   )
-}
-
-function gearTypeLabel(type: string): string {
-  const labels: Record<string, string> = {
-    bike: 'Fahrrad',
-    shoes: 'Laufschuhe',
-    goggles: 'Schwimmbrille',
-    ski: 'Ski',
-    paddle: 'Paddel',
-    other: 'Sonstiges',
-  }
-  return labels[type] ?? type
 }

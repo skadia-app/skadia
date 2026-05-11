@@ -963,7 +963,7 @@ func (db *DB) GetSegmentLeaderboard(ctx context.Context, segmentID, sportType st
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
 		JOIN users u ON u.id = se.user_id
-		LEFT JOIN gear g ON g.id = se.gear_id`
+		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id`
 
 	args := []any{segmentID}
 	argIdx := 2
@@ -1051,7 +1051,7 @@ func (db *DB) GetActivitySegmentEfforts(ctx context.Context, activityID string) 
 		FROM segment_efforts se
 		JOIN segments s ON s.id = se.segment_id
 		JOIN activities a ON a.id = se.activity_id
-		LEFT JOIN gear g ON g.id = se.gear_id
+		LEFT JOIN gear g ON g.id = se.gear_id AND g.user_id = se.user_id
 		WHERE se.activity_id = $1
 		ORDER BY se.started_at ASC`, activityID)
 	if err != nil {
@@ -1781,13 +1781,14 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 			a.sub_type,
 			COALESCE(a.title, '') AS title,
 		se.is_reverse,
-		a.gear_id,
+		aga.gear_id,
 		g.name AS gear_name,
 		g.type AS gear_type,
 		a.timezone
 	FROM segment_efforts se
 	JOIN activities a ON se.activity_id = a.id
-	LEFT JOIN gear g ON a.gear_id = g.id
+	LEFT JOIN activity_gear_assignments aga ON aga.activity_id = a.id AND aga.role_key = 'primary' AND aga.user_id = a.user_id
+	LEFT JOIN gear g ON g.id = aga.gear_id AND g.user_id = a.user_id
 	WHERE se.segment_id = $1 AND a.user_id = $2`
 
 	args := []any{segmentID, userID}
