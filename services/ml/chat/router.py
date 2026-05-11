@@ -58,7 +58,7 @@ DOMAIN_KEYWORDS: dict[str, set[str]] = {
     },
     "gear": {
         "schuh", "schuhe", "laufschuh", "laufschuhe",
-        "rad", "fahrrad", "bike",
+        "rad", "fahrrad", "fahrräder", "räder", "rädern", "bike",
         "ausrüstung", "equipment", "gear",
         "verschleiß", "abnutzung",
         "km-stand", "kilometerstand",
@@ -111,7 +111,10 @@ DOMAIN_TOOLS: dict[str, list[str]] = {
     "activities": ["query_activities", "aggregate_stats", "compare_periods", "get_activity_detail", "get_gear_for_activity"],
     "health": ["get_health_status", "get_analytics"],
     "training": ["get_training_load", "compare_periods", "get_analytics"],
-    "gear": ["get_gear_stats", "get_gear_for_activity", "get_gear_documents"],
+    "gear": [
+        "get_gear_stats", "get_gear_for_activity", "get_gear_documents",
+        "gear_list", "gear_component_detail", "gear_service_events", "gear_summary",
+    ],
     "geo": ["query_geo_features", "search_routes"],
     "segments": ["query_segments"],
     "photos": ["search_photos_by_content"],

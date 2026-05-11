@@ -45,8 +45,12 @@ def test_reject_multi_statement():
 
 
 def test_accept_join():
+    # gear is now linked to activities via activity_gear_assignments
+    # (activities.gear_id was dropped in 000354).
     ok, err = validate_sql(
-        "SELECT a.title, g.name FROM activities a JOIN gear g ON a.gear_id = g.id"
+        "SELECT a.title, g.name FROM activities a "
+        "JOIN activity_gear_assignments aga ON aga.activity_id = a.id AND aga.role_key = 'primary' "
+        "JOIN gear g ON g.id = aga.gear_id"
     )
     assert ok, err
 
