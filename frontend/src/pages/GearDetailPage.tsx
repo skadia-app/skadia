@@ -42,8 +42,8 @@ import GearComponentsTab from '@/components/gear/GearComponentsTab'
 import GearWearTab from '@/components/gear/GearWearTab'
 
 // Valid tab values for URL-param sync.
-type GearDetailTab = 'stammdaten' | 'geometry' | 'sports' | 'components' | 'wear'
-const VALID_TABS: GearDetailTab[] = ['stammdaten', 'geometry', 'sports', 'components', 'wear']
+type GearDetailTab = 'stammdaten' | 'geometry' | 'sports' | 'components' | 'setups' | 'wear'
+const VALID_TABS: GearDetailTab[] = ['stammdaten', 'geometry', 'sports', 'components', 'setups', 'wear']
 
 function isValidTab(v: string | null): v is GearDetailTab {
   return v !== null && (VALID_TABS as string[]).includes(v)
@@ -197,14 +197,16 @@ function GearDetailTabs({ gear, costSummary, activeTab, onTabChange, onSportsSav
     (a) => a.valueType === 'geometry' && a.subfields && a.subfields.length > 0,
   )
   const isBike = gearTypeScope(schema, gear.type, gear.scope) === 'bike'
+  const displayedTab = activeTab === 'setups' && !isBike ? 'components' : activeTab
 
   return (
-    <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as GearDetailTab)}>
+    <Tabs value={displayedTab} onValueChange={(v) => onTabChange(v as GearDetailTab)}>
       <TabsList className="flex-wrap h-auto">
         <TabsTrigger value="stammdaten">Stammdaten</TabsTrigger>
         {hasGeometry && <TabsTrigger value="geometry">Geometrie</TabsTrigger>}
         <TabsTrigger value="sports">Sport</TabsTrigger>
         <TabsTrigger value="components">Komponenten</TabsTrigger>
+        {isBike && <TabsTrigger value="setups">Setups</TabsTrigger>}
         <TabsTrigger value="wear">Verschleiß</TabsTrigger>
       </TabsList>
 
@@ -280,11 +282,14 @@ function GearDetailTabs({ gear, costSummary, activeTab, onTabChange, onSportsSav
         <GearSportsTab item={gear} onSave={onSportsSave} />
       </TabsContent>
 
-      {/* Komponenten tab — component list + chain rotation + bike setups.
+      {/* Komponenten tab — chain rotation + component list.
           GearComponentsTab renders the parent-child hierarchy (read-only, indented tree).
           ComponentsList renders the full CRUD widget (flat, with expand/edit/delete).
           Both read from the same gear.components source — no state divergence. */}
       <TabsContent value="components" className="space-y-6">
+        {isBike && (
+          <ChainRotationSection gearId={gear.id} components={gear.components ?? []} />
+        )}
         <section data-testid="components-hierarchy">
           <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2 uppercase tracking-wide">
             Hierarchie
@@ -294,13 +299,13 @@ function GearDetailTabs({ gear, costSummary, activeTab, onTabChange, onSportsSav
         <section data-testid="components-crud">
           <ComponentsList gearId={gear.id} gearType={gear.type} components={gear.components ?? []} />
         </section>
-        {isBike && (
-          <ChainRotationSection gearId={gear.id} components={gear.components ?? []} />
-        )}
-        {isBike && (
-          <BikeSetupsSection gearId={gear.id} />
-        )}
       </TabsContent>
+
+      {isBike && (
+        <TabsContent value="setups">
+          <BikeSetupsSection gearId={gear.id} />
+        </TabsContent>
+      )}
 
       {/* Verschleiß tab — usage aggregates + service events placeholder */}
       <TabsContent value="wear">

@@ -166,6 +166,33 @@ describe('GearDetailPage tabs', () => {
     expect(screen.getAllByTestId('components-crud')).toHaveLength(1)
   })
 
+  it('TestComponentsTabShowsChainRotationBeforeComponentListsAndNoSetups', async () => {
+    renderPage('/gear/g1?tab=components')
+
+    const rotationHeading = await screen.findByRole('heading', { name: 'Ketten-Rotation' })
+    const hierarchyHeading = screen.getByRole('heading', { name: 'Hierarchie' })
+
+    expect(
+      Boolean(rotationHeading.compareDocumentPosition(hierarchyHeading) & Node.DOCUMENT_POSITION_FOLLOWING),
+    ).toBe(true)
+    expect(screen.queryByRole('heading', { name: 'Setups' })).not.toBeInTheDocument()
+  })
+
+  it('TestSetupsUrlFallsBackToComponentsForNonBikeGear', async () => {
+    vi.mocked(fetchGearDetail).mockResolvedValue({
+      ...MOCK_GEAR,
+      type: 'shoes.running',
+      scope: 'shoes',
+      components: [],
+    })
+
+    renderPage('/gear/g1?tab=setups')
+
+    expect(await screen.findByTestId('components-crud')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Komponenten' })).toHaveAttribute('data-state', 'active')
+    expect(screen.queryByRole('tab', { name: 'Setups' })).not.toBeInTheDocument()
+  })
+
   it('TestComponentEditViaCRUDPropagatesToHierarchy', async () => {
     // Regression anchor: both the hierarchy (GearComponentsTab) and the CRUD list
     // (ComponentsList) read from the same gear.components source. After an edit
@@ -464,7 +491,7 @@ const MOCK_SETUP_WITH_SNAPSHOT: BikeSetup = {
   updated_at: '2024-01-03T00:00:00Z',
 }
 
-describe('BikeSetupsSection — Dropdown-Header', () => {
+describe('BikeSetupsSection — Setup tab', () => {
   it('TestBikeSetupsRenderForScopedBikeLeafType', async () => {
     vi.mocked(fetchGearDetail).mockResolvedValue({
       ...MOCK_GEAR,
@@ -473,9 +500,10 @@ describe('BikeSetupsSection — Dropdown-Header', () => {
     })
     vi.mocked(listBikeSetups).mockResolvedValue([])
 
-    renderPage('/gear/g1?tab=components')
+    renderPage('/gear/g1?tab=setups')
 
     expect(await screen.findByRole('heading', { name: 'Setups' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Setups' })).toHaveAttribute('data-state', 'active')
     expect(screen.getByText('Noch kein Setup angelegt')).toBeInTheDocument()
   })
 
@@ -484,7 +512,7 @@ describe('BikeSetupsSection — Dropdown-Header', () => {
     const user = userEvent.setup()
     vi.mocked(listBikeSetups).mockResolvedValue([MOCK_SETUP_1, MOCK_SETUP_2])
 
-    renderPage('/gear/g1?tab=components')
+    renderPage('/gear/g1?tab=setups')
 
     // Wait for the setup selector dropdown to be present.
     const dropdown = await screen.findByRole('combobox', { name: /Setup auswählen/i })
@@ -513,7 +541,7 @@ describe('BikeSetupsSection — Dropdown-Header', () => {
       .mockResolvedValueOnce([MOCK_SETUP_1, newSetup])
     vi.mocked(createBikeSetup).mockResolvedValue(newSetup)
 
-    renderPage('/gear/g1?tab=components')
+    renderPage('/gear/g1?tab=setups')
 
     // Wait for initial render.
     await screen.findByRole('combobox', { name: /Setup auswählen/i })
@@ -550,7 +578,7 @@ describe('BikeSetupsSection — Dropdown-Header', () => {
     vi.mocked(listBikeSetups).mockResolvedValue([MOCK_SETUP_1])
     vi.mocked(createBikeSetup).mockResolvedValue(newSetup)
 
-    renderPage('/gear/g1?tab=components')
+    renderPage('/gear/g1?tab=setups')
 
     await screen.findByRole('combobox', { name: /Setup auswählen/i })
     await user.click(screen.getByRole('button', { name: '+ Neu' }))
@@ -589,7 +617,7 @@ describe('BikeSetupsSection — Dropdown-Header', () => {
     const user = userEvent.setup()
     vi.mocked(listBikeSetups).mockResolvedValue([MOCK_SETUP_1])
 
-    renderPage('/gear/g1?tab=components')
+    renderPage('/gear/g1?tab=setups')
 
     await screen.findByRole('combobox', { name: /Setup auswählen/i })
     await user.click(screen.getByRole('button', { name: '+ Neu' }))
@@ -603,7 +631,7 @@ describe('BikeSetupsSection — Dropdown-Header', () => {
     const user = userEvent.setup()
     vi.mocked(listBikeSetups).mockResolvedValue([MOCK_SETUP_WITH_SNAPSHOT])
 
-    renderPage('/gear/g1?tab=components')
+    renderPage('/gear/g1?tab=setups')
 
     // Wait for the section to render.
     await screen.findByRole('combobox', { name: /Setup auswählen/i })
@@ -629,7 +657,7 @@ describe('BikeSetupsSection — Dropdown-Header', () => {
       .mockResolvedValueOnce([activatedSetup])
     vi.mocked(activateBikeSetup).mockResolvedValue(activatedSetup)
 
-    renderPage('/gear/g1?tab=components')
+    renderPage('/gear/g1?tab=setups')
 
     // Wait for setup to render.
     await screen.findByRole('combobox', { name: /Setup auswählen/i })
