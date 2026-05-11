@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Anchor, Bike, Footprints, Mountain, Package, Radio, Shirt, Smartphone, Snowflake, Waves } from 'lucide-react'
+import { Bike, CircleGauge, Footprints, Mountain, Package, Radio, Shirt, Smartphone, Snowflake, Waves } from 'lucide-react'
 import { fetchGear, createGear, fetchGearDocuments, downloadGearDocumentBlob } from '@/api/gear'
 import { fetchDevices } from '@/api/hardware'
 import type { Gear, GearStatus } from '@/api/types'
@@ -208,7 +208,7 @@ export default function GearPage() {
       to: '/gear?type=diving',
       title: GEAR_CATEGORY_LABELS.diving,
       description: 'Tauchcomputer, Flaschen, Atemregler und Anzüge',
-      icon: Anchor,
+      icon: CircleGauge,
       count: scopeCount('diving'),
     },
     {

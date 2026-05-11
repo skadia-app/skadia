@@ -1,9 +1,17 @@
 import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { describe, expect, it } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import GearWearTab from './GearWearTab'
-import type { Gear } from '@/api/types'
+import { listServiceEvents, listServiceIntervals } from '@/api/gear'
+import type { Gear, GearComponent } from '@/api/types'
+
+vi.mock('@/api/gear', () => ({
+  listServiceEvents: vi.fn(),
+  listServiceIntervals: vi.fn(),
+}))
 
 function makeGear(overrides: Partial<Gear> = {}): Gear {
   return {
@@ -25,9 +33,45 @@ function makeGear(overrides: Partial<Gear> = {}): Gear {
   }
 }
 
+function makeComponent(overrides: Partial<GearComponent> = {}): GearComponent {
+  return {
+    id: 'c1',
+    gear_id: 'g1',
+    name: 'Kette',
+    type: 'chain',
+    total_distance_m: 450_000,
+    total_elevation_gain_m: 10_000,
+    total_elevation_loss_m: 8_000,
+    total_moving_time_s: 7_200,
+    total_time_s: 8_000,
+    total_activities: 10,
+    is_retired: false,
+    status: 'active',
+    ...overrides,
+  }
+}
+
+function renderWearTab(item: Gear) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <GearWearTab item={item} />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
 describe('GearWearTab', () => {
-  it('TestRendersWearAggregatesAndComponentServiceNote', () => {
-    render(<GearWearTab item={makeGear()} />)
+  beforeEach(() => {
+    vi.mocked(listServiceIntervals).mockResolvedValue([])
+    vi.mocked(listServiceEvents).mockResolvedValue([])
+  })
+
+  it('TestRendersWearAggregatesAndComponentServiceOverview', async () => {
+    renderWearTab(makeGear())
 
     // Total aggregates are shown.
     expect(screen.getByText(/Distanz/i)).toBeInTheDocument()
@@ -35,9 +79,57 @@ describe('GearWearTab', () => {
     expect(screen.getByText(/Zeit/i)).toBeInTheDocument()
     expect(screen.getByText(/Aktivitäten/i)).toBeInTheDocument()
 
-    expect(screen.getByTestId('service-events-component-note')).toHaveTextContent(
-      'Serviceeinträge und Wartungsintervalle werden bei den einzelnen Komponenten verwaltet.',
-    )
+    expect(screen.getByTestId('service-interval-overview')).toHaveTextContent('Aktive Wartungsintervalle')
+    expect(screen.getByTestId('service-events-overview')).toHaveTextContent('Letzte Serviceeinträge')
+    expect(await screen.findByText('Keine aktiven Wartungsintervalle.')).toBeInTheDocument()
     expect(screen.queryByText(/zukünftigen Version/i)).not.toBeInTheDocument()
+  })
+
+  it('TestRendersIntervalsByProgressAndRecentServiceEvents', async () => {
+    vi.mocked(listServiceIntervals).mockImplementation(async (componentId: string) => {
+      if (componentId === 'c1') {
+        return [{
+          id: 'i1',
+          component_id: 'c1',
+          name: 'Tauschen',
+          interval_type: 'distance_m',
+          metric_key: 'distance_m',
+          interval_value: 500_000,
+          is_recurring: true,
+        }]
+      }
+      return [{
+        id: 'i2',
+        component_id: 'c2',
+        name: 'Prüfen',
+        interval_type: 'moving_time_s',
+        metric_key: 'moving_time_s',
+        interval_value: 10_000,
+        is_recurring: true,
+      }]
+    })
+    vi.mocked(listServiceEvents).mockImplementation(async (componentId: string) => (
+      componentId === 'c1'
+        ? [{
+          id: 'e1',
+          component_id: 'c1',
+          performed_at: '2026-05-10T12:00:00Z',
+          description: 'Kette gewechselt',
+          created_at: '2026-05-10T12:00:00Z',
+        }]
+        : []
+    ))
+
+    renderWearTab(makeGear({
+      components: [
+        makeComponent({ id: 'c1', name: 'Kette', total_distance_m: 450_000 }),
+        makeComponent({ id: 'c2', name: 'Dämpfer', total_moving_time_s: 2_000 }),
+      ],
+    }))
+
+    expect(await screen.findByText('Kette - Tauschen')).toBeInTheDocument()
+    expect(screen.getByText('450 km / 500 km')).toBeInTheDocument()
+    expect(screen.getByText('90%')).toBeInTheDocument()
+    expect(screen.getByText('Kette gewechselt')).toBeInTheDocument()
   })
 })

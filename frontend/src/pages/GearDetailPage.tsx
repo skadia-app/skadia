@@ -6,7 +6,12 @@ import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { CircleHelp } from 'lucide-react'
 import { getActiveSchema } from '@/lib/gearSchema'
-import { gearTypeAttributes, gearTypeLabel as schemaGearTypeLabel, gearTypeScope } from '@/lib/gearSchemaHelpers'
+import {
+  gearTypeAppliesToTarget,
+  gearTypeAttributes,
+  gearTypeLabel as schemaGearTypeLabel,
+  gearTypeScope,
+} from '@/lib/gearSchemaHelpers'
 import { type GearCategoryScope } from '@/lib/gearSchemaTypes'
 import {
   fetchGearDetail, updateGear, updateGearStatus,
@@ -169,6 +174,7 @@ export default function GearDetailPage() {
             gear={gear}
             costSummary={costSummary ?? null}
             activeTab={activeTab}
+            focusComponentId={searchParams.get('component')}
             onTabChange={switchTab}
             onSportsSave={(predicates) =>
               updateMutation.mutate({ applicable_sport_predicates: predicates })
@@ -186,11 +192,12 @@ interface GearDetailTabsProps {
   gear: Gear
   costSummary: GearCostSummary | null
   activeTab: GearDetailTab
+  focusComponentId: string | null
   onTabChange: (tab: GearDetailTab) => void
   onSportsSave: (predicates: GearDefaultSportPredicate[]) => void
 }
 
-function GearDetailTabs({ gear, costSummary, activeTab, onTabChange, onSportsSave }: GearDetailTabsProps) {
+function GearDetailTabs({ gear, costSummary, activeTab, focusComponentId, onTabChange, onSportsSave }: GearDetailTabsProps) {
   const schema = getActiveSchema()
   const attrs = gearTypeAttributes(schema, gear.type)
   const hasGeometry = attrs.some(
@@ -284,14 +291,16 @@ function GearDetailTabs({ gear, costSummary, activeTab, onTabChange, onSportsSav
         <GearSportsTab item={gear} onSave={onSportsSave} />
       </TabsContent>
 
-      {/* Komponenten tab — chain rotation + editable component list first.
+      {/* Komponenten tab — editable component list first.
           The read-only hierarchy is only useful when parent-child links exist. */}
       <TabsContent value="components" className="space-y-6">
-        {isBike && (
-          <ChainRotationSection gearId={gear.id} components={components} />
-        )}
         <section data-testid="components-crud">
-          <ComponentsList gearId={gear.id} gearType={gear.type} components={components} />
+          <ComponentsList
+            gearId={gear.id}
+            gearType={gear.type}
+            components={components}
+            focusComponentId={focusComponentId}
+          />
         </section>
         {hasComponentHierarchy && (
           <section data-testid="components-hierarchy">
@@ -310,7 +319,10 @@ function GearDetailTabs({ gear, costSummary, activeTab, onTabChange, onSportsSav
       )}
 
       {/* Verschleiß tab — usage aggregates + service events placeholder */}
-      <TabsContent value="wear">
+      <TabsContent value="wear" className="space-y-6">
+        {isBike && (
+          <ChainRotationSection gearId={gear.id} components={components} />
+        )}
         <GearWearTab item={gear} />
       </TabsContent>
     </Tabs>
@@ -392,10 +404,11 @@ function StatCard({ label, value }: { label: string; value: string | null }) {
 
 // ── Components ──────────────────────────────────────────────────────────────────
 
-function ComponentsList({ gearId, gearType, components }: {
+function ComponentsList({ gearId, gearType, components, focusComponentId }: {
   gearId: string
   gearType: string
   components: GearComponent[]
+  focusComponentId?: string | null
 }) {
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
@@ -404,6 +417,18 @@ function ComponentsList({ gearId, gearType, components }: {
   const [historyId, setHistoryId] = useState<string | null>(null)
   const [serviceId, setServiceId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!focusComponentId) return
+    if (!components.some(component => component.id === focusComponentId)) return
+    setExpandedId(focusComponentId)
+    setServiceId(focusComponentId)
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-component-row="${cssEscapeIdentifier(focusComponentId)}"]`)
+        ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    })
+  }, [components, focusComponentId])
 
   const addMutation = useMutation({
     mutationFn: (data: any) => createComponent(gearId, data),
@@ -454,7 +479,11 @@ function ComponentsList({ gearId, gearType, components }: {
       {components.length > 0 ? (
         <div className="space-y-2">
           {components.map((comp) => (
-            <div key={comp.id} className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+            <div
+              key={comp.id}
+              data-component-row={comp.id}
+              className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3 scroll-mt-24"
+            >
               {editingId === comp.id ? (
                 <ComponentForm
                   component={comp}
@@ -542,8 +571,10 @@ function ComponentsList({ gearId, gearType, components }: {
 
                   {transferringId === comp.id && (
                     <TransferDialog
+                      component={comp}
                       componentId={comp.id}
                       currentGearId={gearId}
+                      currentGearType={gearType}
                       onClose={() => setTransferringId(null)}
                     />
                   )}
@@ -596,11 +627,64 @@ function formatComponentDuration(seconds: number): string {
   return `${Math.round(minutes / 60)} h`
 }
 
+function serviceMetricInputUnit(metric: ServiceMetricKey): string {
+  switch (metric) {
+    case 'distance_m': return 'km'
+    case 'moving_time_s':
+    case 'elapsed_time_s': return 'h'
+    case 'activity_count': return 'Anzahl'
+    case 'elapsed_days': return 'Tage'
+    case 'elevation_gain_m':
+    case 'elevation_loss_m': return 'm'
+  }
+}
+
+function serviceMetricInputPlaceholder(metric: ServiceMetricKey): string {
+  switch (metric) {
+    case 'distance_m': return 'z.B. 500'
+    case 'moving_time_s':
+    case 'elapsed_time_s': return 'z.B. 50'
+    case 'activity_count': return 'z.B. 20'
+    case 'elapsed_days': return 'z.B. 90'
+    case 'elevation_gain_m':
+    case 'elevation_loss_m': return 'z.B. 5000'
+  }
+}
+
+function serviceMetricInputStep(metric: ServiceMetricKey): string {
+  switch (metric) {
+    case 'activity_count':
+    case 'elapsed_days':
+    case 'elevation_gain_m':
+    case 'elevation_loss_m':
+      return '1'
+    default:
+      return '0.1'
+  }
+}
+
+function serviceMetricInputToBase(metric: ServiceMetricKey, value: string): number {
+  const parsed = parseFloat(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0
+  if (metric === 'distance_m') return parsed * 1000
+  if (metric === 'moving_time_s' || metric === 'elapsed_time_s') return parsed * 3600
+  return parsed
+}
+
+function cssEscapeIdentifier(value: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(value)
+  }
+  return value.replace(/["\\]/g, '\\$&')
+}
+
 // ── Transfer Dialog ─────────────────────────────────────────────────────────────
 
-function TransferDialog({ componentId, currentGearId, onClose }: {
+function TransferDialog({ component, componentId, currentGearId, currentGearType, onClose }: {
+  component: GearComponent
   componentId: string
   currentGearId: string
+  currentGearType: string
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
@@ -620,7 +704,11 @@ function TransferDialog({ componentId, currentGearId, onClose }: {
     },
   })
 
-  const targets = allGear?.filter(g => g.id !== currentGearId) ?? []
+  const schema = getActiveSchema()
+  const targets = allGear?.filter(g =>
+    g.id !== currentGearId &&
+    isTransferTargetCompatible(component, currentGearType, g, schema)
+  ) ?? []
 
   return (
     <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
@@ -633,7 +721,7 @@ function TransferDialog({ componentId, currentGearId, onClose }: {
         >
           <option value="">Ziel wählen...</option>
           {targets.map(g => (
-            <option key={g.id} value={g.id}>{g.name} ({schemaGearTypeLabel(getActiveSchema(), g.type)})</option>
+            <option key={g.id} value={g.id}>{g.name} ({schemaGearTypeLabel(schema, g.type)})</option>
           ))}
         </select>
         <button
@@ -653,8 +741,35 @@ function TransferDialog({ componentId, currentGearId, onClose }: {
       {mutation.isError && (
         <p className="text-xs text-rose-500 mt-1">Übertragung fehlgeschlagen</p>
       )}
+      {allGear && targets.length === 0 && (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
+          Keine kompatible Zielausrüstung vorhanden.
+        </p>
+      )}
     </div>
   )
+}
+
+function isTransferTargetCompatible(
+  component: GearComponent,
+  currentGearType: string,
+  target: Gear,
+  schema: ReturnType<typeof getActiveSchema>,
+): boolean {
+  const sourceScope = gearTypeScope(schema, currentGearType)
+  const targetScope = gearTypeScope(schema, target.type, target.scope)
+  if (sourceScope !== targetScope) return false
+
+  const presetType = component.preset_gear_type_key
+  if (presetType) {
+    if (presetType === 'bike' && target.type === 'e_bike') return true
+    return gearTypeAppliesToTarget(schema, presetType, target.type)
+  }
+
+  const componentScope = component.type.includes('.') ? component.type.split('.')[0] : ''
+  if (componentScope && componentScope !== targetScope) return false
+
+  return true
 }
 
 // ── Component History ───────────────────────────────────────────────────────────
@@ -755,11 +870,12 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
       name: intervalName.trim() || USAGE_METRIC_LABELS[intervalMetric],
       metric_key: intervalMetric,
       interval_type: intervalMetric,
-      interval_value: parseFloat(intervalValue) || 0,
+      interval_value: serviceMetricInputToBase(intervalMetric, intervalValue),
       is_recurring: true,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['service-intervals', componentId] })
+      queryClient.invalidateQueries({ queryKey: ['maintenance-alerts'] })
       setAddingInterval(false)
       setIntervalName('')
       setIntervalValue('')
@@ -816,29 +932,41 @@ function ServiceEventsPanel({ componentId, status }: { componentId: string; stat
       {isActive && addingInterval && (
         <div className="p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-lg space-y-2">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <input
-              type="text"
-              value={intervalName}
-              onChange={(e) => setIntervalName(e.target.value)}
-              placeholder="Name"
-              className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
-            />
-            <select
-              value={intervalMetric}
-              onChange={(e) => setIntervalMetric(e.target.value as ServiceMetricKey)}
-              className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
-            >
-              {PRODUCTIVE_SERVICE_METRICS.map(metric => (
-                <option key={metric} value={metric}>{USAGE_METRIC_LABELS[metric]}</option>
-              ))}
-            </select>
-            <input
-              type="number"
-              value={intervalValue}
-              onChange={(e) => setIntervalValue(e.target.value)}
-              placeholder="Wert"
-              className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
-            />
+            <label className="space-y-1">
+              <span className="block text-xs text-neutral-500 dark:text-neutral-400">Name</span>
+              <input
+                type="text"
+                value={intervalName}
+                onChange={(e) => setIntervalName(e.target.value)}
+                placeholder="z.B. Tausch"
+                className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="block text-xs text-neutral-500 dark:text-neutral-400">Metrik</span>
+              <select
+                value={intervalMetric}
+                onChange={(e) => setIntervalMetric(e.target.value as ServiceMetricKey)}
+                className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+              >
+                {PRODUCTIVE_SERVICE_METRICS.map(metric => (
+                  <option key={metric} value={metric}>{USAGE_METRIC_LABELS[metric]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className="block text-xs text-neutral-500 dark:text-neutral-400">
+                Wert ({serviceMetricInputUnit(intervalMetric)})
+              </span>
+              <input
+                type="number"
+                value={intervalValue}
+                onChange={(e) => setIntervalValue(e.target.value)}
+                placeholder={serviceMetricInputPlaceholder(intervalMetric)}
+                step={serviceMetricInputStep(intervalMetric)}
+                className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+              />
+            </label>
           </div>
           <div className="flex gap-2 justify-end">
             <button

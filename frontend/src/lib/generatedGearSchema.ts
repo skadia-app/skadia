@@ -315,6 +315,56 @@ export const gearSchema: GearSchema = {
       ]
     },
     {
+      "key": "shoes.crampon_compatibility",
+      "options": [
+        {
+          "key": "none",
+          "labelDe": "Nicht steigeisenfest"
+        },
+        {
+          "key": "conditional",
+          "labelDe": "Bedingt steigeisenfest"
+        },
+        {
+          "key": "full",
+          "labelDe": "Voll steigeisenfest"
+        }
+      ]
+    },
+    {
+      "key": "shoes.outdoor_category",
+      "options": [
+        {
+          "key": "a",
+          "labelDe": "A"
+        },
+        {
+          "key": "a_b",
+          "labelDe": "A/B"
+        },
+        {
+          "key": "b",
+          "labelDe": "B"
+        },
+        {
+          "key": "b_c",
+          "labelDe": "B/C"
+        },
+        {
+          "key": "light_mountaineering",
+          "labelDe": "Leichtbergstiefel"
+        },
+        {
+          "key": "c",
+          "labelDe": "C"
+        },
+        {
+          "key": "d",
+          "labelDe": "D"
+        }
+      ]
+    },
+    {
       "key": "bike.frame_size_alpha",
       "options": [
         {
@@ -3733,6 +3783,18 @@ export const gearSchema: GearSchema = {
       "optionSetKey": "bike.modifier"
     },
     {
+      "key": "shoes.crampon_compatibility",
+      "labelDe": "Steigeisen-Kompatibilität",
+      "valueType": "search_enum",
+      "optionSetKey": "shoes.crampon_compatibility"
+    },
+    {
+      "key": "shoes.outdoor_category",
+      "labelDe": "Outdoorschuh-Kategorie",
+      "valueType": "search_enum",
+      "optionSetKey": "shoes.outdoor_category"
+    },
+    {
       "key": "bike.rear_axle_standard",
       "labelDe": "Hinterbau-Achsstandard",
       "valueType": "search_enum",
@@ -6558,8 +6620,142 @@ export const gearSchema: GearSchema = {
       "scope": "shoes",
       "parentKey": "shoes",
       "defaultAssignmentRoleKey": "worn",
-      "attributeKeys": [],
+      "attributeKeys": [
+        "shoes.outdoor_category"
+      ],
       "modifierKeys": []
+    },
+    {
+      "key": "shoes.hiking.low",
+      "labelDe": "Wanderschuhe",
+      "scope": "shoes",
+      "parentKey": "shoes.hiking",
+      "defaultAssignmentRoleKey": "worn",
+      "attributeKeys": [],
+      "modifierKeys": [],
+      "recommended": {
+        "attributes": [
+          {
+            "key": "shoes.outdoor_category",
+            "values": [
+              "a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "shoes.hiking.speed",
+      "labelDe": "Speed-Hiking-Schuhe",
+      "scope": "shoes",
+      "parentKey": "shoes.hiking",
+      "defaultAssignmentRoleKey": "worn",
+      "attributeKeys": [],
+      "modifierKeys": [],
+      "recommended": {
+        "attributes": [
+          {
+            "key": "shoes.outdoor_category",
+            "values": [
+              "a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "shoes.hiking.approach",
+      "labelDe": "Zustiegsschuhe",
+      "scope": "shoes",
+      "parentKey": "shoes.hiking",
+      "defaultAssignmentRoleKey": "worn",
+      "attributeKeys": [],
+      "modifierKeys": [],
+      "recommended": {
+        "attributes": [
+          {
+            "key": "shoes.outdoor_category",
+            "values": [
+              "a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "shoes.hiking.boot",
+      "labelDe": "Wanderstiefel",
+      "scope": "shoes",
+      "parentKey": "shoes.hiking",
+      "defaultAssignmentRoleKey": "worn",
+      "attributeKeys": [],
+      "modifierKeys": [],
+      "recommended": {
+        "attributes": [
+          {
+            "key": "shoes.outdoor_category",
+            "values": [
+              "a_b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "shoes.trekking",
+      "labelDe": "Trekkingstiefel",
+      "scope": "shoes",
+      "parentKey": "shoes",
+      "defaultAssignmentRoleKey": "worn",
+      "attributeKeys": [
+        "shoes.outdoor_category",
+        "shoes.crampon_compatibility"
+      ],
+      "modifierKeys": []
+    },
+    {
+      "key": "shoes.trekking.light",
+      "labelDe": "Trekkingstiefel",
+      "scope": "shoes",
+      "parentKey": "shoes.trekking",
+      "defaultAssignmentRoleKey": "worn",
+      "attributeKeys": [],
+      "modifierKeys": [],
+      "recommended": {
+        "attributes": [
+          {
+            "key": "shoes.outdoor_category",
+            "values": [
+              "b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "shoes.trekking.heavy",
+      "labelDe": "Schwere Trekkingstiefel",
+      "scope": "shoes",
+      "parentKey": "shoes.trekking",
+      "defaultAssignmentRoleKey": "worn",
+      "attributeKeys": [],
+      "modifierKeys": [],
+      "recommended": {
+        "attributes": [
+          {
+            "key": "shoes.outdoor_category",
+            "values": [
+              "b_c"
+            ]
+          },
+          {
+            "key": "shoes.crampon_compatibility",
+            "values": [
+              "conditional"
+            ]
+          }
+        ]
+      }
     },
     {
       "key": "shoes.mountaineering",
@@ -6567,8 +6763,80 @@ export const gearSchema: GearSchema = {
       "scope": "shoes",
       "parentKey": "shoes",
       "defaultAssignmentRoleKey": "worn",
-      "attributeKeys": [],
+      "attributeKeys": [
+        "shoes.outdoor_category",
+        "shoes.crampon_compatibility"
+      ],
       "modifierKeys": []
+    },
+    {
+      "key": "shoes.mountaineering.light",
+      "labelDe": "Leichtbergstiefel",
+      "scope": "shoes",
+      "parentKey": "shoes.mountaineering",
+      "defaultAssignmentRoleKey": "worn",
+      "attributeKeys": [],
+      "modifierKeys": [],
+      "recommended": {
+        "attributes": [
+          {
+            "key": "shoes.outdoor_category",
+            "values": [
+              "light_mountaineering"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "shoes.mountaineering.alpine",
+      "labelDe": "Bergstiefel",
+      "scope": "shoes",
+      "parentKey": "shoes.mountaineering",
+      "defaultAssignmentRoleKey": "worn",
+      "attributeKeys": [],
+      "modifierKeys": [],
+      "recommended": {
+        "attributes": [
+          {
+            "key": "shoes.outdoor_category",
+            "values": [
+              "c"
+            ]
+          },
+          {
+            "key": "shoes.crampon_compatibility",
+            "values": [
+              "conditional"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "key": "shoes.mountaineering.expedition",
+      "labelDe": "Expeditionsstiefel",
+      "scope": "shoes",
+      "parentKey": "shoes.mountaineering",
+      "defaultAssignmentRoleKey": "worn",
+      "attributeKeys": [],
+      "modifierKeys": [],
+      "recommended": {
+        "attributes": [
+          {
+            "key": "shoes.outdoor_category",
+            "values": [
+              "d"
+            ]
+          },
+          {
+            "key": "shoes.crampon_compatibility",
+            "values": [
+              "full"
+            ]
+          }
+        ]
+      }
     },
     {
       "key": "shoes.training",

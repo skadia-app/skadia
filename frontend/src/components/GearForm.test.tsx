@@ -201,6 +201,43 @@ describe('GearForm', () => {
     expect(screen.queryByRole('option', { name: 'Fahrrad / Reifendichtmilch' })).not.toBeInTheDocument()
   })
 
+  it('hides legacy duplicate climbing harness and keeps current climbing types', () => {
+    render(
+      <GearForm
+        categoryScope="climb"
+        onSave={vi.fn()}
+        onCancel={() => {}}
+      />,
+    )
+
+    const typeInput = screen.getByRole('combobox', { name: 'Typ' })
+    fireEvent.focus(typeInput)
+
+    expect(screen.getAllByRole('option', { name: 'Klettergurt' })).toHaveLength(1)
+    expect(screen.getByRole('option', { name: 'Steigeisen' })).toBeInTheDocument()
+  })
+
+  it('shows mountaineering shoe categories and crampon compatibility', () => {
+    render(
+      <GearForm
+        categoryScope="shoes"
+        onSave={vi.fn()}
+        onCancel={() => {}}
+      />,
+    )
+
+    const typeInput = screen.getByRole('combobox', { name: 'Typ' })
+    fireEvent.focus(typeInput)
+    fireEvent.click(screen.getByRole('option', { name: 'Schuhe / Bergschuhe / Bergstiefel' }))
+
+    expect(screen.getByRole('combobox', { name: 'Outdoorschuh-Kategorie' })).toBeInTheDocument()
+    const cramponInput = screen.getByRole('combobox', { name: 'Steigeisen-Kompatibilität' })
+    expect(cramponInput).toBeInTheDocument()
+    fireEvent.focus(cramponInput)
+    expect(screen.getByRole('option', { name: /Bedingt steigeisenfest/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Automatische Steigeisen' })).not.toBeInTheDocument()
+  })
+
   it('renders bike modifiers prominently and saves checked modifiers', () => {
     const onSave = vi.fn()
     render(

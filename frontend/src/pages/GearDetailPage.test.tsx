@@ -7,7 +7,20 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import GearDetailPage from './GearDetailPage'
 import type { Gear, GearComponent, ChainRotationGroup, BikeSetup, ComponentTypePreset } from '@/api/types'
-import { fetchGearDetail, updateComponent, listServiceEvents, listServiceIntervals, getChainRotation, updateChainRotation, listBikeSetups, createBikeSetup, activateBikeSetup, fetchComponentPresets } from '@/api/gear'
+import {
+  createServiceInterval,
+  fetchGear,
+  fetchGearDetail,
+  updateComponent,
+  listServiceEvents,
+  listServiceIntervals,
+  getChainRotation,
+  updateChainRotation,
+  listBikeSetups,
+  createBikeSetup,
+  activateBikeSetup,
+  fetchComponentPresets,
+} from '@/api/gear'
 
 const MOCK_COMPONENT: GearComponent = {
   id: 'c1',
@@ -163,16 +176,19 @@ describe('GearDetailPage tabs', () => {
     expect(screen.queryByTestId('components-hierarchy')).not.toBeInTheDocument()
   })
 
-  it('TestComponentsTabShowsChainRotationBeforeEditableComponentsAndNoSetups', async () => {
+  it('TestComponentsTabShowsEditableComponentsWithoutChainRotationOrSetups', async () => {
     renderPage('/gear/g1?tab=components')
 
-    const rotationHeading = await screen.findByRole('heading', { name: 'Ketten-Rotation' })
-    const componentsHeading = screen.getByRole('heading', { name: 'Komponenten' })
-
-    expect(
-      Boolean(rotationHeading.compareDocumentPosition(componentsHeading) & Node.DOCUMENT_POSITION_FOLLOWING),
-    ).toBe(true)
+    expect(await screen.findByRole('heading', { name: 'Komponenten' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Ketten-Rotation' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Setups' })).not.toBeInTheDocument()
+  })
+
+  it('TestWearTabShowsChainRotation', async () => {
+    renderPage('/gear/g1?tab=wear')
+
+    expect(await screen.findByRole('heading', { name: 'Ketten-Rotation' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Nutzung gesamt' })).toBeInTheDocument()
   })
 
   it('TestComponentsTabShowsHierarchyAfterEditableListOnlyForNestedComponents', async () => {
@@ -331,6 +347,55 @@ describe('ServiceEventsPanel status gate', () => {
     expect(within(crudSection).queryByRole('button', { name: '+ Intervall' })).not.toBeInTheDocument()
     expect(within(crudSection).queryByRole('button', { name: '+ Service eintragen' })).not.toBeInTheDocument()
   })
+
+  it('TestServiceIntervalValueUsesVisibleDisplayUnits', async () => {
+    const user = userEvent.setup()
+    vi.mocked(fetchGearDetail).mockResolvedValue(MOCK_GEAR)
+    vi.mocked(listServiceEvents).mockResolvedValue([])
+    vi.mocked(listServiceIntervals).mockResolvedValue([])
+
+    renderPage('/gear/g1?tab=components')
+
+    const crudSection = await screen.findByTestId('components-crud')
+    await user.click(within(crudSection).getByRole('button', { name: 'Service' }))
+    await user.click(within(crudSection).getByRole('button', { name: '+ Intervall' }))
+
+    expect(within(crudSection).getByText('Wert (h)')).toBeInTheDocument()
+    await user.selectOptions(within(crudSection).getByLabelText('Metrik'), 'distance_m')
+    expect(within(crudSection).getByText('Wert (km)')).toBeInTheDocument()
+
+    await user.type(within(crudSection).getByLabelText('Wert (km)'), '500')
+    await user.click(within(crudSection).getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => {
+      expect(createServiceInterval).toHaveBeenCalledWith('c1', expect.objectContaining({
+        metric_key: 'distance_m',
+        interval_value: 500000,
+      }))
+    })
+  })
+})
+
+describe('Component transfer', () => {
+  it('TestTransferTargetsAreFilteredToCompatibleGearScope', async () => {
+    const user = userEvent.setup()
+    vi.mocked(fetchGearDetail).mockResolvedValue(MOCK_GEAR)
+    vi.mocked(fetchGear).mockResolvedValue([
+      { ...MOCK_GEAR, id: 'bike-2', name: 'Zielrad', type: 'bike.mtb.enduro', scope: 'bike' },
+      { ...MOCK_GEAR, id: 'legacy-ebike', name: 'Legacy E-Bike', type: 'e_bike', scope: undefined },
+      { ...MOCK_GEAR, id: 'shoe-1', name: 'Laufschuh', type: 'shoes.running', scope: 'shoes' },
+    ])
+
+    renderPage('/gear/g1?tab=components')
+
+    const crudSection = await screen.findByTestId('components-crud')
+    await user.click(within(crudSection).getByRole('button', { name: 'Übertragen' }))
+
+    const select = within(crudSection).getByDisplayValue('Ziel wählen...')
+    expect(within(select).getByRole('option', { name: 'Zielrad (Fahrrad / Mountainbike / Enduro)' })).toBeInTheDocument()
+    expect(within(select).getByRole('option', { name: 'Legacy E-Bike (E-Bike)' })).toBeInTheDocument()
+    expect(within(select).queryByRole('option', { name: 'Laufschuh (Schuhe / Laufschuhe)' })).not.toBeInTheDocument()
+  })
 })
 
 describe('ChainRotation edit form', () => {
@@ -360,7 +425,7 @@ describe('ChainRotation edit form', () => {
       .mockResolvedValueOnce(UPDATED_ROTATION)
     vi.mocked(updateChainRotation).mockResolvedValue(undefined as any)
 
-    renderPage('/gear/g1?tab=components')
+    renderPage('/gear/g1?tab=wear')
 
     // Wait for the chain rotation section to display the initial swap interval.
     await waitFor(() => {
@@ -413,7 +478,7 @@ describe('ChainRotation edit form', () => {
       .mockResolvedValueOnce(rotationWithNewName)
     vi.mocked(updateChainRotation).mockResolvedValue(undefined as any)
 
-    renderPage('/gear/g1?tab=components')
+    renderPage('/gear/g1?tab=wear')
 
     await waitFor(() => {
       expect(screen.getByText(/Wechsel alle/)).toBeInTheDocument()
@@ -451,7 +516,7 @@ describe('ChainRotation edit form', () => {
     vi.mocked(getChainRotation).mockResolvedValue(MOCK_ROTATION)
     vi.mocked(updateChainRotation).mockResolvedValue(undefined as any)
 
-    renderPage('/gear/g1?tab=components')
+    renderPage('/gear/g1?tab=wear')
 
     await waitFor(() => {
       expect(screen.getByText(/Wechsel alle/)).toBeInTheDocument()

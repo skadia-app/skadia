@@ -186,6 +186,20 @@ var Schema = GearSchema{
 			{Key: "14", LabelDE: "14 Zoll"},
 			{Key: "12", LabelDE: "12 Zoll"},
 		}},
+		{Key: "shoes.crampon_compatibility", Options: []OptionValue{
+			{Key: "none", LabelDE: "Nicht steigeisenfest"},
+			{Key: "conditional", LabelDE: "Bedingt steigeisenfest"},
+			{Key: "full", LabelDE: "Voll steigeisenfest"},
+		}},
+		{Key: "shoes.outdoor_category", Options: []OptionValue{
+			{Key: "a", LabelDE: "A"},
+			{Key: "a_b", LabelDE: "A/B"},
+			{Key: "b", LabelDE: "B"},
+			{Key: "b_c", LabelDE: "B/C"},
+			{Key: "light_mountaineering", LabelDE: "Leichtbergstiefel"},
+			{Key: "c", LabelDE: "C"},
+			{Key: "d", LabelDE: "D"},
+		}},
 		{Key: "bike.frame_size_alpha", Options: []OptionValue{
 			{Key: "xxs", LabelDE: "XXS"},
 			{Key: "xs", LabelDE: "XS"},
@@ -1152,6 +1166,14 @@ var Schema = GearSchema{
 		{
 			Key: "bike.modifier", LabelDE: "Fahrrad-Modifier", ValueType: "search_enum",
 			OptionSetKey: "bike.modifier",
+		},
+		{
+			Key: "shoes.crampon_compatibility", LabelDE: "Steigeisen-Kompatibilität", ValueType: "search_enum",
+			OptionSetKey: "shoes.crampon_compatibility",
+		},
+		{
+			Key: "shoes.outdoor_category", LabelDE: "Outdoorschuh-Kategorie", ValueType: "search_enum",
+			OptionSetKey: "shoes.outdoor_category",
 		},
 		{
 			Key: "bike.rear_axle_standard", LabelDE: "Hinterbau-Achsstandard", ValueType: "search_enum",
@@ -2697,8 +2719,102 @@ var Schema = GearSchema{
 			Scope:                    "shoes",
 			ParentKey:                "shoes",
 			DefaultAssignmentRoleKey: "worn",
+			AttributeKeys:            []string{"shoes.outdoor_category"},
+			ModifierKeys:             []string{},
+		},
+		{
+			Key:                      "shoes.hiking.low",
+			LabelDE:                  "Wanderschuhe",
+			Scope:                    "shoes",
+			ParentKey:                "shoes.hiking",
+			DefaultAssignmentRoleKey: "worn",
 			AttributeKeys:            []string{},
 			ModifierKeys:             []string{},
+			Recommended: &RecommendedConstraints{
+				Attributes: []RecommendedAttribute{
+					{Key: "shoes.outdoor_category", Values: []any{"a"}},
+				},
+			},
+		},
+		{
+			Key:                      "shoes.hiking.speed",
+			LabelDE:                  "Speed-Hiking-Schuhe",
+			Scope:                    "shoes",
+			ParentKey:                "shoes.hiking",
+			DefaultAssignmentRoleKey: "worn",
+			AttributeKeys:            []string{},
+			ModifierKeys:             []string{},
+			Recommended: &RecommendedConstraints{
+				Attributes: []RecommendedAttribute{
+					{Key: "shoes.outdoor_category", Values: []any{"a"}},
+				},
+			},
+		},
+		{
+			Key:                      "shoes.hiking.approach",
+			LabelDE:                  "Zustiegsschuhe",
+			Scope:                    "shoes",
+			ParentKey:                "shoes.hiking",
+			DefaultAssignmentRoleKey: "worn",
+			AttributeKeys:            []string{},
+			ModifierKeys:             []string{},
+			Recommended: &RecommendedConstraints{
+				Attributes: []RecommendedAttribute{
+					{Key: "shoes.outdoor_category", Values: []any{"a"}},
+				},
+			},
+		},
+		{
+			Key:                      "shoes.hiking.boot",
+			LabelDE:                  "Wanderstiefel",
+			Scope:                    "shoes",
+			ParentKey:                "shoes.hiking",
+			DefaultAssignmentRoleKey: "worn",
+			AttributeKeys:            []string{},
+			ModifierKeys:             []string{},
+			Recommended: &RecommendedConstraints{
+				Attributes: []RecommendedAttribute{
+					{Key: "shoes.outdoor_category", Values: []any{"a_b"}},
+				},
+			},
+		},
+		{
+			Key:                      "shoes.trekking",
+			LabelDE:                  "Trekkingstiefel",
+			Scope:                    "shoes",
+			ParentKey:                "shoes",
+			DefaultAssignmentRoleKey: "worn",
+			AttributeKeys:            []string{"shoes.outdoor_category", "shoes.crampon_compatibility"},
+			ModifierKeys:             []string{},
+		},
+		{
+			Key:                      "shoes.trekking.light",
+			LabelDE:                  "Trekkingstiefel",
+			Scope:                    "shoes",
+			ParentKey:                "shoes.trekking",
+			DefaultAssignmentRoleKey: "worn",
+			AttributeKeys:            []string{},
+			ModifierKeys:             []string{},
+			Recommended: &RecommendedConstraints{
+				Attributes: []RecommendedAttribute{
+					{Key: "shoes.outdoor_category", Values: []any{"b"}},
+				},
+			},
+		},
+		{
+			Key:                      "shoes.trekking.heavy",
+			LabelDE:                  "Schwere Trekkingstiefel",
+			Scope:                    "shoes",
+			ParentKey:                "shoes.trekking",
+			DefaultAssignmentRoleKey: "worn",
+			AttributeKeys:            []string{},
+			ModifierKeys:             []string{},
+			Recommended: &RecommendedConstraints{
+				Attributes: []RecommendedAttribute{
+					{Key: "shoes.outdoor_category", Values: []any{"b_c"}},
+					{Key: "shoes.crampon_compatibility", Values: []any{"conditional"}},
+				},
+			},
 		},
 		{
 			Key:                      "shoes.mountaineering",
@@ -2706,8 +2822,52 @@ var Schema = GearSchema{
 			Scope:                    "shoes",
 			ParentKey:                "shoes",
 			DefaultAssignmentRoleKey: "worn",
+			AttributeKeys:            []string{"shoes.outdoor_category", "shoes.crampon_compatibility"},
+			ModifierKeys:             []string{},
+		},
+		{
+			Key:                      "shoes.mountaineering.light",
+			LabelDE:                  "Leichtbergstiefel",
+			Scope:                    "shoes",
+			ParentKey:                "shoes.mountaineering",
+			DefaultAssignmentRoleKey: "worn",
 			AttributeKeys:            []string{},
 			ModifierKeys:             []string{},
+			Recommended: &RecommendedConstraints{
+				Attributes: []RecommendedAttribute{
+					{Key: "shoes.outdoor_category", Values: []any{"light_mountaineering"}},
+				},
+			},
+		},
+		{
+			Key:                      "shoes.mountaineering.alpine",
+			LabelDE:                  "Bergstiefel",
+			Scope:                    "shoes",
+			ParentKey:                "shoes.mountaineering",
+			DefaultAssignmentRoleKey: "worn",
+			AttributeKeys:            []string{},
+			ModifierKeys:             []string{},
+			Recommended: &RecommendedConstraints{
+				Attributes: []RecommendedAttribute{
+					{Key: "shoes.outdoor_category", Values: []any{"c"}},
+					{Key: "shoes.crampon_compatibility", Values: []any{"conditional"}},
+				},
+			},
+		},
+		{
+			Key:                      "shoes.mountaineering.expedition",
+			LabelDE:                  "Expeditionsstiefel",
+			Scope:                    "shoes",
+			ParentKey:                "shoes.mountaineering",
+			DefaultAssignmentRoleKey: "worn",
+			AttributeKeys:            []string{},
+			ModifierKeys:             []string{},
+			Recommended: &RecommendedConstraints{
+				Attributes: []RecommendedAttribute{
+					{Key: "shoes.outdoor_category", Values: []any{"d"}},
+					{Key: "shoes.crampon_compatibility", Values: []any{"full"}},
+				},
+			},
 		},
 		{
 			Key:                      "shoes.training",
