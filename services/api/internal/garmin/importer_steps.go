@@ -237,84 +237,62 @@ func (s *StepsImporter) Import(ctx context.Context, params ImportParams) (*Impor
 }
 
 func (s *StepsImporter) importUDS(ctx context.Context, params ImportParams, result *ImportResult) int {
-	files, _ := params.Source.FindFiles("DI_CONNECT/DI-Connect-Aggregator/UDSFile_*.json")
+	records := readJSONFiles[garminUDSRecord](params.Source,
+		"DI_CONNECT/DI-Connect-Aggregator/UDSFile_*.json", "UDS", result)
 	total := 0
-
-	var batchIDPtr *string
-	if params.JobID != "" {
-		batchIDPtr = &params.JobID
-	}
-
-	for _, f := range files {
-		tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", filepath.Base(f), nil, batchIDPtr, model.ImportTypeMonitoring)
-		tracker.Processing(ctx)
-
-		var records []garminUDSRecord
-		if err := params.Source.ReadJSON(f, &records); err != nil {
-			slog.Warn("garmin health: cannot read UDS file", "file", f, "error", err)
-			result.Errors = append(result.Errors, "read "+f+": "+err.Error())
-			tracker.Error(ctx, err)
+	for _, rec := range records {
+		if rec.CalendarDate == "" {
 			continue
 		}
 
-		fileImported := 0
-		for _, rec := range records {
-			if rec.CalendarDate == "" {
-				continue
+		// Parse stress average from allDayStress.aggregatorList
+		var stressAvg *float64
+		if len(rec.AllDayStress) > 0 && string(rec.AllDayStress) != "null" {
+			var allDayStress struct {
+				AggregatorList []struct {
+					Type               string  `json:"type"`
+					AverageStressLevel float64 `json:"averageStressLevel"`
+				} `json:"aggregatorList"`
 			}
-
-			// Parse stress average from allDayStress.aggregatorList
-			var stressAvg *float64
-			if len(rec.AllDayStress) > 0 && string(rec.AllDayStress) != "null" {
-				var allDayStress struct {
-					AggregatorList []struct {
-						Type               string  `json:"type"`
-						AverageStressLevel float64 `json:"averageStressLevel"`
-					} `json:"aggregatorList"`
-				}
-				if err := json.Unmarshal(rec.AllDayStress, &allDayStress); err == nil {
-					for _, agg := range allDayStress.AggregatorList {
-						if agg.Type == "TOTAL" {
-							v := agg.AverageStressLevel
-							stressAvg = &v
-							break
-						}
+			if err := json.Unmarshal(rec.AllDayStress, &allDayStress); err == nil {
+				for _, agg := range allDayStress.AggregatorList {
+					if agg.Type == "TOTAL" {
+						v := agg.AverageStressLevel
+						stressAvg = &v
+						break
 					}
 				}
 			}
-
-			bbMin, bbMax := parseBodyBattery(rec.BodyBattery)
-
-			summary := &model.HealthDailySummary{
-				UserID:              params.UserID,
-				CalendarDate:        rec.CalendarDate,
-				TotalSteps:          rec.TotalSteps,
-				StepGoal:            rec.DailyStepGoal,
-				RestingHeartRate:    rec.RestingHeartRate,
-				MinHeartRate:        rec.MinHeartRate,
-				MaxHeartRate:        rec.MaxHeartRate,
-				TotalCalories:       rec.TotalKilocalories,
-				ActiveCalories:      rec.ActiveKilocalories,
-				BmrCalories:         rec.BmrKilocalories,
-				TotalDistanceM:      rec.TotalDistanceMeters,
-				HighlyActiveSeconds: rec.HighlyActiveSeconds,
-				ActiveSeconds:       rec.ActiveSeconds,
-				StressAvg:           stressAvg,
-				BodyBatteryMin:      bbMin,
-				BodyBatteryMax:      bbMax,
-				SourceType:          "garmin",
-			}
-
-			if err := params.DB.UpsertHealthDailySummary(ctx, summary); err != nil {
-				slog.Warn("garmin health: upsert daily summary failed", "date", rec.CalendarDate, "error", err)
-				result.Errors = append(result.Errors, "upsert UDS "+rec.CalendarDate+": "+err.Error())
-				continue
-			}
-			fileImported++
 		}
 
-		total += fileImported
-		tracker.Completed(ctx, "")
+		bbMin, bbMax := parseBodyBattery(rec.BodyBattery)
+
+		summary := &model.HealthDailySummary{
+			UserID:              params.UserID,
+			CalendarDate:        rec.CalendarDate,
+			TotalSteps:          rec.TotalSteps,
+			StepGoal:            rec.DailyStepGoal,
+			RestingHeartRate:    rec.RestingHeartRate,
+			MinHeartRate:        rec.MinHeartRate,
+			MaxHeartRate:        rec.MaxHeartRate,
+			TotalCalories:       rec.TotalKilocalories,
+			ActiveCalories:      rec.ActiveKilocalories,
+			BmrCalories:         rec.BmrKilocalories,
+			TotalDistanceM:      rec.TotalDistanceMeters,
+			HighlyActiveSeconds: rec.HighlyActiveSeconds,
+			ActiveSeconds:       rec.ActiveSeconds,
+			StressAvg:           stressAvg,
+			BodyBatteryMin:      bbMin,
+			BodyBatteryMax:      bbMax,
+			SourceType:          "garmin",
+		}
+
+		if err := params.DB.UpsertHealthDailySummary(ctx, summary); err != nil {
+			slog.Warn("garmin health: upsert daily summary failed", "date", rec.CalendarDate, "error", err)
+			result.Errors = append(result.Errors, "upsert UDS "+rec.CalendarDate+": "+err.Error())
+			continue
+		}
+		total++
 	}
 	slog.Info("garmin health: imported daily summaries", "count", total)
 	return total

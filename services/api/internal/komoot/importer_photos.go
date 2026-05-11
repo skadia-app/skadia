@@ -10,7 +10,6 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/importutil"
-	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // PhotosImporter imports photos from tour cover_images (own photos uploaded directly to a tour).
@@ -36,11 +35,6 @@ func (i *PhotosImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 
 	total := len(i.TourActivityMap)
 	idx := 0
-
-	var batchIDPtr *string
-	if p.BatchID != "" {
-		batchIDPtr = &p.BatchID
-	}
 
 	for tourID, activityID := range i.TourActivityMap {
 		if ctx.Err() != nil {
@@ -75,15 +69,10 @@ func (i *PhotosImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 				continue
 			}
 
-			photoFilename := fmt.Sprintf("komoot-tour-%d-%d.jpg", tourID, item.ID)
-			tracker := p.DB.NewImportTracker(ctx, p.UserID, "komoot", photoFilename, nil, batchIDPtr, model.ImportTypePhoto)
-			tracker.Processing(ctx)
-
 			data, err := DownloadPhoto(ctx, imageURL)
 			if err != nil {
 				slog.Warn("komoot photos: download failed", "url", imageURL, "error", err)
 				result.Errors = append(result.Errors, fmt.Sprintf("download photo (tour %d): %s", tourID, err))
-				tracker.Error(ctx, err)
 				continue
 			}
 
@@ -108,7 +97,7 @@ func (i *PhotosImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 			// else: no coordinates at all — locationSource stays "" and lat/lng stay nil
 
 			photoMeta := importer.PhotoMetadata{
-				OriginalFilename: photoFilename,
+				OriginalFilename: fmt.Sprintf("komoot-tour-%d-%d.jpg", tourID, item.ID),
 				ContentType:      contentType,
 				TakenAt:          takenAt,
 				Lat:              lat,
@@ -121,22 +110,16 @@ func (i *PhotosImporter) Import(ctx context.Context, p KomootImportParams) (*Kom
 			if photoErr != nil {
 				slog.Warn("komoot photos: process failed", "url", imageURL, "error", photoErr)
 				result.Errors = append(result.Errors, fmt.Sprintf("process photo (tour %d): %s", tourID, photoErr))
-				tracker.Error(ctx, photoErr)
 				continue
 			}
 
 			switch photoResult.Status {
 			case "created":
 				result.Imported++
-				tracker.Completed(ctx, activityID)
 			case "duplicate_exact", "duplicate_phash":
 				result.Skipped++
-				tracker.Skipped(ctx, "duplicate", nil)
 			case "replaced":
 				result.Imported++
-				tracker.Completed(ctx, activityID)
-			default:
-				tracker.Completed(ctx, activityID)
 			}
 		}
 	}

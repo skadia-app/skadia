@@ -99,7 +99,7 @@ func (i *ActivitiesImporter) Import(ctx context.Context, p KomootImportParams) (
 		if p.BatchID != "" {
 			batchIDPtr = &p.BatchID
 		}
-		tracker := p.DB.NewImportTracker(ctx, p.UserID, "komoot", logFilename, nil, batchIDPtr, model.ImportTypeActivity)
+		tracker := p.DB.NewImportTracker(ctx, p.UserID, "komoot", logFilename, nil, batchIDPtr)
 		tracker.Processing(ctx)
 
 		// Date filter
