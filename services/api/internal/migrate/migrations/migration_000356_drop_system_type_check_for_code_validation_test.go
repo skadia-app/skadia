@@ -1,6 +1,6 @@
 package migrations_test
 
-// Integration tests for migration 000999 (drop_system_type_check_for_code_validation).
+// Integration tests for migration 000356_drop_system_type_check_for_code_validation.
 //
 // Originally written as a 000999 placeholder; finalize-migration.sh renumbers
 // the file at merge time. The test name stays attached regardless of final number.

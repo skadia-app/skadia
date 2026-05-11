@@ -1,6 +1,6 @@
 package migrations_test
 
-// Integration tests for migration 000357_lift_review_state.
+// Integration tests for migration 000358_lift_review_state.
 //
 // Verifies:
 //   1. rejected_by_user column exists with NOT NULL + DEFAULT FALSE.
@@ -167,9 +167,9 @@ func TestMigration_LiftReviewState_DetectionModeToggleColumns(t *testing.T) {
 	ctx := context.Background()
 
 	type colSpec struct {
-		table      string
-		column     string
-		wantType   string
+		table        string
+		column       string
+		wantType     string
 		wantNullable string // "YES" or "NO"
 		wantDefault  string // empty means nullable (no default expected)
 	}
@@ -293,14 +293,14 @@ func TestMigration_LiftReviewState_PartialIndexUsedByActiveFilter(t *testing.T) 
 
 // TestMigration_LiftReviewState_BackgroundJobsUniqueWidened verifies the
 // Phase 6 (F3) widening of idx_bg_jobs_one_running:
-//   1. Same user + same job_type + DIFFERENT entity_id → both inserts succeed
-//      (the old narrow index would have rejected the second one).
-//   2. Same user + same job_type + SAME entity_id → second insert rejected
-//      with unique_violation on idx_bg_jobs_one_running.
-//   3. status='queued' is also covered by the index — a queued row blocks
-//      a second running row for the same key.
-//   4. NULL entity_id collapses to '' under COALESCE — two NULL inserts
-//      for the same (user, job_type) collide.
+//  1. Same user + same job_type + DIFFERENT entity_id → both inserts succeed
+//     (the old narrow index would have rejected the second one).
+//  2. Same user + same job_type + SAME entity_id → second insert rejected
+//     with unique_violation on idx_bg_jobs_one_running.
+//  3. status='queued' is also covered by the index — a queued row blocks
+//     a second running row for the same key.
+//  4. NULL entity_id collapses to ” under COALESCE — two NULL inserts
+//     for the same (user, job_type) collide.
 //
 // background_jobs.user_id is plain TEXT (no FK), so we don't need a real
 // users row.
