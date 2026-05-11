@@ -116,13 +116,13 @@ function renderLeafInput(
     case 'enum': {
       const opts = resolveOptions(sf.optionSetKey)
       return (
-        <SearchableEnumInput
-          id={inputId}
-          value={typeof currentValue === 'string' ? currentValue : ''}
-          options={opts}
-          onChange={(v) => onChange(sf.key, v)}
-          allowFreeText={false}
-        />
+          <SearchableEnumInput
+            id={inputId}
+            value={typeof currentValue === 'string' ? currentValue : ''}
+            options={opts}
+            onChange={(v) => onChange(sf.key, v)}
+            allowFreeText
+          />
       )
     }
     case 'search_enum': {
@@ -160,6 +160,7 @@ function renderLeafInput(
           value={arrVal}
           options={opts}
           onChange={(v) => onChange(sf.key, v)}
+          allowFreeText
         />
       )
     }

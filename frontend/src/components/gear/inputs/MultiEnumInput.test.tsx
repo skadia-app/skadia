@@ -88,4 +88,24 @@ describe('MultiEnumInput', () => {
     fireEvent.focus(input)
     expect(screen.getByText('Keine weiteren Optionen')).toBeInTheDocument()
   })
+
+  it('TestAddsFreeTextValueWhenAllowed', () => {
+    const onChange = vi.fn()
+    render(
+      <MultiEnumInput
+        id="test"
+        value={['positive']}
+        options={OPTIONS}
+        onChange={onChange}
+        allowFreeText
+      />,
+    )
+
+    const input = screen.getByRole('combobox')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'ShimStack' } })
+    fireEvent.click(screen.getByText('"ShimStack" verwenden'))
+
+    expect(onChange).toHaveBeenCalledWith(['positive', 'ShimStack'])
+  })
 })
