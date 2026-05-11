@@ -222,7 +222,10 @@ func EnsureSystemArtifacts(ctx context.Context, db *database.DB, userID string) 
 		if _, err := db.Pool.Exec(ctx, `
 			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
 			VALUES ($1, $2, $3, $4, 'system', true, false, $5)
-			ON CONFLICT (user_id, name) DO NOTHING`,
+			ON CONFLICT (user_id, name) DO UPDATE
+			SET category = 'system',
+			    is_system = true,
+			    is_auto = false`,
 			userID, t.Name, t.Color, t.TextColor, t.Description,
 		); err != nil {
 			return fmt.Errorf("ensure tag %s: %w", t.Name, err)
@@ -270,11 +273,27 @@ func EnsureSystemArtifacts(ctx context.Context, db *database.DB, userID string) 
 			return fmt.Errorf("ensure rule %s: %w", r.SystemType, err)
 		}
 	}
+	if err := refreshSystemArtifactAutomationState(ctx, db, userID); err != nil {
+		return err
+	}
 	if _, err := db.Pool.Exec(ctx,
 		`UPDATE users SET system_artifacts_version = $1 WHERE id = $2`,
 		SystemArtifactsVersion, userID,
 	); err != nil {
 		return fmt.Errorf("update system_artifacts_version: %w", err)
+	}
+	return nil
+}
+
+func refreshSystemArtifactAutomationState(ctx context.Context, db *database.DB, userID string) error {
+	_, err := db.Pool.Exec(ctx, `
+		UPDATE tags t SET has_automation = EXISTS (
+			SELECT 1 FROM automation_rules ar
+			WHERE ar.user_id = t.user_id AND ar.is_active = true
+			  AND (ar.actions::text LIKE '%' || t.id::text || '%' OR COALESCE(ar.branches::text, '') LIKE '%' || t.id::text || '%')
+		) WHERE t.user_id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("refresh tag automation state: %w", err)
 	}
 	return nil
 }
@@ -319,12 +338,14 @@ func EnsureSystemArtifactsForAllUsers(ctx context.Context, db *database.DB) erro
 
 	const batchSize = 1000
 	var failed, processed int
+	lastID := ""
 	for {
 		rows, err := db.Pool.Query(ctx, `
 			SELECT id::text FROM users
 			WHERE system_artifacts_version < $1
+			  AND ($3 = '' OR id > $3::uuid)
 			ORDER BY id
-			LIMIT $2`, SystemArtifactsVersion, batchSize)
+			LIMIT $2`, SystemArtifactsVersion, batchSize, lastID)
 		if err != nil {
 			return fmt.Errorf("query stale users: %w", err)
 		}
@@ -342,6 +363,7 @@ func EnsureSystemArtifactsForAllUsers(ctx context.Context, db *database.DB) erro
 			break
 		}
 		for _, uid := range batch {
+			lastID = uid
 			if err := EnsureSystemArtifacts(ctx, db, uid); err != nil {
 				slog.Warn("ensure system artifacts failed (non-fatal)",
 					"user_id", uid, "error", err)

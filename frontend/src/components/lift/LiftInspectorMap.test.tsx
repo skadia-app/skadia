@@ -34,6 +34,8 @@ global.ResizeObserver = class {
   unobserve() {}
   disconnect() {}
 }
+Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, value: 640 })
+Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, value: 480 })
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: vi.fn((query: string) => ({
@@ -51,6 +53,7 @@ const maplibreMock = vi.hoisted(() => {
   const sourcesMap: Record<string, { data?: unknown }> = {}
   const layersMap: Record<string, unknown> = {}
   const paintProps: Record<string, Record<string, unknown>> = {}
+  const instances: MapMock[] = []
 
   class GeoJSONSourceMock {
     id: string
@@ -86,9 +89,13 @@ const maplibreMock = vi.hoisted(() => {
     setPaintProperty = vi.fn((layerId: string, prop: string, val: unknown) => {
       paintProps[layerId] = { ...(paintProps[layerId] ?? {}), [prop]: val }
     })
+    setStyle = vi.fn()
+    constructor() {
+      instances.push(this)
+    }
   }
 
-  return { MapMock, sourcesMap, layersMap, paintProps }
+  return { MapMock, sourcesMap, layersMap, paintProps, instances }
 })
 
 const markerMock = vi.hoisted(() => {
@@ -289,6 +296,47 @@ describe('LiftInspectorMap — F10: candidates prop change re-renders layers', (
     expect(wrapperAfter).not.toBeNull()
     // The fallback overlay must NOT appear — stream is non-empty.
     expect(screen.queryByText(/Karte nicht verfügbar/)).toBeNull()
+  })
+})
+
+describe('LiftInspectorMap — stream updates', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  it('updates the track source and fits bounds when streams arrive after mount', async () => {
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+
+    const { rerender } = render(
+      <LiftInspectorMap
+        candidates={[]}
+        streams={[]}
+        highlightedCandidateId={null}
+        onCandidateClick={() => {}}
+      />,
+      { wrapper },
+    )
+
+    await act(async () => { await new Promise(r => setTimeout(r, 50)) })
+
+    rerender(
+      <ToastProvider>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <LiftInspectorMap
+            candidates={[]}
+            streams={twoStreams}
+            highlightedCandidateId={null}
+            onCandidateClick={() => {}}
+          />
+        </QueryClientProvider>
+        <ToastContainer />
+      </ToastProvider>,
+    )
+
+    await act(async () => { await new Promise(r => setTimeout(r, 10)) })
+
+    expect(maplibreMock.sourcesMap['inspector-track']?.data).toMatchObject({
+      geometry: { type: 'LineString', coordinates: [[11.1, 47.1], [11.2, 47.2]] },
+    })
+    expect(maplibreMock.instances.some(m => m.fitBounds.mock.calls.length > 0)).toBe(true)
   })
 })
 

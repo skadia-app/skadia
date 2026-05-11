@@ -504,9 +504,8 @@ func main() {
 
 	// Mark all jobs that were still 'running' at startup as failed.
 	// These are leftovers from the previous server process (crash or restart).
-	// This must happen before InsertBackgroundJobGuarded calls so the partial-
-	// unique index (user_id, job_type WHERE status='running') does not block
-	// new jobs from being inserted.
+	// This must happen before InsertBackgroundJob calls so the partial unique
+	// background-job indexes do not block new jobs from being inserted.
 	if _, cleanErr := db.Pool.Exec(context.Background(), `
 		UPDATE background_jobs
 		SET status = 'failed',

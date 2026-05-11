@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -59,10 +60,10 @@ func callDeleteDetectionConfig(t *testing.T, h *Handler, userID, activityID stri
 }
 
 type detectionConfigResponse struct {
-	Effective     struct{ OSM, Heuristic bool }      `json:"effective"`
-	UserSetting   struct{ OSM, Heuristic bool }      `json:"user_setting"`
-	Override      struct{ OSM, Heuristic *bool }     `json:"override"`
-	MasterEnabled bool                                `json:"master_enabled"`
+	Effective     struct{ OSM, Heuristic bool }  `json:"effective"`
+	UserSetting   struct{ OSM, Heuristic bool }  `json:"user_setting"`
+	Override      struct{ OSM, Heuristic *bool } `json:"override"`
+	MasterEnabled bool                           `json:"master_enabled"`
 }
 
 // insertRunningLiftJob inserts a background_jobs row with status='running'
@@ -425,6 +426,69 @@ func TestRecalculateActivityLifts_F1_NoDataLossOnConflict(t *testing.T) {
 	// Pre-fix this would have been deleted by RecalculateActivityLifts.
 	if !candidateExists(t, db, candID) {
 		t.Error("candidate deleted on 409 path — destructive recalc ran before the running-job check (F1 regression)")
+	}
+}
+
+func TestRecalculateActivityLifts_JobInsertFailureDoesNotReset(t *testing.T) {
+	h, db := liftDetectionConfigSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	candID := insertHeuristicUnconfirmed(t, db, activityID, now)
+
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "_")
+	funcName := "fail_lift_recompute_insert_" + suffix
+	triggerName := "fail_lift_recompute_insert_trg_" + suffix
+	if _, err := db.Pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE FUNCTION public.%s()
+		RETURNS trigger
+		LANGUAGE plpgsql
+		AS $$
+		BEGIN
+			RAISE EXCEPTION 'test lift_recompute insert failure';
+		END;
+		$$;
+		CREATE TRIGGER %s
+		BEFORE INSERT ON background_jobs
+		FOR EACH ROW
+		WHEN (NEW.job_type = 'lift_recompute')
+		EXECUTE FUNCTION public.%s();
+	`, funcName, triggerName, funcName)); err != nil {
+		t.Fatalf("install background_jobs failure trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), fmt.Sprintf(`
+			DROP TRIGGER IF EXISTS %s ON background_jobs;
+			DROP FUNCTION IF EXISTS public.%s();
+		`, triggerName, funcName))
+	})
+
+	r := chi.NewRouter()
+	r.Post("/api/v1/activities/{id}/lifts/recalculate-all", h.RecalculateActivityLifts)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/activities/"+activityID+"/lifts/recalculate-all", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, userID))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+	if !candidateExists(t, db, candID) {
+		t.Error("candidate deleted even though lift_recompute job could not be created")
+	}
+}
+
+func TestDispatchLiftReEnrichmentBackground_SettingsErrorPropagates(t *testing.T) {
+	h, db := liftDetectionConfigSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := h.dispatchLiftReEnrichmentBackground(ctx, userID, activityID); err == nil {
+		t.Fatal("dispatchLiftReEnrichmentBackground returned nil for settings load failure")
 	}
 }
 

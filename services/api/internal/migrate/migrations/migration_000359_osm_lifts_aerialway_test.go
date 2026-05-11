@@ -7,13 +7,9 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 )
 
-// Verifies the placeholder 000999 migration adds the `aerialway` column to
+// Verifies the osm_lifts_aerialway migration adds the `aerialway` column to
 // osm_lifts, that the column is nullable, and that re-applying the
 // up-migration is a no-op (IF NOT EXISTS guard).
-//
-// File-name pattern follows the convention in CLAUDE.md: branches use a
-// 000999_<topic>.sql placeholder + TestMigration_<TopicCamelCase>_*; the
-// finalize-migration.sh script renames both file and test before merge.
 func TestMigration_OsmLiftsAerialway_AddsColumn(t *testing.T) {
 	pool := testdb.Open(t)
 	ctx := context.Background()

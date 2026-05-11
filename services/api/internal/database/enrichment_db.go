@@ -401,10 +401,11 @@ func (db *DB) ResetLiftDetectionOverride(ctx context.Context, userID, activityID
 
 // HasRunningLiftRecomputeJob reports whether a lift_recompute job with
 // status IN ('running','queued') already exists for the given (userID,
-// activityID) pair. Counting 'queued' is required because the F3-widened
-// idx_bg_jobs_one_running covers both states — the check must agree, otherwise
-// a queued-but-not-yet-started job would slip past the 409 guard and then fail
-// at InsertBackgroundJob with a unique_violation we'd have to translate back.
+// activityID) pair. Counting 'queued' is required because
+// idx_bg_jobs_one_lift_recompute covers both states — the check must agree,
+// otherwise a queued-but-not-yet-started job would slip past the 409 guard and
+// then fail at InsertBackgroundJob with a unique_violation we'd have to
+// translate back.
 // Returns (true, &jobID, nil) when found; (false, nil, nil) when not found.
 func (db *DB) HasRunningLiftRecomputeJob(ctx context.Context, userID, activityID string) (bool, *string, error) {
 	var jobID string
@@ -1478,7 +1479,14 @@ func (db *DB) IsRejectedAnySourceInWindow(ctx context.Context, activityID string
 // rows cleared and the number of distinct activities affected. Multi-tenant:
 // the JOIN ensures only rows owned by userID are touched.
 func (db *DB) ResetSoftRejectedLiftCandidates(ctx context.Context, userID string) (cleared int, activities int, err error) {
-	row := db.Pool.QueryRow(ctx, `
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("reset soft-rejected lift candidates: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var affectedActivityIDs []string
+	row := tx.QueryRow(ctx, `
 		WITH updated AS (
 			UPDATE activity_lift_candidates alc
 			SET    rejected_by_user = false
@@ -1488,11 +1496,29 @@ func (db *DB) ResetSoftRejectedLiftCandidates(ctx context.Context, userID string
 			  AND  alc.rejected_by_user = true
 			RETURNING alc.activity_id
 		)
-		SELECT COUNT(*) AS cleared, COUNT(DISTINCT activity_id) AS activities
+		SELECT COUNT(*) AS cleared,
+		       COUNT(DISTINCT activity_id) AS activities,
+		       COALESCE(array_agg(DISTINCT activity_id::text), ARRAY[]::text[]) AS activity_ids
 		FROM   updated
 	`, userID)
-	if err := row.Scan(&cleared, &activities); err != nil {
+	if err := row.Scan(&cleared, &activities, &affectedActivityIDs); err != nil {
 		return 0, 0, fmt.Errorf("reset soft-rejected lift candidates: %w", err)
+	}
+
+	gearByActivity := make(map[string][]string, len(affectedActivityIDs))
+	for _, activityID := range affectedActivityIDs {
+		gearIDs, err := db.recomputeLiftStatsTx(ctx, tx, userID, activityID)
+		if err != nil {
+			return 0, 0, fmt.Errorf("reset soft-rejected lift candidates: recompute %s: %w", activityID, err)
+		}
+		gearByActivity[activityID] = gearIDs
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, 0, fmt.Errorf("reset soft-rejected lift candidates: commit: %w", err)
+	}
+	for _, activityID := range affectedActivityIDs {
+		db.afterLiftStatsCommit(ctx, userID, activityID, gearByActivity[activityID])
 	}
 	return cleared, activities, nil
 }
@@ -1688,9 +1714,14 @@ func (db *DB) RecalculateActivityLifts(ctx context.Context, userID, activityID s
 		return fmt.Errorf("recalculate activity lifts: delete lift segment_efforts: %w", err)
 	}
 
+	gearIDs, err := db.refreshActivityGearStatsTx(ctx, tx, userID, activityID)
+	if err != nil {
+		return fmt.Errorf("recalculate activity lifts: refresh gear stats: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("recalculate activity lifts: commit: %w", err)
 	}
+	db.afterLiftStatsCommit(ctx, userID, activityID, gearIDs)
 	return nil
 }
 

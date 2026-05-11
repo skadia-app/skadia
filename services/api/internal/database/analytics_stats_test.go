@@ -230,6 +230,105 @@ func TestGetEddingtonDataLiftNetAggregation(t *testing.T) {
 	assertFloatSlice(t, "descent", descent, []float64{900, 500})
 }
 
+func TestGetDistributionLiftNetAggregationAndGroupSecondaryExcluded(t *testing.T) {
+	pool := analyticsStatsPool(t)
+	userID := insertAnalyticsStatsUser(t, pool)
+	base := time.Date(2026, 1, 4, 8, 0, 0, 0, time.UTC)
+
+	insertAnalyticsStatsActivity(t, pool, userID, base, analyticsStatsActivity{
+		DistanceM:      20_000,
+		ElevationGainM: 900,
+		ElevationLossM: 1_200,
+		MovingTimeS:    5_000,
+		LiftDistanceM:  3_500,
+		LiftAscentM:    400,
+		LiftDescentM:   50,
+	})
+	insertAnalyticsStatsActivity(t, pool, userID, base.Add(2*time.Hour), analyticsStatsActivity{
+		DistanceM:              8_000,
+		ElevationGainM:         600,
+		ElevationLossM:         500,
+		MovingTimeS:            2_000,
+		LiftDistanceM:          2_000,
+		LiftAscentM:            200,
+		LiftDescentM:           100,
+		ExcludeLiftSubtraction: true,
+	})
+	insertAnalyticsStatsActivity(t, pool, userID, base.Add(4*time.Hour), analyticsStatsActivity{
+		DistanceM:        50_000,
+		ElevationGainM:   5_000,
+		ElevationLossM:   6_000,
+		MovingTimeS:      10_000,
+		LiftDistanceM:    20_000,
+		LiftAscentM:      2_000,
+		LiftDescentM:     3_000,
+		IsGroupSecondary: true,
+	})
+
+	db := &database.DB{Pool: pool}
+	rows, err := db.GetDistribution(context.Background(), userID, "sport", "distance_m", "", nil)
+	if err != nil {
+		t.Fatalf("GetDistribution distance_m: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("distance rows len = %d, want 1", len(rows))
+	}
+	assertFloat64(t, "distance value", rows[0].Value, 24_500)
+	if rows[0].Count != 2 {
+		t.Fatalf("distance count = %d, want 2 (secondary row leaked)", rows[0].Count)
+	}
+
+	rows, err = db.GetDistribution(context.Background(), userID, "sport", "elevation_gain_m", "", nil)
+	if err != nil {
+		t.Fatalf("GetDistribution elevation_gain_m: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("gain rows len = %d, want 1", len(rows))
+	}
+	assertFloat64(t, "gain value", rows[0].Value, 1_100)
+
+	rows, err = db.GetDistribution(context.Background(), userID, "sport", "elevation_loss_m", "", nil)
+	if err != nil {
+		t.Fatalf("GetDistribution elevation_loss_m: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("loss rows len = %d, want 1", len(rows))
+	}
+	assertFloat64(t, "loss value", rows[0].Value, 1_650)
+}
+
+func TestGetDistributionDistanceBucketUsesNetDistance(t *testing.T) {
+	pool := analyticsStatsPool(t)
+	userID := insertAnalyticsStatsUser(t, pool)
+	base := time.Date(2026, 1, 5, 8, 0, 0, 0, time.UTC)
+
+	insertAnalyticsStatsActivity(t, pool, userID, base, analyticsStatsActivity{
+		DistanceM:     6_000,
+		LiftDistanceM: 2_000,
+	})
+	insertAnalyticsStatsActivity(t, pool, userID, base.Add(time.Hour), analyticsStatsActivity{
+		DistanceM:              6_000,
+		LiftDistanceM:          2_000,
+		ExcludeLiftSubtraction: true,
+	})
+
+	rows, err := (&database.DB{Pool: pool}).GetDistribution(context.Background(), userID, "distance_bucket", "count", "", nil)
+	if err != nil {
+		t.Fatalf("GetDistribution distance_bucket: %v", err)
+	}
+
+	buckets := map[string]int64{}
+	for _, row := range rows {
+		buckets[row.Label] = row.Count
+	}
+	if buckets["<5 km"] != 1 {
+		t.Fatalf("<5 km count = %d, want 1 from net 4 km activity", buckets["<5 km"])
+	}
+	if buckets["5–10 km"] != 1 {
+		t.Fatalf("5–10 km count = %d, want 1 from opt-out raw 6 km activity", buckets["5–10 km"])
+	}
+}
+
 // TestGetLifetimeStats_GroupSecondaryExcluded verifies F2: is_group_secondary rows
 // must be excluded from lifetime totals so merged fusion activities are not double-counted.
 func TestGetLifetimeStats_GroupSecondaryExcluded(t *testing.T) {

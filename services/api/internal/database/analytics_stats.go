@@ -152,15 +152,28 @@ type DistributionRow struct {
 // distType: "sport"|"country"|"gear"|"distance_bucket"
 // metric: "count"|"distance_m"|"elevation_gain_m"|"elevation_loss_m"|"moving_time_s"
 func (db *DB) GetDistribution(ctx context.Context, userID string, distType string, metric string, whereClause string, args []any) ([]DistributionRow, error) {
+	netDistanceExpr := `GREATEST(0,
+		COALESCE(a.distance_m, 0) -
+		CASE WHEN a.exclude_lift_subtraction THEN 0
+		     ELSE COALESCE(a.lift_distance_m, 0) END)`
+	netAscentExpr := `GREATEST(0,
+		COALESCE(a.elevation_gain_m, 0) -
+		CASE WHEN a.exclude_lift_subtraction THEN 0
+		     ELSE COALESCE(a.lift_ascent_m, 0) END)`
+	netDescentExpr := `GREATEST(0,
+		COALESCE(a.elevation_loss_m, 0) -
+		CASE WHEN a.exclude_lift_subtraction THEN 0
+		     ELSE COALESCE(a.lift_descent_m, 0) END)`
+
 	// Whitelist metric to avoid injection.
 	var valueExpr string
 	switch metric {
 	case "distance_m":
-		valueExpr = "COALESCE(SUM(a.distance_m), 0)"
+		valueExpr = "COALESCE(SUM(" + netDistanceExpr + "), 0)"
 	case "elevation_gain_m":
-		valueExpr = "COALESCE(SUM(a.elevation_gain_m), 0)"
+		valueExpr = "COALESCE(SUM(" + netAscentExpr + "), 0)"
 	case "elevation_loss_m":
-		valueExpr = "COALESCE(SUM(a.elevation_loss_m), 0)"
+		valueExpr = "COALESCE(SUM(" + netDescentExpr + "), 0)"
 	case "moving_time_s":
 		valueExpr = "COALESCE(SUM(a.moving_time_s), 0)"
 	default:
@@ -181,12 +194,12 @@ func (db *DB) GetDistribution(ctx context.Context, userID string, distType strin
 		LEFT JOIN gear g ON g.id = aga.gear_id AND g.user_id = a.user_id`
 	case "distance_bucket":
 		labelExpr = `CASE
-			WHEN a.distance_m IS NULL OR a.distance_m = 0 THEN 'No distance'
-			WHEN a.distance_m < 5000    THEN '<5 km'
-			WHEN a.distance_m < 10000   THEN '5–10 km'
-			WHEN a.distance_m < 20000   THEN '10–20 km'
-			WHEN a.distance_m < 50000   THEN '20–50 km'
-			WHEN a.distance_m < 100000  THEN '50–100 km'
+			WHEN ` + netDistanceExpr + ` = 0 THEN 'No distance'
+			WHEN ` + netDistanceExpr + ` < 5000    THEN '<5 km'
+			WHEN ` + netDistanceExpr + ` < 10000   THEN '5–10 km'
+			WHEN ` + netDistanceExpr + ` < 20000   THEN '10–20 km'
+			WHEN ` + netDistanceExpr + ` < 50000   THEN '20–50 km'
+			WHEN ` + netDistanceExpr + ` < 100000  THEN '50–100 km'
 			ELSE '100+ km'
 		END`
 		groupBy = labelExpr
@@ -209,7 +222,8 @@ func (db *DB) GetDistribution(ctx context.Context, userID string, distType strin
 			)                            AS percentage
 		FROM activities a
 		` + joinClause + `
-		WHERE a.user_id = $1` + whereClause + `
+		WHERE a.user_id = $1
+		  AND NOT a.is_group_secondary` + whereClause + `
 		GROUP BY ` + groupBy + `
 		ORDER BY value DESC`
 

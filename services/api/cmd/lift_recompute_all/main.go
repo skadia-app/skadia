@@ -12,17 +12,8 @@
 //	lift_recompute_all --dry-run           list what would be processed without mutating
 //	                                       any state (exit 0 always)
 //
-// The tool deletes non-rejected candidates before re-running enrichStreamLifts
-// (the enrichment path already does this, but the explicit delete is belt-and-
-// suspenders against double-counting in the confirm-gating aggregate).
-//
 // Soft-rejects (rejected_by_user=true) survive re-enrichment: enrichStreamLifts
 // filters on NOT rejected_by_user, so they are never deleted.
-//
-// Per-activity advisory lock:
-// The CLI acquires the same pg_advisory_lock key (LiftEnrichLockKey) as
-// enrichStreamLifts before the pre-delete step. This prevents races with an
-// in-progress enrichment pipeline run on the same activity.
 //
 // Gear-stats strategy:
 // RunStreamEnrichment is called with SkipGearRefresh=true so that the
@@ -237,7 +228,7 @@ func run(ctx context.Context, cfg runConfig) int {
 			// Process page activities, optionally in parallel.
 			type result struct {
 				deleted int
-				gearID  string
+				gearIDs []string
 				err     error
 				actID   string
 			}
@@ -245,8 +236,8 @@ func run(ctx context.Context, cfg runConfig) int {
 
 			if cfg.maxParallel <= 1 {
 				for i, act := range page {
-					deleted, gearID, err := processActivity(ctx, db, act, userID, logID)
-					results[i] = result{deleted: deleted, gearID: gearID, err: err, actID: act.ID}
+					deleted, gearIDs, err := processActivity(ctx, db, act, userID, logID)
+					results[i] = result{deleted: deleted, gearIDs: gearIDs, err: err, actID: act.ID}
 				}
 			} else {
 				g, gctx := errgroup.WithContext(ctx)
@@ -254,8 +245,8 @@ func run(ctx context.Context, cfg runConfig) int {
 				for i, act := range page {
 					i, act := i, act
 					g.Go(func() error {
-						deleted, gearID, err := processActivity(gctx, db, act, userID, logID)
-						results[i] = result{deleted: deleted, gearID: gearID, err: err, actID: act.ID}
+						deleted, gearIDs, err := processActivity(gctx, db, act, userID, logID)
+						results[i] = result{deleted: deleted, gearIDs: gearIDs, err: err, actID: act.ID}
 						return nil // collect errors in result, not via errgroup
 					})
 				}
@@ -274,8 +265,8 @@ func run(ctx context.Context, cfg runConfig) int {
 				}
 				userDeleted += r.deleted
 				userEnriched++
-				if r.gearID != "" {
-					userGears[r.gearID] = struct{}{}
+				for _, gearID := range r.gearIDs {
+					userGears[gearID] = struct{}{}
 				}
 			}
 
@@ -392,59 +383,18 @@ func tryAcquireUserLock(ctx context.Context, pool *pgxpool.Pool, userID string) 
 	return locked, conn, nil
 }
 
-// processActivity performs the pre-delete + enrichment for one activity.
-// Returns (deletedCount, gearID, err). On error the caller increments errors
-// and continues; on success the caller increments enriched and records gearID.
+// processActivity performs lift re-enrichment for one activity.
+// Returns (deletedCount, gearIDs, err). deletedCount is kept for legacy log
+// compatibility and is always zero; cleanup is performed by the enrichment
+// transaction. On error the caller increments errors and continues; on success
+// the caller records affected gear IDs for one deferred usage refresh.
 func processActivity(
 	ctx context.Context,
 	db *database.DB,
 	act liftEligibleActivity,
 	userID string,
 	logID func(string) string,
-) (int, string, error) {
-	// Acquire the same per-activity advisory lock as enrichStreamLifts.
-	// This prevents a race between the CLI's pre-delete and an in-progress
-	// enrichment pipeline run on the same activity.
-	lockConn, err := db.Pool.Acquire(ctx)
-	if err != nil {
-		return 0, "", fmt.Errorf("acquire lock conn: %w", err)
-	}
-	lockKey := enrichment.LiftEnrichLockKey(act.ID)
-	var locked bool
-	if err := lockConn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockKey).Scan(&locked); err != nil {
-		lockConn.Release()
-		return 0, "", fmt.Errorf("try advisory lock: %w", err)
-	}
-	if !locked {
-		lockConn.Release()
-		slog.Info("skipping activity — concurrent lift-enrich in progress",
-			"activity_hash", logID(act.ID),
-			"user_hash", logID(userID),
-		)
-		return 0, "", nil
-	}
-
-	// Count and delete non-rejected candidates before re-enrichment.
-	// enrichStreamLifts does this too, but explicit pre-deletion ensures
-	// the backfill is idempotent even if a previous run was interrupted
-	// mid-flight (partial state).
-	deleted, err := deleteNonRejectedCandidates(ctx, db.Pool, act.ID, userID)
-
-	// Release the advisory lock explicitly. Do not use defer here — this
-	// is called in a loop (or goroutine) and defer would hold locks until
-	// the function returns, not until the loop iteration ends.
-	if _, unlockErr := lockConn.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockKey); unlockErr != nil {
-		slog.Warn("advisory unlock failed",
-			"activity_hash", logID(act.ID),
-			"error", unlockErr,
-		)
-	}
-	lockConn.Release()
-
-	if err != nil {
-		return 0, "", fmt.Errorf("pre-delete candidates: %w", err)
-	}
-
+) (int, []string, error) {
 	// SkipGearRefresh=true: gear stats are refreshed once per affected gear
 	// in the post-loop gear usage refresh rather than per activity. This
 	// avoids N redundant refreshes across the bulk run.
@@ -453,7 +403,11 @@ func processActivity(
 		SkipGearRefresh:     true,
 	}
 	if err := enrichment.RunStreamEnrichment(ctx, db, userID, act.ID, settings); err != nil {
-		return 0, "", fmt.Errorf("run stream enrichment: %w", err)
+		return 0, nil, fmt.Errorf("run stream enrichment: %w", err)
+	}
+	gearIDs, err := listActivityGearIDs(ctx, db.Pool, act.ID, userID)
+	if err != nil {
+		return 0, nil, err
 	}
 
 	slog.Info("re-enriched",
@@ -461,7 +415,7 @@ func processActivity(
 		"user_hash", logID(userID),
 	)
 
-	return deleted, act.GearID, nil
+	return 0, gearIDs, nil
 }
 
 // hashID returns an 8-hex-char FNV-1a hash of the given ID for privacy-safe
@@ -474,8 +428,7 @@ func hashID(id string) string {
 
 // liftEligibleActivity is the minimal activity projection needed by the backfill.
 type liftEligibleActivity struct {
-	ID     string
-	GearID string
+	ID string
 }
 
 // listUsersWithLiftDetection returns user IDs that have enable_lift_detection=true
@@ -512,24 +465,32 @@ func listUsersWithLiftDetection(ctx context.Context, pool *pgxpool.Pool) ([]stri
 // so callers can stream through large corpora without loading everything into
 // memory at once.
 func listLiftEligibleActivities(ctx context.Context, pool *pgxpool.Pool, userID string, offset, limit int) ([]liftEligibleActivity, error) {
-	liftSports := []string{
-		"alpine_skiing",
-		"snowboarding",
-		"mtb_downhill",
-		"ski",
-		"ski_touring",
-	}
 	rows, err := pool.Query(ctx, `
-		SELECT id::text, COALESCE(gear_id::text, '')
+		SELECT id::text
 		FROM activities
 		WHERE user_id = $1
 		  AND (
-		        sport_type = ANY($2)
+		        (
+		          NOT COALESCE(is_indoor, false)
+		          AND NOT COALESCE(is_virtual, false)
+		          AND (
+		            sport_type = ANY($2)
+		            OR (
+		              sport_type = 'cycling'
+		              AND COALESCE(sub_type, '') <> ALL($3)
+		            )
+		          )
+		        )
 		        OR lift_count > 0
 		      )
 		ORDER BY started_at DESC
-		LIMIT $3 OFFSET $4
-	`, userID, liftSports, limit, offset)
+		LIMIT $4 OFFSET $5
+	`, userID,
+		[]string{"alpine_skiing", "hiking", "mountaineering", "cross_country_skiing", "snowboarding"},
+		[]string{"indoor_cycling", "spin"},
+		limit,
+		offset,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("listLiftEligibleActivities: %w", err)
 	}
@@ -538,7 +499,7 @@ func listLiftEligibleActivities(ctx context.Context, pool *pgxpool.Pool, userID 
 	var acts []liftEligibleActivity
 	for rows.Next() {
 		var a liftEligibleActivity
-		if err := rows.Scan(&a.ID, &a.GearID); err != nil {
+		if err := rows.Scan(&a.ID); err != nil {
 			return nil, fmt.Errorf("listLiftEligibleActivities scan: %w", err)
 		}
 		acts = append(acts, a)
@@ -546,26 +507,28 @@ func listLiftEligibleActivities(ctx context.Context, pool *pgxpool.Pool, userID 
 	return acts, rows.Err()
 }
 
-// deleteNonRejectedCandidates deletes activity_lift_candidates rows that are
-// not soft-rejected by the user, for the given activity. Returns the number of
-// deleted rows.
-//
-// enrichStreamLifts also performs this delete inside its transaction, but the
-// explicit pre-deletion here makes the backfill idempotent if a previous run
-// was interrupted between the delete and the re-enrichment commit.
-func deleteNonRejectedCandidates(ctx context.Context, pool *pgxpool.Pool, activityID, userID string) (int, error) {
-	tag, err := pool.Exec(ctx, `
-		DELETE FROM activity_lift_candidates alc
-		USING activities a
-		WHERE alc.activity_id = $1
-		  AND a.id = alc.activity_id
+func listActivityGearIDs(ctx context.Context, pool *pgxpool.Pool, activityID, userID string) ([]string, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT DISTINCT aga.gear_id::text
+		FROM activity_gear_assignments aga
+		JOIN activities a ON a.id = aga.activity_id
+		WHERE aga.activity_id = $1
+		  AND aga.user_id = $2
 		  AND a.user_id = $2
-		  AND NOT alc.rejected_by_user
 	`, activityID, userID)
 	if err != nil {
-		return 0, fmt.Errorf("deleteNonRejectedCandidates: %w", err)
+		return nil, fmt.Errorf("listActivityGearIDs: %w", err)
 	}
-	return int(tag.RowsAffected()), nil
+	defer rows.Close()
+	var gearIDs []string
+	for rows.Next() {
+		var gearID string
+		if err := rows.Scan(&gearID); err != nil {
+			return nil, fmt.Errorf("listActivityGearIDs scan: %w", err)
+		}
+		gearIDs = append(gearIDs, gearID)
+	}
+	return gearIDs, rows.Err()
 }
 
 // runAckBackfill sets activities.lifts_acknowledged_at = COALESCE(updated_at,

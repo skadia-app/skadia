@@ -512,6 +512,28 @@ export default function LiftInspectorMap({
     initMapRef.current?.()
   }, [baseLayer, caps])
 
+  useEffect(() => {
+    const m = mapRef.current
+    if (!m || !mapReady) return
+    const track = m.getSource('inspector-track') as maplibregl.GeoJSONSource | undefined
+    track?.setData({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: continuousTrackCoords },
+      properties: {},
+    })
+    const bridges = m.getSource('inspector-track-bridges') as maplibregl.GeoJSONSource | undefined
+    bridges?.setData({
+      type: 'Feature',
+      geometry: { type: 'MultiLineString', coordinates: gapBridges },
+      properties: {},
+    })
+    if (continuousTrackCoords.length >= 2) {
+      const bounds = new maplibregl.LngLatBounds()
+      for (const coord of continuousTrackCoords) bounds.extend(coord)
+      m.fitBounds(bounds, { padding: 40, maxZoom: 16, animate: false })
+    }
+  }, [continuousTrackCoords, gapBridges, mapReady])
+
   // A. Style-switch effect — triggers when the user changes the base-layer via
   // the picker. The map is initially created with `baseLayer` already selected;
   // we must NOT call setStyle() on first render or it triggers a redundant

@@ -1,8 +1,8 @@
 import type { LiftCandidate } from '@/api/types'
 
 /**
- * Whitelist of supported OSM aerialway= values mapped to localised German
- * labels. Drawn from the OSM wiki (Key:aerialway). Excludes:
+ * Whitelist of supported aerialway values mapped to localised German labels.
+ * Excludes:
  *   - `goods` (Materialseilbahn / freight only — not a passenger lift)
  *   - `pylon` and `station` (structural elements, not transport types)
  *   - any value not in this list (defensive: better empty than wrong)

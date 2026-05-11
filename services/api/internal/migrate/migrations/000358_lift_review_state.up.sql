@@ -62,22 +62,27 @@ COMMENT ON COLUMN activities.lift_detection_osm_override IS
 COMMENT ON COLUMN activities.lift_detection_heuristic_override IS
     'Per-activity override of user_enrichment_settings.enable_lift_detection_heuristic. NULL = inherit user setting.';
 
--- Phase 6 (toggles plan-end critic F3): widen background_jobs running-job guard.
+-- Phase 6 (toggles plan-end critic F3): widen lift_recompute running-job guard.
 --
 -- Old shape (000285): UNIQUE (user_id, job_type) WHERE status='running'
 --   - blocked any second lift_recompute regardless of activity_id, so a user
 --     re-detecting two activities back-to-back saw the 409 even though the
 --     work is independent.
 --
--- New shape: UNIQUE (user_id, job_type, COALESCE(entity_id, '')) WHERE status IN ('running','queued')
---   - per-(user, job_type, entity_id) uniqueness so different activities can
---     recompute in parallel.
---   - COALESCE handles non-entity-scoped jobs (entity_id IS NULL): they all
---     collapse to the empty-string key, preserving the original
---     "one running per (user, job_type)" semantics for those callers.
---   - widened to also cover 'queued' so a fast-follow request between
+-- New shape:
+--   - non-lift job types keep the old one-running-job-per-(user, job_type)
+--     contract.
+--   - lift_recompute gets per-(user, activity) uniqueness so different
+--     activities can recompute in parallel.
+--   - lift_recompute also covers 'queued' so a fast-follow request between
 --     dispatch and worker pickup is rejected rather than slipping through.
 DROP INDEX IF EXISTS idx_bg_jobs_one_running;
+DROP INDEX IF EXISTS idx_bg_jobs_one_lift_recompute;
 CREATE UNIQUE INDEX idx_bg_jobs_one_running
+    ON background_jobs (user_id, job_type)
+    WHERE status = 'running'
+      AND job_type <> 'lift_recompute';
+CREATE UNIQUE INDEX idx_bg_jobs_one_lift_recompute
     ON background_jobs (user_id, job_type, (COALESCE(entity_id, '')))
-    WHERE status IN ('running', 'queued');
+    WHERE status IN ('running', 'queued')
+      AND job_type = 'lift_recompute';
