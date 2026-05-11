@@ -1,15 +1,11 @@
 package database
 
 import (
-	"context"
-	"reflect"
 	"sort"
 	"testing"
 
-	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/skadia-app/skadia/services/api/internal/tags"
-	"github.com/google/uuid"
 )
 
 func TestSystemModifierTagSyncsMatchGeneratedRegistry(t *testing.T) {
@@ -186,63 +182,5 @@ func TestSystemTagSyncRegistryHasNoOrphanModifierKeys(t *testing.T) {
 		t.Fatalf("tags.SystemTagSyncs references modifier keys not present in sport.SportModifierKeys(): %v; "+
 			"either remove the entry from config/tags/system_tags.yaml (and regenerate via "+
 			"scripts/generate-tags.sh) or add the modifier to config/sport-taxonomy/modifiers.yaml", orphans)
-	}
-}
-
-func TestSeedUserUsesModifierTagSyncMetadata(t *testing.T) {
-	// DB-backed: call SeedSystemDefaults for a fresh user and verify that the
-	// four registry-backed modifier system tags (Indoor, Pendeln, virtuell,
-	// E-Bike) exist with is_system=true. This replaces the former file-grep.
-	pool := testdb.Open(t)
-	ctx := context.Background()
-
-	userID := uuid.NewString()
-	if _, err := pool.Exec(ctx,
-		`INSERT INTO users (id, username, email, email_verified, registration_source)
-		 VALUES ($1, $2, $3, true, 'test')`,
-		userID, "smtseed-"+userID[:8], "smtseed-"+userID[:8]+"@example.com"); err != nil {
-		t.Fatalf("insert user: %v", err)
-	}
-	t.Cleanup(func() {
-		bg := context.Background()
-		_, _ = pool.Exec(bg, `DELETE FROM activity_tag_removals WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)`, userID)
-		_, _ = pool.Exec(bg, `DELETE FROM activity_tags WHERE activity_id IN (SELECT id FROM activities WHERE user_id = $1)`, userID)
-		_, _ = pool.Exec(bg, `DELETE FROM automation_rules WHERE user_id = $1`, userID)
-		_, _ = pool.Exec(bg, `UPDATE tags SET is_system = false WHERE user_id = $1`, userID)
-		_, _ = pool.Exec(bg, `DELETE FROM tags WHERE user_id = $1`, userID)
-		_, _ = pool.Exec(bg, `DELETE FROM users WHERE id = $1`, userID)
-	})
-
-	db := &DB{Pool: pool}
-	if err := db.SeedSystemDefaults(ctx, userID); err != nil {
-		t.Fatalf("SeedSystemDefaults: %v", err)
-	}
-
-	// Query for the four reserved modifier system tags.
-	rows, err := pool.Query(ctx,
-		`SELECT name FROM tags WHERE user_id = $1 AND is_system = true AND name IN ('Indoor', 'Pendeln', 'virtuell', 'E-Bike')
-		 ORDER BY name`,
-		userID)
-	if err != nil {
-		t.Fatalf("query modifier system tags: %v", err)
-	}
-	defer rows.Close()
-
-	var got []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
-		got = append(got, name)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("rows error: %v", err)
-	}
-
-	want := []string{"E-Bike", "Indoor", "Pendeln", "virtuell"}
-	sort.Strings(got)
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("modifier system tags after seed = %v, want %v", got, want)
 	}
 }

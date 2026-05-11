@@ -93,40 +93,78 @@ function AutomatischeAnalysenSection() {
       )}
 
       <div className="space-y-2">
-        {ANALYSIS_MODULES.map((module) => {
+        {ANALYSIS_MODULES.filter(m => !m.parentName).map((module) => {
           const enabled = settings ? (settings[module.field] !== false) : true
           const mlUnavailable = module.requiresML && capabilities !== undefined && !capabilities.ml_service
+          // Sub-modules (parentName === module.name) rendered indented below parent
+          const children = ANALYSIS_MODULES.filter(m => m.parentName === module.name)
           return (
-            <div key={module.field as string} className="flex items-start justify-between gap-4 py-1">
-              <div className="min-w-0 flex-1">
-                <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{module.label}</span>
-                {module.requiresML && (
-                  <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">
-                    ML
-                  </span>
-                )}
-                <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {module.description}</span>
-                {mlUnavailable && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">ML-Service nicht erreichbar</p>
-                )}
+            <div key={module.field as string}>
+              <div className="flex items-start justify-between gap-4 py-1">
+                <div className="min-w-0 flex-1">
+                  <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{module.label}</span>
+                  {module.requiresML && (
+                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">
+                      ML
+                    </span>
+                  )}
+                  <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {module.description}</span>
+                  {mlUnavailable && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">ML-Service nicht erreichbar</p>
+                  )}
+                </div>
+                <Toggle
+                  checked={enabled && !mlUnavailable}
+                  onChange={() => {
+                    if (!settings) return
+                    const next = !(settings[module.field] ?? true)
+                    // Difficulty-scales share the same OSM-snap pipeline as surface detection.
+                    // Keep enable_difficulty_scales in sync so the backend gate fires correctly.
+                    const patch: Partial<EnrichmentSettings> = { [module.field]: next }
+                    if (module.field === 'enable_surface_detection') {
+                      patch.enable_difficulty_scales = next
+                    }
+                    mut.mutate(patch)
+                  }}
+                  disabled={isLoading || mut.isPending || mlUnavailable}
+                  className="mt-0.5"
+                  aria-label={`${module.label} aktivieren`}
+                />
               </div>
-              <Toggle
-                checked={enabled && !mlUnavailable}
-                onChange={() => {
-                  if (!settings) return
-                  const next = !(settings[module.field] ?? true)
-                  // Difficulty-scales share the same OSM-snap pipeline as surface detection.
-                  // Keep enable_difficulty_scales in sync so the backend gate fires correctly.
-                  const patch: Partial<EnrichmentSettings> = { [module.field]: next }
-                  if (module.field === 'enable_surface_detection') {
-                    patch.enable_difficulty_scales = next
-                  }
-                  mut.mutate(patch)
-                }}
-                disabled={isLoading || mut.isPending || mlUnavailable}
-                className="mt-0.5"
-                aria-label={`${module.label} aktivieren`}
-              />
+              {children.length > 0 && (
+                <div className="ml-4 pl-4 border-l border-neutral-200 dark:border-neutral-700 space-y-1 mt-1 mb-1">
+                  {children.map((child) => {
+                    const parentDisabled = !enabled || mlUnavailable
+                    const childEnabled = settings ? (settings[child.field] !== false) : true
+                    return (
+                      <div
+                        key={child.field as string}
+                        className={`flex items-start justify-between gap-4 py-1 transition-opacity ${parentDisabled ? 'opacity-60' : ''}`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{child.label}</span>
+                          <span className="text-xs text-neutral-500 dark:text-neutral-400 ml-2">— {child.description}</span>
+                        </div>
+                        <Toggle
+                          checked={childEnabled && !parentDisabled}
+                          onChange={() => {
+                            if (!settings || parentDisabled) return
+                            const next = !(settings[child.field] ?? true)
+                            mut.mutate({ [child.field]: next })
+                          }}
+                          // F21: mut.isPending is a single mutation shared across all toggles.
+                          // A PUT for any field locks every sub-toggle until the request settles.
+                          // Per-field mutation scoping requires restructuring this section into
+                          // individual useMutation hooks per field — tracked as a follow-up task.
+                          disabled={isLoading || mut.isPending || parentDisabled}
+                          className={`mt-0.5 ${parentDisabled ? 'cursor-not-allowed' : ''}`}
+                          aria-label={`${child.label} aktivieren`}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )
         })}

@@ -7,17 +7,16 @@ import "slices"
 // in /api/v1/activities/{id}/reprocess (recompute.go).
 //
 // Asymmetries documented:
-//   - "lifts" is supported by recompute (dispatches to ML Stage-2) but NOT by
-//     re_enrich — lift detection requires the original FIT parse context that
-//     Stage-1 provides; re-enriching without reparsing would produce stale results.
-//   - "embeddings" is recompute-only for the same reason (Stage-1 ML pipeline).
+//   - "embeddings" is recompute-only — it runs in the Stage-1 ML pipeline and
+//     re-enriching without reparsing would produce stale results.
 //
-// To add a new module: add it here and update both handlers; the CI test in
-// modules_test.go will catch divergence.
+// To add a new module: add it here and update both handlers (re_enrich.go and
+// recompute.go); grep for CanonicalModules to find all call sites.
 var CanonicalModules = []string{
 	"ascents",
 	"stops",
 	"intervals",
+	"lifts",
 	"summits",
 	"settlements",
 	"forests",
@@ -27,8 +26,8 @@ var CanonicalModules = []string{
 }
 
 // ReEnrichModules are the modules supported by the re-enrich endpoint.
-// This is the same as CanonicalModules (lifts and embeddings are excluded
-// because they require a Stage-1 reparse, see CanonicalModules comment).
+// This is the same as CanonicalModules (embeddings is excluded because it
+// requires a Stage-1 reparse, see CanonicalModules comment).
 var ReEnrichModules = CanonicalModules
 
 // IsValidReEnrichModule reports whether name is a valid re-enrich module.

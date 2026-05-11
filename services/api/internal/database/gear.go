@@ -2091,10 +2091,20 @@ func (db *DB) ValidateRuleGearAssignment(ctx context.Context, activityID, userID
 // (or via an upstream RLS-scoped query) before invoking this function.
 // This function trusts the caller — it does not re-check user_id ownership.
 func (db *DB) UpdateGearStatsOwnerVerified(ctx context.Context, gearID string) error {
-	_, err := db.Pool.Exec(ctx,
+	return db.updateGearStatsOwnerVerifiedOn(ctx, db.Pool, gearID)
+}
+
+func (db *DB) updateGearStatsOwnerVerifiedOn(ctx context.Context, q Querier, gearID string) error {
+	_, err := q.Exec(ctx,
 		`UPDATE gear SET
 		   total_distance_m = COALESCE((
-		      SELECT SUM(COALESCE(aga.distance_m_override, a.distance_m, 0))
+		      SELECT SUM(COALESCE(
+		        aga.distance_m_override,
+		        GREATEST(0,
+		          COALESCE(a.distance_m, 0) -
+		          CASE WHEN a.exclude_lift_subtraction THEN 0
+		               ELSE COALESCE(a.lift_distance_m, 0) END),
+		        0))
 		      FROM activity_gear_assignments aga
 		      JOIN activities a ON a.id = aga.activity_id
 		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
@@ -2112,13 +2122,19 @@ func (db *DB) UpdateGearStatsOwnerVerified(ctx context.Context, gearID string) e
 		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
 		   ), 0),
 		   total_elevation_gain_m = COALESCE((
-		      SELECT SUM(COALESCE(a.elevation_gain_m, 0))
+		      SELECT SUM(GREATEST(0,
+		        COALESCE(a.elevation_gain_m, 0) -
+		        CASE WHEN a.exclude_lift_subtraction THEN 0
+		             ELSE COALESCE(a.lift_ascent_m, 0) END))
 		      FROM activity_gear_assignments aga
 		      JOIN activities a ON a.id = aga.activity_id
 		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
 		   ), 0),
 		   total_elevation_loss_m = COALESCE((
-		      SELECT SUM(COALESCE(a.elevation_loss_m, 0))
+		      SELECT SUM(GREATEST(0,
+		        COALESCE(a.elevation_loss_m, 0) -
+		        CASE WHEN a.exclude_lift_subtraction THEN 0
+		             ELSE COALESCE(a.lift_descent_m, 0) END))
 		      FROM activity_gear_assignments aga
 		      JOIN activities a ON a.id = aga.activity_id
 		      WHERE aga.gear_id = $1 AND NOT a.is_group_secondary
@@ -2148,18 +2164,34 @@ func (db *DB) UpdateGearStatsOwnerVerified(ctx context.Context, gearID string) e
 // or via an upstream RLS-scoped query) before invoking this function.
 // This function trusts the caller — it does not re-check user_id ownership.
 func (db *DB) UpdateComponentUsageStatsOwnerVerified(ctx context.Context, componentID string) error {
-	_, err := db.Pool.Exec(ctx, `
+	return db.updateComponentUsageStatsOwnerVerifiedOn(ctx, db.Pool, componentID)
+}
+
+func (db *DB) updateComponentUsageStatsOwnerVerifiedOn(ctx context.Context, q Querier, componentID string) error {
+	_, err := q.Exec(ctx, `
 		WITH usage AS (
 			SELECT
-				gc.id AS component_id,
-				ca.id AS assignment_id,
-				COALESCE(SUM(COALESCE(aga.distance_m_override, a.distance_m, 0)), 0) AS distance_m,
-				COALESCE(SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)), 0) AS moving_time_s,
-				COALESCE(SUM(COALESCE(a.elapsed_time_s, 0)), 0) AS time_s,
-				COALESCE(SUM(COALESCE(a.elevation_gain_m, 0)), 0) AS elevation_gain_m,
-				COALESCE(SUM(COALESCE(a.elevation_loss_m, 0)), 0) AS elevation_loss_m,
-				COUNT(a.id) AS activities_count
-			FROM gear_components gc
+					gc.id AS component_id,
+					ca.id AS assignment_id,
+					COALESCE(SUM(CASE WHEN a.id IS NULL THEN 0 ELSE COALESCE(
+						aga.distance_m_override,
+						GREATEST(0,
+							COALESCE(a.distance_m, 0) -
+							CASE WHEN a.exclude_lift_subtraction THEN 0
+							     ELSE COALESCE(a.lift_distance_m, 0) END),
+						0) END), 0) AS distance_m,
+					COALESCE(SUM(CASE WHEN a.id IS NULL THEN 0 ELSE COALESCE(aga.moving_time_s_override, a.moving_time_s, 0) END), 0) AS moving_time_s,
+					COALESCE(SUM(CASE WHEN a.id IS NULL THEN 0 ELSE COALESCE(a.elapsed_time_s, 0) END), 0) AS time_s,
+					COALESCE(SUM(CASE WHEN a.id IS NULL THEN 0 ELSE GREATEST(0,
+						COALESCE(a.elevation_gain_m, 0) -
+						CASE WHEN a.exclude_lift_subtraction THEN 0
+						     ELSE COALESCE(a.lift_ascent_m, 0) END) END), 0) AS elevation_gain_m,
+					COALESCE(SUM(CASE WHEN a.id IS NULL THEN 0 ELSE GREATEST(0,
+						COALESCE(a.elevation_loss_m, 0) -
+						CASE WHEN a.exclude_lift_subtraction THEN 0
+						     ELSE COALESCE(a.lift_descent_m, 0) END) END), 0) AS elevation_loss_m,
+					COUNT(a.id) AS activities_count
+				FROM gear_components gc
 			LEFT JOIN component_assignments ca ON ca.component_id = gc.id AND ca.removed_at IS NULL
 			LEFT JOIN activity_gear_assignments aga ON aga.gear_id = gc.gear_id
 			LEFT JOIN activities a ON a.id = aga.activity_id
@@ -2207,7 +2239,11 @@ func (db *DB) UpdateComponentUsageStatsOwnerVerified(ctx context.Context, compon
 // or via an upstream RLS-scoped query) before invoking this function.
 // This function trusts the caller — it does not re-check user_id ownership.
 func (db *DB) UpdateChainRotationMemberStatsOwnerVerified(ctx context.Context, memberID string) error {
-	tag, err := db.Pool.Exec(ctx, `
+	return db.updateChainRotationMemberStatsOwnerVerifiedOn(ctx, db.Pool, memberID)
+}
+
+func (db *DB) updateChainRotationMemberStatsOwnerVerifiedOn(ctx context.Context, q Querier, memberID string) error {
+	tag, err := q.Exec(ctx, `
 		UPDATE chain_rotation_members cm
 		SET total_distance_m = COALESCE(src.distance_m, 0),
 		    total_moving_time_s = COALESCE(src.moving_time_s, 0),
@@ -2217,13 +2253,25 @@ func (db *DB) UpdateChainRotationMemberStatsOwnerVerified(ctx context.Context, m
 		    total_activities = COALESCE(src.activities_count, 0)
 		FROM (
 			SELECT
-				cm.id AS member_id,
-				SUM(COALESCE(aga.distance_m_override, a.distance_m, 0)) AS distance_m,
-				SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)) AS moving_time_s,
-				SUM(COALESCE(a.elapsed_time_s, 0)) AS time_s,
-				SUM(COALESCE(a.elevation_gain_m, 0)) AS elevation_gain_m,
-				SUM(COALESCE(a.elevation_loss_m, 0)) AS elevation_loss_m,
-				COUNT(a.id) AS activities_count
+					cm.id AS member_id,
+					SUM(COALESCE(
+						aga.distance_m_override,
+						GREATEST(0,
+							COALESCE(a.distance_m, 0) -
+							CASE WHEN a.exclude_lift_subtraction THEN 0
+							     ELSE COALESCE(a.lift_distance_m, 0) END),
+						0)) AS distance_m,
+					SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)) AS moving_time_s,
+					SUM(COALESCE(a.elapsed_time_s, 0)) AS time_s,
+					SUM(GREATEST(0,
+						COALESCE(a.elevation_gain_m, 0) -
+						CASE WHEN a.exclude_lift_subtraction THEN 0
+						     ELSE COALESCE(a.lift_ascent_m, 0) END)) AS elevation_gain_m,
+					SUM(GREATEST(0,
+						COALESCE(a.elevation_loss_m, 0) -
+						CASE WHEN a.exclude_lift_subtraction THEN 0
+						     ELSE COALESCE(a.lift_descent_m, 0) END)) AS elevation_loss_m,
+					COUNT(a.id) AS activities_count
 			FROM chain_rotation_members cm
 			JOIN chain_rotation_groups crg ON crg.id = cm.group_id
 			JOIN gear_components gc ON gc.id = cm.component_id
@@ -2241,7 +2289,7 @@ func (db *DB) UpdateChainRotationMemberStatsOwnerVerified(ctx context.Context, m
 		return fmt.Errorf("update chain rotation member stats: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		_, err = db.Pool.Exec(ctx, `
+		_, err = q.Exec(ctx, `
 			UPDATE chain_rotation_members
 			SET total_distance_m = 0,
 			    total_moving_time_s = 0,
@@ -2266,7 +2314,11 @@ func (db *DB) UpdateChainRotationMemberStatsOwnerVerified(ctx context.Context, m
 // (or via an upstream RLS-scoped query) before invoking this function.
 // This function trusts the caller — it does not re-check user_id ownership.
 func (db *DB) ListActiveComponentIDsForGearOwnerVerified(ctx context.Context, gearID string) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
+	return db.listActiveComponentIDsForGearOwnerVerifiedOn(ctx, db.Pool, gearID)
+}
+
+func (db *DB) listActiveComponentIDsForGearOwnerVerifiedOn(ctx context.Context, q Querier, gearID string) ([]string, error) {
+	rows, err := q.Query(ctx, `
 		SELECT id::text
 		FROM gear_components
 		WHERE gear_id = $1
@@ -2297,7 +2349,11 @@ func (db *DB) ListActiveComponentIDsForGearOwnerVerified(ctx context.Context, ge
 // (or via an upstream RLS-scoped query) before invoking this function.
 // This function trusts the caller — it does not re-check user_id ownership.
 func (db *DB) ListImpactedChainRotationMemberIDsForGearOwnerVerified(ctx context.Context, gearID string) ([]string, error) {
-	rows, err := db.Pool.Query(ctx, `
+	return db.listImpactedChainRotationMemberIDsForGearOwnerVerifiedOn(ctx, db.Pool, gearID)
+}
+
+func (db *DB) listImpactedChainRotationMemberIDsForGearOwnerVerifiedOn(ctx context.Context, q Querier, gearID string) ([]string, error) {
+	rows, err := q.Query(ctx, `
 		SELECT cm.id::text
 		FROM chain_rotation_members cm
 		JOIN chain_rotation_groups crg ON crg.id = cm.group_id
@@ -2331,29 +2387,36 @@ func (db *DB) ListImpactedChainRotationMemberIDsForGearOwnerVerified(ctx context
 // (or via an upstream RLS-scoped query) before invoking this function.
 // This function trusts the caller — it does not re-check user_id ownership.
 func (db *DB) RefreshGearAndDependentUsageStatsOwnerVerified(ctx context.Context, gearID string) error {
-	if err := db.UpdateGearStatsOwnerVerified(ctx, gearID); err != nil {
+	if err := db.refreshGearAndDependentUsageStatsOwnerVerifiedOn(ctx, db.Pool, gearID); err != nil {
 		return err
 	}
-	componentIDs, err := db.ListActiveComponentIDsForGearOwnerVerified(ctx, gearID)
+	if err := db.EvaluateGearUsageRulesForGear(ctx, []string{gearID}); err != nil {
+		slog.Warn("evaluate gear usage rules", "gear_id", gearID, "error", err)
+	}
+	return nil
+}
+
+func (db *DB) refreshGearAndDependentUsageStatsOwnerVerifiedOn(ctx context.Context, q Querier, gearID string) error {
+	if err := db.updateGearStatsOwnerVerifiedOn(ctx, q, gearID); err != nil {
+		return err
+	}
+	componentIDs, err := db.listActiveComponentIDsForGearOwnerVerifiedOn(ctx, q, gearID)
 	if err != nil {
 		return err
 	}
 	for _, componentID := range componentIDs {
-		if err := db.UpdateComponentUsageStatsOwnerVerified(ctx, componentID); err != nil {
+		if err := db.updateComponentUsageStatsOwnerVerifiedOn(ctx, q, componentID); err != nil {
 			return err
 		}
 	}
-	memberIDs, err := db.ListImpactedChainRotationMemberIDsForGearOwnerVerified(ctx, gearID)
+	memberIDs, err := db.listImpactedChainRotationMemberIDsForGearOwnerVerifiedOn(ctx, q, gearID)
 	if err != nil {
 		return err
 	}
 	for _, memberID := range memberIDs {
-		if err := db.UpdateChainRotationMemberStatsOwnerVerified(ctx, memberID); err != nil {
+		if err := db.updateChainRotationMemberStatsOwnerVerifiedOn(ctx, q, memberID); err != nil {
 			return err
 		}
-	}
-	if err := db.EvaluateGearUsageRulesForGear(ctx, []string{gearID}); err != nil {
-		slog.Warn("evaluate gear usage rules", "gear_id", gearID, "error", err)
 	}
 	return nil
 }
@@ -3084,6 +3147,10 @@ func (db *DB) GetActivityAsMap(ctx context.Context, activityID string) (map[stri
 	m["has_structured_intervals"] = hasStructuredIntervals
 	m["interval_count"] = intervalCount
 	m["has_hc_climb"] = hasHCClimb
+	// Phase 4b.B.2 — boolean flag for the "Lift erkannt" rule condition.
+	// lift_count is already exposed above via setNN(); has_lift is the
+	// derived boolean used by automation.SystemRules' lift_detected entry.
+	m["has_lift"] = liftCount != nil && *liftCount > 0
 	m["surface_paved_pct"] = surfacePavedPct
 	m["surface_gravel_pct"] = surfaceGravelPct
 	m["surface_trail_pct"] = surfaceTrailPct
@@ -3950,31 +4017,9 @@ func (db *DB) MergeGear(ctx context.Context, userID, primaryID, secondaryID stri
 	}
 
 	// 4. Recompute analytics totals on primary so distance/time/elevation
-	// reflect the merged set of activities. Mirrors the SQL pattern used in
-	// migration 000355's final analytics-recompute step.
-	if _, err = tx.Exec(ctx, `
-		UPDATE gear g
-		   SET total_distance_m       = COALESCE(src.total_distance_m, 0),
-		       total_moving_time_s    = COALESCE(src.total_moving_time_s, 0),
-		       total_time_s           = COALESCE(src.total_time_s, 0),
-		       total_elevation_gain_m = COALESCE(src.total_elevation_gain_m, 0),
-		       total_elevation_loss_m = COALESCE(src.total_elevation_loss_m, 0),
-		       total_activities       = COALESCE(src.total_activities, 0)
-		  FROM (
-		      SELECT
-		          COALESCE(SUM(COALESCE(aga.distance_m_override,    a.distance_m,    0)), 0) AS total_distance_m,
-		          COALESCE(SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)), 0) AS total_moving_time_s,
-		          COALESCE(SUM(COALESCE(a.elapsed_time_s,    0)), 0)                          AS total_time_s,
-		          COALESCE(SUM(COALESCE(a.elevation_gain_m,  0)), 0)                          AS total_elevation_gain_m,
-		          COALESCE(SUM(COALESCE(a.elevation_loss_m,  0)), 0)                          AS total_elevation_loss_m,
-		          COUNT(*)                                                                     AS total_activities
-		      FROM activity_gear_assignments aga
-		      JOIN activities a ON a.id = aga.activity_id
-		      WHERE aga.gear_id = $1
-		        AND NOT a.is_group_secondary
-		  ) src
-		 WHERE g.id = $1
-	`, primaryID); err != nil {
+	// reflect the merged set of activities and the same lift-subtracted net
+	// semantics as normal gear refreshes.
+	if err = db.refreshGearAndDependentUsageStatsOwnerVerifiedOn(ctx, tx, primaryID); err != nil {
 		return fmt.Errorf("recompute primary totals: %w", err)
 	}
 
@@ -3989,7 +4034,13 @@ func (db *DB) MergeGear(ctx context.Context, userID, primaryID, secondaryID stri
 		return fmt.Errorf("delete secondary gear: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	if err := db.EvaluateGearUsageRulesForGear(ctx, []string{primaryID}); err != nil {
+		slog.Warn("evaluate gear usage rules", "gear_id", primaryID, "error", err)
+	}
+	return nil
 }
 
 // VerifyGearOwnership returns nil if the gear belongs to the user, pgx.ErrNoRows otherwise.
@@ -4239,11 +4290,22 @@ func (db *DB) GetGearSummary(ctx context.Context, userID string, filter GearSumm
 	var summary GearSummary
 	err := db.Pool.QueryRow(ctx, `
 		SELECT
-		  COALESCE(SUM(COALESCE(aga.distance_m_override, a.distance_m, 0)), 0)        AS total_distance_m,
+		  COALESCE(SUM(COALESCE(
+		    aga.distance_m_override,
+		    GREATEST(0,
+		      COALESCE(a.distance_m, 0) -
+		      CASE WHEN a.exclude_lift_subtraction THEN 0 ELSE COALESCE(a.lift_distance_m, 0) END),
+		    0)), 0)                                                                  AS total_distance_m,
 		  COALESCE(SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)), 0)  AS total_moving_time_s,
 		  COALESCE(SUM(COALESCE(a.elapsed_time_s, 0)), 0)                              AS total_time_s,
-		  COALESCE(SUM(COALESCE(a.elevation_gain_m, 0)), 0)                            AS total_elevation_gain_m,
-		  COALESCE(SUM(COALESCE(a.elevation_loss_m, 0)), 0)                            AS total_elevation_loss_m,
+		  COALESCE(SUM(GREATEST(0,
+		    COALESCE(a.elevation_gain_m, 0) -
+		    CASE WHEN a.exclude_lift_subtraction THEN 0 ELSE COALESCE(a.lift_ascent_m, 0) END)), 0)
+		                                                                                 AS total_elevation_gain_m,
+		  COALESCE(SUM(GREATEST(0,
+		    COALESCE(a.elevation_loss_m, 0) -
+		    CASE WHEN a.exclude_lift_subtraction THEN 0 ELSE COALESCE(a.lift_descent_m, 0) END)), 0)
+		                                                                                 AS total_elevation_loss_m,
 		  COUNT(DISTINCT a.id)                                                          AS activity_count,
 		  COUNT(DISTINCT aga.gear_id)                                                   AS gear_count
 		FROM activities a

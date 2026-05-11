@@ -214,7 +214,7 @@ func (e *Engine) importFileByID(
 			}
 			entry.Tags = shadowfs.ActivitySchemaTags(input)
 		} else if format := inferFileFormat(rec.FileName); format != "" {
-			entry.Tags = shadowfs.ActivitySchemaTags(shadowfs.ActivitySchemaTagsInput{Format: format})
+			entry.Tags = map[string]string{"format": format}
 		}
 	}
 

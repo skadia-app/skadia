@@ -1,0 +1,83 @@
+# Schema example for the station-marker file consumed by `cmd/lift_detect_eval
+# -boundaries` and `cmd/lift_detect_viz -gt`.
+#
+# Coordinates are synthetic (clustered around 1.0/2.0 lat/lng). The real
+# corpus lives outside the repository (gitignored). A loader unit test parses
+# this file to guard the schema against silent drift.
+#
+# Recipe: docs/documentation/dev/subsystems/geo-lift-detection.md, section
+# "Adding a new training fixture".
+#
+# Schema (one entry per fixture file, parsed by `boundaries.go` and
+# `lift_detect_viz/main.go`):
+#
+#   file              (required)  must match the corresponding `file:` in the
+#                                 evaluation manifest; the loader looks up
+#                                 the case by exact string match
+#   db_activity_id    (optional)  free-form identifier; informative only,
+#                                 never read by the detector
+#   lifts             (required)  zero or more lift entries; an empty list
+#                                 marks a NEGATIV (no-lift) fixture and only
+#                                 the manifest's expected_rides=0 is enforced
+#
+#   lifts[].id        (required)  unique label within this case; printed in
+#                                 the boundary table and rendered as a marker
+#                                 in the viz HTML
+#   lifts[].p1        (required)  [lat, lng]; one endpoint of the lift line
+#   lifts[].p2        (required)  [lat, lng]; the other endpoint
+#   lifts[].alt_p1    (optional)  metres at p1; informative
+#   lifts[].alt_p2    (optional)  metres at p2; informative
+#   lifts[].note      (optional)  free-form description
+#
+# Endpoint orientation:
+#   p1/p2 order is arbitrary. The boundary check matches each detected ride
+#   against both orientations (s↔p1+e↔p2 OR s↔p2+e↔p1) and keeps the smaller
+#   max(start_off, end_off). The line-tracing convention (e.g. JOSM, copy-as-
+#   coords) typically does not preserve direction, so the matcher is symmetric
+#   on purpose.
+
+cases:
+  - file: alpha_resort/run_a.fit
+    db_activity_id: 00000000-0000-0000-0000-000000000001
+    lifts:
+      - id: A
+        p1: [1.0001, 2.0001]
+        p2: [1.0099, 2.0099]
+        alt_p1: 1200
+        alt_p2: 1850
+        note: "Single-section gondola, base to top."
+      - id: B
+        p1: [1.0050, 2.0150]
+        p2: [1.0120, 2.0220]
+        alt_p1: 1400
+        alt_p2: 1950
+        note: "Adjacent chairlift."
+
+  - file: beta_resort/run_b.gpx
+    db_activity_id: 00000000-0000-0000-0000-000000000002
+    lifts:
+      - id: seg1
+        p1: [1.1000, 2.1000]
+        p2: [1.1050, 2.1050]
+        alt_p1: 900
+        alt_p2: 1300
+        note: "Section 1 of a three-section cable. p2 is the lower mid-station."
+      - id: seg2
+        p1: [1.1050, 2.1050]
+        p2: [1.1100, 2.1100]
+        alt_p1: 1300
+        alt_p2: 1700
+        note: "Section 2 — mid-station to mid-station."
+      - id: seg3
+        p1: [1.1100, 2.1100]
+        p2: [1.1150, 2.1150]
+        alt_p1: 1700
+        alt_p2: 2100
+        note: "Section 3 — upper mid-station to summit."
+
+  # Empty `lifts:` is the conventional NEGATIV (no-lift) fixture marker. The
+  # boundary tool refuses to match against an empty list; the eval still
+  # checks the manifest's expected_rides=0 contract.
+  - file: negativ/road_climb.fit
+    db_activity_id: 00000000-0000-0000-0000-000000000003
+    lifts: []

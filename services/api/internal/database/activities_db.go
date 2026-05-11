@@ -723,6 +723,9 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 			a.location_lat, a.location_lng,
 			a.lift_count, a.lift_distance_m, a.lift_ascent_m, a.lift_descent_m, a.lift_duration_s,
 			a.exclude_lift_subtraction,
+			a.lifts_acknowledged_at,
+			a.lift_detection_osm_override,
+			a.lift_detection_heuristic_override,
 			COALESCE(a.elevation_source, 'device'),
 			COALESCE(a.distance_source, 'device'),
 			a.parent_id,
@@ -824,6 +827,9 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		&a.LocationLat, &a.LocationLng,
 		&a.LiftCount, &a.LiftDistanceM, &a.LiftAscentM, &a.LiftDescentM, &a.LiftDurationS,
 		&a.ExcludeLiftSubtraction,
+		&a.LiftsAcknowledgedAt,
+		&a.LiftDetectionOSMOverride,
+		&a.LiftDetectionHeuristicOverride,
 		&a.ElevationSource,
 		&a.DistanceSource,
 		&a.ParentID,
@@ -1549,6 +1555,11 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 		}
 		if err := SetPrimaryGearForActivityTx(ctx, db.Pool, id, setPrimaryGearID, "user"); err != nil {
 			return nil, fmt.Errorf("update activity: set gear: %w", err)
+		}
+	}
+	if update.ExcludeLiftSubtraction != nil {
+		if _, err := db.RefreshGearUsageForActivityMetricChange(ctx, id, userID); err != nil {
+			return nil, fmt.Errorf("update activity: refresh gear usage: %w", err)
 		}
 	}
 

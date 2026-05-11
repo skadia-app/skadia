@@ -69,6 +69,45 @@ func TestBuildRecomputeScopeFlagsGeoKeepsLegacyCoverage(t *testing.T) {
 	}
 }
 
+// scope=["lifts"] must enable doStreamEnrichment so the scoped branch in
+// recompute.go runs RunStreamEnrichment with EnableLiftDetection=true after
+// the cleanup batch wipes activity_lift_candidates / lift segment_efforts.
+// Without this, the cleanup runs but detection never re-runs, leaving the
+// activity in a silent data-loss state.
+func TestBuildRecomputeScopeFlagsLiftsOnlyTriggersStreamEnrichment(t *testing.T) {
+	scope, err := parseRecomputeScopeValues([]string{"lifts"})
+	if err != nil {
+		t.Fatalf("parseRecomputeScopeValues: %v", err)
+	}
+	flags := buildRecomputeScopeFlags(scope)
+	if !flags.doLifts {
+		t.Fatalf("doLifts = false, want true")
+	}
+	if !flags.doStreamEnrichment {
+		t.Fatalf("doStreamEnrichment = false, want true (lifts run via RunStreamEnrichment)")
+	}
+	if flags.doStops || flags.doAscents || flags.doIntervals {
+		t.Fatalf("lifts-only must not enable other stream modules: %+v", flags)
+	}
+}
+
+// scope=["lifts","stops"] must run stream enrichment exactly once (the gate
+// is doStreamEnrichment, not the count). Both module flags must be set so
+// RunStreamEnrichment processes both in the same pass.
+func TestBuildRecomputeScopeFlagsLiftsAndStopsCombined(t *testing.T) {
+	scope, err := parseRecomputeScopeValues([]string{"lifts", "stops"})
+	if err != nil {
+		t.Fatalf("parseRecomputeScopeValues: %v", err)
+	}
+	flags := buildRecomputeScopeFlags(scope)
+	if !flags.doLifts || !flags.doStops {
+		t.Fatalf("doLifts/doStops not both enabled: %+v", flags)
+	}
+	if !flags.doStreamEnrichment {
+		t.Fatalf("doStreamEnrichment = false, want true")
+	}
+}
+
 func TestParseRecomputeScopeValuesRejectsUnknownScopes(t *testing.T) {
 	if _, err := parseRecomputeScopeValues([]string{"bogus"}); err == nil {
 		t.Fatal("parseRecomputeScopeValues accepted unknown scope")

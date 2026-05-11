@@ -456,6 +456,130 @@ func (h *Handler) applyFusionTxExtras(ctx context.Context, tx database.Querier, 
 		return nil, fmt.Errorf("related-tables union-copy: %w", err)
 	}
 
+	// Step 7d: Propagate soft-rejected lift candidates from source activities to the
+	// merged activity so that the async re-enrichment pass (postCommitFusionCleanup)
+	// does not resurrect candidates the user already rejected on a source activity.
+	//
+	// Why this is needed: re-enrichment calls InsertHeuristicCandidateIfNotRejected,
+	// which suppresses any new detection whose boundaries fall within ±5 s of a
+	// rejected row for the *same* activity_id. The merged activity starts with zero
+	// rejected rows, so without this copy every previously-rejected lift would
+	// reappear. Copying the source-activity rejected rows before commit ensures
+	// the suppression guard has data to match against when the goroutine starts.
+	//
+	// Timestamp translation: not needed. The unified timeline preserves source
+	// timestamps verbatim (insertUnifiedTimelineInto uses UNION of raw source times),
+	// so started_at/ended_at from the source candidates map 1:1 into the merged
+	// activity's stream range.
+	//
+	// segment_effort_id is set to NULL: the source's effort ID references a
+	// segment_effort row owned by the source activity. The merged activity gets its
+	// own segment_efforts from re-enrichment.
+	//
+	// Non-fatal semantics: a failure here degrades gracefully — the user may see
+	// re-appeared rejected candidates after merge, but no data is lost or corrupted.
+	// This must be truly non-fatal (i.e. must not abort the surrounding Postgres
+	// transaction). A SQL error inside an active Postgres Tx sets the entire Tx to
+	// "aborted" and all subsequent statements fail with
+	// "current transaction is aborted". We use a SAVEPOINT to isolate any failure so
+	// the rest of the Tx (including the mandatory audit-log INSERT) can still proceed.
+	{
+		// Count eligible source rows first so we can detect the ON CONFLICT DO NOTHING
+		// silent-drop case (F28: two sources with identical started_at but different
+		// ended_at — only one row survives the UNIQUE constraint).
+		//
+		// TODO(F28-same-start): if this warning fires in practice we should add a
+		// follow-up INSERT with a +1 s offset for the dropped rows so the ±5 s
+		// suppression window still catches both. Tracked as an architecture decision
+		// rather than an inline fix — the identical-started_at case requires knowledge
+		// of which source window should take precedence.
+		var sourceCount int64
+		if err := tx.QueryRow(ctx, `
+			SELECT COUNT(*)
+			FROM activity_lift_candidates alc
+			JOIN activities a ON a.id = alc.activity_id
+			WHERE alc.activity_id = ANY($1)
+			  AND alc.rejected_by_user = true
+			  AND a.user_id = $2
+		`, p.allSourceIDs, p.userID).Scan(&sourceCount); err != nil {
+			slog.Warn("fusion-merge: could not count source soft-rejected lift candidates",
+				"action", "fusion_merge_lift_soft_reject_count_nonfatal",
+				"merged_id", p.merged.ID, "error", err)
+			// Non-fatal — proceed without the count check.
+			sourceCount = -1
+		}
+
+		if _, err := tx.Exec(ctx, "SAVEPOINT lift_reject_copy"); err != nil {
+			// SAVEPOINT itself failed — extremely unusual (e.g. nested Tx not supported).
+			// Log and skip the copy entirely rather than risk aborting the outer Tx.
+			slog.Warn("fusion-merge: SAVEPOINT lift_reject_copy failed, skipping soft-rejected candidate copy",
+				"action", "fusion_merge_lift_soft_reject_savepoint_failed",
+				"merged_id", p.merged.ID, "error", err)
+			warnings = append(warnings, "soft-rejected lift candidates could not be copied — previously rejected lifts may reappear after merge")
+		} else {
+			tag, insertErr := tx.Exec(ctx, `
+				INSERT INTO activity_lift_candidates
+					(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m,
+					 distance_m, confidence, confirmed, source, rejected_by_user, segment_effort_id)
+				SELECT
+					$1,
+					alc.started_at,
+					alc.ended_at,
+					alc.duration_s,
+					alc.ascent_m,
+					alc.descent_m,
+					alc.distance_m,
+					alc.confidence,
+					false,
+					alc.source,
+					true,
+					NULL
+				FROM activity_lift_candidates alc
+				JOIN activities a ON a.id = alc.activity_id
+				WHERE alc.activity_id = ANY($2)
+				  AND alc.rejected_by_user = true
+				  AND a.user_id = $3
+				ON CONFLICT (activity_id, started_at) DO NOTHING
+			`, p.merged.ID, p.allSourceIDs, p.userID)
+			if insertErr != nil {
+				// Roll back only the candidate copy; the outer Tx remains valid.
+				if rbErr := func() error {
+					_, e := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT lift_reject_copy")
+					return e
+				}(); rbErr != nil {
+					// ROLLBACK TO SAVEPOINT failed — outer Tx is now in an unknown state.
+					// Propagate as fatal so the caller rolls back the whole merge.
+					return nil, fmt.Errorf("ROLLBACK TO SAVEPOINT lift_reject_copy after copy failure: %w (original: %v)", rbErr, insertErr)
+				}
+				slog.Warn("fusion-merge: copy source soft-rejected lift candidates failed, rolled back to savepoint",
+					"action", "fusion_merge_lift_soft_reject_copy_nonfatal",
+					"merged_id", p.merged.ID, "error", insertErr)
+				warnings = append(warnings, "soft-rejected lift candidates could not be copied — previously rejected lifts may reappear after merge")
+			} else {
+				// INSERT succeeded — release the savepoint and check for silent drops.
+				if _, relErr := tx.Exec(ctx, "RELEASE SAVEPOINT lift_reject_copy"); relErr != nil {
+					slog.Warn("fusion-merge: RELEASE SAVEPOINT lift_reject_copy failed",
+						"action", "fusion_merge_lift_soft_reject_release_nonfatal",
+						"merged_id", p.merged.ID, "error", relErr)
+				}
+				inserted := tag.RowsAffected()
+				if sourceCount >= 0 && inserted < sourceCount {
+					// Some source rows were silently dropped by ON CONFLICT DO NOTHING.
+					// The most likely cause: two sources share an identical started_at
+					// (different ended_at) — the UNIQUE(activity_id, started_at) constraint
+					// keeps only the first row. The suppression window (±5 s) will still
+					// cover the dropped candidate in most cases, but precision may be lost.
+					slog.Warn("fusion-merge: soft-rejected lift candidate copy: ON CONFLICT dropped rows",
+						"action", "fusion_merge_lift_soft_reject_copy_conflict_drop",
+						"merged_id", p.merged.ID,
+						"source_count", sourceCount,
+						"inserted", inserted,
+						"dropped", sourceCount-inserted)
+				}
+			}
+		}
+	}
+
 	// Audit log (inside transaction).
 	// FATAL: the audit record is required for GDPR accountability. A failed INSERT
 	// here would commit the merge without any audit trail, breaking the export/import

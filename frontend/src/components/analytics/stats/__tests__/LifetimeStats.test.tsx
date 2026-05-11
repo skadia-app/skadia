@@ -40,13 +40,22 @@ function makeLifetimeResponse() {
     total_activities: 500,
     total_distance_m: 5_000_000,
     total_elevation_m: 100_000,
+    total_elevation_loss_m: 80_000,
     total_moving_time_s: 1_800_000,
+    total_elapsed_time_s: 2_000_000,
+    total_calories: 250_000,
     active_days: 300,
     countries: 10,
+    earth_laps: 0,
     moon_trips: 0,
     everest_count: 0,
+    everest_count_down: 0,
     current_day_streak: 5,
     max_day_streak: 30,
+    lift_ride_count: 0,
+    lift_ascent_m: 0,
+    lift_descent_m: 0,
+    lift_distance_m: 0,
   }
 }
 
@@ -103,5 +112,14 @@ describe('LifetimeStats — global filter', () => {
   it('renders stat cards when data is loaded', async () => {
     renderWithProviders()
     await screen.findByText('500')
+  })
+
+  it('renders net ascent and descent lifetime elevation cards', async () => {
+    renderWithProviders()
+
+    expect(await screen.findByText('Höhenmeter ↑')).toBeInTheDocument()
+    expect(screen.getByText('Höhenmeter ↓')).toBeInTheDocument()
+    expect(screen.getByText('100.000')).toBeInTheDocument()
+    expect(screen.getByText('80.000')).toBeInTheDocument()
   })
 })

@@ -102,7 +102,7 @@ func RunGeoAndPublishStage2(ctx context.Context, db *database.DB, userID, activi
 	}
 	migratedToGo := GoNativeModules
 	if enabledModules == nil {
-		enabledModules = []string{"lifts", "embeddings"}
+		enabledModules = []string{"embeddings"}
 	} else {
 		filtered := enabledModules[:0]
 		for _, m := range enabledModules {
@@ -127,6 +127,7 @@ var GoNativeModules = map[string]bool{
 	"summits": true, "settlements": true, "forests": true,
 	"water": true, "borders": true, "surfaces": true,
 	"stops": true, "ascents": true, "intervals": true,
+	"lifts": true,
 }
 
 // enableDEMEnrichment controls whether Open-Meteo elevation correction is applied.
@@ -618,9 +619,11 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		// longer need to run in the Python ML service.
 		migratedToGo := GoNativeModules
 		if enabledModules == nil {
-			// nil means "all enabled" — expand to full list minus migrated ones
+			// nil means "all enabled" — expand to full list minus migrated ones.
+			// "lifts" runs in-process (RunStreamEnrichment), so it is NOT in this
+			// Stage-2 fallback list anymore (Phase 4: NATS-Lift-Dispatch removed).
 			allModules := []string{
-				"lifts", "embeddings",
+				"embeddings",
 			}
 			enabledModules = allModules
 		} else {

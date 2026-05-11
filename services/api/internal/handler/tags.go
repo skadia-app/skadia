@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -1164,9 +1165,21 @@ func (h *Handler) DeleteOrphanTag(w http.ResponseWriter, r *http.Request) {
 }
 
 // SeedDefaultTags creates the default autotag definitions if they don't exist.
+//
+// Phase 4b.A.3: the system tags + automation rules (Rundtour, E-Bike, Pendeln,
+// Indoor, virtuell, Frost, Nacht) are seeded by automation.EnsureSystemArtifacts
+// — call ordered FIRST so the rule INSERTs can resolve their tag IDs.
+// SeedSystemDefaults still handles weather tags + recommended rules + the
+// migrate-existing step.
 func (h *Handler) SeedDefaultTags(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+
+	if err := automation.EnsureSystemArtifacts(r.Context(), h.DB, userID); err != nil {
+		slog.Error("ensure system artifacts failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to seed system tags", r.URL.Path)
 		return
 	}
 

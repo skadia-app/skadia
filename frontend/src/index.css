@@ -63,12 +63,21 @@ body {
   55% { box-shadow: inset 0 0 0 999px rgba(16, 185, 129, 0.08); }
 }
 
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .animate-slide-in-right {
   animation: slide-in-right 0.2s ease-out;
 }
 
 .animate-activity-quick-edit-saved {
   animation: activity-quick-edit-saved 1.2s ease-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.18s ease-out;
 }
 
 /* Dual-range slider: thumb + track pseudo-element overrides.

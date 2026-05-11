@@ -303,6 +303,12 @@ func allTables() []tableSpec {
 			FKFields: []string{"gear_id", "activity_id"},
 		},
 		{
+			Name:     "activity_lift_candidates",
+			Phase:    6,
+			PKField:  "id",
+			FKFields: []string{"activity_id"},
+		},
+		{
 			Name:            "activity_fusion_memberships",
 			Phase:           6,
 			PKField:         "",
