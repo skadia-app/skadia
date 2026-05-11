@@ -339,6 +339,21 @@ func applyChanges(ctx context.Context, db *database.DB, activityID, userID strin
 			sendWebhookChange(activityID, rule, change)
 			continue
 		}
+		if change.Field == "gear_id" {
+			gearID, _ := val.(string)
+			valid, reason, err := db.ValidateRuleGearAssignment(ctx, activityID, userID, gearID)
+			if err != nil {
+				slog.Warn("validate rule gear action", "activity_id", activityID, "rule_id", rule.ID, "gear_id", gearID, "error", err)
+				continue
+			}
+			if !valid {
+				warnSkippedGearAction(ctx, db, rule, userID, gearID, reason)
+				continue
+			}
+			if err := db.ClearRuleWarning(ctx, rule.ID, userID); err != nil {
+				slog.Warn("clear rule warning", "rule_id", rule.ID, "error", err)
+			}
+		}
 		if err := db.ApplyRuleChange(ctx, activityID, change.Field, val); err != nil {
 			slog.Warn("apply rule change", "activity_id", activityID, "rule_id", rule.ID, "field", change.Field, "error", err)
 		}
