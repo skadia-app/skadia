@@ -248,17 +248,20 @@ func TestEnsureSystemArtifacts_PromotesExistingCustomTagNameCollision(t *testing
 	}
 
 	var isSystem bool
-	var category string
+	var category, color, textColor string
 	var ruleCount int
 	if err := pool.QueryRow(ctx, `
-		SELECT is_system, category
+		SELECT is_system, category, color, text_color
 		FROM tags
 		WHERE user_id = $1 AND name = 'Lift'
-	`, userID).Scan(&isSystem, &category); err != nil {
+	`, userID).Scan(&isSystem, &category, &color, &textColor); err != nil {
 		t.Fatalf("query Lift tag: %v", err)
 	}
 	if !isSystem || category != "system" {
 		t.Fatalf("Lift collision was not promoted to system tag: is_system=%v category=%q", isSystem, category)
+	}
+	if color != "#000000" || textColor != "#FFFFFF" {
+		t.Fatalf("Lift collision should preserve user tag colors, got %s/%s", color, textColor)
 	}
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*)

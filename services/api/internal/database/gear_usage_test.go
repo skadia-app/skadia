@@ -134,6 +134,61 @@ func TestUpdateActivityMetricsRefreshesAssignedGearUsage(t *testing.T) {
 	}
 }
 
+func TestUpdateComponentUsageStatsIgnoresFilteredActivityOverrides(t *testing.T) {
+	db := mapLayerTestDB(t)
+	ctx := context.Background()
+	userID := insertTestUser(t, db)
+	gearID := insertGearForUsageTest(t, db, userID, "Trail Bike")
+	componentID := insertComponentForUsageTest(t, db, gearID, "Kette")
+	if _, err := db.Pool.Exec(ctx, `
+		UPDATE gear_components SET installed_at = NOW() - INTERVAL '2 hours' WHERE id = $1`,
+		componentID); err != nil {
+		t.Fatalf("update component install time: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO component_assignments (component_id, gear_id, installed_at)
+		VALUES ($1, $2, NOW() - INTERVAL '2 hours')`,
+		componentID, gearID); err != nil {
+		t.Fatalf("insert component assignment: %v", err)
+	}
+	insertActivityForUsageTest(t, db, userID, gearID, 10000, 1800, 2400, 500, 800)
+	groupSecondaryID := uuid.NewString()
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO activities (
+			id, user_id, sport_type, started_at,
+			distance_m, moving_time_s, elapsed_time_s,
+			elevation_gain_m, elevation_loss_m, is_group_secondary
+		)
+		VALUES ($1, $2, 'cycling', NOW() - INTERVAL '1 hour',
+		        50000, 5000, 6000, 5000, 4000, true)`,
+		groupSecondaryID, userID); err != nil {
+		t.Fatalf("insert group-secondary activity: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO activity_gear_assignments
+			(user_id, activity_id, gear_id, role_key, source, distance_m_override, moving_time_s_override)
+		VALUES ($1, $2, $3, 'primary', 'user', 99999, 9999)`,
+		userID, groupSecondaryID, gearID); err != nil {
+		t.Fatalf("insert group-secondary assignment: %v", err)
+	}
+
+	if err := db.UpdateComponentUsageStatsOwnerVerified(ctx, componentID); err != nil {
+		t.Fatalf("UpdateComponentUsageStatsOwnerVerified: %v", err)
+	}
+
+	var distance, gain, loss float64
+	var moving int64
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT total_distance_m, total_moving_time_s, total_elevation_gain_m, total_elevation_loss_m
+		FROM gear_components WHERE id = $1`, componentID).Scan(&distance, &moving, &gain, &loss); err != nil {
+		t.Fatalf("select component totals: %v", err)
+	}
+	if distance != 10000 || moving != 1800 || gain != 500 || loss != 800 {
+		t.Fatalf("component totals = %.0f/%d/%.0f/%.0f, want 10000/1800/500/800",
+			distance, moving, gain, loss)
+	}
+}
+
 // TestUpdateChainRotationMemberStatsResetsWhenUsageDisappears verifies that
 // UpdateChainRotationMemberStats (D4) correctly resets a member's totals to
 // zero once the underlying activity_gear_assignments rows are deleted.

@@ -83,6 +83,43 @@ func TestMigration_GearLiftNetUsageTotals_RecomputesNetGearTotals(t *testing.T) 
 		userID, groupSecondaryID, gearID); err != nil {
 		t.Fatalf("insert group-secondary assignment: %v", err)
 	}
+	componentID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO gear_components
+			(id, gear_id, name, type, installed_at,
+			 total_distance_m, total_elevation_gain_m, total_elevation_loss_m)
+		VALUES ($1, $2, 'Migration Net Component', 'chain', $3,
+		        10000, 900, 600)`,
+		componentID, gearID, startedAt.Add(-time.Hour)); err != nil {
+		t.Fatalf("insert component: %v", err)
+	}
+	assignmentID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO component_assignments
+			(id, component_id, gear_id, installed_at,
+			 distance_m, elevation_gain_m, elevation_loss_m)
+		VALUES ($1, $2, $3, $4,
+		        10000, 900, 600)`,
+		assignmentID, componentID, gearID, startedAt.Add(-time.Hour)); err != nil {
+		t.Fatalf("insert component assignment: %v", err)
+	}
+	chainGroupID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO chain_rotation_groups (id, user_id, gear_id, name, created_at)
+		VALUES ($1, $2, $3, 'Migration Chain Rotation', $4)`,
+		chainGroupID, userID, gearID, startedAt.Add(-time.Hour)); err != nil {
+		t.Fatalf("insert chain rotation group: %v", err)
+	}
+	chainMemberID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO chain_rotation_members
+			(id, group_id, component_id, position, is_active,
+			 total_distance_m, total_elevation_gain_m, total_elevation_loss_m)
+		VALUES ($1, $2, $3, 0, true,
+		        10000, 900, 600)`,
+		chainMemberID, chainGroupID, componentID); err != nil {
+		t.Fatalf("insert chain rotation member: %v", err)
+	}
 
 	if _, err := tx.Exec(ctx, string(sqlBytes)); err != nil {
 		t.Fatalf("run migration: %v", err)
@@ -102,5 +139,32 @@ func TestMigration_GearLiftNetUsageTotals_RecomputesNetGearTotals(t *testing.T) 
 	}
 	if totalLoss != 480 {
 		t.Fatalf("total_elevation_loss_m = %.0f, want 480", totalLoss)
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT total_distance_m, total_elevation_gain_m, total_elevation_loss_m
+		FROM gear_components WHERE id = $1`, componentID).Scan(&totalDistance, &totalGain, &totalLoss); err != nil {
+		t.Fatalf("query component totals: %v", err)
+	}
+	if totalDistance != 8000 || totalGain != 650 || totalLoss != 480 {
+		t.Fatalf("component totals = %.0f/%.0f/%.0f, want 8000/650/480",
+			totalDistance, totalGain, totalLoss)
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT distance_m, elevation_gain_m, elevation_loss_m
+		FROM component_assignments WHERE id = $1`, assignmentID).Scan(&totalDistance, &totalGain, &totalLoss); err != nil {
+		t.Fatalf("query component assignment totals: %v", err)
+	}
+	if totalDistance != 8000 || totalGain != 650 || totalLoss != 480 {
+		t.Fatalf("component assignment totals = %.0f/%.0f/%.0f, want 8000/650/480",
+			totalDistance, totalGain, totalLoss)
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT total_distance_m, total_elevation_gain_m, total_elevation_loss_m
+		FROM chain_rotation_members WHERE id = $1`, chainMemberID).Scan(&totalDistance, &totalGain, &totalLoss); err != nil {
+		t.Fatalf("query chain member totals: %v", err)
+	}
+	if totalDistance != 8000 || totalGain != 650 || totalLoss != 480 {
+		t.Fatalf("chain member totals = %.0f/%.0f/%.0f, want 8000/650/480",
+			totalDistance, totalGain, totalLoss)
 	}
 }

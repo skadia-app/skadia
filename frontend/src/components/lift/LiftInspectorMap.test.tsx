@@ -338,6 +338,38 @@ describe('LiftInspectorMap — stream updates', () => {
     })
     expect(maplibreMock.instances.some(m => m.fitBounds.mock.calls.length > 0)).toBe(true)
   })
+
+  it('does not refit bounds when rerendered with identical track coordinates', async () => {
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+
+    const { rerender } = render(
+      <LiftInspectorMap
+        candidates={[]}
+        streams={twoStreams}
+        highlightedCandidateId={null}
+        onCandidateClick={() => {}}
+      />,
+      { wrapper },
+    )
+
+    await act(async () => { await new Promise(r => setTimeout(r, 50)) })
+    const map = maplibreMock.instances.at(-1)
+    expect(map).toBeDefined()
+    const fitCalls = map!.fitBounds.mock.calls.length
+
+    rerender(
+      <LiftInspectorMap
+        candidates={[]}
+        streams={[...twoStreams]}
+        highlightedCandidateId={null}
+        onCandidateClick={() => {}}
+      />,
+    )
+
+    await act(async () => { await new Promise(r => setTimeout(r, 10)) })
+
+    expect(map!.fitBounds).toHaveBeenCalledTimes(fitCalls)
+  })
 })
 
 describe('LiftInspectorMap — F16: legend overlay', () => {
