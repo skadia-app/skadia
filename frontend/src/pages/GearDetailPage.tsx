@@ -197,6 +197,8 @@ function GearDetailTabs({ gear, costSummary, activeTab, onTabChange, onSportsSav
     (a) => a.valueType === 'geometry' && a.subfields && a.subfields.length > 0,
   )
   const isBike = gearTypeScope(schema, gear.type, gear.scope) === 'bike'
+  const components = gear.components ?? []
+  const hasComponentHierarchy = components.some((component) => component.parent_component_id)
   const displayedTab = activeTab === 'setups' && !isBike ? 'components' : activeTab
 
   return (
@@ -282,23 +284,23 @@ function GearDetailTabs({ gear, costSummary, activeTab, onTabChange, onSportsSav
         <GearSportsTab item={gear} onSave={onSportsSave} />
       </TabsContent>
 
-      {/* Komponenten tab — chain rotation + component list.
-          GearComponentsTab renders the parent-child hierarchy (read-only, indented tree).
-          ComponentsList renders the full CRUD widget (flat, with expand/edit/delete).
-          Both read from the same gear.components source — no state divergence. */}
+      {/* Komponenten tab — chain rotation + editable component list first.
+          The read-only hierarchy is only useful when parent-child links exist. */}
       <TabsContent value="components" className="space-y-6">
         {isBike && (
-          <ChainRotationSection gearId={gear.id} components={gear.components ?? []} />
+          <ChainRotationSection gearId={gear.id} components={components} />
         )}
-        <section data-testid="components-hierarchy">
-          <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2 uppercase tracking-wide">
-            Hierarchie
-          </h3>
-          <GearComponentsTab components={gear.components ?? []} />
-        </section>
         <section data-testid="components-crud">
-          <ComponentsList gearId={gear.id} gearType={gear.type} components={gear.components ?? []} />
+          <ComponentsList gearId={gear.id} gearType={gear.type} components={components} />
         </section>
+        {hasComponentHierarchy && (
+          <section data-testid="components-hierarchy">
+            <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2 uppercase tracking-wide">
+              Hierarchie
+            </h3>
+            <GearComponentsTab components={components} />
+          </section>
+        )}
       </TabsContent>
 
       {isBike && (

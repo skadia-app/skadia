@@ -183,6 +183,46 @@ describe('GearForm', () => {
     expect(sportSelect.querySelector('option[value="hang_gliding"]')).not.toBeInTheDocument()
     expect(sportSelect.querySelector('option[value="sky_diving"]')).not.toBeInTheDocument()
   })
+
+  it('hides consumables from the bike type picker', () => {
+    render(
+      <GearForm
+        categoryScope="bike"
+        onSave={vi.fn()}
+        onCancel={() => {}}
+      />,
+    )
+
+    const typeInput = screen.getByRole('combobox', { name: 'Typ' })
+    fireEvent.focus(typeInput)
+
+    expect(screen.queryByRole('option', { name: 'Fahrrad / Bremsbeläge' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Fahrrad / Kettenschmiermittel' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Fahrrad / Reifendichtmilch' })).not.toBeInTheDocument()
+  })
+
+  it('renders bike modifiers prominently and saves checked modifiers', () => {
+    const onSave = vi.fn()
+    render(
+      <GearForm
+        gear={gearFixture({ type: 'bike', name: 'Mein Bike' })}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    )
+
+    const fieldset = screen.getByRole('group', { name: 'Merkmale' })
+    const electric = screen.getByRole('checkbox', { name: 'E-Antrieb' })
+    expect(fieldset).toContainElement(electric)
+
+    fireEvent.click(electric)
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    expect(onSave.mock.calls[0][0]).toEqual(expect.objectContaining({
+      modifiers: { is_electric: true },
+    }))
+    expect(onSave.mock.calls[0][0].attributes).not.toHaveProperty('bike.modifier')
+  })
 })
 
 function gearFixture(overrides: Partial<Gear> = {}): Gear {
@@ -436,7 +476,7 @@ describe('GearForm — recommended values + custom dropdown + mullet', () => {
     expect(customInput).toHaveValue('26.25')
   })
 
-  it('TestMulletToggleSwapsToTwoPickers — checking Mullet reveals Vorne + Hinten pickers', () => {
+  it('TestMulletWheelSizeSelectionRevealsFrontAndRearPickers', () => {
     render(
       <GearForm
         gear={gearFixture({ type: 'bike', name: 'Mein Bike' })}
@@ -444,21 +484,18 @@ describe('GearForm — recommended values + custom dropdown + mullet', () => {
         onCancel={() => {}}
       />,
     )
-    // Mullet checkbox should be present for bike type (has _front/_rear)
-    const mulletCheck = screen.getByLabelText('Mullet (unterschiedliche Laufradgrößen vorne/hinten)')
-    expect(mulletCheck).toBeInTheDocument()
-
-    // Before toggle: unified wheel_size picker visible, front/rear hidden
-    expect(document.querySelector('#gear-attr-bike\\.wheel_size')).not.toBeNull()
+    // Before selecting Mullet: unified wheel_size picker visible, front/rear hidden
+    const wheelInput = document.querySelector('#gear-attr-bike\\.wheel_size') as HTMLInputElement | null
+    expect(wheelInput).not.toBeNull()
     expect(document.querySelector('#gear-attr-bike\\.wheel_size_front')).toBeNull()
     expect(document.querySelector('#gear-attr-bike\\.wheel_size_rear')).toBeNull()
 
-    // Enable mullet
-    fireEvent.click(mulletCheck)
+    fireEvent.focus(wheelInput!)
+    fireEvent.click(screen.getByRole('option', { name: 'Mullet (vorne/hinten separat)' }))
 
-    // After toggle: front + rear pickers visible, unified hidden
+    // After selecting Mullet: front + rear pickers visible, unified remains editable
     expect(document.querySelector('#gear-attr-bike\\.wheel_size_front')).not.toBeNull()
     expect(document.querySelector('#gear-attr-bike\\.wheel_size_rear')).not.toBeNull()
-    expect(document.querySelector('#gear-attr-bike\\.wheel_size')).toBeNull()
+    expect(document.querySelector('#gear-attr-bike\\.wheel_size')).not.toBeNull()
   })
 })

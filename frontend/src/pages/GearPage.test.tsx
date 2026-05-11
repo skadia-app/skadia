@@ -91,6 +91,33 @@ describe('GearPage', () => {
     })
     expect(container.querySelector('img')).toHaveAttribute('src', 'blob:doc-photo')
   })
+
+  it('TestGearCardUsesCompactLifetimeStatsAndHidesGenericSportBadge', async () => {
+    vi.mocked(fetchGear).mockResolvedValue([
+      gearFixture({
+        id: 'bike-1',
+        name: 'Propain Tyee 2020',
+        type: 'bike',
+        scope: 'bike',
+        total_distance_m: 3_262_140,
+        total_time_s: 1_590_180,
+        applicable_sport_predicates: [
+          { sport_type: 'generic' },
+          { sport_type: 'cycling' },
+        ],
+      }),
+    ])
+
+    renderGearPage('/gear?type=bike')
+
+    expect(await screen.findByText('Propain Tyee 2020')).toBeInTheDocument()
+    expect(screen.getByText('3262 km')).toBeInTheDocument()
+    expect(screen.getByText('442 h')).toBeInTheDocument()
+    expect(screen.getByText('Radfahren')).toBeInTheDocument()
+    expect(screen.queryByText('Aktivität')).not.toBeInTheDocument()
+    expect(screen.queryByText('3262.14 km')).not.toBeInTheDocument()
+    expect(screen.queryByText('441h 43min')).not.toBeInTheDocument()
+  })
 })
 
 function gearFixture(overrides: Partial<Gear> = {}): Gear {

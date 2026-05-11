@@ -75,6 +75,7 @@ function hasManualChild(schema: GearSchema, typeKey: string): boolean {
 export function gearTypeOptionsForScope(schema: GearSchema, scope: GearCategoryScope): GearTypeOption[] {
   return schema.gearTypes
     .filter(gt => gearTypeMatchesScope(gt.key, scope, schema))
+    .filter(gt => gt.defaultAssignmentRoleKey !== 'consumable')
     .filter(gt => !hasManualChild(schema, gt.key))
     .map(gt => ({ value: gt.key, label: gearTypePathLabel(schema, gt.key) }))
     .sort((a, b) => a.label.localeCompare(b.label, 'de'))

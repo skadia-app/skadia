@@ -71,10 +71,9 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			tracker := params.DB.NewImportTracker(ctx, params.UserID, "strava", displayName, nil, batchIDPtr, model.ImportTypeGear)
 			tracker.Processing(ctx)
 
-			// Detect e-bike
-			gearType := "bike"
-			if strings.Contains(strings.ToLower(sports), "e-bike") || strings.Contains(strings.ToLower(displayName), "e-bike") {
-				gearType = "e_bike"
+			modifiers := map[string]any{}
+			if isElectricBikeGear(sports, displayName) {
+				modifiers["is_electric"] = true
 			}
 
 			// Check for duplicate by name
@@ -105,10 +104,11 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 			create := &model.GearCreate{
 				Name:                      displayName,
-				Type:                      gearType,
+				Type:                      "bike",
 				Brand:                     brandPtr,
 				Model:                     modelPtr,
 				ApplicableSportPredicates: applicablePredicates,
+				Modifiers:                 modifiers,
 			}
 
 			gear, err := params.DB.CreateGear(ctx, params.UserID, create)
@@ -171,7 +171,7 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 			create := &model.GearCreate{
 				Name:                      displayName,
-				Type:                      "shoes",
+				Type:                      mapStravaShoeType(sports),
 				Brand:                     brandPtr,
 				Model:                     modelPtr,
 				ApplicableSportPredicates: applicablePredicates,
@@ -231,9 +231,15 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 				modelPtr = &m
 			}
 
+			mappedType := mapComponentType(compType)
+			if g.skipOrUpdateExistingComponent(ctx, params, gearID, compName, mappedType) {
+				result.Skipped++
+				continue
+			}
+
 			create := &model.GearComponentCreate{
 				Name:  compName,
-				Type:  mapComponentType(compType),
+				Type:  mappedType,
 				Brand: brandPtr,
 				Model: modelPtr,
 			}
@@ -267,6 +273,33 @@ func buildGearName(name, brand, model string) string {
 		return brand
 	}
 	return "Unbekannte Ausrüstung"
+}
+
+func isElectricBikeGear(sports, displayName string) bool {
+	return containsAnyFolded(sports, "e-bike", "ebike", "e-mountain") ||
+		containsAnyFolded(displayName, "e-bike", "ebike", "e-mountain")
+}
+
+func mapStravaShoeType(sports string) string {
+	_, predicates := mapStravaDefaultSportDefaults(sports)
+	for _, predicate := range predicates {
+		switch predicate.SportType {
+		case "cycling":
+			return "shoes.cycling"
+		case "running":
+			if predicate.SubType != nil && *predicate.SubType == "trail" {
+				return "shoes.running.trail"
+			}
+			return "shoes.running"
+		case "hiking", "walking":
+			return "shoes.hiking"
+		case "rock_climbing":
+			return "shoes.climbing"
+		case "strength_training", "training", "fitness_equipment":
+			return "shoes.training"
+		}
+	}
+	return "shoes"
 }
 
 func mapStravaDefaultSportPredicates(sports string) []gear.GearDefaultPredicate {
@@ -337,41 +370,76 @@ func mapComponentType(compType string) string {
 	compType = strings.TrimSpace(compType)
 	lower := strings.ToLower(compType)
 	switch {
-	case strings.Contains(lower, "kette"):
-		return "chain"
+	case containsAnyFolded(lower, "kettenblatt", "chainring"):
+		return "bike.chainring"
+	case containsAnyFolded(lower, "kette", "chain"):
+		return "bike.chain"
 	case strings.Contains(lower, "rahmen"):
-		return "frame"
-	case strings.Contains(lower, "reifen"), strings.Contains(lower, "tire"):
-		return "tire"
-	case strings.Contains(lower, "schlauch"), strings.Contains(lower, "tube"):
-		return "inner_tube"
-	case strings.Contains(lower, "kassette"), strings.Contains(lower, "cassette"):
-		return "cassette"
-	case strings.Contains(lower, "bremse"), strings.Contains(lower, "brake"):
-		return "brake"
-	case strings.Contains(lower, "belag"), strings.Contains(lower, "pad"):
-		return "brake_pad"
+		return "bike.frame"
+	case containsAnyFolded(lower, "gabel", "fork"):
+		return "bike.fork"
+	case containsAnyFolded(lower, "daempfer", "dämpfer", "shock"):
+		return "bike.shock"
+	case containsAnyFolded(lower, "reifen", "tire"):
+		return "bike.tire"
+	case containsAnyFolded(lower, "schlauch", "tube"):
+		return "bike.tube"
+	case containsAnyFolded(lower, "kassette", "cassette", "zahnkranz"):
+		return "bike.cassette"
+	case containsAnyFolded(lower, "bremsbelag", "bremsbeläg", "brake pad", "pad"):
+		return "bike.brake_pads"
+	case containsAnyFolded(lower, "bremse", "brake"):
+		return "bike.brake"
 	case strings.Contains(lower, "pedale"), strings.Contains(lower, "pedal"):
-		return "pedal"
+		return "bike.pedals"
+	case strings.Contains(lower, "sattelstütze"), strings.Contains(lower, "sattelstuetze"), strings.Contains(lower, "seatpost"):
+		return "bike.seatpost"
 	case strings.Contains(lower, "sattel"), strings.Contains(lower, "saddle"):
-		return "saddle"
+		return "bike.saddle"
 	case strings.Contains(lower, "lenker"), strings.Contains(lower, "handlebar"):
-		return "handlebar"
+		return "bike.handlebar"
 	case strings.Contains(lower, "vorbau"), strings.Contains(lower, "stem"):
-		return "stem"
+		return "bike.stem"
 	case strings.Contains(lower, "kurbel"), strings.Contains(lower, "crank"):
-		return "crank"
-	case strings.Contains(lower, "umwerfer"), strings.Contains(lower, "derailleur"):
-		return "derailleur"
-	case strings.Contains(lower, "schaltwerk"):
-		return "derailleur"
+		return "bike.crank_arms"
+	case strings.Contains(lower, "umwerfer"), strings.Contains(lower, "front derailleur"):
+		return "bike.front_derailleur"
+	case strings.Contains(lower, "schaltwerk"), strings.Contains(lower, "derailleur"):
+		return "bike.rear_derailleur"
 	case strings.Contains(lower, "laufrad"), strings.Contains(lower, "wheel"):
-		return "wheel"
+		return "bike.wheel"
 	case strings.Contains(lower, "felge"), strings.Contains(lower, "rim"):
-		return "rim"
+		return "bike.rim"
 	case strings.Contains(lower, "nabe"), strings.Contains(lower, "hub"):
-		return "hub"
+		return "bike.hub"
 	default:
 		return "other"
 	}
+}
+
+func containsAnyFolded(value string, needles ...string) bool {
+	lower := strings.ToLower(value)
+	for _, needle := range needles {
+		if strings.Contains(lower, strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (g *GearImporter) skipOrUpdateExistingComponent(ctx context.Context, params ImportParams, gearID, name, mappedType string) bool {
+	candidates, err := params.DB.FindComponentsByName(ctx, gearID, name)
+	if err != nil {
+		slog.Warn("strava gear: find existing component failed", "name", name, "error", err)
+		return false
+	}
+	if len(candidates) == 0 {
+		return false
+	}
+	if mappedType != "" && candidates[0].Type != mappedType {
+		if _, err := params.DB.UpdateComponent(ctx, candidates[0].ID, nil, &mappedType, nil, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
+			slog.Warn("strava gear: update existing component type failed", "name", name, "type", mappedType, "error", err)
+		}
+	}
+	return true
 }
