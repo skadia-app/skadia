@@ -1,4 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import 'react-pdf/dist/Page/TextLayer.css'
+import 'react-pdf/dist/Page/AnnotationLayer.css'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -514,6 +516,11 @@ function PreviewPanel({
   const [numPages, setNumPages] = useState<number | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [pdfModule, setPdfModule] = useState<typeof import('react-pdf') | null>(null)
+  const [zoom, setZoom] = useState(1)
+  const [panelWidth, setPanelWidth] = useState(() => {
+    if (typeof window === 'undefined') return 720
+    return Math.min(Math.max(Math.round(window.innerWidth * 0.42), 560), 980)
+  })
 
   useEffect(() => {
     let url: string | null = null
@@ -540,10 +547,32 @@ function PreviewPanel({
     triggerUrlDownload(blobUrl, doc.original_filename)
   }, [blobUrl, doc.original_filename])
 
+  const handlePrint = useCallback(() => {
+    if (!blobUrl) return
+    const printWindow = window.open(blobUrl, '_blank', 'noopener,noreferrer')
+    printWindow?.addEventListener('load', () => printWindow.print(), { once: true })
+    printWindow?.print()
+  }, [blobUrl])
+
+  const startResize = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const onMove = (moveEvent: MouseEvent) => {
+      const nextWidth = window.innerWidth - moveEvent.clientX
+      setPanelWidth(Math.min(Math.max(nextWidth, 480), Math.min(window.innerWidth - 80, 1280)))
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
   useEscapeKey(onClose)
 
   const isPdf = doc.content_type === 'application/pdf'
   const isImage = doc.content_type.startsWith('image/')
+  const pdfWidth = Math.round(Math.max(360, panelWidth - 48) * zoom)
 
   return (
     <div className="fixed inset-0 z-50 flex" onClick={onClose}>
@@ -552,9 +581,17 @@ function PreviewPanel({
 
       {/* Panel */}
       <div
-        className="w-full max-w-xl bg-white dark:bg-neutral-900 shadow-2xl border-l border-neutral-200 dark:border-neutral-800 flex flex-col animate-slide-in-right"
+        className="relative w-full max-w-none bg-white dark:bg-neutral-900 shadow-2xl border-l border-neutral-200 dark:border-neutral-800 flex flex-col animate-slide-in-right"
+        style={{ width: `min(100vw, ${panelWidth}px)` }}
         onClick={e => e.stopPropagation()}
       >
+        <div
+          role="separator"
+          aria-label="Vorschau-Breite ändern"
+          aria-orientation="vertical"
+          onMouseDown={startResize}
+          className="absolute left-0 top-0 h-full w-1.5 -translate-x-1/2 cursor-col-resize hover:bg-accent-DEFAULT/40"
+        />
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100 dark:border-neutral-800">
           <div className="min-w-0">
@@ -575,6 +612,48 @@ function PreviewPanel({
             </svg>
           </button>
         </div>
+
+        {isPdf && (
+          <div className="flex items-center justify-between gap-3 px-5 py-2 border-b border-neutral-100 dark:border-neutral-800">
+            <div className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
+              <button
+                type="button"
+                onClick={() => setZoom(z => Math.max(0.5, Math.round((z - 0.1) * 10) / 10))}
+                className="px-2 py-1 rounded-md border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
+                disabled={zoom <= 0.5}
+              >
+                -
+              </button>
+              <span className="w-12 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+              <button
+                type="button"
+                onClick={() => setZoom(z => Math.min(2.5, Math.round((z + 0.1) * 10) / 10))}
+                className="px-2 py-1 rounded-md border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
+                disabled={zoom >= 2.5}
+              >
+                +
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handlePrint}
+                disabled={!blobUrl}
+                className="px-2.5 py-1 rounded-md text-xs font-medium border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-40"
+              >
+                Drucken
+              </button>
+              <button
+                type="button"
+                onClick={handleDownload}
+                disabled={!blobUrl}
+                className="px-2.5 py-1 rounded-md text-xs font-medium text-white bg-[var(--color-accent-DEFAULT,#F97316)] hover:bg-[var(--color-accent-600,#EA580C)] disabled:opacity-40"
+              >
+                Herunterladen
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-auto p-5">
@@ -601,9 +680,9 @@ function PreviewPanel({
               >
                 <pdfModule.Page
                   pageNumber={currentPage}
-                  width={460}
-                  renderAnnotationLayer={false}
-                  renderTextLayer={false}
+                  width={pdfWidth}
+                  renderAnnotationLayer
+                  renderTextLayer
                 />
               </pdfModule.Document>
               {numPages && numPages > 1 && (
@@ -663,4 +742,3 @@ function PreviewPanel({
     </div>
   )
 }
-

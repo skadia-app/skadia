@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 func TestNormalizeGearDefaultSportsForStorageAllowsImportedDefaults(t *testing.T) {
@@ -34,6 +35,25 @@ func TestExtractPDFTextDoesNotExitWhenConfigHomeIsNotWritable(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("extractPDFText child exited unexpectedly: %v\n%s", err, out)
+	}
+}
+
+func TestFilterComponentPresetsDropsGearTypeLabelsAndKeepsCompatibleAncestors(t *testing.T) {
+	shoesPresetGearType := "shoes"
+	bikePresetGearType := "bike"
+	presets := []model.ComponentTypePreset{
+		{ID: "bad-shoe-type", Name: "Laufschuhe", Category: "schuhe", GearType: &shoesPresetGearType},
+		{ID: "shoe-component", Name: "Schnürsenkel", Category: "shoes", GearType: &shoesPresetGearType},
+		{ID: "bike-component", Name: "Kette", Category: "drivetrain", GearType: &bikePresetGearType},
+	}
+
+	got := filterComponentPresetsForGearType(presets, "shoes.running")
+
+	if len(got) != 1 {
+		t.Fatalf("filtered presets = %#v, want only Schnürsenkel", got)
+	}
+	if got[0].ID != "shoe-component" {
+		t.Fatalf("filtered preset id = %q, want shoe-component", got[0].ID)
 	}
 }
 

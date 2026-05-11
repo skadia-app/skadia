@@ -60,6 +60,7 @@ interface GearFormProps {
 
 type ModifierChoice = 'any' | 'true' | 'false'
 const GEAR_DEFAULT_MODIFIER_KEYS = [...GearApplicableModifierKeys] as SportModifierKey[]
+const GEAR_DEFAULT_HIDDEN_DUPLICATE_SPORTS = new Set(['hang_gliding', 'sky_diving'])
 
 interface GearPredicateRow {
   id: string
@@ -83,13 +84,23 @@ function scopeForType(typeKey: string): GearCategoryScope {
 
 export default function GearForm({ gear, categoryScope, onSave, onCancel, isSaving }: GearFormProps) {
   const schema = getActiveSchema()
-  const baseSportOptions = useMemo(
-    () => selectableSportTupleOptions().map((option) => ({
-      value: sportTupleKey(option.value, option.subType),
-      label: option.subType ? sportDetailLabel(option.value, option.subType) : option.label,
-    })),
-    [],
-  )
+  const baseSportOptions = useMemo(() => {
+    const tupleOptions = selectableSportTupleOptions()
+    const parentsWithSubtypes = new Set(
+      tupleOptions.filter((option) => option.subType).map((option) => option.value),
+    )
+
+    return tupleOptions
+      .filter((option) => option.subType || !GEAR_DEFAULT_HIDDEN_DUPLICATE_SPORTS.has(option.value))
+      .map((option) => ({
+        value: sportTupleKey(option.value, option.subType),
+        label: option.subType
+          ? sportDetailLabel(option.value, option.subType)
+          : parentsWithSubtypes.has(option.value)
+            ? `${option.label} (alle)`
+            : option.label,
+      }))
+  }, [])
 
   const [name, setName] = useState(gear?.name ?? '')
   const [type, setType] = useState(gear?.type ?? '')

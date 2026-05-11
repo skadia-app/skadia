@@ -26,7 +26,7 @@ function makeGear(overrides: Partial<Gear> = {}): Gear {
 }
 
 describe('GearWearTab', () => {
-  it('TestRendersWearAggregatesAndServicePlaceholder', () => {
+  it('TestRendersWearAggregatesAndComponentServiceNote', () => {
     render(<GearWearTab item={makeGear()} />)
 
     // Total aggregates are shown.
@@ -35,7 +35,9 @@ describe('GearWearTab', () => {
     expect(screen.getByText(/Zeit/i)).toBeInTheDocument()
     expect(screen.getByText(/Aktivitäten/i)).toBeInTheDocument()
 
-    // Service trigger placeholder section is present.
-    expect(screen.getByTestId('service-events-placeholder')).toBeInTheDocument()
+    expect(screen.getByTestId('service-events-component-note')).toHaveTextContent(
+      'Serviceeinträge und Wartungsintervalle werden bei den einzelnen Komponenten verwaltet.',
+    )
+    expect(screen.queryByText(/zukünftigen Version/i)).not.toBeInTheDocument()
   })
 })

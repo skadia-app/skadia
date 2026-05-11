@@ -29,17 +29,15 @@ export default function GearWearTab({ item }: GearWearTabProps) {
         </div>
       </section>
 
-      {/* Service-Trigger Placeholder */}
-      {/* TODO Phase 6 followup: wire ServiceEvents endpoints once the backend exposes them */}
       <section
-        data-testid="service-events-placeholder"
-        className="rounded-lg border border-dashed border-neutral-300 dark:border-neutral-600 p-4 space-y-2"
+        data-testid="service-events-component-note"
+        className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-4 space-y-2"
       >
         <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           Serviceereignisse
         </h3>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Serviceereignisse werden in einer zukünftigen Version hier verwaltet.
+          Serviceeinträge und Wartungsintervalle werden bei den einzelnen Komponenten verwaltet.
         </p>
       </section>
     </div>

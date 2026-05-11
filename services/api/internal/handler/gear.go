@@ -1052,14 +1052,58 @@ func (h *Handler) ListComponentPresets(w http.ResponseWriter, r *http.Request) {
 
 	gearType := r.URL.Query().Get("gear_type")
 
-	presets, err := h.DB.ListComponentPresets(r.Context(), gearType)
+	presets, err := h.DB.ListComponentPresets(r.Context(), "")
 	if err != nil {
 		slog.Error("list component presets failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list component presets", r.URL.Path)
 		return
 	}
 
+	presets = filterComponentPresetsForGearType(presets, gearType)
 	httputil.WriteJSON(w, http.StatusOK, presets)
+}
+
+func filterComponentPresetsForGearType(presets []model.ComponentTypePreset, gearType string) []model.ComponentTypePreset {
+	componentLabels := make(map[string]struct{}, len(gearpkg.Schema.ComponentTypes))
+	for _, ct := range gearpkg.Schema.ComponentTypes {
+		componentLabels[strings.ToLower(ct.LabelDE)] = struct{}{}
+	}
+
+	targetScope := ""
+	if gearType != "" {
+		for _, gt := range gearpkg.Schema.GearTypes {
+			if gt.Key == gearType {
+				targetScope = gt.Scope
+				break
+			}
+		}
+	}
+
+	gearLabels := make(map[string]struct{})
+	for _, gt := range gearpkg.Schema.GearTypes {
+		if targetScope != "" && gt.Scope != targetScope {
+			continue
+		}
+		gearLabels[strings.ToLower(gt.LabelDE)] = struct{}{}
+	}
+
+	out := make([]model.ComponentTypePreset, 0, len(presets))
+	for _, preset := range presets {
+		if gearType != "" && preset.GearType != nil && *preset.GearType != "" &&
+			!gearpkg.Schema.GearTypeAppliesToTarget(*preset.GearType, gearType) {
+			continue
+		}
+
+		nameKey := strings.ToLower(preset.Name)
+		_, isGearTypeLabel := gearLabels[nameKey]
+		_, isComponentLabel := componentLabels[nameKey]
+		if isGearTypeLabel && !isComponentLabel {
+			continue
+		}
+
+		out = append(out, preset)
+	}
+	return out
 }
 
 // --- Bike Setups ---
@@ -1991,11 +2035,11 @@ func (h *Handler) GetGearSummary(w http.ResponseWriter, r *http.Request) {
 
 // swapComponentRequest is the request body for the component swap endpoint.
 type swapComponentRequest struct {
-	SlotKey                   string                    `json:"slot_key"`
-	NewComponentPayload       *model.GearComponentCreate `json:"new_component_payload,omitempty"`
-	ExistingComponentLookupByName string                `json:"existing_component_lookup_by_name,omitempty"`
-	SwapDate                  *string                   `json:"swap_date,omitempty"`
-	SwapReason                *string                   `json:"swap_reason,omitempty"`
+	SlotKey                       string                     `json:"slot_key"`
+	NewComponentPayload           *model.GearComponentCreate `json:"new_component_payload,omitempty"`
+	ExistingComponentLookupByName string                     `json:"existing_component_lookup_by_name,omitempty"`
+	SwapDate                      *string                    `json:"swap_date,omitempty"`
+	SwapReason                    *string                    `json:"swap_reason,omitempty"`
 }
 
 // SwapComponent atomically retires an existing component and assigns a new one,

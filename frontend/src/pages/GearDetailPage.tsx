@@ -474,15 +474,18 @@ function ComponentsList({ gearId, gearType, components }: {
                         </span>
                         <ComponentStatusBadge status={comp.status} />
                       </div>
-                      <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 ml-5">
-                        {comp.type}
-                        {comp.brand && ` - ${comp.brand}`}
-                        {comp.model && ` ${comp.model}`}
-                        {' | '}
-                        {formatDistance(comp.total_distance_m)}
-                        {comp.total_elevation_gain_m > 0 && ` | ${formatElevationGain(comp.total_elevation_gain_m)}`}
-                        {comp.total_elevation_loss_m > 0 && ` | ${formatElevationLoss(comp.total_elevation_loss_m)}`}
-                        {comp.weight_g != null && ` | ${comp.weight_g}g`}
+                      <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 ml-5 flex flex-wrap gap-x-2 gap-y-0.5">
+                        {[
+                          comp.type,
+                          [comp.brand, comp.model].filter(Boolean).join(' '),
+                          formatComponentDistance(comp.total_distance_m),
+                          formatComponentDuration(comp.total_time_s),
+                          comp.total_elevation_gain_m > 0 ? formatElevationGain(comp.total_elevation_gain_m) : '',
+                          comp.total_elevation_loss_m > 0 ? formatElevationLoss(comp.total_elevation_loss_m) : '',
+                          comp.weight_g != null ? `${comp.weight_g} g` : '',
+                        ].filter(Boolean).map((part, index) => (
+                          <span key={`${part}-${index}`}>{part}</span>
+                        ))}
                       </div>
                     </button>
                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -573,6 +576,16 @@ function ComponentStatusBadge({ status }: { status: GearStatus }) {
       {labels[status] ?? status}
     </span>
   )
+}
+
+function formatComponentDistance(meters: number): string {
+  return `${Math.round(Math.max(0, meters) / 1000)} km`
+}
+
+function formatComponentDuration(seconds: number): string {
+  const minutes = Math.round(Math.max(0, seconds) / 60)
+  if (minutes < 60) return `${minutes} min`
+  return `${Math.round(minutes / 60)} h`
 }
 
 // ── Transfer Dialog ─────────────────────────────────────────────────────────────
@@ -1360,6 +1373,25 @@ function ChainRotationSection({ gearId, components }: {
 
 // ── Component Form ──────────────────────────────────────────────────────────────
 
+function isUsefulComponentPreset(
+  schema: ReturnType<typeof getActiveSchema>,
+  gearType: string,
+  presetName: string,
+): boolean {
+  const name = presetName.trim().toLocaleLowerCase('de')
+  if (!name) return false
+
+  const scope = gearTypeScope(schema, gearType)
+  const componentLabels = new Set((schema.componentTypes ?? []).map(ct => ct.labelDe.toLocaleLowerCase('de')))
+  const gearTypeLabelsInScope = new Set(
+    schema.gearTypes
+      .filter(gt => gearTypeScope(schema, gt.key) === scope)
+      .map(gt => gt.labelDe.toLocaleLowerCase('de')),
+  )
+
+  return !gearTypeLabelsInScope.has(name) || componentLabels.has(name)
+}
+
 function ComponentForm({
   component,
   gearType,
@@ -1383,6 +1415,7 @@ function ComponentForm({
   const [purchasePrice, setPurchasePrice] = useState(component?.purchase_price?.toString() ?? '')
   const [purchaseDate, setPurchaseDate] = useState(component?.purchase_date?.split('T')[0] ?? '')
   const [serialNumber, setSerialNumber] = useState(component?.serial_number ?? '')
+  const schema = getActiveSchema()
 
   const { data: presets } = useQuery({
     queryKey: ['component-presets', gearType],
@@ -1394,20 +1427,17 @@ function ComponentForm({
     setPresetId(id)
     const preset = presets?.find(p => p.id === id)
     if (preset) {
-      setName(preset.name)
-      // The API does not return a separate `type` field for presets;
-      // use the preset name as the component type so the chain-rotation
-      // filter (which matches on type) can find it later.
       setType(preset.name)
     }
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!name.trim() || !type.trim()) return
+    const trimmedType = type.trim()
+    if (!trimmedType) return
     onSave({
-      name: name.trim(),
-      type: type.trim(),
+      name: name.trim() || trimmedType,
+      type: trimmedType,
       brand: brand.trim() || null,
       model: model.trim() || null,
       weight_g: weightG ? parseInt(weightG) : null,
@@ -1417,18 +1447,23 @@ function ComponentForm({
     })
   }
 
-  const groupedPresets = presets?.reduce((acc, p) => {
+  const filteredPresets = (presets ?? []).filter(p => isUsefulComponentPreset(schema, gearType, p.name))
+  const groupedPresets = filteredPresets.reduce((acc, p) => {
     const cat = p.category
     if (!acc[cat]) acc[cat] = []
     acc[cat].push(p)
     return acc
-  }, {} as Record<string, ComponentTypePreset[]>) ?? {}
+  }, {} as Record<string, ComponentTypePreset[]>)
 
   const categoryLabels: Record<string, string> = {
+    antrieb: 'Antrieb',
     drivetrain: 'Antrieb',
+    bremsen: 'Bremsen',
     braking: 'Bremsen',
+    reifen: 'Reifen',
     wheels: 'Laufräder',
     frame: 'Rahmen & Cockpit',
+    fahrwerk: 'Fahrwerk',
     suspension: 'Federung',
     ebike: 'E-Bike',
     lighting: 'Beleuchtung',
@@ -1444,7 +1479,7 @@ function ComponentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      {!component && presets && presets.length > 0 && (
+      {!component && filteredPresets.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-2">
             <label className="flex items-center gap-1.5 text-sm cursor-pointer">
@@ -1491,8 +1526,7 @@ function ComponentForm({
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          required
-          placeholder="Name *"
+          placeholder="Name"
           className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
@@ -1500,7 +1534,7 @@ function ComponentForm({
           value={type}
           onChange={(e) => setType(e.target.value)}
           required
-          placeholder="Typ * (z.B. Kette, Reifen)"
+          placeholder="Komponententyp *"
           className="border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 text-sm focus:ring-2 focus:ring-accent-DEFAULT focus:border-transparent"
         />
         <input
