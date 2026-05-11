@@ -139,6 +139,10 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("\tActionParam string\n")
 	buf.WriteString("\tShadowFSToken string\n")
 	buf.WriteString("\tCapabilities map[string]bool\n")
+	// RecommendedFor and NotRecommendedFor are gear_type keys this modifier
+	// is (or is not) a typical choice for. UX hint only — never enforced.
+	buf.WriteString("\tRecommendedFor []string\n")
+	buf.WriteString("\tNotRecommendedFor []string\n")
 	buf.WriteString("}\n\n")
 
 	buf.WriteString("var generatedSportModifiers = []SportModifierDef{\n")
@@ -147,6 +151,12 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 		fmt.Fprintf(&buf, "\t\tKey: %q, LabelDE: %q, GoField: %q, TSField: %q, JSONKey: %q,\n", modifier.Key, modifier.Labels["de"], modifier.GoField, modifier.TSField, modifier.JSONKey)
 		fmt.Fprintf(&buf, "\t\tActivityColumn: %q, ApplicabilitySource: %q, ActionName: %q, ActionParam: %q, ShadowFSToken: %q,\n", modifier.ActivityColumn, modifier.ApplicabilitySource, modifier.ActionName, modifier.ActionParam, modifier.ShadowFSToken)
 		fmt.Fprintf(&buf, "\t\tCapabilities: %s,\n", renderGoModifierCapabilities(modifier.Capabilities))
+		if len(modifier.RecommendedFor) > 0 {
+			fmt.Fprintf(&buf, "\t\tRecommendedFor: %s,\n", goStringArray(modifier.RecommendedFor))
+		}
+		if len(modifier.NotRecommendedFor) > 0 {
+			fmt.Fprintf(&buf, "\t\tNotRecommendedFor: %s,\n", goStringArray(modifier.NotRecommendedFor))
+		}
 		buf.WriteString("\t},\n")
 	}
 	buf.WriteString("}\n\n")
@@ -227,6 +237,12 @@ func RenderGoModifiers(registry ModifierRegistry) ([]byte, error) {
 	buf.WriteString("\tclone.Capabilities = make(map[string]bool, len(modifier.Capabilities))\n")
 	buf.WriteString("\tfor key, enabled := range modifier.Capabilities {\n")
 	buf.WriteString("\t\tclone.Capabilities[key] = enabled\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("\tif len(modifier.RecommendedFor) > 0 {\n")
+	buf.WriteString("\t\tclone.RecommendedFor = append([]string(nil), modifier.RecommendedFor...)\n")
+	buf.WriteString("\t}\n")
+	buf.WriteString("\tif len(modifier.NotRecommendedFor) > 0 {\n")
+	buf.WriteString("\t\tclone.NotRecommendedFor = append([]string(nil), modifier.NotRecommendedFor...)\n")
 	buf.WriteString("\t}\n")
 	buf.WriteString("\treturn clone\n")
 	buf.WriteString("}\n")

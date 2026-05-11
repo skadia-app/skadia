@@ -1,0 +1,3152 @@
+version: 1
+
+assignment_roles:
+  - key: primary
+    label_de: Hauptausrüstung
+    unique_per_activity: true
+  - key: additional
+    label_de: Zusatz
+    unique_per_activity: false
+  - key: carried
+    label_de: Mitgeführt
+    unique_per_activity: false
+  - key: worn
+    label_de: Getragen
+    unique_per_activity: false
+  - key: sensor
+    label_de: Sensor
+    unique_per_activity: false
+  - key: consumable
+    label_de: Verbrauchsmaterial
+    unique_per_activity: false
+
+option_sets:
+  - key: yes_no
+    options:
+      - {key: "yes", label_de: Ja}
+      - {key: "no", label_de: Nein}
+  - key: position.common
+    options:
+      - {key: left, label_de: Links}
+      - {key: right, label_de: Rechts}
+      - {key: front, label_de: Vorne}
+      - {key: rear, label_de: Hinten}
+      - {key: upper, label_de: Oben}
+      - {key: lower, label_de: Unten}
+  - key: position.front_rear
+    options:
+      - {key: front, label_de: Vorne}
+      - {key: rear, label_de: Hinten}
+  - key: position.left_right
+    options:
+      - {key: left, label_de: Links}
+      - {key: right, label_de: Rechts}
+  - key: bike.frame_material
+    options:
+      - {key: aluminum, label_de: Aluminium}
+      - {key: carbon, label_de: Carbon}
+      - {key: steel, label_de: Stahl}
+      - {key: titanium, label_de: Titan}
+      - {key: magnesium, label_de: Magnesium}
+      - {key: wood, label_de: Holz}
+  - key: material.common
+    options:
+      - {key: aluminum, label_de: Aluminium}
+      - {key: carbon, label_de: Carbon}
+      - {key: steel, label_de: Stahl}
+      - {key: titanium, label_de: Titan}
+      - {key: magnesium, label_de: Magnesium}
+      - {key: wood, label_de: Holz}
+  - key: bike.wheel_size
+    options:
+      - {key: "36", label_de: "36 Zoll"}
+      - {key: "32", label_de: "32 Zoll"}
+      - {key: "29", label_de: "29 Zoll"}
+      - {key: "28", label_de: "28 Zoll"}
+      - {key: "27_5", label_de: "27,5 Zoll"}
+      - {key: "26", label_de: "26 Zoll"}
+      - {key: "24", label_de: "24 Zoll"}
+      - {key: "20", label_de: "20 Zoll"}
+      - {key: "18", label_de: "18 Zoll"}
+      - {key: "16", label_de: "16 Zoll"}
+      - {key: "14", label_de: "14 Zoll"}
+      - {key: "12", label_de: "12 Zoll"}
+  - key: bike.frame_size_alpha
+    options:
+      - {key: xxs, label_de: XXS}
+      - {key: xs, label_de: XS}
+      - {key: s, label_de: S}
+      - {key: m, label_de: M}
+      - {key: l, label_de: L}
+      - {key: xl, label_de: XL}
+      - {key: xxl, label_de: XXL}
+  - key: bike.frame_size_cm
+    options:
+      - {key: "44", label_de: "44 cm"}
+      - {key: "46", label_de: "46 cm"}
+      - {key: "48", label_de: "48 cm"}
+      - {key: "50", label_de: "50 cm"}
+      - {key: "52", label_de: "52 cm"}
+      - {key: "54", label_de: "54 cm"}
+      - {key: "56", label_de: "56 cm"}
+      - {key: "58", label_de: "58 cm"}
+      - {key: "60", label_de: "60 cm"}
+      - {key: "62", label_de: "62 cm"}
+      - {key: "64", label_de: "64 cm"}
+  - key: bike.frame_design
+    options:
+      - {key: hardtail, label_de: Hardtail}
+      - {key: full_suspension, label_de: Fully}
+      - {key: rigid, label_de: Starr}
+  - key: bike.frame_type
+    # Option keys mirror the leaf bike.* gear_type_keys (e.g. bike.road.endurance,
+    # bike.mtb.trail); parent categories (bike.road, bike.mtb) and types without a
+    # classic frame-type dimension (bike.handcycle, bike.indoor, bike.cargo) have
+    # no entry here by design.
+    options:
+      - {key: bike.road.endurance, label_de: Endurance}
+      - {key: bike.road.aero, label_de: Aero}
+      - {key: bike.road.time_trial, label_de: Zeitfahrrad}
+      - {key: bike.road.track, label_de: Bahnrad}
+      - {key: bike.mtb.xc, label_de: XC}
+      - {key: bike.mtb.all_mountain_trail, label_de: AM/Trail}
+      - {key: bike.mtb.enduro, label_de: Enduro}
+      - {key: bike.mtb.downhill, label_de: Downhill}
+      - {key: bike.mtb.dirt, label_de: Dirtbike}
+      - {key: bike.mtb.fat, label_de: Fatbike}
+      - {key: bike.mtb.trial, label_de: Trial}
+      - {key: bike.gravel.gravelbike, label_de: Gravelbike}
+      - {key: bike.gravel.cyclocross, label_de: Cyclocross}
+      - {key: bike.bmx.race, label_de: BMX Race}
+      - {key: bike.bmx.freestyle, label_de: BMX Freestyle}
+      - {key: bike.bmx.dirt, label_de: BMX Dirt}
+      - {key: bike.bmx.flatland, label_de: BMX Flatland}
+      - {key: bike.city.citybike, label_de: Citybike}
+      - {key: bike.city.dutch, label_de: Hollandrad}
+      - {key: bike.city.urban, label_de: Urban Bike}
+      - {key: bike.city.fitness, label_de: Fitnessbike}
+      - {key: bike.city.folding, label_de: Klapprad}
+      - {key: bike.city.cruiser, label_de: Cruiser}
+      - {key: bike.trekking.trekking, label_de: Trekking}
+      - {key: bike.trekking.expedition, label_de: Reiserad (Expedition)}
+      - {key: bike.cargo.long_john, label_de: Long John}
+      - {key: bike.cargo.longtail, label_de: Longtail}
+      - {key: bike.cargo.backpacker, label_de: Backpacker}
+      - {key: bike.tandem, label_de: Tandem}
+      - {key: bike.recumbent, label_de: Liegerad}
+      - {key: bike.unicycle, label_de: Einrad}
+      - {key: bike.tricycle, label_de: Dreirad}
+      - {key: bike.kids, label_de: Kinder-/Jugendrad}
+      - {key: bike.balance, label_de: Laufrad}
+  - key: bike.cable_routing
+    options:
+      - {key: internal, label_de: Intern}
+      - {key: external, label_de: Extern}
+      - {key: partial_internal, label_de: Teilintegriert}
+      - {key: fully_integrated, label_de: Vollintegriert}
+      - {key: wireless, label_de: Kabellos}
+  - key: bike.axle_standard
+    options:
+      - {key: 135_qr, label_de: 135mm QR}
+      - {key: 142x12, label_de: 142x12mm}
+      - {key: 148x12_boost, label_de: "148x12mm (Boost)"}
+      - {key: 157x12_superboost, label_de: "157x12mm (SuperBoost)"}
+      - {key: 197x12_fatbike, label_de: "197x12mm (Fatbike)"}
+      - {key: 5x135_qr, label_de: 5x135 QR}
+      - {key: 5x100_qr, label_de: 5x100 QR}
+      - {key: 12x142_ta, label_de: 12x142 TA}
+      - {key: 12x148_boost, label_de: 12x148 Boost}
+      - {key: 12x157_superboost, label_de: 12x157 SuperBoost}
+      - {key: 12x197_fat, label_de: 12x197 Fat}
+      - {key: 12x100_ta, label_de: 12x100 TA}
+      - {key: 15x110_boost, label_de: 15x110 Boost}
+      - {key: 20x110_dh, label_de: 20x110 DH}
+      - {key: 10x135_bolt_on, label_de: 10x135 Bolt-On}
+      - {key: 3_8_bmx, label_de: "3/8\" BMX"}
+      - {key: m10, label_de: M10}
+  - key: bike.brake_mount
+    options:
+      - {key: postmount_140, label_de: Postmount 140}
+      - {key: postmount_160, label_de: Postmount 160}
+      - {key: postmount_180, label_de: Postmount 180}
+      - {key: postmount_200, label_de: Postmount 200}
+      - {key: postmount_203, label_de: Postmount 203}
+      - {key: postmount_220, label_de: Postmount 220}
+      - {key: flat_mount_140, label_de: Flat Mount 140}
+      - {key: flat_mount_160, label_de: Flat Mount 160}
+      - {key: flat_mount_180, label_de: Flat Mount 180}
+      - {key: is_2000, label_de: IS 2000}
+      - {key: canti_sockets, label_de: Canti-Sockel}
+      - {key: central_bore, label_de: Zentralbohrung}
+      - {key: direct_mount, label_de: Direct Mount}
+      - {key: u_brake_sockets, label_de: U-Brake-Sockel}
+      - {key: coaster_brake_mount, label_de: Rücktrittbremse-Aufnahme}
+      - {key: none, label_de: Keine}
+  - key: bike.bottom_bracket
+    options:
+      - {key: bsa, label_de: BSA}
+      - {key: ita, label_de: ITA}
+      - {key: t47, label_de: T47}
+      - {key: bb86, label_de: BB86}
+      - {key: bb90, label_de: BB90}
+      - {key: bb92, label_de: BB92}
+      - {key: bb95, label_de: BB95}
+      - {key: bb30, label_de: BB30}
+      - {key: pf30, label_de: PF30}
+      - {key: bb386_evo, label_de: BB386EVO}
+      - {key: bb_right, label_de: BBRight}
+      - {key: bb_right_direct_fit, label_de: BBRight Direct Fit}
+      - {key: press_fit_41, label_de: "Press Fit 41 mm"}
+      - {key: press_fit_46, label_de: "Press Fit 46 mm"}
+      - {key: mid_bmx, label_de: Mid (BMX)}
+      - {key: spanish_bmx, label_de: Spanish (BMX)}
+      - {key: american_bmx, label_de: American (BMX)}
+      - {key: euro_bmx, label_de: Euro (BMX)}
+      - {key: isis_unicycle, label_de: ISIS (Einrad)}
+  - key: bike.headtube_type
+    options:
+      - {key: straight_1_1_8, label_de: "1 1/8\" Straight"}
+      - {key: tapered_zs44_zs56, label_de: "Tapered (ZS44/ZS56)"}
+      - {key: tapered_is42_is52, label_de: "Tapered (IS42/IS52)"}
+      - {key: straight_1_5, label_de: "1.5\" Straight"}
+      - {key: threaded_1_inch, label_de: "1\" Gewinde"}
+      - {key: threaded_1_1_8, label_de: "1 1/8\" Gewinde"}
+  - key: bike.seatpost_diameter_mm
+    options:
+      - {key: "25_4", label_de: "25.4 mm"}
+      - {key: "26_8", label_de: "26.8 mm"}
+      - {key: "27_2", label_de: "27.2 mm"}
+      - {key: "30_9", label_de: "30.9 mm"}
+      - {key: "31_6", label_de: "31.6 mm"}
+      - {key: "34_9", label_de: "34.9 mm"}
+  - key: bike.seat_clamp_diameter_mm
+    options:
+      - {key: "28_6", label_de: "28.6 mm"}
+      - {key: "30_0", label_de: "30.0 mm"}
+      - {key: "31_8", label_de: "31.8 mm"}
+      - {key: "34_9", label_de: "34.9 mm"}
+      - {key: "35_4", label_de: "35.4 mm"}
+      - {key: "36_4", label_de: "36.4 mm"}
+      - {key: "38_0", label_de: "38.0 mm"}
+      - {key: "38_5", label_de: "38.5 mm"}
+      - {key: "39_7", label_de: "39.7 mm"}
+  - key: bike.front_derailleur_mount
+    options:
+      - {key: high_direct_mount, label_de: High Direct Mount}
+      - {key: low_direct_mount, label_de: Low Direct Mount}
+      - {key: braze_on, label_de: Anlöt}
+      - {key: clamp, label_de: Schelle}
+      - {key: s3_e_type, label_de: S3/E-Type}
+      - {key: none, label_de: Keine}
+  - key: bike.shock_eye_to_eye_mm
+    options:
+      - {key: "165", label_de: "165 mm"}
+      - {key: "185", label_de: "185 mm"}
+      - {key: "190", label_de: "190 mm"}
+      - {key: "200", label_de: "200 mm"}
+      - {key: "205", label_de: "205 mm"}
+      - {key: "210", label_de: "210 mm"}
+      - {key: "216", label_de: "216 mm"}
+      - {key: "222", label_de: "222 mm"}
+      - {key: "230", label_de: "230 mm"}
+      - {key: "240", label_de: "240 mm"}
+      - {key: "250", label_de: "250 mm"}
+  - key: bike.shock_stroke_mm
+    options:
+      - {key: "37_5", label_de: "37.5 mm"}
+      - {key: "40", label_de: "40 mm"}
+      - {key: "42_5", label_de: "42.5 mm"}
+      - {key: "45", label_de: "45 mm"}
+      - {key: "47_5", label_de: "47.5 mm"}
+      - {key: "50", label_de: "50 mm"}
+      - {key: "52_5", label_de: "52.5 mm"}
+      - {key: "55", label_de: "55 mm"}
+      - {key: "57_5", label_de: "57.5 mm"}
+      - {key: "60", label_de: "60 mm"}
+      - {key: "62_5", label_de: "62.5 mm"}
+      - {key: "65", label_de: "65 mm"}
+      - {key: "70", label_de: "70 mm"}
+      - {key: "75", label_de: "75 mm"}
+  - key: bike.kickstand_mount
+    options:
+      - {key: ksa_18, label_de: KSA 18}
+      - {key: ksa_40, label_de: KSA 40}
+      - {key: mid_mount_plate, label_de: Mittelplatte}
+      - {key: rear_chainstay, label_de: Kettenstrebe hinten}
+      - {key: two_leg, label_de: Zweibeinständer}
+      - {key: none, label_de: Keine}
+  - key: bike.valve_type
+    options:
+      - {key: schrader, label_de: Schrader}
+      - {key: presta, label_de: Presta/Sclaverand}
+      - {key: dunlop, label_de: Dunlop}
+      - {key: tubeless, label_de: Tubeless}
+      - {key: tubeless_presta, label_de: Tubeless-Presta}
+  - key: bike.brake_type
+    options:
+      - {key: disc, label_de: Scheibenbremse}
+      - {key: v_brake, label_de: V-Brake}
+      - {key: cantilever, label_de: Cantilever}
+      - {key: road_caliper, label_de: Rennrad-Felgenbremse}
+      - {key: u_brake, label_de: U-Brake}
+      - {key: drum, label_de: Trommelbremse}
+      - {key: roller, label_de: Rollenbremse}
+      - {key: coaster, label_de: Rücktrittbremse}
+      - {key: plunger, label_de: Stempelbremse}
+      - {key: none, label_de: Keine}
+  - key: bike.brake_actuation
+    options:
+      - {key: mechanical, label_de: Mechanisch}
+      - {key: hydraulic, label_de: Hydraulisch}
+      - {key: mechanical_hydraulic, label_de: Mech.-Hydraulisch}
+      - {key: electronic, label_de: Elektronisch}
+  - key: bike.brake_pad_type
+    options:
+      - {key: disc, label_de: Scheibenbremse}
+      - {key: rim, label_de: Felgenbremse}
+  - key: bike.brake_pad_material
+    options:
+      - {key: organic, label_de: Organisch}
+      - {key: sintered, label_de: Sinter}
+      - {key: semi_metallic, label_de: Semi-Metallic}
+      - {key: ceramic, label_de: Keramik}
+      - {key: cork, label_de: Kork}
+      - {key: rubber, label_de: Gummi}
+  - key: bike.handlebar_type
+    options:
+      - {key: flat, label_de: Flatbar}
+      - {key: riser, label_de: Riser}
+      - {key: drop, label_de: Dropbar}
+      - {key: aero, label_de: Aero}
+      - {key: bullhorn, label_de: Bullhorn}
+      - {key: cruiser, label_de: Cruiser}
+      - {key: bmx, label_de: BMX}
+      - {key: trekking_multi_position, label_de: Trekking/Multiposition}
+      - {key: tt_aero, label_de: TT/Aero}
+      - {key: recumbent, label_de: Liegerad}
+      - {key: unicycle_grip, label_de: Einrad-Griff}
+  - key: bike.battery_type
+    options:
+      - {key: drivetrain, label_de: Schaltung}
+      - {key: seatpost, label_de: Sattelstütze}
+      - {key: lighting, label_de: Beleuchtung}
+      - {key: drive, label_de: Antrieb}
+  - key: bike.modifier
+    options:
+      - {key: ebike, label_de: E-Bike}
+      - {key: ebike.speed, label_de: S-Pedelec}
+      - {key: virtual, label_de: Virtuell}
+  - key: bike.bottle_cage_count
+    options:
+      - {key: n1, label_de: "1"}
+      - {key: n2, label_de: "2"}
+      - {key: n3, label_de: "3"}
+      - {key: n4, label_de: "4"}
+      - {key: n5, label_de: "5"}
+      - {key: n6, label_de: "6"}
+  - key: bike.fender_presence
+    options:
+      - {key: front, label_de: Vorne}
+      - {key: rear, label_de: Hinten}
+      - {key: both, label_de: Vorne und hinten}
+      - {key: "yes", label_de: Ja}
+      - {key: "no", label_de: Nein}
+  - key: bike.fork_construction
+    options:
+      - {key: rigid, label_de: Starr}
+      - {key: suspension, label_de: Federgabel}
+  - key: bike.shock_construction
+    options:
+      - {key: air, label_de: Luftfederdämpfer}
+      - {key: coil, label_de: Stahlfederdämpfer}
+  # bike.frame_bearing.position extends position.common with additional pivot positions.
+  # The "extends" field is not supported by the new schema; options are expanded inline.
+  - key: bike.frame_bearing.position
+    options:
+      - {key: left, label_de: Links}
+      - {key: right, label_de: Rechts}
+      - {key: front, label_de: Vorne}
+      - {key: rear, label_de: Hinten}
+      - {key: upper, label_de: Oben}
+      - {key: lower, label_de: Unten}
+      - {key: horstlink, label_de: Horstlink}
+      - {key: main_pivot, label_de: Hauptlager}
+      - {key: rocker_link, label_de: Umlenkhebel}
+  - key: shock_mount
+    options:
+      - {key: standard_eyelet, label_de: Standardauge}
+      - {key: trunnion, label_de: Trunnion}
+      - {key: bearing_mount, label_de: Lageraufnahme}
+  - key: dive.gas
+    options:
+      - {key: air, label_de: Luft}
+      - {key: nitrox, label_de: Nitrox}
+      - {key: heliox, label_de: Heliox}
+      - {key: trimix, label_de: Trimix}
+      - {key: oxygen, label_de: Sauerstoff}
+      - {key: argon, label_de: Argon}
+  - key: helmet.subcategory
+    options:
+      - {key: road_bike, label_de: Rennrad}
+      - {key: mtb, label_de: MTB}
+      - {key: full_face_dh, label_de: Fullface/DH}
+      - {key: ski, label_de: Ski}
+      - {key: climb, label_de: Klettern}
+      - {key: equestrian, label_de: Reiten}
+  - key: helmet.safety_standard
+    options:
+      - {key: en1078, label_de: EN 1078}
+      - {key: en1080, label_de: EN 1080}
+      - {key: en966, label_de: EN 966}
+      - {key: astm_f1447, label_de: ASTM F1447}
+      - {key: astm_f2040, label_de: ASTM F2040}
+      - {key: ce_en397, label_de: CE EN 397}
+  - key: goggles.subcategory
+    options:
+      - {key: ski, label_de: Ski/Snowboard}
+      - {key: swim, label_de: Schwimmen}
+      - {key: mx, label_de: Motocross/Enduro}
+      - {key: dh, label_de: Downhill}
+      - {key: sun, label_de: Sonne}
+  - key: apparel.subcategory
+    options:
+      - {key: cycling, label_de: Radfahren}
+      - {key: running, label_de: Laufen}
+      - {key: hiking, label_de: Wandern}
+      - {key: ski, label_de: Ski/Snowboard}
+      - {key: climbing, label_de: Klettern}
+      - {key: swimming, label_de: Schwimmen}
+      - {key: general, label_de: Allgemein}
+  # ---- Bike: fork (Federgabel) option sets ----
+  - key: bike.fork.kategorie
+    options:
+      - {key: starr, label_de: Starrgabel}
+      - {key: federgabel, label_de: Federgabel}
+  - key: bike.fork.material
+    options:
+      - {key: aluminium, label_de: Aluminium}
+      - {key: carbon, label_de: Carbon}
+      - {key: magnesium, label_de: Magnesium}
+      - {key: stahl, label_de: Stahl}
+      - {key: titan, label_de: Titan}
+  - key: bike.fork.laufradgroesse
+    options:
+      - {key: "26", label_de: "26 Zoll"}
+      - {key: "27_5", label_de: "27,5 Zoll"}
+      - {key: "28", label_de: "28 Zoll"}
+      - {key: "29", label_de: "29 Zoll"}
+  - key: bike.fork.gabelschaft
+    options:
+      - {key: 1_1_8_gerade, label_de: "1 1/8\" Gerade"}
+      - {key: tapered_1_5, label_de: "Tapered 1.5\""}
+      - {key: tapered_1_8_overdrive, label_de: "Tapered 1.8\" Overdrive"}
+      - {key: 1_5_gerade, label_de: "1.5\" Gerade"}
+  - key: bike.fork.achssystem
+    options:
+      - {key: 9x100_qr, label_de: 9×100 QR}
+      - {key: 12x100_ta, label_de: 12×100 TA}
+      - {key: 15x100_ta, label_de: 15×100 TA}
+      - {key: 15x110_boost, label_de: 15×110 Boost}
+      - {key: 20x110_boost, label_de: 20×110 Boost}
+      - {key: 20x110_dh, label_de: 20×110 DH}
+  - key: bike.fork.bremsaufnahme
+    options:
+      - {key: postmount_160, label_de: Postmount 160}
+      - {key: postmount_180, label_de: Postmount 180}
+      - {key: flatmount, label_de: Flat Mount}
+      - {key: is_2000, label_de: IS 2000}
+  - key: bike.fork.standrohrdurchmesser
+    options:
+      - {key: "28", label_de: "28 mm"}
+      - {key: "30", label_de: "30 mm"}
+      - {key: "32", label_de: "32 mm"}
+      - {key: "34", label_de: "34 mm"}
+      - {key: "35", label_de: "35 mm"}
+      - {key: "36", label_de: "36 mm"}
+      - {key: "38", label_de: "38 mm"}
+      - {key: "40", label_de: "40 mm"}
+  - key: bike.fork.federung_typ
+    options:
+      - {key: luft, label_de: Luft}
+      - {key: stahlfeder, label_de: Stahlfeder}
+      - {key: elastomer, label_de: Elastomer}
+      - {key: starr, label_de: Starr}
+  - key: bike.fork.luftfeder_system
+    options:
+      - {key: solo_air, label_de: Einkammer-Luftfeder}
+      - {key: dual_air, label_de: Zweikammer-Luftfeder}
+      - {key: negative_positive_chamber, label_de: Positiv- + Negativkammer}
+      - {key: twin_tube, label_de: Twin-Tube}
+  - key: bike.fork.luftfeder_kammern
+    options:
+      - {key: positiv, label_de: Positivkammer}
+      - {key: negativ, label_de: Negativkammer}
+      - {key: ramp_chamber, label_de: Ramp-Kammer}
+  - key: bike.fork.luftfeder_progression
+    options:
+      - {key: linear, label_de: Linear}
+      - {key: progressiv, label_de: Progressiv}
+      - {key: regressiv, label_de: Regressiv}
+      - {key: einstellbar, label_de: Einstellbar}
+  - key: bike.fork.stahlfeder_material
+    options:
+      - {key: stahl, label_de: Stahl}
+      - {key: titan, label_de: Titan}
+  - key: bike.fork.daempfung_ventil
+    options:
+      - {key: shim_stack, label_de: Shim-Stack}
+      - {key: needle_valve, label_de: Nadelventil}
+      - {key: hydraulisch_offen, label_de: Hydraulisch offen}
+      - {key: hydraulisch_geschlossen, label_de: Hydraulisch geschlossen}
+  # ---- Bike: shock (Dämpfer) option sets ----
+  - key: bike.shock.kategorie
+    options:
+      - {key: luftdaempfer, label_de: Luftfederdämpfer}
+      - {key: stahlfederdaempfer, label_de: Stahlfederdämpfer}
+      - {key: elastomerdaempfer, label_de: Elastomerdämpfer}
+  - key: bike.shock.metric_imperial
+    options:
+      - {key: metric, label_de: Metrisch}
+      - {key: imperial, label_de: Imperial}
+  - key: bike.shock.federung_typ
+    options:
+      - {key: luft, label_de: Luft}
+      - {key: stahlfeder, label_de: Stahlfeder}
+  - key: bike.shock.stahlfeder_material
+    options:
+      - {key: stahl, label_de: Stahl}
+      - {key: titan, label_de: Titan}
+  - key: bike.shock.plattform_daempfung
+    options:
+      - {key: "off", label_de: Aus}
+      - {key: low, label_de: Niedrig}
+      - {key: medium, label_de: Mittel}
+      - {key: high, label_de: Hoch}
+      - {key: locked, label_de: Gesperrt}
+  # ---- Bike: bulk domain option_sets (Step 2X) ----
+  - key: bike.wheel_size_system
+    options:
+      - {key: 700c, label_de: 700c}
+      - {key: 650b, label_de: 650B}
+      - {key: 650c, label_de: 650C}
+      - {key: 26_inch, label_de: "26 Zoll"}
+      - {key: 24_inch, label_de: "24 Zoll"}
+      - {key: 20_inch, label_de: "20 Zoll"}
+      - {key: 16_inch, label_de: "16 Zoll"}
+      - {key: 12_inch, label_de: "12 Zoll"}
+      - {key: 36_inch, label_de: "36 Zoll"}
+      - {key: 32_inch, label_de: "32 Zoll"}
+  - key: bike.etrto_bsd_mm
+    options:
+      - {key: "203", label_de: "203 mm (ETRTO)"}
+      - {key: "254", label_de: "254 mm (ETRTO)"}
+      - {key: "305", label_de: "305 mm (ETRTO)"}
+      - {key: "349", label_de: "349 mm (ETRTO)"}
+      - {key: "355", label_de: "355 mm (ETRTO)"}
+      - {key: "406", label_de: "406 mm (ETRTO)"}
+      - {key: "451", label_de: "451 mm (ETRTO)"}
+      - {key: "507", label_de: "507 mm (ETRTO)"}
+      - {key: "559", label_de: "559 mm (ETRTO)"}
+      - {key: "584", label_de: "584 mm (ETRTO)"}
+      - {key: "622", label_de: "622 mm (ETRTO)"}
+      - {key: "635", label_de: "635 mm (ETRTO)"}
+      - {key: "787", label_de: "787 mm (ETRTO)"}
+  - key: material.frame
+    options:
+      - {key: aluminum, label_de: Aluminium}
+      - {key: carbon, label_de: Carbon}
+      - {key: steel, label_de: Stahl}
+      - {key: titanium, label_de: Titan}
+      - {key: magnesium, label_de: Magnesium}
+      - {key: wood, label_de: Holz}
+      - {key: bamboo, label_de: Bambus}
+      - {key: composite, label_de: Verbundwerkstoff}
+  - key: material.fork
+    options:
+      - {key: aluminum, label_de: Aluminium}
+      - {key: carbon, label_de: Carbon}
+      - {key: steel, label_de: Stahl}
+      - {key: magnesium, label_de: Magnesium}
+      - {key: titanium, label_de: Titan}
+  - key: material.component
+    options:
+      - {key: aluminum, label_de: Aluminium}
+      - {key: carbon, label_de: Carbon}
+      - {key: steel, label_de: Stahl}
+      - {key: titanium, label_de: Titan}
+      - {key: magnesium, label_de: Magnesium}
+      - {key: plastic, label_de: Kunststoff}
+      - {key: rubber, label_de: Gummi}
+      - {key: leather, label_de: Leder}
+      - {key: stainless_steel, label_de: Edelstahl}
+  - key: bike.axle_standard_front
+    options:
+      - {key: 5x100_qr, label_de: 5×100 QR}
+      - {key: 9x100_qr, label_de: 9×100 QR}
+      - {key: 12x100_ta, label_de: 12×100 TA}
+      - {key: 15x100_ta, label_de: 15×100 TA}
+      - {key: 15x110_boost, label_de: 15×110 Boost}
+      - {key: 20x110_boost, label_de: 20×110 Boost}
+      - {key: 20x110_dh, label_de: 20×110 DH}
+      - {key: 10x100_bolt_on, label_de: 10×100 Bolt-On}
+      - {key: three_eighth_inch_bmx, label_de: "3/8\" BMX"}
+      - {key: m10, label_de: M10}
+      - {key: lefty, label_de: Lefty}
+  - key: bike.axle_standard_rear
+    options:
+      - {key: 120mm_track, label_de: 120 mm (Bahn)}
+      - {key: 5x130_qr, label_de: 5×130 QR}
+      - {key: 5x135_qr, label_de: 5×135 QR}
+      - {key: 10x135_bolt_on, label_de: 10×135 Bolt-On}
+      - {key: 12x142_ta, label_de: 12×142 TA}
+      - {key: 12x148_boost, label_de: 12×148 Boost}
+      - {key: 12x157_superboost, label_de: 12×157 SuperBoost}
+      - {key: 12x177_fat, label_de: 12×177 Fat}
+      - {key: 12x197_fat, label_de: 12×197 Fat}
+      - {key: 14mm_bmx, label_de: 14 mm BMX}
+      - {key: three_eighth_inch_bmx, label_de: "3/8\" BMX"}
+      - {key: m10, label_de: M10}
+      - {key: 135mm_rohloff_igh, label_de: 135 mm Rohloff (IGH)}
+  - key: bike.fork_category
+    options:
+      - {key: rigid, label_de: Starrgabel}
+      - {key: suspension, label_de: Federgabel}
+  - key: bike.fork_travel_mm
+    options:
+      - {key: "20", label_de: "20 mm"}
+      - {key: "30", label_de: "30 mm"}
+      - {key: "40", label_de: "40 mm"}
+      - {key: "50", label_de: "50 mm"}
+      - {key: "60", label_de: "60 mm"}
+      - {key: "80", label_de: "80 mm"}
+      - {key: "100", label_de: "100 mm"}
+      - {key: "110", label_de: "110 mm"}
+      - {key: "120", label_de: "120 mm"}
+      - {key: "130", label_de: "130 mm"}
+      - {key: "140", label_de: "140 mm"}
+      - {key: "150", label_de: "150 mm"}
+      - {key: "160", label_de: "160 mm"}
+      - {key: "170", label_de: "170 mm"}
+      - {key: "180", label_de: "180 mm"}
+      - {key: "190", label_de: "190 mm"}
+      - {key: "200", label_de: "200 mm"}
+      - {key: "203", label_de: "203 mm"}
+      - {key: "220", label_de: "220 mm"}
+  - key: bike.fork_bridge
+    options:
+      - {key: single_crown, label_de: Single Crown}
+      - {key: dual_crown, label_de: Dual Crown}
+      - {key: lefty, label_de: Lefty}
+      - {key: none, label_de: Keine}
+  - key: bike.fork_steerer
+    options:
+      - {key: straight_1_1_8, label_de: "1 1/8\" Gerade"}
+      - {key: tapered_1_5, label_de: "Tapered 1.5\""}
+      - {key: tapered_1_8_overdrive, label_de: "Tapered 1.8\" Overdrive"}
+      - {key: straight_1_5, label_de: "1.5\" Gerade"}
+      - {key: threaded_1_inch, label_de: "1\" Gewinde"}
+  - key: bike.fork_offset_mm
+    options:
+      - {key: "37", label_de: "37 mm"}
+      - {key: "40", label_de: "40 mm"}
+      - {key: "42", label_de: "42 mm"}
+      - {key: "44", label_de: "44 mm"}
+      - {key: "46", label_de: "46 mm"}
+      - {key: "47", label_de: "47 mm"}
+      - {key: "50", label_de: "50 mm"}
+      - {key: "51", label_de: "51 mm"}
+      - {key: "55", label_de: "55 mm"}
+  - key: bike.fork_stanchion_mm
+    options:
+      - {key: "30", label_de: "30 mm"}
+      - {key: "32", label_de: "32 mm"}
+      - {key: "34", label_de: "34 mm"}
+      - {key: "35", label_de: "35 mm"}
+      - {key: "36", label_de: "36 mm"}
+      - {key: "38", label_de: "38 mm"}
+      - {key: "40", label_de: "40 mm"}
+  - key: bike.rear_travel_mm
+    options:
+      - {key: "40", label_de: "40 mm"}
+      - {key: "50", label_de: "50 mm"}
+      - {key: "60", label_de: "60 mm"}
+      - {key: "80", label_de: "80 mm"}
+      - {key: "100", label_de: "100 mm"}
+      - {key: "120", label_de: "120 mm"}
+      - {key: "130", label_de: "130 mm"}
+      - {key: "140", label_de: "140 mm"}
+      - {key: "150", label_de: "150 mm"}
+      - {key: "160", label_de: "160 mm"}
+      - {key: "170", label_de: "170 mm"}
+      - {key: "180", label_de: "180 mm"}
+      - {key: "190", label_de: "190 mm"}
+      - {key: "200", label_de: "200 mm"}
+      - {key: "220", label_de: "220 mm"}
+  - key: bike.brake_disc_diameter_mm
+    options:
+      - {key: "120", label_de: "120 mm"}
+      - {key: "140", label_de: "140 mm"}
+      - {key: "160", label_de: "160 mm"}
+      - {key: "180", label_de: "180 mm"}
+      - {key: "200", label_de: "200 mm"}
+      - {key: "203", label_de: "203 mm"}
+      - {key: "220", label_de: "220 mm"}
+  - key: bike.drivetrain_type
+    options:
+      - {key: chain_derailleur, label_de: Kettenschaltung}
+      - {key: hub_gear, label_de: Nabenschaltung}
+      - {key: gearbox_hub, label_de: Getriebe-Nabe}
+      - {key: singlespeed, label_de: Singlespeed}
+      - {key: fixed_gear, label_de: Fixed Gear}
+      - {key: belt_drive, label_de: Riemenantrieb}
+      - {key: direct_drive, label_de: Direktantrieb}
+      - {key: no_drive, label_de: Kein Antrieb}
+  - key: bike.shifting_type
+    options:
+      - {key: mechanical, label_de: Mechanisch}
+      - {key: electronic_wired, label_de: Elektronisch (kabelgebunden)}
+      - {key: electronic_wireless, label_de: Elektronisch (kabellos)}
+      - {key: hydraulic, label_de: Hydraulisch}
+      - {key: none, label_de: Keine}
+  # Freehub/driver interface specs are referenced by their generic protocol names.
+  - key: bike.cassette_freehub
+    options:
+      - {key: hg_freehub, label_de: HG-Freilauf}
+      - {key: micro_spline, label_de: Micro Spline}
+      - {key: xd_driver, label_de: XD Driver}
+      - {key: xdr_driver, label_de: XDR Driver}
+      - {key: n3w, label_de: N3W}
+      - {key: classic_freehub, label_de: Klassischer Freilauf}
+      - {key: singlespeed, label_de: Singlespeed}
+      - {key: fixed_gear_threaded, label_de: Fixed Gear (Gewinde)}
+      - {key: screw_on, label_de: Schraubkranz}
+  - key: bike.tire_setup
+    options:
+      - {key: clincher_tube, label_de: Draht-/Faltmantel mit Schlauch}
+      - {key: tubeless, label_de: Tubeless}
+      - {key: tubeless_ready, label_de: Tubeless Ready}
+      - {key: tubular, label_de: Schlauchreifen}
+      - {key: solid, label_de: Vollgummi}
+      - {key: insert, label_de: Einlagen (Insert)}
+  - key: bike.rim_type
+    options:
+      - {key: clincher, label_de: Drahtreifen-Felge}
+      - {key: tubeless_ready, label_de: Tubeless Ready}
+      - {key: hookless, label_de: Hookless}
+      - {key: tubular, label_de: Schlauchreifen-Felge}
+      - {key: deep_section, label_de: Hochprofil}
+      - {key: carbon_spoke_wheel, label_de: Carbonspeichenrad}
+      - {key: disc_wheel, label_de: Scheibenrad}
+      - {key: tri_spoke, label_de: Dreiloch-Rad}
+      - {key: fat_bike, label_de: Fat Bike}
+  - key: bike.hub_type
+    options:
+      - {key: front, label_de: Vorderradnabe}
+      - {key: rear, label_de: Hinterradnabe}
+      - {key: hub_dynamo, label_de: Nabendynamo}
+      - {key: gearbox_hub, label_de: Getriebe-Nabe}
+      - {key: coaster_hub, label_de: Rücktritt-Nabe}
+      - {key: flip_flop, label_de: Flip-Flop}
+      - {key: fixed_gear_hub, label_de: Fixed-Gear-Nabe}
+      - {key: bmx_cassette_hub, label_de: BMX-Kassetten-Nabe}
+      - {key: unicycle_hub, label_de: Einrad-Nabe}
+  - key: bike.shock_mount_type
+    options:
+      - {key: standard_eyelet, label_de: Standardauge}
+      - {key: trunnion, label_de: Trunnion}
+      - {key: proprietary, label_de: Herstellerspezifisch}
+  - key: bike.belt_profile
+    options:
+      - {key: centered, label_de: Zentriert}
+      - {key: asymmetric, label_de: Asymmetrisch}
+      - {key: vendor_specific, label_de: Herstellerspezifisch}
+  - key: bike.hanger_standard
+    options:
+      - {key: udh, label_de: UDH}
+      - {key: direct_mount, label_de: Direct Mount}
+      - {key: brand_specific, label_de: Herstellerspezifisch}
+  - key: ebike.battery_role
+    options:
+      - {key: drive, label_de: Antrieb}
+      - {key: shifting, label_de: Schaltung}
+      - {key: dropper, label_de: Dropperpost}
+      - {key: lighting, label_de: Beleuchtung}
+      - {key: display, label_de: Display}
+      - {key: sensor, label_de: Sensor}
+      - {key: indoor_console, label_de: Indoor-Konsole}
+  - key: ebike.motor_position
+    options:
+      - {key: mid_drive, label_de: Mittelmotor}
+      - {key: rear_hub, label_de: Hinterradnabenmotor}
+      - {key: front_hub, label_de: Vorderradnabenmotor}
+      - {key: bb_motor, label_de: Tretlager-Motor}
+      - {key: direct_drive_indoor, label_de: Direktantrieb (Indoor)}
+  # ---- Bike: bulk domain option_sets (Step 2Z-A) ----
+  - key: bike.headset_type
+    options:
+      - {key: ec_external_cup, label_de: EC (External Cup)}
+      - {key: zs_zero_stack, label_de: ZS (Zero Stack)}
+      - {key: is_integrated, label_de: IS (Integriert)}
+      - {key: threaded, label_de: Gewinde}
+  - key: bike.spacer_diameter
+    options:
+      - {key: "1", label_de: "1\""}
+      - {key: "1_1_8", label_de: "1 1/8\""}
+      - {key: "1_5", label_de: "1.5\""}
+  - key: bike.chain_guide_mount
+    options:
+      - {key: iscg_05, label_de: ISCG 05}
+      - {key: iscg_old, label_de: ISCG (alt)}
+      - {key: bb_mount, label_de: Tretlager-Aufnahme}
+      - {key: direct_mount, label_de: Direct Mount}
+      - {key: seat_tube, label_de: Sitzrohr}
+  - key: bike.bashguard_mount
+    options:
+      - {key: iscg_05, label_de: ISCG 05}
+      - {key: chainring, label_de: Kettenblatt}
+      - {key: crank, label_de: Kurbel}
+  - key: bike.cable_function
+    options:
+      - {key: shift, label_de: Schaltung}
+      - {key: brake, label_de: Bremse}
+      - {key: dropper, label_de: Dropperpost}
+      - {key: lockout, label_de: Lockout}
+  - key: bike.cable_housing_diameter_mm
+    options:
+      - {key: "4", label_de: "4 mm"}
+      - {key: "5", label_de: "5 mm"}
+      - {key: "5_5", label_de: "5.5 mm"}
+  - key: bike.brake_line_type
+    options:
+      - {key: hydraulic, label_de: Hydraulisch}
+      - {key: mechanical_outer, label_de: Mechanisch (Außenhülle)}
+      - {key: mechanical_inner, label_de: Mechanisch (Innenzug)}
+  - key: bike.bar_tape_material
+    options:
+      - {key: cork, label_de: Kork}
+      - {key: pu, label_de: PU}
+      - {key: leather, label_de: Leder}
+      - {key: eva, label_de: EVA}
+      - {key: silicone, label_de: Silikon}
+  - key: bike.grips_type
+    options:
+      - {key: lock_on, label_de: Lock-On}
+      - {key: slip_on, label_de: Slip-On}
+      - {key: ergonomic, label_de: Ergonomisch}
+      - {key: bmx, label_de: BMX}
+      - {key: unicycle, label_de: Einrad}
+  - key: bike.dropper_actuation
+    options:
+      - {key: mechanical_internal, label_de: Mechanisch (intern)}
+      - {key: mechanical_external, label_de: Mechanisch (extern)}
+      - {key: hydraulic, label_de: Hydraulisch}
+      - {key: electronic_wireless, label_de: Elektronisch (kabellos)}
+  - key: bike.seat_clamp_type
+    options:
+      - {key: screw_clamp, label_de: Schraubklemme}
+      - {key: quick_release, label_de: Schnellspanner}
+      - {key: aero_integrated, label_de: Aero-Integriert}
+  - key: bike.spoke_type
+    options:
+      - {key: round, label_de: Rund}
+      - {key: aero, label_de: Aero}
+      - {key: straight_pull, label_de: Straightpull}
+      - {key: j_bend, label_de: J-Bend}
+      - {key: double_butted, label_de: Double Butted}
+  - key: bike.nipple_material
+    options:
+      - {key: brass, label_de: Messing}
+      - {key: aluminum, label_de: Aluminium}
+      - {key: stainless_steel, label_de: Edelstahl}
+  - key: bike.rim_tape_type
+    options:
+      - {key: tubeless_tape, label_de: Tubeless-Tape}
+      - {key: textile, label_de: Textil}
+      - {key: rubber, label_de: Gummi}
+      - {key: plastic, label_de: Kunststoff}
+  - key: bike.derailleur_pulley_bearing
+    options:
+      - {key: plain, label_de: Gleitlager}
+      - {key: ball, label_de: Kugellager}
+      - {key: ceramic, label_de: Keramiklager}
+  - key: bike.suspension_seatpost_mechanism
+    options:
+      - {key: parallelogram, label_de: Parallelogramm}
+      - {key: telescopic, label_de: Teleskopisch}
+      - {key: elastomer, label_de: Elastomer}
+      - {key: coil_spring, label_de: Stahlfeder}
+      - {key: air_spring, label_de: Luftfeder}
+  - key: ebike.display_mount
+    options:
+      - {key: handlebar, label_de: Lenker}
+      - {key: top_tube, label_de: Oberrohr}
+      - {key: integrated, label_de: Integriert}
+      - {key: none, label_de: Kein Display}
+  - key: ebike.display_connection
+    options:
+      - {key: wired, label_de: Kabelgebunden}
+      - {key: bluetooth, label_de: Bluetooth}
+      - {key: ant_plus, label_de: ANT+}
+      - {key: proprietary, label_de: Herstellerspezifisch}
+  - key: ebike.remote_position
+    options:
+      - {key: left, label_de: Links}
+      - {key: right, label_de: Rechts}
+      - {key: top_tube, label_de: Oberrohr}
+      - {key: wireless, label_de: Kabellos}
+  - key: ebike.sensor_position
+    options:
+      - {key: chainstay, label_de: Kettenstrebe}
+      - {key: dropout, label_de: Ausfallende}
+      - {key: hub, label_de: Nabe}
+      - {key: motor_internal, label_de: Motor-Intern}
+  - key: ebike.spoke_magnet_position
+    options:
+      - {key: spoke, label_de: Speiche}
+      - {key: disc, label_de: Scheibe}
+      - {key: rim, label_de: Felge}
+  - key: ebike.shifting_battery_mount
+    options:
+      - {key: in_light, label_de: Im Scheinwerfer}
+      - {key: frame, label_de: Rahmen}
+      - {key: rack, label_de: Gepäckträger}
+  - key: bike.rack_position
+    options:
+      - {key: front, label_de: Vorne}
+      - {key: rear, label_de: Hinten}
+      - {key: lowrider, label_de: Lowrider}
+      - {key: frame_bag_system, label_de: Rahmentaschen-System}
+  - key: bike.rack_attachment
+    options:
+      - {key: eyelets, label_de: Ösen}
+      - {key: axle_mount, label_de: Achsaufnahme}
+      - {key: seatpost_clamp, label_de: Sattelstützenklemmung}
+      - {key: clamp, label_de: Klemme}
+      - {key: integrated, label_de: Integriert}
+  - key: bike.fender_position
+    options:
+      - {key: front, label_de: Vorne}
+      - {key: rear, label_de: Hinten}
+      - {key: set, label_de: Set (vorne + hinten)}
+  - key: bike.fender_mounting
+    options:
+      - {key: screwed, label_de: Geschraubt}
+      - {key: plug_in, label_de: Steckbar}
+      - {key: clip_on, label_de: Clip-On}
+      - {key: integrated, label_de: Integriert}
+  - key: bike.kickstand_type
+    options:
+      - {key: side, label_de: Seitenständer}
+      - {key: rear, label_de: Hinterradständer}
+      - {key: mid_mount, label_de: Mittelaufnahme}
+      - {key: two_leg, label_de: Zweibeinständer}
+  - key: bike.light_power_source
+    options:
+      - {key: dynamo, label_de: Dynamo}
+      - {key: battery, label_de: Akku/Batterie}
+      - {key: ebike_battery, label_de: E-Bike-Akku}
+      - {key: single_use, label_de: Einwegbatterie}
+  - key: bike.dynamo_type
+    options:
+      - {key: hub, label_de: Nabendynamo}
+      - {key: sidewall, label_de: Seitenläufer}
+      - {key: rim, label_de: Felgenläufer}
+  - key: bike.bell_mount
+    options:
+      - {key: handlebar, label_de: Lenker}
+      - {key: integrated, label_de: Integriert}
+      - {key: electronic, label_de: Elektronisch}
+  - key: bike.chain_guard_type
+    options:
+      - {key: full, label_de: Vollkettenkasten}
+      - {key: partial, label_de: Teilkettenkasten}
+      - {key: chainglider, label_de: Chainglider}
+      - {key: bashguard_combined, label_de: Mit Bashguard kombiniert}
+  - key: bike.training_wheel_size_inch
+    options:
+      - {key: "12", label_de: "12 Zoll"}
+      - {key: "14", label_de: "14 Zoll"}
+      - {key: "16", label_de: "16 Zoll"}
+      - {key: "18", label_de: "18 Zoll"}
+      - {key: "20", label_de: "20 Zoll"}
+  - key: bike.training_wheel_attachment
+    options:
+      - {key: axle, label_de: Achse}
+      - {key: frame, label_de: Rahmen}
+
+# Registry of unit groups. Each attribute with `unit_group: <key>` must list
+# `allowed_units` as a subset of the registry entry's `allowed_units`.
+# Unit keys are English schema-keys; user-facing labels live in the frontend.
+unit_groups:
+  - key: length
+    label_de: Länge
+    allowed_units: [mm, in]
+    canonical_unit: mm
+  - key: length_angle
+    label_de: Länge & Winkel
+    allowed_units: [mm, deg]
+  - key: weight
+    label_de: Gewicht
+    allowed_units: [kg]
+    canonical_unit: kg
+  - key: volume
+    label_de: Volumen
+    allowed_units: [l, ml]
+    canonical_unit: ml
+  - key: angle
+    label_de: Winkel
+    allowed_units: [deg]
+    canonical_unit: deg
+  - key: pressure
+    label_de: Druck
+    allowed_units: [bar, psi]
+    canonical_unit: bar
+  - key: spring_rate
+    label_de: Federrate
+    allowed_units: [n_per_mm, lb_per_in]
+    canonical_unit: n_per_mm
+  - key: voltage
+    label_de: Spannung
+    allowed_units: [V]
+    canonical_unit: V
+  - key: energy
+    label_de: Energie
+    allowed_units: [Wh]
+    canonical_unit: Wh
+  - key: count
+    label_de: Anzahl
+    allowed_units: [clicks, turns, pieces]
+    canonical_unit: pieces
+
+attributes:
+  # ---- Bike: frame & geometry ----
+  - key: bike.frame_material
+    label_de: Rahmenmaterial
+    value_type: search_enum
+    option_set_key: bike.frame_material
+  - key: bike.frame_type
+    label_de: Rahmentyp
+    value_type: search_enum
+    option_set_key: bike.frame_type
+  - key: bike.frame_design
+    label_de: Bauart
+    value_type: search_enum
+    option_set_key: bike.frame_design
+  - key: bike.geometry
+    label_de: Geometrie
+    value_type: geometry
+    unit_group: length_angle
+    allowed_units: [mm, deg]
+  - key: bike.wheel_size
+    label_de: Laufradgröße
+    value_type: search_enum
+    option_set_key: bike.wheel_size
+  - key: bike.wheel_size_front
+    label_de: Laufradgröße vorne
+    value_type: search_enum
+    option_set_key: bike.wheel_size
+  - key: bike.wheel_size_rear
+    label_de: Laufradgröße hinten
+    value_type: search_enum
+    option_set_key: bike.wheel_size
+  - key: bike.frame_size_alpha
+    label_de: Rahmengröße
+    value_type: search_enum
+    option_set_key: bike.frame_size_alpha
+  - key: bike.frame_size_cm
+    label_de: Rahmengröße cm
+    value_type: search_enum
+    option_set_key: bike.frame_size_cm
+  - key: bike.cable_routing
+    label_de: Kabelführung
+    value_type: search_enum
+    option_set_key: bike.cable_routing
+  - key: bike.bottle_cage_count
+    label_de: Flaschenhalter
+    value_type: search_enum
+    option_set_key: bike.bottle_cage_count
+  - key: bike.fender_presence
+    label_de: Schutzblech
+    value_type: search_enum
+    option_set_key: bike.fender_presence
+  - key: bike.kickstand_presence
+    label_de: Ständer
+    value_type: search_enum
+    option_set_key: yes_no
+  - key: bike.max_system_weight_kg
+    label_de: Max. Systemgewicht
+    value_type: unit_number
+    unit_group: weight
+    allowed_units: [kg]
+  - key: bike.modifier
+    label_de: Fahrrad-Modifier
+    value_type: search_enum
+    option_set_key: bike.modifier
+  # ---- Bike: component interface specs (used by frame + component_types) ----
+  - key: bike.rear_axle_standard
+    label_de: Hinterbau-Achsstandard
+    value_type: search_enum
+    option_set_key: bike.axle_standard
+  - key: bike.brake_mount
+    label_de: Bremsaufnahme
+    value_type: search_enum
+    option_set_key: bike.brake_mount
+  - key: bike.bottom_bracket_standard
+    label_de: Tretlager-Standard
+    value_type: search_enum
+    option_set_key: bike.bottom_bracket
+  - key: bike.headtube_type
+    label_de: Steuerrohr-Typ
+    value_type: search_enum
+    option_set_key: bike.headtube_type
+  - key: bike.seatpost_diameter_mm
+    label_de: Sattelstütz-Durchmesser
+    value_type: search_enum
+    option_set_key: bike.seatpost_diameter_mm
+  - key: bike.max_tire_width_mm
+    label_de: Maximale Reifenbreite
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: bike.seat_clamp_diameter_mm
+    label_de: Sattelklemmendurchmesser
+    value_type: search_enum
+    option_set_key: bike.seat_clamp_diameter_mm
+  - key: bike.front_derailleur_mount
+    label_de: Umwerferaufnahme
+    value_type: search_enum
+    option_set_key: bike.front_derailleur_mount
+  - key: bike.max_chainring_teeth
+    label_de: Maximale Kettenblattgröße
+    value_type: number
+  - key: bike.bottom_bracket
+    label_de: Tretlager
+    value_type: search_enum
+    option_set_key: bike.bottom_bracket
+  - key: bike.shock_eye_to_eye_mm
+    label_de: Dämpfer-Einbaulänge
+    value_type: search_enum
+    option_set_key: bike.shock_eye_to_eye_mm
+    # Soft cross-item gate (Step 1 worked example): on a frame component
+    # only show eye-to-eye length when the parent bike has a full-suspension
+    # frame design. UX hint only — backend never enforces.
+    applies_to_gear_when:
+      - {ref: gear.bike.frame_design, op: eq, value: full_suspension}
+    kombi_group: shock_dimensions
+  - key: bike.shock_stroke_mm
+    label_de: Dämpfer-Hub
+    value_type: search_enum
+    option_set_key: bike.shock_stroke_mm
+    # Soft same-scope gate (Step 1 worked example): only ask for the stroke
+    # once an eye-to-eye length is set. AND-combined with any other gate.
+    visible_when:
+      - {ref: bike.shock_eye_to_eye_mm, op: is_set}
+    kombi_group: shock_dimensions
+  # Represents physical dimension constraints as a freeform string; a dedicated
+  # dimensions value_type is planned for Phase 4.
+  - key: bike.shock_hardware
+    label_de: Dämpfer-Hardware
+    value_type: string
+  - key: bike.kickstand_mount
+    label_de: Ständeraufnahme
+    value_type: search_enum
+    option_set_key: bike.kickstand_mount
+  - key: bike.rack_mount
+    label_de: Gepäckträgeraufnahme
+    value_type: string
+  - key: bike.fender_mount
+    label_de: Schutzblechaufnahme
+    value_type: string
+  - key: bike.frame_bearing.position
+    label_de: Lagerposition
+    value_type: search_enum
+    option_set_key: bike.frame_bearing.position
+  # ---- Generic component attributes ----
+  - key: serial_number
+    label_de: Seriennummer
+    value_type: string
+  - key: material
+    label_de: Material
+    value_type: search_enum
+    option_set_key: material.common
+  - key: axle_standard
+    label_de: Achsstandard
+    value_type: search_enum
+    option_set_key: bike.axle_standard
+  - key: position
+    label_de: Position
+    value_type: search_enum
+    option_set_key: position.common
+  - key: position.front_rear
+    label_de: Position
+    value_type: search_enum
+    option_set_key: position.front_rear
+  - key: position.left_right
+    label_de: Position
+    value_type: search_enum
+    option_set_key: position.left_right
+  - key: fork_construction
+    label_de: Bauart
+    value_type: search_enum
+    option_set_key: bike.fork_construction
+  - key: shock_construction
+    label_de: Bauart
+    value_type: search_enum
+    option_set_key: bike.shock_construction
+  - key: suspension_travel
+    label_de: Federweg
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: spring_rate
+    label_de: Federhärte
+    value_type: unit_number
+    unit_group: spring_rate
+    allowed_units: [lb_per_in, n_per_mm]
+  - key: shock_eye_to_eye
+    label_de: Einbaumaß
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm, in]
+  - key: shock_stroke
+    label_de: Hub
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm, in]
+  - key: shock_mount
+    label_de: Mount
+    value_type: search_enum
+    option_set_key: shock_mount
+  # Physical measurements; a dedicated dimensions value_type is planned for Phase 4.
+  - key: dimensions
+    label_de: Maße
+    value_type: string
+  - key: quantity
+    label_de: Anzahl
+    value_type: number
+  - key: volume
+    label_de: Volumen
+    value_type: unit_number
+    unit_group: volume
+    allowed_units: [ml, l]
+  - key: teeth_count
+    label_de: Zähne
+    value_type: number
+  - key: valve_type
+    label_de: Ventilart
+    value_type: search_enum
+    option_set_key: bike.valve_type
+  - key: brake_type
+    label_de: Bremstyp
+    value_type: search_enum
+    option_set_key: bike.brake_type
+  - key: brake_actuation
+    label_de: Bauart
+    value_type: search_enum
+    option_set_key: bike.brake_actuation
+  - key: brake_pad_type
+    label_de: Art
+    value_type: search_enum
+    option_set_key: bike.brake_pad_type
+  - key: brake_pad_material
+    label_de: Material
+    value_type: search_enum
+    option_set_key: bike.brake_pad_material
+  - key: handlebar_type
+    label_de: Lenkertyp
+    value_type: search_enum
+    option_set_key: bike.handlebar_type
+  - key: handlebar_width_mm
+    label_de: Breite
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: handlebar_rise_mm
+    label_de: Rise
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: handlebar_backsweep_deg
+    label_de: Backsweep
+    value_type: unit_number
+    unit_group: angle
+    allowed_units: [deg]
+  - key: battery_type
+    label_de: Akkutyp
+    value_type: search_enum
+    option_set_key: bike.battery_type
+  - key: voltage_v
+    label_de: Spannung
+    value_type: unit_number
+    unit_group: voltage
+    allowed_units: [V]
+  - key: energy_wh
+    label_de: Energiegehalt
+    value_type: unit_number
+    unit_group: energy
+    allowed_units: [Wh]
+  # ---- Diving ----
+  - key: dive.gas
+    label_de: Gas
+    value_type: search_enum
+    option_set_key: dive.gas
+  - key: dive.working_pressure_bar
+    label_de: Betriebsdruck
+    value_type: unit_number
+    unit_group: pressure
+    allowed_units: [bar]
+  # ---- Helmet ----
+  - key: helmet.subcategory
+    label_de: Helmkategorie
+    value_type: search_enum
+    option_set_key: helmet.subcategory
+  - key: helmet.safety_standard
+    label_de: Sicherheitsnorm
+    value_type: enum_with_freetext
+    option_set_key: helmet.safety_standard
+  # ---- Goggles ----
+  - key: goggles.subcategory
+    label_de: Brillenkategorie
+    value_type: search_enum
+    option_set_key: goggles.subcategory
+  # ---- Climb ----
+  - key: climb.harness_size
+    label_de: Gurtzgröße
+    value_type: string
+  - key: climb.rope_length_m
+    label_de: Seillänge (m)
+    value_type: number
+  # ---- Apparel ----
+  - key: apparel.subcategory
+    label_de: Bekleidungskategorie
+    value_type: search_enum
+    option_set_key: apparel.subcategory
+  # ---- Bike: domain bulk attributes (Step 2X) ----
+  - key: bike.wheel_size_system
+    label_de: Laufrad-System
+    value_type: search_enum
+    option_set_key: bike.wheel_size_system
+  - key: bike.etrto_bsd_mm
+    label_de: ETRTO/BSD
+    value_type: search_enum
+    option_set_key: bike.etrto_bsd_mm
+  - key: bike.fork_category
+    label_de: Gabelkategorie
+    value_type: search_enum
+    option_set_key: bike.fork_category
+  - key: bike.fork_travel_mm
+    label_de: Gabel-Federweg
+    value_type: search_enum
+    option_set_key: bike.fork_travel_mm
+  - key: bike.fork_bridge
+    label_de: Gabelbrücke
+    value_type: search_enum
+    option_set_key: bike.fork_bridge
+  - key: bike.fork_steerer
+    label_de: Gabelschaft-Standard
+    value_type: search_enum
+    option_set_key: bike.fork_steerer
+  - key: bike.fork_offset_mm
+    label_de: Gabel-Offset
+    value_type: search_enum
+    option_set_key: bike.fork_offset_mm
+  - key: bike.fork_stanchion_mm
+    label_de: Standrohrdurchmesser
+    value_type: search_enum
+    option_set_key: bike.fork_stanchion_mm
+  - key: bike.rear_travel_mm
+    label_de: Hinterbau-Federweg
+    value_type: search_enum
+    option_set_key: bike.rear_travel_mm
+    applies_to_gear_when:
+      - {ref: gear.bike.frame_design, op: eq, value: full_suspension}
+  - key: bike.axle_standard_front
+    label_de: Achsstandard vorne
+    value_type: search_enum
+    option_set_key: bike.axle_standard_front
+  - key: bike.axle_standard_rear
+    label_de: Achsstandard hinten
+    value_type: search_enum
+    option_set_key: bike.axle_standard_rear
+  - key: bike.drivetrain_type
+    label_de: Antriebsart
+    value_type: search_enum
+    option_set_key: bike.drivetrain_type
+  - key: bike.shifting_type
+    label_de: Schaltungsart
+    value_type: search_enum
+    option_set_key: bike.shifting_type
+  - key: bike.cassette_freehub
+    label_de: Freilaufkörper-Standard
+    value_type: search_enum
+    option_set_key: bike.cassette_freehub
+  - key: bike.tire_setup
+    label_de: Reifenaufbau
+    value_type: search_enum
+    option_set_key: bike.tire_setup
+  - key: bike.rim_type
+    label_de: Felgentyp
+    value_type: search_enum
+    option_set_key: bike.rim_type
+  - key: bike.hub_type
+    label_de: Nabentyp
+    value_type: search_enum
+    option_set_key: bike.hub_type
+  - key: bike.shock_mount_type
+    label_de: Dämpfer-Aufnahme
+    value_type: search_enum
+    option_set_key: bike.shock_mount_type
+  - key: bike.brake_disc_diameter_mm
+    label_de: Bremsscheiben-Durchmesser
+    value_type: search_enum
+    option_set_key: bike.brake_disc_diameter_mm
+  - key: bike.belt_profile
+    label_de: Riemenprofil
+    value_type: search_enum
+    option_set_key: bike.belt_profile
+  - key: bike.hanger_standard
+    label_de: Schaltauge-Standard
+    value_type: search_enum
+    option_set_key: bike.hanger_standard
+  - key: ebike.battery_role
+    label_de: Akku-Verwendung
+    value_type: search_enum
+    option_set_key: ebike.battery_role
+  - key: ebike.motor_position
+    label_de: Motor-Position
+    value_type: search_enum
+    option_set_key: ebike.motor_position
+  # ---- Bike: domain bulk attributes (Step 2Z-A) ----
+  - key: bike.headset_type
+    label_de: Steuersatz-Typ
+    value_type: search_enum
+    option_set_key: bike.headset_type
+  - key: bike.spacer_diameter
+    label_de: Spacer-Durchmesser
+    value_type: search_enum
+    option_set_key: bike.spacer_diameter
+  - key: bike.chain_guide_mount
+    label_de: Kettenführungs-Aufnahme
+    value_type: search_enum
+    option_set_key: bike.chain_guide_mount
+  - key: bike.bashguard_mount
+    label_de: Bashguard-Aufnahme
+    value_type: search_enum
+    option_set_key: bike.bashguard_mount
+  - key: bike.cable_function
+    label_de: Zug-Funktion
+    value_type: search_enum
+    option_set_key: bike.cable_function
+  - key: bike.cable_housing_diameter_mm
+    label_de: Hüllendurchmesser
+    value_type: search_enum
+    option_set_key: bike.cable_housing_diameter_mm
+  - key: bike.brake_line_type
+    label_de: Bremsleitung-Typ
+    value_type: search_enum
+    option_set_key: bike.brake_line_type
+  - key: bike.bar_tape_material
+    label_de: Lenkerband-Material
+    value_type: search_enum
+    option_set_key: bike.bar_tape_material
+  - key: bike.bar_tape_thickness_mm
+    label_de: Lenkerband-Stärke
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: bike.grips_type
+    label_de: Griff-Typ
+    value_type: search_enum
+    option_set_key: bike.grips_type
+  - key: bike.grips_length_mm
+    label_de: Grifflänge
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: bike.dropper_actuation
+    label_de: Dropper-Betätigung
+    value_type: search_enum
+    option_set_key: bike.dropper_actuation
+  - key: bike.dropper_air_pressure_psi
+    label_de: Dropper-Luftdruck
+    value_type: unit_number
+    unit_group: pressure
+    allowed_units: [psi]
+  - key: bike.dropper_travel_mm
+    label_de: Dropper-Hub
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: bike.seat_clamp_type
+    label_de: Sattelklemmen-Typ
+    value_type: search_enum
+    option_set_key: bike.seat_clamp_type
+  - key: bike.spoke_type
+    label_de: Speichen-Typ
+    value_type: search_enum
+    option_set_key: bike.spoke_type
+  - key: bike.spoke_length_mm
+    label_de: Speichenlänge
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: bike.nipple_material
+    label_de: Nippel-Material
+    value_type: search_enum
+    option_set_key: bike.nipple_material
+  - key: bike.rim_tape_type
+    label_de: Felgenband-Typ
+    value_type: search_enum
+    option_set_key: bike.rim_tape_type
+  - key: bike.rim_tape_width_mm
+    label_de: Felgenband-Breite
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: bike.derailleur_pulley_bearing
+    label_de: Röllchen-Lagerung
+    value_type: search_enum
+    option_set_key: bike.derailleur_pulley_bearing
+  - key: bike.freehub_engagement_teeth
+    label_de: Freilauf-Verzahnung
+    value_type: number
+  - key: bike.freehub_ratchet_description
+    label_de: Freilauf-System
+    value_type: string
+  - key: bike.suspension_seatpost_mechanism
+    label_de: Federungs-Mechanismus
+    value_type: search_enum
+    option_set_key: bike.suspension_seatpost_mechanism
+  - key: bike.install_width_mm
+    label_de: Einbaubreite
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: bike.thread_pitch_mm
+    label_de: Gewindesteigung
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: bike.axle_length_mm
+    label_de: Achslänge
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: ebike.display_mount
+    label_de: Display-Halterung
+    value_type: search_enum
+    option_set_key: ebike.display_mount
+  - key: ebike.display_connection
+    label_de: Display-Verbindung
+    value_type: search_enum
+    option_set_key: ebike.display_connection
+  - key: ebike.remote_position
+    label_de: Remote-Position
+    value_type: search_enum
+    option_set_key: ebike.remote_position
+  - key: ebike.sensor_position
+    label_de: Sensorposition
+    value_type: search_enum
+    option_set_key: ebike.sensor_position
+  - key: ebike.spoke_magnet_position
+    label_de: Speichenmagnet-Position
+    value_type: search_enum
+    option_set_key: ebike.spoke_magnet_position
+  - key: ebike.shifting_battery_mount
+    label_de: Schaltungsakku-Halterung
+    value_type: search_enum
+    option_set_key: ebike.shifting_battery_mount
+  - key: bike.rack_position
+    label_de: Gepäckträger-Position
+    value_type: search_enum
+    option_set_key: bike.rack_position
+  - key: bike.rack_attachment
+    label_de: Gepäckträger-Befestigung
+    value_type: search_enum
+    option_set_key: bike.rack_attachment
+  - key: bike.max_load_kg
+    label_de: Maximale Zuladung
+    value_type: unit_number
+    unit_group: weight
+    allowed_units: [kg]
+  - key: bike.fender_position
+    label_de: Schutzblech-Position
+    value_type: search_enum
+    option_set_key: bike.fender_position
+  - key: bike.fender_mounting
+    label_de: Schutzblech-Befestigung
+    value_type: search_enum
+    option_set_key: bike.fender_mounting
+  - key: bike.fender_width_mm
+    label_de: Schutzblech-Breite
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: bike.kickstand_type
+    label_de: Ständer-Typ
+    value_type: search_enum
+    option_set_key: bike.kickstand_type
+  - key: bike.light_power_source
+    label_de: Lichtquelle
+    value_type: search_enum
+    option_set_key: bike.light_power_source
+  - key: brightness_lumens
+    label_de: Helligkeit (Lumen)
+    value_type: number
+  - key: road_legal
+    label_de: Straßenzulassung
+    value_type: boolean
+  - key: bike.dynamo_type
+    label_de: Dynamo-Typ
+    value_type: search_enum
+    option_set_key: bike.dynamo_type
+  - key: power_w
+    label_de: Leistung (W)
+    value_type: number
+  - key: bike.bell_mount
+    label_de: Klingel-Befestigung
+    value_type: search_enum
+    option_set_key: bike.bell_mount
+  - key: bike.chain_guard_type
+    label_de: Kettenschutz-Typ
+    value_type: search_enum
+    option_set_key: bike.chain_guard_type
+  - key: bike.training_wheel_size_inch
+    label_de: Stützrad-Größe
+    value_type: search_enum
+    option_set_key: bike.training_wheel_size_inch
+  - key: bike.training_wheel_attachment
+    label_de: Stützrad-Befestigung
+    value_type: search_enum
+    option_set_key: bike.training_wheel_attachment
+  # ---- Bike: fork (Federgabel) detailed attributes ----
+  - key: bike.fork.kategorie
+    label_de: Kategorie
+    value_type: search_enum
+    option_set_key: bike.fork.kategorie
+  - key: bike.fork.material
+    label_de: Material
+    value_type: search_enum
+    option_set_key: bike.fork.material
+  - key: bike.fork.laufradgroesse
+    label_de: Laufradgröße
+    value_type: search_enum
+    option_set_key: bike.fork.laufradgroesse
+  - key: bike.fork.gabelschaft
+    label_de: Gabelschaft
+    value_type: search_enum
+    option_set_key: bike.fork.gabelschaft
+  - key: bike.fork.achssystem
+    label_de: Achssystem
+    value_type: search_enum
+    option_set_key: bike.fork.achssystem
+  - key: bike.fork.bremsaufnahme
+    label_de: Bremsaufnahme
+    value_type: search_enum
+    option_set_key: bike.fork.bremsaufnahme
+  - key: bike.fork.offset_vorlauf
+    label_de: Versatz/Vorlauf
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: bike.fork.einbauhoehe
+    label_de: Einbauhöhe
+    value_type: unit_number
+    unit_group: length
+    allowed_units: [mm]
+  - key: bike.fork.standrohrdurchmesser
+    label_de: Standrohrdurchmesser
+    value_type: search_enum
+    option_set_key: bike.fork.standrohrdurchmesser
+  - key: bike.fork.features
+    label_de: Ausstattung
+    value_type: object
+    subfields:
+      - key: vibrationsdaempfung
+        label_de: Vibrationsdämpfung
+        value_type: enum
+        option_set_key: yes_no
+      - key: entlueftung
+        label_de: Entlüftungsventil
+        value_type: enum
+        option_set_key: yes_no
+      - key: schutzblechaufnahme
+        label_de: Schutzblechaufnahme
+        value_type: enum
+        option_set_key: yes_no
+      - key: sensorik
+        label_de: Sensorik
+        value_type: enum
+        option_set_key: yes_no
+      - key: climb_switch
+        label_de: Climb-Switch
+        value_type: boolean
+  - key: bike.fork.federung_typ
+    label_de: Federungstyp
+    value_type: enum
+    option_set_key: bike.fork.federung_typ
+  - key: bike.fork.federung.luftfeder
+    label_de: Luftfeder
+    value_type: object
+    show_when:
+      field: bike.fork.federung_typ
+      value: luft
+    subfields:
+      - key: system
+        label_de: System
+        value_type: search_enum
+        option_set_key: bike.fork.luftfeder_system
+      - key: kammern
+        label_de: Kammern
+        value_type: multi_enum
+        option_set_key: bike.fork.luftfeder_kammern
+      - key: progression
+        label_de: Progression
+        value_type: multi_enum
+        option_set_key: bike.fork.luftfeder_progression
+      - key: luftdruck
+        label_de: Luftdruck
+        value_type: unit_number
+        unit_group: pressure
+        allowed_units: [psi]
+      - key: luftdruck_max
+        label_de: Luftdruck max.
+        value_type: unit_number
+        unit_group: pressure
+        allowed_units: [psi]
+  - key: bike.fork.federung.stahlfeder
+    label_de: Stahlfeder
+    value_type: object
+    show_when:
+      field: bike.fork.federung_typ
+      value: stahlfeder
+    subfields:
+      - key: federhaerte
+        label_de: Federhärte
+        value_type: unit_number
+        unit_group: spring_rate
+        allowed_units: [lb_per_in]
+      - key: material
+        label_de: Material
+        value_type: search_enum
+        option_set_key: bike.fork.stahlfeder_material
+      - key: vorspannung
+        label_de: Vorspannung
+        value_type: unit_number
+        unit_group: count
+        allowed_units: [turns]
+  - key: bike.fork.daempfung.kartusche
+    label_de: Kartusche
+    value_type: string
+  - key: bike.fork.daempfung.ventil_system
+    label_de: Ventilsystem
+    value_type: search_enum
+    option_set_key: bike.fork.daempfung_ventil
+  - key: bike.fork.daempfung.einstellungen
+    label_de: Dämpfer-Einstellungen
+    value_type: object
+    subfields:
+      - key: lsc
+        label_de: LSC (Low-Speed Compression)
+        value_type: unit_number
+        unit_group: count
+        allowed_units: [clicks]
+      - key: hsc
+        label_de: HSC (High-Speed Compression)
+        value_type: unit_number
+        unit_group: count
+        allowed_units: [clicks]
+      - key: lsr
+        label_de: LSR (Low-Speed Rebound)
+        value_type: unit_number
+        unit_group: count
+        allowed_units: [clicks]
+      - key: hsr
+        label_de: HSR (High-Speed Rebound)
+        value_type: unit_number
+        unit_group: count
+        allowed_units: [clicks]
+      - key: lockout
+        label_de: Lockout
+        value_type: boolean
+  # ---- Bike: shock (Dämpfer) detailed attributes ----
+  - key: bike.shock.kategorie
+    label_de: Kategorie
+    value_type: search_enum
+    option_set_key: bike.shock.kategorie
+  - key: bike.shock.metric_imperial
+    label_de: Maßsystem
+    value_type: enum
+    option_set_key: bike.shock.metric_imperial
+  - key: bike.shock.federung_typ
+    label_de: Federungstyp
+    value_type: enum
+    option_set_key: bike.shock.federung_typ
+  - key: bike.shock.federung.luftkammer
+    label_de: Luftkammer
+    value_type: object
+    show_when:
+      field: bike.shock.federung_typ
+      value: luft
+    subfields:
+      - key: druck
+        label_de: Luftdruck
+        value_type: unit_number
+        unit_group: pressure
+        allowed_units: [psi]
+      - key: volume_spacers
+        label_de: Volume Spacer
+        value_type: unit_number
+        unit_group: count
+        allowed_units: [pieces]
+      - key: bottomout_resistance
+        label_de: Bottomout-Schutz
+        value_type: boolean
+  - key: bike.shock.federung.stahlfeder
+    label_de: Stahlfeder
+    value_type: object
+    show_when:
+      field: bike.shock.federung_typ
+      value: stahlfeder
+    subfields:
+      - key: federhaerte
+        label_de: Federhärte
+        value_type: unit_number
+        unit_group: spring_rate
+        allowed_units: [lb_per_in]
+      - key: vorspannung
+        label_de: Vorspannung
+        value_type: unit_number
+        unit_group: count
+        allowed_units: [turns]
+      - key: material
+        label_de: Material
+        value_type: search_enum
+        option_set_key: bike.shock.stahlfeder_material
+  - key: bike.shock.daempfung.einstellungen
+    label_de: Dämpfer-Einstellungen
+    value_type: object
+    subfields:
+      - key: lsc
+        label_de: LSC (Low-Speed Compression)
+        value_type: unit_number
+        unit_group: count
+        allowed_units: [clicks]
+      - key: hsc
+        label_de: HSC (High-Speed Compression)
+        value_type: unit_number
+        unit_group: count
+        allowed_units: [clicks]
+      - key: lsr
+        label_de: LSR (Low-Speed Rebound)
+        value_type: unit_number
+        unit_group: count
+        allowed_units: [clicks]
+      - key: hsr
+        label_de: HSR (High-Speed Rebound)
+        value_type: unit_number
+        unit_group: count
+        allowed_units: [clicks]
+      - key: lockout
+        label_de: Lockout
+        value_type: boolean
+      - key: plattform_daempfung
+        label_de: Plattform-Dämpfung
+        value_type: enum
+        option_set_key: bike.shock.plattform_daempfung
+  - key: bike.shock.daempfung.piggyback
+    label_de: Piggyback-Reservoir
+    value_type: boolean
+
+component_types:
+  # ---- Bike: structural frame parts ----
+  - key: bike.frame
+    label_de: Rahmen
+    attribute_keys:
+      - bike.frame_type
+      - bike.frame_design
+      - bike.frame_material
+      - bike.wheel_size
+      - bike.wheel_size_front
+      - bike.wheel_size_rear
+      - bike.frame_size_alpha
+      - bike.frame_size_cm
+      - bike.cable_routing
+      - bike.rear_axle_standard
+      - bike.brake_mount
+      - bike.bottom_bracket_standard
+      - bike.headtube_type
+      - bike.seatpost_diameter_mm
+      - bike.max_tire_width_mm
+      - bike.seat_clamp_diameter_mm
+      - bike.front_derailleur_mount
+      - bike.max_chainring_teeth
+      - bike.bottom_bracket
+      - shock_mount
+      - bike.shock_eye_to_eye_mm
+      - bike.shock_stroke_mm
+      - bike.shock_hardware
+      - bike.kickstand_mount
+      - bike.rack_mount
+      - bike.fender_mount
+      - serial_number
+  - key: bike.fork
+    label_de: Gabel
+    attribute_keys:
+      - fork_construction
+      - suspension_travel
+      - bike.fork.kategorie
+      - bike.fork.material
+      - bike.fork.laufradgroesse
+      - bike.fork.gabelschaft
+      - bike.fork.achssystem
+      - bike.fork.bremsaufnahme
+      - bike.fork.standrohrdurchmesser
+      - bike.fork.offset_vorlauf
+      - bike.fork.einbauhoehe
+      - bike.fork.features
+      - bike.fork.federung_typ
+      - bike.fork.federung.luftfeder
+      - bike.fork.federung.stahlfeder
+      - bike.fork.daempfung.kartusche
+      - bike.fork.daempfung.ventil_system
+      - bike.fork.daempfung.einstellungen
+      - serial_number
+  - key: bike.shock
+    label_de: Dämpfer
+    attribute_keys:
+      - shock_construction
+      - shock_mount
+      - bike.shock_eye_to_eye_mm
+      - bike.shock_stroke_mm
+      - bike.shock_hardware
+      - bike.shock.kategorie
+      - bike.shock.metric_imperial
+      - bike.shock.federung_typ
+      - bike.shock.federung.luftkammer
+      - bike.shock.federung.stahlfeder
+      - bike.shock.daempfung.einstellungen
+      - bike.shock.daempfung.piggyback
+      - serial_number
+  - key: bike.coil_shock
+    label_de: Stahlfederdämpfer
+    parent_key: bike.shock
+    attribute_keys: [bike.shock_eye_to_eye_mm, bike.shock_stroke_mm, bike.shock_hardware, shock_construction]
+  - key: bike.air_shock
+    label_de: Luftdämpfer
+    parent_key: bike.shock
+    attribute_keys: [bike.shock_eye_to_eye_mm, bike.shock_stroke_mm, bike.shock_hardware]
+  - key: bike.shock_spring
+    label_de: Dämpferfeder
+    attribute_keys: [spring_rate]
+  - key: bike.derailleur_hanger
+    label_de: Schaltauge
+    attribute_keys: [bike.hanger_standard]
+  - key: bike.frame_bearing
+    label_de: Rahmenlager
+    attribute_keys: [position, bike.frame_bearing.position, quantity, dimensions]
+  - key: bike.headset
+    label_de: Steuersatz
+    attribute_keys: [bike.headset_type, bike.headtube_type, dimensions]
+  - key: bike.spacer
+    label_de: Spacer
+    attribute_keys: [bike.spacer_diameter, dimensions, quantity]
+  - key: bike.thru_axle
+    label_de: Steckachse
+    attribute_keys: [position.front_rear, axle_standard, bike.thread_pitch_mm, bike.axle_length_mm, dimensions]
+  - key: bike.quick_release
+    label_de: Schnellspanner
+    attribute_keys: [position.front_rear, axle_standard, bike.install_width_mm]
+  # ---- Bike: drivetrain ----
+  - key: bike.crank_arms
+    label_de: Kurbelarme
+    attribute_keys: [material, dimensions]
+  - key: bike.chainring
+    label_de: Kettenblatt
+    attribute_keys: [teeth_count]
+  - key: bike.bottom_bracket
+    label_de: Tretlager
+    attribute_keys: [bike.bottom_bracket_standard, bike.bottom_bracket, dimensions]
+  - key: bike.cassette
+    label_de: Kassette
+    attribute_keys: [teeth_count]
+  - key: bike.chain
+    label_de: Kette
+    attribute_keys: [dimensions]
+  - key: bike.belt
+    label_de: Riemen
+    # Use bike.belt_profile for the interface specification; free-text system_name
+    # (on the base gear item) captures any vendor product name.
+    attribute_keys: [bike.belt_profile, teeth_count, dimensions]
+  - key: bike.pedals
+    label_de: Pedale
+  - key: bike.rear_derailleur
+    label_de: Schaltwerk
+  - key: bike.front_derailleur
+    label_de: Umwerfer
+    attribute_keys: [bike.front_derailleur_mount]
+  - key: bike.shift_lever
+    label_de: Schalthebel
+    attribute_keys: [position.left_right, bike.shifting_type, quantity]
+  - key: bike.trigger
+    label_de: Trigger
+    attribute_keys: [position.left_right, bike.shifting_type]
+  - key: bike.jockey_wheels
+    label_de: Schaltröllchen
+    attribute_keys: [teeth_count, bike.derailleur_pulley_bearing, quantity]
+  - key: bike.chain_guide
+    label_de: Kettenführung
+    attribute_keys: [bike.chain_guide_mount]
+  - key: bike.bashguard
+    label_de: Bashguard
+    attribute_keys: [bike.bashguard_mount]
+  - key: bike.bowden_cable
+    label_de: Bowdenzug
+    attribute_keys: [bike.cable_function, bike.axle_length_mm, dimensions]
+  - key: bike.cable_housing
+    label_de: Zughülle
+    attribute_keys: [bike.cable_function, bike.cable_housing_diameter_mm, bike.axle_length_mm, dimensions]
+  # ---- Bike: wheels & tires ----
+  - key: bike.rim
+    label_de: Felge
+    attribute_keys: [position.front_rear, bike.wheel_size, dimensions, material]
+  - key: bike.wheel
+    label_de: Laufrad
+    attribute_keys: [position.front_rear, bike.wheel_size]
+  - key: bike.hub
+    label_de: Nabe
+    attribute_keys: [position.front_rear, axle_standard]
+  - key: bike.freehub_body
+    label_de: Freilaufkörper
+    attribute_keys: [bike.cassette_freehub, bike.freehub_ratchet_description, bike.freehub_engagement_teeth]
+  - key: bike.spoke
+    label_de: Speichen
+    attribute_keys: [position.front_rear, bike.spoke_type, bike.spoke_length_mm, quantity]
+  - key: bike.spoke_nipple
+    label_de: Speichennippel
+    attribute_keys: [bike.nipple_material, dimensions, quantity]
+  - key: bike.rim_tape
+    label_de: Felgenband
+    attribute_keys: [position.front_rear, bike.rim_tape_type, bike.rim_tape_width_mm, bike.wheel_size]
+  - key: bike.front_tire
+    label_de: Vorderreifen
+    parent_key: bike.tire
+    attribute_keys: [position, dimensions]
+  - key: bike.rear_tire
+    label_de: Hinterreifen
+    parent_key: bike.tire
+    attribute_keys: [position, dimensions]
+  - key: bike.tire
+    label_de: Reifen
+    subtype_keys: [bike.front_tire, bike.rear_tire]
+    attribute_keys: [position.front_rear, dimensions]
+  - key: bike.tube
+    label_de: Schlauch
+    attribute_keys: [position.front_rear, bike.wheel_size]
+  - key: bike.valve
+    label_de: Ventil
+    attribute_keys: [position.front_rear, valve_type, dimensions]
+  # ---- Bike: brakes ----
+  - key: bike.brake_lever
+    label_de: Bremshebel
+    attribute_keys: [position.left_right, brake_actuation]
+  - key: bike.shift_brake_lever
+    label_de: Schalt-Bremshebel
+    attribute_keys: [position.left_right, brake_actuation, bike.shifting_type, quantity]
+  - key: bike.brake
+    label_de: Bremse
+    attribute_keys: [position.front_rear, brake_type, brake_actuation]
+  - key: bike.front_brake_pads
+    label_de: Bremsbeläge vorne
+    parent_key: bike.brake_pads
+    attribute_keys: [position]
+  - key: bike.rear_brake_pads
+    label_de: Bremsbeläge hinten
+    parent_key: bike.brake_pads
+    attribute_keys: [position]
+  - key: bike.brake_pads
+    label_de: Bremsbeläge
+    subtype_keys: [bike.front_brake_pads, bike.rear_brake_pads]
+    attribute_keys: [position.front_rear, brake_pad_type, brake_pad_material]
+  - key: bike.brake_rotor
+    label_de: Bremsscheibe
+    attribute_keys: [position.front_rear, dimensions]
+  - key: bike.brake_hose
+    label_de: Bremsleitung
+    attribute_keys: [position.front_rear, bike.brake_line_type, bike.axle_length_mm, dimensions]
+  # ---- Bike: cockpit ----
+  - key: bike.handlebar
+    label_de: Lenker
+    attribute_keys: [handlebar_type, material, handlebar_width_mm, handlebar_rise_mm, handlebar_backsweep_deg]
+  - key: bike.stem
+    label_de: Vorbau
+    attribute_keys: [dimensions, material]
+  - key: bike.grips
+    label_de: Griffe
+    attribute_keys: [bike.grips_type, bike.grips_length_mm]
+  - key: bike.handlebar_tape
+    label_de: Lenkerband
+    attribute_keys: [bike.bar_tape_material, bike.bar_tape_thickness_mm]
+  - key: bike.bar_ends
+    label_de: Lenkerhörnchen
+  # ---- Bike: saddle & seatpost ----
+  - key: bike.saddle
+    label_de: Sattel
+  - key: bike.seatpost
+    label_de: Sattelstütze
+    attribute_keys: [bike.seatpost_diameter_mm, dimensions, material]
+  - key: bike.suspension_seatpost
+    label_de: Gefederte Sattelstütze
+    attribute_keys: [bike.seatpost_diameter_mm, suspension_travel, bike.suspension_seatpost_mechanism, dimensions, material]
+  - key: bike.dropper_post
+    label_de: Dropperpost
+    # suspension_travel removed: a dropper post has no suspension, only a mechanical drop hub.
+    attribute_keys: [bike.seatpost_diameter_mm, bike.dropper_travel_mm, bike.dropper_actuation, bike.dropper_air_pressure_psi, dimensions]
+  - key: bike.seat_clamp
+    label_de: Sattelklemme
+    attribute_keys: [bike.seat_clamp_diameter_mm, bike.seat_clamp_type]
+  # ---- Bike: electronics (e-bike & electronic shifting) ----
+  - key: bike.motor
+    label_de: Motor
+    attribute_keys: [ebike.motor_position, voltage_v, energy_wh]
+  - key: bike.battery
+    label_de: Akku
+    attribute_keys: [ebike.battery_role, voltage_v, energy_wh]
+  - key: bike.display
+    label_de: Display
+  - key: bike.remote
+    label_de: Remote-Einheit
+  - key: bike.speed_sensor
+    label_de: Geschwindigkeitssensor
+  - key: bike.spoke_magnet
+    label_de: Speichenmagnet
+  - key: bike.charge_port
+    label_de: Ladebuchse
+  - key: bike.wiring_harness
+    label_de: Kabelbaum
+  - key: bike.shifting_battery
+    label_de: Schaltungsakku
+    attribute_keys: [voltage_v, energy_wh]
+  - key: bike.lighting_battery
+    label_de: Beleuchtungsakku
+    attribute_keys: [voltage_v, energy_wh]
+  # ---- E-bike specific component types (Step 2Z-A) ----
+  - key: ebike.display
+    label_de: E-Bike Display
+    attribute_keys: [ebike.display_mount, ebike.display_connection]
+  - key: ebike.remote
+    label_de: E-Bike Remote
+    attribute_keys: [ebike.remote_position]
+  - key: ebike.speed_sensor
+    label_de: Geschwindigkeitssensor (E-Bike)
+    attribute_keys: [ebike.sensor_position]
+  - key: ebike.spoke_magnet
+    label_de: Speichenmagnet (E-Bike)
+    attribute_keys: [ebike.spoke_magnet_position]
+  - key: ebike.charging_port
+    label_de: Ladebuchse (E-Bike)
+    attribute_keys: [dimensions]
+  - key: ebike.cable_harness
+    label_de: Kabelbaum (E-Bike)
+    attribute_keys: [bike.axle_length_mm, dimensions]
+  - key: ebike.shifting_battery
+    label_de: Schaltungsakku (E-Bike)
+    attribute_keys: [voltage_v, energy_wh]
+  - key: ebike.lighting_battery
+    label_de: Beleuchtungsakku (E-Bike)
+    attribute_keys: [voltage_v, energy_wh, ebike.shifting_battery_mount]
+  # ---- Bike: accessories ----
+  - key: bike.rack
+    label_de: Gepäckträger
+    attribute_keys: [bike.rack_position, bike.max_load_kg, bike.rack_attachment]
+  - key: bike.fenders
+    label_de: Schutzbleche
+    attribute_keys: [bike.fender_position, bike.fender_width_mm, bike.fender_mounting]
+  - key: bike.kickstand
+    label_de: Ständer
+    attribute_keys: [bike.kickstand_type, bike.kickstand_mount, bike.max_load_kg]
+  - key: bike.light
+    label_de: Licht
+    attribute_keys: [position.front_rear, bike.light_power_source, brightness_lumens, road_legal]
+  - key: bike.dynamo
+    label_de: Dynamo
+    attribute_keys: [bike.dynamo_type, voltage_v, power_w]
+  - key: bike.bell
+    label_de: Klingel
+    attribute_keys: [bike.bell_mount]
+  - key: bike.chain_guard
+    label_de: Kettenschutz
+    attribute_keys: [bike.chain_guard_type]
+  - key: bike.training_wheels
+    label_de: Stützräder
+    attribute_keys: [bike.training_wheel_size_inch, bike.training_wheel_attachment]
+  - key: bike.tubeless_sealant
+    label_de: Tubeless Milch
+    attribute_keys: [quantity, volume]
+  # ---- Special bike component types (Step 2X) ----
+  # Unicycle parts — gated to gear_types with parent bike.unicycle
+  - key: unicycle.fork_frame
+    label_de: Unicycle-Gabel/Rahmen
+    parent_key: bike.frame
+    attribute_keys: [bike.wheel_size, material, serial_number]
+  - key: unicycle.hub
+    label_de: Unicycle-Nabe
+    parent_key: bike.hub
+    attribute_keys: [axle_standard, dimensions]
+  # Tandem parts
+  - key: tandem.synchro_drive
+    label_de: Tandem-Synchronantrieb
+    attribute_keys: [dimensions]
+  # Cargo parts
+  - key: cargo.load_platform
+    label_de: Ladefläche
+    attribute_keys: [dimensions, material]
+  # Recumbent parts
+  - key: recumbent.seat
+    label_de: Liegerad-Sitz
+    attribute_keys: [dimensions, material]
+  # Trike parts
+  - key: trike.axle
+    label_de: Trike-Achse
+    attribute_keys: [axle_standard, dimensions]
+
+gear_types:
+  # ---- Bike hierarchy ----
+  - key: bike
+    label_de: Fahrrad
+    scope: bike
+    default_assignment_role_key: primary
+    attribute_keys:
+      - bike.frame_type
+      - bike.modifier
+      - bike.frame_design
+      - bike.frame_material
+      - bike.wheel_size
+      - bike.wheel_size_front
+      - bike.wheel_size_rear
+      - bike.frame_size_alpha
+      - bike.frame_size_cm
+      - bike.geometry
+      - bike.bottle_cage_count
+      - bike.cable_routing
+      - bike.fender_presence
+      - bike.kickstand_presence
+      - bike.rear_axle_standard
+      - bike.bottom_bracket_standard
+      - bike.headtube_type
+      - bike.seatpost_diameter_mm
+      - bike.brake_mount
+      - bike.max_system_weight_kg
+
+  - key: bike.road
+    label_de: Rennrad
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+    slots:
+      - {key: frame, label_de: Rahmen, component_type: bike.frame}
+      - {key: fork, label_de: Gabel, component_type: bike.fork}
+      - {key: brake_front, label_de: Bremse vorne, component_type: bike.brake}
+      - {key: brake_rear, label_de: Bremse hinten, component_type: bike.brake}
+      - {key: wheel_front, label_de: Laufrad vorne, component_type: bike.wheel}
+      - {key: wheel_rear, label_de: Laufrad hinten, component_type: bike.wheel}
+      - {key: tire_front, label_de: Reifen vorne, component_type: bike.tire}
+      - {key: tire_rear, label_de: Reifen hinten, component_type: bike.tire}
+      - {key: drivetrain, label_de: Antrieb, component_type: bike.cassette}
+      - {key: handlebar, label_de: Lenker, component_type: bike.handlebar}
+      - {key: saddle, label_de: Sattel, component_type: bike.saddle}
+
+  - key: bike.road.endurance
+    label_de: Endurance
+    scope: bike
+    parent_key: bike.road
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid]}
+        - {key: bike.wheel_size, values: ["28"]}
+        - {key: bike.handlebar_type, values: [drop]}
+
+  - key: bike.road.aero
+    label_de: Aero
+    scope: bike
+    parent_key: bike.road
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid]}
+        - {key: bike.wheel_size, values: ["28"]}
+        - {key: bike.handlebar_type, values: [drop, aero]}
+        - {key: bike.cable_routing, values: [internal, fully_integrated]}
+
+  - key: bike.road.time_trial
+    label_de: Zeitfahrrad
+    scope: bike
+    parent_key: bike.road
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid]}
+        - {key: bike.wheel_size, values: ["28"]}
+        - {key: bike.handlebar_type, values: [tt_aero, aero]}
+
+  - key: bike.road.track
+    label_de: Bahnrad
+    scope: bike
+    parent_key: bike.road
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid]}
+        - {key: bike.wheel_size, values: ["28"]}
+        - {key: bike.drivetrain_type, values: [fixed_gear, singlespeed]}
+        - {key: bike.handlebar_type, values: [drop]}
+
+  - key: bike.mtb
+    label_de: Mountainbike
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+    slots:
+      - {key: frame, label_de: Rahmen, component_type: bike.frame}
+      - {key: fork, label_de: Gabel, component_type: bike.fork}
+      - {key: shock, label_de: Dämpfer, component_type: bike.shock, optional: true}
+      - {key: brake_front, label_de: Bremse vorne, component_type: bike.brake}
+      - {key: brake_rear, label_de: Bremse hinten, component_type: bike.brake}
+      - {key: wheel_front, label_de: Laufrad vorne, component_type: bike.wheel}
+      - {key: wheel_rear, label_de: Laufrad hinten, component_type: bike.wheel}
+      - {key: tire_front, label_de: Reifen vorne, component_type: bike.tire}
+      - {key: tire_rear, label_de: Reifen hinten, component_type: bike.tire}
+      - {key: drivetrain, label_de: Antrieb, component_type: bike.cassette}
+      - {key: cockpit, label_de: Cockpit, component_type: bike.handlebar, optional: true}
+      - {key: saddle, label_de: Sattel, component_type: bike.saddle}
+      - {key: pedals, label_de: Pedale, component_type: bike.pedals, optional: true}
+
+  - key: bike.mtb.xc
+    label_de: XC
+    scope: bike
+    parent_key: bike.mtb
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [hardtail, full_suspension]}
+        - {key: bike.wheel_size, values: ["29", "27_5"]}
+        - {key: bike.fork_travel_mm, values: ["80", "100", "110", "120"]}
+        - {key: bike.rear_travel_mm, values: ["80", "100", "110", "120"]}
+
+  - key: bike.mtb.all_mountain_trail
+    label_de: AM/Trail
+    scope: bike
+    parent_key: bike.mtb
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [hardtail, full_suspension]}
+        - {key: bike.wheel_size, values: ["29", "27_5"]}
+        - {key: bike.fork_travel_mm, values: ["120", "130", "140", "150"]}
+        - {key: bike.rear_travel_mm, values: ["120", "130", "140", "150"]}
+
+  - key: bike.mtb.enduro
+    label_de: Enduro
+    scope: bike
+    parent_key: bike.mtb
+    default_assignment_role_key: primary
+    # Soft per-gear_type defaults (Step 1 worked example). Frontend uses
+    # these to highlight typical choices and to surface a soft warning on
+    # outliers ("Ungewöhnlich für Enduro"). Backend never rejects writes
+    # based on these. Step 2X extended with additional attributes.
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [full_suspension]}
+        - {key: bike.wheel_size, values: ["29", "27_5"]}
+        - {key: bike.fork_travel_mm, values: ["150", "160", "170", "180"]}
+        - {key: bike.rear_travel_mm, values: ["150", "160", "170", "180"]}
+
+  - key: bike.mtb.downhill
+    label_de: Downhill
+    scope: bike
+    parent_key: bike.mtb
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [full_suspension]}
+        - {key: bike.wheel_size, values: ["29", "27_5", "26"]}
+        - {key: bike.fork_travel_mm, values: ["180", "190", "200", "203", "220"]}
+        - {key: bike.rear_travel_mm, values: ["180", "190", "200", "220"]}
+        - {key: bike.fork_bridge, values: [dual_crown]}
+
+  - key: bike.mtb.dirt
+    label_de: Dirtbike
+    scope: bike
+    parent_key: bike.mtb
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail]}
+        - {key: bike.wheel_size, values: ["26", "24"]}
+        - {key: bike.fork_travel_mm, values: ["80", "100", "120"]}
+
+  - key: bike.mtb.fat
+    label_de: Fatbike
+    scope: bike
+    parent_key: bike.mtb
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail, full_suspension]}
+        - {key: bike.wheel_size, values: ["26", "27_5", "29"]}
+        - {key: bike.axle_standard_rear, values: [12x177_fat, 12x197_fat]}
+
+  - key: bike.mtb.trial
+    label_de: Trial
+    scope: bike
+    parent_key: bike.mtb
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid]}
+        - {key: bike.wheel_size, values: ["20", "24", "26"]}
+
+  - key: bike.bmx
+    label_de: BMX
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+    slots:
+      - {key: frame, label_de: Rahmen, component_type: bike.frame}
+      - {key: fork, label_de: Gabel, component_type: bike.fork}
+      - {key: wheel_front, label_de: Laufrad vorne, component_type: bike.wheel}
+      - {key: wheel_rear, label_de: Laufrad hinten, component_type: bike.wheel}
+      - {key: tire_front, label_de: Reifen vorne, component_type: bike.tire}
+      - {key: tire_rear, label_de: Reifen hinten, component_type: bike.tire}
+      - {key: handlebar, label_de: Lenker, component_type: bike.handlebar}
+      - {key: saddle, label_de: Sattel, component_type: bike.saddle}
+      - {key: pedals, label_de: Pedale, component_type: bike.pedals, optional: true}
+
+  - key: bike.bmx.race
+    label_de: BMX Race
+    scope: bike
+    parent_key: bike.bmx
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid]}
+        - {key: bike.wheel_size, values: ["20", "24"]}
+
+  - key: bike.bmx.freestyle
+    label_de: BMX Freestyle
+    scope: bike
+    parent_key: bike.bmx
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid]}
+        - {key: bike.wheel_size, values: ["20"]}
+
+  - key: bike.bmx.dirt
+    label_de: BMX Dirt
+    scope: bike
+    parent_key: bike.bmx
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail]}
+        - {key: bike.wheel_size, values: ["20", "24", "26"]}
+
+  - key: bike.bmx.flatland
+    label_de: BMX Flatland
+    scope: bike
+    parent_key: bike.bmx
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid]}
+        - {key: bike.wheel_size, values: ["20"]}
+
+  - key: bike.gravel
+    label_de: Gravelbike
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+    slots:
+      - {key: frame, label_de: Rahmen, component_type: bike.frame}
+      - {key: fork, label_de: Gabel, component_type: bike.fork}
+      - {key: brake_front, label_de: Bremse vorne, component_type: bike.brake}
+      - {key: brake_rear, label_de: Bremse hinten, component_type: bike.brake}
+      - {key: wheel_front, label_de: Laufrad vorne, component_type: bike.wheel}
+      - {key: wheel_rear, label_de: Laufrad hinten, component_type: bike.wheel}
+      - {key: tire_front, label_de: Reifen vorne, component_type: bike.tire}
+      - {key: tire_rear, label_de: Reifen hinten, component_type: bike.tire}
+      - {key: drivetrain, label_de: Antrieb, component_type: bike.cassette}
+      - {key: handlebar, label_de: Lenker, component_type: bike.handlebar}
+      - {key: saddle, label_de: Sattel, component_type: bike.saddle}
+
+  - key: bike.gravel.gravelbike
+    label_de: Gravelbike
+    scope: bike
+    parent_key: bike.gravel
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail]}
+        - {key: bike.wheel_size, values: ["28", "27_5"]}
+        - {key: bike.handlebar_type, values: [drop]}
+        - {key: bike.fork_travel_mm, values: ["20", "30", "40", "50", "60"]}
+
+  - key: bike.gravel.cyclocross
+    label_de: Cyclocross
+    scope: bike
+    parent_key: bike.gravel
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid]}
+        - {key: bike.wheel_size, values: ["28"]}
+        - {key: bike.handlebar_type, values: [drop]}
+        - {key: bike.brake_type, values: [disc, cantilever]}
+
+  - key: bike.city
+    label_de: Stadtrad
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+    slots:
+      - {key: frame, label_de: Rahmen, component_type: bike.frame}
+      - {key: fork, label_de: Gabel, component_type: bike.fork}
+      - {key: brake_front, label_de: Bremse vorne, component_type: bike.brake}
+      - {key: brake_rear, label_de: Bremse hinten, component_type: bike.brake}
+      - {key: wheel_front, label_de: Laufrad vorne, component_type: bike.wheel}
+      - {key: wheel_rear, label_de: Laufrad hinten, component_type: bike.wheel}
+      - {key: tire_front, label_de: Reifen vorne, component_type: bike.tire}
+      - {key: tire_rear, label_de: Reifen hinten, component_type: bike.tire}
+      - {key: saddle, label_de: Sattel, component_type: bike.saddle}
+      - {key: rack, label_de: Gepäckträger, component_type: bike.rack, optional: true}
+      - {key: fenders, label_de: Schutzbleche, component_type: bike.fenders, optional: true}
+      - {key: kickstand, label_de: Ständer, component_type: bike.kickstand, optional: true}
+
+  - key: bike.city.citybike
+    label_de: Citybike
+    scope: bike
+    parent_key: bike.city
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail]}
+        - {key: bike.wheel_size, values: ["28", "26", "27_5"]}
+        - {key: bike.handlebar_type, values: [flat, trekking_multi_position]}
+
+  - key: bike.city.dutch
+    label_de: Hollandrad
+    scope: bike
+    parent_key: bike.city
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid]}
+        - {key: bike.wheel_size, values: ["28", "26"]}
+        - {key: bike.drivetrain_type, values: [hub_gear, singlespeed, chain_derailleur]}
+        - {key: bike.handlebar_type, values: [cruiser, trekking_multi_position]}
+
+  - key: bike.city.urban
+    label_de: Urban Bike
+    scope: bike
+    parent_key: bike.city
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail]}
+        - {key: bike.wheel_size, values: ["28", "26", "27_5"]}
+        - {key: bike.handlebar_type, values: [flat, riser]}
+
+  - key: bike.city.fitness
+    label_de: Fitnessbike
+    scope: bike
+    parent_key: bike.city
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid]}
+        - {key: bike.wheel_size, values: ["28", "26"]}
+        - {key: bike.handlebar_type, values: [flat, trekking_multi_position]}
+
+  - key: bike.city.folding
+    label_de: Klapprad
+    scope: bike
+    parent_key: bike.city
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail]}
+        - {key: bike.wheel_size, values: ["16", "20", "24"]}
+        - {key: bike.fork_travel_mm, values: ["20", "30", "40"]}
+
+  - key: bike.city.cruiser
+    label_de: Cruiser
+    scope: bike
+    parent_key: bike.city
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail]}
+        - {key: bike.wheel_size, values: ["28", "26", "27_5"]}
+        - {key: bike.handlebar_type, values: [cruiser]}
+
+  - key: bike.trekking
+    label_de: Trekkingbike
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+
+  - key: bike.trekking.trekking
+    label_de: Trekking
+    scope: bike
+    parent_key: bike.trekking
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail]}
+        - {key: bike.wheel_size, values: ["28", "29", "26"]}
+        - {key: bike.fork_travel_mm, values: ["40", "50", "60", "80", "100"]}
+        - {key: bike.handlebar_type, values: [trekking_multi_position, flat]}
+
+  - key: bike.trekking.expedition
+    label_de: Reiserad (Expedition)
+    scope: bike
+    parent_key: bike.trekking
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail]}
+        - {key: bike.wheel_size, values: ["28", "29", "26"]}
+        - {key: bike.fork_travel_mm, values: ["40", "50", "60", "80", "100"]}
+        - {key: bike.handlebar_type, values: [trekking_multi_position, drop, flat]}
+
+  - key: bike.cargo
+    label_de: Lastenrad
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+
+  - key: bike.cargo.long_john
+    label_de: Long John
+    scope: bike
+    parent_key: bike.cargo
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail, full_suspension]}
+        - {key: bike.wheel_size, values: ["20", "24", "26", "27_5", "28"]}
+
+  - key: bike.cargo.longtail
+    label_de: Longtail
+    scope: bike
+    parent_key: bike.cargo
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail, full_suspension]}
+        - {key: bike.wheel_size, values: ["26", "27_5", "28", "29"]}
+
+  - key: bike.cargo.backpacker
+    label_de: Backpacker
+    scope: bike
+    parent_key: bike.cargo
+    default_assignment_role_key: primary
+    recommended:
+      attributes:
+        - {key: bike.frame_design, values: [rigid, hardtail]}
+        - {key: bike.wheel_size, values: ["26", "27_5", "28", "29"]}
+
+  - key: bike.tandem
+    label_de: Tandem
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+
+  - key: bike.recumbent
+    label_de: Liegerad
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+
+  - key: bike.unicycle
+    label_de: Einrad
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+
+  - key: bike.tricycle
+    label_de: Dreirad
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+
+  - key: bike.kids
+    label_de: Kinder-/Jugendrad
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+
+  - key: bike.balance
+    label_de: Laufrad
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+
+  - key: bike.indoor
+    label_de: Indoor-Bike
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+
+  - key: bike.indoor.home_trainer
+    label_de: Heimtrainer
+    scope: bike
+    parent_key: bike.indoor
+    default_assignment_role_key: primary
+
+  - key: bike.indoor.spinning
+    label_de: Spinning
+    scope: bike
+    parent_key: bike.indoor
+    default_assignment_role_key: primary
+
+  - key: bike.indoor.ergometer
+    label_de: Ergometer
+    scope: bike
+    parent_key: bike.indoor
+    default_assignment_role_key: primary
+
+  - key: bike.handcycle
+    label_de: Handbike
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: primary
+
+  # ---- Helmet (sport-orthogonal, single type) ----
+  - key: helmet
+    label_de: Helm
+    scope: other
+    default_assignment_role_key: worn
+    attribute_keys:
+      - helmet.subcategory
+      - helmet.safety_standard
+
+  # ---- Goggles (sport-orthogonal, single type) ----
+  - key: goggles
+    label_de: Brille/Goggle
+    scope: other
+    default_assignment_role_key: worn
+    attribute_keys:
+      - goggles.subcategory
+
+  # ---- Shoes hierarchy ----
+  - key: shoes
+    label_de: Schuhe
+    scope: shoes
+    default_assignment_role_key: worn
+
+  - key: shoes.cycling
+    label_de: Radschuhe
+    scope: shoes
+    parent_key: shoes
+    default_assignment_role_key: worn
+
+  - key: shoes.cycling.road
+    label_de: Rennradschuhe
+    scope: shoes
+    parent_key: shoes.cycling
+    default_assignment_role_key: worn
+
+  - key: shoes.cycling.mtb
+    label_de: MTB-Schuhe
+    scope: shoes
+    parent_key: shoes.cycling
+    default_assignment_role_key: worn
+
+  - key: shoes.cycling.gravel
+    label_de: Gravel-Schuhe
+    scope: shoes
+    parent_key: shoes.cycling
+    default_assignment_role_key: worn
+
+  - key: shoes.cycling.indoor
+    label_de: Indoor-Radschuhe
+    scope: shoes
+    parent_key: shoes.cycling
+    default_assignment_role_key: worn
+
+  - key: shoes.running
+    label_de: Laufschuhe
+    scope: shoes
+    parent_key: shoes
+    default_assignment_role_key: worn
+
+  - key: shoes.running.road
+    label_de: Straßenlaufschuhe
+    scope: shoes
+    parent_key: shoes.running
+    default_assignment_role_key: worn
+
+  - key: shoes.running.trail
+    label_de: Trailrunning-Schuhe
+    scope: shoes
+    parent_key: shoes.running
+    default_assignment_role_key: worn
+
+  - key: shoes.hiking
+    label_de: Wanderschuhe
+    scope: shoes
+    parent_key: shoes
+    default_assignment_role_key: worn
+
+  - key: shoes.mountaineering
+    label_de: Bergschuhe
+    scope: shoes
+    parent_key: shoes
+    default_assignment_role_key: worn
+
+  - key: shoes.training
+    label_de: Trainingsschuhe
+    scope: shoes
+    parent_key: shoes
+    default_assignment_role_key: worn
+
+  - key: shoes.casual
+    label_de: Sneaker
+    scope: shoes
+    parent_key: shoes
+    default_assignment_role_key: worn
+
+  - key: shoes.soccer
+    label_de: Fußballschuhe
+    scope: shoes
+    parent_key: shoes
+    default_assignment_role_key: worn
+
+  - key: shoes.climbing
+    label_de: Kletterschuhe
+    scope: shoes
+    parent_key: shoes
+    default_assignment_role_key: worn
+
+  - key: shoes.ski
+    label_de: Skischuhe
+    scope: shoes
+    parent_key: shoes
+    default_assignment_role_key: worn
+
+  # ---- Consumables ----
+  - key: bike.consumable.chain_lube
+    label_de: Kettenschmiermittel
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: consumable
+
+  - key: bike.consumable.brake_pads
+    label_de: Bremsbeläge
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: consumable
+
+  - key: bike.consumable.tire_sealant
+    label_de: Reifendichtmilch
+    scope: bike
+    parent_key: bike
+    default_assignment_role_key: consumable
+
+  # ---- Winter ----
+  - key: ski
+    label_de: Ski
+    scope: winter
+    default_assignment_role_key: primary
+
+  - key: ski_poles
+    label_de: Skistöcke
+    scope: winter
+    default_assignment_role_key: carried
+
+  - key: ski_boots
+    label_de: Skischuhe
+    scope: winter
+    default_assignment_role_key: worn
+
+  - key: snowboard
+    label_de: Snowboard
+    scope: winter
+    default_assignment_role_key: primary
+
+  - key: snowboard_boots
+    label_de: Snowboard-Boots
+    scope: winter
+    default_assignment_role_key: worn
+
+  - key: snowshoes
+    label_de: Schneeschuhe
+    scope: winter
+    default_assignment_role_key: primary
+
+  - key: ice_skates
+    label_de: Schlittschuhe
+    scope: winter
+    default_assignment_role_key: primary
+
+  - key: sled
+    label_de: Schlitten
+    scope: winter
+    default_assignment_role_key: primary
+
+  # ---- Water ----
+  - key: paddle
+    label_de: Paddel
+    scope: water
+    default_assignment_role_key: primary
+
+  - key: watercraft
+    label_de: Wassersportgerät
+    scope: water
+    default_assignment_role_key: primary
+
+  - key: watercraft.sup_board
+    label_de: SUP-Board
+    scope: water
+    parent_key: watercraft
+    default_assignment_role_key: primary
+
+  - key: watercraft.surfboard
+    label_de: Surfboard
+    scope: water
+    parent_key: watercraft
+    default_assignment_role_key: primary
+
+  - key: watercraft.wakeboard
+    label_de: Wakeboard
+    scope: water
+    parent_key: watercraft
+    default_assignment_role_key: primary
+
+  - key: watercraft.kiteboard
+    label_de: Kiteboard
+    scope: water
+    parent_key: watercraft
+    default_assignment_role_key: primary
+
+  - key: watercraft.windsurf_board
+    label_de: Windsurf-Board
+    scope: water
+    parent_key: watercraft
+    default_assignment_role_key: primary
+
+  - key: watercraft.kayak
+    label_de: Kajak
+    scope: water
+    parent_key: watercraft
+    default_assignment_role_key: primary
+
+  - key: watercraft.canoe
+    label_de: Kanu
+    scope: water
+    parent_key: watercraft
+    default_assignment_role_key: primary
+
+  - key: watercraft.rowing_boat
+    label_de: Ruderboot
+    scope: water
+    parent_key: watercraft
+    default_assignment_role_key: primary
+
+  - key: watercraft.raft
+    label_de: Raft
+    scope: water
+    parent_key: watercraft
+    default_assignment_role_key: primary
+
+  - key: watercraft.sailboat
+    label_de: Segelboot
+    scope: water
+    parent_key: watercraft
+    default_assignment_role_key: primary
+
+  - key: watercraft.boat
+    label_de: Boot
+    scope: water
+    parent_key: watercraft
+    default_assignment_role_key: primary
+
+  - key: water_ski
+    label_de: Wasserski
+    scope: water
+    default_assignment_role_key: primary
+
+  - key: fishing_gear
+    label_de: Angelausrüstung
+    scope: water
+    default_assignment_role_key: carried
+
+  # ---- Diving ----
+  - key: dive_computer
+    label_de: Tauchcomputer
+    scope: diving
+    default_assignment_role_key: additional
+
+  - key: dive_tank
+    label_de: Druckluftflasche
+    scope: diving
+    default_assignment_role_key: additional
+    attribute_keys: [dive.gas, volume, dive.working_pressure_bar, material, serial_number]
+
+  - key: regulator
+    label_de: Atemregler
+    scope: diving
+    default_assignment_role_key: additional
+
+  - key: dive_mask
+    label_de: Tauchmaske
+    scope: diving
+    default_assignment_role_key: worn
+
+  - key: snorkel
+    label_de: Schnorchel
+    scope: diving
+    default_assignment_role_key: worn
+
+  - key: buoyancy_compensator
+    label_de: Tarierweste
+    scope: diving
+    default_assignment_role_key: worn
+
+  - key: wetsuit
+    label_de: Neoprenanzug
+    scope: diving
+    default_assignment_role_key: worn
+
+  - key: drysuit
+    label_de: Trockentauchanzug
+    scope: diving
+    default_assignment_role_key: worn
+
+  - key: dive_weights
+    label_de: Blei
+    scope: diving
+    default_assignment_role_key: carried
+
+  - key: fins
+    label_de: Flossen
+    scope: diving
+    default_assignment_role_key: worn
+
+  # ---- Climb ----
+  # Legacy stub key retained for backward-compatibility with gear items created before Phase 9.
+  - key: climbing_harness
+    label_de: Klettergurt
+    scope: climb
+    default_assignment_role_key: worn
+
+  - key: climb.harness
+    label_de: Klettergurt
+    scope: climb
+    default_assignment_role_key: worn
+    attribute_keys:
+      - climb.harness_size
+    modifier_keys:
+      - is_indoor
+
+  - key: climb.rope
+    label_de: Kletterseil
+    scope: climb
+    default_assignment_role_key: additional
+    attribute_keys:
+      - climb.rope_length_m
+    modifier_keys:
+      - is_indoor
+
+  - key: climb.crampons
+    label_de: Steigeisen
+    scope: climb
+    default_assignment_role_key: worn
+
+  - key: climb.ice_axe
+    label_de: Eispickel
+    scope: climb
+    default_assignment_role_key: carried
+
+  - key: climb.belay_device
+    label_de: Sicherungsgerät
+    scope: climb
+    default_assignment_role_key: additional
+    modifier_keys:
+      - is_indoor
+
+  - key: climb.quickdraw
+    label_de: Expressschlinge
+    scope: climb
+    default_assignment_role_key: additional
+    modifier_keys:
+      - is_indoor
+
+  - key: climb.chalkbag
+    label_de: Chalkbag
+    scope: climb
+    default_assignment_role_key: worn
+    modifier_keys:
+      - is_indoor
+
+  - key: climb.crashpad
+    label_de: Crashpad
+    scope: climb
+    default_assignment_role_key: additional
+
+  # ---- Apparel ----
+  # Legacy stub key retained for backward-compatibility with gear items created before Phase 9.
+  - key: apparel
+    label_de: Bekleidung
+    scope: apparel
+    default_assignment_role_key: worn
+
+  - key: apparel.pants
+    label_de: Hose
+    scope: apparel
+    default_assignment_role_key: worn
+    attribute_keys:
+      - apparel.subcategory
+
+  - key: apparel.jersey
+    label_de: Trikot/Shirt
+    scope: apparel
+    default_assignment_role_key: worn
+    attribute_keys:
+      - apparel.subcategory
+
+  - key: apparel.gloves
+    label_de: Handschuhe
+    scope: apparel
+    default_assignment_role_key: worn
+    attribute_keys:
+      - apparel.subcategory
+
+  - key: apparel.socks
+    label_de: Socken
+    scope: apparel
+    default_assignment_role_key: worn
+    attribute_keys:
+      - apparel.subcategory
+
+  - key: apparel.jacket
+    label_de: Jacke
+    scope: apparel
+    default_assignment_role_key: worn
+    attribute_keys:
+      - apparel.subcategory
+
+  - key: apparel.shorts
+    label_de: Shorts
+    scope: apparel
+    default_assignment_role_key: worn
+    attribute_keys:
+      - apparel.subcategory
+
+  # ---- Other ----
+  - key: other
+    label_de: Sonstiges
+    scope: other
+    default_assignment_role_key: additional

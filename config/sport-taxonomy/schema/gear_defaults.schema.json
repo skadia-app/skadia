@@ -13,6 +13,31 @@
         "type": "string",
         "minLength": 1
       }
+    },
+    "applicable_sport_predicates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["gear_type_key", "predicates"],
+        "properties": {
+          "gear_type_key": { "type": "string", "minLength": 1 },
+          "predicates": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["sport_type"],
+              "properties": {
+                "sport_type": { "type": "string", "minLength": 1 },
+                "sub_type":   { "type": "string", "minLength": 1 },
+                "modifiers":  { "type": "object" }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

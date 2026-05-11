@@ -1,1 +1,245 @@
 projection_sources: [strava]
+
+# Default applicable sport predicates per gear type key.
+# Types absent from this list have no taxonomy-driven default (empty slice).
+# apparel.* types are sport-orthogonal; their sport mapping is handled via
+# the subcategory attribute on the frontend side (Phase 8).
+applicable_sport_predicates:
+  - gear_type_key: bike
+    predicates:
+      - {sport_type: cycling}
+  - gear_type_key: bike.balance
+    predicates:
+      - {sport_type: cycling}
+  - gear_type_key: bike.cargo
+    predicates:
+      - {sport_type: cycling}
+  - gear_type_key: bike.city
+    predicates:
+      - {sport_type: cycling}
+  - gear_type_key: bike.consumable.brake_pads
+    predicates:
+      - {sport_type: cycling}
+  - gear_type_key: bike.consumable.chain_lube
+    predicates:
+      - {sport_type: cycling}
+  - gear_type_key: bike.consumable.tire_sealant
+    predicates:
+      - {sport_type: cycling}
+  - gear_type_key: bike.gravel
+    predicates:
+      - {sport_type: cycling, sub_type: gravel_cycling}
+  - gear_type_key: bike.gravel.cyclocross
+    predicates:
+      - {sport_type: cycling, sub_type: gravel_cycling}
+      - {sport_type: cycling, sub_type: cyclocross}
+  - gear_type_key: bike.handcycle
+    predicates:
+      - {sport_type: cycling, sub_type: hand_cycling}
+  - gear_type_key: bike.indoor
+    predicates:
+      - {sport_type: cycling, sub_type: indoor_cycling}
+  - gear_type_key: bike.kids
+    predicates:
+      - {sport_type: cycling}
+  - gear_type_key: bike.mtb
+    predicates:
+      - {sport_type: cycling, sub_type: mountain}
+  - gear_type_key: bike.recumbent
+    predicates:
+      - {sport_type: cycling, sub_type: recumbent}
+  - gear_type_key: bike.road
+    predicates:
+      - {sport_type: cycling, sub_type: road}
+  - gear_type_key: bike.tandem
+    predicates:
+      - {sport_type: cycling}
+  - gear_type_key: bike.trekking
+    predicates:
+      - {sport_type: cycling}
+  - gear_type_key: buoyancy_compensator
+    predicates:
+      - {sport_type: diving}
+  - gear_type_key: climb.belay_device
+    predicates:
+      - {sport_type: rock_climbing}
+  - gear_type_key: climb.chalkbag
+    predicates:
+      - {sport_type: rock_climbing}
+  - gear_type_key: climb.crampons
+    predicates:
+      - {sport_type: rock_climbing}
+      - {sport_type: mountaineering}
+  - gear_type_key: climb.crashpad
+    predicates:
+      - {sport_type: rock_climbing}
+  - gear_type_key: climb.harness
+    predicates:
+      - {sport_type: rock_climbing}
+  - gear_type_key: climb.ice_axe
+    predicates:
+      - {sport_type: mountaineering}
+  - gear_type_key: climb.quickdraw
+    predicates:
+      - {sport_type: rock_climbing}
+  - gear_type_key: climb.rope
+    predicates:
+      - {sport_type: rock_climbing}
+  - gear_type_key: climbing_harness
+    predicates:
+      - {sport_type: rock_climbing}
+  - gear_type_key: dive_computer
+    predicates:
+      - {sport_type: diving}
+  - gear_type_key: dive_mask
+    predicates:
+      - {sport_type: diving}
+      - {sport_type: snorkeling}
+  - gear_type_key: dive_tank
+    predicates:
+      - {sport_type: diving}
+  - gear_type_key: dive_weights
+    predicates:
+      - {sport_type: diving}
+  - gear_type_key: fins
+    predicates:
+      - {sport_type: diving}
+      - {sport_type: snorkeling}
+      - {sport_type: swimming}
+  - gear_type_key: fishing_gear
+    predicates:
+      - {sport_type: fishing}
+  - gear_type_key: goggles
+    predicates:
+      - {sport_type: alpine_skiing}
+      - {sport_type: snowboarding}
+      - {sport_type: cycling}
+      - {sport_type: swimming}
+  - gear_type_key: helmet
+    predicates:
+      - {sport_type: cycling}
+      - {sport_type: alpine_skiing}
+      - {sport_type: snowboarding}
+      - {sport_type: rock_climbing}
+  - gear_type_key: ice_skates
+    predicates:
+      - {sport_type: ice_skating}
+  - gear_type_key: paddle
+    predicates:
+      - {sport_type: kayaking}
+      - {sport_type: canoeing}
+      - {sport_type: stand_up_paddleboarding}
+      - {sport_type: rowing}
+  - gear_type_key: regulator
+    predicates:
+      - {sport_type: diving}
+  - gear_type_key: shoes
+    predicates:
+      - {sport_type: cycling}
+      - {sport_type: running}
+      - {sport_type: hiking}
+  - gear_type_key: shoes.climbing
+    predicates:
+      - {sport_type: rock_climbing}
+  - gear_type_key: shoes.cycling
+    predicates:
+      - {sport_type: cycling}
+  - gear_type_key: shoes.cycling.gravel
+    predicates:
+      - {sport_type: cycling, sub_type: gravel_cycling}
+  - gear_type_key: shoes.hiking
+    predicates:
+      - {sport_type: hiking}
+      - {sport_type: mountaineering}
+  - gear_type_key: shoes.mountaineering
+    predicates:
+      - {sport_type: mountaineering}
+  - gear_type_key: shoes.running
+    predicates:
+      - {sport_type: running}
+  - gear_type_key: shoes.ski
+    predicates:
+      - {sport_type: alpine_skiing}
+      - {sport_type: backcountry_skiing}
+      - {sport_type: cross_country_skiing}
+  - gear_type_key: shoes.soccer
+    predicates:
+      - {sport_type: soccer}
+  - gear_type_key: shoes.training
+    predicates:
+      - {sport_type: training}
+      - {sport_type: strength_training}
+  - gear_type_key: ski
+    predicates:
+      - {sport_type: alpine_skiing}
+      - {sport_type: backcountry_skiing}
+      - {sport_type: cross_country_skiing}
+  - gear_type_key: ski_boots
+    predicates:
+      - {sport_type: skiing}
+      - {sport_type: alpine_skiing}
+      - {sport_type: backcountry_skiing}
+  - gear_type_key: ski_poles
+    predicates:
+      - {sport_type: skiing}
+      - {sport_type: cross_country_skiing}
+      - {sport_type: backcountry_skiing}
+  - gear_type_key: sled
+    predicates:
+      - {sport_type: sledding}
+  - gear_type_key: snorkel
+    predicates:
+      - {sport_type: diving}
+      - {sport_type: snorkeling}
+  - gear_type_key: snowboard
+    predicates:
+      - {sport_type: snowboarding}
+  - gear_type_key: snowboard_boots
+    predicates:
+      - {sport_type: snowboarding}
+  - gear_type_key: snowshoes
+    predicates:
+      - {sport_type: snowshoeing}
+  - gear_type_key: water_ski
+    predicates:
+      - {sport_type: water_skiing}
+  - gear_type_key: watercraft
+    predicates:
+      - {sport_type: kayaking}
+      - {sport_type: rowing}
+      - {sport_type: paddling}
+      - {sport_type: stand_up_paddleboarding}
+  - gear_type_key: watercraft.boat
+    predicates:
+      - {sport_type: boating}
+  - gear_type_key: watercraft.canoe
+    predicates:
+      - {sport_type: canoeing}
+  - gear_type_key: watercraft.kayak
+    predicates:
+      - {sport_type: kayaking}
+  - gear_type_key: watercraft.kiteboard
+    predicates:
+      - {sport_type: kitesurfing}
+  - gear_type_key: watercraft.raft
+    predicates:
+      - {sport_type: rafting}
+  - gear_type_key: watercraft.rowing_boat
+    predicates:
+      - {sport_type: rowing}
+  - gear_type_key: watercraft.sailboat
+    predicates:
+      - {sport_type: sailing}
+  - gear_type_key: watercraft.sup_board
+    predicates:
+      - {sport_type: stand_up_paddleboarding}
+  - gear_type_key: watercraft.surfboard
+    predicates:
+      - {sport_type: surfing}
+  - gear_type_key: watercraft.wakeboard
+    predicates:
+      - {sport_type: wakeboarding}
+      - {sport_type: wakesurfing}
+  - gear_type_key: watercraft.windsurf_board
+    predicates:
+      - {sport_type: windsurfing}

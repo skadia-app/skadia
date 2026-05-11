@@ -68,6 +68,16 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": {"$ref": "https://skadia.local/schema/sport-taxonomy/_subsystems_enum.schema.json#/$defs/subsystemName"}
+        },
+        "recommended_for": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "not_recommended_for": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
         }
       }
     }
