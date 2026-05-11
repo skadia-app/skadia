@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/skadia-app/skadia/services/api/internal/rules"
 	"github.com/skadia-app/skadia/services/api/internal/gear"
+	"github.com/skadia-app/skadia/services/api/internal/rules"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -31,7 +31,7 @@ func normalizeSportTaxonomyImportRow(table string, row map[string]any, targetCol
 			return nil, err
 		}
 	case "gear":
-		if err := normalizeGearImportRow(row); err != nil {
+		if err := normalizeGearImportRow(row, targetCols); err != nil {
 			return nil, err
 		}
 	case "segments":
@@ -92,7 +92,20 @@ func normalizeSingleSportType(row map[string]any, sportKey string) error {
 	return nil
 }
 
-func normalizeGearImportRow(row map[string]any) error {
+func normalizeGearImportRow(row map[string]any, targetCols []targetColumn) error {
+	if targetHasColumn(targetCols, "scope") {
+		rawScope, hasScope := stringValue(row["scope"])
+		if !hasScope || strings.TrimSpace(rawScope) == "" {
+			scope := "other"
+			if typeKey, ok := stringValue(row["type"]); ok {
+				if gt, found := gear.LookupGearType(strings.TrimSpace(typeKey)); found && gt.Scope != "" {
+					scope = gt.Scope
+				}
+			}
+			row["scope"] = scope
+		}
+	}
+
 	rawPredicateValue, ok := row["default_sport_predicates"]
 	if !ok {
 		return nil

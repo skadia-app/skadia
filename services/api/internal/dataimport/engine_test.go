@@ -1258,7 +1258,7 @@ func TestJSONBRoundtrip(t *testing.T) {
 	actions := []any{
 		map[string]any{"type": "add_tag", "params": map[string]any{"tag_id": uuid.New().String()}},
 	}
-	conditions := map[string]any{"sport_type": "running"}
+	conditions := []any{map[string]any{"field": "sport_type", "op": "eq", "value": "running"}}
 
 	zipPath := buildExportZip(t, zipBuildOpts{
 		columns: map[string][]string{
@@ -1353,7 +1353,7 @@ func TestJSONBRemapping(t *testing.T) {
 					"name":       "JSONB Remap Rule",
 					"is_active":  true,
 					"priority":   1,
-					"conditions": map[string]any{},
+					"conditions": []any{},
 					"actions":    actions,
 				},
 			}),
@@ -1827,7 +1827,6 @@ func TestDeferredFKGearDocument(t *testing.T) {
 		t.Errorf("gear.source_document_id %q does not reference an existing gear_documents row", *srcDocID)
 	}
 }
-
 
 // ---------------------------------------------------------------------------
 // Test 20: TestDeferredFKTagCoverFile
@@ -2743,7 +2742,7 @@ func TestJSONBRemapNullColumn(t *testing.T) {
 					"name":       "NullConditionGroups",
 					"is_active":  true,
 					"priority":   1,
-					"conditions": map[string]any{},
+					"conditions": []any{},
 					"actions":    []map[string]any{{"type": "add_tag", "params": map[string]any{"tag_id": tagOldID}}},
 					// condition_groups intentionally absent → DB default NULL
 				},
@@ -2813,7 +2812,7 @@ func TestJSONBRemapPreservesNullWhenSiblingColumnChanges(t *testing.T) {
 					"name":             "NullSiblingColumn",
 					"is_active":        true,
 					"priority":         1,
-					"conditions":       map[string]any{},
+					"conditions":       []any{},
 					"condition_groups": nil,
 					"actions":          []map[string]any{{"type": "add_tag", "params": map[string]any{"tag_id": tagOldID}}},
 				},
@@ -3129,7 +3128,7 @@ func TestJSONBRemapMissingEntity(t *testing.T) {
 					"name":       "MissingGearRule",
 					"is_active":  true,
 					"priority":   1,
-					"conditions": map[string]any{},
+					"conditions": []any{},
 					"actions": []any{
 						map[string]any{
 							"type":   "set_gear",

@@ -36,15 +36,15 @@ func TestFusionMembershipsImport(t *testing.T) {
 
 	makeActivity := func(id, title string) map[string]any {
 		return map[string]any{
-			"id":          id,
-			"user_id":     srcUserID,
-			"sport_type":  "cycling",
-			"started_at":  now.Format(time.RFC3339),
-			"ended_at":    now.Add(time.Hour).Format(time.RFC3339),
-			"title":       title,
-			"visibility":  "private",
-			"created_at":  now.Format(time.RFC3339),
-			"updated_at":  now.Format(time.RFC3339),
+			"id":         id,
+			"user_id":    srcUserID,
+			"sport_type": "cycling",
+			"started_at": now.Format(time.RFC3339),
+			"ended_at":   now.Add(time.Hour).Format(time.RFC3339),
+			"title":      title,
+			"visibility": "private",
+			"created_at": now.Format(time.RFC3339),
+			"updated_at": now.Format(time.RFC3339),
 		}
 	}
 
@@ -108,7 +108,8 @@ func TestFusionMembershipsImport(t *testing.T) {
 		`SELECT COUNT(*) FROM activity_fusion_memberships afm
 		 JOIN activities merged ON merged.id = afm.merged_id
 		 JOIN activities source ON source.id = afm.source_id
-		 WHERE merged.user_id != $1 OR source.user_id != $1`,
+		 WHERE afm.user_id = $1
+		   AND (merged.user_id != $1 OR source.user_id != $1)`,
 		userID).Scan(&badCount); err != nil {
 		t.Fatalf("cross-user check: %v", err)
 	}
@@ -251,8 +252,8 @@ func TestDeriveFromLegacyFusionSources_ConcreteUUIDs(t *testing.T) {
 	sourcePower := uuid.New().String()
 
 	importedIDs := map[string]bool{
-		mergedID:   true,
-		sourceGPS:  true,
+		mergedID:    true,
+		sourceGPS:   true,
 		sourcePower: true,
 	}
 
@@ -467,7 +468,8 @@ func TestImport_VOldFusionPath(t *testing.T) {
 		`SELECT COUNT(*) FROM activity_fusion_memberships afm
 		 JOIN activities merged ON merged.id = afm.merged_id
 		 JOIN activities source ON source.id = afm.source_id
-		 WHERE merged.user_id != $1 OR source.user_id != $1`,
+		 WHERE afm.user_id = $1
+		   AND (merged.user_id != $1 OR source.user_id != $1)`,
 		userID).Scan(&badCount); err != nil {
 		t.Fatalf("cross-user check: %v", err)
 	}
