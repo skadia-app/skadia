@@ -91,11 +91,6 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 	items := wrapper[0].GearDTOS
 	total := len(items)
 
-	var batchIDPtr *string
-	if params.JobID != "" {
-		batchIDPtr = &params.JobID
-	}
-
 	for i, dto := range items {
 		if params.OnProgress != nil {
 			params.OnProgress(i+1, total, "gear: "+dto.CustomMakeModel)
@@ -103,9 +98,6 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 
 		create := gearCreateFromGarminDTO(dto, defaultSports)
 		gearName := create.Name
-
-		tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", gearName, nil, batchIDPtr, model.ImportTypeGear)
-		tracker.Processing(ctx)
 
 		status := "active"
 		if strings.EqualFold(dto.GearStatusName, "RETIRED") || strings.EqualFold(dto.GearStatusName, "NOT_ACTIVE") {
@@ -124,7 +116,6 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 		}
 		if exists {
 			result.Skipped++
-			tracker.Skipped(ctx, "duplicate", nil)
 			continue
 		}
 
@@ -132,7 +123,6 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 		if err != nil {
 			slog.Warn("garmin gear: create gear failed", "name", gearName, "error", err)
 			result.Errors = append(result.Errors, "create gear "+gearName+": "+err.Error())
-			tracker.Error(ctx, err)
 			continue
 		}
 
@@ -148,7 +138,6 @@ func (g *GearImporter) Import(ctx context.Context, params ImportParams) (*Import
 			}
 		}
 
-		tracker.Completed(ctx, "")
 		result.Imported++
 	}
 
@@ -165,12 +154,18 @@ func gearCreateFromGarminDTO(dto garminGearDTO, defaultSports map[string]garminG
 	if dto.DateBegin != "" {
 		purchasedAt = &dto.DateBegin
 	}
+	// garminDefaultPredicatesForDTO returns nil when no defaults are known for
+	// this device — nil maps to "field not sent, compute from taxonomy".
+	preds := garminDefaultPredicatesForDTO(dto, defaultSports)
+	var applicablePredicates *[]gear.GearDefaultPredicate
+	if preds != nil {
+		applicablePredicates = &preds
+	}
 	return &model.GearCreate{
-		Name:                   gearName,
-		Type:                   mapGearType(dto.GearTypeName),
-		PurchasedAt:            purchasedAt,
-		DefaultForSports:       garminDefaultSportsForDTO(dto, defaultSports),
-		DefaultSportPredicates: garminDefaultPredicatesForDTO(dto, defaultSports),
+		Name:                     gearName,
+		Type:                     mapGearType(dto.GearTypeName),
+		PurchasedAt:              purchasedAt,
+		ApplicableSportPredicates: applicablePredicates,
 	}
 }
 

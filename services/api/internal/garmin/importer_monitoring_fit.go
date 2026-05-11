@@ -105,7 +105,7 @@ func importMonitoringFITs(ctx context.Context, params ImportParams) (imported in
 			if params.JobID != "" {
 				batchIDPtr = &params.JobID
 			}
-			tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", f.Name, &fileSize, batchIDPtr, ImportTypeForFITType(ftype))
+			tracker := params.DB.NewImportTracker(ctx, params.UserID, "garmin", f.Name, &fileSize, batchIDPtr)
 			tracker.Processing(ctx)
 			hashArr := sha256.Sum256(data)
 			tracker.SetFileHash(ctx, hex.EncodeToString(hashArr[:]))
@@ -644,34 +644,4 @@ func (m *MonitoringFITImporter) Detect(src ExportSource) (bool, int, error) {
 func (m *MonitoringFITImporter) Import(ctx context.Context, params ImportParams) (*ImportResult, error) {
 	imported, errs := importMonitoringFITs(ctx, params)
 	return &ImportResult{Imported: imported, Errors: errs}, nil
-}
-
-// ImportTypeForFITType maps a FIT file_id type code to the corresponding
-// import_log import_type value. Used by callers of RouteFITByType (upload,
-// hotfolder, import_url) to refine the tracker's type after the actual FIT
-// type is known. Unknown / non-routed types fall back to "monitoring" with
-// a warning so future FIT types surface in logs.
-func ImportTypeForFITType(ftype uint8) string {
-	switch ftype {
-	case fitFileTypeActivity:
-		return "activity"
-	case fitFileTypeWorkout:
-		return "workout"
-	case fitFileTypeCourse:
-		return "route"
-	case fitFileTypeSegment:
-		return "segment"
-	// Sport profile FITs (type 3) are intentionally bucketed as "monitoring" to match
-	// Garmin Connect export grouping — they are config blobs, not measurement data,
-	// but the user-facing import history groups them with health uploads.
-	case fitFileTypeWeight,
-		fitFileTypeMonitoringA, fitFileTypeMonitoringDaily, fitFileTypeMonitoringB,
-		fitFileTypeSleep, fitFileTypeSpO2, fitFileTypeMonitorMain,
-		fitFileTypeHRVNight, fitFileTypeSport:
-		return "monitoring"
-	default:
-		slog.Warn("ImportTypeForFITType: unknown FIT type, falling back to monitoring",
-			"ftype", ftype)
-		return "monitoring"
-	}
 }
