@@ -14,4 +14,3 @@ package enrichment
 // activities across a long time window where settings may change, and the
 // additional round-trips against a local Postgres instance are negligible
 // compared to the PostGIS snap pipeline work.
-

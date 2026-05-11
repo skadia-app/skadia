@@ -55,4 +55,3 @@ func Haversine(lat1, lon1, lat2, lon2 float64) float64 {
 		math.Cos(phi1)*math.Cos(phi2)*math.Sin(dlam/2)*math.Sin(dlam/2)
 	return 2 * R * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 }
-
