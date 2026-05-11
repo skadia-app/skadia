@@ -462,8 +462,9 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := h.DB.RecalculateActivityLifts(r.Context(), userID, activityID); err != nil {
-		_ = h.DB.CompleteBackgroundJob(r.Context(), jobID, true, err.Error())
+	jobCtx := context.Background()
+	if err := h.DB.RecalculateActivityLifts(jobCtx, userID, activityID); err != nil {
+		_ = h.DB.CompleteBackgroundJob(jobCtx, jobID, true, err.Error())
 		if errors.Is(err, pgx.ErrNoRows) {
 			httputil.WriteError(w, http.StatusNotFound, "Not Found", "activity not found", r.URL.Path)
 			return

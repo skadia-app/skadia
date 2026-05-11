@@ -479,6 +479,118 @@ func TestRecalculateActivityLifts_JobInsertFailureDoesNotReset(t *testing.T) {
 	}
 }
 
+func TestRecalculateActivityLifts_RequestCancelAfterJobInsertDoesNotStrandJob(t *testing.T) {
+	h, db := liftDetectionConfigSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	insertHeuristicUnconfirmed(t, db, activityID, now)
+
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "_")
+	funcName := "sleep_lift_recompute_activity_update_" + suffix
+	triggerName := "sleep_lift_recompute_activity_update_trg_" + suffix
+	notifyFuncName := "notify_lift_recompute_insert_" + suffix
+	notifyTriggerName := "notify_lift_recompute_insert_trg_" + suffix
+	notifyChannel := "lift_recompute_insert_" + suffix
+	if _, err := db.Pool.Exec(context.Background(), fmt.Sprintf(`
+		CREATE FUNCTION public.%s()
+		RETURNS trigger
+		LANGUAGE plpgsql
+		AS $$
+		BEGIN
+			PERFORM pg_sleep(0.25);
+			RETURN NEW;
+		END;
+		$$;
+		CREATE TRIGGER %s
+		BEFORE UPDATE OF lifts_acknowledged_at ON activities
+		FOR EACH ROW
+		EXECUTE FUNCTION public.%s();
+		CREATE FUNCTION public.%s()
+		RETURNS trigger
+		LANGUAGE plpgsql
+		AS $$
+		BEGIN
+			PERFORM pg_notify('%s', NEW.id::text);
+			RETURN NEW;
+		END;
+		$$;
+		CREATE TRIGGER %s
+		AFTER INSERT ON background_jobs
+		FOR EACH ROW
+		WHEN (NEW.job_type = 'lift_recompute')
+		EXECUTE FUNCTION public.%s();
+	`, funcName, triggerName, funcName, notifyFuncName, notifyChannel, notifyTriggerName, notifyFuncName)); err != nil {
+		t.Fatalf("install recalculate test triggers: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), fmt.Sprintf(`
+			DROP TRIGGER IF EXISTS %s ON activities;
+			DROP FUNCTION IF EXISTS public.%s();
+			DROP TRIGGER IF EXISTS %s ON background_jobs;
+			DROP FUNCTION IF EXISTS public.%s();
+		`, triggerName, funcName, notifyTriggerName, notifyFuncName))
+	})
+	listenConn, err := db.Pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("acquire listen conn: %v", err)
+	}
+	defer listenConn.Release()
+	if _, err := listenConn.Exec(context.Background(), `LISTEN `+notifyChannel); err != nil {
+		t.Fatalf("listen for job insert: %v", err)
+	}
+
+	r := chi.NewRouter()
+	r.Post("/api/v1/activities/{id}/lifts/recalculate-all", h.RecalculateActivityLifts)
+	reqCtx, cancelReq := context.WithCancel(context.Background())
+	reqCtx = context.WithValue(reqCtx, middleware.UserIDKey, userID)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/activities/"+activityID+"/lifts/recalculate-all", nil)
+	req = req.WithContext(reqCtx)
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.ServeHTTP(rec, req)
+	}()
+
+	notifyCtx, cancelNotify := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelNotify()
+	notification, err := listenConn.Conn().WaitForNotification(notifyCtx)
+	if err != nil {
+		select {
+		case <-done:
+			t.Fatalf("handler returned before lift_recompute job insert notification; status=%d body=%s", rec.Code, rec.Body.String())
+		default:
+		}
+		t.Fatalf("timed out waiting for lift_recompute job insert notification: %v", err)
+	}
+	jobID := notification.Payload
+	cancelReq()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("handler did not finish after request cancellation")
+	}
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d, want 204; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var status string
+	for i := 0; i < 100; i++ {
+		if err := db.Pool.QueryRow(context.Background(),
+			`SELECT status FROM background_jobs WHERE id = $1`, jobID).Scan(&status); err != nil {
+			t.Fatalf("query job status: %v", err)
+		}
+		if status != "running" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("lift_recompute job remained %q after request cancellation", status)
+}
+
 func TestDispatchLiftReEnrichmentBackground_SettingsErrorPropagates(t *testing.T) {
 	h, db := liftDetectionConfigSetup(t)
 	userID := insertTestUser(t, db.Pool)

@@ -288,6 +288,7 @@ export default function LiftInspectorMap({
   // see the latest data even when Effect 1 runs only once.
   const continuousTrackCoordsRef = useRef<[number, number][]>([])
   const gapBridgesRef = useRef<[number, number][][]>([])
+  const lastFitTrackKeyRef = useRef<string | null>(null)
   const { base } = useMapLayers()
   const { data: caps } = useCapabilities()
   const { theme } = useTheme()
@@ -321,8 +322,11 @@ export default function LiftInspectorMap({
 
   const baseLayer = selectedBaseLayer ?? base[0]
 
-  const gpsStreams = streams.filter(
-    (s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null,
+  const gpsStreams = useMemo(
+    () => streams.filter(
+      (s): s is StreamPoint & { lat: number; lng: number } => s.lat != null && s.lng != null,
+    ),
+    [streams],
   )
   const hasStream = gpsStreams.length >= 2
 
@@ -333,6 +337,12 @@ export default function LiftInspectorMap({
     () => gpsStreams.map(s => [s.lng, s.lat] as [number, number]),
     [gpsStreams],
   )
+  const trackBoundsKey = useMemo(() => {
+    if (continuousTrackCoords.length < 2) return ''
+    const first = continuousTrackCoords[0]
+    const last = continuousTrackCoords[continuousTrackCoords.length - 1]
+    return `${continuousTrackCoords.length}:${first[0]},${first[1]}:${last[0]},${last[1]}`
+  }, [continuousTrackCoords])
 
   // Fix 5b — Keep splitTrackAtGaps for gap-bridge computation.
   // The bridge for each adjacent segment pair is the two-point line
@@ -527,12 +537,13 @@ export default function LiftInspectorMap({
       geometry: { type: 'MultiLineString', coordinates: gapBridges },
       properties: {},
     })
-    if (continuousTrackCoords.length >= 2) {
+    if (continuousTrackCoords.length >= 2 && trackBoundsKey && lastFitTrackKeyRef.current !== trackBoundsKey) {
       const bounds = new maplibregl.LngLatBounds()
       for (const coord of continuousTrackCoords) bounds.extend(coord)
       m.fitBounds(bounds, { padding: 40, maxZoom: 16, animate: false })
+      lastFitTrackKeyRef.current = trackBoundsKey
     }
-  }, [continuousTrackCoords, gapBridges, mapReady])
+  }, [continuousTrackCoords, gapBridges, mapReady, trackBoundsKey])
 
   // A. Style-switch effect — triggers when the user changes the base-layer via
   // the picker. The map is initially created with `baseLayer` already selected;

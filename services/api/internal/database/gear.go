@@ -2173,23 +2173,23 @@ func (db *DB) updateComponentUsageStatsOwnerVerifiedOn(ctx context.Context, q Qu
 			SELECT
 					gc.id AS component_id,
 					ca.id AS assignment_id,
-					COALESCE(SUM(COALESCE(
+					COALESCE(SUM(CASE WHEN a.id IS NULL THEN 0 ELSE COALESCE(
 						aga.distance_m_override,
 						GREATEST(0,
 							COALESCE(a.distance_m, 0) -
 							CASE WHEN a.exclude_lift_subtraction THEN 0
 							     ELSE COALESCE(a.lift_distance_m, 0) END),
-						0)), 0) AS distance_m,
-					COALESCE(SUM(COALESCE(aga.moving_time_s_override, a.moving_time_s, 0)), 0) AS moving_time_s,
-					COALESCE(SUM(COALESCE(a.elapsed_time_s, 0)), 0) AS time_s,
-					COALESCE(SUM(GREATEST(0,
+						0) END), 0) AS distance_m,
+					COALESCE(SUM(CASE WHEN a.id IS NULL THEN 0 ELSE COALESCE(aga.moving_time_s_override, a.moving_time_s, 0) END), 0) AS moving_time_s,
+					COALESCE(SUM(CASE WHEN a.id IS NULL THEN 0 ELSE COALESCE(a.elapsed_time_s, 0) END), 0) AS time_s,
+					COALESCE(SUM(CASE WHEN a.id IS NULL THEN 0 ELSE GREATEST(0,
 						COALESCE(a.elevation_gain_m, 0) -
 						CASE WHEN a.exclude_lift_subtraction THEN 0
-						     ELSE COALESCE(a.lift_ascent_m, 0) END)), 0) AS elevation_gain_m,
-					COALESCE(SUM(GREATEST(0,
+						     ELSE COALESCE(a.lift_ascent_m, 0) END) END), 0) AS elevation_gain_m,
+					COALESCE(SUM(CASE WHEN a.id IS NULL THEN 0 ELSE GREATEST(0,
 						COALESCE(a.elevation_loss_m, 0) -
 						CASE WHEN a.exclude_lift_subtraction THEN 0
-						     ELSE COALESCE(a.lift_descent_m, 0) END)), 0) AS elevation_loss_m,
+						     ELSE COALESCE(a.lift_descent_m, 0) END) END), 0) AS elevation_loss_m,
 					COUNT(a.id) AS activities_count
 				FROM gear_components gc
 			LEFT JOIN component_assignments ca ON ca.component_id = gc.id AND ca.removed_at IS NULL
