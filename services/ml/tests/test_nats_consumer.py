@@ -55,6 +55,8 @@ class _NdArray:
 
 
 _np.ndarray = _NdArray
+_np.bool_ = bool
+_np.isscalar = lambda obj: not isinstance(obj, _NdArray)
 _np.array = lambda *a, **kw: _NdArray()
 _np.arange = lambda *a, **kw: _NdArray()
 _np.cumsum = lambda *a, **kw: _NdArray()

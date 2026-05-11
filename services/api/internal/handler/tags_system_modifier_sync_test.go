@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/go-chi/chi/v5"
@@ -53,6 +54,9 @@ func seedSystemSyncUser(t *testing.T, pool *pgxpool.Pool, db *database.DB, label
 	})
 	if err := db.SeedSystemDefaults(ctx, userID); err != nil {
 		t.Fatalf("SeedSystemDefaults %s: %v", label, err)
+	}
+	if err := automation.EnsureSystemArtifacts(ctx, db, userID); err != nil {
+		t.Fatalf("EnsureSystemArtifacts %s: %v", label, err)
 	}
 	return userID
 }

@@ -1222,13 +1222,17 @@ func (db *DB) refreshActivityGearStatsTx(ctx context.Context, tx pgx.Tx, userID,
 		if err := rows.Scan(&gearID); err != nil {
 			return nil, fmt.Errorf("scan activity gear assignment: %w", err)
 		}
-		if err := db.refreshGearAndDependentUsageStatsOwnerVerifiedOn(ctx, tx, gearID); err != nil {
-			return nil, fmt.Errorf("update gear usage stats (gear_id=%s): %w", gearID, err)
-		}
 		gearIDs = append(gearIDs, gearID)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read activity gear assignments: %w", err)
+	}
+	rows.Close()
+
+	for _, gearID := range gearIDs {
+		if err := db.refreshGearAndDependentUsageStatsOwnerVerifiedOn(ctx, tx, gearID); err != nil {
+			return nil, fmt.Errorf("update gear usage stats (gear_id=%s): %w", gearID, err)
+		}
 	}
 	return gearIDs, nil
 }

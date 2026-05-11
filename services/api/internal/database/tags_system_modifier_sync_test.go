@@ -55,7 +55,22 @@ func seedSyncTestUser(t *testing.T, db *DB, label string) string {
 	if err := db.SeedSystemDefaults(ctx, userID); err != nil {
 		t.Fatalf("SeedSystemDefaults %s: %v", label, err)
 	}
+	seedSystemModifierTagsForTest(t, db, userID)
 	return userID
+}
+
+func seedSystemModifierTagsForTest(t *testing.T, db *DB, userID string) {
+	t.Helper()
+	ctx := context.Background()
+	for _, sync := range systemModifierTagSyncs() {
+		if _, err := db.Pool.Exec(ctx, `
+			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
+			VALUES ($1, $2, $3, '#FFFFFF', 'system', true, false, $4)
+			ON CONFLICT (user_id, name) DO NOTHING`,
+			userID, sync.SystemTagName, sync.Color, sync.Description); err != nil {
+			t.Fatalf("seed system modifier tag %s: %v", sync.SystemTagName, err)
+		}
+	}
 }
 
 func insertSyncTestActivity(t *testing.T, db *DB, userID, sport string) string {

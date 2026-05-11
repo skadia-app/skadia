@@ -27,9 +27,10 @@
 // Gear-stats strategy:
 // RunStreamEnrichment is called with SkipGearRefresh=true so that the
 // per-activity gear-stats refresh inside recomputeLiftStatsTx is suppressed.
-// A single UpdateGearStats call per affected gear runs after all activities
-// are processed. This avoids N redundant per-activity refresh calls while
-// still keeping gear totals consistent.
+// A single gear-usage refresh per affected gear runs after all activities are
+// processed. This avoids N redundant per-activity refresh calls while still
+// keeping gear totals, component usage, chain-rotation usage, and usage rules
+// consistent.
 //
 // Privacy:
 // By default, user/activity IDs are hashed in log output. Use --verbose for
@@ -319,8 +320,8 @@ func run(ctx context.Context, cfg runConfig) int {
 	// RunStreamEnrichment was called with SkipGearRefresh=true).
 	gearErrors := 0
 	for gearID := range affectedGears {
-		if err := db.UpdateGearStats(ctx, gearID); err != nil {
-			slog.Warn("UpdateGearStats failed", "gear_id", gearID, "error", err)
+		if err := db.RefreshGearAndDependentUsageStatsOwnerVerified(ctx, gearID); err != nil {
+			slog.Warn("gear usage refresh failed", "gear_id", gearID, "error", err)
 			gearErrors++
 		}
 	}
@@ -445,7 +446,7 @@ func processActivity(
 	}
 
 	// SkipGearRefresh=true: gear stats are refreshed once per affected gear
-	// in the post-loop UpdateGearStats call rather than per activity. This
+	// in the post-loop gear usage refresh rather than per activity. This
 	// avoids N redundant refreshes across the bulk run.
 	settings := enrichment.StreamEnrichmentSettings{
 		EnableLiftDetection: true,

@@ -74,6 +74,19 @@ func cleanupBgJobs(t *testing.T, pool *pgxpool.Pool, userIDs ...string) {
 	}
 }
 
+func seedLocalActivityFileForRename(t *testing.T, pool *pgxpool.Pool, userID string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO user_files
+			(id, user_id, file_type, storage_backend, storage_path,
+			 content_type, file_name, size_bytes, has_sidecar, is_renaming, status)
+		VALUES (gen_random_uuid(), $1, 'activity', 'local', $2,
+			'application/octet-stream', $3, 4, false, false, 'active')
+	`, userID, "/tmp/"+userID+".fit", userID+".fit"); err != nil {
+		t.Fatalf("seed local activity file: %v", err)
+	}
+}
+
 // TestAdminRenameUserReturnsInProgressWhenDuplicate:
 // A pre-existing running shadowfs_rename row for the user → second INSERT
 // hits idx_bg_jobs_one_running (23505) → 200 + rename_in_progress.
@@ -163,6 +176,8 @@ func TestAdminRenameBulkSkipsUsersWithRunningPerUserJob(t *testing.T) {
 
 	userX := insertTestUser(t, pool)
 	userY := insertTestUser(t, pool)
+	seedLocalActivityFileForRename(t, pool, userX)
+	seedLocalActivityFileForRename(t, pool, userY)
 	t.Cleanup(func() { cleanupBgJobs(t, pool, userX, userY) })
 	t.Cleanup(func() {
 		ctx := context.Background()
@@ -225,6 +240,9 @@ func TestAdminRenameBulkSkippedUsersDontBreakLoop(t *testing.T) {
 	u1 := insertTestUser(t, pool)
 	u2 := insertTestUser(t, pool)
 	u3 := insertTestUser(t, pool)
+	seedLocalActivityFileForRename(t, pool, u1)
+	seedLocalActivityFileForRename(t, pool, u2)
+	seedLocalActivityFileForRename(t, pool, u3)
 	t.Cleanup(func() { cleanupBgJobs(t, pool, u1, u2, u3) })
 	t.Cleanup(func() {
 		ctx := context.Background()

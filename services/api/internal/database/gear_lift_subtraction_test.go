@@ -38,8 +38,8 @@ func newGearLiftFixture(t *testing.T) gearLiftFixture {
 
 	gearID := uuid.NewString()
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO gear (id, user_id, name, type)
-		VALUES ($1, $2, 'Lift Net Test Gear', 'bike')`,
+		INSERT INTO gear (id, user_id, name, type, scope)
+		VALUES ($1, $2, 'Lift Net Test Gear', 'bike', 'bike')`,
 		gearID, userID); err != nil {
 		t.Fatalf("insert gear: %v", err)
 	}

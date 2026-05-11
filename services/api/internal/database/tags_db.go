@@ -383,39 +383,11 @@ func (db *DB) SeedSystemDefaults(ctx context.Context, userID string) error {
 		}
 	}
 
-	for _, sync := range systemModifierTagSyncs() {
-		if _, err := db.Pool.Exec(ctx, `
-			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
-			VALUES ($1, $2, $3, '#FFFFFF', 'system', true, false, $4)
-			ON CONFLICT (user_id, name) DO NOTHING`,
-			userID, sync.SystemTagName, sync.Color, sync.Description,
-		); err != nil {
-			return fmt.Errorf("seed %s tag: %w", sync.SystemTagName, err)
-		}
-	}
-
 	// Migrate existing tags from activities.tags TEXT[] to tags table —
 	// ensures previously-used free-form tags appear in the Tags overview
 	// for users created before the typed tags table existed.
 	if err := db.migrateExistingTagsToTable(ctx, userID); err != nil {
 		slog.Warn("seed: migrate existing tags failed (non-fatal)", "user_id", userID, "error", err)
-	}
-
-	// Modifier-tag system rules — orthogonal to the SystemTags/SystemRules
-	// registry that automation.EnsureSystemArtifacts owns (Rundtour, E-Bike,
-	// Pendeln, Indoor, virtuell, Frost, Nacht are seeded there).
-	for _, sync := range readonlySystemModifierTagSyncs() {
-		if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
-			Conditions: json.RawMessage(`[]`),
-			Actions:    json.RawMessage(`[]`),
-		}); err != nil {
-			return fmt.Errorf("validate %s system rule: %w", sync.RuleName, err)
-		}
-		_, _ = db.Pool.Exec(ctx, `
-			INSERT INTO automation_rules (user_id, name, is_system, system_type, is_active, priority, conditions, conditions_logic, actions)
-			VALUES ($1, $2, true, $3, true, -100, '[]'::jsonb, 'and', '[]'::jsonb)
-			ON CONFLICT (user_id, system_type) WHERE is_system = true DO NOTHING`,
-			userID, sync.RuleName, sync.SystemType)
 	}
 
 	db.SeedRecommendedRules(ctx, userID)
