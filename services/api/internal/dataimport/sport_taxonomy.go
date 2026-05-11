@@ -31,7 +31,7 @@ func normalizeSportTaxonomyImportRow(table string, row map[string]any, targetCol
 			return nil, err
 		}
 	case "gear":
-		if err := normalizeGearDefaultSportsImportRow(row, targetCols); err != nil {
+		if err := normalizeGearImportRow(row); err != nil {
 			return nil, err
 		}
 	case "segments":
@@ -92,57 +92,20 @@ func normalizeSingleSportType(row map[string]any, sportKey string) error {
 	return nil
 }
 
-func normalizeGearDefaultSportsImportRow(row map[string]any, targetCols []targetColumn) error {
-	rawValues, hasDefaultSports := row["default_for_sports"]
-	hasPredicates := targetHasColumn(targetCols, "default_sport_predicates")
-	if rawPredicateValue, ok := row["default_sport_predicates"]; ok {
-		predicates, err := gearDefaultPredicatesFromRowValue(rawPredicateValue)
-		if err != nil {
-			return fmt.Errorf("default_sport_predicates: %w", err)
-		}
-		normalized, err := gear.NormalizeGearDefaultPredicates(predicates)
-		if err != nil {
-			return fmt.Errorf("default_sport_predicates: %w", err)
-		}
-		row["default_sport_predicates"] = gearDefaultPredicatesRowValue(normalized)
-		hasPredicates = false
-	}
-	if !hasDefaultSports {
+func normalizeGearImportRow(row map[string]any) error {
+	rawPredicateValue, ok := row["default_sport_predicates"]
+	if !ok {
 		return nil
 	}
-	values, err := stringList(rawValues)
+	predicates, err := gearDefaultPredicatesFromRowValue(rawPredicateValue)
 	if err != nil {
-		return fmt.Errorf("default_for_sports: %w", err)
+		return fmt.Errorf("default_sport_predicates: %w", err)
 	}
-	canonicalTopLevel := make([]string, 0, len(values))
-	predicates := make([]gear.GearDefaultPredicate, 0, len(values))
-	for _, raw := range values {
-		if strings.TrimSpace(raw) == "" {
-			continue
-		}
-		tuple, patch, err := sport.NormalizeSportTuple(raw, "")
-		if err != nil {
-			return fmt.Errorf("default_for_sports: %w", err)
-		}
-		canonicalTopLevel = append(canonicalTopLevel, tuple.SportType)
-		predicate, ok := gear.GearDefaultPredicateForSource(sport.SourceLegacy, raw)
-		if ok {
-			predicate.Modifiers = mergeGearDefaultPredicateModifierPatch(predicate.Modifiers, patch)
-			predicates = append(predicates, predicate)
-		}
-	}
-	normalized, err := gear.NormalizeGearDefaultSports(canonicalTopLevel)
+	normalized, err := gear.NormalizeGearDefaultPredicates(predicates)
 	if err != nil {
-		return fmt.Errorf("default_for_sports: %w", err)
+		return fmt.Errorf("default_sport_predicates: %w", err)
 	}
-	row["default_for_sports"] = normalized
-	if hasPredicates {
-		normalizedPredicates, err := gear.NormalizeGearDefaultPredicates(predicates)
-		if err != nil {
-			return fmt.Errorf("default_sport_predicates: %w", err)
-		}
-		row["default_sport_predicates"] = gearDefaultPredicatesRowValue(normalizedPredicates)
-	}
+	row["default_sport_predicates"] = gearDefaultPredicatesRowValue(normalized)
 	return nil
 }
 

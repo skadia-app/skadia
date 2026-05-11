@@ -317,7 +317,9 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 		idx++
 	}
 	if f.GearID != nil {
-		conditions = append(conditions, "a.gear_id = $"+strconv.Itoa(idx))
+		conditions = append(conditions,
+			"EXISTS (SELECT 1 FROM activity_gear_assignments aga"+
+				" WHERE aga.activity_id = a.id AND aga.gear_id = $"+strconv.Itoa(idx)+" AND aga.role_key = 'primary')")
 		args = append(args, *f.GearID)
 		idx++
 	}
@@ -429,13 +431,17 @@ func (f *AnalyticsFilter) BuildWhereClause(startIdx int) (string, []any) {
 	}
 	// Tri-state gear filters: activity must use one of the included gear items
 	if len(f.IncludeGear) > 0 {
-		conditions = append(conditions, "a.gear_id = ANY($"+strconv.Itoa(idx)+"::uuid[])")
+		conditions = append(conditions,
+			"EXISTS (SELECT 1 FROM activity_gear_assignments aga"+
+				" WHERE aga.activity_id = a.id AND aga.gear_id = ANY($"+strconv.Itoa(idx)+"::uuid[]) AND aga.role_key = 'primary')")
 		args = append(args, f.IncludeGear)
 		idx++
 	}
 	// Activity must not use any of the excluded gear items
 	if len(f.ExcludeGear) > 0 {
-		conditions = append(conditions, "(a.gear_id IS NULL OR a.gear_id != ALL($"+strconv.Itoa(idx)+"::uuid[]))")
+		conditions = append(conditions,
+			"NOT EXISTS (SELECT 1 FROM activity_gear_assignments aga"+
+				" WHERE aga.activity_id = a.id AND aga.gear_id = ANY($"+strconv.Itoa(idx)+"::uuid[]) AND aga.role_key = 'primary')")
 		args = append(args, f.ExcludeGear)
 		idx++
 	}

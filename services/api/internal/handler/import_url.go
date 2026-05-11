@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/fitimport"
-	"github.com/skadia-app/skadia/services/api/internal/garmin"
 	"github.com/skadia-app/skadia/services/api/internal/gpximport"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -38,10 +37,6 @@ type importBytesResult struct {
 	// Multisport is true when a multi-session FIT file was imported. In this
 	// case Activity holds the parent activity.
 	Multisport bool
-	// MonitoringHandled is true when the file was a non-activity FIT (monitoring,
-	// HRV, sleep, course, workout, segment) and was routed to its respective
-	// table instead of becoming an activity.
-	MonitoringHandled bool
 }
 
 // ImportFromURL importiert eine Aktivitätsdatei von einer externen URL.
@@ -167,14 +162,6 @@ func (h *Handler) ImportFromURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if result.MonitoringHandled {
-		httputil.WriteJSON(w, http.StatusOK, map[string]any{
-			"status":    "completed",
-			"data_type": "non_activity",
-		})
-		return
-	}
-
 	if result.Duplicate {
 		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"status": "duplicate_handled",
@@ -228,31 +215,6 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 	hash := sha256.Sum256(fileBytes)
 	hashStr := hex.EncodeToString(hash[:])
 
-	// Route non-activity FIT files (monitoring, HRV, course, workout, segment, ...)
-	// before attempting activity parse. Without this, monitoring FITs would be
-	// treated as broken activities. Mirrors the pattern in upload.go and hotfolder.go.
-	if format == "fit" {
-		ftype := garmin.ReadFITFileType(fileBytes)
-		handled, routeErr := garmin.RouteFITByType(ctx, h.DB, h.ShadowFS, fileBytes, userID, ftype)
-		if routeErr != nil {
-			sz := int64(len(fileBytes))
-			monTracker := h.DB.NewImportTracker(ctx, userID, "url", filename, &sz, nil, garmin.ImportTypeForFITType(ftype))
-			monTracker.Processing(ctx)
-			monTracker.SetFileHash(ctx, hashStr)
-			monTracker.Error(ctx, routeErr)
-			return nil, &importError{importErrGeneral, fmt.Sprintf("process FIT type %d: %s", ftype, routeErr)}
-		}
-		if handled {
-			sz := int64(len(fileBytes))
-			monTracker := h.DB.NewImportTracker(ctx, userID, "url", filename, &sz, nil, garmin.ImportTypeForFITType(ftype))
-			monTracker.Processing(ctx)
-			monTracker.SetFileHash(ctx, hashStr)
-			monTracker.Completed(ctx, "")
-			return &importBytesResult{MonitoringHandled: true}, nil
-		}
-		// handled==false → activity FIT → continue below
-	}
-
 	// Resolve user's conflict strategy for duplicate handling
 	var conflictStrategy importer.ConflictStrategy
 	if importSettings, settErr := h.DB.GetImportSettings(ctx, userID); settErr == nil && importSettings != nil {
@@ -264,7 +226,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 		sessions, multiErr := fitimport.ParseMultiSessionFIT(fileBytes, filename)
 		if multiErr == nil && len(sessions) >= 2 {
 			msSz := int64(len(fileBytes))
-			msTracker := h.DB.NewImportTracker(ctx, userID, "url", filename, &msSz, nil, model.ImportTypeActivity)
+			msTracker := h.DB.NewImportTracker(ctx, userID, "url", filename, &msSz, nil)
 			msTracker.Processing(ctx)
 			msTracker.SetFileHash(ctx, hashStr)
 
@@ -330,7 +292,7 @@ func (h *Handler) importFileBytes(ctx context.Context, userID string, fileBytes 
 
 	// Import tracking
 	sz := int64(len(fileBytes))
-	tracker := h.DB.NewImportTracker(ctx, userID, "url", filename, &sz, nil, model.ImportTypeActivity)
+	tracker := h.DB.NewImportTracker(ctx, userID, "url", filename, &sz, nil)
 	tracker.Processing(ctx)
 	tracker.SetFileHash(ctx, hashStr)
 

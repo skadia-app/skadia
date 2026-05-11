@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -101,46 +100,13 @@ func (db *DB) CreateImportQueueItem(ctx context.Context, item ImportQueueItem) (
 }
 
 // UpdateImportQueueStatus updates the status (and optionally resolved_at) of an item.
-// When status is 'dismissed', the corresponding import_log entry (linked via
-// metadata->>'queue_id') is flipped from 'queued' to 'skipped' in the same
-// transaction so the UI reflects the dismissal immediately.
 func (db *DB) UpdateImportQueueStatus(ctx context.Context, id, userID, status string, resolvedAt *time.Time) error {
-	if status != "dismissed" {
-		_, err := db.Pool.Exec(ctx, `
-			UPDATE import_queue
-			SET status = $1, resolved_at = $2
-			WHERE id = $3 AND user_id = $4
-		`, status, resolvedAt, id, userID)
-		return err
-	}
-
-	tx, err := db.Pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("dismiss queue: begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	if _, err := tx.Exec(ctx, `
+	_, err := db.Pool.Exec(ctx, `
 		UPDATE import_queue
 		SET status = $1, resolved_at = $2
-		WHERE id = $3 AND user_id = $4`,
-		status, resolvedAt, id, userID,
-	); err != nil {
-		return fmt.Errorf("dismiss queue: update queue: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx, `
-		UPDATE import_log
-		SET status = 'skipped', updated_at = NOW()
-		WHERE user_id = $1
-		  AND status = 'queued'
-		  AND metadata->>'queue_id' = $2`,
-		userID, id,
-	); err != nil {
-		return fmt.Errorf("dismiss queue: update log: %w", err)
-	}
-
-	return tx.Commit(ctx)
+		WHERE id = $3 AND user_id = $4
+	`, status, resolvedAt, id, userID)
+	return err
 }
 
 // DeleteImportQueueItem hard-deletes an item (dismiss).
@@ -214,44 +180,14 @@ type ActivityTimeMatch struct {
 	EndedAt   *time.Time `json:"ended_at,omitempty"`
 }
 
-// ResolveImportQueueItem marks a queue item as resolved AND flips the
-// corresponding import_log entry (linked via metadata->>'queue_id') from
-// 'queued' to 'completed'. Both updates run in one transaction so the UI
-// doesn't show a stale "In Queue" badge after manual assignment.
-// activityID may be empty (e.g. resolving without an activity assignment);
-// when non-empty it is written to the import_log.activity_id column.
-func (db *DB) ResolveImportQueueItem(ctx context.Context, id, userID, activityID string) error {
-	tx, err := db.Pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("resolve queue: begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx)
-
-	if _, err := tx.Exec(ctx, `
+// ResolveImportQueueItem marks a queue item as resolved with the current timestamp.
+func (db *DB) ResolveImportQueueItem(ctx context.Context, id, userID string) error {
+	_, err := db.Pool.Exec(ctx, `
 		UPDATE import_queue
 		SET status = 'resolved', resolved_at = NOW()
-		WHERE id = $1 AND user_id = $2`,
-		id, userID,
-	); err != nil {
-		return fmt.Errorf("resolve queue: update queue: %w", err)
-	}
-
-	var actPtr *string
-	if activityID != "" {
-		actPtr = &activityID
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE import_log
-		SET status = 'completed', activity_id = COALESCE($3, activity_id), updated_at = NOW()
-		WHERE user_id = $1
-		  AND status = 'queued'
-		  AND metadata->>'queue_id' = $2`,
-		userID, id, actPtr,
-	); err != nil {
-		return fmt.Errorf("resolve queue: update log: %w", err)
-	}
-
-	return tx.Commit(ctx)
+		WHERE id = $1 AND user_id = $2
+	`, id, userID)
+	return err
 }
 
 // ResolveImportQueueByActivity resolves all pending sport_conflict items for the given activity.
