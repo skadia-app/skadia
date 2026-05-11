@@ -9,8 +9,34 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// SportPredicateEntry is the sporttaxgen-local representation of a sport
+// predicate (sport_type + optional sub_type). It mirrors sport.Predicate but
+// lives here to avoid an import cycle: sport tests import sporttaxgen, and
+// sporttaxgen must not import sport in production code.
+type SportPredicateEntry struct {
+	SportType string
+	SubType   *string
+}
+
+// ApplicableSportPredicateEntry maps a gear type key to its default sport
+// predicates as loaded from gear_defaults.yaml.
+type ApplicableSportPredicateEntry struct {
+	GearTypeKey string
+	Predicates  []SportPredicateEntry
+}
+
+// gearDefaultProjectionConfigYAML is the raw YAML shape before conversion.
+// It uses explicit yaml tags (sport_type / sub_type) since yaml.v3 does not
+// honour json tags; the outer type GearDefaultProjectionConfig stores the
+// already-converted sport.Predicate values.
+type gearDefaultProjectionConfigYAML struct {
+	ProjectionSources          []string                          `yaml:"projection_sources"`
+	ApplicableSportPredicates  []gearDefaultsPredicateEntryYAML `yaml:"applicable_sport_predicates"`
+}
+
 type GearDefaultProjectionConfig struct {
-	ProjectionSources []string `yaml:"projection_sources"`
+	ProjectionSources         []string
+	ApplicableSportPredicates []ApplicableSportPredicateEntry
 }
 
 type GearDefaultProjection struct {
@@ -35,21 +61,21 @@ type GearDefaultAlias struct {
 }
 
 func LoadGearDefaultProjectionConfig(r io.Reader, sources []SourceAliases) (GearDefaultProjectionConfig, error) {
-	var config GearDefaultProjectionConfig
+	var raw gearDefaultProjectionConfigYAML
 	dec := yaml.NewDecoder(r)
 	dec.KnownFields(true)
-	if err := dec.Decode(&config); err != nil {
+	if err := dec.Decode(&raw); err != nil {
 		return GearDefaultProjectionConfig{}, err
 	}
-	if len(config.ProjectionSources) == 0 {
+	if len(raw.ProjectionSources) == 0 {
 		return GearDefaultProjectionConfig{}, fmt.Errorf("gear default projection: projection_sources must not be empty")
 	}
 	knownSources := make(map[string]struct{}, len(sources))
 	for _, source := range sources {
 		knownSources[source.Source] = struct{}{}
 	}
-	seen := make(map[string]struct{}, len(config.ProjectionSources))
-	for i, source := range config.ProjectionSources {
+	seen := make(map[string]struct{}, len(raw.ProjectionSources))
+	for i, source := range raw.ProjectionSources {
 		source = strings.TrimSpace(source)
 		if source == "" {
 			return GearDefaultProjectionConfig{}, fmt.Errorf("gear default projection: projection_sources[%d] is empty", i)
@@ -61,9 +87,26 @@ func LoadGearDefaultProjectionConfig(r io.Reader, sources []SourceAliases) (Gear
 		if _, ok := knownSources[source]; !ok {
 			return GearDefaultProjectionConfig{}, fmt.Errorf("gear default projection: unknown projection source %q", source)
 		}
-		config.ProjectionSources[i] = source
+		raw.ProjectionSources[i] = source
 	}
-	return config, nil
+
+	// Convert YAML wire types to SportPredicateEntry values.
+	entries := make([]ApplicableSportPredicateEntry, 0, len(raw.ApplicableSportPredicates))
+	for _, rawEntry := range raw.ApplicableSportPredicates {
+		preds := make([]SportPredicateEntry, 0, len(rawEntry.Predicates))
+		for _, p := range rawEntry.Predicates {
+			preds = append(preds, p.ToSportPredicateEntry())
+		}
+		entries = append(entries, ApplicableSportPredicateEntry{
+			GearTypeKey: rawEntry.GearTypeKey,
+			Predicates:  preds,
+		})
+	}
+
+	return GearDefaultProjectionConfig{
+		ProjectionSources:         raw.ProjectionSources,
+		ApplicableSportPredicates: entries,
+	}, nil
 }
 
 func BuildGearDefaultProjection(taxonomy Taxonomy, sources []SourceAliases, config GearDefaultProjectionConfig) (GearDefaultProjection, error) {

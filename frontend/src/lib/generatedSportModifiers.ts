@@ -17,6 +17,8 @@ export const GENERATED_SPORT_MODIFIERS = [
     actionParam: 'electric',
     shadowFSToken: 'electric',
     capabilities: { activity_state: true, modifier_filter: true, modifier_patch: true, taxonomy_default: false },
+    recommendedFor: ['bike.city.citybike', 'bike.city.dutch', 'bike.city.urban', 'bike.city.fitness', 'bike.city.folding', 'bike.city.cruiser', 'bike.trekking.trekking', 'bike.trekking.expedition', 'bike.cargo.long_john', 'bike.cargo.longtail', 'bike.cargo.backpacker', 'bike.mtb.all_mountain_trail', 'bike.mtb.enduro', 'bike.gravel.gravelbike'],
+    notRecommendedFor: ['bike.road.track', 'bike.mtb.trial', 'bike.bmx.race', 'bike.bmx.freestyle', 'bike.bmx.dirt', 'bike.bmx.flatland', 'bike.kids', 'bike.balance'],
   },
   {
     key: 'is_indoor',
