@@ -34,13 +34,14 @@ const MONTH_LABELS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', '
 const METRIC_META: Record<MetricKey, { label: string; unit: string; factor: number; decimals: number }> = {
   distance_m:       { label: 'Distanz',       unit: 'km',   factor: 0.001,   decimals: 1 },
   elevation_gain_m: { label: 'Höhenmeter',    unit: 'm',    factor: 1,       decimals: 0 },
+  elevation_loss_m: { label: 'Tiefenmeter',   unit: 'm',    factor: 1,       decimals: 0 },
   moving_time_s:    { label: 'Bewegungszeit', unit: 'h',    factor: 1/3600,  decimals: 1 },
   tss:              { label: 'TSS',           unit: 'TSS',  factor: 1,       decimals: 0 },
   total_calories:   { label: 'Kalorien',      unit: 'kcal', factor: 1,       decimals: 0 },
 }
 
 // Metrics shown as active toggles in the modal header (TSS and Kalorien are disabled/hidden).
-const METRIC_TOGGLE_KEYS: MetricKey[] = ['distance_m', 'elevation_gain_m', 'moving_time_s']
+const METRIC_TOGGLE_KEYS: MetricKey[] = ['distance_m', 'elevation_gain_m', 'elevation_loss_m', 'moving_time_s']
 
 // Inline hint icon — CSS-only hover tooltip with 500ms delay.
 // Cleaner look than a JS popover, no click-pin (hover only).

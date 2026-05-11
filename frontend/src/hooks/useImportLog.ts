@@ -3,10 +3,7 @@ import { getImports, type ImportLogResponse } from '@/api/imports'
 import { useCurrentUserId } from '@/providers/UserProvider'
 
 export function useImportQueue() {
-  // 'queued' is intentionally excluded — it's a terminal status for files
-  // awaiting manual review in import_queue, not active import work.
-  // user_id in the query key — defense-in-depth against cross-user cache hits
-  // when the active user changes (e.g. logout/login or multi-tab session).
+  // user_id in the query key — defense-in-depth against cross-user cache hits.
   const userId = useCurrentUserId()
   return useQuery<ImportLogResponse>({
     queryKey: ['imports', 'queue', userId],
@@ -16,21 +13,11 @@ export function useImportQueue() {
   })
 }
 
-export function useImportHistory(params: {
-  source_platform?: string
-  import_type?: string
-  status?: string
-  limit?: number
-  offset?: number
-} = {}) {
+export function useImportHistory(params: { source_platform?: string; limit?: number; offset?: number } = {}) {
   const userId = useCurrentUserId()
   return useQuery<ImportLogResponse>({
     queryKey: ['imports', 'history', userId, params],
-    queryFn: () =>
-      getImports({
-        ...params,
-        limit: params.limit ?? 50,
-      }),
+    queryFn: () => getImports({ ...params, limit: params.limit ?? 50 }),
     staleTime: 10000,
   })
 }

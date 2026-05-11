@@ -29,11 +29,12 @@ echarts.use([
   CanvasRenderer,
 ])
 
-type MetricKey = 'distance_m' | 'elevation_gain_m' | 'moving_time_s' | 'tss' | 'total_calories'
+type MetricKey = 'distance_m' | 'elevation_gain_m' | 'elevation_loss_m' | 'moving_time_s' | 'tss' | 'total_calories'
 
 const METRIC_OPTIONS: { value: MetricKey; label: string; unit: string; factor: number; decimals: number }[] = [
   { value: 'distance_m', label: 'Distanz', unit: 'km', factor: 0.001, decimals: 1 },
   { value: 'elevation_gain_m', label: 'Höhenmeter', unit: 'm', factor: 1, decimals: 0 },
+  { value: 'elevation_loss_m', label: 'Tiefenmeter', unit: 'm', factor: 1, decimals: 0 },
   { value: 'moving_time_s', label: 'Bewegungszeit', unit: 'h', factor: 1 / 3600, decimals: 1 },
   { value: 'tss', label: 'TSS', unit: 'TSS', factor: 1, decimals: 0 },
   { value: 'total_calories', label: 'Kalorien', unit: 'kcal', factor: 1, decimals: 0 },

@@ -1,17 +1,22 @@
 import { useState, useCallback, useEffect } from 'react'
 import { toLocalISO } from '@/lib/dateUtils'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
+import { getActiveSchema } from '@/lib/gearSchema'
+import { gearTypePathLabel, gearTypeAttributes } from '@/lib/gearSchemaHelpers'
+import { type GearCategoryScope, isGearCategoryScope } from '@/lib/gearSchemaTypes'
 import {
   fetchGearDetail, updateGear, updateGearStatus,
   createComponent, updateComponent, deleteComponent,
   transferComponent, getComponentHistory, fetchGear,
-  getChainRotation, createChainRotation, swapChain, deleteChainRotation,
+  getChainRotation, createChainRotation, updateChainRotation, swapChain, deleteChainRotation,
   listServiceEvents, createServiceEvent, deleteServiceEvent,
+  listServiceIntervals, createServiceInterval, deleteServiceInterval,
   fetchComponentPresets,
   listBikeSetups, createBikeSetup, updateBikeSetup, deleteBikeSetup, activateBikeSetup,
+  type BikeSetupCreatePayload, type BikeSetupUpdatePayload,
   fetchGearDocuments, uploadGearDocument, deleteGearDocument,
   downloadGearDocumentBlob,
   uploadComponentDocument, listComponentDocuments,
@@ -19,19 +24,50 @@ import {
 } from '@/api/gear'
 import type {
   Gear, GearComponent, GearStatus,
-  ComponentAssignment,
-  GearServiceEvent, ComponentTypePreset,
+  ComponentAssignment, ChainRotationMember,
+  GearServiceEvent, GearServiceInterval, ComponentTypePreset,
   BikeSetup, GearDocument,
+  GearCostSummary, GearDefaultSportPredicate,
 } from '@/api/types'
-import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
+import { formatDistance, formatDuration, formatElevationGain, formatElevationLoss } from '@/lib/utils'
+import { PRODUCTIVE_SERVICE_METRICS, USAGE_METRIC_LABELS, formatUsageMetricValue, type ServiceMetricKey } from '@/lib/gearUsageMetrics'
 import { useModal } from '@/lib/modal'
 import GearForm from '@/components/GearForm'
 import GearDocumentSection from '@/components/GearDocumentSection'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import GearGeometryTab from '@/components/gear/GearGeometryTab'
+import GearSportsTab from '@/components/gear/GearSportsTab'
+import GearComponentsTab from '@/components/gear/GearComponentsTab'
+import GearWearTab from '@/components/gear/GearWearTab'
+
+// Valid tab values for URL-param sync.
+type GearDetailTab = 'stammdaten' | 'geometry' | 'sports' | 'components' | 'wear'
+const VALID_TABS: GearDetailTab[] = ['stammdaten', 'geometry', 'sports', 'components', 'wear']
+
+function isValidTab(v: string | null): v is GearDetailTab {
+  return v !== null && (VALID_TABS as string[]).includes(v)
+}
 
 export default function GearDetailPage() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const rawTab = searchParams.get('tab')
+  const activeTab: GearDetailTab = isValidTab(rawTab) ? rawTab : 'stammdaten'
+
+  function switchTab(tab: GearDetailTab) {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (tab === 'stammdaten') {
+        next.delete('tab')
+      } else {
+        next.set('tab', tab)
+      }
+      return next
+    })
+  }
 
   const { data: gear, isLoading } = useQuery({
     queryKey: ['gear-detail', id],
@@ -89,6 +125,7 @@ export default function GearDetailPage() {
           <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100 mb-4">Bearbeiten</h2>
           <GearForm
             gear={gear}
+            categoryScope={categoryScopeForType(gear.type)}
             onSave={(data) => updateMutation.mutate(data)}
             onCancel={() => setEditing(false)}
             isSaving={updateMutation.isPending}
@@ -101,7 +138,7 @@ export default function GearDetailPage() {
             <div>
               <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">{gear.name}</h1>
               <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-                {gearTypeLabel(gear.type)}
+                {gearTypeLabelResolved(gear.type)}
                 {gear.sub_type && ` / ${subTypeLabel(gear.sub_type)}`}
                 {gear.brand && ` - ${gear.brand}`}
                 {gear.model && ` ${gear.model}`}
@@ -127,83 +164,147 @@ export default function GearDetailPage() {
               />
             </div>
           </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <StatCard label="Distanz" value={formatDistance(gear.total_distance_m)} />
-            <StatCard label="Höhenmeter" value={formatElevationGain(gear.total_elevation_gain_m) ?? '\u2014'} />
-            <StatCard label="Zeit" value={formatDuration(gear.total_time_s)} />
-            <StatCard label="Aktivitäten" value={String(gear.total_activities)} />
-          </div>
-
-          {/* Weight */}
-          {gear.weight_g != null && (
-            <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
-              <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Gewicht</h3>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">{gear.weight_g} g</p>
-            </div>
-          )}
-
-          {/* Notes */}
-          {gear.notes && (
-            <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
-              <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Notizen</h3>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400 whitespace-pre-wrap">{gear.notes}</p>
-            </div>
-          )}
-
-          {/* Images */}
-          <GearImagesSection gearId={gear.id} />
-
-          {/* Documents */}
-          <GearDocumentSection gearId={gear.id} />
-
-          {/* Kosten */}
-          {costSummary && costSummary.total_cost > 0 && (
-            <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 space-y-4">
-              <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Kosten</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gesamtkosten</div>
-                  <div className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-                    {costSummary.total_cost.toFixed(2)} {costSummary.currency}
-                  </div>
-                </div>
-                {costSummary.cost_per_km != null && (
-                  <div>
-                    <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Kosten/km</div>
-                    <div className="text-lg font-semibold text-neutral-700 dark:text-neutral-300">
-                      {costSummary.cost_per_km.toFixed(3)} {costSummary.currency}/km
-                    </div>
-                  </div>
-                )}
-                {costSummary.cost_per_hour != null && (
-                  <div>
-                    <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Kosten/Stunde</div>
-                    <div className="text-lg font-semibold text-neutral-700 dark:text-neutral-300">
-                      {costSummary.cost_per_hour.toFixed(2)} {costSummary.currency}/h
-                    </div>
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
-
-          {/* Components */}
-          <ComponentsList gearId={gear.id} gearType={gear.type} components={gear.components ?? []} />
-
-          {/* Chain Rotation (only for bikes) */}
-          {gear.type === 'bike' && (
-            <ChainRotationSection gearId={gear.id} components={gear.components ?? []} />
-          )}
-
-          {/* Bike Setups (only for bikes) */}
-          {gear.type === 'bike' && (
-            <BikeSetupsSection gearId={gear.id} />
-          )}
+          <GearDetailTabs
+            gear={gear}
+            costSummary={costSummary ?? null}
+            activeTab={activeTab}
+            onTabChange={switchTab}
+            onSportsSave={(predicates) =>
+              updateMutation.mutate({ applicable_sport_predicates: predicates })
+            }
+          />
         </>
       )}
     </div>
+  )
+}
+
+// ── GearDetailTabs ───────────────────────────────────────────────────────────────
+
+interface GearDetailTabsProps {
+  gear: Gear
+  costSummary: GearCostSummary | null
+  activeTab: GearDetailTab
+  onTabChange: (tab: GearDetailTab) => void
+  onSportsSave: (predicates: GearDefaultSportPredicate[]) => void
+}
+
+function GearDetailTabs({ gear, costSummary, activeTab, onTabChange, onSportsSave }: GearDetailTabsProps) {
+  const schema = getActiveSchema()
+  const attrs = gearTypeAttributes(schema, gear.type)
+  const hasGeometry = attrs.some(
+    (a) => a.valueType === 'geometry' && a.subfields && a.subfields.length > 0,
+  )
+
+  return (
+    <Tabs value={activeTab} onValueChange={(v) => onTabChange(v as GearDetailTab)}>
+      <TabsList className="flex-wrap h-auto">
+        <TabsTrigger value="stammdaten">Stammdaten</TabsTrigger>
+        {hasGeometry && <TabsTrigger value="geometry">Geometrie</TabsTrigger>}
+        <TabsTrigger value="sports">Sport</TabsTrigger>
+        <TabsTrigger value="components">Komponenten</TabsTrigger>
+        <TabsTrigger value="wear">Verschleiß</TabsTrigger>
+      </TabsList>
+
+      {/* Stammdaten tab — stats, notes, images, documents, costs */}
+      <TabsContent value="stammdaten" className="space-y-6">
+        {/* Tiefenmeter is the lead metric for ski / downhill-MTB gear; keep it
+            visible at the same level as Höhenmeter so neither hides in a sub-tab. */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <StatCard label="Distanz" value={formatDistance(gear.total_distance_m)} />
+          <StatCard label="Höhenmeter" value={formatElevationGain(gear.total_elevation_gain_m) ?? '—'} />
+          <StatCard label="Tiefenmeter" value={formatElevationLoss(gear.total_elevation_loss_m) ?? '—'} />
+          <StatCard label="Zeit" value={formatDuration(gear.total_time_s)} />
+          <StatCard label="Aktivitäten" value={String(gear.total_activities)} />
+        </div>
+
+        {gear.weight_g != null && (
+          <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
+            <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Gewicht</h3>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">{gear.weight_g} g</p>
+          </div>
+        )}
+
+        {gear.notes && (
+          <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
+            <h3 className="text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">Notizen</h3>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400 whitespace-pre-wrap">{gear.notes}</p>
+          </div>
+        )}
+
+        <GearImagesSection gearId={gear.id} />
+        <GearDocumentSection gearId={gear.id} />
+
+        {costSummary && costSummary.total_cost > 0 && (
+          <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 space-y-4">
+            <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Kosten</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Gesamtkosten</div>
+                <div className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
+                  {costSummary.total_cost.toFixed(2)} {costSummary.currency}
+                </div>
+              </div>
+              {costSummary.cost_per_km != null && (
+                <div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Kosten/km</div>
+                  <div className="text-lg font-semibold text-neutral-700 dark:text-neutral-300">
+                    {costSummary.cost_per_km.toFixed(3)} {costSummary.currency}/km
+                  </div>
+                </div>
+              )}
+              {costSummary.cost_per_hour != null && (
+                <div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-1">Kosten/Stunde</div>
+                  <div className="text-lg font-semibold text-neutral-700 dark:text-neutral-300">
+                    {costSummary.cost_per_hour.toFixed(2)} {costSummary.currency}/h
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+      </TabsContent>
+
+      {/* Geometrie tab — schema-driven subfield editor */}
+      {hasGeometry && (
+        <TabsContent value="geometry">
+          <GearGeometryTab item={gear} schema={schema} onChange={() => {}} />
+        </TabsContent>
+      )}
+
+      {/* Sport tab — applicable_sport_predicates editor */}
+      <TabsContent value="sports">
+        <GearSportsTab item={gear} onSave={onSportsSave} />
+      </TabsContent>
+
+      {/* Komponenten tab — component list + chain rotation + bike setups.
+          GearComponentsTab renders the parent-child hierarchy (read-only, indented tree).
+          ComponentsList renders the full CRUD widget (flat, with expand/edit/delete).
+          Both read from the same gear.components source — no state divergence. */}
+      <TabsContent value="components" className="space-y-6">
+        <section data-testid="components-hierarchy">
+          <h3 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-2 uppercase tracking-wide">
+            Hierarchie
+          </h3>
+          <GearComponentsTab components={gear.components ?? []} />
+        </section>
+        <section data-testid="components-crud">
+          <ComponentsList gearId={gear.id} gearType={gear.type} components={gear.components ?? []} />
+        </section>
+        {gear.type === 'bike' && (
+          <ChainRotationSection gearId={gear.id} components={gear.components ?? []} />
+        )}
+        {gear.type === 'bike' && (
+          <BikeSetupsSection gearId={gear.id} />
+        )}
+      </TabsContent>
+
+      {/* Verschleiß tab — usage aggregates + service events placeholder */}
+      <TabsContent value="wear">
+        <GearWearTab item={gear} />
+      </TabsContent>
+    </Tabs>
   )
 }
 
@@ -379,6 +480,7 @@ function ComponentsList({ gearId, gearType, components }: {
                         {' | '}
                         {formatDistance(comp.total_distance_m)}
                         {comp.total_elevation_gain_m > 0 && ` | ${formatElevationGain(comp.total_elevation_gain_m)}`}
+                        {comp.total_elevation_loss_m > 0 && ` | ${formatElevationLoss(comp.total_elevation_loss_m)}`}
                         {comp.weight_g != null && ` | ${comp.weight_g}g`}
                       </div>
                     </button>
@@ -439,7 +541,7 @@ function ComponentsList({ gearId, gearType, components }: {
                   )}
 
                   {serviceId === comp.id && (
-                    <ServiceEventsPanel componentId={comp.id} />
+                    <ServiceEventsPanel componentId={comp.id} status={comp.status} />
                   )}
                 </div>
               )}
@@ -541,6 +643,16 @@ function ComponentHistoryPanel({ componentId }: { componentId: string }) {
     queryFn: () => getComponentHistory(componentId),
   })
 
+  // Resolve gear_id → human-readable name; gear-list is shared across query cache
+  const { data: gearList } = useQuery({
+    queryKey: ['gear-list'],
+    queryFn: () => fetchGear(),
+    staleTime: 60_000,
+  })
+
+  const gearName = (gearId: string) =>
+    gearList?.find((g) => g.id === gearId)?.name ?? gearId.slice(0, 8)
+
   if (isLoading) return <div className="text-xs text-neutral-400 mt-2">Lade Historie...</div>
 
   if (!history || history.length === 0) {
@@ -553,7 +665,7 @@ function ComponentHistoryPanel({ componentId }: { componentId: string }) {
       {history.map((a: ComponentAssignment) => (
         <div key={a.id} className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
           <span className="w-2 h-2 rounded-full bg-accent-400 flex-shrink-0" />
-          <span className="font-medium text-neutral-700 dark:text-neutral-300">{a.gear_name}</span>
+          <span className="font-medium text-neutral-700 dark:text-neutral-300">{gearName(a.gear_id)}</span>
           <span>
             {formatDateShort(a.installed_at)}
             {a.removed_at ? ` \u2013 ${formatDateShort(a.removed_at)}` : ' \u2013 jetzt'}
@@ -566,32 +678,46 @@ function ComponentHistoryPanel({ componentId }: { componentId: string }) {
 
 // ── Service Events ──────────────────────────────────────────────────────────────
 
-function ServiceEventsPanel({ componentId }: { componentId: string }) {
+function ServiceEventsPanel({ componentId, status }: { componentId: string; status: GearStatus }) {
+  const isActive = status === 'active'
   const queryClient = useQueryClient()
   const [adding, setAdding] = useState(false)
+  const [addingInterval, setAddingInterval] = useState(false)
   const [performedAt, setPerformedAt] = useState(toLocalISO(new Date()))
   const [description, setDescription] = useState('')
   const [cost, setCost] = useState('')
   const [notes, setNotes] = useState('')
+  const [selectedIntervalId, setSelectedIntervalId] = useState('')
+  const [intervalName, setIntervalName] = useState('')
+  const [intervalMetric, setIntervalMetric] = useState<ServiceMetricKey>('moving_time_s')
+  const [intervalValue, setIntervalValue] = useState('')
 
   const { data: events, isLoading } = useQuery({
     queryKey: ['service-events', componentId],
     queryFn: () => listServiceEvents(componentId),
   })
 
+  const { data: intervals } = useQuery({
+    queryKey: ['service-intervals', componentId],
+    queryFn: () => listServiceIntervals(componentId),
+  })
+
   const addMut = useMutation({
     mutationFn: () => createServiceEvent(componentId, {
       performed_at: new Date(performedAt).toISOString(),
+      interval_id: selectedIntervalId || null,
       description: description.trim() || null,
       cost: cost ? parseFloat(cost) : null,
       notes: notes.trim() || null,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['service-events', componentId] })
+      queryClient.invalidateQueries({ queryKey: ['service-intervals', componentId] })
       setAdding(false)
       setDescription('')
       setCost('')
       setNotes('')
+      setSelectedIntervalId('')
     },
   })
 
@@ -602,19 +728,115 @@ function ServiceEventsPanel({ componentId }: { componentId: string }) {
     },
   })
 
+  const addIntervalMut = useMutation({
+    mutationFn: () => createServiceInterval(componentId, {
+      name: intervalName.trim() || USAGE_METRIC_LABELS[intervalMetric],
+      metric_key: intervalMetric,
+      interval_type: intervalMetric,
+      interval_value: parseFloat(intervalValue) || 0,
+      is_recurring: true,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['service-intervals', componentId] })
+      setAddingInterval(false)
+      setIntervalName('')
+      setIntervalValue('')
+    },
+  })
+
+  const deleteIntervalMut = useMutation({
+    mutationFn: deleteServiceInterval,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['service-intervals', componentId] })
+    },
+  })
+
   return (
     <div className="mt-3 space-y-2">
       <div className="flex items-center justify-between">
         <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Service-Historie</div>
-        <button
-          onClick={() => setAdding(!adding)}
-          className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
-        >
-          + Service eintragen
-        </button>
+        {isActive && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setAddingInterval(!addingInterval)}
+              className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
+            >
+              + Intervall
+            </button>
+            <button
+              onClick={() => setAdding(!adding)}
+              className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
+            >
+              + Service eintragen
+            </button>
+          </div>
+        )}
       </div>
 
-      {adding && (
+      {intervals && intervals.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {intervals.map((interval: GearServiceInterval) => (
+            <span key={interval.id} className="inline-flex items-center gap-1 rounded bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-300">
+              {interval.name}: {formatUsageMetricValue(interval.metric_key, interval.interval_value)}
+              <button
+                onClick={() => deleteIntervalMut.mutate(interval.id)}
+                disabled={deleteIntervalMut.isPending}
+                className="text-neutral-400 hover:text-rose-500 disabled:opacity-50 cursor-pointer"
+                title="Intervall löschen"
+              >
+                x
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {isActive && addingInterval && (
+        <div className="p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-lg space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <input
+              type="text"
+              value={intervalName}
+              onChange={(e) => setIntervalName(e.target.value)}
+              placeholder="Name"
+              className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+            />
+            <select
+              value={intervalMetric}
+              onChange={(e) => setIntervalMetric(e.target.value as ServiceMetricKey)}
+              className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+            >
+              {PRODUCTIVE_SERVICE_METRICS.map(metric => (
+                <option key={metric} value={metric}>{USAGE_METRIC_LABELS[metric]}</option>
+              ))}
+            </select>
+            <input
+              type="number"
+              value={intervalValue}
+              onChange={(e) => setIntervalValue(e.target.value)}
+              placeholder="Wert"
+              className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+            />
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => setAddingInterval(false)}
+              className="px-2.5 py-1 rounded text-xs text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
+            >
+              Abbrechen
+            </button>
+            <button
+              onClick={() => addIntervalMut.mutate()}
+              disabled={!intervalValue || addIntervalMut.isPending}
+              className="px-2.5 py-1 rounded text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            >
+              Speichern
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isActive && adding && (
         <div className="p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-lg space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <input
@@ -623,6 +845,20 @@ function ServiceEventsPanel({ componentId }: { componentId: string }) {
               onChange={(e) => setPerformedAt(e.target.value)}
               className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
             />
+            {intervals && intervals.length > 0 && (
+              <select
+                value={selectedIntervalId}
+                onChange={(e) => setSelectedIntervalId(e.target.value)}
+                className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+              >
+                <option value="">Kein Intervall-Reset</option>
+                {intervals.map(interval => (
+                  <option key={interval.id} value={interval.id}>
+                    {interval.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <input
               type="number"
               value={cost}
@@ -696,6 +932,38 @@ function ServiceEventsPanel({ componentId }: { componentId: string }) {
 
 // ── Chain Rotation ──────────────────────────────────────────────────────────────
 
+// ── Chain-rotation metric helpers ──────────────────────────────────────────────
+
+type ChainRotationMetricKey = 'distance_m' | 'moving_time_s' | 'elapsed_time_s' | 'elevation_gain_m' | 'elevation_loss_m'
+
+const CHAIN_ROTATION_METRICS: ChainRotationMetricKey[] = [
+  'distance_m',
+  'moving_time_s',
+  'elapsed_time_s',
+  'elevation_gain_m',
+  'elevation_loss_m',
+]
+
+/** Convert a user-facing display value to base units (metres / seconds). */
+function metricInputToBase(metric: ChainRotationMetricKey, value: string): number {
+  const parsed = parseFloat(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return metric === 'distance_m' ? 500000 : 0
+  if (metric === 'distance_m') return parsed * 1000
+  if (metric === 'moving_time_s' || metric === 'elapsed_time_s') return parsed * 3600
+  return parsed
+}
+
+/** Return the member's accumulated value for the given metric. */
+function chainRotationMemberValue(member: ChainRotationMember, metric: ChainRotationMetricKey): number {
+  switch (metric) {
+    case 'distance_m':      return member.total_distance_m ?? 0
+    case 'moving_time_s':   return member.total_moving_time_s ?? 0
+    case 'elapsed_time_s':  return member.total_time_s ?? 0
+    case 'elevation_gain_m': return member.total_elevation_gain_m ?? 0
+    case 'elevation_loss_m': return member.total_elevation_loss_m ?? 0
+  }
+}
+
 function ChainRotationSection({ gearId, components }: {
   gearId: string
   components: GearComponent[]
@@ -703,8 +971,17 @@ function ChainRotationSection({ gearId, components }: {
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('Ketten-Rotation')
-  const [intervalKm, setIntervalKm] = useState('500')
+  const [rotationMetric, setRotationMetric] = useState<ChainRotationMetricKey>('distance_m')
+  const [rotationIntervalValue, setRotationIntervalValue] = useState('500')
+  const [sortMetric, setSortMetric] = useState<ChainRotationMetricKey>('distance_m')
   const [selectedComps, setSelectedComps] = useState<Set<string>>(new Set())
+
+  // Edit-form state for modifying an existing rotation's swap interval.
+  const [editing, setEditing] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editMetric, setEditMetric] = useState<ChainRotationMetricKey>('distance_m')
+  const [editIntervalValue, setEditIntervalValue] = useState('')
+  const [editSuccess, setEditSuccess] = useState(false)
 
   const { data: rotation } = useQuery({
     queryKey: ['chain-rotation', gearId],
@@ -714,7 +991,8 @@ function ChainRotationSection({ gearId, components }: {
   const createMut = useMutation({
     mutationFn: () => createChainRotation(gearId, {
       name,
-      swap_interval_km: parseFloat(intervalKm) || 500,
+      swap_interval_metric_key: rotationMetric,
+      swap_interval_value: metricInputToBase(rotationMetric, rotationIntervalValue),
       component_ids: Array.from(selectedComps),
     }),
     onSuccess: () => {
@@ -737,6 +1015,44 @@ function ChainRotationSection({ gearId, components }: {
       queryClient.invalidateQueries({ queryKey: ['chain-rotation', gearId] })
     },
   })
+
+  const updateMut = useMutation({
+    mutationFn: () => {
+      const trimmedName = editName.trim()
+      // Always include name — backend trims + rejects empty + caps at 100 chars.
+      // We guard client-side too, but send the trimmed value unconditionally so
+      // the server always has the latest value even if only the interval changed.
+      return updateChainRotation(rotation!.id, {
+        name: trimmedName,
+        swap_interval_metric_key: editMetric,
+        swap_interval_value: metricInputToBase(editMetric, editIntervalValue),
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['chain-rotation', gearId] })
+      setEditing(false)
+      setEditSuccess(true)
+      // Clear success indicator after a short delay.
+      setTimeout(() => setEditSuccess(false), 2500)
+    },
+  })
+
+  /** Open the edit form pre-filled with the current rotation values. */
+  function openEdit() {
+    if (!rotation) return
+    const metric = (rotation.swap_interval_metric_key || 'distance_m') as ChainRotationMetricKey
+    const baseValue = rotation.swap_interval_value ?? ((rotation.swap_interval_km ?? 500) * 1000)
+    // Convert base units back to user-facing display units for the input.
+    let displayValue: string
+    if (metric === 'distance_m') displayValue = String(baseValue / 1000)
+    else if (metric === 'moving_time_s' || metric === 'elapsed_time_s') displayValue = String(baseValue / 3600)
+    else displayValue = String(baseValue)
+    setEditName(rotation.name)
+    setEditMetric(metric)
+    setEditIntervalValue(displayValue)
+    setEditing(true)
+    setEditSuccess(false)
+  }
 
   function toggleComp(id: string) {
     setSelectedComps(prev => {
@@ -777,7 +1093,7 @@ function ChainRotationSection({ gearId, components }: {
 
       {creating && (
         <div className="space-y-3 mb-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs text-neutral-500 mb-1">Name</label>
               <input
@@ -788,11 +1104,25 @@ function ChainRotationSection({ gearId, components }: {
               />
             </div>
             <div>
-              <label className="block text-xs text-neutral-500 mb-1">Wechselintervall (km)</label>
+              <label className="block text-xs text-neutral-500 mb-1">Metrik</label>
+              <select
+                value={rotationMetric}
+                onChange={(e) => setRotationMetric(e.target.value as ChainRotationMetricKey)}
+                className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+              >
+                {CHAIN_ROTATION_METRICS.map(metric => (
+                  <option key={metric} value={metric}>{USAGE_METRIC_LABELS[metric]}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-neutral-500 mb-1">
+                Wechselintervall ({rotationMetric === 'distance_m' ? 'km' : rotationMetric.endsWith('_time_s') ? 'h' : 'm'})
+              </label>
               <input
                 type="number"
-                value={intervalKm}
-                onChange={(e) => setIntervalKm(e.target.value)}
+                value={rotationIntervalValue}
+                onChange={(e) => setRotationIntervalValue(e.target.value)}
                 className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
               />
             </div>
@@ -854,46 +1184,150 @@ function ChainRotationSection({ gearId, components }: {
 
       {rotation && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-neutral-700 dark:text-neutral-300 font-medium">{rotation.name}</span>
-            <span className="text-xs text-neutral-500">
-              Wechsel alle {rotation.swap_interval_km} km
-            </span>
-          </div>
+          {(() => {
+            const metric = (rotation.swap_interval_metric_key || 'distance_m') as ChainRotationMetricKey
+            const intervalValue = rotation.swap_interval_value ?? ((rotation.swap_interval_km ?? 500) * 1000)
+            // Sort members by their value for the selected sort metric (descending)
+            const sortedMembers = rotation.members
+              ? [...rotation.members].sort((a, b) => chainRotationMemberValue(b, sortMetric) - chainRotationMemberValue(a, sortMetric))
+              : []
+            return (
+              <>
+                {/* Header row: name, swap-interval display, edit button */}
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-neutral-700 dark:text-neutral-300 font-medium">{rotation.name}</span>
+                  <div className="flex items-center gap-2">
+                    {editSuccess && (
+                      <span className="text-xs text-emerald-600 dark:text-emerald-400">Gespeichert</span>
+                    )}
+                    <span className="text-xs text-neutral-500">
+                      Wechsel alle {formatUsageMetricValue(metric, intervalValue)}
+                    </span>
+                    {!editing && (
+                      <button
+                        onClick={openEdit}
+                        title="Bearbeiten"
+                        aria-label="Intervall bearbeiten"
+                        className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 cursor-pointer"
+                      >
+                        {/* Pencil icon */}
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.828A4 4 0 019 17H7v-2a4 4 0 012.172-2.828z" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-          {rotation.members && rotation.members.length > 0 && (
-            <div className="space-y-1.5">
-              {rotation.members.map(m => {
-                const distKm = (m.distance_since_swap_m ?? 0) / 1000
-                const intKm = rotation.swap_interval_km || 500
-                const progress = Math.min((distKm / intKm) * 100, 100)
-                const isDue = progress >= 100
-
-                return (
-                  <div key={m.id} className="flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${m.is_active ? 'bg-emerald-500' : 'bg-neutral-300 dark:bg-neutral-600'}`} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className={`font-medium ${m.is_active ? 'text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400'}`}>
-                          {m.component_name}
-                          {m.is_active && <span className="ml-1 text-emerald-600 dark:text-emerald-400">(montiert)</span>}
-                        </span>
-                        <span className={isDue ? 'text-rose-500 font-medium' : 'text-neutral-500'}>
-                          {distKm.toFixed(0)} / {intKm} km
-                        </span>
+                {/* Inline edit form for swap interval */}
+                {editing && (
+                  <div className="p-3 bg-neutral-50 dark:bg-neutral-800/50 rounded-lg space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-xs text-neutral-500 mb-1">Bezeichnung</label>
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+                        />
                       </div>
-                      <div className="w-full h-1 rounded-full bg-neutral-200 dark:bg-neutral-700 mt-0.5">
-                        <div
-                          className={`h-full rounded-full transition-all ${isDue ? 'bg-rose-500' : 'bg-accent-400'}`}
-                          style={{ width: `${progress}%` }}
+                      <div>
+                        <label htmlFor="edit-chain-metric" className="block text-xs text-neutral-500 mb-1">Metrik</label>
+                        <select
+                          id="edit-chain-metric"
+                          value={editMetric}
+                          onChange={(e) => setEditMetric(e.target.value as ChainRotationMetricKey)}
+                          className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
+                        >
+                          {CHAIN_ROTATION_METRICS.map(m => (
+                            <option key={m} value={m}>{USAGE_METRIC_LABELS[m]}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-neutral-500 mb-1">
+                          Wechselintervall ({editMetric === 'distance_m' ? 'km' : editMetric.endsWith('_time_s') ? 'h' : 'm'})
+                        </label>
+                        <input
+                          type="number"
+                          value={editIntervalValue}
+                          onChange={(e) => setEditIntervalValue(e.target.value)}
+                          className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100"
                         />
                       </div>
                     </div>
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => setEditing(false)}
+                        className="px-2.5 py-1 rounded text-xs text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 cursor-pointer"
+                      >
+                        Abbrechen
+                      </button>
+                      <button
+                        onClick={() => updateMut.mutate()}
+                        disabled={!editIntervalValue || !editName.trim() || updateMut.isPending}
+                        className="px-2.5 py-1 rounded text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        {updateMut.isPending ? '...' : 'Speichern'}
+                      </button>
+                    </div>
+                    {editName.trim() === '' && (
+                      <p className="text-xs text-rose-500">Name darf nicht leer sein.</p>
+                    )}
+                    {updateMut.isError && (
+                      <p className="text-xs text-rose-500">Speichern fehlgeschlagen</p>
+                    )}
                   </div>
-                )
-              })}
-            </div>
-          )}
+                )}
+
+                {rotation.members && rotation.members.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-neutral-400">Sortierung</span>
+                      <select
+                        value={sortMetric}
+                        onChange={(e) => setSortMetric(e.target.value as ChainRotationMetricKey)}
+                        className="text-xs rounded border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-1.5 py-0.5 text-neutral-700 dark:text-neutral-300"
+                      >
+                        {CHAIN_ROTATION_METRICS.map(m => (
+                          <option key={m} value={m}>{USAGE_METRIC_LABELS[m]}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {sortedMembers.map(m => {
+                      const currentValue = chainRotationMemberValue(m, metric)
+                      const progress = intervalValue > 0 ? Math.min((currentValue / intervalValue) * 100, 100) : 0
+                      const isDue = progress >= 100
+
+                      return (
+                        <div key={m.id} className="flex items-center gap-3">
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${m.is_active ? 'bg-emerald-500' : 'bg-neutral-300 dark:bg-neutral-600'}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className={`font-medium ${m.is_active ? 'text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400'}`}>
+                                {m.component_name}
+                                {m.is_active && <span className="ml-1 text-emerald-600 dark:text-emerald-400">(montiert)</span>}
+                              </span>
+                              <span className={isDue ? 'text-rose-500 font-medium' : 'text-neutral-500'}>
+                                {formatUsageMetricValue(metric, currentValue)} / {formatUsageMetricValue(metric, intervalValue)}
+                              </span>
+                            </div>
+                            <div className="w-full h-1 rounded-full bg-neutral-200 dark:bg-neutral-700 mt-0.5">
+                              <div
+                                className={`h-full rounded-full transition-all ${isDue ? 'bg-rose-500' : 'bg-accent-400'}`}
+                                style={{ width: `${progress}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
+            )
+          })()}
 
           <div className="flex gap-2 justify-end pt-1">
             <button
@@ -1181,22 +1615,36 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
   const queryClient = useQueryClient()
   const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [snapshotOpen, setSnapshotOpen] = useState(false)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const { data: setups } = useQuery({
     queryKey: ['bike-setups', gearId],
     queryFn: () => listBikeSetups(gearId),
   })
 
+  // Keep selectedId in sync: default to active setup or first setup.
+  const resolvedSelectedId = (() => {
+    if (!setups || setups.length === 0) return null
+    if (selectedId && setups.some(s => s.id === selectedId)) return selectedId
+    const active = setups.find(s => s.is_active)
+    return active ? active.id : setups[0].id
+  })()
+
+  const selectedSetup = setups?.find(s => s.id === resolvedSelectedId) ?? null
+
   const createMut = useMutation({
-    mutationFn: (data: Partial<BikeSetup>) => createBikeSetup(gearId, data),
-    onSuccess: () => {
+    mutationFn: (data: BikeSetupCreatePayload) => createBikeSetup(gearId, data),
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['bike-setups', gearId] })
       setCreating(false)
+      setSelectedId(created.id)
     },
   })
 
   const updateMut = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<BikeSetup> }) => updateBikeSetup(id, data),
+    mutationFn: ({ id, data }: { id: string; data: BikeSetupUpdatePayload }) => updateBikeSetup(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bike-setups', gearId] })
       setEditingId(null)
@@ -1205,7 +1653,11 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
 
   const deleteMut = useMutation({
     mutationFn: deleteBikeSetup,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bike-setups', gearId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bike-setups', gearId] })
+      setSelectedId(null)
+      setDeleteConfirmId(null)
+    },
   })
 
   const activateMut = useMutation({
@@ -1213,99 +1665,217 @@ function BikeSetupsSection({ gearId }: { gearId: string }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bike-setups', gearId] }),
   })
 
+  const canDelete = selectedSetup != null &&
+    (setups?.length ?? 0) > 1 &&
+    !selectedSetup.is_active
+
+  if (!setups || setups.length === 0) {
+    return (
+      <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mb-3">Setups</h2>
+        {creating ? (
+          <BikeSetupForm
+            onSave={(data) => createMut.mutate(data)}
+            onCancel={() => setCreating(false)}
+            isSaving={createMut.isPending}
+          />
+        ) : (
+          <div className="text-center py-4">
+            <p className="text-sm text-neutral-400 mb-3">Noch kein Setup angelegt</p>
+            <button
+              onClick={() => setCreating(true)}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 cursor-pointer"
+            >
+              + Neues Setup
+            </button>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Setups</h2>
+      {/* Header row: dropdown + action buttons */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100 mr-1">Setups</h2>
+
+        {/* Setup selector dropdown */}
+        <select
+          value={resolvedSelectedId ?? ''}
+          onChange={(e) => {
+            setSelectedId(e.target.value)
+            setEditingId(null)
+            setSnapshotOpen(false)
+          }}
+          className="flex-1 min-w-0 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm px-2.5 py-1.5 text-neutral-900 dark:text-neutral-100 cursor-pointer"
+          aria-label="Setup auswählen"
+        >
+          {setups.map(s => (
+            <option key={s.id} value={s.id}>
+              {s.is_active ? `✓ ${s.name} (aktiv)` : s.name}
+            </option>
+          ))}
+        </select>
+
+        {/* Bearbeiten */}
+        {editingId !== resolvedSelectedId && (
+          <button
+            onClick={() => setEditingId(resolvedSelectedId)}
+            className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
+          >
+            Bearbeiten
+          </button>
+        )}
+
+        {/* + Neu */}
         {!creating && (
           <button
-            onClick={() => setCreating(true)}
-            className="text-sm text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
+            onClick={() => { setCreating(true); setEditingId(null) }}
+            className="text-xs text-accent-DEFAULT hover:text-accent-600 cursor-pointer"
           >
-            + Neues Setup
+            + Neu
+          </button>
+        )}
+
+        {/* Aktivieren — only when not already active */}
+        {selectedSetup && !selectedSetup.is_active && (
+          <button
+            onClick={() => activateMut.mutate(selectedSetup.id)}
+            disabled={activateMut.isPending}
+            className="text-xs text-emerald-500 hover:text-emerald-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Aktivieren
+          </button>
+        )}
+
+        {/* Löschen — disabled when only setup or active */}
+        {deleteConfirmId === resolvedSelectedId ? (
+          <span className="flex items-center gap-1 text-xs">
+            <span className="text-neutral-500">Sicher?</span>
+            <button
+              onClick={() => selectedSetup && deleteMut.mutate(selectedSetup.id)}
+              disabled={deleteMut.isPending}
+              className="text-rose-600 hover:text-rose-800 cursor-pointer disabled:opacity-50"
+            >
+              Ja
+            </button>
+            <button
+              onClick={() => setDeleteConfirmId(null)}
+              className="text-neutral-500 hover:text-neutral-700 cursor-pointer"
+            >
+              Nein
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => canDelete && setDeleteConfirmId(resolvedSelectedId)}
+            disabled={!canDelete}
+            title={!canDelete ? (selectedSetup?.is_active ? 'Aktives Setup kann nicht gelöscht werden' : 'Mindestens ein Setup muss vorhanden sein') : undefined}
+            className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Löschen
           </button>
         )}
       </div>
 
+      {/* Create form */}
       {creating && (
-        <BikeSetupForm
-          onSave={(data) => createMut.mutate(data)}
-          onCancel={() => setCreating(false)}
-          isSaving={createMut.isPending}
-        />
+        <div className="mb-4 rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+          <BikeSetupForm
+            onSave={(data) => createMut.mutate(data)}
+            onCancel={() => setCreating(false)}
+            isSaving={createMut.isPending}
+          />
+        </div>
       )}
 
-      {setups && setups.length > 0 ? (
-        <div className="space-y-3">
-          {setups.map((setup) => (
-            <div key={setup.id} className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
-              {editingId === setup.id ? (
-                <BikeSetupForm
-                  setup={setup}
-                  onSave={(data) => updateMut.mutate({ id: setup.id, data })}
-                  onCancel={() => setEditingId(null)}
-                  isSaving={updateMut.isPending}
-                />
-              ) : (
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{setup.name}</span>
-                      {setup.is_active && (
-                        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                          Aktiv
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {!setup.is_active && (
-                        <button
-                          onClick={() => activateMut.mutate(setup.id)}
-                          disabled={activateMut.isPending}
-                          className="text-xs text-emerald-500 hover:text-emerald-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Aktivieren
-                        </button>
-                      )}
-                      <button
-                        onClick={() => setEditingId(setup.id)}
-                        className="text-xs text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 cursor-pointer"
-                      >
-                        Bearbeiten
-                      </button>
-                      <button
-                        onClick={() => deleteMut.mutate(setup.id)}
-                        disabled={deleteMut.isPending}
-                        className="text-xs text-rose-500 hover:text-rose-700 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Löschen
-                      </button>
-                    </div>
-                  </div>
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 space-x-3">
-                    {setup.intended_use && <span>{setup.intended_use}</span>}
-                    {setup.rider_weight_kg && <span>{setup.rider_weight_kg} kg</span>}
-                  </div>
-                  {/* Summary of configured sections */}
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {setup.suspension_front && <SetupTag label="Gabel" />}
-                    {setup.suspension_rear && <SetupTag label="Dämpfer" />}
-                    {setup.tires && <SetupTag label="Reifen" />}
-                    {setup.contact_points && <SetupTag label="Kontaktpunkte" />}
-                    {setup.brakes && <SetupTag label="Bremsen" />}
-                    {setup.drivetrain && <SetupTag label="Antrieb" />}
-                  </div>
+      {/* Detail panel for selected setup */}
+      {selectedSetup && (
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-3">
+          {editingId === selectedSetup.id ? (
+            <BikeSetupForm
+              setup={selectedSetup}
+              onSave={(data) => updateMut.mutate({ id: selectedSetup.id, data })}
+              onCancel={() => setEditingId(null)}
+              isSaving={updateMut.isPending}
+            />
+          ) : (
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-neutral-900 dark:text-neutral-100">{selectedSetup.name}</span>
+                {selectedSetup.is_active && (
+                  <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                    Aktiv
+                  </span>
+                )}
+              </div>
+
+              {(selectedSetup.intended_use || selectedSetup.rider_weight_kg) && (
+                <div className="text-xs text-neutral-500 dark:text-neutral-400 flex gap-3">
+                  {selectedSetup.intended_use && <span>Nutzung: {selectedSetup.intended_use}</span>}
+                  {selectedSetup.rider_weight_kg && <span>Fahrergewicht: {selectedSetup.rider_weight_kg} kg</span>}
                 </div>
               )}
+
+              {/* JSONB section tags */}
+              <div className="flex flex-wrap gap-1.5">
+                {selectedSetup.suspension_front && <SetupTag label="Gabel" />}
+                {selectedSetup.suspension_rear && <SetupTag label="Dämpfer" />}
+                {selectedSetup.tires && <SetupTag label="Reifen" />}
+                {selectedSetup.contact_points && <SetupTag label="Kontaktpunkte" />}
+                {selectedSetup.brakes && <SetupTag label="Bremsen" />}
+                {selectedSetup.drivetrain && <SetupTag label="Antrieb" />}
+              </div>
+
+              {/* Component snapshot section */}
+              {selectedSetup.component_snapshot && (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSnapshotOpen(o => !o)}
+                    className="flex items-center gap-1 text-xs text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 cursor-pointer"
+                    aria-expanded={snapshotOpen}
+                  >
+                    <span>{snapshotOpen ? '▼' : '▶'}</span>
+                    <span>
+                      Komponenten zum Zeitpunkt der Speicherung ({selectedSetup.component_snapshot.components.length})
+                    </span>
+                  </button>
+                  {snapshotOpen && (
+                    <div className="mt-1.5 rounded-lg border border-neutral-100 dark:border-neutral-800 p-2 space-y-1">
+                      <p
+                        className="text-xs text-neutral-500 dark:text-neutral-400 flex items-start gap-1"
+                        role="note"
+                        aria-label="Nur Snapshot — keine Auswirkung auf aktuell verbaute Komponenten."
+                      >
+                        <span>ℹ</span>
+                        <span>Nur Snapshot — keine Auswirkung auf aktuell verbaute Komponenten.</span>
+                      </p>
+                      <ul className="space-y-0.5">
+                        {selectedSetup.component_snapshot.components.map(c => (
+                          <li key={c.id} className="text-xs text-neutral-700 dark:text-neutral-300">
+                            <span className="font-medium">{c.name}</span>
+                            <span className="text-neutral-500 dark:text-neutral-500"> · {c.type}</span>
+                            {(c.brand || c.model) && (
+                              <span className="text-neutral-500 dark:text-neutral-500">
+                                {' · '}{[c.brand, c.model].filter(Boolean).join(' ')}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {selectedSetup.notes && (
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 italic">{selectedSetup.notes}</p>
+              )}
             </div>
-          ))}
+          )}
         </div>
-      ) : (
-        !creating && (
-          <p className="text-sm text-neutral-400 py-2">
-            Keine Setups vorhanden. Erstelle ein Setup um Federung, Reifen, Bremsen etc. zu dokumentieren.
-          </p>
-        )
       )}
     </div>
   )
@@ -1321,7 +1891,7 @@ function SetupTag({ label }: { label: string }) {
 
 function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
   setup?: BikeSetup
-  onSave: (data: Partial<BikeSetup>) => void
+  onSave: (data: BikeSetupCreatePayload | BikeSetupUpdatePayload) => void
   onCancel: () => void
   isSaving?: boolean
 }) {
@@ -1330,6 +1900,7 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
   const [intendedUse, setIntendedUse] = useState(setup?.intended_use ?? '')
   const [notes, setNotes] = useState(setup?.notes ?? '')
   const [isActive, setIsActive] = useState(setup?.is_active ?? false)
+  const [captureComponents, setCaptureComponents] = useState(false)
 
   // Gabel (Federung vorne)
   const sf = setup?.suspension_front ?? {}
@@ -1403,6 +1974,7 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
       intended_use: intendedUse.trim() || null,
       notes: notes.trim() || null,
       is_active: isActive,
+      capture_components: captureComponents,
       suspension_front: buildJson([
         ['travel_mm', sfTravel], ['pressure_psi', sfPressure],
         ['lsr', sfLsr], ['hsr', sfHsr],
@@ -1534,6 +2106,25 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
         <span className="text-sm text-neutral-700 dark:text-neutral-300">Als aktives Setup setzen</span>
       </label>
 
+      <label className="flex items-start gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={captureComponents}
+          onChange={(e) => setCaptureComponents(e.target.checked)}
+          className="mt-0.5 w-3.5 h-3.5 rounded border-neutral-300 dark:border-neutral-600 text-accent-DEFAULT focus:ring-accent-DEFAULT"
+        />
+        <span className="text-sm text-neutral-700 dark:text-neutral-300">
+          Komponenten mitsichern{' '}
+          <span
+            className="inline-block align-middle text-neutral-400 cursor-help"
+            title="Komponenten-Snapshot dient nur als Verlaufs-Information — die aktuell verbauten Komponenten werden beim Aktivieren eines Setups nicht verändert."
+            aria-label="Komponenten-Snapshot dient nur als Verlaufs-Information — die aktuell verbauten Komponenten werden beim Aktivieren eines Setups nicht verändert."
+          >
+            ⓘ
+          </span>
+        </span>
+      </label>
+
       <div className="flex gap-2 justify-end">
         <button
           type="button"
@@ -1553,6 +2144,17 @@ function BikeSetupForm({ setup, onSave, onCancel, isSaving }: {
     </form>
   )
 }
+
+// ── Tab-slot definitions (Phase 6.4 wiring) ──────────────────────────────────
+//
+// Tabs for GearDetailPage (wired in Phase 6.4):
+//   0 – Stammdaten    (edit form, notes, weight, cost, images, documents)
+//   1 – Komponenten   (ComponentsList + ComponentForm)
+//   2 – Geometrie     (GearGeometryTab — Phase 6.1)
+//   3 – Sportarten    (GearSportsTab — Phase 6.2, applicable_sport_predicates)
+//   4 – Verschleiß    (ServiceEventsPanel — Phase 6.3)
+//
+// No behaviour change in Phase 5; the sections remain flat (unboxed into tabs).
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -1574,6 +2176,21 @@ function gearTypeLabel(type: string): string {
     other: 'Sonstiges',
   }
   return labels[type] ?? type
+}
+
+// Schema-driven type label; falls back to hardcoded table for unknown keys.
+function gearTypeLabelResolved(type: string): string {
+  const schema = getActiveSchema()
+  const path = gearTypePathLabel(schema, type)
+  return path !== type ? path : gearTypeLabel(type)
+}
+
+function categoryScopeForType(typeKey: string): GearCategoryScope {
+  const schema = getActiveSchema()
+  const gt = schema.gearTypes.find(t => t.key === typeKey)
+  const scope = gt?.scope
+  if (scope && isGearCategoryScope(scope)) return scope
+  return 'other'
 }
 
 function subTypeLabel(subType: string): string {
