@@ -539,6 +539,22 @@ func setComponentUsageForUsageTest(t *testing.T, db *DB, componentID string, los
 	}
 }
 
+func setComponentMetricUsageForUsageTest(t *testing.T, db *DB, componentID string, distanceM, movingS, elapsedS, gainM, lossM float64, activities int) {
+	t.Helper()
+	_, err := db.Pool.Exec(context.Background(), `
+		UPDATE gear_components
+		SET total_distance_m = $2,
+		    total_moving_time_s = $3,
+		    total_time_s = $4,
+		    total_elevation_gain_m = $5,
+		    total_elevation_loss_m = $6,
+		    total_activities = $7
+		WHERE id = $1`, componentID, distanceM, int64(movingS), int64(elapsedS), gainM, lossM, activities)
+	if err != nil {
+		t.Fatalf("set component metric usage: %v", err)
+	}
+}
+
 // insertServiceIntervalForUsageTest inserts a gear_service_intervals row with
 // interval_type = metricKey (e.g. "elevation_loss_m") and the given threshold.
 func insertServiceIntervalForUsageTest(t *testing.T, db *DB, componentID, metricKey string, value float64) {
@@ -569,6 +585,51 @@ func TestMaintenanceAlertsCanUseElevationLoss(t *testing.T) {
 	}
 	if len(alerts) != 1 || !alerts[0].IsOverdue || alerts[0].CurrentValue != 51000 {
 		t.Fatalf("unexpected alerts: %#v", alerts)
+	}
+}
+
+func TestMaintenanceAlertsFilterLowProgressAndSupportAllServiceMetrics(t *testing.T) {
+	db := mapLayerTestDB(t)
+	ctx := context.Background()
+	userID := insertTestUser(t, db)
+	gearID := insertGearForUsageTest(t, db, userID, "Service Bike")
+	componentID := insertComponentForUsageTest(t, db, gearID, "Service Component")
+	setComponentMetricUsageForUsageTest(t, db, componentID, 450000, 36000, 40000, 9000, 1200, 9)
+
+	insertServiceIntervalForUsageTest(t, db, componentID, "distance_m", 500000)      // 90%, visible
+	insertServiceIntervalForUsageTest(t, db, componentID, "moving_time_s", 72000)    // 50%, hidden
+	insertServiceIntervalForUsageTest(t, db, componentID, "elevation_gain_m", 10000) // 90%, visible
+	insertServiceIntervalForUsageTest(t, db, componentID, "activity_count", 10)      // 90%, visible
+	insertServiceIntervalForUsageTest(t, db, componentID, "elevation_loss_m", 50000) // below 90%, hidden
+
+	alerts, err := db.GetMaintenanceAlerts(ctx, userID)
+	if err != nil {
+		t.Fatalf("GetMaintenanceAlerts: %v", err)
+	}
+	if len(alerts) != 3 {
+		t.Fatalf("alerts len = %d, want 3: %#v", len(alerts), alerts)
+	}
+	got := map[string]float64{}
+	for _, alert := range alerts {
+		if alert.IsOverdue {
+			t.Fatalf("alert %q unexpectedly overdue", alert.IntervalType)
+		}
+		got[alert.IntervalType] = alert.CurrentValue
+		if alert.IntervalID == "" {
+			t.Fatalf("alert interval id is empty: %#v", alert)
+		}
+	}
+	if got["distance_m"] != 450000 {
+		t.Fatalf("distance alert = %v, want 450000", got["distance_m"])
+	}
+	if got["elevation_gain_m"] != 9000 {
+		t.Fatalf("gain alert = %v, want 9000", got["elevation_gain_m"])
+	}
+	if got["activity_count"] != 9 {
+		t.Fatalf("activity alert = %v, want 9", got["activity_count"])
+	}
+	if _, ok := got["moving_time_s"]; ok {
+		t.Fatalf("moving_time_s below-threshold alert was returned: %#v", alerts)
 	}
 }
 

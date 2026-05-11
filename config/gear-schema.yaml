@@ -72,6 +72,20 @@ option_sets:
       - {key: "16", label_de: "16 Zoll"}
       - {key: "14", label_de: "14 Zoll"}
       - {key: "12", label_de: "12 Zoll"}
+  - key: shoes.crampon_compatibility
+    options:
+      - {key: none, label_de: "Nicht steigeisenfest"}
+      - {key: conditional, label_de: "Bedingt steigeisenfest"}
+      - {key: full, label_de: "Voll steigeisenfest"}
+  - key: shoes.outdoor_category
+    options:
+      - {key: a, label_de: "A"}
+      - {key: a_b, label_de: "A/B"}
+      - {key: b, label_de: "B"}
+      - {key: b_c, label_de: "B/C"}
+      - {key: light_mountaineering, label_de: "Leichtbergstiefel"}
+      - {key: c, label_de: "C"}
+      - {key: d, label_de: "D"}
   - key: bike.frame_size_alpha
     options:
       - {key: xxs, label_de: XXS}
@@ -1083,6 +1097,15 @@ attributes:
     label_de: Fahrrad-Modifier
     value_type: search_enum
     option_set_key: bike.modifier
+  # ---- Shoes ----
+  - key: shoes.crampon_compatibility
+    label_de: Steigeisen-Kompatibilität
+    value_type: search_enum
+    option_set_key: shoes.crampon_compatibility
+  - key: shoes.outdoor_category
+    label_de: Outdoorschuh-Kategorie
+    value_type: search_enum
+    option_set_key: shoes.outdoor_category
   # ---- Bike: component interface specs (used by frame + component_types) ----
   - key: bike.rear_axle_standard
     label_de: Hinterbau-Achsstandard
@@ -2800,12 +2823,110 @@ gear_types:
     scope: shoes
     parent_key: shoes
     default_assignment_role_key: worn
+    attribute_keys:
+      - shoes.outdoor_category
+
+  - key: shoes.hiking.low
+    label_de: Wanderschuhe
+    scope: shoes
+    parent_key: shoes.hiking
+    default_assignment_role_key: worn
+    recommended:
+      attributes:
+        - {key: shoes.outdoor_category, values: [a]}
+
+  - key: shoes.hiking.speed
+    label_de: Speed-Hiking-Schuhe
+    scope: shoes
+    parent_key: shoes.hiking
+    default_assignment_role_key: worn
+    recommended:
+      attributes:
+        - {key: shoes.outdoor_category, values: [a]}
+
+  - key: shoes.hiking.approach
+    label_de: Zustiegsschuhe
+    scope: shoes
+    parent_key: shoes.hiking
+    default_assignment_role_key: worn
+    recommended:
+      attributes:
+        - {key: shoes.outdoor_category, values: [a]}
+
+  - key: shoes.hiking.boot
+    label_de: Wanderstiefel
+    scope: shoes
+    parent_key: shoes.hiking
+    default_assignment_role_key: worn
+    recommended:
+      attributes:
+        - {key: shoes.outdoor_category, values: [a_b]}
+
+  - key: shoes.trekking
+    label_de: Trekkingstiefel
+    scope: shoes
+    parent_key: shoes
+    default_assignment_role_key: worn
+    attribute_keys:
+      - shoes.outdoor_category
+      - shoes.crampon_compatibility
+
+  - key: shoes.trekking.light
+    label_de: Trekkingstiefel
+    scope: shoes
+    parent_key: shoes.trekking
+    default_assignment_role_key: worn
+    recommended:
+      attributes:
+        - {key: shoes.outdoor_category, values: [b]}
+
+  - key: shoes.trekking.heavy
+    label_de: Schwere Trekkingstiefel
+    scope: shoes
+    parent_key: shoes.trekking
+    default_assignment_role_key: worn
+    recommended:
+      attributes:
+        - {key: shoes.outdoor_category, values: [b_c]}
+        - {key: shoes.crampon_compatibility, values: [conditional]}
 
   - key: shoes.mountaineering
     label_de: Bergschuhe
     scope: shoes
     parent_key: shoes
     default_assignment_role_key: worn
+    attribute_keys:
+      - shoes.outdoor_category
+      - shoes.crampon_compatibility
+
+  - key: shoes.mountaineering.light
+    label_de: Leichtbergstiefel
+    scope: shoes
+    parent_key: shoes.mountaineering
+    default_assignment_role_key: worn
+    recommended:
+      attributes:
+        - {key: shoes.outdoor_category, values: [light_mountaineering]}
+
+  - key: shoes.mountaineering.alpine
+    label_de: Bergstiefel
+    scope: shoes
+    parent_key: shoes.mountaineering
+    default_assignment_role_key: worn
+    recommended:
+      attributes:
+        - {key: shoes.outdoor_category, values: [c]}
+        - {key: shoes.crampon_compatibility, values: [conditional]}
+
+  - key: shoes.mountaineering.expedition
+    label_de: Expeditionsstiefel
+    scope: shoes
+    parent_key: shoes.mountaineering
+    default_assignment_role_key: worn
+    recommended:
+      attributes:
+        - {key: shoes.outdoor_category, values: [d]}
+        - {key: shoes.crampon_compatibility, values: [full]}
 
   - key: shoes.training
     label_de: Trainingsschuhe

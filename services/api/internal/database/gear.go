@@ -16,11 +16,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/sixdouglas/suncalc"
 
+	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
 	"github.com/skadia-app/skadia/services/api/internal/gearcompat"
 	"github.com/skadia-app/skadia/services/api/internal/gearmetrics"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/rules"
-	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
 
@@ -1542,27 +1542,46 @@ func (db *DB) ListComponentPresets(ctx context.Context, gearType string) ([]mode
 
 func (db *DB) GetMaintenanceAlerts(ctx context.Context, userID string) ([]model.MaintenanceAlert, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT g.id, g.name, gc.id, gc.name, gsi.name, gsi.interval_type,
-		 CASE
-		   WHEN gsi.interval_type = 'distance_m' THEN
-		     gc.total_distance_m - COALESCE(gsi.last_service_metric_value, 0) >= gsi.interval_value
-		   WHEN gsi.interval_type = 'elevation_loss_m' THEN
-		     gc.total_elevation_loss_m - COALESCE(gsi.last_service_metric_value, 0) >= gsi.interval_value
-		   ELSE false
-		 END AS is_overdue,
-		 CASE
-		   WHEN gsi.interval_type = 'distance_m' THEN
-		     gc.total_distance_m - COALESCE(gsi.last_service_metric_value, 0)
-		   WHEN gsi.interval_type = 'elevation_loss_m' THEN
-		     gc.total_elevation_loss_m - COALESCE(gsi.last_service_metric_value, 0)
-		   ELSE 0
-		 END AS current_value,
-		 gsi.interval_value
-		 FROM gear_service_intervals gsi
-		 JOIN gear_components gc ON gc.id = gsi.component_id
-		 JOIN gear g ON g.id = gc.gear_id
-		 WHERE g.user_id = $1 AND g.status != 'retired' AND gc.is_retired = false
-		 ORDER BY is_overdue DESC, current_value DESC`, userID,
+		`WITH evaluated AS (
+		   SELECT
+		     gsi.id AS interval_id,
+		     g.id AS gear_id,
+		     g.name AS gear_name,
+		     gc.id AS component_id,
+		     gc.name AS component_name,
+		     gsi.name AS interval_name,
+		     COALESCE(gsi.metric_key, gsi.interval_type) AS metric_key,
+		     gsi.interval_value AS threshold_value,
+		     GREATEST(
+		       CASE COALESCE(gsi.metric_key, gsi.interval_type)
+		         WHEN 'distance_m' THEN gc.total_distance_m - COALESCE(gsi.last_service_metric_value, 0)
+		         WHEN 'moving_time_s' THEN gc.total_moving_time_s - COALESCE(gsi.last_service_metric_value, 0)
+		         WHEN 'elapsed_time_s' THEN gc.total_time_s - COALESCE(gsi.last_service_metric_value, 0)
+		         WHEN 'activity_count' THEN gc.total_activities::double precision - COALESCE(gsi.last_service_metric_value, 0)
+		         WHEN 'elapsed_days' THEN EXTRACT(EPOCH FROM (now() - COALESCE(gsi.last_service_at, gc.installed_at, now()))) / 86400.0
+		         WHEN 'elevation_gain_m' THEN gc.total_elevation_gain_m - COALESCE(gsi.last_service_metric_value, 0)
+		         WHEN 'elevation_loss_m' THEN gc.total_elevation_loss_m - COALESCE(gsi.last_service_metric_value, 0)
+		         ELSE 0
+		       END,
+		       0
+		     ) AS current_value
+		   FROM gear_service_intervals gsi
+		   JOIN gear_components gc ON gc.id = gsi.component_id
+		   JOIN gear g ON g.id = gc.gear_id
+		   WHERE g.user_id = $1
+		     AND g.status != 'retired'
+		     AND gc.is_retired = false
+		     AND gsi.interval_value > 0
+		 )
+		 SELECT interval_id, gear_id, gear_name, component_id, component_name,
+		        interval_name, metric_key,
+		        current_value >= threshold_value AS is_overdue,
+		        current_value, threshold_value
+		 FROM evaluated
+		 WHERE current_value >= threshold_value * 0.9
+		 ORDER BY (current_value >= threshold_value) DESC,
+		          current_value / NULLIF(threshold_value, 0) DESC
+		 LIMIT 20`, userID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get maintenance alerts: %w", err)
@@ -1573,7 +1592,7 @@ func (db *DB) GetMaintenanceAlerts(ctx context.Context, userID string) ([]model.
 	for rows.Next() {
 		var a model.MaintenanceAlert
 		if err := rows.Scan(
-			&a.GearID, &a.GearName, &a.ComponentID, &a.ComponentName,
+			&a.IntervalID, &a.GearID, &a.GearName, &a.ComponentID, &a.ComponentName,
 			&a.IntervalName, &a.IntervalType, &a.IsOverdue, &a.CurrentValue, &a.ThresholdValue,
 		); err != nil {
 			return nil, fmt.Errorf("scan maintenance alert: %w", err)
@@ -3245,9 +3264,9 @@ func scanBikeSetup(row pgx.Row) (*model.BikeSetup, error) {
 // bike_setups.component_snapshot. Version 1 fields must never be renamed;
 // future versions add new top-level fields.
 type componentSnapshotEnvelope struct {
-	Version    int                    `json:"version"`
-	CapturedAt string                 `json:"captured_at"` // RFC3339
-	Components []componentSnapshotV1  `json:"components"`
+	Version    int                   `json:"version"`
+	CapturedAt string                `json:"captured_at"` // RFC3339
+	Components []componentSnapshotV1 `json:"components"`
 }
 
 type componentSnapshotV1 struct {

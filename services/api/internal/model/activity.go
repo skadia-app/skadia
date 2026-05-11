@@ -649,34 +649,34 @@ func (s *EnrichmentSettings) EnabledModules() []string {
 
 // Gear represents a piece of equipment.
 type Gear struct {
-	ID                          string                      `json:"id"`
-	UserID                      string                      `json:"user_id"`
-	Name                        string                      `json:"name"`
-	Type                        string                      `json:"type"`
-	Scope                       string                      `json:"scope"`
-	SubType                     *string                     `json:"sub_type,omitempty"`
-	Brand                       *string                     `json:"brand,omitempty"`
-	Model                       *string                     `json:"model,omitempty"`
-	TotalDistanceM              float64                     `json:"total_distance_m"`
-	TotalTimeS                  int64                       `json:"total_time_s"`         // elapsed time across all activities (includes pauses, indoor-without-GPS)
-	TotalMovingTimeS            int64                       `json:"total_moving_time_s"`  // moving time; 0 for activities without GPS
-	TotalElevationGainM         float64                     `json:"total_elevation_gain_m"`
-	TotalElevationLossM         float64                     `json:"total_elevation_loss_m"`
-	TotalActivities             int                         `json:"total_activities"`
-	PurchasedAt                 *string                     `json:"purchased_at,omitempty"`
-	RetiredAt                   *string                     `json:"retired_at,omitempty"`
-	IsRetired                   bool                        `json:"is_retired"`
-	Status                      string                      `json:"status"`
-	DefaultSportPredicates      []gear.GearDefaultPredicate `json:"default_sport_predicates"`
-	ApplicableSportPredicates   []gear.GearDefaultPredicate `json:"applicable_sport_predicates"`
-	Attributes                  map[string]any              `json:"attributes,omitempty"`
-	Modifiers                   map[string]any              `json:"modifiers,omitempty"`
-	Notes                       *string                     `json:"notes,omitempty"`
-	ReviewStatus                string                      `json:"review_status,omitempty"`
-	WeightG                     *int                        `json:"weight_g,omitempty"`
-	SourceDocumentID            *string                     `json:"source_document_id,omitempty"`
-	Components                  []GearComponent             `json:"components,omitempty"`
-	CreatedAt                   time.Time                   `json:"created_at"`
+	ID                        string                      `json:"id"`
+	UserID                    string                      `json:"user_id"`
+	Name                      string                      `json:"name"`
+	Type                      string                      `json:"type"`
+	Scope                     string                      `json:"scope"`
+	SubType                   *string                     `json:"sub_type,omitempty"`
+	Brand                     *string                     `json:"brand,omitempty"`
+	Model                     *string                     `json:"model,omitempty"`
+	TotalDistanceM            float64                     `json:"total_distance_m"`
+	TotalTimeS                int64                       `json:"total_time_s"`        // elapsed time across all activities (includes pauses, indoor-without-GPS)
+	TotalMovingTimeS          int64                       `json:"total_moving_time_s"` // moving time; 0 for activities without GPS
+	TotalElevationGainM       float64                     `json:"total_elevation_gain_m"`
+	TotalElevationLossM       float64                     `json:"total_elevation_loss_m"`
+	TotalActivities           int                         `json:"total_activities"`
+	PurchasedAt               *string                     `json:"purchased_at,omitempty"`
+	RetiredAt                 *string                     `json:"retired_at,omitempty"`
+	IsRetired                 bool                        `json:"is_retired"`
+	Status                    string                      `json:"status"`
+	DefaultSportPredicates    []gear.GearDefaultPredicate `json:"default_sport_predicates"`
+	ApplicableSportPredicates []gear.GearDefaultPredicate `json:"applicable_sport_predicates"`
+	Attributes                map[string]any              `json:"attributes,omitempty"`
+	Modifiers                 map[string]any              `json:"modifiers,omitempty"`
+	Notes                     *string                     `json:"notes,omitempty"`
+	ReviewStatus              string                      `json:"review_status,omitempty"`
+	WeightG                   *int                        `json:"weight_g,omitempty"`
+	SourceDocumentID          *string                     `json:"source_document_id,omitempty"`
+	Components                []GearComponent             `json:"components,omitempty"`
+	CreatedAt                 time.Time                   `json:"created_at"`
 }
 
 // GearCreate is the request body for creating a gear item.
@@ -689,21 +689,21 @@ type Gear struct {
 //   - non-nil pointer to empty slice → explicitly set no sport predicates.
 //   - non-nil pointer to non-empty slice → set to the given predicates.
 type GearCreate struct {
-	Name                        string                       `json:"name"`
-	Type                        string                       `json:"type"`
-	Scope                       string                       `json:"scope,omitempty"`
-	SubType                     *string                      `json:"sub_type,omitempty"`
-	Brand                       *string                      `json:"brand,omitempty"`
-	Model                       *string                      `json:"model,omitempty"`
-	PurchasedAt                 *string                      `json:"purchased_at,omitempty"`
-	DefaultSportPredicates      *[]gear.GearDefaultPredicate `json:"default_sport_predicates,omitempty"`
-	ApplicableSportPredicates   *[]gear.GearDefaultPredicate `json:"applicable_sport_predicates,omitempty"`
-	Attributes                  map[string]any               `json:"attributes,omitempty"`
-	Modifiers                   map[string]any               `json:"modifiers,omitempty"`
-	Notes                       *string                      `json:"notes,omitempty"`
+	Name                      string                       `json:"name"`
+	Type                      string                       `json:"type"`
+	Scope                     string                       `json:"scope,omitempty"`
+	SubType                   *string                      `json:"sub_type,omitempty"`
+	Brand                     *string                      `json:"brand,omitempty"`
+	Model                     *string                      `json:"model,omitempty"`
+	PurchasedAt               *string                      `json:"purchased_at,omitempty"`
+	DefaultSportPredicates    *[]gear.GearDefaultPredicate `json:"default_sport_predicates,omitempty"`
+	ApplicableSportPredicates *[]gear.GearDefaultPredicate `json:"applicable_sport_predicates,omitempty"`
+	Attributes                map[string]any               `json:"attributes,omitempty"`
+	Modifiers                 map[string]any               `json:"modifiers,omitempty"`
+	Notes                     *string                      `json:"notes,omitempty"`
 	// Components is an optional initial list of components for slotted gear
 	// types. Each entry is INSERTed; client-supplied IDs are ignored on create.
-	Components                  []GearComponentInput         `json:"components,omitempty"`
+	Components []GearComponentInput `json:"components,omitempty"`
 }
 
 // GearUpdate is the request body for updating a gear item.
@@ -718,22 +718,22 @@ type GearCreate struct {
 // ApplicableSportPredicates takes precedence over DefaultSportPredicates when
 // both are present in a single request.
 type GearUpdate struct {
-	Name                        *string                      `json:"name,omitempty"`
-	Type                        *string                      `json:"type,omitempty"`
-	Scope                       *string                      `json:"scope,omitempty"`
-	SubType                     *string                      `json:"sub_type,omitempty"`
-	Brand                       *string                      `json:"brand,omitempty"`
-	Model                       *string                      `json:"model,omitempty"`
-	PurchasedAt                 *string                      `json:"purchased_at,omitempty"`
-	RetiredAt                   *string                      `json:"retired_at,omitempty"`
-	IsRetired                   *bool                        `json:"is_retired,omitempty"`
-	DefaultSportPredicates      *[]gear.GearDefaultPredicate `json:"default_sport_predicates,omitempty"`
-	ApplicableSportPredicates   *[]gear.GearDefaultPredicate `json:"applicable_sport_predicates,omitempty"`
-	Attributes                  map[string]any               `json:"attributes,omitempty"`
-	Modifiers                   map[string]any               `json:"modifiers,omitempty"`
-	Notes                       *string                      `json:"notes,omitempty"`
-	WeightG                     *int                         `json:"weight_g,omitempty"`
-	Components                  *[]GearComponentInput        `json:"components,omitempty"`
+	Name                      *string                      `json:"name,omitempty"`
+	Type                      *string                      `json:"type,omitempty"`
+	Scope                     *string                      `json:"scope,omitempty"`
+	SubType                   *string                      `json:"sub_type,omitempty"`
+	Brand                     *string                      `json:"brand,omitempty"`
+	Model                     *string                      `json:"model,omitempty"`
+	PurchasedAt               *string                      `json:"purchased_at,omitempty"`
+	RetiredAt                 *string                      `json:"retired_at,omitempty"`
+	IsRetired                 *bool                        `json:"is_retired,omitempty"`
+	DefaultSportPredicates    *[]gear.GearDefaultPredicate `json:"default_sport_predicates,omitempty"`
+	ApplicableSportPredicates *[]gear.GearDefaultPredicate `json:"applicable_sport_predicates,omitempty"`
+	Attributes                map[string]any               `json:"attributes,omitempty"`
+	Modifiers                 map[string]any               `json:"modifiers,omitempty"`
+	Notes                     *string                      `json:"notes,omitempty"`
+	WeightG                   *int                         `json:"weight_g,omitempty"`
+	Components                *[]GearComponentInput        `json:"components,omitempty"`
 }
 
 // GearComponent represents a component attached to a gear item.
@@ -742,35 +742,35 @@ type GearUpdate struct {
 // + activity totals). Frontend sends slot_key and attributes back; the rest
 // is read-only analytics.
 type GearComponent struct {
-	ID                   string         `json:"id"`
-	GearID               string         `json:"gear_id"`
-	ParentComponentID    *string        `json:"parent_component_id,omitempty"`
-	Name                 string         `json:"name"`
-	Type                 string         `json:"type"`
-	TypeKey              *string        `json:"type_key,omitempty"`
-	SlotKey              *string        `json:"slot_key,omitempty"`
+	ID                string  `json:"id"`
+	GearID            string  `json:"gear_id"`
+	ParentComponentID *string `json:"parent_component_id,omitempty"`
+	Name              string  `json:"name"`
+	Type              string  `json:"type"`
+	TypeKey           *string `json:"type_key,omitempty"`
+	SlotKey           *string `json:"slot_key,omitempty"`
 	// PresetGearTypeKey optionally locks the component to a specific gear_type
 	// (or any of its descendants via ParentKey). When set it takes precedence
 	// over the implicit TypeKey/SourceGearTypeKey transfer logic.
-	PresetGearTypeKey    *string        `json:"preset_gear_type_key,omitempty" db:"preset_gear_type_key"`
-	Brand                *string        `json:"brand,omitempty"`
-	Model                *string        `json:"model,omitempty"`
-	TotalDistanceM       float64        `json:"total_distance_m"`
-	TotalElevationGainM  float64        `json:"total_elevation_gain_m"`
-	TotalElevationLossM  float64        `json:"total_elevation_loss_m"`
-	TotalTimeS           int64          `json:"total_time_s"`
-	TotalMovingTimeS     int64          `json:"total_moving_time_s"`
-	TotalActivities      int            `json:"total_activities"`
-	Attributes           map[string]any `json:"attributes,omitempty"`
-	PurchasePrice        *float64       `json:"purchase_price,omitempty"`
-	PurchaseDate         *string        `json:"purchase_date,omitempty"`
-	WeightG              *int           `json:"weight_g,omitempty"`
-	SerialNumber         *string        `json:"serial_number,omitempty"`
-	InstalledAt          *string        `json:"installed_at,omitempty"`
-	RemovedAt            *string        `json:"removed_at,omitempty"`
-	IsRetired            bool           `json:"is_retired"`
-	Status               string         `json:"status"`
-	Notes                *string        `json:"notes,omitempty"`
+	PresetGearTypeKey   *string        `json:"preset_gear_type_key,omitempty" db:"preset_gear_type_key"`
+	Brand               *string        `json:"brand,omitempty"`
+	Model               *string        `json:"model,omitempty"`
+	TotalDistanceM      float64        `json:"total_distance_m"`
+	TotalElevationGainM float64        `json:"total_elevation_gain_m"`
+	TotalElevationLossM float64        `json:"total_elevation_loss_m"`
+	TotalTimeS          int64          `json:"total_time_s"`
+	TotalMovingTimeS    int64          `json:"total_moving_time_s"`
+	TotalActivities     int            `json:"total_activities"`
+	Attributes          map[string]any `json:"attributes,omitempty"`
+	PurchasePrice       *float64       `json:"purchase_price,omitempty"`
+	PurchaseDate        *string        `json:"purchase_date,omitempty"`
+	WeightG             *int           `json:"weight_g,omitempty"`
+	SerialNumber        *string        `json:"serial_number,omitempty"`
+	InstalledAt         *string        `json:"installed_at,omitempty"`
+	RemovedAt           *string        `json:"removed_at,omitempty"`
+	IsRetired           bool           `json:"is_retired"`
+	Status              string         `json:"status"`
+	Notes               *string        `json:"notes,omitempty"`
 }
 
 // GearComponentInput is the client-supplied subset of GearComponent allowed
@@ -779,12 +779,12 @@ type GearComponent struct {
 // Server-side analytics columns (totals, activity counts) and timestamps
 // are NEVER accepted from the client.
 type GearComponentInput struct {
-	ID                string         `json:"id,omitempty"`
-	ParentComponentID *string        `json:"parent_component_id,omitempty"`
-	Name              string         `json:"name"`
-	Type              string         `json:"type"`
-	TypeKey           *string        `json:"type_key,omitempty"`
-	SlotKey           *string        `json:"slot_key,omitempty"`
+	ID                string  `json:"id,omitempty"`
+	ParentComponentID *string `json:"parent_component_id,omitempty"`
+	Name              string  `json:"name"`
+	Type              string  `json:"type"`
+	TypeKey           *string `json:"type_key,omitempty"`
+	SlotKey           *string `json:"slot_key,omitempty"`
 	// PresetGearTypeKey see GearComponent.PresetGearTypeKey.
 	PresetGearTypeKey *string        `json:"preset_gear_type_key,omitempty" db:"preset_gear_type_key"`
 	Brand             *string        `json:"brand,omitempty"`
@@ -811,7 +811,7 @@ type GearComponentCreate struct {
 	SerialNumber      *string  `json:"serial_number,omitempty"`
 	Notes             *string  `json:"notes,omitempty"`
 	// PresetGearTypeKey see GearComponent.PresetGearTypeKey.
-	PresetGearTypeKey *string  `json:"preset_gear_type_key,omitempty" db:"preset_gear_type_key"`
+	PresetGearTypeKey *string `json:"preset_gear_type_key,omitempty" db:"preset_gear_type_key"`
 }
 
 // ComponentAssignment represents a historical assignment of a component to a gear item.
@@ -923,6 +923,7 @@ type GearServiceIntervalUpdate struct {
 
 // MaintenanceAlert represents a maintenance alert for a component.
 type MaintenanceAlert struct {
+	IntervalID     string  `json:"interval_id"`
 	GearID         string  `json:"gear_id"`
 	GearName       string  `json:"gear_name"`
 	ComponentID    string  `json:"component_id"`
@@ -996,19 +997,19 @@ type AutomationRuleUpdate struct {
 
 // BikeSetup represents a saved bike configuration/setup.
 type BikeSetup struct {
-	ID                string          `json:"id"`
-	GearID            string          `json:"gear_id"`
-	Name              string          `json:"name"`
-	RiderWeightKg     *float64        `json:"rider_weight_kg,omitempty"`
-	IntendedUse       *string         `json:"intended_use,omitempty"`
-	Notes             *string         `json:"notes,omitempty"`
-	SuspensionFront   json.RawMessage `json:"suspension_front,omitempty"`
-	SuspensionRear    json.RawMessage `json:"suspension_rear,omitempty"`
-	Tires             json.RawMessage `json:"tires,omitempty"`
-	ContactPoints     json.RawMessage `json:"contact_points,omitempty"`
-	Brakes            json.RawMessage `json:"brakes,omitempty"`
-	Drivetrain        json.RawMessage `json:"drivetrain,omitempty"`
-	IsActive          bool            `json:"is_active"`
+	ID              string          `json:"id"`
+	GearID          string          `json:"gear_id"`
+	Name            string          `json:"name"`
+	RiderWeightKg   *float64        `json:"rider_weight_kg,omitempty"`
+	IntendedUse     *string         `json:"intended_use,omitempty"`
+	Notes           *string         `json:"notes,omitempty"`
+	SuspensionFront json.RawMessage `json:"suspension_front,omitempty"`
+	SuspensionRear  json.RawMessage `json:"suspension_rear,omitempty"`
+	Tires           json.RawMessage `json:"tires,omitempty"`
+	ContactPoints   json.RawMessage `json:"contact_points,omitempty"`
+	Brakes          json.RawMessage `json:"brakes,omitempty"`
+	Drivetrain      json.RawMessage `json:"drivetrain,omitempty"`
+	IsActive        bool            `json:"is_active"`
 	// ComponentSnapshot is an optional passive snapshot of gear_components at
 	// save time. Versioned envelope: {version, captured_at, components:[...]}.
 	// Activation does NOT mutate live gear_components; snapshot is read-only history.

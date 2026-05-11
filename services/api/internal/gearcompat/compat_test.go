@@ -24,6 +24,19 @@ func TestAllowsPresetComponentOnlyForMatchingGearType(t *testing.T) {
 	}
 }
 
+func TestLegacyEBikeTargetIsBikeCompatible(t *testing.T) {
+	schema := fakeSchemaView{}
+	component := Component{
+		TypeKey:           "bike.frame",
+		SourceGearTypeKey: "bike",
+		PresetGearTypeKey: strPtr("bike"),
+	}
+
+	if !CanTransferComponent(component, Gear{TypeKey: "e_bike"}, schema) {
+		t.Fatalf("legacy e_bike targets should be compatible with bike components")
+	}
+}
+
 func TestAllowsUnknownCustomComponentOnlyWithinSameGearType(t *testing.T) {
 	schema := fakeSchemaView{}
 	if !CanTransferComponent(Component{TypeKey: "custom", SourceGearTypeKey: "ski"}, Gear{TypeKey: "ski"}, schema) {
@@ -42,10 +55,10 @@ type presetSchemaView struct{}
 
 func (presetSchemaView) GearTypeAppliesToTarget(source, target string) bool {
 	parents := map[string]string{
-		"bike":             "",
-		"bike.mtb":         "bike",
-		"bike.mtb.enduro":  "bike.mtb",
-		"bike.road":        "bike",
+		"bike":            "",
+		"bike.mtb":        "bike",
+		"bike.mtb.enduro": "bike.mtb",
+		"bike.road":       "bike",
 	}
 	cur := target
 	for i := 0; i < 8; i++ {

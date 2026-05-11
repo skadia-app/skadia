@@ -770,6 +770,7 @@ export interface ComponentTypePreset {
 }
 
 export interface MaintenanceAlert {
+  interval_id: string
   gear_id: string
   gear_name: string
   component_id: string

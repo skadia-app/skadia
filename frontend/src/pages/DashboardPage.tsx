@@ -13,6 +13,7 @@ import { fetchHRVAnalysis } from '@/api/analytics'
 import type { HRVAnalysis } from '@/api/analytics'
 import { ReadinessCardCompact } from '@/components/analytics/ReadinessCard'
 import { toLocalISO } from '@/lib/dateUtils'
+import { formatUsageMetricValue } from '@/lib/gearUsageMetrics'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
 
@@ -253,7 +254,7 @@ export default function DashboardPage() {
       {gearWithAlerts.length > 0 && (
         <section>
           <h2 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-3 uppercase tracking-wide">
-            Ausrüstung — Wartung fällig
+            Ausrüstung — Wartungshinweise
           </h2>
           <div className="space-y-2">
             {gearWithAlerts.map(g => (
@@ -266,18 +267,16 @@ export default function DashboardPage() {
                     {g.name}
                   </span>
                   <span className="text-xs px-1.5 py-0.5 rounded bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 font-medium">
-                    Wartung fällig
+                    {g.alerts.some(alert => alert.is_overdue) ? 'Wartung fällig' : 'Bald fällig'}
                   </span>
                 </div>
                 <div className="text-xs text-neutral-500 dark:text-neutral-400 space-y-0.5">
                   {g.alerts.map((alert, i) => (
                     <div key={i}>
                       {alert.component_name}: {alert.interval_name}
-                      {alert.is_overdue && (
-                        <span className="text-rose-500 ml-1">
-                          ({Math.round(alert.current_value)} / {Math.round(alert.threshold_value)} {alert.interval_type === 'distance_km' ? 'km' : alert.interval_type === 'time_hours' ? 'h' : ''})
-                        </span>
-                      )}
+                      <span className={alert.is_overdue ? 'text-rose-500 ml-1' : 'ml-1'}>
+                        ({formatUsageMetricValue(alert.interval_type, alert.current_value)} / {formatUsageMetricValue(alert.interval_type, alert.threshold_value)})
+                      </span>
                     </div>
                   ))}
                 </div>

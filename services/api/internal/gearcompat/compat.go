@@ -30,11 +30,19 @@ type SchemaView interface {
 //  3. Otherwise, fall back to requiring that the source gear type is compatible
 //     with the target gear type (same type or a subtype).
 func CanTransferComponent(component Component, target Gear, schema SchemaView) bool {
+	targetTypeKey := normalizeGearTypeKey(target.TypeKey)
 	if component.PresetGearTypeKey != nil && *component.PresetGearTypeKey != "" {
-		return schema.GearTypeAppliesToTarget(*component.PresetGearTypeKey, target.TypeKey)
+		return schema.GearTypeAppliesToTarget(normalizeGearTypeKey(*component.PresetGearTypeKey), targetTypeKey)
 	}
-	if component.TypeKey != "" && schema.ComponentTypeAppliesToGear(component.TypeKey, target.TypeKey) {
+	if component.TypeKey != "" && schema.ComponentTypeAppliesToGear(component.TypeKey, targetTypeKey) {
 		return true
 	}
-	return component.SourceGearTypeKey != "" && schema.GearTypeAppliesToTarget(component.SourceGearTypeKey, target.TypeKey)
+	return component.SourceGearTypeKey != "" && schema.GearTypeAppliesToTarget(normalizeGearTypeKey(component.SourceGearTypeKey), targetTypeKey)
+}
+
+func normalizeGearTypeKey(typeKey string) string {
+	if typeKey == "e_bike" {
+		return "bike"
+	}
+	return typeKey
 }

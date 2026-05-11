@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { fetchMaintenanceAlerts } from '@/api/gear'
 import type { MaintenanceAlert } from '@/api/types'
+import { formatUsageMetricValue } from '@/lib/gearUsageMetrics'
 
 export default function MaintenanceAlerts() {
   const { data: alerts } = useQuery({
@@ -16,7 +17,7 @@ export default function MaintenanceAlerts() {
       <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-300">Wartungshinweise</h2>
       <div className="space-y-2">
         {alerts.map((alert) => (
-          <AlertItem key={`${alert.gear_id}-${alert.component_id}`} alert={alert} />
+          <AlertItem key={alert.interval_id} alert={alert} />
         ))}
       </div>
     </div>
@@ -30,7 +31,7 @@ function AlertItem({ alert }: { alert: MaintenanceAlert }) {
 
   return (
     <Link
-      to={`/gear/${alert.gear_id}`}
+      to={`/gear/${alert.gear_id}?tab=components&component=${alert.component_id}`}
       className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors"
     >
       <div className="min-w-0">
@@ -38,7 +39,7 @@ function AlertItem({ alert }: { alert: MaintenanceAlert }) {
           {alert.gear_name} &mdash; {alert.component_name}
         </div>
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
-          {alert.interval_name}: {formatAlertValue(alert.interval_type, alert.current_value)} / {formatAlertValue(alert.interval_type, alert.threshold_value)}
+          {alert.interval_name}: {formatUsageMetricValue(alert.interval_type, alert.current_value)} / {formatUsageMetricValue(alert.interval_type, alert.threshold_value)}
         </div>
       </div>
       <span
@@ -52,10 +53,4 @@ function AlertItem({ alert }: { alert: MaintenanceAlert }) {
       </span>
     </Link>
   )
-}
-
-function formatAlertValue(type: string, value: number): string {
-  if (type === 'distance') return `${(value / 1000).toFixed(0)} km`
-  if (type === 'time') return `${Math.round(value / 3600)} h`
-  return `${value}`
 }

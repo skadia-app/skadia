@@ -30,12 +30,21 @@ export function gearTypePathLabel(schema: GearSchema, typeKey: string): string {
 
 const LEGACY_GEAR_TYPE_LABELS: Record<string, string> = {
   bike: 'Fahrrad',
+  e_bike: 'E-Bike',
   shoes: 'Schuhe',
   goggles: 'Brille/Goggle',
   ski: 'Ski',
   paddle: 'Paddel',
   other: 'Sonstiges',
 }
+
+const LEGACY_GEAR_TYPE_SCOPES: Partial<Record<string, GearCategoryScope>> = {
+  e_bike: 'bike',
+}
+
+const HIDDEN_MANUAL_GEAR_TYPE_KEYS = new Set([
+  'climbing_harness',
+])
 
 export function gearTypeLabel(schema: GearSchema, typeKey: string): string {
   const path = gearTypePathLabel(schema, typeKey)
@@ -44,8 +53,24 @@ export function gearTypeLabel(schema: GearSchema, typeKey: string): string {
 
 export function gearTypeScope(schema: GearSchema, typeKey: string, fallbackScope?: string | null): GearCategoryScope {
   if (isGearCategoryScope(fallbackScope)) return fallbackScope
+  const legacyScope = LEGACY_GEAR_TYPE_SCOPES[typeKey]
+  if (legacyScope) return legacyScope
   const scope = schema.gearTypes.find(t => t.key === typeKey)?.scope
   return isGearCategoryScope(scope) ? scope : 'other'
+}
+
+export function gearTypeAppliesToTarget(schema: GearSchema, sourceTypeKey: string, targetTypeKey: string): boolean {
+  if (sourceTypeKey === targetTypeKey) return true
+  const byKey = new Map(schema.gearTypes.map(gt => [gt.key, gt]))
+  const seen = new Set<string>()
+  for (let current = targetTypeKey; current && !seen.has(current);) {
+    seen.add(current)
+    const item = byKey.get(current)
+    if (!item?.parentKey) return false
+    if (item.parentKey === sourceTypeKey) return true
+    current = item.parentKey
+  }
+  return false
 }
 
 export function gearMatchesCategoryScope(
@@ -75,6 +100,7 @@ function hasManualChild(schema: GearSchema, typeKey: string): boolean {
 export function gearTypeOptionsForScope(schema: GearSchema, scope: GearCategoryScope): GearTypeOption[] {
   return schema.gearTypes
     .filter(gt => gearTypeMatchesScope(gt.key, scope, schema))
+    .filter(gt => !HIDDEN_MANUAL_GEAR_TYPE_KEYS.has(gt.key))
     .filter(gt => gt.defaultAssignmentRoleKey !== 'consumable')
     .filter(gt => !hasManualChild(schema, gt.key))
     .map(gt => ({ value: gt.key, label: gearTypePathLabel(schema, gt.key) }))
