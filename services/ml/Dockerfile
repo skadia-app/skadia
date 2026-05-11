@@ -15,8 +15,10 @@ RUN apt-get update -qq && apt-get install -y -qq \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir -r requirements.txt
+ARG TORCH_PACKAGE="torch==2.10.0+cpu"
+ARG TORCH_INDEX_URL="https://download.pytorch.org/whl/cpu"
+RUN pip install --no-cache-dir --index-url "$TORCH_INDEX_URL" "$TORCH_PACKAGE" \
+    && pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN useradd -r -d /app -s /usr/sbin/nologin mluser
 RUN chown -R mluser:mluser /app

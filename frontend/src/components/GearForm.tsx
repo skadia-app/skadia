@@ -151,22 +151,26 @@ export default function GearForm({ gear, categoryScope, onSave, onCancel, isSavi
     } else {
       // Generate a local placeholder id until backend assigns a real one.
       const localId = `local-${Date.now()}`
+      const component: GearComponent = {
+        ...data,
+        id: localId,
+        gear_id: gear?.id ?? '',
+        name: data.name ?? data.type ?? '',
+        type: data.type ?? '',
+        slot_key: data.slot_key ?? null,
+        total_distance_m: data.total_distance_m ?? 0,
+        total_elevation_gain_m: data.total_elevation_gain_m ?? 0,
+        total_elevation_loss_m: data.total_elevation_loss_m ?? 0,
+        total_moving_time_s: data.total_moving_time_s ?? 0,
+        total_time_s: data.total_time_s ?? 0,
+        total_activities: data.total_activities ?? 0,
+        is_retired: data.is_retired ?? false,
+        status: data.status ?? 'active',
+        attributes: data.attributes ?? null,
+      }
       setComponents(prev => [
         ...prev,
-        {
-          id: localId,
-          gear_id: gear?.id ?? '',
-          name: data.type ?? '',
-          type: data.type ?? '',
-          slot_key: data.slot_key ?? null,
-          total_distance_m: 0,
-          total_elevation_gain_m: 0,
-          total_time_s: 0,
-          is_retired: false,
-          status: 'active' as const,
-          attributes: data.attributes ?? null,
-          ...data,
-        },
+        component,
       ])
     }
   }

@@ -543,6 +543,16 @@ async def _download_from_s3(bucket: str, key: str) -> bytes:
         return await response["Body"].read()
 
 
+def _s3_bucket_for_file_type(file_type: str) -> str:
+    """Return the S3 bucket used by ShadowFS for a file type."""
+    default_bucket = os.getenv("S3_BUCKET", "skadia-originals")
+    if file_type in {"activity", "health"}:
+        return os.getenv("S3_BUCKET_ACTIVITY") or default_bucket
+    if file_type in {"media", "document", "thumb", "preview"}:
+        return os.getenv("S3_BUCKET_MEDIA") or default_bucket
+    return default_bucket
+
+
 async def _process_photo_embed(msg, pool, nc) -> None:
     """Process a photo embedding request from skadia.photo.embed."""
     data = await _decode_or_ack(msg, "photo_embed")
@@ -551,9 +561,8 @@ async def _process_photo_embed(msg, pool, nc) -> None:
 
     photo_id = data.get("photo_id", "")
     user_id = data.get("user_id", "")
-    s3_bucket = data.get("s3_bucket", "")
-    if not photo_id or not s3_bucket:
-        logger.error("photo_embed: missing photo_id or s3_bucket in message")
+    if not photo_id:
+        logger.error("photo_embed: missing photo_id in message")
         await msg.ack()
         return
 
@@ -573,12 +582,22 @@ async def _process_photo_embed(msg, pool, nc) -> None:
     # For images: prefer preview (smaller), fall back to original.
     content_type = data.get("content_type", "")
     is_video_file = content_type.lower().startswith("video/")
+    storage_backend = data.get("storage_backend", "s3")
+    if storage_backend != "s3":
+        logger.info(
+            "photo_embed: skipped photo %s on unsupported storage backend %s",
+            photo_id,
+            storage_backend,
+        )
+        await msg.ack()
+        return
+    s3_bucket = data.get("s3_bucket") or _s3_bucket_for_file_type(data.get("file_type", "media"))
     if is_video_file:
-        image_key = data.get("s3_key") or data.get("s3_key_preview", "")
+        image_key = data.get("s3_key") or data.get("storage_path") or data.get("s3_key_preview", "")
     else:
-        image_key = data.get("s3_key_preview") or data.get("s3_key", "")
+        image_key = data.get("s3_key_preview") or data.get("s3_key") or data.get("storage_path", "")
     if not image_key:
-        logger.error("photo_embed: no s3_key in message for photo %s", photo_id)
+        logger.error("photo_embed: no storage key in message for photo %s", photo_id)
         await msg.ack()
         return
 
@@ -715,12 +734,14 @@ async def _catchup_missing_embeddings(pool, js) -> None:
                 # Exclude permanently failed photos (enrichment_errors module='clip_embedding').
                 # All other formats (image/*, video/*, HEIC, JXL) are now supported.
                 rows = await conn.fetch(
-                    "SELECT ap.id, ap.user_id, ap.s3_bucket, ap.s3_key, ap.s3_key_preview, "
+                    "SELECT ap.id, ap.user_id, uf.storage_backend, uf.storage_path, uf.file_type, "
                     "ap.content_type, "
                     "ues.video_clip_frames "
                     "FROM activity_photos ap "
+                    "JOIN user_files uf ON uf.id = ap.file_id AND uf.user_id = ap.user_id "
                     "JOIN user_enrichment_settings ues ON ues.user_id = ap.user_id "
                     "WHERE ap.clip_embedding IS NULL "
+                    "AND uf.status = 'active' "
                     "AND ues.enable_photo_clip_embedding = true "
                     "AND NOT EXISTS ("
                     "  SELECT 1 FROM enrichment_errors ee "
@@ -735,9 +756,16 @@ async def _catchup_missing_embeddings(pool, js) -> None:
                     payload = {
                         "photo_id": str(row["id"]),
                         "user_id": str(row["user_id"]),
-                        "s3_bucket": row["s3_bucket"],
-                        "s3_key": row["s3_key"],
-                        "s3_key_preview": row["s3_key_preview"],
+                        "storage_backend": row["storage_backend"],
+                        "storage_path": row["storage_path"],
+                        "file_type": row["file_type"],
+                        "s3_bucket": (
+                            _s3_bucket_for_file_type(row["file_type"])
+                            if row["storage_backend"] == "s3"
+                            else ""
+                        ),
+                        "s3_key": row["storage_path"] if row["storage_backend"] == "s3" else "",
+                        "s3_key_preview": "",
                         "content_type": row.get("content_type") or "",
                         "video_clip_frames": row.get("video_clip_frames") or 4,
                     }

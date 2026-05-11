@@ -42,6 +42,7 @@ function makeGear(overrides: Partial<Gear> = {}): Gear {
     total_elevation_gain_m: 0,
     total_elevation_loss_m: 0,
     total_time_s: 0,
+    total_moving_time_s: 0,
     total_activities: 0,
     is_retired: false,
     status: 'active',
