@@ -46,4 +46,25 @@ describe('GearComponentsTab', () => {
     render(<GearComponentsTab components={[]} />)
     expect(screen.getByText(/Keine Komponenten/i)).toBeInTheDocument()
   })
+
+  it('renders compact rounded distance and duration summaries', () => {
+    render(<GearComponentsTab components={[
+      makeComponent({
+        id: 'c1',
+        total_distance_m: 12_450,
+        total_time_s: 5_460,
+      }),
+      makeComponent({
+        id: 'c2',
+        name: 'Ventil',
+        total_distance_m: 490,
+        total_time_s: 2_700,
+      }),
+    ]} />)
+
+    expect(screen.getByTestId('component-c1')).toHaveTextContent('12 km')
+    expect(screen.getByTestId('component-c1')).toHaveTextContent('2 h')
+    expect(screen.getByTestId('component-c2')).toHaveTextContent('0 km')
+    expect(screen.getByTestId('component-c2')).toHaveTextContent('45 min')
+  })
 })

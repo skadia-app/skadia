@@ -163,6 +163,26 @@ describe('GearForm', () => {
 
     expect(onSave).not.toHaveBeenCalled()
   })
+
+  it('labels broad sport defaults as all subtypes and hides duplicate standalone air sports', () => {
+    render(
+      <GearForm
+        categoryScope="bike"
+        onSave={vi.fn()}
+        onCancel={() => {}}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Standard hinzufügen' }))
+
+    const sportSelect = screen.getByLabelText('Standard 1 Sportart')
+
+    expect(screen.getByRole('option', { name: 'Radfahren (alle)' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Fliegen (Gleitschirm)' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Fliegen (Fallschirm)' })).toBeInTheDocument()
+    expect(sportSelect.querySelector('option[value="hang_gliding"]')).not.toBeInTheDocument()
+    expect(sportSelect.querySelector('option[value="sky_diving"]')).not.toBeInTheDocument()
+  })
 })
 
 function gearFixture(overrides: Partial<Gear> = {}): Gear {

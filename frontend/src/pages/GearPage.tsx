@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Anchor, Bike, Footprints, Mountain, Package, Radio, Shirt, Smartphone, Snowflake, Waves } from 'lucide-react'
-import { fetchGear, createGear, fetchGearDocuments, getGearDocumentUrl } from '@/api/gear'
+import { fetchGear, createGear, fetchGearDocuments, downloadGearDocumentBlob } from '@/api/gear'
 import { fetchDevices } from '@/api/hardware'
 import type { Gear, GearStatus } from '@/api/types'
 import { formatDistance, formatDuration, formatElevationGain } from '@/lib/utils'
@@ -293,11 +293,40 @@ export default function GearPage() {
 }
 
 function GearCardImage({ gearId }: { gearId: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const { data: docs } = useQuery({
     queryKey: ['gear-documents', gearId],
     queryFn: () => fetchGearDocuments(gearId),
   })
   const firstPhoto = docs?.find(d => d.content_type.startsWith('image/'))
+
+  useEffect(() => {
+    setBlobUrl(null)
+    setLoadFailed(false)
+    if (!firstPhoto) return
+
+    let url: string | null = null
+    let cancelled = false
+    downloadGearDocumentBlob(firstPhoto.id)
+      .then((nextUrl) => {
+        if (cancelled) {
+          URL.revokeObjectURL(nextUrl)
+          return
+        }
+        url = nextUrl
+        setBlobUrl(nextUrl)
+      })
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true)
+      })
+
+    return () => {
+      cancelled = true
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [firstPhoto?.id])
+
   if (!firstPhoto) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-neutral-400">
@@ -308,9 +337,25 @@ function GearCardImage({ gearId }: { gearId: string }) {
       </div>
     )
   }
+
+  if (!blobUrl || loadFailed) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-neutral-400">
+        {loadFailed ? (
+          <span className="text-xs">Bild nicht geladen</span>
+        ) : (
+          <svg className="animate-spin h-5 w-5 text-neutral-300" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        )}
+      </div>
+    )
+  }
+
   return (
     <img
-      src={getGearDocumentUrl(firstPhoto.id)}
+      src={blobUrl}
       alt=""
       className="w-full h-full object-cover"
       loading="lazy"

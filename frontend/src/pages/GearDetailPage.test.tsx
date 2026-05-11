@@ -6,8 +6,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import GearDetailPage from './GearDetailPage'
-import type { Gear, GearComponent, ChainRotationGroup, BikeSetup } from '@/api/types'
-import { fetchGearDetail, updateComponent, listServiceEvents, listServiceIntervals, getChainRotation, updateChainRotation, listBikeSetups, createBikeSetup, activateBikeSetup } from '@/api/gear'
+import type { Gear, GearComponent, ChainRotationGroup, BikeSetup, ComponentTypePreset } from '@/api/types'
+import { fetchGearDetail, updateComponent, listServiceEvents, listServiceIntervals, getChainRotation, updateChainRotation, listBikeSetups, createBikeSetup, activateBikeSetup, fetchComponentPresets } from '@/api/gear'
 
 const MOCK_COMPONENT: GearComponent = {
   id: 'c1',
@@ -109,6 +109,17 @@ function renderPage(initialPath = '/gear/g1') {
   }
 }
 
+function componentPresetFixture(overrides: Partial<ComponentTypePreset> = {}): ComponentTypePreset {
+  return {
+    id: 'preset-1',
+    name: 'Kette',
+    type: 'Kette',
+    category: 'drivetrain',
+    gear_type: 'bike',
+    ...overrides,
+  }
+}
+
 describe('GearDetailPage tabs', () => {
   it('TestDefaultTabIsStammdatenWithNoURLParam', async () => {
     renderPage('/gear/g1')
@@ -186,7 +197,7 @@ describe('GearDetailPage tabs', () => {
     await user.click(editButton)
 
     // Clear the name field and type new name.
-    const nameInput = screen.getByPlaceholderText('Name *')
+    const nameInput = screen.getByPlaceholderText('Name')
     await user.clear(nameInput)
     await user.type(nameInput, 'Neue Kette')
 
@@ -198,6 +209,33 @@ describe('GearDetailPage tabs', () => {
     await waitFor(() => {
       expect(screen.getByTestId('component-c1')).toHaveTextContent('Neue Kette')
     })
+  })
+
+  it('TestComponentFormFiltersGearTypePresetsAndUsesNeutralPlaceholders', async () => {
+    const user = userEvent.setup()
+    const shoeGear: Gear = {
+      ...MOCK_GEAR,
+      name: 'ASICS GEL-Kayano 2011',
+      type: 'shoes.running',
+      scope: 'shoes',
+      components: [],
+    }
+    vi.mocked(fetchGearDetail).mockResolvedValue(shoeGear)
+    vi.mocked(fetchComponentPresets).mockResolvedValue([
+      componentPresetFixture({ id: 'bad', name: 'Laufschuhe', category: 'schuhe', gear_type: 'shoes' }),
+    ])
+
+    renderPage('/gear/g1?tab=components')
+
+    const crudSection = await screen.findByTestId('components-crud')
+    await user.click(within(crudSection).getByRole('button', { name: '+ Hinzufügen' }))
+
+    await waitFor(() => {
+      expect(fetchComponentPresets).toHaveBeenCalledWith('shoes.running')
+    })
+    expect(within(crudSection).queryByText('Vorlage')).not.toBeInTheDocument()
+    expect(within(crudSection).getByPlaceholderText('Komponententyp *')).toBeInTheDocument()
+    expect(within(crudSection).queryByPlaceholderText(/Kette|Reifen/)).not.toBeInTheDocument()
   })
 })
 

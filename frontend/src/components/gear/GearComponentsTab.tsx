@@ -1,5 +1,4 @@
 import type { GearComponent } from '@/api/types'
-import { formatDistance, formatDuration } from '@/lib/utils'
 
 interface GearComponentsTabProps {
   components: GearComponent[]
@@ -46,6 +45,16 @@ function buildTree(components: GearComponent[]): TreeNode[] {
   return result
 }
 
+function formatComponentDistance(meters: number): string {
+  return `${Math.round(Math.max(0, meters) / 1000)} km`
+}
+
+function formatComponentDuration(seconds: number): string {
+  const minutes = Math.round(Math.max(0, seconds) / 60)
+  if (minutes < 60) return `${minutes} min`
+  return `${Math.round(minutes / 60)} h`
+}
+
 export default function GearComponentsTab({ components }: GearComponentsTabProps) {
   if (components.length === 0) {
     return (
@@ -79,8 +88,8 @@ export default function GearComponentsTab({ components }: GearComponentsTabProps
               )}
             </div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400 shrink-0 text-right">
-              <div>{formatDistance(comp.total_distance_m)}</div>
-              <div>{formatDuration(comp.total_time_s)}</div>
+              <div>{formatComponentDistance(comp.total_distance_m)}</div>
+              <div>{formatComponentDuration(comp.total_time_s)}</div>
             </div>
           </div>
         </div>
