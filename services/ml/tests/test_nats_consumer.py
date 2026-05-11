@@ -144,6 +144,24 @@ class _FakePub:
         self.calls.append(user_id)
 
 
+def test_s3_bucket_for_file_type_defaults_to_shadowfs_rules(monkeypatch):
+    monkeypatch.delenv("S3_BUCKET", raising=False)
+    monkeypatch.delenv("S3_BUCKET_MEDIA", raising=False)
+    monkeypatch.delenv("S3_BUCKET_ACTIVITY", raising=False)
+
+    assert nats_consumer._s3_bucket_for_file_type("media") == "skadia-originals"
+    assert nats_consumer._s3_bucket_for_file_type("activity") == "skadia-originals"
+
+    monkeypatch.setenv("S3_BUCKET", "default-bucket")
+    monkeypatch.setenv("S3_BUCKET_MEDIA", "media-bucket")
+    monkeypatch.setenv("S3_BUCKET_ACTIVITY", "activity-bucket")
+
+    assert nats_consumer._s3_bucket_for_file_type("media") == "media-bucket"
+    assert nats_consumer._s3_bucket_for_file_type("document") == "media-bucket"
+    assert nats_consumer._s3_bucket_for_file_type("activity") == "activity-bucket"
+    assert nats_consumer._s3_bucket_for_file_type("other") == "default-bucket"
+
+
 @pytest.fixture
 def patch_pool(monkeypatch, conn):
     """Make nats_consumer.get_pool return a pool that hands out the test conn.

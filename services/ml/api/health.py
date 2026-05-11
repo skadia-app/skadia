@@ -36,9 +36,10 @@ def _detect_gpu() -> dict:
     try:
         import torch
         if torch.cuda.is_available():
-            return {"type": "cuda", "name": torch.cuda.get_device_name(0)}
+            backend = "rocm" if getattr(torch.version, "hip", None) else "cuda"
+            return {"type": backend, "name": torch.cuda.get_device_name(0)}
     except ImportError:
         pass
     if os.path.exists("/dev/kfd"):
-        return {"type": "rocm", "name": "AMD GPU detected"}
+        return {"type": "cpu", "name": "GPU device present, but no active ML backend detected"}
     return {"type": "cpu", "name": "No GPU detected"}

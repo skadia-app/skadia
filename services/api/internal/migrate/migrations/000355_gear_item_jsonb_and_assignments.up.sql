@@ -16,7 +16,36 @@
 -- ============================================================
 
 -- A1: rename the column so its name matches its purpose.
-ALTER TABLE gear RENAME COLUMN default_sport_predicates TO applicable_sport_predicates;
+-- Older gear-development DBs may already have the renamed column from a
+-- pre-000355 migration that was later folded into this consolidated migration.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'gear'
+          AND column_name = 'default_sport_predicates'
+    ) AND NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'gear'
+          AND column_name = 'applicable_sport_predicates'
+    ) THEN
+        ALTER TABLE gear RENAME COLUMN default_sport_predicates TO applicable_sport_predicates;
+    ELSIF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'gear'
+          AND column_name = 'applicable_sport_predicates'
+    ) THEN
+        RAISE EXCEPTION
+            'gear predicate column missing: expected default_sport_predicates or applicable_sport_predicates';
+    END IF;
+END;
+$$;
 
 -- A2: drop old constraint and function; the new ones (A3) replace them.
 ALTER TABLE gear DROP CONSTRAINT IF EXISTS gear_default_sport_predicates_valid;
@@ -606,24 +635,36 @@ WHERE g.id = src.gear_id;
 -- introduced between backfill and this block (in development) or
 -- legacy environments where the prior block did not run. ON CONFLICT
 -- DO NOTHING preserves any existing primary row.
-INSERT INTO activity_gear_assignments
-    (id, user_id, activity_id, gear_id, role_key, source, quantity)
-SELECT
-    gen_random_uuid(),
-    a.user_id,
-    a.id,
-    a.gear_id,
-    'primary',
-    'legacy',
-    1
-FROM activities a
-WHERE a.gear_id IS NOT NULL
-  AND NOT EXISTS (
-      SELECT 1
-      FROM activity_gear_assignments aga
-      WHERE aga.activity_id = a.id
-        AND aga.role_key    = 'primary'
-  );
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'activities'
+          AND column_name = 'gear_id'
+    ) THEN
+        INSERT INTO activity_gear_assignments
+            (id, user_id, activity_id, gear_id, role_key, source, quantity)
+        SELECT
+            gen_random_uuid(),
+            a.user_id,
+            a.id,
+            a.gear_id,
+            'primary',
+            'legacy',
+            1
+        FROM activities a
+        WHERE a.gear_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM activity_gear_assignments aga
+              WHERE aga.activity_id = a.id
+                AND aga.role_key    = 'primary'
+          );
+    END IF;
+END;
+$$;
 
 -- Drop the mirror trigger pair + function; they reference NEW.gear_id
 -- which would be invalid once the column is dropped.

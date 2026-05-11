@@ -6,6 +6,7 @@ import type { MetricKey } from '@/hooks/useYearProgression'
 const METRIC_META: Record<MetricKey, { unit: string; factor: number; decimals: number }> = {
   distance_m:      { unit: 'km',   factor: 0.001,    decimals: 1 },
   elevation_gain_m:{ unit: 'm',    factor: 1,         decimals: 0 },
+  elevation_loss_m:{ unit: 'm',    factor: 1,         decimals: 0 },
   moving_time_s:   { unit: 'h',    factor: 1 / 3600,  decimals: 1 },
   tss:             { unit: 'TSS',  factor: 1,         decimals: 0 },
   total_calories:  { unit: 'kcal', factor: 1,         decimals: 0 },
