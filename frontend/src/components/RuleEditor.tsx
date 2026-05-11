@@ -8,6 +8,7 @@ import type { Device } from '@/api/hardware'
 import type { AutomationRule, Gear, RuleCondition, RuleConditionGroup, RuleAction, RuleBranch } from '@/api/types'
 import { SPORT_DEFS, getSportDef, normalizeSportTuple } from '@/lib/sportTaxonomy'
 import { ruleModifierControlsForTuple, ruleTraitConditionFields, ruleTupleOptions } from '@/lib/ruleSportProjection'
+import { GEAR_RULE_CONDITION_CATEGORY } from '@/lib/ruleGearProjection'
 import {
   modifierActionName,
   modifierActionParam,
@@ -222,9 +223,7 @@ const CONDITION_CATEGORIES: ConditionCategory[] = [
     { field: 'end_city', label: 'Endort', inputType: 'text' },
     { field: 'geofence', label: 'Geofence', inputType: 'geofence' },
   ]},
-  { key: 'gear', label: 'Ausrüstung', fields: [
-    { field: 'gear_id', label: 'Ausrüstung', inputType: 'enum', options: [] },
-  ]},
+  GEAR_RULE_CONDITION_CATEGORY,
   { key: 'tags', label: 'Tags', fields: [
     { field: 'has_tag', label: 'Hat Tag', inputType: 'tag' },
   ]},
@@ -1950,7 +1949,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
   const seed = rule ?? initialData
   const [name, setName] = useState(seed?.name ?? '')
   const [priority, setPriority] = useState(seed?.priority ?? 0)
-  const [triggerEvent, setTriggerEvent] = useState<'on_import' | 'on_enrichment_complete' | 'on_manual_apply'>(seed?.trigger_event ?? 'on_import')
+  const [triggerEvent, setTriggerEvent] = useState<'on_import' | 'on_enrichment_complete' | 'on_manual_apply' | 'on_gear_usage_update'>(seed?.trigger_event ?? 'on_import')
   const [stopOnMatch, setStopOnMatch] = useState(seed?.stop_on_match ?? false)
   // When a rule uses branches, the 'if' branch becomes the main conditions/actions,
   // and only 'else_if'/'else' branches are shown as SONST WENN/SONST blocks.
@@ -2202,6 +2201,7 @@ export default function RuleEditor({ rule, initialData, onSave, onCancel, isSavi
             <option value="on_import">Beim Import</option>
             <option value="on_enrichment_complete">Nach Enrichment</option>
             <option value="on_manual_apply">Nur manuell</option>
+            <option value="on_gear_usage_update">Bei Ausrüstungsnutzung</option>
           </select>
         </div>
         <div className="flex items-end pb-1">

@@ -17,6 +17,7 @@ const navItems = [
   { to: '/chat', label: 'Assistent' },
   { to: '/routes', label: 'Routen' },
   { to: '/segments', label: 'Segmente' },
+  { to: '/workouts', label: 'Workouts' },
   { to: '/imports', label: 'Imports' },
   { to: '/workshop', label: 'Werkstatt' },
   { to: '/settings', label: 'Einstellungen' },
