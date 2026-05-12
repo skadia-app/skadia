@@ -147,7 +147,7 @@ var gearSummaryInputSchema = json.RawMessage(`{
 }`)
 
 func GearTools() []*Tool {
-	return []*Tool{
+	tools := []*Tool{
 		GetGearStatsTool(),
 		GetGearForActivityTool(),
 		GetGearDocumentsTool(),
@@ -156,6 +156,7 @@ func GearTools() []*Tool {
 		GearServiceEventsTool(),
 		GearSummaryTool(),
 	}
+	return append(tools, WriteGearTools()...)
 }
 
 func RegisterGearTools(reg *Registry) {

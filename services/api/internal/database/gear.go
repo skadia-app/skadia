@@ -222,6 +222,22 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 }
 
 func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearCreate) (*model.Gear, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create gear: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	g, err := db.CreateGearTx(ctx, tx, userID, create)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("create gear: commit: %w", err)
+	}
+	return g, nil
+}
+
+func (db *DB) CreateGearTx(ctx context.Context, tx pgx.Tx, userID string, create *model.GearCreate) (*model.Gear, error) {
 	// Three-state merge: prefer ApplicableSportPredicates, fall back to
 	// DefaultSportPredicates; nil pointer means "not sent / use default".
 	// A non-nil pointer to an empty slice explicitly clears predicates.
@@ -268,12 +284,6 @@ func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearC
 		return nil, fmt.Errorf("create gear: marshal modifiers: %w", err)
 	}
 
-	tx, err := db.Pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("create gear: begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
 	g, err := scanGear(tx.QueryRow(ctx,
 		`INSERT INTO gear (user_id, name, type, scope, sub_type, brand, model, purchased_at,
 		                   applicable_sport_predicates, notes, attributes, modifiers)
@@ -300,12 +310,8 @@ func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearC
 			return nil, fmt.Errorf("create gear: apply components: %w", err)
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("create gear: commit: %w", err)
-	}
 
-	// Re-read components so the response reflects server-assigned IDs.
-	components, err := db.listComponents(ctx, g.ID)
+	components, err := listComponentsOn(ctx, tx, g.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -334,6 +340,22 @@ func (db *DB) GetGear(ctx context.Context, id string) (*model.Gear, error) {
 }
 
 func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdate) (*model.Gear, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("update gear: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	g, err := db.UpdateGearTx(ctx, tx, id, update)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("update gear: commit: %w", err)
+	}
+	return g, nil
+}
+
+func (db *DB) UpdateGearTx(ctx context.Context, tx pgx.Tx, id string, update *model.GearUpdate) (*model.Gear, error) {
 	b := newSetBuilder(1)
 
 	if update.Name != nil {
@@ -414,14 +436,8 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 		b.Set("weight_g", *update.WeightG)
 	}
 
-	// Open a tx so the gear UPDATE and component diff land atomically.
-	tx, err := db.Pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("update gear: begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
 	var g *model.Gear
+	var err error
 	if b.HasSets() {
 		args := append(b.Args(), id)
 		query := fmt.Sprintf(
@@ -454,11 +470,8 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 			return nil, fmt.Errorf("update gear: apply components: %w", err)
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("update gear: commit: %w", err)
-	}
 
-	components, err := db.listComponents(ctx, id)
+	components, err := listComponentsOn(ctx, tx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -501,8 +514,23 @@ func (db *DB) DeleteGear(ctx context.Context, userID, gearID string) error {
 // UpdateGearStatus changes the status of a gear item (active, stored, retired).
 // userID is required to prevent cross-user updates (defense-in-depth; caller also checks ownership).
 func (db *DB) UpdateGearStatus(ctx context.Context, id, userID, status string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("update gear status: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := db.UpdateGearStatusTx(ctx, tx, id, userID, status); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("update gear status: commit: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) UpdateGearStatusTx(ctx context.Context, tx pgx.Tx, id, userID, status string) error {
 	isRetired := status == "retired"
-	tag, err := db.Pool.Exec(ctx,
+	tag, err := tx.Exec(ctx,
 		`UPDATE gear SET status = $1, is_retired = $2 WHERE id = $3 AND user_id = $4`,
 		status, isRetired, id, userID,
 	)
@@ -518,7 +546,11 @@ func (db *DB) UpdateGearStatus(ctx context.Context, id, userID, status string) e
 // --- Components ---
 
 func (db *DB) listComponents(ctx context.Context, gearID string) ([]model.GearComponent, error) {
-	rows, err := db.Pool.Query(ctx,
+	return listComponentsOn(ctx, db.Pool, gearID)
+}
+
+func listComponentsOn(ctx context.Context, q Querier, gearID string) ([]model.GearComponent, error) {
+	rows, err := q.Query(ctx,
 		`SELECT `+componentSelectCols+` FROM gear_components WHERE gear_id = $1 ORDER BY name`, gearID,
 	)
 	if err != nil {
