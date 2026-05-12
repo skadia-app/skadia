@@ -48,11 +48,11 @@ func (r *AgentToolRuntime) Execute(ctx context.Context, req agent.ToolRuntimeReq
 	}
 
 	switch {
-	case tool.Permission == PermissionRead:
-		result, err := r.Registry.ExecuteRead(ctx, r.Deps, req.UserID, req.ToolName, req.Args)
-		return agent.ToolRuntimeResult{Result: result, Summary: marshalToolResult(result)}, err
 	case tool.AuditMode == AuditPreview && tool.ExecutePreview != nil:
 		result, err := r.Envelope.ExecutePreview(ctx, toExecutionRequest(req, tool.AuditMode))
+		return agent.ToolRuntimeResult{Result: result, Summary: marshalToolResult(result)}, err
+	case tool.Permission == PermissionRead:
+		result, err := r.Registry.ExecuteRead(ctx, r.Deps, req.UserID, req.ToolName, req.Args)
 		return agent.ToolRuntimeResult{Result: result, Summary: marshalToolResult(result)}, err
 	default:
 		return r.executeConfirmedWrite(ctx, req, sink, tool)
