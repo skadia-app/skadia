@@ -41,9 +41,10 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxPhotoSize)
-	if err := r.ParseMultipartForm(maxPhotoSize); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "file too large (max 20 MB)", r.URL.Path)
+	maxUploadBytes := h.effectiveMaxUploadBytes(maxPhotoSize)
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "file too large", r.URL.Path)
 		return
 	}
 
@@ -74,6 +75,9 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 		sniff = sniff[:512]
 	}
 	ct := http.DetectContentType(sniff)
+	if ct == "application/octet-stream" || ct == "application/zip" {
+		ct = contentTypeFromExtension(strings.ToLower(header.Filename))
+	}
 	if !strings.HasPrefix(ct, "image/") {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "only images allowed", r.URL.Path)
 		return
@@ -161,7 +165,16 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 		`UPDATE route_photos SET file_id = $1 WHERE id = $2`,
 		photoFileID, saved.ID,
 	); dbErr != nil {
-		slog.Warn("route_photos: set file_id failed", "photo_id", saved.ID, "error", dbErr)
+		slog.Error("route_photos: set file_id failed", "photo_id", saved.ID, "error", dbErr)
+		if _, delErr := h.DB.Pool.Exec(cleanupCtx,
+			`DELETE FROM route_photos WHERE id = $1 AND user_id = $2`,
+			saved.ID, userID,
+		); delErr != nil {
+			slog.Warn("route_photos: cleanup row after file link failure failed", "photo_id", saved.ID, "error", delErr)
+		}
+		cleanup()
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save photo", r.URL.Path)
+		return
 	}
 
 	routePhotoID := saved.ID

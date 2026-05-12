@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -135,6 +136,102 @@ func assertEmailToken(t *testing.T, db *database.DB, userID, tokenType string) {
 	}
 }
 
+func assertNoUserCreationState(t *testing.T, db *database.DB, email string) {
+	t.Helper()
+	ctx := context.Background()
+
+	var userCount, tokenCount, tagCount, ruleCount int
+	var versionSum *int
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT count(*), sum(system_artifacts_version) FROM users WHERE email = $1`,
+		email,
+	).Scan(&userCount, &versionSum); err != nil {
+		t.Fatalf("count rolled-back users: %v", err)
+	}
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT count(*)
+		   FROM email_tokens et
+		   JOIN users u ON u.id = et.user_id
+		  WHERE u.email = $1`,
+		email,
+	).Scan(&tokenCount); err != nil {
+		t.Fatalf("count rolled-back email tokens: %v", err)
+	}
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT count(*)
+		   FROM tags t
+		   JOIN users u ON u.id = t.user_id
+		  WHERE u.email = $1 AND t.is_system = true`,
+		email,
+	).Scan(&tagCount); err != nil {
+		t.Fatalf("count rolled-back system tags: %v", err)
+	}
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT count(*)
+		   FROM automation_rules ar
+		   JOIN users u ON u.id = ar.user_id
+		  WHERE u.email = $1 AND ar.is_system = true`,
+		email,
+	).Scan(&ruleCount); err != nil {
+		t.Fatalf("count rolled-back system rules: %v", err)
+	}
+	if userCount != 0 || tokenCount != 0 || tagCount != 0 || ruleCount != 0 || versionSum != nil {
+		t.Fatalf("creation state survived rollback for %s: users=%d tokens=%d tags=%d rules=%d version_sum=%v",
+			email, userCount, tokenCount, tagCount, ruleCount, versionSum)
+	}
+}
+
+func assertNoOAuthConnection(t *testing.T, db *database.DB, provider, providerID string) {
+	t.Helper()
+	var count int
+	if err := db.Pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM oauth_connections WHERE provider = $1 AND provider_id = $2`,
+		provider, providerID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count rolled-back oauth connection: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("oauth connection survived rollback: count=%d", count)
+	}
+}
+
+func insertTokenCollisionUser(t *testing.T, db *database.DB, tokenHash, tokenType string) {
+	t.Helper()
+	ctx := context.Background()
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
+	var userID string
+	if err := db.Pool.QueryRow(ctx,
+		`INSERT INTO users (username, email, email_verified, registration_source)
+		 VALUES ($1, $2, true, 'test')
+		 RETURNING id`,
+		"token_collision_"+suffix[:8],
+		"token-collision-"+suffix+"@example.com",
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert token collision user: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+	})
+	if _, err := db.Pool.Exec(ctx,
+		`INSERT INTO email_tokens (user_id, token_hash, type, expires_at)
+		 VALUES ($1, $2, $3, NOW() + INTERVAL '1 hour')`,
+		userID, tokenHash, tokenType,
+	); err != nil {
+		t.Fatalf("insert colliding email token: %v", err)
+	}
+}
+
+func seedArtifactsThenFail(t *testing.T, seenUserID *string) database.UserCreateSeeder {
+	t.Helper()
+	return func(ctx context.Context, tx pgx.Tx, userID string) error {
+		*seenUserID = userID
+		if err := automation.EnsureSystemArtifactsTx(ctx, tx, userID); err != nil {
+			return err
+		}
+		return errors.New("forced seeder failure")
+	}
+}
+
 func TestRegisterCreatesSystemArtifacts(t *testing.T) {
 	stubHIBP(t)
 	ctx := context.Background()
@@ -199,6 +296,159 @@ func TestSeedFailureRollsBackPasswordUser(t *testing.T) {
 	if exists {
 		t.Fatal("user row persisted after seeder failure")
 	}
+}
+
+func TestTokenFailureRollsBackPasswordUserWithEmailToken(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	db := &database.DB{Pool: pool}
+	suffix := uuid.NewString()
+	email := "token-rollback-" + suffix + "@example.com"
+	tokenHash := "duplicate-verification-token-" + suffix
+	insertTokenCollisionUser(t, db, tokenHash, "verification")
+
+	seederCalled := false
+	_, err := db.CreateUserWithPasswordAndEmailTokenSeeded(ctx,
+		email, "token_rollback_"+strings.ReplaceAll(suffix[:8], "-", "_"), "hash", "email", net.ParseIP("127.0.0.1"),
+		true, false, tokenHash, "verification", time.Now().Add(time.Hour),
+		func(context.Context, pgx.Tx, string) error {
+			seederCalled = true
+			return nil
+		})
+	if err == nil {
+		t.Fatal("CreateUserWithPasswordAndEmailTokenSeeded succeeded with colliding token hash")
+	}
+	if !strings.Contains(err.Error(), "create email token: insert") {
+		t.Fatalf("error = %v, want token insert failure", err)
+	}
+	if seederCalled {
+		t.Fatal("seeder ran after token creation failure")
+	}
+	assertNoUserCreationState(t, db, email)
+}
+
+func TestTokenFailureRollsBackInvitedUser(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	db := &database.DB{Pool: pool}
+	suffix := uuid.NewString()
+	email := "invite-token-rollback-" + suffix + "@example.com"
+	tokenHash := "duplicate-reset-token-" + suffix
+	insertTokenCollisionUser(t, db, tokenHash, "reset")
+
+	seederCalled := false
+	_, err := db.CreateInvitedUserSeeded(ctx,
+		email, "invite_token_rollback_"+strings.ReplaceAll(suffix[:8], "-", "_"), "admin", net.ParseIP("127.0.0.1"),
+		true, tokenHash, time.Now().Add(time.Hour),
+		func(context.Context, pgx.Tx, string) error {
+			seederCalled = true
+			return nil
+		})
+	if err == nil {
+		t.Fatal("CreateInvitedUserSeeded succeeded with colliding token hash")
+	}
+	if !strings.Contains(err.Error(), "create email token: insert") {
+		t.Fatalf("error = %v, want token insert failure", err)
+	}
+	if seederCalled {
+		t.Fatal("seeder ran after token creation failure")
+	}
+	assertNoUserCreationState(t, db, email)
+}
+
+func TestSeedFailureRollsBackAdminPasswordUser(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	db := &database.DB{Pool: pool}
+	suffix := uuid.NewString()
+	email := "admin-seed-rollback-" + suffix + "@example.com"
+	var seenUserID string
+
+	_, err := db.CreateAdminPasswordUserSeeded(ctx,
+		email, "admin_seed_rollback_"+strings.ReplaceAll(suffix[:8], "-", "_"), "hash", net.ParseIP("127.0.0.1"),
+		seedArtifactsThenFail(t, &seenUserID))
+	if err == nil {
+		t.Fatal("CreateAdminPasswordUserSeeded succeeded with failing seeder")
+	}
+	if seenUserID == "" {
+		t.Fatal("failing seeder was not called")
+	}
+	assertNoUserCreationState(t, db, email)
+}
+
+func TestSeedFailureRollsBackInvitedUser(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	db := &database.DB{Pool: pool}
+	suffix := uuid.NewString()
+	email := "invite-seed-rollback-" + suffix + "@example.com"
+	var seenUserID string
+
+	_, err := db.CreateInvitedUserSeeded(ctx,
+		email, "invite_seed_rollback_"+strings.ReplaceAll(suffix[:8], "-", "_"), "admin", net.ParseIP("127.0.0.1"),
+		true, "invite-seed-token-"+suffix, time.Now().Add(time.Hour),
+		seedArtifactsThenFail(t, &seenUserID))
+	if err == nil {
+		t.Fatal("CreateInvitedUserSeeded succeeded with failing seeder")
+	}
+	if seenUserID == "" {
+		t.Fatal("failing seeder was not called")
+	}
+	assertNoUserCreationState(t, db, email)
+}
+
+func TestSeedFailureRollsBackBootstrapAdmin(t *testing.T) {
+	ctx := context.Background()
+	db := isolatedBootstrapDB(t)
+	suffix := uuid.NewString()
+	email := "bootstrap-seed-rollback-" + suffix + "@example.com"
+	var seenUserID string
+
+	_, err := db.CreateBootstrapAdminSeeded(ctx,
+		email, "bootstrap_seed_rollback_"+strings.ReplaceAll(suffix[:8], "-", "_"), "hash", net.ParseIP("127.0.0.1"),
+		seedArtifactsThenFail(t, &seenUserID))
+	if err == nil {
+		t.Fatal("CreateBootstrapAdminSeeded succeeded with failing seeder")
+	}
+	if seenUserID == "" {
+		t.Fatal("failing seeder was not called")
+	}
+	assertNoUserCreationState(t, db, email)
+
+	var userCount int
+	if err := db.Pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE deleted_at IS NULL`).Scan(&userCount); err != nil {
+		t.Fatalf("count bootstrap users after rollback: %v", err)
+	}
+	if userCount != 0 {
+		t.Fatalf("bootstrap users survived rollback: count=%d", userCount)
+	}
+}
+
+func TestSeedFailureRollsBackOAuthUser(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	db := &database.DB{Pool: pool}
+	suffix := uuid.NewString()
+	email := "oauth-seed-rollback-" + suffix + "@example.com"
+	provider := "test_provider_rollback"
+	providerID := "provider-" + suffix
+	var seenUserID string
+
+	_, isNew, err := db.GetOrCreateUserByOAuthSeeded(ctx,
+		provider, providerID, email, "oauth_seed_rollback_"+strings.ReplaceAll(suffix[:8], "-", "_"),
+		[]byte("access"), []byte("refresh"), nil, strings.Repeat("0123456789abcdef", 4),
+		true, false, seedArtifactsThenFail(t, &seenUserID))
+	if err == nil {
+		t.Fatal("GetOrCreateUserByOAuthSeeded succeeded with failing seeder")
+	}
+	if isNew {
+		t.Fatal("GetOrCreateUserByOAuthSeeded reported a new user after seeder failure")
+	}
+	if seenUserID == "" {
+		t.Fatal("failing seeder was not called")
+	}
+	assertNoUserCreationState(t, db, email)
+	assertNoOAuthConnection(t, db, provider, providerID)
 }
 
 func TestBootstrapAdminConcurrentCreatesOneSeededAdmin(t *testing.T) {

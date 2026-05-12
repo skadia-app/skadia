@@ -4,13 +4,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminStorageLimitsSection } from './AdminStorageLimitsSection'
 import { getAdminSettings, putAdminSettings } from '@/api/adminSettings'
 
+const { addToastMock } = vi.hoisted(() => ({
+  addToastMock: vi.fn(),
+}))
+
 vi.mock('@/api/adminSettings', () => ({
   getAdminSettings: vi.fn(),
   putAdminSettings: vi.fn(),
 }))
 
 vi.mock('@/lib/toast', () => ({
-  useToast: () => ({ addToast: vi.fn() }),
+  useToast: () => ({ addToast: addToastMock }),
 }))
 
 function renderSection() {
@@ -26,6 +30,7 @@ function renderSection() {
 
 describe('AdminStorageLimitsSection', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     vi.mocked(putAdminSettings).mockResolvedValue({ status: 'ok', changed: [] })
   })
 
@@ -62,5 +67,32 @@ describe('AdminStorageLimitsSection', () => {
       }))
     })
   })
-})
+  it('rejects decimal storage limits instead of truncating them to unlimited', async () => {
+    vi.mocked(getAdminSettings).mockResolvedValue({
+      limits: {
+        max_upload_bytes: { value: '52428800', source: 'default' },
+        max_user_storage_bytes: { value: '10737418240', source: 'db' },
+        max_activity_photos_per_activity: { value: '100', source: 'default' },
+        max_route_photos_per_route: { value: '10', source: 'default' },
+      },
+      library: {
+        keep_versions: { value: '1', source: 'default' },
+      },
+    })
 
+    renderSection()
+
+    await screen.findByText('Max. Benutzer-Speicher')
+    const inputs = screen.getAllByRole('spinbutton') as HTMLInputElement[]
+    await waitFor(() => expect(inputs[1].value).toBe('10'))
+    fireEvent.change(inputs[1], { target: { value: '0.5' } })
+    expect(inputs[1].value).toBe('0.5')
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    expect(putAdminSettings).not.toHaveBeenCalled()
+    expect(addToastMock).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'error',
+      title: 'Ungültiger Max Benutzer-Speicher',
+    }))
+  })
+})

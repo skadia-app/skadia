@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -43,8 +44,9 @@ func (h *Handler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxMediaUploadSize)
-	if err := r.ParseMultipartForm(maxMediaUploadSize); err != nil {
+	maxUploadBytes := h.effectiveMaxUploadBytes(maxMediaUploadSize)
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "request too large or invalid multipart form", r.URL.Path)
 		return
 	}
@@ -355,7 +357,7 @@ func (h *Handler) queueMediaFile(
 	if err != nil {
 		slog.Error("upload media: create queue item failed", "error", err)
 		// Clean up the file we already stored to avoid orphans.
-		if delErr := h.ShadowFS.Delete(r.Context(), userID, queueFileID); delErr != nil {
+		if delErr := h.ShadowFS.Delete(context.WithoutCancel(r.Context()), userID, queueFileID); delErr != nil {
 			slog.Warn("upload media: ShadowFS.Delete queue rollback failed", "file_id", queueFileID, "error", delErr)
 		}
 		errMsg := "failed to create queue entry"

@@ -26,7 +26,7 @@ export interface ImportQueueItem {
 
 export interface MediaUploadResultItem {
   filename: string
-  status: 'assigned' | 'queued' | 'duplicate' | 'skipped_limit_reached' | 'storage_quota_exceeded' | 'error' | 'type_required'
+  status: 'assigned' | 'queued' | 'duplicate' | 'skipped_limit_reached' | 'storage_quota_exceeded' | 'error'
   activity_id?: string
   activity_title?: string
   queue_id?: string

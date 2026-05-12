@@ -50,9 +50,10 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxPhotoSize)
-	if err := r.ParseMultipartForm(maxPhotoSize); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "file too large (max 200 MB)", r.URL.Path)
+	maxUploadBytes := h.effectiveMaxUploadBytes(maxPhotoSize)
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "file too large", r.URL.Path)
 		return
 	}
 

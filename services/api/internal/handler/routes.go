@@ -472,7 +472,20 @@ func (h *Handler) DuplicateRoute(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) cleanupRoutePhotoFiles(ctx context.Context, routeID, userID string) {
 	if h.ShadowFS != nil {
 		rows, err := h.DB.Pool.Query(ctx,
-			`SELECT COALESCE(file_id::text, '') FROM route_photos WHERE route_id = $1 AND user_id = $2`,
+			`SELECT file_id
+			 FROM (
+			     SELECT file_id::text AS file_id
+			     FROM route_photos
+			     WHERE route_id = $1 AND user_id = $2 AND file_id IS NOT NULL
+			     UNION
+			     SELECT uf.id::text AS file_id
+			     FROM route_photos rp
+			     JOIN user_files uf
+			       ON uf.user_id = rp.user_id
+			      AND uf.parent_type = 'route_photo'
+			      AND uf.parent_id = rp.id
+			     WHERE rp.route_id = $1 AND rp.user_id = $2
+			 ) files`,
 			routeID, userID,
 		)
 		if err != nil {

@@ -22,6 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -197,6 +198,32 @@ func (u *UnifiedShadowFS) effectiveMaxUserBytes(ctx context.Context) int64 {
 	return u.maxUserBytes
 }
 
+func (u *UnifiedShadowFS) diskUsageWithQuotaCredit(ctx context.Context, userID, creditFileID string) (int64, error) {
+	used, err := diskUsage(ctx, u.pool, userID)
+	if err != nil {
+		return 0, err
+	}
+	if creditFileID == "" {
+		return used, nil
+	}
+	var credit int64
+	err = u.pool.QueryRow(ctx,
+		`SELECT COALESCE(size_bytes, 0)
+		 FROM user_files
+		 WHERE id = $1 AND user_id = $2 AND status = 'active'
+		   AND file_type NOT IN ('thumb', 'preview')`,
+		creditFileID, userID,
+	).Scan(&credit)
+	if err != nil && err != pgx.ErrNoRows {
+		return 0, err
+	}
+	used -= credit
+	if used < 0 {
+		used = 0
+	}
+	return used, nil
+}
+
 // getUserDir returns the library directory name for a user.
 func (u *UnifiedShadowFS) getUserDir(ctx context.Context, userID string) (string, error) {
 	return ResolveLibraryDirName(ctx, u.pool, userID)
@@ -246,7 +273,7 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 	// 3. Quota pre-check (excludes thumb/preview — they don't count toward quota).
 	maxUserBytes := u.effectiveMaxUserBytes(ctx)
 	if entry.FileType != "thumb" && entry.FileType != "preview" && maxUserBytes > 0 {
-		used, err := diskUsage(ctx, u.pool, entry.UserID)
+		used, err := u.diskUsageWithQuotaCredit(ctx, entry.UserID, entry.QuotaCreditFileID)
 		if err != nil {
 			return FileRecord{}, fmt.Errorf("shadowfs: quota check: %w", err)
 		}
@@ -422,7 +449,7 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 
 	// 7. Post-write quota check.
 	if entry.FileType != "thumb" && entry.FileType != "preview" && maxUserBytes > 0 && written > 0 {
-		used, qErr := diskUsage(ctx, u.pool, entry.UserID)
+		used, qErr := u.diskUsageWithQuotaCredit(ctx, entry.UserID, entry.QuotaCreditFileID)
 		if qErr != nil {
 			slog.Warn("shadowfs: post-write quota check failed", "error", qErr)
 		} else if used > maxUserBytes {

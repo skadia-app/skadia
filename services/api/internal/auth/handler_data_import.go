@@ -229,8 +229,9 @@ func (h *Handler) runImportJob(jobID, userID, zipPath string) {
 		MaxStorageBytes: h.Config.MaxUserStorageBytes,
 	}
 	engine := &dataimport.Engine{
-		DB:     h.DB.Pool,
-		Config: engineCfg,
+		DB:            h.DB.Pool,
+		SettingsStore: h.Settings,
+		Config:        engineCfg,
 	}
 	if h.ShadowFS != nil {
 		engine.ShadowFS = h.ShadowFS

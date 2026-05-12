@@ -70,6 +70,29 @@ func TestUploadRoutePhotoQuotaExceededReturns507(t *testing.T) {
 	}
 }
 
+func TestUploadRoutePhotoUsesConfiguredUploadLimit(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	h := &Handler{
+		DB:       db,
+		ShadowFS: fs,
+		Settings: settings.NewStoreForTest(map[string]string{
+			"limits.max_upload_bytes": "128",
+		}),
+	}
+	routeID := insertTestRoute(t, h, userID)
+
+	req := newRoutePhotoUploadRequest(t, userID, routeID, "too-large.jpg", jpegTestImage(t, 64, 64, color.RGBA{R: 20, G: 140, B: 220, A: 255}, 90))
+	rr := httptest.NewRecorder()
+	h.UploadRoutePhoto(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("UploadRoutePhoto status = %d, want %d; body=%s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
 func TestUploadRoutePhotoLimitConcurrentUploadsAllowOneRow(t *testing.T) {
 	pool := fusionTestPool(t)
 	db := &database.DB{Pool: pool}
@@ -159,6 +182,122 @@ func TestDeleteRoutePhotoRemovesDerivatives(t *testing.T) {
 	}
 }
 
+func TestUploadRoutePhotoLinkFailureCleansUpFileAndRow(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	h := &Handler{DB: db, ShadowFS: fs}
+	routeID := insertTestRoute(t, h, userID)
+
+	installRoutePhotoFileLinkFailureTrigger(t, pool)
+
+	req := newRoutePhotoUploadRequest(t, userID, routeID, "link-failure.jpg", jpegTestImage(t, 24, 24, color.RGBA{R: 90, G: 120, B: 160, A: 255}, 90))
+	rr := httptest.NewRecorder()
+	h.UploadRoutePhoto(rr, req)
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("route photo link failure status = %d, want %d; body=%s", rr.Code, http.StatusInternalServerError, rr.Body.String())
+	}
+	if got := routePhotoRowCount(t, pool, userID, routeID); got != 0 {
+		t.Fatalf("route photo rows after link failure = %d, want 0", got)
+	}
+	if got := userFileNameCount(t, pool, userID, "link-failure.jpg"); got != 0 {
+		t.Fatalf("stored route photo files after link failure = %d, want 0", got)
+	}
+}
+
+func TestDeleteRouteRemovesRoutePhotoDerivatives(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	h := &Handler{DB: db, ShadowFS: fs}
+	routeID := insertTestRoute(t, h, userID)
+
+	req := newRoutePhotoUploadRequest(t, userID, routeID, "route-delete.jpg", jpegPatternTestImage(t, 300, 300, 90))
+	rr := httptest.NewRecorder()
+	h.UploadRoutePhoto(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("upload route photo status = %d, want %d; body=%s", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+
+	var photoID, fileID string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT id::text, COALESCE(file_id::text, '') FROM route_photos WHERE user_id = $1 AND route_id = $2`,
+		userID, routeID,
+	).Scan(&photoID, &fileID); err != nil {
+		t.Fatalf("select route photo: %v", err)
+	}
+	if fileID == "" {
+		t.Fatal("route photo file_id is empty")
+	}
+	if got := routePhotoDerivativeCount(t, pool, userID, photoID); got == 0 {
+		t.Fatal("route photo upload created no derivatives to verify cleanup")
+	}
+
+	delReq := newRouteDeleteRequest(userID, routeID)
+	delRR := httptest.NewRecorder()
+	h.DeleteRoute(delRR, delReq)
+	if delRR.Code != http.StatusNoContent {
+		t.Fatalf("delete route status = %d, want %d; body=%s", delRR.Code, http.StatusNoContent, delRR.Body.String())
+	}
+	if got := userFileIDCount(t, pool, userID, fileID); got != 0 {
+		t.Fatalf("original user_file rows after route delete = %d, want 0", got)
+	}
+	if got := routePhotoDerivativeCount(t, pool, userID, photoID); got != 0 {
+		t.Fatalf("route derivative rows after route delete = %d, want 0", got)
+	}
+}
+
+func TestUploadRoutePhotoAcceptsImageExtensionFallback(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	h := &Handler{DB: db, ShadowFS: fs}
+	routeID := insertTestRoute(t, h, userID)
+
+	req := newRoutePhotoUploadRequest(t, userID, routeID, "fallback.avif", []byte{0, 0, 0, 8, 'a', 'v', 'i', 'f'})
+	rr := httptest.NewRecorder()
+	h.UploadRoutePhoto(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("route photo extension fallback status = %d, want %d; body=%s", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+
+	var contentType string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT uf.content_type
+		 FROM user_files uf
+		 JOIN route_photos rp ON rp.file_id = uf.id
+		 WHERE rp.user_id = $1 AND rp.route_id = $2`,
+		userID, routeID,
+	).Scan(&contentType); err != nil {
+		t.Fatalf("select route photo content type: %v", err)
+	}
+	if contentType != "image/avif" {
+		t.Fatalf("route photo content_type = %q, want image/avif", contentType)
+	}
+}
+
+func TestUploadRoutePhotoRejectsNonImageExtensionFallback(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	h := &Handler{DB: db, ShadowFS: fs}
+	routeID := insertTestRoute(t, h, userID)
+
+	req := newRoutePhotoUploadRequest(t, userID, routeID, "not-image.mp4", []byte{0, 0, 0, 8, 'm', 'p', '4', '2'})
+	rr := httptest.NewRecorder()
+	h.UploadRoutePhoto(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("route photo non-image fallback status = %d, want %d; body=%s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	if got := routePhotoRowCount(t, pool, userID, routeID); got != 0 {
+		t.Fatalf("route photo rows after non-image fallback = %d, want 0", got)
+	}
+}
+
 func newRoutePhotoUploadRequest(t *testing.T, userID, routeID, filename string, data []byte) *http.Request {
 	t.Helper()
 	var body bytes.Buffer
@@ -186,6 +325,15 @@ func newRoutePhotoUploadRequest(t *testing.T, userID, routeID, filename string, 
 	return req.WithContext(ctx)
 }
 
+func newRouteDeleteRequest(userID, routeID string) *http.Request {
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/routes/"+routeID, nil)
+	routeCtx := chi.NewRouteContext()
+	routeCtx.URLParams.Add("id", routeID)
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx)
+	ctx = withUserAndAdmin(ctx, userID, false)
+	return req.WithContext(ctx)
+}
+
 func newRoutePhotoDeleteRequest(userID, routeID, photoID string) *http.Request {
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/routes/"+routeID+"/photos/"+photoID, nil)
 	routeCtx := chi.NewRouteContext()
@@ -206,6 +354,50 @@ func routePhotoRowCount(t *testing.T, pool *pgxpool.Pool, userID, routeID string
 		t.Fatalf("count route photos: %v", err)
 	}
 	return count
+}
+
+func userFileNameCount(t *testing.T, pool *pgxpool.Pool, userID, filename string) int {
+	t.Helper()
+	var count int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM user_files WHERE user_id = $1 AND file_name = $2`,
+		userID, filename,
+	).Scan(&count); err != nil {
+		t.Fatalf("count user files by name: %v", err)
+	}
+	return count
+}
+
+func installRoutePhotoFileLinkFailureTrigger(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	_, _ = pool.Exec(ctx, `DROP TRIGGER IF EXISTS test_route_photo_file_link_failure ON route_photos`)
+	_, _ = pool.Exec(ctx, `DROP FUNCTION IF EXISTS test_fail_route_photo_file_link()`)
+	if _, err := pool.Exec(ctx, `
+		CREATE FUNCTION test_fail_route_photo_file_link()
+		RETURNS trigger
+		LANGUAGE plpgsql
+		AS $$
+		BEGIN
+			IF NEW.file_id IS NOT NULL AND OLD.file_id IS NULL THEN
+				RAISE EXCEPTION 'forced route photo file link failure';
+			END IF;
+			RETURN NEW;
+		END;
+		$$`); err != nil {
+		t.Fatalf("create route photo link failure function: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		CREATE TRIGGER test_route_photo_file_link_failure
+		BEFORE UPDATE OF file_id ON route_photos
+		FOR EACH ROW
+		EXECUTE FUNCTION test_fail_route_photo_file_link()`); err != nil {
+		t.Fatalf("create route photo link failure trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS test_route_photo_file_link_failure ON route_photos`)
+		_, _ = pool.Exec(context.Background(), `DROP FUNCTION IF EXISTS test_fail_route_photo_file_link()`)
+	})
 }
 
 func routePhotoDerivativeCount(t *testing.T, pool *pgxpool.Pool, userID, photoID string) int {

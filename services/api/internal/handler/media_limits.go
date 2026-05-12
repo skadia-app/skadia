@@ -49,6 +49,17 @@ func mediaLimitValue(store *settings.SettingsStore, key string) int {
 	return got
 }
 
+func (h *Handler) effectiveMaxUploadBytes(fallback int64) int64 {
+	if h == nil || h.Settings == nil {
+		return fallback
+	}
+	got, err := h.Settings.GetInt("limits.max_upload_bytes")
+	if err != nil || got <= 0 {
+		return fallback
+	}
+	return int64(got)
+}
+
 func NewActivityPhotoCreateGuard(db *database.DB, store *settings.SettingsStore) importer.ActivityPhotoCreateGuard {
 	return func(ctx context.Context, userID, activityID string) (func(), error) {
 		limit := mediaLimitValue(store, "limits.max_activity_photos_per_activity")

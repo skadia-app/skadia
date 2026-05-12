@@ -89,6 +89,32 @@ func TestUploadActivityPhotoStoresOneOriginalUserFile(t *testing.T) {
 	}
 }
 
+func TestUploadActivityPhotoUsesConfiguredUploadLimit(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	activityID := insertMinimalActivity(t, db, userID)
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	h := &Handler{
+		DB:            db,
+		ShadowFS:      fs,
+		ImportService: importer.NewService(db, fs, nil),
+		Settings: settings.NewStoreForTest(map[string]string{
+			"limits.max_upload_bytes": "128",
+		}),
+	}
+
+	body := jpegTestImage(t, 64, 64, color.RGBA{R: 210, G: 50, B: 40, A: 255}, 90)
+	req := newPhotoUploadRequest(t, userID, activityID, "too-large.jpg", body)
+	rr := httptest.NewRecorder()
+
+	h.UploadActivityPhoto(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("UploadActivityPhoto status = %d, want %d; body=%s", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+}
+
 func TestUploadActivityPhotoAcceptsOctetStreamFFmpegStillByExtension(t *testing.T) {
 	for _, tt := range []struct {
 		name        string

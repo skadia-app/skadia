@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -16,8 +17,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
+
+const maxUserStorageSettingKey = "limits.max_user_storage_bytes"
 
 // EngineConfig holds configuration for the import engine.
 type EngineConfig struct {
@@ -28,9 +32,10 @@ type EngineConfig struct {
 
 // Engine orchestrates the GDPR data import.
 type Engine struct {
-	DB       *pgxpool.Pool
-	ShadowFS shadowfs.ShadowFS
-	Config   EngineConfig
+	DB            *pgxpool.Pool
+	ShadowFS      shadowfs.ShadowFS
+	SettingsStore *settings.SettingsStore
+	Config        EngineConfig
 }
 
 type deferredFK struct {
@@ -168,15 +173,18 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	const totalPhases = 11 // phases 0–10
 
 	// Phase 0: Disk-space check + import all files (except edit-sidecars).
-	if e.Config.MaxStorageBytes > 0 && e.ShadowFS != nil {
-		est := input.Source.EstimatedFileBytes()
+	if maxStorageBytes := e.effectiveMaxStorageBytes(ctx); maxStorageBytes > 0 && e.ShadowFS != nil {
+		est, err := quotaRelevantUserFileBytes(input.Source)
+		if err != nil {
+			return result, fmt.Errorf("RunImport phase 0 (quota preflight): %w", err)
+		}
 		if est > 0 {
 			used, err := e.ShadowFS.DiskUsage(ctx, input.TargetUserID)
 			if err != nil {
 				return result, fmt.Errorf("RunImport phase 0 (quota preflight): %w", err)
 			}
-			if used+est > e.Config.MaxStorageBytes {
-				return result, fmt.Errorf("%w: restore would use %d + %d > %d bytes", shadowfs.ErrQuotaExceeded, used, est, e.Config.MaxStorageBytes)
+			if used+est > maxStorageBytes {
+				return result, fmt.Errorf("%w: restore would use %d + %d > %d bytes", shadowfs.ErrQuotaExceeded, used, est, maxStorageBytes)
 			}
 		}
 	}
@@ -335,6 +343,21 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	// ── 10. Result ────────────────────────────────────────────────────────────
 	result.Duration = time.Since(start)
 	return result, nil
+}
+
+func (e *Engine) effectiveMaxStorageBytes(ctx context.Context) int64 {
+	if e.SettingsStore != nil {
+		cs := e.SettingsStore.Get(maxUserStorageSettingKey)
+		if cs.Value != "" {
+			n, err := strconv.ParseInt(cs.Value, 10, 64)
+			if err == nil && n >= 0 {
+				return n
+			}
+			slog.WarnContext(ctx, "dataimport: ignoring invalid live storage quota",
+				"value", cs.Value, "source", cs.Source, "error", err)
+		}
+	}
+	return e.Config.MaxStorageBytes
 }
 
 func (e *Engine) cleanupImportedFiles(ctx context.Context, userID string, result *ImportResult) {
