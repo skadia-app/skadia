@@ -408,7 +408,35 @@ export interface DataExportStatus {
   sha256?: string
   size_bytes?: number
   download_url?: string
+  download_session_url?: string
+  manifest_download_session_url?: string
+  artifact_format?: 'single_zip' | 'multipart'
+  parts?: DataExportPart[]
+  unavailable_reason?: 'artifact_missing' | 'artifact_backend_unavailable'
+  partial?: boolean
   error?: string
+}
+
+export interface DataExportPart {
+  name: string
+  role?: string
+  sha256?: string
+  size_bytes?: number
+  download_session_url?: string
+}
+
+export interface DataExportDownloadSession {
+  url: string
+  expires_at: string
+  objects?: DataExportDownloadObject[]
+}
+
+export interface DataExportDownloadObject {
+  name: string
+  role?: string
+  url: string
+  sha256?: string
+  size_bytes?: number
 }
 
 export async function startDataExport(): Promise<{ job_id: string; status: string }> {
@@ -435,6 +463,22 @@ export async function getDataExportStatus(jobId: string): Promise<DataExportStat
   if (!res.ok) {
     const d = await res.json().catch(() => ({})) as { error?: string }
     throw new Error(d.error ?? 'Export status check failed')
+  }
+  return res.json()
+}
+
+export async function createDataExportDownloadSession(
+  jobId: string,
+  body: { single?: true; part?: string; all?: boolean },
+): Promise<DataExportDownloadSession> {
+  const res = await apiFetch(`/api/v1/auth/data-export/${jobId}/download-session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Download session failed')
   }
   return res.json()
 }
