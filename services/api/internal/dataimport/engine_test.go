@@ -148,6 +148,10 @@ func (m *mockShadowFS) Put(_ context.Context, entry shadowfs.FileEntry, data io.
 	}, nil
 }
 
+func (m *mockShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
+}
+
 func (m *mockShadowFS) entryByFileName(name string) (shadowfs.FileEntry, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1764,6 +1768,75 @@ func (m *dbMockShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry, data
 	return rec, nil
 }
 
+func (m *dbMockShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
+}
+
+type putStreamOnlyDBMockShadowFS struct {
+	*dbMockShadowFS
+	putCalled       bool
+	putStreamCalled bool
+}
+
+func (m *putStreamOnlyDBMockShadowFS) Put(context.Context, shadowfs.FileEntry, io.Reader) (shadowfs.FileRecord, error) {
+	m.putCalled = true
+	return shadowfs.FileRecord{}, fmt.Errorf("legacy Put must not be used for dataimport restore")
+}
+
+func (m *putStreamOnlyDBMockShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	m.putStreamCalled = true
+	return m.dbMockShadowFS.Put(ctx, entry, data)
+}
+
+func TestDataImportRestoreCallsPutStream(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+	srcUser := uuid.NewString()
+	fileOldID := uuid.NewString()
+	content := []byte("restored via streaming")
+	hash := sha256.Sum256(content)
+	hashHex := hex.EncodeToString(hash[:])
+
+	userFilesJSON := mustMarshalJSON(t, []map[string]any{
+		{
+			"id":           fileOldID,
+			"file_type":    "activity",
+			"content_type": "application/octet-stream",
+			"file_name":    "restore.fit",
+			"size_bytes":   len(content),
+			"file_hash":    hashHex,
+			"status":       "active",
+		},
+	})
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID: srcUser,
+		extraFiles: map[string][]byte{
+			"data/user_files.json":       userFilesJSON,
+			"files/activity/restore.fit": content,
+		},
+	})
+	src := openZipSource(t, zipPath)
+	fs := &putStreamOnlyDBMockShadowFS{dbMockShadowFS: newDBMockShadowFS(pool)}
+	eng := &Engine{DB: pool, ShadowFS: fs, Config: EngineConfig{}}
+
+	result, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	if fs.putCalled {
+		t.Fatal("dataimport restore called legacy Put")
+	}
+	if !fs.putStreamCalled {
+		t.Fatal("dataimport restore did not call PutStream")
+	}
+	if result.FilesImported != 1 {
+		t.Fatalf("FilesImported = %d, want 1; warnings=%v", result.FilesImported, result.Warnings)
+	}
+}
+
 // TestShadowFSIDRemap verifies that after importing an activity with a file,
 // activities.file_id points to an existing user_files row (created by ShadowFS.Put)
 // and NOT to the old export UUID.
@@ -2714,6 +2787,10 @@ func (m *trackingMockShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry
 	m.parentIDs = append(m.parentIDs, pid)
 	m.trackMu.Unlock()
 	return m.dbMockShadowFS.Put(ctx, entry, data)
+}
+
+func (m *trackingMockShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
 }
 
 // ---------------------------------------------------------------------------
