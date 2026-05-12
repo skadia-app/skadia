@@ -384,6 +384,10 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		return fmt.Errorf("schema migration ran during introspection (pre=%d, in_tx=%d) — please retry", preIntrospectMigration, schemaMigration)
 	}
 
+	if h.shouldUseMultipartExport(ctx, userID) {
+		return h.executeMultipartExportJobOnce(ctx, jobID, userID, tx, schemaMigration, colCache, specs, healthTables, introspectErrs)
+	}
+
 	// 5. Create artifact-backed ZIP writer.
 	if h.ArtifactStore == nil {
 		return fmt.Errorf("artifact_store_unconfigured")

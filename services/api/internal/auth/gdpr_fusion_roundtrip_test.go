@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -141,17 +142,23 @@ func (r *roundtripShadowFS) DeleteCompanionAt(_ context.Context, _ string) error
 // activities have NO main source file, only a .meta companion written via
 // PutCompanionAt. We write those directly under "files/<path>" so that
 // the re-import's importCompanion() call can find them.
-func (r *roundtripShadowFS) StreamToZip(_ context.Context, userID string, zw *zip.Writer) ([]string, error) {
+func (r *roundtripShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) ([]string, error) {
+	return r.StreamExportFiles(ctx, userID, shadowfs.NewZipExportFileSink(zw))
+}
+
+func (r *roundtripShadowFS) StreamExportFiles(ctx context.Context, userID string, sink shadowfs.ExportFileSink) ([]string, error) {
 	for path, data := range r.companions {
 		// Only emit companions that belong to this user.
 		if !strings.HasPrefix(path, userID+"/") {
 			continue
 		}
-		w, err := zw.Create("files/" + path)
-		if err != nil {
-			return nil, fmt.Errorf("roundtripShadowFS: create zip entry %q: %w", path, err)
-		}
-		if _, err := io.Copy(w, bytes.NewReader(data)); err != nil {
+		if err := sink.AddExportFile(ctx, shadowfs.ExportFile{
+			ZIPPath:   "files/" + path,
+			FileName:  filepath.Base(path),
+			FileType:  "activity",
+			SizeBytes: int64(len(data)),
+			Modified:  time.Now(),
+		}, bytes.NewReader(data)); err != nil {
 			return nil, fmt.Errorf("roundtripShadowFS: write zip entry %q: %w", path, err)
 		}
 	}

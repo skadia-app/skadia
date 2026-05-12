@@ -3,11 +3,15 @@ package dataimport
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // createTestZip builds a minimal in-memory ZIP containing:
@@ -185,4 +189,176 @@ func TestDirSource_Manifest(t *testing.T) {
 	if m.UserID != "dir-user-uuid" {
 		t.Errorf("UserID: want %q, got %q", "dir-user-uuid", m.UserID)
 	}
+}
+
+func TestManifestPartRoleBackwardsCompatibility(t *testing.T) {
+	dir := t.TempDir()
+	metadataPath := writeZipFileForReaderTest(t, filepath.Join(dir, "metadata.zip"), map[string][]byte{
+		"columns.json":         []byte(`{"activities":["id"]}`),
+		"data/activities.json": []byte(`[]`),
+	})
+	filesPath := writeZipFileForReaderTest(t, filepath.Join(dir, "files-0001.zip"), map[string][]byte{
+		"files/activity/one.fit": []byte("one"),
+	})
+	writeManifestForReaderTest(t, dir, []ManifestPart{{
+		Name:      "files-0001.zip",
+		SHA256:    sha256FileForReaderTest(t, filesPath),
+		SizeBytes: fileSizeForReaderTest(t, filesPath),
+	}})
+
+	src, err := NewMultiPartSource(dir)
+	if err != nil {
+		t.Fatalf("NewMultiPartSource: %v", err)
+	}
+	defer src.Close()
+
+	manifest, err := src.Manifest()
+	if err != nil {
+		t.Fatalf("Manifest: %v", err)
+	}
+	if part := manifestPartByNameForReaderTest(manifest.Parts, "metadata.zip"); part == nil {
+		t.Fatalf("metadata.zip was not inferred into legacy manifest parts: %#v", manifest.Parts)
+	} else if part.Role != "metadata" {
+		t.Fatalf("metadata.zip role = %q, want metadata", part.Role)
+	}
+	if part := manifestPartByNameForReaderTest(manifest.Parts, "files-0001.zip"); part == nil {
+		t.Fatalf("files-0001.zip missing from manifest parts: %#v", manifest.Parts)
+	} else if part.Role != "files" {
+		t.Fatalf("files-0001.zip role = %q, want files", part.Role)
+	}
+	if _, err := os.Stat(metadataPath); err != nil {
+		t.Fatalf("metadata.zip should exist for legacy multipart source: %v", err)
+	}
+}
+
+func TestMultiPartSourceAcceptsListedMetadataZipAndVerifiesChecksum(t *testing.T) {
+	dir := t.TempDir()
+	metadataPath := writeZipFileForReaderTest(t, filepath.Join(dir, "metadata.zip"), map[string][]byte{
+		"columns.json":         []byte(`{"activities":["id"]}`),
+		"data/activities.json": []byte(`[]`),
+	})
+	filesPath := writeZipFileForReaderTest(t, filepath.Join(dir, "files-0001.zip"), map[string][]byte{
+		"files/activity/one.fit": []byte("one"),
+	})
+	writeManifestForReaderTest(t, dir, []ManifestPart{
+		{Name: "metadata.zip", Role: "metadata", SHA256: sha256FileForReaderTest(t, metadataPath), SizeBytes: fileSizeForReaderTest(t, metadataPath)},
+		{Name: "files-0001.zip", Role: "files", SHA256: sha256FileForReaderTest(t, filesPath), SizeBytes: fileSizeForReaderTest(t, filesPath)},
+	})
+
+	src, err := NewMultiPartSource(dir)
+	if err != nil {
+		t.Fatalf("NewMultiPartSource: %v", err)
+	}
+	defer src.Close()
+
+	if _, err := src.OpenData("data/activities.json"); err != nil {
+		t.Fatalf("OpenData from listed metadata.zip: %v", err)
+	}
+
+	writeManifestForReaderTest(t, dir, []ManifestPart{
+		{Name: "metadata.zip", Role: "metadata", SHA256: strings.Repeat("0", 64), SizeBytes: fileSizeForReaderTest(t, metadataPath)},
+		{Name: "files-0001.zip", Role: "files", SHA256: sha256FileForReaderTest(t, filesPath), SizeBytes: fileSizeForReaderTest(t, filesPath)},
+	})
+	if _, err := NewMultiPartSource(dir); err == nil {
+		t.Fatal("NewMultiPartSource accepted metadata.zip with wrong checksum")
+	}
+}
+
+func TestMultiPartSourceRejectsDuplicateAndInvalidPartNames(t *testing.T) {
+	dir := t.TempDir()
+	metadataPath := writeZipFileForReaderTest(t, filepath.Join(dir, "metadata.zip"), map[string][]byte{
+		"columns.json": []byte(`{}`),
+	})
+	filesPath := writeZipFileForReaderTest(t, filepath.Join(dir, "files-0001.zip"), map[string][]byte{
+		"files/activity/one.fit": []byte("one"),
+	})
+
+	writeManifestForReaderTest(t, dir, []ManifestPart{
+		{Name: "metadata.zip", Role: "metadata", SHA256: sha256FileForReaderTest(t, metadataPath), SizeBytes: fileSizeForReaderTest(t, metadataPath)},
+		{Name: "files-0001.zip", Role: "files", SHA256: sha256FileForReaderTest(t, filesPath), SizeBytes: fileSizeForReaderTest(t, filesPath)},
+		{Name: "files-0001.zip", Role: "files", SHA256: sha256FileForReaderTest(t, filesPath), SizeBytes: fileSizeForReaderTest(t, filesPath)},
+	})
+	if _, err := NewMultiPartSource(dir); err == nil {
+		t.Fatal("NewMultiPartSource accepted duplicate part names")
+	}
+
+	writeManifestForReaderTest(t, dir, []ManifestPart{
+		{Name: "metadata.zip", Role: "metadata", SHA256: sha256FileForReaderTest(t, metadataPath), SizeBytes: fileSizeForReaderTest(t, metadataPath)},
+		{Name: "../files-0001.zip", Role: "files", SHA256: sha256FileForReaderTest(t, filesPath), SizeBytes: fileSizeForReaderTest(t, filesPath)},
+	})
+	if _, err := NewMultiPartSource(dir); err == nil {
+		t.Fatal("NewMultiPartSource accepted invalid part name")
+	}
+}
+
+func writeManifestForReaderTest(t *testing.T, dir string, parts []ManifestPart) {
+	t.Helper()
+	raw, err := json.Marshal(Manifest{
+		FormatVersion:   1,
+		SkadiaVersion:  "2026.04",
+		SchemaMigration: 293,
+		ExportedAt:      time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC),
+		UserID:          "reader-test-user",
+		Multipart:       true,
+		Parts:           parts,
+	})
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), raw, 0o600); err != nil {
+		t.Fatalf("write manifest.json: %v", err)
+	}
+}
+
+func writeZipFileForReaderTest(t *testing.T, path string, entries map[string][]byte) string {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create zip %q: %v", path, err)
+	}
+	zw := zip.NewWriter(f)
+	for name, data := range entries {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("create entry %q: %v", name, err)
+		}
+		if _, err := w.Write(data); err != nil {
+			t.Fatalf("write entry %q: %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip %q: %v", path, err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close file %q: %v", path, err)
+	}
+	return path
+}
+
+func sha256FileForReaderTest(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file %q: %v", path, err)
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func fileSizeForReaderTest(t *testing.T, path string) int64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat file %q: %v", path, err)
+	}
+	return info.Size()
+}
+
+func manifestPartByNameForReaderTest(parts []ManifestPart, name string) *ManifestPart {
+	for i := range parts {
+		if parts[i].Name == name {
+			return &parts[i]
+		}
+	}
+	return nil
 }

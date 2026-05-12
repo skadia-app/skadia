@@ -716,14 +716,18 @@ func (u *UnifiedShadowFS) DiskUsage(ctx context.Context, userID string) (int64, 
 
 const maxExportBytesUnified int64 = 4 * 1024 * 1024 * 1024 // 4 GiB
 
-// StreamToZip writes all exportable user files into the given zip.Writer.
+func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) ([]string, error) {
+	return u.StreamExportFiles(ctx, userID, NewZipExportFileSink(zw))
+}
+
+// StreamExportFiles streams every exportable user file into sink.
 // Derivatives (thumb/preview) and legacy _cache/ paths are skipped.
 //
 // Returns `failedPaths` listing every ZIP entry whose content could not be
 // fully written (read-from-storage failures, copy-truncation, missing files).
 // Callers should surface this list in the export manifest so the user knows
 // which files in the ZIP are empty/truncated.
-func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) ([]string, error) {
+func (u *UnifiedShadowFS) StreamExportFiles(ctx context.Context, userID string, sink ExportFileSink) ([]string, error) {
 	records, err := listRecords(ctx, u.pool, userID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("shadowfs: list records for zip: %w", err)
@@ -772,23 +776,18 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 			continue
 		}
 
-		w, headerErr := zw.CreateHeader(&zip.FileHeader{
-			Name:     zipPath,
-			Method:   zip.Deflate,
-			Modified: rec.CreatedAt,
-		})
-		if headerErr != nil {
-			rc.Close()
-			return failedPaths, fmt.Errorf("shadowfs: zip header: %w", headerErr)
-		}
-		_, copyErr := io.Copy(w, rc)
+		copyErr := sink.AddExportFile(ctx, ExportFile{
+			ZIPPath:    zipPath,
+			FileName:   rec.FileName,
+			FileType:   rec.FileType,
+			SizeBytes:  rec.SizeBytes,
+			Modified:   rec.CreatedAt,
+			HasSidecar: rec.HasSidecar,
+		}, rc)
 		rc.Close()
 		if copyErr != nil {
 			// A single corrupt/short file must NOT abort the entire export —
-			// otherwise one bad blob hides all subsequent files. The zip entry
-			// is left as a (possibly truncated) artefact (zip.Writer cannot
-			// retract a created entry), but we record it in failedPaths so the
-			// caller can flag it in the manifest.
+			// otherwise one bad blob hides all subsequent files.
 			slog.Warn("shadowfs: zip copy failed, continuing with next file",
 				"file_id", rec.ID, "path", zipPath, "error", copyErr)
 			failedPaths = append(failedPaths, zipPath)
@@ -800,11 +799,16 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 			companionPath := rec.StoragePath + ".meta"
 			crc, cErr := be.Read(ctx, companionPath, u.bucketOpts(rec.FileType))
 			if cErr == nil {
-				cw, cwErr := zw.Create(zipPath + ".meta")
+				cwErr := sink.AddExportFile(ctx, ExportFile{
+					ZIPPath:   zipPath + ".meta",
+					FileName:  path.Base(zipPath) + ".meta",
+					FileType:  rec.FileType,
+					SizeBytes: 0,
+					Modified:  rec.UpdatedAt,
+				}, crc)
 				if cwErr != nil {
-					slog.Warn("shadowfs: create zip entry for .meta companion failed", "path", zipPath+".meta", "error", cwErr)
-				} else if cw != nil {
-					io.Copy(cw, crc) //nolint:errcheck
+					slog.Warn("shadowfs: write .meta companion failed", "path", zipPath+".meta", "error", cwErr)
+					failedPaths = append(failedPaths, zipPath+".meta")
 				}
 				crc.Close()
 			}
