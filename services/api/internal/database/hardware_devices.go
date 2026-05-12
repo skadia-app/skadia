@@ -430,15 +430,14 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 	}
 
 	var rows pgx.Rows
+	activityTitleSQL := ActivityDisplayTitleSQL("")
+	aliasedActivityTitleSQL := ActivityDisplayTitleSQL("a")
 
 	if deviceType == "recorder" {
 		if afterCursor != "" {
 			rows, err = db.Pool.Query(ctx,
 				`SELECT id::text, started_at,
-				     CASE
-				         WHEN COALESCE(title_is_manual, false) AND NULLIF(title, '') IS NOT NULL THEN title
-				         ELSE COALESCE(NULLIF(title_auto, ''), NULLIF(title, ''))
-				     END,
+				     `+activityTitleSQL+`,
 				     sport_type, distance_m, timezone
 				 FROM activities
 				 WHERE recording_device_id = $1 AND started_at < $2::timestamptz
@@ -448,10 +447,7 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 		} else {
 			rows, err = db.Pool.Query(ctx,
 				`SELECT id::text, started_at,
-				     CASE
-				         WHEN COALESCE(title_is_manual, false) AND NULLIF(title, '') IS NOT NULL THEN title
-				         ELSE COALESCE(NULLIF(title_auto, ''), NULLIF(title, ''))
-				     END,
+				     `+activityTitleSQL+`,
 				     sport_type, distance_m, timezone
 				 FROM activities
 				 WHERE recording_device_id = $1
@@ -464,10 +460,7 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 		if afterCursor != "" {
 			rows, err = db.Pool.Query(ctx,
 				`SELECT a.id::text, a.started_at,
-				     CASE
-				         WHEN COALESCE(a.title_is_manual, false) AND NULLIF(a.title, '') IS NOT NULL THEN a.title
-				         ELSE COALESCE(NULLIF(a.title_auto, ''), NULLIF(a.title, ''))
-				     END,
+				     `+aliasedActivityTitleSQL+`,
 				     a.sport_type, a.distance_m, a.timezone
 				 FROM activities a
 				 INNER JOIN (
@@ -482,10 +475,7 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 		} else {
 			rows, err = db.Pool.Query(ctx,
 				`SELECT a.id::text, a.started_at,
-				     CASE
-				         WHEN COALESCE(a.title_is_manual, false) AND NULLIF(a.title, '') IS NOT NULL THEN a.title
-				         ELSE COALESCE(NULLIF(a.title_auto, ''), NULLIF(a.title, ''))
-				     END,
+				     `+aliasedActivityTitleSQL+`,
 				     a.sport_type, a.distance_m, a.timezone
 				 FROM activities a
 				 INNER JOIN (

@@ -162,7 +162,9 @@ func (db *DB) GetSummitActivities(ctx context.Context, userID string, osmID *int
 
 	if osmID != nil {
 		query = `
-			SELECT a.id, COALESCE(a.title, ''), a.started_at,
+			SELECT a.id,
+			       ` + ActivityDisplayTitleSQL("a") + `,
+			       a.started_at,
 			       COALESCE(a.sport_type, ''), a.distance_m, a.elevation_gain_m, a.timezone
 			FROM activity_geo_tags g
 			JOIN activities a ON g.activity_id = a.id
@@ -174,7 +176,9 @@ func (db *DB) GetSummitActivities(ctx context.Context, userID string, osmID *int
 		args = []any{userID, *osmID}
 	} else {
 		query = `
-			SELECT a.id, COALESCE(a.title, ''), a.started_at,
+			SELECT a.id,
+			       ` + ActivityDisplayTitleSQL("a") + `,
+			       a.started_at,
 			       COALESCE(a.sport_type, ''), a.distance_m, a.elevation_gain_m, a.timezone
 			FROM activity_geo_tags g
 			JOIN activities a ON g.activity_id = a.id
