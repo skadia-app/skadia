@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import LiftReviewModal from './LiftReviewModal'
+import LiftReviewModal, { nextLiftJobPhase } from './LiftReviewModal'
 import { ToastProvider } from '@/lib/toast'
 import { ToastContainer } from '@/components/Toast'
 import type { Activity, LiftCandidate } from '@/api/types'
@@ -165,10 +165,75 @@ describe('LiftReviewModal', () => {
       { wrapper },
     )
 
-    expect(screen.getByText(/Lifte erkannt/)).toBeTruthy()
+    expect(screen.getByText('Liftfahrten erkannt')).toBeTruthy()
     expect(screen.getByText(/Alle bestätigen/)).toBeTruthy()
     expect(screen.getByText(/Alle ablehnen/)).toBeTruthy()
     expect(screen.getByText(/Prüfen/)).toBeTruthy()
+  })
+
+  it('opens directly in review mode when there are no candidates', () => {
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity({ lifts_acknowledged_at: '2024-01-01T10:00:00Z' })}
+        candidates={[]}
+      />,
+      { wrapper },
+    )
+
+    expect(screen.getByText(/Lifte prüfen/)).toBeTruthy()
+    expect(screen.getByText(/Keine Liftfahrten gefunden/)).toBeTruthy()
+    expect(screen.queryByText('Liftfahrten erkannt')).toBeNull()
+  })
+
+  it('uses compact single-lift review wording without all-labels or long dash', () => {
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={makeCandidates([{ id: 'single', ascent_m: 150, descent_m: 0 }])}
+      />,
+      { wrapper },
+    )
+
+    expect(screen.getByText('Liftfahrt erkannt')).toBeTruthy()
+    expect(screen.getByText('Bitte prüfe den erkannten Lift und wähle die passende Aktion.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Bestätigen' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Ablehnen' })).toBeTruthy()
+    expect(screen.queryByText(/Alle bestätigen/)).toBeNull()
+    expect(screen.queryByText(/Alle ablehnen/)).toBeNull()
+    expect(document.body.textContent).not.toContain('—')
+  })
+
+  it('compact mode focuses on open review candidates without confirmed-total copy', () => {
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={makeCandidates([{ id: 'single', ascent_m: 150, descent_m: 0 }])}
+      />,
+      { wrapper },
+    )
+
+    expect(screen.getByText('1 offen')).toBeTruthy()
+    expect(screen.queryByText(/Bereits bestätigt/)).toBeNull()
+  })
+
+  it('uses compact plural title as Liftfahrten erkannt', () => {
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    expect(screen.getByText('Liftfahrten erkannt')).toBeTruthy()
   })
 
   it('clicking confirm-all calls POST /confirm-all and closes modal', async () => {
@@ -266,8 +331,31 @@ describe('LiftReviewModal', () => {
 
     fireEvent.click(screen.getByText(/Zurück zur Übersicht/))
 
-    expect(screen.getByText(/Lifte erkannt/)).toBeTruthy()
+    expect(screen.getByText('Liftfahrten erkannt')).toBeTruthy()
     expect(screen.queryByTestId('lift-inspector-map')).toBeNull()
+  })
+
+  it('orders expanded footer controls with recompute first and multi-select below the list', async () => {
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={twoHeuristicCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    const recompute = await screen.findByRole('button', { name: 'Neu erkennen' })
+    const rejectAll = screen.getByRole('button', { name: 'Alle ablehnen' })
+    const confirmAll = screen.getByRole('button', { name: 'Alle bestätigen' })
+    const multiSelect = screen.getByRole('button', { name: 'Multi-Auswahl' })
+
+    expect(recompute.compareDocumentPosition(rejectAll) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(rejectAll.compareDocumentPosition(confirmAll) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(multiSelect.compareDocumentPosition(recompute) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('closing via X calls POST /acknowledge', async () => {
@@ -309,7 +397,7 @@ describe('LiftReviewModal', () => {
       { wrapper },
     )
 
-    expect(screen.getByText(/1 Liftfahrt wurde erkannt/)).toBeTruthy()
+    expect(screen.getByText('Liftfahrt erkannt')).toBeTruthy()
     expect(screen.queryByText(/1 Liftfahrten/)).toBeNull()
 
     rerender(
@@ -325,7 +413,7 @@ describe('LiftReviewModal', () => {
       </ToastProvider>,
     )
 
-    expect(screen.getByText(/2 Liftfahrten wurden erkannt/)).toBeTruthy()
+    expect(screen.getByText('Liftfahrten erkannt')).toBeTruthy()
   })
 
   it('expanded mode: per-item Confirm button calls confirm endpoint', async () => {
@@ -424,6 +512,39 @@ describe('LiftReviewModal', () => {
         return !!url && url.includes('/unconfirm') && opts?.method === 'PATCH'
       })
       expect(unconfirmCall).toBeTruthy()
+    })
+  })
+
+  it('expanded mode: confirmed OSM candidates can be rejected directly', async () => {
+    const confirmedOSMCandidates = makeCandidates([
+      { id: 'osm-confirmed', confirmed: true, rejected_by_user: false, source: 'osm' },
+    ])
+
+    render(
+      <LiftReviewModal
+        open={true}
+        onClose={() => {}}
+        activity={makeActivity()}
+        candidates={confirmedOSMCandidates}
+      />,
+      { wrapper },
+    )
+
+    fireEvent.click(screen.getByText(/Prüfen/))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Ablehnen/)).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByLabelText(/Ablehnen/))
+
+    await waitFor(() => {
+      const rejectCall = mockApiFetch.mock.calls.find((args: unknown[]) => {
+        const url = args[0] as string | undefined
+        const opts = args[1] as RequestInit | undefined
+        return !!url && url.includes('/lift-candidates/osm-confirmed') && opts?.method === 'DELETE'
+      })
+      expect(rejectCall).toBeTruthy()
     })
   })
 
@@ -1013,11 +1134,19 @@ describe('LiftReviewModal — F5: JobPhase state-machine', () => {
       { wrapper },
     )
     // In compact mode the polling is inactive (jobPhase=idle) — no jobs/active call.
-    expect(screen.getByText(/Lifte erkannt/)).toBeTruthy()
+    expect(screen.getByText('Liftfahrten erkannt')).toBeTruthy()
     const jobsActiveCalls = mockApiFetch.mock.calls.filter(
       (args: unknown[]) => typeof args[0] === 'string' && (args[0] as string).includes('/jobs/active'),
     )
     expect(jobsActiveCalls.length).toBe(0)
+  })
+
+  it('F5: treats a completed fast recompute as done when the first poll sees no running job', () => {
+    expect(nextLiftJobPhase('starting', false)).toBe('done')
+  })
+
+  it('F5: completes a running recompute when polling reports no running job', () => {
+    expect(nextLiftJobPhase('running', false)).toBe('done')
   })
 
   it('F5: modal mounts without throwing in expanded mode (state-machine idle)', () => {
@@ -1196,7 +1325,7 @@ describe('LiftReviewModal — Phase 11.9: signal-based badge labels', () => {
 
     // LiftHelpModal should open — look for Methode A heading
     await waitFor(() => {
-      expect(screen.getByText(/Methode A — OSM-Match/)).toBeTruthy()
+      expect(screen.getByText(/Methode A: OSM-Match/)).toBeTruthy()
     })
   })
 
@@ -1221,7 +1350,7 @@ describe('LiftReviewModal — Phase 11.9: signal-based badge labels', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Bergstation A/)).toBeTruthy()
-      expect(screen.getByText(/Methode B — Heuristik aus dem Stream/)).toBeTruthy()
+      expect(screen.getByText(/Methode B: Heuristik aus dem Stream/)).toBeTruthy()
     })
   })
 
@@ -1248,7 +1377,7 @@ describe('LiftReviewModal — Phase 11.9: signal-based badge labels', () => {
     fireEvent.click(helpBtns[0])
 
     await waitFor(() => {
-      expect(screen.getByText(/Methode A — OSM-Match/)).toBeTruthy()
+      expect(screen.getByText(/Methode A: OSM-Match/)).toBeTruthy()
     })
 
     // All [role="dialog"] elements in order; the help modal's dialog must come last.

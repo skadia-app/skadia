@@ -106,24 +106,22 @@ describe('LiftDetectionHeader — Override-Badge', () => {
 describe('LiftDetectionHeader — disabled state', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('disables toggles and Apply when jobRunning=true', async () => {
+  it('disables toggles when jobRunning=true', async () => {
     await renderHeader({ jobRunning: true })
     await waitFor(() => {
       expect(screen.getByTestId('toggle-osm').querySelector('button')).toBeTruthy()
     })
     const osmSwitch = screen.getByTestId('toggle-osm').querySelector('button')!
     expect(osmSwitch.hasAttribute('disabled')).toBe(true)
-    expect(screen.getByTestId('apply-button').hasAttribute('disabled')).toBe(true)
   })
 
-  it('disables toggles and Apply when master_enabled=false', async () => {
+  it('disables toggles when master_enabled=false', async () => {
     await renderHeader({ config: makeConfig({ master_enabled: false }) })
     await waitFor(() => {
       expect(screen.getByTestId('master-off-notice')).toBeTruthy()
     })
     const osmSwitch = screen.getByTestId('toggle-osm').querySelector('button')!
     expect(osmSwitch.hasAttribute('disabled')).toBe(true)
-    expect(screen.getByTestId('apply-button').hasAttribute('disabled')).toBe(true)
   })
 
   it('shows master-off notice when master_enabled=false', async () => {
@@ -133,30 +131,30 @@ describe('LiftDetectionHeader — disabled state', () => {
     })
   })
 
-  it('disables Reset button when no override exists', async () => {
+  it('hides Reset control when no override exists', async () => {
     await renderHeader({ config: makeConfig({ override: { osm: null, heuristic: null } }) })
     await waitFor(() => {
-      expect(screen.getByTestId('reset-button')).toBeTruthy()
+      expect(screen.getByTestId('lift-detection-header')).toBeTruthy()
     })
-    expect(screen.getByTestId('reset-button').hasAttribute('disabled')).toBe(true)
+    expect(screen.queryByTestId('override-badge')).toBeNull()
   })
 
-  it('enables Reset button when override exists', async () => {
+  it('enables Reset control when override exists', async () => {
     await renderHeader({ config: makeConfig({ override: { osm: true, heuristic: null } }) })
     await waitFor(() => {
-      expect(screen.getByTestId('reset-button')).toBeTruthy()
+      expect(screen.getByTestId('override-badge')).toBeTruthy()
     })
-    expect(screen.getByTestId('reset-button').hasAttribute('disabled')).toBe(false)
+    expect(screen.getByTestId('override-badge').hasAttribute('disabled')).toBe(false)
   })
 })
 
-describe('LiftDetectionHeader — Apply button', () => {
+describe('LiftDetectionHeader — automatic recompute on toggle', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFetchActiveJobs.mockResolvedValue({ jobs: [] })
   })
 
-  it('Apply calls PUT then recalculate-all (202) and invokes onJobStarted', async () => {
+  it('toggle calls PUT then recalculate-all (202) and invokes onJobStarted', async () => {
     const onJobStarted = vi.fn()
     mockPut.mockResolvedValue(undefined)
     mockApiFetch.mockResolvedValue({ ok: true, status: 202 })
@@ -164,13 +162,13 @@ describe('LiftDetectionHeader — Apply button', () => {
     await renderHeader({ onJobStarted })
 
     await waitFor(() => {
-      expect(screen.getByTestId('apply-button')).toBeTruthy()
+      expect(screen.getByTestId('toggle-osm').querySelector('button')).toBeTruthy()
     })
 
-    fireEvent.click(screen.getByTestId('apply-button'))
+    fireEvent.click(screen.getByTestId('toggle-osm').querySelector('button')!)
 
     await waitFor(() => {
-      expect(mockPut).toHaveBeenCalledWith('act-1', { osm: true, heuristic: true })
+      expect(mockPut).toHaveBeenCalledWith('act-1', { osm: false, heuristic: true })
       expect(mockApiFetch).toHaveBeenCalledWith(
         '/api/v1/activities/act-1/lifts/recalculate-all',
         { method: 'POST' },
@@ -179,15 +177,41 @@ describe('LiftDetectionHeader — Apply button', () => {
     })
   })
 
-  it('Apply: 409 from recalculate-all shows "Job läuft bereits" toast and still calls onJobStarted', async () => {
+  it('turning off the last mode resets candidates without entering background-job polling', async () => {
+    const onJobStarted = vi.fn()
+    mockPut.mockResolvedValue(undefined)
+    mockApiFetch.mockResolvedValue({ ok: true, status: 204 })
+
+    await renderHeader({
+      onJobStarted,
+      config: makeConfig({
+        effective: { osm: true, heuristic: false },
+        override: { osm: true, heuristic: false },
+      }),
+    })
+
+    await waitFor(() => expect(screen.getByTestId('toggle-osm').querySelector('button')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('toggle-osm').querySelector('button')!)
+
+    await waitFor(() => {
+      expect(mockPut).toHaveBeenCalledWith('act-1', { osm: false, heuristic: false })
+      expect(mockApiFetch).toHaveBeenCalledWith(
+        '/api/v1/activities/act-1/lifts/recalculate-all',
+        { method: 'POST' },
+      )
+      expect(onJobStarted).not.toHaveBeenCalled()
+    })
+  })
+
+  it('409 from recalculate-all shows "Job läuft bereits" toast and still calls onJobStarted', async () => {
     const onJobStarted = vi.fn()
     mockPut.mockResolvedValue(undefined)
     mockApiFetch.mockResolvedValue({ ok: false, status: 409, json: async () => ({}) })
 
     await renderHeader({ onJobStarted })
 
-    await waitFor(() => expect(screen.getByTestId('apply-button')).toBeTruthy())
-    fireEvent.click(screen.getByTestId('apply-button'))
+    await waitFor(() => expect(screen.getByTestId('toggle-osm').querySelector('button')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('toggle-osm').querySelector('button')!)
 
     await waitFor(() => {
       expect(screen.getByText(/Job läuft bereits/)).toBeTruthy()
@@ -195,7 +219,7 @@ describe('LiftDetectionHeader — Apply button', () => {
     })
   })
 
-  it('Apply checks for a running lift job before persisting override settings', async () => {
+  it('checks for a running lift job before persisting override settings', async () => {
     const onJobStarted = vi.fn()
     mockFetchActiveJobs.mockResolvedValue({
       jobs: [
@@ -215,8 +239,8 @@ describe('LiftDetectionHeader — Apply button', () => {
 
     await renderHeader({ onJobStarted })
 
-    await waitFor(() => expect(screen.getByTestId('apply-button')).toBeTruthy())
-    fireEvent.click(screen.getByTestId('apply-button'))
+    await waitFor(() => expect(screen.getByTestId('toggle-osm').querySelector('button')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('toggle-osm').querySelector('button')!)
 
     await waitFor(() => {
       expect(screen.getByText(/Job läuft bereits/)).toBeTruthy()
@@ -227,13 +251,13 @@ describe('LiftDetectionHeader — Apply button', () => {
   })
 })
 
-describe('LiftDetectionHeader — Reset button', () => {
+describe('LiftDetectionHeader — Reset control', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFetchActiveJobs.mockResolvedValue({ jobs: [] })
   })
 
-  it('Reset calls DELETE, starts recalculation, and shows success toast', async () => {
+  it('Reset calls DELETE and starts recalculation', async () => {
     mockDelete.mockResolvedValue(undefined)
     mockApiFetch.mockResolvedValue({ ok: true, status: 202 })
     // Re-fetch after reset returns no override
@@ -244,10 +268,10 @@ describe('LiftDetectionHeader — Reset button', () => {
     await renderHeader({ config: makeConfig({ override: { osm: true, heuristic: null } }) })
 
     await waitFor(() => {
-      expect(screen.getByTestId('reset-button').hasAttribute('disabled')).toBe(false)
+      expect(screen.getByTestId('override-badge').hasAttribute('disabled')).toBe(false)
     })
 
-    fireEvent.click(screen.getByTestId('reset-button'))
+    fireEvent.click(screen.getByTestId('override-badge'))
 
     await waitFor(() => {
       expect(mockDelete).toHaveBeenCalledWith('act-1')
@@ -255,9 +279,6 @@ describe('LiftDetectionHeader — Reset button', () => {
         '/api/v1/activities/act-1/lifts/recalculate-all',
         { method: 'POST' },
       )
-      // Toast message includes "zurückgesetzt"; the override badge also contains
-      // "zurückgesetzt" after F11 copy change — use title div class to disambiguate.
-      expect(screen.getByText(/Aktivitätsspezifische Einstellung zurückgesetzt/)).toBeTruthy()
     })
   })
 })

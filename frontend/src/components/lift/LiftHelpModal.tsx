@@ -1,4 +1,5 @@
 import { ModalShell } from '@/components/ui/ModalShell'
+import { XIcon } from 'lucide-react'
 
 interface LiftHelpModalProps {
   open: boolean
@@ -25,9 +26,9 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
           <button
             onClick={onClose}
             aria-label="Schließen"
-            className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors text-lg leading-none"
+            className="cursor-pointer rounded-md p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
           >
-            ✕
+            <XIcon className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
@@ -37,12 +38,12 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
           {/* Detection methods overview */}
           <section>
             <p className="mb-3">
-              Es gibt zwei unabhängige Verfahren — beide laufen automatisch über jede Aktivität:
+              Es gibt zwei unabhängige Verfahren. Beide laufen automatisch über jede Aktivität:
             </p>
             <dl className="space-y-4">
               <div>
                 <dt className="font-semibold text-neutral-900 dark:text-neutral-100 mb-1">
-                  Methode A — OSM-Match
+                  Methode A: OSM-Match
                 </dt>
                 <dd className="text-neutral-600 dark:text-neutral-400 leading-relaxed space-y-2">
                   <p>
@@ -67,7 +68,7 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                       rel="noreferrer"
                       className="text-accent-DEFAULT hover:underline"
                     >
-                      openstreetmap.de/beitragen
+                      Anleitung zum Bearbeiten
                     </a>
                     . Skadia übernimmt deine Änderung beim nächsten OSM-Import.
                   </p>
@@ -75,14 +76,14 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
               </div>
               <div>
                 <dt className="font-semibold text-neutral-900 dark:text-neutral-100 mb-1">
-                  Methode B — Heuristik aus dem Stream
+                  Methode B: Heuristik aus dem Stream
                 </dt>
                 <dd className="text-neutral-600 dark:text-neutral-400 leading-relaxed">
                   Wenn kein OSM-Match vorliegt, analysiert der Detektor die Sensordaten direkt:
-                  Geschwindigkeit, Höhenrate, Gradient, Geradlinigkeit. Was wie eine Liftfahrt aussieht
-                  — konstante Geschwindigkeit, kontinuierlicher Höhengewinn (oder -verlust!), gerade Linie —
-                  wird als Kandidat markiert und wartet auf deine Bestätigung. So werden auch Lifte erkannt
-                  die nicht in OSM stehen.
+                  Geschwindigkeit, Höhenrate, Gradient, Geradlinigkeit. Typische Signale sind
+                  konstante Geschwindigkeit, kontinuierlicher Höhengewinn oder Höhenverlust und
+                  eine gerade Linie. Solche Abschnitte werden als Kandidaten markiert und warten
+                  auf deine Bestätigung. So werden auch Lifte erkannt, die nicht in OSM stehen.
                 </dd>
               </div>
             </dl>
@@ -112,9 +113,9 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                   </div>
                   <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed">
                     Der eindeutigste Fall: stabile Geschwindigkeit mit deutlichem Gradient.
-                    Greift wenn dein Speedsensor während der Liftfahrt non-Null-Werte liefert —
-                    typisch bei Schleppliften (Ski/Snowboard hat Bodenkontakt) oder wenn die
-                    Geschwindigkeit aus GPS abgeleitet wird.
+                    Greift, wenn dein Speedsensor während der Liftfahrt non-Null-Werte liefert.
+                    Das ist typisch bei Schleppliften, weil Ski oder Snowboard Bodenkontakt haben,
+                    oder wenn die Geschwindigkeit aus GPS abgeleitet wird.
                   </p>
                 </div>
               </div>
@@ -134,8 +135,8 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                     Greift wenn ein Speedsensor zwar montiert ist, aber während der Liftfahrt
                     keine brauchbare Geschwindigkeit liefert (Ski/Snowboard ohne Bodenkontakt in
                     Gondel oder Sessellift) oder Smart-Recording die Speed-Werte ganz fallen lässt.
-                    Der Detektor verlässt sich dann nur auf die Höhenmeter pro Sekunde — niedrigere
-                    Konfidenz, prüfe ggf. selbst.
+                    Der Detektor verlässt sich dann nur auf die Höhenmeter pro Sekunde. Die
+                    Konfidenz ist niedriger; prüfe den Kandidaten deshalb bei Bedarf selbst.
                   </p>
                 </div>
               </div>
@@ -161,15 +162,15 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                     <strong>Wichtig:</strong> Die Bezeichnung bezieht sich auf den Verlauf der
                     Liftstrecke, nicht auf die Richtung der Fahrt. Eine bidirektionale
                     Klassifizierung beschreibt eine einzige Liftfahrt entlang einer U- oder
-                    ∩-förmigen Trasse — kein Hin-und-Rück-Trip; letzteres wären zwei separate
-                    Fahrten und werden vom Detektor auch so gezählt.
+                    ∩-förmigen Trasse. Ein Hin-und-Rück-Trip wären dagegen zwei separate
+                    Fahrten; der Detektor zählt sie auch so.
                   </p>
                   <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-2">
                     Typische Fälle:
                   </p>
                   <ul className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-3 list-disc list-inside space-y-1">
-                    <li>Talquerung (∪) — die Trasse verbindet zwei Bergstationen ähnlicher Höhe und hängt zwischen ihnen ins Tal ab.</li>
-                    <li>Bergquerung (∩) — die Trasse führt von der Talstation über einen Grat hinüber zu einer Alm oder einem Hof auf vergleichbarer Höhe.</li>
+                    <li>Talquerung (∪): Die Trasse verbindet zwei Bergstationen ähnlicher Höhe und hängt zwischen ihnen ins Tal ab.</li>
+                    <li>Bergquerung (∩): Die Trasse führt von der Talstation über einen Grat hinüber zu einer Alm oder einem Hof auf vergleichbarer Höhe.</li>
                   </ul>
                   <pre
                     className="text-xs leading-tight font-mono bg-neutral-100 dark:bg-neutral-800 rounded-lg px-4 py-3 overflow-x-auto text-neutral-700 dark:text-neutral-300"
@@ -181,7 +182,7 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                               Tal ~2000 m`}
                   </pre>
                   <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mt-3">
-                    Der Detektor kann beide Geometrien nicht voneinander unterscheiden — er
+                    Der Detektor kann beide Geometrien nicht voneinander unterscheiden. Er
                     sieht in beiden Fällen einen horizontal direkten Pfad, stabile
                     Geschwindigkeit und kumulierte Höhenmeter, die sich zu einer kleinen
                     Netto-Änderung aufsummieren.
@@ -197,8 +198,8 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
               Pipeline-Modi (an-/abschaltbar)
             </h3>
             <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed mb-3">
-              Du kannst die beiden Methoden einzeln ein- oder ausschalten — global in den
-              Profil-Einstellungen unter „Lift-Erkennung", oder pro Aktivität direkt oben im
+              Du kannst die beiden Methoden einzeln ein- oder ausschalten. Global geht das in
+              den Profil-Einstellungen unter „Lift-Erkennung"; pro Aktivität direkt oben im
               Review-Modal über die Toggles <strong>„OSM-Snap"</strong> und{' '}
               <strong>„Heuristik"</strong>.
             </p>
@@ -211,7 +212,7 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
                 <dt className="font-medium text-neutral-900 dark:text-neutral-100">Nur OSM-Snap</dt>
                 <dd>
                   Reine Geometrie-Matches gegen importierte OSM-Lifte. Schnell, kein
-                  Bestätigungsschritt nötig — aber findet keine fehlenden Lifte.
+                  Bestätigungsschritt nötig. Fehlende Lifte findet diese Methode aber nicht.
                 </dd>
               </div>
               <div>
@@ -231,8 +232,8 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
             </dl>
             <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed">
               Änderst du eine Einstellung, wird die Aktivität im Hintergrund neu analysiert
-              („Anwenden"). Läuft bereits ein Job, bekommst du dezent
-              <em> „Job läuft bereits — bitte warten"</em>.
+              („Anwenden"). Wenn bereits ein Job läuft, bekommst du einen dezenten Hinweis und
+              kannst es später erneut versuchen.
             </p>
           </section>
 
@@ -244,9 +245,9 @@ export default function LiftHelpModal({ open, onClose }: LiftHelpModalProps) {
             <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed">
               Wenn dein Gerät die Aufzeichnung pausiert (Smart-Recording / Auto-Pause / Sleep)
               und die Unterbrechung länger als 75 Sekunden dauert, kann der Detektor keinen
-              Lift über diese Lücke hinweg erkennen — er braucht zusammenhängende Stream-Daten
-              in seinem gleitenden Zeitfenster. Die Karte zeigt die Lücke als gestrichelte
-              graue Linie damit du siehst <em>wo</em> die Pause war.
+              Lift über diese Lücke hinweg erkennen. Dafür braucht er zusammenhängende
+              Stream-Daten in seinem gleitenden Zeitfenster. Die Karte zeigt die Lücke als
+              gestrichelte graue Linie, damit du siehst, <em>wo</em> die Pause war.
             </p>
           </section>
         </div>

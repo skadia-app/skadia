@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { HelpCircle, Check, X, Undo2 } from 'lucide-react'
+import { HelpCircle, Check, X, Undo2, XIcon } from 'lucide-react'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { apiFetch } from '@/lib/auth'
 import { fetchActivityStreams } from '@/api/activities'
@@ -33,10 +33,17 @@ type MobileTab = 'list' | 'map'
 // idle      — no job in flight
 // starting  — job was triggered; waiting for the first poll showing running=true
 // running   — at least one poll confirmed running=true; waiting for running=false
-// done      — transition from running→false observed; invalidation fired
+// done      — recompute finished; invalidation fired
 type JobPhase = 'idle' | 'starting' | 'running' | 'done'
 // Maximum time (ms) to wait in 'starting' before giving up.
 const JOB_START_TIMEOUT_MS = 30_000
+
+export function nextLiftJobPhase(phase: JobPhase, liftJobRunning: boolean | undefined): JobPhase {
+  if (phase === 'starting' && liftJobRunning === true) return 'running'
+  if (phase === 'starting' && liftJobRunning === false) return 'done'
+  if (phase === 'running' && liftJobRunning === false) return 'done'
+  return phase
+}
 
 function useIsDesktop(): boolean {
   // Guard against SSR / environments without window (e.g. test runners using jsdom
@@ -131,18 +138,16 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   // State-machine transitions on each poll result.
   useEffect(() => {
-    if (jobPhase === 'starting' && liftJobRunning === true) {
-      // First true observation — job is now confirmed running.
-      setJobPhase('running')
-    } else if (jobPhase === 'running' && liftJobRunning === false) {
-      // Job finished — fire invalidation and move to done.
-      setJobPhase('done')
+    const next = nextLiftJobPhase(jobPhase, liftJobRunning)
+    if (next === jobPhase) return
+    if (next === 'done') {
       qc.invalidateQueries({ queryKey: ['lift-candidates', activityId] })
       qc.invalidateQueries({ queryKey: ['lift-candidates-inspector', activityId] })
       qc.invalidateQueries({ queryKey: ['activity', activityId] })
     }
-    // 'starting' + false: worker hasn't picked up yet — stay in starting.
-    // 'done' / 'idle': no action needed from poll results.
+    setJobPhase(next)
+    // A fast recompute can complete before the first /jobs/active poll; in
+    // that case starting+false is success, not a failed start.
   }, [liftJobRunning, jobPhase, qc, activityId])
 
   // Timeout guard: if stuck in 'starting' for too long, transition to 'done'
@@ -170,12 +175,16 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
     }
   }, [jobPhase, addToast])
 
-  const unreviewedCandidates = candidates.filter(
-    c => c.source === 'heuristic' && !c.confirmed && !c.rejected_by_user,
-  )
+  const unreviewedCandidates = candidates.filter(c => !c.confirmed && !c.rejected_by_user)
   const n = unreviewedCandidates.length
   const totalAscent = Math.round(unreviewedCandidates.reduce((s, c) => s + (c.ascent_m ?? 0), 0))
   const totalDescent = Math.round(unreviewedCandidates.reduce((s, c) => s + (c.descent_m ?? 0), 0))
+
+  useEffect(() => {
+    if (open && candidates.length === 0) {
+      setMode('expanded')
+    }
+  }, [open, candidates.length])
 
   // Fetch all candidates including rejected, for inspector view.
   const { data: inspectorCandidates } = useQuery<LiftCandidate[]>({
@@ -193,6 +202,25 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
   })
 
   const displayedCandidates = mode === 'expanded' ? (inspectorCandidates ?? candidates) : candidates
+
+  const candidateHasMapTrack = useMemo(() => {
+    const coverage = new Map<string, boolean>()
+    for (const c of displayedCandidates) {
+      const t0 = new Date(c.started_at).getTime()
+      const t1 = new Date(c.ended_at).getTime()
+      let count = 0
+      for (const s of streams) {
+        if (s.lat == null || s.lng == null) continue
+        const t = new Date(s.time).getTime()
+        if (t >= t0 && t <= t1) {
+          count++
+          if (count >= 2) break
+        }
+      }
+      coverage.set(c.id, count >= 2)
+    }
+    return coverage
+  }, [displayedCandidates, streams])
 
   const invalidateAfterBulk = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['activity', activityId] })
@@ -256,8 +284,6 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
     onError: (err: Error & { code?: string }) => {
       const msg = err.code === 'ALREADY_REJECTED'
         ? 'Bereits abgelehnt — Liste aktualisiert.'
-        : err.code === 'WRONG_SOURCE'
-        ? 'OSM-Treffer kann nicht zurückgesetzt werden.'
         : err.message
       addToast({ type: 'error', title: msg })
       // Re-fetch so the modal reflects the actual server-side state.
@@ -323,14 +349,18 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
     })
   }
 
-  const bulkHeuristicIds = [...selectedIds].filter(id => {
+  const bulkConfirmIds = [...selectedIds].filter(id => {
     const c = displayedCandidates.find(x => x.id === id)
-    return c?.source === 'heuristic' && !c.rejected_by_user
+    return c && !c.confirmed && !c.rejected_by_user
+  })
+  const bulkRejectIds = [...selectedIds].filter(id => {
+    const c = displayedCandidates.find(x => x.id === id)
+    return c && !c.rejected_by_user
   })
 
   const handleBulkConfirm = async () => {
     const results = await Promise.allSettled(
-      bulkHeuristicIds.map(id => confirmMutation.mutateAsync(id)),
+      bulkConfirmIds.map(id => confirmMutation.mutateAsync(id)),
     )
     const failed = results.filter(r => r.status === 'rejected').length
     const succeeded = results.length - failed
@@ -356,7 +386,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   const handleBulkReject = async () => {
     const results = await Promise.allSettled(
-      bulkHeuristicIds.map(id => rejectMutation.mutateAsync(id)),
+      bulkRejectIds.map(id => rejectMutation.mutateAsync(id)),
     )
     const failed = results.filter(r => r.status === 'rejected').length
     const succeeded = results.length - failed
@@ -382,55 +412,67 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   // ── Compact mode ─────────────────────────────────────────────────────────────
   if (mode === 'compact') {
+    const isSingleLift = n === 1
+    const compactTitle = isSingleLift ? 'Liftfahrt erkannt' : 'Liftfahrten erkannt'
+    const summaryLabel = isSingleLift ? '1 offen' : `${n} offen`
+    const confirmLabel = isSingleLift ? 'Bestätigen' : 'Alle bestätigen'
+    const rejectLabel = isSingleLift ? 'Ablehnen' : 'Alle ablehnen'
+
     return (
       <ModalShell onClose={handleClose} maxWidth="max-w-md">
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div className="flex items-start justify-between gap-4">
-            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-              Lifte erkannt
-            </h2>
+            <div>
+              <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+                {compactTitle}
+              </h2>
+              <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
+                Bitte prüfe den erkannten Lift und wähle die passende Aktion.
+              </p>
+            </div>
             <button
               onClick={handleClose}
               aria-label="Schließen"
-              className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors"
+              className="cursor-pointer rounded-md p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
             >
-              ✕
+              <XIcon className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
 
-          <p className="text-sm text-neutral-600 dark:text-neutral-400">
-            {n === 1
-              ? '1 Liftfahrt wurde erkannt — ist sie korrekt?'
-              : `${n} Liftfahrten wurden erkannt — sind sie korrekt?`}
-          </p>
+          <dl className="grid grid-cols-3 gap-2 text-sm">
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-950/50">
+              <dt className="text-xs text-neutral-500 dark:text-neutral-500">Offen</dt>
+              <dd className="mt-0.5 font-medium text-neutral-900 dark:text-neutral-100">{summaryLabel}</dd>
+            </div>
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-950/50">
+              <dt className="text-xs text-neutral-500 dark:text-neutral-500">Aufstieg</dt>
+              <dd className="mt-0.5 font-medium text-neutral-900 dark:text-neutral-100">+{totalAscent} m</dd>
+            </div>
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-950/50">
+              <dt className="text-xs text-neutral-500 dark:text-neutral-500">Abstieg</dt>
+              <dd className="mt-0.5 font-medium text-neutral-900 dark:text-neutral-100">{totalDescent} m</dd>
+            </div>
+          </dl>
 
-          <ul className="text-sm text-neutral-700 dark:text-neutral-300">
-            <li>
-              {n === 1 ? '1 Liftfahrt' : `${n} Liftfahrten`}
-              {' · '}
-              {`+${totalAscent} m / −${totalDescent} m`}
-            </li>
-          </ul>
-
-          <div className="flex flex-col gap-2 sm:flex-row sm:gap-2 pt-1">
+          <div className="flex flex-col gap-2 sm:grid sm:grid-cols-[1fr_1fr_1.2fr]">
             <button
               onClick={() => confirmAllMutation.mutate()}
               disabled={confirmAllMutation.isPending || rejectAllMutation.isPending}
-              className="cursor-pointer flex-1 rounded-lg bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+              className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
             >
-              Alle bestätigen
+              {confirmLabel}
             </button>
             <button
               onClick={() => rejectAllMutation.mutate()}
               disabled={confirmAllMutation.isPending || rejectAllMutation.isPending}
-              className="cursor-pointer flex-1 rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+              className="cursor-pointer rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-red-950/30 dark:hover:text-red-300"
             >
-              Alle ablehnen
+              {rejectLabel}
             </button>
             <button
               onClick={() => setMode('expanded')}
               disabled={confirmAllMutation.isPending || rejectAllMutation.isPending}
-              className="cursor-pointer flex-1 rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+              className="cursor-pointer rounded-lg bg-accent-DEFAULT px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Prüfen
             </button>
@@ -442,39 +484,11 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   // ── Expanded mode ─────────────────────────────────────────────────────────────
   const listPanel = (
-    <div className="flex flex-col overflow-hidden">
-      {multiSelectMode && selectedIds.size > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-neutral-50 dark:bg-neutral-800 border-b border-neutral-200 dark:border-neutral-700 text-xs shrink-0">
-          <span className="text-neutral-600 dark:text-neutral-400 font-medium">
-            {selectedIds.size === 1 ? '1 gewählt' : `${selectedIds.size} gewählt`}
-          </span>
-          <button
-            onClick={handleBulkConfirm}
-            disabled={confirmMutation.isPending || bulkHeuristicIds.length === 0}
-            className="cursor-pointer rounded px-2 py-1 bg-green-600 text-white text-xs hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Bestätigen
-          </button>
-          <button
-            onClick={handleBulkReject}
-            disabled={rejectMutation.isPending || bulkHeuristicIds.length === 0}
-            className="cursor-pointer rounded px-2 py-1 bg-red-600 text-white text-xs hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Ablehnen
-          </button>
-        </div>
-      )}
-      <ul className="overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
+    <div className="flex h-full flex-col overflow-hidden">
+      <ul className="flex-1 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
         {displayedCandidates.map((c, idx) => {
           const isHighlighted = c.id === highlightedId
-          const isHeuristic = c.source === 'heuristic'
-          // Check whether the activity stream covers this lift's time range with
-          // at least 2 GPS points — candidates without it cannot be shown on the map.
-          const hasMapTrack = streams.filter(s => {
-            if (s.lat == null || s.lng == null) return false
-            const t = new Date(s.time).getTime()
-            return t >= new Date(c.started_at).getTime() && t <= new Date(c.ended_at).getTime()
-          }).length >= 2
+          const hasMapTrack = candidateHasMapTrack.get(c.id) ?? false
 
           // OSM-derived display label — empty object for heuristic rows or
           // OSM rows whose aerialway is not whitelisted (defensive: better
@@ -497,12 +511,11 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
               }}
               onClick={() => handleListItemClick(c.id)}
               className={`px-3 py-1.5 cursor-pointer transition-colors text-sm
-                ${isHighlighted ? 'bg-fuchsia-50 dark:bg-fuchsia-950/30' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}`}
+                ${isHighlighted ? 'bg-accent-DEFAULT/10 dark:bg-accent-DEFAULT/15' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}`}
             >
               {/* Row 1 — identifier + name (when known) + action icons */}
               <div className="flex items-start gap-2">
-                {/* Multi-select checkbox — only for heuristic candidates */}
-                {multiSelectMode && isHeuristic && (
+                {multiSelectMode && !c.rejected_by_user && (
                   <input
                     type="checkbox"
                     checked={selectedIds.has(c.id)}
@@ -536,8 +549,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                   )}
                 </div>
                 <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
-                  {/* Method B (heuristic) action icons */}
-                  {isHeuristic && c.confirmed && !c.rejected_by_user && (
+                  {c.confirmed && !c.rejected_by_user && (
                     <button
                       onClick={() => unconfirmMutation.mutate(c.id)}
                       disabled={unconfirmMutation.isPending}
@@ -548,41 +560,18 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                       <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
                   )}
-                  {isHeuristic && !c.confirmed && !c.rejected_by_user && (
-                    <>
-                      <button
-                        onClick={() => confirmMutation.mutate(c.id)}
-                        disabled={confirmMutation.isPending}
-                        aria-label="Bestätigen"
-                        title="Bestätigen"
-                        className={`${iconBtn} border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20`}
-                      >
-                        <Check className="w-3.5 h-3.5" aria-hidden="true" />
-                      </button>
-                      <button
-                        onClick={() => rejectMutation.mutate(c.id)}
-                        disabled={rejectMutation.isPending}
-                        aria-label="Ablehnen"
-                        title="Ablehnen"
-                        className={`${iconBtn} border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20`}
-                      >
-                        <X className="w-3.5 h-3.5" aria-hidden="true" />
-                      </button>
-                    </>
-                  )}
-                  {isHeuristic && c.rejected_by_user && (
+                  {!c.confirmed && !c.rejected_by_user && (
                     <button
-                      onClick={() => restoreMutation.mutate(c.id)}
-                      disabled={restoreMutation.isPending}
-                      aria-label="Wiederherstellen"
-                      title="Wiederherstellen"
-                      className={`${iconBtn} border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800`}
+                      onClick={() => confirmMutation.mutate(c.id)}
+                      disabled={confirmMutation.isPending}
+                      aria-label="Bestätigen"
+                      title="Bestätigen"
+                      className={`${iconBtn} border-green-300 dark:border-green-700 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20`}
                     >
-                      <Undo2 className="w-3.5 h-3.5" aria-hidden="true" />
+                      <Check className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
                   )}
-                  {/* Method A (osm) action icons */}
-                  {c.source === 'osm' && c.confirmed && !c.rejected_by_user && (
+                  {!c.rejected_by_user && (
                     <button
                       onClick={() => rejectMutation.mutate(c.id)}
                       disabled={rejectMutation.isPending}
@@ -593,7 +582,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                       <X className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
                   )}
-                  {c.source === 'osm' && c.rejected_by_user && (
+                  {c.rejected_by_user && (
                     <button
                       onClick={() => restoreMutation.mutate(c.id)}
                       disabled={restoreMutation.isPending}
@@ -640,6 +629,43 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
           </li>
         )}
       </ul>
+      <div className="shrink-0 border-t border-neutral-200 dark:border-neutral-700 px-3 py-2">
+        {multiSelectMode && selectedIds.size > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="mr-auto text-sm font-medium text-neutral-600 dark:text-neutral-300">
+              {selectedIds.size === 1 ? '1 gewählt' : `${selectedIds.size} gewählt`}
+            </span>
+            <button
+              onClick={handleBulkConfirm}
+              disabled={confirmMutation.isPending || bulkConfirmIds.length === 0}
+              className="cursor-pointer rounded-lg border border-green-300 px-3 py-2 text-sm font-medium text-green-700 transition-colors hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-900/20"
+            >
+              Bestätigen
+            </button>
+            <button
+              onClick={handleBulkReject}
+              disabled={rejectMutation.isPending || bulkRejectIds.length === 0}
+              className="cursor-pointer rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+            >
+              Ablehnen
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => {
+              setMultiSelectMode(v => !v)
+              if (multiSelectMode) setSelectedIds(new Set())
+            }}
+            className={`w-full cursor-pointer rounded-lg border px-3 py-2 text-sm font-medium transition-colors
+              ${multiSelectMode
+                ? 'bg-neutral-200 dark:bg-neutral-700 border-neutral-400 dark:border-neutral-500 text-neutral-800 dark:text-neutral-200'
+                : 'border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+              }`}
+          >
+            {multiSelectMode ? 'Multi-Auswahl beenden' : 'Multi-Auswahl'}
+          </button>
+        )}
+      </div>
     </div>
   )
 
@@ -656,13 +682,12 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
   const bulkFooter = (
     <div className="flex items-center gap-2 flex-wrap shrink-0">
       <button
-        onClick={() => confirmAllMutation.mutate()}
-        disabled={confirmAllMutation.isPending || rejectAllMutation.isPending}
-        className="cursor-pointer rounded-lg bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        onClick={() => setShowRecalcConfirm(true)}
+        disabled={recalcMutation.isPending}
+        className="cursor-pointer rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
-        Alle bestätigen
+        Neu erkennen
       </button>
-      {/* F8: expanded mode parity — compact mode has "Alle ablehnen", expanded mode must too. */}
       <button
         onClick={() => rejectAllMutation.mutate()}
         disabled={confirmAllMutation.isPending || rejectAllMutation.isPending}
@@ -671,31 +696,11 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
         Alle ablehnen
       </button>
       <button
-        onClick={() => {
-          setMultiSelectMode(v => !v)
-          if (multiSelectMode) setSelectedIds(new Set())
-        }}
-        className={`cursor-pointer rounded-lg border px-4 py-2 text-sm font-medium transition-colors
-          ${multiSelectMode
-            ? 'bg-neutral-200 dark:bg-neutral-700 border-neutral-400 dark:border-neutral-500 text-neutral-800 dark:text-neutral-200'
-            : 'border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-          }`}
+        onClick={() => confirmAllMutation.mutate()}
+        disabled={confirmAllMutation.isPending || rejectAllMutation.isPending}
+        className="cursor-pointer rounded-lg bg-accent-DEFAULT px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
-        {multiSelectMode ? 'Multi-Auswahl beenden' : 'Multi-Auswahl'}
-      </button>
-      <button
-        onClick={() => setShowRecalcConfirm(true)}
-        disabled={recalcMutation.isPending}
-        className="cursor-pointer rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-      >
-        Neu erkennen
-      </button>
-      <div className="flex-1" />
-      <button
-        onClick={() => setMode('compact')}
-        className="cursor-pointer text-sm text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors"
-      >
-        Zurück zur Übersicht
+        Alle bestätigen
       </button>
     </div>
   )
@@ -759,18 +764,11 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
           <button
             onClick={handleClose}
             aria-label="Schließen"
-            className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors text-lg leading-none"
+            className="cursor-pointer rounded-md p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
           >
-            ✕
+            <XIcon className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
-
-        {/* Phase 5: per-activity detection-mode toggles — shown in expanded mode only */}
-        <LiftDetectionHeader
-          activityId={activityId}
-          jobRunning={jobRunning}
-          onJobStarted={() => setJobPhase('starting')}
-        />
 
         {isDesktop ? (
           // Desktop: Fix 3 — 70/30 split map/list (map gets more, list narrower).
@@ -816,15 +814,30 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
                 )}
                 {mapPanel}
               </div>
-              {/* List — narrower (≈22%); overflow-y-auto on the wrapper so the
-                  list scrolls when it overflows but doesn't expand to fill. */}
-              <div className="flex-[2.5] min-h-0 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-y-auto">
+              {/* List — narrower (≈22%); the panel owns its own scrolling and footer. */}
+              <div className="flex-[2.5] min-h-0 border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden">
                 {listPanel}
               </div>
             </div>
             {/* Footer */}
-            <div className="mt-3 shrink-0">
-              {bulkFooter}
+            <div className="mt-3 shrink-0 flex gap-3">
+              <div className="flex-[8] min-w-0 flex items-center gap-2">
+                <LiftDetectionHeader
+                  activityId={activityId}
+                  jobRunning={jobRunning}
+                  onJobStarted={() => setJobPhase('starting')}
+                  compact
+                />
+                <button
+                  onClick={() => setMode('compact')}
+                  className="ml-auto cursor-pointer whitespace-nowrap text-sm text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors"
+                >
+                  Zurück zur Übersicht
+                </button>
+              </div>
+              <div className="flex-[2.5] min-w-0 flex items-center justify-end">
+                {bulkFooter}
+              </div>
             </div>
           </>
         ) : (
@@ -874,8 +887,20 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
               </div>
             </div>
             {/* Sticky footer */}
-            <div className="mt-3 shrink-0">
+            <div className="mt-3 shrink-0 flex flex-wrap items-center gap-2">
+              <LiftDetectionHeader
+                activityId={activityId}
+                jobRunning={jobRunning}
+                onJobStarted={() => setJobPhase('starting')}
+                compact
+              />
               {bulkFooter}
+              <button
+                onClick={() => setMode('compact')}
+                className="ml-auto cursor-pointer text-sm text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors"
+              >
+                Zurück zur Übersicht
+              </button>
             </div>
           </>
         )}

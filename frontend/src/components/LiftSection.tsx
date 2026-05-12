@@ -15,6 +15,8 @@ type ActivityLiftProps = Pick<
   | 'lift_descent_m'
   | 'lift_duration_s'
   | 'exclude_lift_subtraction'
+  | 'lift_detection_osm_override'
+  | 'lift_detection_heuristic_override'
   | 'lifts_acknowledged_at'
 >
 
@@ -46,7 +48,10 @@ export default function LiftSection({ activity, onToggleExclude, onOpenReview }:
 
   const { data: candidates = [] } = useQuery<LiftCandidate[]>({
     queryKey: ['lift-candidates', activityId],
-    queryFn: () => apiFetch(`/api/v1/activities/${activityId}/lifts/candidates`).then(r => r.json()),
+    queryFn: async () => {
+      const data = await apiFetch(`/api/v1/activities/${activityId}/lifts/candidates`).then(r => r.json())
+      return Array.isArray(data) ? data : []
+    },
   })
 
   const confirm = useMutation({
@@ -84,14 +89,17 @@ export default function LiftSection({ activity, onToggleExclude, onOpenReview }:
   )
   const unconfirmed = heuristicCandidates.filter(c => !c.confirmed)
 
-  // Banner: show when the activity has unreviewed heuristic candidates.
-  const unreviewedHeuristicCount = candidates.filter(
-    c => c.source === 'heuristic' && !c.confirmed && !c.rejected_by_user,
+  const unreviewedCandidateCount = candidates.filter(
+    c => !c.confirmed && !c.rejected_by_user,
   ).length
+  const detectionDisabledForActivity =
+    activity.lift_detection_osm_override === false &&
+    activity.lift_detection_heuristic_override === false
   const showReviewBanner =
-    (activity.lifts_acknowledged_at == null) && unreviewedHeuristicCount > 0
+    detectionDisabledForActivity ||
+    unreviewedCandidateCount > 0
 
-  if (liftCount === 0 && unconfirmed.length === 0) return null
+  if (liftCount === 0 && unconfirmed.length === 0 && !showReviewBanner) return null
 
   return (
     <section className="space-y-3">
@@ -100,9 +108,11 @@ export default function LiftSection({ activity, onToggleExclude, onOpenReview }:
       {showReviewBanner && (
         <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 px-3 py-2 flex items-center justify-between text-sm">
           <span className="text-amber-800 dark:text-amber-200">
-            {unreviewedHeuristicCount === 1
-              ? '1 Liftfahrt unbestätigt'
-              : `${unreviewedHeuristicCount} Liftfahrten unbestätigt`}
+            {detectionDisabledForActivity
+              ? 'Lift-Erkennung für diese Aktivität deaktiviert'
+              : unreviewedCandidateCount === 1
+                ? '1 Liftfahrt unbestätigt'
+                : `${unreviewedCandidateCount} Liftfahrten unbestätigt`}
           </span>
           {onOpenReview && (
             <button

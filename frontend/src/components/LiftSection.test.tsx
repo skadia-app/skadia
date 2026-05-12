@@ -238,7 +238,22 @@ describe('LiftSection', () => {
     expect(headline).toBeTruthy()
   })
 
-  it('shows review banner when lifts_acknowledged_at is null and unreviewed heuristic candidates exist', async () => {
+  it('treats null candidate responses as an empty list', async () => {
+    mockApiFetch.mockResolvedValue({ json: () => Promise.resolve(null) })
+
+    render(
+      <LiftSection
+        activity={makeActivity({ lift_count: 1 })}
+        onToggleExclude={async () => {}}
+      />,
+      { wrapper },
+    )
+
+    expect(await screen.findByText(/1 Liftfahrt/)).toBeTruthy()
+    expect(screen.queryByText(/unbestätigt/)).toBeNull()
+  })
+
+  it('shows review banner when lifts_acknowledged_at is null and unreviewed candidates exist', async () => {
     const candidates = makeCandidates([
       { id: 'h-0', source: 'heuristic', confirmed: false, rejected_by_user: false },
       { id: 'h-1', source: 'heuristic', confirmed: false, rejected_by_user: false },
@@ -262,7 +277,7 @@ describe('LiftSection', () => {
     expect(banner).toBeTruthy()
   })
 
-  it('hides review banner when lifts_acknowledged_at is set', async () => {
+  it('keeps review entry visible after acknowledgement when unreviewed candidates remain', async () => {
     const candidates = makeCandidates([
       { id: 'h-0', source: 'heuristic', confirmed: false, rejected_by_user: false },
     ])
@@ -281,9 +296,7 @@ describe('LiftSection', () => {
       { wrapper },
     )
 
-    // Wait for candidates to settle
-    await screen.findByText(/1 Liftfahrt/)
-    expect(screen.queryByText(/unbestätigt/)).toBeNull()
+    expect(await screen.findByText(/1 Liftfahrt unbestätigt/)).toBeTruthy()
   })
 
   it('shows singular "1 Liftfahrt unbestätigt" when unreviewedCount === 1', async () => {
@@ -308,5 +321,43 @@ describe('LiftSection', () => {
     const banner = await screen.findByText(/1 Liftfahrt unbestätigt/)
     expect(banner).toBeTruthy()
     expect(banner.textContent).not.toMatch(/1 Liftfahrten/)
+  })
+
+  it('keeps review entry visible when activity-specific lift detection is disabled', async () => {
+    render(
+      <LiftSection
+        activity={makeActivity({
+          lift_count: 0,
+          lifts_acknowledged_at: null,
+          lift_detection_osm_override: false,
+          lift_detection_heuristic_override: false,
+        })}
+        onToggleExclude={async () => {}}
+        onOpenReview={() => {}}
+      />,
+      { wrapper },
+    )
+
+    expect(await screen.findByText(/Lift-Erkennung für diese Aktivität deaktiviert/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Prüfen' })).toBeTruthy()
+  })
+
+  it('keeps disabled detection review entry visible after acknowledgement', async () => {
+    render(
+      <LiftSection
+        activity={makeActivity({
+          lift_count: 0,
+          lifts_acknowledged_at: '2024-01-01T10:00:00Z',
+          lift_detection_osm_override: false,
+          lift_detection_heuristic_override: false,
+        })}
+        onToggleExclude={async () => {}}
+        onOpenReview={() => {}}
+      />,
+      { wrapper },
+    )
+
+    expect(await screen.findByText(/Lift-Erkennung für diese Aktivität deaktiviert/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Prüfen' })).toBeTruthy()
   })
 })

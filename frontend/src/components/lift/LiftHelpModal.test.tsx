@@ -24,8 +24,15 @@ describe('LiftHelpModal', () => {
 
   it('renders both detection method sections when open=true', () => {
     render(<LiftHelpModal open={true} onClose={() => {}} />)
-    expect(screen.getByText(/Methode A — OSM-Match/)).toBeTruthy()
-    expect(screen.getByText(/Methode B — Heuristik aus dem Stream/)).toBeTruthy()
+    expect(screen.getByText(/Methode A: OSM-Match/)).toBeTruthy()
+    expect(screen.getByText(/Methode B: Heuristik aus dem Stream/)).toBeTruthy()
+  })
+
+  it('uses descriptive OSM edit link text instead of showing a stale URL', () => {
+    render(<LiftHelpModal open={true} onClose={() => {}} />)
+    const link = screen.getByRole('link', { name: /Anleitung zum Bearbeiten/ })
+    expect(link.getAttribute('href')).toBe('https://wiki.openstreetmap.org/wiki/How_to_contribute')
+    expect(screen.queryByText(/openstreetmap\.de\/beitragen/)).toBeNull()
   })
 
   it('renders the bidirektional heuristic class section (Phase 11.10)', () => {
