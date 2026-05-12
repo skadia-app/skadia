@@ -48,6 +48,7 @@ func TestCreateTagWriteToolCreatesAutoLocationTag(t *testing.T) {
 	if !strings.Contains(prepared.Summary, "Auto-Regel") {
 		t.Fatalf("summary = %q, want Auto-Regel marker", prepared.Summary)
 	}
+	confirmEnvelopeTool(t, envelope, sessionID, "call-create-tag")
 	result, err := envelope.ExecuteConfirmed(context.Background(), ToolExecutionRequest{
 		UserID: userID, SessionID: sessionID, ToolCallID: "call-create-tag", ToolName: "create_tag", Args: args,
 	})
@@ -117,6 +118,7 @@ func TestUpdateTagWriteToolUpdatesFields(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PrepareConfirmation: %v", err)
 	}
+	confirmEnvelopeTool(t, envelope, sessionID, "call-update-tag")
 	if _, err := envelope.ExecuteConfirmed(context.Background(), ToolExecutionRequest{
 		UserID: userID, SessionID: sessionID, ToolCallID: "call-update-tag", ToolName: "update_tag", Args: args,
 	}); err != nil {
@@ -175,6 +177,7 @@ func TestDeleteTagWriteToolSummarizesAndCascades(t *testing.T) {
 			t.Fatalf("summary %q missing %q", prepared.Summary, want)
 		}
 	}
+	confirmEnvelopeTool(t, envelope, sessionID, "call-delete-tag")
 	if _, err := envelope.ExecuteConfirmed(context.Background(), ToolExecutionRequest{
 		UserID: userID, SessionID: sessionID, ToolCallID: "call-delete-tag", ToolName: "delete_tag", Args: args,
 	}); err != nil {

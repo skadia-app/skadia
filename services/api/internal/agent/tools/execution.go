@@ -103,43 +103,25 @@ func (e *ExecutionEnvelope) ExecutePreview(ctx context.Context, req ToolExecutio
 }
 
 func (e *ExecutionEnvelope) ExecuteConfirmed(ctx context.Context, req ToolExecutionRequest) (any, error) {
-	tool, err := e.writeTool(req.ToolName)
+	if e == nil || e.Deps == nil || e.Deps.DB == nil {
+		return nil, fmt.Errorf("database is not configured")
+	}
+	var actionID string
+	err := e.Deps.DB.WithUserTx(ctx, req.UserID, func(tx pgx.Tx) error {
+		row, err := loadAuditSlot(ctx, tx, req.UserID, req.SessionID, req.ToolCallID)
+		if err != nil {
+			return err
+		}
+		if row.ToolName != req.ToolName {
+			return fmt.Errorf("audit row tool mismatch: got %s, want %s", row.ToolName, req.ToolName)
+		}
+		actionID = formatActionID(row.ID)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	if err := e.writeAllowed(ctx, req.UserID, tool.Name); err != nil {
-		return nil, err
-	}
-	if err := validateArgs(tool.Name, tool.InputSchema, req.Args); err != nil {
-		return nil, err
-	}
-	tx, auditRow, err := e.beginPendingAuditTx(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	if tx == nil {
-		return decodeAuditResult(auditRow)
-	}
-	defer tx.Rollback(ctx)
-
-	result, execErr := tool.ExecuteWrite(ctx, &WriteExecutionDeps{Deps: e.Deps, Tx: tx}, req.UserID, req.Args)
-	if execErr != nil {
-		_ = tx.Rollback(ctx)
-		detail, _ := json.Marshal(map[string]string{"error": execErr.Error()})
-		_ = e.audit().Complete(ctx, req.UserID, auditRow.ID, "error", detail)
-		return nil, execErr
-	}
-	detail, err := json.Marshal(result)
-	if err != nil {
-		return nil, err
-	}
-	if err := e.Deps.DB.CompleteAudit(ctx, tx, auditRow.ID, "executed", detail); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return e.ExecuteConfirmedAction(ctx, actionID, req.UserID)
 }
 
 func (e *ExecutionEnvelope) RecordDeclined(ctx context.Context, req ToolExecutionRequest, reason string) error {
@@ -247,6 +229,10 @@ func decodeAuditResult(row *database.AgentAuditRow) (any, error) {
 	if len(row.ResultDetail) > 0 {
 		if err := json.Unmarshal(row.ResultDetail, &out); err != nil {
 			return nil, err
+		}
+		var detail actionDetail
+		if err := json.Unmarshal(row.ResultDetail, &detail); err == nil && detail.Result != nil {
+			return detail.Result, nil
 		}
 	}
 	return out, nil

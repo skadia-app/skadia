@@ -126,7 +126,7 @@ func TestLLMResolverUserModelOverrideRequiresEvaluatedTuple(t *testing.T) {
 			Enabled:     true,
 			EvalStatus:  model.LLMEvalStatusPassed,
 			EvalReport: map[string]any{"model_evals": []any{
-				map[string]any{"role": "tool_agent", "backend_type": "llama_server", "model_name": userModel, "status": "passed"},
+				map[string]any{"role": "tool_agent", "backend_type": "llama_server", "api_base_host": "system.example", "model_name": userModel, "status": "passed"},
 			}},
 		}},
 		user: []model.LLMUserConfig{{

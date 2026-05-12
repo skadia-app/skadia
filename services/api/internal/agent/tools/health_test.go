@@ -9,6 +9,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -52,7 +53,7 @@ func TestRecordHealthMetricWeightWriteTool(t *testing.T) {
 	userID := "00000000-0000-0000-0000-0000000aa201"
 	insertToolTestUser(t, pool, userID, "agent-health-write")
 	envelope := healthWriteEnvelope(t, pool, userID)
-	sessionID := "00000000-0000-0000-0000-0000000bb201"
+	sessionID := uuid.NewString()
 	args := json.RawMessage(`{"metric_kind":"weight_kg","date_iso":"2026-05-12","kg":82.4,"body_fat_pct":18.5}`)
 
 	if _, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
@@ -60,6 +61,7 @@ func TestRecordHealthMetricWeightWriteTool(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PrepareConfirmation: %v", err)
 	}
+	confirmEnvelopeTool(t, envelope, sessionID, "call-weight")
 	if _, err := envelope.ExecuteConfirmed(ctx, ToolExecutionRequest{
 		UserID: userID, SessionID: sessionID, ToolCallID: "call-weight", ToolName: "record_health_metric", Args: args,
 	}); err != nil {

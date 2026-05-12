@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
+	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
 )
 
 func TestRegistryExportDefinitionsReadProfilesNeverIncludeWriteTools(t *testing.T) {
@@ -50,6 +51,32 @@ func TestRegistryExportDefinitionsInternalChatUsesDirectConfirmedMode(t *testing
 	write := exportedTool(reg.ExportDefinitions(ToolExportInternalChat, nil, prefs), "update_activity")
 	if write == nil || write.MutationMode != MutationDirectInternalConfirmed {
 		t.Fatalf("internal write export = %#v, want direct_internal_confirmed", write)
+	}
+}
+
+func TestRegistryDefinitionsRespectGlobalWriteDisableAndAllowList(t *testing.T) {
+	reg := exportTestRegistry()
+	disabled := &agent.ChatPreferences{ChatWriteToolsEnabled: false, ChatAllowedWriteTools: []string{"update_activity"}}
+
+	if hasLLMTool(reg.Definitions(nil, disabled), "update_activity") {
+		t.Fatal("disabled write tool reached model definitions")
+	}
+	gotFilter := reg.AddEnabledWriteTools([]string{"read_activity"}, disabled)
+	if len(gotFilter) != 1 || gotFilter[0] != "read_activity" {
+		t.Fatalf("disabled AddEnabledWriteTools = %#v, want original filter only", gotFilter)
+	}
+
+	enabled := &agent.ChatPreferences{ChatWriteToolsEnabled: true, ChatAllowedWriteTools: []string{"update_activity"}}
+	gotFilter = reg.AddEnabledWriteTools([]string{"read_activity"}, enabled)
+	if len(gotFilter) != 2 || gotFilter[0] != "read_activity" || gotFilter[1] != "update_activity" {
+		t.Fatalf("enabled AddEnabledWriteTools = %#v, want allowed write appended", gotFilter)
+	}
+	defs := reg.Definitions(gotFilter, enabled)
+	if !hasLLMTool(defs, "update_activity") {
+		t.Fatalf("allowed write tool missing from model definitions: %#v", defs)
+	}
+	if hasLLMTool(defs, "delete_activity") {
+		t.Fatalf("disallowed write tool reached model definitions: %#v", defs)
 	}
 }
 
@@ -111,6 +138,15 @@ func exportedTool(defs []ExportedTool, name string) *ExportedTool {
 
 func hasExportedTool(defs []ExportedTool, name string) bool {
 	return exportedTool(defs, name) != nil
+}
+
+func hasLLMTool(defs []llmwire.ToolDefinition, name string) bool {
+	for _, def := range defs {
+		if def.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func jsonContains(raw []byte, value string) bool {
