@@ -97,7 +97,9 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		ContentType:      ct,
 	}
 
-	result, err := h.ImportService.ProcessPhoto(r.Context(), userID, activityID, data, photoMeta)
+	result, err := h.ImportService.ProcessPhotoWithOptions(r.Context(), userID, activityID, data, photoMeta, importer.PhotoProcessOptions{
+		EnforceActivityPhotoLimit: true,
+	})
 	if err != nil {
 		if writeMediaUploadProblem(w, r, err) {
 			return

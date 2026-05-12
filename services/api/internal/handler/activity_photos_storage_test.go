@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -16,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -198,6 +200,62 @@ func TestUploadActivityPhotoQuotaExceededReturns507(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), codeStorageQuotaExceeded) {
 		t.Fatalf("quota response missing code %q: %s", codeStorageQuotaExceeded, rr.Body.String())
+	}
+}
+
+func TestUploadActivityPhotoLimitConcurrentUploadsAllowOneRow(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	activityID := insertMinimalActivity(t, db, userID)
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	store := settings.NewStoreForTest(map[string]string{"limits.max_activity_photos_per_activity": "1"})
+	svc := importer.NewService(db, fs, nil)
+	svc.ActivityPhotoCreateGuard = NewActivityPhotoCreateGuard(db, store)
+	h := &Handler{
+		DB:            db,
+		ShadowFS:      fs,
+		ImportService: svc,
+		Settings:      store,
+	}
+
+	var wg sync.WaitGroup
+	statuses := make(chan int, 2)
+	for i, body := range [][]byte{
+		jpegPatternTestImage(t, 48, 48, 91),
+		jpegTestImage(t, 31, 29, color.RGBA{R: 210, G: 70, B: 30, A: 255}, 90),
+	} {
+		wg.Add(1)
+		go func(i int, body []byte) {
+			defer wg.Done()
+			req := newPhotoUploadRequest(t, userID, activityID, fmt.Sprintf("concurrent-%d.jpg", i), body)
+			rr := httptest.NewRecorder()
+			h.UploadActivityPhoto(rr, req)
+			statuses <- rr.Code
+		}(i, body)
+	}
+	wg.Wait()
+	close(statuses)
+
+	var created, conflicted int
+	for status := range statuses {
+		switch status {
+		case http.StatusCreated:
+			created++
+		case http.StatusConflict:
+			conflicted++
+		default:
+			t.Fatalf("unexpected concurrent upload status %d", status)
+		}
+	}
+	if created != 1 || conflicted != 1 {
+		t.Fatalf("concurrent statuses: created=%d conflicted=%d, want 1/1", created, conflicted)
+	}
+	if got := handlerActivityPhotoRowCount(t, pool, userID); got != 1 {
+		t.Fatalf("activity photo rows after concurrent uploads = %d, want 1", got)
+	}
+	if got := handlerActiveMediaCount(t, pool, userID); got != 1 {
+		t.Fatalf("active media files after concurrent uploads = %d, want 1", got)
 	}
 }
 

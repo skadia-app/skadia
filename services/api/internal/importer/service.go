@@ -43,6 +43,11 @@ type ActivityPhotoCreateGuard func(ctx context.Context, userID, activityID strin
 
 var ErrActivityPhotoLimitExceeded = errors.New("activity photo limit exceeded")
 
+type PhotoProcessOptions struct {
+	EnforceActivityPhotoLimit bool
+	NetStorageFileID          string
+}
+
 type ActivityPhotoLimitError struct {
 	ActivityID string
 	Limit      int

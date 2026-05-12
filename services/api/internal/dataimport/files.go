@@ -226,6 +226,7 @@ func (e *Engine) importFileByID(
 
 	// CRITICAL: map old export ID → new ShadowFS-assigned ID.
 	idMap.Set(oldFileID, fileRecord.ID)
+	result.importedFileIDs = append(result.importedFileIDs, fileRecord.ID)
 
 	result.FilesImported++
 	result.BytesImported += rec.SizeBytes

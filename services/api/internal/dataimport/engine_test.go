@@ -3295,6 +3295,78 @@ func (m *quotaExceededShadowFS) Put(_ context.Context, _ shadowfs.FileEntry, _ i
 	return shadowfs.FileRecord{}, fmt.Errorf("test wrapped quota: %w", shadowfs.ErrQuotaExceeded)
 }
 
+type preflightQuotaShadowFS struct {
+	*mockShadowFS
+	puts int
+}
+
+func (m *preflightQuotaShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	m.puts++
+	return m.mockShadowFS.Put(ctx, entry, data)
+}
+
+type cleanupQuotaShadowFS struct {
+	*mockShadowFS
+	puts    int
+	deleted []string
+}
+
+func (m *cleanupQuotaShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	m.puts++
+	if m.puts > 1 {
+		return shadowfs.FileRecord{}, fmt.Errorf("test second put quota: %w", shadowfs.ErrQuotaExceeded)
+	}
+	return m.mockShadowFS.Put(ctx, entry, data)
+}
+
+func (m *cleanupQuotaShadowFS) Delete(_ context.Context, _, fileID string) error {
+	m.deleted = append(m.deleted, fileID)
+	return nil
+}
+
+func TestPhase0StorageQuotaPreflightHardFailsBeforePut(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+	fs := &preflightQuotaShadowFS{mockShadowFS: newMockShadowFS()}
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		schemaMigration: schemaMig,
+		extraFiles: map[string][]byte{
+			"data/user_files.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":           uuid.NewString(),
+					"file_type":    "original",
+					"content_type": "application/fit",
+					"file_name":    "preflight.fit",
+					"size_bytes":   1000,
+					"has_sidecar":  false,
+					"status":       "active",
+				},
+			}),
+			"files/original/preflight.fit": []byte("activity bytes"),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := &Engine{
+		DB:       pool,
+		ShadowFS: fs,
+		Config:   EngineConfig{MaxStorageBytes: 1},
+	}
+	_, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err == nil {
+		t.Fatal("RunImport should hard-fail in storage quota preflight")
+	}
+	if !errors.Is(err, shadowfs.ErrQuotaExceeded) {
+		t.Fatalf("RunImport error should wrap ErrQuotaExceeded, got: %v", err)
+	}
+	if fs.puts != 0 {
+		t.Fatalf("preflight failure called ShadowFS.Put %d times, want 0", fs.puts)
+	}
+}
+
 func TestPhase0ShadowFSQuotaExceededHardFails(t *testing.T) {
 	pool := testDB(t)
 	ctx := context.Background()
@@ -3339,6 +3411,59 @@ func TestPhase0ShadowFSQuotaExceededHardFails(t *testing.T) {
 	}
 	if result.FilesImported != 0 {
 		t.Fatalf("quota failure should not count imported files, got %d", result.FilesImported)
+	}
+}
+
+func TestPhase0ShadowFSQuotaExceededRollsBackImportedFiles(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+	fs := &cleanupQuotaShadowFS{mockShadowFS: newMockShadowFS()}
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		schemaMigration: schemaMig,
+		extraFiles: map[string][]byte{
+			"data/user_files.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":           uuid.NewString(),
+					"file_type":    "original",
+					"content_type": "application/fit",
+					"file_name":    "first.fit",
+					"size_bytes":   1000,
+					"has_sidecar":  false,
+					"status":       "active",
+				},
+				{
+					"id":           uuid.NewString(),
+					"file_type":    "original",
+					"content_type": "application/fit",
+					"file_name":    "second.fit",
+					"size_bytes":   1000,
+					"has_sidecar":  false,
+					"status":       "active",
+				},
+			}),
+			"files/original/first.fit":  []byte("first activity bytes"),
+			"files/original/second.fit": []byte("second activity bytes"),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := &Engine{
+		DB:       pool,
+		ShadowFS: fs,
+		Config:   EngineConfig{},
+	}
+	_, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err == nil {
+		t.Fatal("RunImport should hard-fail on second ShadowFS quota error")
+	}
+	if !errors.Is(err, shadowfs.ErrQuotaExceeded) {
+		t.Fatalf("RunImport error should wrap ErrQuotaExceeded, got: %v", err)
+	}
+	if len(fs.deleted) != 1 {
+		t.Fatalf("rollback deleted %d imported files, want 1", len(fs.deleted))
 	}
 }
 

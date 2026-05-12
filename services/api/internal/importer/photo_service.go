@@ -36,6 +36,10 @@ const importQueuePrefix = "import-queue"
 // It mirrors the logic of handler.UploadActivityPhoto but accepts raw bytes + PhotoMetadata
 // instead of an HTTP request.
 func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, photoBytes []byte, meta PhotoMetadata) (*PhotoResult, error) {
+	return s.ProcessPhotoWithOptions(ctx, userID, activityID, photoBytes, meta, PhotoProcessOptions{})
+}
+
+func (s *Service) ProcessPhotoWithOptions(ctx context.Context, userID, activityID string, photoBytes []byte, meta PhotoMetadata, opts PhotoProcessOptions) (*PhotoResult, error) {
 	// Load enrichment settings once — used for pHash threshold, preview size, and clip frames.
 	enrichSettings, err := s.DB.GetEnrichmentSettings(ctx, userID)
 	if err != nil {
@@ -49,7 +53,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	locSrc := sanitizePhotoLocationSource(meta.LocationSource)
 	if existing, err := s.DB.GetActivityPhotoByHash(ctx, userID, fileHash); err == nil && existing != nil {
 		if existing.ActivityID != "" || activityID == "" {
-			return s.finalizeExactActivityPhotoDuplicate(ctx, existing, userID, activityID, meta, locSrc)
+			return s.finalizeExactActivityPhotoDuplicate(ctx, existing, userID, activityID, meta, locSrc, opts)
 		}
 	} else if err != nil {
 		return nil, fmt.Errorf("lookup exact activity photo duplicate: %w", err)
@@ -107,7 +111,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	defer unlockDedup()
 
 	if existing, err := s.DB.GetActivityPhotoByHash(ctx, userID, fileHash); err == nil && existing != nil {
-		return s.finalizeExactActivityPhotoDuplicate(ctx, existing, userID, activityID, meta, locSrc)
+		return s.finalizeExactActivityPhotoDuplicate(ctx, existing, userID, activityID, meta, locSrc, opts)
 	} else if err != nil {
 		return nil, fmt.Errorf("recheck exact activity photo duplicate: %w", err)
 	}
@@ -173,7 +177,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 
 	// 5. No duplicate — insert new photo.
 	var releaseCreateGuard func()
-	if s.ActivityPhotoCreateGuard != nil && activityID != "" {
+	if opts.EnforceActivityPhotoLimit && s.ActivityPhotoCreateGuard != nil && activityID != "" {
 		var guardErr error
 		releaseCreateGuard, guardErr = s.ActivityPhotoCreateGuard(ctx, userID, activityID)
 		if guardErr != nil {
@@ -336,7 +340,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 				return nil, lookupErr
 			}
 			if existing != nil {
-				return s.finalizeExactActivityPhotoDuplicate(ctx, existing, userID, activityID, meta, locSrc)
+				return s.finalizeExactActivityPhotoDuplicate(ctx, existing, userID, activityID, meta, locSrc, opts)
 			}
 		}
 		return nil, fmt.Errorf("insert activity photo: %w", err)
@@ -387,9 +391,20 @@ func activityIDForStoredPhoto(existingActivityID, fallbackActivityID string) str
 	return fallbackActivityID
 }
 
-func (s *Service) finalizeExactActivityPhotoDuplicate(ctx context.Context, existing *database.PhotoHashRow, userID, targetActivityID string, meta PhotoMetadata, locSrc string) (*PhotoResult, error) {
+func (s *Service) finalizeExactActivityPhotoDuplicate(ctx context.Context, existing *database.PhotoHashRow, userID, targetActivityID string, meta PhotoMetadata, locSrc string, opts PhotoProcessOptions) (*PhotoResult, error) {
 	activityID := existing.ActivityID
 	if activityID == "" && targetActivityID != "" {
+		var releaseCreateGuard func()
+		if opts.EnforceActivityPhotoLimit && s.ActivityPhotoCreateGuard != nil {
+			var guardErr error
+			releaseCreateGuard, guardErr = s.ActivityPhotoCreateGuard(ctx, userID, targetActivityID)
+			if guardErr != nil {
+				return nil, guardErr
+			}
+			if releaseCreateGuard != nil {
+				defer releaseCreateGuard()
+			}
+		}
 		if _, err := s.DB.Pool.Exec(ctx,
 			`UPDATE activity_photos
 			 SET activity_id = $1
@@ -893,6 +908,10 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 // It loads the file from ShadowFS, runs ProcessPhoto, marks the queue item as
 // resolved, and cleans up the temporary files.
 func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, targetActivityID string) (*PhotoResult, error) {
+	return s.ResolveQueuedPhotoWithOptions(ctx, userID, queueEntryID, targetActivityID, PhotoProcessOptions{})
+}
+
+func (s *Service) ResolveQueuedPhotoWithOptions(ctx context.Context, userID, queueEntryID, targetActivityID string, opts PhotoProcessOptions) (*PhotoResult, error) {
 	// 1. Load and validate queue item
 	item, err := s.DB.GetImportQueueItem(ctx, queueEntryID, userID)
 	if err != nil || item == nil {
@@ -922,6 +941,17 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 		return nil, fmt.Errorf("no storage backend configured")
 	}
 
+	restoreQueuedFileStatus, err := s.netQueuedFileForQuota(ctx, userID, shadowFSID)
+	if err != nil {
+		return nil, err
+	}
+	restoreQueuedFile := true
+	defer func() {
+		if restoreQueuedFile && restoreQueuedFileStatus != nil {
+			restoreQueuedFileStatus()
+		}
+	}()
+
 	// 3. Process as a normal activity photo
 	meta := photoMetadataFromQueueItem(item)
 	if meta.OriginalFilename == "" {
@@ -930,7 +960,7 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 	if meta.ContentType == "" {
 		meta.ContentType = ct
 	}
-	result, err := s.ProcessPhoto(ctx, userID, targetActivityID, photoBytes, meta)
+	result, err := s.ProcessPhotoWithOptions(ctx, userID, targetActivityID, photoBytes, meta, opts)
 	if err != nil {
 		return nil, fmt.Errorf("process queued photo: %w", err)
 	}
@@ -956,7 +986,36 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 		}
 	}
 
+	restoreQueuedFile = false
 	return result, nil
+}
+
+func (s *Service) netQueuedFileForQuota(ctx context.Context, userID, fileID string) (func(), error) {
+	if s.DB == nil || fileID == "" {
+		return nil, nil
+	}
+	tag, err := s.DB.Pool.Exec(ctx,
+		`UPDATE user_files
+		 SET status = 'archived'
+		 WHERE id = $1 AND user_id = $2 AND status = 'active'`,
+		fileID, userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("net queued photo quota: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, nil
+	}
+	return func() {
+		if _, err := s.DB.Pool.Exec(context.WithoutCancel(ctx),
+			`UPDATE user_files
+			 SET status = 'active'
+			 WHERE id = $1 AND user_id = $2 AND status = 'archived'`,
+			fileID, userID,
+		); err != nil {
+			slog.Warn("importer: restore queued photo active status failed", "file_id", fileID, "err", err)
+		}
+	}, nil
 }
 
 func photoMetadataQueueMap(meta PhotoMetadata) map[string]any {
