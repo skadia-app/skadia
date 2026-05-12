@@ -42,3 +42,15 @@ func TestEnrichmentSettingsPATCH_SummitRadius_NaN(t *testing.T) {
 		t.Errorf("clampSummitDetectionRadius(NaN) = %v, want 80", got)
 	}
 }
+
+func TestEnrichmentSettingsPATCH_AutoTitleDisplayPolicyValidation(t *testing.T) {
+	valid := []string{"source_unless_generic", "source_first", "auto_first"}
+	for _, policy := range valid {
+		if !isValidAutoTitleDisplayPolicy(policy) {
+			t.Fatalf("isValidAutoTitleDisplayPolicy(%q) = false, want true", policy)
+		}
+	}
+	if isValidAutoTitleDisplayPolicy("always_generated") {
+		t.Fatal("isValidAutoTitleDisplayPolicy(always_generated) = true, want false")
+	}
+}

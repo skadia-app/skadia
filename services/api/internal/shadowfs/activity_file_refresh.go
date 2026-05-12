@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/activitytitle"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -209,19 +210,14 @@ func RenderActivityFilePath(ctx context.Context, req ActivityFileRefreshRequest)
 }
 
 func loadActivityFileRefreshRow(ctx context.Context, pool *pgxpool.Pool, userID, activityID, fileID string) (activityFileRefreshRow, error) {
-	const baseQuery = `
+	titleSQL := activitytitle.DisplayTitleSQL("a")
+	baseQuery := `
 		SELECT a.id::text, uf.id::text, uf.storage_backend, uf.storage_path,
 		       COALESCE(uf.file_name, ''), uf.has_sidecar,
 		       COALESCE(u.library_dir_name, a.user_id::text) AS user_dir,
 		       COALESCE(a.original_file_format, ''), COALESCE(a.source, ''),
 		       a.started_at, a.sport_type, COALESCE(a.sub_type, ''),
-		       COALESCE(
-		           CASE
-		               WHEN COALESCE(a.title_is_manual, false) AND NULLIF(a.title, '') IS NOT NULL THEN a.title
-		               ELSE COALESCE(NULLIF(a.title_auto, ''), NULLIF(a.title, ''))
-		           END,
-		           ''
-		       ),
+		       ` + titleSQL + `,
 		       COALESCE(a.start_city, ''), COALESCE(a.start_country, ''),
 		       COALESCE(a.distance_m, 0), COALESCE(a.elapsed_time_s, 0),
 		       COALESCE(a.elevation_gain_m, 0),

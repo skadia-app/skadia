@@ -29,7 +29,7 @@ func TestFusionMembershipActivityTitlesUseDisplayTitlePrecedence(t *testing.T) {
 	var generatedID, manualID, fallbackID, trimmedID, whitespaceManualID string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO activities (user_id, sport_type, title, title_auto, title_is_manual, started_at)
-		VALUES ($1, 'running', 'Imported title', 'Generated title', false, $2)
+		VALUES ($1, 'running', '   ', 'Generated title', false, $2)
 		RETURNING id`, userID, time.Now().UTC()).Scan(&generatedID); err != nil {
 		t.Fatalf("insert generated activity: %v", err)
 	}

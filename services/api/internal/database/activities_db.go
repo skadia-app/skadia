@@ -692,9 +692,10 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 	var a model.Activity
 	var sportConflictMeta []byte
 
+	activityTitleSQL := ActivityDisplayTitleSQL("a")
 	err := db.Pool.QueryRow(ctx, `
 		SELECT
-			a.id, a.user_id, a.file_hash, a.file_id, a.title, a.title_auto, a.description,
+			a.id, a.user_id, a.file_hash, a.file_id, a.title, NULLIF(`+activityTitleSQL+`, ''), a.title_auto, a.description,
 			a.sport_type, a.sub_type, a.fit_sport_id, a.fit_sub_sport_id, a.is_electric,
 			a.is_virtual, a.is_commute, a.exclude_from_heatmap, a.exclude_from_stats,
 			a.started_at, a.ended_at, a.elapsed_time_s, a.moving_time_s,
@@ -800,7 +801,7 @@ func (db *DB) GetActivity(ctx context.Context, id string) (*model.Activity, erro
 		LEFT JOIN recording_group_members rgm ON rgm.activity_id = a.id
 		WHERE a.id = $1`, id,
 	).Scan(
-		&a.ID, &a.UserID, &a.FileHash, &a.FileID, &a.Title, &a.TitleAuto, &a.Description,
+		&a.ID, &a.UserID, &a.FileHash, &a.FileID, &a.Title, &a.DisplayTitle, &a.TitleAuto, &a.Description,
 		&a.SportType, &a.SubType, &a.FitSportID, &a.FitSubSportID, &a.IsElectric,
 		&a.IsVirtual, &a.IsCommute, &a.ExcludeFromHeatmap, &a.ExcludeFromStats,
 		&a.StartedAt, &a.EndedAt, &a.ElapsedTimeS, &a.MovingTimeS,
@@ -1174,15 +1175,17 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 		return nil, fmt.Errorf("count activities: %w", err)
 	}
 
+	activityTitleSQL := ActivityDisplayTitleSQL("activities")
+	groupMemberTitleSQL := ActivityDisplayTitleSQL("a2")
 	selectCols := `activities.id, sport_type, sub_type,
 		COALESCE(
-			NULLIF(activities.title, ''),
-			(SELECT NULLIF(a2.title, '')
+			NULLIF(` + activityTitleSQL + `, ''),
+			(SELECT NULLIF(` + groupMemberTitleSQL + `, '')
 			 FROM recording_group_members rgm2
 			 JOIN activities a2 ON a2.id = rgm2.activity_id
 			 WHERE rgm2.group_id = rgm.group_id
 			   AND rgm2.activity_id != activities.id
-			   AND a2.title IS NOT NULL AND a2.title != ''
+			   AND (` + groupMemberTitleSQL + `) != ''
 			 LIMIT 1)
 		) AS title,
 		activities.title_auto,

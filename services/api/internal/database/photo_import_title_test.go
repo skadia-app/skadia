@@ -71,7 +71,7 @@ func TestPhotoSurfacesUseGeneratedTitleUnlessManual(t *testing.T) {
 	db, userID := photoImportTitleTestDB(t)
 	startedAt := time.Now().UTC().Truncate(time.Second)
 	lat, lng := 47.1, 11.2
-	generatedID := insertTitleActivity(t, db, userID, "Imported source", "Generated ridge walk", false, startedAt)
+	generatedID := insertTitleActivity(t, db, userID, "   ", "Generated ridge walk", false, startedAt)
 	manualID := insertTitleActivity(t, db, userID, "Manual photo label", "Generated ignored", true, startedAt.Add(-time.Hour))
 	insertTitlePhoto(t, db, userID, generatedID, &lat, &lng)
 	insertTitlePhoto(t, db, userID, manualID, nil, nil)
@@ -116,11 +116,11 @@ func TestPhotoSurfacesUseGeneratedTitleUnlessManual(t *testing.T) {
 	}
 }
 
-func TestFindActivitiesCoveringTimeUsesGeneratedTitleUnlessManual(t *testing.T) {
+func TestFindActivitiesCoveringTimeUsesAutoTitleForEmptySourceUnlessManual(t *testing.T) {
 	ctx := context.Background()
 	db, userID := photoImportTitleTestDB(t)
 	startedAt := time.Now().UTC().Truncate(time.Second)
-	insertTitleActivity(t, db, userID, "Imported source", "Generated picker title", false, startedAt)
+	insertTitleActivity(t, db, userID, "   ", "Generated picker title", false, startedAt)
 	insertTitleActivity(t, db, userID, "Manual picker title", "Generated ignored", true, startedAt.Add(-5*time.Minute))
 
 	matches, err := db.FindActivitiesCoveringTime(ctx, userID, startedAt.Add(10*time.Minute))

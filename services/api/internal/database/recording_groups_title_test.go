@@ -24,6 +24,11 @@ func TestRecordingGroupMembersReturnTitleMetadata(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
 	})
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_enrichment_settings (user_id, auto_title_display_policy)
+		VALUES ($1, 'auto_first')`, userID); err != nil {
+		t.Fatalf("insert settings: %v", err)
+	}
 
 	var primaryID, secondaryID string
 	if err := pool.QueryRow(ctx, `
@@ -65,6 +70,12 @@ func TestRecordingGroupMembersReturnTitleMetadata(t *testing.T) {
 	if got.TitleAuto == nil || *got.TitleAuto != "Generated" {
 		t.Fatalf("TitleAuto = %#v, want Generated", got.TitleAuto)
 	}
+	if got.DisplayTitle == nil || *got.DisplayTitle != "Generated" {
+		t.Fatalf("DisplayTitle = %#v, want Generated", got.DisplayTitle)
+	}
+	if got.Title == nil || *got.Title != "Source" {
+		t.Fatalf("Title = %#v, want raw source title", got.Title)
+	}
 	if got.TitleIsManual {
 		t.Fatal("TitleIsManual = true, want false")
 	}
@@ -88,6 +99,12 @@ func TestRecordingGroupMembersReturnTitleMetadata(t *testing.T) {
 	}
 	if got.TitleAuto == nil || *got.TitleAuto != "Generated" {
 		t.Fatalf("group list TitleAuto = %#v, want Generated", got.TitleAuto)
+	}
+	if got.DisplayTitle == nil || *got.DisplayTitle != "Generated" {
+		t.Fatalf("group list DisplayTitle = %#v, want Generated", got.DisplayTitle)
+	}
+	if got.Title == nil || *got.Title != "Source" {
+		t.Fatalf("group list Title = %#v, want raw source title", got.Title)
 	}
 	if got.TitleIsManual {
 		t.Fatal("group list TitleIsManual = true, want false")

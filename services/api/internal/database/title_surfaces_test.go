@@ -31,7 +31,7 @@ func titleSurfaceTestDB(t *testing.T) (*DB, string) {
 	return db, userID
 }
 
-func TestWorkoutActivitiesUseGeneratedTitleUnlessManual(t *testing.T) {
+func TestWorkoutActivitiesUseAutoTitleForEmptySourceUnlessManual(t *testing.T) {
 	ctx := context.Background()
 	db, userID := titleSurfaceTestDB(t)
 	workoutID, err := db.UpsertWorkout(ctx, userID, model.WorkoutRecord{SourceHash: uuid.NewString()}, nil)
@@ -42,7 +42,7 @@ func TestWorkoutActivitiesUseGeneratedTitleUnlessManual(t *testing.T) {
 	if _, err := db.Pool.Exec(ctx, `
 		INSERT INTO activities (user_id, sport_type, title, title_auto, title_is_manual, started_at, workout_id)
 		VALUES
-			($1, 'running', 'Source title', 'Generated title', false, $2, $3),
+			($1, 'running', '   ', 'Generated title', false, $2, $3),
 			($1, 'cycling', 'Manual title', 'Generated manual', true, $2 - interval '1 minute', $3)`,
 		userID, time.Now().UTC(), workoutID); err != nil {
 		t.Fatalf("insert activities: %v", err)
@@ -63,7 +63,7 @@ func TestWorkoutActivitiesUseGeneratedTitleUnlessManual(t *testing.T) {
 	}
 }
 
-func TestListDeviceActivitiesUsesGeneratedTitleUnlessManual(t *testing.T) {
+func TestListDeviceActivitiesUseAutoTitleForEmptySourceUnlessManual(t *testing.T) {
 	ctx := context.Background()
 	db, userID := titleSurfaceTestDB(t)
 
@@ -77,7 +77,7 @@ func TestListDeviceActivitiesUsesGeneratedTitleUnlessManual(t *testing.T) {
 	if _, err := db.Pool.Exec(ctx, `
 		INSERT INTO activities (user_id, sport_type, title, title_auto, title_is_manual, started_at, recording_device_id)
 		VALUES
-			($1, 'running', 'Source title', 'Generated title', false, $2, $3),
+			($1, 'running', '   ', 'Generated title', false, $2, $3),
 			($1, 'cycling', 'Manual title', 'Generated manual', true, $2 - interval '1 minute', $3)`,
 		userID, time.Now().UTC(), deviceID); err != nil {
 		t.Fatalf("insert activities: %v", err)
@@ -98,14 +98,14 @@ func TestListDeviceActivitiesUsesGeneratedTitleUnlessManual(t *testing.T) {
 	}
 }
 
-func TestGetCachedFusionCandidatesUsesGeneratedTitleUnlessManual(t *testing.T) {
+func TestGetCachedFusionCandidatesUseAutoTitleForEmptySourceUnlessManual(t *testing.T) {
 	ctx := context.Background()
 	db, userID := titleSurfaceTestDB(t)
 
 	var generatedID, manualID string
 	if err := db.Pool.QueryRow(ctx, `
 		INSERT INTO activities (user_id, sport_type, title, title_auto, title_is_manual, started_at)
-		VALUES ($1, 'running', 'Source title', 'Generated title', false, $2)
+		VALUES ($1, 'running', '   ', 'Generated title', false, $2)
 		RETURNING id`, userID, time.Now().UTC()).Scan(&generatedID); err != nil {
 		t.Fatalf("insert generated activity: %v", err)
 	}

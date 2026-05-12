@@ -58,7 +58,7 @@ func insertSegmentTitleFixture(t *testing.T, db *DB, userID string) string {
 		startedAt time.Time
 	}{
 		{uuid.NewString(), "Manual title", segmentTitleStringPtr("Generated manual"), true, now},
-		{uuid.NewString(), "Source title", segmentTitleStringPtr("Generated title"), false, now.Add(-time.Minute)},
+		{uuid.NewString(), "   ", segmentTitleStringPtr("Generated title"), false, now.Add(-time.Minute)},
 		{uuid.NewString(), "Source fallback", nil, false, now.Add(-2 * time.Minute)},
 	}
 	for _, row := range rows {
@@ -79,7 +79,7 @@ func insertSegmentTitleFixture(t *testing.T, db *DB, userID string) string {
 	return segmentID
 }
 
-func TestGetSegmentPerformancesUsesGeneratedTitleUnlessManual(t *testing.T) {
+func TestGetSegmentPerformancesUseAutoTitleForEmptySourceUnlessManual(t *testing.T) {
 	ctx := context.Background()
 	db, userID := segmentTitleTestDB(t)
 	segmentID := insertSegmentTitleFixture(t, db, userID)

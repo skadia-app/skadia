@@ -14,6 +14,7 @@ type Activity struct {
 	UserID             string     `json:"user_id"`
 	FileHash           *string    `json:"file_hash,omitempty"`
 	Title              *string    `json:"title"`
+	DisplayTitle       *string    `json:"display_title,omitempty"`
 	TitleAuto          *string    `json:"title_auto,omitempty"`
 	Description        *string    `json:"description,omitempty"`
 	SportType          string     `json:"sport_type"`
@@ -576,6 +577,7 @@ type EnrichmentSettings struct {
 	EnableStopDetection     bool    `json:"enable_stop_detection"`
 	EnableAscentDetection   bool    `json:"enable_ascent_detection"`
 	EnableAutoNaming        bool    `json:"enable_auto_naming"`
+	AutoTitleDisplayPolicy  string  `json:"auto_title_display_policy"`
 	EnableLapDetection      bool    `json:"enable_lap_detection"`
 	ClimbMinGradientPct     float64 `json:"climb_min_gradient_pct"`
 	ClimbMinElevationM      float64 `json:"climb_min_elevation_m"`
@@ -1136,6 +1138,7 @@ type EnrichmentModuleStatus struct {
 type TagActivity struct {
 	ID            string    `json:"id"`
 	Title         *string   `json:"title"`
+	DisplayTitle  *string   `json:"display_title,omitempty"`
 	TitleAuto     *string   `json:"title_auto,omitempty"`
 	TitleIsManual bool      `json:"title_is_manual,omitempty"`
 	StartedAt     time.Time `json:"started_at"`
