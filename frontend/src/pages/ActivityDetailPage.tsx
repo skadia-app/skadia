@@ -91,10 +91,13 @@ function getSportEmoji(sportType: string): string {
 }
 
 export function shouldRenderLiftSection(
-  activity: Pick<Activity, 'lift_count'>,
-  unreviewedHeuristicCount: number,
+  activity: Pick<Activity, 'lift_count' | 'lift_detection_osm_override' | 'lift_detection_heuristic_override'>,
+  unreviewedCandidateCount: number,
 ): boolean {
-  return (activity.lift_count ?? 0) > 0 || unreviewedHeuristicCount > 0
+  const detectionDisabledForActivity =
+    activity.lift_detection_osm_override === false &&
+    activity.lift_detection_heuristic_override === false
+  return (activity.lift_count ?? 0) > 0 || unreviewedCandidateCount > 0 || detectionDisabledForActivity
 }
 
 export default function ActivityDetailPage() {
@@ -200,38 +203,35 @@ export default function ActivityDetailPage() {
     staleTime: Infinity,
   })
 
-  // Lift candidates — needed for review modal trigger logic.
-  // Gate fires when the activity has confirmed lifts (lift_count > 0) OR when the
-  // user has not yet reviewed heuristic candidates (lifts_acknowledged_at == null),
-  // because a freshly-imported activity with only heuristic detections has lift_count=0
-  // until the user confirms — the null ack-timestamp is the reliable "unreviewed" signal.
+  // Lift candidates are needed for review modal trigger logic and for restoring
+  // the review entry point after an activity-specific detection override.
   const { data: liftCandidates } = useQuery<LiftCandidate[]>({
     queryKey: ['lift-candidates', activeActivityId],
-    queryFn: () =>
-      apiFetch(`/api/v1/activities/${activeActivityId}/lifts/candidates`).then(r => r.json()),
-    enabled: !!activeActivityId && (
-      (activity?.lift_count ?? 0) > 0 || activity?.lifts_acknowledged_at == null
-    ),
+    queryFn: async () => {
+      const data = await apiFetch(`/api/v1/activities/${activeActivityId}/lifts/candidates`).then(r => r.json())
+      return Array.isArray(data) ? data : []
+    },
+    enabled: !!activeActivityId && !!activity,
   })
 
-  const unreviewedHeuristicCount = (liftCandidates ?? []).filter(
-    c => c.source === 'heuristic' && !c.confirmed && !c.rejected_by_user,
+  const unreviewedLiftCandidateCount = (liftCandidates ?? []).filter(
+    c => !c.confirmed && !c.rejected_by_user,
   ).length
 
   const [reviewModalOpen, setReviewModalOpen] = useState(false)
 
-  // Auto-open bulk-review modal on first mount when there are unreviewed heuristic candidates.
+  // Auto-open bulk-review modal on first mount when there are unreviewed lift candidates.
   useEffect(() => {
     if (
       activity?.lifts_acknowledged_at == null &&
-      unreviewedHeuristicCount > 0 &&
+      unreviewedLiftCandidateCount > 0 &&
       !reviewModalOpen
     ) {
       setReviewModalOpen(true)
     }
     // Re-evaluate only when activity identity or ack timestamp changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activity?.id, activity?.lifts_acknowledged_at, unreviewedHeuristicCount])
+  }, [activity?.id, activity?.lifts_acknowledged_at, unreviewedLiftCandidateCount])
 
   // Speed/Pace toggle — persisted per segment group
   const segGroup = activity ? getSegmentGroup(activity.sport_type) : 'generic'
@@ -1065,7 +1065,7 @@ export default function ActivityDetailPage() {
       <IntervalSection activityId={activity.id} sportType={activity.sport_type} />
 
       {/* Liftfahrten */}
-      {shouldRenderLiftSection(activity, unreviewedHeuristicCount) ? (
+      {shouldRenderLiftSection(activity, unreviewedLiftCandidateCount) ? (
         <LiftSection
           activity={activity}
           onToggleExclude={async (v) => {
@@ -1080,7 +1080,7 @@ export default function ActivityDetailPage() {
         />
       ) : null}
 
-      {/* Bulk lift-review modal — auto-opens when there are unreviewed heuristic candidates */}
+      {/* Bulk lift-review modal — auto-opens when there are unreviewed lift candidates */}
       <LiftReviewModal
         open={reviewModalOpen}
         onClose={() => setReviewModalOpen(false)}

@@ -43,6 +43,19 @@ describe('invalidateQueriesForCompletedJob', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['lift-candidates-inspector', 'activity-1'] })
   })
 
+  it('invalidates the detail activity after single-activity recompute-all jobs', async () => {
+    const queryClient = new QueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    invalidateQueriesForCompletedJob(queryClient, makeJob({
+      job_type: 'activity_recompute_all',
+      entity_id: 'activity-1',
+    }))
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['activity', 'activity-1'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['lift-candidates', 'activity-1'] })
+  })
+
   it('invalidates multisport child lookups and all track summaries after multisport recompute', async () => {
     const queryClient = new QueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')

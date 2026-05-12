@@ -16,13 +16,23 @@ interface LiftDetectionHeaderProps {
   activityId: string
   /** True while a lift_recompute background job is running for this activity. */
   jobRunning: boolean
-  /** Called after Apply triggers recalculate-all successfully (202). */
+  /** Called after a detection setting change starts recalculate-all successfully (202). */
   onJobStarted: () => void
+  compact?: boolean
 }
 
 interface LocalSettings {
   osm: boolean
   heuristic: boolean
+}
+
+type DetectionUpdate =
+  | { kind: 'put'; settings: LocalSettings }
+  | { kind: 'reset' }
+
+interface RecomputeResult {
+  res: Response
+  startsJob: boolean
 }
 
 function deriveLocalSettings(data: LiftDetectionConfigResponse): LocalSettings {
@@ -34,6 +44,10 @@ function deriveLocalSettings(data: LiftDetectionConfigResponse): LocalSettings {
 
 function hasActiveOverride(data: LiftDetectionConfigResponse): boolean {
   return data.override.osm !== null || data.override.heuristic !== null
+}
+
+function startsBackgroundRecompute(data: LiftDetectionConfigResponse, settings: LocalSettings): boolean {
+  return data.master_enabled && (settings.osm || settings.heuristic)
 }
 
 interface ToggleRowProps {
@@ -67,7 +81,7 @@ function ToggleRow({ label, checked, disabled, onChange, testId }: ToggleRowProp
           aria-hidden="true"
         />
       </button>
-      <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
+      <span className="text-xs text-neutral-700 dark:text-neutral-300">{label}</span>
     </label>
   )
 }
@@ -79,7 +93,7 @@ async function hasRunningLiftRecompute(activityId: string): Promise<boolean> {
   )
 }
 
-export default function LiftDetectionHeader({ activityId, jobRunning, onJobStarted }: LiftDetectionHeaderProps) {
+export default function LiftDetectionHeader({ activityId, jobRunning, onJobStarted, compact = false }: LiftDetectionHeaderProps) {
   const { addToast } = useToast()
   const qc = useQueryClient()
   const { data, isLoading } = useLiftDetectionConfig(activityId)
@@ -95,21 +109,26 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
     }
   }, [data])
 
-  // F8: Apply is a two-step operation (PUT settings → POST recalculate-all) wrapped in
-  // useMutation so TanStack Query tracks isPending and the onSuccess handler invalidates
-  // lift-candidate queries in addition to the config query (which putMutation already covers).
-  const applyMutation = useMutation({
-    mutationFn: async (settings: LocalSettings) => {
+  const recomputeMutation = useMutation({
+    mutationFn: async (update: DetectionUpdate): Promise<RecomputeResult> => {
+      if (!data) throw new Error('Lift-Erkennungskonfiguration fehlt')
       if (await hasRunningLiftRecompute(activityId)) {
-        return { ok: false, status: 409 } as Response
+        return { res: { ok: false, status: 409 } as Response, startsJob: true }
       }
-      await putMutation.mutateAsync({ osm: settings.osm, heuristic: settings.heuristic })
+      const startsJob = update.kind === 'reset'
+        ? startsBackgroundRecompute(data, { osm: data.user_setting.osm, heuristic: data.user_setting.heuristic })
+        : startsBackgroundRecompute(data, update.settings)
+      if (update.kind === 'reset') {
+        await resetMutation.mutateAsync()
+      } else {
+        await putMutation.mutateAsync({ osm: update.settings.osm, heuristic: update.settings.heuristic })
+      }
       const res = await apiFetch(`/api/v1/activities/${activityId}/lifts/recalculate-all`, {
         method: 'POST',
       })
-      return res
+      return { res, startsJob }
     },
-    onSuccess: async (res) => {
+    onSuccess: async ({ res, startsJob }) => {
       // Invalidate lift-candidate caches regardless of whether job was already running.
       qc.invalidateQueries({ queryKey: ['lift-candidates', activityId] })
       qc.invalidateQueries({ queryKey: ['lift-candidates-inspector', activityId] })
@@ -118,7 +137,7 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
         addToast({ type: 'info', title: 'Job läuft bereits — bitte warten' })
         onJobStarted()
       } else if (res.ok) {
-        onJobStarted()
+        if (startsJob) onJobStarted()
       } else {
         const body = await res.json().catch(() => ({})) as Record<string, unknown>
         const msg = typeof body.message === 'string' ? body.message : `Fehler ${res.status}`
@@ -133,7 +152,7 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
 
   if (isLoading || !data || !local) {
     return (
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-neutral-200 dark:border-neutral-800 text-sm text-neutral-500 dark:text-neutral-400 shrink-0">
+      <div className={`${compact ? '' : 'border-b border-neutral-200 dark:border-neutral-800 px-4 py-2'} flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400 shrink-0`}>
         <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
         Erkennungsmodus wird geladen …
       </div>
@@ -142,110 +161,97 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
 
   const masterOff = !data.master_enabled
   const override = hasActiveOverride(data)
-  const isApplying = applyMutation.isPending
+  const isApplying = recomputeMutation.isPending
+  const disablingAll = isApplying && !jobRunning && local && !local.osm && !local.heuristic
   const allDisabled = masterOff || jobRunning || isApplying
 
-  const handleApply = () => {
+  const handleToggle = (patch: Partial<LocalSettings>) => {
     if (!local) return
-    applyMutation.mutate(local)
+    const next = { ...local, ...patch }
+    setLocal(next)
+    recomputeMutation.mutate({ kind: 'put', settings: next })
   }
 
-  const handleReset = async () => {
-    try {
-      if (await hasRunningLiftRecompute(activityId)) {
-        addToast({ type: 'info', title: 'Job läuft bereits — bitte warten' })
-        onJobStarted()
-        return
-      }
-      await resetMutation.mutateAsync()
-      const res = await apiFetch(`/api/v1/activities/${activityId}/lifts/recalculate-all`, {
-        method: 'POST',
-      })
-      if (res.status === 409) {
-        addToast({ type: 'info', title: 'Job läuft bereits — bitte warten' })
-        onJobStarted()
-        return
-      }
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as Record<string, unknown>
-        const msg = typeof body.message === 'string' ? body.message : `Fehler ${res.status}`
-        addToast({ type: 'error', title: msg })
-        return
-      }
-      onJobStarted()
-      addToast({ type: 'success', title: 'Aktivitätsspezifische Einstellung zurückgesetzt' })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Fehler beim Zurücksetzen'
-      addToast({ type: 'error', title: msg })
-    }
+  const handleReset = () => {
+    recomputeMutation.mutate({ kind: 'reset' })
   }
 
   return (
     <div
-      className="flex flex-col gap-2 border-b border-neutral-200 dark:border-neutral-800 px-4 py-2.5 shrink-0"
+      className={[
+        compact
+          ? 'flex flex-wrap items-center gap-x-3 gap-y-1 shrink-0'
+          : 'flex flex-col gap-2 border-b border-neutral-200 dark:border-neutral-800 px-4 py-2.5 shrink-0',
+      ].join(' ')}
       data-testid="lift-detection-header"
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-          Erkennungsmodus
+      <div className={`${compact ? 'contents' : 'flex items-center justify-between gap-2'}`}>
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+          {compact ? 'Erkennung' : 'Erkennungsmodus'}
         </span>
-        {override && (
-          <span
-            className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs font-medium px-2 py-0.5"
-            data-testid="override-badge"
-          >
-            Override gesetzt (kann zurückgesetzt werden)
-          </span>
+        {compact && (
+          <div className="flex flex-wrap items-center gap-3">
+            <ToggleRow
+              label="OSM-Snap"
+              checked={local.osm}
+              disabled={allDisabled}
+              onChange={osm => handleToggle({ osm })}
+              testId="toggle-osm"
+            />
+            <ToggleRow
+              label="Heuristik"
+              checked={local.heuristic}
+              disabled={allDisabled}
+              onChange={heuristic => handleToggle({ heuristic })}
+              testId="toggle-heuristic"
+            />
+          </div>
         )}
-        {jobRunning && (
+        {override && (
+          <button
+            type="button"
+            onClick={handleReset}
+            disabled={allDisabled}
+            className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs font-medium px-2 py-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            data-testid="override-badge"
+            title="Aktivitätsspezifische Einstellung zurücksetzen"
+          >
+            Override gesetzt
+          </button>
+        )}
+        {(jobRunning || isApplying) && (
           <span className="inline-flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
             <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
-            Lift-Detection läuft …
+            {disablingAll ? 'Wird deaktiviert …' : 'Wird berechnet …'}
           </span>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-4">
-        <ToggleRow
-          label="OSM-Snap"
-          checked={local.osm}
-          disabled={allDisabled}
-          onChange={v => setLocal(prev => prev ? { ...prev, osm: v } : prev)}
-          testId="toggle-osm"
-        />
-        <ToggleRow
-          label="Heuristik"
-          checked={local.heuristic}
-          disabled={allDisabled}
-          onChange={v => setLocal(prev => prev ? { ...prev, heuristic: v } : prev)}
-          testId="toggle-heuristic"
-        />
-      </div>
+      {!compact && (
+        <div className="flex flex-wrap items-center gap-4">
+          <ToggleRow
+            label="OSM-Snap"
+            checked={local.osm}
+            disabled={allDisabled}
+            onChange={osm => handleToggle({ osm })}
+            testId="toggle-osm"
+          />
+          <ToggleRow
+            label="Heuristik"
+            checked={local.heuristic}
+            disabled={allDisabled}
+            onChange={heuristic => handleToggle({ heuristic })}
+            testId="toggle-heuristic"
+          />
+        </div>
+      )}
 
       {masterOff && (
         <p className="text-xs text-amber-700 dark:text-amber-400" data-testid="master-off-notice">
-          Globale Lift-Erkennung deaktiviert — siehe Einstellungen
+          Globale Lift-Erkennung deaktiviert, siehe Einstellungen
         </p>
       )}
 
-      <div className="flex gap-2">
-        <button
-          onClick={handleApply}
-          disabled={allDisabled}
-          className="cursor-pointer rounded-md bg-accent-DEFAULT px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          data-testid="apply-button"
-        >
-          {isApplying ? 'Wird angewendet …' : 'Anwenden'}
-        </button>
-        <button
-          onClick={handleReset}
-          disabled={!override || allDisabled}
-          className="cursor-pointer rounded-md border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          data-testid="reset-button"
-        >
-          Zurücksetzen
-        </button>
-      </div>
     </div>
   )
 }

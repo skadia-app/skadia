@@ -165,7 +165,9 @@ export interface Activity {
   lift_descent_m?: number | null
   lift_duration_s?: number | null
   exclude_lift_subtraction?: boolean | null
-  // ISO timestamp; null = user has not yet reviewed heuristic lift candidates.
+  lift_detection_osm_override?: boolean | null
+  lift_detection_heuristic_override?: boolean | null
+  // ISO timestamp; null = user has not yet reviewed lift candidates.
   lifts_acknowledged_at?: string | null
   elevation_source?: string | null
   distance_source?: string | null

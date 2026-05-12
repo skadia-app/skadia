@@ -80,7 +80,9 @@ const maplibreMock = vi.hoisted(() => {
       sourcesMap[id] = spec as { data?: unknown }
     })
     removeSource = vi.fn((id: string) => { delete this._sources[id]; delete sourcesMap[id] })
-    addLayer = vi.fn((spec: { id: string }) => { layersMap[spec.id] = spec })
+    addLayer = vi.fn((spec: { id: string }, beforeId?: string) => {
+      layersMap[spec.id] = { ...spec, beforeId }
+    })
     removeLayer = vi.fn((id: string) => { delete layersMap[id] })
     getSource = vi.fn((id: string) => this._sources[id] ?? null)
     getLayer = vi.fn((id: string) => layersMap[id] ?? null)
@@ -89,6 +91,7 @@ const maplibreMock = vi.hoisted(() => {
     setPaintProperty = vi.fn((layerId: string, prop: string, val: unknown) => {
       paintProps[layerId] = { ...(paintProps[layerId] ?? {}), [prop]: val }
     })
+    moveLayer = vi.fn()
     setStyle = vi.fn()
     constructor() {
       instances.push(this)
@@ -157,6 +160,7 @@ const heatmapMock = vi.hoisted(() => ({
   addHeatmapLayers: vi.fn(),
   removeHeatmapLayers: vi.fn(),
   buildHeatmapTileUrl: vi.fn((uid: string) => `https://tiles.example/${uid}`),
+  loadHeatmapColor: vi.fn(() => '#F97316'),
 }))
 vi.mock('@/lib/mapHeatmap', () => heatmapMock)
 
@@ -202,6 +206,103 @@ const twoStreams: StreamPoint[] = [
   makeStream('2024-01-01T09:05:00Z', 47.1, 11.1),
   makeStream('2024-01-01T09:10:00Z', 47.2, 11.2),
 ]
+
+describe('LiftInspectorMap — map-layer initialization', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    maplibreMock.instances.length = 0
+  })
+
+  it('initializes MapLibre when base layers arrive after the first render', async () => {
+    const { useMapLayers } = await import('@/hooks/useMapLayers')
+    const mockUseMapLayers = useMapLayers as ReturnType<typeof vi.fn>
+    mockUseMapLayers.mockReturnValue({ base: [] })
+
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+    const { rerender } = render(
+      <LiftInspectorMap
+        candidates={[makeCandidate()]}
+        streams={twoStreams}
+        highlightedCandidateId={null}
+        onCandidateClick={() => {}}
+      />,
+      { wrapper },
+    )
+
+    expect(maplibreMock.instances).toHaveLength(0)
+
+    mockUseMapLayers.mockReturnValue({
+      base: [
+        { id: 1, key: 'osm', name: 'OSM', role: 'base', source_kind: 'raster_tiles', default_opacity: 1, is_system: true, enabled: true, sort_order: 1, proxy_through_backend: false, created_at: '', updated_at: '' },
+      ],
+    })
+
+    rerender(
+      <LiftInspectorMap
+        candidates={[makeCandidate()]}
+        streams={twoStreams}
+        highlightedCandidateId={null}
+        onCandidateClick={() => {}}
+      />,
+    )
+
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+
+    expect(maplibreMock.instances).toHaveLength(1)
+    expect(maplibreMock.sourcesMap['inspector-track']).toBeTruthy()
+    expect(maplibreMock.layersMap['inspector-track-line']).toBeTruthy()
+    expect(maplibreMock.sourcesMap['lift-c-0']).toBeTruthy()
+    expect(maplibreMock.layersMap['lift-line-c-0']).toBeTruthy()
+  })
+
+  it('draws OSM lift lines below heuristic lift lines', async () => {
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+    const heuristic = makeCandidate({ id: 'heuristic-1', source: 'heuristic', confidence: 'high' })
+    const osm = makeCandidate({ id: 'osm-1', source: 'osm', confirmed: true })
+
+    render(
+      <LiftInspectorMap
+        candidates={[heuristic, osm]}
+        streams={twoStreams}
+        highlightedCandidateId={null}
+        onCandidateClick={() => {}}
+      />,
+      { wrapper },
+    )
+
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+
+    const liftLayerAdds = maplibreMock.instances[0].addLayer.mock.calls
+      .map(([spec]) => (spec as { id: string }).id)
+      .filter(id => id.startsWith('lift-line-'))
+    expect(liftLayerAdds.slice(0, 2)).toEqual(['lift-line-osm-1', 'lift-line-heuristic-1'])
+  })
+
+  it('keeps the selected lift highlight above rebuilt OSM layers', async () => {
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+    const osm = makeCandidate({ id: 'osm-1', source: 'osm', confirmed: true })
+
+    render(
+      <LiftInspectorMap
+        candidates={[osm]}
+        streams={twoStreams}
+        highlightedCandidateId="osm-1"
+        onCandidateClick={() => {}}
+      />,
+      { wrapper },
+    )
+
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+
+    expect(maplibreMock.instances[0].moveLayer).toHaveBeenCalledWith('lift-highlight-line')
+  })
+})
 
 describe('LiftInspectorMap — F11: empty stream fallback', () => {
   beforeEach(() => { vi.clearAllMocks() })
@@ -570,7 +671,12 @@ describe('LiftInspectorMap — A: layer picker', () => {
 // ── Phase 11.7: F — heatmap toggle ─────────────────────────────────────────
 
 describe('LiftInspectorMap — F: heatmap toggle', () => {
-  beforeEach(() => { vi.clearAllMocks() })
+  beforeEach(() => {
+    vi.clearAllMocks()
+    maplibreMock.instances.length = 0
+    for (const key of Object.keys(maplibreMock.sourcesMap)) delete maplibreMock.sourcesMap[key]
+    for (const key of Object.keys(maplibreMock.layersMap)) delete maplibreMock.layersMap[key]
+  })
 
   it('heatmap toggle button is rendered', async () => {
     const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
@@ -602,6 +708,36 @@ describe('LiftInspectorMap — F: heatmap toggle', () => {
     const btn = screen.getByTestId('heatmap-toggle')
     fireEvent.click(btn)
     expect(btn.title).toBe('Heatmap ausblenden')
+  })
+
+  it('adds heatmap below the activity stream when activated', async () => {
+    const { default: LiftInspectorMap } = await import('./LiftInspectorMap')
+    render(
+      <LiftInspectorMap
+        candidates={[makeCandidate()]}
+        streams={twoStreams}
+        highlightedCandidateId={null}
+        onCandidateClick={() => {}}
+      />,
+      { wrapper },
+    )
+
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+
+    fireEvent.click(screen.getByTestId('heatmap-toggle'))
+
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+
+    expect(heatmapMock.addHeatmapLayers).toHaveBeenLastCalledWith(
+      maplibreMock.instances[0],
+      'https://tiles.example/user-abc',
+      expect.any(String),
+      'inspector-track-line',
+    )
   })
 })
 

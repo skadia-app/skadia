@@ -16,6 +16,7 @@ import { liftDisplayLabel } from './liftLabel'
 // candidate spanning the gap will be detected. MUST stay in sync with backend
 // enrichment/lifts/window.go SmartRecMaxGapS default (currently 75s).
 const PAUSE_GAP_THRESHOLD_S = 75
+const HIGHLIGHT_LAYER_ID = 'lift-highlight-line'
 
 interface LiftInspectorMapProps {
   candidates: LiftCandidate[]
@@ -32,6 +33,14 @@ function liftColor(c: LiftCandidate): string {
   if (c.confidence === 'high') return '#22c55e'
   if (c.confidence === 'bidir') return '#8b5cf6'
   return '#f97316'
+}
+
+function liftLayerRank(c: LiftCandidate): number {
+  if (c.source === 'osm') return 0
+  if (c.rejected_by_user) return 1
+  if (c.confidence === 'medium') return 2
+  if (c.confidence === 'bidir') return 3
+  return 4
 }
 
 // Extracts [lng, lat] pairs from the stream that fall within a lift's time range.
@@ -321,6 +330,10 @@ export default function LiftInspectorMap({
   }, [base, theme])
 
   const baseLayer = selectedBaseLayer ?? base[0]
+  const baseLayerRef = useRef<MapLayer | undefined>(undefined)
+  const capsRef = useRef<typeof caps>(undefined)
+  baseLayerRef.current = baseLayer
+  capsRef.current = caps
 
   const gpsStreams = useMemo(
     () => streams.filter(
@@ -379,6 +392,25 @@ export default function LiftInspectorMap({
     }
     return map
   }, [candidates, streams])
+
+  const orderedCandidates = useMemo(
+    () => [...candidates].sort((a, b) => liftLayerRank(a) - liftLayerRank(b)),
+    [candidates],
+  )
+
+  const candidateSignature = useMemo(
+    () => candidates.map(c => [
+      c.id,
+      c.source,
+      c.confirmed,
+      c.rejected_by_user,
+      c.started_at,
+      c.ended_at,
+      c.ascent_m,
+      c.descent_m,
+    ].join(':')).join('|'),
+    [candidates],
+  )
 
   // Track whether the map has been fully initialized and the style loaded.
   const [mapReady, setMapReady] = useState(false)
@@ -478,7 +510,8 @@ export default function LiftInspectorMap({
       if (disposed || map) return
       if (el.clientWidth === 0 || el.clientHeight === 0) return
 
-      const style = baseLayer ? buildLayerStyle(baseLayer, caps ?? {}) : null
+      const latestBaseLayer = baseLayerRef.current
+      const style = latestBaseLayer ? buildLayerStyle(latestBaseLayer, capsRef.current ?? {}) : null
       if (!style) return
 
       map = new maplibregl.Map({
@@ -594,7 +627,7 @@ export default function LiftInspectorMap({
       }
     }
 
-    for (const c of candidates) {
+    for (const c of orderedCandidates) {
       const sourceId = `lift-${c.id}`
       const layerId = `lift-line-${c.id}`
       // C: read from memoized map instead of recomputing per candidate.
@@ -665,21 +698,56 @@ export default function LiftInspectorMap({
   // mapReady + styleVersion are included so this re-runs once the map finishes
   // loading on first render and after every style switch.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidates, candidateCoords, mapReady, styleVersion])
+  }, [candidates, orderedCandidates, candidateCoords, mapReady, styleVersion])
+
+  useEffect(() => {
+    const m = mapRef.current
+    if (!m || !mapReady || !m.getLayer(HIGHLIGHT_LAYER_ID)) return
+    m.moveLayer(HIGHLIGHT_LAYER_ID)
+  }, [candidateSignature, mapReady, styleVersion])
+
+  useEffect(() => {
+    popupRef.current?.remove()
+    popupRef.current = null
+  }, [candidateSignature])
 
   // ── Effect 3: highlight — updates line width/color when selection changes ─────
   // Gate on mapReady, see Effect 2 rationale.
   useEffect(() => {
     const m = mapRef.current
     if (!m || !mapReady) return
-    for (const c of candidates) {
-      const layerId = `lift-line-${c.id}`
-      if (!m.getLayer(layerId)) continue
-      const highlighted = c.id === highlightedCandidateId
-      m.setPaintProperty(layerId, 'line-width', highlighted ? 7 : 4)
-      m.setPaintProperty(layerId, 'line-color', highlighted ? '#e879f9' : liftColor(c))
+    const sourceId = 'lift-highlight'
+    const layerId = HIGHLIGHT_LAYER_ID
+    const selected = highlightedCandidateId
+      ? candidates.find(c => c.id === highlightedCandidateId)
+      : null
+    const coords = selected ? (candidateCoords.get(selected.id) ?? []) : []
+    const data = {
+      type: 'Feature' as const,
+      geometry: { type: 'LineString' as const, coordinates: coords.length >= 2 ? coords : [] },
+      properties: {},
     }
-  }, [highlightedCandidateId, candidates, mapReady])
+    if (!m.getSource(sourceId)) {
+      m.addSource(sourceId, { type: 'geojson', data })
+    } else {
+      const src = m.getSource(sourceId) as maplibregl.GeoJSONSource | undefined
+      src?.setData(data)
+    }
+    if (!m.getLayer(layerId)) {
+      m.addLayer({
+        id: layerId,
+        type: 'line',
+        source: sourceId,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#e879f9',
+          'line-width': 8,
+          'line-opacity': 0.95,
+        },
+      })
+    }
+    m.moveLayer(layerId)
+  }, [highlightedCandidateId, candidates, candidateCoords, mapReady, styleVersion])
 
   // ── Effect 4: heatmap — adds / removes heatmap layers when toggle changes ─────
   // styleVersion in deps ensures the heatmap is re-added after a style switch
@@ -689,13 +757,13 @@ export default function LiftInspectorMap({
     if (!m || !mapReady) return
     removeHeatmapLayers(m)
     if (showHeatmap && userId && userId !== 'anon') {
-      // Insert heatmap below lift-line layers so lift polylines remain on top.
-      const firstLiftLayer = candidates[0] ? `lift-line-${candidates[0].id}` : undefined
+      // Match MapFullscreen: insert heatmap below the activity track so the
+      // stream and lift overlays stay readable above it.
       // Reuse the user's persisted heatmap color from MapPage (localStorage)
       // so the inspector view stays consistent with the global map.
-      addHeatmapLayers(m, buildHeatmapTileUrl(userId), loadHeatmapColor(), firstLiftLayer)
+      addHeatmapLayers(m, buildHeatmapTileUrl(userId), loadHeatmapColor(), 'inspector-track-line')
     }
-  }, [showHeatmap, mapReady, styleVersion, userId, candidates])
+  }, [showHeatmap, mapReady, styleVersion, userId])
 
   // ── Effect 5: direction arrows — HTML Marker arrows along the continuous track ──
   // Markers are DOM elements and survive style switches, but we include styleVersion

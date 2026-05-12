@@ -23,11 +23,19 @@ describe('shouldRenderLiftSection', () => {
     expect(shouldRenderLiftSection(makeActivity({ lift_count: 1 }), 0)).toBe(true)
   })
 
-  it('renders for heuristic-only pending candidates before lift_count changes', () => {
+  it('renders for pending candidates before lift_count changes', () => {
     expect(shouldRenderLiftSection(makeActivity({ lift_count: 0 }), 2)).toBe(true)
   })
 
-  it('stays hidden when neither confirmed lifts nor unreviewed heuristic candidates exist', () => {
+  it('renders when activity-specific lift detection is disabled', () => {
+    expect(shouldRenderLiftSection(makeActivity({
+      lift_count: 0,
+      lift_detection_osm_override: false,
+      lift_detection_heuristic_override: false,
+    }), 0)).toBe(true)
+  })
+
+  it('stays hidden when neither confirmed lifts nor unreviewed candidates exist', () => {
     expect(shouldRenderLiftSection(makeActivity({ lift_count: 0 }), 0)).toBe(false)
   })
 })
