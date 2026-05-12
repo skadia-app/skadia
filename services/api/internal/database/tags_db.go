@@ -423,77 +423,83 @@ func (db *DB) SeedRecommendedRules(ctx context.Context, userID string) {
 		}
 	}
 
-	// Helper: insert a rule only if no rule with the same user_id + name + is_system=false exists yet.
-	createRule := func(name string, priority int, conditions, actions, triggerEvent string) {
-		if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
-			Conditions: json.RawMessage(conditions),
-			Actions:    json.RawMessage(actions),
-		}); err != nil {
-			slog.Warn("recommended rule validation failed", "name", name, "error", err)
-			return
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		// Helper: insert a rule only if no rule with the same user_id + name + is_system=false exists yet.
+		createRule := func(name string, priority int, conditions, actions, triggerEvent string) {
+			if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+				Conditions: json.RawMessage(conditions),
+				Actions:    json.RawMessage(actions),
+			}); err != nil {
+				slog.Warn("recommended rule validation failed", "name", name, "error", err)
+				return
+			}
+			_, _ = tx.Exec(ctx, `
+				INSERT INTO automation_rules
+					(user_id, name, is_active, priority, conditions, conditions_logic, actions,
+					 trigger_event, stop_on_match, apply_retroactively)
+				SELECT $1, $2, true, $3, $4::jsonb, 'and', $5::jsonb, $6, false, true
+				WHERE NOT EXISTS (
+					SELECT 1 FROM automation_rules
+					WHERE user_id = $1 AND name = $2 AND is_system = false
+				)`,
+				userID, name, priority, conditions, actions, triggerEvent)
 		}
-		_, _ = db.Pool.Exec(ctx, `
-			INSERT INTO automation_rules
-				(user_id, name, is_active, priority, conditions, conditions_logic, actions,
-				 trigger_event, stop_on_match, apply_retroactively)
-			SELECT $1, $2, true, $3, $4::jsonb, 'and', $5::jsonb, $6, false, true
-			WHERE NOT EXISTS (
-				SELECT 1 FROM automation_rules
-				WHERE user_id = $1 AND name = $2 AND is_system = false
-			)`,
-			userID, name, priority, conditions, actions, triggerEvent)
-	}
 
-	// Laufdistanz: ONE rule with ELSE-IF branches (Ultra/Marathon/Halb)
-	ultraID, hasUltra := tagIDs["Ultramarathon"]
-	maraID, hasMara := tagIDs["Marathon"]
-	halbID, hasHalb := tagIDs["Halbmarathon"]
-	if hasUltra && hasMara && hasHalb {
-		branches := `[` +
-			`{"type":"if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":50000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + ultraID + `"}}]},` +
-			`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":42000},{"field":"distance_m","op":"lt","value":50000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + maraID + `"}}]},` +
-			`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":21000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + halbID + `"}}]}` +
-			`]`
-		if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
-			Conditions: json.RawMessage(`[]`),
-			Actions:    json.RawMessage(`[]`),
-			Branches:   json.RawMessage(branches),
-		}); err != nil {
-			slog.Warn("recommended rule validation failed", "name", "Laufdistanz", "error", err)
-		} else {
-			_, _ = db.Pool.Exec(ctx, `
-			INSERT INTO automation_rules
-				(user_id, name, is_active, priority, conditions, conditions_logic, actions,
-				 branches, trigger_event, stop_on_match, apply_retroactively)
-			SELECT $1, 'Laufdistanz', true, 10, '[]'::jsonb, 'and', '[]'::jsonb,
-				$2::jsonb, 'on_import', false, true
-			WHERE NOT EXISTS (
-				SELECT 1 FROM automation_rules
-				WHERE user_id = $1 AND name = 'Laufdistanz' AND is_system = false
-			)`,
-				userID, branches)
+		// Laufdistanz: ONE rule with ELSE-IF branches (Ultra/Marathon/Halb)
+		ultraID, hasUltra := tagIDs["Ultramarathon"]
+		maraID, hasMara := tagIDs["Marathon"]
+		halbID, hasHalb := tagIDs["Halbmarathon"]
+		if hasUltra && hasMara && hasHalb {
+			branches := `[` +
+				`{"type":"if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":50000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + ultraID + `"}}]},` +
+				`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":42000},{"field":"distance_m","op":"lt","value":50000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + maraID + `"}}]},` +
+				`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":21000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + halbID + `"}}]}` +
+				`]`
+			if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+				Conditions: json.RawMessage(`[]`),
+				Actions:    json.RawMessage(`[]`),
+				Branches:   json.RawMessage(branches),
+			}); err != nil {
+				slog.Warn("recommended rule validation failed", "name", "Laufdistanz", "error", err)
+			} else {
+				_, _ = tx.Exec(ctx, `
+				INSERT INTO automation_rules
+					(user_id, name, is_active, priority, conditions, conditions_logic, actions,
+					 branches, trigger_event, stop_on_match, apply_retroactively)
+				SELECT $1, 'Laufdistanz', true, 10, '[]'::jsonb, 'and', '[]'::jsonb,
+					$2::jsonb, 'on_import', false, true
+				WHERE NOT EXISTS (
+					SELECT 1 FROM automation_rules
+					WHERE user_id = $1 AND name = 'Laufdistanz' AND is_system = false
+				)`,
+					userID, branches)
+			}
 		}
-	}
-	// Intervalltraining: enrichment field has_structured_intervals = true
-	if id, ok := tagIDs["Intervalltraining"]; ok {
-		createRule("Intervalltraining", 40,
-			`[{"field":"has_structured_intervals","op":"eq","value":true}]`,
-			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
-			"on_enrichment_complete")
-	}
-	// Mit Einkehr: enrichment field has_gastronomy_stop = true
-	if id, ok := tagIDs["Mit Einkehr"]; ok {
-		createRule("Mit Einkehr", 50,
-			`[{"field":"has_gastronomy_stop","op":"eq","value":true}]`,
-			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
-			"on_enrichment_complete")
-	}
-	// Grenzquerung: border_crossing_count > 0
-	if id, ok := tagIDs["Grenzquerung"]; ok {
-		createRule("Grenzquerung", 60,
-			`[{"field":"border_crossing_count","op":"gt","value":0}]`,
-			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
-			"on_enrichment_complete")
+		// Intervalltraining: enrichment field has_structured_intervals = true
+		if id, ok := tagIDs["Intervalltraining"]; ok {
+			createRule("Intervalltraining", 40,
+				`[{"field":"has_structured_intervals","op":"eq","value":true}]`,
+				`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
+				"on_enrichment_complete")
+		}
+		// Mit Einkehr: enrichment field has_gastronomy_stop = true
+		if id, ok := tagIDs["Mit Einkehr"]; ok {
+			createRule("Mit Einkehr", 50,
+				`[{"field":"has_gastronomy_stop","op":"eq","value":true}]`,
+				`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
+				"on_enrichment_complete")
+		}
+		// Grenzquerung: border_crossing_count > 0
+		if id, ok := tagIDs["Grenzquerung"]; ok {
+			createRule("Grenzquerung", 60,
+				`[{"field":"border_crossing_count","op":"gt","value":0}]`,
+				`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
+				"on_enrichment_complete")
+		}
+		return nil
+	})
+	if err != nil {
+		slog.Warn("seed recommended rules failed", "user_id", userID, "error", err)
 	}
 }
 
@@ -680,6 +686,9 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 	}
 
 	// Block merge if source tag is referenced by an automation rule
+	if _, err := tx.Exec(ctx, "SELECT set_config('app.current_user_id', $1, true)", userID); err != nil {
+		return nil, fmt.Errorf("set automation rule RLS context: %w", err)
+	}
 	var hasRule bool
 	tx.QueryRow(ctx,
 		`SELECT EXISTS(
@@ -1226,16 +1235,24 @@ func (db *DB) RenameSystemRule(ctx context.Context, userID, oldName, newName str
 	if oldName == newName {
 		return 0, nil
 	}
-	tag, err := db.Pool.Exec(ctx, `
-		UPDATE automation_rules
-		   SET name = $3
-		 WHERE user_id = $1
-		   AND name = $2
-		   AND is_system = true`,
-		userID, oldName, newName,
-	)
+	var rowsAffected int64
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE automation_rules
+			   SET name = $3
+			 WHERE user_id = $1
+			   AND name = $2
+			   AND is_system = true`,
+			userID, oldName, newName,
+		)
+		if err != nil {
+			return err
+		}
+		rowsAffected = tag.RowsAffected()
+		return nil
+	})
 	if err != nil {
 		return 0, fmt.Errorf("RenameSystemRule: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return rowsAffected, nil
 }

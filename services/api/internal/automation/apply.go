@@ -118,8 +118,8 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 	injectTrackGeofenceResults(ctx, db, activityID, actMap, allRules)
 
 	// NOTE: No transaction wrapping individual ApplyRuleChange calls.
-	// ApplyRuleChange and IncrementRuleApplied use db.Pool directly,
-	// and refactoring them to accept pgx.Tx would touch 10+ call sites.
+	// ApplyRuleChange still writes directly, while rule counter/evaluation
+	// updates use user-scoped DB helpers so automation_rules FORCE RLS applies.
 	// Inconsistency risk is low: each ApplyRuleChange is idempotent
 	// (ON CONFLICT DO NOTHING for add_tag, simple UPDATE for fields).
 	// A future refactor could introduce a querier interface.
@@ -176,7 +176,7 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 					}
 				}
 				if anyBranchMatched {
-					if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
+					if err := db.IncrementRuleApplied(ctx, rule.ID, userID); err != nil {
 						slog.Warn("increment rule applied", "rule_id", rule.ID, "error", err)
 					}
 					ruleMatchCounts[rule.ID]++
@@ -196,7 +196,7 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 
 		if matched {
 			applyChanges(ctx, db, activityID, userID, rule, actions, actMap)
-			if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
+			if err := db.IncrementRuleApplied(ctx, rule.ID, userID); err != nil {
 				slog.Warn("increment rule applied", "rule_id", rule.ID, "error", err)
 			}
 			ruleMatchCounts[rule.ID]++
@@ -224,20 +224,20 @@ func ApplyRulesToActivity(ctx context.Context, db *database.DB, activityID, user
 	}
 
 	// Update last_evaluated_at and last_matched_count for each matched rule.
-	now := time.Now()
 	for ruleID, matchCount := range ruleMatchCounts {
-		db.Pool.Exec(ctx,
-			`UPDATE automation_rules SET last_evaluated_at = $1, last_matched_count = $2 WHERE id = $3`,
-			now, matchCount, ruleID)
+		count := matchCount
+		if err := db.SetRuleEvaluation(ctx, ruleID, userID, &count); err != nil {
+			slog.Warn("update rule evaluation", "rule_id", ruleID, "error", err)
+		}
 	}
 	// Update last_evaluated_at for evaluated-but-unmatched rules.
 	for ruleID := range ruleEvaluatedIDs {
 		if _, alreadyUpdated := ruleMatchCounts[ruleID]; alreadyUpdated {
 			continue
 		}
-		db.Pool.Exec(ctx,
-			`UPDATE automation_rules SET last_evaluated_at = $1 WHERE id = $2`,
-			now, ruleID)
+		if err := db.SetRuleEvaluation(ctx, ruleID, userID, nil); err != nil {
+			slog.Warn("update rule evaluation", "rule_id", ruleID, "error", err)
+		}
 	}
 
 	return nil
