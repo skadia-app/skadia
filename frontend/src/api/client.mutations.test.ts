@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, throwOnApiResponse } from '@/api/client'
+import { ApiError, apiClient, apiUpload, throwOnApiResponse } from '@/api/client'
 import { apiFetch, clearToken, setToken } from '@/lib/auth'
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -90,5 +90,68 @@ describe('throwOnApiResponse', () => {
     const postCalls = calls.filter(call => call.url === '/api/v1/activities/act-1/lifts/recalculate-all')
     expect(postCalls).toHaveLength(1)
     expect(calls.some(call => call.url.endsWith('/auth/refresh'))).toBe(true)
+  })
+
+  it('does not retry non-idempotent POST after a 401 apiClient response', async () => {
+    setToken('old-token')
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      calls.push({ url, init })
+      if (url.endsWith('/auth/refresh')) {
+        return jsonResponse({ token: 'new-token' }, { status: 200 })
+      }
+      return jsonResponse({ error_code: 'token_expired' }, { status: 401 })
+    })
+
+    await expect(
+      apiClient('/admin/storage/reconcile', { method: 'POST' }),
+    ).rejects.toMatchObject({ status: 401 })
+
+    const postCalls = calls.filter(call => call.url.endsWith('/admin/storage/reconcile'))
+    expect(postCalls).toHaveLength(1)
+    expect(calls.some(call => call.url.endsWith('/auth/refresh'))).toBe(true)
+  })
+
+  it('does not retry upload POST after a 401 response', async () => {
+    setToken('old-token')
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      calls.push({ url, init })
+      if (url.endsWith('/auth/refresh')) {
+        return jsonResponse({ token: 'new-token' }, { status: 200 })
+      }
+      return jsonResponse({ error_code: 'token_expired' }, { status: 401 })
+    })
+
+    const fd = new FormData()
+    fd.append('files', new Blob(['payload']), 'payload.fit')
+    await expect(apiUpload('/activities/upload', fd)).rejects.toMatchObject({ status: 401 })
+
+    const uploadCalls = calls.filter(call => call.url.endsWith('/activities/upload'))
+    expect(uploadCalls).toHaveLength(1)
+    expect(calls.some(call => call.url.endsWith('/auth/refresh'))).toBe(true)
+  })
+
+  it('handles empty 204 responses after an idempotent retry', async () => {
+    setToken('old-token')
+    const calls: Array<{ url: string; init?: RequestInit }> = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      calls.push({ url, init })
+      if (url.endsWith('/auth/refresh')) {
+        return jsonResponse({ token: 'new-token' }, { status: 200 })
+      }
+      if (calls.filter(call => call.url.endsWith('/import-queue/q1')).length === 1) {
+        return jsonResponse({ error_code: 'token_expired' }, { status: 401 })
+      }
+      return new Response(null, { status: 204 })
+    })
+
+    await expect(apiClient<void>('/import-queue/q1', { method: 'DELETE' })).resolves.toBeNull()
+
+    const deleteCalls = calls.filter(call => call.url.endsWith('/import-queue/q1'))
+    expect(deleteCalls).toHaveLength(2)
   })
 })

@@ -225,7 +225,7 @@ function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
   const queued = result.results.filter(r => r.status === 'queued')
   const duplicate = result.results.filter(r => r.status === 'duplicate')
   const skipped = result.results.filter(r => r.status === 'skipped_limit_reached')
-  const failed = result.results.filter(r => r.status === 'storage_quota_exceeded' || r.status === 'error' || r.status === 'type_required')
+  const failed = result.results.filter(r => r.status === 'storage_quota_exceeded' || r.status === 'error')
 
   return (
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 px-3 py-3 space-y-2">

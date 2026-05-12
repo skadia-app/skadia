@@ -59,6 +59,9 @@ type FileEntry struct {
 	ParentID    *string           // ID of owner
 	HasSidecar  bool              // true if .meta sidecar will follow
 	Tags        map[string]string // Metadata for schema rendering
+	// QuotaCreditFileID lets callers replace/assign one already-active file
+	// without temporarily mutating its status just to pass the quota precheck.
+	QuotaCreditFileID string
 }
 
 // FileRecord is a registry entry returned from Put()/List().

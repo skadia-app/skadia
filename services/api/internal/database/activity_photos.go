@@ -423,20 +423,22 @@ func buildPhotoActivitySummary(id, title, sportType *string, startedAt *time.Tim
 
 // PhotoHashRow holds pHash comparison data for a single photo.
 type PhotoHashRow struct {
-	ID         string
-	ActivityID string
-	FileID     string
-	PHash      *int64
-	Width      *int
-	Height     *int
-	TakenAt    *time.Time
-	Lat        *float64
+	ID             string
+	ActivityID     string
+	FileID         string
+	PHash          *int64
+	Width          *int
+	Height         *int
+	TakenAt        *time.Time
+	Lat            *float64
+	Lng            *float64
+	LocationSource *string
 }
 
 // GetActivityPhotoHashes returns photo IDs and pHashes for an activity (for pHash comparison).
 func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]PhotoHashRow, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, COALESCE(activity_id::text, ''), COALESCE(file_id::text, ''), phash, width, height, taken_at, lat
+		`SELECT id, COALESCE(activity_id::text, ''), COALESCE(file_id::text, ''), phash, width, height, taken_at, lat, lng, location_source
 			 FROM activity_photos
 			 WHERE activity_id = $1 AND phash IS NOT NULL`,
 		activityID)
@@ -447,7 +449,7 @@ func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]
 	var result []PhotoHashRow
 	for rows.Next() {
 		var r PhotoHashRow
-		if err := rows.Scan(&r.ID, &r.ActivityID, &r.FileID, &r.PHash, &r.Width, &r.Height, &r.TakenAt, &r.Lat); err != nil {
+		if err := rows.Scan(&r.ID, &r.ActivityID, &r.FileID, &r.PHash, &r.Width, &r.Height, &r.TakenAt, &r.Lat, &r.Lng, &r.LocationSource); err != nil {
 			return nil, err
 		}
 		result = append(result, r)
@@ -458,7 +460,7 @@ func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]
 // GetUserActivityPhotoHashes returns all pHash-backed activity photos for a user.
 func (db *DB) GetUserActivityPhotoHashes(ctx context.Context, userID string) ([]PhotoHashRow, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, COALESCE(activity_id::text, ''), COALESCE(file_id::text, ''), phash, width, height, taken_at, lat
+		`SELECT id, COALESCE(activity_id::text, ''), COALESCE(file_id::text, ''), phash, width, height, taken_at, lat, lng, location_source
 				 FROM activity_photos
 				 WHERE user_id = $1 AND activity_id IS NOT NULL AND phash IS NOT NULL`,
 		userID)
@@ -469,7 +471,7 @@ func (db *DB) GetUserActivityPhotoHashes(ctx context.Context, userID string) ([]
 	var result []PhotoHashRow
 	for rows.Next() {
 		var r PhotoHashRow
-		if err := rows.Scan(&r.ID, &r.ActivityID, &r.FileID, &r.PHash, &r.Width, &r.Height, &r.TakenAt, &r.Lat); err != nil {
+		if err := rows.Scan(&r.ID, &r.ActivityID, &r.FileID, &r.PHash, &r.Width, &r.Height, &r.TakenAt, &r.Lat, &r.Lng, &r.LocationSource); err != nil {
 			return nil, err
 		}
 		result = append(result, r)
@@ -481,13 +483,13 @@ func (db *DB) GetUserActivityPhotoHashes(ctx context.Context, userID string) ([]
 func (db *DB) GetActivityPhotoByHash(ctx context.Context, userID, hash string) (*PhotoHashRow, error) {
 	var r PhotoHashRow
 	err := db.Pool.QueryRow(ctx,
-		`SELECT id, COALESCE(activity_id::text, ''), COALESCE(file_id::text, ''), phash, width, height, taken_at, lat
+		`SELECT id, COALESCE(activity_id::text, ''), COALESCE(file_id::text, ''), phash, width, height, taken_at, lat, lng, location_source
 			 FROM activity_photos
 			 WHERE user_id = $1 AND file_hash = $2
 			 ORDER BY created_at DESC
 			 LIMIT 1`,
 		userID, hash,
-	).Scan(&r.ID, &r.ActivityID, &r.FileID, &r.PHash, &r.Width, &r.Height, &r.TakenAt, &r.Lat)
+	).Scan(&r.ID, &r.ActivityID, &r.FileID, &r.PHash, &r.Width, &r.Height, &r.TakenAt, &r.Lat, &r.Lng, &r.LocationSource)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil

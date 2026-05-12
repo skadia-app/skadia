@@ -150,6 +150,13 @@ function placeholderFromDefault(field: SettingField | undefined, divisor = 1): s
   return `Standard: ${Math.round(value / divisor)}`
 }
 
+function parseStrictInteger(value: string): number | null {
+  if (!/^(0|[1-9]\d*)$/.test(value)) return null
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed)) return null
+  return parsed
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function AdminStorageLimitsSection() {
@@ -218,8 +225,8 @@ export function AdminStorageLimitsSection() {
       if (mbStr === '') {
         updates['limits.max_upload_bytes'] = null
       } else {
-        const mb = parseInt(mbStr, 10)
-        if (isNaN(mb) || mb <= 0) {
+        const mb = parseStrictInteger(mbStr)
+        if (mb === null || mb <= 0) {
           addToast({ type: 'error', title: LABELS.validationUpload.title, message: LABELS.validationUpload.message, duration: 0 })
           return
         }
@@ -232,8 +239,8 @@ export function AdminStorageLimitsSection() {
       if (gbStr === '') {
         updates['limits.max_user_storage_bytes'] = null
       } else {
-        const gb = parseInt(gbStr, 10)
-        if (isNaN(gb) || gb < 0) {
+        const gb = parseStrictInteger(gbStr)
+        if (gb === null || gb < 0) {
           addToast({ type: 'error', title: LABELS.validationStorage.title, message: LABELS.validationStorage.message, duration: 0 })
           return
         }
@@ -246,8 +253,8 @@ export function AdminStorageLimitsSection() {
       if (countStr === '') {
         updates['limits.max_activity_photos_per_activity'] = null
       } else {
-        const count = parseInt(countStr, 10)
-        if (isNaN(count) || count < 0) {
+        const count = parseStrictInteger(countStr)
+        if (count === null || count < 0) {
           addToast({ type: 'error', title: LABELS.validationMediaCount.title, message: LABELS.validationMediaCount.message, duration: 0 })
           return
         }
@@ -260,8 +267,8 @@ export function AdminStorageLimitsSection() {
       if (countStr === '') {
         updates['limits.max_route_photos_per_route'] = null
       } else {
-        const count = parseInt(countStr, 10)
-        if (isNaN(count) || count < 0) {
+        const count = parseStrictInteger(countStr)
+        if (count === null || count < 0) {
           addToast({ type: 'error', title: LABELS.validationMediaCount.title, message: LABELS.validationMediaCount.message, duration: 0 })
           return
         }

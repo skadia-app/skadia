@@ -49,6 +49,27 @@ func loadUserFilesIndex(source Source) (map[string]userFileRecord, error) {
 	return index, nil
 }
 
+func quotaRelevantUserFileBytes(source Source) (int64, error) {
+	fileIndex, err := loadUserFilesIndex(source)
+	if err != nil {
+		return 0, err
+	}
+
+	var total int64
+	for _, rec := range fileIndex {
+		if rec.Status != "active" {
+			continue
+		}
+		if rec.FileType == "thumb" || rec.FileType == "preview" {
+			continue
+		}
+		if rec.SizeBytes > 0 {
+			total += rec.SizeBytes
+		}
+	}
+	return total, nil
+}
+
 type exportedActivityFileTags struct {
 	FileID             *string   `json:"file_id"`
 	OriginalFileFormat string    `json:"original_file_format"`

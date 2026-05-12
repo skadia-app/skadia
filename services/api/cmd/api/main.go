@@ -308,6 +308,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "import: migrations failed: %v\n", err)
 			os.Exit(1)
 		}
+		settingsStore := settings.NewSettingsStore(db, cfg.SettingsEncryptionKey, cfg.StorageBackend)
 
 		var localBE, s3BE shadowfs.StorageBackend
 		if cfg.LibraryBasePath != "" {
@@ -319,7 +320,7 @@ func main() {
 		}
 
 		sfs := shadowfs.NewUnifiedShadowFS(db.Pool, localBE, s3BE, cfg.StorageBackend,
-			cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), nil,
+			cfg.LibraryBasePath, shadowfs.NewSchemaRenderer(), settingsStore,
 			cfg.LibraryKeepVersions, cfg.MaxUserStorageBytes,
 			cfg.S3Bucket, cfg.S3BucketActivity, cfg.S3BucketMedia)
 
@@ -331,8 +332,9 @@ func main() {
 		defer source.Close()
 
 		engine := &dataimport.Engine{
-			DB:       db.Pool,
-			ShadowFS: sfs,
+			DB:            db.Pool,
+			ShadowFS:      sfs,
+			SettingsStore: settingsStore,
 			Config: dataimport.EngineConfig{
 				StorageBackend:  cfg.StorageBackend,
 				LibraryBasePath: cfg.LibraryBasePath,

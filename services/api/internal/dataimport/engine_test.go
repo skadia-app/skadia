@@ -19,6 +19,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -97,6 +98,18 @@ func currentSchemaMigration(t *testing.T, pool *pgxpool.Pool) int {
 		t.Fatalf("currentSchemaMigration: %v", err)
 	}
 	return v
+}
+
+func newImportSettingsStore(t *testing.T, pool *pgxpool.Pool) *settings.SettingsStore {
+	t.Helper()
+	return settings.NewSettingsStore(&database.DB{Pool: pool}, "", "local")
+}
+
+func setImportSetting(t *testing.T, store *settings.SettingsStore, key, value string) {
+	t.Helper()
+	if _, err := store.Put(context.Background(), map[string]*string{key: &value}, ""); err != nil {
+		t.Fatalf("set %s=%s: %v", key, value, err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -3365,6 +3378,202 @@ func TestPhase0StorageQuotaPreflightHardFailsBeforePut(t *testing.T) {
 	if fs.puts != 0 {
 		t.Fatalf("preflight failure called ShadowFS.Put %d times, want 0", fs.puts)
 	}
+}
+
+func TestPhase0StorageQuotaPreflightUsesRuntimeUnlimitedOverride(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+	store := newImportSettingsStore(t, pool)
+	setImportSetting(t, store, "limits.max_user_storage_bytes", "0")
+	fs := &preflightQuotaShadowFS{mockShadowFS: newMockShadowFS()}
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		schemaMigration: schemaMig,
+		extraFiles: map[string][]byte{
+			"data/user_files.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":           uuid.NewString(),
+					"file_type":    "original",
+					"content_type": "application/fit",
+					"file_name":    "runtime-unlimited.fit",
+					"size_bytes":   int64(50_000),
+					"has_sidecar":  false,
+					"status":       "active",
+				},
+			}),
+			"files/original/runtime-unlimited.fit": bytes.Repeat([]byte("a"), 32),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := &Engine{
+		DB:            pool,
+		ShadowFS:      fs,
+		SettingsStore: store,
+		Config:        EngineConfig{MaxStorageBytes: 1},
+	}
+	if _, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID}); err != nil {
+		t.Fatalf("RunImport should use live 0 quota as unlimited, got: %v", err)
+	}
+	if fs.puts != 1 {
+		t.Fatalf("expected import to reach ShadowFS.Put once, got %d", fs.puts)
+	}
+}
+
+func TestPhase0StorageQuotaPreflightUsesRuntimeLimitOverride(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+	store := newImportSettingsStore(t, pool)
+	setImportSetting(t, store, "limits.max_user_storage_bytes", "1")
+	fs := &preflightQuotaShadowFS{mockShadowFS: newMockShadowFS()}
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		schemaMigration: schemaMig,
+		extraFiles: map[string][]byte{
+			"data/user_files.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":           uuid.NewString(),
+					"file_type":    "original",
+					"content_type": "application/fit",
+					"file_name":    "runtime-limited.fit",
+					"size_bytes":   int64(1_000),
+					"has_sidecar":  false,
+					"status":       "active",
+				},
+			}),
+			"files/original/runtime-limited.fit": []byte("activity bytes"),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := &Engine{
+		DB:            pool,
+		ShadowFS:      fs,
+		SettingsStore: store,
+		Config:        EngineConfig{MaxStorageBytes: 1_000_000},
+	}
+	_, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err == nil {
+		t.Fatal("RunImport should use live tight quota override")
+	}
+	if !errors.Is(err, shadowfs.ErrQuotaExceeded) {
+		t.Fatalf("RunImport error should wrap ErrQuotaExceeded, got: %v", err)
+	}
+	if fs.puts != 0 {
+		t.Fatalf("runtime preflight failure called ShadowFS.Put %d times, want 0", fs.puts)
+	}
+}
+
+func TestPhase0StorageQuotaPreflightUsesLogicalUserFileBytes(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+	fs := &preflightQuotaShadowFS{mockShadowFS: newMockShadowFS()}
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		schemaMigration: schemaMig,
+		extraFiles: map[string][]byte{
+			"data/user_files.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":           uuid.NewString(),
+					"file_type":    "original",
+					"content_type": "application/fit",
+					"file_name":    "logical-large.fit",
+					"size_bytes":   int64(50_000),
+					"has_sidecar":  false,
+					"status":       "active",
+				},
+			}),
+			"files/original/logical-large.fit": bytes.Repeat([]byte("a"), 32),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := &Engine{
+		DB:       pool,
+		ShadowFS: fs,
+		Config:   EngineConfig{MaxStorageBytes: 20_000},
+	}
+	_, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err == nil {
+		t.Fatal("RunImport should reject logical user_file bytes even when ZIP is small")
+	}
+	if !errors.Is(err, shadowfs.ErrQuotaExceeded) {
+		t.Fatalf("RunImport error should wrap ErrQuotaExceeded, got: %v", err)
+	}
+	if fs.puts != 0 {
+		t.Fatalf("logical-byte preflight failure called ShadowFS.Put %d times, want 0", fs.puts)
+	}
+}
+
+func TestEditSidecarQuotaPreflightHappensBeforeActivityImport(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+	fs := &preflightQuotaShadowFS{mockShadowFS: newMockShadowFS()}
+
+	srcUser := uuid.New().String()
+	actOldID := uuid.New().String()
+	editFileID := uuid.New().String()
+	parentType := "activity"
+	now := time.Now().UTC()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		columns: map[string][]string{
+			"activities": {"id", "user_id", "title", "sport_type", "started_at"},
+		},
+		activities: []map[string]any{
+			{
+				"id":         actOldID,
+				"user_id":    srcUser,
+				"title":      "Edit Sidecar Quota Preflight Activity",
+				"sport_type": "running",
+				"started_at": now.Format(time.RFC3339),
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/user_files.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":           editFileID,
+					"file_type":    "edit",
+					"content_type": "application/json",
+					"file_name":    "edit-large.json",
+					"size_bytes":   int64(50_000),
+					"parent_type":  parentType,
+					"parent_id":    actOldID,
+					"has_sidecar":  false,
+					"status":       "active",
+				},
+			}),
+			"files/edit/edit-large.json": []byte(`{"edits":[]}`),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := &Engine{
+		DB:       pool,
+		ShadowFS: fs,
+		Config:   EngineConfig{MaxStorageBytes: 20_000},
+	}
+	_, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err == nil {
+		t.Fatal("RunImport should hard-fail sidecar quota before activity import")
+	}
+	if !errors.Is(err, shadowfs.ErrQuotaExceeded) {
+		t.Fatalf("RunImport error should wrap ErrQuotaExceeded, got: %v", err)
+	}
+	if fs.puts != 0 {
+		t.Fatalf("sidecar preflight failure called ShadowFS.Put %d times, want 0", fs.puts)
+	}
+	assertRowCount(t, pool, "activities", userID, 0)
 }
 
 func TestPhase0ShadowFSQuotaExceededHardFails(t *testing.T) {

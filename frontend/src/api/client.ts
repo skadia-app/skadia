@@ -52,11 +52,14 @@ export async function apiClient<T>(path: string, options: RequestOptions = {}): 
 
   if (response.status === 401) {
     const refreshed = await refreshToken()
-    if (refreshed) {
+    if (refreshed && isIdempotentMethod(options.method)) {
       const retry = await doFetch(path, options)
       if (!retry.ok) throw await apiErrorFromResponse(retry)
       maybeStoreETag(path, retry, options)
-      return retry.json() as Promise<T>
+      return parseApiSuccess<T>(retry)
+    }
+    if (refreshed) {
+      throw await apiErrorFromResponse(response)
     }
     clearToken()
     redirectToLogin()
@@ -74,12 +77,16 @@ export async function apiClient<T>(path: string, options: RequestOptions = {}): 
 
   maybeStoreETag(path, response, options)
 
-  if (response.status === 204) return null as unknown as T
+  return parseApiSuccess<T>(response)
+}
+
+async function parseApiSuccess<T>(response: Response): Promise<T> {
+  if (response.status === 204) return null as T
   // 202 may or may not have a JSON body; only parse if Content-Type indicates JSON
   if (response.status === 202) {
     const ct = response.headers.get('content-type') ?? ''
     if (ct.includes('application/json')) return response.json() as Promise<T>
-    return null as unknown as T
+    return null as T
   }
   return response.json() as Promise<T>
 }
@@ -106,6 +113,11 @@ function maybeStoreETag(path: string, response: Response, options: RequestOption
   const method = (options.method ?? 'GET').toUpperCase()
   if (method !== 'GET' && method !== 'PATCH' && method !== 'PUT' && method !== 'POST') return
   etagCache.set(etagCacheKey(path), etag)
+}
+
+function isIdempotentMethod(method: string | undefined): boolean {
+  const normalized = (method ?? 'GET').toUpperCase()
+  return normalized === 'GET' || normalized === 'HEAD' || normalized === 'PUT' || normalized === 'DELETE'
 }
 
 function doFetch(path: string, options: RequestOptions): Promise<Response> {
@@ -202,17 +214,7 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
   if (res.status === 401) {
     const refreshed = await refreshToken()
     if (refreshed) {
-      const retryToken = getToken()
-      const retryHeaders: Record<string, string> = {}
-      if (retryToken) retryHeaders['Authorization'] = `Bearer ${retryToken}`
-      const retry = await fetch(url, {
-        method: 'POST',
-        headers: retryHeaders,
-        credentials: 'include',
-        body: formData,
-      })
-      if (!retry.ok) throw await apiErrorFromResponse(retry)
-      return retry.json() as Promise<T>
+      throw await apiErrorFromResponse(res)
     }
     clearToken()
     redirectToLogin()
