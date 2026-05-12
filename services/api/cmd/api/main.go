@@ -22,6 +22,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/auth"
 	"github.com/skadia-app/skadia/services/api/internal/automation"
@@ -712,6 +713,7 @@ func main() {
 
 	h := &handler.Handler{
 		DB:             db,
+		Confirm:        agent.NewConfirmationManager(5 * time.Minute),
 		PMC:            pmcService,
 		BestEfforts:    bestEffortsService,
 		ShadowFS:       store,

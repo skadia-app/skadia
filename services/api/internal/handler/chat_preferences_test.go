@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
@@ -79,6 +81,73 @@ func TestChatPreferencesRequiresUser(t *testing.T) {
 	h.ChatRoutes().ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("GET status = %d body=%s, want 401", w.Code, w.Body.String())
+	}
+}
+
+func TestConfirmChatToolCallResolvesPending(t *testing.T) {
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+	h := newTestHandler(t, pool)
+	h.Confirm = agent.NewConfirmationManager(time.Minute)
+	session, err := h.DB.CreateSession(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	ch, err := h.Confirm.Register(context.Background(), &agent.PendingConfirm{
+		SessionID:  session.ID,
+		ToolCallID: "call-1",
+		Tool:       "create_gear",
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	req := chatPrefsRequest(t, http.MethodPost, "/sessions/"+session.ID+"/confirm", userID, []byte(`{"tool_call_id":"call-1","confirmed":true,"args_overrides":{"name":"Bike"}}`))
+	w := httptest.NewRecorder()
+	h.ChatRoutes().ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("confirm status = %d body=%s", w.Code, w.Body.String())
+	}
+	resp := <-ch
+	if !resp.Confirmed || resp.Source != "user" || string(resp.ArgsOverrides) != `{"name":"Bike"}` {
+		t.Fatalf("confirm response = %#v", resp)
+	}
+}
+
+func TestConfirmChatToolCallRejectsForeignSession(t *testing.T) {
+	pool := fusionTestPool(t)
+	userA := insertTestUser(t, pool)
+	userB := insertTestUser(t, pool)
+	h := newTestHandler(t, pool)
+	h.Confirm = agent.NewConfirmationManager(time.Minute)
+	session, err := h.DB.CreateSession(context.Background(), userA)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	req := chatPrefsRequest(t, http.MethodPost, "/sessions/"+session.ID+"/confirm", userB, []byte(`{"tool_call_id":"call-1","confirmed":true}`))
+	w := httptest.NewRecorder()
+	h.ChatRoutes().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("confirm status = %d body=%s, want 403", w.Code, w.Body.String())
+	}
+}
+
+func TestConfirmChatToolCallUnknownReturns404(t *testing.T) {
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+	h := newTestHandler(t, pool)
+	h.Confirm = agent.NewConfirmationManager(time.Minute)
+	session, err := h.DB.CreateSession(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	req := chatPrefsRequest(t, http.MethodPost, "/sessions/"+session.ID+"/confirm", userID, []byte(`{"tool_call_id":"missing","confirmed":true}`))
+	w := httptest.NewRecorder()
+	h.ChatRoutes().ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("confirm status = %d body=%s, want 404", w.Code, w.Body.String())
 	}
 }
 
