@@ -51,9 +51,27 @@ func (db *DB) GetLLMAPIKeyEnc(ctx context.Context, role string) (string, error) 
 
 func (db *DB) UpsertLLMSystemConfig(ctx context.Context, role string, update model.LLMSystemConfigUpdate, encryptedKey *string) error {
 	_, err := db.Pool.Exec(ctx,
-		`INSERT INTO llm_system_config (role, backend_type, api_base, model_name, api_key_enc, enabled, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		`INSERT INTO llm_system_config (role, backend_type, api_base, model_name, api_key_enc, enabled, eval_status, eval_report, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'untested', '{}'::jsonb, NOW())
 		 ON CONFLICT (role) DO UPDATE SET
+		   eval_status = CASE
+		     WHEN llm_system_config.backend_type IS DISTINCT FROM EXCLUDED.backend_type
+		       OR llm_system_config.api_base IS DISTINCT FROM EXCLUDED.api_base
+		       OR llm_system_config.model_name IS DISTINCT FROM EXCLUDED.model_name
+		       OR llm_system_config.enabled IS DISTINCT FROM EXCLUDED.enabled
+		       OR EXCLUDED.api_key_enc IS NOT NULL
+		     THEN 'untested'
+		     ELSE llm_system_config.eval_status
+		   END,
+		   eval_report = CASE
+		     WHEN llm_system_config.backend_type IS DISTINCT FROM EXCLUDED.backend_type
+		       OR llm_system_config.api_base IS DISTINCT FROM EXCLUDED.api_base
+		       OR llm_system_config.model_name IS DISTINCT FROM EXCLUDED.model_name
+		       OR llm_system_config.enabled IS DISTINCT FROM EXCLUDED.enabled
+		       OR EXCLUDED.api_key_enc IS NOT NULL
+		     THEN '{}'::jsonb
+		     ELSE llm_system_config.eval_report
+		   END,
 		   backend_type = EXCLUDED.backend_type,
 		   api_base = EXCLUDED.api_base,
 		   model_name = EXCLUDED.model_name,

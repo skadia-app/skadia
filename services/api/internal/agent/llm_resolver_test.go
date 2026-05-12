@@ -34,11 +34,13 @@ func TestLLMResolverUsesPassedSystemRoleConfig(t *testing.T) {
 	modelName := "system-model"
 	resolver := NewLLMResolver(fakeLLMStore{
 		system: []model.LLMSystemConfig{{
-			Role:       "tool_agent",
-			APIBase:    &apiBase,
-			ModelName:  &modelName,
-			Enabled:    true,
-			EvalStatus: model.LLMEvalStatusPassed,
+			Role:        "tool_agent",
+			BackendType: "llama_server",
+			APIBase:     &apiBase,
+			ModelName:   &modelName,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusPassed,
+			EvalReport:  evalIdentityReport("tool_agent", "llama_server", "system.example", modelName),
 		}},
 		keys: map[string]string{"tool_agent": enc},
 	}, LLMResolverConfig{
@@ -53,6 +55,28 @@ func TestLLMResolverUsesPassedSystemRoleConfig(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, APIKey: "system-key", Model: modelName})
+}
+
+func TestLLMResolverAllowsLocalBackendWithoutAPIKey(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	modelName := "system-model"
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:        "tool_agent",
+			BackendType: "llama_server",
+			APIBase:     &apiBase,
+			ModelName:   &modelName,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusPassed,
+			EvalReport:  evalIdentityReport("tool_agent", "llama_server", "system.example", modelName),
+		}},
+	}, LLMResolverConfig{EncryptionKey: testLLMKey})
+
+	got, err := resolver.Resolve(context.Background(), "user-1", "tool_agent")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, Model: modelName})
 }
 
 func TestLLMResolverRejectsEvalFailedSystemRoleConfig(t *testing.T) {
@@ -78,12 +102,15 @@ func TestLLMResolverAcceptsWaivedSystemRoleWithAdminReason(t *testing.T) {
 	systemModel := "system-model"
 	resolver := NewLLMResolver(fakeLLMStore{
 		system: []model.LLMSystemConfig{{
-			Role:       "tool_agent",
-			APIBase:    &apiBase,
-			ModelName:  &systemModel,
-			Enabled:    true,
-			EvalStatus: model.LLMEvalStatusWaived,
-			EvalReport: map[string]any{"admin_reason": "temporary operator waiver"},
+			Role:        "tool_agent",
+			BackendType: "llama_server",
+			APIBase:     &apiBase,
+			ModelName:   &systemModel,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusWaived,
+			EvalReport: mergeEvalReport(evalIdentityReport("tool_agent", "llama_server", "system.example", systemModel), map[string]any{
+				"admin_reason": "temporary operator waiver",
+			}),
 		}},
 	}, LLMResolverConfig{EncryptionKey: testLLMKey})
 
@@ -125,9 +152,9 @@ func TestLLMResolverUserModelOverrideRequiresEvaluatedTuple(t *testing.T) {
 			ModelName:   &systemModel,
 			Enabled:     true,
 			EvalStatus:  model.LLMEvalStatusPassed,
-			EvalReport: map[string]any{"model_evals": []any{
+			EvalReport: mergeEvalReport(evalIdentityReport("tool_agent", "llama_server", "system.example", systemModel), map[string]any{"model_evals": []any{
 				map[string]any{"role": "tool_agent", "backend_type": "llama_server", "api_base_host": "system.example", "model_name": userModel, "status": "passed"},
-			}},
+			}}),
 		}},
 		user: []model.LLMUserConfig{{
 			UserID:    "user-1",
@@ -160,7 +187,7 @@ func TestLLMResolverRejectsUnevaluatedUserModelOverride(t *testing.T) {
 			ModelName:   &systemModel,
 			Enabled:     true,
 			EvalStatus:  model.LLMEvalStatusPassed,
-			EvalReport:  map[string]any{"model_evals": []any{}},
+			EvalReport:  mergeEvalReport(evalIdentityReport("tool_agent", "llama_server", "system.example", systemModel), map[string]any{"model_evals": []any{}}),
 		}},
 		user: []model.LLMUserConfig{{
 			UserID:    "user-1",
@@ -179,11 +206,17 @@ func TestLLMResolverErrorsWhenEncryptedSystemKeyNeedsMissingEncryptionKey(t *tes
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
 	}
+	apiBase := "http://system.example/v1"
+	systemModel := "system-model"
 	resolver := NewLLMResolver(fakeLLMStore{
 		system: []model.LLMSystemConfig{{
-			Role:       "tool_agent",
-			Enabled:    true,
-			EvalStatus: model.LLMEvalStatusPassed,
+			Role:        "tool_agent",
+			BackendType: "llama_server",
+			APIBase:     &apiBase,
+			ModelName:   &systemModel,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusPassed,
+			EvalReport:  evalIdentityReport("tool_agent", "llama_server", "system.example", systemModel),
 		}},
 		keys: map[string]string{"tool_agent": enc},
 	}, LLMResolverConfig{
@@ -197,11 +230,55 @@ func TestLLMResolverErrorsWhenEncryptedSystemKeyNeedsMissingEncryptionKey(t *tes
 	}
 }
 
+func TestLLMResolverRejectsStaleEvalIdentity(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	systemModel := "system-model"
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:        "tool_agent",
+			BackendType: "llama_server",
+			APIBase:     &apiBase,
+			ModelName:   &systemModel,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusPassed,
+			EvalReport:  evalIdentityReport("tool_agent", "llama_server", "old.example", systemModel),
+		}},
+	}, LLMResolverConfig{EncryptionKey: testLLMKey})
+
+	if _, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err == nil {
+		t.Fatal("Resolve returned nil error, want stale eval identity error")
+	}
+}
+
+func TestLLMResolverRejectsLiteralDefaultRole(t *testing.T) {
+	resolver := NewLLMResolver(fakeLLMStore{}, LLMResolverConfig{EncryptionKey: testLLMKey})
+
+	if _, err := resolver.Resolve(context.Background(), "user-1", "default"); err == nil {
+		t.Fatal("Resolve accepted legacy default role")
+	}
+}
+
 func assertLLMConfig(t *testing.T, got, want LLMConfig) {
 	t.Helper()
 	if got != want {
 		t.Fatalf("LLMConfig = %+v, want %+v", got, want)
 	}
+}
+
+func evalIdentityReport(role, backendType, host, modelName string) map[string]any {
+	return map[string]any{"identity": map[string]any{
+		"role":          role,
+		"backend_type":  backendType,
+		"api_base_host": host,
+		"model_name":    modelName,
+	}}
+}
+
+func mergeEvalReport(base map[string]any, extra map[string]any) map[string]any {
+	for key, value := range extra {
+		base[key] = value
+	}
+	return base
 }
 
 type fakeLLMStore struct {

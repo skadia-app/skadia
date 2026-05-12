@@ -41,12 +41,43 @@ func TestPrepareActionCreatesPendingAuditWithoutMutationAndRetainsCallerContext(
 	if prepared.ActionID == "" || prepared.Status != ActionStatusPending || prepared.ConfirmationURL == "" {
 		t.Fatalf("prepared action = %#v", prepared)
 	}
+	preview, ok := prepared.Preview.(map[string]any)
+	if !ok || preview["tool"] != "update_activity_title" {
+		t.Fatalf("preview = %#v, want tool metadata", prepared.Preview)
+	}
 	status, err := envelope.GetActionStatus(context.Background(), prepared.ActionID, userID)
 	if err != nil {
 		t.Fatalf("GetActionStatus: %v", err)
 	}
 	if status.Status != ActionStatusPending || status.Caller.Transport != "local_mcp" || status.Caller.HostApprovalID != "host-ok" {
 		t.Fatalf("status = %#v, want pending caller metadata", status)
+	}
+}
+
+func TestPrepareActionPreviewRedactsSecrets(t *testing.T) {
+	db, userID := executionEnvelopeTestDB(t)
+	envelope := NewExecutionEnvelope(exportTestRegistry(), actionDeps(db, userID))
+	prepared, err := envelope.PrepareAction(context.Background(), ConfirmableActionRequest{
+		UserID:     userID,
+		SessionID:  uuid.NewString(),
+		ToolCallID: "call-secret-preview",
+		ToolName:   "update_activity",
+		Args:       json.RawMessage(`{"title":"Morning","api_key":"secret","nested":{"access_token":"token"}}`),
+		Caller:     CallerContext{Transport: "local_mcp"},
+	})
+	if err != nil {
+		t.Fatalf("PrepareAction: %v", err)
+	}
+	raw, err := json.Marshal(prepared.Preview)
+	if err != nil {
+		t.Fatalf("Marshal preview: %v", err)
+	}
+	got := string(raw)
+	if strings.Contains(got, `"api_key":"secret"`) || strings.Contains(got, `"access_token":"token"`) {
+		t.Fatalf("preview leaked sensitive value: %s", got)
+	}
+	if !strings.Contains(got, "Morning") || !strings.Contains(got, "[redacted]") {
+		t.Fatalf("preview = %s, want visible safe field and redaction", got)
 	}
 }
 

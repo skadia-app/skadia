@@ -63,6 +63,9 @@ func ValidateSQL(sql string) error {
 	if analysis.MultiStatement {
 		return fmt.Errorf("only a single statement is allowed")
 	}
+	if len(analysis.UnsafeKeywords) > 0 {
+		return fmt.Errorf("only read-only SELECT queries are allowed")
+	}
 	for _, table := range analysis.Tables {
 		if !TableWhitelist[strings.ToLower(table)] {
 			return fmt.Errorf("table is not allowed: %s", table)

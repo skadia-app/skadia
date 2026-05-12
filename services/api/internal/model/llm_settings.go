@@ -51,6 +51,13 @@ type LLMSystemConfigUpdate struct {
 	Enabled     bool    `json:"enabled"`
 }
 
+type LLMEvalIdentity struct {
+	Role        string `json:"role"`
+	BackendType string `json:"backend_type"`
+	APIBaseHost string `json:"api_base_host"`
+	ModelName   string `json:"model_name"`
+}
+
 type LLMUserConfig struct {
 	UserID    string  `json:"user_id"`
 	Role      string  `json:"role"`
@@ -83,6 +90,9 @@ func (c LLMSystemConfig) EvalGatePassed() bool {
 	if !c.Enabled {
 		return false
 	}
+	if !c.EvalIdentityMatchesCurrentConfig() {
+		return false
+	}
 	switch c.EvalStatus {
 	case LLMEvalStatusPassed:
 		return true
@@ -91,6 +101,29 @@ func (c LLMSystemConfig) EvalGatePassed() bool {
 	default:
 		return false
 	}
+}
+
+func (c LLMSystemConfig) CurrentEvalIdentity() (LLMEvalIdentity, bool) {
+	modelName := ""
+	if c.ModelName != nil {
+		modelName = strings.TrimSpace(*c.ModelName)
+	}
+	identity := LLMEvalIdentity{
+		Role:        strings.TrimSpace(c.Role),
+		BackendType: strings.TrimSpace(c.BackendType),
+		APIBaseHost: apiBaseHost(c.APIBase),
+		ModelName:   modelName,
+	}
+	return identity, identity.Role != "" && identity.BackendType != "" && identity.APIBaseHost != "" && identity.ModelName != ""
+}
+
+func (c LLMSystemConfig) EvalIdentityMatchesCurrentConfig() bool {
+	current, ok := c.CurrentEvalIdentity()
+	if !ok {
+		return false
+	}
+	reportIdentity, ok := evalIdentityFromReport(c.EvalReport["identity"])
+	return ok && reportIdentity == current
 }
 
 func (c LLMSystemConfig) HasAdminWaiverReason() bool {
@@ -123,6 +156,20 @@ func (c LLMSystemConfig) AllowsModelOverride(modelName string) bool {
 }
 
 type llmEvalRecord map[string]any
+
+func evalIdentityFromReport(raw any) (LLMEvalIdentity, bool) {
+	record, ok := raw.(map[string]any)
+	if !ok {
+		return LLMEvalIdentity{}, false
+	}
+	identity := LLMEvalIdentity{
+		Role:        stringValue(record["role"]),
+		BackendType: stringValue(record["backend_type"]),
+		APIBaseHost: stringValue(record["api_base_host"]),
+		ModelName:   stringValue(record["model_name"]),
+	}
+	return identity, identity.Role != "" && identity.BackendType != "" && identity.APIBaseHost != "" && identity.ModelName != ""
+}
 
 func llmEvalRecords(raw any) []llmEvalRecord {
 	items, ok := raw.([]any)

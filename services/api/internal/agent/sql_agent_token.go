@@ -10,6 +10,7 @@ type SQLAnalysis struct {
 	Tables         []string
 	CTENames       []string
 	MultiStatement bool
+	UnsafeKeywords []string
 }
 
 func AnalyzeSQL(sql string) (SQLAnalysis, error) {
@@ -17,6 +18,7 @@ func AnalyzeSQL(sql string) (SQLAnalysis, error) {
 	if err != nil {
 		return SQLAnalysis{}, err
 	}
+	unsafe := unsafeSQLKeywords(tokens)
 
 	ctes := extractCTENames(tokens)
 	cteSet := make(map[string]bool, len(ctes))
@@ -48,7 +50,31 @@ func AnalyzeSQL(sql string) (SQLAnalysis, error) {
 		}
 	}
 
-	return SQLAnalysis{Tables: tables, CTENames: ctes, MultiStatement: multi}, nil
+	return SQLAnalysis{Tables: tables, CTENames: ctes, MultiStatement: multi, UnsafeKeywords: unsafe}, nil
+}
+
+func unsafeSQLKeywords(tokens []string) []string {
+	unsafeSet := map[string]bool{
+		"insert": true,
+		"update": true,
+		"delete": true,
+		"merge":  true,
+		"alter":  true,
+		"drop":   true,
+		"create": true,
+		"copy":   true,
+		"do":     true,
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, token := range tokens {
+		key := strings.ToLower(token)
+		if unsafeSet[key] && !seen[key] {
+			seen[key] = true
+			out = append(out, key)
+		}
+	}
+	return out
 }
 
 func tokenizeSQL(sql string) ([]string, bool, error) {

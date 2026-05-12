@@ -41,8 +41,8 @@ func (r *LLMResolver) Resolve(ctx context.Context, userID, role string) (LLMConf
 	if strings.TrimSpace(role) == "" {
 		role = model.LLMRoleToolAgent
 	}
-	if role == "default" {
-		role = model.LLMRoleToolAgent
+	if !model.IsValidLLMRole(role) {
+		return LLMConfig{}, fmt.Errorf("invalid LLM role %q", role)
 	}
 
 	systemConfigs, err := r.store.GetLLMSystemConfig(ctx)

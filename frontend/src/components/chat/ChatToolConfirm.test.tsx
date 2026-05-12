@@ -46,4 +46,10 @@ describe('ChatToolConfirm', () => {
 
     expect(confirmChatToolCall).not.toHaveBeenCalled()
   })
+
+  it('renders structured preview details', () => {
+    render(<ChatToolConfirm request={request({ preview: { tool: 'create_gear', arguments: { name: 'Kette' } } })} onConfirmed={vi.fn()} onDeclined={vi.fn()} />)
+
+    expect(screen.getByText(/\"name\": \"Kette\"/)).toBeInTheDocument()
+  })
 })
