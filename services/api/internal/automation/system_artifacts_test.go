@@ -53,6 +53,45 @@ func createTestUser(t *testing.T, pool *pgxpool.Pool) string {
 	return userID
 }
 
+func assertSystemArtifactsSeeded(t *testing.T, pool *pgxpool.Pool, userID string) {
+	t.Helper()
+	ctx := context.Background()
+	var tagCount, ruleCount, version int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM tags WHERE user_id = $1 AND is_system = true AND name = ANY($2)`,
+		userID, namesFromTagSpecs(SystemTags),
+	).Scan(&tagCount); err != nil {
+		t.Fatalf("count seeded tags: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM automation_rules WHERE user_id = $1 AND is_system = true AND system_type = ANY($2)`,
+		userID, systemTypesFromRuleSpecs(SystemRules),
+	).Scan(&ruleCount); err != nil {
+		t.Fatalf("count seeded rules: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT system_artifacts_version FROM users WHERE id = $1`,
+		userID,
+	).Scan(&version); err != nil {
+		t.Fatalf("query seeded version: %v", err)
+	}
+	if tagCount != len(SystemTags) || ruleCount != len(SystemRules) || version != SystemArtifactsVersion {
+		t.Fatalf("seeded artifacts mismatch: tags=%d/%d rules=%d/%d version=%d/%d",
+			tagCount, len(SystemTags), ruleCount, len(SystemRules), version, SystemArtifactsVersion)
+	}
+
+	var liftHasAutomation bool
+	if err := pool.QueryRow(ctx,
+		`SELECT has_automation FROM tags WHERE user_id = $1 AND name = 'Lift' AND is_system = true`,
+		userID,
+	).Scan(&liftHasAutomation); err != nil {
+		t.Fatalf("query Lift has_automation: %v", err)
+	}
+	if !liftHasAutomation {
+		t.Fatal("Lift tag has_automation=false after seeding")
+	}
+}
+
 func TestEnsureSystemArtifacts_Idempotent(t *testing.T) {
 	pool := systemArtifactsTestPool(t)
 	ctx := context.Background()
@@ -85,6 +124,62 @@ func TestEnsureSystemArtifacts_Idempotent(t *testing.T) {
 	}
 	if ruleCount != len(SystemRules) {
 		t.Errorf("rule count = %d, want %d (one per SystemRuleSpec)", ruleCount, len(SystemRules))
+	}
+}
+
+func TestEnsureSystemArtifactsTxSeedsAndRollsBack(t *testing.T) {
+	pool := systemArtifactsTestPool(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	if err := EnsureSystemArtifactsTx(ctx, tx, userID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("EnsureSystemArtifactsTx: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit tx: %v", err)
+	}
+
+	assertSystemArtifactsSeeded(t, pool, userID)
+
+	rollbackUserID := createTestUser(t, pool)
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin rollback tx: %v", err)
+	}
+	if err := EnsureSystemArtifactsTx(ctx, tx, rollbackUserID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("EnsureSystemArtifactsTx rollback user: %v", err)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback tx: %v", err)
+	}
+
+	var tagCount, ruleCount, version int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM tags WHERE user_id = $1 AND is_system = true`,
+		rollbackUserID,
+	).Scan(&tagCount); err != nil {
+		t.Fatalf("count rollback tags: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM automation_rules WHERE user_id = $1 AND is_system = true`,
+		rollbackUserID,
+	).Scan(&ruleCount); err != nil {
+		t.Fatalf("count rollback rules: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT system_artifacts_version FROM users WHERE id = $1`,
+		rollbackUserID,
+	).Scan(&version); err != nil {
+		t.Fatalf("query rollback version: %v", err)
+	}
+	if tagCount != 0 || ruleCount != 0 || version != 0 {
+		t.Fatalf("rollback left artifacts: tags=%d rules=%d version=%d", tagCount, ruleCount, version)
 	}
 }
 

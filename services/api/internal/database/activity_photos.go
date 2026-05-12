@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/jackc/pgx/v5"
 )
 
 // clipVecLiteralRe validates pgvector literal format: '[float,float,...]'
@@ -184,17 +185,6 @@ func (db *DB) ActivityPhotoExistsByHash(ctx context.Context, userID, hash string
 	err := db.Pool.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM activity_photos WHERE user_id = $1 AND file_hash = $2)`,
 		userID, hash,
-	).Scan(&exists)
-	return exists, err
-}
-
-// ActivityPhotoExistsByHashAndActivity checks whether the same photo (by hash) already
-// exists for a specific activity. This allows the same photo in different activities.
-func (db *DB) ActivityPhotoExistsByHashAndActivity(ctx context.Context, userID, hash, activityID string) (bool, error) {
-	var exists bool
-	err := db.Pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM activity_photos WHERE user_id = $1 AND file_hash = $2 AND activity_id = $3)`,
-		userID, hash, activityID,
 	).Scan(&exists)
 	return exists, err
 }
@@ -433,20 +423,24 @@ func buildPhotoActivitySummary(id, title, sportType *string, startedAt *time.Tim
 
 // PhotoHashRow holds pHash comparison data for a single photo.
 type PhotoHashRow struct {
-	ID      string
-	PHash   *int64
-	Width   *int
-	Height  *int
-	TakenAt *time.Time
-	Lat     *float64
+	ID             string
+	ActivityID     string
+	FileID         string
+	PHash          *int64
+	Width          *int
+	Height         *int
+	TakenAt        *time.Time
+	Lat            *float64
+	Lng            *float64
+	LocationSource *string
 }
 
 // GetActivityPhotoHashes returns photo IDs and pHashes for an activity (for pHash comparison).
 func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]PhotoHashRow, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, phash, width, height, taken_at, lat
-		 FROM activity_photos
-		 WHERE activity_id = $1 AND phash IS NOT NULL`,
+		`SELECT id, COALESCE(activity_id::text, ''), COALESCE(file_id::text, ''), phash, width, height, taken_at, lat, lng, location_source
+			 FROM activity_photos
+			 WHERE activity_id = $1 AND phash IS NOT NULL`,
 		activityID)
 	if err != nil {
 		return nil, err
@@ -455,12 +449,54 @@ func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]
 	var result []PhotoHashRow
 	for rows.Next() {
 		var r PhotoHashRow
-		if err := rows.Scan(&r.ID, &r.PHash, &r.Width, &r.Height, &r.TakenAt, &r.Lat); err != nil {
+		if err := rows.Scan(&r.ID, &r.ActivityID, &r.FileID, &r.PHash, &r.Width, &r.Height, &r.TakenAt, &r.Lat, &r.Lng, &r.LocationSource); err != nil {
 			return nil, err
 		}
 		result = append(result, r)
 	}
 	return result, rows.Err()
+}
+
+// GetUserActivityPhotoHashes returns all pHash-backed activity photos for a user.
+func (db *DB) GetUserActivityPhotoHashes(ctx context.Context, userID string) ([]PhotoHashRow, error) {
+	rows, err := db.Pool.Query(ctx,
+		`SELECT id, COALESCE(activity_id::text, ''), COALESCE(file_id::text, ''), phash, width, height, taken_at, lat, lng, location_source
+				 FROM activity_photos
+				 WHERE user_id = $1 AND activity_id IS NOT NULL AND phash IS NOT NULL`,
+		userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []PhotoHashRow
+	for rows.Next() {
+		var r PhotoHashRow
+		if err := rows.Scan(&r.ID, &r.ActivityID, &r.FileID, &r.PHash, &r.Width, &r.Height, &r.TakenAt, &r.Lat, &r.Lng, &r.LocationSource); err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
+}
+
+// GetActivityPhotoByHash returns the existing user-wide exact duplicate photo, if any.
+func (db *DB) GetActivityPhotoByHash(ctx context.Context, userID, hash string) (*PhotoHashRow, error) {
+	var r PhotoHashRow
+	err := db.Pool.QueryRow(ctx,
+		`SELECT id, COALESCE(activity_id::text, ''), COALESCE(file_id::text, ''), phash, width, height, taken_at, lat, lng, location_source
+			 FROM activity_photos
+			 WHERE user_id = $1 AND file_hash = $2
+			 ORDER BY created_at DESC
+			 LIMIT 1`,
+		userID, hash,
+	).Scan(&r.ID, &r.ActivityID, &r.FileID, &r.PHash, &r.Width, &r.Height, &r.TakenAt, &r.Lat, &r.Lng, &r.LocationSource)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &r, nil
 }
 
 // UpdateActivityPhotoPHash updates the pHash for a photo.
@@ -524,18 +560,20 @@ func (db *DB) PhotosWithoutThumb(ctx context.Context) ([]ThumbnailBackfillRow, e
 
 // BackfillPhotoRow holds data for pHash backfill processing.
 type BackfillPhotoRow struct {
-	ID        string
-	IsVideo   bool
-	DurationS *float64
-	Width     *int
-	Height    *int
-	FileID    string // user_files registry ID (ShadowFS)
+	ID               string
+	OriginalFilename string
+	ContentType      string
+	IsVideo          bool
+	DurationS        *float64
+	Width            *int
+	Height           *int
+	FileID           string // user_files registry ID (ShadowFS)
 }
 
 // PhotosWithoutPHash returns all photo IDs that need pHash or dimension backfill.
 func (db *DB) PhotosWithoutPHash(ctx context.Context, userID string) ([]BackfillPhotoRow, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, is_video, duration_s, width, height, COALESCE(file_id::text, '')
+		`SELECT id, original_filename, content_type, is_video, duration_s, width, height, COALESCE(file_id::text, '')
 		 FROM activity_photos
 		 WHERE user_id = $1 AND (phash IS NULL OR width IS NULL)
 		 ORDER BY created_at`,
@@ -547,7 +585,7 @@ func (db *DB) PhotosWithoutPHash(ctx context.Context, userID string) ([]Backfill
 	var result []BackfillPhotoRow
 	for rows.Next() {
 		var r BackfillPhotoRow
-		if err := rows.Scan(&r.ID, &r.IsVideo, &r.DurationS, &r.Width, &r.Height, &r.FileID); err != nil {
+		if err := rows.Scan(&r.ID, &r.OriginalFilename, &r.ContentType, &r.IsVideo, &r.DurationS, &r.Width, &r.Height, &r.FileID); err != nil {
 			return nil, err
 		}
 		result = append(result, r)

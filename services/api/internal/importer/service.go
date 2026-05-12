@@ -36,6 +36,32 @@ type ActivityFileRefresher func(ctx context.Context, userID, activityID, fileID 
 
 type metaCompanionWriter func(ctx context.Context, userID, activityID, fileID string, data *model.ActivityData, activity *model.Activity)
 
+// ActivityPhotoCreateGuard is called after duplicate/replacement classification
+// but before storing bytes for a new activity photo row. The returned release
+// function, when non-nil, is held until ProcessPhoto finishes.
+type ActivityPhotoCreateGuard func(ctx context.Context, userID, activityID string) (release func(), err error)
+
+var ErrActivityPhotoLimitExceeded = errors.New("activity photo limit exceeded")
+
+type PhotoProcessOptions struct {
+	EnforceActivityPhotoLimit bool
+	NetStorageFileID          string
+}
+
+type ActivityPhotoLimitError struct {
+	ActivityID string
+	Limit      int
+	Current    int
+}
+
+func (e *ActivityPhotoLimitError) Error() string {
+	return fmt.Sprintf("activity photo limit exceeded for activity %s: %d/%d", e.ActivityID, e.Current, e.Limit)
+}
+
+func (e *ActivityPhotoLimitError) Is(target error) bool {
+	return target == ErrActivityPhotoLimitExceeded
+}
+
 // Service holds shared dependencies needed to run post-insert processing steps
 // after an activity has been written to the database. It is used by the upload
 // handler and will be reused by the cross-platform import pipeline so that all
@@ -76,6 +102,11 @@ type Service struct {
 	// ActivityFileRefresher updates local ShadowFS paths after enrichment/rules
 	// have finalized schema-relevant activity fields. Optional — nil is safe.
 	ActivityFileRefresher ActivityFileRefresher
+
+	// ActivityPhotoCreateGuard enforces parent media limits for new activity
+	// photo rows. It is not called for duplicates, EXIF-only enrichment, or
+	// replacements because those do not increase the visible parent count.
+	ActivityPhotoCreateGuard ActivityPhotoCreateGuard
 
 	metaCompanionWriter metaCompanionWriter
 

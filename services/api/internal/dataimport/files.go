@@ -3,6 +3,7 @@ package dataimport
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -46,6 +47,27 @@ func loadUserFilesIndex(source Source) (map[string]userFileRecord, error) {
 		index[rec.ID] = rec
 	}
 	return index, nil
+}
+
+func quotaRelevantUserFileBytes(source Source) (int64, error) {
+	fileIndex, err := loadUserFilesIndex(source)
+	if err != nil {
+		return 0, err
+	}
+
+	var total int64
+	for _, rec := range fileIndex {
+		if rec.Status != "active" {
+			continue
+		}
+		if rec.FileType == "thumb" || rec.FileType == "preview" {
+			continue
+		}
+		if rec.SizeBytes > 0 {
+			total += rec.SizeBytes
+		}
+	}
+	return total, nil
 }
 
 type exportedActivityFileTags struct {
@@ -225,6 +247,7 @@ func (e *Engine) importFileByID(
 
 	// CRITICAL: map old export ID → new ShadowFS-assigned ID.
 	idMap.Set(oldFileID, fileRecord.ID)
+	result.importedFileIDs = append(result.importedFileIDs, fileRecord.ID)
 
 	result.FilesImported++
 	result.BytesImported += rec.SizeBytes
@@ -369,6 +392,9 @@ func (e *Engine) importAllFiles(
 		}
 
 		if err := e.importFileByID(ctx, source, idMap, userID, oldFileID, fileIndex, activityTags, result); err != nil {
+			if errors.Is(err, shadowfs.ErrQuotaExceeded) {
+				return fileIndex, fmt.Errorf("Phase 0 file %s (%s): %w", oldFileID, rec.FileName, err)
+			}
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Phase 0 file %s (%s): %v", oldFileID, rec.FileName, err))
 			continue // Non-fatal: skip this file, continue with others.
@@ -399,7 +425,7 @@ func (e *Engine) importEditSidecars(
 	userID string,
 	fileIndex map[string]userFileRecord,
 	result *ImportResult,
-) {
+) error {
 	for oldFileID, rec := range fileIndex {
 		if rec.FileType != "edit" {
 			continue
@@ -412,8 +438,12 @@ func (e *Engine) importEditSidecars(
 		// pre-remap needed here. The activity is in IDMap after Phase 5, so
 		// importFileByID will find actOldID → actNewID correctly.
 		if err := e.importFileByID(ctx, source, idMap, userID, oldFileID, fileIndex, nil, result); err != nil {
+			if errors.Is(err, shadowfs.ErrQuotaExceeded) {
+				return fmt.Errorf("Edit sidecar %s: %w", oldFileID, err)
+			}
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Edit sidecar %s: %v", oldFileID, err))
 		}
 	}
+	return nil
 }

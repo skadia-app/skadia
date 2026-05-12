@@ -3,9 +3,11 @@ package dataimport
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -15,8 +17,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
+
+const maxUserStorageSettingKey = "limits.max_user_storage_bytes"
 
 // EngineConfig holds configuration for the import engine.
 type EngineConfig struct {
@@ -27,9 +32,10 @@ type EngineConfig struct {
 
 // Engine orchestrates the GDPR data import.
 type Engine struct {
-	DB       *pgxpool.Pool
-	ShadowFS shadowfs.ShadowFS
-	Config   EngineConfig
+	DB            *pgxpool.Pool
+	ShadowFS      shadowfs.ShadowFS
+	SettingsStore *settings.SettingsStore
+	Config        EngineConfig
 }
 
 type deferredFK struct {
@@ -167,6 +173,21 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	const totalPhases = 11 // phases 0–10
 
 	// Phase 0: Disk-space check + import all files (except edit-sidecars).
+	if maxStorageBytes := e.effectiveMaxStorageBytes(ctx); maxStorageBytes > 0 && e.ShadowFS != nil {
+		est, err := quotaRelevantUserFileBytes(input.Source)
+		if err != nil {
+			return result, fmt.Errorf("RunImport phase 0 (quota preflight): %w", err)
+		}
+		if est > 0 {
+			used, err := e.ShadowFS.DiskUsage(ctx, input.TargetUserID)
+			if err != nil {
+				return result, fmt.Errorf("RunImport phase 0 (quota preflight): %w", err)
+			}
+			if used+est > maxStorageBytes {
+				return result, fmt.Errorf("%w: restore would use %d + %d > %d bytes", shadowfs.ErrQuotaExceeded, used, est, maxStorageBytes)
+			}
+		}
+	}
 	if e.Config.LibraryBasePath != "" && e.Config.StorageBackend == "local" {
 		est := input.Source.EstimatedFileBytes()
 		if est > 0 {
@@ -189,7 +210,10 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	result.Warnings = append(result.Warnings, activityFileTagWarnings...)
 	fileIndex, err := e.importAllFiles(ctx, input.Source, idMap, input.TargetUserID, result, input.OnProgress, activityFileTags)
 	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Phase 0 partial failure: %v — orphaned files may exist, delete the account to clean up", err))
+		if errors.Is(err, shadowfs.ErrQuotaExceeded) {
+			e.cleanupImportedFiles(ctx, input.TargetUserID, result)
+		}
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Phase 0 partial failure: %v — imported files were rolled back where possible", err))
 		return result, fmt.Errorf("RunImport phase 0 (files): %w", err)
 	}
 	result.PhasesCompleted = 1
@@ -235,7 +259,12 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 		input.OnProgress(ProgressEvent{Phase: 6, PhasesTotal: totalPhases, Message: "Importing activity-dependent data..."})
 	}
 	// Import edit-sidecars first (they need activity IDs in IDMap).
-	e.importEditSidecars(ctx, input.Source, idMap, input.TargetUserID, fileIndex, result)
+	if err := e.importEditSidecars(ctx, input.Source, idMap, input.TargetUserID, fileIndex, result); err != nil {
+		if errors.Is(err, shadowfs.ErrQuotaExceeded) {
+			e.cleanupImportedFiles(ctx, input.TargetUserID, result)
+		}
+		return result, fmt.Errorf("RunImport phase 6 (edit sidecars): %w", err)
+	}
 	// Then import Phase 6 tables.
 	if len(phase6Specs) > 0 {
 		if err := e.runSingleTXPhase(ctx, 6, phase6Specs, input, idMap, schemaMap, manifest.SchemaMigration, result, &deferredFKs); err != nil {
@@ -314,6 +343,37 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	// ── 10. Result ────────────────────────────────────────────────────────────
 	result.Duration = time.Since(start)
 	return result, nil
+}
+
+func (e *Engine) effectiveMaxStorageBytes(ctx context.Context) int64 {
+	if e.SettingsStore != nil {
+		cs := e.SettingsStore.Get(maxUserStorageSettingKey)
+		if cs.Value != "" {
+			n, err := strconv.ParseInt(cs.Value, 10, 64)
+			if err == nil && n >= 0 {
+				return n
+			}
+			slog.WarnContext(ctx, "dataimport: ignoring invalid live storage quota",
+				"value", cs.Value, "source", cs.Source, "error", err)
+		}
+	}
+	return e.Config.MaxStorageBytes
+}
+
+func (e *Engine) cleanupImportedFiles(ctx context.Context, userID string, result *ImportResult) {
+	if e.ShadowFS == nil || result == nil {
+		return
+	}
+	for i := len(result.importedFileIDs) - 1; i >= 0; i-- {
+		fileID := result.importedFileIDs[i]
+		if fileID == "" {
+			continue
+		}
+		if err := e.ShadowFS.Delete(context.WithoutCancel(ctx), userID, fileID); err != nil {
+			slog.Warn("dataimport: cleanup imported file after quota failure failed", "file_id", fileID, "error", err)
+		}
+	}
+	result.importedFileIDs = nil
 }
 
 func refreshImportedTagAutomationState(ctx context.Context, pool *pgxpool.Pool, userID string) error {

@@ -138,11 +138,23 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var verificationToken string
+	var verificationTokenHash string
+	if !isBootstrap {
+		verificationToken, err = GenerateToken()
+		if err != nil {
+			slog.Error("generate verification token failed", "error", err)
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		verificationTokenHash = HashToken(verificationToken)
+	}
+
 	// Create user.
 	ip := net.ParseIP(middleware.ClientIP(r))
 	var user *model.User
 	if isBootstrap {
-		user, err = h.DB.CreateBootstrapAdmin(r.Context(), req.Email, req.Username, hash, ip)
+		user, err = h.DB.CreateBootstrapAdminSeeded(r.Context(), req.Email, req.Username, hash, ip, h.seedSystemArtifactsTx)
 		if err == nil && user == nil {
 			// Race: someone else just created the first user.
 			httputil.WriteJSONNoCache(w, http.StatusConflict, map[string]string{"error": "admin_already_created"})
@@ -150,7 +162,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		isActive := h.Settings.Get("registration.mode").Value != "approval"
-		user, err = h.DB.CreateUserWithPassword(r.Context(), req.Email, req.Username, hash, "email", ip, isActive, !isActive)
+		user, err = h.DB.CreateUserWithPasswordAndEmailTokenSeeded(r.Context(), req.Email, req.Username, hash, "email", ip, isActive, !isActive,
+			verificationTokenHash, "verification", time.Now().Add(24*time.Hour), h.seedSystemArtifactsTx)
 	}
 	if err != nil {
 		slog.Error("create user failed", "error", err)
@@ -173,24 +186,9 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Generate verification token.
-		token, err := GenerateToken()
-		if err != nil {
-			slog.Error("generate verification token failed", "error", err)
-			// User was created but token generation failed — not fatal.
-			httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
-			return
-		}
-
-		tokenHash := HashToken(token)
-		if err := h.DB.CreateEmailToken(r.Context(), uuid.MustParse(user.ID), tokenHash, "verification",
-			time.Now().Add(24*time.Hour)); err != nil {
-			slog.Error("create verification token failed", "error", err)
-		}
-
 		// Send verification email (async) — send the RAW token, not the hash.
 		if h.Mailer.IsConfigured() {
-			h.Mailer.SendVerificationEmail(req.Email, req.Username, token)
+			h.Mailer.SendVerificationEmail(req.Email, req.Username, verificationToken)
 			httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
 		} else {
 			httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "created"})

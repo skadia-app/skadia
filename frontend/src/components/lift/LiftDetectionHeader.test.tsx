@@ -206,7 +206,10 @@ describe('LiftDetectionHeader — automatic recompute on toggle', () => {
   it('409 from recalculate-all shows "Job läuft bereits" toast and still calls onJobStarted', async () => {
     const onJobStarted = vi.fn()
     mockPut.mockResolvedValue(undefined)
-    mockApiFetch.mockResolvedValue({ ok: false, status: 409, json: async () => ({}) })
+    mockApiFetch.mockResolvedValue(new Response('{}', {
+      status: 409,
+      headers: { 'Content-Type': 'application/json' },
+    }))
 
     await renderHeader({ onJobStarted })
 
@@ -248,6 +251,39 @@ describe('LiftDetectionHeader — automatic recompute on toggle', () => {
     })
     expect(mockPut).not.toHaveBeenCalled()
     expect(mockApiFetch).not.toHaveBeenCalled()
+  })
+
+  it('does not invalidate lift success queries when recalculate-all fails', async () => {
+    const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
+    try {
+      mockPut.mockResolvedValue(undefined)
+      mockApiFetch.mockResolvedValue(new Response(JSON.stringify({
+        detail: 'sport cycling hat keine Lift-Erkennung',
+        code: 'NOT_LIFT_ELIGIBLE',
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/problem+json' },
+      }))
+
+      await renderHeader({})
+
+      await waitFor(() => expect(screen.getByTestId('toggle-osm').querySelector('button')).toBeTruthy())
+      fireEvent.click(screen.getByTestId('toggle-osm').querySelector('button')!)
+
+      await waitFor(() => {
+        expect(screen.getByText(/sport cycling hat keine Lift-Erkennung/)).toBeTruthy()
+      })
+
+      const successInvalidations = invalidateSpy.mock.calls.filter(([arg]) => {
+        const key = (arg as { queryKey?: unknown[] } | undefined)?.queryKey
+        return Array.isArray(key) &&
+          key[1] === 'act-1' &&
+          (key[0] === 'lift-candidates' || key[0] === 'lift-candidates-inspector' || key[0] === 'activity')
+      })
+      expect(successInvalidations).toEqual([])
+    } finally {
+      invalidateSpy.mockRestore()
+    }
   })
 })
 

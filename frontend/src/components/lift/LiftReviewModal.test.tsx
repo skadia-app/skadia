@@ -1178,8 +1178,10 @@ describe('LiftReviewModal — F9: recalcMutation 409 error handling', () => {
     mockApiFetch.mockImplementation(async (url: string, opts?: RequestInit) => {
       if (url.includes('/candidates')) return { ok: true, json: async () => twoHeuristicCandidates }
       if (url.includes('/recalculate-all') && opts?.method === 'POST') {
-        // throwOnError will throw because !ok
-        return { ok: false, status: 409, json: async () => ({ code: 'LIFT_RECOMPUTE_RUNNING', detail: 'Job already running' }) }
+        return new Response(JSON.stringify({ code: 'LIFT_RECOMPUTE_RUNNING', detail: 'Job already running' }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        })
       }
       return { ok: true, json: async () => ({}) }
     })
@@ -1212,7 +1214,10 @@ describe('LiftReviewModal — F9: recalcMutation 409 error handling', () => {
     mockApiFetch.mockImplementation(async (url: string, opts?: RequestInit) => {
       if (url.includes('/candidates')) return { ok: true, json: async () => twoHeuristicCandidates }
       if (url.includes('/recalculate-all') && opts?.method === 'POST') {
-        return { ok: false, status: 500, json: async () => ({ detail: 'Internal server error' }) }
+        return new Response(JSON.stringify({ detail: 'Internal server error' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        })
       }
       return { ok: true, json: async () => ({}) }
     })

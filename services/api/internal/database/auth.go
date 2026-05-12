@@ -103,7 +103,19 @@ func (db *DB) CreateEmailToken(ctx context.Context, userID uuid.UUID, tokenHash,
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	_, err = tx.Exec(ctx,
+	if err := CreateEmailTokenTx(ctx, tx, userID, tokenHash, tokenType, expiresAt); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("create email token: commit: %w", err)
+	}
+	return nil
+}
+
+// CreateEmailTokenTx stores an email token inside a caller-owned transaction.
+func CreateEmailTokenTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID, tokenHash, tokenType string, expiresAt time.Time) error {
+	_, err := tx.Exec(ctx,
 		`DELETE FROM email_tokens WHERE user_id = $1 AND type = $2`,
 		userID, tokenType,
 	)
@@ -117,10 +129,6 @@ func (db *DB) CreateEmailToken(ctx context.Context, userID uuid.UUID, tokenHash,
 	)
 	if err != nil {
 		return fmt.Errorf("create email token: insert: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("create email token: commit: %w", err)
 	}
 	return nil
 }

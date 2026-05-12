@@ -4,10 +4,13 @@ package imageutil
 import (
 	"bytes"
 	"image"
+	_ "image/gif"
 	"image/jpeg"
 	_ "image/png" // register PNG decoder
 
 	"golang.org/x/image/draw"
+	_ "golang.org/x/image/tiff"
+	_ "golang.org/x/image/webp"
 )
 
 // Resize scales src to fit within maxW × maxH while preserving aspect ratio.
