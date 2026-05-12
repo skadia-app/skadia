@@ -116,12 +116,6 @@ type Registry struct {
 	tools map[string]*Tool
 }
 
-type MCPTool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema"`
-}
-
 func NewRegistry() *Registry {
 	return &Registry{tools: make(map[string]*Tool)}
 }
@@ -209,23 +203,6 @@ func (r *Registry) Definitions(filter []string, prefs *agent.ChatPreferences) []
 			}
 		}
 		defs = append(defs, t.definition())
-	}
-	return defs
-}
-
-func (r *Registry) MCPDefinitions(filter []string) []MCPTool {
-	filterSet := namesSet(filter)
-	defs := make([]MCPTool, 0, len(r.tools))
-	for _, name := range r.sortedNames() {
-		t := r.tools[name]
-		if t == nil || !nameAllowed(filterSet, name) {
-			continue
-		}
-		defs = append(defs, MCPTool{
-			Name:        t.Name,
-			Description: t.Description,
-			InputSchema: append(json.RawMessage(nil), t.InputSchema...),
-		})
 	}
 	return defs
 }

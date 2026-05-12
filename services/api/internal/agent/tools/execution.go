@@ -41,62 +41,26 @@ func NewExecutionEnvelope(reg *Registry, deps *Deps) *ExecutionEnvelope {
 }
 
 func (e *ExecutionEnvelope) PrepareConfirmation(ctx context.Context, req ToolExecutionRequest) (*PreparedConfirmation, error) {
-	tool, err := e.writeTool(req.ToolName)
-	if err != nil {
-		return nil, err
-	}
-	if err := e.writeAllowed(ctx, req.UserID, tool.Name); err != nil {
-		return nil, err
-	}
-	if err := validateArgs(tool.Name, tool.InputSchema, req.Args); err != nil {
-		return nil, err
-	}
-	summary := tool.Description
-	if tool.SummaryForUser != nil {
-		got, err := tool.SummaryForUser(ctx, e.Deps, req.UserID, req.Args)
-		if err != nil {
-			return nil, err
-		}
-		if got != "" {
-			summary = got
-		}
-	}
-	claimed, existing, err := e.audit().ClaimPending(ctx, database.AgentAuditRow{
+	prepared, err := e.PrepareAction(ctx, ConfirmableActionRequest{
 		UserID:     req.UserID,
 		SessionID:  req.SessionID,
 		ToolCallID: req.ToolCallID,
-		ToolName:   tool.Name,
+		ToolName:   req.ToolName,
 		Args:       req.Args,
+		Caller:     CallerContext{Transport: "internal_chat"},
 	})
 	if err != nil {
 		return nil, err
 	}
-	if !claimed && existing != nil && existing.ResultStatus != "pending" {
-		cached := append(json.RawMessage(nil), existing.ResultDetail...)
+	if prepared.Status != ActionStatusPending {
+		status, err := e.GetActionStatus(ctx, prepared.ActionID, req.UserID)
+		if err != nil {
+			return nil, err
+		}
+		cached := append(json.RawMessage(nil), status.Detail...)
 		return &PreparedConfirmation{Cached: &cached}, nil
 	}
-	if e.Deps == nil || e.Deps.Confirm == nil {
-		if existing != nil {
-			_ = e.audit().Complete(ctx, req.UserID, existing.ID, "error", json.RawMessage(`{"error":"confirmation manager is not configured"}`))
-		}
-		return nil, fmt.Errorf("confirmation manager is not configured")
-	}
-	expiresAt := time.Now().Add(5 * time.Minute)
-	response, err := e.Deps.Confirm.Register(ctx, &agent.PendingConfirm{
-		SessionID:  req.SessionID,
-		ToolCallID: req.ToolCallID,
-		Tool:       tool.Name,
-		Args:       req.Args,
-		Summary:    summary,
-		ExpiresAt:  expiresAt,
-	})
-	if err != nil {
-		if existing != nil {
-			_ = e.audit().Complete(ctx, req.UserID, existing.ID, "error", json.RawMessage(`{"error":"confirmation registration failed"}`))
-		}
-		return nil, err
-	}
-	return &PreparedConfirmation{Summary: summary, ExpiresAt: expiresAt, Response: response}, nil
+	return &PreparedConfirmation{Summary: prepared.Summary, ExpiresAt: prepared.ExpiresAt, Response: prepared.Response}, nil
 }
 
 func (e *ExecutionEnvelope) ExecutePreview(ctx context.Context, req ToolExecutionRequest) (any, error) {
