@@ -26,11 +26,13 @@ export interface ImportQueueItem {
 
 export interface MediaUploadResultItem {
   filename: string
-  status: 'assigned' | 'queued' | 'type_required'
+  status: 'assigned' | 'queued' | 'duplicate' | 'skipped_limit_reached' | 'error' | 'type_required'
   activity_id?: string
   activity_title?: string
   queue_id?: string
   queue_type?: string
+  error?: string
+  error_code?: string
 }
 
 export interface MediaUploadResult {
