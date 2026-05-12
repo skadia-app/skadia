@@ -18,6 +18,7 @@ import (
 
 // maxDataBytes is the decompression limit for OpenData() calls (JSON data files).
 const maxDataBytes = 500 * 1024 * 1024 // 500 MB
+const maxStreamDataBytes int64 = 4 * 1024 * 1024 * 1024
 
 // Source abstracts ZIP, directory, and multi-part GDPR exports.
 type Source interface {
@@ -26,6 +27,9 @@ type Source interface {
 	// OpenData opens a data file (e.g. "data/activities.json") for reading.
 	// Returns a limited reader — max 500 MB decompressed.
 	OpenData(path string) (io.ReadCloser, error)
+	// OpenDataStream opens a data file without the legacy 500 MB compatibility
+	// cap. Import engine callers must enforce their own streaming limits.
+	OpenDataStream(path string) (io.ReadCloser, error)
 	// OpenFile opens an attached file (must have "files/" prefix).
 	OpenFile(path string) (io.ReadCloser, error)
 	// ListFiles returns all paths available in the source.
@@ -114,6 +118,10 @@ func (l *limitedReadCloser) Close() error { return l.r.Close() }
 
 func newLimitedReadCloser(rc io.ReadCloser) io.ReadCloser {
 	return &limitedReadCloser{r: rc, n: maxDataBytes}
+}
+
+func newStreamDataReadCloser(rc io.ReadCloser) io.ReadCloser {
+	return &limitedReadCloser{r: rc, n: maxStreamDataBytes}
 }
 
 // verifySHA256 reads the file at path and compares its SHA-256 against expected.
@@ -218,14 +226,29 @@ func (s *ZipSource) Manifest() (*Manifest, error) {
 }
 
 func (s *ZipSource) OpenData(path string) (io.ReadCloser, error) {
-	if !isValidPath(path) {
-		return nil, fmt.Errorf("dataimport: invalid path %q", path)
-	}
-	rc, err := s.openZipEntry(path)
+	rc, err := s.OpenDataStream(path)
 	if err != nil {
 		return nil, err
 	}
 	return newLimitedReadCloser(rc), nil
+}
+
+func (s *ZipSource) OpenDataStream(path string) (io.ReadCloser, error) {
+	if !isValidPath(path) {
+		return nil, fmt.Errorf("dataimport: invalid path %q", path)
+	}
+	f, ok := s.idx[path]
+	if !ok {
+		return nil, fmt.Errorf("dataimport: entry %q not found in zip: %w", path, fs.ErrNotExist)
+	}
+	if f.UncompressedSize64 > uint64(maxStreamDataBytes) {
+		return nil, fmt.Errorf("dataimport: data entry %q exceeds stream limit", path)
+	}
+	rc, err := f.Open()
+	if err != nil {
+		return nil, err
+	}
+	return newStreamDataReadCloser(rc), nil
 }
 
 func (s *ZipSource) OpenFile(path string) (io.ReadCloser, error) {
@@ -316,6 +339,14 @@ func (s *DirSource) Manifest() (*Manifest, error) {
 }
 
 func (s *DirSource) OpenData(path string) (io.ReadCloser, error) {
+	rc, err := s.OpenDataStream(path)
+	if err != nil {
+		return nil, err
+	}
+	return newLimitedReadCloser(rc), nil
+}
+
+func (s *DirSource) OpenDataStream(path string) (io.ReadCloser, error) {
 	if !isValidPath(path) {
 		return nil, fmt.Errorf("dataimport: invalid path %q", path)
 	}
@@ -323,7 +354,7 @@ func (s *DirSource) OpenData(path string) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newLimitedReadCloser(rc), nil
+	return newStreamDataReadCloser(rc), nil
 }
 
 func (s *DirSource) OpenFile(path string) (io.ReadCloser, error) {
@@ -561,10 +592,18 @@ func (s *MultiPartSource) Manifest() (*Manifest, error) {
 }
 
 func (s *MultiPartSource) OpenData(path string) (io.ReadCloser, error) {
+	rc, err := s.OpenDataStream(path)
+	if err != nil {
+		return nil, err
+	}
+	return newLimitedReadCloser(rc), nil
+}
+
+func (s *MultiPartSource) OpenDataStream(path string) (io.ReadCloser, error) {
 	if !isValidPath(path) {
 		return nil, fmt.Errorf("dataimport: invalid path %q", path)
 	}
-	return s.meta.OpenData(path)
+	return s.meta.OpenDataStream(path)
 }
 
 func (s *MultiPartSource) OpenFile(path string) (io.ReadCloser, error) {
