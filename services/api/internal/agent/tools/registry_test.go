@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -53,8 +54,8 @@ func TestRegistryExecuteReadRejectsWriteTool(t *testing.T) {
 		},
 	})
 	_, err := reg.ExecuteRead(context.Background(), nil, "user-1", "update_activity", nil)
-	if err == nil || !strings.Contains(err.Error(), "not read-only") {
-		t.Fatalf("expected permission error, got %v", err)
+	if !errors.Is(err, ErrWriteToolRequiresEnvelope) {
+		t.Fatalf("expected ErrWriteToolRequiresEnvelope, got %v", err)
 	}
 }
 
