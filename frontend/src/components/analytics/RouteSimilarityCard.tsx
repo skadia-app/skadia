@@ -42,7 +42,7 @@ export default function RouteSimilarityCard({ activityId }: { activityId: string
             className="w-full flex items-center justify-between text-left px-3 py-2 rounded-lg bg-neutral-50 dark:bg-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-700 cursor-pointer transition-colors text-sm"
           >
             <div>
-              <p className="font-medium truncate max-w-[200px]">{r.title}</p>
+              <p className="font-medium truncate max-w-[200px]">{r.title || sportLabel(r.sport_type)}</p>
               <p className="text-xs text-neutral-500">
                 {new Date(r.started_at).toLocaleDateString('de-DE')} · {sportLabel(r.sport_type)}
               </p>

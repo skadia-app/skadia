@@ -50,6 +50,11 @@ describe('activityTitle', () => {
     expect(displayActivityTitle(activity, 'Fallback')).toBe('Fallback')
   })
 
+  it('ignores whitespace-only titles and trims selected titles', () => {
+    const activity = { ...base, title: '   ', title_auto: '  Auto title  ', title_is_manual: true } as Activity
+    expect(displayActivityTitle(activity, 'Fallback')).toBe('Auto title')
+  })
+
   it('seeds edit form with manual title only when manual exists', () => {
     const autoOnly = { ...base, title: 'Source', title_auto: 'Auto', title_is_manual: false } as Activity
     const manual = { ...base, title: 'Manual', title_auto: 'Auto', title_is_manual: true } as Activity
