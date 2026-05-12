@@ -34,21 +34,21 @@ type Handler struct {
 	PhotoEmbedPublisher       event.PhotoEmbedPublisher
 	EventConn                 event.EventConn
 
-	ShadowFS       shadowfs.ShadowFS        // nil when not yet initialized
-	ShadowFSConfig *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
-	WatcherManager *shadowfs.WatcherManager // nil when per-user hotfolder is not configured
-	Config         *HandlerConfig           // LLM/LiteLLM configuration
-	ImportService  *importer.Service        // shared post-processing pipeline
-	GraphManager   *routing.GraphManager    // nil when routing graph is not configured
+	ShadowFS        shadowfs.ShadowFS            // nil when not yet initialized
+	ShadowFSConfig  *shadowfs.ShadowFSConfig     // nil when shadow FS is not configured
+	WatcherManager  *shadowfs.WatcherManager     // nil when per-user hotfolder is not configured
+	Config          *HandlerConfig               // LLM/LiteLLM configuration
+	ImportService   *importer.Service            // shared post-processing pipeline
+	GraphManager    *routing.GraphManager        // nil when routing graph is not configured
 	CoverageBaseDir string                       // base directory for FCOV coverage files
 	CoverageReader  *coverage.DiskCoverageReader // nil when coverage binaries are not available
 	PNGCache        *coverage.PNGCache           // LRU cache for rendered PNG tiles
 
 	DEMSvc dem.Servicer // lazy mmap'd HGT service; nil when not configured
 
-	PMC          *pmc.Service          // TSS/PMC recomputation service
-	BestEfforts  *bestefforts.Service  // best effort computation service
-	recomputeJob recomputeJobState     // in-memory state for async recompute-all
+	PMC          *pmc.Service         // TSS/PMC recomputation service
+	BestEfforts  *bestefforts.Service // best effort computation service
+	recomputeJob recomputeJobState    // in-memory state for async recompute-all
 
 	Settings *settings.SettingsStore // server settings store (DB-backed, cached)
 	Mailer   *auth.Mailer            // for admin test-email endpoint
@@ -74,6 +74,10 @@ type HandlerConfig struct {
 	LiteLLMConfigPath   string
 	LiteLLMInternalURL  string
 	LLMEncryptionKey    string
+	LLMBaseURL          string
+	LLMAPIKey           string
+	LLMModel            string
+	LLMContextWindow    int
 	MLServiceURL        string        // e.g. http://ml:8000
 	MLCallbackSecret    string        // ML_CALLBACK_SECRET env var
 	BRouterURL          string        // e.g. http://brouter:17777
