@@ -3650,11 +3650,11 @@ func (db *DB) DeleteBikeSetup(ctx context.Context, id string) error {
 
 // --- Gear Documents ---
 
-const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id, document_date::text, document_amount::double precision, document_currency, extracted_text, processing_status, created_at`
+const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id, document_date::text, document_amount::double precision, document_currency, extracted_text, extracted_data, processing_status, created_at`
 
 func scanGearDocument(row pgx.Row) (*model.GearDocument, error) {
 	var d model.GearDocument
-	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt)
+	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ExtractedData, &d.ProcessingStatus, &d.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -3709,7 +3709,7 @@ func (db *DB) ListGearDocuments(ctx context.Context, gearID string) ([]model.Gea
 	var docs []model.GearDocument
 	for rows.Next() {
 		var d model.GearDocument
-		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ExtractedData, &d.ProcessingStatus, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan gear document: %w", err)
 		}
 		docs = append(docs, d)
@@ -3732,7 +3732,7 @@ func (db *DB) ListComponentDocuments(ctx context.Context, componentID string) ([
 	var docs []model.GearDocument
 	for rows.Next() {
 		var d model.GearDocument
-		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ExtractedData, &d.ProcessingStatus, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan component document: %w", err)
 		}
 		docs = append(docs, d)
