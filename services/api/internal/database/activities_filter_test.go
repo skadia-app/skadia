@@ -49,3 +49,22 @@ func TestBuildFilterSQLIncludesCommuteModifier(t *testing.T) {
 		t.Fatalf("args = %#v, want second arg true", args)
 	}
 }
+
+func TestBuildFilterSQLIncludesPendingLiftReview(t *testing.T) {
+	clause, args := buildFilterSQL(model.ActivityFilters{
+		LiftReview: "pending",
+	}, 1)
+
+	if !strings.Contains(clause, "FROM activity_lift_candidates alc") {
+		t.Fatalf("missing lift candidate EXISTS in %q", clause)
+	}
+	if strings.Contains(clause, "alc.source = 'heuristic'") {
+		t.Fatalf("pending review filter must include OSM candidates too, got %q", clause)
+	}
+	if !strings.Contains(clause, "NOT alc.confirmed") || !strings.Contains(clause, "NOT alc.rejected_by_user") {
+		t.Fatalf("missing open candidate predicates in %q", clause)
+	}
+	if len(args) != 0 {
+		t.Fatalf("args = %#v, want none", args)
+	}
+}

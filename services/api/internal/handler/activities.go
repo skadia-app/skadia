@@ -159,6 +159,13 @@ func (h *Handler) ListActivities(w http.ResponseWriter, r *http.Request) {
 	}
 	filters.GearID = r.URL.Query().Get("gear_id")
 	filters.Search = r.URL.Query().Get("search")
+	if v := r.URL.Query().Get("lift_review"); v != "" {
+		if v != "pending" {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid lift_review filter", r.URL.Path)
+			return
+		}
+		filters.LiftReview = v
+	}
 	if v := r.URL.Query().Get("include_tags"); v != "" {
 		filters.IncludeTags = strings.Split(v, ",")
 	}

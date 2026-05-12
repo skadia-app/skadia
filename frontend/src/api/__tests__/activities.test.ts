@@ -36,4 +36,14 @@ describe('activities API filters', () => {
 
     expect(apiClientMock).toHaveBeenCalledWith('/activities?limit=20&is_commute=false')
   })
+
+  it('serializes pending lift review filters to the activities endpoint', async () => {
+    apiClientMock.mockResolvedValueOnce({ activities: [], total: 0 })
+
+    await fetchActivities(undefined, 20, undefined, undefined, {
+      liftReview: 'pending',
+    })
+
+    expect(apiClientMock).toHaveBeenCalledWith('/activities?limit=20&lift_review=pending')
+  })
 })

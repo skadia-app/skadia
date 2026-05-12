@@ -23,6 +23,7 @@ export interface ActivityFilterState {
   isElectric: boolean | null
   isVirtual: boolean | null
   isCommute: boolean | null
+  liftReviewPending: boolean
   gearId: string
   tagFilters: TagFilter[]
   gearFilters: GearFilter[]
@@ -39,6 +40,7 @@ export const EMPTY_FILTERS: ActivityFilterState = {
   isElectric: null,
   isVirtual: null,
   isCommute: null,
+  liftReviewPending: false,
   gearId: '',
   tagFilters: [],
   gearFilters: [],
@@ -59,6 +61,7 @@ export function filtersToParams(f: ActivityFilterState): URLSearchParams {
   if (f.isElectric !== null) p.set('ebike', String(f.isElectric))
   if (f.isVirtual !== null) p.set('virtual', String(f.isVirtual))
   if (f.isCommute !== null) p.set('commute', String(f.isCommute))
+  if (f.liftReviewPending) p.set('lift_review', 'pending')
   if (f.gearId) p.set('gear', f.gearId)
   if (f.search) p.set('q', f.search)
   const includeTags = f.tagFilters.filter(tf => tf.state === 'include').map(tf => tf.id)
@@ -93,6 +96,7 @@ export function paramsToFilters(p: URLSearchParams): ActivityFilterState {
   if (virtual_ !== null) f.isVirtual = virtual_ === 'true'
   const commute = p.get('commute')
   if (commute !== null) f.isCommute = commute === 'true'
+  f.liftReviewPending = p.get('lift_review') === 'pending'
   f.gearId = p.get('gear') ?? ''
   f.search = p.get('q') ?? ''
   // tagFilters, gearFilters and deviceFilters require full objects and cannot be restored from URL IDs alone
@@ -118,6 +122,7 @@ export function filtersToApiParams(f: ActivityFilterState) {
     isElectric: f.isElectric,
     isVirtual: f.isVirtual,
     isCommute: f.isCommute,
+    liftReview: f.liftReviewPending ? 'pending' as const : undefined,
     gearId: f.gearId,
     search: f.search,
     includeTags: includeTags.length ? includeTags : undefined,
@@ -158,6 +163,7 @@ export default function ActivityFilters({ filters, onChange }: Props) {
     if (f.isElectric !== null) n++
     if (f.isVirtual !== null) n++
     if (f.isCommute !== null) n++
+    if (f.liftReviewPending) n++
     if (f.gearId) n++
     if (f.tagFilters.length) n++
     if (f.gearFilters.length) n++
@@ -200,6 +206,9 @@ export default function ActivityFilters({ filters, onChange }: Props) {
   }
   if (filters.isCommute !== null) {
     chips.push({ label: filters.isCommute ? `Nur ${modifierLabel('is_commute')}` : `Ohne ${modifierLabel('is_commute')}`, onRemove: () => onChange({ ...filters, isCommute: null }) })
+  }
+  if (filters.liftReviewPending) {
+    chips.push({ label: 'Liftprüfung offen', onRemove: () => onChange({ ...filters, liftReviewPending: false }) })
   }
   if (filters.gearId) {
     chips.push({ label: 'Ausrüstung', onRemove: () => onChange({ ...filters, gearId: '' }) })
@@ -308,6 +317,19 @@ export default function ActivityFilters({ filters, onChange }: Props) {
                   ))}
                 </div>
               </div>
+            </div>
+
+            {/* Liftprüfung */}
+            <div>
+              <label className="flex items-center gap-2 text-xs text-neutral-700 dark:text-neutral-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={filters.liftReviewPending}
+                  onChange={e => onChange({ ...filters, liftReviewPending: e.target.checked })}
+                  className="rounded border-neutral-300 text-accent-DEFAULT focus:ring-accent-400"
+                />
+                Liftprüfung offen
+              </label>
             </div>
 
             {/* Tags (tri-state filter) */}
