@@ -52,7 +52,7 @@ func (h *Handler) reserveGDPRArtifactCapacityTx(ctx context.Context, tx pgx.Tx, 
 	if err := lockGDPRArtifactCapacity(ctx, tx); err != nil {
 		return err
 	}
-	if err := h.checkGDPRArtifactCapacityTx(ctx, tx, req.UserID, req.Backend, req.Kind, req.ReservedBytes); err != nil {
+	if err := h.checkGDPRArtifactCapacityTx(ctx, tx, req.UserID, req.Backend, req.Kind, req.ReservedBytes, true); err != nil {
 		return err
 	}
 	_, err := tx.Exec(ctx, `
@@ -88,7 +88,7 @@ func (h *Handler) growGDPRArtifactCapacity(ctx context.Context, jobID, userID st
 		jobID, userID).Scan(&backend, &kind); err != nil {
 		return err
 	}
-	if err := h.checkGDPRArtifactCapacityTx(ctx, tx, userID, backend, kind, additionalBytes); err != nil {
+	if err := h.checkGDPRArtifactCapacityTx(ctx, tx, userID, backend, kind, additionalBytes, true); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -109,14 +109,42 @@ func (h *Handler) commitGDPRArtifactCapacity(ctx context.Context, jobID, userID 
 	if committedBytes < 0 {
 		committedBytes = 0
 	}
-	_, err := h.DB.Pool.Exec(ctx, `
+	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := lockGDPRArtifactCapacity(ctx, tx); err != nil {
+		return err
+	}
+	var reserved int64
+	var backend, kind string
+	if err := tx.QueryRow(ctx, `
+		SELECT reserved_bytes, backend, kind
+		FROM gdpr_artifact_reservations
+		WHERE job_id = $1 AND user_id = $2 AND released_at IS NULL`,
+		jobID, userID).Scan(&reserved, &backend, &kind); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if committedBytes > reserved {
+		if err := h.checkGDPRArtifactCapacityTx(ctx, tx, userID, backend, kind, committedBytes-reserved, false); err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec(ctx, `
 		UPDATE gdpr_artifact_reservations
 		SET committed_bytes = $3,
 		    reserved_bytes = GREATEST(reserved_bytes, $3),
 		    updated_at = NOW()
 		WHERE job_id = $1 AND user_id = $2 AND released_at IS NULL`,
 		jobID, userID, committedBytes)
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (h *Handler) releaseGDPRArtifactCapacity(ctx context.Context, jobID, userID string, committedBytes int64) error {
@@ -136,7 +164,7 @@ func (h *Handler) releaseGDPRArtifactCapacity(ctx context.Context, jobID, userID
 	return err
 }
 
-func (h *Handler) checkGDPRArtifactCapacityTx(ctx context.Context, tx pgx.Tx, userID, backend, kind string, additionalBytes int64) error {
+func (h *Handler) checkGDPRArtifactCapacityTx(ctx context.Context, tx pgx.Tx, userID, backend, kind string, additionalBytes int64, checkStore bool) error {
 	if h == nil || h.Config == nil {
 		return nil
 	}
@@ -171,7 +199,11 @@ func (h *Handler) checkGDPRArtifactCapacityTx(ctx context.Context, tx pgx.Tx, us
 			}
 		}
 	}
-	if checker, ok := h.ArtifactStore.(gdprartifacts.CapacityChecker); ok {
+	if checkStore {
+		checker, ok := h.ArtifactStore.(gdprartifacts.CapacityChecker)
+		if !ok {
+			return nil
+		}
 		result, err := checker.CheckAvailable(ctx, gdprartifacts.CapacityRequest{
 			Kind:          kind,
 			UserID:        userID,

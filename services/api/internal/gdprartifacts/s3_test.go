@@ -25,6 +25,7 @@ type fakeS3Client struct {
 	failUploadPart bool
 	failComplete   bool
 	failHead       error
+	failDeleteKeys map[string]bool
 
 	putObjectCalls        int
 	createMultipartCalls  int
@@ -173,10 +174,16 @@ func (f *fakeS3Client) ListObjectsV2(_ context.Context, in *s3.ListObjectsV2Inpu
 }
 
 func (f *fakeS3Client) DeleteObjects(_ context.Context, in *s3.DeleteObjectsInput, _ ...func(*s3.Options)) (*s3.DeleteObjectsOutput, error) {
+	var failures []s3types.Error
 	for _, obj := range in.Delete.Objects {
-		delete(f.objects, f.objectKey(aws.ToString(in.Bucket), aws.ToString(obj.Key)))
+		key := aws.ToString(obj.Key)
+		if f.failDeleteKeys[key] {
+			failures = append(failures, s3types.Error{Key: aws.String(key), Code: aws.String("AccessDenied"), Message: aws.String("denied")})
+			continue
+		}
+		delete(f.objects, f.objectKey(aws.ToString(in.Bucket), key))
 	}
-	return &s3.DeleteObjectsOutput{}, nil
+	return &s3.DeleteObjectsOutput{Errors: failures}, nil
 }
 
 func (f *fakeS3Client) ListMultipartUploads(_ context.Context, in *s3.ListMultipartUploadsInput, _ ...func(*s3.Options)) (*s3.ListMultipartUploadsOutput, error) {
@@ -240,6 +247,49 @@ func TestS3StoreClampsMultipartPartSizeToS3Minimum(t *testing.T) {
 	}
 }
 
+func TestS3StoreRejectsRefsOutsideConfiguredScope(t *testing.T) {
+	fake := newFakeS3Client()
+	fake.objects[fake.objectKey("skadia-exports", "gdpr/exports/attacker/job/export.zip")] = []byte("private")
+	store := newS3StoreForTest(fake, S3Config{ExportBucket: "skadia-exports", ExportPrefix: "gdpr/exports"})
+	ref := ObjectRef{
+		Backend: "s3",
+		Kind:    "export",
+		UserID:  "11111111-1111-1111-1111-111111111111",
+		JobID:   "22222222-2222-2222-2222-222222222222",
+		Role:    RoleSingleZIP,
+		Name:    "export.zip",
+		Bucket:  "skadia-exports",
+		Key:     "gdpr/exports/attacker/job/export.zip",
+	}
+	if _, err := store.Open(context.Background(), ref, nil); err == nil {
+		t.Fatal("Open accepted S3 ref outside configured user/job scope")
+	}
+	if stat, err := store.Stat(context.Background(), ref); err == nil || stat.State != ObjectUnknown {
+		t.Fatalf("Stat outside scope = stat=%#v err=%v, want hard validation error", stat, err)
+	}
+	if err := store.Delete(context.Background(), ref); err == nil {
+		t.Fatal("Delete accepted S3 ref outside configured user/job scope")
+	}
+	if _, ok := fake.objects[fake.objectKey("skadia-exports", "gdpr/exports/attacker/job/export.zip")]; !ok {
+		t.Fatal("Delete removed object outside configured user/job scope")
+	}
+}
+
+func TestS3StoreDeletePrefixFailsOnPartialDeleteErrors(t *testing.T) {
+	fake := newFakeS3Client()
+	key := "gdpr/exports/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/export.zip"
+	fake.objects[fake.objectKey("skadia-exports", key)] = []byte("payload")
+	fake.failDeleteKeys = map[string]bool{key: true}
+	store := newS3StoreForTest(fake, S3Config{ExportBucket: "skadia-exports", ExportPrefix: "gdpr/exports"})
+	err := store.DeletePrefix(context.Background(), ArtifactPrefix{Kind: "export", UserID: "11111111-1111-1111-1111-111111111111", JobID: "22222222-2222-2222-2222-222222222222"})
+	if err == nil {
+		t.Fatal("DeletePrefix succeeded despite per-object S3 delete error")
+	}
+	if _, ok := fake.objects[fake.objectKey("skadia-exports", key)]; !ok {
+		t.Fatal("DeletePrefix removed object despite fake partial delete failure")
+	}
+}
+
 func TestS3StoreAbortOnWriteOrCommitFailure(t *testing.T) {
 	fake := newFakeS3Client()
 	fake.failUploadPart = true
@@ -276,7 +326,16 @@ func TestS3StoreAbortOnWriteOrCommitFailure(t *testing.T) {
 func TestS3StoreStatDistinguishesMissingAndUnknown(t *testing.T) {
 	fake := newFakeS3Client()
 	store := newS3StoreForTest(fake, S3Config{ExportBucket: "skadia-exports", ExportPrefix: "gdpr/exports"})
-	ref := ObjectRef{Backend: "s3", Bucket: "skadia-exports", Key: "gdpr/exports/user/job/export.zip"}
+	ref := ObjectRef{
+		Backend: "s3",
+		Kind:    "export",
+		UserID:  "11111111-1111-1111-1111-111111111111",
+		JobID:   "22222222-2222-2222-2222-222222222222",
+		Role:    RoleSingleZIP,
+		Name:    "export.zip",
+		Bucket:  "skadia-exports",
+		Key:     "gdpr/exports/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/export.zip",
+	}
 	stat, err := store.Stat(context.Background(), ref)
 	if err != nil {
 		t.Fatalf("Stat missing: %v", err)
@@ -296,11 +355,21 @@ func TestS3StoreStatDistinguishesMissingAndUnknown(t *testing.T) {
 
 func TestS3StoreOpenUsesRangeHeader(t *testing.T) {
 	fake := newFakeS3Client()
-	fake.objects[fake.objectKey("skadia-exports", "gdpr/exports/user/job/export.zip")] = []byte("0123456789")
-	fake.contentType[fake.objectKey("skadia-exports", "gdpr/exports/user/job/export.zip")] = "application/zip"
+	key := "gdpr/exports/11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222/export.zip"
+	fake.objects[fake.objectKey("skadia-exports", key)] = []byte("0123456789")
+	fake.contentType[fake.objectKey("skadia-exports", key)] = "application/zip"
 	store := newS3StoreForTest(fake, S3Config{ExportBucket: "skadia-exports", ExportPrefix: "gdpr/exports"})
 	start, end := int64(2), int64(5)
-	reader, err := store.Open(context.Background(), ObjectRef{Backend: "s3", Bucket: "skadia-exports", Key: "gdpr/exports/user/job/export.zip"}, &RangeSpec{Start: &start, End: &end})
+	reader, err := store.Open(context.Background(), ObjectRef{
+		Backend: "s3",
+		Kind:    "export",
+		UserID:  "11111111-1111-1111-1111-111111111111",
+		JobID:   "22222222-2222-2222-2222-222222222222",
+		Role:    RoleSingleZIP,
+		Name:    "export.zip",
+		Bucket:  "skadia-exports",
+		Key:     key,
+	}, &RangeSpec{Start: &start, End: &end})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

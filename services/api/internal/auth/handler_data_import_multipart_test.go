@@ -6,18 +6,21 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
+	"github.com/skadia-app/skadia/services/api/internal/dataimport"
 	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/go-chi/chi/v5"
@@ -346,6 +349,24 @@ func TestMultipartImportCancelPreservesUploadingStateWhenDeleteFails(t *testing.
 	}
 }
 
+func TestMultipartImportCancelDoesNotDeleteRunningJobArtifacts(t *testing.T) {
+	h, userID, store := newMultipartImportHandlerForTest(t)
+	data := minimalImportZip(t)
+	jobID := createMultipartImportSessionForTest(t, h, userID, []multipartExpectedPart{{name: "metadata.zip", role: "metadata", data: data}})
+	if _, err := h.DB.Pool.Exec(context.Background(), `UPDATE background_jobs SET status='running' WHERE id=$1`, jobID); err != nil {
+		t.Fatalf("mark running: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	h.DataImportMultipartCancel(w, newJobActionRequest(t, userID, http.MethodPost, "/api/v1/auth/data-import/"+jobID+"/cancel", jobID))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("cancel running status = %d body=%s", w.Code, w.Body.String())
+	}
+	if store.deletePrefixCalls != 0 {
+		t.Fatalf("DeletePrefix calls = %d, want 0 before uploading row is locked", store.deletePrefixCalls)
+	}
+}
+
 func TestMultipartImportStartRequiresAllParts(t *testing.T) {
 	h, userID, _ := newMultipartImportHandlerForTest(t)
 	jobID := createMultipartImportSessionForTest(t, h, userID, []multipartExpectedPart{
@@ -548,6 +569,35 @@ func TestMultipartImportAuditEvents(t *testing.T) {
 	}
 }
 
+func TestMultipartImportManifestRejectsPartsAboveWebLimit(t *testing.T) {
+	manifest := dataimport.Manifest{
+		FormatVersion: 1,
+		Multipart:     true,
+		Parts: []dataimport.ManifestPart{{
+			Name:      "metadata.zip",
+			Role:      "metadata",
+			SHA256:    strings.Repeat("a", 64),
+			SizeBytes: (4 << 30) + 1,
+		}},
+	}
+	if _, _, err := validateMultipartImportManifest(&manifest, &config.Config{GDPRMultipartMaxParts: 256}); err == nil || err.Error() != "part_too_large" {
+		t.Fatalf("validate oversized part error = %v, want part_too_large", err)
+	}
+}
+
+func TestMultipartImportPartClaimBlocksDuplicateWriters(t *testing.T) {
+	h, userID, _ := newMultipartImportHandlerForTest(t)
+	data := minimalImportZip(t)
+	jobID := createMultipartImportSessionForTest(t, h, userID, []multipartExpectedPart{{name: "metadata.zip", role: "metadata", data: data}})
+
+	if _, _, _, err := h.claimImportUploadPart(context.Background(), jobID, userID, "metadata.zip"); err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	if _, _, _, err := h.claimImportUploadPart(context.Background(), jobID, userID, "metadata.zip"); !errors.Is(err, errImportPartInProgress) {
+		t.Fatalf("second claim error = %v, want in progress", err)
+	}
+}
+
 func newDataImportUploadRequest(t *testing.T, userID string, content []byte) *http.Request {
 	t.Helper()
 	var body bytes.Buffer
@@ -737,6 +787,7 @@ type recordingArtifactStore struct {
 	*gdprartifacts.LocalStore
 	openReaderAtCalled bool
 	createWriterCalls  int
+	deletePrefixCalls  int
 	failDeletePrefix   bool
 }
 
@@ -752,6 +803,7 @@ func (s *recordingArtifactStore) OpenReaderAt(ctx context.Context, ref gdprartif
 }
 
 func (s *recordingArtifactStore) DeletePrefix(ctx context.Context, prefix gdprartifacts.ArtifactPrefix) error {
+	s.deletePrefixCalls++
 	if s.failDeletePrefix {
 		return fmt.Errorf("delete prefix failed")
 	}

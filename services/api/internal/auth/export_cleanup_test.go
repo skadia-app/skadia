@@ -167,7 +167,38 @@ func TestStartupSweepPreservesExportRefsWhenDeleteFails(t *testing.T) {
 	}
 }
 
-func TestStartupSweepAbortsIncompleteMultipartUploadsImmediately(t *testing.T) {
+func TestUnpublishedExportCleanupKeepsReservationWhenPrefixDeleteFails(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	userID := createArtifactExportUser(t, pool)
+	jobID := uuid.NewString()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at, metadata)
+		 VALUES ($1, 'gdpr_export', $2, 'running', NOW(), NOW(), '{}'::jsonb)`,
+		jobID, userID); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO gdpr_artifact_reservations
+			(job_id, user_id, backend, kind, reserved_bytes, expires_at)
+		VALUES ($1, $2, 'local', 'export', 1024, NOW() + INTERVAL '1 hour')`,
+		jobID, userID); err != nil {
+		t.Fatalf("insert reservation: %v", err)
+	}
+	h := &Handler{DB: &database.DB{Pool: pool}, ArtifactStore: deletePrefixFailStore{}}
+
+	h.cleanupUnpublishedExportArtifacts(ctx, userID, jobID)
+
+	var released bool
+	if err := pool.QueryRow(ctx, `SELECT released_at IS NOT NULL FROM gdpr_artifact_reservations WHERE job_id=$1`, jobID).Scan(&released); err != nil {
+		t.Fatalf("select reservation: %v", err)
+	}
+	if released {
+		t.Fatal("reservation released despite prefix delete failure")
+	}
+}
+
+func TestStartupSweepDoesNotAbortUnscopedIncompleteMultipartUploads(t *testing.T) {
 	var calls int32
 	h := &Handler{ArtifactStore: abortRecordingStore{calls: &calls}}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -175,13 +206,39 @@ func TestStartupSweepAbortsIncompleteMultipartUploadsImmediately(t *testing.T) {
 
 	h.StartGDPRArtifactMaintenance(ctx)
 
-	if got := atomic.LoadInt32(&calls); got != 2 {
-		t.Fatalf("AbortIncompleteUploads calls = %d, want export+import at startup", got)
+	if got := atomic.LoadInt32(&calls); got != 0 {
+		t.Fatalf("AbortIncompleteUploads calls = %d, want 0 for unscoped startup cleanup", got)
 	}
 }
 
 type deleteFailStore struct {
 	gdprartifacts.Store
+}
+
+type deletePrefixFailStore struct{}
+
+func (s deletePrefixFailStore) CreateWriter(context.Context, gdprartifacts.ObjectSpec) (gdprartifacts.ObjectWriter, error) {
+	return nil, fmt.Errorf("unused")
+}
+
+func (s deletePrefixFailStore) Open(context.Context, gdprartifacts.ObjectRef, *gdprartifacts.RangeSpec) (gdprartifacts.ObjectReader, error) {
+	return nil, fmt.Errorf("unused")
+}
+
+func (s deletePrefixFailStore) OpenReaderAt(context.Context, gdprartifacts.ObjectRef) (gdprartifacts.SizedReaderAt, error) {
+	return nil, fmt.Errorf("unused")
+}
+
+func (s deletePrefixFailStore) Stat(context.Context, gdprartifacts.ObjectRef) (gdprartifacts.ObjectStat, error) {
+	return gdprartifacts.ObjectStat{}, fmt.Errorf("unused")
+}
+
+func (s deletePrefixFailStore) Delete(context.Context, gdprartifacts.ObjectRef) error {
+	return fmt.Errorf("unused")
+}
+
+func (s deletePrefixFailStore) DeletePrefix(context.Context, gdprartifacts.ArtifactPrefix) error {
+	return fmt.Errorf("delete prefix failed")
 }
 
 func (s deleteFailStore) Delete(context.Context, gdprartifacts.ObjectRef) error {

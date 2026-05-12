@@ -284,6 +284,69 @@ func TestStaleExportCleanupDeletesArtifactPrefixBeforeReleasingReservation(t *te
 	}
 }
 
+func TestStaleSingleImportCleanupDeletesArtifactPrefixAndReleasesReservation(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	clearActiveDataImportJobsForTest(t, pool)
+	userID := createArtifactExportUser(t, pool)
+	jobID := uuid.NewString()
+	store, err := gdprartifacts.NewLocalStore(t.TempDir()+"/exports", t.TempDir()+"/imports")
+	if err != nil {
+		t.Fatalf("NewLocalStore: %v", err)
+	}
+	writer, err := store.CreateWriter(ctx, gdprartifacts.ObjectSpec{
+		Kind:        "import",
+		UserID:      userID,
+		JobID:       jobID,
+		Role:        gdprartifacts.RoleSingleZIP,
+		Name:        "metadata.zip",
+		ContentType: "application/zip",
+		ExpiresAt:   time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("CreateWriter: %v", err)
+	}
+	if _, err := writer.Write([]byte("orphaned import")); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+	ref, err := writer.Commit(ctx)
+	if err != nil {
+		t.Fatalf("commit artifact: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at, metadata)
+		VALUES ($1, 'data_import', $2, 'uploading', NOW() - INTERVAL '1 hour', NOW() - INTERVAL '31 minutes', '{}'::jsonb)`,
+		jobID, userID); err != nil {
+		t.Fatalf("insert stale import job: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO gdpr_artifact_reservations
+			(job_id, user_id, backend, kind, reserved_bytes, expires_at)
+		VALUES ($1, $2, 'local', 'import', 4096, NOW() + INTERVAL '1 hour')`,
+		jobID, userID); err != nil {
+		t.Fatalf("insert import reservation: %v", err)
+	}
+
+	h := &Handler{DB: &database.DB{Pool: pool}, ArtifactStore: store}
+	h.cleanupStaleImportJobs(ctx)
+
+	var status string
+	var released bool
+	if err := pool.QueryRow(ctx, `
+		SELECT j.status, r.released_at IS NOT NULL
+		FROM background_jobs j
+		JOIN gdpr_artifact_reservations r ON r.job_id = j.id
+		WHERE j.id = $1`, jobID).Scan(&status, &released); err != nil {
+		t.Fatalf("query stale import cleanup result: %v", err)
+	}
+	if status != "failed" || !released {
+		t.Fatalf("cleanup result status=%q released=%v, want failed/released", status, released)
+	}
+	if _, err := store.Open(ctx, ref, nil); err == nil {
+		t.Fatal("stale import artifact prefix is still readable after cleanup")
+	}
+}
+
 func insertCapacityTestJob(t *testing.T, pool *pgxpool.Pool, jobID, userID, jobType, status string) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), `

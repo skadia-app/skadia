@@ -28,12 +28,19 @@ import (
 
 var multipartFilesPartNameRE = regexp.MustCompile(`^files-[0-9]{4}\.zip$`)
 
+var (
+	errImportUploadExpired      = errors.New("upload_expired")
+	errImportPartAlreadyHandled = errors.New("part_already_received")
+	errImportPartInProgress     = errors.New("part_upload_in_progress")
+)
+
 type importUploadPartMetadata struct {
 	Name                  string                   `json:"name"`
 	Role                  string                   `json:"role"`
 	SHA256                string                   `json:"sha256,omitempty"`
 	SizeBytes             int64                    `json:"size_bytes"`
 	Received              bool                     `json:"received"`
+	Receiving             bool                     `json:"receiving,omitempty"`
 	LegacyChecksumMissing bool                     `json:"legacy_checksum_missing,omitempty"`
 	Artifact              *gdprartifacts.ObjectRef `json:"artifact,omitempty"`
 }
@@ -96,9 +103,13 @@ func (h *Handler) cleanupStaleImportJobs(ctx context.Context) {
 
 	// Class 1: stale running/queued
 	staleRows, err := pool.Query(ctx,
-		`SELECT id, user_id, metadata->>'file_path' FROM background_jobs
-		 WHERE job_type = 'data_import' AND status IN ('queued','running')
-		 AND updated_at < NOW() - INTERVAL '30 minutes'`)
+		`SELECT id, user_id, COALESCE(metadata->>'file_path', '') FROM background_jobs
+		 WHERE job_type = 'data_import'
+		   AND updated_at < NOW() - INTERVAL '30 minutes'
+		   AND (
+		     status IN ('queued','running')
+		     OR (status = 'uploading' AND NOT (COALESCE(metadata, '{}'::jsonb) ? 'import_upload'))
+		   )`)
 	if err != nil {
 		slog.Error("data import cleanup: query stale jobs failed", "error", err)
 	} else {
@@ -118,6 +129,7 @@ func (h *Handler) cleanupStaleImportJobs(ctx context.Context) {
 			if h.ArtifactStore == nil {
 				continue
 			}
+			h.abortIncompleteArtifactUploads(ctx, "import", e.userID, e.id)
 			if err := h.ArtifactStore.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "import", UserID: e.userID, JobID: e.id}); err != nil {
 				slog.Warn("data import cleanup: delete stale import artifacts failed", "job_id", e.id, "error", err)
 				continue
@@ -128,8 +140,12 @@ func (h *Handler) cleanupStaleImportJobs(ctx context.Context) {
 
 	if _, err := pool.Exec(ctx,
 		`UPDATE background_jobs SET status = 'failed', error = 'stale: pod crash', updated_at = NOW()
-		 WHERE job_type = 'data_import' AND status IN ('queued','running')
-		 AND updated_at < NOW() - INTERVAL '30 minutes'`); err != nil {
+		 WHERE job_type = 'data_import'
+		   AND updated_at < NOW() - INTERVAL '30 minutes'
+		   AND (
+		     status IN ('queued','running')
+		     OR (status = 'uploading' AND NOT (COALESCE(metadata, '{}'::jsonb) ? 'import_upload'))
+		   )`); err != nil {
 		slog.Error("data import cleanup: update stale jobs failed", "error", err)
 	}
 
@@ -188,6 +204,7 @@ func (h *Handler) cleanupStaleImportJobs(ctx context.Context) {
 			if h.ArtifactStore == nil {
 				continue
 			}
+			h.abortIncompleteArtifactUploads(ctx, "import", e.userID, e.id)
 			if err := h.ArtifactStore.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "import", UserID: e.userID, JobID: e.id}); err != nil {
 				slog.Warn("data import cleanup: delete expired import artifacts failed", "job_id", e.id, "error", err)
 				continue
@@ -219,6 +236,7 @@ func (h *Handler) cleanupStaleImportJobs(ctx context.Context) {
 		if h.ArtifactStore == nil {
 			continue
 		}
+		h.abortIncompleteArtifactUploads(ctx, "import", e.userID, e.id)
 		if err := h.ArtifactStore.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "import", UserID: e.userID, JobID: e.id}); err != nil {
 			slog.Warn("data import cleanup: delete expired multipart artifacts failed", "job_id", e.id, "error", err)
 			continue
@@ -230,6 +248,49 @@ func (h *Handler) cleanupStaleImportJobs(ctx context.Context) {
 			    metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{import_upload,state}', to_jsonb('expired'::text), true)
 			WHERE id = $1`, e.id); err != nil {
 			slog.Warn("data import cleanup: mark expired multipart upload failed", "job_id", e.id, "error", err)
+		}
+	}
+	h.cleanupFailedImportArtifactsWithoutMetadata(ctx)
+}
+
+func (h *Handler) cleanupFailedImportArtifactsWithoutMetadata(ctx context.Context) {
+	if h.ArtifactStore == nil {
+		return
+	}
+	rows, err := h.DB.Pool.Query(ctx, `
+		SELECT j.id::text, j.user_id::text
+		FROM background_jobs j
+		WHERE j.job_type = 'data_import'
+		  AND j.status = 'failed'
+		  AND NOT (COALESCE(j.metadata, '{}'::jsonb) ? 'artifact')
+		  AND EXISTS (
+		    SELECT 1
+		    FROM gdpr_artifact_reservations r
+		    WHERE r.job_id = j.id::uuid
+		      AND r.user_id = j.user_id::uuid
+		      AND r.released_at IS NULL
+		  )`)
+	if err != nil {
+		slog.Warn("data import cleanup: query failed imports without metadata failed", "error", err)
+		return
+	}
+	type failedImport struct{ id, userID string }
+	var jobs []failedImport
+	for rows.Next() {
+		var job failedImport
+		if err := rows.Scan(&job.id, &job.userID); err == nil {
+			jobs = append(jobs, job)
+		}
+	}
+	rows.Close()
+	for _, job := range jobs {
+		h.abortIncompleteArtifactUploads(ctx, "import", job.userID, job.id)
+		if err := h.ArtifactStore.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "import", UserID: job.userID, JobID: job.id}); err != nil {
+			slog.Warn("data import cleanup: delete failed import prefix without metadata failed", "job_id", job.id, "error", err)
+			continue
+		}
+		if err := h.releaseGDPRArtifactCapacity(ctx, job.id, job.userID, 0); err != nil {
+			slog.Warn("data import cleanup: release failed import reservation without metadata failed", "job_id", job.id, "error", err)
 		}
 	}
 }
@@ -275,14 +336,37 @@ func (h *Handler) DataImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, _, err := r.FormFile("file")
+	multipartReader, err := r.MultipartReader()
 	if err != nil {
 		_ = h.markImportJobFailed(ctx, jobID, "file_required")
 		_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "file_required"})
 		return
 	}
-	defer file.Close()
+	var file io.Reader
+	for {
+		part, err := multipartReader.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			_ = h.markImportJobFailed(ctx, jobID, "file_required")
+			_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
+			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "file_required"})
+			return
+		}
+		defer part.Close()
+		if part.FormName() == "file" {
+			file = part
+			break
+		}
+	}
+	if file == nil {
+		_ = h.markImportJobFailed(ctx, jobID, "file_required")
+		_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "file_required"})
+		return
+	}
 
 	writer, err := h.ArtifactStore.CreateWriter(ctx, gdprartifacts.ObjectSpec{
 		Kind:        "import",
@@ -430,6 +514,7 @@ func buildImportUploadMetadata(artifact gdprartifacts.Artifact, ref gdprartifact
 func (h *Handler) DataImportMultipartCreate(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.GetUserID(r.Context())
 	ctx := r.Context()
+	h.startStaleImportCleanup()
 	if h.ArtifactStore == nil {
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
@@ -482,7 +567,7 @@ func (h *Handler) DataImportMultipartCreate(w http.ResponseWriter, r *http.Reque
 		)
 		AND (SELECT COUNT(*) FROM background_jobs
 		     WHERE job_type = 'data_import'
-		     AND status = 'uploading') < 2
+		     AND status IN ('uploading', 'queued', 'running')) < 2
 		RETURNING true`, jobID, userID, metadata).Scan(new(bool))
 	if errors.Is(err, pgx.ErrNoRows) {
 		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "import_already_running"})
@@ -584,6 +669,9 @@ func validateMultipartImportManifest(manifest *dataimport.Manifest, cfg *config.
 		if part.SizeBytes < 0 {
 			return nil, 0, fmt.Errorf("invalid_part_size")
 		}
+		if part.SizeBytes > 4<<30 {
+			return nil, 0, fmt.Errorf("part_too_large")
+		}
 		if strings.TrimSpace(part.SHA256) == "" {
 			return nil, 0, fmt.Errorf("checksum_required")
 		}
@@ -643,20 +731,26 @@ func (h *Handler) DataImportMultipartPart(w http.ResponseWriter, r *http.Request
 	ctx := r.Context()
 	jobID := chi.URLParam(r, "jobID")
 	partName := chi.URLParam(r, "partName")
-	_, upload, partIndex, err := h.loadImportUploadPart(ctx, jobID, userID, partName)
+	_, upload, partIndex, err := h.claimImportUploadPart(ctx, jobID, userID, partName)
 	if err != nil {
+		if errors.Is(err, errImportUploadExpired) {
+			httputil.WriteJSONNoCache(w, http.StatusConflict, map[string]string{"error": "upload_expired"})
+			return
+		}
+		if errors.Is(err, errImportPartAlreadyHandled) || errors.Is(err, errImportPartInProgress) {
+			httputil.WriteJSONNoCache(w, http.StatusConflict, map[string]string{"error": "part_already_received"})
+			return
+		}
 		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 		return
 	}
-	if time.Now().After(upload.ExpiresAt) {
-		httputil.WriteJSONNoCache(w, http.StatusConflict, map[string]string{"error": "upload_expired"})
-		return
-	}
 	part := upload.Parts[partIndex]
-	if part.Received {
-		httputil.WriteJSONNoCache(w, http.StatusConflict, map[string]string{"error": "part_already_received"})
-		return
-	}
+	partMarked := false
+	defer func() {
+		if !partMarked {
+			_ = h.clearImportUploadPartReceiving(context.Background(), jobID, userID, part.Name)
+		}
+	}()
 	role := gdprartifacts.RoleFilesZIP
 	if part.Name == "metadata.zip" {
 		role = gdprartifacts.RoleMetadataZIP
@@ -716,9 +810,11 @@ func (h *Handler) DataImportMultipartPart(w http.ResponseWriter, r *http.Request
 	}
 	now := time.Now().UTC()
 	if err := h.markImportUploadPartReceived(ctx, jobID, userID, part.Name, ref, now); err != nil {
+		_ = h.ArtifactStore.Delete(context.Background(), ref)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
+	partMarked = true
 	_ = h.DB.LogAuthEventStrict(ctx, userID, "data_import_multipart_part_received", middleware.ClientIP(r), r.UserAgent(), map[string]string{"job_id": jobID, "part_name": part.Name})
 	httputil.WriteJSONNoCache(w, http.StatusAccepted, map[string]any{"status": "received"})
 }
@@ -781,15 +877,39 @@ func (h *Handler) DataImportMultipartCancel(w http.ResponseWriter, r *http.Reque
 	userID := middleware.GetUserID(r.Context())
 	ctx := r.Context()
 	jobID := chi.URLParam(r, "jobID")
+	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	defer tx.Rollback(ctx)
+	var lockedJobID string
+	if err := tx.QueryRow(ctx, `
+		SELECT id
+		FROM background_jobs
+		WHERE id = $1 AND user_id = $2 AND job_type = 'data_import' AND status = 'uploading'
+		FOR UPDATE`, jobID, userID).Scan(&lockedJobID); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
 	if h.ArtifactStore != nil {
+		h.abortIncompleteArtifactUploads(context.Background(), "import", userID, jobID)
 		if err := h.ArtifactStore.DeletePrefix(context.Background(), gdprartifacts.ArtifactPrefix{Kind: "import", UserID: userID, JobID: jobID}); err != nil {
 			slog.Warn("multipart import cancel: delete artifacts failed", "job_id", jobID, "error", err)
 			httputil.WriteJSONNoCache(w, http.StatusServiceUnavailable, map[string]string{"error": "artifact_cleanup_failed"})
 			return
 		}
 	}
-	_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
-	tag, err := h.DB.Pool.Exec(ctx, `
+	if _, err := tx.Exec(ctx, `
+		UPDATE gdpr_artifact_reservations
+		SET committed_bytes = 0,
+		    released_at = COALESCE(released_at, NOW()),
+		    updated_at = NOW()
+		WHERE job_id = $1::uuid AND user_id = $2::uuid`, jobID, userID); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	tag, err := tx.Exec(ctx, `
 		UPDATE background_jobs
 		SET status = 'failed', error = 'user_cancelled', finished_at = NOW(), updated_at = NOW(),
 		    metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{import_upload,state}', to_jsonb('cancelled'::text), true)
@@ -797,6 +917,10 @@ func (h *Handler) DataImportMultipartCancel(w http.ResponseWriter, r *http.Reque
 		jobID, userID)
 	if err != nil || tag.RowsAffected() != 1 {
 		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
 	_ = h.DB.LogAuthEventStrict(ctx, userID, "data_import_multipart_cancelled", middleware.ClientIP(r), r.UserAgent(), map[string]string{"job_id": jobID})
@@ -1022,6 +1146,100 @@ func (h *Handler) loadImportUploadPart(ctx context.Context, jobID, userID, partN
 	return nil, importUploadMetadata{}, -1, fmt.Errorf("part not expected")
 }
 
+func (h *Handler) claimImportUploadPart(ctx context.Context, jobID, userID, partName string) ([]byte, importUploadMetadata, int, error) {
+	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, importUploadMetadata{}, -1, err
+	}
+	defer tx.Rollback(ctx)
+	var metadata []byte
+	if err := tx.QueryRow(ctx, `
+		SELECT metadata
+		FROM background_jobs
+		WHERE id = $1 AND user_id = $2 AND job_type = 'data_import' AND status = 'uploading'
+		FOR UPDATE`, jobID, userID).Scan(&metadata); err != nil {
+		return nil, importUploadMetadata{}, -1, err
+	}
+	var envelope struct {
+		ImportUpload importUploadMetadata `json:"import_upload"`
+	}
+	if err := json.Unmarshal(metadata, &envelope); err != nil {
+		return nil, importUploadMetadata{}, -1, err
+	}
+	upload := envelope.ImportUpload
+	if upload.State == "" {
+		return nil, importUploadMetadata{}, -1, fmt.Errorf("import_upload missing")
+	}
+	if time.Now().After(upload.ExpiresAt) {
+		return nil, importUploadMetadata{}, -1, errImportUploadExpired
+	}
+	partIndex := -1
+	for i := range upload.Parts {
+		if upload.Parts[i].Name == partName {
+			partIndex = i
+			break
+		}
+	}
+	if partIndex < 0 {
+		return nil, importUploadMetadata{}, -1, fmt.Errorf("part not expected")
+	}
+	if upload.Parts[partIndex].Received {
+		return nil, importUploadMetadata{}, -1, errImportPartAlreadyHandled
+	}
+	if upload.Parts[partIndex].Receiving {
+		return nil, importUploadMetadata{}, -1, errImportPartInProgress
+	}
+	upload.Parts[partIndex].Receiving = true
+	updated, err := mergeImportUploadMetadata(metadata, upload, nil)
+	if err != nil {
+		return nil, importUploadMetadata{}, -1, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE background_jobs SET metadata = $2::jsonb, updated_at = NOW() WHERE id = $1`, jobID, updated); err != nil {
+		return nil, importUploadMetadata{}, -1, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, importUploadMetadata{}, -1, err
+	}
+	return updated, upload, partIndex, nil
+}
+
+func (h *Handler) clearImportUploadPartReceiving(ctx context.Context, jobID, userID, partName string) error {
+	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var metadata []byte
+	if err := tx.QueryRow(ctx, `
+		SELECT metadata
+		FROM background_jobs
+		WHERE id = $1 AND user_id = $2 AND job_type = 'data_import' AND status = 'uploading'
+		FOR UPDATE`, jobID, userID).Scan(&metadata); err != nil {
+		return err
+	}
+	var envelope struct {
+		ImportUpload importUploadMetadata `json:"import_upload"`
+	}
+	if err := json.Unmarshal(metadata, &envelope); err != nil {
+		return err
+	}
+	upload := envelope.ImportUpload
+	for i := range upload.Parts {
+		if upload.Parts[i].Name == partName && !upload.Parts[i].Received {
+			upload.Parts[i].Receiving = false
+			updated, err := mergeImportUploadMetadata(metadata, upload, nil)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE background_jobs SET metadata = $2::jsonb, updated_at = NOW() WHERE id = $1`, jobID, updated); err != nil {
+				return err
+			}
+			return tx.Commit(ctx)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func (h *Handler) storeImportUploadMetadata(ctx context.Context, jobID string, existing []byte, upload importUploadMetadata, artifact *gdprartifacts.Artifact) error {
 	updated, err := mergeImportUploadMetadata(existing, upload, artifact)
 	if err != nil {
@@ -1069,6 +1287,7 @@ func (h *Handler) markImportUploadPartReceived(ctx context.Context, jobID, userI
 		return fmt.Errorf("part already received")
 	}
 	upload.Parts[partIndex].Received = true
+	upload.Parts[partIndex].Receiving = false
 	upload.Parts[partIndex].Artifact = &ref
 	upload.Parts[partIndex].SizeBytes = ref.SizeBytes
 	upload.ReceivedBytes += ref.SizeBytes

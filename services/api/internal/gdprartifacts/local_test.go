@@ -146,6 +146,27 @@ func TestLocalStoreAbortRemovesTempFile(t *testing.T) {
 	}
 }
 
+func TestLocalStoreAbortRemovesTempFileWithCanceledContext(t *testing.T) {
+	ctx := context.Background()
+	store, _, _ := newLocalStoreForTest(t)
+	writer, err := store.CreateWriter(ctx, localObjectSpec("abort-canceled.zip"))
+	if err != nil {
+		t.Fatalf("CreateWriter: %v", err)
+	}
+	localWriter, ok := writer.(*localObjectWriter)
+	if !ok {
+		t.Fatalf("writer type = %T, want *localObjectWriter", writer)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := writer.Abort(canceled); err == nil {
+		t.Fatal("Abort with canceled context returned nil, want context error after cleanup")
+	}
+	if _, err := os.Stat(localWriter.tempPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("temp file after canceled Abort: err=%v", err)
+	}
+}
+
 func TestLocalStoreCapacityRejectsConfiguredTotalQuota(t *testing.T) {
 	ctx := context.Background()
 	exportsBase := t.TempDir()
