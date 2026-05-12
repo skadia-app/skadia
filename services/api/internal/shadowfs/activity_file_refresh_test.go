@@ -192,7 +192,7 @@ func TestRenderActivityFilePathIncludesCommuteAndRequiresFileOwner(t *testing.T)
 	}
 }
 
-func TestRenderActivityFilePathUsesGeneratedTitleUnlessManual(t *testing.T) {
+func TestRenderActivityFilePathUsesDisplayTitlePolicy(t *testing.T) {
 	ctx := context.Background()
 	pool := activityRefreshTestPool(t)
 	userID := insertActivityRefreshUser(t, pool)
@@ -238,12 +238,30 @@ func TestRenderActivityFilePathUsesGeneratedTitleUnlessManual(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderActivityFilePath: %v", err)
 	}
-	wantGenerated := filepath.Join(userID, DirForType("activity"), "Generated Title.fit")
-	if rendered.NewPath != wantGenerated {
-		t.Fatalf("NewPath = %q, want generated title path %q", rendered.NewPath, wantGenerated)
+	wantSource := filepath.Join(userID, DirForType("activity"), "Source Title.fit")
+	if rendered.NewPath != wantSource {
+		t.Fatalf("NewPath = %q, want source title path %q", rendered.NewPath, wantSource)
 	}
 
-	if _, err := pool.Exec(ctx, `UPDATE activities SET title_is_manual = true WHERE id = $1`, activityID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE activities SET title = '   ' WHERE id = $1`, activityID); err != nil {
+		t.Fatalf("blank source title: %v", err)
+	}
+	rendered, err = RenderActivityFilePath(ctx, ActivityFileRefreshRequest{
+		Pool:           pool,
+		Renderer:       NewSchemaRenderer(),
+		UserID:         userID,
+		ActivityID:     activityID,
+		SchemaOverride: "{title}",
+	})
+	if err != nil {
+		t.Fatalf("RenderActivityFilePath empty source: %v", err)
+	}
+	wantGenerated := filepath.Join(userID, DirForType("activity"), "Generated Title.fit")
+	if rendered.NewPath != wantGenerated {
+		t.Fatalf("empty source NewPath = %q, want generated title path %q", rendered.NewPath, wantGenerated)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE activities SET title = 'Manual Title', title_is_manual = true WHERE id = $1`, activityID); err != nil {
 		t.Fatalf("mark manual title: %v", err)
 	}
 	rendered, err = RenderActivityFilePath(ctx, ActivityFileRefreshRequest{
@@ -256,7 +274,7 @@ func TestRenderActivityFilePathUsesGeneratedTitleUnlessManual(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderActivityFilePath manual: %v", err)
 	}
-	wantManual := filepath.Join(userID, DirForType("activity"), "Source Title.fit")
+	wantManual := filepath.Join(userID, DirForType("activity"), "Manual Title.fit")
 	if rendered.NewPath != wantManual {
 		t.Fatalf("manual NewPath = %q, want manual title path %q", rendered.NewPath, wantManual)
 	}

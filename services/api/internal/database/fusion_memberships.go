@@ -232,8 +232,8 @@ func (db *DB) GetLatestEditData(ctx context.Context, activityID, editType string
 func (db *DB) GetActivityTitle(ctx context.Context, activityID string) (string, error) {
 	var title string
 	err := db.Pool.QueryRow(ctx,
-		`SELECT `+ActivityDisplayTitleSQL("")+`
-		FROM activities WHERE id = $1`,
+		`SELECT `+ActivityDisplayTitleSQL("a")+`
+		FROM activities a WHERE a.id = $1`,
 		activityID).Scan(&title)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
@@ -249,8 +249,8 @@ func (db *DB) GetActivityTitles(ctx context.Context, ids []string) (map[string]s
 		return map[string]string{}, nil
 	}
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, `+ActivityDisplayTitleSQL("")+`
-		FROM activities WHERE id = ANY($1)`, ids)
+		`SELECT a.id, `+ActivityDisplayTitleSQL("a")+`
+		FROM activities a WHERE a.id = ANY($1)`, ids)
 	if err != nil {
 		return nil, err
 	}

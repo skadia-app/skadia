@@ -55,13 +55,13 @@ func insertRouteSimilarityActivity(t *testing.T, db *database.DB, userID, title 
 	return activityID
 }
 
-func TestGetSimilarRoutesUsesGeneratedTitleUnlessManual(t *testing.T) {
+func TestGetSimilarRoutesUsesAutoTitleForEmptySourceUnlessManual(t *testing.T) {
 	db, userID := routeSimilarityTitleTestDB(t)
 	now := time.Now().UTC()
 
 	targetID := insertRouteSimilarityActivity(t, db, userID, "Target", nil, false, now)
 	insertRouteSimilarityActivity(t, db, userID, "Manual title", stringPtr("Generated manual"), true, now.Add(-time.Minute))
-	insertRouteSimilarityActivity(t, db, userID, "Source title", stringPtr("Generated title"), false, now.Add(-2*time.Minute))
+	insertRouteSimilarityActivity(t, db, userID, "   ", stringPtr("Generated title"), false, now.Add(-2*time.Minute))
 	insertRouteSimilarityActivity(t, db, userID, "Source fallback", nil, false, now.Add(-3*time.Minute))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/similar-routes?activity_id="+targetID+"&max_results=10", nil)

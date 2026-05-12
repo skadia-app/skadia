@@ -787,6 +787,13 @@ func (h *Handler) UpdateEnrichmentSettings(w http.ResponseWriter, r *http.Reques
 	if settings.PhotoPreviewSize == "" {
 		settings.PhotoPreviewSize = "wqhd"
 	}
+	if settings.AutoTitleDisplayPolicy == "" {
+		settings.AutoTitleDisplayPolicy = "source_unless_generic"
+	}
+	if !isValidAutoTitleDisplayPolicy(settings.AutoTitleDisplayPolicy) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid auto_title_display_policy", r.URL.Path)
+		return
+	}
 	if settings.PhashThresholdBits < 1 || settings.PhashThresholdBits > 10 {
 		settings.PhashThresholdBits = 3
 	}
@@ -815,4 +822,13 @@ func clampSummitDetectionRadius(val float64) float64 {
 		return 150
 	}
 	return val
+}
+
+func isValidAutoTitleDisplayPolicy(policy string) bool {
+	switch policy {
+	case "source_unless_generic", "source_first", "auto_first":
+		return true
+	default:
+		return false
+	}
 }

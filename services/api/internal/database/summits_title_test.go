@@ -30,7 +30,7 @@ func summitTitleTestDB(t *testing.T) (*DB, string) {
 	return db, userID
 }
 
-func TestGetSummitActivitiesUsesGeneratedTitleUnlessManual(t *testing.T) {
+func TestGetSummitActivitiesUseAutoTitleForEmptySourceUnlessManual(t *testing.T) {
 	ctx := context.Background()
 	db, userID := summitTitleTestDB(t)
 	now := time.Now().UTC()
@@ -42,7 +42,7 @@ func TestGetSummitActivitiesUsesGeneratedTitleUnlessManual(t *testing.T) {
 		INSERT INTO activities (id, user_id, sport_type, title, title_auto, title_is_manual, started_at)
 		VALUES
 			($1, $4, 'hiking', 'Manual title', 'Generated manual', true, $5),
-			($2, $4, 'hiking', 'Source title', 'Generated title', false, $5 - interval '1 minute'),
+			($2, $4, 'hiking', '   ', 'Generated title', false, $5 - interval '1 minute'),
 			($3, $4, 'hiking', 'Source fallback', NULL, false, $5 - interval '2 minutes')`,
 		manualID, generatedID, sourceID, userID, now); err != nil {
 		t.Fatalf("insert activities: %v", err)

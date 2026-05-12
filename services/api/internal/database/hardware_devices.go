@@ -430,28 +430,27 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 	}
 
 	var rows pgx.Rows
-	activityTitleSQL := ActivityDisplayTitleSQL("")
-	aliasedActivityTitleSQL := ActivityDisplayTitleSQL("a")
+	activityTitleSQL := ActivityDisplayTitleSQL("a")
 
 	if deviceType == "recorder" {
 		if afterCursor != "" {
 			rows, err = db.Pool.Query(ctx,
-				`SELECT id::text, started_at,
+				`SELECT a.id::text, a.started_at,
 				     `+activityTitleSQL+`,
-				     sport_type, distance_m, timezone
-				 FROM activities
-				 WHERE recording_device_id = $1 AND started_at < $2::timestamptz
-				 ORDER BY started_at DESC LIMIT $3`,
+				     a.sport_type, a.distance_m, a.timezone
+				 FROM activities a
+				 WHERE a.recording_device_id = $1 AND a.started_at < $2::timestamptz
+				 ORDER BY a.started_at DESC LIMIT $3`,
 				deviceID, afterCursor, limit,
 			)
 		} else {
 			rows, err = db.Pool.Query(ctx,
-				`SELECT id::text, started_at,
+				`SELECT a.id::text, a.started_at,
 				     `+activityTitleSQL+`,
-				     sport_type, distance_m, timezone
-				 FROM activities
-				 WHERE recording_device_id = $1
-				 ORDER BY started_at DESC LIMIT $2`,
+				     a.sport_type, a.distance_m, a.timezone
+				 FROM activities a
+				 WHERE a.recording_device_id = $1
+				 ORDER BY a.started_at DESC LIMIT $2`,
 				deviceID, limit,
 			)
 		}
@@ -460,7 +459,7 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 		if afterCursor != "" {
 			rows, err = db.Pool.Query(ctx,
 				`SELECT a.id::text, a.started_at,
-				     `+aliasedActivityTitleSQL+`,
+				     `+activityTitleSQL+`,
 				     a.sport_type, a.distance_m, a.timezone
 				 FROM activities a
 				 INNER JOIN (
@@ -475,7 +474,7 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 		} else {
 			rows, err = db.Pool.Query(ctx,
 				`SELECT a.id::text, a.started_at,
-				     `+aliasedActivityTitleSQL+`,
+				     `+activityTitleSQL+`,
 				     a.sport_type, a.distance_m, a.timezone
 				 FROM activities a
 				 INNER JOIN (

@@ -181,16 +181,16 @@ func (db *DB) GetImportQueueItem(ctx context.Context, id, userID string) (*Impor
 
 // FindActivitiesCoveringTime returns activities whose time window contains ts.
 func (db *DB) FindActivitiesCoveringTime(ctx context.Context, userID string, ts time.Time) ([]ActivityTimeMatch, error) {
-	activityTitleSQL := ActivityDisplayTitleSQL("")
+	activityTitleSQL := ActivityDisplayTitleSQL("a")
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id,
+		SELECT a.id,
 		       `+activityTitleSQL+` AS title,
-		       started_at, ended_at
-		FROM activities
-		WHERE user_id = $1
-		  AND started_at <= $2
-		  AND ended_at >= $2
-		ORDER BY started_at DESC
+		       a.started_at, a.ended_at
+		FROM activities a
+		WHERE a.user_id = $1
+		  AND a.started_at <= $2
+		  AND a.ended_at >= $2
+		ORDER BY a.started_at DESC
 		LIMIT 10
 	`, userID, ts)
 	if err != nil {

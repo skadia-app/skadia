@@ -131,7 +131,7 @@ func TestLegacyFusionCandidateJSONIncludesSportTupleAndModifiers(t *testing.T) {
 	}
 }
 
-func TestGetFusionCandidatesUsesGeneratedTitleUnlessManual(t *testing.T) {
+func TestGetFusionCandidatesUsesAutoTitleForEmptySourceUnlessManual(t *testing.T) {
 	pool := fusionTestPool(t)
 	ctx := context.Background()
 	db := &database.DB{Pool: pool}
@@ -142,7 +142,7 @@ func TestGetFusionCandidatesUsesGeneratedTitleUnlessManual(t *testing.T) {
 
 	if _, err := pool.Exec(ctx, `
 		UPDATE activities
-		SET title = 'Source title', title_auto = 'Generated title', title_is_manual = false
+		SET title = '   ', title_auto = 'Generated title', title_is_manual = false
 		WHERE id = $1`, generatedID); err != nil {
 		t.Fatalf("seed generated candidate: %v", err)
 	}
