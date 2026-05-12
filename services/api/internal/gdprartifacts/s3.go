@@ -119,7 +119,15 @@ func (s *S3Store) CreateWriter(_ context.Context, spec ObjectSpec) (ObjectWriter
 	}, nil
 }
 
+func (s *S3Store) MultipartUploadPartSizeBytes() int64 {
+	return s.cfg.PartSizeBytes
+}
+
 func (s *S3Store) Open(ctx context.Context, ref ObjectRef, rangeSpec *RangeSpec) (ObjectReader, error) {
+	bucket, key, err := s.validateRef(ref)
+	if err != nil {
+		return nil, err
+	}
 	rangeHeader := ""
 	if rangeSpec != nil && (rangeSpec.Start != nil || rangeSpec.End != nil) {
 		start := int64(0)
@@ -132,7 +140,7 @@ func (s *S3Store) Open(ctx context.Context, ref ObjectRef, rangeSpec *RangeSpec)
 			rangeHeader = fmt.Sprintf("bytes=%d-", start)
 		}
 	}
-	input := &s3.GetObjectInput{Bucket: aws.String(ref.Bucket), Key: aws.String(ref.Key)}
+	input := &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)}
 	if rangeHeader != "" {
 		input.Range = aws.String(rangeHeader)
 	}
@@ -148,6 +156,10 @@ func (s *S3Store) Open(ctx context.Context, ref ObjectRef, rangeSpec *RangeSpec)
 }
 
 func (s *S3Store) OpenReaderAt(ctx context.Context, ref ObjectRef) (SizedReaderAt, error) {
+	bucket, key, err := s.validateRef(ref)
+	if err != nil {
+		return nil, err
+	}
 	stat, err := s.Stat(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -155,13 +167,17 @@ func (s *S3Store) OpenReaderAt(ctx context.Context, ref ObjectRef) (SizedReaderA
 	if stat.State != ObjectPresent {
 		return nil, fmt.Errorf("object not present: %s", stat.State)
 	}
-	return newS3RangeReaderAt(s.client, ref.Bucket, ref.Key, stat.SizeBytes, s.cfg.ReadBlockBytes, s.cfg.ReadCacheBlocks), nil
+	return newS3RangeReaderAt(s.client, bucket, key, stat.SizeBytes, s.cfg.ReadBlockBytes, s.cfg.ReadCacheBlocks), nil
 }
 
 func (s *S3Store) Stat(ctx context.Context, ref ObjectRef) (ObjectStat, error) {
+	bucket, key, err := s.validateRef(ref)
+	if err != nil {
+		return ObjectStat{State: ObjectUnknown, Err: err}, err
+	}
 	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(ref.Bucket),
-		Key:    aws.String(ref.Key),
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
 	})
 	if err != nil {
 		if isS3NotFound(err) {
@@ -173,9 +189,13 @@ func (s *S3Store) Stat(ctx context.Context, ref ObjectRef) (ObjectStat, error) {
 }
 
 func (s *S3Store) Delete(ctx context.Context, ref ObjectRef) error {
-	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: aws.String(ref.Bucket),
-		Key:    aws.String(ref.Key),
+	bucket, key, err := s.validateRef(ref)
+	if err != nil {
+		return err
+	}
+	_, err = s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
 	})
 	return err
 }
@@ -207,11 +227,15 @@ func (s *S3Store) DeletePrefix(ctx context.Context, prefix ArtifactPrefix) error
 			for _, obj := range out.Contents {
 				objects = append(objects, s3types.ObjectIdentifier{Key: obj.Key})
 			}
-			if _, err := s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			out, err := s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 				Bucket: aws.String(bucket),
 				Delete: &s3types.Delete{Objects: objects, Quiet: aws.Bool(true)},
-			}); err != nil {
+			})
+			if err != nil {
 				return err
+			}
+			if len(out.Errors) > 0 {
+				return fmt.Errorf("delete prefix partially failed: %s", aws.ToString(out.Errors[0].Key))
 			}
 		}
 		if !aws.ToBool(out.IsTruncated) {
@@ -257,6 +281,24 @@ func (s *S3Store) AbortIncompleteUploads(ctx context.Context, prefix ArtifactPre
 		keyMarker = out.NextKeyMarker
 		uploadMarker = out.NextUploadIdMarker
 	}
+}
+
+func (s *S3Store) validateRef(ref ObjectRef) (string, string, error) {
+	bucket, prefix, err := s.bucketAndPrefix(ref.Kind)
+	if err != nil {
+		return "", "", err
+	}
+	expectedKey, err := objectKey(prefix, ref.UserID, ref.JobID, ref.Role, ref.Name)
+	if err != nil {
+		return "", "", err
+	}
+	if ref.Bucket != bucket {
+		return "", "", fmt.Errorf("artifact bucket outside configured scope")
+	}
+	if ref.Key != expectedKey {
+		return "", "", fmt.Errorf("artifact key outside configured scope")
+	}
+	return bucket, expectedKey, nil
 }
 
 func (s *S3Store) EnsureLifecycle(context.Context) error {

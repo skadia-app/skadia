@@ -55,8 +55,7 @@ func (h *Handler) executeMultipartExportJobOnce(
 	artifactPublished := false
 	defer func() {
 		if !artifactPublished && h.ArtifactStore != nil {
-			_ = h.ArtifactStore.DeletePrefix(context.Background(), gdprartifacts.ArtifactPrefix{Kind: "export", UserID: userID, JobID: jobID})
-			_ = h.releaseGDPRArtifactCapacity(context.Background(), jobID, userID, 0)
+			h.cleanupUnpublishedExportArtifacts(context.Background(), userID, jobID)
 		}
 	}()
 	metadataWriter, err := h.ArtifactStore.CreateWriter(ctx, gdprartifacts.ObjectSpec{

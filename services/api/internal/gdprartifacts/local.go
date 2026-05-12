@@ -318,10 +318,11 @@ func (w *localObjectWriter) Commit(ctx context.Context) (ObjectRef, error) {
 		_ = os.Remove(w.tempPath)
 		return ObjectRef{}, err
 	}
-	if err := os.Rename(w.tempPath, w.finalPath); err != nil {
+	if err := os.Link(w.tempPath, w.finalPath); err != nil {
 		_ = os.Remove(w.tempPath)
 		return ObjectRef{}, err
 	}
+	_ = os.Remove(w.tempPath)
 	if err := fsyncDir(filepath.Dir(w.finalPath)); err != nil {
 		return ObjectRef{}, err
 	}
@@ -343,9 +344,6 @@ func (w *localObjectWriter) Commit(ctx context.Context) (ObjectRef, error) {
 }
 
 func (w *localObjectWriter) Abort(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	if !w.closed {
 		w.closed = true
 		if err := w.file.Close(); err != nil {
@@ -354,6 +352,9 @@ func (w *localObjectWriter) Abort(ctx context.Context) error {
 		}
 	}
 	if err := os.Remove(w.tempPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	return nil

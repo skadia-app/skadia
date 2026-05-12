@@ -529,8 +529,7 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	artifactPublished := false
 	defer func() {
 		if artifactCommitted && !artifactPublished && h.ArtifactStore != nil {
-			_ = h.ArtifactStore.DeletePrefix(context.Background(), gdprartifacts.ArtifactPrefix{Kind: "export", UserID: userID, JobID: jobID})
-			_ = h.releaseGDPRArtifactCapacity(context.Background(), jobID, userID, 0)
+			h.cleanupUnpublishedExportArtifacts(context.Background(), userID, jobID)
 		}
 	}()
 

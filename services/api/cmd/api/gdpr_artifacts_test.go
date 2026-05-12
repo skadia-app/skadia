@@ -43,6 +43,31 @@ func TestBuildGDPRArtifactStoreAutoFollowsStorageBackend(t *testing.T) {
 	}
 }
 
+func TestBuildGDPRArtifactStoreDoesNotUseExportPartTargetForS3UploadChunks(t *testing.T) {
+	cfg := &config.Config{
+		StorageBackend:              "s3",
+		GDPRArtifactBackend:         "auto",
+		S3Endpoint:                  "http://localhost:3900",
+		S3AccessKey:                 "key",
+		S3SecretKey:                 "secret",
+		S3Region:                    "garage",
+		S3BucketExports:             "skadia-exports",
+		S3BucketImports:             "skadia-imports",
+		S3ExportsPrefix:             "gdpr/exports",
+		S3ImportsPrefix:             "gdpr/imports",
+		GDPRExportPartTargetBytes:   2 << 30,
+		GDPRArtifactUserActiveBytes: 32 << 30,
+	}
+	store, err := buildGDPRArtifactStore(cfg)
+	if err != nil {
+		t.Fatalf("buildGDPRArtifactStore: %v", err)
+	}
+	s3Store := store.(*gdprartifacts.S3Store)
+	if s3Store.MultipartUploadPartSizeBytes() != 64<<20 {
+		t.Fatalf("S3 artifact part size = %d, want bounded default", s3Store.MultipartUploadPartSizeBytes())
+	}
+}
+
 func TestBuildGDPRArtifactStoreRejectsS3WithoutCredentials(t *testing.T) {
 	cfg := &config.Config{
 		StorageBackend:      "local",

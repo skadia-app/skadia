@@ -42,7 +42,6 @@ func buildGDPRArtifactStore(cfg *config.Config) (gdprartifacts.Store, error) {
 			ImportBucket:    cfg.S3BucketImports,
 			ExportPrefix:    cfg.S3ExportsPrefix,
 			ImportPrefix:    cfg.S3ImportsPrefix,
-			PartSizeBytes:   cfg.GDPRExportPartTargetBytes,
 			ReadBlockBytes:  8 << 20,
 			ReadCacheBlocks: 4,
 		})

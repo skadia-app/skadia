@@ -19,7 +19,6 @@ func (h *Handler) StartGDPRArtifactMaintenance(ctx context.Context) {
 	} else {
 		h.reconcileExpiredArtifacts(ctx)
 	}
-	h.cleanupIncompleteS3MultipartUploads(ctx)
 
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
@@ -30,7 +29,6 @@ func (h *Handler) StartGDPRArtifactMaintenance(ctx context.Context) {
 				return
 			case <-ticker.C:
 				h.reconcileExpiredArtifacts(ctx)
-				h.cleanupIncompleteS3MultipartUploads(ctx)
 			}
 		}
 	}()
@@ -136,6 +134,7 @@ func (h *Handler) cleanupFailedExportArtifactsWithoutMetadata(ctx context.Contex
 	}
 	rows.Close()
 	for _, job := range jobs {
+		h.abortIncompleteArtifactUploads(ctx, "export", job.userID, job.id)
 		if err := h.ArtifactStore.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "export", UserID: job.userID, JobID: job.id}); err != nil {
 			slog.Warn("gdpr artifact cleanup: delete failed export prefix without metadata failed", "job_id", job.id, "error", err)
 			continue
@@ -143,6 +142,20 @@ func (h *Handler) cleanupFailedExportArtifactsWithoutMetadata(ctx context.Contex
 		if err := h.releaseGDPRArtifactCapacity(ctx, job.id, job.userID, 0); err != nil {
 			slog.Warn("gdpr artifact cleanup: release failed export reservation without metadata failed", "job_id", job.id, "error", err)
 		}
+	}
+}
+
+func (h *Handler) cleanupUnpublishedExportArtifacts(ctx context.Context, userID, jobID string) {
+	if h == nil || h.ArtifactStore == nil {
+		return
+	}
+	h.abortIncompleteArtifactUploads(ctx, "export", userID, jobID)
+	if err := h.ArtifactStore.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "export", UserID: userID, JobID: jobID}); err != nil {
+		slog.Warn("gdpr artifact cleanup: delete unpublished export prefix failed", "job_id", jobID, "error", err)
+		return
+	}
+	if err := h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0); err != nil {
+		slog.Warn("gdpr artifact cleanup: release unpublished export reservation failed", "job_id", jobID, "error", err)
 	}
 }
 
@@ -230,15 +243,12 @@ func (h *Handler) reconcileExportArtifactForStatus(ctx context.Context, jobID, u
 	return updated, "artifact_missing"
 }
 
-func (h *Handler) cleanupIncompleteS3MultipartUploads(ctx context.Context) {
+func (h *Handler) abortIncompleteArtifactUploads(ctx context.Context, kind, userID, jobID string) {
 	aborter, ok := h.ArtifactStore.(gdprartifacts.IncompleteMultipartAborter)
 	if !ok {
 		return
 	}
-	if err := aborter.AbortIncompleteUploads(ctx, gdprartifacts.ArtifactPrefix{Kind: "export"}); err != nil {
-		slog.Warn("gdpr artifact cleanup: incomplete export multipart abort skipped", "error", err)
-	}
-	if err := aborter.AbortIncompleteUploads(ctx, gdprartifacts.ArtifactPrefix{Kind: "import"}); err != nil {
-		slog.Warn("gdpr artifact cleanup: incomplete import multipart abort skipped", "error", err)
+	if err := aborter.AbortIncompleteUploads(ctx, gdprartifacts.ArtifactPrefix{Kind: kind, UserID: userID, JobID: jobID}); err != nil {
+		slog.Warn("gdpr artifact cleanup: incomplete multipart abort skipped", "kind", kind, "job_id", jobID, "error", err)
 	}
 }
