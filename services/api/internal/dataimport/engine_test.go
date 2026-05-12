@@ -179,6 +179,10 @@ func (m *mockShadowFS) StreamToZip(_ context.Context, _ string, _ *zip.Writer) (
 	return nil, nil
 }
 
+func (m *mockShadowFS) StreamExportFiles(_ context.Context, _ string, _ shadowfs.ExportFileSink) ([]string, error) {
+	return nil, nil
+}
+
 func (m *mockShadowFS) Resolve(_ context.Context, _, _ string) (shadowfs.ResolvedFile, error) {
 	return shadowfs.ResolvedFile{}, nil
 }

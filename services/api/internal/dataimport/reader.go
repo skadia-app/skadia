@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -43,18 +44,18 @@ type Source interface {
 
 // Manifest is the parsed representation of manifest.json inside a GDPR export.
 type Manifest struct {
-	FormatVersion    int                    `json:"format_version"`
-	SkadiaVersion   string                 `json:"skadia_version"`
-	SchemaMigration  int                    `json:"schema_migration"`
-	ExportedAt       time.Time              `json:"exported_at"`
-	UserID           string                 `json:"user_id"`
-	Multipart        bool                   `json:"multipart,omitempty"`
-	Parts            []ManifestPart         `json:"parts,omitempty"`
-	EntityCounts     map[string]int         `json:"entity_counts,omitempty"`
-	Categories       map[string][]string    `json:"categories,omitempty"`
-	IncompleteTables []string               `json:"incomplete_tables,omitempty"`
-	ExportErrors     []ManifestExportError  `json:"export_errors,omitempty"`
-	FailedFiles      []string               `json:"failed_files,omitempty"`
+	FormatVersion    int                   `json:"format_version"`
+	SkadiaVersion   string                `json:"skadia_version"`
+	SchemaMigration  int                   `json:"schema_migration"`
+	ExportedAt       time.Time             `json:"exported_at"`
+	UserID           string                `json:"user_id"`
+	Multipart        bool                  `json:"multipart,omitempty"`
+	Parts            []ManifestPart        `json:"parts,omitempty"`
+	EntityCounts     map[string]int        `json:"entity_counts,omitempty"`
+	Categories       map[string][]string   `json:"categories,omitempty"`
+	IncompleteTables []string              `json:"incomplete_tables,omitempty"`
+	ExportErrors     []ManifestExportError `json:"export_errors,omitempty"`
+	FailedFiles      []string              `json:"failed_files,omitempty"`
 }
 
 // ManifestExportError mirrors the exportTableError struct written by the
@@ -66,9 +67,11 @@ type ManifestExportError struct {
 
 // ManifestPart describes one part ZIP in a multi-part export.
 type ManifestPart struct {
-	Name      string `json:"name"`
-	SHA256    string `json:"sha256"`
-	SizeBytes int64  `json:"size_bytes"`
+	Name               string `json:"name"`
+	Role               string `json:"role,omitempty"`
+	SHA256             string `json:"sha256"`
+	SizeBytes          int64  `json:"size_bytes"`
+	WebImportSupported *bool  `json:"web_import_supported,omitempty"`
 }
 
 // TotalFileSizeBytes returns the sum of all part sizes.
@@ -420,6 +423,8 @@ type MultiPartSource struct {
 	parts    map[string]*ZipSource // part name → zip source for files/
 }
 
+var multipartFilesPartPattern = regexp.MustCompile(`^files-[0-9]{4}\.zip$`)
+
 // NewMultiPartSource opens and verifies a multi-part export rooted at dir.
 func NewMultiPartSource(dir string) (*MultiPartSource, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
@@ -434,10 +439,18 @@ func NewMultiPartSource(dir string) (*MultiPartSource, error) {
 		return nil, fmt.Errorf("dataimport: manifest.json does not have multipart=true")
 	}
 
-	// Verify + open metadata.zip.
+	parts, metadataPart, err := normalizeManifestParts(dir, m.Parts)
+	if err != nil {
+		return nil, err
+	}
+	m.Parts = parts
+
 	metaPath := filepath.Join(dir, "metadata.zip")
-	// metadata.zip SHA-256 is not listed in parts (parts list covers data ZIPs).
-	// We still open it, letting zip.OpenReader validate its own CRC entries.
+	if metadataPart != nil && metadataPart.SHA256 != "" {
+		if err := verifySHA256(metaPath, metadataPart.SHA256); err != nil {
+			return nil, fmt.Errorf("dataimport: SHA-256 mismatch for metadata.zip: %w", err)
+		}
+	}
 	meta, err := NewZipSource(metaPath)
 	if err != nil {
 		return nil, fmt.Errorf("dataimport: open metadata.zip: %w", err)
@@ -446,6 +459,9 @@ func NewMultiPartSource(dir string) (*MultiPartSource, error) {
 	// Verify + open each part ZIP.
 	partSources := make(map[string]*ZipSource, len(m.Parts))
 	for _, part := range m.Parts {
+		if part.Role == "metadata" {
+			continue
+		}
 		partPath := filepath.Join(dir, part.Name)
 		if part.SHA256 != "" {
 			if err := verifySHA256(partPath, part.SHA256); err != nil {
@@ -473,6 +489,71 @@ func NewMultiPartSource(dir string) (*MultiPartSource, error) {
 		meta:     meta,
 		parts:    partSources,
 	}, nil
+}
+
+func normalizeManifestParts(dir string, parts []ManifestPart) ([]ManifestPart, *ManifestPart, error) {
+	seen := make(map[string]struct{}, len(parts)+1)
+	normalized := make([]ManifestPart, 0, len(parts)+1)
+	var metadataPart *ManifestPart
+
+	for _, part := range parts {
+		role, err := normalizeManifestPartRole(part)
+		if err != nil {
+			return nil, nil, err
+		}
+		part.Role = role
+		if _, ok := seen[part.Name]; ok {
+			return nil, nil, fmt.Errorf("dataimport: duplicate multipart part %q", part.Name)
+		}
+		seen[part.Name] = struct{}{}
+		if role == "metadata" {
+			cp := part
+			metadataPart = &cp
+		}
+		normalized = append(normalized, part)
+	}
+
+	if metadataPart == nil {
+		info, err := os.Stat(filepath.Join(dir, "metadata.zip"))
+		if err != nil {
+			return nil, nil, fmt.Errorf("dataimport: stat metadata.zip: %w", err)
+		}
+		inferred := ManifestPart{Name: "metadata.zip", Role: "metadata", SizeBytes: info.Size()}
+		metadataPart = &inferred
+		normalized = append([]ManifestPart{inferred}, normalized...)
+	}
+
+	return normalized, metadataPart, nil
+}
+
+func normalizeManifestPartRole(part ManifestPart) (string, error) {
+	if part.Name == "" || filepath.Base(part.Name) != part.Name || strings.Contains(part.Name, "..") {
+		return "", fmt.Errorf("dataimport: invalid multipart part name %q", part.Name)
+	}
+	role := part.Role
+	if role == "" {
+		switch {
+		case part.Name == "metadata.zip":
+			role = "metadata"
+		case multipartFilesPartPattern.MatchString(part.Name):
+			role = "files"
+		default:
+			return "", fmt.Errorf("dataimport: invalid multipart part name %q", part.Name)
+		}
+	}
+	switch role {
+	case "metadata":
+		if part.Name != "metadata.zip" {
+			return "", fmt.Errorf("dataimport: metadata part must be metadata.zip, got %q", part.Name)
+		}
+	case "files":
+		if !multipartFilesPartPattern.MatchString(part.Name) {
+			return "", fmt.Errorf("dataimport: files part has invalid name %q", part.Name)
+		}
+	default:
+		return "", fmt.Errorf("dataimport: unsupported multipart part role %q", role)
+	}
+	return role, nil
 }
 
 func (s *MultiPartSource) Manifest() (*Manifest, error) {
