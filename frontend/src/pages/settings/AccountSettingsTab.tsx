@@ -1157,11 +1157,12 @@ function DangerZoneSection() {
   }
 
   const latestExportExpiry = formatExportExpiry(latestExport?.expires_at)
-  const showLatestExport = latestExport?.status === 'completed' || Boolean(latestExport?.partial)
-  const latestExportAvailable = showLatestExport &&
-    !latestExport.unavailable_reason &&
-    Boolean(latestExport.download_session_url || (latestExport.parts && latestExport.parts.length > 0)) &&
-    (!latestExport.expires_at || new Date(latestExport.expires_at).getTime() > Date.now())
+  const latestVisibleExport = latestExport && (latestExport.status === 'completed' || latestExport.partial) ? latestExport : null
+  const latestExportAvailable = latestVisibleExport
+    ? !latestVisibleExport.unavailable_reason &&
+      Boolean(latestVisibleExport.download_session_url || (latestVisibleExport.parts && latestVisibleExport.parts.length > 0)) &&
+      (!latestVisibleExport.expires_at || new Date(latestVisibleExport.expires_at).getTime() > Date.now())
+    : false
 
   return (
     <Section title="Gefahrenzone" danger>
@@ -1183,7 +1184,7 @@ function DangerZoneSection() {
           </button>
         </div>
 
-        {showLatestExport && (
+        {latestVisibleExport && (
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 bg-neutral-50 dark:bg-neutral-900/40">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -1193,19 +1194,19 @@ function DangerZoneSection() {
                   {latestExportExpiry ? ` · ${S.dataExport.latest.expiresPrefix} ${latestExportExpiry}` : ''}
                 </p>
               </div>
-              {latestExportAvailable && latestExport && (
+              {latestExportAvailable && (
                 <button
                   type="button"
-                  onClick={() => { void downloadDataExport(latestExport) }}
+                  onClick={() => { void downloadDataExport(latestVisibleExport) }}
                   className="flex-shrink-0 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-white dark:hover:bg-neutral-800 transition-colors cursor-pointer"
                 >
-                  {latestExport.artifact_format === 'multipart' ? 'Alle Teile herunterladen' : S.dataExport.latest.downloadButton}
+                  {latestVisibleExport.artifact_format === 'multipart' ? 'Alle Teile herunterladen' : S.dataExport.latest.downloadButton}
                 </button>
               )}
             </div>
-            {latestExport.parts && latestExport.parts.length > 0 && (
+            {latestVisibleExport.parts && latestVisibleExport.parts.length > 0 && (
               <div className="mt-2 divide-y divide-neutral-200 dark:divide-neutral-800">
-                {latestExport.parts.map(part => (
+                {latestVisibleExport.parts.map(part => (
                   <div key={part.name} className="flex items-center justify-between gap-3 py-1.5 text-xs">
                     <div className="min-w-0">
                       <p className="truncate font-medium text-neutral-700 dark:text-neutral-300">{part.name}</p>
@@ -1219,7 +1220,7 @@ function DangerZoneSection() {
                       <button
                         type="button"
                         onClick={() => {
-                          void createDataExportDownloadSession(latestExport.job_id, { part: part.name })
+                          void createDataExportDownloadSession(latestVisibleExport.job_id, { part: part.name })
                             .then(session => triggerNativeDownload(session.url, part.name))
                             .catch(() => addToast({ type: 'error', title: S.dataExport.downloadFailed.title, duration: 0 }))
                         }}
