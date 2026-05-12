@@ -33,7 +33,8 @@ type recomputeScopeFlags struct {
 	doIntervals        bool
 	doStreamEnrichment bool
 
-	doStage1 bool
+	doStage1    bool
+	doAutoTitle bool
 }
 
 var validRecomputeScopes = map[string]struct{}{
@@ -57,9 +58,10 @@ var validRecomputeScopes = map[string]struct{}{
 	"surfaces":    {},
 	"lifts":       {},
 
-	"stops":     {},
-	"ascents":   {},
-	"intervals": {},
+	"stops":      {},
+	"ascents":    {},
+	"intervals":  {},
+	"auto_title": {},
 }
 
 func isValidRecomputeScope(scope string) bool {
@@ -120,6 +122,7 @@ func buildRecomputeScopeFlags(scope map[string]bool) recomputeScopeFlags {
 		doStops:     allScope || geoAll || scope["stops"],
 		doAscents:   allScope || scope["ascents"],
 		doIntervals: allScope || scope["intervals"],
+		doAutoTitle: allScope || scope["auto_title"],
 	}
 
 	flags.doGeo = flags.doSummits || flags.doSettlements || flags.doForests ||
@@ -135,4 +138,23 @@ func buildRecomputeScopeFlags(scope map[string]bool) recomputeScopeFlags {
 		flags.doTags || flags.doDetails || flags.doSensors || flags.doGeo
 
 	return flags
+}
+
+func (f recomputeScopeFlags) autoTitleOnly() bool {
+	return f.doAutoTitle &&
+		!f.allScope &&
+		!f.doStreams &&
+		!f.doSensors &&
+		!f.doMetrics &&
+		!f.doSportType &&
+		!f.doTags &&
+		!f.doDetails &&
+		!f.doSegments &&
+		!f.doBestEfforts &&
+		!f.doRunningForm &&
+		!f.doSpeedSmooth &&
+		!f.doGeo &&
+		!f.doStops &&
+		!f.doAscents &&
+		!f.doIntervals
 }

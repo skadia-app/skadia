@@ -3,6 +3,7 @@ package enrichment
 import (
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
@@ -149,5 +150,27 @@ func TestResolveAutoTitleSummitStartOnSummit(t *testing.T) {
 	got := ResolveAutoTitle(in)
 	if got.Title != "Hochplatte nach Marquartstein" {
 		t.Fatalf("Title = %q, want Hochplatte nach Marquartstein", got.Title)
+	}
+}
+
+func TestAutoTitleInputFromDBInputCopiesFields(t *testing.T) {
+	dbIn := database.AutoTitleActivityInput{
+		SportType:     "cycling",
+		SubType:       "mountain",
+		StartCity:     "Start",
+		EndCity:       "End",
+		StartLat:      f64(47.0),
+		StartLng:      f64(12.0),
+		EndLat:        f64(47.1),
+		EndLng:        f64(12.1),
+		MinElevationM: f64(500),
+		MaxElevationM: f64(1200),
+	}
+	got := AutoTitleInputFromDBInput(&dbIn, model.WeatherPrefs{MountainThresholdM: 500}, nil)
+	if got.SportType != "cycling" || got.SubType != "mountain" || got.StartCity != "Start" || got.EndCity != "End" {
+		t.Fatalf("unexpected copied fields: %+v", got)
+	}
+	if got.MinElevationM == nil || *got.MinElevationM != 500 || got.MaxElevationM == nil || *got.MaxElevationM != 1200 {
+		t.Fatalf("unexpected elevations: %+v", got)
 	}
 }
