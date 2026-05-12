@@ -14,6 +14,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/imageutil"
 	"github.com/skadia-app/skadia/services/api/internal/phash"
 )
 
@@ -109,6 +110,7 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 			// pHash computation.
 			var hashVal uint64
 			var hashErr error
+			ext := fileExtForContentType(photo.ContentType, photo.OriginalFilename)
 
 			if photo.IsVideo {
 				durationS := 0.0
@@ -119,7 +121,7 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 			} else {
 				hashVal, hashErr = phash.ComputeFromBytes(data)
 				if hashErr != nil {
-					hashVal, hashErr = phash.ComputeViaFFmpeg(data)
+					hashVal, hashErr = phash.ComputeViaFFmpegWithExt(data, ext)
 				}
 			}
 
@@ -135,15 +137,13 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 
 			// Dimensions backfill: use already-downloaded data if width is NULL
 			if photo.Width == nil && !photo.IsVideo {
-				if img, _, decErr := image.Decode(bytes.NewReader(data)); decErr == nil {
-					w := img.Bounds().Dx()
-					ht := img.Bounds().Dy()
+				if w, ht := backfillPhotoDimensions(data, ext); w > 0 && ht > 0 {
 					if err := h.DB.UpdateActivityPhotoDimensions(ctx, photo.ID, w, ht); err != nil {
 						slog.Warn("phash backfill: db update dimensions failed", "photo_id", photo.ID, "error", err)
 						anyFailed = true
 					}
 				} else {
-					slog.Warn("phash backfill: image decode failed for dimensions", "photo_id", photo.ID, "error", decErr)
+					slog.Warn("phash backfill: image decode failed for dimensions", "photo_id", photo.ID)
 				}
 			}
 
@@ -159,4 +159,14 @@ func (h *Handler) StartPhashBackfill(w http.ResponseWriter, r *http.Request) {
 		"job_id": jobID,
 		"queued": len(photos),
 	})
+}
+
+func backfillPhotoDimensions(data []byte, ext string) (int, int) {
+	if img, _, err := image.Decode(bytes.NewReader(data)); err == nil {
+		return img.Bounds().Dx(), img.Bounds().Dy()
+	}
+	if meta, err := imageutil.ProbeMedia(data, ext); err == nil && meta.Width > 0 && meta.Height > 0 {
+		return meta.Width, meta.Height
+	}
+	return 0, 0
 }

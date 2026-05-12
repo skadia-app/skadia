@@ -8,13 +8,12 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
-	"github.com/skadia-app/skadia/services/api/internal/imageutil"
+	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
@@ -24,7 +23,7 @@ const maxMediaUploadSize = 50 << 20 // 50 MB total
 // mediaUploadResult is the per-file result returned to the caller.
 type mediaUploadResult struct {
 	Filename      string  `json:"filename"`
-	Status        string  `json:"status"` // "assigned" | "queued" | "error"
+	Status        string  `json:"status"` // "assigned" | "queued" | "duplicate" | "error"
 	ActivityID    *string `json:"activity_id,omitempty"`
 	ActivityTitle *string `json:"activity_title,omitempty"`
 	QueueID       *string `json:"queue_id,omitempty"`
@@ -80,10 +79,7 @@ func (h *Handler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		ct := fileHeader.Header.Get("Content-Type")
-		if ct == "" {
-			ct = http.DetectContentType(data)
-		}
+		ct := detectUploadedMediaContentType(fileHeader.Filename, data)
 
 		var res mediaUploadResult
 		switch {
@@ -144,7 +140,7 @@ func (h *Handler) processMediaImage(r *http.Request, userID, filename, ct string
 
 	switch len(matches) {
 	case 1:
-		result := h.autoAssignPhoto(r, userID, filename, ct, data, hash, matches[0], takenAt, lat, lng, locationSource)
+		result := h.autoAssignPhoto(r, userID, filename, ct, data, matches[0], takenAt, lat, lng, locationSource)
 		switch result.Status {
 		case "assigned":
 			if result.ActivityID != nil {
@@ -190,12 +186,11 @@ func (h *Handler) processMediaPDF(r *http.Request, userID, filename, ct string, 
 	return res
 }
 
-// autoAssignPhoto stores a photo directly into the activity_photos table.
+// autoAssignPhoto assigns a photo through the shared activity-photo import pipeline.
 func (h *Handler) autoAssignPhoto(
 	r *http.Request,
 	userID, filename, ct string,
 	data []byte,
-	hash string,
 	match database.ActivityTimeMatch,
 	takenAt *time.Time,
 	lat, lng *float64,
@@ -210,97 +205,56 @@ func (h *Handler) autoAssignPhoto(
 		}
 	}
 
-	thumbData, _ := imageutil.Resize(data, 200, 200, 80)
-
-	ext := imageExtFromContentType(ct)
-
-	// Duplikat-Prüfung: gleiches Foto in derselben Aktivität überspringen
-	if exists, err := h.DB.ActivityPhotoExistsByHashAndActivity(r.Context(), userID, hash, match.ID); err == nil && exists {
-		dupActivityID := match.ID
-		return mediaUploadResult{Filename: filename, Status: "duplicate", ActivityID: &dupActivityID}
+	if h.ImportService == nil {
+		errMsg := "photo import service unavailable"
+		return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
 	}
 
-	mediaBucket := mediaBucketName()
-	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", userID, hash, ext)
-	s3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, hash)
-
-	var photoFileID string
-	if h.ShadowFS != nil {
-		actParent := "activity"
-		actID := match.ID
-		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "media",
-			ContentType: ct,
-			FileName:    filename,
-			SizeBytes:   int64(len(data)),
-			FileHash:    hash,
-			ParentType:  &actParent,
-			ParentID:    &actID,
-		}, bytes.NewReader(data))
-		if putErr != nil {
-			slog.Error("upload media: ShadowFS.Put photo failed", "error", putErr)
-			errMsg := "failed to store photo"
-			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
-		}
-		photoFileID = rec.ID
-		// Thumbnail is stored after DB insert (see below) so we can use parent_type='photo'.
+	locSrc := ""
+	if locationSource != nil {
+		locSrc = *locationSource
 	}
-
-	fileSize := int64(len(data))
-	activityID := match.ID
-	photo, err := h.DB.InsertActivityPhoto(r.Context(), model.ActivityPhoto{
-		UserID:           userID,
-		ActivityID:       &activityID,
-		FileID:           &photoFileID,
-		S3Bucket:         mediaBucket,
-		S3Key:            s3Key,
-		S3KeyThumb:       s3KeyThumb,
+	result, err := h.ImportService.ProcessPhoto(r.Context(), userID, match.ID, data, importer.PhotoMetadata{
 		OriginalFilename: filename,
 		ContentType:      ct,
-		FileSizeBytes:    fileSize,
-		FileHash:         &hash,
 		TakenAt:          takenAt,
 		Lat:              lat,
 		Lng:              lng,
-		LocationSource:   locationSource,
+		LocationSource:   locSrc,
 	})
 	if err != nil {
-		slog.Error("upload media: insert photo failed", "error", err)
-		// Clean up the file we already stored to avoid orphans.
-		if photoFileID != "" && h.ShadowFS != nil {
-			if delErr := h.ShadowFS.Delete(r.Context(), userID, photoFileID); delErr != nil {
-				slog.Warn("upload media: ShadowFS.Delete photo rollback failed", "file_id", photoFileID, "error", delErr)
-			}
-		}
+		slog.Error("upload media: ProcessPhoto failed", "error", err)
 		errMsg := "failed to save photo"
 		return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg}
 	}
 
-	// Store thumbnail in ShadowFS with parent_type='photo' (after insert so we have the photo ID).
-	if thumbData != nil && h.ShadowFS != nil && photo.ID != "" {
-		thumbName := fmt.Sprintf("%s_thumb.jpg", hash)
-		// FileHash uses a synthetic "hash_thumb" value (not a real SHA256 of the thumbnail
-		// data) because thumbnails are regenerable derivatives. The "_thumb" suffix makes
-		// the value deterministic and unique within the user_files registry.
-		_, _ = h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "thumb",
-			ContentType: "image/jpeg",
-			FileName:    thumbName,
-			SizeBytes:   int64(len(thumbData)),
-			FileHash:    hash + "_thumb",
-			ParentType:  new("photo"),
-			ParentID:    new(photo.ID),
-		}, bytes.NewReader(thumbData))
+	if result.Status == "duplicate_exact" || result.Status == "duplicate_phash" || result.Status == "replaced" {
+		activityID := result.ActivityID
+		if activityID == "" {
+			activityID = match.ID
+		}
+		return mediaUploadResult{Filename: filename, Status: "duplicate", ActivityID: &activityID}
 	}
 
+	activityID := match.ID
 	return mediaUploadResult{
 		Filename:      filename,
 		Status:        "assigned",
 		ActivityID:    &activityID,
 		ActivityTitle: match.Title,
 	}
+}
+
+func detectUploadedMediaContentType(filename string, data []byte) string {
+	sniff := data
+	if len(sniff) > 512 {
+		sniff = sniff[:512]
+	}
+	ct := http.DetectContentType(sniff)
+	if ct == "application/octet-stream" || ct == "application/zip" {
+		ct = contentTypeFromExtension(strings.ToLower(filename))
+	}
+	return ct
 }
 
 // queueMediaFile stores the file via ShadowFS and creates an import_queue entry for manual review.
@@ -366,40 +320,4 @@ func (h *Handler) queueMediaFile(
 		QueueID:   &queueID,
 		QueueType: &queueType,
 	}
-}
-
-// imageExtFromContentType returns the file extension for an image content type.
-// Exact matches are required to prevent ambiguous content-type substrings from
-// matching unrelated types (e.g. "application/x-png" should not match "png").
-func imageExtFromContentType(ct string) string {
-	// Strip optional parameters (e.g. "image/jpeg; charset=...").
-	if idx := strings.IndexByte(ct, ';'); idx >= 0 {
-		ct = strings.TrimSpace(ct[:idx])
-	}
-	switch ct {
-	case "image/png":
-		return ".png"
-	case "image/heic", "image/heif":
-		return ".heic"
-	case "image/avif":
-		return ".avif"
-	case "image/webp":
-		return ".webp"
-	case "image/gif":
-		return ".gif"
-	case "image/tiff":
-		return ".tiff"
-	case "image/bmp", "image/x-bmp", "image/x-ms-bmp":
-		return ".bmp"
-	default:
-		return ".jpg"
-	}
-}
-
-// mediaBucketName returns the configured S3 media bucket name.
-func mediaBucketName() string {
-	if b := os.Getenv("GARAGE_MEDIA_BUCKET"); b != "" {
-		return b
-	}
-	return "skadia-media"
 }

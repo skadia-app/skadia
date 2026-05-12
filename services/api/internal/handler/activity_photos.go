@@ -63,13 +63,6 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Quick pre-check on client-supplied Content-Type (before reading body).
-	ctFromHeader := header.Header.Get("Content-Type")
-	if ctFromHeader != "" && !strings.HasPrefix(ctFromHeader, "image/") && !strings.HasPrefix(ctFromHeader, "video/") {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "only images and videos are allowed", r.URL.Path)
-		return
-	}
-
 	// Datei vollstaendig lesen
 	data, err := io.ReadAll(file)
 	if err != nil {
@@ -86,8 +79,8 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	}
 	ct := http.DetectContentType(sniff)
 
-	// Fallback auf Datei-Extension wenn http.DetectContentType() kein Bild/Video erkennt.
-	// Das ist nötig für HEIC/JXL (geben application/octet-stream zurück) und mancher Videos.
+	// Fall back to the file extension when http.DetectContentType does not identify media.
+	// This covers HEIC/JXL/AVIF and some videos that sniff as application/octet-stream.
 	if ct == "application/octet-stream" || ct == "application/zip" {
 		ct = contentTypeFromExtension(strings.ToLower(header.Filename))
 	}

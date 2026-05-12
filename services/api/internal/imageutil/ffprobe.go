@@ -26,17 +26,23 @@ type ffprobeStream struct {
 	Duration  string `json:"duration"`
 }
 
-// ProbeVideo liest Video-Metadaten (Dauer, Auflösung) aus videoBytes via ffprobe.
-// ext ist die Dateiendung inkl. Punkt (z.B. ".mp4"), sie wird für die temp-Datei genutzt.
+// ProbeVideo reads video metadata from videoBytes via ffprobe.
+// ext is the file extension including dot (for example ".mp4").
 func ProbeVideo(videoBytes []byte, ext string) (VideoMeta, error) {
-	// Temporäre Datei anlegen
+	return ProbeMedia(videoBytes, ext)
+}
+
+// ProbeMedia reads dimensions and duration from visual media via ffprobe.
+// It also works for still-image formats decoded by ffmpeg but not Go's image package.
+func ProbeMedia(mediaBytes []byte, ext string) (VideoMeta, error) {
+	// Create a temporary input file so ffprobe can use the file extension.
 	tmp, err := os.CreateTemp("", "ffprobe-*"+ext)
 	if err != nil {
 		return VideoMeta{}, fmt.Errorf("ffprobe temp file: %w", err)
 	}
 	defer os.Remove(tmp.Name())
 
-	if _, err := tmp.Write(videoBytes); err != nil {
+	if _, err := tmp.Write(mediaBytes); err != nil {
 		tmp.Close()
 		return VideoMeta{}, fmt.Errorf("ffprobe temp write: %w", err)
 	}
