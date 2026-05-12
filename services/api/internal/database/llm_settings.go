@@ -77,3 +77,12 @@ func (db *DB) UpsertLLMUserConfig(ctx context.Context, userID, role string, mode
 		userID, role, modelName)
 	return err
 }
+
+func (db *DB) GetMLUserSetting(ctx context.Context, userID, key string) ([]byte, error) {
+	var value []byte
+	err := db.Pool.QueryRow(ctx,
+		`SELECT value_json FROM ml_user_settings WHERE user_id = $1 AND setting_key = $2`,
+		userID, key,
+	).Scan(&value)
+	return value, err
+}
