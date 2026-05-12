@@ -37,9 +37,13 @@ $COMPOSE exec garage /garage layout apply --version "$LAYOUT_VERSION"
 
 echo "Layout applied."
 
-# Create bucket
-echo "Creating bucket skadia-originals..."
-$COMPOSE exec garage /garage bucket create skadia-originals 2>/dev/null || echo "Bucket already exists."
+BUCKETS=(skadia-originals skadia-exports skadia-imports)
+
+# Create buckets
+for bucket in "${BUCKETS[@]}"; do
+    echo "Creating bucket ${bucket}..."
+    $COMPOSE exec garage /garage bucket create "$bucket" 2>/dev/null || echo "Bucket ${bucket} already exists."
+done
 
 # Create API key
 echo "Creating API key..."
@@ -47,7 +51,9 @@ $COMPOSE exec garage /garage key create skadia-dev-key 2>/dev/null || echo "Key 
 
 # Allow access
 echo "Granting access..."
-$COMPOSE exec garage /garage bucket allow skadia-originals --read --write --key skadia-dev-key
+for bucket in "${BUCKETS[@]}"; do
+    $COMPOSE exec garage /garage bucket allow "$bucket" --read --write --key skadia-dev-key
+done
 
 echo ""
 echo "Garage initialization complete."
