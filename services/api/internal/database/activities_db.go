@@ -1580,6 +1580,79 @@ func (db *DB) UpdateActivity(ctx context.Context, id, userID string, update *mod
 	return db.GetActivity(ctx, id)
 }
 
+func (db *DB) UpdateActivityMetadataTx(ctx context.Context, tx pgx.Tx, id, userID string, update *model.ActivityUpdate) (*model.Activity, error) {
+	b := newSetBuilder(3)
+	clearSportConflict := update.SportType != nil || update.SubType != nil
+
+	if update.Title != nil {
+		b.Set("title", *update.Title)
+		b.SetExpr("title_is_manual = true")
+	}
+	if update.Description != nil {
+		b.Set("description", *update.Description)
+	}
+	if update.SportType != nil || update.SubType != nil {
+		var currentSportType string
+		var currentSubType, parsedSportType, parsedSubType *string
+		_ = tx.QueryRow(ctx,
+			`SELECT sport_type, sub_type, parsed_sport_type, parsed_sub_type FROM activities WHERE id = $1 AND user_id = $2`,
+			id, userID,
+		).Scan(&currentSportType, &currentSubType, &parsedSportType, &parsedSubType)
+
+		rawSportType := currentSportType
+		if update.SportType != nil {
+			rawSportType = *update.SportType
+		}
+		rawSubType := derefOr(currentSubType, "")
+		if update.SubType != nil {
+			rawSubType = *update.SubType
+		}
+		tuple, patch, err := sport.NormalizeSelectableSportTuple(rawSportType, rawSubType)
+		if err != nil {
+			return nil, err
+		}
+		b.Set("sport_type", tuple.SportType)
+		if tuple.SubType == "" {
+			b.SetExpr("sub_type = NULL")
+		} else {
+			b.Set("sub_type", tuple.SubType)
+		}
+		if patch.IsElectric != nil {
+			b.Set("is_electric", *patch.IsElectric)
+		}
+		if patch.IsIndoor != nil {
+			b.Set("is_indoor", *patch.IsIndoor)
+		} else if sport.IsIndoor(tuple.SportType, tuple.SubType) {
+			b.Set("is_indoor", true)
+		}
+		parsedST := derefOr(parsedSportType, "")
+		parsedSub := derefOr(parsedSubType, "")
+		b.SetExpr(fmt.Sprintf("sport_type_is_manual = %t", tuple.SportType != parsedST || tuple.SubType != parsedSub))
+	}
+	if clearSportConflict {
+		b.Set("sport_conflict_pending", false)
+	}
+	if b.HasSets() {
+		args := append([]any{id, userID}, b.Args()...)
+		query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $1 AND user_id = $2", b.Clause())
+		if _, err := tx.Exec(ctx, query, args...); err != nil {
+			return nil, fmt.Errorf("update activity metadata: %w", err)
+		}
+	}
+	var a model.Activity
+	if err := tx.QueryRow(ctx,
+		`SELECT id::text, user_id::text, title, description, sport_type, sub_type
+		   FROM activities WHERE id = $1 AND user_id = $2`,
+		id, userID,
+	).Scan(&a.ID, &a.UserID, &a.Title, &a.Description, &a.SportType, &a.SubType); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrActivityNotFound
+		}
+		return nil, fmt.Errorf("update activity metadata: reload: %w", err)
+	}
+	return &a, nil
+}
+
 func (db *DB) DeleteActivity(ctx context.Context, userID, id string) error {
 	// Clean up any pending sport conflict queue entries for this activity
 	_ = db.ResolveImportQueueByActivity(ctx, userID, id)

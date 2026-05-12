@@ -90,7 +90,7 @@ func RegisterActivityTools(reg *Registry) {
 }
 
 func ActivityTools() []*Tool {
-	return []*Tool{
+	tools := []*Tool{
 		{
 			Name:        "query_activities",
 			Description: "List recent activities with optional sport, modifier, distance, title, gear, and sort filters.",
@@ -124,6 +124,7 @@ func ActivityTools() []*Tool {
 			ExecuteRead: executeGetActivityDetail,
 		},
 	}
+	return append(tools, WriteActivityTools()...)
 }
 
 func executeQueryActivities(ctx context.Context, deps *Deps, userID string, raw json.RawMessage) (any, error) {
