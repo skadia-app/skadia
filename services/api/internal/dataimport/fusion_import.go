@@ -45,7 +45,7 @@ type rawMembership struct {
 // UserID on all returned rows is always overwritten to importUserID.
 // Returns nil (not an error) when the file is absent.
 func ReadMembershipsJSON(src Source, importUserID string, importedActivityIDs map[string]bool) []database.FusionMembership {
-	rc, err := src.OpenData("data/activity_fusion_memberships.json")
+	rc, err := src.OpenDataStream("data/activity_fusion_memberships.json")
 	if err != nil {
 		// File absent — older export.
 		return nil
@@ -195,7 +195,7 @@ func RunLegacyFusionMembershipsIfNeeded(
 ) error {
 	// v_new check: if the memberships file exists, the generic importer already
 	// handled it — nothing to do.
-	rc, err := src.OpenData("data/activity_fusion_memberships.json")
+	rc, err := src.OpenDataStream("data/activity_fusion_memberships.json")
 	if err == nil {
 		rc.Close()
 		return nil // v_new — handled by phase 6 generic importTable
@@ -209,7 +209,7 @@ func RunLegacyFusionMembershipsIfNeeded(
 	// fs.ErrNotExist → legitimate v_old path, continue below.
 
 	// Re-read activities.json to collect fusion_sources + parent_id.
-	actRC, err := src.OpenData("data/activities.json")
+	actRC, err := src.OpenDataStream("data/activities.json")
 	if err != nil {
 		return nil // No activities file — nothing to derive.
 	}

@@ -395,7 +395,7 @@ func refreshImportedTagAutomationState(ctx context.Context, pool *pgxpool.Pool, 
 
 // runPhase1 reads data/profile.json and applies allow-listed fields to users.
 func (e *Engine) runPhase1(ctx context.Context, input ImportInput, manifest *Manifest) error {
-	rc, err := input.Source.OpenData("data/profile.json")
+	rc, err := input.Source.OpenDataStream("data/profile.json")
 	if err != nil {
 		// Profile file is optional.
 		return nil
@@ -536,7 +536,7 @@ func (e *Engine) runPhase5Activities(
 	activitySpec := findSpec("activities", allTbls)
 
 	legacyGearAssignments := make(map[string]string)
-	rc, err := input.Source.OpenData("data/activities.json")
+	rc, err := input.Source.OpenDataStream("data/activities.json")
 	if err != nil {
 		// No activities file — skip.
 		return 0, legacyGearAssignments, nil

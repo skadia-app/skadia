@@ -30,7 +30,7 @@ type userFileRecord struct {
 // loadUserFilesIndex reads data/user_files.json from source and returns an
 // ID-keyed map of all records.
 func loadUserFilesIndex(source Source) (map[string]userFileRecord, error) {
-	rc, err := source.OpenData("data/user_files.json")
+	rc, err := source.OpenDataStream("data/user_files.json")
 	if err != nil {
 		// Missing file index is not fatal — export may simply have no files.
 		return make(map[string]userFileRecord), nil
@@ -91,7 +91,7 @@ type exportedActivityFileTags struct {
 }
 
 func loadActivityFileTagIndex(source Source) (map[string]shadowfs.ActivitySchemaTagsInput, []string, error) {
-	rc, err := source.OpenData("data/activities.json")
+	rc, err := source.OpenDataStream("data/activities.json")
 	if err != nil {
 		return map[string]shadowfs.ActivitySchemaTagsInput{}, nil, nil
 	}
