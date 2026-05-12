@@ -1185,6 +1185,8 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 			   AND a2.title IS NOT NULL AND a2.title != ''
 			 LIMIT 1)
 		) AS title,
+		activities.title_auto,
+		COALESCE(activities.title_is_manual, false),
 		started_at, distance_m,
 		elapsed_time_s, elevation_gain_m, elevation_loss_m, is_indoor, is_electric, is_virtual, exclude_from_heatmap, exclude_from_stats, visibility,
 		created_at, updated_at, sport_conflict_pending, timezone, rgm.group_id`
@@ -1313,7 +1315,7 @@ func (db *DB) ListActivities(ctx context.Context, userID string, cursor string, 
 	for rows.Next() {
 		var a model.Activity
 		if err := rows.Scan(
-			&a.ID, &a.SportType, &a.SubType, &a.Title, &a.StartedAt, &a.DistanceM,
+			&a.ID, &a.SportType, &a.SubType, &a.Title, &a.TitleAuto, &a.TitleIsManual, &a.StartedAt, &a.DistanceM,
 			&a.ElapsedTimeS, &a.ElevationGainM, &a.ElevationLossM, &a.IsIndoor, &a.IsElectric, &a.IsVirtual, &a.ExcludeFromHeatmap, &a.ExcludeFromStats, &a.Visibility,
 			&a.CreatedAt, &a.UpdatedAt, &a.SportConflictPending, &a.Timezone, &a.RecordingGroupID,
 		); err != nil {
