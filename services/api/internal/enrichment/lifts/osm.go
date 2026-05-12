@@ -2,10 +2,10 @@ package lifts
 
 import "math"
 
-// OSM-matching constants — identical to lifts.py top-level constants.
+// OSM-matching constants used as coarse legacy prefilter defaults.
 const (
 	ProximityM    = 100.0
-	HausdorffMaxM = 50.0
+	HausdorffMaxM = 25.0
 	MinCoverage   = 0.7
 )
 
@@ -35,7 +35,7 @@ func BearingDeg(lat1, lon1, lat2, lon2 float64) float64 {
 // reverse direction of the lift. Returns true when the angular difference
 // exceeds 90°. Ported 1:1 from lifts.py:239-243 (_check_is_reverse).
 func IsReverseHeading(trackBearing, liftBearing float64) bool {
-	diff := math.Abs(trackBearing-liftBearing)
+	diff := math.Abs(trackBearing - liftBearing)
 	diff = math.Mod(diff, 360)
 	if diff > 180 {
 		diff = 360 - diff

@@ -137,13 +137,12 @@ func (h *Handler) ConfirmLiftCandidate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// UnconfirmLiftCandidate reverts a heuristic candidate's confirmed flag to false.
+// UnconfirmLiftCandidate reverts a candidate's confirmed flag to false.
 // PATCH /api/v1/activities/{id}/lift-candidates/{cid}/unconfirm
 //
-// Restricted to source='heuristic' AND NOT rejected_by_user — see
-// database.UnconfirmLiftCandidate for the rationale. The handler probes the
-// row first and returns a structured RFC7807 problem+json with a `code` field:
-//   - 409 WRONG_SOURCE     — candidate is OSM-sourced
+// Restricted to NOT rejected_by_user — see database.UnconfirmLiftCandidate
+// for the rationale. The handler probes the row first and returns a
+// structured RFC7807 problem+json with a `code` field:
 //   - 409 ALREADY_REJECTED — candidate has rejected_by_user=true
 //   - 404 NOT_FOUND        — missing, wrong activity, or wrong owner (collapsed
 //     to one status to avoid existence/owner leak)
@@ -170,13 +169,12 @@ func (h *Handler) UnconfirmLiftCandidate(w http.ResponseWriter, r *http.Request)
 	// can return a structured error that distinguishes the four failure cases.
 	// The probe is a plain SELECT — no lock needed since the subsequent UPDATE
 	// re-checks the same predicates atomically inside UnconfirmLiftCandidate.
-	var probeSource string
 	var probeRejected bool
 	var probeActivityID string
 	probeErr := h.DB.Pool.QueryRow(r.Context(),
-		`SELECT source, rejected_by_user, activity_id::text
+		`SELECT rejected_by_user, activity_id::text
 		 FROM activity_lift_candidates WHERE id = $1`, candID,
-	).Scan(&probeSource, &probeRejected, &probeActivityID)
+	).Scan(&probeRejected, &probeActivityID)
 	switch {
 	case errors.Is(probeErr, pgx.ErrNoRows):
 		// Row does not exist at all.
@@ -200,13 +198,6 @@ func (h *Handler) UnconfirmLiftCandidate(w http.ResponseWriter, r *http.Request)
 			"candidate is already soft-rejected; restore it first", "ALREADY_REJECTED", r.URL.Path)
 		return
 	}
-	if probeSource != "heuristic" {
-		httputil.WriteProblem(w, http.StatusConflict, "Cannot unconfirm",
-			"only heuristic candidates can be unconfirmed; use the reject path for OSM candidates",
-			"WRONG_SOURCE", r.URL.Path)
-		return
-	}
-
 	if err := h.DB.UnconfirmLiftCandidate(r.Context(), userID, candID, activityID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Race: candidate was modified between probe and update — treat as NOT_FOUND.
@@ -257,10 +248,9 @@ func (h *Handler) RejectLiftCandidate(w http.ResponseWriter, r *http.Request) {
 
 // ConfirmAllLiftCandidates handles POST /api/v1/activities/{id}/lifts/confirm-all.
 //
-// Bulk-confirms every unconfirmed, non-rejected heuristic candidate of the
+// Bulk-confirms every unconfirmed, non-rejected lift candidate of the
 // activity, sets lifts_acknowledged_at to NOW(), and recomputes lift_*
-// aggregates atomically inside the DB layer. Method-A (source='osm') rows
-// are not touched. Idempotent.
+// aggregates atomically inside the DB layer. Idempotent.
 //
 // Phase 6.3.1.2 bullet 1.
 func (h *Handler) ConfirmAllLiftCandidates(w http.ResponseWriter, r *http.Request) {
@@ -296,9 +286,9 @@ func (h *Handler) ConfirmAllLiftCandidates(w http.ResponseWriter, r *http.Reques
 
 // RejectAllLiftCandidates handles POST /api/v1/activities/{id}/lifts/reject-all.
 //
-// Bulk-soft-rejects every unconfirmed, non-rejected heuristic candidate of
+// Bulk-soft-rejects every unconfirmed, non-rejected lift candidate of
 // the activity, sets lifts_acknowledged_at to NOW(), and recomputes
-// aggregates atomically. Method-A rows are not touched. Idempotent.
+// aggregates atomically. Idempotent.
 //
 // Phase 6.3.1.2 bullet 2.
 func (h *Handler) RejectAllLiftCandidates(w http.ResponseWriter, r *http.Request) {
@@ -474,6 +464,34 @@ func (h *Handler) RecalculateActivityLifts(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	settings, settingsErr := h.DB.GetEnrichmentSettings(jobCtx, userID)
+	if settingsErr != nil {
+		_ = h.DB.CompleteBackgroundJob(jobCtx, jobID, true, settingsErr.Error())
+		slog.Error("recalculate lifts: get enrichment settings failed", "activity_id", activityID, "error", settingsErr)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
+		return
+	}
+	overrideOSM, overrideHeuristic, overrideErr := h.DB.GetLiftDetectionOverride(jobCtx, activityID)
+	if overrideErr != nil {
+		_ = h.DB.CompleteBackgroundJob(jobCtx, jobID, true, overrideErr.Error())
+		slog.Error("recalculate lifts: get lift override failed", "activity_id", activityID, "error", overrideErr)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "", r.URL.Path)
+		return
+	}
+	effective := lifts.EffectiveLiftDetectionOpts(
+		settings.EnableLiftDetection,
+		settings.EnableLiftDetectionOSM,
+		settings.EnableLiftDetectionHeuristic,
+		overrideOSM,
+		overrideHeuristic,
+	)
+	if !effective.OSMSnap && !effective.Heuristic {
+		_ = h.DB.UpdateBackgroundJobProgress(jobCtx, jobID, 1)
+		_ = h.DB.CompleteBackgroundJob(jobCtx, jobID, false, "")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	// Capture copies for the goroutine (request values must not be read after
 	// ServeHTTP returns — the goroutine must use context.Background()).
 	capturedUserID := userID
@@ -530,10 +548,8 @@ func (h *Handler) dispatchLiftReEnrichmentBackground(ctx context.Context, userID
 
 // RestoreLiftCandidate handles POST /api/v1/lift-candidates/{id}/restore.
 //
-// Clears the rejected_by_user flag on a soft-rejected candidate; the source
-// determines the post-restore confirmed state:
-//   - source='heuristic' → confirmed=false (user must re-act).
-//   - source='osm'       → confirmed=true (auto-confirmed on the OSM match).
+// Clears the rejected_by_user flag on a soft-rejected candidate and returns it
+// to the review queue with confirmed=false.
 //
 // Owner check is enforced inside the DB layer via a JOIN to activities.
 // 0-row UPDATE (wrong owner, already-non-rejected, missing row) → 404.

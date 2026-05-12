@@ -396,6 +396,70 @@ func TestRecalculateActivityLifts_NoConflictAfterCompletion(t *testing.T) {
 	}
 }
 
+func TestRecalculateActivityLifts_BothModesOffCompletesWithoutBackgroundReenrichment(t *testing.T) {
+	h, db := liftDetectionConfigSetup(t)
+	ctx := context.Background()
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	candID := insertHeuristicUnconfirmed(t, db, activityID, now)
+	_, err := db.Pool.Exec(ctx, `
+		INSERT INTO activity_streams (activity_id, time, lat, lng, altitude_m)
+		VALUES ($1, $2, 0, 0, 10)
+	`, activityID, now)
+	if err != nil {
+		t.Fatalf("insert synthetic stream: %v", err)
+	}
+
+	off := false
+	rows, err := db.SetLiftDetectionOverride(ctx, userID, activityID, &off, &off)
+	if err != nil {
+		t.Fatalf("SetLiftDetectionOverride: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("SetLiftDetectionOverride rows=%d, want 1", rows)
+	}
+
+	lockTx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin lock tx: %v", err)
+	}
+	defer lockTx.Rollback(ctx) //nolint:errcheck
+	if _, err := lockTx.Exec(ctx, `LOCK TABLE activity_streams IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatalf("lock activity_streams: %v", err)
+	}
+
+	r := chi.NewRouter()
+	r.Post("/api/v1/activities/{id}/lifts/recalculate-all", h.RecalculateActivityLifts)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/activities/"+activityID+"/lifts/recalculate-all", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, userID))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d, want 204; body=%s", rec.Code, rec.Body.String())
+	}
+	if candidateExists(t, db, candID) {
+		t.Fatal("candidate still exists after reset")
+	}
+
+	var activeJobs int
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM background_jobs
+		WHERE user_id = $1
+		  AND entity_id = $2
+		  AND job_type = 'lift_recompute'
+		  AND status IN ('pending', 'running')
+	`, userID, activityID).Scan(&activeJobs); err != nil {
+		t.Fatalf("count active jobs: %v", err)
+	}
+	if activeJobs != 0 {
+		t.Fatalf("active lift_recompute jobs=%d, want 0 when both detection modes are disabled", activeJobs)
+	}
+}
+
 // TestRecalculateActivityLifts_F1_NoDataLossOnConflict verifies that when a
 // concurrent lift_recompute job is running, the 409 path does NOT delete the
 // existing activity_lift_candidates rows. Pre-fix, RecalculateActivityLifts

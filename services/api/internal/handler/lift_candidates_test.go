@@ -249,6 +249,20 @@ func TestGetLiftCandidates_DefaultHidesRejected(t *testing.T) {
 	}
 }
 
+func TestGetLiftCandidates_EmptyResponseIsJSONArray(t *testing.T) {
+	h, db := liftCandidatesHandlerSetup(t)
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	rec := callUnifiedLiftCandidates(t, h, userID, activityID, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Body.String(); got != "[]\n" {
+		t.Fatalf("empty candidates response = %q, want [] JSON array", got)
+	}
+}
+
 // TestGetLiftCandidates_IncludeRejectedReturnsAll: with include_rejected=true the
 // rejected candidate must be included.
 func TestGetLiftCandidates_IncludeRejectedReturnsAll(t *testing.T) {

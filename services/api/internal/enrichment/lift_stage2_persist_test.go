@@ -121,13 +121,13 @@ func TestEnrichStreamLifts_Stage2CableHoldMerge_Persists(t *testing.T) {
 		bg := context.Background()
 		// Order matters: candidates → segment_efforts → segments
 		// (segment_versions cascades) → osm_lifts → activity tracks/streams.
-		pool.Exec(bg, "DELETE FROM activity_lift_candidates WHERE activity_id = $1", activityID)            //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM segment_efforts WHERE activity_id = $1", activityID)                    //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM activity_streams WHERE activity_id = $1", activityID)                   //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM activity_tracks WHERE activity_id = $1", activityID)                    //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM activities WHERE id = $1", activityID)                                  //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM segments WHERE osm_lift_id = $1", syntheticOSMID)                       //nolint:errcheck
-		pool.Exec(bg, "DELETE FROM osm_lifts WHERE osm_id = $1", syntheticOSMID)                           //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activity_lift_candidates WHERE activity_id = $1", activityID) //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM segment_efforts WHERE activity_id = $1", activityID)          //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activity_streams WHERE activity_id = $1", activityID)         //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activity_tracks WHERE activity_id = $1", activityID)          //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activities WHERE id = $1", activityID)                        //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM segments WHERE osm_lift_id = $1", syntheticOSMID)             //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM osm_lifts WHERE osm_id = $1", syntheticOSMID)                 //nolint:errcheck
 	})
 
 	// Insert activity (alpine_skiing → IsLiftRelevant=true).
@@ -312,19 +312,31 @@ func TestEnrichStreamLifts_Stage2CableHoldMerge_Persists(t *testing.T) {
 			t.Errorf("candidate[%d].segment_effort_id = %q, want canonical %q",
 				i, *c.effortID, canonicalEffortID)
 		}
-		if !c.confirmed {
-			t.Errorf("candidate[%d].confirmed = false, want true (audit rows are confirmed)", i)
+		if c.confirmed {
+			t.Errorf("candidate[%d].confirmed = true, want false (OSM rows require review)", i)
 		}
 	}
 
-	// Assertion 4: recomputeLiftStats counts the merged group as one lift.
+	// Assertion 4: unreviewed OSM candidates do not count yet.
 	var liftCount int
 	if err := pool.QueryRow(ctx, `
 		SELECT lift_count FROM activities WHERE id = $1
 	`, activityID).Scan(&liftCount); err != nil {
 		t.Fatalf("query lift_count: %v", err)
 	}
+	if liftCount != 0 {
+		t.Errorf("activities.lift_count = %d, want 0 before review", liftCount)
+	}
+
+	if err := db.ConfirmAllLiftCandidates(ctx, userID, activityID); err != nil {
+		t.Fatalf("ConfirmAllLiftCandidates: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT lift_count FROM activities WHERE id = $1
+	`, activityID).Scan(&liftCount); err != nil {
+		t.Fatalf("query lift_count after confirm-all: %v", err)
+	}
 	if liftCount != 1 {
-		t.Errorf("activities.lift_count = %d, want 1 (merged group counts as one)", liftCount)
+		t.Errorf("activities.lift_count = %d after confirm-all, want 1 (merged group counts as one)", liftCount)
 	}
 }

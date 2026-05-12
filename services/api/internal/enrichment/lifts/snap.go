@@ -34,7 +34,7 @@ const (
 const (
 	snapFullCoverage    = 0.70 // Stage 1 auto-snap floor
 	snapPartialCoverage = 0.30 // below this no Stage-1 / Stage-2 consideration
-	snapHausdorffMaxM   = 50.0 // parallel-lift safety cap
+	snapHausdorffMaxM   = 25.0 // segment-matching-style shape safety cap
 
 	// Stage 2 cable-hold detector signals (all three must be true to merge).
 	cableHoldEndDriftM     = 15.0 // signal 1: end-coord ↔ next-start-coord
@@ -56,17 +56,18 @@ type OSMLiftCandidate struct {
 }
 
 // RideOSMOverlap is one (ride, lift) match the SQL pre-filter produced —
-// hausdorff distance and the length of the intersection between the ride
-// buffer and the lift geometry. Coverage is intersection/lift-length.
+// maximum deviation of the densified ride line from the lift geometry plus
+// the length of the intersection between the ride buffer and the lift
+// geometry. Coverage is intersection/lift-length.
 type RideOSMOverlap struct {
 	RideIdx         int     // index into rides slice
 	OSMIdx          int     // index into osmCandidates slice
-	HausdorffM      float64 // ride-buffer ↔ lift hausdorff
+	HausdorffM      float64 // maximum ride-line deviation from lift, metres
 	IntersectionLen float64 // metres of lift covered by the ride buffer
 }
 
 // Stage3PlanEntry is one OSM lift the consumer must process via the legacy
-// per-lift time-window SQL (extract samples within 75m of the lift, derive
+// per-lift time-window SQL (extract samples within the shape corridor, derive
 // duration/ascent/bearing, INSERT one segment_efforts + one audit
 // activity_lift_candidates row). Emitted only for lifts no Stage-1 or
 // Stage-2 ride snapped to.
@@ -497,9 +498,9 @@ func computeIsReverseFromSamples(samples []StreamPoint, ride RideWithIndices, li
 // filter). Used when the heuristic detector is disabled — rides is nil and
 // the snap pipeline emits nothing, so every OSM lift must be probed.
 //
-// The 75 m / ≥2 samples / ≥30 s window gate in insertStage3SegmentEffortTx
-// still applies; lifts with insufficient sample coverage are silently dropped
-// there, not here.
+// The shape-distance / ≥2 samples / ≥30 s window gates in the enrichment
+// writer still apply; lifts with insufficient sample coverage or mismatching
+// shape are silently dropped there, not here.
 func MethodACoverageGapForAllOSM(osmCandidates []OSMLiftCandidate) []Stage3PlanEntry {
 	plan := make([]Stage3PlanEntry, 0, len(osmCandidates))
 	for i := range osmCandidates {
@@ -515,8 +516,8 @@ func MethodACoverageGapForAllOSM(osmCandidates []OSMLiftCandidate) []Stage3PlanE
 // MethodACoverageGap is Stage 3: for every OSM lift that no Stage-1 or
 // Stage-2 ride physically corresponds to, emit a Stage3PlanEntry. The caller
 // is responsible for running the per-lift time-window SQL and inserting one
-// segment_efforts row plus one audit-only activity_lift_candidates row
-// (source='osm', confirmed=true).
+// segment_efforts row plus one review-required activity_lift_candidates row
+// (source='osm', confirmed=false).
 //
 // "Physically corresponds" means OSMCandidateIdx >= 0 — any value the snap
 // pipeline assigned, regardless of whether the ride ended up as Snap, a

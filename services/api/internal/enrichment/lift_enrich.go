@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"math"
 	"strings"
 	"time"
 
@@ -505,11 +506,11 @@ func enrichStreamLiftsCore(
 	}
 
 	// 6. Stage 3 — for OSM lifts no Stage-1/2 ride covered (or, in pure-OSM
-	//    mode, for every OSM lift), run the time-window SQL (extract samples
-	//    within 75m, derive duration/ascent/bearing) and emit one
-	//    segment_efforts plus one audit-only candidate (source='osm',
-	//    confirmed=true). Uses UNNEST batch inserts to reduce roundtrips to
-	//    ≤2 INSERTs for any number of plan entries.
+	//    mode, for every OSM lift), run the time-window SQL with the same
+	//    shape cap used by Stage 1/2 and emit one segment_efforts row plus
+	//    one review-required candidate (source='osm', confirmed=false).
+	//    Uses UNNEST batch inserts to reduce roundtrips to ≤2 INSERTs for
+	//    any number of plan entries.
 	if len(stage3) > 0 {
 		n, err := insertStage3SegmentEffortsBatched(ctx, db, tx, userID, activityID, osmCandidates, stage3)
 		if err != nil {
@@ -591,8 +592,8 @@ func loadOSMLiftCandidates(ctx context.Context, db *database.DB, activityID, use
 }
 
 // computeRideOSMOverlaps issues one PostGIS query per ride that returns
-// the hausdorff-distance and intersection-length against every osm
-// candidate. Each ride is shipped as a WKT LineString built from the
+// the maximum ride-line deviation and intersection-length against every
+// OSM candidate. Each ride is shipped as a WKT LineString built from the
 // in-memory stream points between StartSampleIdx and EndSampleIdx. When the
 // ride has fewer than 2 GPS-bearing samples the overlap query is skipped
 // (the ride cannot be matched against any OSM geometry without a track).
@@ -623,37 +624,39 @@ func computeRideOSMOverlaps(
 		const query = `
 			WITH route AS (
 				SELECT ST_GeomFromText($1, 4326) AS geom
+			),
+			route_points AS (
+				SELECT (dp).geom AS geom
+				FROM route,
+				LATERAL ST_DumpPoints(ST_Segmentize(route.geom::geography, 10)::geometry) AS dp
 			)
 			SELECT
 				l.osm_id,
-				ST_HausdorffDistance(
-					ST_Intersection(
-						ST_Buffer(route.geom::geography, 30)::geometry,
-						l.geom
-					),
-					l.geom, 0.1
-				) AS hausdorff_m,
+				COALESCE((
+					SELECT MAX(ST_Distance(rp.geom::geography, l.geom::geography))
+					FROM route_points rp
+				), 0) AS route_deviation_m,
 				ST_Length(
 					ST_Intersection(
-						ST_Buffer(route.geom::geography, 30)::geometry,
+						ST_Buffer(route.geom::geography, $3)::geometry,
 						l.geom
 					)::geography
 				) AS intersection_len_m
 			FROM osm_lifts l, route
 			WHERE l.osm_id = ANY($2)
 		`
-		rows, err := db.Pool.Query(ctx, query, wkt, osmIDs)
+		rows, err := db.Pool.Query(ctx, query, wkt, osmIDs, osmSnapShapeMaxM)
 		if err != nil {
 			return nil, fmt.Errorf("ride %d overlap query: %w", ri, err)
 		}
 		for rows.Next() {
 			var osmID int64
-			var hausdorff, isectLen *float64
-			if err := rows.Scan(&osmID, &hausdorff, &isectLen); err != nil {
+			var deviationM, isectLen *float64
+			if err := rows.Scan(&osmID, &deviationM, &isectLen); err != nil {
 				rows.Close()
 				return nil, fmt.Errorf("scan overlap: %w", err)
 			}
-			if hausdorff == nil || isectLen == nil {
+			if deviationM == nil || isectLen == nil {
 				continue
 			}
 			osmIdx, ok := osmIdxByID[osmID]
@@ -663,7 +666,7 @@ func computeRideOSMOverlaps(
 			out = append(out, lifts.RideOSMOverlap{
 				RideIdx:         ri,
 				OSMIdx:          osmIdx,
-				HausdorffM:      *hausdorff,
+				HausdorffM:      *deviationM,
 				IntersectionLen: *isectLen,
 			})
 		}
@@ -767,9 +770,8 @@ func insertSegmentEffortTx(
 
 // insertAuditCandidateTx writes the activity_lift_candidates row that
 // mirrors a Stage-1/2/3 segment_effort. The candidate carries source='osm',
-// confirmed=true and segment_effort_id pointing at the effort. This row
-// is purely for the read-side unified API; it is excluded from the
-// recomputeLiftStats heuristic-only count by the partial-index dedup.
+// confirmed=false and segment_effort_id pointing at the effort. It must be
+// explicitly reviewed before recomputeLiftStats counts the coupled effort.
 //
 // Symmetric soft-reject pre-check (paired with InsertHeuristicCandidateIfNotRejected
 // and the comment block above it in enrichment_db.go): before writing the
@@ -816,7 +818,7 @@ func insertAuditCandidateTx(
 		INSERT INTO activity_lift_candidates
 			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
 			 confidence, confirmed, source, segment_effort_id)
-		SELECT $1, $2, $3, $4, $5, $6, $7, $8, true, 'osm', $9
+		SELECT $1, $2, $3, $4, $5, $6, $7, $8, false, 'osm', $9
 		WHERE EXISTS (SELECT 1 FROM activities a WHERE a.id = $1 AND a.user_id = $10)
 		ON CONFLICT (activity_id, started_at) DO UPDATE
 		SET source = EXCLUDED.source,
@@ -916,6 +918,27 @@ type stage3Row struct {
 	auditRide lifts.LiftRide
 }
 
+type stage3WindowSample struct {
+	t         time.Time
+	altitudeM *float64
+	lat       *float64
+	lng       *float64
+}
+
+const (
+	osmSnapShapeMaxM        = 25.0
+	stage3MinWindowS        = 30
+	stage3MaxSampleGapS     = 75
+	stage3ProximityM        = osmSnapShapeMaxM
+	stage3MinMeanSpeedMS    = 0.4
+	stage3MinPathLiftRatio  = 0.45
+	stage3MaxPathLiftRatio  = 1.35
+	stage3MinOSMLiftLengthM = 150.0
+	stage3MinLineCoverage   = 0.70
+	stage3EndpointFracTol   = 0.15
+	stage3AscentScoreWeight = 10_000
+)
+
 // insertStage3SegmentEffortsBatched processes all Stage-3 plan entries with
 // batched UNNEST INSERTs: one INSERT for segment_efforts and one INSERT for
 // audit candidates, regardless of how many lifts are in the plan. The per-lift
@@ -923,9 +946,9 @@ type stage3Row struct {
 // feasible because each query returns a variable-length row set.
 //
 // Returns the count of successfully processed lifts (those that passed the
-// 75 m / ≥2 samples / ≥30 s window gate). Falls back to the single-row path
-// for the rejected-window pre-check (still uses IsRejectedAnySourceInWindow
-// per lift before the batch INSERT phase).
+// shape corridor, shape distance, ≥2 samples, and ≥30 s gates). Falls back
+// to the single-row path for the rejected-window pre-check (still uses
+// IsRejectedAnySourceInWindow per lift before the batch INSERT phase).
 func insertStage3SegmentEffortsBatched(
 	ctx context.Context,
 	db *database.DB,
@@ -964,7 +987,7 @@ func insertStage3SegmentEffortsBatched(
 
 	// Deduplicate on startedAt to avoid UNIQUE (activity_id, started_at)
 	// conflicts in activity_lift_candidates. Two parallel OSM lifts whose
-	// 75 m time-window queries return the same sample set produce identical
+	// time-window queries return the same sample set produce identical
 	// startedAt values. The batched INSERT uses ON CONFLICT DO UPDATE, so
 	// the second row would silently overwrite the first lift's
 	// segment_effort_id on the audit row — leaving the first segment_effort
@@ -1058,7 +1081,7 @@ func insertStage3SegmentEffortsBatched(
 			(activity_id, started_at, ended_at, duration_s, ascent_m, descent_m, distance_m,
 			 confidence, confirmed, source, segment_effort_id)
 		SELECT $1, u.started_at, u.ended_at, u.duration_s, u.ascent_m, 0, u.distance_m,
-		       u.confidence, true, 'osm', u.segment_effort_id
+		       u.confidence, false, 'osm', u.segment_effort_id
 		FROM UNNEST(
 			$2::timestamptz[], $3::timestamptz[], $4::int[],
 			$5::float8[], $6::float8[], $7::text[], $8::uuid[]
@@ -1080,7 +1103,9 @@ func insertStage3SegmentEffortsBatched(
 }
 
 // readStage3WindowRow runs the per-lift time-window read for one OSM lift:
-// extracts samples within 75m, derives duration/ascent/bearing/isReverse.
+// extracts samples within the OSM shape corridor, derives
+// duration/ascent/bearing/isReverse, and rejects runs whose line shape
+// diverges from the OSM lift beyond the snap shape cap.
 // Returns (row, true, nil) on success, (zero, false, nil) when the lift
 // does not pass the 30s / ≥2 samples floor, or (zero, false, err) on DB error.
 func readStage3WindowRow(
@@ -1089,12 +1114,6 @@ func readStage3WindowRow(
 	userID, activityID string,
 	osm lifts.OSMLiftCandidate,
 ) (stage3Row, bool, error) {
-	type windowSample struct {
-		t         time.Time
-		altitudeM *float64
-		lat       *float64
-		lng       *float64
-	}
 	dbRows, err := db.Pool.Query(ctx, `
 		SELECT ast.time, ast.altitude_m, ast.lat, ast.lng
 		FROM activity_streams ast
@@ -1103,18 +1122,18 @@ func readStage3WindowRow(
 		  AND a.user_id = $3
 		  AND ast.lat IS NOT NULL
 		  AND ST_DWithin(
-			ST_SetSRID(ST_MakePoint(ast.lng, ast.lat), 4326)::geography,
-			(SELECT geom::geography FROM osm_lifts WHERE osm_id = $2),
-			75
-		  )
-		ORDER BY ast.time
-	`, activityID, osm.OSMID, userID)
+				ST_SetSRID(ST_MakePoint(ast.lng, ast.lat), 4326)::geography,
+				(SELECT geom::geography FROM osm_lifts WHERE osm_id = $2),
+				$4
+			  )
+			ORDER BY ast.time
+	`, activityID, osm.OSMID, userID, stage3ProximityM)
 	if err != nil {
 		return stage3Row{}, false, fmt.Errorf("time-window query: %w", err)
 	}
-	var pts []windowSample
+	var pts []stage3WindowSample
 	for dbRows.Next() {
-		var r windowSample
+		var r stage3WindowSample
 		if err := dbRows.Scan(&r.t, &r.altitudeM, &r.lat, &r.lng); err != nil {
 			dbRows.Close()
 			return stage3Row{}, false, fmt.Errorf("scan: %w", err)
@@ -1128,11 +1147,133 @@ func readStage3WindowRow(
 	if len(pts) < 2 {
 		return stage3Row{}, false, nil
 	}
+	var best stage3Row
+	var bestScore float64
+	haveBest := false
+	for _, run := range splitStage3WindowRuns(pts) {
+		shape, ok, err := stage3RunShapeMetrics(ctx, db, osm.OSMID, run)
+		if err != nil {
+			return stage3Row{}, false, err
+		}
+		if !ok || shape.deviationM > osmSnapShapeMaxM || !stage3RunCoversLift(shape) {
+			continue
+		}
+		row, ok := stage3RowFromWindowRun(run, osm)
+		if !ok {
+			continue
+		}
+		score := row.ascentM*stage3AscentScoreWeight + float64(row.durationS)
+		if !haveBest || score > bestScore {
+			best = row
+			bestScore = score
+			haveBest = true
+		}
+	}
+	if !haveBest {
+		return stage3Row{}, false, nil
+	}
+	return best, true, nil
+}
+
+type stage3ShapeMetrics struct {
+	deviationM float64
+	startFrac  float64
+	endFrac    float64
+}
+
+func stage3RunCoversLift(m stage3ShapeMetrics) bool {
+	minFrac := math.Min(m.startFrac, m.endFrac)
+	maxFrac := math.Max(m.startFrac, m.endFrac)
+	return maxFrac-minFrac >= stage3MinLineCoverage &&
+		minFrac <= stage3EndpointFracTol &&
+		maxFrac >= 1-stage3EndpointFracTol
+}
+
+func stage3RunShapeMetrics(ctx context.Context, db *database.DB, osmID int64, pts []stage3WindowSample) (stage3ShapeMetrics, bool, error) {
+	wkt := stage3RunLineStringWKT(pts)
+	if wkt == "" {
+		return stage3ShapeMetrics{}, false, nil
+	}
+	var metrics stage3ShapeMetrics
+	err := db.Pool.QueryRow(ctx, `
+		WITH route AS (
+			SELECT ST_GeomFromText($1, 4326) AS geom
+		),
+		route_points AS (
+			SELECT (dp).geom AS geom
+			FROM route,
+			LATERAL ST_DumpPoints(ST_Segmentize(route.geom::geography, 10)::geometry) AS dp
+		)
+		SELECT
+			COALESCE((
+				SELECT MAX(ST_Distance(rp.geom::geography, l.geom::geography))
+				FROM route_points rp
+			), 0) AS deviation_m,
+			ST_LineLocatePoint(l.geom, ST_StartPoint(route.geom)) AS start_frac,
+			ST_LineLocatePoint(l.geom, ST_EndPoint(route.geom)) AS end_frac
+		FROM osm_lifts l, route
+		WHERE l.osm_id = $2
+	`, wkt, osmID).Scan(&metrics.deviationM, &metrics.startFrac, &metrics.endFrac)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return stage3ShapeMetrics{}, false, nil
+		}
+		return stage3ShapeMetrics{}, false, fmt.Errorf("stage3 shape query: %w", err)
+	}
+	return metrics, true, nil
+}
+
+func stage3RunLineStringWKT(pts []stage3WindowSample) string {
+	parts := make([]string, 0, len(pts))
+	for _, p := range pts {
+		if p.lat == nil || p.lng == nil {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%.7f %.7f", *p.lng, *p.lat))
+	}
+	if len(parts) < 2 {
+		return ""
+	}
+	return "LINESTRING(" + strings.Join(parts, ",") + ")"
+}
+
+func splitStage3WindowRuns(pts []stage3WindowSample) [][]stage3WindowSample {
+	if len(pts) == 0 {
+		return nil
+	}
+	runs := make([][]stage3WindowSample, 0, 1)
+	start := 0
+	for i := 1; i < len(pts); i++ {
+		if pts[i].t.Sub(pts[i-1].t).Seconds() > stage3MaxSampleGapS {
+			runs = append(runs, pts[start:i])
+			start = i
+		}
+	}
+	runs = append(runs, pts[start:])
+	return runs
+}
+
+func stage3RowFromWindowRun(pts []stage3WindowSample, osm lifts.OSMLiftCandidate) (stage3Row, bool) {
+	if len(pts) < 2 {
+		return stage3Row{}, false
+	}
+	if osm.LengthM < stage3MinOSMLiftLengthM {
+		return stage3Row{}, false
+	}
 	startedAt := pts[0].t
 	endedAt := pts[len(pts)-1].t
 	durationS := int(endedAt.Sub(startedAt).Seconds())
-	if durationS < 30 {
-		return stage3Row{}, false, nil
+	if durationS < stage3MinWindowS {
+		return stage3Row{}, false
+	}
+	if osm.LengthM > 0 && osm.LengthM/float64(durationS) < stage3MinMeanSpeedMS {
+		return stage3Row{}, false
+	}
+	if pathLengthM := stage3PathLengthM(pts); osm.LengthM > 0 && pathLengthM > 0 {
+		ratio := pathLengthM / osm.LengthM
+		if ratio < stage3MinPathLiftRatio || ratio > stage3MaxPathLiftRatio {
+			return stage3Row{}, false
+		}
 	}
 	var ascentM float64
 	if first, last := pts[0].altitudeM, pts[len(pts)-1].altitudeM; first != nil && last != nil && *last > *first {
@@ -1161,11 +1302,27 @@ func readStage3WindowRow(
 			Confidence: "high",
 		},
 	}
-	return row, true, nil
+	return row, true
+}
+
+func stage3PathLengthM(pts []stage3WindowSample) float64 {
+	var length float64
+	var prev *stage3WindowSample
+	for i := range pts {
+		p := &pts[i]
+		if p.lat == nil || p.lng == nil {
+			continue
+		}
+		if prev != nil && prev.lat != nil && prev.lng != nil {
+			length += lifts.Haversine(*prev.lat, *prev.lng, *p.lat, *p.lng)
+		}
+		prev = p
+	}
+	return length
 }
 
 // insertStage3SegmentEffortTx runs the legacy Method-A per-lift time-
-// window SQL: extracts samples within 75m of the OSM lift, derives
+// window SQL: extracts samples near the OSM lift, derives
 // duration/ascent/bearing, then INSERTs one segment_efforts row
 // (is_method_a_only=true) plus the audit-only candidate. Returns true
 // when a row was successfully inserted (false for "below 30s duration
@@ -1188,90 +1345,31 @@ func insertStage3SegmentEffortTx(
 	userID, activityID string,
 	osm lifts.OSMLiftCandidate,
 ) (bool, error) {
-	type windowRow struct {
-		t         time.Time
-		altitudeM *float64
-		lat       *float64
-		lng       *float64
-	}
-	rows, err := db.Pool.Query(ctx, `
-		SELECT ast.time, ast.altitude_m, ast.lat, ast.lng
-		FROM activity_streams ast
-		JOIN activities a ON a.id = ast.activity_id
-		WHERE ast.activity_id = $1
-		  AND a.user_id = $3
-		  AND ast.lat IS NOT NULL
-		  AND ST_DWithin(
-			ST_SetSRID(ST_MakePoint(ast.lng, ast.lat), 4326)::geography,
-			(SELECT geom::geography FROM osm_lifts WHERE osm_id = $2),
-			75
-		  )
-		ORDER BY ast.time
-	`, activityID, osm.OSMID, userID)
+	row, ok, err := readStage3WindowRow(ctx, db, userID, activityID, osm)
 	if err != nil {
-		return false, fmt.Errorf("time-window query: %w", err)
+		return false, err
 	}
-	var pts []windowRow
-	for rows.Next() {
-		var r windowRow
-		if err := rows.Scan(&r.t, &r.altitudeM, &r.lat, &r.lng); err != nil {
-			rows.Close()
-			return false, fmt.Errorf("scan: %w", err)
-		}
-		pts = append(pts, r)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return false, fmt.Errorf("rows: %w", err)
-	}
-	if len(pts) < 2 {
-		return false, nil
-	}
-	startedAt := pts[0].t
-	endedAt := pts[len(pts)-1].t
-	durationS := int(endedAt.Sub(startedAt).Seconds())
-	if durationS < 30 {
+	if !ok {
 		return false, nil
 	}
 	// Phase-4 critic F2 (Variante B): pre-check the time-window against
 	// soft-rejected audit-rows. Stage 3 is the method-A coverage gap
 	// path; the audit-row writes startedAt/endedAt as derived here, so
 	// the rejected-window predicate uses those same boundaries.
-	suppressed, err := db.IsRejectedAnySourceInWindow(ctx, activityID, startedAt, endedAt)
+	suppressed, err := db.IsRejectedAnySourceInWindow(ctx, activityID, row.startedAt, row.endedAt)
 	if err != nil {
 		return false, fmt.Errorf("check rejected window: %w", err)
 	}
 	if suppressed {
 		return false, nil
 	}
-	var ascentM float64
-	if first, last := pts[0].altitudeM, pts[len(pts)-1].altitudeM; first != nil && last != nil && *last > *first {
-		ascentM = *last - *first
-	}
-	var trackBearing float64
-	first, last := pts[0], pts[len(pts)-1]
-	if first.lat != nil && last.lat != nil && first.lng != nil && last.lng != nil {
-		trackBearing = lifts.BearingDeg(*first.lat, *first.lng, *last.lat, *last.lng)
-	}
-	isReverse := lifts.IsReverseHeading(trackBearing, osm.BearingDeg)
-
 	effortID, err := insertSegmentEffortTx(ctx, tx, userID, activityID, osm,
-		startedAt, durationS, osm.LengthM, ascentM, isReverse,
+		row.startedAt, row.durationS, osm.LengthM, row.ascentM, row.isReverse,
 		true /*isLiftSegmentMatch*/, true /*isMethodAOnly*/, false /*isCableHoldMerge*/)
 	if err != nil {
 		return false, err
 	}
-	// Audit-only candidate row mirrors the Stage-3 segment_effort.
-	auditRide := lifts.LiftRide{
-		StartedAt:  startedAt,
-		EndedAt:    endedAt,
-		DurationS:  durationS,
-		AscentM:    ascentM,
-		DescentM:   0,
-		DistanceM:  osm.LengthM,
-		Confidence: "high",
-	}
-	if err := insertAuditCandidateTx(ctx, db, tx, userID, activityID, auditRide, effortID); err != nil {
+	if err := insertAuditCandidateTx(ctx, db, tx, userID, activityID, row.auditRide, effortID); err != nil {
 		return false, fmt.Errorf("insert audit candidate: %w", err)
 	}
 	return true, nil

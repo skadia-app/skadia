@@ -13,6 +13,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
+	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
 )
 
 // liftTestPool opens a pgxpool from the per-worktree test DB via testdb.RequireSafeDSN; skips if unset.
@@ -308,6 +309,393 @@ func projectXYToLatLngN5b(xM, yM float64) (lat, lng float64) {
 	lat = lat0 + yM/111320.0
 	lng = lng0 + xM/(111320.0*math.Cos(lat0*math.Pi/180.0))
 	return lat, lng
+}
+
+func TestReadStage3WindowRow_SplitsRepeatedVisitsToSameOSMLift(t *testing.T) {
+	pool := liftTestPool(t)
+	ctx := context.Background()
+
+	const syntheticOSMID = int64(9_000_000_001_077)
+	userID := liftTestUser(t, pool)
+	activityID := uuid.New().String()
+	baseTime := time.Now().UTC().Truncate(time.Second)
+	const liftLengthM = 1100.0
+
+	type sample struct {
+		t   time.Time
+		x   float64
+		alt float64
+	}
+	samples := []sample{
+		{t: baseTime, x: 0, alt: 1000},
+		{t: baseTime.Add(60 * time.Second), x: 1100, alt: 1020},
+		{t: baseTime.Add(2 * time.Hour), x: 0, alt: 1000},
+		{t: baseTime.Add(2*time.Hour + 60*time.Second), x: 550, alt: 1125},
+		{t: baseTime.Add(2*time.Hour + 120*time.Second), x: 1100, alt: 1250},
+	}
+
+	t.Cleanup(func() {
+		bg := context.Background()
+		pool.Exec(bg, "DELETE FROM activity_streams WHERE activity_id = $1", activityID) //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activity_tracks WHERE activity_id = $1", activityID)  //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activities WHERE id = $1", activityID)                //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM segments WHERE osm_lift_id = $1", syntheticOSMID)     //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM osm_lifts WHERE osm_id = $1", syntheticOSMID)         //nolint:errcheck
+	})
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, started_at, ended_at, file_hash)
+		VALUES ($1, $2, 'alpine_skiing', $3, $4, $5)
+	`, activityID, userID, samples[0].t, samples[len(samples)-1].t, uuid.New().String()); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+
+	var trackParts []string
+	for _, s := range samples {
+		lat, lng := projectXYToLatLngN5b(s.x, 0)
+		trackParts = append(trackParts, fmt.Sprintf("%.7f %.7f", lng, lat))
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO activity_streams (activity_id, time, lat, lng, altitude_m)
+			VALUES ($1, $2, $3, $4, $5)
+		`, activityID, s.t, lat, lng, s.alt); err != nil {
+			t.Fatalf("insert stream: %v", err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activity_tracks (activity_id, track_full, point_count)
+		VALUES ($1, ST_GeomFromText($2, 4326), $3)
+	`, activityID, "LINESTRING("+strings.Join(trackParts, ",")+")", len(samples)); err != nil {
+		t.Fatalf("insert track: %v", err)
+	}
+
+	startLat, startLng := projectXYToLatLngN5b(0, 0)
+	endLat, endLng := projectXYToLatLngN5b(liftLengthM, 0)
+	liftWKT := fmt.Sprintf("LINESTRING(%.7f %.7f, %.7f %.7f)", startLng, startLat, endLng, endLat)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO osm_lifts (osm_id, name, geom)
+		VALUES ($1, $2, ST_GeomFromText($3, 4326))
+	`, syntheticOSMID, "synthetic repeated-visit lift", liftWKT); err != nil {
+		t.Fatalf("insert osm_lifts: %v", err)
+	}
+
+	segmentID := uuid.New().String()
+	segmentVersionID := uuid.New().String()
+	db := &database.DB{Pool: pool}
+	row, ok, err := readStage3WindowRow(ctx, db, userID, activityID, lifts.OSMLiftCandidate{
+		OSMID:            syntheticOSMID,
+		SegmentID:        segmentID,
+		SegmentVersionID: segmentVersionID,
+		LengthM:          liftLengthM,
+		BearingDeg:       90,
+	})
+	if err != nil {
+		t.Fatalf("readStage3WindowRow: %v", err)
+	}
+	if !ok {
+		t.Fatal("readStage3WindowRow ok=false, want true")
+	}
+	if row.durationS != 120 {
+		t.Fatalf("durationS = %d, want 120", row.durationS)
+	}
+	if math.Abs(row.ascentM-250) > 0.01 {
+		t.Fatalf("ascentM = %.2f, want 250", row.ascentM)
+	}
+}
+
+func TestReadStage3WindowRow_RejectsParallelOffsetTrack(t *testing.T) {
+	pool := liftTestPool(t)
+	ctx := context.Background()
+
+	const syntheticOSMID = int64(9_000_000_001_079)
+	userID := liftTestUser(t, pool)
+	activityID := uuid.New().String()
+	baseTime := time.Now().UTC().Truncate(time.Second)
+	const liftLengthM = 1000.0
+	const offsetM = 30.0
+
+	t.Cleanup(func() {
+		bg := context.Background()
+		pool.Exec(bg, "DELETE FROM activity_streams WHERE activity_id = $1", activityID) //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activity_tracks WHERE activity_id = $1", activityID)  //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activities WHERE id = $1", activityID)                //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM segments WHERE osm_lift_id = $1", syntheticOSMID)     //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM osm_lifts WHERE osm_id = $1", syntheticOSMID)         //nolint:errcheck
+	})
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, started_at, ended_at, file_hash)
+		VALUES ($1, $2, 'alpine_skiing', $3, $4, $5)
+	`, activityID, userID, baseTime, baseTime.Add(10*time.Minute), uuid.NewString()); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+
+	for i := 0; i <= 10; i++ {
+		x := float64(i) * (liftLengthM / 10)
+		lat, lng := projectXYToLatLngN5b(x, offsetM)
+		alt := 1000.0 + float64(i)*20
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO activity_streams (activity_id, time, lat, lng, altitude_m)
+			VALUES ($1, $2, $3, $4, $5)
+		`, activityID, baseTime.Add(time.Duration(i)*60*time.Second), lat, lng, alt); err != nil {
+			t.Fatalf("insert stream: %v", err)
+		}
+	}
+
+	startLat, startLng := projectXYToLatLngN5b(0, 0)
+	endLat, endLng := projectXYToLatLngN5b(liftLengthM, 0)
+	liftWKT := fmt.Sprintf("LINESTRING(%.7f %.7f, %.7f %.7f)", startLng, startLat, endLng, endLat)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO osm_lifts (osm_id, name, geom)
+		VALUES ($1, $2, ST_GeomFromText($3, 4326))
+	`, syntheticOSMID, "synthetic offset lift", liftWKT); err != nil {
+		t.Fatalf("insert osm_lifts: %v", err)
+	}
+
+	db := &database.DB{Pool: pool}
+	_, ok, err := readStage3WindowRow(ctx, db, userID, activityID, lifts.OSMLiftCandidate{
+		OSMID:      syntheticOSMID,
+		LengthM:    liftLengthM,
+		BearingDeg: 90,
+	})
+	if err != nil {
+		t.Fatalf("readStage3WindowRow: %v", err)
+	}
+	if ok {
+		t.Fatal("readStage3WindowRow ok=true, want false for a parallel offset track")
+	}
+}
+
+func TestReadStage3WindowRow_RejectsPartialLineTraversal(t *testing.T) {
+	pool := liftTestPool(t)
+	ctx := context.Background()
+
+	const syntheticOSMID = int64(9_000_000_001_080)
+	userID := liftTestUser(t, pool)
+	activityID := uuid.New().String()
+	baseTime := time.Now().UTC().Truncate(time.Second)
+	const liftLengthM = 65.0
+
+	t.Cleanup(func() {
+		bg := context.Background()
+		pool.Exec(bg, "DELETE FROM activity_streams WHERE activity_id = $1", activityID) //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activity_tracks WHERE activity_id = $1", activityID)  //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activities WHERE id = $1", activityID)                //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM segments WHERE osm_lift_id = $1", syntheticOSMID)     //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM osm_lifts WHERE osm_id = $1", syntheticOSMID)         //nolint:errcheck
+	})
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, started_at, ended_at, file_hash)
+		VALUES ($1, $2, 'alpine_skiing', $3, $4, $5)
+	`, activityID, userID, baseTime, baseTime.Add(2*time.Minute), uuid.NewString()); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+
+	type sample struct {
+		x, y float64
+		alt  float64
+	}
+	samples := []sample{
+		{x: 27, y: 8, alt: 1000},
+		{x: 33, y: -8, alt: 1015},
+		{x: 39, y: 8, alt: 1030},
+		{x: 45, y: -8, alt: 1045},
+		{x: 51, y: 8, alt: 1060},
+	}
+	var trackParts []string
+	for i, s := range samples {
+		lat, lng := projectXYToLatLngN5b(s.x, s.y)
+		trackParts = append(trackParts, fmt.Sprintf("%.7f %.7f", lng, lat))
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO activity_streams (activity_id, time, lat, lng, altitude_m)
+			VALUES ($1, $2, $3, $4, $5)
+		`, activityID, baseTime.Add(time.Duration(i)*15*time.Second), lat, lng, s.alt); err != nil {
+			t.Fatalf("insert stream: %v", err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activity_tracks (activity_id, track_full, point_count)
+		VALUES ($1, ST_GeomFromText($2, 4326), $3)
+	`, activityID, "LINESTRING("+strings.Join(trackParts, ",")+")", len(samples)); err != nil {
+		t.Fatalf("insert track: %v", err)
+	}
+
+	startLat, startLng := projectXYToLatLngN5b(0, 0)
+	endLat, endLng := projectXYToLatLngN5b(liftLengthM, 0)
+	liftWKT := fmt.Sprintf("LINESTRING(%.7f %.7f, %.7f %.7f)", startLng, startLat, endLng, endLat)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO osm_lifts (osm_id, name, geom)
+		VALUES ($1, $2, ST_GeomFromText($3, 4326))
+	`, syntheticOSMID, "synthetic partial traversal lift", liftWKT); err != nil {
+		t.Fatalf("insert osm_lifts: %v", err)
+	}
+
+	db := &database.DB{Pool: pool}
+	_, ok, err := readStage3WindowRow(ctx, db, userID, activityID, lifts.OSMLiftCandidate{
+		OSMID:      syntheticOSMID,
+		LengthM:    liftLengthM,
+		BearingDeg: 90,
+	})
+	if err != nil {
+		t.Fatalf("readStage3WindowRow: %v", err)
+	}
+	if ok {
+		t.Fatal("readStage3WindowRow ok=true, want false for a partial middle traversal")
+	}
+}
+
+func TestReadStage3WindowRow_RejectsShortOSMOnlyLift(t *testing.T) {
+	pool := liftTestPool(t)
+	ctx := context.Background()
+
+	const syntheticOSMID = int64(9_000_000_001_081)
+	userID := liftTestUser(t, pool)
+	activityID := uuid.New().String()
+	baseTime := time.Now().UTC().Truncate(time.Second)
+	const liftLengthM = 65.0
+
+	t.Cleanup(func() {
+		bg := context.Background()
+		pool.Exec(bg, "DELETE FROM activity_streams WHERE activity_id = $1", activityID) //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activity_tracks WHERE activity_id = $1", activityID)  //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM activities WHERE id = $1", activityID)                //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM segments WHERE osm_lift_id = $1", syntheticOSMID)     //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM osm_lifts WHERE osm_id = $1", syntheticOSMID)         //nolint:errcheck
+	})
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, started_at, ended_at, file_hash)
+		VALUES ($1, $2, 'alpine_skiing', $3, $4, $5)
+	`, activityID, userID, baseTime, baseTime.Add(90*time.Second), uuid.NewString()); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+
+	type sample struct {
+		x   float64
+		alt float64
+	}
+	samples := []sample{
+		{x: 0, alt: 1000},
+		{x: 16.25, alt: 1015},
+		{x: 32.5, alt: 1030},
+		{x: 48.75, alt: 1045},
+		{x: 65, alt: 1060},
+	}
+	var trackParts []string
+	for i, s := range samples {
+		lat, lng := projectXYToLatLngN5b(s.x, 0)
+		trackParts = append(trackParts, fmt.Sprintf("%.7f %.7f", lng, lat))
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO activity_streams (activity_id, time, lat, lng, altitude_m)
+			VALUES ($1, $2, $3, $4, $5)
+		`, activityID, baseTime.Add(time.Duration(i)*15*time.Second), lat, lng, s.alt); err != nil {
+			t.Fatalf("insert stream: %v", err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activity_tracks (activity_id, track_full, point_count)
+		VALUES ($1, ST_GeomFromText($2, 4326), $3)
+	`, activityID, "LINESTRING("+strings.Join(trackParts, ",")+")", len(samples)); err != nil {
+		t.Fatalf("insert track: %v", err)
+	}
+
+	startLat, startLng := projectXYToLatLngN5b(0, 0)
+	endLat, endLng := projectXYToLatLngN5b(liftLengthM, 0)
+	liftWKT := fmt.Sprintf("LINESTRING(%.7f %.7f, %.7f %.7f)", startLng, startLat, endLng, endLat)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO osm_lifts (osm_id, name, geom)
+		VALUES ($1, $2, ST_GeomFromText($3, 4326))
+	`, syntheticOSMID, "synthetic short osm-only lift", liftWKT); err != nil {
+		t.Fatalf("insert osm_lifts: %v", err)
+	}
+
+	db := &database.DB{Pool: pool}
+	_, ok, err := readStage3WindowRow(ctx, db, userID, activityID, lifts.OSMLiftCandidate{
+		OSMID:      syntheticOSMID,
+		LengthM:    liftLengthM,
+		BearingDeg: 90,
+	})
+	if err != nil {
+		t.Fatalf("readStage3WindowRow: %v", err)
+	}
+	if ok {
+		t.Fatal("readStage3WindowRow ok=true, want false for a short OSM-only lift")
+	}
+}
+
+func TestComputeRideOSMOverlaps_UsesRideShapeDeviation(t *testing.T) {
+	pool := liftTestPool(t)
+	ctx := context.Background()
+
+	const syntheticOSMID = int64(9_000_000_001_078)
+	userID := liftTestUser(t, pool)
+	activityID := uuid.New().String()
+	baseTime := time.Now().UTC().Truncate(time.Second)
+	const liftLengthM = 1000.0
+
+	t.Cleanup(func() {
+		bg := context.Background()
+		pool.Exec(bg, "DELETE FROM activities WHERE id = $1", activityID)            //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM segments WHERE osm_lift_id = $1", syntheticOSMID) //nolint:errcheck
+		pool.Exec(bg, "DELETE FROM osm_lifts WHERE osm_id = $1", syntheticOSMID)     //nolint:errcheck
+	})
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, sport_type, started_at, ended_at, file_hash)
+		VALUES ($1, $2, 'alpine_skiing', $3, $4, $5)
+	`, activityID, userID, baseTime, baseTime.Add(5*time.Minute), uuid.NewString()); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+
+	startLat, startLng := projectXYToLatLngN5b(0, 0)
+	endLat, endLng := projectXYToLatLngN5b(liftLengthM, 0)
+	liftWKT := fmt.Sprintf("LINESTRING(%.7f %.7f, %.7f %.7f)", startLng, startLat, endLng, endLat)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO osm_lifts (osm_id, name, geom)
+		VALUES ($1, $2, ST_GeomFromText($3, 4326))
+	`, syntheticOSMID, "synthetic zigzag false snap lift", liftWKT); err != nil {
+		t.Fatalf("insert osm_lifts: %v", err)
+	}
+
+	var stream []lifts.StreamPoint
+	for i := 0; i <= 40; i++ {
+		x := float64(i) * (liftLengthM / 40)
+		y := 0.0
+		if i%2 == 1 {
+			y = 60.0
+		}
+		lat, lng := projectXYToLatLngN5b(x, y)
+		tm := baseTime.Add(time.Duration(i) * 10 * time.Second)
+		stream = append(stream, lifts.StreamPoint{Time: tm, Lat: &lat, Lng: &lng})
+	}
+
+	db := &database.DB{Pool: pool}
+	overlaps, err := computeRideOSMOverlaps(ctx, db, stream, []lifts.RideWithIndices{{
+		Ride: lifts.LiftRide{
+			StartedAt: baseTime,
+			EndedAt:   stream[len(stream)-1].Time,
+			DurationS: int(stream[len(stream)-1].Time.Sub(baseTime).Seconds()),
+			AscentM:   250,
+			DistanceM: 1200,
+		},
+		StartSampleIdx: 0,
+		EndSampleIdx:   len(stream) - 1,
+	}}, []lifts.OSMLiftCandidate{{
+		OSMID:      syntheticOSMID,
+		LengthM:    liftLengthM,
+		BearingDeg: 90,
+	}})
+	if err != nil {
+		t.Fatalf("computeRideOSMOverlaps: %v", err)
+	}
+	if len(overlaps) != 1 {
+		t.Fatalf("overlap count = %d, want 1", len(overlaps))
+	}
+	if overlaps[0].IntersectionLen/liftLengthM < 0.70 {
+		t.Fatalf("coverage = %.2f, want >= 0.70 for this regression fixture", overlaps[0].IntersectionLen/liftLengthM)
+	}
+	if overlaps[0].HausdorffM <= osmSnapShapeMaxM {
+		t.Fatalf("shape deviation = %.1f, want > %.1f so Stage 1 rejects zigzag shape", overlaps[0].HausdorffM, osmSnapShapeMaxM)
+	}
 }
 
 // TestEnrichStreamLifts_RejectedHeuristicWindow_BlocksOSMSnap is the
