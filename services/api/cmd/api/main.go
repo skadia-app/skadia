@@ -604,7 +604,13 @@ func main() {
 		slog.Error("gdpr artifact store configuration failed", "error", err)
 		os.Exit(1)
 	}
-	ensureGDPRArtifactLifecycle(ctx, artifactStore)
+	artifactLifecycleCtx, artifactLifecycleCancel := context.WithTimeout(ctx, 10*time.Second)
+	if err := ensureGDPRArtifactLifecycle(artifactLifecycleCtx, artifactStore); err != nil {
+		artifactLifecycleCancel()
+		slog.Error("gdpr artifact store validation failed", "error", err)
+		os.Exit(1)
+	}
+	artifactLifecycleCancel()
 
 	// NATS (optional - log warning if unavailable)
 	var pub *event.Publisher

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -50,14 +49,15 @@ func buildGDPRArtifactStore(cfg *config.Config) (gdprartifacts.Store, error) {
 	}
 }
 
-func ensureGDPRArtifactLifecycle(ctx context.Context, store gdprartifacts.Store) {
+func ensureGDPRArtifactLifecycle(ctx context.Context, store gdprartifacts.Store) error {
 	ensurer, ok := store.(gdprartifacts.LifecycleEnsurer)
 	if !ok {
-		return
+		return nil
 	}
 	if err := ensurer.EnsureLifecycle(ctx); err != nil {
-		slog.Warn("gdpr artifact lifecycle setup skipped", "error", err)
+		return err
 	}
+	return nil
 }
 
 func validateWritableArtifactDir(dir string) error {

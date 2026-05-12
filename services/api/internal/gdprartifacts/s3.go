@@ -305,8 +305,32 @@ func (s *S3Store) validateRef(ref ObjectRef) (string, string, error) {
 	return bucket, expectedKey, nil
 }
 
-func (s *S3Store) EnsureLifecycle(context.Context) error {
-	return fmt.Errorf("S3 lifecycle setup is not managed automatically for this backend; app cleanup remains authoritative")
+func (s *S3Store) EnsureLifecycle(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for _, kind := range []string{"export", "import"} {
+		bucket, prefix, err := s.bucketAndPrefix(kind)
+		if err != nil {
+			return err
+		}
+		key := path.Join(prefix, ".skadia-artifact-probe-"+uuid.NewString())
+		if _, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+			Bucket:      aws.String(bucket),
+			Key:         aws.String(key),
+			Body:        bytes.NewReader(nil),
+			ContentType: aws.String("application/octet-stream"),
+		}); err != nil {
+			return fmt.Errorf("%s artifact bucket %q is not writable: %w", kind, bucket, err)
+		}
+		if _, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String(key),
+		}); err != nil {
+			return fmt.Errorf("%s artifact bucket %q probe cleanup failed: %w", kind, bucket, err)
+		}
+	}
+	return nil
 }
 
 func (s *S3Store) bucketAndPrefix(kind string) (string, string, error) {
