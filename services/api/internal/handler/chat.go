@@ -12,9 +12,41 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+type chatPreferencesResponse struct {
+	ChatExposeDocumentExtractedData bool     `json:"chat_expose_document_extracted_data"`
+	ChatWriteToolsEnabled           bool     `json:"chat_write_tools_enabled"`
+	ChatAllowedWriteTools           []string `json:"chat_allowed_write_tools"`
+}
+
+type updateChatPreferencesRequest struct {
+	ChatExposeDocumentExtractedData bool     `json:"chat_expose_document_extracted_data"`
+	ChatWriteToolsEnabled           bool     `json:"chat_write_tools_enabled"`
+	ChatAllowedWriteTools           []string `json:"chat_allowed_write_tools"`
+}
+
+var chatWriteToolCatalog = map[string]bool{
+	"create_gear":              true,
+	"update_gear_metadata":     true,
+	"retire_gear":              true,
+	"set_activity_gear":        true,
+	"update_activity_metadata": true,
+	"rename_activity":          true,
+	"tag_activity":             true,
+	"record_health_metric":     true,
+	"create_tag":               true,
+	"update_tag":               true,
+	"delete_tag":               true,
+	"create_automation_rule":   true,
+	"update_automation_rule":   true,
+	"delete_automation_rule":   true,
+	"enable_automation_rule":   true,
+	"disable_automation_rule":  true,
+}
 
 // chatRateLimiter tracks per-user message rates in memory.
 type chatRateLimiter struct {
@@ -57,12 +89,101 @@ func (rl *chatRateLimiter) Allow(userID string, maxPerMin int) bool {
 // ChatRoutes returns a chi.Router with all chat-related routes.
 func (h *Handler) ChatRoutes() http.Handler {
 	r := chi.NewRouter()
+	r.Get("/preferences", h.GetChatPreferences)
+	r.Put("/preferences", h.PutChatPreferences)
 	r.Get("/sessions", h.ListChatSessions)
 	r.Post("/sessions", h.CreateChatSession)
 	r.Get("/sessions/{id}/messages", h.GetChatMessages)
 	r.Delete("/sessions/{id}", h.DeleteChatSession)
 	r.Post("/sessions/{id}/send", h.SendChatMessage)
 	return r
+}
+
+// GetChatPreferences handles GET /api/v1/chat/preferences.
+func (h *Handler) GetChatPreferences(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	if !globalChatRateLimiter.Allow(userID, 10) {
+		httputil.WriteError(w, http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded (10/min)", r.URL.Path)
+		return
+	}
+
+	prefs, err := h.DB.GetChatPrefs(r.Context(), userID)
+	if err != nil {
+		slog.Error("get chat preferences failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get chat preferences", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, chatPreferencesResponse{
+		ChatExposeDocumentExtractedData: prefs.ExposeDocumentExtractedData,
+		ChatWriteToolsEnabled:           prefs.ChatWriteToolsEnabled,
+		ChatAllowedWriteTools:           prefs.ChatAllowedWriteTools,
+	})
+}
+
+// PutChatPreferences handles PUT /api/v1/chat/preferences.
+func (h *Handler) PutChatPreferences(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	if !globalChatRateLimiter.Allow(userID, 10) {
+		httputil.WriteError(w, http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded (10/min)", r.URL.Path)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 8192)
+	var req updateChatPreferencesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	allowedTools, err := validateChatAllowedWriteTools(req.ChatAllowedWriteTools)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+
+	prefs, err := h.DB.UpsertChatPrefs(r.Context(), userID, database.ChatUserPreferences{
+		ExposeDocumentExtractedData: req.ChatExposeDocumentExtractedData,
+		ChatWriteToolsEnabled:       req.ChatWriteToolsEnabled,
+		ChatAllowedWriteTools:       allowedTools,
+	})
+	if err != nil {
+		slog.Error("put chat preferences failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update chat preferences", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, chatPreferencesResponse{
+		ChatExposeDocumentExtractedData: prefs.ExposeDocumentExtractedData,
+		ChatWriteToolsEnabled:           prefs.ChatWriteToolsEnabled,
+		ChatAllowedWriteTools:           prefs.ChatAllowedWriteTools,
+	})
+}
+
+func validateChatAllowedWriteTools(names []string) ([]string, error) {
+	if len(names) == 0 {
+		return []string{}, nil
+	}
+	seen := make(map[string]bool, len(names))
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("chat_allowed_write_tools contains an empty tool name")
+		}
+		if !chatWriteToolCatalog[name] {
+			return nil, fmt.Errorf("unknown or unsafe chat write tool: %s", name)
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out, nil
 }
 
 // ListChatSessions handles GET /api/v1/chat/sessions

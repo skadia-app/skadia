@@ -22,6 +22,7 @@ import { useToast } from '@/lib/toast'
 import FileSchemaSettings from '@/components/FileSchemaSettings'
 import LLMSettingsPage from './LLMSettingsPage'
 import ChatProfileSettings from '@/components/ChatProfileSettings'
+import ChatWriteToolSettings from '@/components/ChatWriteToolSettings'
 import { WeatherSettings } from '@/components/WeatherSettings'
 import AccountSettingsTab from '@/pages/settings/AccountSettingsTab'
 import AdminSettingsTab from '@/pages/settings/AdminSettingsTab'
@@ -1022,11 +1023,12 @@ export default function SettingsPage() {
       )}
 
       {activeTab === 'ai' && (
-        <div role="tabpanel" id="settings-panel-ai" aria-labelledby="settings-tab-ai">
+        <div role="tabpanel" id="settings-panel-ai" aria-labelledby="settings-tab-ai" className="space-y-8">
           {isAdmin && <LLMSettingsPage />}
           {isAdmin && <MLServiceSection />}
           <NotificationSettingsSection />
           <ChatProfileSettings />
+          <ChatWriteToolSettings />
         </div>
       )}
 
