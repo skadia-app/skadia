@@ -172,6 +172,17 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	}
 
 	// 5. No duplicate — insert new photo.
+	var releaseCreateGuard func()
+	if s.ActivityPhotoCreateGuard != nil && activityID != "" {
+		var guardErr error
+		releaseCreateGuard, guardErr = s.ActivityPhotoCreateGuard(ctx, userID, activityID)
+		if guardErr != nil {
+			return nil, guardErr
+		}
+		if releaseCreateGuard != nil {
+			defer releaseCreateGuard()
+		}
+	}
 
 	// Video metadata via ffprobe
 	var videoMeta *imageutil.VideoMeta
@@ -246,7 +257,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	shadowFileID, storeErr := s.storeActivityPhotoOriginal(ctx, userID, activityID, photoBytes, meta, ct, fileHash)
 	if storeErr != nil {
 		slog.Warn("importer: ShadowFS.Put photo failed", "err", storeErr)
-		return nil, fmt.Errorf("no storage available for photo upload")
+		return nil, fmt.Errorf("store activity photo original: %w", storeErr)
 	}
 
 	// Thumb/preview are stored via ShadowFS after DB insert (see below)

@@ -147,6 +147,9 @@ func (h *Handler) AssignImportQueueItem(w http.ResponseWriter, r *http.Request) 
 
 	result, err := h.ImportService.ResolveQueuedPhoto(r.Context(), userID, id, req.ActivityID)
 	if err != nil {
+		if writeMediaUploadProblem(w, r, err) {
+			return
+		}
 		slog.Error("assign queue item: ResolveQueuedPhoto failed", "id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return

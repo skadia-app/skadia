@@ -99,6 +99,9 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.ImportService.ProcessPhoto(r.Context(), userID, activityID, data, photoMeta)
 	if err != nil {
+		if writeMediaUploadProblem(w, r, err) {
+			return
+		}
 		slog.Error("upload photo: ProcessPhoto failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to process photo", r.URL.Path)
 		return

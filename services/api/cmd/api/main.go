@@ -658,6 +658,7 @@ func main() {
 	importSvc := importer.NewService(db, store, nil)
 	importSvc.PMC = pmcService
 	importSvc.BestEfforts = bestEffortsService
+	importSvc.ActivityPhotoCreateGuard = handler.NewActivityPhotoCreateGuard(db, settingsStore)
 	importSvc.ActivityFileRefresher = func(refreshCtx context.Context, userID, activityID, fileID string) {
 		if cfg.LibraryBasePath == "" {
 			return
