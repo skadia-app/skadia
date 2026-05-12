@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/openai/openai-go"
 )
 
 func TestChatPreferencesDefaultsAndPut(t *testing.T) {
@@ -151,6 +153,45 @@ func TestConfirmChatToolCallUnknownReturns404(t *testing.T) {
 	}
 }
 
+func TestSendChatMessageUsesGoAgentAndPersistsAssistant(t *testing.T) {
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+	h := newTestHandler(t, pool)
+	h.Agent = agent.New(agent.Config{
+		LLMResolver: agent.NewLLMResolver(h.DB, agent.LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
+		StreamChat: func(ctx context.Context, cfg agent.LLMConfig, params openai.ChatCompletionNewParams) agent.ChatStream {
+			return &handlerFakeStream{chunks: []openai.ChatCompletionChunk{{
+				Choices: []openai.ChatCompletionChunkChoice{{
+					Delta:        openai.ChatCompletionChunkChoiceDelta{Content: "Hallo."},
+					FinishReason: "stop",
+				}},
+			}}}
+		},
+	})
+	session, err := h.DB.CreateSession(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	req := chatPrefsRequest(t, http.MethodPost, "/sessions/"+session.ID+"/send", userID, []byte(`{"message_id":"msg-1","message":"analysiere training"}`))
+	w := httptest.NewRecorder()
+	h.ChatRoutes().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("send status = %d body=%s", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"type":"chat.chunk"`) || !strings.Contains(body, `"delta":"Hallo."`) {
+		t.Fatalf("SSE body missing assistant chunk: %s", body)
+	}
+
+	messages, err := h.DB.GetMessages(context.Background(), session.ID, 10)
+	if err != nil {
+		t.Fatalf("GetMessages: %v", err)
+	}
+	if len(messages) != 2 || messages[0].Role != "user" || messages[1].Role != "assistant" || messages[1].Content != "Hallo." {
+		t.Fatalf("messages = %#v", messages)
+	}
+}
+
 func chatPrefsRequest(t *testing.T, method, target, userID string, body []byte) *http.Request {
 	t.Helper()
 	var reader *bytes.Reader
@@ -166,3 +207,20 @@ func chatPrefsRequest(t *testing.T, method, target, userID string, body []byte) 
 	}
 	return req
 }
+
+type handlerFakeStream struct {
+	chunks []openai.ChatCompletionChunk
+	idx    int
+}
+
+func (s *handlerFakeStream) Next() bool {
+	return s.idx < len(s.chunks)
+}
+
+func (s *handlerFakeStream) Current() openai.ChatCompletionChunk {
+	chunk := s.chunks[s.idx]
+	s.idx++
+	return chunk
+}
+
+func (s *handlerFakeStream) Err() error { return nil }

@@ -135,6 +135,7 @@ func RegisterAll(reg *Registry) {
 	RegisterHealthTools(reg)
 	RegisterRouteTools(reg)
 	RegisterSegmentTools(reg)
+	reg.Register(SearchPhotosByContentTool())
 	RegisterTagTools(reg)
 	RegisterRuleWriteTools(reg)
 	RegisterRulePreviewTools(reg)
