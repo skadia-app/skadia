@@ -8,7 +8,7 @@ import (
 )
 
 func TestMigration_AgentRulePreviewReadonlySQLDefinesRLS(t *testing.T) {
-	body, err := os.ReadFile("000363_agent_rule_preview_readonly.up.sql")
+	body, err := os.ReadFile("000364_agent_rule_preview_readonly.up.sql")
 	if err != nil {
 		t.Fatalf("read agent rule preview migration: %v", err)
 	}
