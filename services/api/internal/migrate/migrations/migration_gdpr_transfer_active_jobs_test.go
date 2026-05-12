@@ -7,11 +7,11 @@ import (
 )
 
 func TestMigration_GDPRTransferActiveJobsDeclaresActiveTransferIndex(t *testing.T) {
-	upBytes, err := os.ReadFile("000999_gdpr_transfer_active_jobs.up.sql")
+	upBytes, err := os.ReadFile("000361_gdpr_transfer_active_jobs.up.sql")
 	if err != nil {
 		t.Fatalf("read up.sql: %v", err)
 	}
-	downBytes, err := os.ReadFile("000999_gdpr_transfer_active_jobs.down.sql")
+	downBytes, err := os.ReadFile("000361_gdpr_transfer_active_jobs.down.sql")
 	if err != nil {
 		t.Fatalf("read down.sql: %v", err)
 	}
