@@ -31,13 +31,6 @@ HF_HOME = os.getenv("HF_HOME", "/data/models/huggingface")
 ML_CALLBACK_URL = os.getenv("ML_CALLBACK_URL", "")
 ML_CALLBACK_SECRET = os.getenv("ML_CALLBACK_SECRET", "")
 
-# Chat profile default — used when no user setting is present
-# Valid values: "tiny", "small", "medium", "large", "auto"
-CHAT_PROFILE_DEFAULT = os.getenv("CHAT_PROFILE_DEFAULT", "auto")
-
-# LLM context window size (tokens). Must match llama-server --ctx-size.
-LLM_CONTEXT_WINDOW = int(os.getenv("LLM_CONTEXT_WINDOW", "32768"))
-
 _llm_client: Optional[AsyncOpenAI] = None
 
 
