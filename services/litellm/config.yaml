@@ -1,21 +1,4 @@
-model_list:
-  # llama-server Backend (Host-native, Vulkan/AMD Vega 56, Port 8181)
-  # Starten mit: ./scripts/llama-server.sh
-  - model_name: skadia-default
-    litellm_params:
-      model: openai/qwen3.5-9b
-      api_base: http://host.containers.internal:8181/v1
-      api_key: "none"
-  - model_name: skadia-llama-default
-    litellm_params:
-      model: openai/qwen3.5-9b
-      api_base: http://host.containers.internal:8181/v1
-      api_key: "none"
-  # Ollama-Backend (Fallback)
-  - model_name: skadia-ollama-default
-    litellm_params:
-      model: ollama/qwen3.5:9b
-      api_base: http://ollama:11434
+model_list: []
 
 litellm_settings:
   drop_params: true
