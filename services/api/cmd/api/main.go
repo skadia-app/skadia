@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
+	agenttools "github.com/skadia-app/skadia/services/api/internal/agent/tools"
 	"github.com/skadia-app/skadia/services/api/internal/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/auth"
 	"github.com/skadia-app/skadia/services/api/internal/automation"
@@ -711,9 +712,57 @@ func main() {
 		importSvc.PhotoEmbedPublisher = pub
 	}
 
+	confirmMgr := agent.NewConfirmationManager(5 * time.Minute)
+	llmResolver := agent.NewLLMResolver(db, agent.LLMResolverConfig{
+		BaseURL:       cfg.LLMBaseURL,
+		APIKey:        cfg.LLMAPIKey,
+		Model:         cfg.LLMModel,
+		EncryptionKey: cfg.LLMEncryptionKey,
+	})
+	agentSkills, err := agent.LoadSkills("")
+	if err != nil {
+		slog.Warn("agent skills load failed; continuing without skill context", "error", err)
+		agentSkills = map[string]*agent.Skill{}
+	}
+	agentPrefs := &agent.PreferenceLoader{LoadFunc: func(ctx context.Context, userID string) (*agent.ChatPreferences, error) {
+		prefs, err := db.GetChatPrefs(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		return &agent.ChatPreferences{
+			ChatExposeDocumentExtractedData: prefs.ExposeDocumentExtractedData,
+			ChatWriteToolsEnabled:           prefs.ChatWriteToolsEnabled,
+			ChatAllowedWriteTools:           prefs.ChatAllowedWriteTools,
+		}, nil
+	}}
+	toolRegistry := agenttools.NewRegistry()
+	agenttools.RegisterAll(toolRegistry)
+	toolDeps := &agenttools.Deps{
+		DB:          db,
+		Readonly:    db.ReadonlyPool,
+		MLBaseURL:   cfg.MLServiceURL,
+		BRouterURL:  cfg.BRouterURL,
+		LLM:         llmResolver,
+		SQLAgent:    agent.NewSQLAgent(db),
+		Audit:       agent.NewAuditWriter(db),
+		Confirm:     confirmMgr,
+		Preferences: agentPrefs,
+	}
+	toolEnvelope := agenttools.NewExecutionEnvelope(toolRegistry, toolDeps)
+	chatAgent := agent.New(agent.Config{
+		DB:             db,
+		LLMResolver:    llmResolver,
+		ProfileStore:   db,
+		Preferences:    agentPrefs,
+		Skills:         agentSkills,
+		Tools:          agenttools.NewAgentToolRuntime(toolRegistry, toolDeps, toolEnvelope),
+		DefaultProfile: "small",
+	})
+
 	h := &handler.Handler{
 		DB:             db,
-		Confirm:        agent.NewConfirmationManager(5 * time.Minute),
+		Confirm:        confirmMgr,
+		Agent:          chatAgent,
 		PMC:            pmcService,
 		BestEfforts:    bestEffortsService,
 		ShadowFS:       store,

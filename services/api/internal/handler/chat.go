@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -339,14 +338,19 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("load chat history failed, continuing without history", "error", err)
 	}
 
-	// Build history slice for ML service (exclude the just-added user message)
-	historyPayload := make([]map[string]string, 0, len(history))
+	if h.Agent == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Unavailable", "chat agent is not configured", r.URL.Path)
+		return
+	}
+
+	// Build history slice for the agent, excluding the just-added user message.
+	historyPayload := make([]agent.ChatHistoryMessage, 0, len(history))
 	for _, m := range history {
 		if m.Role == "user" || m.Role == "assistant" {
-			historyPayload = append(historyPayload, map[string]string{
-				"role":    m.Role,
-				"content": m.Content,
-			})
+			if m.Role == "user" && m.Content == req.Message {
+				continue
+			}
+			historyPayload = append(historyPayload, agent.ChatHistoryMessage{Role: m.Role, Content: m.Content})
 		}
 	}
 
@@ -362,87 +366,25 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Forward to ML service
-	mlPayload, _ := json.Marshal(map[string]any{
-		"user_id":    userID,
-		"session_id": sessionID,
-		"message_id": req.MessageID,
-		"message":    req.Message,
-		"history":    historyPayload,
-	})
-
-	mlBaseURL := "http://ml:8000"
-	if h.Config != nil && h.Config.MLServiceURL != "" {
-		mlBaseURL = h.Config.MLServiceURL
-	}
-	mlReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		mlBaseURL+"/ml/chat", strings.NewReader(string(mlPayload)))
-	if err != nil {
-		slog.Error("build ML chat request failed", "error", err)
-		fmt.Fprintf(w, "data: %s\n\n", mustJSON(model.WSChatResponse{
-			Type:  "chat.error",
-			ID:    req.MessageID,
-			Error: "failed to reach ML service",
-		}))
-		flusher.Flush()
-		return
-	}
-	mlReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 120 * time.Second}
-	mlResp, err := client.Do(mlReq)
-	if err != nil {
-		slog.Error("ML chat request failed", "error", err)
-		fmt.Fprintf(w, "data: %s\n\n", mustJSON(model.WSChatResponse{
-			Type:  "chat.error",
-			ID:    req.MessageID,
-			Error: fmt.Sprintf("ML service unavailable: %v", err),
-		}))
-		flusher.Flush()
-		return
-	}
-	defer mlResp.Body.Close()
-
-	// Stream SSE from ML service to client; accumulate assistant reply
 	var assistantContent strings.Builder
-	var sourcesRaw []string
-
-	scanner := bufio.NewScanner(mlResp.Body)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB max line
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-
-		data := strings.TrimPrefix(line, "data: ")
-
-		// Parse the event to accumulate content and detect done
-		var evt model.WSChatResponse
-		if err := json.Unmarshal([]byte(data), &evt); err == nil {
-			switch evt.Type {
-			case "chat.chunk":
-				assistantContent.WriteString(evt.Delta)
-			case "chat.done":
-				sourcesRaw = evt.Sources
-			}
-		}
-
-		// Forward to client verbatim
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
-
-		// Stop after done or error
-		if evt.Type == "chat.done" || evt.Type == "chat.error" {
-			break
-		}
+	baseSink := agent.NewHTTPSSESink(w, flusher)
+	baseSink.OnChunk(func(delta string) { assistantContent.WriteString(delta) })
+	sink := &chatPersistSink{SSESink: baseSink}
+	if err := h.Agent.Stream(r.Context(), agent.ChatRequest{
+		UserID:    userID,
+		SessionID: sessionID,
+		MessageID: req.MessageID,
+		Message:   req.Message,
+		History:   historyPayload,
+	}, sink); err != nil {
+		slog.Error("agent chat stream failed", "error", err)
 	}
 
 	// Persist assistant reply
 	if content := assistantContent.String(); content != "" {
 		var sourcesJSON []byte
-		if len(sourcesRaw) > 0 {
-			sourcesJSON, _ = json.Marshal(sourcesRaw)
+		if len(sink.sources) > 0 {
+			sourcesJSON, _ = json.Marshal(sink.sources)
 		}
 		assistantMsg := &model.ChatMessage{
 			SessionID: sessionID,
@@ -454,6 +396,18 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("persist assistant chat message failed", "error", err)
 		}
 	}
+}
+
+type chatPersistSink struct {
+	agent.SSESink
+	sources []string
+}
+
+func (s *chatPersistSink) Send(event agent.SSEEvent) error {
+	if event.Type == agent.EventDone {
+		s.sources = append([]string(nil), event.Sources...)
+	}
+	return s.SSESink.Send(event)
 }
 
 type confirmChatToolCallRequest struct {
