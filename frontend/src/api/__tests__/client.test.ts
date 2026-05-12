@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { apiClient, apiDownload, clearETagCache, getCachedETag, storeETagForPath } from '@/api/client'
+import { apiClient, apiDownload, clearETagCache, getCachedETag, storeETagForPath, triggerNativeDownload } from '@/api/client'
 import { clearToken, setToken } from '@/lib/auth'
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -314,5 +314,29 @@ describe('apiDownload', () => {
     await expect(apiDownload('https://example.invalid/api/v1/auth/data-export/job-1/download'))
       .rejects.toMatchObject({ status: 400 })
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('triggerNativeDownload', () => {
+  it('rejects raw secret parameters in GDPR download URLs', () => {
+    expect(() => triggerNativeDownload('/api/v1/downloads/gdpr/data-export/job-1/parts/export.zip?token=raw'))
+      .toThrow()
+  })
+
+  it('allows non-secret session_id parameters', () => {
+    const click = vi.fn()
+    vi.spyOn(document, 'createElement').mockReturnValue({
+      click,
+      remove: vi.fn(),
+      style: {},
+      set href(_value: string) {},
+      set download(_value: string) {},
+      set rel(_value: string) {},
+    } as unknown as HTMLAnchorElement)
+    vi.spyOn(document.body, 'appendChild').mockImplementation((node: Node) => node)
+
+    triggerNativeDownload('/api/v1/downloads/gdpr/data-export/job-1/parts/export.zip?session_id=s1', 'export.zip')
+
+    expect(click).toHaveBeenCalled()
   })
 })

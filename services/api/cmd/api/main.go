@@ -599,6 +599,13 @@ func main() {
 		slog.Info("shadowfs: S3 connectivity verified", "endpoint", cfg.S3Endpoint, "bucket", cfg.S3Bucket)
 	}
 
+	artifactStore, err := buildGDPRArtifactStore(cfg)
+	if err != nil {
+		slog.Error("gdpr artifact store configuration failed", "error", err)
+		os.Exit(1)
+	}
+	ensureGDPRArtifactLifecycle(ctx, artifactStore)
+
 	// NATS (optional - log warning if unavailable)
 	var pub *event.Publisher
 	pub, err = event.NewPublisher(cfg.NatsURL)
@@ -816,6 +823,8 @@ func main() {
 	authRL := middleware.NewRateLimiter(ctx)
 	authHandler := auth.NewHandler(db, cfg, settingsStore, authMailer, authRL, ctx)
 	authHandler.ShadowFS = store
+	authHandler.ArtifactStore = artifactStore
+	authHandler.StartGDPRArtifactMaintenance(ctx)
 
 	// Wire settings store and mailer into main handler (needed for admin settings endpoints).
 	h.Settings = settingsStore
@@ -1001,6 +1010,8 @@ func main() {
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
 	// Public — no jwtAuth (sister of /sports/taxonomy; frontend fetches before login).
 	r.Get("/api/v1/system-layers/keys", h.GetSystemLayerKeys)
+	r.Get("/api/v1/downloads/gdpr/data-export/{jobID}/manifest", authHandler.DataExportDownloadManifest)
+	r.Get("/api/v1/downloads/gdpr/data-export/{jobID}/parts/{partName}", authHandler.DataExportDownloadPart)
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		// Go-native auth endpoints
 		r.With(middleware.RateLimitGeneric(authRL)).Get("/config", authHandler.AuthConfig)
@@ -1071,9 +1082,19 @@ func main() {
 				Get("/data-export/latest", authHandler.DataExportLatest)
 			r.With(middleware.RateLimitPerUser(authRL, "export-status:", 60.0/60, 10)).
 				Get("/data-export/{jobID}", authHandler.DataExportStatus)
+			r.With(middleware.RateLimitPerUser(authRL, "export-download-session:", 6.0/60, 3)).
+				Post("/data-export/{jobID}/download-session", authHandler.DataExportDownloadSession)
 			r.Get("/data-export/{jobID}/download", authHandler.DataExportDownload)
 			r.With(middleware.RateLimitPerUser(authRL, "import:", 1.0/300, 1)).
 				Post("/data-import", authHandler.DataImport)
+			r.With(middleware.RateLimitPerUser(authRL, "import-multipart:", 1.0/300, 1)).
+				Post("/data-import/multipart", authHandler.DataImportMultipartCreate)
+			r.With(middleware.RateLimitPerUser(authRL, "import-part:", 120.0/60, 4)).
+				Post("/data-import/{jobID}/parts/{partName}", authHandler.DataImportMultipartPart)
+			r.With(middleware.RateLimitPerUser(authRL, "import-start:", 10.0/60, 2)).
+				Post("/data-import/{jobID}/start", authHandler.DataImportMultipartStart)
+			r.With(middleware.RateLimitPerUser(authRL, "import-cancel:", 10.0/60, 2)).
+				Post("/data-import/{jobID}/cancel", authHandler.DataImportMultipartCancel)
 			r.With(middleware.RateLimitPerUser(authRL, "import-status:", 60.0/60, 10)).
 				Get("/data-import/{jobID}", authHandler.DataImportStatus)
 		})

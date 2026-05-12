@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -16,8 +17,9 @@ import (
 )
 
 const (
-	s3MaxUploadBytes = 500 << 20 // 500 MB
-	s3DeleteBatch    = 1000
+	s3MaxUploadBytes       = 500 << 20 // 500 MB
+	s3StreamUploadPartSize = 64 << 20
+	s3DeleteBatch          = 1000
 )
 
 // S3Backend implements StorageBackend for S3-compatible object storage.
@@ -96,6 +98,130 @@ func (b *S3Backend) Write(ctx context.Context, path string, data io.Reader, cont
 		return 0, "", fmt.Errorf("s3 put %s: %w", path, err)
 	}
 	return int64(len(buf)), hash, nil
+}
+
+func (b *S3Backend) WriteStream(ctx context.Context, path string, data io.Reader, contentType string, exclusive bool, expectedHash string, opts *BackendOpts) (int64, string, error) {
+	// exclusive flag is ignored for S3 — hash-based keys are inherently unique.
+	ct := contentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+
+	bucket := b.bucket(opts)
+	h := sha256.New()
+	buf := make([]byte, s3StreamUploadPartSize)
+	var uploadID string
+	var parts []s3types.CompletedPart
+	var partNumber int32
+	var written int64
+
+	abort := func() {
+		if uploadID == "" {
+			return
+		}
+		_, _ = b.client.AbortMultipartUpload(context.Background(), &s3.AbortMultipartUploadInput{
+			Bucket:   aws.String(bucket),
+			Key:      aws.String(path),
+			UploadId: aws.String(uploadID),
+		})
+	}
+	ensureUpload := func() error {
+		if uploadID != "" {
+			return nil
+		}
+		out, err := b.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
+			Bucket:      aws.String(bucket),
+			Key:         aws.String(path),
+			ContentType: aws.String(ct),
+		})
+		if err != nil {
+			return fmt.Errorf("s3 create multipart %s: %w", path, err)
+		}
+		uploadID = aws.ToString(out.UploadId)
+		return nil
+	}
+	uploadPart := func(part []byte) error {
+		if len(part) == 0 {
+			return nil
+		}
+		if err := ensureUpload(); err != nil {
+			return err
+		}
+		partNumber++
+		body := append([]byte(nil), part...)
+		out, err := b.client.UploadPart(ctx, &s3.UploadPartInput{
+			Bucket:        aws.String(bucket),
+			Key:           aws.String(path),
+			UploadId:      aws.String(uploadID),
+			PartNumber:    aws.Int32(partNumber),
+			Body:          bytes.NewReader(body),
+			ContentLength: aws.Int64(int64(len(body))),
+		})
+		if err != nil {
+			return fmt.Errorf("s3 upload part %s part %d: %w", path, partNumber, err)
+		}
+		parts = append(parts, s3types.CompletedPart{
+			ETag:       out.ETag,
+			PartNumber: aws.Int32(partNumber),
+		})
+		return nil
+	}
+
+	for {
+		n, readErr := io.ReadFull(data, buf)
+		if n > 0 {
+			if _, err := h.Write(buf[:n]); err != nil {
+				abort()
+				return 0, "", err
+			}
+			written += int64(n)
+			if err := uploadPart(buf[:n]); err != nil {
+				abort()
+				return 0, "", err
+			}
+		}
+		if readErr == nil {
+			continue
+		}
+		if errors.Is(readErr, io.EOF) || errors.Is(readErr, io.ErrUnexpectedEOF) {
+			break
+		}
+		abort()
+		return 0, "", fmt.Errorf("read upload data: %w", readErr)
+	}
+
+	hash := hex.EncodeToString(h.Sum(nil))
+	if expectedHash != "" && !strings.EqualFold(expectedHash, hash) {
+		abort()
+		return 0, "", fmt.Errorf("sha256 mismatch: expected %s got %s", expectedHash, hash)
+	}
+
+	if uploadID == "" {
+		_, err := b.client.PutObject(ctx, &s3.PutObjectInput{
+			Bucket:        aws.String(bucket),
+			Key:           aws.String(path),
+			Body:          bytes.NewReader(nil),
+			ContentType:   aws.String(ct),
+			ContentLength: aws.Int64(0),
+		})
+		if err != nil {
+			return 0, "", fmt.Errorf("s3 put %s: %w", path, err)
+		}
+		return written, hash, nil
+	}
+	_, err := b.client.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
+		Bucket:   aws.String(bucket),
+		Key:      aws.String(path),
+		UploadId: aws.String(uploadID),
+		MultipartUpload: &s3types.CompletedMultipartUpload{
+			Parts: parts,
+		},
+	})
+	if err != nil {
+		abort()
+		return 0, "", fmt.Errorf("s3 complete multipart %s: %w", path, err)
+	}
+	return written, hash, nil
 }
 
 // PutBytes uploads pre-buffered data to S3, avoiding double-buffering when the
@@ -227,3 +353,4 @@ func (b *S3Backend) PingBucket(ctx context.Context, bucket string) error {
 }
 
 var _ StorageBackend = (*S3Backend)(nil)
+var _ StreamingBackend = (*S3Backend)(nil)

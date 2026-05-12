@@ -258,6 +258,10 @@ func (fs *cancelAfterPutShadowFS) List(context.Context, string, *string) ([]shad
 	return nil, errors.New("not implemented")
 }
 
+func (fs *cancelAfterPutShadowFS) StreamExportFiles(context.Context, string, shadowfs.ExportFileSink) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (fs *cancelAfterPutShadowFS) StreamToZip(context.Context, string, *zip.Writer) ([]string, error) {
 	return nil, errors.New("not implemented")
 }

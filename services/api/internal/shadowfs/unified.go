@@ -255,8 +255,36 @@ func (u *UnifiedShadowFS) allBuckets() []string {
 	return buckets
 }
 
+func readerWithContentPeek(data io.Reader) (io.Reader, []byte, error) {
+	peek := make([]byte, 512)
+	n, err := io.ReadFull(data, peek)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil, nil, err
+	}
+	peek = peek[:n]
+	return io.MultiReader(bytes.NewReader(peek), data), peek, nil
+}
+
+func canonicalSHA256(value string) (string, bool) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if len(value) != 64 {
+		return "", false
+	}
+	for _, r := range value {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return "", false
+		}
+	}
+	return value, true
+}
+
 // Put stores a file and registers it in user_files.
 func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
+	return u.PutStream(ctx, entry, data)
+}
+
+// PutStream stores a file without forcing callers to buffer the entire object.
+func (u *UnifiedShadowFS) PutStream(ctx context.Context, entry FileEntry, data io.Reader) (FileRecord, error) {
 	// 1. Validate file_type.
 	dir, ok := fileTypeDirName[entry.FileType]
 	if !ok {
@@ -291,23 +319,22 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 	}
 	opts := u.bucketOpts(entry.FileType)
 
-	// Buffer entire stream upfront — needed for retry loop (local) and hash (S3).
-	allData, readErr := io.ReadAll(data)
+	stream, peek, readErr := readerWithContentPeek(data)
 	if readErr != nil {
-		return FileRecord{}, fmt.Errorf("shadowfs: read all: %w", readErr)
+		return FileRecord{}, fmt.Errorf("shadowfs: read content header: %w", readErr)
 	}
-
-	// Content-type detection from first 512 bytes.
-	peekLen := min(len(allData), 512)
-	contentType := DetectContentType(entry.FileName, entry.ContentType, allData[:peekLen])
-
-	// Pre-compute hash (used by both local and S3 paths).
-	hashSum := sha256.Sum256(allData)
-	fileHash := hex.EncodeToString(hashSum[:])
+	contentType := DetectContentType(entry.FileName, entry.ContentType, peek)
+	expectedHash, hasExpectedSHA := canonicalSHA256(entry.FileHash)
 
 	// 5. Path computation + write (differs by target).
 	var storagePath string
 	var written int64
+	var fileHash string
+
+	streamingBE, ok := be.(StreamingBackend)
+	if !ok {
+		return FileRecord{}, fmt.Errorf("shadowfs: backend %q does not support streaming writes", targetName)
+	}
 
 	switch targetName {
 	case "local":
@@ -338,44 +365,73 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 		// Collision resolution (skip for edit sidecars — they upsert).
 		if entry.FileType != "edit" {
 			storagePath = ResolveCollision(u.basePath, storagePath)
+			for attempt := range 10 {
+				exists, existsErr := be.Exists(ctx, storagePath, opts)
+				if existsErr != nil {
+					return FileRecord{}, fmt.Errorf("shadowfs: collision check: %w", existsErr)
+				}
+				if !exists {
+					break
+				}
+				storagePath = ResolveCollision(u.basePath, storagePath)
+				if attempt == 9 {
+					return FileRecord{}, fmt.Errorf("shadowfs: exhausted 10 race retries")
+				}
+			}
 		}
 
-		// Write with O_EXCL race retry (except edit sidecars which overwrite).
-		// bytes.NewReader resets cleanly for each attempt — no consumed-reader bug.
 		exclusive := entry.FileType != "edit"
-		for attempt := range 10 {
-			w, _, writeErr := be.Write(ctx, storagePath, bytes.NewReader(allData), contentType, exclusive, opts)
-			if writeErr == nil {
-				written = w
-				break
-			}
-			if !errors.Is(writeErr, os.ErrExist) {
-				return FileRecord{}, fmt.Errorf("shadowfs: write: %w", writeErr)
-			}
-			// Another process won the race — re-resolve collision.
-			storagePath = ResolveCollision(u.basePath, storagePath)
-			if attempt == 9 {
-				return FileRecord{}, fmt.Errorf("shadowfs: exhausted 10 race retries")
-			}
+		hashForValidation := ""
+		if hasExpectedSHA {
+			hashForValidation = expectedHash
 		}
+		w, hash, writeErr := streamingBE.WriteStream(ctx, storagePath, stream, contentType, exclusive, hashForValidation, opts)
+		if writeErr != nil {
+			if errors.Is(writeErr, os.ErrExist) {
+				return FileRecord{}, fmt.Errorf("shadowfs: streaming collision after upload; retry import: %w", writeErr)
+			}
+			return FileRecord{}, fmt.Errorf("shadowfs: write: %w", writeErr)
+		}
+		written = w
+		fileHash = hash
 
 	case "s3":
-		// Hash already computed above; use content-addressed path.
+		if !hasExpectedSHA {
+			allData, err := io.ReadAll(io.LimitReader(stream, s3MaxUploadBytes+1))
+			if err != nil {
+				return FileRecord{}, fmt.Errorf("shadowfs: read s3 upload data: %w", err)
+			}
+			if len(allData) > s3MaxUploadBytes {
+				return FileRecord{}, fmt.Errorf("shadowfs: s3 PutStream requires canonical SHA-256 FileHash for uploads over %d bytes", s3MaxUploadBytes)
+			}
+			sum := sha256.Sum256(allData)
+			fileHash = hex.EncodeToString(sum[:])
+			if entry.ParentType != nil && *entry.ParentType != "" && entry.ParentID != nil && *entry.ParentID != "" {
+				storagePath = entry.UserID + "/" + dir + "/" + *entry.ParentType + "/" + *entry.ParentID + "/" + fileHash + ext
+			} else {
+				storagePath = entry.UserID + "/" + dir + "/" + fileHash + ext
+			}
+			w, hash, writeErr := be.Write(ctx, storagePath, bytes.NewReader(allData), contentType, false, opts)
+			if writeErr != nil {
+				return FileRecord{}, fmt.Errorf("shadowfs: s3 write: %w", writeErr)
+			}
+			written = w
+			fileHash = hash
+			break
+		}
+
+		fileHash = expectedHash
 		if entry.ParentType != nil && *entry.ParentType != "" && entry.ParentID != nil && *entry.ParentID != "" {
 			storagePath = entry.UserID + "/" + dir + "/" + *entry.ParentType + "/" + *entry.ParentID + "/" + fileHash + ext
 		} else {
 			storagePath = entry.UserID + "/" + dir + "/" + fileHash + ext
 		}
-
-		s3be, ok := be.(*S3Backend)
-		if !ok {
-			return FileRecord{}, fmt.Errorf("shadowfs: s3 backend type assertion failed")
-		}
-		w, writeErr := s3be.PutBytes(ctx, storagePath, allData, contentType, fileHash, opts)
+		w, hash, writeErr := streamingBE.WriteStream(ctx, storagePath, stream, contentType, false, expectedHash, opts)
 		if writeErr != nil {
 			return FileRecord{}, fmt.Errorf("shadowfs: s3 write: %w", writeErr)
 		}
 		written = w
+		fileHash = hash
 	}
 
 	// 6. Database INSERT/UPSERT.
@@ -716,21 +772,29 @@ func (u *UnifiedShadowFS) DiskUsage(ctx context.Context, userID string) (int64, 
 
 const maxExportBytesUnified int64 = 4 * 1024 * 1024 * 1024 // 4 GiB
 
-// StreamToZip writes all exportable user files into the given zip.Writer.
+var errExportSizeLimitExceeded = errors.New("shadowfs: export size limit exceeded")
+
+func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) ([]string, error) {
+	return u.StreamExportFiles(ctx, userID, &limitedExportFileSink{
+		sink:  NewZipExportFileSink(zw),
+		limit: maxExportBytesUnified,
+	})
+}
+
+// StreamExportFiles streams every exportable user file into sink.
 // Derivatives (thumb/preview) and legacy _cache/ paths are skipped.
 //
 // Returns `failedPaths` listing every ZIP entry whose content could not be
 // fully written (read-from-storage failures, copy-truncation, missing files).
 // Callers should surface this list in the export manifest so the user knows
 // which files in the ZIP are empty/truncated.
-func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) ([]string, error) {
+func (u *UnifiedShadowFS) StreamExportFiles(ctx context.Context, userID string, sink ExportFileSink) ([]string, error) {
 	records, err := listRecords(ctx, u.pool, userID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("shadowfs: list records for zip: %w", err)
 	}
 
 	var failedPaths []string
-	var totalBytes int64
 	for _, rec := range records {
 		// Skip derivatives.
 		if rec.FileType == "thumb" || rec.FileType == "preview" {
@@ -739,11 +803,6 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 		// Legacy _cache/ filter.
 		if strings.Contains(rec.StoragePath, "/_cache/") {
 			continue
-		}
-
-		totalBytes += rec.SizeBytes
-		if totalBytes > maxExportBytesUnified {
-			return failedPaths, fmt.Errorf("shadowfs: export exceeds %d byte limit", maxExportBytesUnified)
 		}
 
 		// Normalize zip paths — use path.Base to strip any directory components from
@@ -772,23 +831,21 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 			continue
 		}
 
-		w, headerErr := zw.CreateHeader(&zip.FileHeader{
-			Name:     zipPath,
-			Method:   zip.Deflate,
-			Modified: rec.CreatedAt,
-		})
-		if headerErr != nil {
-			rc.Close()
-			return failedPaths, fmt.Errorf("shadowfs: zip header: %w", headerErr)
-		}
-		_, copyErr := io.Copy(w, rc)
+		copyErr := sink.AddExportFile(ctx, ExportFile{
+			ZIPPath:    zipPath,
+			FileName:   rec.FileName,
+			FileType:   rec.FileType,
+			SizeBytes:  rec.SizeBytes,
+			Modified:   rec.CreatedAt,
+			HasSidecar: rec.HasSidecar,
+		}, rc)
 		rc.Close()
 		if copyErr != nil {
+			if errors.Is(copyErr, errExportSizeLimitExceeded) {
+				return failedPaths, copyErr
+			}
 			// A single corrupt/short file must NOT abort the entire export —
-			// otherwise one bad blob hides all subsequent files. The zip entry
-			// is left as a (possibly truncated) artefact (zip.Writer cannot
-			// retract a created entry), but we record it in failedPaths so the
-			// caller can flag it in the manifest.
+			// otherwise one bad blob hides all subsequent files.
 			slog.Warn("shadowfs: zip copy failed, continuing with next file",
 				"file_id", rec.ID, "path", zipPath, "error", copyErr)
 			failedPaths = append(failedPaths, zipPath)
@@ -800,17 +857,38 @@ func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zi
 			companionPath := rec.StoragePath + ".meta"
 			crc, cErr := be.Read(ctx, companionPath, u.bucketOpts(rec.FileType))
 			if cErr == nil {
-				cw, cwErr := zw.Create(zipPath + ".meta")
+				cwErr := sink.AddExportFile(ctx, ExportFile{
+					ZIPPath:   zipPath + ".meta",
+					FileName:  path.Base(zipPath) + ".meta",
+					FileType:  rec.FileType,
+					SizeBytes: 0,
+					Modified:  rec.UpdatedAt,
+				}, crc)
 				if cwErr != nil {
-					slog.Warn("shadowfs: create zip entry for .meta companion failed", "path", zipPath+".meta", "error", cwErr)
-				} else if cw != nil {
-					io.Copy(cw, crc) //nolint:errcheck
+					slog.Warn("shadowfs: write .meta companion failed", "path", zipPath+".meta", "error", cwErr)
+					failedPaths = append(failedPaths, zipPath+".meta")
 				}
 				crc.Close()
 			}
 		}
 	}
 	return failedPaths, nil
+}
+
+type limitedExportFileSink struct {
+	sink  ExportFileSink
+	limit int64
+	total int64
+}
+
+func (s *limitedExportFileSink) AddExportFile(ctx context.Context, file ExportFile, data io.Reader) error {
+	if s.limit > 0 {
+		s.total += file.SizeBytes
+		if s.total > s.limit {
+			return fmt.Errorf("%w: export exceeds %d byte limit", errExportSizeLimitExceeded, s.limit)
+		}
+	}
+	return s.sink.AddExportFile(ctx, file, data)
 }
 
 // ---------------------------------------------------------------------------

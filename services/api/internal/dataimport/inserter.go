@@ -77,7 +77,7 @@ func (e *Engine) importTable(
 	}
 
 	// 2. Open + read JSON array.
-	rc, err := source.OpenData(dataPath)
+	rc, err := source.OpenDataStream(dataPath)
 	if err != nil {
 		// Missing file is not fatal — table may simply have no rows.
 		return nil

@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/dataimport"
+	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
@@ -140,17 +142,23 @@ func (r *roundtripShadowFS) DeleteCompanionAt(_ context.Context, _ string) error
 // activities have NO main source file, only a .meta companion written via
 // PutCompanionAt. We write those directly under "files/<path>" so that
 // the re-import's importCompanion() call can find them.
-func (r *roundtripShadowFS) StreamToZip(_ context.Context, userID string, zw *zip.Writer) ([]string, error) {
+func (r *roundtripShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) ([]string, error) {
+	return r.StreamExportFiles(ctx, userID, shadowfs.NewZipExportFileSink(zw))
+}
+
+func (r *roundtripShadowFS) StreamExportFiles(ctx context.Context, userID string, sink shadowfs.ExportFileSink) ([]string, error) {
 	for path, data := range r.companions {
 		// Only emit companions that belong to this user.
 		if !strings.HasPrefix(path, userID+"/") {
 			continue
 		}
-		w, err := zw.Create("files/" + path)
-		if err != nil {
-			return nil, fmt.Errorf("roundtripShadowFS: create zip entry %q: %w", path, err)
-		}
-		if _, err := io.Copy(w, bytes.NewReader(data)); err != nil {
+		if err := sink.AddExportFile(ctx, shadowfs.ExportFile{
+			ZIPPath:   "files/" + path,
+			FileName:  filepath.Base(path),
+			FileType:  "activity",
+			SizeBytes: int64(len(data)),
+			Modified:  time.Now(),
+		}, bytes.NewReader(data)); err != nil {
 			return nil, fmt.Errorf("roundtripShadowFS: write zip entry %q: %w", path, err)
 		}
 	}
@@ -252,6 +260,11 @@ func TestFusionGDPRRoundtrip(t *testing.T) {
 	testSettings := settings.NewStoreForTest(map[string]string{})
 	h := NewHandler(db, cfg, testSettings, &Mailer{}, middleware.NewRateLimiter(ctx), ctx)
 	h.ShadowFS = fs
+	store, err := gdprartifacts.NewLocalStore(t.TempDir()+"/exports", t.TempDir()+"/imports")
+	if err != nil {
+		t.Fatalf("NewLocalStore: %v", err)
+	}
+	h.ArtifactStore = store
 
 	// Register an export job (executing directly needs a background_jobs row).
 	jobID := uuid.New().String()
@@ -271,13 +284,9 @@ func TestFusionGDPRRoundtrip(t *testing.T) {
 		t.Fatalf("executeExportJobOnce: %v", err)
 	}
 
-	// Retrieve the ZIP path from background_jobs metadata.
-	var zipPath string
-	if err := pool.QueryRow(ctx,
-		`SELECT metadata->>'file_path' FROM background_jobs WHERE id = $1`, jobID,
-	).Scan(&zipPath); err != nil || zipPath == "" {
-		t.Fatalf("could not read export ZIP path from background_jobs: %v", err)
-	}
+	// Materialize the artifact object into a test-local file for the existing
+	// ZIP and import helpers.
+	zipPath := materializeExportArtifactZip(t, ctx, pool, store, jobID)
 	t.Logf("export ZIP: %s", zipPath)
 	t.Cleanup(func() { os.Remove(zipPath) })
 

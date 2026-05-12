@@ -19,6 +19,7 @@ type ShadowFS interface {
 	Delete(ctx context.Context, userID, fileID string) error
 	DeleteAllForUser(ctx context.Context, userID string) error
 	List(ctx context.Context, userID string, fileType *string) ([]FileRecord, error)
+	StreamExportFiles(ctx context.Context, userID string, sink ExportFileSink) (failedPaths []string, err error)
 	// StreamToZip writes all exportable user files into zw. The return value
 	// `failedPaths` lists ZIP entry paths whose content could NOT be copied
 	// (e.g. corrupt S3 blobs, transient network errors): the entry exists in
@@ -45,6 +46,43 @@ type ShadowFS interface {
 	// DeleteCompanionAt removes an arbitrary-path sidecar.
 	// Errors are silently swallowed (idempotent cleanup).
 	DeleteCompanionAt(ctx context.Context, path string) error
+}
+
+// ExportFile describes one ShadowFS object as it appears in a GDPR export.
+type ExportFile struct {
+	ZIPPath    string
+	FileName   string
+	FileType   string
+	SizeBytes  int64
+	Modified   time.Time
+	HasSidecar bool
+}
+
+// ExportFileSink receives ShadowFS file streams for GDPR export writers.
+type ExportFileSink interface {
+	AddExportFile(ctx context.Context, file ExportFile, data io.Reader) error
+}
+
+type zipExportFileSink struct {
+	zw *zip.Writer
+}
+
+// NewZipExportFileSink adapts a zip.Writer to the streaming export sink.
+func NewZipExportFileSink(zw *zip.Writer) ExportFileSink {
+	return &zipExportFileSink{zw: zw}
+}
+
+func (s *zipExportFileSink) AddExportFile(_ context.Context, file ExportFile, data io.Reader) error {
+	w, err := s.zw.CreateHeader(&zip.FileHeader{
+		Name:     file.ZIPPath,
+		Method:   zip.Deflate,
+		Modified: file.Modified,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(w, data)
+	return err
 }
 
 // FileEntry is the input for Put().

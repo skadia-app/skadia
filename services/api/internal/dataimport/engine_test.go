@@ -148,6 +148,10 @@ func (m *mockShadowFS) Put(_ context.Context, entry shadowfs.FileEntry, data io.
 	}, nil
 }
 
+func (m *mockShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
+}
+
 func (m *mockShadowFS) entryByFileName(name string) (shadowfs.FileEntry, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -176,6 +180,10 @@ func (m *mockShadowFS) List(_ context.Context, _ string, _ *string) ([]shadowfs.
 }
 
 func (m *mockShadowFS) StreamToZip(_ context.Context, _ string, _ *zip.Writer) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockShadowFS) StreamExportFiles(_ context.Context, _ string, _ shadowfs.ExportFileSink) ([]string, error) {
 	return nil, nil
 }
 
@@ -946,20 +954,22 @@ func TestDeletedAtNull(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 9: TestMutualExclusion
+// Test 9: TestRunImportDoesNotQueryBackgroundJobsForConflict
 // ---------------------------------------------------------------------------
 
-// TestMutualExclusion verifies that RunImport returns an error when a
-// data_export or data_import job is already running for the target user.
-func TestMutualExclusion(t *testing.T) {
+// TestRunImportDoesNotQueryBackgroundJobsForConflict verifies that RunImport
+// does not own auth-layer admission control. API handlers reserve background
+// jobs before calling the engine; CLI/source callers can run the engine without
+// inserting a data_import job first.
+func TestRunImportDoesNotQueryBackgroundJobsForConflict(t *testing.T) {
 	pool := testDB(t)
 	userID := createTestUser(t, pool)
 
-	// Insert a running data_export job.
+	// Insert a running GDPR transfer. The engine must ignore this table.
 	jobID := uuid.New().String()
 	_, err := pool.Exec(context.Background(), `
 		INSERT INTO background_jobs (id, user_id, job_type, status)
-		VALUES ($1, $2, 'data_export', 'running')
+		VALUES ($1, $2, 'gdpr_export', 'running')
 	`, jobID, userID)
 	if err != nil {
 		t.Fatalf("insert background_job: %v", err)
@@ -976,12 +986,8 @@ func TestMutualExclusion(t *testing.T) {
 		Source:       src,
 		TargetUserID: userID,
 	})
-
-	if err == nil {
-		t.Fatal("RunImport should have returned an error due to running export job")
-	}
-	if !strings.Contains(err.Error(), "already running") {
-		t.Errorf("error should mention 'already running', got: %v", err)
+	if err != nil {
+		t.Fatalf("RunImport should ignore background_jobs conflict state: %v", err)
 	}
 }
 
@@ -1758,6 +1764,75 @@ func (m *dbMockShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry, data
 		return shadowfs.FileRecord{}, fmt.Errorf("dbMockShadowFS: insert user_files: %w", dbErr)
 	}
 	return rec, nil
+}
+
+func (m *dbMockShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
+}
+
+type putStreamOnlyDBMockShadowFS struct {
+	*dbMockShadowFS
+	putCalled       bool
+	putStreamCalled bool
+}
+
+func (m *putStreamOnlyDBMockShadowFS) Put(context.Context, shadowfs.FileEntry, io.Reader) (shadowfs.FileRecord, error) {
+	m.putCalled = true
+	return shadowfs.FileRecord{}, fmt.Errorf("legacy Put must not be used for dataimport restore")
+}
+
+func (m *putStreamOnlyDBMockShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	m.putStreamCalled = true
+	return m.dbMockShadowFS.Put(ctx, entry, data)
+}
+
+func TestDataImportRestoreCallsPutStream(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+	srcUser := uuid.NewString()
+	fileOldID := uuid.NewString()
+	content := []byte("restored via streaming")
+	hash := sha256.Sum256(content)
+	hashHex := hex.EncodeToString(hash[:])
+
+	userFilesJSON := mustMarshalJSON(t, []map[string]any{
+		{
+			"id":           fileOldID,
+			"file_type":    "activity",
+			"content_type": "application/octet-stream",
+			"file_name":    "restore.fit",
+			"size_bytes":   len(content),
+			"file_hash":    hashHex,
+			"status":       "active",
+		},
+	})
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID: srcUser,
+		extraFiles: map[string][]byte{
+			"data/user_files.json":       userFilesJSON,
+			"files/activity/restore.fit": content,
+		},
+	})
+	src := openZipSource(t, zipPath)
+	fs := &putStreamOnlyDBMockShadowFS{dbMockShadowFS: newDBMockShadowFS(pool)}
+	eng := &Engine{DB: pool, ShadowFS: fs, Config: EngineConfig{}}
+
+	result, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	if fs.putCalled {
+		t.Fatal("dataimport restore called legacy Put")
+	}
+	if !fs.putStreamCalled {
+		t.Fatal("dataimport restore did not call PutStream")
+	}
+	if result.FilesImported != 1 {
+		t.Fatalf("FilesImported = %d, want 1; warnings=%v", result.FilesImported, result.Warnings)
+	}
 }
 
 // TestShadowFSIDRemap verifies that after importing an activity with a file,
@@ -2712,6 +2787,10 @@ func (m *trackingMockShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry
 	return m.dbMockShadowFS.Put(ctx, entry, data)
 }
 
+func (m *trackingMockShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
+}
+
 // ---------------------------------------------------------------------------
 // Test 24: TestMultiPartSource
 // ---------------------------------------------------------------------------
@@ -3308,6 +3387,10 @@ func (m *quotaExceededShadowFS) Put(_ context.Context, _ shadowfs.FileEntry, _ i
 	return shadowfs.FileRecord{}, fmt.Errorf("test wrapped quota: %w", shadowfs.ErrQuotaExceeded)
 }
 
+func (m *quotaExceededShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
+}
+
 type preflightQuotaShadowFS struct {
 	*mockShadowFS
 	puts int
@@ -3316,6 +3399,10 @@ type preflightQuotaShadowFS struct {
 func (m *preflightQuotaShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
 	m.puts++
 	return m.mockShadowFS.Put(ctx, entry, data)
+}
+
+func (m *preflightQuotaShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
 }
 
 type cleanupQuotaShadowFS struct {
@@ -3330,6 +3417,10 @@ func (m *cleanupQuotaShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry
 		return shadowfs.FileRecord{}, fmt.Errorf("test second put quota: %w", shadowfs.ErrQuotaExceeded)
 	}
 	return m.mockShadowFS.Put(ctx, entry, data)
+}
+
+func (m *cleanupQuotaShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
 }
 
 func (m *cleanupQuotaShadowFS) Delete(_ context.Context, _, fileID string) error {
@@ -3687,7 +3778,11 @@ func (m *editQuotaShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry, d
 	return m.dbMockShadowFS.Put(ctx, entry, data)
 }
 
-func TestEditSidecarShadowFSQuotaExceededHardFails(t *testing.T) {
+func (m *editQuotaShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
+}
+
+func TestEditSidecarShadowFSQuotaExceededWarnsWithoutFailingImport(t *testing.T) {
 	pool := testDB(t)
 	ctx := context.Background()
 	userID := createTestUser(t, pool)
@@ -3740,12 +3835,19 @@ func TestEditSidecarShadowFSQuotaExceededHardFails(t *testing.T) {
 		ShadowFS: &editQuotaShadowFS{dbMockShadowFS: newDBMockShadowFS(pool)},
 		Config:   EngineConfig{},
 	}
-	_, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
-	if err == nil {
-		t.Fatal("RunImport should hard-fail when edit-sidecar restore hits ShadowFS quota")
+	result, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport should warn and continue when edit-sidecar restore hits ShadowFS quota: %v", err)
 	}
-	if !errors.Is(err, shadowfs.ErrQuotaExceeded) {
-		t.Fatalf("RunImport error should wrap ErrQuotaExceeded, got: %v", err)
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "Edit sidecar") {
+		t.Fatalf("warnings = %#v, want one edit-sidecar warning", result.Warnings)
+	}
+	var activities int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activities WHERE user_id = $1`, userID).Scan(&activities); err != nil {
+		t.Fatalf("count imported activities: %v", err)
+	}
+	if activities != 1 {
+		t.Fatalf("imported activities = %d, want 1", activities)
 	}
 }
 
