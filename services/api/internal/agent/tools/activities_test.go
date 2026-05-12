@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/agent"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,6 +28,15 @@ func TestActivityToolsMetadata(t *testing.T) {
 		}
 		if tool.Permission != PermissionRead || !tool.IsUserOwned || tool.ExecuteRead == nil {
 			t.Fatalf("unexpected metadata for %s: %#v", name, tool)
+		}
+	}
+	for _, name := range []string{"update_activity_metadata", "rename_activity", "tag_activity"} {
+		tool := reg.tools[name]
+		if tool == nil {
+			t.Fatalf("write tool %q was not registered", name)
+		}
+		if tool.Permission != PermissionWriteSafe || !tool.RequiresConfirmation || !tool.IsUserOwned {
+			t.Fatalf("unexpected write metadata for %s: %#v", name, tool)
 		}
 	}
 	if err := reg.ValidateSchemas(); err != nil {
@@ -173,6 +184,79 @@ func TestQueryActivitiesExecutesWithOwnershipIsolation(t *testing.T) {
 	}
 }
 
+func TestRenameActivityWriteToolUpdatesTitle(t *testing.T) {
+	pool := testdb.Open(t)
+	userID := insertActivityToolUser(t, pool)
+	activityID := insertActivityToolActivity(t, pool, userID, "Alter Name")
+	envelope := activityWriteEnvelope(t, pool, userID, "rename_activity")
+	sessionID := uuid.NewString()
+	args := json.RawMessage(`{"activity_id":"` + activityID + `","title":"Neuer Name"}`)
+
+	if _, err := envelope.PrepareConfirmation(context.Background(), ToolExecutionRequest{
+		UserID: userID, SessionID: sessionID, ToolCallID: "call-rename", ToolName: "rename_activity", Args: args,
+	}); err != nil {
+		t.Fatalf("PrepareConfirmation: %v", err)
+	}
+	if _, err := envelope.ExecuteConfirmed(context.Background(), ToolExecutionRequest{
+		UserID: userID, SessionID: sessionID, ToolCallID: "call-rename", ToolName: "rename_activity", Args: args,
+	}); err != nil {
+		t.Fatalf("ExecuteConfirmed: %v", err)
+	}
+	var title string
+	if err := pool.QueryRow(context.Background(), `SELECT title FROM activities WHERE id = $1`, activityID).Scan(&title); err != nil {
+		t.Fatalf("select title: %v", err)
+	}
+	if title != "Neuer Name" {
+		t.Fatalf("title = %q, want Neuer Name", title)
+	}
+}
+
+func TestTagActivityWriteToolMissingTagAsksUser(t *testing.T) {
+	pool := testdb.Open(t)
+	userID := insertActivityToolUser(t, pool)
+	activityID := insertActivityToolActivity(t, pool, userID, "Tagrunde")
+	envelope := activityWriteEnvelope(t, pool, userID, "tag_activity")
+	args := json.RawMessage(`{"activity_id":"` + activityID + `","tag_name":"NochNichtDa","mode":"add"}`)
+
+	_, err := envelope.PrepareConfirmation(context.Background(), ToolExecutionRequest{
+		UserID: userID, SessionID: uuid.NewString(), ToolCallID: "call-missing-tag", ToolName: "tag_activity", Args: args,
+	})
+	if err == nil || !strings.Contains(err.Error(), "TAG_NOT_FOUND") {
+		t.Fatalf("PrepareConfirmation err = %v, want TAG_NOT_FOUND", err)
+	}
+}
+
+func TestTagActivityWriteToolAddsExistingTag(t *testing.T) {
+	pool := testdb.Open(t)
+	userID := insertActivityToolUser(t, pool)
+	activityID := insertActivityToolActivity(t, pool, userID, "Tagrunde")
+	tagID := insertActivityToolTag(t, pool, userID, "Liebling")
+	envelope := activityWriteEnvelope(t, pool, userID, "tag_activity")
+	sessionID := uuid.NewString()
+	args := json.RawMessage(`{"activity_id":"` + activityID + `","tag_name":"Liebling","mode":"add"}`)
+
+	if _, err := envelope.PrepareConfirmation(context.Background(), ToolExecutionRequest{
+		UserID: userID, SessionID: sessionID, ToolCallID: "call-tag", ToolName: "tag_activity", Args: args,
+	}); err != nil {
+		t.Fatalf("PrepareConfirmation: %v", err)
+	}
+	if _, err := envelope.ExecuteConfirmed(context.Background(), ToolExecutionRequest{
+		UserID: userID, SessionID: sessionID, ToolCallID: "call-tag", ToolName: "tag_activity", Args: args,
+	}); err != nil {
+		t.Fatalf("ExecuteConfirmed: %v", err)
+	}
+	var linked bool
+	if err := pool.QueryRow(context.Background(),
+		`SELECT EXISTS (SELECT 1 FROM activity_tags WHERE activity_id = $1 AND tag_id = $2)`,
+		activityID, tagID,
+	).Scan(&linked); err != nil {
+		t.Fatalf("select link: %v", err)
+	}
+	if !linked {
+		t.Fatal("activity_tags link missing")
+	}
+}
+
 func insertActivityToolUser(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	id := uuid.New().String()
@@ -205,6 +289,49 @@ func insertActivityToolActivity(t *testing.T, pool *pgxpool.Pool, userID, title 
 		t.Fatalf("insert activity: %v", err)
 	}
 	return id
+}
+
+func insertActivityToolTag(t *testing.T, pool *pgxpool.Pool, userID, name string) string {
+	t.Helper()
+	id := uuid.NewString()
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO tags (id, user_id, name, color, text_color, category) VALUES ($1, $2, $3, '#6366F1', '#FFFFFF', 'custom')`,
+		id, userID, name,
+	)
+	if err != nil {
+		t.Fatalf("insert tag: %v", err)
+	}
+	return id
+}
+
+func activityWriteEnvelope(t *testing.T, pool *pgxpool.Pool, userID string, allowedTools ...string) *ExecutionEnvelope {
+	t.Helper()
+	db := &database.DB{Pool: pool}
+	if _, err := db.UpsertChatPrefs(context.Background(), userID, database.ChatUserPreferences{
+		ChatWriteToolsEnabled: true,
+		ChatAllowedWriteTools: allowedTools,
+	}); err != nil {
+		t.Fatalf("upsert chat prefs: %v", err)
+	}
+	reg := NewRegistry()
+	for _, tool := range WriteActivityTools() {
+		reg.Register(tool)
+	}
+	return NewExecutionEnvelope(reg, &Deps{
+		DB:      db,
+		Audit:   agent.NewAuditWriter(db),
+		Confirm: agent.NewConfirmationManager(5 * time.Minute),
+		Preferences: &agent.PreferenceLoader{LoadFunc: func(ctx context.Context, userID string) (*agent.ChatPreferences, error) {
+			prefs, err := db.GetChatPrefs(ctx, userID)
+			if err != nil {
+				return nil, err
+			}
+			return &agent.ChatPreferences{
+				ChatWriteToolsEnabled: prefs.ChatWriteToolsEnabled,
+				ChatAllowedWriteTools: prefs.ChatAllowedWriteTools,
+			}, nil
+		}},
+	})
 }
 
 func activityIntPtr(v int) *int { return &v }

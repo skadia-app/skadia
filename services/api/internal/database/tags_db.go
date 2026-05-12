@@ -127,6 +127,24 @@ func (db *DB) GetTagByID(ctx context.Context, tagID, userID string) (*model.Tag,
 	return &t, nil
 }
 
+func (db *DB) FindTagByNameForAgent(ctx context.Context, userID, name string) (*model.Tag, error) {
+	t, err := scanTag(db.Pool.QueryRow(ctx, `
+		SELECT `+tagSelectCols+`
+		FROM tags
+		WHERE user_id = $1 AND lower(name) = lower($2)
+		  AND category IN ('custom', 'standort', 'system', 'weather')
+		ORDER BY CASE category WHEN 'custom' THEN 0 WHEN 'standort' THEN 1 ELSE 2 END, created_at DESC
+		LIMIT 1`, userID, name,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find tag by name for agent: %w", err)
+	}
+	return &t, nil
+}
+
 // GetTagActivityIDs returns the IDs of all activities associated with the given tag.
 func (db *DB) GetTagActivityIDs(ctx context.Context, tagID string) ([]string, error) {
 	rows, err := db.Pool.Query(ctx,
@@ -973,6 +991,65 @@ func (db *DB) UnassignActivitiesFromTag(ctx context.Context, tagID, userID strin
 		return nil, fmt.Errorf("unassign activities from tag: update count: %w", err)
 	}
 	return owned, nil
+}
+
+func (db *DB) AssignActivityToTagTx(ctx context.Context, tx pgx.Tx, tagID, userID, activityID, mode string) error {
+	var tagName string
+	var isSystem bool
+	if err := tx.QueryRow(ctx,
+		`SELECT name, is_system FROM tags WHERE id = $1 AND user_id = $2`,
+		tagID, userID,
+	).Scan(&tagName, &isSystem); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("agent tag activity: resolve tag: %w", err)
+	}
+	if isSystem {
+		return fmt.Errorf("SYSTEM_TAG_NOT_SUPPORTED")
+	}
+	var owned bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM activities WHERE id = $1 AND user_id = $2)`,
+		activityID, userID,
+	).Scan(&owned); err != nil {
+		return fmt.Errorf("agent tag activity: verify activity: %w", err)
+	}
+	if !owned {
+		return ErrActivityNotFound
+	}
+	switch mode {
+	case "add":
+		if err := linkActivityTagExec(ctx, tx, activityID, tagID, "agent_tool"); err != nil {
+			return err
+		}
+		_, _ = tx.Exec(ctx,
+			`UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), $2)
+			 WHERE id = $1 AND user_id = $3 AND NOT ($2 = ANY(COALESCE(tags, '{}')))`,
+			activityID, tagName, userID)
+	case "remove":
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2`,
+			activityID, tagID); err != nil {
+			return fmt.Errorf("agent tag activity: delete: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE activities SET tags = array_remove(tags, $2)
+			 WHERE id = $1 AND user_id = $3`,
+			activityID, tagName, userID); err != nil {
+			return fmt.Errorf("agent tag activity: update cache: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE tags
+			 SET activity_count = (SELECT COUNT(DISTINCT activity_id) FROM activity_tags WHERE tag_id = $1)
+			 WHERE id = $1`,
+			tagID); err != nil {
+			return fmt.Errorf("agent tag activity: update count: %w", err)
+		}
+	default:
+		return fmt.Errorf("INVALID_MODE")
+	}
+	return nil
 }
 
 // resolveOwnedTagForSync looks up the tag by id+user. The user-scope WHERE
