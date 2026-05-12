@@ -15,14 +15,14 @@ import {
   revokeSession,
   deleteAccount,
   startDataExport, getLatestDataExport, getDataExportStatus,
+  createDataExportDownloadSession,
   startDataImport, getDataImportStatus,
   type UserSession,
   type DataExportStatus,
   type DataImportStatus,
 } from '@/api/auth'
-import { apiDownload } from '@/api/client'
+import { triggerNativeDownload } from '@/api/client'
 import { fmtDateTime, parseUserAgent } from '@/lib/format'
-import { triggerBlobDownload } from '@/lib/utils'
 import { SettingsSection as Section } from '@/components/ui/SettingsSection'
 import { accountSettingsStrings as S } from '@/lib/strings/account-settings'
 
@@ -801,14 +801,34 @@ function DangerZoneSection() {
   })
 
   async function downloadDataExport(status: DataExportStatus) {
-    if (!status.download_url?.startsWith('/api/')) {
+    if (status.unavailable_reason === 'artifact_missing') {
+      addToast({ type: 'error', title: S.dataExport.downloadFailed.title, message: 'Export-Datei nicht mehr verfügbar.', duration: 0 })
+      queryClient.invalidateQueries({ queryKey: ['data-export-latest'] })
+      return
+    }
+    if (status.unavailable_reason === 'artifact_backend_unavailable') {
+      addToast({ type: 'error', title: S.dataExport.downloadFailed.title, message: 'Speicher-Backend derzeit nicht erreichbar.', duration: 0 })
+      return
+    }
+    if (!status.download_session_url && (!status.parts || status.parts.length === 0)) {
       addToast({ type: 'error', title: S.dataExport.invalidUrl.title, duration: 0 })
       return
     }
     try {
       const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
-      const { blob, filename } = await apiDownload(status.download_url)
-      triggerBlobDownload(blob, filename ?? `skadia-export-${today}.zip`)
+      if (status.artifact_format === 'multipart' && status.parts && status.parts.length > 0) {
+        const session = await createDataExportDownloadSession(status.job_id, { all: true })
+        if (session.objects && session.objects.length > 0) {
+          for (const object of session.objects) {
+            triggerNativeDownload(object.url, object.name)
+          }
+        } else {
+          triggerNativeDownload(session.url, `skadia-export-${today}-manifest.json`)
+        }
+      } else {
+        const session = await createDataExportDownloadSession(status.job_id, { single: true })
+        triggerNativeDownload(session.url, `skadia-export-${today}.zip`)
+      }
 
       const detailParts: string[] = []
       if (status.sha256) detailParts.push(`SHA-256: ${status.sha256}`)
@@ -841,7 +861,7 @@ function DangerZoneSection() {
         if (abort.signal.aborted) return
         await abortableSleep(5000, abort.signal)
         const status = await getDataExportStatus(job_id)
-        if (status.status === 'completed' && status.download_url) {
+        if (status.status === 'completed' && (status.download_session_url || (status.parts && status.parts.length > 0))) {
           await downloadDataExport(status)
           queryClient.invalidateQueries({ queryKey: ['data-export-latest'] })
           return
@@ -889,7 +909,8 @@ function DangerZoneSection() {
   const latestExportExpiry = formatExportExpiry(latestExport?.expires_at)
   const showLatestExport = latestExport?.status === 'completed'
   const latestExportAvailable = showLatestExport &&
-    Boolean(latestExport.download_url) &&
+    !latestExport.unavailable_reason &&
+    Boolean(latestExport.download_session_url || (latestExport.parts && latestExport.parts.length > 0)) &&
     (!latestExport.expires_at || new Date(latestExport.expires_at).getTime() > Date.now())
 
   return (
@@ -913,22 +934,52 @@ function DangerZoneSection() {
         </div>
 
         {showLatestExport && (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 bg-neutral-50 dark:bg-neutral-900/40">
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-neutral-800 dark:text-neutral-200">{S.dataExport.latest.heading}</p>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                {latestExportAvailable ? S.dataExport.latest.available : S.dataExport.latest.expired}
-                {latestExportExpiry ? ` · ${S.dataExport.latest.expiresPrefix} ${latestExportExpiry}` : ''}
-              </p>
+          <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 bg-neutral-50 dark:bg-neutral-900/40">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-neutral-800 dark:text-neutral-200">{S.dataExport.latest.heading}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                  {latestExportAvailable ? S.dataExport.latest.available : S.dataExport.latest.expired}
+                  {latestExportExpiry ? ` · ${S.dataExport.latest.expiresPrefix} ${latestExportExpiry}` : ''}
+                </p>
+              </div>
+              {latestExportAvailable && latestExport && (
+                <button
+                  type="button"
+                  onClick={() => { void downloadDataExport(latestExport) }}
+                  className="flex-shrink-0 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-white dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                >
+                  {latestExport.artifact_format === 'multipart' ? 'Alle Teile herunterladen' : S.dataExport.latest.downloadButton}
+                </button>
+              )}
             </div>
-            {latestExportAvailable && latestExport && (
-              <button
-                type="button"
-                onClick={() => { void downloadDataExport(latestExport) }}
-                className="flex-shrink-0 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-white dark:hover:bg-neutral-800 transition-colors cursor-pointer"
-              >
-                {S.dataExport.latest.downloadButton}
-              </button>
+            {latestExport.parts && latestExport.parts.length > 0 && (
+              <div className="mt-2 divide-y divide-neutral-200 dark:divide-neutral-800">
+                {latestExport.parts.map(part => (
+                  <div key={part.name} className="flex items-center justify-between gap-3 py-1.5 text-xs">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-neutral-700 dark:text-neutral-300">{part.name}</p>
+                      <p className="truncate text-neutral-500 dark:text-neutral-500">
+                        {part.size_bytes ? `${(part.size_bytes / 1024 / 1024).toFixed(1)} MB` : ''}
+                        {part.sha256 ? ` · SHA-256: ${part.sha256}` : ''}
+                      </p>
+                    </div>
+                    {latestExportAvailable && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void createDataExportDownloadSession(latestExport.job_id, { part: part.name })
+                            .then(session => triggerNativeDownload(session.url, part.name))
+                            .catch(() => addToast({ type: 'error', title: S.dataExport.downloadFailed.title, duration: 0 }))
+                        }}
+                        className="flex-shrink-0 px-2 py-1 rounded border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-white dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                      >
+                        Herunterladen
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}

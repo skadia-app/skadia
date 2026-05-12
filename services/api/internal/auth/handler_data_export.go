@@ -936,11 +936,25 @@ func (h *Handler) DataExportDownloadSession(w http.ResponseWriter, r *http.Reque
 	})
 	first := allowedRefs[0]
 	downloadURL := dataExportDownloadURL(jobID, first.Name, sessionID)
+	type downloadSessionObjectResponse struct {
+		Name      string                   `json:"name"`
+		Role      gdprartifacts.ObjectRole `json:"role"`
+		URL       string                   `json:"url"`
+		SHA256    string                   `json:"sha256"`
+		SizeBytes int64                    `json:"size_bytes"`
+	}
+	objects := make([]downloadSessionObjectResponse, 0, len(allowedRefs))
+	for _, ref := range allowedRefs {
+		objects = append(objects, downloadSessionObjectResponse{
+			Name: ref.Name, Role: ref.Role, URL: dataExportDownloadURL(jobID, ref.Name, sessionID), SHA256: ref.SHA256, SizeBytes: ref.SizeBytes,
+		})
+	}
 	go h.DB.LogAuthEvent(h.shutdownCtx, userID, "data_export_download_session_issued",
 		middleware.ClientIP(r), r.UserAgent(), map[string]string{"job_id": jobID})
-	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]any{
 		"url":        downloadURL,
 		"expires_at": expiresAt.Format(time.RFC3339),
+		"objects":    objects,
 	})
 }
 

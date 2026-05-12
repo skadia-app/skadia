@@ -328,6 +328,24 @@ function resolveDownloadUrl(path: string): string {
   return url
 }
 
+export function triggerNativeDownload(url: string, filename?: string): void {
+  const resolved = resolveDownloadUrl(url)
+  const candidate = new URL(resolved, window.location.origin)
+  for (const key of candidate.searchParams.keys()) {
+    if (/^(ticket|token|secret|signature)$/i.test(key)) {
+      throw new ApiError(400, 'Invalid download URL')
+    }
+  }
+  const a = document.createElement('a')
+  a.href = resolved
+  if (filename) a.download = filename
+  a.rel = 'noopener'
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
 /** Authenticated binary download: fetches a protected URL with auth header and returns a Blob */
 export async function apiDownload(
   path: string,

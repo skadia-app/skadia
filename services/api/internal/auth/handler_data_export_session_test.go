@@ -111,6 +111,42 @@ func TestDataExportSessionDownloadStreamsOutsideJWTRouteGroup(t *testing.T) {
 	}
 }
 
+func TestDataExportDownloadSessionAllReturnsObjectURLs(t *testing.T) {
+	h, ownerID, jobID := newMultipartDataExportSessionFixture(t)
+
+	req := dataExportSessionRequest(t, ownerID, jobID, `{"all":true}`)
+	w := httptest.NewRecorder()
+	h.DataExportDownloadSession(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("session status = %d body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		URL     string `json:"url"`
+		Objects []struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"objects"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode session response: %v", err)
+	}
+	if len(resp.Objects) != 3 {
+		t.Fatalf("objects len = %d body=%s", len(resp.Objects), w.Body.String())
+	}
+	for _, object := range resp.Objects {
+		if object.URL == "" {
+			t.Fatalf("object %q missing url in body=%s", object.Name, w.Body.String())
+		}
+		if !strings.Contains(object.URL, "session_id=") {
+			t.Fatalf("object %q URL missing session_id: %s", object.Name, object.URL)
+		}
+	}
+	if resp.URL != resp.Objects[0].URL {
+		t.Fatalf("primary url = %q, want first object url %q", resp.URL, resp.Objects[0].URL)
+	}
+}
+
 func newDataExportSessionFixture(t *testing.T, content string) (*Handler, string, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -162,6 +198,72 @@ func newDataExportSessionFixture(t *testing.T, content string) (*Handler, string
 	}
 	h := &Handler{DB: &database.DB{Pool: pool}, ArtifactStore: store, shutdownCtx: ctx}
 	return h, userID, jobID
+}
+
+func newMultipartDataExportSessionFixture(t *testing.T) (*Handler, string, string) {
+	t.Helper()
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	store, err := gdprartifacts.NewLocalStore(t.TempDir()+"/exports", t.TempDir()+"/imports")
+	if err != nil {
+		t.Fatalf("NewLocalStore: %v", err)
+	}
+	userID := uuid.NewString()
+	jobID := uuid.NewString()
+	expiresAt := time.Now().Add(time.Hour)
+	objects := make([]gdprartifacts.ObjectRef, 0, 3)
+	for _, spec := range []struct {
+		name string
+		role gdprartifacts.ObjectRole
+		body string
+		ct   string
+	}{
+		{name: "manifest.json", role: gdprartifacts.RoleManifest, body: `{}`, ct: "application/json"},
+		{name: "metadata.zip", role: gdprartifacts.RoleMetadataZIP, body: "metadata", ct: "application/zip"},
+		{name: "files-0001.zip", role: gdprartifacts.RoleFilesZIP, body: "files", ct: "application/zip"},
+	} {
+		writer, err := store.CreateWriter(ctx, gdprartifacts.ObjectSpec{
+			Kind:        "export",
+			UserID:      userID,
+			JobID:       jobID,
+			Role:        spec.role,
+			Name:        spec.name,
+			ContentType: spec.ct,
+			ExpiresAt:   expiresAt,
+		})
+		if err != nil {
+			t.Fatalf("CreateWriter %s: %v", spec.name, err)
+		}
+		if _, err := writer.Write([]byte(spec.body)); err != nil {
+			t.Fatalf("Write %s: %v", spec.name, err)
+		}
+		ref, err := writer.Commit(ctx)
+		if err != nil {
+			t.Fatalf("Commit %s: %v", spec.name, err)
+		}
+		objects = append(objects, ref)
+	}
+	artifactRaw, err := gdprartifacts.EncodeArtifact(gdprartifacts.Artifact{
+		Version:   1,
+		Format:    gdprartifacts.ArtifactFormatMultipart,
+		ExpiresAt: expiresAt,
+		Objects:   objects,
+		Multipart: &gdprartifacts.MultipartSummary{PartCount: 3, TotalSizeBytes: 13},
+	})
+	if err != nil {
+		t.Fatalf("EncodeArtifact: %v", err)
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(artifactRaw, &envelope); err != nil {
+		t.Fatalf("unmarshal artifact: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at, metadata)
+		 VALUES ($1, 'gdpr_export', $2, 'completed', NOW(), NOW(), jsonb_build_object('artifact', $3::jsonb))`,
+		jobID, userID, string(envelope["artifact"])); err != nil {
+		t.Fatalf("insert background job: %v", err)
+	}
+	return &Handler{DB: &database.DB{Pool: pool}, ArtifactStore: store, shutdownCtx: ctx}, userID, jobID
 }
 
 func dataExportSessionRequest(t *testing.T, userID, jobID, body string) *http.Request {
