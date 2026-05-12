@@ -359,6 +359,16 @@ func executeGetGearDocuments(ctx context.Context, deps *Deps, userID string, arg
 	if err != nil {
 		return nil, err
 	}
+	exposeExtracted := false
+	if deps != nil && deps.DB != nil {
+		prefs, err := deps.DB.GetChatPrefs(ctx, userID)
+		exposeExtracted = err == nil && prefs != nil && prefs.ExposeDocumentExtractedData
+	}
+	if !exposeExtracted {
+		for i := range docs {
+			docs[i]["extracted_data"] = nil
+		}
+	}
 	totalCost, currency := totalDocumentCost(docs)
 	result := map[string]any{
 		"documents": docs,
