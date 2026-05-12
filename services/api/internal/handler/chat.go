@@ -343,16 +343,8 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build history slice for the agent, excluding the just-added user message.
-	historyPayload := make([]agent.ChatHistoryMessage, 0, len(history))
-	for _, m := range history {
-		if m.Role == "user" || m.Role == "assistant" {
-			if m.Role == "user" && m.Content == req.Message {
-				continue
-			}
-			historyPayload = append(historyPayload, agent.ChatHistoryMessage{Role: m.Role, Content: m.Content})
-		}
-	}
+	// Build history slice for the agent, excluding only the just-added user message.
+	historyPayload := chatHistoryPayload(history, req.Message)
 
 	// SSE response setup
 	flusher, ok := w.(http.Flusher)
@@ -408,6 +400,21 @@ func (s *chatPersistSink) Send(event agent.SSEEvent) error {
 		s.sources = append([]string(nil), event.Sources...)
 	}
 	return s.SSESink.Send(event)
+}
+
+func chatHistoryPayload(history []*model.ChatMessage, currentMessage string) []agent.ChatHistoryMessage {
+	historyPayload := make([]agent.ChatHistoryMessage, 0, len(history))
+	last := len(history) - 1
+	for idx, m := range history {
+		if m.Role != "user" && m.Role != "assistant" {
+			continue
+		}
+		if idx == last && m.Role == "user" && m.Content == currentMessage {
+			continue
+		}
+		historyPayload = append(historyPayload, agent.ChatHistoryMessage{Role: m.Role, Content: m.Content})
+	}
+	return historyPayload
 }
 
 type confirmChatToolCallRequest struct {

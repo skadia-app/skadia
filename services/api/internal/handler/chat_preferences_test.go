@@ -12,6 +12,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/openai/openai-go"
 )
 
@@ -189,6 +190,25 @@ func TestSendChatMessageUsesGoAgentAndPersistsAssistant(t *testing.T) {
 	}
 	if len(messages) != 2 || messages[0].Role != "user" || messages[1].Role != "assistant" || messages[1].Content != "Hallo." {
 		t.Fatalf("messages = %#v", messages)
+	}
+}
+
+func TestChatHistoryPayloadDropsOnlyCurrentMessage(t *testing.T) {
+	got := chatHistoryPayload([]*model.ChatMessage{
+		{Role: "user", Content: "gleicher Text"},
+		{Role: "assistant", Content: "alte Antwort"},
+		{Role: "tool", Content: "ignorieren"},
+		{Role: "user", Content: "gleicher Text"},
+	}, "gleicher Text")
+
+	if len(got) != 2 {
+		t.Fatalf("history len = %d, want 2: %#v", len(got), got)
+	}
+	if got[0].Role != "user" || got[0].Content != "gleicher Text" {
+		t.Fatalf("first history item = %#v", got[0])
+	}
+	if got[1].Role != "assistant" || got[1].Content != "alte Antwort" {
+		t.Fatalf("second history item = %#v", got[1])
 	}
 }
 

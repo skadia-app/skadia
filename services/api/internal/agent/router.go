@@ -25,6 +25,7 @@ var DomainKeywords = map[string][]string{
 		"schwimmen", "geschwommen",
 		"wann war", "wie oft", "letzte", "letzten", "letztes",
 		"schnellste", "längste", "kürzeste", "weiteste",
+		"regel", "regeln", "automation", "automatisierung", "dry-run", "vorschau",
 	},
 	"health": {
 		"hrv", "herzratenvariabilität", "herzfrequenzvariabilität",
@@ -99,7 +100,7 @@ var DomainKeywords = map[string][]string{
 }
 
 var DomainTools = map[string][]string{
-	"activities": {"query_activities", "aggregate_stats", "compare_periods", "get_activity_detail", "get_gear_for_activity"},
+	"activities": {"query_activities", "aggregate_stats", "compare_periods", "get_activity_detail", "get_gear_for_activity", "dry_run_rule"},
 	"health":     {"get_health_status", "get_analytics"},
 	"training":   {"get_training_load", "compare_periods", "get_analytics"},
 	"gear": {
