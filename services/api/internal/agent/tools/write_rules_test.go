@@ -49,6 +49,7 @@ func TestCreateAutomationRuleWriteToolCreatesRule(t *testing.T) {
 	if !strings.Contains(prepared.Summary, "on_gear_usage_update") {
 		t.Fatalf("summary = %q, want trigger event", prepared.Summary)
 	}
+	confirmEnvelopeTool(t, envelope, sessionID, "call-create-rule")
 	result, err := envelope.ExecuteConfirmed(context.Background(), ToolExecutionRequest{
 		UserID: userID, SessionID: sessionID, ToolCallID: "call-create-rule", ToolName: "create_automation_rule", Args: args,
 	})
@@ -110,6 +111,7 @@ func TestUpdateAutomationRuleWriteToolUpdatesActiveAndRejectsDescription(t *test
 	}); err != nil {
 		t.Fatalf("PrepareConfirmation: %v", err)
 	}
+	confirmEnvelopeTool(t, envelope, sessionID, "call-update-rule")
 	if _, err := envelope.ExecuteConfirmed(context.Background(), ToolExecutionRequest{
 		UserID: userID, SessionID: sessionID, ToolCallID: "call-update-rule", ToolName: "update_automation_rule", Args: args,
 	}); err != nil {
@@ -149,6 +151,7 @@ func TestAutomationRuleWriteToolsRejectCrossUserAndToggle(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PrepareConfirmation disable: %v", err)
 	}
+	confirmEnvelopeTool(t, envelopeToggle, sessionID, "call-disable-rule")
 	if _, err := envelopeToggle.ExecuteConfirmed(context.Background(), ToolExecutionRequest{
 		UserID: userA, SessionID: sessionID, ToolCallID: "call-disable-rule", ToolName: "disable_automation_rule", Args: disableArgs,
 	}); err != nil {

@@ -84,6 +84,37 @@ func TestAgentStreamUserQuestionHardStopsAfterToolResult(t *testing.T) {
 	assertEventOrder(t, sink.events, []string{EventThinking, EventToolCall, EventUserQuestion})
 }
 
+func TestAgentStreamUserQuestionSkipsRemainingSameTurnToolCalls(t *testing.T) {
+	runtime := &fakeToolRuntime{result: ToolRuntimeResult{AskUser: true, Question: "Tag anlegen?"}}
+	streamCalls := 0
+	agent := New(Config{
+		LLMResolver: NewLLMResolver(fakeLLMConfigStore{}, LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
+		Tools:       runtime,
+		StreamChat: func(ctx context.Context, cfg LLMConfig, params llmwire.ChatRequest) ChatStream {
+			streamCalls++
+			if streamCalls > 1 {
+				t.Fatal("unexpected follow-up model stream after user question")
+			}
+			return &fakeStream{events: []llmwire.ChatStreamEvent{{
+				ToolCalls: []llmwire.ToolCallDelta{
+					{Index: 0, ID: "call-tag", Name: "tag_activity", Args: `{"activity_id":"a1","tag_name":"Gravel"}`},
+					{Index: 1, ID: "call-route", Name: "suggest_route", Args: `{"sport_type":"cycling"}`},
+				},
+				FinishReason: "tool_calls",
+			}}}
+		},
+	})
+	sink := &captureSink{}
+
+	if err := agent.Stream(context.Background(), ChatRequest{UserID: "user-1", SessionID: "session-1", MessageID: "message-1", Message: "tagge und plane"}, sink); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if len(runtime.calls) != 1 || runtime.calls[0].ToolName != "tag_activity" {
+		t.Fatalf("runtime calls = %#v, want only first ask_user tool call", runtime.calls)
+	}
+	assertEventOrder(t, sink.events, []string{EventThinking, EventToolCall, EventUserQuestion})
+}
+
 func TestCollectLLMStreamAccumulatesSplitToolDeltasAndGeneratesMissingIDs(t *testing.T) {
 	stream := &fakeStream{events: []llmwire.ChatStreamEvent{
 		{ToolCalls: []llmwire.ToolCallDelta{

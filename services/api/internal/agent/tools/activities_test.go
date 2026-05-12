@@ -197,6 +197,7 @@ func TestRenameActivityWriteToolUpdatesTitle(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PrepareConfirmation: %v", err)
 	}
+	confirmEnvelopeTool(t, envelope, sessionID, "call-rename")
 	if _, err := envelope.ExecuteConfirmed(context.Background(), ToolExecutionRequest{
 		UserID: userID, SessionID: sessionID, ToolCallID: "call-rename", ToolName: "rename_activity", Args: args,
 	}); err != nil {
@@ -240,6 +241,7 @@ func TestTagActivityWriteToolAddsExistingTag(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PrepareConfirmation: %v", err)
 	}
+	confirmEnvelopeTool(t, envelope, sessionID, "call-tag")
 	if _, err := envelope.ExecuteConfirmed(context.Background(), ToolExecutionRequest{
 		UserID: userID, SessionID: sessionID, ToolCallID: "call-tag", ToolName: "tag_activity", Args: args,
 	}); err != nil {

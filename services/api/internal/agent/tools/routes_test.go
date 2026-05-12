@@ -178,18 +178,19 @@ func TestExecuteListRoutingProfilesVisibleToUser(t *testing.T) {
 	ownName := "agent-own-" + uuid.NewString()
 	foreignName := "agent-foreign-" + uuid.NewString()
 	globalName := "agent-global-" + uuid.NewString()
+	preds := []sport.Predicate{{Sport: "hiking"}}
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM routing_profiles WHERE name = ANY($1)`, []string{ownName, foreignName, globalName})
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = ANY($1)`, []string{userID, foreignUserID})
 	})
 
-	if _, err := db.CreateRoutingProfile(context.Background(), userID, ownName, "hiking", nil, sport.ModifierFilters{}, []byte(`{"profile":"hiking","name":"Owner Hiking"}`)); err != nil {
+	if _, err := db.CreateRoutingProfile(context.Background(), userID, ownName, "hiking", preds, sport.ModifierFilters{}, []byte(`{"profile":"hiking","name":"Owner Hiking"}`)); err != nil {
 		t.Fatalf("CreateRoutingProfile owner: %v", err)
 	}
-	if _, err := db.CreateRoutingProfile(context.Background(), foreignUserID, foreignName, "hiking", nil, sport.ModifierFilters{}, []byte(`{"profile":"hiking","name":"Foreign Hiking"}`)); err != nil {
+	if _, err := db.CreateRoutingProfile(context.Background(), foreignUserID, foreignName, "hiking", preds, sport.ModifierFilters{}, []byte(`{"profile":"hiking","name":"Foreign Hiking"}`)); err != nil {
 		t.Fatalf("CreateRoutingProfile foreign: %v", err)
 	}
-	if _, err := db.UpsertGlobalProfile(context.Background(), globalName, "hiking", nil, sport.ModifierFilters{}, []byte(`{"profile":"hiking","name":"Global Hiking"}`), "system"); err != nil {
+	if _, err := db.UpsertGlobalProfile(context.Background(), globalName, "hiking", preds, sport.ModifierFilters{}, []byte(`{"profile":"hiking","name":"Global Hiking"}`), "system"); err != nil {
 		t.Fatalf("UpsertGlobalProfile: %v", err)
 	}
 

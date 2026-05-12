@@ -30,6 +30,7 @@ func TestCreateGearWriteToolAuditAndIdempotency(t *testing.T) {
 		t.Fatalf("prepared summary = %#v", prepared)
 	}
 
+	confirmEnvelopeTool(t, envelope, sessionID, toolCallID)
 	first, err := envelope.ExecuteConfirmed(ctx, ToolExecutionRequest{
 		UserID: fx.userID, SessionID: sessionID, ToolCallID: toolCallID, ToolName: "create_gear", Args: args,
 	})
@@ -98,6 +99,7 @@ func TestRetireGearWriteToolUpdatesStatus(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PrepareConfirmation: %v", err)
 	}
+	confirmEnvelopeTool(t, envelope, sessionID, "call-retire")
 	if _, err := envelope.ExecuteConfirmed(ctx, ToolExecutionRequest{
 		UserID: fx.userID, SessionID: sessionID, ToolCallID: "call-retire", ToolName: "retire_gear", Args: args,
 	}); err != nil {
