@@ -12,7 +12,7 @@ schema_excerpt: |
   gear_components: id, gear_id, name TEXT, type TEXT (chain/tire/cassette/brake_pad/…),
     brand TEXT, model TEXT, total_distance_m REAL, total_elevation_gain_m REAL,
     total_time_s BIGINT, installed_at DATE, removed_at DATE, is_retired BOOL, status TEXT
-  gear_service_events: id, component_id, performed_at DATE, event_type TEXT,
+  gear_service_events: id, component_id, performed_at DATE,
     description TEXT, notes TEXT
 domain_knowledge: |
   - Laufschuhe: Lebensdauer 600-1000 km (je nach Modell/Untergrund)

@@ -407,6 +407,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	if cfg.ReadonlyDatabaseURL != "" {
+		if err := db.OpenReadonly(ctx, cfg.ReadonlyDatabaseURL); err != nil {
+			slog.Error("failed to connect to readonly database", "error", err)
+			os.Exit(1)
+		}
+	}
 
 	// Run database migrations
 	if err := migrate.Run(ctx, db.Pool); err != nil {
@@ -716,6 +722,10 @@ func main() {
 			LiteLLMConfigPath:   cfg.LiteLLMConfigPath,
 			LiteLLMInternalURL:  cfg.LiteLLMInternalURL,
 			LLMEncryptionKey:    cfg.LLMEncryptionKey,
+			LLMBaseURL:          cfg.LLMBaseURL,
+			LLMAPIKey:           cfg.LLMAPIKey,
+			LLMModel:            cfg.LLMModel,
+			LLMContextWindow:    cfg.LLMContextWindow,
 			MLServiceURL:        cfg.MLServiceURL,
 			MLCallbackSecret:    mlCallbackSecret,
 			BRouterURL:          cfg.BRouterURL,
