@@ -20,6 +20,7 @@ describe('enrichment module catalog', () => {
     expect(reprocessScopeForModule('settlements')).toEqual(['settlements'])
     expect(reprocessScopeForModule('borders')).toEqual(['borders'])
     expect(reprocessScopeForModule('lap_detection')).toEqual(['segments'])
+    expect(reprocessScopeForModule('auto_naming')).toEqual(['auto_title'])
   })
 
   it('keeps route embeddings explicitly excluded from manual reprocess', () => {

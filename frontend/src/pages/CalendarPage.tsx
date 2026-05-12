@@ -28,6 +28,7 @@ import type { HealthDailySummary, HealthSleep, HealthHRVSnapshot } from '@/api/h
 import type { Activity } from '@/api/types'
 import type { PMCDataPoint } from '@/api/stats'
 import { sportColor, sportLabel } from '@/lib/sportTaxonomy'
+import { displayActivityTitle } from '@/lib/activityTitle'
 import { normTz } from '@/lib/format'
 import { formatDuration, formatDistance } from '@/lib/utils'
 import DateRangePopover from '@/components/DateRangePopover'
@@ -764,7 +765,7 @@ interface ActivityCardProps {
 function ActivityCard({ activity, onClick }: ActivityCardProps) {
   const color = sportColor(activity.sport_type)
   const label = sportLabel(activity.sport_type, activity.sub_type)
-  const title = activity.title ?? label
+  const title = displayActivityTitle(activity, label)
   const [showTooltip, setShowTooltip] = useState(false)
 
   return (
@@ -1039,7 +1040,7 @@ function MonthDayCell({ day, activities, navigate, frozenDate, onFreezeToggle }:
             {activities.map((a) => {
               const color = sportColor(a.sport_type)
               const label = sportLabel(a.sport_type, a.sub_type)
-              const title = a.title ?? label
+              const title = displayActivityTitle(a, label)
               return (
                 <a
                   key={a.id}

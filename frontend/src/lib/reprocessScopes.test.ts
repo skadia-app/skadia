@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_SCOPES,
   GEO_SCOPE_KEYS,
   GEO_SCOPE_LABELS,
   REPROCESS_SCOPES,
@@ -39,5 +40,14 @@ describe('reprocess scope catalog', () => {
     expect(toBackendScope(selected)).toEqual(['ascents', 'stops', 'intervals', 'settlements'])
     expect(scopeLabel('ascents')).toBe('Anstiege')
     expect(scopeLabel('settlements')).toBe('Ortschaften')
+  })
+
+  it('exposes auto title recompute as a default metadata scope', () => {
+    const keys = REPROCESS_SCOPES.map(([key]) => key)
+
+    expect(keys).toContain('auto_title')
+    expect(DEFAULT_SCOPES).toContain('auto_title')
+    expect(scopeLabel('auto_title')).toBe('Automatische Benennung')
+    expect(toBackendScope(new Set(['auto_title']))).toEqual(['auto_title'])
   })
 })

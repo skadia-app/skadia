@@ -122,6 +122,7 @@ export interface Activity {
   needs_classification: boolean
   has_gps: boolean
   title_auto?: string | null
+  title_is_manual?: boolean
   start_city?: string | null
   end_city?: string | null
   start_state?: string | null
@@ -1268,6 +1269,7 @@ export interface RecordingGroupMember {
   is_primary: boolean
   title: string | null
   title_auto: string | null
+  title_is_manual?: boolean
   started_at: string
   sport_type: string
   sub_type?: string | null

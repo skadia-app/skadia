@@ -17,6 +17,7 @@ function ReprocessScopeModal({
   isPending: boolean
 }) {
   const [scope, setScope] = useState<Set<AnyReprocessKey>>(new Set(DEFAULT_SCOPES))
+  const reprocessesTags = scope.has('tags')
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -26,7 +27,10 @@ function ReprocessScopeModal({
         </h3>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           Wähle, welche Teile dieser Aktivität neu verarbeitet werden sollen.
-          Nutzerdefinierte Felder (Titel, Beschreibung, Sichtbarkeit) bleiben immer erhalten.
+          Manuelle Titel, Beschreibung und Sichtbarkeit bleiben erhalten.
+          {reprocessesTags
+            ? ' Tags werden durch Regeln und Systemlogik neu ausgewertet.'
+            : ' Tags bleiben unverändert, solange „Tags“ nicht ausgewählt ist.'}
         </p>
 
         <ScopeCheckboxList
