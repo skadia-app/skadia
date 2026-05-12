@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/importer"
 )
 
 // ListImportQueue handles GET /api/v1/import-queue
@@ -145,8 +146,13 @@ func (h *Handler) AssignImportQueueItem(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	result, err := h.ImportService.ResolveQueuedPhoto(r.Context(), userID, id, req.ActivityID)
+	result, err := h.ImportService.ResolveQueuedPhotoWithOptions(r.Context(), userID, id, req.ActivityID, importer.PhotoProcessOptions{
+		EnforceActivityPhotoLimit: true,
+	})
 	if err != nil {
+		if writeMediaUploadProblem(w, r, err) {
+			return
+		}
 		slog.Error("assign queue item: ResolveQueuedPhoto failed", "id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
 		return

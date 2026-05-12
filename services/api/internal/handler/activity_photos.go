@@ -50,9 +50,10 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxPhotoSize)
-	if err := r.ParseMultipartForm(maxPhotoSize); err != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "file too large (max 200 MB)", r.URL.Path)
+	maxUploadBytes := h.effectiveMaxUploadBytes(maxPhotoSize)
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "file too large", r.URL.Path)
 		return
 	}
 
@@ -62,13 +63,6 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-
-	// Quick pre-check on client-supplied Content-Type (before reading body).
-	ctFromHeader := header.Header.Get("Content-Type")
-	if ctFromHeader != "" && !strings.HasPrefix(ctFromHeader, "image/") && !strings.HasPrefix(ctFromHeader, "video/") {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "only images and videos are allowed", r.URL.Path)
-		return
-	}
 
 	// Datei vollstaendig lesen
 	data, err := io.ReadAll(file)
@@ -86,8 +80,8 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 	}
 	ct := http.DetectContentType(sniff)
 
-	// Fallback auf Datei-Extension wenn http.DetectContentType() kein Bild/Video erkennt.
-	// Das ist nötig für HEIC/JXL (geben application/octet-stream zurück) und mancher Videos.
+	// Fall back to the file extension when http.DetectContentType does not identify media.
+	// This covers HEIC/JXL/AVIF and some videos that sniff as application/octet-stream.
 	if ct == "application/octet-stream" || ct == "application/zip" {
 		ct = contentTypeFromExtension(strings.ToLower(header.Filename))
 	}
@@ -104,54 +98,25 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		ContentType:      ct,
 	}
 
-	result, err := h.ImportService.ProcessPhoto(r.Context(), userID, activityID, data, photoMeta)
+	result, err := h.ImportService.ProcessPhotoWithOptions(r.Context(), userID, activityID, data, photoMeta, importer.PhotoProcessOptions{
+		EnforceActivityPhotoLimit: true,
+	})
 	if err != nil {
+		if writeMediaUploadProblem(w, r, err) {
+			return
+		}
 		slog.Error("upload photo: ProcessPhoto failed", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to process photo", r.URL.Path)
 		return
-	}
-
-	// registerInShadowFS stores the photo in ShadowFS and links file_id on the DB row.
-	registerInShadowFS := func(photoID string) {
-		if h.ShadowFS == nil {
-			return
-		}
-		fileHash := fmt.Sprintf("%x", sha256.Sum256(data))
-		actIDPtr := &activityID
-		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "media",
-			ContentType: ct,
-			FileName:    header.Filename,
-			SizeBytes:   int64(len(data)),
-			FileHash:    fileHash,
-			ParentType:  func() *string { s := "activity"; return &s }(),
-			ParentID:    actIDPtr,
-		}, bytes.NewReader(data))
-		if putErr != nil {
-			slog.Warn("upload photo: ShadowFS.Put failed (non-fatal)", "photo_id", photoID, "error", putErr)
-			return
-		}
-		// Link file_id on the activity_photos row.
-		if _, execErr := h.DB.Pool.Exec(r.Context(),
-			`UPDATE activity_photos SET file_id = $1 WHERE id = $2 AND user_id = $3`,
-			rec.ID, photoID, userID,
-		); execErr != nil {
-			slog.Warn("upload photo: link file_id failed", "photo_id", photoID, "file_id", rec.ID, "error", execErr)
-		}
 	}
 
 	switch result.Status {
 	case "duplicate_exact", "duplicate_phash":
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 	case "replaced":
-		// Higher-resolution variant replaced an existing photo — also register in ShadowFS.
-		registerInShadowFS(result.PhotoID)
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "replaced", "photo_id": result.PhotoID})
 	default:
-		// "created" — register in ShadowFS (preferred) and return the full photo record.
-		registerInShadowFS(result.PhotoID)
-
+		// "created" — ProcessPhoto already stored the original and linked file_id.
 		saved, err := h.DB.GetActivityPhoto(r.Context(), result.PhotoID, userID)
 		if err != nil {
 			slog.Error("upload photo: fetch saved photo failed", "photo_id", result.PhotoID, "error", err)
@@ -980,7 +945,7 @@ func (h *Handler) generateThumb(data []byte, ct, filename string) []byte {
 		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0); err == nil {
 			return td
 		}
-	case ct == "image/heic" || ct == "image/heif" || ct == "image/jxl":
+	case isFFmpegStillImageContentType(ct):
 		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0); err == nil {
 			return td
 		}
@@ -1004,10 +969,19 @@ func (h *Handler) generatePreview(data []byte, ct, filename, userID string) []by
 		return nil
 	}
 
-	if ct == "image/heic" || ct == "image/heif" || ct == "image/jxl" {
+	if isFFmpegStillImageContentType(ct) {
 		pd, _ := imageutil.GenerateThumbnailFFmpeg(data, ext, maxW, 0)
 		return pd
 	}
 	pd, _ := imageutil.Resize(data, maxW, maxH, 85)
 	return pd
+}
+
+func isFFmpegStillImageContentType(ct string) bool {
+	switch ct {
+	case "image/heic", "image/heif", "image/jxl", "image/avif":
+		return true
+	default:
+		return false
+	}
 }

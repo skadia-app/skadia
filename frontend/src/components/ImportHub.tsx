@@ -171,12 +171,46 @@ function MediaResultItem({ item }: { item: MediaUploadResultItem }) {
       </div>
     )
   }
+  if (item.status === 'queued') {
+    return (
+      <div className="flex items-start gap-2 text-xs">
+        <span className="w-3.5 h-3.5 shrink-0 mt-0.5 rounded-full bg-orange-400 inline-block" />
+        <span className="text-neutral-600 dark:text-neutral-300 truncate">
+          <span className="font-medium">{item.filename}</span>
+          {' – In Warteschlange'}
+        </span>
+      </div>
+    )
+  }
+  if (item.status === 'duplicate') {
+    return (
+      <div className="flex items-start gap-2 text-xs">
+        <CheckIcon className="w-3.5 h-3.5 shrink-0 mt-0.5 text-neutral-400" />
+        <span className="text-neutral-600 dark:text-neutral-300 truncate">
+          <span className="font-medium">{item.filename}</span>
+          {' – Duplikat'}
+        </span>
+      </div>
+    )
+  }
+  if (item.status === 'skipped_limit_reached') {
+    return (
+      <div className="flex items-start gap-2 text-xs">
+        <span className="w-3.5 h-3.5 shrink-0 mt-0.5 rounded-full bg-amber-500 inline-block" />
+        <span className="text-neutral-600 dark:text-neutral-300 truncate">
+          <span className="font-medium">{item.filename}</span>
+          {' – Limit erreicht'}
+        </span>
+      </div>
+    )
+  }
   return (
     <div className="flex items-start gap-2 text-xs">
-      <span className="w-3.5 h-3.5 shrink-0 mt-0.5 rounded-full bg-orange-400 inline-block" />
+      <span className="w-3.5 h-3.5 shrink-0 mt-0.5 rounded-full bg-red-500 inline-block" />
       <span className="text-neutral-600 dark:text-neutral-300 truncate">
         <span className="font-medium">{item.filename}</span>
-        {' – In Warteschlange'}
+        {' – '}
+        {item.error ?? 'Fehler'}
       </span>
     </div>
   )
@@ -188,7 +222,10 @@ function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
   onGoToQueue: () => void
 }) {
   const assigned = result.results.filter(r => r.status === 'assigned')
-  const queued = result.results.filter(r => r.status !== 'assigned')
+  const queued = result.results.filter(r => r.status === 'queued')
+  const duplicate = result.results.filter(r => r.status === 'duplicate')
+  const skipped = result.results.filter(r => r.status === 'skipped_limit_reached')
+  const failed = result.results.filter(r => r.status === 'storage_quota_exceeded' || r.status === 'error')
 
   return (
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 px-3 py-3 space-y-2">
@@ -215,6 +252,39 @@ function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
           >
             Warteschlange öffnen →
           </button>
+        </div>
+      )}
+      {duplicate.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
+            Duplikate ({duplicate.length})
+          </p>
+          {duplicate.slice(0, 3).map((item, i) => <MediaResultItem key={i} item={item} />)}
+          {duplicate.length > 3 && (
+            <p className="text-xs text-neutral-500">{duplicate.length - 3} weitere…</p>
+          )}
+        </div>
+      )}
+      {skipped.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+            Übersprungen ({skipped.length})
+          </p>
+          {skipped.slice(0, 3).map((item, i) => <MediaResultItem key={i} item={item} />)}
+          {skipped.length > 3 && (
+            <p className="text-xs text-neutral-500">{skipped.length - 3} weitere…</p>
+          )}
+        </div>
+      )}
+      {failed.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-red-600 dark:text-red-400">
+            Fehlgeschlagen ({failed.length})
+          </p>
+          {failed.slice(0, 3).map((item, i) => <MediaResultItem key={i} item={item} />)}
+          {failed.length > 3 && (
+            <p className="text-xs text-neutral-500">{failed.length - 3} weitere…</p>
+          )}
         </div>
       )}
       <button

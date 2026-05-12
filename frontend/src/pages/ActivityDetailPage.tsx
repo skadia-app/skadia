@@ -38,6 +38,7 @@ import LiftSection from '@/components/LiftSection'
 import LiftReviewModal from '@/components/lift/LiftReviewModal'
 import { fetchGeoTags, fetchStops } from '@/api/enrichment'
 import { apiFetch } from '@/lib/auth'
+import { throwOnApiResponse } from '@/api/client'
 import type { GeoTag, ActivityStop, LiftCandidate } from '@/api/types'
 import { fetchActivityBestEfforts } from '@/api/bestEfforts'
 import { useActivityTrackSummary } from '@/api/trackSummary'
@@ -1069,11 +1070,11 @@ export default function ActivityDetailPage() {
         <LiftSection
           activity={activity}
           onToggleExclude={async (v) => {
-            await apiFetch(`/api/v1/activities/${activity.id}`, {
+            await throwOnApiResponse(apiFetch(`/api/v1/activities/${activity.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ exclude_lift_subtraction: v }),
-            })
+            }))
             queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
           }}
           onOpenReview={() => setReviewModalOpen(true)}

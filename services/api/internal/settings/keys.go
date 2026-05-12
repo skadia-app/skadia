@@ -12,12 +12,12 @@ import (
 
 // KeyDef describes a single configurable setting.
 type KeyDef struct {
-	Key       string                // e.g. "smtp.host"
-	EnvVar    string                // e.g. "SMTP_HOST"; empty = no env override
-	Default   string                // value used when neither env nor DB row exists
-	Encrypted bool                  // true = AES-256-GCM at rest
-	Group     string                // e.g. "smtp" — used for API grouping
-	Validate  func(string) error    // nil = no validation
+	Key       string             // e.g. "smtp.host"
+	EnvVar    string             // e.g. "SMTP_HOST"; empty = no env override
+	Default   string             // value used when neither env nor DB row exists
+	Encrypted bool               // true = AES-256-GCM at rest
+	Group     string             // e.g. "smtp" — used for API grouping
+	Validate  func(string) error // nil = no validation
 }
 
 // piiBlacklistForSchemas is a copy of shadowfs.piiBlacklistVariables kept here
@@ -57,6 +57,26 @@ func defaultSchemaValidate(v string) error {
 		}
 	}
 	return nil
+}
+
+func positiveInt64(key string) func(string) error {
+	return func(v string) error {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("%s must be a positive integer, got %q", key, v)
+		}
+		return nil
+	}
+}
+
+func nonNegativeInt64(key string) func(string) error {
+	return func(v string) error {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 0 {
+			return fmt.Errorf("%s must be a non-negative integer, got %q", key, v)
+		}
+		return nil
+	}
 }
 
 // AllKeys is the ordered list of every registered setting.
@@ -146,23 +166,19 @@ var AllKeys = []KeyDef{
 	},
 	{
 		Key: "limits.max_upload_bytes", EnvVar: "MAX_UPLOAD_SIZE", Default: "52428800", Encrypted: false, Group: "limits",
-		Validate: func(v string) error {
-			n, err := strconv.ParseInt(v, 10, 64)
-			if err != nil || n <= 0 {
-				return fmt.Errorf("limits.max_upload_bytes must be a positive integer, got %q", v)
-			}
-			return nil
-		},
+		Validate: positiveInt64("limits.max_upload_bytes"),
 	},
 	{
 		Key: "limits.max_user_storage_bytes", EnvVar: "MAX_USER_STORAGE_BYTES", Default: "53687091200", Encrypted: false, Group: "limits",
-		Validate: func(v string) error {
-			n, err := strconv.ParseInt(v, 10, 64)
-			if err != nil || n <= 0 {
-				return fmt.Errorf("limits.max_user_storage_bytes must be a positive integer, got %q", v)
-			}
-			return nil
-		},
+		Validate: nonNegativeInt64("limits.max_user_storage_bytes"),
+	},
+	{
+		Key: "limits.max_activity_photos_per_activity", EnvVar: "MAX_ACTIVITY_PHOTOS_PER_ACTIVITY", Default: "100", Encrypted: false, Group: "limits",
+		Validate: nonNegativeInt64("limits.max_activity_photos_per_activity"),
+	},
+	{
+		Key: "limits.max_route_photos_per_route", EnvVar: "MAX_ROUTE_PHOTOS_PER_ROUTE", Default: "100", Encrypted: false, Group: "limits",
+		Validate: nonNegativeInt64("limits.max_route_photos_per_route"),
 	},
 	{
 		Key: "library.keep_versions", EnvVar: "LIBRARY_KEEP_VERSIONS", Default: "1", Encrypted: false, Group: "library",

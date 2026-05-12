@@ -16,7 +16,17 @@ const LABELS = {
   maxUserStorage: {
     label: 'Max. Benutzer-Speicher',
     unit: 'GB',
-    hint: 'Gesamtspeicher pro Benutzer.',
+    hint: 'Gesamtspeicher pro Benutzer. 0 = unbegrenzt.',
+  },
+  maxActivityPhotos: {
+    label: 'Max. Aktivitäts-Medien',
+    unit: 'Dateien',
+    hint: 'Fotos und Videos pro Aktivität. 0 = unbegrenzt.',
+  },
+  maxRoutePhotos: {
+    label: 'Max. Routen-Fotos',
+    unit: 'Fotos',
+    hint: 'Fotos pro Route. 0 = unbegrenzt.',
   },
   keepVersions: {
     label: 'Versions-Aufbewahrung',
@@ -42,7 +52,11 @@ const LABELS = {
   },
   validationStorage: {
     title: 'Ungültiger Max Benutzer-Speicher',
-    message: 'Bitte eine positive Zahl eingeben oder Feld leer lassen für Default.',
+    message: 'Bitte 0 oder eine positive Zahl eingeben oder Feld leer lassen für Default.',
+  },
+  validationMediaCount: {
+    title: 'Ungültiges Medien-Limit',
+    message: 'Bitte 0 oder eine positive ganze Zahl eingeben oder Feld leer lassen für Default.',
   },
 }
 
@@ -55,6 +69,8 @@ const GB = 1_073_741_824
 const ENV_VARS: Record<string, string> = {
   'limits.max_upload_bytes': 'MAX_UPLOAD_SIZE',
   'limits.max_user_storage_bytes': 'MAX_USER_STORAGE_BYTES',
+  'limits.max_activity_photos_per_activity': 'MAX_ACTIVITY_PHOTOS_PER_ACTIVITY',
+  'limits.max_route_photos_per_route': 'MAX_ROUTE_PHOTOS_PER_ROUTE',
   'library.keep_versions': 'LIBRARY_KEEP_VERSIONS',
 }
 
@@ -89,10 +105,11 @@ interface NumberFieldProps {
   placeholder?: string
   locked: boolean
   settingsKey: string
+  min?: number
   onChange: (v: string) => void
 }
 
-function NumberField({ label, unit, hint, value, placeholder, locked, settingsKey, onChange }: NumberFieldProps) {
+function NumberField({ label, unit, hint, value, placeholder, locked, settingsKey, min = 1, onChange }: NumberFieldProps) {
   return (
     <div className="space-y-1">
       <label className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">
@@ -102,7 +119,7 @@ function NumberField({ label, unit, hint, value, placeholder, locked, settingsKe
       <div className="flex items-center gap-2 mt-1.5">
         <input
           type="number"
-          min={1}
+          min={min}
           step={1}
           value={value}
           placeholder={placeholder}
@@ -115,6 +132,29 @@ function NumberField({ label, unit, hint, value, placeholder, locked, settingsKe
       {locked && <LockedHint settingsKey={settingsKey} />}
     </div>
   )
+}
+
+function draftFromField(field: SettingField | undefined, divisor = 1): string {
+  if (!field || field.source === 'default') return ''
+  const value = parseInt(field.value, 10)
+  if (Number.isNaN(value)) return ''
+  if (value === 0) return '0'
+  if (value > 0) return String(Math.round(value / divisor))
+  return ''
+}
+
+function placeholderFromDefault(field: SettingField | undefined, divisor = 1): string | undefined {
+  if (!field) return undefined
+  const value = parseInt(field.value, 10)
+  if (Number.isNaN(value) || value < 0) return undefined
+  return `Standard: ${Math.round(value / divisor)}`
+}
+
+function parseStrictInteger(value: string): number | null {
+  if (!/^(0|[1-9]\d*)$/.test(value)) return null
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed)) return null
+  return parsed
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -132,6 +172,8 @@ export function AdminStorageLimitsSection() {
   // Local draft state (display units)
   const [maxUploadMB, setMaxUploadMB] = useState('')
   const [maxUserStorageGB, setMaxUserStorageGB] = useState('')
+  const [maxActivityPhotos, setMaxActivityPhotos] = useState('')
+  const [maxRoutePhotos, setMaxRoutePhotos] = useState('')
   const [keepVersions, setKeepVersions] = useState('1')
 
   // Initialise from loaded settings (only on first successful load)
@@ -139,24 +181,14 @@ export function AdminStorageLimitsSection() {
     if (!settings) return
     const uploadField = fieldOf(settings, 'limits', 'max_upload_bytes')
     const storageField = fieldOf(settings, 'limits', 'max_user_storage_bytes')
+    const activityPhotosField = fieldOf(settings, 'limits', 'max_activity_photos_per_activity')
+    const routePhotosField = fieldOf(settings, 'limits', 'max_route_photos_per_route')
     const keepField = fieldOf(settings, 'library', 'keep_versions')
 
-    if (uploadField) {
-      const bytes = parseInt(uploadField.value, 10)
-      if (!isNaN(bytes) && bytes > 0) {
-        setMaxUploadMB(String(Math.round(bytes / MB)))
-      } else {
-        setMaxUploadMB('')  // kein hardcoded default — API gibt den default mit
-      }
-    }
-    if (storageField) {
-      const bytes = parseInt(storageField.value, 10)
-      if (!isNaN(bytes) && bytes > 0) {
-        setMaxUserStorageGB(String(Math.round(bytes / GB)))
-      } else {
-        setMaxUserStorageGB('')  // kein hardcoded default — API gibt den default mit
-      }
-    }
+    setMaxUploadMB(draftFromField(uploadField, MB))
+    setMaxUserStorageGB(draftFromField(storageField, GB))
+    setMaxActivityPhotos(draftFromField(activityPhotosField))
+    setMaxRoutePhotos(draftFromField(routePhotosField))
     if (keepField) {
       setKeepVersions(keepField.value)
     }
@@ -164,10 +196,14 @@ export function AdminStorageLimitsSection() {
 
   const uploadField = fieldOf(settings, 'limits', 'max_upload_bytes')
   const storageField = fieldOf(settings, 'limits', 'max_user_storage_bytes')
+  const activityPhotosField = fieldOf(settings, 'limits', 'max_activity_photos_per_activity')
+  const routePhotosField = fieldOf(settings, 'limits', 'max_route_photos_per_route')
   const keepField = fieldOf(settings, 'library', 'keep_versions')
 
   const uploadLocked = uploadField?.locked ?? false
   const storageLocked = storageField?.locked ?? false
+  const activityPhotosLocked = activityPhotosField?.locked ?? false
+  const routePhotosLocked = routePhotosField?.locked ?? false
   const keepLocked = keepField?.locked ?? false
 
   const saveMut = useMutation({
@@ -189,8 +225,8 @@ export function AdminStorageLimitsSection() {
       if (mbStr === '') {
         updates['limits.max_upload_bytes'] = null
       } else {
-        const mb = parseInt(mbStr, 10)
-        if (isNaN(mb) || mb <= 0) {
+        const mb = parseStrictInteger(mbStr)
+        if (mb === null || mb <= 0) {
           addToast({ type: 'error', title: LABELS.validationUpload.title, message: LABELS.validationUpload.message, duration: 0 })
           return
         }
@@ -203,12 +239,40 @@ export function AdminStorageLimitsSection() {
       if (gbStr === '') {
         updates['limits.max_user_storage_bytes'] = null
       } else {
-        const gb = parseInt(gbStr, 10)
-        if (isNaN(gb) || gb <= 0) {
+        const gb = parseStrictInteger(gbStr)
+        if (gb === null || gb < 0) {
           addToast({ type: 'error', title: LABELS.validationStorage.title, message: LABELS.validationStorage.message, duration: 0 })
           return
         }
         updates['limits.max_user_storage_bytes'] = String(gb * GB)
+      }
+    }
+
+    if (!activityPhotosLocked) {
+      const countStr = maxActivityPhotos.trim()
+      if (countStr === '') {
+        updates['limits.max_activity_photos_per_activity'] = null
+      } else {
+        const count = parseStrictInteger(countStr)
+        if (count === null || count < 0) {
+          addToast({ type: 'error', title: LABELS.validationMediaCount.title, message: LABELS.validationMediaCount.message, duration: 0 })
+          return
+        }
+        updates['limits.max_activity_photos_per_activity'] = String(count)
+      }
+    }
+
+    if (!routePhotosLocked) {
+      const countStr = maxRoutePhotos.trim()
+      if (countStr === '') {
+        updates['limits.max_route_photos_per_route'] = null
+      } else {
+        const count = parseStrictInteger(countStr)
+        if (count === null || count < 0) {
+          addToast({ type: 'error', title: LABELS.validationMediaCount.title, message: LABELS.validationMediaCount.message, duration: 0 })
+          return
+        }
+        updates['limits.max_route_photos_per_route'] = String(count)
       }
     }
 
@@ -226,7 +290,7 @@ export function AdminStorageLimitsSection() {
     setKeepVersions(value)
   }
 
-  const allLocked = uploadLocked && storageLocked && keepLocked
+  const allLocked = uploadLocked && storageLocked && activityPhotosLocked && routePhotosLocked && keepLocked
 
   if (isLoading) {
     return (
@@ -265,7 +329,7 @@ export function AdminStorageLimitsSection() {
           unit={LABELS.maxUpload.unit}
           hint={LABELS.maxUpload.hint}
           value={maxUploadMB}
-          placeholder={uploadField ? `Standard: ${Math.round(parseInt(uploadField.value, 10) / MB)}` : undefined}
+          placeholder={placeholderFromDefault(uploadField, MB)}
           locked={uploadLocked}
           settingsKey="limits.max_upload_bytes"
           onChange={setMaxUploadMB}
@@ -276,10 +340,35 @@ export function AdminStorageLimitsSection() {
           unit={LABELS.maxUserStorage.unit}
           hint={LABELS.maxUserStorage.hint}
           value={maxUserStorageGB}
-          placeholder={storageField ? `Standard: ${Math.round(parseInt(storageField.value, 10) / GB)}` : undefined}
+          placeholder={placeholderFromDefault(storageField, GB)}
           locked={storageLocked}
           settingsKey="limits.max_user_storage_bytes"
+          min={0}
           onChange={setMaxUserStorageGB}
+        />
+
+        <NumberField
+          label={LABELS.maxActivityPhotos.label}
+          unit={LABELS.maxActivityPhotos.unit}
+          hint={LABELS.maxActivityPhotos.hint}
+          value={maxActivityPhotos}
+          placeholder={placeholderFromDefault(activityPhotosField)}
+          locked={activityPhotosLocked}
+          settingsKey="limits.max_activity_photos_per_activity"
+          min={0}
+          onChange={setMaxActivityPhotos}
+        />
+
+        <NumberField
+          label={LABELS.maxRoutePhotos.label}
+          unit={LABELS.maxRoutePhotos.unit}
+          hint={LABELS.maxRoutePhotos.hint}
+          value={maxRoutePhotos}
+          placeholder={placeholderFromDefault(routePhotosField)}
+          locked={routePhotosLocked}
+          settingsKey="limits.max_route_photos_per_route"
+          min={0}
+          onChange={setMaxRoutePhotos}
         />
 
         {/* Versions-Aufbewahrung */}

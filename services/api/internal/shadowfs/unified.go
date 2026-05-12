@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -21,8 +22,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var ErrQuotaExceeded = errors.New("shadowfs: storage quota exceeded")
 
 // UnifiedShadowFS implements ShadowFS with per-file backend dispatch.
 // Replaces LocalShadowFS + S3ShadowFS.
@@ -179,6 +183,47 @@ func (u *UnifiedShadowFS) bucketOpts(fileType string) *BackendOpts {
 	return &BackendOpts{Bucket: b}
 }
 
+func (u *UnifiedShadowFS) effectiveMaxUserBytes(ctx context.Context) int64 {
+	if u.settings != nil {
+		cs := u.settings.Get("limits.max_user_storage_bytes")
+		if cs.Value != "" {
+			n, err := strconv.ParseInt(cs.Value, 10, 64)
+			if err == nil && n >= 0 {
+				return n
+			}
+			slog.WarnContext(ctx, "shadowfs: ignoring invalid live storage quota",
+				"value", cs.Value, "source", cs.Source, "error", err)
+		}
+	}
+	return u.maxUserBytes
+}
+
+func (u *UnifiedShadowFS) diskUsageWithQuotaCredit(ctx context.Context, userID, creditFileID string) (int64, error) {
+	used, err := diskUsage(ctx, u.pool, userID)
+	if err != nil {
+		return 0, err
+	}
+	if creditFileID == "" {
+		return used, nil
+	}
+	var credit int64
+	err = u.pool.QueryRow(ctx,
+		`SELECT COALESCE(size_bytes, 0)
+		 FROM user_files
+		 WHERE id = $1 AND user_id = $2 AND status = 'active'
+		   AND file_type NOT IN ('thumb', 'preview')`,
+		creditFileID, userID,
+	).Scan(&credit)
+	if err != nil && err != pgx.ErrNoRows {
+		return 0, err
+	}
+	used -= credit
+	if used < 0 {
+		used = 0
+	}
+	return used, nil
+}
+
 // getUserDir returns the library directory name for a user.
 func (u *UnifiedShadowFS) getUserDir(ctx context.Context, userID string) (string, error) {
 	return ResolveLibraryDirName(ctx, u.pool, userID)
@@ -226,13 +271,14 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 	}
 
 	// 3. Quota pre-check (excludes thumb/preview — they don't count toward quota).
-	if entry.FileType != "thumb" && entry.FileType != "preview" && u.maxUserBytes > 0 {
-		used, err := diskUsage(ctx, u.pool, entry.UserID)
+	maxUserBytes := u.effectiveMaxUserBytes(ctx)
+	if entry.FileType != "thumb" && entry.FileType != "preview" && maxUserBytes > 0 {
+		used, err := u.diskUsageWithQuotaCredit(ctx, entry.UserID, entry.QuotaCreditFileID)
 		if err != nil {
 			return FileRecord{}, fmt.Errorf("shadowfs: quota check: %w", err)
 		}
-		if used+entry.SizeBytes > u.maxUserBytes {
-			return FileRecord{}, fmt.Errorf("shadowfs: quota exceeded (used %d + %d > %d)", used, entry.SizeBytes, u.maxUserBytes)
+		if used+entry.SizeBytes > maxUserBytes {
+			return FileRecord{}, fmt.Errorf("%w: used %d + %d > %d", ErrQuotaExceeded, used, entry.SizeBytes, maxUserBytes)
 		}
 	}
 
@@ -402,17 +448,17 @@ func (u *UnifiedShadowFS) Put(ctx context.Context, entry FileEntry, data io.Read
 	}
 
 	// 7. Post-write quota check.
-	if entry.FileType != "thumb" && entry.FileType != "preview" && u.maxUserBytes > 0 && written > 0 {
-		used, qErr := diskUsage(ctx, u.pool, entry.UserID)
+	if entry.FileType != "thumb" && entry.FileType != "preview" && maxUserBytes > 0 && written > 0 {
+		used, qErr := u.diskUsageWithQuotaCredit(ctx, entry.UserID, entry.QuotaCreditFileID)
 		if qErr != nil {
 			slog.Warn("shadowfs: post-write quota check failed", "error", qErr)
-		} else if used > u.maxUserBytes {
+		} else if used > maxUserBytes {
 			// Roll back: delete file + DB row.
 			if delErr := be.Delete(ctx, storagePath, opts); delErr != nil {
 				slog.Error("shadowfs: quota rollback delete failed", "path", storagePath, "err", delErr)
 			}
 			_, _ = u.pool.Exec(ctx, `DELETE FROM user_files WHERE id = $1`, rec.ID)
-			return FileRecord{}, fmt.Errorf("shadowfs: storage quota exceeded (post-write check)")
+			return FileRecord{}, fmt.Errorf("%w: post-write used %d > %d", ErrQuotaExceeded, used, maxUserBytes)
 		}
 	}
 

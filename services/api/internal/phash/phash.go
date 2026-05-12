@@ -11,6 +11,7 @@ import (
 	_ "image/png"
 	"io"
 	"math/bits"
+	"os"
 	"os/exec"
 
 	"github.com/corona10/goimagehash"
@@ -45,7 +46,16 @@ func ComputeFromBytes(data []byte) (uint64, error) {
 
 // ComputeViaFFmpeg decodes any format (HEIC, JXL, etc.) via ffmpeg pipe, then computes pHash.
 func ComputeViaFFmpeg(data []byte) (uint64, error) {
-	img, err := decodeViaFFmpeg(data)
+	img, err := decodeViaFFmpeg(data, "")
+	if err != nil {
+		return 0, err
+	}
+	return computeFromImage(img)
+}
+
+// ComputeViaFFmpegWithExt decodes via a temporary file with the original extension.
+func ComputeViaFFmpegWithExt(data []byte, ext string) (uint64, error) {
+	img, err := decodeViaFFmpeg(data, ext)
 	if err != nil {
 		return 0, err
 	}
@@ -119,16 +129,41 @@ func computeFromImage(img image.Image) (uint64, error) {
 	return hash.GetHash(), nil
 }
 
-func decodeViaFFmpeg(data []byte) (image.Image, error) {
+func decodeViaFFmpeg(data []byte, ext string) (image.Image, error) {
+	input := "pipe:0"
+	var cleanup func()
+	if ext != "" {
+		tmp, err := os.CreateTemp("", "phash-in-*"+ext)
+		if err != nil {
+			return nil, fmt.Errorf("ffmpeg temp file: %w", err)
+		}
+		if _, err := tmp.Write(data); err != nil {
+			tmp.Close()
+			os.Remove(tmp.Name())
+			return nil, fmt.Errorf("ffmpeg temp write: %w", err)
+		}
+		if err := tmp.Close(); err != nil {
+			os.Remove(tmp.Name())
+			return nil, fmt.Errorf("ffmpeg temp close: %w", err)
+		}
+		input = tmp.Name()
+		cleanup = func() { os.Remove(tmp.Name()) }
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+
 	cmd := exec.Command("ffmpeg",
 		"-hide_banner", "-loglevel", "error",
-		"-i", "pipe:0",
+		"-i", input,
 		"-frames:v", "1",
 		"-f", "image2pipe",
 		"-vcodec", "png",
 		"pipe:1",
 	)
-	cmd.Stdin = bytes.NewReader(data)
+	if ext == "" {
+		cmd.Stdin = bytes.NewReader(data)
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	var stderr bytes.Buffer

@@ -225,6 +225,20 @@ func scanUser(row pgx.Row) (*model.User, error) {
 	return &u, err
 }
 
+// UserCreateSeeder runs required per-user seed work inside a caller-owned
+// user-create transaction.
+type UserCreateSeeder func(ctx context.Context, tx pgx.Tx, userID string) error
+
+func runUserCreateSeeder(ctx context.Context, tx pgx.Tx, userID string, seeder UserCreateSeeder) error {
+	if seeder == nil {
+		return nil
+	}
+	if err := seeder(ctx, tx, userID); err != nil {
+		return fmt.Errorf("seed user artifacts: %w", err)
+	}
+	return nil
+}
+
 // GetUserByID returns a user by their ID.
 func (db *DB) GetUserByID(ctx context.Context, userID string) (*model.User, error) {
 	u, err := scanUser(db.Pool.QueryRow(ctx,
@@ -253,7 +267,18 @@ func (db *DB) GetUserByEmail(ctx context.Context, email string) (*model.User, er
 
 // CreateUserWithPassword creates a new user with email/password credentials.
 func (db *DB) CreateUserWithPassword(ctx context.Context, email, username, passwordHash, registrationSrc string, ipAddress net.IP, isActive bool, pendingApproval bool) (*model.User, error) {
-	u, err := scanUser(db.Pool.QueryRow(ctx,
+	return db.CreateUserWithPasswordSeeded(ctx, email, username, passwordHash, registrationSrc, ipAddress, isActive, pendingApproval, nil)
+}
+
+// CreateUserWithPasswordSeeded creates a new password user and seed data in one transaction.
+func (db *DB) CreateUserWithPasswordSeeded(ctx context.Context, email, username, passwordHash, registrationSrc string, ipAddress net.IP, isActive bool, pendingApproval bool, seeder UserCreateSeeder) (*model.User, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create user with password: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	u, err := scanUser(tx.QueryRow(ctx,
 		`INSERT INTO users (username, email, password_hash, registration_source, email_verified, is_active, pending_approval, created_by_ip)
 		 VALUES ($1, $2, $3, $4, false, $5, $6, $7)
 		 RETURNING `+allUserColumns,
@@ -261,12 +286,52 @@ func (db *DB) CreateUserWithPassword(ctx context.Context, email, username, passw
 	if err != nil {
 		return nil, fmt.Errorf("create user with password: %w", err)
 	}
+	if err := runUserCreateSeeder(ctx, tx, u.ID, seeder); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("create user with password: commit: %w", err)
+	}
+	return u, nil
+}
+
+// CreateUserWithPasswordAndEmailTokenSeeded creates a password user, email token,
+// and seed data in one transaction.
+func (db *DB) CreateUserWithPasswordAndEmailTokenSeeded(ctx context.Context, email, username, passwordHash, registrationSrc string, ipAddress net.IP, isActive bool, pendingApproval bool, tokenHash, tokenType string, expiresAt time.Time, seeder UserCreateSeeder) (*model.User, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create user with password and token: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	u, err := scanUser(tx.QueryRow(ctx,
+		`INSERT INTO users (username, email, password_hash, registration_source, email_verified, is_active, pending_approval, created_by_ip)
+		 VALUES ($1, $2, $3, $4, false, $5, $6, $7)
+		 RETURNING `+allUserColumns,
+		username, email, passwordHash, registrationSrc, isActive, pendingApproval, ipAddress))
+	if err != nil {
+		return nil, fmt.Errorf("create user with password and token: %w", err)
+	}
+	if err := CreateEmailTokenTx(ctx, tx, uuid.MustParse(u.ID), tokenHash, tokenType, expiresAt); err != nil {
+		return nil, err
+	}
+	if err := runUserCreateSeeder(ctx, tx, u.ID, seeder); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("create user with password and token: commit: %w", err)
+	}
 	return u, nil
 }
 
 // CreateBootstrapAdmin creates the first admin user with an advisory lock to prevent races.
 // Returns (nil, nil) if users already exist (someone was faster).
 func (db *DB) CreateBootstrapAdmin(ctx context.Context, email, username, passwordHash string, ipAddress net.IP) (*model.User, error) {
+	return db.CreateBootstrapAdminSeeded(ctx, email, username, passwordHash, ipAddress, nil)
+}
+
+// CreateBootstrapAdminSeeded creates the first admin and seed data in one transaction.
+func (db *DB) CreateBootstrapAdminSeeded(ctx context.Context, email, username, passwordHash string, ipAddress net.IP, seeder UserCreateSeeder) (*model.User, error) {
 	tx, err := db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin tx: %w", err)
@@ -297,6 +362,9 @@ func (db *DB) CreateBootstrapAdmin(ctx context.Context, email, username, passwor
 	if err != nil {
 		return nil, fmt.Errorf("create bootstrap admin: %w", err)
 	}
+	if err := runUserCreateSeeder(ctx, tx, u.ID, seeder); err != nil {
+		return nil, err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
@@ -308,6 +376,11 @@ func (db *DB) CreateBootstrapAdmin(ctx context.Context, email, username, passwor
 // Returns (user, isNewUser, error). Returns ErrEmailCollision if the provider
 // email already belongs to an existing user.
 func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, providerEmail, username string, accessToken, refreshToken []byte, tokenExpiry *time.Time, oauthEncKey string, isActive bool, pendingApproval bool) (*model.User, bool, error) {
+	return db.GetOrCreateUserByOAuthSeeded(ctx, provider, providerID, providerEmail, username, accessToken, refreshToken, tokenExpiry, oauthEncKey, isActive, pendingApproval, nil)
+}
+
+// GetOrCreateUserByOAuthSeeded creates seed data in the same transaction as a new OAuth user.
+func (db *DB) GetOrCreateUserByOAuthSeeded(ctx context.Context, provider, providerID, providerEmail, username string, accessToken, refreshToken []byte, tokenExpiry *time.Time, oauthEncKey string, isActive bool, pendingApproval bool, seeder UserCreateSeeder) (*model.User, bool, error) {
 	// 1. Check oauth_connections for existing link.
 	var userID string
 	err := db.Pool.QueryRow(ctx,
@@ -375,6 +448,9 @@ func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, 
 	}
 
 	if err := db.CreateOAuthConnection(ctx, tx, u.ID, provider, providerID, providerEmail, "", accessToken, refreshToken, tokenExpiry, oauthEncKey); err != nil {
+		return nil, false, err
+	}
+	if err := runUserCreateSeeder(ctx, tx, u.ID, seeder); err != nil {
 		return nil, false, err
 	}
 
@@ -539,6 +615,65 @@ func (db *DB) CreateUserWithoutPassword(ctx context.Context, email, username, re
 		username, email, registrationSrc, ipAddress, isActive))
 	if err != nil {
 		return nil, fmt.Errorf("create user without password: %w", err)
+	}
+	return u, nil
+}
+
+// CreateAdminPasswordUserSeeded creates an admin-provisioned password account
+// with required account flags and seed data in one transaction.
+func (db *DB) CreateAdminPasswordUserSeeded(ctx context.Context, email, username, passwordHash string, ipAddress net.IP, seeder UserCreateSeeder) (*model.User, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create admin password user: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	u, err := scanUser(tx.QueryRow(ctx,
+		`INSERT INTO users (
+			username, email, password_hash, registration_source,
+			email_verified, is_active, pending_approval, must_change_password, created_by_ip
+		)
+		 VALUES ($1, $2, $3, 'admin', true, true, false, true, $4)
+		 RETURNING `+allUserColumns,
+		username, email, passwordHash, ipAddress))
+	if err != nil {
+		return nil, fmt.Errorf("create admin password user: %w", err)
+	}
+	if err := runUserCreateSeeder(ctx, tx, u.ID, seeder); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("create admin password user: commit: %w", err)
+	}
+	return u, nil
+}
+
+// CreateInvitedUserSeeded creates an admin-invited account, reset token, and
+// seed data in one transaction.
+func (db *DB) CreateInvitedUserSeeded(ctx context.Context, email, username, registrationSrc string, ipAddress net.IP, isActive bool, tokenHash string, expiresAt time.Time, seeder UserCreateSeeder) (*model.User, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create invited user: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	u, err := scanUser(tx.QueryRow(ctx,
+		`INSERT INTO users (username, email, registration_source, created_by_ip,
+			is_active, email_verified, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, true, NOW(), NOW())
+		 RETURNING `+allUserColumns,
+		username, email, registrationSrc, ipAddress, isActive))
+	if err != nil {
+		return nil, fmt.Errorf("create invited user: %w", err)
+	}
+	if err := CreateEmailTokenTx(ctx, tx, uuid.MustParse(u.ID), tokenHash, "reset", expiresAt); err != nil {
+		return nil, err
+	}
+	if err := runUserCreateSeeder(ctx, tx, u.ID, seeder); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("create invited user: commit: %w", err)
 	}
 	return u, nil
 }

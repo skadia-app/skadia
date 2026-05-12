@@ -36,9 +36,10 @@ type PhotoMetadata struct {
 
 // PhotoResult is returned by ProcessPhoto.
 type PhotoResult struct {
-	PhotoID string
-	Status  string // "created" | "replaced" | "duplicate_exact" | "duplicate_phash"
-	PHash   int64  // 0 if computation failed (non-pointer, matches spec section 3.3)
+	PhotoID    string
+	ActivityID string `json:"-"`
+	Status     string // "created" | "replaced" | "duplicate_exact" | "duplicate_phash"
+	PHash      int64  // 0 if computation failed (non-pointer, matches spec section 3.3)
 }
 
 // OrphanResult is returned by ProcessOrphanPhoto.

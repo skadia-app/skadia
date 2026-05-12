@@ -163,6 +163,11 @@ func (s *SettingsStore) buildCachedSetting(kd KeyDef, dbRows map[string]struct {
 	// 1. Env var takes precedence and locks the field.
 	if kd.EnvVar != "" {
 		if v := readEnvSecret(kd.EnvVar); v != "" {
+			if kd.Validate != nil {
+				if err := kd.Validate(v); err != nil {
+					return CachedSetting{}, fmt.Errorf("validate env %q: %w", kd.Key, err)
+				}
+			}
 			return CachedSetting{
 				Value:     v,
 				Source:    "env",
@@ -184,6 +189,11 @@ func (s *SettingsStore) buildCachedSetting(kd KeyDef, dbRows map[string]struct {
 				return CachedSetting{}, fmt.Errorf("decrypt %q: %w", kd.Key, err)
 			}
 			value = plain
+		}
+		if kd.Validate != nil {
+			if err := kd.Validate(value); err != nil {
+				return CachedSetting{}, fmt.Errorf("validate db %q: %w", kd.Key, err)
+			}
 		}
 		return CachedSetting{
 			Value:     value,

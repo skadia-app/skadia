@@ -27,6 +27,7 @@ type ImportResult struct {
 	Errors           []ImportError
 	Warnings         []string
 	Duration         time.Duration
+	importedFileIDs  []string
 }
 
 // ImportError captures a single row-level import failure.
