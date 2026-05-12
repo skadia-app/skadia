@@ -769,7 +769,7 @@ func (db *DB) GetLiftCandidates(ctx context.Context, activityID, userID string, 
 		return nil, err
 	}
 	defer rows.Close()
-	var result []LiftCandidate
+	result := make([]LiftCandidate, 0)
 	for rows.Next() {
 		var c LiftCandidate
 		if err := rows.Scan(&c.ID, &c.ActivityID, &c.StartedAt, &c.EndedAt,
@@ -861,18 +861,16 @@ func (db *DB) RejectLiftCandidate(ctx context.Context, userID, candidateID, acti
 	return nil
 }
 
-// UnconfirmLiftCandidate flips a previously-confirmed heuristic candidate's
+// UnconfirmLiftCandidate flips a previously-confirmed lift candidate's
 // confirmed flag back to false and recomputes the activity's lift_*
 // aggregates. Mirrors ConfirmLiftCandidate's atomicity contract: the
 // candidate UPDATE and the recompute share a single transaction.
 //
 // Restrictions:
-//   - source = 'heuristic' only (OSM rows are auto-counted; undoing them
-//     is via the soft-reject path, not unconfirm).
 //   - rejected_by_user = false (a soft-rejected row already implies the
 //     user wants it OUT of aggregates; unconfirming it would be confusing).
 //
-// Both clauses are enforced in the WHERE, so a 0-row UPDATE propagates
+// The clause is enforced in the WHERE, so a 0-row UPDATE propagates
 // pgx.ErrNoRows, which the handler maps to 404.
 func (db *DB) UnconfirmLiftCandidate(ctx context.Context, userID, candidateID, activityID string) error {
 	tx, err := db.Pool.Begin(ctx)
@@ -888,7 +886,6 @@ func (db *DB) UnconfirmLiftCandidate(ctx context.Context, userID, candidateID, a
 		 FROM activities a
 		 WHERE alc.id = $1 AND alc.activity_id = $2
 		   AND a.id = alc.activity_id AND a.user_id = $3
-		   AND alc.source = 'heuristic'
 		   AND NOT alc.rejected_by_user
 		 RETURNING alc.activity_id`,
 		candidateID, activityID, userID,
@@ -907,9 +904,10 @@ func (db *DB) UnconfirmLiftCandidate(ctx context.Context, userID, candidateID, a
 }
 
 // recomputeLiftStats recomputes activities.lift_* columns. Phase 4c
-// dedup contract: every lift counted exactly once across the two storage
-// layers — segment_efforts (Stage 1/2/3 of the snap pipeline, auto-counted)
-// + activity_lift_candidates (heuristic-only, user-confirmed).
+// dedup contract: every reviewed lift counted exactly once across the two
+// storage layers — segment_efforts (Stage 1/2/3 of the snap pipeline, counted
+// only after a confirmed audit row exists) + activity_lift_candidates
+// (heuristic-only, user-confirmed).
 //
 // The dedup discriminator is `segment_effort_id IS NULL`: heuristic
 // candidates that were also snapped to OSM in Stage 1/2 carry
@@ -1020,6 +1018,23 @@ func (db *DB) recomputeLiftStatsTx(
 	if lifts.AutoConfirmHeuristic {
 		confirmedFilter = ""
 	}
+	segmentEffortReviewFilter := `
+				  AND NOT EXISTS (
+					SELECT 1 FROM activity_lift_candidates alc
+					WHERE alc.segment_effort_id = se.id AND alc.rejected_by_user = true
+				  )
+				  AND (
+					EXISTS (
+						SELECT 1 FROM activity_lift_candidates alc
+						WHERE alc.segment_effort_id = se.id
+						  AND alc.confirmed = true
+						  AND NOT alc.rejected_by_user
+					)
+					OR NOT EXISTS (
+						SELECT 1 FROM activity_lift_candidates alc
+						WHERE alc.segment_effort_id = se.id
+					)
+				  )`
 
 	query := fmt.Sprintf(`
 		UPDATE activities SET
@@ -1027,10 +1042,7 @@ func (db *DB) recomputeLiftStatsTx(
 				SELECT COUNT(*) FROM segment_efforts se
 				JOIN segments s ON s.id = se.segment_id
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
-				  AND NOT EXISTS (
-					SELECT 1 FROM activity_lift_candidates alc
-					WHERE alc.segment_effort_id = se.id AND alc.rejected_by_user = true
-				  )
+				  %s
 			) + (
 				SELECT COUNT(*) FROM activity_lift_candidates
 				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
@@ -1041,10 +1053,7 @@ func (db *DB) recomputeLiftStatsTx(
 				SELECT COALESCE(SUM(se.elapsed_time_s), 0) FROM segment_efforts se
 				JOIN segments s ON s.id = se.segment_id
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
-				  AND NOT EXISTS (
-					SELECT 1 FROM activity_lift_candidates alc
-					WHERE alc.segment_effort_id = se.id AND alc.rejected_by_user = true
-				  )
+				  %s
 			) + (
 				SELECT COALESCE(SUM(duration_s), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
@@ -1056,10 +1065,7 @@ func (db *DB) recomputeLiftStatsTx(
 				FROM segment_efforts se
 				JOIN segments s ON s.id = se.segment_id
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
-				  AND NOT EXISTS (
-					SELECT 1 FROM activity_lift_candidates alc
-					WHERE alc.segment_effort_id = se.id AND alc.rejected_by_user = true
-				  )
+				  %s
 			) + (
 				SELECT COALESCE(SUM(ascent_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
@@ -1071,10 +1077,7 @@ func (db *DB) recomputeLiftStatsTx(
 				FROM segment_efforts se
 				JOIN segments s ON s.id = se.segment_id
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
-				  AND NOT EXISTS (
-					SELECT 1 FROM activity_lift_candidates alc
-					WHERE alc.segment_effort_id = se.id AND alc.rejected_by_user = true
-				  )
+				  %s
 			) + (
 				SELECT COALESCE(SUM(descent_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
@@ -1085,17 +1088,19 @@ func (db *DB) recomputeLiftStatsTx(
 				SELECT COALESCE(SUM(se.distance_m), 0) FROM segment_efforts se
 				JOIN segments s ON s.id = se.segment_id
 				WHERE se.activity_id = $1 AND s.segment_type = 'lift'
-				  AND NOT EXISTS (
-					SELECT 1 FROM activity_lift_candidates alc
-					WHERE alc.segment_effort_id = se.id AND alc.rejected_by_user = true
-				  )
+				  %s
 			) + (
 				SELECT COALESCE(SUM(distance_m), 0) FROM activity_lift_candidates
 				WHERE activity_id = $1 %s AND segment_effort_id IS NULL
 				  AND source = 'heuristic'
 				  AND NOT rejected_by_user
 			)
-		WHERE id = $1 AND user_id = $2`, confirmedFilter, confirmedFilter, confirmedFilter, confirmedFilter, confirmedFilter)
+		WHERE id = $1 AND user_id = $2`,
+		segmentEffortReviewFilter, confirmedFilter,
+		segmentEffortReviewFilter, confirmedFilter,
+		segmentEffortReviewFilter, confirmedFilter,
+		segmentEffortReviewFilter, confirmedFilter,
+		segmentEffortReviewFilter, confirmedFilter)
 
 	tag, err := tx.Exec(ctx, query, activityID, userID)
 	if err != nil {
@@ -1524,13 +1529,8 @@ func (db *DB) ResetSoftRejectedLiftCandidates(ctx context.Context, userID string
 }
 
 // ConfirmAllLiftCandidates bulk-confirms every unconfirmed, non-rejected
-// heuristic candidate of the given activity, sets activities.lifts_acknowledged_at
+// lift candidate of the given activity, sets activities.lifts_acknowledged_at
 // to NOW(), and recomputes activities.lift_* aggregates atomically in one Tx.
-//
-// Method-A (source='osm') rows are intentionally untouched: they are auto-
-// confirmed at insert time, and a "confirm-all" semantic on OSM rows would
-// be a no-op that risks future drift. The WHERE source='heuristic' clause
-// keeps this contract enforced at the SQL layer.
 //
 // Idempotent: a second call against an already-confirmed corpus updates 0
 // candidate rows but still refreshes lifts_acknowledged_at to NOW() (the
@@ -1561,7 +1561,6 @@ func (db *DB) ConfirmAllLiftCandidates(ctx context.Context, userID, activityID s
 		UPDATE activity_lift_candidates
 		SET    confirmed = true
 		WHERE  activity_id = $1
-		  AND  source = 'heuristic'
 		  AND  confirmed = false
 		  AND  NOT rejected_by_user
 	`, activityID); err != nil {
@@ -1580,15 +1579,8 @@ func (db *DB) ConfirmAllLiftCandidates(ctx context.Context, userID, activityID s
 }
 
 // RejectAllLiftCandidates bulk-soft-rejects every unconfirmed, non-rejected
-// heuristic candidate of the given activity, sets lifts_acknowledged_at to
+// lift candidate of the given activity, sets lifts_acknowledged_at to
 // NOW(), and recomputes lift_* aggregates atomically in one Tx.
-//
-// "All-reject" is intentionally restricted to source='heuristic'. A bulk
-// reject of OSM-snapped lifts has no clean semantics — Method-A rows
-// represent objective geometry matches, and rejecting them all at once
-// would hide all OSM lifts at the activity level even if the user only
-// wanted to clear the heuristic noise. Per-row OSM reject stays available
-// via DELETE /api/v1/activities/{id}/lift-candidates/{cid}.
 //
 // Idempotent and atomic — same contract as ConfirmAllLiftCandidates.
 //
@@ -1614,7 +1606,6 @@ func (db *DB) RejectAllLiftCandidates(ctx context.Context, userID, activityID st
 		UPDATE activity_lift_candidates
 		SET    rejected_by_user = true
 		WHERE  activity_id = $1
-		  AND  source = 'heuristic'
 		  AND  confirmed = false
 		  AND  NOT rejected_by_user
 	`, activityID); err != nil {
@@ -1727,12 +1718,7 @@ func (db *DB) RecalculateActivityLifts(ctx context.Context, userID, activityID s
 
 // RestoreLiftCandidate clears the soft-reject flag on a single candidate
 // owned (transitively via activities.user_id) by userID. The candidate's
-// source determines the post-restore confirmed state:
-//
-//   - source='heuristic' → confirmed=false (user must re-confirm or
-//     re-reject; there is no auto-confirm path for heuristic rows).
-//   - source='osm'       → confirmed=true (auto-confirmed on the OSM
-//     match; restoring just undoes the user's reject).
+// restored candidates are returned to the review queue with confirmed=false.
 //
 // The owner check uses a JOIN to activities so a wrong-owner candidateID
 // produces a 0-row UPDATE → pgx.ErrNoRows → 404. The same WHERE clause
@@ -1751,14 +1737,13 @@ func (db *DB) RestoreLiftCandidate(ctx context.Context, userID, candidateID stri
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	// CASE on source flips confirmed to the source-appropriate state. The
-	// WHERE clause enforces owner + must-be-rejected; either failure
+	// The WHERE clause enforces owner + must-be-rejected; either failure
 	// surfaces as ErrNoRows.
 	var activityID string
 	if err := tx.QueryRow(ctx, `
 		UPDATE activity_lift_candidates alc
 		SET    rejected_by_user = false,
-		       confirmed = CASE WHEN alc.source = 'osm' THEN true ELSE false END
+		       confirmed = false
 		FROM   activities a
 		WHERE  alc.id = $1
 		  AND  a.id = alc.activity_id

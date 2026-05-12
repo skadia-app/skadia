@@ -192,7 +192,7 @@ func TestSnapToOSMLifts_PicksHighestCoverage(t *testing.T) {
 	}
 }
 
-// TestSnapToOSMLifts_RejectsHighHausdorff: a candidate beyond 50m hausdorff
+// TestSnapToOSMLifts_RejectsHighHausdorff: a candidate beyond 25m Hausdorff
 // is dropped even at 100% coverage (safety against parallel-lift mismatch).
 func TestSnapToOSMLifts_RejectsHighHausdorff(t *testing.T) {
 	startTime := time.Unix(0, 0).UTC()
@@ -200,12 +200,12 @@ func TestSnapToOSMLifts_RejectsHighHausdorff(t *testing.T) {
 
 	osm := OSMLiftCandidate{SegmentID: "seg-X", LengthM: 600.0, BearingDeg: 90.0}
 	matches := []RideOSMOverlap{
-		{RideIdx: 0, OSMIdx: 0, HausdorffM: 60.0 /* > 50m cap */, IntersectionLen: 600.0},
+		{RideIdx: 0, OSMIdx: 0, HausdorffM: 26.0 /* > 25m cap */, IntersectionLen: 600.0},
 	}
 
 	results := SnapToOSMLifts([]RideWithIndices{ride.indexed}, []OSMLiftCandidate{osm}, matches, nil, nil)
 	if results[0].Action != SnapActionPassthrough {
-		t.Errorf("expected passthrough for hausdorff>50m, got %q", results[0].Action)
+		t.Errorf("expected passthrough for hausdorff>25m, got %q", results[0].Action)
 	}
 }
 

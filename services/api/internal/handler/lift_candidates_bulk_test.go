@@ -484,9 +484,9 @@ func TestRestoreLiftCandidate_HeuristicClearsRejectedAndUnconfirms(t *testing.T)
 	}
 }
 
-// TestRestoreLiftCandidate_OSMClearsRejectedAndAutoConfirms:
-// rejected OSM → restore → rejected_by_user=false, confirmed=true (auto).
-func TestRestoreLiftCandidate_OSMClearsRejectedAndAutoConfirms(t *testing.T) {
+// TestRestoreLiftCandidate_OSMClearsRejectedAndUnconfirms:
+// rejected OSM → restore → rejected_by_user=false, confirmed=false.
+func TestRestoreLiftCandidate_OSMClearsRejectedAndUnconfirms(t *testing.T) {
 	h, db := liftCandidatesHandlerSetup(t)
 	userID := insertTestUser(t, db.Pool)
 	activityID := insertMinimalActivity(t, db, userID)
@@ -504,8 +504,8 @@ func TestRestoreLiftCandidate_OSMClearsRejectedAndAutoConfirms(t *testing.T) {
 	if got.RejectedByUser {
 		t.Errorf("osm restore left rejected_by_user=true")
 	}
-	if !got.Confirmed {
-		t.Errorf("osm restore left confirmed=false; want confirmed=true (auto)")
+	if got.Confirmed {
+		t.Errorf("osm restore left confirmed=true; want confirmed=false for review")
 	}
 	if got.Source != "osm" {
 		t.Errorf("osm restore changed source to %q", got.Source)

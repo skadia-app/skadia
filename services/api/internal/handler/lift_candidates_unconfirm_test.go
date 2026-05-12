@@ -4,7 +4,7 @@ package handler
 //
 // Coverage:
 //   1. Success: confirmed heuristic candidate → 204, confirmed=false, lift_count=0.
-//   2. OSM source → 409 WRONG_SOURCE (F12: structured error; previously generic 404).
+//   2. OSM source → 204, same review semantics as heuristic rows.
 //   3. Already rejected (rejected_by_user=true) → 409 ALREADY_REJECTED (F12: structured error).
 //   4. Different user → 404 (multi-user isolation, activity-ownership check fires first).
 //   5. Rule retraction: after unconfirm the lift_detected system tag is removed.
@@ -112,9 +112,9 @@ func TestUnconfirmLiftCandidate_Success(t *testing.T) {
 	}
 }
 
-// TestUnconfirmLiftCandidate_OSMSourceReturns409: unconfirm is restricted to
-// heuristic rows; an OSM-sourced candidate must return 409 WRONG_SOURCE (F12).
-func TestUnconfirmLiftCandidate_OSMSourceReturns409(t *testing.T) {
+// TestUnconfirmLiftCandidate_OSMSourceSucceeds: OSM-sourced candidates use the
+// same review semantics as heuristic rows.
+func TestUnconfirmLiftCandidate_OSMSourceSucceeds(t *testing.T) {
 	h, db := liftCandidatesHandlerSetup(t)
 	userID := insertTestUser(t, db.Pool)
 	activityID := insertMinimalActivity(t, db, userID)
@@ -124,14 +124,12 @@ func TestUnconfirmLiftCandidate_OSMSourceReturns409(t *testing.T) {
 	candID := insertUnifiedLiftCandidate(t, db, activityID, start, "osm", true, nil)
 
 	rec := callUnconfirmHandler(t, h, userID, activityID, candID)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("OSM unconfirm status=%d, want 409; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("OSM unconfirm status=%d, want 204; body=%s", rec.Code, rec.Body.String())
 	}
-	assertLiftProblemCode(t, rec, "WRONG_SOURCE")
 
-	// Row must be untouched.
-	if !isConfirmed(t, db, candID) {
-		t.Error("OSM candidate confirmed flag was altered — WHERE restriction failed")
+	if isConfirmed(t, db, candID) {
+		t.Error("OSM candidate confirmed flag is still true after unconfirm")
 	}
 }
 
