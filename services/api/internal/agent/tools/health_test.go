@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/agent"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestHealthToolsRegisterAsUserOwnedReadTools(t *testing.T) {
@@ -34,8 +37,59 @@ func TestHealthToolsRegisterAsUserOwnedReadTools(t *testing.T) {
 			t.Fatalf("%s has no read executor", name)
 		}
 	}
+	writeTool := reg.tools["record_health_metric"]
+	if writeTool == nil || writeTool.Permission != PermissionWriteSafe || !writeTool.RequiresConfirmation || !writeTool.IsUserOwned {
+		t.Fatalf("record_health_metric metadata = %#v", writeTool)
+	}
 	if err := reg.ValidateSchemas(); err != nil {
 		t.Fatalf("ValidateSchemas: %v", err)
+	}
+}
+
+func TestRecordHealthMetricWeightWriteTool(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	userID := "00000000-0000-0000-0000-0000000aa201"
+	insertToolTestUser(t, pool, userID, "agent-health-write")
+	envelope := healthWriteEnvelope(t, pool, userID)
+	sessionID := "00000000-0000-0000-0000-0000000bb201"
+	args := json.RawMessage(`{"metric_kind":"weight_kg","date_iso":"2026-05-12","kg":82.4,"body_fat_pct":18.5}`)
+
+	if _, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
+		UserID: userID, SessionID: sessionID, ToolCallID: "call-weight", ToolName: "record_health_metric", Args: args,
+	}); err != nil {
+		t.Fatalf("PrepareConfirmation: %v", err)
+	}
+	if _, err := envelope.ExecuteConfirmed(ctx, ToolExecutionRequest{
+		UserID: userID, SessionID: sessionID, ToolCallID: "call-weight", ToolName: "record_health_metric", Args: args,
+	}); err != nil {
+		t.Fatalf("ExecuteConfirmed: %v", err)
+	}
+	var weightG int
+	if err := pool.QueryRow(ctx,
+		`SELECT weight_g FROM health_weight_entries WHERE user_id = $1 AND measured_at_utc = '2026-05-12T12:00:00Z'`,
+		userID,
+	).Scan(&weightG); err != nil {
+		t.Fatalf("select weight: %v", err)
+	}
+	if weightG != 82400 {
+		t.Fatalf("weight_g = %d, want 82400", weightG)
+	}
+}
+
+func TestRecordHealthMetricRejectsInvalidHRV(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	userID := "00000000-0000-0000-0000-0000000aa202"
+	insertToolTestUser(t, pool, userID, "agent-health-invalid")
+	envelope := healthWriteEnvelope(t, pool, userID)
+
+	_, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
+		UserID: userID, SessionID: "00000000-0000-0000-0000-0000000bb202", ToolCallID: "call-invalid",
+		ToolName: "record_health_metric", Args: json.RawMessage(`{"metric_kind":"hrv_rmssd","recorded_at_iso":"2026-05-12T08:00:00Z","value_ms":0}`),
+	})
+	if err == nil {
+		t.Fatal("PrepareConfirmation accepted invalid HRV value")
 	}
 }
 
@@ -128,4 +182,32 @@ func TestLegacyHealthToolsWrapHealthStatus(t *testing.T) {
 			t.Fatalf("legacy tool %s not registered as user-owned", item.name)
 		}
 	}
+}
+
+func healthWriteEnvelope(t *testing.T, pool *pgxpool.Pool, userID string) *ExecutionEnvelope {
+	t.Helper()
+	db := &database.DB{Pool: pool}
+	if _, err := db.UpsertChatPrefs(context.Background(), userID, database.ChatUserPreferences{
+		ChatWriteToolsEnabled: true,
+		ChatAllowedWriteTools: []string{"record_health_metric"},
+	}); err != nil {
+		t.Fatalf("upsert chat prefs: %v", err)
+	}
+	reg := NewRegistry()
+	reg.Register(RecordHealthMetricTool())
+	return NewExecutionEnvelope(reg, &Deps{
+		DB:      db,
+		Audit:   agent.NewAuditWriter(db),
+		Confirm: agent.NewConfirmationManager(5 * time.Minute),
+		Preferences: &agent.PreferenceLoader{LoadFunc: func(ctx context.Context, userID string) (*agent.ChatPreferences, error) {
+			prefs, err := db.GetChatPrefs(ctx, userID)
+			if err != nil {
+				return nil, err
+			}
+			return &agent.ChatPreferences{
+				ChatWriteToolsEnabled: prefs.ChatWriteToolsEnabled,
+				ChatAllowedWriteTools: prefs.ChatAllowedWriteTools,
+			}, nil
+		}},
+	})
 }

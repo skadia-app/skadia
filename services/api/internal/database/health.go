@@ -1,8 +1,8 @@
 package database
 
 import (
-	"errors"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -211,6 +211,22 @@ func (db *DB) GetHealthSleep(ctx context.Context, userID, from, to string) ([]mo
 	return results, rows.Err()
 }
 
+func (db *DB) UpsertHealthSleepTx(ctx context.Context, tx pgx.Tx, s *model.HealthSleep) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO health_sleep (user_id, calendar_date, deep_seconds, light_seconds, rem_seconds, source_type)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (user_id, calendar_date) DO UPDATE SET
+			deep_seconds  = COALESCE(EXCLUDED.deep_seconds, health_sleep.deep_seconds),
+			light_seconds = COALESCE(EXCLUDED.light_seconds, health_sleep.light_seconds),
+			rem_seconds   = COALESCE(EXCLUDED.rem_seconds, health_sleep.rem_seconds),
+			source_type   = EXCLUDED.source_type`,
+		s.UserID, s.CalendarDate, s.DeepSeconds, s.LightSeconds, s.RemSeconds, s.SourceType)
+	if err != nil {
+		return fmt.Errorf("upsert health sleep tx: %w", err)
+	}
+	return nil
+}
+
 func (db *DB) GetLatestHealthSleep(ctx context.Context, userID string) (*model.HealthSleep, error) {
 	row := db.Pool.QueryRow(ctx, `
 		SELECT user_id, calendar_date, sleep_start_utc, sleep_end_utc,
@@ -346,6 +362,21 @@ func (db *DB) GetHealthHRV(ctx context.Context, userID, from, to string) ([]mode
 	return results, rows.Err()
 }
 
+func (db *DB) UpsertHealthHRVSnapshotTx(ctx context.Context, tx pgx.Tx, s *model.HealthHRVSnapshot) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO health_snapshots (user_id, measured_at_utc, rmssd_ms, source_type, title)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (user_id, measured_at_utc) DO UPDATE SET
+			rmssd_ms = EXCLUDED.rmssd_ms,
+			source_type = EXCLUDED.source_type,
+			title = COALESCE(EXCLUDED.title, health_snapshots.title)`,
+		s.UserID, s.MeasuredAtUTC, s.RmssdMS, s.SourceType, s.Title)
+	if err != nil {
+		return fmt.Errorf("upsert health hrv tx: %w", err)
+	}
+	return nil
+}
+
 func (db *DB) GetLatestHealthHRV(ctx context.Context, userID string) (*model.HealthHRVSnapshot, error) {
 	row := db.Pool.QueryRow(ctx, `
 		SELECT user_id, measured_at_utc, rmssd_ms, sdrr_ms,
@@ -444,6 +475,21 @@ func (db *DB) GetHealthWeight(ctx context.Context, userID, from, to string) ([]m
 		results = append(results, s)
 	}
 	return results, rows.Err()
+}
+
+func (db *DB) UpsertHealthWeightEntryTx(ctx context.Context, tx pgx.Tx, s *model.HealthWeightEntry) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO health_weight_entries (user_id, measured_at_utc, weight_g, body_fat_pct, source_type)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (user_id, measured_at_utc) DO UPDATE SET
+			weight_g = EXCLUDED.weight_g,
+			body_fat_pct = COALESCE(EXCLUDED.body_fat_pct, health_weight_entries.body_fat_pct),
+			source_type = EXCLUDED.source_type`,
+		s.UserID, s.MeasuredAtUTC, s.WeightG, s.BodyFatPct, s.SourceType)
+	if err != nil {
+		return fmt.Errorf("upsert health weight tx: %w", err)
+	}
+	return nil
 }
 
 func (db *DB) GetLatestHealthWeight(ctx context.Context, userID string) (*model.HealthWeightEntry, error) {
