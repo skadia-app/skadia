@@ -598,6 +598,43 @@ func TestMultipartImportPartClaimBlocksDuplicateWriters(t *testing.T) {
 	}
 }
 
+func TestMultipartImportPartClaimReclaimsStaleReceivingFlag(t *testing.T) {
+	ctx := context.Background()
+	h, userID, _ := newMultipartImportHandlerForTest(t)
+	data := minimalImportZip(t)
+	jobID := createMultipartImportSessionForTest(t, h, userID, []multipartExpectedPart{{name: "metadata.zip", role: "metadata", data: data}})
+
+	if _, _, _, err := h.claimImportUploadPart(ctx, jobID, userID, "metadata.zip"); err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	var metadata []byte
+	if err := h.DB.Pool.QueryRow(ctx, `SELECT metadata FROM background_jobs WHERE id = $1`, jobID).Scan(&metadata); err != nil {
+		t.Fatalf("select metadata: %v", err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(metadata, &envelope); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	upload := envelope["import_upload"].(map[string]any)
+	parts := upload["parts"].([]any)
+	part := parts[0].(map[string]any)
+	part["receiving"] = true
+	part["receiving_started_at"] = time.Now().Add(-45 * time.Minute).Format(time.RFC3339)
+	updated, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal stale metadata: %v", err)
+	}
+	if _, err := h.DB.Pool.Exec(ctx, `UPDATE background_jobs SET metadata = $2::jsonb WHERE id = $1`, jobID, updated); err != nil {
+		t.Fatalf("write stale metadata: %v", err)
+	}
+
+	if _, upload, partIndex, err := h.claimImportUploadPart(ctx, jobID, userID, "metadata.zip"); err != nil {
+		t.Fatalf("stale receiving claim should be reclaimed, got error: %v", err)
+	} else if partIndex != 0 || !upload.Parts[partIndex].Receiving {
+		t.Fatalf("reclaimed part state = index %d part %#v", partIndex, upload.Parts[partIndex])
+	}
+}
+
 func newDataImportUploadRequest(t *testing.T, userID string, content []byte) *http.Request {
 	t.Helper()
 	var body bytes.Buffer

@@ -3782,7 +3782,7 @@ func (m *editQuotaShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEn
 	return m.Put(ctx, entry, data)
 }
 
-func TestEditSidecarShadowFSQuotaExceededHardFails(t *testing.T) {
+func TestEditSidecarShadowFSQuotaExceededWarnsWithoutFailingImport(t *testing.T) {
 	pool := testDB(t)
 	ctx := context.Background()
 	userID := createTestUser(t, pool)
@@ -3835,12 +3835,19 @@ func TestEditSidecarShadowFSQuotaExceededHardFails(t *testing.T) {
 		ShadowFS: &editQuotaShadowFS{dbMockShadowFS: newDBMockShadowFS(pool)},
 		Config:   EngineConfig{},
 	}
-	_, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
-	if err == nil {
-		t.Fatal("RunImport should hard-fail when edit-sidecar restore hits ShadowFS quota")
+	result, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err != nil {
+		t.Fatalf("RunImport should warn and continue when edit-sidecar restore hits ShadowFS quota: %v", err)
 	}
-	if !errors.Is(err, shadowfs.ErrQuotaExceeded) {
-		t.Fatalf("RunImport error should wrap ErrQuotaExceeded, got: %v", err)
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "Edit sidecar") {
+		t.Fatalf("warnings = %#v, want one edit-sidecar warning", result.Warnings)
+	}
+	var activities int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM activities WHERE user_id = $1`, userID).Scan(&activities); err != nil {
+		t.Fatalf("count imported activities: %v", err)
+	}
+	if activities != 1 {
+		t.Fatalf("imported activities = %d, want 1", activities)
 	}
 }
 

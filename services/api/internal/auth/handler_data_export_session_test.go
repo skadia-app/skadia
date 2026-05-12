@@ -208,6 +208,49 @@ func TestDataExportDownloadRangeIncludesContentRange(t *testing.T) {
 	}
 }
 
+func TestDataExportDownloadInvalidRangeDoesNotConsumeSession(t *testing.T) {
+	h, ownerID, jobID := newDataExportSessionFixture(t, "export body")
+
+	req := dataExportSessionRequest(t, ownerID, jobID, `{"single":true}`)
+	w := httptest.NewRecorder()
+	h.DataExportDownloadSession(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("session status = %d body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode session response: %v", err)
+	}
+
+	invalidReq := httptest.NewRequest(http.MethodGet, resp.URL, nil)
+	invalidReq.Header.Set("Range", "bytes=99-100")
+	for _, cookie := range w.Result().Cookies() {
+		invalidReq.AddCookie(cookie)
+	}
+	invalidReq = withJobAndPart(invalidReq, jobID, "export.zip")
+	invalidW := httptest.NewRecorder()
+	h.DataExportDownloadPart(invalidW, invalidReq)
+	if invalidW.Code != http.StatusRequestedRangeNotSatisfiable {
+		t.Fatalf("invalid range status = %d body=%s", invalidW.Code, invalidW.Body.String())
+	}
+
+	validReq := httptest.NewRequest(http.MethodGet, resp.URL, nil)
+	for _, cookie := range w.Result().Cookies() {
+		validReq.AddCookie(cookie)
+	}
+	validReq = withJobAndPart(validReq, jobID, "export.zip")
+	validW := httptest.NewRecorder()
+	h.DataExportDownloadPart(validW, validReq)
+	if validW.Code != http.StatusOK {
+		t.Fatalf("valid replay after invalid range status = %d body=%s", validW.Code, validW.Body.String())
+	}
+	if validW.Body.String() != "export body" {
+		t.Fatalf("valid replay body = %q", validW.Body.String())
+	}
+}
+
 func TestDataExportDownloadSessionAllReturnsObjectURLs(t *testing.T) {
 	h, ownerID, jobID := newMultipartDataExportSessionFixture(t)
 

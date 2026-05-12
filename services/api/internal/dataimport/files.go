@@ -457,9 +457,6 @@ func (e *Engine) importEditSidecars(
 		// pre-remap needed here. The activity is in IDMap after Phase 5, so
 		// importFileByID will find actOldID → actNewID correctly.
 		if err := e.importFileByID(ctx, source, idMap, userID, oldFileID, fileIndex, nil, result); err != nil {
-			if errors.Is(err, shadowfs.ErrQuotaExceeded) {
-				return fmt.Errorf("Edit sidecar %s: %w", oldFileID, err)
-			}
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Edit sidecar %s: %v", oldFileID, err))
 		}

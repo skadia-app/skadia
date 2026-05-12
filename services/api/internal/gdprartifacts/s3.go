@@ -99,7 +99,10 @@ func newS3StoreForTest(client s3CoreAPI, cfg S3Config) *S3Store {
 	return &S3Store{client: client, cfg: cfg}
 }
 
-func (s *S3Store) CreateWriter(_ context.Context, spec ObjectSpec) (ObjectWriter, error) {
+func (s *S3Store) CreateWriter(ctx context.Context, spec ObjectSpec) (ObjectWriter, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	bucket, prefix, err := s.bucketAndPrefix(spec.Kind)
 	if err != nil {
 		return nil, err
@@ -110,6 +113,7 @@ func (s *S3Store) CreateWriter(_ context.Context, spec ObjectSpec) (ObjectWriter
 	}
 	return &s3ObjectWriter{
 		store:       s,
+		ctx:         ctx,
 		spec:        spec,
 		bucket:      bucket,
 		key:         key,
@@ -324,6 +328,7 @@ func (s *S3Store) bucketAndPrefix(kind string) (string, string, error) {
 
 type s3ObjectWriter struct {
 	store       *S3Store
+	ctx         context.Context
 	spec        ObjectSpec
 	bucket      string
 	key         string
@@ -363,8 +368,8 @@ func (w *s3ObjectWriter) Write(p []byte) (int, error) {
 		}
 		p = p[space:]
 		if int64(w.buffer.Len()) >= w.partSize {
-			if err := w.ensureMultipartAndUpload(context.Background(), false); err != nil {
-				_ = w.Abort(context.Background())
+			if err := w.ensureMultipartAndUpload(w.ctx, false); err != nil {
+				_ = w.Abort(context.WithoutCancel(w.ctx))
 				return 0, err
 			}
 		}

@@ -34,6 +34,8 @@ var (
 	errImportPartInProgress     = errors.New("part_upload_in_progress")
 )
 
+const importPartReceivingLeaseTTL = 30 * time.Minute
+
 type importUploadPartMetadata struct {
 	Name                  string                   `json:"name"`
 	Role                  string                   `json:"role"`
@@ -41,6 +43,7 @@ type importUploadPartMetadata struct {
 	SizeBytes             int64                    `json:"size_bytes"`
 	Received              bool                     `json:"received"`
 	Receiving             bool                     `json:"receiving,omitempty"`
+	ReceivingStartedAt    *time.Time               `json:"receiving_started_at,omitempty"`
 	LegacyChecksumMissing bool                     `json:"legacy_checksum_missing,omitempty"`
 	Artifact              *gdprartifacts.ObjectRef `json:"artifact,omitempty"`
 }
@@ -419,6 +422,18 @@ func (h *Handler) DataImport(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: expiresAt,
 		Objects:   []gdprartifacts.ObjectRef{ref},
 	}
+	if err := h.commitGDPRArtifactCapacity(ctx, jobID, userID, ref.SizeBytes); err != nil {
+		slog.Error("data import: commit artifact capacity failed", "error", err)
+		_ = h.ArtifactStore.DeletePrefix(context.Background(), gdprartifacts.ArtifactPrefix{Kind: "import", UserID: userID, JobID: jobID})
+		_ = h.markImportJobFailed(ctx, jobID, "artifact_quota_exceeded")
+		_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
+		if isArtifactCapacityError(err) {
+			httputil.WriteJSONNoCache(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "artifact_quota_exceeded"})
+			return
+		}
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
 	metadataJSON, err := buildImportUploadMetadata(artifact, ref)
 	if err != nil {
 		slog.Error("data import: encode artifact metadata failed", "error", err)
@@ -441,7 +456,6 @@ func (h *Handler) DataImport(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
-	_ = h.commitGDPRArtifactCapacity(ctx, jobID, userID, ref.SizeBytes)
 
 	go h.runImportJob(jobID, userID, "")
 
@@ -1197,7 +1211,8 @@ func (h *Handler) claimImportUploadPart(ctx context.Context, jobID, userID, part
 	if upload.State == "" {
 		return nil, importUploadMetadata{}, -1, fmt.Errorf("import_upload missing")
 	}
-	if time.Now().After(upload.ExpiresAt) {
+	now := time.Now().UTC()
+	if now.After(upload.ExpiresAt) {
 		return nil, importUploadMetadata{}, -1, errImportUploadExpired
 	}
 	partIndex := -1
@@ -1213,10 +1228,11 @@ func (h *Handler) claimImportUploadPart(ctx context.Context, jobID, userID, part
 	if upload.Parts[partIndex].Received {
 		return nil, importUploadMetadata{}, -1, errImportPartAlreadyHandled
 	}
-	if upload.Parts[partIndex].Receiving {
+	if upload.Parts[partIndex].Receiving && !isImportPartReceivingLeaseStale(upload.Parts[partIndex], now) {
 		return nil, importUploadMetadata{}, -1, errImportPartInProgress
 	}
 	upload.Parts[partIndex].Receiving = true
+	upload.Parts[partIndex].ReceivingStartedAt = &now
 	updated, err := mergeImportUploadMetadata(metadata, upload, nil)
 	if err != nil {
 		return nil, importUploadMetadata{}, -1, err
@@ -1254,6 +1270,7 @@ func (h *Handler) clearImportUploadPartReceiving(ctx context.Context, jobID, use
 	for i := range upload.Parts {
 		if upload.Parts[i].Name == partName && !upload.Parts[i].Received {
 			upload.Parts[i].Receiving = false
+			upload.Parts[i].ReceivingStartedAt = nil
 			updated, err := mergeImportUploadMetadata(metadata, upload, nil)
 			if err != nil {
 				return err
@@ -1315,6 +1332,7 @@ func (h *Handler) markImportUploadPartReceived(ctx context.Context, jobID, userI
 	}
 	upload.Parts[partIndex].Received = true
 	upload.Parts[partIndex].Receiving = false
+	upload.Parts[partIndex].ReceivingStartedAt = nil
 	upload.Parts[partIndex].Artifact = &ref
 	upload.Parts[partIndex].SizeBytes = ref.SizeBytes
 	upload.ReceivedBytes += ref.SizeBytes
@@ -1327,6 +1345,16 @@ func (h *Handler) markImportUploadPartReceived(ctx context.Context, jobID, userI
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func isImportPartReceivingLeaseStale(part importUploadPartMetadata, now time.Time) bool {
+	if !part.Receiving {
+		return false
+	}
+	if part.ReceivingStartedAt == nil {
+		return true
+	}
+	return now.Sub(part.ReceivingStartedAt.UTC()) > importPartReceivingLeaseTTL
 }
 
 func mergeImportUploadMetadata(existing []byte, upload importUploadMetadata, artifact *gdprartifacts.Artifact) ([]byte, error) {

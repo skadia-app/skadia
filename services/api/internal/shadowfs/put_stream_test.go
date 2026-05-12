@@ -1,6 +1,7 @@
 package shadowfs
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -211,4 +212,73 @@ func TestUnifiedShadowFSPutDelegatesToPutStream(t *testing.T) {
 	if !backend.writeStreamCalled {
 		t.Fatal("Put did not delegate to streaming backend")
 	}
+}
+
+func TestUnifiedShadowFSStreamExportFilesDoesNotApplySingleZipCap(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	base := t.TempDir()
+	fs := NewUnifiedShadowFS(pool, NewLocalBackend(base), nil, "local", base, NewSchemaRenderer(), nil, 1, 0, "", "", "")
+	userID := createPutStreamTestUser(t)
+	content := []byte("small blob with large logical metadata")
+
+	rec, err := fs.PutStream(ctx, putStreamActivityEntry(userID, content), bytes.NewReader(content))
+	if err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE user_files SET size_bytes = $1 WHERE id = $2 AND user_id = $3`,
+		maxExportBytesUnified+1, rec.ID, userID); err != nil {
+		t.Fatalf("inflate logical size: %v", err)
+	}
+
+	sink := &discardExportFileSink{}
+	failed, err := fs.StreamExportFiles(ctx, userID, sink)
+	if err != nil {
+		t.Fatalf("StreamExportFiles returned single-ZIP limit error: %v", err)
+	}
+	if len(failed) != 0 {
+		t.Fatalf("failed paths = %#v", failed)
+	}
+	if len(sink.paths) != 1 || sink.paths[0] != "activity/restore.fit" {
+		t.Fatalf("streamed paths = %#v", sink.paths)
+	}
+}
+
+func TestUnifiedShadowFSStreamToZipKeepsSingleZipCap(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	base := t.TempDir()
+	fs := NewUnifiedShadowFS(pool, NewLocalBackend(base), nil, "local", base, NewSchemaRenderer(), nil, 1, 0, "", "", "")
+	userID := createPutStreamTestUser(t)
+	content := []byte("small blob with large logical metadata")
+
+	rec, err := fs.PutStream(ctx, putStreamActivityEntry(userID, content), bytes.NewReader(content))
+	if err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE user_files SET size_bytes = $1 WHERE id = $2 AND user_id = $3`,
+		maxExportBytesUnified+1, rec.ID, userID); err != nil {
+		t.Fatalf("inflate logical size: %v", err)
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	if _, err := fs.StreamToZip(ctx, userID, zw); err == nil {
+		t.Fatal("StreamToZip succeeded despite exceeding the single-ZIP export cap")
+	}
+	_ = zw.Close()
+}
+
+type discardExportFileSink struct {
+	paths []string
+}
+
+func (s *discardExportFileSink) AddExportFile(_ context.Context, file ExportFile, data io.Reader) error {
+	if _, err := io.Copy(io.Discard, data); err != nil {
+		return err
+	}
+	s.paths = append(s.paths, file.ZIPPath)
+	return nil
 }

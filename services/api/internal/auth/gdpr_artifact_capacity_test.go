@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,6 +193,52 @@ func TestSingleZipImportRejectsActiveArtifactBudgetBeforeArtifactWrite(t *testin
 	}
 }
 
+func TestSingleZipImportRejectsCapacityCommitFailureBeforeQueueing(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	clearActiveDataImportJobsForTest(t, pool)
+	userID := createArtifactExportUser(t, pool)
+	local, err := gdprartifacts.NewLocalStore(t.TempDir()+"/exports", t.TempDir()+"/imports")
+	if err != nil {
+		t.Fatalf("NewLocalStore: %v", err)
+	}
+	store := &inflatingCommitStore{LocalStore: local, inflateTo: 1 << 20}
+	h := &Handler{
+		DB: &database.DB{Pool: pool},
+		Config: &config.Config{
+			GDPRArtifactBackend:         "local",
+			GDPRArtifactUserActiveBytes: int64(len(minimalImportZip(t))) + 1024,
+		},
+		ArtifactStore: store,
+		shutdownCtx:   canceledContext(),
+	}
+
+	req := newDataImportUploadRequest(t, userID, minimalImportZip(t))
+	w := httptest.NewRecorder()
+	h.DataImport(w, req)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("DataImport status = %d body=%s", w.Code, w.Body.String())
+	}
+
+	var queued int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM background_jobs
+		WHERE user_id = $1 AND job_type = 'data_import' AND status = 'queued'`,
+		userID).Scan(&queued); err != nil {
+		t.Fatalf("count queued imports: %v", err)
+	}
+	if queued != 0 {
+		t.Fatalf("queued imports = %d, want 0 after capacity commit failure", queued)
+	}
+	if store.lastJobID == "" {
+		t.Fatal("inflating store did not see an import artifact write")
+	}
+	if err := store.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "import", UserID: userID, JobID: store.lastJobID}); err != nil {
+		t.Fatalf("cleanup import prefix: %v", err)
+	}
+}
+
 func TestDataExportAdmissionRejectsEstimatedArtifactBudget(t *testing.T) {
 	pool := testdb.Open(t)
 	clearActiveDataImportJobsForTest(t, pool)
@@ -218,6 +265,62 @@ func TestDataExportAdmissionRejectsEstimatedArtifactBudget(t *testing.T) {
 	h.DataExport(w, req)
 	if w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("DataExport status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestDataExportDoesNotPublishArtifactWhenCapacityCommitFails(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	clearActiveDataImportJobsForTest(t, pool)
+	userID := createArtifactExportUser(t, pool)
+	jobID := uuid.NewString()
+	insertCapacityTestJob(t, pool, jobID, userID, "gdpr_export", "running")
+	store, err := gdprartifacts.NewLocalStore(t.TempDir()+"/exports", t.TempDir()+"/imports")
+	if err != nil {
+		t.Fatalf("NewLocalStore: %v", err)
+	}
+	h := &Handler{
+		DB:            &database.DB{Pool: pool},
+		Config:        &config.Config{GDPRArtifactBackend: "local", GDPRArtifactUserActiveBytes: 1},
+		ArtifactStore: store,
+		shutdownCtx:   canceledContext(),
+	}
+	if err := h.reserveGDPRArtifactCapacity(ctx, gdprArtifactCapacityRequest{
+		JobID:         jobID,
+		UserID:        userID,
+		Backend:       "local",
+		Kind:          "export",
+		ReservedBytes: 1,
+		ExpiresAt:     time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("reserve tiny export capacity: %v", err)
+	}
+
+	err = h.executeExportJobOnce(ctx, jobID, userID)
+	if !isArtifactCapacityError(err) {
+		t.Fatalf("executeExportJobOnce error = %v, want capacity error", err)
+	}
+
+	var metadata []byte
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(metadata, '{}'::jsonb) FROM background_jobs WHERE id = $1`, jobID).Scan(&metadata); err != nil {
+		t.Fatalf("select job metadata: %v", err)
+	}
+	if strings.Contains(string(metadata), `"artifact"`) {
+		t.Fatalf("metadata published artifact despite capacity commit failure: %s", metadata)
+	}
+	var objectCount int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM gdpr_artifact_reservations
+		WHERE job_id = $1 AND committed_bytes > 0`,
+		jobID).Scan(&objectCount); err != nil {
+		t.Fatalf("query reservation: %v", err)
+	}
+	if objectCount != 0 {
+		t.Fatalf("reservation committed despite capacity failure")
+	}
+	if err := store.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "export", UserID: userID, JobID: jobID}); err != nil {
+		t.Fatalf("cleanup export prefix: %v", err)
 	}
 }
 
@@ -355,4 +458,33 @@ func insertCapacityTestJob(t *testing.T, pool *pgxpool.Pool, jobID, userID, jobT
 		jobID, jobType, userID, status); err != nil {
 		t.Fatalf("insert background job: %v", err)
 	}
+}
+
+type inflatingCommitStore struct {
+	*gdprartifacts.LocalStore
+	inflateTo int64
+	lastJobID string
+}
+
+func (s *inflatingCommitStore) CreateWriter(ctx context.Context, spec gdprartifacts.ObjectSpec) (gdprartifacts.ObjectWriter, error) {
+	s.lastJobID = spec.JobID
+	w, err := s.LocalStore.CreateWriter(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	return inflatingCommitWriter{ObjectWriter: w, inflateTo: s.inflateTo}, nil
+}
+
+type inflatingCommitWriter struct {
+	gdprartifacts.ObjectWriter
+	inflateTo int64
+}
+
+func (w inflatingCommitWriter) Commit(ctx context.Context) (gdprartifacts.ObjectRef, error) {
+	ref, err := w.ObjectWriter.Commit(ctx)
+	if err != nil {
+		return gdprartifacts.ObjectRef{}, err
+	}
+	ref.SizeBytes = w.inflateTo
+	return ref, nil
 }

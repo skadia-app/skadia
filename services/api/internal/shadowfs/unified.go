@@ -772,8 +772,13 @@ func (u *UnifiedShadowFS) DiskUsage(ctx context.Context, userID string) (int64, 
 
 const maxExportBytesUnified int64 = 4 * 1024 * 1024 * 1024 // 4 GiB
 
+var errExportSizeLimitExceeded = errors.New("shadowfs: export size limit exceeded")
+
 func (u *UnifiedShadowFS) StreamToZip(ctx context.Context, userID string, zw *zip.Writer) ([]string, error) {
-	return u.StreamExportFiles(ctx, userID, NewZipExportFileSink(zw))
+	return u.StreamExportFiles(ctx, userID, &limitedExportFileSink{
+		sink:  NewZipExportFileSink(zw),
+		limit: maxExportBytesUnified,
+	})
 }
 
 // StreamExportFiles streams every exportable user file into sink.
@@ -790,7 +795,6 @@ func (u *UnifiedShadowFS) StreamExportFiles(ctx context.Context, userID string, 
 	}
 
 	var failedPaths []string
-	var totalBytes int64
 	for _, rec := range records {
 		// Skip derivatives.
 		if rec.FileType == "thumb" || rec.FileType == "preview" {
@@ -799,11 +803,6 @@ func (u *UnifiedShadowFS) StreamExportFiles(ctx context.Context, userID string, 
 		// Legacy _cache/ filter.
 		if strings.Contains(rec.StoragePath, "/_cache/") {
 			continue
-		}
-
-		totalBytes += rec.SizeBytes
-		if totalBytes > maxExportBytesUnified {
-			return failedPaths, fmt.Errorf("shadowfs: export exceeds %d byte limit", maxExportBytesUnified)
 		}
 
 		// Normalize zip paths — use path.Base to strip any directory components from
@@ -842,6 +841,9 @@ func (u *UnifiedShadowFS) StreamExportFiles(ctx context.Context, userID string, 
 		}, rc)
 		rc.Close()
 		if copyErr != nil {
+			if errors.Is(copyErr, errExportSizeLimitExceeded) {
+				return failedPaths, copyErr
+			}
 			// A single corrupt/short file must NOT abort the entire export —
 			// otherwise one bad blob hides all subsequent files.
 			slog.Warn("shadowfs: zip copy failed, continuing with next file",
@@ -871,6 +873,22 @@ func (u *UnifiedShadowFS) StreamExportFiles(ctx context.Context, userID string, 
 		}
 	}
 	return failedPaths, nil
+}
+
+type limitedExportFileSink struct {
+	sink  ExportFileSink
+	limit int64
+	total int64
+}
+
+func (s *limitedExportFileSink) AddExportFile(ctx context.Context, file ExportFile, data io.Reader) error {
+	if s.limit > 0 {
+		s.total += file.SizeBytes
+		if s.total > s.limit {
+			return fmt.Errorf("%w: export exceeds %d byte limit", errExportSizeLimitExceeded, s.limit)
+		}
+	}
+	return s.sink.AddExportFile(ctx, file, data)
 }
 
 // ---------------------------------------------------------------------------
