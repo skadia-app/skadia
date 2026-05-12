@@ -21,6 +21,7 @@ import { useRoutePlanner } from '@/hooks/useRoutePlanner'
 import { bboxForProfileDistRange, buildProfileToCoordMap, hoverPointAtFraction } from '@/hooks/profileToCoordMap'
 import { getTagTextColor, getTagBadgeStyle } from '@/lib/tagUtils'
 import { fmtDateCompact } from '@/lib/format'
+import { displayActivityTitle } from '@/lib/activityTitle'
 import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
@@ -3602,7 +3603,7 @@ export default function MapPage() {
                 ) : (
                   <ul className="divide-y divide-neutral-100 dark:divide-neutral-800 max-h-[200px] overflow-y-auto">
                     {tagActivities.map(act => {
-                      const displayTitle = act.title || act.title_auto || 'Aktivität'
+                      const displayTitle = displayActivityTitle(act, 'Aktivität')
                       const date = fmtDateCompact(act.started_at, act.timezone)
                       const dist = act.distance_m != null
                         ? act.distance_m >= 1000
