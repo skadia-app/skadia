@@ -28,6 +28,7 @@ type PreparedConfirmation struct {
 	Summary   string
 	ExpiresAt time.Time
 	Cached    *json.RawMessage
+	Response  <-chan agent.ConfirmResponse
 }
 
 type ExecutionEnvelope struct {
@@ -81,20 +82,21 @@ func (e *ExecutionEnvelope) PrepareConfirmation(ctx context.Context, req ToolExe
 		return nil, fmt.Errorf("confirmation manager is not configured")
 	}
 	expiresAt := time.Now().Add(5 * time.Minute)
-	if _, err := e.Deps.Confirm.Register(ctx, &agent.PendingConfirm{
+	response, err := e.Deps.Confirm.Register(ctx, &agent.PendingConfirm{
 		SessionID:  req.SessionID,
 		ToolCallID: req.ToolCallID,
 		Tool:       tool.Name,
 		Args:       req.Args,
 		Summary:    summary,
 		ExpiresAt:  expiresAt,
-	}); err != nil {
+	})
+	if err != nil {
 		if existing != nil {
 			_ = e.audit().Complete(ctx, req.UserID, existing.ID, "error", json.RawMessage(`{"error":"confirmation registration failed"}`))
 		}
 		return nil, err
 	}
-	return &PreparedConfirmation{Summary: summary, ExpiresAt: expiresAt}, nil
+	return &PreparedConfirmation{Summary: summary, ExpiresAt: expiresAt, Response: response}, nil
 }
 
 func (e *ExecutionEnvelope) ExecutePreview(ctx context.Context, req ToolExecutionRequest) (any, error) {

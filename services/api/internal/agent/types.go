@@ -1,8 +1,12 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/shared"
 )
 
 type ChatRequest struct {
@@ -26,6 +30,7 @@ const (
 	EventToolConfirmRequest = "chat.tool_confirm_request"
 	EventToolConfirmed      = "chat.tool_confirmed"
 	EventToolDeclined       = "chat.tool_declined"
+	EventUserQuestion       = "chat.user_question"
 	EventDone               = "chat.done"
 	EventError              = "chat.error"
 )
@@ -39,6 +44,7 @@ type SSEEvent struct {
 	Tool          string          `json:"tool,omitempty"`
 	Args          json.RawMessage `json:"args,omitempty"`
 	Summary       string          `json:"summary,omitempty"`
+	Question      string          `json:"question,omitempty"`
 	ExpiresAt     *time.Time      `json:"expires_at_iso,omitempty"`
 	Reason        string          `json:"reason,omitempty"`
 	Sources       []string        `json:"sources,omitempty"`
@@ -52,4 +58,38 @@ type TokenUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+}
+
+type ToolRuntime interface {
+	AddEnabledWriteTools(filter []string, prefs *ChatPreferences) []string
+	Definitions(filter []string, prefs *ChatPreferences) []openai.ChatCompletionToolParam
+	Execute(ctx context.Context, req ToolRuntimeRequest, sink SSESink) (ToolRuntimeResult, error)
+}
+
+type ToolRuntimeRequest struct {
+	UserID     string
+	SessionID  string
+	MessageID  string
+	ToolCallID string
+	ToolName   string
+	Args       json.RawMessage
+}
+
+type ToolRuntimeResult struct {
+	Result   any
+	Summary  string
+	AskUser  bool
+	Question string
+}
+
+type ChatStream interface {
+	Next() bool
+	Current() openai.ChatCompletionChunk
+	Err() error
+}
+
+type ChatStreamFunc func(ctx context.Context, cfg LLMConfig, params openai.ChatCompletionNewParams) ChatStream
+
+func chatModel(name string) shared.ChatModel {
+	return shared.ChatModel(name)
 }
