@@ -123,8 +123,14 @@ func TestRegistryAddEnabledWriteTools(t *testing.T) {
 	}
 }
 
-func TestRegistryMCPDefinitionsOmitInternalFlags(t *testing.T) {
+func TestRegistryLocalMCPReadDefinitionsOmitWriteTools(t *testing.T) {
 	reg := NewRegistry()
+	reg.Register(&Tool{
+		Name:        "read_activity",
+		Description: "Read activity",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Permission:  PermissionRead,
+	})
 	reg.Register(&Tool{
 		Name:                 "update_activity",
 		Description:          "Update an activity",
@@ -136,14 +142,15 @@ func TestRegistryMCPDefinitionsOmitInternalFlags(t *testing.T) {
 		IsUserOwned:          true,
 	})
 
-	raw, err := json.Marshal(reg.MCPDefinitions(nil))
+	raw, err := json.Marshal(reg.ExportDefinitions(ToolExportLocalMCPRead, nil, &agent.ChatPreferences{
+		ChatWriteToolsEnabled: true,
+		ChatAllowedWriteTools: []string{"update_activity"},
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"permission", "requires", "audit", "rate", "user"} {
-		if strings.Contains(strings.ToLower(string(raw)), forbidden) {
-			t.Fatalf("MCP projection leaked internal field %q in %s", forbidden, raw)
-		}
+	if strings.Contains(string(raw), "update_activity") {
+		t.Fatalf("read MCP projection exported write tool: %s", raw)
 	}
 }
 

@@ -10,12 +10,15 @@ import (
 )
 
 type PendingConfirm struct {
+	UserID     string
+	ActionID   string
 	SessionID  string
 	ToolCallID string
 	Tool       string
 	Args       json.RawMessage
 	Summary    string
 	ExpiresAt  time.Time
+	Metadata   json.RawMessage
 	respCh     chan ConfirmResponse
 	resolved   atomic.Bool
 }
@@ -24,11 +27,14 @@ type ConfirmResponse struct {
 	Confirmed     bool
 	ArgsOverrides json.RawMessage
 	Source        string
+	Metadata      json.RawMessage
 }
 
 type ConfirmationManager struct {
 	mu         sync.Mutex
 	pending    map[string]*PendingConfirm
+	actions    map[string]*PendingConfirm
+	resolved   map[string]ConfirmResponse
 	ttl        time.Duration
 	gcInterval time.Duration
 	gcOnce     sync.Once
@@ -47,6 +53,8 @@ func NewConfirmationManager(ttl time.Duration) *ConfirmationManager {
 	}
 	return &ConfirmationManager{
 		pending:    make(map[string]*PendingConfirm),
+		actions:    make(map[string]*PendingConfirm),
+		resolved:   make(map[string]ConfirmResponse),
 		ttl:        ttl,
 		gcInterval: gcInterval,
 	}
@@ -73,6 +81,9 @@ func (m *ConfirmationManager) Register(ctx context.Context, p *PendingConfirm) (
 		return nil, fmt.Errorf("confirmation already pending")
 	}
 	m.pending[key] = p
+	if p.ActionID != "" {
+		m.actions[p.ActionID] = p
+	}
 	m.mu.Unlock()
 
 	m.gcOnce.Do(func() { go m.gcLoop(ctx) })
@@ -90,14 +101,51 @@ func (m *ConfirmationManager) Resolve(sessionID, toolCallID string, resp Confirm
 	if !p.resolved.CompareAndSwap(false, true) {
 		return false
 	}
+	if len(resp.Metadata) == 0 {
+		resp.Metadata = p.Metadata
+	}
 	select {
 	case p.respCh <- resp:
 	default:
 	}
 	m.mu.Lock()
 	delete(m.pending, key)
+	if p.ActionID != "" {
+		delete(m.actions, p.ActionID)
+		m.resolved[p.ActionID] = resp
+	}
 	m.mu.Unlock()
 	return true
+}
+
+func (m *ConfirmationManager) PendingAction(actionID string) (*PendingConfirm, bool) {
+	if m == nil || actionID == "" {
+		return nil, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.actions[actionID]
+	return p, ok
+}
+
+func (m *ConfirmationManager) ConfirmedAction(actionID string) (ConfirmResponse, bool) {
+	if m == nil || actionID == "" {
+		return ConfirmResponse{}, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	resp, ok := m.resolved[actionID]
+	return resp, ok && resp.Confirmed
+}
+
+func (m *ConfirmationManager) ResolvedAction(actionID string) (ConfirmResponse, bool) {
+	if m == nil || actionID == "" {
+		return ConfirmResponse{}, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	resp, ok := m.resolved[actionID]
+	return resp, ok
 }
 
 func (m *ConfirmationManager) gcLoop(ctx context.Context) {

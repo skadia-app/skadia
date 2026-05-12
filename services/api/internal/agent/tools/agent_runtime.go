@@ -60,17 +60,28 @@ func (r *AgentToolRuntime) Execute(ctx context.Context, req agent.ToolRuntimeReq
 }
 
 func (r *AgentToolRuntime) executeConfirmedWrite(ctx context.Context, req agent.ToolRuntimeRequest, sink agent.SSESink, tool *Tool) (agent.ToolRuntimeResult, error) {
-	prepared, err := r.Envelope.PrepareConfirmation(ctx, toExecutionRequest(req, AuditWrite))
+	prepared, err := r.Envelope.PrepareAction(ctx, ConfirmableActionRequest{
+		UserID:     req.UserID,
+		SessionID:  req.SessionID,
+		ToolCallID: req.ToolCallID,
+		ToolName:   req.ToolName,
+		Args:       req.Args,
+		Caller:     CallerContext{Transport: "internal_chat"},
+	})
 	if err != nil {
 		if strings.Contains(err.Error(), "TAG_NOT_FOUND") {
 			return agent.ToolRuntimeResult{AskUser: true, Question: tagNotFoundQuestion(req.Args)}, nil
 		}
 		return agent.ToolRuntimeResult{}, err
 	}
-	if prepared.Cached != nil {
+	if prepared.Status != ActionStatusPending {
+		status, err := r.Envelope.GetActionStatus(ctx, prepared.ActionID, req.UserID)
+		if err != nil {
+			return agent.ToolRuntimeResult{}, err
+		}
 		var cached any
-		_ = json.Unmarshal(*prepared.Cached, &cached)
-		return agent.ToolRuntimeResult{Result: cached, Summary: string(*prepared.Cached)}, nil
+		_ = json.Unmarshal(status.Detail, &cached)
+		return agent.ToolRuntimeResult{Result: cached, Summary: string(status.Detail)}, nil
 	}
 
 	expiresAt := prepared.ExpiresAt
@@ -96,24 +107,18 @@ func (r *AgentToolRuntime) executeConfirmedWrite(ctx context.Context, req agent.
 		case <-ticker.C:
 			_ = sink.WriteRaw(": waiting_for_confirmation\n\n")
 		case resp := <-prepared.Response:
-			args := req.Args
-			if len(resp.ArgsOverrides) > 0 && strings.TrimSpace(string(resp.ArgsOverrides)) != "null" {
-				args = resp.ArgsOverrides
-			}
-			execReq := toExecutionRequest(req, AuditWrite)
-			execReq.Args = args
 			if resp.Confirmed {
 				if err := sink.Send(agent.SSEEvent{Type: agent.EventToolConfirmed, ID: req.MessageID, ToolCallID: req.ToolCallID, Tool: req.ToolName}); err != nil {
 					return agent.ToolRuntimeResult{}, err
 				}
-				result, err := r.Envelope.ExecuteConfirmed(ctx, execReq)
+				result, err := r.Envelope.ExecuteConfirmedAction(ctx, prepared.ActionID, req.UserID)
 				return agent.ToolRuntimeResult{Result: result, Summary: marshalToolResult(result)}, err
 			}
 			reason := resp.Source
 			if reason == "" {
 				reason = "declined"
 			}
-			if err := r.Envelope.RecordDeclined(ctx, execReq, reason); err != nil {
+			if err := r.Envelope.RecordDeclinedAction(ctx, prepared.ActionID, req.UserID, reason); err != nil {
 				return agent.ToolRuntimeResult{}, err
 			}
 			if err := sink.Send(agent.SSEEvent{Type: agent.EventToolDeclined, ID: req.MessageID, ToolCallID: req.ToolCallID, Tool: req.ToolName, Reason: reason}); err != nil {
