@@ -1593,6 +1593,20 @@ func (db *DB) DeleteActivity(ctx context.Context, userID, id string) error {
 	return nil
 }
 
+func (db *DB) ActivityOwnedBy(ctx context.Context, activityID, userID string) (bool, error) {
+	if strings.TrimSpace(userID) == "" {
+		return false, fmt.Errorf("userID must not be empty")
+	}
+	var owned bool
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM activities WHERE id = $1 AND user_id = $2)`,
+		activityID, userID,
+	).Scan(&owned); err != nil {
+		return false, err
+	}
+	return owned, nil
+}
+
 // DeleteActivities deletes multiple activities by ID that belong to the given user.
 // Returns the number of rows deleted. Activities not owned by userID are silently ignored.
 func (db *DB) DeleteActivities(ctx context.Context, userID string, ids []string) (int64, error) {

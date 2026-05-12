@@ -4051,6 +4051,20 @@ func (db *DB) VerifyGearOwnership(ctx context.Context, gearID, userID string) er
 	).Scan(&id)
 }
 
+func (db *DB) GearOwnedBy(ctx context.Context, gearID, userID string) (bool, error) {
+	if strings.TrimSpace(userID) == "" {
+		return false, fmt.Errorf("userID must not be empty")
+	}
+	var owned bool
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM gear WHERE id = $1 AND user_id = $2)`,
+		gearID, userID,
+	).Scan(&owned); err != nil {
+		return false, err
+	}
+	return owned, nil
+}
+
 // VerifyComponentOwnership returns nil if the component's gear belongs to the user.
 func (db *DB) VerifyComponentOwnership(ctx context.Context, componentID, userID string) error {
 	var id string
