@@ -89,7 +89,7 @@ func TestMigration_LLMRoleCapabilities_LegacyBackfillAndSeedDisable(t *testing.T
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
-	upSQL, err := os.ReadFile("000365_llm_role_capabilities.up.sql")
+	upSQL, err := os.ReadFile("000367_llm_role_capabilities.up.sql")
 	if err != nil {
 		t.Fatalf("read up migration: %v", err)
 	}

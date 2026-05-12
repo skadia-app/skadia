@@ -8,7 +8,7 @@ import (
 )
 
 func TestMigration_AgentAuditLogSQLDefinesRLS(t *testing.T) {
-	body, err := os.ReadFile("000362_agent_audit_log.up.sql")
+	body, err := os.ReadFile("000364_agent_audit_log.up.sql")
 	if err != nil {
 		t.Fatalf("read agent audit migration: %v", err)
 	}
