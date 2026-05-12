@@ -8,7 +8,7 @@ import (
 )
 
 func TestMigration_ChatUserPreferencesAgentControlsSQLDefinesRLS(t *testing.T) {
-	body, err := os.ReadFile("900002_chat_user_preferences_agent_controls.up.sql")
+	body, err := os.ReadFile("000362_chat_user_preferences_agent_controls.up.sql")
 	if err != nil {
 		t.Fatalf("read chat user preferences migration: %v", err)
 	}
