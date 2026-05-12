@@ -19,6 +19,7 @@ func (h *Handler) StartGDPRArtifactMaintenance(ctx context.Context) {
 	} else {
 		h.reconcileExpiredArtifacts(ctx)
 	}
+	h.cleanupIncompleteS3MultipartUploads(ctx)
 
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
@@ -81,10 +82,15 @@ func (h *Handler) cleanupExpiredExportArtifacts(ctx context.Context) {
 	rows.Close()
 
 	for _, job := range expired {
+		deletedAll := true
 		for _, ref := range job.artifact.Objects {
 			if err := h.ArtifactStore.Delete(ctx, ref); err != nil {
+				deletedAll = false
 				slog.Warn("gdpr artifact cleanup: delete expired export object failed", "job_id", job.id, "object", ref.Name, "error", err)
 			}
+		}
+		if !deletedAll {
+			continue
 		}
 		updated, err := stripExpiredExportArtifactJSON(job.metadata, job.artifact)
 		if err != nil {

@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/auth'
+import { apiFetch, getToken, refreshToken } from '@/lib/auth'
 import { API_BASE } from '@/api/client'
 
 export interface AuthConfig {
@@ -423,6 +423,7 @@ export interface DataExportPart {
   sha256?: string
   size_bytes?: number
   download_session_url?: string
+  web_import_supported?: boolean
 }
 
 export interface DataExportDownloadSession {
@@ -556,10 +557,22 @@ export async function createMultipartDataImport(manifest: unknown): Promise<Mult
 }
 
 export async function uploadMultipartDataImportPart(jobId: string, file: File): Promise<{ status: string }> {
-  const res = await apiFetch(`/api/v1/auth/data-import/${jobId}/parts/${encodeURIComponent(file.name)}`, {
+  const path = `/api/v1/auth/data-import/${jobId}/parts/${encodeURIComponent(file.name)}`
+  let res = await apiFetch(path, {
     method: 'POST',
     body: file,
   })
+  if (res.status === 401 && await refreshToken()) {
+    const headers = new Headers()
+    const token = getToken()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    res = await fetch(path, {
+      method: 'POST',
+      body: file,
+      headers,
+      credentials: 'include',
+    })
+  }
   if (!res.ok) {
     const d = await res.json().catch(() => ({})) as { error?: string }
     throw new Error(d.error ?? 'Multipart import part upload failed')
