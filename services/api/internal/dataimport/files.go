@@ -27,6 +27,10 @@ type userFileRecord struct {
 	Status      string  `json:"status"`
 }
 
+type shadowFSPutStreamer interface {
+	PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error)
+}
+
 // loadUserFilesIndex reads data/user_files.json from source and returns an
 // ID-keyed map of all records.
 func loadUserFilesIndex(source Source) (map[string]userFileRecord, error) {
@@ -240,9 +244,14 @@ func (e *Engine) importFileByID(
 		}
 	}
 
-	fileRecord, err := e.ShadowFS.Put(ctx, entry, fileRC)
+	var fileRecord shadowfs.FileRecord
+	if streamingFS, ok := e.ShadowFS.(shadowFSPutStreamer); ok {
+		fileRecord, err = streamingFS.PutStream(ctx, entry, fileRC)
+	} else {
+		fileRecord, err = e.ShadowFS.Put(ctx, entry, fileRC)
+	}
 	if err != nil {
-		return fmt.Errorf("dataimport: ShadowFS.Put for old_file_id=%q: %w", oldFileID, err)
+		return fmt.Errorf("dataimport: ShadowFS restore for old_file_id=%q: %w", oldFileID, err)
 	}
 
 	// CRITICAL: map old export ID → new ShadowFS-assigned ID.

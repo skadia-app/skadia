@@ -37,3 +37,11 @@ type StorageBackend interface {
 	// Streaming — no unbounded []string. Stops on first fn error.
 	ListFunc(ctx context.Context, prefix string, opts *BackendOpts, fn func(path string) error) error
 }
+
+// StreamingBackend stores data without requiring the caller to buffer the whole
+// object in memory. expectedHash is optional; when set it is the expected
+// SHA-256 hex digest and the backend must fail before exposing the object if it
+// does not match the bytes copied from data.
+type StreamingBackend interface {
+	WriteStream(ctx context.Context, path string, data io.Reader, contentType string, exclusive bool, expectedHash string, opts *BackendOpts) (written int64, hash string, err error)
+}
