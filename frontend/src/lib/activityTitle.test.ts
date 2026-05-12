@@ -35,9 +35,48 @@ describe('activityTitle', () => {
     expect(displayActivityTitle(activity, 'Fallback')).toBe('Mein Titel')
   })
 
-  it('uses auto title before non-manual source title', () => {
+  it('keeps non-manual source title before auto title', () => {
     const activity = { ...base, title: 'Morning Ride', title_auto: 'Hochplatte ab Marquartstein', title_is_manual: false } as Activity
+    expect(displayActivityTitle(activity, 'Fallback')).toBe('Morning Ride')
+  })
+
+  it('keeps a non-generic server-resolved title even when title_auto is present', () => {
+    const activity = { ...base, title: 'Kampenwand mit Max', title_auto: 'Hochplatte ab Marquartstein', title_is_manual: false } as Activity
+    expect(displayActivityTitle(activity, 'Fallback')).toBe('Kampenwand mit Max')
+  })
+
+  it('uses server-resolved display title before local fallback fields', () => {
+    const activity = { ...base, title: 'Morning Ride', display_title: 'Hochplatte ab Marquartstein', title_auto: 'Hochplatte ab Marquartstein', title_is_manual: false } as Activity
     expect(displayActivityTitle(activity, 'Fallback')).toBe('Hochplatte ab Marquartstein')
+  })
+
+  it.each([
+    'Mountainbike-Fahrt am Morgen',
+    'Lauf am Nachmittag',
+    'E-Mountainbike-Fahrt am Morgen',
+    'Mountainbike-Fahrt am Abend',
+    'Abendlauf',
+    'Mountainbike-Fahrt zur Mittagszeit',
+    'Mittagslauf',
+    'Morning Mountain Bike Ride',
+    'Afternoon Ride',
+  ])('keeps provider source title %s when falling back locally', (title) => {
+    const activity = { ...base, title, title_auto: 'Hochplatte ab Marquartstein', title_is_manual: false } as Activity
+    expect(displayActivityTitle(activity, 'Fallback')).toBe(title)
+  })
+
+  it.each([
+    'Recovery Run',
+    'Alpine Trail Run',
+    'Birthday Ride',
+    'Coffee Ride',
+    'Lauf mit Max',
+    'Kampenwand-Lauf',
+    'Mountainbike-Fahrt mit Max',
+    'Radfahren zur Arbeit',
+  ])('keeps meaningful source title %s when falling back locally', (title) => {
+    const activity = { ...base, title, title_auto: 'Hochplatte ab Marquartstein', title_is_manual: false } as Activity
+    expect(displayActivityTitle(activity, 'Fallback')).toBe(title)
   })
 
   it('falls back to source title when no auto title exists', () => {
@@ -56,7 +95,7 @@ describe('activityTitle', () => {
   })
 
   it('seeds edit form with manual title only when manual exists', () => {
-    const autoOnly = { ...base, title: 'Source', title_auto: 'Auto', title_is_manual: false } as Activity
+    const autoOnly = { ...base, title: 'Source', display_title: 'Auto', title_auto: 'Auto', title_is_manual: false } as Activity
     const manual = { ...base, title: 'Manual', title_auto: 'Auto', title_is_manual: true } as Activity
     expect(editableActivityTitleSeed(autoOnly)).toBe('Auto')
     expect(editableActivityTitleSeed(manual)).toBe('Manual')
