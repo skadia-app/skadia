@@ -3,6 +3,7 @@ package dataimport
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -167,6 +168,18 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	const totalPhases = 11 // phases 0–10
 
 	// Phase 0: Disk-space check + import all files (except edit-sidecars).
+	if e.Config.MaxStorageBytes > 0 && e.ShadowFS != nil {
+		est := input.Source.EstimatedFileBytes()
+		if est > 0 {
+			used, err := e.ShadowFS.DiskUsage(ctx, input.TargetUserID)
+			if err != nil {
+				return result, fmt.Errorf("RunImport phase 0 (quota preflight): %w", err)
+			}
+			if used+est > e.Config.MaxStorageBytes {
+				return result, fmt.Errorf("%w: restore would use %d + %d > %d bytes", shadowfs.ErrQuotaExceeded, used, est, e.Config.MaxStorageBytes)
+			}
+		}
+	}
 	if e.Config.LibraryBasePath != "" && e.Config.StorageBackend == "local" {
 		est := input.Source.EstimatedFileBytes()
 		if est > 0 {
@@ -189,7 +202,10 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	result.Warnings = append(result.Warnings, activityFileTagWarnings...)
 	fileIndex, err := e.importAllFiles(ctx, input.Source, idMap, input.TargetUserID, result, input.OnProgress, activityFileTags)
 	if err != nil {
-		result.Warnings = append(result.Warnings, fmt.Sprintf("Phase 0 partial failure: %v — orphaned files may exist, delete the account to clean up", err))
+		if errors.Is(err, shadowfs.ErrQuotaExceeded) {
+			e.cleanupImportedFiles(ctx, input.TargetUserID, result)
+		}
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Phase 0 partial failure: %v — imported files were rolled back where possible", err))
 		return result, fmt.Errorf("RunImport phase 0 (files): %w", err)
 	}
 	result.PhasesCompleted = 1
@@ -236,6 +252,9 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	}
 	// Import edit-sidecars first (they need activity IDs in IDMap).
 	if err := e.importEditSidecars(ctx, input.Source, idMap, input.TargetUserID, fileIndex, result); err != nil {
+		if errors.Is(err, shadowfs.ErrQuotaExceeded) {
+			e.cleanupImportedFiles(ctx, input.TargetUserID, result)
+		}
 		return result, fmt.Errorf("RunImport phase 6 (edit sidecars): %w", err)
 	}
 	// Then import Phase 6 tables.
@@ -316,6 +335,22 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	// ── 10. Result ────────────────────────────────────────────────────────────
 	result.Duration = time.Since(start)
 	return result, nil
+}
+
+func (e *Engine) cleanupImportedFiles(ctx context.Context, userID string, result *ImportResult) {
+	if e.ShadowFS == nil || result == nil {
+		return
+	}
+	for i := len(result.importedFileIDs) - 1; i >= 0; i-- {
+		fileID := result.importedFileIDs[i]
+		if fileID == "" {
+			continue
+		}
+		if err := e.ShadowFS.Delete(context.WithoutCancel(ctx), userID, fileID); err != nil {
+			slog.Warn("dataimport: cleanup imported file after quota failure failed", "file_id", fileID, "error", err)
+		}
+	}
+	result.importedFileIDs = nil
 }
 
 func refreshImportedTagAutomationState(ctx context.Context, pool *pgxpool.Pool, userID string) error {

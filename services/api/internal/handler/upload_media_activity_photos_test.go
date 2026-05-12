@@ -11,6 +11,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/importer"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -126,11 +127,38 @@ func TestUploadMediaAutoAssignSkipsWhenActivityPhotoLimitReached(t *testing.T) {
 	if result.Status != "skipped_limit_reached" {
 		t.Fatalf("autoAssignPhoto status = %q, want skipped_limit_reached", result.Status)
 	}
-	if result.ErrorCode == nil || *result.ErrorCode != codeActivityPhotoLimitExceeded {
-		t.Fatalf("autoAssignPhoto error_code = %v, want %q", result.ErrorCode, codeActivityPhotoLimitExceeded)
+	if result.ErrorCode == nil || *result.ErrorCode != codeActivityPhotoLimitReached {
+		t.Fatalf("autoAssignPhoto error_code = %v, want %q", result.ErrorCode, codeActivityPhotoLimitReached)
 	}
 	if got := handlerActivityPhotoRowCount(t, pool, userID); got != 1 {
 		t.Fatalf("activity photo rows after skipped media upload = %d, want 1", got)
+	}
+}
+
+func TestUploadMediaAutoAssignReportsStorageQuotaExceededStatus(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	activityID := insertMinimalActivity(t, db, userID)
+	dir := t.TempDir()
+	fs := shadowfs.NewUnifiedShadowFS(pool, shadowfs.NewLocalBackend(dir), nil, "local", dir, shadowfs.NewSchemaRenderer(), nil, 1, 1, "", "", "")
+	h := &Handler{
+		DB:            db,
+		ShadowFS:      fs,
+		ImportService: importer.NewService(db, fs, nil),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/upload/media", nil)
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	result := h.autoAssignPhoto(req, userID, "quota.jpg", "image/jpeg", jpegPatternTestImage(t, 48, 48, 90), database.ActivityTimeMatch{
+		ID: activityID,
+	}, nil, nil, nil, nil)
+
+	if result.Status != "storage_quota_exceeded" {
+		t.Fatalf("autoAssignPhoto status = %q, want storage_quota_exceeded", result.Status)
+	}
+	if result.ErrorCode == nil || *result.ErrorCode != codeStorageQuotaExceeded {
+		t.Fatalf("autoAssignPhoto error_code = %v, want %q", result.ErrorCode, codeStorageQuotaExceeded)
 	}
 }
 

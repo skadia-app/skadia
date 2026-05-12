@@ -24,7 +24,7 @@ const maxMediaUploadSize = 50 << 20 // 50 MB total
 // mediaUploadResult is the per-file result returned to the caller.
 type mediaUploadResult struct {
 	Filename      string  `json:"filename"`
-	Status        string  `json:"status"` // "assigned" | "queued" | "duplicate" | "skipped_limit_reached" | "error"
+	Status        string  `json:"status"` // "assigned" | "queued" | "duplicate" | "skipped_limit_reached" | "storage_quota_exceeded" | "error"
 	ActivityID    *string `json:"activity_id,omitempty"`
 	ActivityTitle *string `json:"activity_title,omitempty"`
 	QueueID       *string `json:"queue_id,omitempty"`
@@ -153,7 +153,7 @@ func (h *Handler) processMediaImage(r *http.Request, userID, filename, ct string
 			tracker.Skipped(r.Context(), "duplicate", result.ActivityID)
 		case "skipped_limit_reached":
 			tracker.Skipped(r.Context(), "limit_reached", result.ActivityID)
-		case "error":
+		case "storage_quota_exceeded", "error":
 			if result.Error != nil {
 				tracker.Error(r.Context(), fmt.Errorf("%s", *result.Error))
 			}
@@ -219,18 +219,20 @@ func (h *Handler) autoAssignPhoto(
 	if locationSource != nil {
 		locSrc = *locationSource
 	}
-	result, err := h.ImportService.ProcessPhoto(r.Context(), userID, match.ID, data, importer.PhotoMetadata{
+	result, err := h.ImportService.ProcessPhotoWithOptions(r.Context(), userID, match.ID, data, importer.PhotoMetadata{
 		OriginalFilename: filename,
 		ContentType:      ct,
 		TakenAt:          takenAt,
 		Lat:              lat,
 		Lng:              lng,
 		LocationSource:   locSrc,
+	}, importer.PhotoProcessOptions{
+		EnforceActivityPhotoLimit: true,
 	})
 	if err != nil {
 		if errors.Is(err, importer.ErrActivityPhotoLimitExceeded) {
 			errMsg := "activity photo limit reached"
-			errCode := codeActivityPhotoLimitExceeded
+			errCode := codeActivityPhotoLimitReached
 			return mediaUploadResult{
 				Filename:   filename,
 				Status:     "skipped_limit_reached",
@@ -242,7 +244,7 @@ func (h *Handler) autoAssignPhoto(
 		if errors.Is(err, shadowfs.ErrQuotaExceeded) {
 			errMsg := "storage quota exceeded"
 			errCode := codeStorageQuotaExceeded
-			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg, ErrorCode: &errCode}
+			return mediaUploadResult{Filename: filename, Status: "storage_quota_exceeded", Error: &errMsg, ErrorCode: &errCode}
 		}
 		slog.Error("upload media: ProcessPhoto failed", "error", err)
 		errMsg := "failed to save photo"
@@ -321,7 +323,7 @@ func (h *Handler) queueMediaFile(
 		if errors.Is(putErr, shadowfs.ErrQuotaExceeded) {
 			errMsg := "storage quota exceeded"
 			errCode := codeStorageQuotaExceeded
-			return mediaUploadResult{Filename: filename, Status: "error", Error: &errMsg, ErrorCode: &errCode}
+			return mediaUploadResult{Filename: filename, Status: "storage_quota_exceeded", Error: &errMsg, ErrorCode: &errCode}
 		}
 		slog.Error("upload media: ShadowFS.Put temp failed", "error", putErr)
 		errMsg := "failed to store file"

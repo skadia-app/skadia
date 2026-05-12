@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"image"
 	"image/color"
 	"image/draw"
@@ -189,6 +190,38 @@ func TestProcessPhotoExactDuplicateDoesNotWriteAnotherOriginal(t *testing.T) {
 	}
 }
 
+func TestProcessPhotoDefaultDoesNotEnforceInteractiveLimit(t *testing.T) {
+	ctx := context.Background()
+	svc, _, userID, activityID := newPhotoServiceStorageFixture(t)
+	svc.ActivityPhotoCreateGuard = func(context.Context, string, string) (func(), error) {
+		return nil, &ActivityPhotoLimitError{ActivityID: activityID, Limit: 0, Current: 0}
+	}
+
+	body := jpegPhotoTestBytes(t, 24, 24, color.RGBA{R: 20, G: 80, B: 210, A: 255}, 90)
+	created, err := svc.ProcessPhoto(ctx, userID, activityID, body, PhotoMetadata{
+		OriginalFilename: "external-default.jpg",
+		ContentType:      "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("ProcessPhoto default should not enforce interactive limit: %v", err)
+	}
+	if created.Status != "created" {
+		t.Fatalf("ProcessPhoto default status = %q, want created", created.Status)
+	}
+
+	limitedSvc, _, limitedUserID, limitedActivityID := newPhotoServiceStorageFixture(t)
+	limitedSvc.ActivityPhotoCreateGuard = func(context.Context, string, string) (func(), error) {
+		return nil, &ActivityPhotoLimitError{ActivityID: limitedActivityID, Limit: 0, Current: 0}
+	}
+	_, err = limitedSvc.ProcessPhotoWithOptions(ctx, limitedUserID, limitedActivityID, jpegPhotoTestBytes(t, 25, 25, color.RGBA{R: 210, G: 80, B: 20, A: 255}, 90), PhotoMetadata{
+		OriginalFilename: "interactive.jpg",
+		ContentType:      "image/jpeg",
+	}, PhotoProcessOptions{EnforceActivityPhotoLimit: true})
+	if !errors.Is(err, ErrActivityPhotoLimitExceeded) {
+		t.Fatalf("ProcessPhotoWithOptions err=%v, want ErrActivityPhotoLimitExceeded", err)
+	}
+}
+
 func TestProcessPhotoExactDuplicateIsUserWide(t *testing.T) {
 	ctx := context.Background()
 	svc, pool, userID, activityA := newPhotoServiceStorageFixture(t)
@@ -263,6 +296,46 @@ func TestProcessPhotoExactDuplicateReattachesLegacyNullActivityPhoto(t *testing.
 	}
 	if gotActivityID != targetActivityID {
 		t.Fatalf("stored activity_id = %q, want %q", gotActivityID, targetActivityID)
+	}
+}
+
+func TestProcessPhotoExactDuplicateReattachHonorsInteractiveLimit(t *testing.T) {
+	ctx := context.Background()
+	svc, pool, userID, activityID := newPhotoServiceStorageFixture(t)
+
+	body := jpegPhotoTestBytes(t, 24, 24, color.RGBA{R: 60, G: 120, B: 200, A: 255}, 90)
+	created, err := svc.ProcessPhoto(ctx, userID, activityID, body, PhotoMetadata{
+		OriginalFilename: "legacy-limit.jpg",
+		ContentType:      "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("ProcessPhoto created: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE activity_photos SET activity_id = NULL WHERE id = $1`, created.PhotoID); err != nil {
+		t.Fatalf("detach legacy exact photo: %v", err)
+	}
+
+	targetActivityID := insertImporterPhotoTestActivity(t, svc.DB, userID)
+	svc.ActivityPhotoCreateGuard = func(context.Context, string, string) (func(), error) {
+		return nil, &ActivityPhotoLimitError{ActivityID: targetActivityID, Limit: 1, Current: 1}
+	}
+	_, err = svc.ProcessPhotoWithOptions(ctx, userID, targetActivityID, body, PhotoMetadata{
+		OriginalFilename: "target-limit.jpg",
+		ContentType:      "image/jpeg",
+	}, PhotoProcessOptions{EnforceActivityPhotoLimit: true})
+	if !errors.Is(err, ErrActivityPhotoLimitExceeded) {
+		t.Fatalf("reattach err=%v, want ErrActivityPhotoLimitExceeded", err)
+	}
+
+	var gotActivityID string
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(activity_id::text, '') FROM activity_photos WHERE id = $1`,
+		created.PhotoID,
+	).Scan(&gotActivityID); err != nil {
+		t.Fatalf("select activity_id: %v", err)
+	}
+	if gotActivityID != "" {
+		t.Fatalf("activity_id after rejected reattach = %q, want empty", gotActivityID)
 	}
 }
 
@@ -603,6 +676,42 @@ func TestResolveQueuedPhotoPreservesQueuedExifMetadata(t *testing.T) {
 	}
 	if activeQueuedMediaCount(t, pool, userID) != 0 {
 		t.Fatalf("queued media files still active after resolve")
+	}
+}
+
+func TestResolveQueuedPhotoNetsQueuedFileForQuota(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	db := &database.DB{Pool: pool}
+	userID := insertImporterPhotoTestUser(t, pool)
+	activityID := insertImporterPhotoTestActivity(t, db, userID)
+	body := jpegPhotoTestBytes(t, 24, 24, color.RGBA{R: 90, G: 120, B: 210, A: 255}, 90)
+	dir := t.TempDir()
+	fs := shadowfs.NewUnifiedShadowFS(pool, shadowfs.NewLocalBackend(dir), nil, "local", dir, shadowfs.NewSchemaRenderer(), nil, 1, int64(len(body)+1), "", "", "")
+	svc := NewService(db, fs, nil)
+
+	queued, err := svc.ProcessOrphanPhoto(ctx, userID, body, PhotoMetadata{
+		OriginalFilename: "quota-queued.jpg",
+		ContentType:      "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("ProcessOrphanPhoto queued: %v", err)
+	}
+
+	resolved, err := svc.ResolveQueuedPhotoWithOptions(ctx, userID, queued.QueueEntryID, activityID, PhotoProcessOptions{
+		EnforceActivityPhotoLimit: true,
+	})
+	if err != nil {
+		t.Fatalf("ResolveQueuedPhoto should net queued file before quota check: %v", err)
+	}
+	if resolved.Status != "created" {
+		t.Fatalf("resolve status = %q, want created", resolved.Status)
+	}
+	if got := activeQueuedMediaCount(t, pool, userID); got != 0 {
+		t.Fatalf("queued media files still active after resolve = %d", got)
+	}
+	if got := activeMediaCount(t, pool, userID); got != 1 {
+		t.Fatalf("active media after resolve = %d, want 1", got)
 	}
 }
 

@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	codeActivityPhotoLimitExceeded = "activity_photo_limit_exceeded"
-	codeRoutePhotoLimitExceeded    = "route_photo_limit_exceeded"
-	codeStorageQuotaExceeded       = "storage_quota_exceeded"
+	codeActivityPhotoLimitReached = "activity_photo_limit_reached"
+	codeRoutePhotoLimitReached    = "route_photo_limit_reached"
+	codeStorageQuotaExceeded      = "storage_quota_exceeded"
 )
 
 type routePhotoLimitError struct {
@@ -156,12 +156,12 @@ func countRoutePhotoRows(ctx context.Context, pool *pgxpool.Pool, userID, routeI
 
 func writeMediaUploadProblem(w http.ResponseWriter, r *http.Request, err error) bool {
 	if errors.Is(err, importer.ErrActivityPhotoLimitExceeded) {
-		httputil.WriteProblem(w, http.StatusConflict, "Conflict", "activity photo limit reached", codeActivityPhotoLimitExceeded, r.URL.Path)
+		httputil.WriteProblem(w, http.StatusConflict, "Conflict", "activity photo limit reached", codeActivityPhotoLimitReached, r.URL.Path)
 		return true
 	}
 	var routeLimit *routePhotoLimitError
 	if errors.As(err, &routeLimit) {
-		httputil.WriteProblem(w, http.StatusConflict, "Conflict", "route photo limit reached", codeRoutePhotoLimitExceeded, r.URL.Path)
+		httputil.WriteProblem(w, http.StatusConflict, "Conflict", "route photo limit reached", codeRoutePhotoLimitReached, r.URL.Path)
 		return true
 	}
 	if errors.Is(err, shadowfs.ErrQuotaExceeded) {
