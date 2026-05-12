@@ -26,7 +26,7 @@ func TestFusionMembershipActivityTitlesUseDisplayTitlePrecedence(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
 	})
 
-	var generatedID, manualID, fallbackID string
+	var generatedID, manualID, fallbackID, trimmedID, whitespaceManualID string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO activities (user_id, sport_type, title, title_auto, title_is_manual, started_at)
 		VALUES ($1, 'running', 'Imported title', 'Generated title', false, $2)
@@ -45,8 +45,20 @@ func TestFusionMembershipActivityTitlesUseDisplayTitlePrecedence(t *testing.T) {
 		RETURNING id`, userID, time.Now().UTC().Add(2*time.Minute)).Scan(&fallbackID); err != nil {
 		t.Fatalf("insert fallback activity: %v", err)
 	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO activities (user_id, sport_type, title, title_auto, title_is_manual, started_at)
+		VALUES ($1, 'hiking', '   ', '  Generated trimmed  ', false, $2)
+		RETURNING id`, userID, time.Now().UTC().Add(3*time.Minute)).Scan(&trimmedID); err != nil {
+		t.Fatalf("insert trimmed activity: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO activities (user_id, sport_type, title, title_auto, title_is_manual, started_at)
+		VALUES ($1, 'hiking', '   ', 'Generated fallback from whitespace manual', true, $2)
+		RETURNING id`, userID, time.Now().UTC().Add(4*time.Minute)).Scan(&whitespaceManualID); err != nil {
+		t.Fatalf("insert whitespace manual activity: %v", err)
+	}
 
-	titles, err := db.GetActivityTitles(ctx, []string{generatedID, manualID, fallbackID})
+	titles, err := db.GetActivityTitles(ctx, []string{generatedID, manualID, fallbackID, trimmedID, whitespaceManualID})
 	if err != nil {
 		t.Fatalf("GetActivityTitles: %v", err)
 	}
@@ -59,6 +71,12 @@ func TestFusionMembershipActivityTitlesUseDisplayTitlePrecedence(t *testing.T) {
 	}
 	if titles[fallbackID] != "Source fallback title" {
 		t.Fatalf("fallback title = %q, want source title", titles[fallbackID])
+	}
+	if titles[trimmedID] != "Generated trimmed" {
+		t.Fatalf("trimmed title = %q, want trimmed generated title", titles[trimmedID])
+	}
+	if titles[whitespaceManualID] != "Generated fallback from whitespace manual" {
+		t.Fatalf("whitespace manual title = %q, want generated fallback", titles[whitespaceManualID])
 	}
 
 	gotSingle, err := db.GetActivityTitle(ctx, generatedID)
