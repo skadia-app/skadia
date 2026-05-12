@@ -170,6 +170,55 @@ func TestExecutePlanRoutePreviewDoesNotUseSaveMethod(t *testing.T) {
 	}
 }
 
+func TestExecutePlanRouteMergesRoutingProfileDefaults(t *testing.T) {
+	pool := testdb.Open(t)
+	db := &database.DB{Pool: pool}
+	userID := insertRouteToolUser(t, pool, "defaults")
+	profileName := "agent-defaults-" + uuid.NewString()
+	profile, err := db.CreateRoutingProfile(context.Background(), userID, profileName, "hiking", []sport.Predicate{{Sport: "hiking"}}, sport.ModifierFilters{}, []byte(`{
+		"profile_params": {
+			"consider_elevation": true,
+			"SAC_scale_limit": "2"
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("CreateRoutingProfile: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM routing_profiles WHERE id = $1`, profile.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	var gotQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_ = json.NewEncoder(w).Encode(map[string]any{"type": "FeatureCollection", "features": []any{}})
+	}))
+	defer server.Close()
+
+	result, err := executePlanRoute(context.Background(), &Deps{DB: db, BRouterURL: server.URL}, userID, json.RawMessage(`{
+		"waypoints": [[11.394,47.259],[11.450,47.280]],
+		"profile": "`+profile.ID+`",
+		"profile_params": {"SAC_scale_limit": "3"}
+	}`))
+	if err != nil {
+		t.Fatalf("executePlanRoute returned error: %v", err)
+	}
+	got := result.(map[string]any)
+	if got["profile_key"] != profile.ID || got["routing_profile"] != profileName {
+		t.Fatalf("unexpected routing profile metadata: %#v", got)
+	}
+	for _, want := range []string{
+		"profile=hiking-mountain",
+		"profile%3Aconsider_elevation=true",
+		"profile%3ASAC_scale_limit=3",
+	} {
+		if !strings.Contains(gotQuery, want) {
+			t.Fatalf("query missing %q in %q", want, gotQuery)
+		}
+	}
+}
+
 func TestExecuteListRoutingProfilesVisibleToUser(t *testing.T) {
 	pool := testdb.Open(t)
 	db := &database.DB{Pool: pool}

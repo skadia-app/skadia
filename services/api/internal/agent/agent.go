@@ -272,7 +272,7 @@ func (a *Agent) resolveLLM(ctx context.Context, userID string) (LLMConfig, error
 	if err != nil {
 		return LLMConfig{}, err
 	}
-	if strings.TrimSpace(cfg.BaseURL) == "" || strings.TrimSpace(cfg.APIKey) == "" || strings.TrimSpace(cfg.Model) == "" {
+	if strings.TrimSpace(cfg.BaseURL) == "" || strings.TrimSpace(cfg.Model) == "" {
 		return LLMConfig{}, fmt.Errorf("LLM configuration is incomplete")
 	}
 	return cfg, nil

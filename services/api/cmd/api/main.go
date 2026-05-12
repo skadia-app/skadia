@@ -1245,6 +1245,7 @@ func main() {
 				r.Get("/llm-config", h.GetLLMConfig)
 				r.Put("/llm-config/{role}", h.PutLLMConfigRole)
 				r.Patch("/llm-config/{role}/eval-waiver", h.PatchLLMConfigEvalWaiver)
+				r.Post("/llm-config/{role}/eval", h.PostLLMConfigEval)
 				r.Get("/llm-config/models", h.GetLLMModels)
 				r.Post("/llm-config/test", h.TestLLMConnection)
 

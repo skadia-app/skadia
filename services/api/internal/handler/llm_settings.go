@@ -9,11 +9,12 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"gopkg.in/yaml.v3"
 
+	agenteval "github.com/skadia-app/skadia/services/api/internal/agent/eval"
 	"github.com/skadia-app/skadia/services/api/internal/crypto"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -86,8 +87,30 @@ func (h *Handler) PatchLLMConfigEvalWaiver(w http.ResponseWriter, r *http.Reques
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "admin_reason is required", r.URL.Path)
 		return
 	}
+	configs, err := h.DB.GetLLMSystemConfig(r.Context())
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get LLM config", r.URL.Path)
+		return
+	}
+	var current *model.LLMSystemConfig
+	for i := range configs {
+		if configs[i].Role == role {
+			current = &configs[i]
+			break
+		}
+	}
+	if current == nil || !current.Enabled {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "role is not configured", r.URL.Path)
+		return
+	}
+	identity, ok := current.CurrentEvalIdentity()
+	if !ok {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "role configuration is incomplete", r.URL.Path)
+		return
+	}
 	report := map[string]any{
 		"status":       model.LLMEvalStatusWaived,
+		"identity":     identity,
 		"admin_reason": reason,
 		"waived_at":    time.Now().UTC().Format(time.RFC3339),
 	}
@@ -96,6 +119,30 @@ func (h *Handler) PatchLLMConfigEvalWaiver(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "waived"})
+}
+
+func (h *Handler) PostLLMConfigEval(w http.ResponseWriter, r *http.Request) {
+	role := chi.URLParam(r, "role")
+	if !model.IsValidLLMRole(role) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid role", r.URL.Path)
+		return
+	}
+	key := ""
+	if h.Config != nil {
+		key = h.Config.LLMEncryptionKey
+	}
+	runner := agenteval.NewRunner(h.DB, agenteval.WireClient{HTTPClient: &http.Client{Timeout: 60 * time.Second}}, agenteval.RunnerOptions{
+		EncryptionKey: key,
+	})
+	report, err := runner.Run(r.Context(), role)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadGateway, "Bad Gateway", err.Error(), r.URL.Path)
+		return
+	}
+	if err := h.regenerateLiteLLMConfig(r.Context()); err != nil {
+		slog.Warn("failed to regenerate LiteLLM config after eval", "error", err)
+	}
+	httputil.WriteJSON(w, http.StatusOK, report)
 }
 
 // GetLLMModels returns available models for a backend (only Ollama supports auto-discovery).
@@ -112,7 +159,7 @@ func (h *Handler) GetLLMModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// SSRF protection: validate api_base host before making outbound requests.
-	if parsed, err := url.Parse(apiBase); err != nil || isInternalHost(parsed.Hostname()) {
+	if parsed, err := url.Parse(apiBase); err != nil || !validLLMAPIBase(parsed) || llmBackendHostBlocked(parsed.Hostname()) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid or internal api_base URL", r.URL.Path)
 		return
 	}
@@ -179,10 +226,10 @@ func (h *Handler) TestLLMConnection(w http.ResponseWriter, r *http.Request) {
 	// SSRF protection: validate the (possibly translated) api_base host.
 	// host.containers.internal is explicitly allowed as it is the canonical way
 	// to reach llama-server running on the host from inside a container.
-	if parsed, err := url.Parse(testAPIBase); err != nil {
+	if parsed, err := url.Parse(testAPIBase); err != nil || !validLLMAPIBase(parsed) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid api_base URL", r.URL.Path)
 		return
-	} else if h := parsed.Hostname(); h != "host.containers.internal" && isInternalHost(h) {
+	} else if llmBackendHostBlocked(parsed.Hostname()) {
 		result.Success = false
 		result.Message = "api_base verweist auf eine interne Adresse (SSRF-Schutz)"
 		result.LatencyMs = time.Since(start).Milliseconds()
@@ -285,31 +332,14 @@ func (h *Handler) GetLLMUserConfig(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, configs)
 }
 
-// liteLLMConfigTemplate is the Go template for LiteLLM config.yaml
-const liteLLMConfigTemplate = `model_list:
-{{- range .Models}}
-{{- if .Enabled}}
-  - model_name: skadia-{{.Role}}
-    litellm_params:
-      model: {{.LiteLLMModel}}
-      api_base: {{.APIBase}}
-{{- if .APIKey}}
-      api_key: "{{.APIKey}}"
-{{- end}}
-{{- end}}
-{{- end}}
-
-litellm_settings:
-  drop_params: true
-  request_timeout: 120
-`
-
 type liteLLMModelEntry struct {
-	Role         string
-	LiteLLMModel string
-	APIBase      string
-	APIKey       string
-	Enabled      bool
+	ModelName     string            `yaml:"model_name"`
+	LiteLLMParams map[string]string `yaml:"litellm_params"`
+}
+
+type liteLLMConfigFile struct {
+	ModelList       []liteLLMModelEntry `yaml:"model_list"`
+	LiteLLMSettings map[string]any      `yaml:"litellm_settings"`
 }
 
 func (h *Handler) regenerateLiteLLMConfig(ctx context.Context) error {
@@ -362,23 +392,49 @@ func (h *Handler) regenerateLiteLLMConfig(ctx context.Context) error {
 		}
 
 		entries = append(entries, liteLLMModelEntry{
-			Role:         c.Role,
-			LiteLLMModel: litellmModel,
-			APIBase:      apiBase,
-			APIKey:       apiKey,
-			Enabled:      true,
+			ModelName: "skadia-" + c.Role,
+			LiteLLMParams: map[string]string{
+				"model":    litellmModel,
+				"api_base": apiBase,
+				"api_key":  apiKey,
+			},
 		})
 	}
 
-	tmpl, err := template.New("litellm").Parse(liteLLMConfigTemplate)
+	raw, err := yaml.Marshal(liteLLMConfigFile{
+		ModelList: entries,
+		LiteLLMSettings: map[string]any{
+			"drop_params":     true,
+			"request_timeout": 120,
+		},
+	})
 	if err != nil {
-		return fmt.Errorf("parse template: %w", err)
+		return fmt.Errorf("render LiteLLM config: %w", err)
 	}
 
-	var buf strings.Builder
-	if err := tmpl.Execute(&buf, map[string]any{"Models": entries}); err != nil {
-		return fmt.Errorf("render template: %w", err)
-	}
+	return os.WriteFile(configPath, raw, 0600)
+}
 
-	return os.WriteFile(configPath, []byte(buf.String()), 0600)
+func llmBackendHostBlocked(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" || isAllowedLocalLLMBackendHost(host) {
+		return false
+	}
+	return isInternalHost(host)
+}
+
+func isAllowedLocalLLMBackendHost(host string) bool {
+	switch host {
+	case "ollama", "litellm", "host.containers.internal":
+		return true
+	default:
+		return false
+	}
+}
+
+func validLLMAPIBase(parsed *url.URL) bool {
+	if parsed == nil || parsed.Hostname() == "" {
+		return false
+	}
+	return parsed.Scheme == "http" || parsed.Scheme == "https"
 }

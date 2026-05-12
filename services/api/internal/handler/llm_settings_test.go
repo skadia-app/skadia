@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/go-chi/chi/v5"
+	"gopkg.in/yaml.v3"
 )
 
 func TestPutLLMConfigRoleAcceptsExplicitRoleAndRejectsLegacyDefault(t *testing.T) {
@@ -40,9 +42,19 @@ func TestPatchLLMUserConfigRejectsUnevaluatedOverride(t *testing.T) {
 	h := newTestHandler(t, pool)
 
 	ctx := context.Background()
+	evalReport := map[string]any{
+		"identity": map[string]any{
+			"role": "tool_agent", "backend_type": "llama_server", "api_base_host": "llm.example", "model_name": "system-model",
+		},
+		"model_evals": []map[string]string{},
+	}
+	raw, err := json.Marshal(evalReport)
+	if err != nil {
+		t.Fatalf("marshal eval report: %v", err)
+	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, enabled, eval_status, eval_report)
-		VALUES ('tool_agent', 'llama_server', 'http://llm.example/v1', 'system-model', true, 'passed', '{"model_evals":[]}'::jsonb)
+		VALUES ('tool_agent', 'llama_server', 'http://llm.example/v1', 'system-model', true, 'passed', $1::jsonb)
 		ON CONFLICT (role) DO UPDATE SET
 			backend_type = EXCLUDED.backend_type,
 			api_base = EXCLUDED.api_base,
@@ -50,7 +62,7 @@ func TestPatchLLMUserConfigRejectsUnevaluatedOverride(t *testing.T) {
 			enabled = EXCLUDED.enabled,
 			eval_status = EXCLUDED.eval_status,
 			eval_report = EXCLUDED.eval_report
-	`); err != nil {
+	`, string(raw)); err != nil {
 		t.Fatalf("seed system config: %v", err)
 	}
 
@@ -67,9 +79,14 @@ func TestPatchLLMUserConfigAcceptsEvaluatedOverride(t *testing.T) {
 	userID := insertTestUser(t, pool)
 	h := newTestHandler(t, pool)
 
-	evalReport := map[string]any{"model_evals": []map[string]string{{
-		"role": "tool_agent", "backend_type": "llama_server", "api_base_host": "llm.example", "model_name": "user-model", "status": "passed",
-	}}}
+	evalReport := map[string]any{
+		"identity": map[string]any{
+			"role": "tool_agent", "backend_type": "llama_server", "api_base_host": "llm.example", "model_name": "system-model",
+		},
+		"model_evals": []map[string]string{{
+			"role": "tool_agent", "backend_type": "llama_server", "api_base_host": "llm.example", "model_name": "user-model", "status": "passed",
+		}},
+	}
 	raw, err := json.Marshal(evalReport)
 	if err != nil {
 		t.Fatalf("marshal eval report: %v", err)
@@ -202,6 +219,57 @@ func TestPatchLLMConfigEvalWaiverStoresReason(t *testing.T) {
 	}
 	if reason, _ := got.EvalReport["admin_reason"].(string); reason == "" {
 		t.Fatalf("eval report = %#v, want admin_reason", got.EvalReport)
+	}
+	identity, _ := got.EvalReport["identity"].(map[string]any)
+	if identity["api_base_host"] != "llm.example" || identity["model_name"] != "candidate-model" {
+		t.Fatalf("eval report identity = %#v, want current config identity", got.EvalReport["identity"])
+	}
+}
+
+func TestLLMBackendHostBlockedAllowsLocalLLMServiceHosts(t *testing.T) {
+	for _, host := range []string{"ollama", "litellm", "host.containers.internal"} {
+		if llmBackendHostBlocked(host) {
+			t.Fatalf("host %q was blocked, want allowed local LLM service host", host)
+		}
+	}
+	if !llmBackendHostBlocked("127.0.0.1") {
+		t.Fatal("127.0.0.1 was allowed without translation, want blocked")
+	}
+}
+
+func TestRegenerateLiteLLMConfigUsesYAMLEncoder(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	path := t.TempDir() + "/config.yaml"
+	h.Config = &HandlerConfig{LiteLLMConfigPath: path}
+	evalReport := `{"identity":{"role":"tool_agent","backend_type":"llama_server","api_base_host":"llm.example","model_name":"model:with:colon"}}`
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, enabled, eval_status, eval_report)
+		VALUES ('tool_agent', 'llama_server', 'http://llm.example/v1', 'model:with:colon', true, 'passed', $1::jsonb)
+		ON CONFLICT (role) DO UPDATE SET
+			backend_type = EXCLUDED.backend_type,
+			api_base = EXCLUDED.api_base,
+			model_name = EXCLUDED.model_name,
+			enabled = EXCLUDED.enabled,
+			eval_status = EXCLUDED.eval_status,
+			eval_report = EXCLUDED.eval_report
+	`, evalReport); err != nil {
+		t.Fatalf("seed system config: %v", err)
+	}
+
+	if err := h.regenerateLiteLLMConfig(context.Background()); err != nil {
+		t.Fatalf("regenerateLiteLLMConfig: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var decoded map[string]any
+	if err := yaml.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("generated YAML did not parse: %v\n%s", err, raw)
+	}
+	if !bytes.Contains(raw, []byte("skadia-tool_agent")) || !bytes.Contains(raw, []byte("openai/model:with:colon")) {
+		t.Fatalf("generated YAML missing model entry:\n%s", raw)
 	}
 }
 

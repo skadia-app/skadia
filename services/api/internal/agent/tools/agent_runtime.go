@@ -92,6 +92,7 @@ func (r *AgentToolRuntime) executeConfirmedWrite(ctx context.Context, req agent.
 		Tool:       req.ToolName,
 		Args:       req.Args,
 		Summary:    prepared.Summary,
+		Preview:    prepared.Preview,
 		ExpiresAt:  &expiresAt,
 	}); err != nil {
 		return agent.ToolRuntimeResult{}, err

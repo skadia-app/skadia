@@ -158,9 +158,10 @@ func TestSendChatMessageUsesGoAgentAndPersistsAssistant(t *testing.T) {
 	pool := fusionTestPool(t)
 	userID := insertTestUser(t, pool)
 	h := newTestHandler(t, pool)
+	evalReport := `{"identity":{"role":"tool_agent","backend_type":"llama_server","api_base_host":"llm.test","model_name":"model"}}`
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, enabled, eval_status, eval_report)
-		VALUES ('tool_agent', 'llama_server', 'http://llm.test/v1', 'model', true, 'passed', '{}'::jsonb)
+		VALUES ('tool_agent', 'llama_server', 'http://llm.test/v1', 'model', true, 'passed', $1::jsonb)
 		ON CONFLICT (role) DO UPDATE SET
 			backend_type = EXCLUDED.backend_type,
 			api_base = EXCLUDED.api_base,
@@ -168,7 +169,7 @@ func TestSendChatMessageUsesGoAgentAndPersistsAssistant(t *testing.T) {
 			enabled = EXCLUDED.enabled,
 			eval_status = EXCLUDED.eval_status,
 			eval_report = EXCLUDED.eval_report
-	`); err != nil {
+	`, evalReport); err != nil {
 		t.Fatalf("seed tool_agent config: %v", err)
 	}
 	h.Agent = agent.New(agent.Config{

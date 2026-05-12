@@ -166,7 +166,11 @@ func executePlanRoute(ctx context.Context, deps *Deps, userID string, raw json.R
 	if err != nil {
 		return map[string]any{"error": err.Error(), "fallback": true}, nil
 	}
-	params, err := stringifyProfileParams(args.ProfileParams)
+	mergedParams := routingProfileDefaultParams(resolved)
+	for key, value := range args.ProfileParams {
+		mergedParams[key] = value
+	}
+	params, err := stringifyProfileParams(mergedParams)
 	if err != nil {
 		return map[string]any{"error": err.Error(), "fallback": true}, nil
 	}
@@ -490,6 +494,26 @@ func resolveRoutingProfileForPreview(ctx context.Context, deps *Deps, userID, ke
 		}
 	}
 	return routingProfileToolItem{}, fmt.Errorf("unknown routing profile %q; call list_routing_profiles first", key)
+}
+
+func routingProfileDefaultParams(profile routingProfileToolItem) map[string]any {
+	out := map[string]any{}
+	if nested, ok := profile.DefaultParams["profile_params"].(map[string]any); ok {
+		for key, value := range nested {
+			out[key] = value
+		}
+		return out
+	}
+	allowed := map[string]bool{}
+	for _, key := range routing.BRouterProfileParamKeys(profile.BaseProfile) {
+		allowed[key] = true
+	}
+	for key, value := range profile.DefaultParams {
+		if allowed[key] {
+			out[key] = value
+		}
+	}
+	return out
 }
 
 func mapBadRouterBaseProfileToBRouter(profile string) string {

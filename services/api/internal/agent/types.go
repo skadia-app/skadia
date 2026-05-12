@@ -43,6 +43,7 @@ type SSEEvent struct {
 	Tool          string          `json:"tool,omitempty"`
 	Args          json.RawMessage `json:"args,omitempty"`
 	Summary       string          `json:"summary,omitempty"`
+	Preview       any             `json:"preview,omitempty"`
 	Question      string          `json:"question,omitempty"`
 	ExpiresAt     *time.Time      `json:"expires_at_iso,omitempty"`
 	Reason        string          `json:"reason,omitempty"`

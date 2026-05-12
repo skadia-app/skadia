@@ -84,6 +84,7 @@ func (e *ExecutionEnvelope) PrepareAction(ctx context.Context, req ConfirmableAc
 	if err != nil {
 		return nil, err
 	}
+	preview := actionPreview(tool.Name, req.Args)
 	claimed, existing, err := e.audit().ClaimPending(ctx, auditRowFromAction(req, tool.Name))
 	if err != nil {
 		return nil, err
@@ -97,6 +98,7 @@ func (e *ExecutionEnvelope) PrepareAction(ctx context.Context, req ConfirmableAc
 			ActionID: actionID,
 			ToolName: tool.Name,
 			Summary:  summary,
+			Preview:  preview,
 			Status:   ActionStatus(existing.ResultStatus),
 			Caller:   callerFromDetail(existing.ResultDetail),
 		}, nil
@@ -125,6 +127,7 @@ func (e *ExecutionEnvelope) PrepareAction(ctx context.Context, req ConfirmableAc
 		ActionID:        actionID,
 		ToolName:        tool.Name,
 		Summary:         summary,
+		Preview:         preview,
 		ConfirmationURL: "/agent/actions/" + actionID,
 		ExpiresAt:       expiresAt,
 		Status:          ActionStatusPending,
@@ -341,6 +344,50 @@ func parseActionID(actionID string) (int64, error) {
 func actionDetailJSON(caller CallerContext, reason, errText string, result any) json.RawMessage {
 	raw, _ := json.Marshal(actionDetail{Caller: caller, Reason: reason, Error: errText, Result: result})
 	return raw
+}
+
+func actionPreview(toolName string, args json.RawMessage) map[string]any {
+	var decoded any
+	if len(args) > 0 {
+		_ = json.Unmarshal(args, &decoded)
+	}
+	return map[string]any{
+		"tool":      toolName,
+		"arguments": sanitizeActionPreviewValue(decoded),
+	}
+}
+
+func sanitizeActionPreviewValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, child := range v {
+			if sensitivePreviewKey(key) {
+				out[key] = "[redacted]"
+				continue
+			}
+			out[key] = sanitizeActionPreviewValue(child)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, child := range v {
+			out[i] = sanitizeActionPreviewValue(child)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func sensitivePreviewKey(key string) bool {
+	key = strings.ToLower(key)
+	for _, needle := range []string{"api_key", "apikey", "password", "secret", "token"} {
+		if strings.Contains(key, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func callerFromDetail(raw json.RawMessage) CallerContext {

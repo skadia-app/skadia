@@ -228,6 +228,7 @@ export default function ChatPage() {
             tool_call_id?: string
             args?: unknown
             summary?: string
+            preview?: unknown
             expires_at_iso?: string
             sources?: string[]
             error?: string
@@ -311,6 +312,7 @@ export default function ChatPage() {
                       toolCallID,
                       tool: evt.tool ?? 'unknown',
                       args: evt.args,
+                      preview: evt.preview,
                       summary: evt.summary ?? 'Aktion bestätigen',
                       expiresAtISO: evt.expires_at_iso ?? new Date(Date.now() + 5 * 60_000).toISOString(),
                       sessionID: sessionId,

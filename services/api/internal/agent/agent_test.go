@@ -217,11 +217,18 @@ func (fakeLLMConfigStore) GetLLMSystemConfig(ctx context.Context) ([]model.LLMSy
 	baseURL := "http://llm.test/v1"
 	modelName := "model"
 	return []model.LLMSystemConfig{{
-		Role:       model.LLMRoleToolAgent,
-		APIBase:    &baseURL,
-		ModelName:  &modelName,
-		Enabled:    true,
-		EvalStatus: model.LLMEvalStatusPassed,
+		Role:        model.LLMRoleToolAgent,
+		BackendType: "llama_server",
+		APIBase:     &baseURL,
+		ModelName:   &modelName,
+		Enabled:     true,
+		EvalStatus:  model.LLMEvalStatusPassed,
+		EvalReport: map[string]any{"identity": map[string]any{
+			"role":          model.LLMRoleToolAgent,
+			"backend_type":  "llama_server",
+			"api_base_host": "llm.test",
+			"model_name":    "model",
+		}},
 	}}, nil
 }
 

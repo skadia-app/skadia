@@ -26,6 +26,11 @@ export interface LLMTestResult {
   latency_ms?: number
 }
 
+export interface LLMEvalResult {
+  status: 'untested' | 'passed' | 'failed' | 'waived'
+  failed_cases?: string[]
+}
+
 export async function fetchLLMConfig(): Promise<LLMSystemConfig[]> {
   return apiClient<LLMSystemConfig[]>('/admin/llm-config')
 }
@@ -60,5 +65,11 @@ export async function testLLMConnection(params: {
   return apiClient<LLMTestResult>('/admin/llm-config/test', {
     method: 'POST',
     body: params,
+  })
+}
+
+export async function runLLMEval(role: string): Promise<LLMEvalResult> {
+  return apiClient<LLMEvalResult>(`/admin/llm-config/${role}/eval`, {
+    method: 'POST',
   })
 }

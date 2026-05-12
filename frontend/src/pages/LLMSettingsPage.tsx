@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import Toggle from '@/components/Toggle'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  fetchLLMConfig, saveLLMRole, fetchOllamaModels, testLLMConnection,
+  fetchLLMConfig, saveLLMRole, fetchOllamaModels, testLLMConnection, runLLMEval,
   type LLMSystemConfig, type LLMTestResult,
 } from '@/api/llmSettings'
 import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichment'
@@ -161,6 +161,7 @@ function LLMRoleCard({ role, config, onSave }: {
   const [apiKey, setApiKey] = useState('')
   const [enabled, setEnabled] = useState(config?.enabled || false)
   const [testResult, setTestResult] = useState<LLMTestResult | null>(null)
+  const [evalResult, setEvalResult] = useState<string | null>(null)
 
   useEffect(() => {
     setBackend(config?.backend_type || 'disabled')
@@ -171,6 +172,7 @@ function LLMRoleCard({ role, config, onSave }: {
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [isLoadingModels, setIsLoadingModels] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
+  const [isEvaluating, setIsEvaluating] = useState(false)
 
   const saveMutation = useMutation({
     mutationFn: () => saveLLMRole(role, { backend_type: backend, api_base: apiBase || undefined,
@@ -212,6 +214,20 @@ function LLMRoleCard({ role, config, onSave }: {
       setTestResult({ success: false, message: 'Verbindungsfehler' })
     }
     setIsTesting(false)
+  }
+
+  const runEval = async () => {
+    setIsEvaluating(true)
+    setEvalResult(null)
+    try {
+      const result = await runLLMEval(role)
+      const failed = result.failed_cases?.length ? ` (${result.failed_cases.join(', ')})` : ''
+      setEvalResult(`Eval: ${result.status}${failed}`)
+      onSave()
+    } catch {
+      setEvalResult('Eval fehlgeschlagen')
+    }
+    setIsEvaluating(false)
   }
 
   const needsURL = backend !== 'disabled'
@@ -365,6 +381,15 @@ function LLMRoleCard({ role, config, onSave }: {
             >
               {isTesting ? 'Teste...' : 'Verbindung testen'}
             </button>
+            <button
+              onClick={runEval}
+              disabled={isEvaluating || !needsURL || !modelName}
+              className="cursor-pointer px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700
+                         text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
+                         disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isEvaluating ? 'Eval läuft...' : 'Eval starten'}
+            </button>
             {testResult && (
               <span className={`text-xs ${testResult.success ? 'text-green-500' : 'text-rose-500'}`}>
                 {testResult.success ? 'OK' : 'Fehler'} {testResult.message}
@@ -373,6 +398,11 @@ function LLMRoleCard({ role, config, onSave }: {
             )}
             {testResult?.warning && (
               <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">⚠ {testResult.warning}</p>
+            )}
+            {evalResult && (
+              <span className={`text-xs ${evalResult.includes('passed') ? 'text-green-500' : 'text-rose-500'}`}>
+                {evalResult}
+              </span>
             )}
           </div>
         </div>

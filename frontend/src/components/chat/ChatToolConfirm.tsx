@@ -7,6 +7,7 @@ export interface ToolConfirmRequest {
   toolCallID: string
   tool: string
   args?: unknown
+  preview?: unknown
   summary: string
   expiresAtISO: string
   sessionID: string
@@ -32,6 +33,7 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
   const remainingSeconds = Math.ceil(remainingMs / 1000)
   const expired = remainingMs <= 0 || effectiveStatus === 'expired'
   const disabled = busy || expired || effectiveStatus === 'confirmed' || effectiveStatus === 'declined'
+  const previewText = useMemo(() => formatPreview(request.preview ?? request.args), [request.preview, request.args])
 
   useEffect(() => {
     setLocalStatus(undefined)
@@ -101,6 +103,11 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
         {request.summary}
       </div>
       <div className="mt-1 font-mono text-[11px] text-neutral-500">{request.tool}</div>
+      {previewText && (
+        <pre className="mt-2 max-h-48 overflow-auto rounded-md border border-amber-200 bg-white/80 p-2 text-[11px] leading-4 text-neutral-700 dark:border-amber-900/70 dark:bg-neutral-950/60 dark:text-neutral-200">
+          {previewText}
+        </pre>
+      )}
       {effectiveStatus === 'confirmed' && <div className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">Bestätigt - wird ausgeführt...</div>}
       {effectiveStatus === 'declined' && <div className="mt-2 text-xs text-neutral-500">Abgelehnt</div>}
       <div className="mt-3 flex items-center gap-2">
@@ -130,4 +137,14 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
       <div aria-live="polite" className="sr-only">{announcement}</div>
     </div>
   )
+}
+
+function formatPreview(preview: unknown): string {
+  if (preview == null) return ''
+  if (typeof preview === 'string') return preview
+  try {
+    return JSON.stringify(preview, null, 2)
+  } catch {
+    return ''
+  }
 }
