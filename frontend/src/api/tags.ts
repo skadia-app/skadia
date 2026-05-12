@@ -149,6 +149,7 @@ export async function seedDefaultTags(): Promise<{ created: number }> {
 export interface TagActivity {
   id: string
   title: string | null
+  display_title?: string | null
   title_auto?: string | null
   title_is_manual?: boolean
   started_at: string
