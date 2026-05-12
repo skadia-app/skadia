@@ -7,6 +7,7 @@ import type { Activity, Gear, MaintenanceAlert } from '@/api/types'
 import { fetchGear, fetchMaintenanceAlerts } from '@/api/gear'
 import { SportIcon } from '@/components/SportIcon'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
+import { displayActivityTitle } from '@/lib/activityTitle'
 import { formatDuration, formatDistance, formatElevationGain } from '@/lib/utils'
 import { normTz } from '@/lib/format'
 import { fetchHRVAnalysis } from '@/api/analytics'
@@ -219,7 +220,7 @@ export default function DashboardPage() {
                   <SportIcon sport={a.sport_type} subType={a.sub_type} isElectric={a.is_electric} className="w-4 h-4" />
                 </span>
                 <span className="flex-1 min-w-0 text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
-                  {a.title ?? sportLabel(a.sport_type, a.sub_type)}
+                  {displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type))}
                 </span>
                 <span className="text-xs text-neutral-400 flex-shrink-0">
                   {new Date(a.started_at).toLocaleDateString('de-DE', {

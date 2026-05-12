@@ -91,4 +91,24 @@ describe('WorkshopReprocessPage activity selection', () => {
     })
     expect(screen.getByText('1 ausgewählt')).toBeInTheDocument()
   })
+
+  it('offers auto title recompute and does not claim tags always remain unchanged', () => {
+    fetchActivitiesMock.mockResolvedValue({ activities: [], next_cursor: null, total: 0 })
+
+    renderPage()
+
+    expect(screen.getByLabelText('Automatische Benennung')).toBeInTheDocument()
+    expect(screen.queryByText(/Tags\) bleiben erhalten/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Tags bleiben nur unverändert/)).toBeInTheDocument()
+  })
+
+  it('uses scope-aware tag preservation copy in the confirmation dialog', () => {
+    fetchActivitiesMock.mockResolvedValue({ activities: [], next_cursor: null, total: 0 })
+
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: 'Neu verarbeiten' }))
+
+    expect(screen.queryByText(/Tags, Sichtbarkeit\) bleiben erhalten/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Automations- und Systemtags neu ausgewertet/)).toBeInTheDocument()
+  })
 })

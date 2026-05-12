@@ -17,6 +17,7 @@ import { fetchActivity, fetchActivityStreams } from '@/api/activities'
 import type { Activity, StreamPoint } from '@/api/types'
 import { formatDuration, formatDistance } from '@/lib/utils'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { displayActivityTitle } from '@/lib/activityTitle'
 import { formatSpeedValue, defaultSpeedMode } from '@/lib/sportFieldLabels'
 
 import { SportIcon } from '@/components/SportIcon'
@@ -326,7 +327,7 @@ export default function ActivityComparisonPage() {
                     <SportIcon sport={a.sport_type} subType={a.sub_type} isElectric={a.is_electric} className="w-4 h-4 flex-shrink-0" />
                     <div className="min-w-0">
                       <div className="font-medium text-neutral-800 dark:text-neutral-200 truncate">
-                        {a.title ?? a.title_auto ?? sportLabel(a.sport_type, a.sub_type)}
+                        {displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type))}
                       </div>
                       <div className="text-xs text-neutral-400 dark:text-neutral-500">
                         {fmtDateTime(a.started_at, a.timezone)}
@@ -482,7 +483,7 @@ function ComparisonChart({
       const data = downsamplePairs(xDataRaw, yDataRaw, 1000)
 
       return {
-        name: a.title ?? a.title_auto ?? sportLabel(a.sport_type, a.sub_type),
+        name: displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type)),
         type: 'line' as const,
         data,
         showSymbol: false,
@@ -670,7 +671,7 @@ function ComparisonMap({
                 style={{ backgroundColor: COMPARE_COLORS[i] }}
               />
               <span className="text-neutral-700 dark:text-neutral-300 truncate max-w-[200px]">
-                {a.title ?? a.title_auto ?? sportLabel(a.sport_type, a.sub_type)}
+                {displayActivityTitle(a, sportLabel(a.sport_type, a.sub_type))}
               </span>
             </div>
           )
