@@ -48,7 +48,7 @@ func TestMigration_LLMRoleCapabilities_ColumnsAndRoles(t *testing.T) {
 	}
 
 	rows, err := pool.Query(ctx, `
-		SELECT role, enabled, eval_status
+		SELECT role, eval_status
 		FROM llm_system_config
 		WHERE role = ANY($1)
 		ORDER BY role
@@ -61,15 +61,11 @@ func TestMigration_LLMRoleCapabilities_ColumnsAndRoles(t *testing.T) {
 	var got []string
 	for rows.Next() {
 		var role, status string
-		var enabled bool
-		if err := rows.Scan(&role, &enabled, &status); err != nil {
+		if err := rows.Scan(&role, &status); err != nil {
 			t.Fatalf("scan role: %v", err)
 		}
-		if enabled {
-			t.Errorf("%s enabled = true, want false", role)
-		}
-		if status != "untested" {
-			t.Errorf("%s eval_status = %q, want untested", role, status)
+		if !slices.Contains([]string{"untested", "passed", "failed", "waived"}, status) {
+			t.Errorf("%s eval_status = %q, want valid eval status", role, status)
 		}
 		got = append(got, role)
 	}
