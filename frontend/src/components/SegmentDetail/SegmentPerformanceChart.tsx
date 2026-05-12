@@ -10,6 +10,7 @@ import { apiClient } from '@/api/client'
 
 echarts.use([ScatterChart, LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 import { fmtDuration } from '@/lib/format'
+import { sportLabel } from '@/lib/sportTaxonomy'
 import { useECharts } from '@/hooks/useECharts'
 
 interface SegmentPerformanceChartProps {
@@ -91,7 +92,8 @@ export function SegmentPerformanceChart({ segmentId, dateFrom, dateTo }: Segment
             const [ts, time] = params.data.value ?? params.data
             const perf = sorted.find((p: any) => new Date(p.started_at).getTime() === ts)
             const dateStr = new Date(ts).toLocaleDateString('de-DE')
-            return `${dateStr}<br/><b>${fmtDuration(time)}</b>${perf ? '<br/>' + perf.title : ''}`
+            const title = perf ? (perf.title || sportLabel(perf.sport_type)) : ''
+            return `${dateStr}<br/><b>${fmtDuration(time)}</b>${title ? '<br/>' + title : ''}`
           },
         },
         grid: { left: 60, right: 20, top: 20, bottom: 50 },

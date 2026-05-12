@@ -1,4 +1,5 @@
 import type { Activity } from '@/api/types'
+import { editableActivityTitleSeed } from '@/lib/activityTitle'
 import { modifierFromTSField, modifierJSONKey, modifierLabel, modifierTagSync, modifierTagSyncOnlySportType, modifierTSField, type SportModifierKey, type SportModifierTSField } from '@/lib/sportModifiers'
 import { QuickEditApplicableModifierKeys } from '@/lib/generatedQuickEditApplicableModifiers'
 import type { updateActivity } from '@/api/activities'
@@ -59,7 +60,7 @@ function uniqueTags(tags: string[]): string[] {
 export function activityQuickEditDraftFromActivity(activity: Activity): ActivityQuickEditDraft {
   const modifiers = quickEditModifiersFromActivity(activity)
   return {
-    title: activity.title ?? activity.title_auto ?? '',
+    title: editableActivityTitleSeed(activity),
     description: activity.description ?? '',
     sportType: activity.sport_type,
     subType: activity.sub_type ?? '',
@@ -78,7 +79,7 @@ export function buildActivityQuickEditPatch(activity: Activity, draft: ActivityQ
   const title = draft.title.trim()
   const description = draft.description.trim()
   const subType = draft.subType.trim()
-  const originalTitle = activity.title ?? activity.title_auto ?? ''
+  const originalTitle = editableActivityTitleSeed(activity)
   const draftVirtual = quickEditModifierSelected(draft, 'is_virtual')
   const effectiveExcludeFromHeatmap = draftVirtual ? true : draft.excludeFromHeatmap
 

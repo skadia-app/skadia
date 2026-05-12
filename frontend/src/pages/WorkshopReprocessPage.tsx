@@ -7,6 +7,7 @@ import { fetchActivities, reprocessAllActivities, isReprocessAccepted } from '@/
 import type { ReprocessFilter, ReprocessCompleted } from '@/api/activities'
 import type { Activity } from '@/api/types'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { displayActivityTitle } from '@/lib/activityTitle'
 import { ALL_REPROCESS_SCOPE_KEYS, DEFAULT_SCOPES, scopeLabel, toBackendScope, toggleScopeKey, type AnyReprocessKey } from '@/lib/reprocessScopes'
 import { ScopeCheckboxList } from '@/components/ScopeCheckboxList'
 
@@ -128,6 +129,8 @@ export default function WorkshopReprocessPage() {
 
   const activities = activitiesData?.pages.flatMap(page => page.activities) ?? []
   const filteredActivities = activities
+  const tagsReprocessed = scope.has('tags') || scope.size === ALL_REPROCESS_SCOPE_KEYS.length
+  const reprocessPreservationCopy = 'Manuelle Titel, Beschreibung und Sichtbarkeit bleiben erhalten. Tags bleiben nur unverändert, wenn „Tags“ nicht ausgewählt ist; bei „Tags“ werden Automations- und Systemtags neu ausgewertet.'
 
   return (
     <div className="space-y-6">
@@ -143,7 +146,7 @@ export default function WorkshopReprocessPage() {
 
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-4">
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Aktivitäten neu verarbeiten: Die Originaldateien werden erneut geparst und alle abgeleiteten Daten (Streams, Track, Sensoren, Metriken) ersetzt. Nutzerdefinierte Felder (Titel, Beschreibung, Tags) bleiben erhalten.
+          Aktivitäten neu verarbeiten: Je nach Umfang werden Originaldateien erneut geparst oder abgeleitete Daten aus bestehender Enrichment-Basis aktualisiert. {reprocessPreservationCopy}
         </p>
 
         {/* Mode toggle */}
@@ -297,7 +300,9 @@ export default function WorkshopReprocessPage() {
                           {sportLabel(a.sport_type, a.sub_type)}
                         </td>
                         <td className="px-3 py-1.5 text-neutral-900 dark:text-neutral-100 truncate max-w-[200px]">
-                          {a.title ?? a.title_auto ?? <span className="text-neutral-400 italic">Kein Titel</span>}
+                          {displayActivityTitle(a, 'Kein Titel') === 'Kein Titel'
+                            ? <span className="text-neutral-400 italic">Kein Titel</span>
+                            : displayActivityTitle(a, 'Kein Titel')}
                         </td>
                       </tr>
                     ))}
@@ -370,7 +375,9 @@ export default function WorkshopReprocessPage() {
                 ].join(', ')}
               </p>
               <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                Nutzerdefinierte Felder (Titel, Beschreibung, Tags, Sichtbarkeit) bleiben erhalten.
+                {tagsReprocessed
+                  ? reprocessPreservationCopy
+                  : 'Manuelle Titel, Beschreibung und Sichtbarkeit bleiben erhalten. Tags bleiben unverändert, solange „Tags“ nicht ausgewählt ist.'}
               </p>
               <div className="flex justify-end gap-3">
                 <button

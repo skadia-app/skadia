@@ -16,6 +16,7 @@ import SportConflictBadge from '@/components/SportConflictBadge'
 import SportConflictModal from '@/components/SportConflictModal'
 import ActivityQuickEditModal from '@/components/activity/ActivityQuickEditModal'
 import ReprocessScopeModal from '@/components/activity/ReprocessScopeModal'
+import { displayActivityTitle, editableActivityTitleSeed } from '@/lib/activityTitle'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
 import { triggerBlobDownload, cn } from '@/lib/utils'
 import { fmtActivityDate, fmtTimeFromDate } from '@/lib/format'
@@ -30,7 +31,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
   const navigate = useNavigate()
   const { addToast } = useToast()
   const [editing, setEditing] = useState(false)
-  const [titleDraft, setTitleDraft] = useState(activity.title ?? '')
+  const [titleDraft, setTitleDraft] = useState(() => editableActivityTitleSeed(activity))
   const [reprocessState, setReprocessState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [exportOpen, setExportOpen] = useState(false)
   const [reprocessMenuOpen, setReprocessMenuOpen] = useState(false)
@@ -194,10 +195,10 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
 
   function commitTitle() {
     const trimmed = titleDraft.trim()
-    if (trimmed && trimmed !== activity.title) {
+    if (trimmed && trimmed !== editSeed) {
       mutation.mutate(trimmed)
     } else {
-      setTitleDraft(activity.title ?? '')
+      setTitleDraft(editSeed)
       setEditing(false)
     }
   }
@@ -205,6 +206,9 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
   const label = sportDetailLabel(activity.sport_type, activity.sub_type)
   const date = new Date(activity.started_at)
   const isReprocessing = reprocessState === 'loading'
+  const headerTitle = displayActivityTitle(activity, 'Kein Titel')
+  const editSeed = editableActivityTitleSeed(activity)
+  const showingAutoTitle = !activity.title_is_manual && !!activity.title_auto
 
   const reprocessIcon = isReprocessing ? (
     <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -238,23 +242,25 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
             onBlur={commitTitle}
             onKeyDown={(e) => {
               if (e.key === 'Enter') commitTitle()
-              if (e.key === 'Escape') { setTitleDraft(activity.title ?? ''); setEditing(false) }
+              if (e.key === 'Escape') { setTitleDraft(editSeed); setEditing(false) }
             }}
             className="w-full text-2xl font-semibold bg-transparent border-b-2 border-accent-400 outline-none
                        text-neutral-900 dark:text-neutral-100 pb-1"
           />
         ) : (
           <h1
-            onClick={() => { setTitleDraft(activity.title ?? ''); setEditing(true) }}
+            onClick={() => { setTitleDraft(editSeed); setEditing(true) }}
             className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100 cursor-pointer
                        hover:text-accent-DEFAULT transition-colors truncate"
             title="Klicken zum Bearbeiten"
           >
-            {activity.title ?? <span className="text-neutral-400 italic font-normal">Kein Titel</span>}
+            {headerTitle === 'Kein Titel'
+              ? <span className="text-neutral-400 italic font-normal">Kein Titel</span>
+              : headerTitle}
           </h1>
         )}
-        {!activity.title && activity.title_auto && (
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5 truncate">{activity.title_auto}</p>
+        {showingAutoTitle && activity.title && activity.title !== activity.title_auto && (
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5 truncate">{activity.title}</p>
         )}
         <div className="flex items-center gap-3 mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           <span>{label}</span>
@@ -540,7 +546,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
       {activity.sport_type === 'multisport' && (
         <>
           <button
-            onClick={() => { setTitleDraft(activity.title ?? ''); setEditing(true) }}
+            onClick={() => { setTitleDraft(editSeed); setEditing(true) }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-1 cursor-pointer"
           >
             &#9998; Umbenennen

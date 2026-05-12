@@ -52,6 +52,7 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
     onSuccess: (_data, moduleName) => {
       queryClient.invalidateQueries({ queryKey: ['enrichment-status', activityId] })
       queryClient.invalidateQueries({ queryKey: ['activity', activityId] })
+      queryClient.invalidateQueries({ queryKey: ['activities'] })
       queryClient.invalidateQueries({ queryKey: ['geo-tags', activityId] })
       queryClient.invalidateQueries({ queryKey: ['activity-stops', activityId] })
       queryClient.invalidateQueries({ queryKey: ['activity-track-summary', activityId] })
@@ -135,6 +136,14 @@ export default function EnrichmentStatusSection({ activityId, enrichmentStatus, 
               </Link>
             )}
           </p>
+          <button
+            type="button"
+            onClick={() => recomputeMutation.mutate('auto_naming')}
+            disabled={recomputeMutation.isPending || globallyDisabled.has('auto_naming')}
+            className="text-xs font-medium text-accent-DEFAULT hover:underline disabled:text-neutral-400 disabled:no-underline disabled:cursor-not-allowed"
+          >
+            Auto-Titel neu berechnen
+          </button>
         </div>
       )}
     </div>

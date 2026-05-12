@@ -150,6 +150,7 @@ export interface TagActivity {
   id: string
   title: string | null
   title_auto?: string | null
+  title_is_manual?: boolean
   started_at: string
   sport_type: string
   distance_m?: number | null

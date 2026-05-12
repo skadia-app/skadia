@@ -108,6 +108,33 @@ func TestBuildRecomputeScopeFlagsLiftsAndStopsCombined(t *testing.T) {
 	}
 }
 
+func TestBuildRecomputeScopeFlagsAutoTitleOnlyDoesNotRequestReparseWork(t *testing.T) {
+	scope, err := parseRecomputeScopeValues([]string{"auto_title"})
+	if err != nil {
+		t.Fatalf("parseRecomputeScopeValues: %v", err)
+	}
+	flags := buildRecomputeScopeFlags(scope)
+	if !flags.doAutoTitle {
+		t.Fatalf("doAutoTitle = false, want true")
+	}
+	if flags.doStage1 || flags.doStreams || flags.doMetrics || flags.doGeo || flags.doTags {
+		t.Fatalf("auto_title-only must not request file-backed recompute work: %+v", flags)
+	}
+	if !flags.autoTitleOnly() {
+		t.Fatalf("autoTitleOnly = false, want true")
+	}
+}
+
+func TestBuildRecomputeScopeFlagsAllScopeIncludesAutoTitle(t *testing.T) {
+	flags := buildRecomputeScopeFlags(nil)
+	if !flags.allScope || !flags.doAutoTitle {
+		t.Fatalf("all-scope must include auto-title recompute: %+v", flags)
+	}
+	if flags.autoTitleOnly() {
+		t.Fatalf("all-scope must not be treated as auto-title-only: %+v", flags)
+	}
+}
+
 func TestParseRecomputeScopeValuesRejectsUnknownScopes(t *testing.T) {
 	if _, err := parseRecomputeScopeValues([]string{"bogus"}); err == nil {
 		t.Fatal("parseRecomputeScopeValues accepted unknown scope")
