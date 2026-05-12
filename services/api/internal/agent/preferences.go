@@ -1,5 +1,7 @@
 package agent
 
+import "context"
+
 type ChatPreferences struct {
 	ChatWriteToolsEnabled     bool     `json:"chat_write_tools_enabled"`
 	ChatAllowedWriteTools     []string `json:"chat_allowed_write_tools"`
@@ -13,4 +15,14 @@ type ChatPreferences struct {
 	ChatIncludeExternalRoutes bool     `json:"chat_include_external_routes"`
 }
 
-type PreferenceLoader struct{}
+type PreferenceLoader struct {
+	Defaults ChatPreferences
+}
+
+func (l *PreferenceLoader) LoadChatPreferences(ctx context.Context, userID string) (*ChatPreferences, error) {
+	if l == nil {
+		return &ChatPreferences{}, nil
+	}
+	prefs := l.Defaults
+	return &prefs, nil
+}

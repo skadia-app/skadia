@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -16,6 +17,8 @@ import (
 	"github.com/openai/openai-go/shared/constant"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
+
+var ErrWriteToolRequiresEnvelope = errors.New("write tool requires execution envelope")
 
 type Permission string
 
@@ -106,6 +109,8 @@ type Deps struct {
 	BRouterURL  string
 	LLM         *agent.LLMResolver
 	SQLAgent    *agent.SQLAgent
+	Audit       *agent.AuditWriter
+	Confirm     *agent.ConfirmationManager
 	Preferences *agent.PreferenceLoader
 }
 
@@ -142,12 +147,17 @@ func (r *Registry) ExecuteRead(ctx context.Context, deps *Deps, userID, toolName
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
 	if t.Permission != PermissionRead {
-		return nil, fmt.Errorf("tool is not read-only: %s", toolName)
+		return nil, ErrWriteToolRequiresEnvelope
 	}
 	if t.ExecuteRead == nil {
 		return nil, fmt.Errorf("tool has no read executor: %s", toolName)
 	}
 	return t.ExecuteRead(ctx, deps, userID, args)
+}
+
+func (r *Registry) Get(name string) (*Tool, bool) {
+	t, ok := r.tools[name]
+	return t, ok
 }
 
 func (r *Registry) AddEnabledWriteTools(filter []string, prefs *agent.ChatPreferences) []string {
