@@ -586,14 +586,11 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			return fmt.Errorf("parse %s JSON: %w", info.FileFormat, parseErr)
 		}
 		data = activityDataFromManualSidecar(mf)
-		// Persist title + description via enrichment fields (not in ActivityData).
-		enrichFields := make(map[string]any)
-		if mf.Title != "" {
-			enrichFields["title"] = mf.Title
+		existing, getErr := h.DB.GetActivity(ctx, activityID)
+		if getErr != nil {
+			slog.Warn("reprocess: read existing activity before sidecar title update failed", "id", activityID, "error", getErr)
 		}
-		if mf.Description != "" {
-			enrichFields["description"] = mf.Description
-		}
+		enrichFields := manualSidecarEnrichmentFields(mf, existing)
 		if len(enrichFields) > 0 {
 			if eErr := h.DB.UpdateEnrichmentFields(ctx, activityID, enrichFields); eErr != nil {
 				slog.Error("reprocess: update title/description failed", "id", activityID, "error", eErr)
@@ -622,6 +619,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 				slog.Error("reprocess: insert rr intervals failed", "id", activityID, "error", err)
 			}
 		}
+
 		if err := h.DB.InsertTrack(ctx, activityID, data.TrackPoints); err != nil {
 			return fmt.Errorf("insert track: %w", err)
 		}
@@ -1189,6 +1187,17 @@ func activityDataFromManualSidecar(mf *sidecar.ManualActivityFile) *model.Activi
 		data.EndedAt = mf.StartedAt.Add(time.Duration(mf.ElapsedTimeS) * time.Second)
 	}
 	return data
+}
+
+func manualSidecarEnrichmentFields(mf *sidecar.ManualActivityFile, existing *model.Activity) map[string]any {
+	enrichFields := make(map[string]any)
+	if mf.Title != "" && (existing == nil || !existing.TitleIsManual) {
+		enrichFields["title"] = mf.Title
+	}
+	if mf.Description != "" {
+		enrichFields["description"] = mf.Description
+	}
+	return enrichFields
 }
 
 // reprocessTags re-evaluates automation rules for an activity using the shared helper.
