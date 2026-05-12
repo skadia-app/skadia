@@ -79,6 +79,7 @@ export interface Activity {
   id: string
   user_id: string
   title: string | null
+  display_title?: string | null
   description?: string | null
   sport_type: string
   sub_type: string | null
@@ -122,6 +123,7 @@ export interface Activity {
   needs_classification: boolean
   has_gps: boolean
   title_auto?: string | null
+  title_is_manual?: boolean
   start_city?: string | null
   end_city?: string | null
   start_state?: string | null
@@ -536,6 +538,8 @@ export interface GeoTag {
   admin_level?: number | null // OSM administrative level; country-specific
 }
 
+export type AutoTitleDisplayPolicy = 'source_unless_generic' | 'source_first' | 'auto_first'
+
 export interface EnrichmentSettings {
   user_id: string
   // Detection modules
@@ -557,6 +561,7 @@ export interface EnrichmentSettings {
   // Non-detection features
   enable_weather_enrichment: boolean
   enable_auto_naming: boolean
+  auto_title_display_policy: AutoTitleDisplayPolicy
   // Thresholds
   climb_min_gradient_pct: number
   climb_min_elevation_m: number
@@ -1267,7 +1272,9 @@ export interface RecordingGroupMember {
   fusion_source_count: number
   is_primary: boolean
   title: string | null
+  display_title?: string | null
   title_auto: string | null
+  title_is_manual?: boolean
   started_at: string
   sport_type: string
   sub_type?: string | null

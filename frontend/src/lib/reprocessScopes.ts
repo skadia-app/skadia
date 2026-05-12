@@ -18,8 +18,13 @@ const STREAM_ANALYSIS_SCOPES = ANALYSIS_MODULES
   .filter(module => module.reprocess.type === 'standalone' && module.reprocess.group === 'stream')
   .map(module => [module.reprocess.type === 'standalone' ? module.reprocess.scope : module.name, module.label, module.description] as const)
 
+const METADATA_ANALYSIS_SCOPES = ANALYSIS_MODULES
+  .filter(module => module.reprocess.type === 'standalone' && module.reprocess.group === 'metadata')
+  .map(module => [module.reprocess.type === 'standalone' ? module.reprocess.scope : module.name, module.label, module.description] as const)
+
 export const REPROCESS_SCOPES: readonly ScopeTuple[] = [
   ...BASE_REPROCESS_SCOPES,
+  ...METADATA_ANALYSIS_SCOPES,
   ...STREAM_ANALYSIS_SCOPES,
 ] as const
 
@@ -49,7 +54,7 @@ export const ALL_REPROCESS_SCOPE_KEYS: readonly AnyReprocessKey[] = [
   ...GEO_SCOPE_KEYS,
 ] as const
 
-export const DEFAULT_SCOPES: AnyReprocessKey[] = ['streams', 'sensors', 'metrics', 'details', 'segments']
+export const DEFAULT_SCOPES: AnyReprocessKey[] = ['streams', 'sensors', 'metrics', 'details', 'segments', 'auto_title']
 
 export function toggleScopeKey(prev: Set<AnyReprocessKey>, key: AnyReprocessKey): Set<AnyReprocessKey> {
   const next = new Set(prev)

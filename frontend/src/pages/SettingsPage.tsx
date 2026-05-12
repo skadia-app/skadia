@@ -28,6 +28,7 @@ import AdminSettingsTab from '@/pages/settings/AdminSettingsTab'
 import { MLServiceSection } from '@/pages/settings/MLServiceSection'
 import { NotificationSettingsSection } from '@/pages/settings/NotificationSettingsSection'
 import { UserCustomLayersSection } from '@/components/UserCustomLayersSection'
+import { AutoTitleDisplayPolicySelect } from '@/components/AutoTitleDisplayPolicySelect'
 import { useMapLayers } from '@/hooks/useMapLayers'
 import Toggle from '@/components/Toggle'
 import { SettingsSection } from '@/components/ui/SettingsSection'
@@ -169,6 +170,14 @@ function AutomatischeAnalysenSection() {
           )
         })}
       </div>
+
+      {settings && (
+        <AutoTitleDisplayPolicySelect
+          value={settings.auto_title_display_policy ?? 'source_unless_generic'}
+          onChange={auto_title_display_policy => mut.mutate({ auto_title_display_policy })}
+          disabled={isLoading || mut.isPending || settings.enable_auto_naming === false}
+        />
+      )}
 
       {/* Summit detection radius slider */}
       {settings && (

@@ -288,16 +288,17 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 
 // GetChildActivities returns all child activities for a given parent ID.
 func (db *DB) GetChildActivities(ctx context.Context, parentID string) ([]model.Activity, error) {
+	activityTitleSQL := ActivityDisplayTitleSQL("a")
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, sport_type, sub_type, title, title_auto, started_at,
-		       elapsed_time_s, moving_time_s, distance_m, elevation_gain_m,
-		       elevation_loss_m, avg_heart_rate, avg_power_w, parent_id,
-		       is_indoor, is_electric, is_virtual, exclude_from_heatmap, has_gps, enrichment_status, visibility,
-		       COALESCE(tags, '{}'),
-		       file_hash, file_id, original_filename, original_file_format
-		FROM activities
-		WHERE parent_id = $1
-		ORDER BY started_at`, parentID)
+		SELECT a.id, a.user_id, a.sport_type, a.sub_type, a.title, NULLIF(`+activityTitleSQL+`, ''), a.title_auto, COALESCE(a.title_is_manual, false), a.started_at,
+		       a.elapsed_time_s, a.moving_time_s, a.distance_m, a.elevation_gain_m,
+		       a.elevation_loss_m, a.avg_heart_rate, a.avg_power_w, a.parent_id,
+		       a.is_indoor, a.is_electric, a.is_virtual, a.exclude_from_heatmap, a.has_gps, a.enrichment_status, a.visibility,
+		       COALESCE(a.tags, '{}'),
+		       a.file_hash, a.file_id, a.original_filename, a.original_file_format
+		FROM activities a
+		WHERE a.parent_id = $1
+		ORDER BY a.started_at`, parentID)
 	if err != nil {
 		return nil, fmt.Errorf("get child activities: %w", err)
 	}
@@ -307,7 +308,7 @@ func (db *DB) GetChildActivities(ctx context.Context, parentID string) ([]model.
 	for rows.Next() {
 		var a model.Activity
 		if err := rows.Scan(
-			&a.ID, &a.UserID, &a.SportType, &a.SubType, &a.Title, &a.TitleAuto, &a.StartedAt,
+			&a.ID, &a.UserID, &a.SportType, &a.SubType, &a.Title, &a.DisplayTitle, &a.TitleAuto, &a.TitleIsManual, &a.StartedAt,
 			&a.ElapsedTimeS, &a.MovingTimeS, &a.DistanceM, &a.ElevationGainM,
 			&a.ElevationLossM, &a.AvgHeartRate, &a.AvgPowerW, &a.ParentID,
 			&a.IsIndoor, &a.IsElectric, &a.IsVirtual, &a.ExcludeFromHeatmap, &a.HasGPS, &a.EnrichmentStatus, &a.Visibility,

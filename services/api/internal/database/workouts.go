@@ -148,11 +148,14 @@ func (db *DB) GetWorkout(ctx context.Context, workoutID, userID string) (*model.
 		steps = []model.WorkoutStepRecord{}
 	}
 
+	activityTitleSQL := ActivityDisplayTitleSQL("a")
 	actRows, err := db.Pool.Query(ctx, `
-		SELECT id, COALESCE(title, title_auto), started_at, sport_type, distance_m, elapsed_time_s
-		FROM activities
-		WHERE workout_id = $1 AND user_id = $2
-		ORDER BY started_at DESC`,
+		SELECT a.id,
+		       `+activityTitleSQL+`,
+		       a.started_at, a.sport_type, a.distance_m, a.elapsed_time_s
+		FROM activities a
+		WHERE a.workout_id = $1 AND a.user_id = $2
+		ORDER BY a.started_at DESC`,
 		workoutID, userID,
 	)
 	if err != nil {

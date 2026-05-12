@@ -192,6 +192,94 @@ func TestRenderActivityFilePathIncludesCommuteAndRequiresFileOwner(t *testing.T)
 	}
 }
 
+func TestRenderActivityFilePathUsesDisplayTitlePolicy(t *testing.T) {
+	ctx := context.Background()
+	pool := activityRefreshTestPool(t)
+	userID := insertActivityRefreshUser(t, pool)
+	activityID := uuid.NewString()
+	fileID := uuid.NewString()
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (
+			id, user_id, sport_type, started_at, title, title_auto, title_is_manual,
+			original_file_format, source, file_hash
+		)
+		VALUES ($1, $2, 'hiking', '2024-03-15 14:30:00+00', 'Source Title', 'Generated Title', false,
+		        'fit', 'upload', $3)`,
+		activityID, userID, uuid.NewString()); err != nil {
+		t.Fatalf("insert activity: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_files (
+			id, user_id, file_type, file_name, content_type, storage_backend,
+			storage_path, size_bytes, file_hash, parent_type, parent_id, status
+		)
+		VALUES ($1, $2, 'activity', 'activity.fit', 'application/octet-stream', 'local',
+		        $3, 8, $4, 'activity', $5, 'active')`,
+		fileID, userID, filepath.Join(userID, DirForType("activity"), "activity.fit"), uuid.NewString(), activityID); err != nil {
+		t.Fatalf("insert user_file: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE activities SET file_id = $1 WHERE id = $2`, fileID, activityID); err != nil {
+		t.Fatalf("link file_id: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM activities WHERE id = $1`, activityID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM user_files WHERE id = $1`, fileID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	rendered, err := RenderActivityFilePath(ctx, ActivityFileRefreshRequest{
+		Pool:           pool,
+		Renderer:       NewSchemaRenderer(),
+		UserID:         userID,
+		ActivityID:     activityID,
+		SchemaOverride: "{title}",
+	})
+	if err != nil {
+		t.Fatalf("RenderActivityFilePath: %v", err)
+	}
+	wantSource := filepath.Join(userID, DirForType("activity"), "Source Title.fit")
+	if rendered.NewPath != wantSource {
+		t.Fatalf("NewPath = %q, want source title path %q", rendered.NewPath, wantSource)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE activities SET title = '   ' WHERE id = $1`, activityID); err != nil {
+		t.Fatalf("blank source title: %v", err)
+	}
+	rendered, err = RenderActivityFilePath(ctx, ActivityFileRefreshRequest{
+		Pool:           pool,
+		Renderer:       NewSchemaRenderer(),
+		UserID:         userID,
+		ActivityID:     activityID,
+		SchemaOverride: "{title}",
+	})
+	if err != nil {
+		t.Fatalf("RenderActivityFilePath empty source: %v", err)
+	}
+	wantGenerated := filepath.Join(userID, DirForType("activity"), "Generated Title.fit")
+	if rendered.NewPath != wantGenerated {
+		t.Fatalf("empty source NewPath = %q, want generated title path %q", rendered.NewPath, wantGenerated)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE activities SET title = 'Manual Title', title_is_manual = true WHERE id = $1`, activityID); err != nil {
+		t.Fatalf("mark manual title: %v", err)
+	}
+	rendered, err = RenderActivityFilePath(ctx, ActivityFileRefreshRequest{
+		Pool:           pool,
+		Renderer:       NewSchemaRenderer(),
+		UserID:         userID,
+		ActivityID:     activityID,
+		SchemaOverride: "{title}",
+	})
+	if err != nil {
+		t.Fatalf("RenderActivityFilePath manual: %v", err)
+	}
+	wantManual := filepath.Join(userID, DirForType("activity"), "Manual Title.fit")
+	if rendered.NewPath != wantManual {
+		t.Fatalf("manual NewPath = %q, want manual title path %q", rendered.NewPath, wantManual)
+	}
+}
+
 func TestCopyActivityFileWithCollisionRetry(t *testing.T) {
 	basePath := t.TempDir()
 	oldRel := "old.fit"

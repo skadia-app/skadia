@@ -134,7 +134,7 @@ export function SegmentActivityList({ segmentId, segment, filters }: SegmentActi
             className="text-left p-3 border border-neutral-200 dark:border-neutral-700 rounded-lg hover:border-neutral-300 dark:hover:border-neutral-600 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors cursor-pointer"
           >
             <div className="font-medium text-sm truncate text-neutral-900 dark:text-neutral-100">
-              {perf.title}
+              {perf.title || sportLabel(perf.sport_type)}
             </div>
             <div className="text-xs text-neutral-500 dark:text-neutral-400 flex flex-wrap gap-2 mt-1">
               <span>{fmtDateCompact(perf.started_at, perf.timezone)}</span>

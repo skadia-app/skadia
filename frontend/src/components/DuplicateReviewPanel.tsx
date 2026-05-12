@@ -111,7 +111,7 @@ function GroupCard({ member, isRichest }: GroupCardProps) {
         <SportBadge member={member} />
       </div>
 
-      <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 truncate">{member.title}</p>
+      <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 truncate">{member.display_title ?? member.title}</p>
       <p className="text-xs text-neutral-500 dark:text-neutral-400">
         {new Date(member.started_at).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}
       </p>

@@ -17,6 +17,7 @@ import {
 } from '@/lib/utils'
 import { fmtActivityDateShort, fmtTimeFromDate } from '@/lib/format'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { displayActivityTitle } from '@/lib/activityTitle'
 import { getSourceColor } from '@/lib/comparisonColors'
 import { deviceLabel } from '@/lib/deviceUtils'
 import { SportIcon } from '@/components/SportIcon'
@@ -1401,7 +1402,7 @@ export default function ActivitiesPage() {
                         <div className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
                           <SportIcon sport={child.sport_type} subType={child.sub_type} isElectric={child.is_electric} className="w-4 h-4 shrink-0 text-neutral-400" />
                           <span className="font-medium truncate">
-                            {child.title ?? child.title_auto ?? sportLabel(child.sport_type, child.sub_type)}
+                            {displayActivityTitle(child, sportLabel(child.sport_type, child.sub_type))}
                           </span>
                         </div>
                       </td>
@@ -1468,7 +1469,7 @@ export default function ActivitiesPage() {
           </button>
           <button
             onClick={() => {
-              const actMap = new Map(activities.map(a => [a.id, a.title ?? a.title_auto ?? null]))
+              const actMap = new Map(activities.map(a => [a.id, displayActivityTitle(a, a.id)]))
               setOpenTabsItems([...selectedIds].map(id => ({ id, title: actMap.get(id) ?? null })))
             }}
             className="text-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer"
@@ -1616,6 +1617,8 @@ function ActivityRow({
 }: ActivityRowProps) {
   const navigate = useNavigate()
   const label = sportLabel(activity.sport_type, activity.sub_type)
+  const title = displayActivityTitle(activity, '')
+  const menuTitle = displayActivityTitle(activity, activity.id)
   const date = new Date(activity.started_at)
   const gain = formatElevationGain(activity.elevation_gain_m)
   const loss = formatElevationLoss(activity.elevation_loss_m)
@@ -1643,7 +1646,7 @@ function ActivityRow({
   return (
     <tr
       onClick={handleClick}
-      onContextMenu={e => onContextMenu(e, activity.id, activity.title ?? activity.title_auto, activity.sport_type)}
+      onContextMenu={e => onContextMenu(e, activity.id, menuTitle, activity.sport_type)}
       className={rowClass}
     >
       {/* Checkbox */}
@@ -1653,7 +1656,7 @@ function ActivityRow({
           checked={isSelected}
           onChange={e => onToggleSelect(activity.id, idx, (e.nativeEvent as MouseEvent).shiftKey ?? false)}
           className="w-4 h-4 rounded accent-accent-DEFAULT cursor-pointer"
-          aria-label={`Aktivität ${activity.title ?? activity.title_auto ?? activity.id} auswählen`}
+          aria-label={`Aktivität ${menuTitle} auswählen`}
         />
       </td>
       <td className="px-4 py-3 text-neutral-500 dark:text-neutral-400">
@@ -1699,7 +1702,7 @@ function ActivityRow({
             </button>
           )}
           <span>
-            {activity.title ?? activity.title_auto ?? (
+            {title || (
               <span className="text-neutral-400 font-normal italic">Kein Titel</span>
             )}
           </span>
@@ -1740,7 +1743,7 @@ function ActivityRow({
           <Pencil className="h-4 w-4" />
         </button>
         <button
-          onClick={e => onThreeDotClick(e, activity.id, activity.title ?? activity.title_auto, activity.sport_type)}
+          onClick={e => onThreeDotClick(e, activity.id, menuTitle, activity.sport_type)}
           className="p-1 rounded hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
           aria-label="Aktivitätsmenü"
         >
