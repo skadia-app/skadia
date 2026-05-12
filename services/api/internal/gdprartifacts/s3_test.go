@@ -25,6 +25,7 @@ type fakeS3Client struct {
 	failUploadPart bool
 	failComplete   bool
 	failHead       error
+	failPutBuckets map[string]bool
 	failDeleteKeys map[string]bool
 
 	putObjectCalls        int
@@ -58,6 +59,9 @@ func (f *fakeS3Client) PutObject(ctx context.Context, in *s3.PutObjectInput, _ .
 	f.putObjectCalls++
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if f.failPutBuckets[aws.ToString(in.Bucket)] {
+		return nil, fmt.Errorf("bucket not found")
 	}
 	body, err := io.ReadAll(in.Body)
 	if err != nil {
@@ -253,6 +257,45 @@ func TestS3StoreClampsMultipartPartSizeToS3Minimum(t *testing.T) {
 	})
 	if store.cfg.PartSizeBytes != minS3MultipartPartSize {
 		t.Fatalf("PartSizeBytes = %d, want %d", store.cfg.PartSizeBytes, minS3MultipartPartSize)
+	}
+}
+
+func TestS3StoreEnsureLifecycleProbesExportAndImportBuckets(t *testing.T) {
+	fake := newFakeS3Client()
+	store := newS3StoreForTest(fake, S3Config{
+		ExportBucket: "skadia-exports",
+		ImportBucket: "skadia-imports",
+		ExportPrefix: "gdpr/exports",
+		ImportPrefix: "gdpr/imports",
+	})
+	if err := store.EnsureLifecycle(context.Background()); err != nil {
+		t.Fatalf("EnsureLifecycle: %v", err)
+	}
+	if fake.putObjectCalls != 2 {
+		t.Fatalf("PutObject calls = %d, want export+import probes", fake.putObjectCalls)
+	}
+	for key := range fake.objects {
+		if strings.Contains(key, ".skadia-artifact-probe-") {
+			t.Fatalf("probe object was not deleted: %s", key)
+		}
+	}
+}
+
+func TestS3StoreEnsureLifecycleFailsWhenArtifactBucketMissing(t *testing.T) {
+	fake := newFakeS3Client()
+	fake.failPutBuckets = map[string]bool{"skadia-exports": true}
+	store := newS3StoreForTest(fake, S3Config{
+		ExportBucket: "skadia-exports",
+		ImportBucket: "skadia-imports",
+		ExportPrefix: "gdpr/exports",
+		ImportPrefix: "gdpr/imports",
+	})
+	err := store.EnsureLifecycle(context.Background())
+	if err == nil {
+		t.Fatal("EnsureLifecycle succeeded with missing export bucket")
+	}
+	if !strings.Contains(err.Error(), `export artifact bucket "skadia-exports" is not writable`) {
+		t.Fatalf("EnsureLifecycle error = %v", err)
 	}
 }
 
