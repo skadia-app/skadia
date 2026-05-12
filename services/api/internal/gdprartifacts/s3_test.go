@@ -228,6 +228,18 @@ func TestS3StoreMultipartWriterUsesBoundedPartsAndCommits(t *testing.T) {
 	}
 }
 
+func TestS3StoreClampsMultipartPartSizeToS3Minimum(t *testing.T) {
+	fake := newFakeS3Client()
+	store := newS3StoreForTest(fake, S3Config{
+		ExportBucket:  "skadia-exports",
+		ExportPrefix:  "gdpr/exports",
+		PartSizeBytes: 1024,
+	})
+	if store.cfg.PartSizeBytes != minS3MultipartPartSize {
+		t.Fatalf("PartSizeBytes = %d, want %d", store.cfg.PartSizeBytes, minS3MultipartPartSize)
+	}
+}
+
 func TestS3StoreAbortOnWriteOrCommitFailure(t *testing.T) {
 	fake := newFakeS3Client()
 	fake.failUploadPart = true

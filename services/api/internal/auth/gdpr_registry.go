@@ -141,15 +141,16 @@ var GDPRRegistry = map[string]TableCategory{
 	// -------------------------------------------------------------------------
 	// System — security/transient; not exported
 	// -------------------------------------------------------------------------
-	"auth_audit_log":         System, // user_id SET NULL by design
-	"auth_codes":             System,
-	"background_jobs":        System,
-	"device_tokens":          System,
-	"server_settings":        System,
-	"email_tokens":           System,
-	"garmin_import_jobs":     System,
-	"garmin_import_mappings": System,
-	"gear_idempotency_keys":  System, // transient dedup state; best-effort 24 h TTL via pg_cron when available; Go-side hourly fallback ticker when not (Mig 000355)
+	"auth_audit_log":             System, // user_id SET NULL by design
+	"auth_codes":                 System,
+	"background_jobs":            System,
+	"device_tokens":              System,
+	"gdpr_artifact_reservations": System,
+	"server_settings":            System,
+	"email_tokens":               System,
+	"garmin_import_jobs":         System,
+	"garmin_import_mappings":     System,
+	"gear_idempotency_keys":      System, // transient dedup state; best-effort 24 h TTL via pg_cron when available; Go-side hourly fallback ticker when not (Mig 000355)
 	// System: state is fully reproducible from automation_rules + gear; no historical signal lost (Plan 2026-05-08 §11).
 	"gear_rule_action_state": System,
 	// hotfolder_imports removed — table never existed in DB (stale aspirational entry, Mig cleanup)

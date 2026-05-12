@@ -24,7 +24,10 @@ func buildGDPRArtifactStore(cfg *config.Config) (gdprartifacts.Store, error) {
 		if err := validateWritableArtifactDir(cfg.ImportsBasePath); err != nil {
 			return nil, fmt.Errorf("imports artifact directory: %w", err)
 		}
-		return gdprartifacts.NewLocalStore(cfg.ExportsBasePath, cfg.ImportsBasePath)
+		return gdprartifacts.NewLocalStoreWithOptions(cfg.ExportsBasePath, cfg.ImportsBasePath, gdprartifacts.LocalCapacityOptions{
+			QuotaBytes:   cfg.GDPRArtifactLocalQuotaBytes,
+			MinFreeBytes: cfg.GDPRArtifactLocalMinFreeBytes,
+		})
 	case "s3":
 		if cfg.S3AccessKey == "" || cfg.S3SecretKey == "" {
 			return nil, fmt.Errorf("S3_ACCESS_KEY and S3_SECRET_KEY are required when GDPR_ARTIFACT_BACKEND resolves to s3")

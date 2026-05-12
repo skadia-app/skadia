@@ -716,6 +716,9 @@ func assertImportArtifactPrefixMissing(t *testing.T, store gdprartifacts.Store, 
 
 func clearActiveDataImportJobsForTest(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
+	if _, err := pool.Exec(context.Background(), `DELETE FROM gdpr_artifact_reservations`); err != nil {
+		t.Fatalf("clear GDPR artifact reservations: %v", err)
+	}
 	if _, err := pool.Exec(context.Background(), `
 		DELETE FROM background_jobs
 		WHERE job_type IN ('gdpr_export', 'data_import')

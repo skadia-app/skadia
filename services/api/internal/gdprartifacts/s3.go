@@ -20,7 +20,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const defaultS3ArtifactPartSize = 64 << 20
+const (
+	minS3MultipartPartSize    = 5 << 20
+	defaultS3ArtifactPartSize = 64 << 20
+)
 
 type S3Config struct {
 	Endpoint        string
@@ -84,6 +87,8 @@ func newS3StoreForTest(client s3CoreAPI, cfg S3Config) *S3Store {
 	cfg.ImportPrefix = cleanS3Prefix(cfg.ImportPrefix)
 	if cfg.PartSizeBytes <= 0 {
 		cfg.PartSizeBytes = defaultS3ArtifactPartSize
+	} else if cfg.PartSizeBytes < minS3MultipartPartSize {
+		cfg.PartSizeBytes = minS3MultipartPartSize
 	}
 	if cfg.ReadBlockBytes <= 0 {
 		cfg.ReadBlockBytes = 1 << 20

@@ -52,6 +52,13 @@ func (h *Handler) executeMultipartExportJobOnce(
 	}
 
 	expiresAt := time.Now().UTC().Add(dataExportDownloadTTL)
+	artifactPublished := false
+	defer func() {
+		if !artifactPublished && h.ArtifactStore != nil {
+			_ = h.ArtifactStore.DeletePrefix(context.Background(), gdprartifacts.ArtifactPrefix{Kind: "export", UserID: userID, JobID: jobID})
+			_ = h.releaseGDPRArtifactCapacity(context.Background(), jobID, userID, 0)
+		}
+	}()
 	metadataWriter, err := h.ArtifactStore.CreateWriter(ctx, gdprartifacts.ObjectSpec{
 		Kind:        "export",
 		UserID:      userID,
@@ -166,6 +173,10 @@ func (h *Handler) executeMultipartExportJobOnce(
 		 WHERE id = $1::uuid`,
 		jobID, status, topMsg, string(metadata)); err != nil {
 		return fmt.Errorf("store multipart metadata: %w", err)
+	}
+	artifactPublished = true
+	if err := h.commitGDPRArtifactCapacity(ctx, jobID, userID, totalObjectRefBytes(objects)); err != nil {
+		return fmt.Errorf("commit multipart artifact reservation: %w", err)
 	}
 	if status == "failed" {
 		return fmt.Errorf("%s", topMsg)
