@@ -31,16 +31,17 @@ func limitBody(w http.ResponseWriter, r *http.Request) {
 
 // Handler handles all auth-related HTTP requests.
 type Handler struct {
-	DB            *database.DB
-	Config        *config.Config
-	Settings      *settings.SettingsStore
-	Mailer        *Mailer
-	RL            *middleware.RateLimiter // for per-email rate limiting (body-parsed)
-	ShadowFS      shadowfs.ShadowFS       // unified storage (nil = legacy ShadowFS only)
-	ArtifactStore gdprartifacts.Store     // GDPR short-lived export/import artifacts
-	secret        []byte                  // decoded JWT secret
-	isHTTPS       bool                    // derived from Config.AppURL at init
-	shutdownCtx   context.Context         // server lifecycle context for background goroutines
+	DB                       *database.DB
+	Config                   *config.Config
+	Settings                 *settings.SettingsStore
+	Mailer                   *Mailer
+	RL                       *middleware.RateLimiter // for per-email rate limiting (body-parsed)
+	ShadowFS                 shadowfs.ShadowFS       // unified storage (nil = legacy ShadowFS only)
+	ArtifactStore            gdprartifacts.Store     // GDPR short-lived export/import artifacts
+	artifactMaintenanceHooks artifactMaintenanceHooks
+	secret                   []byte          // decoded JWT secret
+	isHTTPS                  bool            // derived from Config.AppURL at init
+	shutdownCtx              context.Context // server lifecycle context for background goroutines
 }
 
 // NewHandler creates an auth handler. shutdownCtx should be the server's

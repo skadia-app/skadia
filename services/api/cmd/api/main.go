@@ -599,6 +599,13 @@ func main() {
 		slog.Info("shadowfs: S3 connectivity verified", "endpoint", cfg.S3Endpoint, "bucket", cfg.S3Bucket)
 	}
 
+	artifactStore, err := buildGDPRArtifactStore(cfg)
+	if err != nil {
+		slog.Error("gdpr artifact store configuration failed", "error", err)
+		os.Exit(1)
+	}
+	ensureGDPRArtifactLifecycle(ctx, artifactStore)
+
 	// NATS (optional - log warning if unavailable)
 	var pub *event.Publisher
 	pub, err = event.NewPublisher(cfg.NatsURL)
@@ -816,6 +823,8 @@ func main() {
 	authRL := middleware.NewRateLimiter(ctx)
 	authHandler := auth.NewHandler(db, cfg, settingsStore, authMailer, authRL, ctx)
 	authHandler.ShadowFS = store
+	authHandler.ArtifactStore = artifactStore
+	authHandler.StartGDPRArtifactMaintenance(ctx)
 
 	// Wire settings store and mailer into main handler (needed for admin settings endpoints).
 	h.Settings = settingsStore

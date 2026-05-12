@@ -180,6 +180,9 @@ func (s *S3Store) DeletePrefix(ctx context.Context, prefix ArtifactPrefix) error
 	if err != nil {
 		return err
 	}
+	if prefix.UserID == "" || prefix.JobID == "" {
+		return fmt.Errorf("refusing to delete unscoped artifact prefix")
+	}
 	scoped, err := scopedPrefix(s3Prefix, prefix)
 	if err != nil {
 		return err
@@ -472,6 +475,12 @@ func objectKey(prefix, userID, jobID string, role ObjectRole, name string) (stri
 }
 
 func scopedPrefix(prefix string, artifactPrefix ArtifactPrefix) (string, error) {
+	if artifactPrefix.UserID == "" && artifactPrefix.JobID == "" {
+		if prefix == "" {
+			return "", fmt.Errorf("refusing empty artifact prefix")
+		}
+		return path.Clean(prefix) + "/", nil
+	}
 	if _, err := uuid.Parse(artifactPrefix.UserID); err != nil {
 		return "", fmt.Errorf("invalid user_id: %w", err)
 	}
