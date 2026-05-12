@@ -136,7 +136,7 @@ var GoNativeModules = map[string]bool{
 const enableDEMEnrichment = false
 
 // RunStage1 executes synchronous enrichment for an activity after upload.
-// This includes time-of-day, intensity, round-trip detection, auto-naming, and autotags.
+// This includes time-of-day, intensity, round-trip detection, and autotags.
 // If a NATS publisher is provided, a stage-2 event is emitted after successful completion.
 // When asyncWeather is true, the weather fetch runs in a background goroutine so it
 // does not block the import path (tags are applied later by Stage 2 / automation rules).
