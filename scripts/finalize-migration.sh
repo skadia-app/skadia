@@ -1,195 +1,398 @@
 #!/usr/bin/env bash
-# finalize-migration.sh — Renumbert Platzhalter-Migrations (`000999_*`) im
-# aktuellen Branch auf die nächste freie sequenzielle Nummer ab `main`.
+# finalize-migration.sh - normalize branch-only migration numbers before merge.
 #
-# Hintergrund: parallele Feature-Branches/Worktrees würden bei einem statischen
-# `next-free-number`-Ansatz (z. B. beide reservieren 000333) beim Merge
-# kollidieren. Stattdessen schreiben Branches ihre Migration mit der Reserve-
-# Nummer `000999`, und kurz vor dem Merge — nach `git rebase main` — vergibt
-# dieses Skript die echte sequenzielle Nummer ab dem aktuellen `main`-Stand.
-#
-# Was es macht:
-#   1. Findet alle `000999_<topic>.{up,down}.sql` im Diff vs. main.
-#   2. Ermittelt die höchste committed Migration-Nummer auf main.
-#   3. Vergibt pro unique Topic eine sequenzielle Nummer (next, next+1, …).
-#   4. Renamed Migration-Files via `git mv`.
-#   5. Renamed `migration_000999_<topic>_test.go` falls vorhanden.
-#   6. Patcht alle Code-/Doc-/Test-Verweise im Branch-Diff (`*.go`, `*.ts`,
-#      `*.tsx`, `*.md`, `*.sql`).
-#   7. Warnt bei bare `000999`-Verweisen (Plan-Body-Erwähnungen, Kommentare),
-#      die manuell reviewt werden sollten.
-#
-# Idempotent: keine Platzhalter im Branch → no-op + Exit 0.
-#
-# Workflow:
-#   git rebase main                   # bring branch up to date
-#   ./scripts/finalize-migration.sh   # renumber placeholders
-#   go test ./internal/migrate/...    # verify renumbered tests pass
-#   git add -u && git commit --amend  # fold renumber into existing migration commit
-#
-# Multi-Migration-Branch (z. B. zwei Migrations im selben Branch): pro
-# Topic eine eigene Nummer, in alphabetischer Topic-Reihenfolge — schreibe
-# den Branch so, dass die Reihenfolge der Migrations alphabetisch deinem
-# gewünschten Apply-Order entspricht (oder benutze Prefixes wie `01_`, `02_`
-# im Topic-Slug während der Branch-Lebensdauer).
+# Canonical migrations on main use monotonically increasing numeric prefixes.
+# Feature branches may use provisional numeric prefixes while they are in
+# progress. This script finds migrations introduced by the current branch,
+# compares them with BASE_REF, and renumbers the branch-only set to the next
+# contiguous numbers after BASE_REF.
 
 set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/finalize-migration.sh [--check|--dry-run]
+
+Modes:
+  apply    Default. Rename branch-only migration files and patch references.
+  --check  Do not modify files. Exit nonzero if finalization is required.
+  --dry-run
+           Print the planned renumbering without modifying files.
+
+Environment:
+  BASE_REF   Base branch/ref to compare against. Default: main.
+  REPO_ROOT  Repository root. Default: parent of this script directory.
+EOF
+}
+
+mode="apply"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check)
+      mode="check"
+      ;;
+    --dry-run)
+      mode="dry-run"
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "finalize-migration.sh: unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 DEFAULT_REPO_ROOT="$(git -C "$SCRIPT_DIR/.." rev-parse --show-toplevel 2>/dev/null || true)"
 REPO_ROOT="${REPO_ROOT:-$DEFAULT_REPO_ROOT}"
 if [[ -z "$REPO_ROOT" ]]; then
-    echo "finalize-migration.sh: cannot resolve the script worktree, set REPO_ROOT explicitly" >&2
-    exit 1
+  echo "finalize-migration.sh: cannot resolve the script worktree, set REPO_ROOT explicitly" >&2
+  exit 1
 fi
+
 MIG_DIR="services/api/internal/migrate/migrations"
 BASE_REF="${BASE_REF:-main}"
-PLACEHOLDER="000999"
 
-echo "finalize-migration.sh: using REPO_ROOT=$REPO_ROOT (branch=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD))" >&2
+echo "finalize-migration.sh: using REPO_ROOT=$REPO_ROOT (branch=$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD), base=$BASE_REF, mode=$mode)" >&2
 cd "$REPO_ROOT"
 
-# Step 1: Find placeholder migrations in current branch (vs main).
-mapfile -t placeholders < <(
-    git diff --name-only "$BASE_REF"...HEAD -- "$MIG_DIR" 2>/dev/null \
-        | grep -E "$MIG_DIR/${PLACEHOLDER}_.*\.(up|down)\.sql$" \
-        | sort -u
-)
-if [[ ${#placeholders[@]} -eq 0 ]]; then
-    echo "No placeholder migrations (${PLACEHOLDER}_*) in branch vs $BASE_REF. No-op."
-    exit 0
+if ! git rev-parse --verify --quiet "$BASE_REF^{commit}" >/dev/null; then
+  echo "ERROR: base ref '$BASE_REF' does not resolve to a commit" >&2
+  exit 1
 fi
 
-echo "Found ${#placeholders[@]} placeholder migration file(s):"
-printf '  %s\n' "${placeholders[@]}"
-echo
+merge_base="$(git merge-base "$BASE_REF" HEAD)"
 
-# Step 2: Highest committed migration on $BASE_REF.
-latest_base=$(
-    git ls-tree -r --name-only "$BASE_REF" -- "$MIG_DIR" \
-        | grep -oE "^${MIG_DIR}/[0-9]{6}_" \
-        | grep -oE "[0-9]{6}" \
-        | sort -u | tail -1
+format_num() {
+  local value="$1"
+  if (( value < 1000000 )); then
+    printf '%06d' "$value"
+  else
+    printf '%d' "$value"
+  fi
+}
+
+parse_migration_path() {
+  local path="$1"
+  local base num topic suffix
+  base="$(basename "$path")"
+  if [[ ! "$base" =~ ^([0-9]{6,})_([A-Za-z0-9][A-Za-z0-9_]*)\.(up|down)\.sql$ ]]; then
+    return 1
+  fi
+  num="${BASH_REMATCH[1]}"
+  topic="${BASH_REMATCH[2]}"
+  suffix="${BASH_REMATCH[3]}"
+  printf '%s\t%s\t%s\n' "$num" "$topic" "$suffix"
+}
+
+path_exists_at_ref() {
+  local ref="$1"
+  local path="$2"
+  git cat-file -e "$ref:$path" 2>/dev/null
+}
+
+latest_base=0
+while IFS= read -r path; do
+  parsed="$(parse_migration_path "$path" || true)"
+  [[ -n "${parsed:-}" ]] || continue
+  IFS=$'\t' read -r num _topic suffix <<<"$parsed"
+  [[ "$suffix" == "up" ]] || continue
+  value=$((10#$num))
+  if (( value > latest_base )); then
+    latest_base="$value"
+  fi
+done < <(
+  git ls-tree -r --name-only "$BASE_REF" -- "$MIG_DIR" \
+    | grep -E "^${MIG_DIR}/[0-9]{6,}_[A-Za-z0-9][A-Za-z0-9_]*\.(up|down)\.sql$" || true
 )
-if [[ -z "$latest_base" ]]; then
-    echo "ERROR: cannot determine latest migration number on $BASE_REF" >&2
+
+if (( latest_base == 0 )); then
+  echo "ERROR: cannot determine latest migration number on $BASE_REF" >&2
+  exit 1
+fi
+
+errors=()
+check_existing_migration_change() {
+  local status="$1"
+  local path="$2"
+  local parsed
+  parsed="$(parse_migration_path "$path" || true)"
+  [[ -n "${parsed:-}" ]] || return 0
+  if path_exists_at_ref "$merge_base" "$path" && [[ "$status" != A* && "$status" != '??' ]]; then
+    errors+=("existing migration SQL changed in branch: $path")
+  fi
+}
+
+while IFS= read -r line; do
+  [[ -n "$line" ]] || continue
+  status="${line%%$'\t'*}"
+  rest="${line#*$'\t'}"
+  path="$rest"
+  if [[ "$status" == R* ]]; then
+    old_path="${rest%%$'\t'*}"
+    new_path="${rest#*$'\t'}"
+    check_existing_migration_change "$status" "$old_path"
+    path="$new_path"
+  fi
+  check_existing_migration_change "$status" "$path"
+done < <(git diff --name-status "$merge_base"..HEAD -- "$MIG_DIR")
+
+while IFS= read -r line; do
+  [[ -n "$line" ]] || continue
+  status="${line:0:2}"
+  path="${line:3}"
+  if [[ "$status" == R* ]]; then
+    old_path="${path%% -> *}"
+    new_path="${path#* -> }"
+    check_existing_migration_change "$status" "$old_path"
+    path="$new_path"
+  fi
+  check_existing_migration_change "$status" "$path"
+done < <(git status --porcelain=v1 -- "$MIG_DIR")
+
+declare -A group_num=()
+declare -A group_topic=()
+declare -A group_up=()
+declare -A group_down=()
+groups=()
+
+while IFS= read -r path; do
+  parsed="$(parse_migration_path "$path" || true)"
+  [[ -n "${parsed:-}" ]] || continue
+  if path_exists_at_ref "$merge_base" "$path"; then
+    continue
+  fi
+  IFS=$'\t' read -r num topic suffix <<<"$parsed"
+  key="${num}|${topic}"
+  if [[ -z "${group_num[$key]:-}" ]]; then
+    groups+=("$key")
+    group_num[$key]="$num"
+    group_topic[$key]="$topic"
+  fi
+  case "$suffix" in
+    up) group_up[$key]="$path" ;;
+    down) group_down[$key]="$path" ;;
+  esac
+done < <(find "$MIG_DIR" -maxdepth 1 -type f -printf '%p\n' | sort)
+
+if [[ ${#groups[@]} -eq 0 ]]; then
+  if [[ ${#errors[@]} -gt 0 ]]; then
+    printf 'ERROR: %s\n' "${errors[@]}" >&2
     exit 1
+  fi
+  echo "No branch-only migrations in branch vs $BASE_REF. No-op."
+  exit 0
 fi
-next=$(printf "%06d" $((10#$latest_base + 1)))
-echo "Latest migration on $BASE_REF: $latest_base — first available: $next"
-echo
 
-# Step 3: Group placeholders by topic (suffix after PLACEHOLDER_).
-declare -A topics_seen=()
-topics=()
-for p in "${placeholders[@]}"; do
-    base=$(basename "$p")
-    topic="${base#${PLACEHOLDER}_}"
-    topic="${topic%.up.sql}"
-    topic="${topic%.down.sql}"
-    if [[ -z "${topics_seen[$topic]:-}" ]]; then
-        topics+=("$topic")
-        topics_seen[$topic]=1
-    fi
-done
-# Sort topics for deterministic ordering across runs.
-mapfile -t topics < <(printf '%s\n' "${topics[@]}" | sort)
-
-# Step 4: Assign + rename.
-declare -A topic_to_num=()
-for topic in "${topics[@]}"; do
-    topic_to_num[$topic]="$next"
-    next=$(printf "%06d" $((10#$next + 1)))
+declare -A topic_seen=()
+declare -A num_count=()
+for key in "${groups[@]}"; do
+  num="${group_num[$key]}"
+  topic="${group_topic[$key]}"
+  if [[ -z "${group_up[$key]:-}" ]]; then
+    errors+=("missing .up.sql for branch migration ${num}_${topic}")
+  fi
+  if [[ -z "${group_down[$key]:-}" ]]; then
+    errors+=("missing .down.sql for branch migration ${num}_${topic}")
+  fi
+  if [[ -n "${topic_seen[$topic]:-}" ]]; then
+    errors+=("topic appears with multiple migration numbers: $topic")
+  fi
+  topic_seen[$topic]=1
+  num_count[$num]=$(( ${num_count[$num]:-0} + 1 ))
 done
 
-for topic in "${topics[@]}"; do
-    new_num="${topic_to_num[$topic]}"
-    echo "Renumbering '$topic': $PLACEHOLDER -> $new_num"
-
-    for suffix in up down; do
-        old="$MIG_DIR/${PLACEHOLDER}_${topic}.${suffix}.sql"
-        new="$MIG_DIR/${new_num}_${topic}.${suffix}.sql"
-        if [[ -f "$old" ]]; then
-            git mv "$old" "$new"
-            echo "  $old -> $new"
-        fi
-    done
-
-    # 4b. Optional Test-File.
-    test_old="$MIG_DIR/migration_${PLACEHOLDER}_${topic}_test.go"
-    test_new="$MIG_DIR/migration_${new_num}_${topic}_test.go"
-    if [[ -f "$test_old" ]]; then
-        git mv "$test_old" "$test_new"
-        echo "  $test_old -> $test_new"
-    fi
-    # Generic migration_NNN_test.go (no topic suffix) is renamed only if
-    # the file is in the current branch's diff (avoid touching unrelated tests).
-    test_generic_old="$MIG_DIR/migration_${PLACEHOLDER}_test.go"
-    test_generic_new="$MIG_DIR/migration_${new_num}_test.go"
-    if [[ -f "$test_generic_old" ]] \
-       && git diff --name-only "$BASE_REF"...HEAD -- "$test_generic_old" | grep -q .; then
-        git mv "$test_generic_old" "$test_generic_new"
-        echo "  $test_generic_old -> $test_generic_new"
-    fi
+for key in "${groups[@]}"; do
+  num="${group_num[$key]}"
+  topic="${group_topic[$key]}"
+  if (( ${num_count[$num]} > 1 )); then
+    errors+=("same provisional number $num has multiple topics; use unique provisional numbers such as 900001 and 900002")
+  fi
 done
 
-# Step 5: Patch references in branch-diff files.
+if [[ ${#errors[@]} -gt 0 ]]; then
+  printf 'ERROR: %s\n' "${errors[@]}" >&2
+  exit 1
+fi
+
+mapfile -t ordered_keys < <(
+  for key in "${groups[@]}"; do
+    printf '%d\t%s\t%s\n' "$((10#${group_num[$key]}))" "${group_topic[$key]}" "$key"
+  done | sort -n -k1,1 -k2,2 | cut -f3-
+)
+
+declare -A new_num=()
+declare -A old_token=()
+declare -A new_token=()
+next=$(( latest_base + 1 ))
+changes_needed=0
+
+for key in "${ordered_keys[@]}"; do
+  assigned="$(format_num "$next")"
+  new_num[$key]="$assigned"
+  old_token[$key]="${group_num[$key]}_${group_topic[$key]}"
+  new_token[$key]="${assigned}_${group_topic[$key]}"
+  if [[ "${group_num[$key]}" != "$assigned" ]]; then
+    changes_needed=1
+  fi
+  next=$(( next + 1 ))
+done
+
+echo "Latest migration on $BASE_REF: $(format_num "$latest_base")"
+echo "Branch-only migration plan:"
+for key in "${ordered_keys[@]}"; do
+  if [[ "${group_num[$key]}" == "${new_num[$key]}" ]]; then
+    echo "  ${old_token[$key]} -> ${new_token[$key]} (already final)"
+  else
+    echo "  ${old_token[$key]} -> ${new_token[$key]}"
+  fi
+done
+
+if [[ "$mode" == "check" ]]; then
+  if (( changes_needed )); then
+    echo "finalization required: run scripts/finalize-migration.sh and commit the renumbered files" >&2
+    exit 1
+  fi
+  echo "Migration numbering is finalized for branch vs $BASE_REF."
+  exit 0
+fi
+
+if [[ "$mode" == "dry-run" ]]; then
+  if (( changes_needed )); then
+    echo "Dry run only; no files changed."
+  else
+    echo "No renumbering required."
+  fi
+  exit 0
+fi
+
+if (( ! changes_needed )); then
+  echo "No renumbering required."
+  exit 0
+fi
+
 mapfile -t affected < <(
-    git diff --name-only "$BASE_REF"...HEAD -- '*.go' '*.ts' '*.tsx' '*.md' '*.sql' 2>/dev/null \
-        | xargs -r grep -l "${PLACEHOLDER}_" 2>/dev/null \
-        | sort -u
+  {
+    git diff --name-only "$merge_base"..HEAD -- \
+      '*.go' '*.ts' '*.tsx' '*.md' '*.sql' '*.yml' '*.yaml' '*.sh' 2>/dev/null
+    git diff --cached --name-only -- \
+      '*.go' '*.ts' '*.tsx' '*.md' '*.sql' '*.yml' '*.yaml' '*.sh' 2>/dev/null
+    git diff --name-only -- \
+      '*.go' '*.ts' '*.tsx' '*.md' '*.sql' '*.yml' '*.yaml' '*.sh' 2>/dev/null
+    git ls-files --others --exclude-standard -- \
+      '*.go' '*.ts' '*.tsx' '*.md' '*.sql' '*.yml' '*.yaml' '*.sh' 2>/dev/null
+  } | sort -u
 )
+
 for f in "${affected[@]}"; do
-    [[ -f "$f" ]] || continue
-    # Skip symbolic links — `sed -i` follows symlinks and materialises the
-    # link as a regular file with the target's content. Repo symlinks like
-    # CLAUDE.md/GEMINI.md → AGENTS.md must stay as links. The diff would
-    # not normally include them, but `xargs grep -l "${PLACEHOLDER}_"` does
-    # match the *target's* content, dragging the link in.
-    if [[ -L "$f" ]]; then
-        echo "  skip symlink: $f"
-        continue
-    fi
-    for topic in "${topics[@]}"; do
-        new_num="${topic_to_num[$topic]}"
-        sed -i "s/${PLACEHOLDER}_${topic}/${new_num}_${topic}/g" "$f"
-    done
+  [[ -f "$f" ]] || continue
+  if [[ -L "$f" ]]; then
+    echo "  skip symlink: $f"
+    continue
+  fi
+  for key in "${ordered_keys[@]}"; do
+    sed -i "s/${old_token[$key]}/${new_token[$key]}/g" "$f"
+  done
 done
 
-# Bare `migration_${PLACEHOLDER}_test.go`-style references are intentionally
-# NOT auto-patched: the convention (CLAUDE.md + memory:feedback_migration_placeholder_pattern)
-# is topic-named tests (`migration_<Topic>_test.go`), so any surviving bare
-# `migration_000999_test` reference is either a historic plan-doc pointing at
-# a *different* topic's placeholder or a legacy test we no longer create. A
-# blanket sed would clobber historic plan-docs that reference older 000999
-# topics (this happened before the guard was added). Warn instead.
-bare_test_hits=$(
-    printf '%s\n' "${affected[@]}" \
-        | xargs -r grep -nE "migration_${PLACEHOLDER}_test" 2>/dev/null || true
-)
-if [[ -n "$bare_test_hits" ]]; then
-    echo
-    echo "WARN: bare 'migration_${PLACEHOLDER}_test' references found — review manually:"
-    echo "$bare_test_hits" | head -20
-    echo "(use topic-named tests per CLAUDE.md: migration_<Topic>_test.go)"
-fi
+tmp_paths=()
+target_paths=()
+declare -A rename_sources=()
 
-# Step 6: Bare PLACEHOLDER references (e.g., "Migration 000999" in prose).
-bare_hits=$(
-    git diff "$BASE_REF"...HEAD -- '*.go' '*.ts' '*.tsx' '*.md' \
-        | grep -nE "(^\\+).*\\b${PLACEHOLDER}\\b" \
-        | grep -v "${PLACEHOLDER}_" || true
-)
-if [[ -n "$bare_hits" ]]; then
-    echo
-    echo "WARN: bare '${PLACEHOLDER}' references in branch diff — review manually:"
-    echo "$bare_hits" | head -20
-    echo "(showing first 20 — use 'git grep ${PLACEHOLDER}' for full list)"
+mark_rename_source() {
+  local old="$1"
+  local new="$2"
+  [[ "$old" != "$new" ]] || return 0
+  [[ -e "$old" ]] || return 0
+  rename_sources[$old]=1
+}
+
+queue_rename() {
+  local old="$1"
+  local new="$2"
+  local tmp
+  [[ "$old" != "$new" ]] || return 0
+  if [[ ! -e "$old" ]]; then
+    return 0
+  fi
+  if [[ -e "$new" && -z "${rename_sources[$new]:-}" ]]; then
+    echo "ERROR: target already exists and is not part of this renumbering: $new" >&2
+    exit 1
+  fi
+  tmp="$(dirname "$old")/.finalize-migration-$BASHPID-$(basename "$old")"
+  tmp_paths+=("$tmp")
+  target_paths+=("$new")
+  if git ls-files --error-unmatch "$old" >/dev/null 2>&1; then
+    git mv "$old" "$tmp"
+  else
+    mv "$old" "$tmp"
+  fi
+}
+
+finish_rename() {
+  local index="$1"
+  if git ls-files --error-unmatch "${tmp_paths[$index]}" >/dev/null 2>&1; then
+    git mv "${tmp_paths[$index]}" "${target_paths[$index]}"
+  else
+    mv "${tmp_paths[$index]}" "${target_paths[$index]}"
+  fi
+  echo "  ${target_paths[$index]}"
+}
+
+for key in "${ordered_keys[@]}"; do
+  old_num="${group_num[$key]}"
+  topic="${group_topic[$key]}"
+  assigned="${new_num[$key]}"
+  for suffix in up down; do
+    mark_rename_source "$MIG_DIR/${old_num}_${topic}.${suffix}.sql" "$MIG_DIR/${assigned}_${topic}.${suffix}.sql"
+  done
+  mark_rename_source "$MIG_DIR/migration_${old_num}_${topic}_test.go" "$MIG_DIR/migration_${assigned}_${topic}_test.go"
+  if [[ -f "$MIG_DIR/migration_${old_num}_test.go" && -z "${rename_sources[$MIG_DIR/migration_${old_num}_test.go]:-}" ]]; then
+    if (( ${num_count[$old_num]} > 1 )); then
+      echo "ERROR: generic test file is ambiguous for duplicated provisional number: $MIG_DIR/migration_${old_num}_test.go" >&2
+      exit 1
+    fi
+    if path_exists_at_ref "$merge_base" "$MIG_DIR/migration_${old_num}_test.go"; then
+      continue
+    fi
+    mark_rename_source "$MIG_DIR/migration_${old_num}_test.go" "$MIG_DIR/migration_${assigned}_test.go"
+  fi
+done
+
+for key in "${ordered_keys[@]}"; do
+  old_num="${group_num[$key]}"
+  topic="${group_topic[$key]}"
+  assigned="${new_num[$key]}"
+  for suffix in up down; do
+    queue_rename "$MIG_DIR/${old_num}_${topic}.${suffix}.sql" "$MIG_DIR/${assigned}_${topic}.${suffix}.sql"
+  done
+
+  topic_test_old="$MIG_DIR/migration_${old_num}_${topic}_test.go"
+  topic_test_new="$MIG_DIR/migration_${assigned}_${topic}_test.go"
+  queue_rename "$topic_test_old" "$topic_test_new"
+
+  generic_test_old="$MIG_DIR/migration_${old_num}_test.go"
+  generic_test_new="$MIG_DIR/migration_${assigned}_test.go"
+  if [[ -f "$generic_test_old" && -n "${rename_sources[$generic_test_old]:-}" ]]; then
+    queue_rename "$generic_test_old" "$generic_test_new"
+  fi
+done
+
+if [[ ${#tmp_paths[@]} -gt 0 ]]; then
+  echo "Renamed files:"
+  for i in "${!tmp_paths[@]}"; do
+    finish_rename "$i"
+  done
 fi
 
 echo
 echo "Renumber complete. Verify with:"
 echo "  git status"
 echo "  git diff --stat"
+echo "  BASE_REF=$BASE_REF scripts/finalize-migration.sh --check"
 echo "  cd services/api && go test ./internal/migrate/..."
-echo "Then: git add -u && git commit --amend (or new commit if separate from migration content)"

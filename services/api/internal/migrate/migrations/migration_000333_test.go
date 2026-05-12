@@ -2,11 +2,12 @@ package migrations_test
 
 // Integration tests for migration 000333 (map_layers).
 //
-// Requires TEST_DATABASE_URL to point to a fully-migrated Skadia database.
-// Tests are skipped when the env var is not set so CI without a live DB stays green.
+// Requires TEST_DATABASE_URL to point to a safe Skadia test database.
+// Historical replay tests are skipped when that database is already migrated
+// past 000333; latest-DB CI still runs the notice/safety coverage below.
 //
 // Strategy: each test loads the migration SQL from disk and executes it inside
-// a transaction that is rolled back on completion, so the live schema is unaffected.
+// a transaction that is rolled back on completion, so the test schema is unaffected.
 // The idempotent test exercises up → down → up to validate both directions.
 
 import (
@@ -51,6 +52,7 @@ func TestMigration000333Seeds(t *testing.T) {
 
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 333, "000333 up.sql creates map_layers tables and must replay against a pre-000333 schema")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -91,6 +93,7 @@ func TestMigration000333UpdatedAtTriggers(t *testing.T) {
 
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 333, "000333 up.sql creates map_layers tables and must replay against a pre-000333 schema")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -130,6 +133,7 @@ func TestMigration000333UrlConsistencyConstraint(t *testing.T) {
 
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 333, "000333 up.sql creates map_layers tables and must replay against a pre-000333 schema")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -180,6 +184,7 @@ func TestMigration000333RoundTrip(t *testing.T) {
 
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 333, "000333 up/down round-trip must start before map_layers exists")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {

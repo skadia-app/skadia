@@ -57,6 +57,7 @@ func TestMigration000340BackfillsTuplePredicates(t *testing.T) {
 	upSQL, _ := readMigration000340SQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 340, "000340 tuple backfill needs pre-000340 segment predicate columns")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -150,6 +151,7 @@ func TestMigration000340BackfillsLegacyHintsBeforeCollapsedSports(t *testing.T) 
 	upSQL, _ := readMigration000340SQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 340, "000340 legacy hint backfill needs pre-000340 segment predicate columns")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {

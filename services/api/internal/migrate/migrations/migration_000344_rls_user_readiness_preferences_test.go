@@ -2,14 +2,14 @@ package migrations_test
 
 // Integration tests for migration 000344 (RLS on user_readiness_preferences).
 //
-// Requires TEST_DATABASE_URL to point to a fully-migrated Skadia database.
-// Tests are skipped when the env var is not set so CI without a live DB stays
-// green.
+// Requires TEST_DATABASE_URL to point to a safe Skadia test database.
+// These historical replay tests are skipped when that database is already
+// migrated past 000344.
 //
 // Strategy:
-//   - Each test opens a transaction on the already-migrated DB (000343 already
-//     applied), runs the 000344 up-SQL inside the tx, asserts the desired state,
-//     then rolls back so the real schema stays clean.
+//   - Each test opens a transaction on a DB where 000343 is already applied and
+//     000344 is not, runs the 000344 up-SQL inside the tx, asserts the desired
+//     state, then rolls back so the test schema stays clean.
 //   - RLS enforcement is tested by temporarily enabling FORCE ROW LEVEL SECURITY
 //     on the table (which overrides the BYPASS RLS privilege of the skadia
 //     superuser role), inserting two users, and verifying that only the row for
@@ -48,6 +48,7 @@ func migration000344DownSQL(t *testing.T) string {
 func TestMigration000344_RLSEnabled(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 344, "000344 RLS up migration must replay before the policy exists")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -79,6 +80,7 @@ func TestMigration000344_RLSEnabled(t *testing.T) {
 func TestMigration000344_PolicyExists(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 344, "000344 RLS up migration must replay before the policy exists")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -110,6 +112,7 @@ func TestMigration000344_PolicyExists(t *testing.T) {
 func TestMigration000344_PolicyUsesAppCurrentUserID(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 344, "000344 RLS up migration must replay before the policy exists")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -154,6 +157,7 @@ func TestMigration000344_PolicyUsesAppCurrentUserID(t *testing.T) {
 func TestMigration000344_RowIsolationEnforced(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 344, "000344 RLS up migration must replay before the policy exists")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -245,6 +249,7 @@ func TestMigration000344_RowIsolationEnforced(t *testing.T) {
 func TestMigration000344_DownRemovesPolicyAndDisablesRLS(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 344, "000344 up/down replay must start before the policy exists")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
