@@ -32,8 +32,7 @@ func (h *Handler) GetLLMConfig(w http.ResponseWriter, r *http.Request) {
 // PutLLMConfigRole saves the configuration for a model role.
 func (h *Handler) PutLLMConfigRole(w http.ResponseWriter, r *http.Request) {
 	role := chi.URLParam(r, "role")
-	validRoles := map[string]bool{"default": true}
-	if !validRoles[role] {
+	if !model.IsValidLLMRole(role) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid role", r.URL.Path)
 		return
 	}
@@ -212,6 +211,28 @@ func (h *Handler) PatchLLMUserConfig(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
 	}
+	if !model.IsValidLLMRole(req.Role) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid role", r.URL.Path)
+		return
+	}
+	if req.ModelName != nil && strings.TrimSpace(*req.ModelName) != "" {
+		configs, err := h.DB.GetLLMSystemConfig(r.Context())
+		if err != nil {
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get LLM config", r.URL.Path)
+			return
+		}
+		var system *model.LLMSystemConfig
+		for i := range configs {
+			if configs[i].Role == req.Role {
+				system = &configs[i]
+				break
+			}
+		}
+		if system == nil || !system.EvalGatePassed() || !system.AllowsModelOverride(*req.ModelName) {
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "model override has not passed eval gates", r.URL.Path)
+			return
+		}
+	}
 	if err := h.DB.UpsertLLMUserConfig(r.Context(), userID, req.Role, req.ModelName); err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save user LLM config", r.URL.Path)
 		return
@@ -261,6 +282,9 @@ type liteLLMModelEntry struct {
 }
 
 func (h *Handler) regenerateLiteLLMConfig(ctx context.Context) error {
+	if h.Config == nil {
+		return nil
+	}
 	configPath := h.Config.LiteLLMConfigPath
 	if configPath == "" {
 		return nil
@@ -273,7 +297,7 @@ func (h *Handler) regenerateLiteLLMConfig(ctx context.Context) error {
 
 	entries := make([]liteLLMModelEntry, 0, len(configs))
 	for _, c := range configs {
-		if !c.Enabled || c.ModelName == nil || c.APIBase == nil {
+		if !c.EvalGatePassed() || c.ModelName == nil || c.APIBase == nil {
 			continue
 		}
 		// LiteLLM provider prefix

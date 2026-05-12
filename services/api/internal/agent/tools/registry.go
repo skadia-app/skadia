@@ -9,12 +9,10 @@ import (
 	"sort"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
+	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	openai "github.com/openai/openai-go"
-	"github.com/openai/openai-go/shared"
-	"github.com/openai/openai-go/shared/constant"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -196,10 +194,10 @@ func (r *Registry) AddEnabledWriteTools(filter []string, prefs *agent.ChatPrefer
 	return out
 }
 
-func (r *Registry) Definitions(filter []string, prefs *agent.ChatPreferences) []openai.ChatCompletionToolParam {
+func (r *Registry) Definitions(filter []string, prefs *agent.ChatPreferences) []llmwire.ToolDefinition {
 	filterSet := namesSet(filter)
 	allowedWrites := allowedWriteToolSet(prefs)
-	defs := make([]openai.ChatCompletionToolParam, 0, len(r.tools))
+	defs := make([]llmwire.ToolDefinition, 0, len(r.tools))
 	for _, name := range r.sortedNames() {
 		t := r.tools[name]
 		if t == nil || !nameAllowed(filterSet, name) {
@@ -250,30 +248,15 @@ func (r *Registry) sortedNames() []string {
 	return names
 }
 
-func (t *Tool) definition() openai.ChatCompletionToolParam {
-	params, err := functionParameters(t.Name, t.InputSchema)
-	if err != nil {
+func (t *Tool) definition() llmwire.ToolDefinition {
+	if err := validateSchema(t.Name, t.InputSchema); err != nil {
 		panic(err)
 	}
-	return openai.ChatCompletionToolParam{
-		Type: constant.Function("function"),
-		Function: shared.FunctionDefinitionParam{
-			Name:        t.Name,
-			Description: openai.String(t.Description),
-			Parameters:  params,
-		},
+	return llmwire.ToolDefinition{
+		Name:        t.Name,
+		Description: t.Description,
+		InputSchema: append(json.RawMessage(nil), t.InputSchema...),
 	}
-}
-
-func functionParameters(toolName string, schema json.RawMessage) (shared.FunctionParameters, error) {
-	if err := validateSchema(toolName, schema); err != nil {
-		return nil, err
-	}
-	var params map[string]any
-	if err := json.Unmarshal(schema, &params); err != nil {
-		return nil, fmt.Errorf("parse input schema for %s: %w", toolName, err)
-	}
-	return shared.FunctionParameters(params), nil
 }
 
 func validateSchema(toolName string, schema json.RawMessage) error {

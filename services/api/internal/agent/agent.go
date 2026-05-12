@@ -10,9 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/openai/openai-go"
 )
 
 const (
@@ -57,9 +58,9 @@ func New(cfg Config) *Agent {
 		a.defaultProfile = "small"
 	}
 	if a.streamChat == nil {
-		a.streamChat = func(ctx context.Context, cfg LLMConfig, params openai.ChatCompletionNewParams) ChatStream {
+		a.streamChat = func(ctx context.Context, cfg LLMConfig, params llmwire.ChatRequest) ChatStream {
 			client := NewLLMClient(cfg)
-			return client.Chat.Completions.NewStreaming(ctx, params)
+			return client.Stream(ctx, params)
 		}
 	}
 	return a
@@ -95,7 +96,7 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 	if a.tools != nil {
 		toolNames = a.tools.AddEnabledWriteTools(toolNames, prefs)
 	}
-	toolDefs := []openai.ChatCompletionToolParam(nil)
+	toolDefs := []llmwire.ToolDefinition(nil)
 	if a.tools != nil {
 		toolDefs = a.tools.Definitions(toolNames, prefs)
 	}
@@ -208,19 +209,17 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 	return sink.Send(done)
 }
 
-func (a *Agent) chatParams(cfg LLMConfig, profile *ModelProfile, messages []conversationMessage, tools []openai.ChatCompletionToolParam, allowTools bool) openai.ChatCompletionNewParams {
-	params := openai.ChatCompletionNewParams{
-		Model:           chatModel(cfg.Model),
-		Messages:        toOpenAIMessages(messages),
-		StreamOptions:   openai.ChatCompletionStreamOptionsParam{IncludeUsage: openai.Bool(true)},
-		Temperature:     openai.Float(profile.Temperature),
-		TopP:            openai.Float(profile.TopP),
-		PresencePenalty: openai.Float(profile.PresencePenalty),
-		MaxTokens:       openai.Int(int64(profile.MaxResponseTokens)),
+func (a *Agent) chatParams(cfg LLMConfig, profile *ModelProfile, messages []conversationMessage, tools []llmwire.ToolDefinition, allowTools bool) llmwire.ChatRequest {
+	params := llmwire.ChatRequest{
+		Model:           cfg.Model,
+		Messages:        toLLMMessages(messages),
+		Temperature:     floatPtr(profile.Temperature),
+		TopP:            floatPtr(profile.TopP),
+		PresencePenalty: floatPtr(profile.PresencePenalty),
+		MaxTokens:       intPtr(profile.MaxResponseTokens),
 	}
 	if allowTools {
 		params.Tools = tools
-		params.ParallelToolCalls = openai.Bool(false)
 	}
 	return params
 }
@@ -269,7 +268,7 @@ func (a *Agent) resolveLLM(ctx context.Context, userID string) (LLMConfig, error
 	if a.llmResolver == nil {
 		return LLMConfig{}, fmt.Errorf("LLM resolver is not configured")
 	}
-	cfg, err := a.llmResolver.Resolve(ctx, userID, "default")
+	cfg, err := a.llmResolver.Resolve(ctx, userID, "tool_agent")
 	if err != nil {
 		return LLMConfig{}, err
 	}
@@ -353,39 +352,31 @@ func buildConversation(systemPrompt string, history []ChatHistoryMessage, messag
 	return msgs
 }
 
-func toOpenAIMessages(messages []conversationMessage) []openai.ChatCompletionMessageParamUnion {
-	out := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
+func toLLMMessages(messages []conversationMessage) []llmwire.ChatMessage {
+	out := make([]llmwire.ChatMessage, 0, len(messages))
 	for _, msg := range messages {
 		switch msg.Role {
 		case "system":
-			out = append(out, openai.SystemMessage(msg.Content))
+			out = append(out, llmwire.ChatMessage{Role: "system", Content: msg.Content})
 		case "assistant":
 			if len(msg.ToolCalls) > 0 {
-				out = append(out, openai.ChatCompletionMessageParamUnion{OfAssistant: &openai.ChatCompletionAssistantMessageParam{
-					ToolCalls: toOpenAIToolCalls(msg.ToolCalls),
-				}})
+				out = append(out, llmwire.ChatMessage{Role: "assistant", ToolCalls: toLLMToolCalls(msg.ToolCalls)})
 			} else {
-				out = append(out, openai.AssistantMessage(msg.Content))
+				out = append(out, llmwire.ChatMessage{Role: "assistant", Content: msg.Content})
 			}
 		case "tool":
-			out = append(out, openai.ToolMessage(msg.Content, msg.ToolCallID))
+			out = append(out, llmwire.ChatMessage{Role: "tool", Content: msg.Content, ToolCallID: msg.ToolCallID})
 		default:
-			out = append(out, openai.UserMessage(msg.Content))
+			out = append(out, llmwire.ChatMessage{Role: "user", Content: msg.Content})
 		}
 	}
 	return out
 }
 
-func toOpenAIToolCalls(calls []pendingToolCall) []openai.ChatCompletionMessageToolCallParam {
-	out := make([]openai.ChatCompletionMessageToolCallParam, 0, len(calls))
+func toLLMToolCalls(calls []pendingToolCall) []llmwire.ChatToolCall {
+	out := make([]llmwire.ChatToolCall, 0, len(calls))
 	for _, call := range calls {
-		out = append(out, openai.ChatCompletionMessageToolCallParam{
-			ID: call.ID,
-			Function: openai.ChatCompletionMessageToolCallFunctionParam{
-				Name:      call.Name,
-				Arguments: call.Args,
-			},
-		})
+		out = append(out, llmwire.ChatToolCall{ID: call.ID, Name: call.Name, Args: call.Args})
 	}
 	return out
 }
@@ -397,20 +388,19 @@ func collectLLMStream(messageID string, stream ChatStream, sink SSESink, usage *
 	finishReason := ""
 
 	for stream.Next() {
-		chunk := stream.Current()
-		if chunk.Usage.TotalTokens > 0 && usage != nil {
-			usage.PromptTokens += int(chunk.Usage.PromptTokens)
-			usage.CompletionTokens += int(chunk.Usage.CompletionTokens)
-			usage.TotalTokens += int(chunk.Usage.TotalTokens)
+		event := stream.Current()
+		if event.Error != nil {
+			return nil, finishReason, streamed, fmt.Errorf("%s", event.Error.Message)
 		}
-		if len(chunk.Choices) == 0 {
-			continue
+		if event.Usage != nil && event.Usage.TotalTokens > 0 && usage != nil {
+			usage.PromptTokens += event.Usage.PromptTokens
+			usage.CompletionTokens += event.Usage.CompletionTokens
+			usage.TotalTokens += event.Usage.TotalTokens
 		}
-		choice := chunk.Choices[0]
-		if choice.FinishReason != "" {
-			finishReason = choice.FinishReason
+		if event.FinishReason != "" {
+			finishReason = event.FinishReason
 		}
-		for _, tc := range choice.Delta.ToolCalls {
+		for _, tc := range event.ToolCalls {
 			entry := acc[tc.Index]
 			if entry == nil {
 				entry = &pendingToolCall{Index: tc.Index}
@@ -419,17 +409,17 @@ func collectLLMStream(messageID string, stream ChatStream, sink SSESink, usage *
 			if tc.ID != "" {
 				entry.ID = tc.ID
 			}
-			if tc.Function.Name != "" {
-				entry.Name = tc.Function.Name
+			if tc.Name != "" {
+				entry.Name += tc.Name
 			}
-			entry.Args += tc.Function.Arguments
+			entry.Args += tc.Args
 		}
-		if choice.Delta.Content != "" {
-			contentBuffer.WriteString(choice.Delta.Content)
+		if event.Delta != "" {
+			contentBuffer.WriteString(event.Delta)
 			buffered := contentBuffer.String()
 			if !strings.Contains(buffered, "<tool_call>") && !strings.Contains(buffered, "<function=") {
 				streamed = true
-				if err := sink.Send(SSEEvent{Type: EventChunk, ID: messageID, Delta: choice.Delta.Content}); err != nil {
+				if err := sink.Send(SSEEvent{Type: EventChunk, ID: messageID, Delta: event.Delta}); err != nil {
 					return nil, finishReason, streamed, err
 				}
 			}
@@ -461,11 +451,19 @@ func sortedToolCalls(acc map[int64]*pendingToolCall) []pendingToolCall {
 	for _, key := range keys {
 		call := *acc[key]
 		if call.ID == "" {
-			call.ID = fmt.Sprintf("call_%d", key)
+			call.ID = uuid.NewString()
 		}
 		out = append(out, call)
 	}
 	return out
+}
+
+func floatPtr(value float64) *float64 {
+	return &value
+}
+
+func intPtr(value int) *int {
+	return &value
 }
 
 var (

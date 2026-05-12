@@ -82,6 +82,7 @@ const toolGuide = `## Werkzeug-Auswahl
 - "Rechnung / Dokument / Beleg für Gear" → get_gear_documents
 - "Details zu einer Aktivität (Drill-Down)" → get_activity_detail
 - "Fotos suchen / Bild nach Inhalt" → search_photos_by_content
+- Subjektive Routing-Wünsche ("Gravel", "wenig Verkehr", "schoen/schön", "Trail", "Pendeln") → zuerst list_routing_profiles, dann passendes Profil wählen, dann plan_route als reine Vorschau ohne Speichern
 - "Tags / Welche Aktivitäten haben Tag X" → run_sql mit JOIN tags + activity_tags
 - Komplexe Vergleiche (MTB vs Gravel, Jahresvergleich mit SUB_TYPE) → run_sql`
 

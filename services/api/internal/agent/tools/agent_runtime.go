@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
-	"github.com/openai/openai-go"
+	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
 )
 
 type AgentToolRuntime struct {
@@ -31,7 +31,7 @@ func (r *AgentToolRuntime) AddEnabledWriteTools(filter []string, prefs *agent.Ch
 	return r.Registry.AddEnabledWriteTools(filter, prefs)
 }
 
-func (r *AgentToolRuntime) Definitions(filter []string, prefs *agent.ChatPreferences) []openai.ChatCompletionToolParam {
+func (r *AgentToolRuntime) Definitions(filter []string, prefs *agent.ChatPreferences) []llmwire.ToolDefinition {
 	if r == nil || r.Registry == nil {
 		return nil
 	}

@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/openai/openai-go"
+	"github.com/google/uuid"
 )
 
 func TestAgentStreamExecutesToolCallThenStreamsFinalAnswer(t *testing.T) {
@@ -14,30 +15,24 @@ func TestAgentStreamExecutesToolCallThenStreamsFinalAnswer(t *testing.T) {
 		result: ToolRuntimeResult{Result: map[string]any{"ok": true}, Summary: `{"ok":true}`},
 	}
 	streams := []ChatStream{
-		&fakeStream{chunks: []openai.ChatCompletionChunk{{
-			Choices: []openai.ChatCompletionChunkChoice{{
-				Delta: openai.ChatCompletionChunkChoiceDelta{ToolCalls: []openai.ChatCompletionChunkChoiceDeltaToolCall{{
-					Index: 0,
-					ID:    "call-1",
-					Function: openai.ChatCompletionChunkChoiceDeltaToolCallFunction{
-						Name:      "query_activities",
-						Arguments: `{"limit":1}`,
-					},
-				}}},
-				FinishReason: "tool_calls",
+		&fakeStream{events: []llmwire.ChatStreamEvent{{
+			ToolCalls: []llmwire.ToolCallDelta{{
+				Index: 0,
+				ID:    "call-1",
+				Name:  "query_activities",
+				Args:  `{"limit":1}`,
 			}},
+			FinishReason: "tool_calls",
 		}}},
-		&fakeStream{chunks: []openai.ChatCompletionChunk{{
-			Choices: []openai.ChatCompletionChunkChoice{{
-				Delta:        openai.ChatCompletionChunkChoiceDelta{Content: "Fertig."},
-				FinishReason: "stop",
-			}},
+		&fakeStream{events: []llmwire.ChatStreamEvent{{
+			Delta:        "Fertig.",
+			FinishReason: "stop",
 		}}},
 	}
 	agent := New(Config{
 		LLMResolver: NewLLMResolver(fakeLLMConfigStore{}, LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
 		Tools:       runtime,
-		StreamChat: func(ctx context.Context, cfg LLMConfig, params openai.ChatCompletionNewParams) ChatStream {
+		StreamChat: func(ctx context.Context, cfg LLMConfig, params llmwire.ChatRequest) ChatStream {
 			if len(streams) == 0 {
 				t.Fatal("unexpected extra stream call")
 			}
@@ -68,19 +63,15 @@ func TestAgentStreamUserQuestionHardStopsAfterToolResult(t *testing.T) {
 	agent := New(Config{
 		LLMResolver: NewLLMResolver(fakeLLMConfigStore{}, LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
 		Tools:       runtime,
-		StreamChat: func(ctx context.Context, cfg LLMConfig, params openai.ChatCompletionNewParams) ChatStream {
-			return &fakeStream{chunks: []openai.ChatCompletionChunk{{
-				Choices: []openai.ChatCompletionChunkChoice{{
-					Delta: openai.ChatCompletionChunkChoiceDelta{ToolCalls: []openai.ChatCompletionChunkChoiceDeltaToolCall{{
-						Index: 0,
-						ID:    "call-tag",
-						Function: openai.ChatCompletionChunkChoiceDeltaToolCallFunction{
-							Name:      "tag_activity",
-							Arguments: `{"activity_id":"a1","tag_name":"Gravel"}`,
-						},
-					}}},
-					FinishReason: "tool_calls",
+		StreamChat: func(ctx context.Context, cfg LLMConfig, params llmwire.ChatRequest) ChatStream {
+			return &fakeStream{events: []llmwire.ChatStreamEvent{{
+				ToolCalls: []llmwire.ToolCallDelta{{
+					Index: 0,
+					ID:    "call-tag",
+					Name:  "tag_activity",
+					Args:  `{"activity_id":"a1","tag_name":"Gravel"}`,
 				}},
+				FinishReason: "tool_calls",
 			}}}
 		},
 	})
@@ -93,6 +84,42 @@ func TestAgentStreamUserQuestionHardStopsAfterToolResult(t *testing.T) {
 	assertEventOrder(t, sink.events, []string{EventThinking, EventToolCall, EventUserQuestion})
 }
 
+func TestCollectLLMStreamAccumulatesSplitToolDeltasAndGeneratesMissingIDs(t *testing.T) {
+	stream := &fakeStream{events: []llmwire.ChatStreamEvent{
+		{ToolCalls: []llmwire.ToolCallDelta{
+			{Index: 1, Name: "tag_", Args: `{"activity_`},
+			{Index: 0, Name: "query_", Args: `{"limit":`},
+		}},
+		{ToolCalls: []llmwire.ToolCallDelta{
+			{Index: 0, ID: "late-call-0", Name: "activities", Args: `1}`},
+			{Index: 1, Name: "activity", Args: `id":"a1"}`},
+		}, FinishReason: "tool_calls"},
+	}}
+
+	calls, finishReason, streamed, err := collectLLMStream("message-1", stream, &captureSink{}, &TokenUsage{})
+	if err != nil {
+		t.Fatalf("collectLLMStream: %v", err)
+	}
+	if streamed {
+		t.Fatal("streamed = true, want false for tool-only chunks")
+	}
+	if finishReason != "tool_calls" {
+		t.Fatalf("finishReason = %q, want tool_calls", finishReason)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("len(calls) = %d, want 2: %#v", len(calls), calls)
+	}
+	if calls[0].ID != "late-call-0" || calls[0].Name != "query_activities" || calls[0].Args != `{"limit":1}` {
+		t.Fatalf("call[0] = %#v", calls[0])
+	}
+	if calls[1].Name != "tag_activity" || calls[1].Args != `{"activity_id":"a1"}` {
+		t.Fatalf("call[1] = %#v", calls[1])
+	}
+	if _, err := uuid.Parse(calls[1].ID); err != nil {
+		t.Fatalf("call[1].ID = %q, want generated UUID: %v", calls[1].ID, err)
+	}
+}
+
 type fakeToolRuntime struct {
 	result ToolRuntimeResult
 	calls  []ToolRuntimeRequest
@@ -102,7 +129,7 @@ func (r *fakeToolRuntime) AddEnabledWriteTools(filter []string, prefs *ChatPrefe
 	return filter
 }
 
-func (r *fakeToolRuntime) Definitions(filter []string, prefs *ChatPreferences) []openai.ChatCompletionToolParam {
+func (r *fakeToolRuntime) Definitions(filter []string, prefs *ChatPreferences) []llmwire.ToolDefinition {
 	return nil
 }
 
@@ -112,18 +139,18 @@ func (r *fakeToolRuntime) Execute(ctx context.Context, req ToolRuntimeRequest, s
 }
 
 type fakeStream struct {
-	chunks []openai.ChatCompletionChunk
+	events []llmwire.ChatStreamEvent
 	idx    int
 }
 
 func (s *fakeStream) Next() bool {
-	return s.idx < len(s.chunks)
+	return s.idx < len(s.events)
 }
 
-func (s *fakeStream) Current() openai.ChatCompletionChunk {
-	chunk := s.chunks[s.idx]
+func (s *fakeStream) Current() llmwire.ChatStreamEvent {
+	event := s.events[s.idx]
 	s.idx++
-	return chunk
+	return event
 }
 
 func (s *fakeStream) Err() error { return nil }
@@ -156,7 +183,15 @@ func (s *captureSink) OnChunk(fn func(delta string)) {
 type fakeLLMConfigStore struct{}
 
 func (fakeLLMConfigStore) GetLLMSystemConfig(ctx context.Context) ([]model.LLMSystemConfig, error) {
-	return nil, nil
+	baseURL := "http://llm.test/v1"
+	modelName := "model"
+	return []model.LLMSystemConfig{{
+		Role:       model.LLMRoleToolAgent,
+		APIBase:    &baseURL,
+		ModelName:  &modelName,
+		Enabled:    true,
+		EvalStatus: model.LLMEvalStatusPassed,
+	}}, nil
 }
 
 func (fakeLLMConfigStore) GetLLMAPIKeyEnc(ctx context.Context, role string) (string, error) {

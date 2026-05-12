@@ -3,6 +3,9 @@ package handler
 import (
 	"encoding/json"
 	"math"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/dem"
@@ -48,6 +51,33 @@ func TestBuildProfileFromInlineZ_RealBrouterShape(t *testing.T) {
 	}
 	if !(profile[2]["dist_m"].(float64) > profile[1]["dist_m"].(float64)) {
 		t.Errorf("profile[2].dist_m must be > profile[1].dist_m")
+	}
+}
+
+func TestRouteViabrouterRejectsUnknownProfileParamBeforeProxy(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	defer server.Close()
+
+	h := &Handler{Config: &HandlerConfig{BRouterURL: server.URL}}
+	req := httptest.NewRequest(http.MethodPost, "/routing/route", strings.NewReader(`{
+		"waypoints": [[47.259,11.394],[47.280,11.450]],
+		"profile": "hiking-mountain",
+		"profile_params": {"unknown_param": "1"}
+	}`))
+	req = req.WithContext(contextWithTestUserID(req.Context(), "00000000-0000-0000-0000-000000000001"))
+	w := httptest.NewRecorder()
+
+	h.RouteViabrouter(w, req)
+
+	if called {
+		t.Fatal("unknown profile param should be rejected before calling BRouter")
+	}
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
 	}
 }
 

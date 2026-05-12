@@ -9,12 +9,24 @@ import { fetchEnrichmentSettings, updateEnrichmentSettings } from '@/api/enrichm
 import type { EnrichmentSettings } from '@/api/types'
 
 const ROLE_LABELS: Record<string, string> = {
-  default: 'Standard-LLM',
+  tool_agent: 'Tool-Agent',
+  sql_readonly: 'SQL Readonly',
+  write_preview: 'Write Preview',
+  document_extract: 'Dokumente',
+  markdown_extract: 'Markdown',
+  vision: 'Vision',
 }
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
-  default: 'Für Text-Analyse, NL-Abfragen, Foto-Analyse und automatische Aktivitäts-Benennung (skadia-default).',
+  tool_agent: 'Chat, Tool-Aufrufe, JSON-Argumente und deutsche Antworten.',
+  sql_readonly: 'Read-only SQL und sichere Schema-Navigation.',
+  write_preview: 'Vorschauen für schreibende Tools vor der Bestätigung.',
+  document_extract: 'OCR/PDF-Textextraktion und strukturierte Felder.',
+  markdown_extract: 'Markdown-Konvertierung mit Tabellen-Erhalt.',
+  vision: 'Bild-, PDF- und Screenshot-Verständnis.',
 }
+
+const ROLE_ORDER = ['tool_agent', 'sql_readonly', 'write_preview', 'document_extract', 'markdown_extract', 'vision']
 
 const BACKEND_OPTIONS = [
   { value: 'disabled', label: 'Deaktiviert' },
@@ -102,6 +114,15 @@ export default function LLMSettingsPage() {
     return <div className="flex items-center justify-center h-64 text-neutral-400">Lade...</div>
   }
 
+  const roles = [...configs].sort((a, b) => {
+    const ai = ROLE_ORDER.indexOf(a.role)
+    const bi = ROLE_ORDER.indexOf(b.role)
+    if (ai !== -1 || bi !== -1) {
+      return (ai === -1 ? Number.MAX_SAFE_INTEGER : ai) - (bi === -1 ? Number.MAX_SAFE_INTEGER : bi)
+    }
+    return a.role.localeCompare(b.role)
+  })
+
   return (
     <div className="space-y-6">
       <div>
@@ -112,8 +133,8 @@ export default function LLMSettingsPage() {
       </div>
 
       <div className="space-y-4">
-        {['default'].map(role => {
-          const config = configs.find(c => c.role === role)
+        {roles.map(config => {
+          const role = config.role
           return (
             <LLMRoleCard
               key={role}
@@ -202,11 +223,29 @@ function LLMRoleCard({ role, config, onSave }: {
       <div className="flex items-start justify-between">
         <div>
           <h3 className="font-medium text-neutral-900 dark:text-neutral-100">
-            {ROLE_LABELS[role]}
+            {ROLE_LABELS[role] ?? role}
           </h3>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            {ROLE_DESCRIPTIONS[role]}
+            {ROLE_DESCRIPTIONS[role] ?? 'Benutzerdefinierte Rolle.'}
           </p>
+          {config && (
+            <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
+              <span className={`rounded px-2 py-0.5 ${
+                config.eval_status === 'passed'
+                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                  : config.eval_status === 'waived'
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                    : config.eval_status === 'failed'
+                      ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+                      : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
+              }`}>
+                Eval: {config.eval_status}
+              </span>
+              {config.eval_status === 'waived' && (
+                <span className="text-amber-600 dark:text-amber-400">Waiver aktiv</span>
+              )}
+            </div>
+          )}
         </div>
         <Toggle
           checked={enabled}

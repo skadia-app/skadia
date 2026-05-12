@@ -12,7 +12,7 @@ import (
 
 var testLLMKey = strings.Repeat("0123456789abcdef", 4)
 
-func TestLLMResolverUsesEnvFallbackWhenDBEmpty(t *testing.T) {
+func TestLLMResolverErrorsWhenRoleHasNoUsableSystemConfig(t *testing.T) {
 	resolver := NewLLMResolver(fakeLLMStore{}, LLMResolverConfig{
 		BaseURL:       "http://env.example/v1",
 		APIKey:        "env-key",
@@ -20,14 +20,12 @@ func TestLLMResolverUsesEnvFallbackWhenDBEmpty(t *testing.T) {
 		EncryptionKey: testLLMKey,
 	})
 
-	got, err := resolver.Resolve(context.Background(), "user-1", "default")
-	if err != nil {
-		t.Fatalf("Resolve: %v", err)
+	if _, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err == nil {
+		t.Fatal("Resolve returned nil error, want missing role configuration error")
 	}
-	assertLLMConfig(t, got, LLMConfig{BaseURL: "http://env.example/v1", APIKey: "env-key", Model: "env-model"})
 }
 
-func TestLLMResolverUsesSystemConfig(t *testing.T) {
+func TestLLMResolverUsesPassedSystemRoleConfig(t *testing.T) {
 	enc, err := crypto.Encrypt("system-key", testLLMKey)
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
@@ -36,12 +34,13 @@ func TestLLMResolverUsesSystemConfig(t *testing.T) {
 	modelName := "system-model"
 	resolver := NewLLMResolver(fakeLLMStore{
 		system: []model.LLMSystemConfig{{
-			Role:      "default",
-			APIBase:   &apiBase,
-			ModelName: &modelName,
-			Enabled:   true,
+			Role:       "tool_agent",
+			APIBase:    &apiBase,
+			ModelName:  &modelName,
+			Enabled:    true,
+			EvalStatus: model.LLMEvalStatusPassed,
 		}},
-		keys: map[string]string{"default": enc},
+		keys: map[string]string{"tool_agent": enc},
 	}, LLMResolverConfig{
 		BaseURL:       "http://env.example/v1",
 		APIKey:        "env-key",
@@ -49,27 +48,90 @@ func TestLLMResolverUsesSystemConfig(t *testing.T) {
 		EncryptionKey: testLLMKey,
 	})
 
-	got, err := resolver.Resolve(context.Background(), "user-1", "default")
+	got, err := resolver.Resolve(context.Background(), "user-1", "tool_agent")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, APIKey: "system-key", Model: modelName})
 }
 
-func TestLLMResolverUserModelOverridesSystemModel(t *testing.T) {
+func TestLLMResolverRejectsEvalFailedSystemRoleConfig(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	systemModel := "system-model"
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:       "tool_agent",
+			APIBase:    &apiBase,
+			ModelName:  &systemModel,
+			Enabled:    true,
+			EvalStatus: model.LLMEvalStatusFailed,
+		}},
+	}, LLMResolverConfig{EncryptionKey: testLLMKey})
+
+	if _, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err == nil {
+		t.Fatal("Resolve returned nil error, want eval gate error")
+	}
+}
+
+func TestLLMResolverAcceptsWaivedSystemRoleWithAdminReason(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	systemModel := "system-model"
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:       "tool_agent",
+			APIBase:    &apiBase,
+			ModelName:  &systemModel,
+			Enabled:    true,
+			EvalStatus: model.LLMEvalStatusWaived,
+			EvalReport: map[string]any{"admin_reason": "temporary operator waiver"},
+		}},
+	}, LLMResolverConfig{EncryptionKey: testLLMKey})
+
+	got, err := resolver.Resolve(context.Background(), "user-1", "tool_agent")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, Model: systemModel})
+}
+
+func TestLLMResolverRejectsWaivedSystemRoleWithoutAdminReason(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	systemModel := "system-model"
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:       "tool_agent",
+			APIBase:    &apiBase,
+			ModelName:  &systemModel,
+			Enabled:    true,
+			EvalStatus: model.LLMEvalStatusWaived,
+			EvalReport: map[string]any{},
+		}},
+	}, LLMResolverConfig{EncryptionKey: testLLMKey})
+
+	if _, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err == nil {
+		t.Fatal("Resolve returned nil error, want waiver reason error")
+	}
+}
+
+func TestLLMResolverUserModelOverrideRequiresEvaluatedTuple(t *testing.T) {
 	apiBase := "http://system.example/v1"
 	systemModel := "system-model"
 	userModel := "user-model"
 	resolver := NewLLMResolver(fakeLLMStore{
 		system: []model.LLMSystemConfig{{
-			Role:      "default",
-			APIBase:   &apiBase,
-			ModelName: &systemModel,
-			Enabled:   true,
+			Role:        "tool_agent",
+			BackendType: "llama_server",
+			APIBase:     &apiBase,
+			ModelName:   &systemModel,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusPassed,
+			EvalReport: map[string]any{"model_evals": []any{
+				map[string]any{"role": "tool_agent", "backend_type": "llama_server", "model_name": userModel, "status": "passed"},
+			}},
 		}},
 		user: []model.LLMUserConfig{{
 			UserID:    "user-1",
-			Role:      "default",
+			Role:      "tool_agent",
 			ModelName: &userModel,
 		}},
 	}, LLMResolverConfig{
@@ -79,11 +141,37 @@ func TestLLMResolverUserModelOverridesSystemModel(t *testing.T) {
 		EncryptionKey: testLLMKey,
 	})
 
-	got, err := resolver.Resolve(context.Background(), "user-1", "default")
+	got, err := resolver.Resolve(context.Background(), "user-1", "tool_agent")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, APIKey: "env-key", Model: userModel})
+}
+
+func TestLLMResolverRejectsUnevaluatedUserModelOverride(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	systemModel := "system-model"
+	userModel := "user-model"
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:        "tool_agent",
+			BackendType: "llama_server",
+			APIBase:     &apiBase,
+			ModelName:   &systemModel,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusPassed,
+			EvalReport:  map[string]any{"model_evals": []any{}},
+		}},
+		user: []model.LLMUserConfig{{
+			UserID:    "user-1",
+			Role:      "tool_agent",
+			ModelName: &userModel,
+		}},
+	}, LLMResolverConfig{EncryptionKey: testLLMKey})
+
+	if _, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err == nil {
+		t.Fatal("Resolve returned nil error, want unevaluated override error")
+	}
 }
 
 func TestLLMResolverErrorsWhenEncryptedSystemKeyNeedsMissingEncryptionKey(t *testing.T) {
@@ -93,17 +181,18 @@ func TestLLMResolverErrorsWhenEncryptedSystemKeyNeedsMissingEncryptionKey(t *tes
 	}
 	resolver := NewLLMResolver(fakeLLMStore{
 		system: []model.LLMSystemConfig{{
-			Role:    "default",
-			Enabled: true,
+			Role:       "tool_agent",
+			Enabled:    true,
+			EvalStatus: model.LLMEvalStatusPassed,
 		}},
-		keys: map[string]string{"default": enc},
+		keys: map[string]string{"tool_agent": enc},
 	}, LLMResolverConfig{
 		BaseURL: "http://env.example/v1",
 		APIKey:  "env-key",
 		Model:   "env-model",
 	})
 
-	if _, err := resolver.Resolve(context.Background(), "user-1", "default"); err == nil {
+	if _, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err == nil {
 		t.Fatal("Resolve returned nil error, want decrypt error")
 	}
 }

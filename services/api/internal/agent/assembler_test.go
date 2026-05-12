@@ -19,6 +19,8 @@ func TestAssembleSystemPromptContainsBasePromptSkillsAndFewShots(t *testing.T) {
 		"Du bist ein Sport-Datenassistent. Heute ist 08.03.2026.",
 		"## Kontext: Ausrüstung, Verschleiß, km-Stand, Wartung, Kosten",
 		"## Werkzeug-Auswahl",
+		"Subjektive Routing-Wünsche",
+		"list_routing_profiles",
 		"## Beispiele",
 		"→ Schritt 1: gear_list",
 	} {

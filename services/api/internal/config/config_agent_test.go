@@ -17,8 +17,8 @@ func TestLoadAgentDefaults(t *testing.T) {
 	if cfg.ReadonlyDatabaseURL == "" {
 		t.Fatal("ReadonlyDatabaseURL is empty")
 	}
-	if cfg.LLMModel != "skadia-default" {
-		t.Fatalf("LLMModel = %q, want skadia-default", cfg.LLMModel)
+	if cfg.LLMModel != "" {
+		t.Fatalf("LLMModel = %q, want empty when LLM_MODEL is unset", cfg.LLMModel)
 	}
 	if cfg.LLMContextWindow != 8000 {
 		t.Fatalf("LLMContextWindow = %d, want 8000", cfg.LLMContextWindow)

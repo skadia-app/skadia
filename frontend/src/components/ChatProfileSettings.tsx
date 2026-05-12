@@ -79,7 +79,7 @@ const PRESET_PROFILES: Record<Exclude<ProfilePreset, 'custom'>, ChatProfile> = {
 
 const DEFAULT_SETTING: ChatUserSetting = {
   enabled: true,
-  model: 'skadia-default',
+  model: '',
   base_profile: 'small',
   overrides: {},
 }
@@ -318,16 +318,6 @@ export default function ChatProfileSettings() {
           description="Chat-Assistent in der Seitenleiste anzeigen"
           value={setting.enabled}
           onChange={v => patchSetting({ enabled: v })}
-          disabled={false}
-        />
-
-        <SelectRow
-          label="LLM-Modell"
-          value={setting.model}
-          options={[
-            { value: 'skadia-default', label: 'skadia-default (Qwen3.5-9B, multimodal)' },
-          ]}
-          onChange={v => patchSetting({ model: v })}
           disabled={false}
         />
 

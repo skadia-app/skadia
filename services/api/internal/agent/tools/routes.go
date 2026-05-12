@@ -7,16 +7,17 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/google/uuid"
 )
 
 var (
-	routeHTTPClient  = &http.Client{Timeout: 30 * time.Second}
-	safeProfileParam = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+	routeHTTPClient = &http.Client{Timeout: 30 * time.Second}
+	routeAPIBaseURL = "http://api:8080"
 )
 
 type searchRoutesArgs struct {
@@ -58,6 +59,18 @@ type queryCoverageArgs struct {
 	Layers string  `json:"layers"`
 }
 
+type routingProfileToolItem struct {
+	ID            string         `json:"id,omitempty"`
+	Key           string         `json:"key"`
+	Label         string         `json:"label"`
+	Engine        string         `json:"engine"`
+	BaseProfile   string         `json:"base_profile"`
+	SportTypes    []string       `json:"sport_types,omitempty"`
+	DefaultParams map[string]any `json:"default_params,omitempty"`
+	Constraints   map[string]any `json:"constraints"`
+	Source        string         `json:"source"`
+}
+
 func RegisterRouteTools(reg *Registry) {
 	for _, tool := range RouteTools() {
 		reg.Register(tool)
@@ -75,9 +88,17 @@ func RouteTools() []*Tool {
 			ExecuteRead: executeSearchRoutes,
 		},
 		{
+			Name:        "list_routing_profiles",
+			Description: "List real Skadia routing profiles visible to the user, including profile keys for route preview selection and allowed override parameters.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			Permission:  PermissionRead,
+			IsUserOwned: false,
+			ExecuteRead: executeListRoutingProfiles,
+		},
+		{
 			Name:        "plan_route",
-			Description: "Plan a route between [lng,lat] waypoints via the configured routing service.",
-			InputSchema: json.RawMessage(`{"type":"object","required":["waypoints"],"properties":{"waypoints":{"type":"array","minItems":2,"items":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"number"}}},"profile":{"type":"string","enum":["hiking-mountain","hiking-sac2","trekking","cycling-road","cycling-mountain","cycling-gravel","running","walking"]},"profile_params":{"type":"object","additionalProperties":{"type":["string","number","boolean"]}}},"additionalProperties":false}`),
+			Description: "Preview a route between [lng,lat] waypoints via the configured routing service. The profile must be a key from list_routing_profiles. This is read-only and never saves a route.",
+			InputSchema: json.RawMessage(`{"type":"object","required":["waypoints","profile"],"properties":{"waypoints":{"type":"array","minItems":2,"items":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"number"}}},"profile":{"type":"string"},"profile_params":{"type":"object","additionalProperties":{"type":["string","number","boolean"]}}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executePlanRoute,
@@ -109,6 +130,14 @@ func RouteTools() []*Tool {
 	}
 }
 
+func executeListRoutingProfiles(ctx context.Context, deps *Deps, userID string, _ json.RawMessage) (any, error) {
+	profiles, err := listRoutingProfilesForTool(ctx, deps, userID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"profiles": profiles, "count": len(profiles)}, nil
+}
+
 func executeSearchRoutes(ctx context.Context, deps *Deps, userID string, raw json.RawMessage) (any, error) {
 	var args searchRoutesArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
@@ -125,7 +154,7 @@ func executeSearchRoutes(ctx context.Context, deps *Deps, userID string, raw jso
 	return map[string]any{"routes": rows}, nil
 }
 
-func executePlanRoute(ctx context.Context, deps *Deps, _ string, raw json.RawMessage) (any, error) {
+func executePlanRoute(ctx context.Context, deps *Deps, userID string, raw json.RawMessage) (any, error) {
 	var args planRouteArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, fmt.Errorf("decode plan_route args: %w", err)
@@ -133,6 +162,20 @@ func executePlanRoute(ctx context.Context, deps *Deps, _ string, raw json.RawMes
 	if len(args.Waypoints) < 2 {
 		return map[string]any{"error": "at least 2 waypoints required", "fallback": true}, nil
 	}
+	resolved, err := resolveRoutingProfileForPreview(ctx, deps, userID, args.Profile)
+	if err != nil {
+		return map[string]any{"error": err.Error(), "fallback": true}, nil
+	}
+	params, err := stringifyProfileParams(args.ProfileParams)
+	if err != nil {
+		return map[string]any{"error": err.Error(), "fallback": true}, nil
+	}
+	if err := routing.ValidateBRouterProfileParams(resolved.BaseProfile, params); err != nil {
+		return map[string]any{"error": err.Error(), "fallback": true}, nil
+	}
+	args.Profile = resolved.BaseProfile
+	args.ProfileParams = mapStringAny(params)
+
 	baseURL := "http://brouter:17777"
 	if deps != nil && deps.BRouterURL != "" {
 		baseURL = deps.BRouterURL
@@ -157,6 +200,9 @@ func executePlanRoute(ctx context.Context, deps *Deps, _ string, raw json.RawMes
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode BRouter response: %w", err)
 	}
+	result["preview"] = true
+	result["profile_key"] = resolved.Key
+	result["routing_profile"] = resolved.Label
 	return result, nil
 }
 
@@ -227,10 +273,7 @@ func executeQueryCoverage(ctx context.Context, deps *Deps, _ string, raw json.Ra
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, fmt.Errorf("decode query_coverage args: %w", err)
 	}
-	baseURL := "http://api:8080"
-	if deps != nil && deps.MLBaseURL != "" {
-		baseURL = deps.MLBaseURL
-	}
+	baseURL := routeAPIBaseURL
 	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/internal/coverage/query")
 	if err != nil {
 		return nil, err
@@ -316,10 +359,7 @@ func buildPlanRouteURL(baseURL string, args planRouteArgs) (string, error) {
 	q.Set("profile", profile)
 	q.Set("format", "geojson")
 	for k, v := range args.ProfileParams {
-		value := fmt.Sprint(v)
-		if safeProfileParam.MatchString(k) && safeProfileParam.MatchString(value) {
-			q.Set("profile:"+k, value)
-		}
+		q.Set("profile:"+k, fmt.Sprint(v))
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
@@ -371,4 +411,123 @@ FROM unnest($1::float8[], $2::float8[]) AS t(lng, lat)`
 
 func strconvFloat(v float64) string {
 	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.12f", v), "0"), ".")
+}
+
+func listRoutingProfilesForTool(ctx context.Context, deps *Deps, userID string) ([]routingProfileToolItem, error) {
+	profiles := make([]routingProfileToolItem, 0)
+	if deps != nil && deps.DB != nil {
+		dbProfiles, err := deps.DB.ListRoutingProfiles(ctx, userID)
+		if err != nil {
+			return nil, fmt.Errorf("list routing profiles: %w", err)
+		}
+		for _, p := range dbProfiles {
+			profiles = append(profiles, routingProfileToolItemFromDB(p))
+		}
+	}
+	for _, name := range routing.BRouterProfileNames() {
+		profiles = append(profiles, routingProfileToolItem{
+			Key:         name,
+			Label:       name,
+			Engine:      "brouter",
+			BaseProfile: name,
+			Constraints: map[string]any{"profile_params": routing.BRouterProfileParamKeys(name)},
+			Source:      routing.SourceFilesystem,
+		})
+	}
+	return profiles, nil
+}
+
+func routingProfileToolItemFromDB(p database.RoutingProfile) routingProfileToolItem {
+	defaultParams := map[string]any{}
+	if len(p.Config) > 0 {
+		_ = json.Unmarshal(p.Config, &defaultParams)
+	}
+	previewProfile := mapBadRouterBaseProfileToBRouter(p.BaseProfile)
+	previewParamKeys := []string{}
+	if previewProfile != "" {
+		previewParamKeys = routing.BRouterProfileParamKeys(previewProfile)
+	}
+	return routingProfileToolItem{
+		ID:            p.ID,
+		Key:           p.ID,
+		Label:         p.Name,
+		Engine:        "badrouter",
+		BaseProfile:   p.BaseProfile,
+		SportTypes:    p.SportTypes,
+		DefaultParams: defaultParams,
+		Constraints: map[string]any{
+			"profile_params":          previewParamKeys,
+			"native_profile_params":   routing.ProfileConfigOverrideParamKeys(),
+			"route_preview_engine":    "brouter",
+			"route_preview_profile":   previewProfile,
+			"route_preview_no_save":   true,
+			"route_preview_read_only": true,
+		},
+		Source: p.Source,
+	}
+}
+
+func resolveRoutingProfileForPreview(ctx context.Context, deps *Deps, userID, key string) (routingProfileToolItem, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return routingProfileToolItem{}, fmt.Errorf("profile is required; call list_routing_profiles first")
+	}
+	profiles, err := listRoutingProfilesForTool(ctx, deps, userID)
+	if err != nil {
+		return routingProfileToolItem{}, err
+	}
+	for _, profile := range profiles {
+		if profile.Key == key || profile.ID == key || profile.Label == key {
+			if profile.Engine == "brouter" {
+				return profile, nil
+			}
+			mapped := mapBadRouterBaseProfileToBRouter(profile.BaseProfile)
+			if mapped == "" {
+				return routingProfileToolItem{}, fmt.Errorf("routing profile %q cannot be previewed through BRouter", key)
+			}
+			profile.BaseProfile = mapped
+			return profile, nil
+		}
+	}
+	return routingProfileToolItem{}, fmt.Errorf("unknown routing profile %q; call list_routing_profiles first", key)
+}
+
+func mapBadRouterBaseProfileToBRouter(profile string) string {
+	switch profile {
+	case "hiking":
+		return "hiking-mountain"
+	case "mtb":
+		return "cycling-mountain"
+	case "gravel":
+		return "cycling-gravel"
+	case "road":
+		return "cycling-road"
+	case "trekking":
+		return "trekking"
+	default:
+		return ""
+	}
+}
+
+func stringifyProfileParams(params map[string]any) (map[string]string, error) {
+	out := make(map[string]string, len(params))
+	for key, value := range params {
+		switch v := value.(type) {
+		case string:
+			out[key] = v
+		case float64, bool:
+			out[key] = fmt.Sprint(v)
+		default:
+			return nil, fmt.Errorf("profile_params.%s must be string, number, or boolean", key)
+		}
+	}
+	return out, nil
+}
+
+func mapStringAny(values map[string]string) map[string]any {
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }

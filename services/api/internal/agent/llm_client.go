@@ -1,14 +1,9 @@
 package agent
 
 import (
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
+	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
 )
 
-func NewLLMClient(cfg LLMConfig) *openai.Client {
-	client := openai.NewClient(
-		option.WithBaseURL(cfg.BaseURL),
-		option.WithAPIKey(cfg.APIKey),
-	)
-	return &client
+func NewLLMClient(cfg LLMConfig) *llmwire.ChatCompletionsClient {
+	return llmwire.NewChatCompletionsClient(cfg.BaseURL, cfg.APIKey, nil)
 }

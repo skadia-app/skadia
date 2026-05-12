@@ -22,7 +22,7 @@ func embedText(ctx context.Context, baseURL, text string) ([]float64, error) {
 	if err := json.NewEncoder(&body).Encode(map[string]string{"text": text}); err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/ml/embed/text", &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/embed/text", &body)
 	if err != nil {
 		return nil, err
 	}

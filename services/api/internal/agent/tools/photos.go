@@ -51,6 +51,18 @@ func executeSearchPhotosByContent(ctx context.Context, deps *Deps, userID string
 		req.Limit = 50
 	}
 
+	var indexedCount int
+	if err := deps.DB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM activity_photos
+		WHERE user_id = $1 AND clip_embedding IS NOT NULL
+	`, userID).Scan(&indexedCount); err != nil {
+		return nil, err
+	}
+	if indexedCount == 0 {
+		return map[string]any{"query": req.Query, "photos": []map[string]any{}, "count": 0, "reason": "not_indexed"}, nil
+	}
+
 	embedding, err := embedText(ctx, deps.MLBaseURL, req.Query)
 	if err != nil {
 		return map[string]any{"query": req.Query, "photos": []map[string]any{}, "count": 0, "error": err.Error()}, nil

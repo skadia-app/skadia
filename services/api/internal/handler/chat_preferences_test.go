@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
+	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/model"
-	"github.com/openai/openai-go"
 )
 
 func TestChatPreferencesDefaultsAndPut(t *testing.T) {
@@ -160,12 +160,10 @@ func TestSendChatMessageUsesGoAgentAndPersistsAssistant(t *testing.T) {
 	h := newTestHandler(t, pool)
 	h.Agent = agent.New(agent.Config{
 		LLMResolver: agent.NewLLMResolver(h.DB, agent.LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
-		StreamChat: func(ctx context.Context, cfg agent.LLMConfig, params openai.ChatCompletionNewParams) agent.ChatStream {
-			return &handlerFakeStream{chunks: []openai.ChatCompletionChunk{{
-				Choices: []openai.ChatCompletionChunkChoice{{
-					Delta:        openai.ChatCompletionChunkChoiceDelta{Content: "Hallo."},
-					FinishReason: "stop",
-				}},
+		StreamChat: func(ctx context.Context, cfg agent.LLMConfig, params llmwire.ChatRequest) agent.ChatStream {
+			return &handlerFakeStream{events: []llmwire.ChatStreamEvent{{
+				Delta:        "Hallo.",
+				FinishReason: "stop",
 			}}}
 		},
 	})
@@ -229,18 +227,18 @@ func chatPrefsRequest(t *testing.T, method, target, userID string, body []byte) 
 }
 
 type handlerFakeStream struct {
-	chunks []openai.ChatCompletionChunk
+	events []llmwire.ChatStreamEvent
 	idx    int
 }
 
 func (s *handlerFakeStream) Next() bool {
-	return s.idx < len(s.chunks)
+	return s.idx < len(s.events)
 }
 
-func (s *handlerFakeStream) Current() openai.ChatCompletionChunk {
-	chunk := s.chunks[s.idx]
+func (s *handlerFakeStream) Current() llmwire.ChatStreamEvent {
+	event := s.events[s.idx]
 	s.idx++
-	return chunk
+	return event
 }
 
 func (s *handlerFakeStream) Err() error { return nil }
