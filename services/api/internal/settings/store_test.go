@@ -204,6 +204,55 @@ func TestValidation_ValidKeepVersions(t *testing.T) {
 	}
 }
 
+func TestLimitSettingsAllowZeroAndRejectNegative(t *testing.T) {
+	keys := []string{
+		"limits.max_user_storage_bytes",
+		"limits.max_activity_photos_per_activity",
+		"limits.max_route_photos_per_route",
+	}
+	for _, key := range keys {
+		kd, ok := KeysByKey[key]
+		if !ok {
+			t.Fatalf("missing settings key %s", key)
+		}
+		if kd.Validate == nil {
+			t.Fatalf("%s has no validator", key)
+		}
+		if err := kd.Validate("0"); err != nil {
+			t.Errorf("%s should allow 0=unlimited: %v", key, err)
+		}
+		if err := kd.Validate("-1"); err == nil {
+			t.Errorf("%s should reject negative values", key)
+		}
+	}
+}
+
+func TestSettingsStoreInvalidRuntimeLimitValuesFallback(t *testing.T) {
+	t.Setenv("MAX_USER_STORAGE_BYTES", "-1")
+	s := newTestStore(t)
+	got := s.Get("limits.max_user_storage_bytes")
+	if got.Value != KeysByKey["limits.max_user_storage_bytes"].Default || got.Source != "default" || got.Locked {
+		t.Fatalf("invalid env should fall back to unlocked default, got value=%q source=%q locked=%v", got.Value, got.Source, got.Locked)
+	}
+
+	pool := settingsTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	setSetting(t, pool, "limits.max_activity_photos_per_activity", "-5")
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM server_settings WHERE key = $1`, "limits.max_activity_photos_per_activity")
+	})
+
+	store := newTestSettingsStore(t, pool)
+	if err := store.Reload(ctx); err != nil {
+		t.Fatalf("reload settings: %v", err)
+	}
+	got = store.Get("limits.max_activity_photos_per_activity")
+	if got.Value != "100" || got.Source != "default" {
+		t.Fatalf("invalid DB setting should fall back to default, got value=%q source=%q", got.Value, got.Source)
+	}
+}
+
 func TestSettingsStoreTTLRefresh(t *testing.T) {
 	pool := settingsTestPool(t)
 	ctx := context.Background()
@@ -322,12 +371,15 @@ func TestStoreGetInt(t *testing.T) {
 		t.Errorf("GetInt with default: expected 50, got %d", got)
 	}
 
-	// Env override with non-integer value must return an error.
+	// Env override with non-integer value is rejected during cache build and falls back to default.
 	t.Setenv("LIBRARY_USER_MAP_LAYER_LIMIT", "not-a-number")
 	s2 := newTestStore(t)
-	_, err = s2.GetInt("library.user_map_layer_limit")
-	if err == nil {
-		t.Error("GetInt with non-integer env value: expected error, got nil")
+	got, err = s2.GetInt("library.user_map_layer_limit")
+	if err != nil {
+		t.Fatalf("GetInt with invalid env fallback: unexpected error: %v", err)
+	}
+	if got != 50 {
+		t.Errorf("GetInt with invalid env fallback: expected 50, got %d", got)
 	}
 
 	// Unknown key has empty value — must return an error.
