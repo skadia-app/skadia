@@ -1087,6 +1087,14 @@ func main() {
 			r.Get("/data-export/{jobID}/download", authHandler.DataExportDownload)
 			r.With(middleware.RateLimitPerUser(authRL, "import:", 1.0/300, 1)).
 				Post("/data-import", authHandler.DataImport)
+			r.With(middleware.RateLimitPerUser(authRL, "import-multipart:", 1.0/300, 1)).
+				Post("/data-import/multipart", authHandler.DataImportMultipartCreate)
+			r.With(middleware.RateLimitPerUser(authRL, "import-part:", 120.0/60, 4)).
+				Post("/data-import/{jobID}/parts/{partName}", authHandler.DataImportMultipartPart)
+			r.With(middleware.RateLimitPerUser(authRL, "import-start:", 10.0/60, 2)).
+				Post("/data-import/{jobID}/start", authHandler.DataImportMultipartStart)
+			r.With(middleware.RateLimitPerUser(authRL, "import-cancel:", 10.0/60, 2)).
+				Post("/data-import/{jobID}/cancel", authHandler.DataImportMultipartCancel)
 			r.With(middleware.RateLimitPerUser(authRL, "import-status:", 60.0/60, 10)).
 				Get("/data-import/{jobID}", authHandler.DataImportStatus)
 		})
