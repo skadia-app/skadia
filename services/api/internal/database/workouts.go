@@ -149,7 +149,12 @@ func (db *DB) GetWorkout(ctx context.Context, workoutID, userID string) (*model.
 	}
 
 	actRows, err := db.Pool.Query(ctx, `
-		SELECT id, COALESCE(title, title_auto), started_at, sport_type, distance_m, elapsed_time_s
+		SELECT id,
+		       CASE
+		           WHEN COALESCE(title_is_manual, false) AND NULLIF(title, '') IS NOT NULL THEN title
+		           ELSE COALESCE(NULLIF(title_auto, ''), NULLIF(title, ''))
+		       END,
+		       started_at, sport_type, distance_m, elapsed_time_s
 		FROM activities
 		WHERE workout_id = $1 AND user_id = $2
 		ORDER BY started_at DESC`,

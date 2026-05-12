@@ -215,7 +215,13 @@ func loadActivityFileRefreshRow(ctx context.Context, pool *pgxpool.Pool, userID,
 		       COALESCE(u.library_dir_name, a.user_id::text) AS user_dir,
 		       COALESCE(a.original_file_format, ''), COALESCE(a.source, ''),
 		       a.started_at, a.sport_type, COALESCE(a.sub_type, ''),
-		       COALESCE(NULLIF(a.title, ''), NULLIF(a.title_auto, ''), ''),
+		       COALESCE(
+		           CASE
+		               WHEN COALESCE(a.title_is_manual, false) AND NULLIF(a.title, '') IS NOT NULL THEN a.title
+		               ELSE COALESCE(NULLIF(a.title_auto, ''), NULLIF(a.title, ''))
+		           END,
+		           ''
+		       ),
 		       COALESCE(a.start_city, ''), COALESCE(a.start_country, ''),
 		       COALESCE(a.distance_m, 0), COALESCE(a.elapsed_time_s, 0),
 		       COALESCE(a.elevation_gain_m, 0),

@@ -289,7 +289,7 @@ func (db *DB) InsertActivityWithParent(ctx context.Context, userID string, data 
 // GetChildActivities returns all child activities for a given parent ID.
 func (db *DB) GetChildActivities(ctx context.Context, parentID string) ([]model.Activity, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, user_id, sport_type, sub_type, title, title_auto, started_at,
+		SELECT id, user_id, sport_type, sub_type, title, title_auto, COALESCE(title_is_manual, false), started_at,
 		       elapsed_time_s, moving_time_s, distance_m, elevation_gain_m,
 		       elevation_loss_m, avg_heart_rate, avg_power_w, parent_id,
 		       is_indoor, is_electric, is_virtual, exclude_from_heatmap, has_gps, enrichment_status, visibility,
@@ -307,7 +307,7 @@ func (db *DB) GetChildActivities(ctx context.Context, parentID string) ([]model.
 	for rows.Next() {
 		var a model.Activity
 		if err := rows.Scan(
-			&a.ID, &a.UserID, &a.SportType, &a.SubType, &a.Title, &a.TitleAuto, &a.StartedAt,
+			&a.ID, &a.UserID, &a.SportType, &a.SubType, &a.Title, &a.TitleAuto, &a.TitleIsManual, &a.StartedAt,
 			&a.ElapsedTimeS, &a.MovingTimeS, &a.DistanceM, &a.ElevationGainM,
 			&a.ElevationLossM, &a.AvgHeartRate, &a.AvgPowerW, &a.ParentID,
 			&a.IsIndoor, &a.IsElectric, &a.IsVirtual, &a.ExcludeFromHeatmap, &a.HasGPS, &a.EnrichmentStatus, &a.Visibility,

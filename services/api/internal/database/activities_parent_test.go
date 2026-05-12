@@ -107,3 +107,36 @@ func TestAggregateParentMetricsRollsUpModifiers(t *testing.T) {
 			parent.IsIndoor, parent.IsElectric, parent.IsVirtual, parent.ExcludeFromHeatmap, parent.HasGPS)
 	}
 }
+
+func TestGetChildActivitiesReturnsTitleManualFlag(t *testing.T) {
+	db, userID := activitiesParentTestDB(t)
+	ctx := context.Background()
+	parentID := uuid.NewString()
+
+	if err := db.InsertMultisportParent(ctx, &model.Activity{
+		ID:        parentID,
+		UserID:    userID,
+		SportType: "multisport",
+		StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("InsertMultisportParent: %v", err)
+	}
+
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO activities (user_id, sport_type, title, title_auto, title_is_manual, started_at, parent_id)
+		VALUES ($1, 'hiking', 'Manual child', 'Generated child', true, now(), $2)`,
+		userID, parentID); err != nil {
+		t.Fatalf("insert child: %v", err)
+	}
+
+	children, err := db.GetChildActivities(ctx, parentID)
+	if err != nil {
+		t.Fatalf("GetChildActivities: %v", err)
+	}
+	if len(children) != 1 {
+		t.Fatalf("children len = %d, want 1", len(children))
+	}
+	if !children[0].TitleIsManual {
+		t.Fatal("TitleIsManual = false, want true")
+	}
+}
