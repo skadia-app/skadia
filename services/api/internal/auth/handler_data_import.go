@@ -913,6 +913,30 @@ func (h *Handler) DataImportStatus(w http.ResponseWriter, r *http.Request) {
 					resp[k] = v
 				}
 			}
+			var envelope struct {
+				ImportUpload importUploadMetadata `json:"import_upload"`
+			}
+			if json.Unmarshal(metadata, &envelope) == nil && envelope.ImportUpload.State != "" {
+				parts := make([]map[string]any, 0, len(envelope.ImportUpload.Parts))
+				for _, part := range envelope.ImportUpload.Parts {
+					parts = append(parts, map[string]any{
+						"name":                    part.Name,
+						"role":                    part.Role,
+						"sha256":                  part.SHA256,
+						"size_bytes":              part.SizeBytes,
+						"received":                part.Received,
+						"legacy_checksum_missing": part.LegacyChecksumMissing,
+					})
+				}
+				resp["import_upload"] = map[string]any{
+					"state":                 envelope.ImportUpload.State,
+					"expires_at":            envelope.ImportUpload.ExpiresAt,
+					"expected_bytes":        envelope.ImportUpload.ExpectedBytes,
+					"received_bytes":        envelope.ImportUpload.ReceivedBytes,
+					"last_part_received_at": envelope.ImportUpload.LastPartReceivedAt,
+					"parts":                 parts,
+				}
+			}
 			for _, key := range []string{
 				"phase", "phase_name", "phases_total",
 				"table", "entities_imported", "entities_skipped", "entities_failed",

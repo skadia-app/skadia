@@ -487,15 +487,48 @@ export async function createDataExportDownloadSession(
 
 export interface DataImportStatus {
   job_id: string
-  status: 'queued' | 'running' | 'completed' | 'failed'
+  status: 'uploading' | 'queued' | 'running' | 'completed' | 'failed'
   error?: string
   progress_current?: number
   progress_total?: number
+  phase?: number
+  phase_name?: string
+  phases_total?: number
+  message?: string
+  entities_imported?: number
+  entities_skipped?: number
+  entities_failed?: number
+  warnings?: string[]
+  import_upload?: DataImportUploadStatus
   metadata?: {
     phase: number
     phase_name: string
     message: string
   }
+}
+
+export interface DataImportUploadStatus {
+  state: string
+  expires_at?: string
+  expected_bytes?: number
+  received_bytes?: number
+  last_part_received_at?: string | null
+  parts?: DataImportUploadPart[]
+}
+
+export interface DataImportUploadPart {
+  name: string
+  role?: string
+  sha256?: string
+  size_bytes?: number
+  received?: boolean
+  legacy_checksum_missing?: boolean
+}
+
+export interface MultipartDataImportSession {
+  job_id: string
+  status: 'uploading'
+  expires_at: string
 }
 
 export async function startDataImport(file: File): Promise<{ job_id: string; status: string }> {
@@ -505,6 +538,49 @@ export async function startDataImport(file: File): Promise<{ job_id: string; sta
   if (!res.ok) {
     const d = await res.json().catch(() => ({})) as { error?: string }
     throw new Error(d.error ?? 'Import start failed')
+  }
+  return res.json()
+}
+
+export async function createMultipartDataImport(manifest: unknown): Promise<MultipartDataImportSession> {
+  const res = await apiFetch('/api/v1/auth/data-import/multipart', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(manifest),
+  })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Multipart import session failed')
+  }
+  return res.json()
+}
+
+export async function uploadMultipartDataImportPart(jobId: string, file: File): Promise<{ status: string }> {
+  const res = await apiFetch(`/api/v1/auth/data-import/${jobId}/parts/${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    body: file,
+  })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Multipart import part upload failed')
+  }
+  return res.json()
+}
+
+export async function startMultipartDataImport(jobId: string): Promise<{ job_id: string; status: string }> {
+  const res = await apiFetch(`/api/v1/auth/data-import/${jobId}/start`, { method: 'POST' })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Multipart import start failed')
+  }
+  return res.json()
+}
+
+export async function cancelMultipartDataImport(jobId: string): Promise<{ status: string }> {
+  const res = await apiFetch(`/api/v1/auth/data-import/${jobId}/cancel`, { method: 'POST' })
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(d.error ?? 'Multipart import cancel failed')
   }
   return res.json()
 }

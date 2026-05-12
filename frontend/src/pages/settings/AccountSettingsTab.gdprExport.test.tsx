@@ -8,6 +8,9 @@ const apiMock = vi.hoisted(() => ({
   getLatestDataExport: vi.fn(),
   createDataExportDownloadSession: vi.fn(),
   triggerNativeDownload: vi.fn(),
+  createMultipartDataImport: vi.fn(),
+  uploadMultipartDataImportPart: vi.fn(),
+  startMultipartDataImport: vi.fn(),
 }))
 
 vi.mock('@/providers/UserProvider', () => ({
@@ -23,8 +26,13 @@ vi.mock('@/api/auth', async () => {
   return {
     ...actual,
     getSessions: vi.fn().mockResolvedValue([]),
+    getDataImportStatus: vi.fn().mockResolvedValue({ job_id: 'import-1', status: 'running' }),
     getLatestDataExport: apiMock.getLatestDataExport,
     createDataExportDownloadSession: apiMock.createDataExportDownloadSession,
+    createMultipartDataImport: apiMock.createMultipartDataImport,
+    uploadMultipartDataImportPart: apiMock.uploadMultipartDataImportPart,
+    startMultipartDataImport: apiMock.startMultipartDataImport,
+    cancelMultipartDataImport: vi.fn(),
   }
 })
 
@@ -111,6 +119,45 @@ describe('AccountSettingsTab GDPR export downloads', () => {
         '/api/v1/downloads/gdpr/data-export/job-2/parts/metadata.zip?session_id=s2',
         'metadata.zip',
       )
+    })
+  })
+})
+
+describe('AccountSettingsTab multipart GDPR import', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiMock.getLatestDataExport.mockResolvedValue(null)
+  })
+
+  it('uploads manifest parts and starts the multipart import session', async () => {
+    apiMock.createMultipartDataImport.mockResolvedValue({
+      job_id: 'import-1',
+      status: 'uploading',
+      expires_at: '2099-05-12T12:00:00Z',
+    })
+    apiMock.uploadMultipartDataImportPart.mockResolvedValue({ status: 'received' })
+    apiMock.startMultipartDataImport.mockResolvedValue({ job_id: 'import-1', status: 'running' })
+    const manifest = new File([JSON.stringify({
+      format_version: 1,
+      multipart: true,
+      parts: [
+        { name: 'metadata.zip', role: 'metadata', sha256: 'a'.repeat(64), size_bytes: 4 },
+        { name: 'files-0001.zip', role: 'files', sha256: 'b'.repeat(64), size_bytes: 5 },
+      ],
+    })], 'manifest.json', { type: 'application/json' })
+    const metadata = new File(['meta'], 'metadata.zip', { type: 'application/zip' })
+    const files = new File(['files'], 'files-0001.zip', { type: 'application/zip' })
+
+    renderSettings()
+    await userEvent.click(screen.getByRole('button', { name: 'Mehrteiliger Export' }))
+    await userEvent.upload(screen.getByLabelText('Multipart-Import-Dateien'), [manifest, metadata, files])
+    await userEvent.click(await screen.findByRole('button', { name: 'Import starten' }))
+
+    await waitFor(() => {
+      expect(apiMock.createMultipartDataImport).toHaveBeenCalled()
+      expect(apiMock.uploadMultipartDataImportPart).toHaveBeenNthCalledWith(1, 'import-1', metadata)
+      expect(apiMock.uploadMultipartDataImportPart).toHaveBeenNthCalledWith(2, 'import-1', files)
+      expect(apiMock.startMultipartDataImport).toHaveBeenCalledWith('import-1')
     })
   })
 })

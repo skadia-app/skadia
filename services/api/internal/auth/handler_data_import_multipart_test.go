@@ -254,6 +254,47 @@ func TestMultipartImportStartRequiresAllParts(t *testing.T) {
 	}
 }
 
+func TestMultipartImportStatusReturnsUploadProgress(t *testing.T) {
+	h, userID, _ := newMultipartImportHandlerForTest(t)
+	metaZip := minimalImportZip(t)
+	filesZip := zipWithEntry(t, "files/activity/a.fit", []byte("a"))
+	jobID := createMultipartImportSessionForTest(t, h, userID, []multipartExpectedPart{
+		{name: "metadata.zip", role: "metadata", data: metaZip},
+		{name: "files-0001.zip", role: "files", data: filesZip},
+	})
+	uploadMultipartPartForTest(t, h, userID, jobID, "metadata.zip", metaZip, http.StatusAccepted)
+
+	w := httptest.NewRecorder()
+	h.DataImportStatus(w, newJobActionRequest(t, userID, http.MethodGet, "/api/v1/auth/data-import/"+jobID, jobID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Status       string `json:"status"`
+		ImportUpload struct {
+			State         string `json:"state"`
+			ExpectedBytes int64  `json:"expected_bytes"`
+			ReceivedBytes int64  `json:"received_bytes"`
+			Parts         []struct {
+				Name     string `json:"name"`
+				Received bool   `json:"received"`
+			} `json:"parts"`
+		} `json:"import_upload"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if resp.Status != "uploading" || resp.ImportUpload.State != "uploading" {
+		t.Fatalf("unexpected status response: %s", w.Body.String())
+	}
+	if resp.ImportUpload.ExpectedBytes == 0 || resp.ImportUpload.ReceivedBytes == 0 {
+		t.Fatalf("missing byte progress: %s", w.Body.String())
+	}
+	if len(resp.ImportUpload.Parts) != 2 || !resp.ImportUpload.Parts[0].Received || resp.ImportUpload.Parts[1].Received {
+		t.Fatalf("unexpected part progress: %s", w.Body.String())
+	}
+}
+
 func TestMultipartImportStartUsesArtifactMultiPartSource(t *testing.T) {
 	h, userID, store := newMultipartImportHandlerForTest(t)
 	metaZip := minimalImportZip(t)
