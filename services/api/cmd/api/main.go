@@ -1010,6 +1010,8 @@ func main() {
 	r.Get("/api/v1/sports/taxonomy", h.GetSportsTaxonomy)
 	// Public — no jwtAuth (sister of /sports/taxonomy; frontend fetches before login).
 	r.Get("/api/v1/system-layers/keys", h.GetSystemLayerKeys)
+	r.Get("/api/v1/downloads/gdpr/data-export/{jobID}/manifest", authHandler.DataExportDownloadManifest)
+	r.Get("/api/v1/downloads/gdpr/data-export/{jobID}/parts/{partName}", authHandler.DataExportDownloadPart)
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		// Go-native auth endpoints
 		r.With(middleware.RateLimitGeneric(authRL)).Get("/config", authHandler.AuthConfig)
@@ -1080,6 +1082,8 @@ func main() {
 				Get("/data-export/latest", authHandler.DataExportLatest)
 			r.With(middleware.RateLimitPerUser(authRL, "export-status:", 60.0/60, 10)).
 				Get("/data-export/{jobID}", authHandler.DataExportStatus)
+			r.With(middleware.RateLimitPerUser(authRL, "export-download-session:", 6.0/60, 3)).
+				Post("/data-export/{jobID}/download-session", authHandler.DataExportDownloadSession)
 			r.Get("/data-export/{jobID}/download", authHandler.DataExportDownload)
 			r.With(middleware.RateLimitPerUser(authRL, "import:", 1.0/300, 1)).
 				Post("/data-import", authHandler.DataImport)
