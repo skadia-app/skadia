@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
 )
@@ -60,7 +61,7 @@ func (h *Handler) GetFusionCandidates(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Pool.Query(r.Context(), `
 		SELECT
 			b.id,
-			COALESCE(b.title, b.title_auto, '') AS title,
+			`+database.ActivityDisplayTitleSQL("b")+` AS title,
 			b.started_at,
 			COALESCE(b.distance_m, 0) AS distance_m,
 			b.sport_type,

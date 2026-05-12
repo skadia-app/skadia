@@ -107,3 +107,77 @@ func TestAggregateParentMetricsRollsUpModifiers(t *testing.T) {
 			parent.IsIndoor, parent.IsElectric, parent.IsVirtual, parent.ExcludeFromHeatmap, parent.HasGPS)
 	}
 }
+
+func TestGetChildActivitiesReturnsTitleManualFlag(t *testing.T) {
+	db, userID := activitiesParentTestDB(t)
+	ctx := context.Background()
+	parentID := uuid.NewString()
+
+	if err := db.InsertMultisportParent(ctx, &model.Activity{
+		ID:        parentID,
+		UserID:    userID,
+		SportType: "multisport",
+		StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("InsertMultisportParent: %v", err)
+	}
+
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO activities (user_id, sport_type, title, title_auto, title_is_manual, started_at, parent_id)
+		VALUES ($1, 'hiking', 'Manual child', 'Generated child', true, now(), $2)`,
+		userID, parentID); err != nil {
+		t.Fatalf("insert child: %v", err)
+	}
+
+	children, err := db.GetChildActivities(ctx, parentID)
+	if err != nil {
+		t.Fatalf("GetChildActivities: %v", err)
+	}
+	if len(children) != 1 {
+		t.Fatalf("children len = %d, want 1", len(children))
+	}
+	if !children[0].TitleIsManual {
+		t.Fatal("TitleIsManual = false, want true")
+	}
+}
+
+func TestGetChildActivitiesUsesDisplayTitlePolicy(t *testing.T) {
+	db, userID := activitiesParentTestDB(t)
+	ctx := context.Background()
+	parentID := uuid.NewString()
+
+	if err := db.InsertMultisportParent(ctx, &model.Activity{
+		ID:        parentID,
+		UserID:    userID,
+		SportType: "multisport",
+		StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("InsertMultisportParent: %v", err)
+	}
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO user_enrichment_settings (user_id, auto_title_display_policy)
+		VALUES ($1, 'auto_first')`, userID); err != nil {
+		t.Fatalf("insert settings: %v", err)
+	}
+
+	if _, err := db.Pool.Exec(ctx, `
+		INSERT INTO activities (user_id, sport_type, title, title_auto, title_is_manual, started_at, parent_id)
+		VALUES ($1, 'hiking', 'Source child', 'Generated child', false, now(), $2)`,
+		userID, parentID); err != nil {
+		t.Fatalf("insert child: %v", err)
+	}
+
+	children, err := db.GetChildActivities(ctx, parentID)
+	if err != nil {
+		t.Fatalf("GetChildActivities: %v", err)
+	}
+	if len(children) != 1 {
+		t.Fatalf("children len = %d, want 1", len(children))
+	}
+	if children[0].DisplayTitle == nil || *children[0].DisplayTitle != "Generated child" {
+		t.Fatalf("DisplayTitle = %#v, want Generated child", children[0].DisplayTitle)
+	}
+	if children[0].Title == nil || *children[0].Title != "Source child" {
+		t.Fatalf("Title = %#v, want raw source title", children[0].Title)
+	}
+}

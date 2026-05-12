@@ -10,6 +10,7 @@ import {
 } from '@/api/importQueue'
 import { resolveSportConflict } from '@/api/sportConflict'
 import { fetchActivities } from '@/api/activities'
+import { displayActivityTitle } from '@/lib/activityTitle'
 import { fmtDateCompact } from '@/lib/format'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { useToast } from '@/lib/toast'
@@ -91,13 +92,13 @@ function ActivitySearchDropdown({ value, onChange, placeholder }: ActivitySearch
               key={a.id}
               type="button"
               onMouseDown={() => {
-                onChange(a.id, a.title ?? a.id)
+                onChange(a.id, displayActivityTitle(a, sportLabel(a.sport_type)))
                 setQuery('')
                 setOpen(false)
               }}
               className="cursor-pointer w-full px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-800 dark:text-neutral-200 truncate"
             >
-              {a.title ?? 'Unbenannte Aktivität'}
+              {displayActivityTitle(a, sportLabel(a.sport_type))}
               <span className="ml-2 text-xs text-neutral-400">
                 {a.started_at ? fmtDateCompact(a.started_at, a.timezone) : ''}
               </span>

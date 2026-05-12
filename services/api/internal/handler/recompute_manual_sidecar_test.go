@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sidecar"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
 )
@@ -34,6 +35,28 @@ func TestActivityDataFromManualSidecarPreservesModifierState(t *testing.T) {
 	}
 	if !data.EndedAt.Equal(startedAt.Add(time.Hour)) {
 		t.Fatalf("EndedAt = %v, want %v", data.EndedAt, startedAt.Add(time.Hour))
+	}
+}
+
+func TestManualSidecarEnrichmentFieldsPreservesManualTitle(t *testing.T) {
+	title := "Parsed sidecar title"
+	description := "Parsed sidecar description"
+	manual := &sidecar.ManualActivityFile{
+		Title:       title,
+		Description: description,
+	}
+
+	fields := manualSidecarEnrichmentFields(manual, &model.Activity{TitleIsManual: true})
+	if _, ok := fields["title"]; ok {
+		t.Fatal("manual title was included in enrichment fields")
+	}
+	if got := fields["description"]; got != description {
+		t.Fatalf("description = %#v, want %q", got, description)
+	}
+
+	fields = manualSidecarEnrichmentFields(manual, &model.Activity{TitleIsManual: false})
+	if got := fields["title"]; got != title {
+		t.Fatalf("title = %#v, want %q", got, title)
 	}
 }
 

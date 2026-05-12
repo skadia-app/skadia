@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { SportIcon } from '@/components/SportIcon'
 import { formatDuration, formatDistance } from '@/lib/utils'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { displayActivityTitle } from '@/lib/activityTitle'
 import type { Activity } from '@/api/types'
 
 interface Props {
@@ -140,7 +141,7 @@ export default function MultisportSection({ children, onHoverChild }: Props) {
             <SportIcon sport={child.sport_type} subType={child.sub_type} isElectric={child.is_electric} className="w-5 h-5 shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="font-medium text-neutral-900 dark:text-neutral-100 truncate">
-                {child.title ?? sportLabel(child.sport_type, child.sub_type)}
+                {displayActivityTitle(child, sportLabel(child.sport_type, child.sub_type))}
               </div>
               <div className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 flex flex-wrap items-center">
                 {stats.map((s, idx) => (

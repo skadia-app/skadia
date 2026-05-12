@@ -136,7 +136,7 @@ var GoNativeModules = map[string]bool{
 const enableDEMEnrichment = false
 
 // RunStage1 executes synchronous enrichment for an activity after upload.
-// This includes time-of-day, intensity, round-trip detection, auto-naming, and autotags.
+// This includes time-of-day, intensity, round-trip detection, and autotags.
 // If a NATS publisher is provided, a stage-2 event is emitted after successful completion.
 // When asyncWeather is true, the weather fetch runs in a background goroutine so it
 // does not block the import path (tags are applied later by Stage 2 / automation rules).
@@ -414,13 +414,13 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 
 	// Title from source file (e.g. GPX <metadata><name> / <trk><name>)
 	if data.Title != "" {
-		fields["title"] = data.Title
-	}
-
-	// Auto title
-	startCity, _ := fields["start_city"].(string)
-	if title := GenerateAutoTitle(data.SportType, startCity); title != "" {
-		fields["title_auto"] = title
+		existing, err := db.GetActivity(ctx, activityID)
+		if err != nil {
+			slog.Warn("stage1: load existing title state failed", "activity_id", activityID, "error", err)
+		}
+		if existing == nil || !existing.TitleIsManual {
+			fields["title"] = data.Title
+		}
 	}
 
 	// Auto-tags we want to ensure are present on the activity. We intentionally
@@ -481,7 +481,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 		// so that analytics filters (which join activity_tags) can find this activity.
 		// Stage2 has no race module, so we do the full upsert here.
 		systemTagPlan = append(systemTagPlan, stage1SystemTagIntent{
-			name:     "Wettkampf",
+			name: "Wettkampf",
 			upsertSQL: `INSERT INTO tags (user_id, name, color, text_color, is_auto, category)
 				VALUES ($1, 'Wettkampf', '#DC2626', '#FFFFFF', true, 'activity')
 				ON CONFLICT (user_id, name) DO UPDATE SET name = tags.name
@@ -494,7 +494,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	if shouldSyncEBikeSystemTag(data) {
 		addAutoTag("E-Bike")
 		systemTagPlan = append(systemTagPlan, stage1SystemTagIntent{
-			name:     "E-Bike",
+			name: "E-Bike",
 			upsertSQL: `INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
 				VALUES ($1, 'E-Bike', '#16A34A', '#FFFFFF', 'system', true, false, 'Automatisch bei elektrischen Radfahrten')
 				ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'
@@ -507,7 +507,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	if data.IsIndoor {
 		addAutoTag("Indoor")
 		systemTagPlan = append(systemTagPlan, stage1SystemTagIntent{
-			name:     "Indoor",
+			name: "Indoor",
 			upsertSQL: `INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
 				VALUES ($1, 'Indoor', '#3B82F6', '#FFFFFF', 'system', true, false, 'Automatisch bei Indoor-Aktivitäten (Sync mit is_indoor)')
 				ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'
@@ -526,7 +526,7 @@ func RunStage1(ctx context.Context, db *database.DB, userID, activityID string, 
 	if data.IsManualEntry {
 		addAutoTag("manuell")
 		systemTagPlan = append(systemTagPlan, stage1SystemTagIntent{
-			name:     "manuell",
+			name: "manuell",
 			upsertSQL: `INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
 				VALUES ($1, 'manuell', '#6B7280', '#FFFFFF', 'system', true, false, 'Manuell erstellte Aktivität')
 				ON CONFLICT (user_id, name) DO UPDATE SET category = 'system'

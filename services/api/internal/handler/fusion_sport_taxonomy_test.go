@@ -3,10 +3,13 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 )
 
 func TestApplyFusionSportSelectionPersistsTupleAndModifiers(t *testing.T) {
@@ -125,5 +128,52 @@ func TestLegacyFusionCandidateJSONIncludesSportTupleAndModifiers(t *testing.T) {
 		if !strings.Contains(string(payload), want) {
 			t.Fatalf("payload %s missing %s", payload, want)
 		}
+	}
+}
+
+func TestGetFusionCandidatesUsesAutoTitleForEmptySourceUnlessManual(t *testing.T) {
+	pool := fusionTestPool(t)
+	ctx := context.Background()
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	targetID := insertMinimalActivity(t, db, userID)
+	generatedID := insertMinimalActivity(t, db, userID)
+	manualID := insertMinimalActivity(t, db, userID)
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE activities
+		SET title = '   ', title_auto = 'Generated title', title_is_manual = false
+		WHERE id = $1`, generatedID); err != nil {
+		t.Fatalf("seed generated candidate: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE activities
+		SET title = 'Manual title', title_auto = 'Generated manual', title_is_manual = true
+		WHERE id = $1`, manualID); err != nil {
+		t.Fatalf("seed manual candidate: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/activities/"+targetID+"/fusion-candidates", nil)
+	req = injectChiURLParam(req, "id", targetID)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, userID))
+	rr := httptest.NewRecorder()
+
+	(&Handler{DB: db}).GetFusionCandidates(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GetFusionCandidates status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	var got []FusionCandidate
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	titles := map[string]string{}
+	for _, candidate := range got {
+		titles[candidate.ID] = candidate.Title
+	}
+	if titles[generatedID] != "Generated title" {
+		t.Fatalf("generated candidate title = %q, want Generated title (all titles: %#v)", titles[generatedID], titles)
+	}
+	if titles[manualID] != "Manual title" {
+		t.Fatalf("manual candidate title = %q, want Manual title (all titles: %#v)", titles[manualID], titles)
 	}
 }

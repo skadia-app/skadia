@@ -1770,6 +1770,7 @@ func (db *DB) RemoveSegmentFavorite(ctx context.Context, userID, segmentID strin
 // GetSegmentPerformances retrieves all segment efforts for a specific segment from a given user.
 // isReverse: nil = all directions, false = forward only, true = reverse only.
 func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID string, isReverse *bool) ([]model.SegmentPerformance, error) {
+	activityTitleSQL := ActivityDisplayTitleSQL("a")
 	query := `
 	SELECT
 		se.id,
@@ -1779,7 +1780,7 @@ func (db *DB) GetSegmentPerformances(ctx context.Context, segmentID, userID stri
 			a.started_at,
 			a.sport_type,
 			a.sub_type,
-			COALESCE(a.title, '') AS title,
+			` + activityTitleSQL + ` AS title,
 		se.is_reverse,
 		aga.gear_id,
 		g.name AS gear_name,

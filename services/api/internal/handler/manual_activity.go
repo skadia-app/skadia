@@ -239,6 +239,9 @@ func (h *Handler) CreateManualActivity(w http.ResponseWriter, r *http.Request) {
 
 	// Stage 1 enrichment: asyncWeather=true, skipStreamEnrichment=true, skipGeo=true (no GPS).
 	enrichment.RunStage1(r.Context(), h.DB, userID, activity.ID, data, h.Stage2ReadyPublisher, true, true, nil, true, h.Stage1Deps)
+	if err := enrichment.RunAutoTitle(r.Context(), h.DB, userID, activity.ID); err != nil {
+		slog.Warn("manual activity: auto title failed", "id", activity.ID, "error", err)
+	}
 
 	if h.AnalyticsInvalidator != nil {
 		if err := h.AnalyticsInvalidator.PublishAnalyticsInvalidate(userID); err != nil {

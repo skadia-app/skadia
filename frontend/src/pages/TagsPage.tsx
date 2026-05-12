@@ -7,6 +7,7 @@ import type { Tag, TagActivity } from '@/api/tags'
 import ZoneEditor from '@/components/ZoneEditor'
 import type { ZoneData } from '@/components/ZoneEditor'
 import { fmtDateCompact } from '@/lib/format'
+import { displayActivityTitle } from '@/lib/activityTitle'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -543,7 +544,7 @@ function TagActivitiesPanel({ tag, onClose }: { tag: Tag; onClose: () => void })
                     to={`/activities/${act.id}`}
                     className="text-xs font-medium text-neutral-800 dark:text-neutral-200 hover:text-accent-DEFAULT truncate"
                   >
-                    {act.title || act.title_auto || sportLabel(act.sport_type)}
+                    {displayActivityTitle(act, sportLabel(act.sport_type))}
                   </Link>
                   {act.started_at && (
                     <span className="text-xs text-neutral-400 flex-shrink-0">

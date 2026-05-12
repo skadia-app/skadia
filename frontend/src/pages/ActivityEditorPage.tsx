@@ -15,6 +15,7 @@ import { apiClient } from '@/api/client'
 import type { StreamPoint } from '@/api/types'
 import Toggle from '@/components/Toggle'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { displayActivityTitle } from '@/lib/activityTitle'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -511,7 +512,7 @@ export default function ActivityEditorPage() {
             Track bearbeiten
           </h1>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">
-            {activity.title ?? activity.title_auto ?? 'Kein Titel'}
+            {displayActivityTitle(activity, 'Kein Titel')}
           </p>
         </div>
         {activity.has_edits && (
