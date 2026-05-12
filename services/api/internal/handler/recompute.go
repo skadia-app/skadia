@@ -92,6 +92,14 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse optional scope from query string: ?scope=speed_smooth&scope=streams
+	scope, scopeErr := parseRecomputeScopeValues(r.URL.Query()["scope"])
+	if scopeErr != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", scopeErr.Error(), r.URL.Path)
+		return
+	}
+	scopeFlags := buildRecomputeScopeFlags(scope)
+
 	// Multisport parent: reprocess all children asynchronously via background job.
 	if activity.SportType == "multisport" {
 		children, err := h.DB.GetChildActivities(r.Context(), id)
@@ -115,10 +123,31 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 
 		go func() {
 			ctx := context.Background()
+			if scopeFlags.autoTitleOnly() {
+				_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, "Multisport")
+				if err := enrichment.RunAutoTitle(ctx, h.DB, userID, parentID); err != nil {
+					slog.Error("reprocess multisport: parent auto title failed", "parent_id", parentID, "error", err)
+				} else {
+					h.refreshActivityFilePathBestEffort(ctx, userID, parentID, "")
+				}
+				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, 1)
+				for i, child := range children {
+					_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, fmt.Sprintf("Disziplin %d/%d", i+1, len(children)))
+					if err := enrichment.RunAutoTitle(ctx, h.DB, child.UserID, child.ID); err != nil {
+						slog.Error("reprocess multisport: child auto title failed", "parent_id", parentID, "child_id", child.ID, "error", err)
+					} else {
+						h.refreshActivityFilePathBestEffort(ctx, child.UserID, child.ID, "")
+					}
+					_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i+2))
+				}
+				_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
+				slog.Info("reprocess multisport: auto title done", "id", parentID, "children", len(children))
+				return
+			}
 			for i, child := range children {
 				_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, fmt.Sprintf("Disziplin %d/%d", i+1, len(children)))
 				_ = h.DB.UpdateBackgroundJobProgress(ctx, jobID, int64(i))
-				if err := h.reprocessActivity(ctx, child.ID, child.UserID, nil, 0, false, nil); err != nil {
+				if err := h.reprocessActivity(ctx, child.ID, child.UserID, scope, 0, false, nil); err != nil {
 					slog.Error("reprocess multisport: child failed", "parent_id", parentID, "child_id", child.ID, "error", err)
 					// Continue with remaining children — one failure must not abort the whole job.
 				}
@@ -128,18 +157,18 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 			if aggrErr := h.DB.AggregateParentMetrics(ctx, parentID); aggrErr != nil {
 				slog.Warn("reprocess multisport: aggregate failed", "id", parentID, "error", aggrErr)
 			}
+			if scopeFlags.doAutoTitle {
+				if err := enrichment.RunAutoTitle(ctx, h.DB, userID, parentID); err != nil {
+					slog.Error("reprocess multisport: parent auto title failed", "parent_id", parentID, "error", err)
+				} else {
+					h.refreshActivityFilePathBestEffort(ctx, userID, parentID, "")
+				}
+			}
 			_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 			slog.Info("reprocess multisport: done", "id", parentID, "children", len(children))
 		}()
 
 		httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"job_id": jobID})
-		return
-	}
-
-	// Parse optional scope from query string: ?scope=speed_smooth&scope=streams
-	scope, scopeErr := parseRecomputeScopeValues(r.URL.Query()["scope"])
-	if scopeErr != nil {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", scopeErr.Error(), r.URL.Path)
 		return
 	}
 
@@ -446,7 +475,7 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 // scope controls which categories to reprocess (nil = all):
 //
 //   - "streams":      streams + track. Needs file re-parse. Triggers RunStage1
-//     (track geometry feeds start_city / title_auto / is_commute).
+//     (track geometry feeds start_city / is_commute).
 //   - "sensors":      sensor records (HR, power, cadence zones). Needs file re-parse.
 //     Triggers RunStage1 because re-parse rewrites activity metadata.
 //   - "details":      laps, splits, split summaries, lengths, climb pro events. Needs
@@ -454,14 +483,14 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 //   - "metrics":      all computed metrics (times, distances, HR, power, etc.). Needs
 //     file re-parse. Triggers RunStage1.
 //   - "sport_type":   sport_type + sub_type (only if not manually set). Triggers
-//     RunStage1 because auto-title depends on sport type.
+//     RunStage1 because sport labels depend on sport type.
 //   - "tags":         re-evaluate autotag rules and update tags. Triggers RunStage1
 //     (Stage 1 writes base tags like "Commute", "Indoor").
 //   - "geo":          Legacy aggregate for geo enrichment (summits, settlements,
 //     forests, water, borders, surfaces, lifts) plus stops for backwards compat.
 //   - "segments":     segment efforts + lap detection. Works purely on streams +
 //     activity metadata that already exists — does NOT trigger
-//     RunStage1 (no dependency on start_city / title_auto / tags).
+//     RunStage1 (no dependency on start_city / tags).
 //   - "best_efforts": recompute best effort records for this activity. Works on the
 //     stream only. Does NOT trigger RunStage1.
 //   - "running_form": compute duty factor, vertical ratio, GCT asymmetry + fatigue
@@ -470,6 +499,8 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 //     Does NOT trigger RunStage1.
 //   - "speed_smooth": opt-in median filter on speed_ms. Never part of "all". Does
 //     NOT trigger RunStage1 (stream-only; see comment in block 8.).
+//   - "auto_title":   recompute title_auto from persisted enrichment state. Selected
+//     alone, it does not re-parse the original activity file.
 //
 // skipAnalyticsEvent suppresses PublishAnalyticsInvalidate when true (used in bulk recompute
 // to avoid flooding — the caller publishes a single invalidation after all workers complete).
@@ -504,6 +535,14 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	doAscents := scopeFlags.doAscents
 	doIntervals := scopeFlags.doIntervals
 	doStreamEnrichment := scopeFlags.doStreamEnrichment
+
+	if scopeFlags.autoTitleOnly() {
+		if err := enrichment.RunAutoTitle(ctx, h.DB, userID, activityID); err != nil {
+			return fmt.Errorf("auto title recompute: %w", err)
+		}
+		h.refreshActivityFilePathBestEffort(ctx, userID, activityID, "")
+		return nil
+	}
 
 	// 1. Load reprocess info (S3 key, format, manual sport flag, file_id).
 	info, err := h.DB.GetActivityReprocessInfo(ctx, activityID)
@@ -856,17 +895,17 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 	//
 	// Stage 1 trigger rule: scopes that either re-parse the file (streams, sensors,
 	// details, metrics, sport_type) or that rewrite activity metadata (tags, geo)
-	// DO set doStage1, because Stage 1 recomputes start_city, title_auto, is_commute,
-	// and base tags from the fresh data. The following scopes deliberately do NOT
+	// DO set doStage1, because Stage 1 recomputes start_city, is_commute, and base
+	// tags from the fresh data. The following scopes deliberately do NOT
 	// trigger Stage 1:
 	//   - doSegments:    operates on streams + pre-existing metadata; no dependency
-	//                    on start_city / title_auto / is_commute.
+	//                    on start_city / is_commute.
 	//   - doBestEfforts: pure stream computation; no metadata dependency.
 	//   - doRunningForm: pure stream computation; no metadata dependency.
 	//   - doSpeedSmooth: rewrites stream speed values only; explicitly must not
 	//                    re-run Stage 1 to preserve user tags (see above).
 	// If any of those scopes ever grows a dependency on Stage-1 output
-	// (start_city, title_auto, is_commute, base tags, etc.), add it to the
+	// (start_city, is_commute, base tags, etc.), add it to the
 	// expression below.
 	doStage1 := scopeFlags.doStage1
 
@@ -954,6 +993,14 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		// publish needed; Python's enrich_lifts is no longer triggered for
 		// recompute scopes. Embeddings remain Stage-2-dispatched but are
 		// handled by the Stage-1 publisher path, not this per-submodule block.
+	}
+
+	if scopeFlags.doAutoTitle {
+		if err := enrichment.RunAutoTitle(ctx, h.DB, userID, activityID); err != nil {
+			slog.Warn("reprocess: auto title failed", "activity_id", activityID, "error", err)
+		} else {
+			h.refreshActivityFilePathBestEffort(ctx, userID, activityID, "")
+		}
 	}
 
 	// 8b. Apply automation rules (all activities — not just GPS, since Frost/Nacht/etc. apply to indoor too).

@@ -252,6 +252,13 @@ func (h *Handler) BackfillEnrichment(w http.ResponseWriter, r *http.Request) {
 				gr = h.GraphManager.Reader()
 			}
 			enrichment.RunStage1(r.Context(), h.DB, userID, a.ID, data, h.Stage2ReadyPublisher, false, false, gr, false, h.Stage1Deps)
+			if err := enrichment.RunAutoTitle(r.Context(), h.DB, userID, a.ID); err != nil {
+				slog.Warn("backfill: auto title failed", "activity_id", a.ID, "error", err)
+			}
+		} else {
+			if err := enrichment.RunAutoTitle(r.Context(), h.DB, userID, a.ID); err != nil {
+				slog.Warn("backfill: auto title failed", "activity_id", a.ID, "error", err)
+			}
 		}
 
 		// Apply automation rules for all activities — Frost/Nacht don't need GPS

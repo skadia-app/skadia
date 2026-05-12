@@ -1,9 +1,11 @@
 package enrichment
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -71,6 +73,56 @@ func ResolveAutoTitle(in AutoTitleInput) AutoTitleResult {
 		return result
 	}
 	return resolveSportFallbackAutoTitle(in)
+}
+
+func AutoTitleInputFromDBInput(activity *database.AutoTitleActivityInput, prefs model.WeatherPrefs, tags []model.GeoTag) AutoTitleInput {
+	if activity == nil {
+		return AutoTitleInput{WeatherPrefs: prefs, GeoTags: tags}
+	}
+	return AutoTitleInput{
+		SportType:       activity.SportType,
+		SubType:         activity.SubType,
+		StartCity:       activity.StartCity,
+		EndCity:         activity.EndCity,
+		StartLat:        activity.StartLat,
+		StartLng:        activity.StartLng,
+		EndLat:          activity.EndLat,
+		EndLng:          activity.EndLng,
+		StartElevationM: activity.StartElevationM,
+		EndElevationM:   activity.EndElevationM,
+		MinElevationM:   activity.MinElevationM,
+		MaxElevationM:   activity.MaxElevationM,
+		WeatherPrefs:    prefs,
+		GeoTags:         tags,
+	}
+}
+
+func RunAutoTitle(ctx context.Context, db *database.DB, userID, activityID string) error {
+	settings, err := db.GetEnrichmentSettings(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("auto title settings: %w", err)
+	}
+	if settings != nil && !settings.EnableAutoNaming {
+		return nil
+	}
+
+	prefs, err := db.GetWeatherPrefs(ctx, userID)
+	if err != nil {
+		prefs = model.DefaultWeatherPrefs()
+	}
+	activity, err := db.GetAutoTitleActivityInput(ctx, userID, activityID)
+	if err != nil {
+		return err
+	}
+	tags, err := db.GetGeoTags(ctx, activityID)
+	if err != nil {
+		return err
+	}
+	result := ResolveAutoTitle(AutoTitleInputFromDBInput(activity, prefs, tags))
+	if result.Title == "" {
+		return nil
+	}
+	return db.UpdateActivityAutoTitle(ctx, userID, activityID, result.Title)
 }
 
 func resolvePointToPointAutoTitle(in AutoTitleInput) AutoTitleResult {
