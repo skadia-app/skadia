@@ -147,6 +147,76 @@ func TestDataExportDownloadSessionAllReturnsObjectURLs(t *testing.T) {
 	}
 }
 
+func TestDataExportStatusInlineReconciliationConfirmedMissingStripsDownloadSessions(t *testing.T) {
+	ctx := context.Background()
+	h, ownerID, jobID := newDataExportSessionFixture(t, "export body")
+	var metadata []byte
+	if err := h.DB.Pool.QueryRow(ctx, `SELECT metadata FROM background_jobs WHERE id = $1`, jobID).Scan(&metadata); err != nil {
+		t.Fatalf("select metadata: %v", err)
+	}
+	meta, err := gdprartifacts.DecodeJobMetadata(metadata)
+	if err != nil || meta.Artifact == nil {
+		t.Fatalf("DecodeJobMetadata: %v %#v", err, meta.Artifact)
+	}
+	if err := h.ArtifactStore.Delete(ctx, meta.Artifact.Objects[0]); err != nil {
+		t.Fatalf("delete artifact: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	h.DataExportStatus(w, dataExportStatusRequest(ownerID, jobID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["unavailable_reason"] != "artifact_missing" {
+		t.Fatalf("unavailable_reason = %v body=%s", resp["unavailable_reason"], w.Body.String())
+	}
+	if _, ok := resp["download_session_url"]; ok {
+		t.Fatalf("download_session_url should be omitted: %s", w.Body.String())
+	}
+	if err := h.DB.Pool.QueryRow(ctx, `SELECT metadata FROM background_jobs WHERE id = $1`, jobID).Scan(&metadata); err != nil {
+		t.Fatalf("select updated metadata: %v", err)
+	}
+	if !strings.Contains(string(metadata), "artifact_missing_at") || !strings.Contains(string(metadata), "artifact_missing_objects") {
+		t.Fatalf("metadata missing artifact_missing markers: %s", metadata)
+	}
+}
+
+func TestDataExportStatusInlineReconciliationBackendUnknownPreservesRefs(t *testing.T) {
+	h, ownerID, jobID := newDataExportSessionFixture(t, "export body")
+	h.ArtifactStore = unknownStatStore{Store: h.ArtifactStore}
+	var before []byte
+	if err := h.DB.Pool.QueryRow(context.Background(), `SELECT metadata FROM background_jobs WHERE id = $1`, jobID).Scan(&before); err != nil {
+		t.Fatalf("select metadata: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	h.DataExportStatus(w, dataExportStatusRequest(ownerID, jobID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["unavailable_reason"] != "artifact_backend_unavailable" {
+		t.Fatalf("unavailable_reason = %v body=%s", resp["unavailable_reason"], w.Body.String())
+	}
+	if _, ok := resp["download_session_url"]; ok {
+		t.Fatalf("download_session_url should be omitted on unknown backend state: %s", w.Body.String())
+	}
+	var after []byte
+	if err := h.DB.Pool.QueryRow(context.Background(), `SELECT metadata FROM background_jobs WHERE id = $1`, jobID).Scan(&after); err != nil {
+		t.Fatalf("select metadata after status: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("metadata mutated on unknown backend state\nbefore=%s\nafter=%s", before, after)
+	}
+}
+
 func newDataExportSessionFixture(t *testing.T, content string) (*Handler, string, string) {
 	t.Helper()
 	ctx := context.Background()
@@ -198,6 +268,20 @@ func newDataExportSessionFixture(t *testing.T, content string) (*Handler, string
 	}
 	h := &Handler{DB: &database.DB{Pool: pool}, ArtifactStore: store, shutdownCtx: ctx}
 	return h, userID, jobID
+}
+
+func dataExportStatusRequest(userID, jobID string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/data-export/"+jobID, nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, userID))
+	return withJob(req, jobID)
+}
+
+type unknownStatStore struct {
+	gdprartifacts.Store
+}
+
+func (s unknownStatStore) Stat(context.Context, gdprartifacts.ObjectRef) (gdprartifacts.ObjectStat, error) {
+	return gdprartifacts.ObjectStat{State: gdprartifacts.ObjectUnknown, Err: context.DeadlineExceeded}, context.DeadlineExceeded
 }
 
 func newMultipartDataExportSessionFixture(t *testing.T) (*Handler, string, string) {

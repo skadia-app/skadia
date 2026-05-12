@@ -290,7 +290,12 @@ func (h *Handler) DataExportLatest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	metadata, unavailableReason := h.reconcileExportArtifactForStatus(r.Context(), jobID, userID, metadata)
 	resp := buildDataExportStatusResponse(jobID, status, updatedAt, errText, metadata, time.Now())
+	if unavailableReason == "artifact_backend_unavailable" {
+		stripDataExportDownloadSessionFields(resp)
+		resp["unavailable_reason"] = unavailableReason
+	}
 	resp["started_at"] = startedAt
 	httputil.WriteJSONNoCache(w, http.StatusOK, resp)
 }
@@ -740,7 +745,12 @@ func (h *Handler) DataExportStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	metadata, unavailableReason := h.reconcileExportArtifactForStatus(r.Context(), jobID, userID, metadata)
 	resp := buildDataExportStatusResponse(jobID, status, updatedAt, errText, metadata, time.Now())
+	if unavailableReason == "artifact_backend_unavailable" {
+		stripDataExportDownloadSessionFields(resp)
+		resp["unavailable_reason"] = unavailableReason
+	}
 	resp["started_at"] = startedAt
 	httputil.WriteJSONNoCache(w, http.StatusOK, resp)
 }
@@ -839,6 +849,16 @@ func buildDataExportStatusResponse(
 	}
 
 	return resp
+}
+
+func stripDataExportDownloadSessionFields(resp map[string]any) {
+	delete(resp, "download_session_url")
+	delete(resp, "manifest_download_session_url")
+	if parts, ok := resp["parts"].([]map[string]any); ok {
+		for _, part := range parts {
+			delete(part, "download_session_url")
+		}
+	}
 }
 
 // DataExportDownloadSession handles POST /auth/data-export/{jobID}/download-session.
