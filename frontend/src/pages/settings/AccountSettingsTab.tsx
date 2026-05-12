@@ -17,6 +17,8 @@ import {
   startDataExport, getLatestDataExport, getDataExportStatus,
   createDataExportDownloadSession,
   startDataImport, getDataImportStatus,
+  createMultipartDataImport, uploadMultipartDataImportPart,
+  startMultipartDataImport, cancelMultipartDataImport,
   type UserSession,
   type DataExportStatus,
   type DataImportStatus,
@@ -471,6 +473,7 @@ function SessionsSection() {
 // ── Data Import Section ─────────────────────────────────────────────────────
 
 type ImportPhase = 'upload' | 'progress' | 'result'
+type ImportMode = 'single' | 'multipart'
 
 interface ImportResult {
   imported: number
@@ -478,10 +481,51 @@ interface ImportResult {
   errors: string[]
 }
 
+interface MultipartManifestPart {
+  name: string
+  role?: string
+  sha256?: string
+  size_bytes?: number
+}
+
+interface MultipartManifest {
+  format_version?: number
+  multipart?: boolean
+  parts?: MultipartManifestPart[]
+  [key: string]: unknown
+}
+
+const webImportPartLimitBytes = 4 * 1024 * 1024 * 1024
+
+function isValidMultipartPartName(name: string): boolean {
+  return name === 'metadata.zip' || /^files-\d{4}\.zip$/.test(name)
+}
+
+function multipartExpectedParts(manifest: MultipartManifest): MultipartManifestPart[] {
+  const parts = Array.isArray(manifest.parts) ? manifest.parts.filter(part => isValidMultipartPartName(part.name)) : []
+  if (!parts.some(part => part.name === 'metadata.zip')) {
+    return [{ name: 'metadata.zip', role: 'metadata' }, ...parts]
+  }
+  return parts
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
 function parseImportResult(status: DataImportStatus): ImportResult {
   // The backend encodes final counts in metadata.message as JSON or
   // falls back to a plain message. We attempt a best-effort parse.
-  const msg = status.metadata?.message ?? ''
+  if (typeof status.entities_imported === 'number' || typeof status.entities_skipped === 'number' || typeof status.entities_failed === 'number') {
+    return {
+      imported: status.entities_imported ?? 0,
+      skipped: status.entities_skipped ?? 0,
+      errors: status.error ? [status.error] : [],
+    }
+  }
+  const msg = status.metadata?.message ?? status.message ?? ''
   try {
     const parsed = JSON.parse(msg) as Partial<ImportResult>
     return {
@@ -497,7 +541,13 @@ function parseImportResult(status: DataImportStatus): ImportResult {
 function DataImportSection() {
   const { addToast } = useToast()
   const [phase, setPhase] = useState<ImportPhase>('upload')
+  const [importMode, setImportMode] = useState<ImportMode>('single')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [multipartFiles, setMultipartFiles] = useState<File[]>([])
+  const [multipartManifest, setMultipartManifest] = useState<MultipartManifest | null>(null)
+  const [multipartParts, setMultipartParts] = useState<MultipartManifestPart[]>([])
+  const [multipartError, setMultipartError] = useState<string | null>(null)
+  const [activeUploadJobID, setActiveUploadJobID] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [logLines, setLogLines] = useState<string[]>([])
   const [progressCurrent, setProgressCurrent] = useState(0)
@@ -507,6 +557,7 @@ function DataImportSection() {
   const importAbortRef = useRef<AbortController | null>(null)
   const logEndRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const multipartInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     return () => { importAbortRef.current?.abort() }
@@ -514,10 +565,66 @@ function DataImportSection() {
 
   // Auto-scroll log to bottom whenever new lines arrive
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (typeof logEndRef.current?.scrollIntoView === 'function') {
+      logEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [logLines])
 
+  async function pollImportJob(jobID: string, abort: AbortController) {
+    // Poll every 2 s (max ~30 min = 900 iterations)
+    for (let i = 0; i < 900; i++) {
+      if (abort.signal.aborted) return
+      await abortableSleep(2000, abort.signal)
+      const status = await getDataImportStatus(jobID)
+
+      if (status.import_upload?.parts?.length) {
+        const received = status.import_upload.parts.filter(part => part.received).length
+        const total = status.import_upload.parts.length
+        setProgressCurrent(received)
+        setProgressTotal(total)
+      } else if (status.progress_total && status.progress_total > 0) {
+        setProgressCurrent(status.progress_current ?? 0)
+        setProgressTotal(status.progress_total)
+      }
+
+      const statusMessage = status.metadata?.message ?? status.message
+      if (statusMessage) {
+        const prefix = status.status === 'running' ? '●' : '✓'
+        const line = `${prefix} ${statusMessage}`
+        setLogLines(prev => {
+          const last = prev[prev.length - 1] ?? ''
+          if (last === line) return prev
+          if (last.startsWith('●') && line.startsWith('✓')) {
+            return [...prev.slice(0, -1), line]
+          }
+          return [...prev, line]
+        })
+      }
+
+      if (status.status === 'completed') {
+        const parsed = parseImportResult(status)
+        setResult(parsed)
+        setPhase('result')
+        addToast({ type: 'success', title: S.dataImport.completed.title })
+        return
+      }
+      if (status.status === 'failed') {
+        const errMsg = status.error ?? S.dataImport.failed.messageGeneric
+        addToast({ type: 'error', title: S.dataImport.failed.title, message: errMsg, duration: 0 })
+        setResult({ imported: 0, skipped: 0, errors: [errMsg] })
+        setPhase('result')
+        return
+      }
+    }
+    addToast({ type: 'error', title: S.dataImport.timeout.title, message: S.dataImport.timeout.message, duration: 0 })
+    setPhase('upload')
+  }
+
   async function handleImport() {
+    if (importMode === 'multipart') {
+      await handleMultipartImport()
+      return
+    }
     if (!selectedFile) return
     const abort = new AbortController()
     importAbortRef.current = abort
@@ -528,52 +635,7 @@ function DataImportSection() {
       setUploading(false)
       setPhase('progress')
       setLogLines([])
-
-      // Poll every 2 s (max ~30 min = 900 iterations)
-      for (let i = 0; i < 900; i++) {
-        if (abort.signal.aborted) return
-        await abortableSleep(2000, abort.signal)
-        const status = await getDataImportStatus(job_id)
-
-        // Update progress bar
-        if (status.progress_total && status.progress_total > 0) {
-          setProgressCurrent(status.progress_current ?? 0)
-          setProgressTotal(status.progress_total)
-        }
-
-        // Append phase log line if metadata arrived
-        if (status.metadata?.message) {
-          const prefix = status.status === 'running' ? '●' : '✓'
-          const line = `${prefix} ${status.metadata.message}`
-          // Avoid duplicate lines
-          setLogLines(prev => {
-            const last = prev[prev.length - 1] ?? ''
-            if (last === line) return prev
-            // Replace running-indicator of same phase with completed version
-            if (last.startsWith('●') && line.startsWith('✓')) {
-              return [...prev.slice(0, -1), line]
-            }
-            return [...prev, line]
-          })
-        }
-
-        if (status.status === 'completed') {
-          const parsed = parseImportResult(status)
-          setResult(parsed)
-          setPhase('result')
-          addToast({ type: 'success', title: S.dataImport.completed.title })
-          return
-        }
-        if (status.status === 'failed') {
-          const errMsg = status.error ?? S.dataImport.failed.messageGeneric
-          addToast({ type: 'error', title: S.dataImport.failed.title, message: errMsg, duration: 0 })
-          setResult({ imported: 0, skipped: 0, errors: [errMsg] })
-          setPhase('result')
-          return
-        }
-      }
-      addToast({ type: 'error', title: S.dataImport.timeout.title, message: S.dataImport.timeout.message, duration: 0 })
-      setPhase('upload')
+      await pollImportJob(job_id, abort)
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return
       if (!abort.signal.aborted) {
@@ -586,16 +648,108 @@ function DataImportSection() {
     }
   }
 
+  async function handleMultipartFileSelection(files: FileList | null) {
+    const selected = Array.from(files ?? [])
+    setMultipartFiles(selected)
+    setMultipartManifest(null)
+    setMultipartParts([])
+    setMultipartError(null)
+    const manifestFile = selected.find(file => file.name === 'manifest.json')
+    if (!manifestFile) {
+      if (selected.length > 0) setMultipartError('manifest.json fehlt.')
+      return
+    }
+    try {
+      const parsed = JSON.parse(await manifestFile.text()) as MultipartManifest
+      if (parsed.format_version !== 1 || parsed.multipart !== true) {
+        setMultipartError('manifest.json ist kein mehrteiliger Skadia-Export.')
+        return
+      }
+      const expected = multipartExpectedParts(parsed)
+      if (expected.length === 0) {
+        setMultipartError('manifest.json enthält keine Import-Teile.')
+        return
+      }
+      setMultipartManifest(parsed)
+      setMultipartParts(expected)
+    } catch {
+      setMultipartError('manifest.json konnte nicht gelesen werden.')
+    }
+  }
+
+  async function handleMultipartImport() {
+    if (!multipartManifest || multipartMissingNames.length > 0 || multipartOversizedFiles.length > 0) return
+    const abort = new AbortController()
+    importAbortRef.current = abort
+    setUploading(true)
+    setLogLines([])
+    setProgressCurrent(0)
+    setProgressTotal(multipartParts.length)
+    try {
+      const session = await createMultipartDataImport(multipartManifest)
+      setActiveUploadJobID(session.job_id)
+      for (const part of multipartParts) {
+        if (abort.signal.aborted) return
+        const file = multipartFileByName.get(part.name)
+        if (!file) throw new Error(`missing part ${part.name}`)
+        await uploadMultipartDataImportPart(session.job_id, file)
+        setProgressCurrent(current => current + 1)
+        setLogLines(prev => [...prev, `✓ ${part.name} hochgeladen`])
+      }
+      await startMultipartDataImport(session.job_id)
+      setActiveUploadJobID(null)
+      addToast({ type: 'info', title: S.dataImport.started.title })
+      setUploading(false)
+      setPhase('progress')
+      await pollImportJob(session.job_id, abort)
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return
+      if (!abort.signal.aborted) {
+        addToast({ type: 'error', title: S.dataImport.failed.title, duration: 0 })
+      }
+      setPhase('upload')
+    } finally {
+      setUploading(false)
+      importAbortRef.current = null
+    }
+  }
+
+  async function handleCancelMultipartUpload() {
+    if (!activeUploadJobID) return
+    await cancelMultipartDataImport(activeUploadJobID).catch(() => undefined)
+    importAbortRef.current?.abort()
+    setActiveUploadJobID(null)
+    setUploading(false)
+    setPhase('upload')
+  }
+
   function handleReset() {
     setPhase('upload')
     setSelectedFile(null)
+    setMultipartFiles([])
+    setMultipartManifest(null)
+    setMultipartParts([])
+    setMultipartError(null)
+    setActiveUploadJobID(null)
     setLogLines([])
     setProgressCurrent(0)
     setProgressTotal(0)
     setResult(null)
     setErrorsExpanded(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
+    if (multipartInputRef.current) multipartInputRef.current.value = ''
   }
+
+  const multipartFileByName = new Map(multipartFiles.map(file => [file.name, file]))
+  const multipartMissingNames = multipartParts
+    .map(part => part.name)
+    .filter(name => !multipartFileByName.has(name))
+  const multipartOversizedFiles = multipartParts
+    .map(part => multipartFileByName.get(part.name))
+    .filter((file): file is File => Boolean(file && file.size > webImportPartLimitBytes))
+  const canStartImport = importMode === 'single'
+    ? Boolean(selectedFile)
+    : Boolean(multipartManifest && multipartMissingNames.length === 0 && multipartOversizedFiles.length === 0 && !multipartError)
 
   const progressPct = progressTotal > 0
     ? Math.round((progressCurrent / progressTotal) * 100)
@@ -605,39 +759,124 @@ function DataImportSection() {
     <Section title="Daten importieren" description={S.dataImport.uploadDescription}>
       {phase === 'upload' && (
         <div className="space-y-4">
-          {/* File picker row */}
-          <div className="flex items-center gap-3">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".zip"
-              className="hidden"
-              onChange={e => setSelectedFile(e.target.files?.[0] ?? null)}
-            />
+          <div className="inline-flex rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden">
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+              onClick={() => setImportMode('single')}
+              className={`px-3 py-1.5 text-sm transition-colors cursor-pointer ${importMode === 'single' ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900' : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}
             >
-              {S.dataImport.selectFile}
+              Einzel-ZIP
             </button>
-            <span className="text-sm text-neutral-500 dark:text-neutral-400 truncate max-w-xs">
-              {selectedFile ? selectedFile.name : S.dataImport.noFileSelected}
-            </span>
+            <button
+              type="button"
+              onClick={() => setImportMode('multipart')}
+              className={`px-3 py-1.5 text-sm transition-colors cursor-pointer ${importMode === 'multipart' ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900' : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'}`}
+            >
+              Mehrteiliger Export
+            </button>
           </div>
 
-          {/* Size hint */}
-          <p className="text-xs text-neutral-400 dark:text-neutral-500">{S.dataImport.uploadHint}</p>
+          {importMode === 'single' ? (
+            <>
+              <div className="flex items-center gap-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".zip"
+                  className="hidden"
+                  onChange={e => setSelectedFile(e.target.files?.[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                >
+                  {S.dataImport.selectFile}
+                </button>
+                <span className="text-sm text-neutral-500 dark:text-neutral-400 truncate max-w-xs">
+                  {selectedFile ? selectedFile.name : S.dataImport.noFileSelected}
+                </span>
+              </div>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">{S.dataImport.uploadHint}</p>
+            </>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <input
+                  ref={multipartInputRef}
+                  aria-label="Multipart-Import-Dateien"
+                  type="file"
+                  accept=".json,.zip"
+                  multiple
+                  className="hidden"
+                  onChange={e => { void handleMultipartFileSelection(e.target.files) }}
+                />
+                <button
+                  type="button"
+                  onClick={() => multipartInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+                >
+                  Manifest und ZIP-Teile auswählen
+                </button>
+                <span className="text-sm text-neutral-500 dark:text-neutral-400">
+                  {multipartFiles.length > 0 ? `${multipartFiles.length} Dateien ausgewählt` : S.dataImport.noFileSelected}
+                </span>
+              </div>
+              {multipartError && <p className="text-xs text-red-600 dark:text-red-400">{multipartError}</p>}
+              {multipartManifest && (
+                <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 divide-y divide-neutral-200 dark:divide-neutral-800">
+                  {multipartParts.map(part => {
+                    const file = multipartFileByName.get(part.name)
+                    const tooLarge = Boolean(file && file.size > webImportPartLimitBytes)
+                    return (
+                      <div key={part.name} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-neutral-700 dark:text-neutral-300">{part.name}</p>
+                          <p className={tooLarge ? 'text-red-600 dark:text-red-400' : 'text-neutral-500 dark:text-neutral-500'}>
+                            {file ? formatBytes(file.size) : 'fehlt'}
+                            {tooLarge ? ' / Web-Upload-Limit überschritten' : ''}
+                          </p>
+                        </div>
+                        <span className={file && !tooLarge ? 'text-green-600 dark:text-green-400' : 'text-neutral-400 dark:text-neutral-500'}>
+                          {file && !tooLarge ? 'bereit' : 'offen'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              {multipartMissingNames.length > 0 && (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  Fehlende Teile: {multipartMissingNames.join(', ')}
+                </p>
+              )}
+              {multipartOversizedFiles.length > 0 && (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  Teile über 4 GB können im Browser nicht importiert werden. Bitte CLI-Import verwenden.
+                </p>
+              )}
+            </div>
+          )}
 
-          {/* Start button */}
-          <button
-            type="button"
-            onClick={handleImport}
-            disabled={!selectedFile || uploading}
-            className="px-4 py-2 rounded-lg bg-accent-DEFAULT text-white text-sm font-medium hover:bg-accent-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {uploading ? S.dataImport.uploadButtonPending : S.dataImport.uploadButton}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleImport}
+              disabled={!canStartImport || uploading}
+              className="px-4 py-2 rounded-lg bg-accent-DEFAULT text-white text-sm font-medium hover:bg-accent-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {uploading ? S.dataImport.uploadButtonPending : S.dataImport.uploadButton}
+            </button>
+            {activeUploadJobID && (
+              <button
+                type="button"
+                onClick={() => { void handleCancelMultipartUpload() }}
+                className="px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+              >
+                Abbrechen
+              </button>
+            )}
+          </div>
         </div>
       )}
 
