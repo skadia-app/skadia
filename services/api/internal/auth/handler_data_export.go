@@ -526,6 +526,9 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 			h.cleanupUnpublishedExportArtifacts(context.Background(), userID, jobID)
 		}
 	}()
+	if err := h.commitGDPRArtifactCapacity(ctx, jobID, userID, ref.SizeBytes); err != nil {
+		return fmt.Errorf("commit artifact reservation: %w", err)
+	}
 
 	// 13a. Partial-export path: errors present → mark failed, keep ZIP for debug.
 	if len(allErrs) > 0 {
@@ -562,9 +565,6 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 			return fmt.Errorf("store partial-fail metadata: %w", err)
 		}
 		artifactPublished = true
-		if err := h.commitGDPRArtifactCapacity(ctx, jobID, userID, ref.SizeBytes); err != nil {
-			return fmt.Errorf("commit partial artifact reservation: %w", err)
-		}
 
 		// Return an error so runExportJob's error wrapper logs the failure
 		// (the metadata + status are already in place; the wrapper only
@@ -586,9 +586,6 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		return fmt.Errorf("store metadata: %w", err)
 	}
 	artifactPublished = true
-	if err := h.commitGDPRArtifactCapacity(ctx, jobID, userID, ref.SizeBytes); err != nil {
-		return fmt.Errorf("commit artifact reservation: %w", err)
-	}
 
 	// Mark completed + create notification (single call, avoids double update).
 	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
@@ -1056,7 +1053,7 @@ func (h *Handler) streamDataExportArtifact(w http.ResponseWriter, r *http.Reques
 		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "download_session_invalid"})
 		return
 	}
-	ref, clearCookie, status, errorCode := h.consumeDataExportDownloadSession(r.Context(), jobID, sessionID, cookie.Value, objectName)
+	ref, _, status, errorCode := h.resolveDataExportDownloadSession(r.Context(), jobID, sessionID, cookie.Value, objectName, false)
 	if status != http.StatusOK {
 		httputil.WriteJSONNoCache(w, status, map[string]string{"error": errorCode})
 		return
@@ -1093,6 +1090,12 @@ func (h *Handler) streamDataExportArtifact(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer reader.Close()
+	confirmedRef, clearCookie, status, errorCode := h.consumeDataExportDownloadSession(r.Context(), jobID, sessionID, cookie.Value, objectName)
+	if status != http.StatusOK {
+		httputil.WriteJSONNoCache(w, status, map[string]string{"error": errorCode})
+		return
+	}
+	ref = confirmedRef
 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
@@ -1132,6 +1135,10 @@ func (h *Handler) streamDataExportArtifact(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) consumeDataExportDownloadSession(ctx context.Context, jobID, sessionID, rawSecret, objectName string) (gdprartifacts.ObjectRef, bool, int, string) {
+	return h.resolveDataExportDownloadSession(ctx, jobID, sessionID, rawSecret, objectName, true)
+}
+
+func (h *Handler) resolveDataExportDownloadSession(ctx context.Context, jobID, sessionID, rawSecret, objectName string, markUsed bool) (gdprartifacts.ObjectRef, bool, int, string) {
 	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return gdprartifacts.ObjectRef{}, false, http.StatusInternalServerError, "download_session_invalid"
@@ -1181,6 +1188,9 @@ func (h *Handler) consumeDataExportDownloadSession(ctx context.Context, jobID, s
 	}
 	if ref.Role != allowed.Role || ref.SHA256 != allowed.SHA256 || ref.SizeBytes != allowed.SizeBytes {
 		return gdprartifacts.ObjectRef{}, false, http.StatusUnauthorized, "download_session_invalid"
+	}
+	if !markUsed {
+		return ref, false, http.StatusOK, ""
 	}
 	updated, err := gdprartifacts.MarkDownloadSessionObjectUsedJSON(metadata, sessionID, objectName, now)
 	if err != nil {

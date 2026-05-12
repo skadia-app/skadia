@@ -54,8 +54,11 @@ func newFakeS3Client() *fakeS3Client {
 
 func (f *fakeS3Client) objectKey(bucket, key string) string { return bucket + "/" + key }
 
-func (f *fakeS3Client) PutObject(_ context.Context, in *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
+func (f *fakeS3Client) PutObject(ctx context.Context, in *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
 	f.putObjectCalls++
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	body, err := io.ReadAll(in.Body)
 	if err != nil {
 		return nil, err
@@ -66,8 +69,11 @@ func (f *fakeS3Client) PutObject(_ context.Context, in *s3.PutObjectInput, _ ...
 	return &s3.PutObjectOutput{}, nil
 }
 
-func (f *fakeS3Client) CreateMultipartUpload(_ context.Context, in *s3.CreateMultipartUploadInput, _ ...func(*s3.Options)) (*s3.CreateMultipartUploadOutput, error) {
+func (f *fakeS3Client) CreateMultipartUpload(ctx context.Context, in *s3.CreateMultipartUploadInput, _ ...func(*s3.Options)) (*s3.CreateMultipartUploadOutput, error) {
 	f.createMultipartCalls++
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f.nextUpload++
 	uploadID := "upload-" + string(rune('0'+f.nextUpload))
 	f.multipart[uploadID] = &fakeMultipartUpload{
@@ -78,8 +84,11 @@ func (f *fakeS3Client) CreateMultipartUpload(_ context.Context, in *s3.CreateMul
 	return &s3.CreateMultipartUploadOutput{UploadId: aws.String(uploadID)}, nil
 }
 
-func (f *fakeS3Client) UploadPart(_ context.Context, in *s3.UploadPartInput, _ ...func(*s3.Options)) (*s3.UploadPartOutput, error) {
+func (f *fakeS3Client) UploadPart(ctx context.Context, in *s3.UploadPartInput, _ ...func(*s3.Options)) (*s3.UploadPartOutput, error) {
 	f.uploadPartCalls++
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if f.failUploadPart {
 		return nil, errors.New("upload part failed")
 	}
@@ -244,6 +253,34 @@ func TestS3StoreClampsMultipartPartSizeToS3Minimum(t *testing.T) {
 	})
 	if store.cfg.PartSizeBytes != minS3MultipartPartSize {
 		t.Fatalf("PartSizeBytes = %d, want %d", store.cfg.PartSizeBytes, minS3MultipartPartSize)
+	}
+}
+
+func TestS3StoreMultipartWriteUsesCreateWriterContext(t *testing.T) {
+	fake := newFakeS3Client()
+	store := newS3StoreForTest(fake, S3Config{
+		ExportBucket:  "skadia-exports",
+		ExportPrefix:  "gdpr/exports",
+		PartSizeBytes: minS3MultipartPartSize,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	writer, err := store.CreateWriter(ctx, ObjectSpec{
+		Kind:        "export",
+		UserID:      "11111111-1111-1111-1111-111111111111",
+		JobID:       "22222222-2222-2222-2222-222222222222",
+		Role:        RoleSingleZIP,
+		Name:        "export.zip",
+		ContentType: "application/zip",
+	})
+	if err != nil {
+		t.Fatalf("CreateWriter: %v", err)
+	}
+	cancel()
+	if _, err := writer.Write(bytes.Repeat([]byte("x"), minS3MultipartPartSize)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Write error = %v, want context.Canceled", err)
+	}
+	if fake.createMultipartCalls != 1 {
+		t.Fatalf("create multipart calls = %d, want 1", fake.createMultipartCalls)
 	}
 }
 

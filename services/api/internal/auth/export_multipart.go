@@ -153,6 +153,9 @@ func (h *Handler) executeMultipartExportJobOnce(
 			TotalSizeBytes: totalObjectRefBytes(objects),
 		},
 	}
+	if err := h.commitGDPRArtifactCapacity(ctx, jobID, userID, totalObjectRefBytes(objects)); err != nil {
+		return fmt.Errorf("commit multipart artifact reservation: %w", err)
+	}
 	metadata, err := buildMultipartExportArtifactMetadata(artifact, manifestRef)
 	if err != nil {
 		return fmt.Errorf("build multipart metadata: %w", err)
@@ -174,9 +177,6 @@ func (h *Handler) executeMultipartExportJobOnce(
 		return fmt.Errorf("store multipart metadata: %w", err)
 	}
 	artifactPublished = true
-	if err := h.commitGDPRArtifactCapacity(ctx, jobID, userID, totalObjectRefBytes(objects)); err != nil {
-		return fmt.Errorf("commit multipart artifact reservation: %w", err)
-	}
 	if status == "failed" {
 		return fmt.Errorf("%s", topMsg)
 	}
