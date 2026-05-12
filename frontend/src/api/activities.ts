@@ -14,6 +14,7 @@ export interface ActivityFilterParams {
   hasLocation?: boolean | null
   gearId?: string
   search?: string
+  liftReview?: 'pending'
   includeTags?: string[]
   excludeTags?: string[]
   includeGear?: string[]
@@ -45,6 +46,7 @@ export async function fetchActivities(
   if (filters?.hasLocation !== null && filters?.hasLocation !== undefined) params.set('has_location', String(filters.hasLocation))
   if (filters?.gearId) params.set('gear_id', filters.gearId)
   if (filters?.search) params.set('search', filters.search)
+  if (filters?.liftReview) params.set('lift_review', filters.liftReview)
   if (filters?.includeTags?.length) params.set('include_tags', filters.includeTags.join(','))
   if (filters?.excludeTags?.length) params.set('exclude_tags', filters.excludeTags.join(','))
   if (filters?.includeGear?.length) params.set('include_gear', filters.includeGear.join(','))

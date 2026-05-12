@@ -1054,6 +1054,15 @@ func buildFilterSQL(filters model.ActivityFilters, startIdx int) (string, []any)
 		)`, idx, idx, idx, idx))
 		args = append(args, filters.Search)
 	}
+	if filters.LiftReview == "pending" {
+		conds = append(conds, `EXISTS (
+			SELECT 1
+			FROM activity_lift_candidates alc
+			WHERE alc.activity_id = activities.id
+			  AND NOT alc.confirmed
+			  AND NOT alc.rejected_by_user
+		)`)
+	}
 	if len(filters.IncludeTags) > 0 {
 		idx++
 		conds = append(conds, fmt.Sprintf("id IN (SELECT activity_id FROM activity_tags WHERE tag_id = ANY($%d))", idx))

@@ -405,6 +405,7 @@ type ActivityFilters struct {
 	HasLocation     *bool
 	GearID          string
 	Search          string
+	LiftReview      string
 	IncludeTags     []string
 	ExcludeTags     []string
 	IncludeGear     []string

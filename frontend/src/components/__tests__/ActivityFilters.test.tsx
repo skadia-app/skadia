@@ -36,6 +36,14 @@ describe('ActivityFilters commute modifier', () => {
     expect(filtersToApiParams(filters)).toEqual(expect.objectContaining({ isCommute: true }))
   })
 
+  it('serializes pending lift review filters through URL and API params', () => {
+    const filters: ActivityFilterState = { ...EMPTY_FILTERS, liftReviewPending: true }
+
+    expect(filtersToParams(filters).get('lift_review')).toBe('pending')
+    expect(paramsToFilters(new URLSearchParams('lift_review=pending')).liftReviewPending).toBe(true)
+    expect(filtersToApiParams(filters)).toEqual(expect.objectContaining({ liftReview: 'pending' }))
+  })
+
   it('shows commute as a sport modifier in the filter popover', () => {
     renderFilters()
 
@@ -52,5 +60,16 @@ describe('ActivityFilters commute modifier', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Filter/ })[0])
     expect(screen.getAllByLabelText(/E-Antrieb/).length).toBeGreaterThan(0)
     expect(screen.queryByLabelText(/E-Bike/)).not.toBeInTheDocument()
+  })
+
+  it('shows pending lift review as a direct filter option and chip', () => {
+    const onChange = renderFilters({ ...EMPTY_FILTERS, liftReviewPending: true })
+
+    expect(screen.getByText('Liftprüfung offen')).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Filter/ })[0])
+    fireEvent.click(screen.getByLabelText('Liftprüfung offen'))
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ liftReviewPending: false }))
   })
 })
