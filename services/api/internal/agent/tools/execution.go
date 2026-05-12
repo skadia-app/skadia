@@ -151,6 +151,9 @@ func (e *ExecutionEnvelope) ExecuteConfirmed(ctx context.Context, req ToolExecut
 	if err != nil {
 		return nil, err
 	}
+	if tx == nil {
+		return decodeAuditResult(auditRow)
+	}
 	defer tx.Rollback(ctx)
 
 	result, execErr := tool.ExecuteWrite(ctx, &WriteExecutionDeps{Deps: e.Deps, Tx: tx}, req.UserID, req.Args)
@@ -181,6 +184,9 @@ func (e *ExecutionEnvelope) RecordDeclined(ctx context.Context, req ToolExecutio
 	tx, auditRow, err := e.beginPendingAuditTx(ctx, req)
 	if err != nil {
 		return err
+	}
+	if tx == nil {
+		return nil
 	}
 	defer tx.Rollback(ctx)
 	detail, _ := json.Marshal(map[string]string{"reason": reason})
@@ -255,10 +261,29 @@ func (e *ExecutionEnvelope) beginPendingAuditTx(ctx context.Context, req ToolExe
 		return nil, nil, err
 	}
 	if row.ResultStatus != "pending" {
-		_ = tx.Rollback(ctx)
-		return nil, nil, fmt.Errorf("audit row is not pending: %s", row.ResultStatus)
+		if err := tx.Commit(ctx); err != nil {
+			_ = tx.Rollback(ctx)
+			return nil, nil, err
+		}
+		return nil, row, nil
 	}
 	return tx, row, nil
+}
+
+func decodeAuditResult(row *database.AgentAuditRow) (any, error) {
+	if row == nil {
+		return nil, fmt.Errorf("audit row is missing")
+	}
+	if row.ResultStatus == "error" {
+		return nil, fmt.Errorf("cached write tool error: %s", string(row.ResultDetail))
+	}
+	var out any
+	if len(row.ResultDetail) > 0 {
+		if err := json.Unmarshal(row.ResultDetail, &out); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func loadAuditSlot(ctx context.Context, tx pgx.Tx, userID, sessionID, toolCallID string) (*database.AgentAuditRow, error) {

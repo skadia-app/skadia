@@ -18,11 +18,17 @@ func TestGearToolsSchemaValidAndUserOwned(t *testing.T) {
 	reg := NewRegistry()
 	for _, tool := range GearTools() {
 		reg.Register(tool)
-		if tool.Permission != PermissionRead {
-			t.Fatalf("%s Permission = %s, want read", tool.Name, tool.Permission)
-		}
 		if !tool.IsUserOwned {
 			t.Fatalf("%s IsUserOwned = false, want true", tool.Name)
+		}
+		if strings.HasPrefix(tool.Name, "create_") || strings.HasPrefix(tool.Name, "update_") || strings.HasPrefix(tool.Name, "retire_") || strings.HasPrefix(tool.Name, "set_") {
+			if tool.Permission != PermissionWriteSafe || !tool.RequiresConfirmation {
+				t.Fatalf("%s write flags permission=%s confirmation=%v", tool.Name, tool.Permission, tool.RequiresConfirmation)
+			}
+			continue
+		}
+		if tool.Permission != PermissionRead {
+			t.Fatalf("%s Permission = %s, want read", tool.Name, tool.Permission)
 		}
 	}
 	if err := reg.ValidateSchemas(); err != nil {
