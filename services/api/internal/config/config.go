@@ -41,6 +41,24 @@ type Config struct {
 	LibrarySyncAutoImport bool
 	MaxUserStorageBytes   int64 // Safety-valve quota (0=unlimited, default 50GB)
 
+	// GDPR short-lived transfer artifacts.
+	GDPRArtifactBackend               string // "auto" (default), "local", or "s3"
+	ExportsBasePath                   string // e.g. /data/exports
+	ImportsBasePath                   string // e.g. /data/imports
+	S3BucketExports                   string
+	S3BucketImports                   string
+	S3ExportsPrefix                   string
+	S3ImportsPrefix                   string
+	GDPRExportMultipartThresholdBytes int64
+	GDPRExportPartTargetBytes         int64
+	GDPRExportPartWarnBytes           int64
+	GDPRMultipartMaxParts             int
+	GDPRArtifactLocalQuotaBytes       int64
+	GDPRArtifactLocalMinFreeBytes     int64
+	GDPRArtifactUserActiveBytes       int64
+	GDPRArtifactS3QuotaBytes          int64
+	GDPRImportStagingQuotaBytes       int64
+
 	// S3 (generic — works with Garage, AWS, MinIO, etc.)
 	S3Endpoint       string
 	S3AccessKey      string
@@ -134,6 +152,23 @@ func Load() (*Config, error) {
 		LibrarySyncEnabled:    os.Getenv("LIBRARY_SYNC_ENABLED") == "true",
 		LibrarySyncAutoImport: os.Getenv("LIBRARY_SYNC_AUTO_IMPORT") == "true",
 		MaxUserStorageBytes:   parseMaxStorageBytes(os.Getenv("MAX_USER_STORAGE_BYTES"), int64(50)*1024*1024*1024),
+
+		GDPRArtifactBackend:               getEnvDefault("GDPR_ARTIFACT_BACKEND", "auto"),
+		ExportsBasePath:                   getEnvDefault("EXPORTS_BASE_PATH", "/data/exports"),
+		ImportsBasePath:                   getEnvDefault("IMPORTS_BASE_PATH", "/data/imports"),
+		S3BucketExports:                   getEnvDefault("S3_BUCKET_EXPORTS", "skadia-exports"),
+		S3BucketImports:                   getEnvDefault("S3_BUCKET_IMPORTS", "skadia-imports"),
+		S3ExportsPrefix:                   getEnvDefault("S3_EXPORTS_PREFIX", "gdpr/exports"),
+		S3ImportsPrefix:                   getEnvDefault("S3_IMPORTS_PREFIX", "gdpr/imports"),
+		GDPRExportMultipartThresholdBytes: parseInt64Default(os.Getenv("GDPR_EXPORT_MULTIPART_THRESHOLD_BYTES"), int64(2)*1024*1024*1024),
+		GDPRExportPartTargetBytes:         parseInt64Default(os.Getenv("GDPR_EXPORT_PART_TARGET_BYTES"), int64(2)*1024*1024*1024),
+		GDPRExportPartWarnBytes:           parseInt64Default(os.Getenv("GDPR_EXPORT_PART_WARN_BYTES"), int64(4)*1024*1024*1024),
+		GDPRMultipartMaxParts:             parseIntDefault(os.Getenv("GDPR_MULTIPART_MAX_PARTS"), 256),
+		GDPRArtifactLocalQuotaBytes:       parseInt64Default(os.Getenv("GDPR_ARTIFACT_LOCAL_QUOTA_BYTES"), 0),
+		GDPRArtifactLocalMinFreeBytes:     parseInt64Default(os.Getenv("GDPR_ARTIFACT_LOCAL_MIN_FREE_BYTES"), int64(5)*1024*1024*1024),
+		GDPRArtifactUserActiveBytes:       parseInt64Default(os.Getenv("GDPR_ARTIFACT_USER_ACTIVE_BYTES"), int64(32)*1024*1024*1024),
+		GDPRArtifactS3QuotaBytes:          parseInt64Default(os.Getenv("GDPR_ARTIFACT_S3_QUOTA_BYTES"), 0),
+		GDPRImportStagingQuotaBytes:       parseInt64Default(os.Getenv("GDPR_IMPORT_STAGING_QUOTA_BYTES"), int64(32)*1024*1024*1024),
 
 		// S3 with fallback to GARAGE_* for backward compatibility
 		S3Endpoint:       getEnvDefault("S3_ENDPOINT", os.Getenv("GARAGE_ENDPOINT")),
@@ -252,6 +287,9 @@ func Load() (*Config, error) {
 	if cfg.StorageBackend != "local" && cfg.StorageBackend != "s3" {
 		return nil, fmt.Errorf("STORAGE_BACKEND must be 'local' or 's3', got %q", cfg.StorageBackend)
 	}
+	if err := validateGDPRArtifactConfig(cfg); err != nil {
+		return nil, err
+	}
 
 	if cfg.StorageBackend == "s3" {
 		if cfg.S3AccessKey == "" {
@@ -272,6 +310,85 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func validateGDPRArtifactConfig(cfg *Config) error {
+	switch cfg.GDPRArtifactBackend {
+	case "auto", "local", "s3":
+	default:
+		return fmt.Errorf("GDPR_ARTIFACT_BACKEND must be 'auto', 'local' or 's3', got %q", cfg.GDPRArtifactBackend)
+	}
+	if err := validateArtifactBasePath("EXPORTS_BASE_PATH", cfg.ExportsBasePath); err != nil {
+		return err
+	}
+	if err := validateArtifactBasePath("IMPORTS_BASE_PATH", cfg.ImportsBasePath); err != nil {
+		return err
+	}
+	if cfg.S3BucketExports == "" {
+		return fmt.Errorf("S3_BUCKET_EXPORTS must not be empty")
+	}
+	if cfg.S3BucketImports == "" {
+		return fmt.Errorf("S3_BUCKET_IMPORTS must not be empty")
+	}
+	cfg.S3ExportsPrefix = strings.Trim(strings.TrimSpace(cfg.S3ExportsPrefix), "/")
+	cfg.S3ImportsPrefix = strings.Trim(strings.TrimSpace(cfg.S3ImportsPrefix), "/")
+	if cfg.S3BucketExports == cfg.S3BucketImports {
+		if cfg.S3ExportsPrefix == "" || cfg.S3ImportsPrefix == "" || cfg.S3ExportsPrefix == cfg.S3ImportsPrefix {
+			return fmt.Errorf("S3_BUCKET_EXPORTS and S3_BUCKET_IMPORTS may match only with distinct non-empty prefixes")
+		}
+	}
+	if cfg.GDPRExportMultipartThresholdBytes <= 0 {
+		return fmt.Errorf("GDPR_EXPORT_MULTIPART_THRESHOLD_BYTES must be positive")
+	}
+	if cfg.GDPRExportPartTargetBytes <= 0 {
+		return fmt.Errorf("GDPR_EXPORT_PART_TARGET_BYTES must be positive")
+	}
+	if cfg.GDPRExportPartWarnBytes <= 0 {
+		return fmt.Errorf("GDPR_EXPORT_PART_WARN_BYTES must be positive")
+	}
+	if cfg.GDPRMultipartMaxParts < 1 || cfg.GDPRMultipartMaxParts > 256 {
+		return fmt.Errorf("GDPR_MULTIPART_MAX_PARTS must be between 1 and 256")
+	}
+	if cfg.GDPRArtifactLocalQuotaBytes < 0 {
+		return fmt.Errorf("GDPR_ARTIFACT_LOCAL_QUOTA_BYTES must not be negative")
+	}
+	if cfg.GDPRArtifactLocalMinFreeBytes <= 0 {
+		return fmt.Errorf("GDPR_ARTIFACT_LOCAL_MIN_FREE_BYTES must be positive")
+	}
+	if cfg.GDPRArtifactUserActiveBytes <= 0 {
+		return fmt.Errorf("GDPR_ARTIFACT_USER_ACTIVE_BYTES must be positive")
+	}
+	if cfg.GDPRArtifactS3QuotaBytes < 0 {
+		return fmt.Errorf("GDPR_ARTIFACT_S3_QUOTA_BYTES must not be negative")
+	}
+	if cfg.GDPRImportStagingQuotaBytes <= 0 {
+		return fmt.Errorf("GDPR_IMPORT_STAGING_QUOTA_BYTES must be positive")
+	}
+	return nil
+}
+
+func validateArtifactBasePath(key, p string) error {
+	if p == "" {
+		return fmt.Errorf("%s must not be empty", key)
+	}
+	clean := filepath.Clean(p)
+	if !filepath.IsAbs(clean) {
+		return fmt.Errorf("%s must be absolute, got %q", key, p)
+	}
+	blocked := []string{
+		"/", "/etc", "/var", "/usr", "/home",
+		"/tmp", "/proc", "/sys", "/dev", "/root",
+		"/bin", "/sbin", "/boot", "/run", "/data",
+	}
+	for _, dangerous := range blocked {
+		if clean == dangerous {
+			return fmt.Errorf("%s must not be %q", key, dangerous)
+		}
+	}
+	if !strings.HasPrefix(clean, "/data/") && !strings.HasPrefix(clean, "/srv/") && !strings.HasPrefix(clean, "/var/lib/") {
+		return fmt.Errorf("%s must be under /data/, /srv/ or /var/lib/, got %q", key, p)
+	}
+	return nil
 }
 
 // validateLibraryBasePath ensures the library path is safe and absolute.
@@ -347,6 +464,17 @@ func parseIntDefault(s string, defaultVal int) int {
 		return defaultVal
 	}
 	v, err := strconv.Atoi(s)
+	if err != nil {
+		return defaultVal
+	}
+	return v
+}
+
+func parseInt64Default(s string, defaultVal int64) int64 {
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
 		return defaultVal
 	}
