@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/jackc/pgx/v5"
 )
 
 func (db *DB) GetLLMSystemConfig(ctx context.Context) ([]model.LLMSystemConfig, error) {
@@ -61,6 +62,27 @@ func (db *DB) UpsertLLMSystemConfig(ctx context.Context, role string, update mod
 		   updated_at = NOW()`,
 		role, update.BackendType, update.APIBase, update.ModelName, encryptedKey, update.Enabled)
 	return err
+}
+
+func (db *DB) UpdateLLMEvalResult(ctx context.Context, role, status string, report any) error {
+	raw, err := json.Marshal(report)
+	if err != nil {
+		return err
+	}
+	tag, err := db.Pool.Exec(ctx,
+		`UPDATE llm_system_config
+		 SET eval_status = $2,
+		     eval_report = $3::jsonb,
+		     updated_at = NOW()
+		 WHERE role = $1`,
+		role, status, string(raw))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func (db *DB) GetLLMUserConfig(ctx context.Context, userID string) ([]model.LLMUserConfig, error) {

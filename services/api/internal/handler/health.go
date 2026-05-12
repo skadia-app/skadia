@@ -22,9 +22,10 @@ import (
 )
 
 type Handler struct {
-	DB      *database.DB
-	Confirm *agent.ConfirmationManager
-	Agent   *agent.Agent
+	DB          *database.DB
+	Confirm     *agent.ConfirmationManager
+	Agent       *agent.Agent
+	LLMResolver LLMRoleResolver
 
 	// Segregated publisher interfaces. Production wires all six fields to the
 	// same *event.Publisher; tests can substitute a FakeInvalidator (or other

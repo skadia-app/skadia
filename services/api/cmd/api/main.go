@@ -763,6 +763,7 @@ func main() {
 		DB:             db,
 		Confirm:        confirmMgr,
 		Agent:          chatAgent,
+		LLMResolver:    llmResolver,
 		PMC:            pmcService,
 		BestEfforts:    bestEffortsService,
 		ShadowFS:       store,
@@ -1171,6 +1172,8 @@ func main() {
 	r.Get("/internal/coverage/query", h.QueryCoverage)
 	// ML service callback: authenticated via X-ML-Callback-Secret header, not JWT.
 	r.Post("/api/v1/internal/ml-callback", h.HandleMLCallback)
+	r.Get("/api/v1/internal/ai-broker/roles", h.HandleAIBrokerRoleStatus)
+	r.Post("/api/v1/internal/ai-broker/chat", h.HandleAIBrokerChat)
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
@@ -1241,6 +1244,7 @@ func main() {
 				// LLM config (system-level)
 				r.Get("/llm-config", h.GetLLMConfig)
 				r.Put("/llm-config/{role}", h.PutLLMConfigRole)
+				r.Patch("/llm-config/{role}/eval-waiver", h.PatchLLMConfigEvalWaiver)
 				r.Get("/llm-config/models", h.GetLLMModels)
 				r.Post("/llm-config/test", h.TestLLMConnection)
 

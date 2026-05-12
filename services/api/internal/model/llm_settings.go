@@ -1,6 +1,7 @@
 package model
 
 import (
+	"net/url"
 	"strings"
 	"time"
 )
@@ -109,8 +110,12 @@ func (c LLMSystemConfig) AllowsModelOverride(modelName string) bool {
 	if c.ModelName != nil && strings.TrimSpace(*c.ModelName) == modelName {
 		return c.EvalGatePassed()
 	}
+	apiBaseHost := apiBaseHost(c.APIBase)
+	if apiBaseHost == "" {
+		return false
+	}
 	for _, record := range llmEvalRecords(c.EvalReport["model_evals"]) {
-		if record.matches(c.Role, c.BackendType, modelName) && record.gatePassed() {
+		if record.matches(c.Role, c.BackendType, apiBaseHost, modelName) && record.gatePassed() {
 			return true
 		}
 	}
@@ -133,9 +138,10 @@ func llmEvalRecords(raw any) []llmEvalRecord {
 	return records
 }
 
-func (r llmEvalRecord) matches(role, backendType, modelName string) bool {
+func (r llmEvalRecord) matches(role, backendType, apiBaseHost, modelName string) bool {
 	return stringValue(r["role"]) == role &&
 		stringValue(r["backend_type"]) == backendType &&
+		stringValue(r["api_base_host"]) == apiBaseHost &&
 		stringValue(r["model_name"]) == modelName
 }
 
@@ -156,4 +162,15 @@ func stringValue(v any) string {
 		return strings.TrimSpace(s)
 	}
 	return ""
+}
+
+func apiBaseHost(raw *string) string {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return ""
+	}
+	parsed, err := url.Parse(strings.TrimSpace(*raw))
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
 }
