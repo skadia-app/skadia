@@ -67,6 +67,37 @@ func (h *Handler) PutLLMConfigRole(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
+// PatchLLMConfigEvalWaiver records an explicit admin waiver for a role eval gate.
+func (h *Handler) PatchLLMConfigEvalWaiver(w http.ResponseWriter, r *http.Request) {
+	role := chi.URLParam(r, "role")
+	if !model.IsValidLLMRole(role) {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid role", r.URL.Path)
+		return
+	}
+	var req struct {
+		AdminReason string `json:"admin_reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
+		return
+	}
+	reason := strings.TrimSpace(req.AdminReason)
+	if reason == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "admin_reason is required", r.URL.Path)
+		return
+	}
+	report := map[string]any{
+		"status":       model.LLMEvalStatusWaived,
+		"admin_reason": reason,
+		"waived_at":    time.Now().UTC().Format(time.RFC3339),
+	}
+	if err := h.DB.UpdateLLMEvalResult(r.Context(), role, model.LLMEvalStatusWaived, report); err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save eval waiver", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "waived"})
+}
+
 // GetLLMModels returns available models for a backend (only Ollama supports auto-discovery).
 func (h *Handler) GetLLMModels(w http.ResponseWriter, r *http.Request) {
 	backend := r.URL.Query().Get("backend")

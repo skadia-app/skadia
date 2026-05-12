@@ -1,0 +1,112 @@
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/skadia-app/skadia/services/api/internal/agent"
+)
+
+type fakeAIBrokerResolver struct {
+	cfg agent.LLMConfig
+	err error
+}
+
+func (r fakeAIBrokerResolver) Resolve(ctx context.Context, userID, role string) (agent.LLMConfig, error) {
+	if r.err != nil {
+		return agent.LLMConfig{}, r.err
+	}
+	return r.cfg, nil
+}
+
+func TestAIBrokerRequiresMLServiceToken(t *testing.T) {
+	h := &Handler{
+		Config:      &HandlerConfig{MLCallbackSecret: "secret"},
+		LLMResolver: fakeAIBrokerResolver{},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/ai-broker/chat", strings.NewReader(`{"role":"document_extract","task_type":"document_extract","messages":[]}`))
+	rec := httptest.NewRecorder()
+
+	h.HandleAIBrokerChat(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestAIBrokerRejectsProviderURLInRequest(t *testing.T) {
+	h := &Handler{
+		Config:      &HandlerConfig{MLCallbackSecret: "secret"},
+		LLMResolver: fakeAIBrokerResolver{},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/ai-broker/chat", strings.NewReader(`{"role":"document_extract","task_type":"document_extract","provider_url":"http://attacker","messages":[]}`))
+	req.Header.Set("X-ML-Service-Token", "secret")
+	rec := httptest.NewRecorder()
+
+	h.HandleAIBrokerChat(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAIBrokerResolvesRoleAndForwardsWithoutProviderURLFromML(t *testing.T) {
+	var providerBody map[string]any
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer resolved-key" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&providerBody); err != nil {
+			t.Fatalf("decode provider body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]any{"content": `{"products":[]}`}},
+			},
+		})
+	}))
+	defer provider.Close()
+
+	h := &Handler{
+		Config: &HandlerConfig{MLCallbackSecret: "secret"},
+		LLMResolver: fakeAIBrokerResolver{cfg: agent.LLMConfig{
+			BaseURL: provider.URL + "/v1",
+			APIKey:  "resolved-key",
+			Model:   "resolved-model",
+		}},
+	}
+
+	body := `{"role":"document_extract","task_type":"document_extract","messages":[{"role":"user","content":"invoice"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/ai-broker/chat", strings.NewReader(body))
+	req.Header.Set("X-ML-Service-Token", "secret")
+	rec := httptest.NewRecorder()
+
+	h.HandleAIBrokerChat(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if providerBody["model"] != "resolved-model" {
+		t.Fatalf("provider model = %v, want resolved-model", providerBody["model"])
+	}
+	if _, ok := providerBody["provider_url"]; ok {
+		t.Fatalf("provider body leaked provider_url: %#v", providerBody)
+	}
+	var out struct {
+		Status string `json:"status"`
+		Role   string `json:"role"`
+		Text   string `json:"text"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if out.Status != "ok" || out.Role != "document_extract" || out.Text != `{"products":[]}` {
+		t.Fatalf("response = %#v", out)
+	}
+}

@@ -158,6 +158,19 @@ func TestSendChatMessageUsesGoAgentAndPersistsAssistant(t *testing.T) {
 	pool := fusionTestPool(t)
 	userID := insertTestUser(t, pool)
 	h := newTestHandler(t, pool)
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, enabled, eval_status, eval_report)
+		VALUES ('tool_agent', 'llama_server', 'http://llm.test/v1', 'model', true, 'passed', '{}'::jsonb)
+		ON CONFLICT (role) DO UPDATE SET
+			backend_type = EXCLUDED.backend_type,
+			api_base = EXCLUDED.api_base,
+			model_name = EXCLUDED.model_name,
+			enabled = EXCLUDED.enabled,
+			eval_status = EXCLUDED.eval_status,
+			eval_report = EXCLUDED.eval_report
+	`); err != nil {
+		t.Fatalf("seed tool_agent config: %v", err)
+	}
 	h.Agent = agent.New(agent.Config{
 		LLMResolver: agent.NewLLMResolver(h.DB, agent.LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
 		StreamChat: func(ctx context.Context, cfg agent.LLMConfig, params llmwire.ChatRequest) agent.ChatStream {
