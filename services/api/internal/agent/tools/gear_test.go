@@ -37,8 +37,13 @@ func TestEscapeLikePrefixEscapesWildcardsBeforeAppendingPrefixWildcard(t *testin
 	}
 }
 
-func TestGetGearDocumentsIncludesExtractedDataAndCostSummary(t *testing.T) {
+func TestGetGearDocumentsIncludesExtractedDataAndCostSummaryWhenOptedIn(t *testing.T) {
 	fx := newGearToolFixture(t)
+	if _, err := fx.db.UpsertChatPrefs(context.Background(), fx.userID, database.ChatUserPreferences{
+		ExposeDocumentExtractedData: true,
+	}); err != nil {
+		t.Fatalf("upsert chat prefs: %v", err)
+	}
 	docID := uuid.NewString()
 	_, err := fx.pool.Exec(context.Background(), `
 		INSERT INTO gear_documents
@@ -71,6 +76,64 @@ func TestGetGearDocumentsIncludesExtractedDataAndCostSummary(t *testing.T) {
 	}
 	if extracted["vendor"] != "Shop" {
 		t.Fatalf("vendor = %#v, want Shop", extracted["vendor"])
+	}
+}
+
+func TestGetGearDocumentsHidesExtractedDataByDefault(t *testing.T) {
+	fx := newGearToolFixture(t)
+	_, err := fx.pool.Exec(context.Background(), `
+		INSERT INTO gear_documents
+			(id, user_id, gear_id, doc_type, original_filename, content_type, file_size_bytes,
+			 document_amount, document_currency, extracted_data, processing_status)
+		VALUES
+			($1, $2, $3, 'receipt', 'receipt.pdf', 'application/pdf', 123,
+			 12.34, 'EUR', '{"vendor":"Shop","total_amount":12.34,"currency":"EUR"}'::jsonb, 'processed')`,
+		uuid.NewString(), fx.userID, fx.gearID,
+	)
+	if err != nil {
+		t.Fatalf("insert gear document: %v", err)
+	}
+
+	got, err := executeGetGearDocuments(context.Background(), &Deps{DB: fx.db}, fx.userID, json.RawMessage(`{"gear_id":"`+fx.gearID+`"}`))
+	if err != nil {
+		t.Fatalf("executeGetGearDocuments: %v", err)
+	}
+	docs := got.(map[string]any)["documents"].([]map[string]any)
+	if docs[0]["extracted_data"] != nil {
+		t.Fatalf("extracted_data = %#v, want nil by default", docs[0]["extracted_data"])
+	}
+	if got.(map[string]any)["total_cost"] != 12.34 {
+		t.Fatalf("total_cost = %#v, want 12.34", got.(map[string]any)["total_cost"])
+	}
+}
+
+func TestGetGearDocumentsHidesExtractedDataWhenOptedOut(t *testing.T) {
+	fx := newGearToolFixture(t)
+	if _, err := fx.db.UpsertChatPrefs(context.Background(), fx.userID, database.ChatUserPreferences{
+		ExposeDocumentExtractedData: false,
+	}); err != nil {
+		t.Fatalf("upsert chat prefs: %v", err)
+	}
+	_, err := fx.pool.Exec(context.Background(), `
+		INSERT INTO gear_documents
+			(id, user_id, gear_id, doc_type, original_filename, content_type, file_size_bytes,
+			 extracted_data, processing_status)
+		VALUES
+			($1, $2, $3, 'manual', 'manual.pdf', 'application/pdf', 123,
+			 '{"serial":"ABC-123"}'::jsonb, 'processed')`,
+		uuid.NewString(), fx.userID, fx.gearID,
+	)
+	if err != nil {
+		t.Fatalf("insert gear document: %v", err)
+	}
+
+	got, err := executeGetGearDocuments(context.Background(), &Deps{DB: fx.db}, fx.userID, json.RawMessage(`{"gear_id":"`+fx.gearID+`"}`))
+	if err != nil {
+		t.Fatalf("executeGetGearDocuments: %v", err)
+	}
+	docs := got.(map[string]any)["documents"].([]map[string]any)
+	if docs[0]["extracted_data"] != nil {
+		t.Fatalf("extracted_data = %#v, want nil when opted out", docs[0]["extracted_data"])
 	}
 }
 
