@@ -21,9 +21,32 @@ import (
 
 const localBackend = "local"
 
+var ErrCapacityExceeded = errors.New("artifact capacity exceeded")
+
+type CapacityError struct {
+	Reason string
+}
+
+func (e CapacityError) Error() string {
+	if e.Reason == "" {
+		return ErrCapacityExceeded.Error()
+	}
+	return ErrCapacityExceeded.Error() + ": " + e.Reason
+}
+
+func (e CapacityError) Unwrap() error {
+	return ErrCapacityExceeded
+}
+
+type LocalCapacityOptions struct {
+	QuotaBytes   int64
+	MinFreeBytes int64
+}
+
 type LocalStore struct {
 	exportsBase string
 	importsBase string
+	capacity    LocalCapacityOptions
 }
 
 type localObjectWriter struct {
@@ -51,15 +74,26 @@ type localReaderAt struct {
 }
 
 func NewLocalStore(exportsBase, importsBase string) (*LocalStore, error) {
+	return NewLocalStoreWithOptions(exportsBase, importsBase, LocalCapacityOptions{})
+}
+
+func NewLocalStoreWithOptions(exportsBase, importsBase string, capacity LocalCapacityOptions) (*LocalStore, error) {
 	if exportsBase == "" {
 		return nil, errors.New("exports base is required")
 	}
 	if importsBase == "" {
 		return nil, errors.New("imports base is required")
 	}
+	if capacity.QuotaBytes < 0 {
+		return nil, errors.New("local artifact quota must not be negative")
+	}
+	if capacity.MinFreeBytes < 0 {
+		return nil, errors.New("local artifact min-free must not be negative")
+	}
 	store := &LocalStore{
 		exportsBase: filepath.Clean(exportsBase),
 		importsBase: filepath.Clean(importsBase),
+		capacity:    capacity,
 	}
 	if err := ensurePrivateBaseDir(store.exportsBase); err != nil {
 		return nil, fmt.Errorf("prepare exports base: %w", err)
@@ -68,6 +102,13 @@ func NewLocalStore(exportsBase, importsBase string) (*LocalStore, error) {
 		return nil, fmt.Errorf("prepare imports base: %w", err)
 	}
 	return store, nil
+}
+
+func (s *LocalStore) CheckAvailable(ctx context.Context, req CapacityRequest) (CapacityResult, error) {
+	if err := ctx.Err(); err != nil {
+		return CapacityResult{}, err
+	}
+	return s.checkCapacity(req.Kind, req.ExpectedBytes)
 }
 
 func (s *LocalStore) CreateWriter(ctx context.Context, spec ObjectSpec) (ObjectWriter, error) {
@@ -243,6 +284,15 @@ func (w *localObjectWriter) Write(p []byte) (int, error) {
 	if w.closed {
 		return 0, errors.New("artifact writer is closed")
 	}
+	if len(p) > 0 {
+		result, err := w.store.checkCapacity(w.spec.Kind, int64(len(p)))
+		if err != nil {
+			return 0, err
+		}
+		if !result.Allowed {
+			return 0, CapacityError{Reason: result.Reason}
+		}
+	}
 	n, err := w.file.Write(p)
 	if n > 0 {
 		_, _ = w.hasher.Write(p[:n])
@@ -393,6 +443,79 @@ func (s *LocalStore) baseForKind(kind string) (string, string, error) {
 	default:
 		return "", "", fmt.Errorf("unsupported artifact kind %q", kind)
 	}
+}
+
+func (s *LocalStore) checkCapacity(kind string, additionalBytes int64) (CapacityResult, error) {
+	if additionalBytes < 0 {
+		return CapacityResult{}, errors.New("additional bytes must not be negative")
+	}
+	base, _, err := s.baseForKind(kind)
+	if err != nil {
+		return CapacityResult{}, err
+	}
+	if s.capacity.QuotaBytes > 0 {
+		used, err := dirUsageBytes(s.exportsBase)
+		if err != nil {
+			return CapacityResult{}, err
+		}
+		importUsed, err := dirUsageBytes(s.importsBase)
+		if err != nil {
+			return CapacityResult{}, err
+		}
+		used += importUsed
+		available := s.capacity.QuotaBytes - used
+		if available < additionalBytes {
+			return CapacityResult{AvailableBytes: maxInt64(available, 0), Allowed: false, Reason: "local_quota_exceeded"}, nil
+		}
+	}
+	if s.capacity.MinFreeBytes > 0 {
+		available, err := filesystemAvailableBytes(base)
+		if err != nil {
+			return CapacityResult{}, err
+		}
+		if available-additionalBytes < s.capacity.MinFreeBytes {
+			return CapacityResult{AvailableBytes: maxInt64(available, 0), Allowed: false, Reason: "local_min_free_exceeded"}, nil
+		}
+		return CapacityResult{AvailableBytes: available, Allowed: true}, nil
+	}
+	return CapacityResult{Allowed: true}, nil
+}
+
+func filesystemAvailableBytes(dir string) (int64, error) {
+	var stat unix.Statfs_t
+	if err := unix.Statfs(dir, &stat); err != nil {
+		return 0, err
+	}
+	available := stat.Bavail * uint64(stat.Bsize)
+	if available > uint64(^uint64(0)>>1) {
+		return int64(^uint64(0) >> 1), nil
+	}
+	return int64(available), nil
+}
+
+func dirUsageBytes(root string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode().IsRegular() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total, err
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func validateUUID(field, value string) error {

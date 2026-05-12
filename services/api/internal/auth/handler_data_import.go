@@ -96,20 +96,34 @@ func (h *Handler) cleanupStaleImportJobs(ctx context.Context) {
 
 	// Class 1: stale running/queued
 	staleRows, err := pool.Query(ctx,
-		`SELECT metadata->>'file_path' FROM background_jobs
+		`SELECT id, user_id, metadata->>'file_path' FROM background_jobs
 		 WHERE job_type = 'data_import' AND status IN ('queued','running')
-		 AND updated_at < NOW() - INTERVAL '30 minutes'
-		 AND metadata->>'file_path' IS NOT NULL`)
+		 AND updated_at < NOW() - INTERVAL '30 minutes'`)
 	if err != nil {
 		slog.Error("data import cleanup: query stale jobs failed", "error", err)
 	} else {
+		type staleImport struct{ id, userID, path string }
+		var staleImports []staleImport
 		for staleRows.Next() {
-			var path string
-			if staleRows.Scan(&path) == nil && path != "" && isValidImportPath(path) {
-				os.Remove(path)
+			var e staleImport
+			if staleRows.Scan(&e.id, &e.userID, &e.path) == nil {
+				staleImports = append(staleImports, e)
 			}
 		}
 		staleRows.Close()
+		for _, e := range staleImports {
+			if e.path != "" && isValidImportPath(e.path) {
+				os.Remove(e.path)
+			}
+			if h.ArtifactStore == nil {
+				continue
+			}
+			if err := h.ArtifactStore.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "import", UserID: e.userID, JobID: e.id}); err != nil {
+				slog.Warn("data import cleanup: delete stale import artifacts failed", "job_id", e.id, "error", err)
+				continue
+			}
+			_ = h.releaseGDPRArtifactCapacity(ctx, e.id, e.userID, 0)
+		}
 	}
 
 	if _, err := pool.Exec(ctx,
@@ -151,6 +165,37 @@ func (h *Handler) cleanupStaleImportJobs(ctx context.Context) {
 		}
 	}
 
+	expiredArtifactRows, err := pool.Query(ctx,
+		`SELECT id, user_id
+		 FROM background_jobs
+		 WHERE job_type = 'data_import'
+		   AND status IN ('completed','failed')
+		   AND metadata ? 'artifact'
+		   AND updated_at < NOW() - INTERVAL '25 hours'`)
+	if err != nil {
+		slog.Error("data import cleanup: query expired artifact jobs failed", "error", err)
+	} else {
+		type expiredArtifact struct{ id, userID string }
+		var artifactJobs []expiredArtifact
+		for expiredArtifactRows.Next() {
+			var e expiredArtifact
+			if err := expiredArtifactRows.Scan(&e.id, &e.userID); err == nil {
+				artifactJobs = append(artifactJobs, e)
+			}
+		}
+		expiredArtifactRows.Close()
+		for _, e := range artifactJobs {
+			if h.ArtifactStore == nil {
+				continue
+			}
+			if err := h.ArtifactStore.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "import", UserID: e.userID, JobID: e.id}); err != nil {
+				slog.Warn("data import cleanup: delete expired import artifacts failed", "job_id", e.id, "error", err)
+				continue
+			}
+			_ = h.releaseGDPRArtifactCapacity(ctx, e.id, e.userID, 0)
+		}
+	}
+
 	expiredUploads, err := pool.Query(ctx, `
 		SELECT id, user_id
 		FROM background_jobs
@@ -171,12 +216,14 @@ func (h *Handler) cleanupStaleImportJobs(ctx context.Context) {
 	}
 	expiredUploads.Close()
 	for _, e := range uploads {
-		if h.ArtifactStore != nil {
-			if err := h.ArtifactStore.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "import", UserID: e.userID, JobID: e.id}); err != nil {
-				slog.Warn("data import cleanup: delete expired multipart artifacts failed", "job_id", e.id, "error", err)
-				continue
-			}
+		if h.ArtifactStore == nil {
+			continue
 		}
+		if err := h.ArtifactStore.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "import", UserID: e.userID, JobID: e.id}); err != nil {
+			slog.Warn("data import cleanup: delete expired multipart artifacts failed", "job_id", e.id, "error", err)
+			continue
+		}
+		_ = h.releaseGDPRArtifactCapacity(ctx, e.id, e.userID, 0)
 		if _, err := pool.Exec(ctx, `
 			UPDATE background_jobs
 			SET status = 'failed', error = 'upload_expired', finished_at = NOW(), updated_at = NOW(),
@@ -209,9 +256,18 @@ func (h *Handler) DataImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jobID := uuid.New().String()
-	if err := h.insertSingleImportUploadJob(ctx, jobID, userID); err != nil {
+	expiresAt := time.Now().UTC().Add(24 * time.Hour)
+	reservedBytes := r.ContentLength
+	if reservedBytes <= 0 {
+		reservedBytes = 4 << 30
+	}
+	if err := h.insertSingleImportUploadJob(ctx, jobID, userID, reservedBytes, expiresAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "import_already_running"})
+			return
+		}
+		if isArtifactCapacityError(err) {
+			httputil.WriteJSONNoCache(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "artifact_quota_exceeded"})
 			return
 		}
 		slog.Error("data import: insert upload job failed", "error", err)
@@ -222,12 +278,12 @@ func (h *Handler) DataImport(w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("file")
 	if err != nil {
 		_ = h.markImportJobFailed(ctx, jobID, "file_required")
+		_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "file_required"})
 		return
 	}
 	defer file.Close()
 
-	expiresAt := time.Now().UTC().Add(24 * time.Hour)
 	writer, err := h.ArtifactStore.CreateWriter(ctx, gdprartifacts.ObjectSpec{
 		Kind:        "import",
 		UserID:      userID,
@@ -240,6 +296,7 @@ func (h *Handler) DataImport(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("data import: create artifact writer failed", "error", err)
 		_ = h.markImportJobFailed(ctx, jobID, "artifact_writer_failed")
+		_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
@@ -254,6 +311,11 @@ func (h *Handler) DataImport(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.Copy(writer, file); err != nil {
 		slog.Error("data import: write artifact failed", "error", err)
 		_ = h.markImportJobFailed(ctx, jobID, "artifact_write_failed")
+		_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
+		if isArtifactCapacityError(err) {
+			httputil.WriteJSONNoCache(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "artifact_quota_exceeded"})
+			return
+		}
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
@@ -261,6 +323,7 @@ func (h *Handler) DataImport(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("data import: commit artifact failed", "error", err)
 		_ = h.markImportJobFailed(ctx, jobID, "artifact_commit_failed")
+		_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
@@ -277,6 +340,7 @@ func (h *Handler) DataImport(w http.ResponseWriter, r *http.Request) {
 		slog.Error("data import: encode artifact metadata failed", "error", err)
 		_ = h.ArtifactStore.DeletePrefix(context.Background(), gdprartifacts.ArtifactPrefix{Kind: "import", UserID: userID, JobID: jobID})
 		_ = h.markImportJobFailed(ctx, jobID, "metadata_encode_failed")
+		_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
@@ -289,9 +353,11 @@ func (h *Handler) DataImport(w http.ResponseWriter, r *http.Request) {
 		slog.Error("data import: store queued artifact metadata failed", "error", err)
 		_ = h.ArtifactStore.DeletePrefix(context.Background(), gdprartifacts.ArtifactPrefix{Kind: "import", UserID: userID, JobID: jobID})
 		_ = h.markImportJobFailed(ctx, jobID, "metadata_update_failed")
+		_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
+	_ = h.commitGDPRArtifactCapacity(ctx, jobID, userID, ref.SizeBytes)
 
 	go h.runImportJob(jobID, userID, "")
 
@@ -301,8 +367,13 @@ func (h *Handler) DataImport(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) insertSingleImportUploadJob(ctx context.Context, jobID, userID string) error {
-	return h.DB.Pool.QueryRow(ctx, `
+func (h *Handler) insertSingleImportUploadJob(ctx context.Context, jobID, userID string, reservedBytes int64, expiresAt time.Time) error {
+	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := tx.QueryRow(ctx, `
 		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at, metadata)
 		SELECT $1, 'data_import', $2, 'uploading', NOW(), NOW(), '{}'::jsonb
 		WHERE NOT EXISTS (
@@ -314,7 +385,20 @@ func (h *Handler) insertSingleImportUploadJob(ctx context.Context, jobID, userID
 		AND (SELECT COUNT(*) FROM background_jobs
 		     WHERE job_type = 'data_import'
 		     AND status IN ('uploading', 'queued', 'running')) < 2
-		RETURNING true`, jobID, userID).Scan(new(bool))
+		RETURNING true`, jobID, userID).Scan(new(bool)); err != nil {
+		return err
+	}
+	if err := h.reserveGDPRArtifactCapacityTx(ctx, tx, gdprArtifactCapacityRequest{
+		JobID:         jobID,
+		UserID:        userID,
+		Backend:       h.gdprArtifactBackendName(),
+		Kind:          "import",
+		ReservedBytes: reservedBytes,
+		ExpiresAt:     expiresAt,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (h *Handler) markImportJobFailed(ctx context.Context, jobID, code string) error {
@@ -366,8 +450,8 @@ func (h *Handler) DataImportMultipartCreate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	jobID := uuid.NewString()
 	expiresAt := time.Now().UTC().Add(24 * time.Hour)
+	jobID := uuid.NewString()
 	upload := importUploadMetadata{
 		State:         "uploading",
 		ExpiresAt:     expiresAt,
@@ -379,7 +463,15 @@ func (h *Handler) DataImportMultipartCreate(w http.ResponseWriter, r *http.Reque
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
-	err = h.DB.Pool.QueryRow(ctx, `
+	manifestReserveBytes := expectedBytes + int64(len(metadata)) + (1 << 20)
+	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		slog.Error("multipart import: begin create tx failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	defer tx.Rollback(ctx)
+	err = tx.QueryRow(ctx, `
 		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at, metadata)
 		SELECT $1, 'data_import', $2, 'uploading', NOW(), NOW(), $3::jsonb
 		WHERE NOT EXISTS (
@@ -398,6 +490,27 @@ func (h *Handler) DataImportMultipartCreate(w http.ResponseWriter, r *http.Reque
 	}
 	if err != nil {
 		slog.Error("multipart import: create session failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	if err := h.reserveGDPRArtifactCapacityTx(ctx, tx, gdprArtifactCapacityRequest{
+		JobID:         jobID,
+		UserID:        userID,
+		Backend:       h.gdprArtifactBackendName(),
+		Kind:          "import",
+		ReservedBytes: manifestReserveBytes,
+		ExpiresAt:     expiresAt,
+	}); err != nil {
+		if isArtifactCapacityError(err) {
+			httputil.WriteJSONNoCache(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "artifact_quota_exceeded"})
+			return
+		}
+		slog.Error("multipart import: reserve artifact capacity failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		slog.Error("multipart import: commit create tx failed", "error", err)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
@@ -420,6 +533,7 @@ func (h *Handler) DataImportMultipartCreate(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		slog.Error("multipart import: write manifest artifact failed", "error", err)
 		_ = h.markImportJobFailed(ctx, jobID, "manifest_write_failed")
+		_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
@@ -428,6 +542,7 @@ func (h *Handler) DataImportMultipartCreate(w http.ResponseWriter, r *http.Reque
 		slog.Error("multipart import: store manifest metadata failed", "error", err)
 		_ = h.ArtifactStore.DeletePrefix(context.Background(), gdprartifacts.ArtifactPrefix{Kind: "import", UserID: userID, JobID: jobID})
 		_ = h.markImportJobFailed(ctx, jobID, "metadata_update_failed")
+		_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
@@ -559,9 +674,17 @@ func (h *Handler) DataImportMultipartPart(w http.ResponseWriter, r *http.Request
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 4<<30)
+	maxPartBytes := int64(4 << 30)
+	if part.SizeBytes > 0 {
+		maxPartBytes = part.SizeBytes + 1
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxPartBytes)
 	if _, err := io.Copy(writer, r.Body); err != nil {
 		_ = writer.Abort(context.Background())
+		if isArtifactCapacityError(err) {
+			httputil.WriteJSONNoCache(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "artifact_quota_exceeded"})
+			return
+		}
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "upload_failed"})
 		return
 	}
@@ -579,6 +702,17 @@ func (h *Handler) DataImportMultipartPart(w http.ResponseWriter, r *http.Request
 		_ = h.ArtifactStore.Delete(context.Background(), ref)
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "size_mismatch"})
 		return
+	}
+	if part.SizeBytes == 0 && ref.SizeBytes > 0 {
+		if err := h.growGDPRArtifactCapacity(ctx, jobID, userID, ref.SizeBytes); err != nil {
+			_ = h.ArtifactStore.Delete(context.Background(), ref)
+			if isArtifactCapacityError(err) {
+				httputil.WriteJSONNoCache(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "artifact_quota_exceeded"})
+				return
+			}
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+			return
+		}
 	}
 	now := time.Now().UTC()
 	if err := h.markImportUploadPartReceived(ctx, jobID, userID, part.Name, ref, now); err != nil {
@@ -654,6 +788,7 @@ func (h *Handler) DataImportMultipartCancel(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
+	_ = h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
 	tag, err := h.DB.Pool.Exec(ctx, `
 		UPDATE background_jobs
 		SET status = 'failed', error = 'user_cancelled', finished_at = NOW(), updated_at = NOW(),
@@ -710,7 +845,9 @@ func (h *Handler) runImportJob(jobID, userID, zipPath string) {
 		defer func() {
 			if err := h.ArtifactStore.DeletePrefix(context.Background(), gdprartifacts.ArtifactPrefix{Kind: "import", UserID: userID, JobID: jobID}); err != nil {
 				slog.Warn("data import job: delete staged artifact failed", "job_id", jobID, "error", err)
+				return
 			}
+			_ = h.releaseGDPRArtifactCapacity(context.Background(), jobID, userID, 0)
 		}()
 	} else if legacyPath != "" {
 		defer os.Remove(legacyPath)

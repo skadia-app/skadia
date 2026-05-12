@@ -45,6 +45,7 @@ func (h *Handler) reconcileExpiredArtifacts(ctx context.Context) {
 	}
 	h.cleanupExpiredExportArtifacts(ctx)
 	cleanupStaleExportJobs(ctx, h.DB.Pool)
+	h.cleanupFailedExportArtifactsWithoutMetadata(ctx)
 	h.cleanupStaleImportJobs(ctx)
 }
 
@@ -92,6 +93,10 @@ func (h *Handler) cleanupExpiredExportArtifacts(ctx context.Context) {
 		if !deletedAll {
 			continue
 		}
+		if err := h.releaseGDPRArtifactCapacity(ctx, job.id, job.userID, totalArtifactBytes(job.artifact)); err != nil {
+			slog.Warn("gdpr artifact cleanup: release expired export reservation failed", "job_id", job.id, "error", err)
+			continue
+		}
 		updated, err := stripExpiredExportArtifactJSON(job.metadata, job.artifact)
 		if err != nil {
 			slog.Warn("gdpr artifact cleanup: encode expired export metadata failed", "job_id", job.id, "error", err)
@@ -99,6 +104,44 @@ func (h *Handler) cleanupExpiredExportArtifacts(ctx context.Context) {
 		}
 		if _, err := h.DB.Pool.Exec(ctx, `UPDATE background_jobs SET metadata=$2::jsonb, updated_at=updated_at WHERE id=$1`, job.id, updated); err != nil {
 			slog.Warn("gdpr artifact cleanup: update expired export metadata failed", "job_id", job.id, "error", err)
+		}
+	}
+}
+
+func (h *Handler) cleanupFailedExportArtifactsWithoutMetadata(ctx context.Context) {
+	rows, err := h.DB.Pool.Query(ctx, `
+		SELECT j.id::text, j.user_id::text
+		FROM background_jobs j
+		WHERE j.job_type = 'gdpr_export'
+		  AND j.status = 'failed'
+		  AND NOT (COALESCE(j.metadata, '{}'::jsonb) ? 'artifact')
+		  AND EXISTS (
+		    SELECT 1
+		    FROM gdpr_artifact_reservations r
+		    WHERE r.job_id = j.id::uuid
+		      AND r.user_id = j.user_id::uuid
+		      AND r.released_at IS NULL
+		  )`)
+	if err != nil {
+		slog.Warn("gdpr artifact cleanup: query failed exports without metadata failed", "error", err)
+		return
+	}
+	type staleExport struct{ id, userID string }
+	var jobs []staleExport
+	for rows.Next() {
+		var job staleExport
+		if err := rows.Scan(&job.id, &job.userID); err == nil {
+			jobs = append(jobs, job)
+		}
+	}
+	rows.Close()
+	for _, job := range jobs {
+		if err := h.ArtifactStore.DeletePrefix(ctx, gdprartifacts.ArtifactPrefix{Kind: "export", UserID: job.userID, JobID: job.id}); err != nil {
+			slog.Warn("gdpr artifact cleanup: delete failed export prefix without metadata failed", "job_id", job.id, "error", err)
+			continue
+		}
+		if err := h.releaseGDPRArtifactCapacity(ctx, job.id, job.userID, 0); err != nil {
+			slog.Warn("gdpr artifact cleanup: release failed export reservation without metadata failed", "job_id", job.id, "error", err)
 		}
 	}
 }

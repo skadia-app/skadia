@@ -146,6 +146,28 @@ func TestLocalStoreAbortRemovesTempFile(t *testing.T) {
 	}
 }
 
+func TestLocalStoreCapacityRejectsConfiguredTotalQuota(t *testing.T) {
+	ctx := context.Background()
+	exportsBase := t.TempDir()
+	importsBase := t.TempDir()
+	store, err := NewLocalStoreWithOptions(exportsBase, importsBase, LocalCapacityOptions{
+		QuotaBytes: 4,
+	})
+	if err != nil {
+		t.Fatalf("NewLocalStoreWithOptions: %v", err)
+	}
+	writer, err := store.CreateWriter(ctx, localObjectSpec("quota.zip"))
+	if err != nil {
+		t.Fatalf("CreateWriter: %v", err)
+	}
+	if _, err := writer.Write([]byte("12345")); !errors.Is(err, ErrCapacityExceeded) {
+		t.Fatalf("Write error = %v, want ErrCapacityExceeded", err)
+	}
+	if err := writer.Abort(ctx); err != nil {
+		t.Fatalf("Abort: %v", err)
+	}
+}
+
 func TestLocalStoreUsesPrivatePermissions(t *testing.T) {
 	ctx := context.Background()
 	store, exportsBase, _ := newLocalStoreForTest(t)

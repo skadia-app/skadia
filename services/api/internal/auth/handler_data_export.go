@@ -221,7 +221,16 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 	// Atomic INSERT — prevents race condition between EXISTS check and INSERT.
 	// Also enforces the server-wide limit of 3 concurrent exports atomically (S5 TOCTOU fix).
 	jobID := uuid.New().String()
-	err = h.DB.Pool.QueryRow(ctx, `
+	expiresAt := time.Now().UTC().Add(dataExportDownloadTTL)
+	reservedBytes := h.estimateGDPRExportReservationBytes(ctx, userID)
+	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		slog.Error("gdpr export: begin admission tx failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	defer tx.Rollback(ctx)
+	err = tx.QueryRow(ctx, `
 		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at)
 		SELECT $1, 'gdpr_export', $2, 'queued', NOW(), NOW()
 		WHERE NOT EXISTS (
@@ -245,6 +254,27 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Error("gdpr export: insert job failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	if err := h.reserveGDPRArtifactCapacityTx(ctx, tx, gdprArtifactCapacityRequest{
+		JobID:         jobID,
+		UserID:        userID,
+		Backend:       h.gdprArtifactBackendName(),
+		Kind:          "export",
+		ReservedBytes: reservedBytes,
+		ExpiresAt:     expiresAt,
+	}); err != nil {
+		if isArtifactCapacityError(err) {
+			httputil.WriteJSONNoCache(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "artifact_quota_exceeded"})
+			return
+		}
+		slog.Error("gdpr export: reserve artifact capacity failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		slog.Error("gdpr export: commit admission tx failed", "error", err)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
@@ -307,6 +337,9 @@ func (h *Handler) runExportJob(ctx context.Context, jobID, userID string) {
 	if err := h.executeExportJob(ctx, jobID, userID); err != nil {
 		slog.Error("gdpr export job failed", "job_id", jobID, "error", err)
 		h.DB.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, updated_at = NOW() WHERE id = $1`, jobID, err.Error())
+		if capacityErr := h.finalizeExportReservationAfterError(ctx, jobID, userID); capacityErr != nil {
+			slog.Warn("gdpr export job: finalize artifact reservation after error failed", "job_id", jobID, "error", capacityErr)
+		}
 	}
 }
 
@@ -493,6 +526,13 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		return fmt.Errorf("commit export artifact: %w", err)
 	}
 	artifactCommitted = true
+	artifactPublished := false
+	defer func() {
+		if artifactCommitted && !artifactPublished && h.ArtifactStore != nil {
+			_ = h.ArtifactStore.DeletePrefix(context.Background(), gdprartifacts.ArtifactPrefix{Kind: "export", UserID: userID, JobID: jobID})
+			_ = h.releaseGDPRArtifactCapacity(context.Background(), jobID, userID, 0)
+		}
+	}()
 
 	// 13a. Partial-export path: errors present → mark failed, keep ZIP for debug.
 	if len(allErrs) > 0 {
@@ -528,6 +568,10 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 			jobID, string(metadata), topMsg); err != nil {
 			return fmt.Errorf("store partial-fail metadata: %w", err)
 		}
+		artifactPublished = true
+		if err := h.commitGDPRArtifactCapacity(ctx, jobID, userID, ref.SizeBytes); err != nil {
+			return fmt.Errorf("commit partial artifact reservation: %w", err)
+		}
 
 		// Return an error so runExportJob's error wrapper logs the failure
 		// (the metadata + status are already in place; the wrapper only
@@ -548,11 +592,29 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		jobID, string(metadata)); err != nil {
 		return fmt.Errorf("store metadata: %w", err)
 	}
+	artifactPublished = true
+	if err := h.commitGDPRArtifactCapacity(ctx, jobID, userID, ref.SizeBytes); err != nil {
+		return fmt.Errorf("commit artifact reservation: %w", err)
+	}
 
 	// Mark completed + create notification (single call, avoids double update).
 	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 
 	return nil
+}
+
+func (h *Handler) finalizeExportReservationAfterError(ctx context.Context, jobID, userID string) error {
+	var metadata []byte
+	if err := h.DB.Pool.QueryRow(ctx,
+		`SELECT COALESCE(metadata, '{}'::jsonb) FROM background_jobs WHERE id = $1 AND user_id = $2`,
+		jobID, userID).Scan(&metadata); err != nil {
+		return err
+	}
+	meta, err := gdprartifacts.DecodeJobMetadata(metadata)
+	if err != nil || meta.Artifact == nil {
+		return h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
+	}
+	return h.commitGDPRArtifactCapacity(ctx, jobID, userID, totalArtifactBytes(*meta.Artifact))
 }
 
 func buildSingleExportArtifactMetadata(ref gdprartifacts.ObjectRef, expiresAt time.Time, exportErrors, incompleteTables json.RawMessage) ([]byte, error) {
