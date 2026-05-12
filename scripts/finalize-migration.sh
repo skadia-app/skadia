@@ -117,6 +117,17 @@ if (( latest_base == 0 )); then
 fi
 
 errors=()
+check_existing_migration_change() {
+  local status="$1"
+  local path="$2"
+  local parsed
+  parsed="$(parse_migration_path "$path" || true)"
+  [[ -n "${parsed:-}" ]] || return 0
+  if path_exists_at_ref "$merge_base" "$path" && [[ "$status" != A* && "$status" != '??' ]]; then
+    errors+=("existing migration SQL changed in branch: $path")
+  fi
+}
+
 while IFS= read -r line; do
   [[ -n "$line" ]] || continue
   status="${line%%$'\t'*}"
@@ -125,12 +136,18 @@ while IFS= read -r line; do
   if [[ "$status" == R* ]]; then
     path="${rest#*$'\t'}"
   fi
-  parsed="$(parse_migration_path "$path" || true)"
-  [[ -n "${parsed:-}" ]] || continue
-  if [[ "$status" != A* ]]; then
-    errors+=("existing migration SQL changed in branch: $path")
-  fi
+  check_existing_migration_change "$status" "$path"
 done < <(git diff --name-status "$merge_base"..HEAD -- "$MIG_DIR")
+
+while IFS= read -r line; do
+  [[ -n "$line" ]] || continue
+  status="${line:0:2}"
+  path="${line:3}"
+  if [[ "$status" == R* ]]; then
+    path="${path#* -> }"
+  fi
+  check_existing_migration_change "$status" "$path"
+done < <(git status --porcelain=v1 -- "$MIG_DIR")
 
 declare -A group_num=()
 declare -A group_topic=()
@@ -155,10 +172,7 @@ while IFS= read -r path; do
     up) group_up[$key]="$path" ;;
     down) group_down[$key]="$path" ;;
   esac
-done < <(
-  git ls-tree -r --name-only HEAD -- "$MIG_DIR" \
-    | grep -E "^${MIG_DIR}/[0-9]{6,}_[A-Za-z0-9][A-Za-z0-9_]*\.(up|down)\.sql$" || true
-)
+done < <(find "$MIG_DIR" -maxdepth 1 -type f -printf '%p\n' | sort)
 
 if [[ ${#groups[@]} -eq 0 ]]; then
   if [[ ${#errors[@]} -gt 0 ]]; then
@@ -190,8 +204,8 @@ done
 for key in "${groups[@]}"; do
   num="${group_num[$key]}"
   topic="${group_topic[$key]}"
-  if (( ${num_count[$num]} > 1 )) && [[ ! "$topic" =~ ^[0-9]{2}_ ]]; then
-    errors+=("same provisional number $num has multiple topics; use 01_/02_ topic prefixes to define apply order")
+  if (( ${num_count[$num]} > 1 )); then
+    errors+=("same provisional number $num has multiple topics; use unique provisional numbers such as 900001 and 900002")
   fi
 done
 
@@ -257,9 +271,14 @@ if (( ! changes_needed )); then
 fi
 
 mapfile -t affected < <(
-  git diff --name-only "$merge_base"..HEAD -- \
+  {
+    git diff --name-only "$merge_base"..HEAD -- \
       '*.go' '*.ts' '*.tsx' '*.md' '*.sql' '*.yml' '*.yaml' '*.sh' 2>/dev/null \
-    | sort -u
+    git diff --name-only -- \
+      '*.go' '*.ts' '*.tsx' '*.md' '*.sql' '*.yml' '*.yaml' '*.sh' 2>/dev/null
+    git ls-files --others --exclude-standard -- \
+      '*.go' '*.ts' '*.tsx' '*.md' '*.sql' '*.yml' '*.yaml' '*.sh' 2>/dev/null
+  } | sort -u
 )
 
 for f in "${affected[@]}"; do
@@ -300,12 +319,20 @@ queue_rename() {
   tmp="$(dirname "$old")/.finalize-migration-$BASHPID-$(basename "$old")"
   tmp_paths+=("$tmp")
   target_paths+=("$new")
-  git mv "$old" "$tmp"
+  if git ls-files --error-unmatch "$old" >/dev/null 2>&1; then
+    git mv "$old" "$tmp"
+  else
+    mv "$old" "$tmp"
+  fi
 }
 
 finish_rename() {
   local index="$1"
-  git mv "${tmp_paths[$index]}" "${target_paths[$index]}"
+  if git ls-files --error-unmatch "${tmp_paths[$index]}" >/dev/null 2>&1; then
+    git mv "${tmp_paths[$index]}" "${target_paths[$index]}"
+  else
+    mv "${tmp_paths[$index]}" "${target_paths[$index]}"
+  fi
   echo "  ${target_paths[$index]}"
 }
 

@@ -94,6 +94,39 @@ test_check_fails_for_unfinalized_branch_migration() {
   [[ "$out" == *"finalization required"* ]] || fail "missing finalization-required message: $out"
 }
 
+test_check_fails_for_uncommitted_branch_migration() {
+  local repo out code
+  repo="$(new_repo)"
+  add_migration "$repo" "900001" "alpha"
+
+  set +e
+  out="$(finalize "$repo" --check 2>&1)"
+  code=$?
+  set -e
+
+  [[ "$code" -ne 0 ]] || fail "--check succeeded despite uncommitted provisional migration"
+  [[ "$out" == *"finalization required"* ]] || fail "missing finalization-required message: $out"
+  [[ "$out" == *"900001_alpha -> 000361_alpha"* ]] || fail "missing uncommitted migration plan: $out"
+}
+
+test_finalize_uncommitted_branch_migration_and_references() {
+  local repo dir
+  repo="$(new_repo)"
+  dir="$repo/services/api/internal/migrate/migrations"
+  add_migration "$repo" "900001" "alpha"
+  add_migration_test "$repo" "900001" "alpha"
+  printf '900001_alpha\n' > "$repo/notes.md"
+
+  finalize "$repo" >/dev/null
+
+  assert_file "$dir/000361_alpha.up.sql"
+  assert_file "$dir/000361_alpha.down.sql"
+  assert_file "$dir/migration_000361_alpha_test.go"
+  assert_no_file "$dir/900001_alpha.up.sql"
+  assert_no_file "$dir/migration_900001_alpha_test.go"
+  assert_contains "$repo/notes.md" "000361_alpha"
+}
+
 test_finalize_concrete_branch_numbers_and_references() {
   local repo dir
   repo="$(new_repo)"
@@ -156,21 +189,21 @@ test_same_number_without_order_prefix_fails() {
   [[ "$out" == *"same provisional number"* ]] || fail "missing duplicate-number error: $out"
 }
 
-test_same_number_with_order_prefix_finalizes_in_topic_order() {
-  local repo dir
+test_same_number_with_order_prefix_fails() {
+  local repo out code
   repo="$(new_repo)"
-  dir="$repo/services/api/internal/migrate/migrations"
   add_migration "$repo" "900001" "02_beta"
   add_migration "$repo" "900001" "01_alpha"
   git -C "$repo" add .
   git -C "$repo" commit -q -m "add ordered provisional migrations"
 
-  finalize "$repo" >/dev/null
+  set +e
+  out="$(finalize "$repo" 2>&1)"
+  code=$?
+  set -e
 
-  assert_file "$dir/000361_01_alpha.up.sql"
-  assert_file "$dir/000362_02_beta.up.sql"
-  assert_no_file "$dir/900001_01_alpha.up.sql"
-  assert_no_file "$dir/900001_02_beta.up.sql"
+  [[ "$code" -ne 0 ]] || fail "same-number ordered migrations were accepted"
+  [[ "$out" == *"same provisional number"* ]] || fail "missing duplicate-number error: $out"
 }
 
 test_base_999999_finalizes_to_seven_digits() {
@@ -225,10 +258,12 @@ test_check_passes_after_finalize_commit() {
 }
 
 run_test test_check_fails_for_unfinalized_branch_migration
+run_test test_check_fails_for_uncommitted_branch_migration
+run_test test_finalize_uncommitted_branch_migration_and_references
 run_test test_finalize_concrete_branch_numbers_and_references
 run_test test_refinalizes_colliding_branch_number_after_base_advances
 run_test test_same_number_without_order_prefix_fails
-run_test test_same_number_with_order_prefix_finalizes_in_topic_order
+run_test test_same_number_with_order_prefix_fails
 run_test test_base_999999_finalizes_to_seven_digits
 run_test test_placeholder_000999_still_finalizes
 run_test test_check_passes_after_finalize_commit
