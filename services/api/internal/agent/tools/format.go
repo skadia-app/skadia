@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func formatDuration(seconds any) string {
@@ -96,6 +98,10 @@ func stringValue(value any) string {
 	switch v := value.(type) {
 	case string:
 		return v
+	case uuid.UUID:
+		return v.String()
+	case [16]byte:
+		return uuid.UUID(v).String()
 	case fmt.Stringer:
 		return v.String()
 	default:
