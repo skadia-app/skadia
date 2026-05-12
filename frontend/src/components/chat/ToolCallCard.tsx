@@ -18,6 +18,7 @@ interface ToolCallCardProps {
 
 export default function ToolCallCard({ toolName, args, result }: ToolCallCardProps) {
   const [open, setOpen] = useState(false)
+  const isDryRun = toolName === 'dry_run_rule'
   return (
     <div className="my-1 rounded border border-neutral-200 dark:border-neutral-700 text-sm">
       <button
@@ -26,6 +27,11 @@ export default function ToolCallCard({ toolName, args, result }: ToolCallCardPro
       >
         <Wrench className="w-3 h-3" />
         <span className="font-mono text-xs">{toolName}</span>
+        {isDryRun && (
+          <span className="rounded border border-sky-300 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:border-sky-700 dark:text-sky-300">
+            Vorschau
+          </span>
+        )}
         {open ? <ChevronDown className="w-3 h-3 ml-auto" /> : <ChevronRight className="w-3 h-3 ml-auto" />}
       </button>
       {open && (
