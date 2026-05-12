@@ -34,7 +34,7 @@ func RegisterHealthTools(reg *Registry) {
 }
 
 func HealthTools() []*Tool {
-	return []*Tool{
+	tools := []*Tool{
 		{
 			Name:        "get_health_status",
 			Description: "Retrieve health and recovery data: HRV trend, sleep metrics, readiness, body weight, and resting heart rate.",
@@ -76,6 +76,7 @@ func HealthTools() []*Tool {
 			ExecuteRead: executeGetReadinessLegacy,
 		},
 	}
+	return append(tools, RecordHealthMetricTool())
 }
 
 func executeGetHealthStatus(ctx context.Context, deps *Deps, userID string, raw json.RawMessage) (any, error) {
