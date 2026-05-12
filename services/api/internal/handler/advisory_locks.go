@@ -24,6 +24,8 @@ package handler
 //	handler/commute_rule.go                     | derived: dbutil.AdvisoryLockKey(userID+"_commute_rule") | per-user commute rule update
 //	handler/fusion_merge.go (×2)                | derived: dbutil.AdvisoryLockKey("fusion:"+userID)       | per-user fusion merge serialization
 //	handler/recording_groups.go                 | derived: dbutil.AdvisoryLockKey("fusion:"+userID)       | per-user recording-group update (same key range as fusion)
+//	handler/media_limits.go                      | derived: hashtextextended("activity_photo_limit:"+userID+":"+activityID, 0) | per-activity media-count limit
+//	handler/media_limits.go                      | derived: hashtextextended("route_photo_limit:"+userID+":"+routeID, 0)       | per-route media-count limit
 //	shadowfs/unified.go                         | derived: advisoryLockKey("shadowfs:"+userID)             | per-user ShadowFS reconciliation
 //	database/best_efforts.go                    | derived: dbutil.AdvisoryLockKey("best_effort:"+userID)   | per-user best-effort computation
 //	database/gdpr.go                            | derived: hashtextextended('gdpr_purge:'+userID, 0)       | per-user GDPR purge serialization (PostgreSQL builtin hash)

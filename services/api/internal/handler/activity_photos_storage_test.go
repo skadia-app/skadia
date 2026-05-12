@@ -15,12 +15,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -129,6 +131,73 @@ func TestUploadActivityPhotoAcceptsOctetStreamFFmpegStillByExtension(t *testing.
 				t.Fatalf("stored content_type = %q, want %q", gotContentType, tt.contentType)
 			}
 		})
+	}
+}
+
+func TestUploadActivityPhotoLimitBlocksOnlyNewRows(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	activityID := insertMinimalActivity(t, db, userID)
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	store := settings.NewStoreForTest(map[string]string{"limits.max_activity_photos_per_activity": "1"})
+	svc := importer.NewService(db, fs, nil)
+	svc.ActivityPhotoCreateGuard = NewActivityPhotoCreateGuard(db, store)
+	h := &Handler{
+		DB:            db,
+		ShadowFS:      fs,
+		ImportService: svc,
+		Settings:      store,
+	}
+
+	body := jpegPatternTestImage(t, 48, 48, 92)
+	createdReq := newPhotoUploadRequest(t, userID, activityID, "created.jpg", body)
+	createdRR := httptest.NewRecorder()
+	h.UploadActivityPhoto(createdRR, createdReq)
+	if createdRR.Code != http.StatusCreated {
+		t.Fatalf("first upload status = %d, want %d; body=%s", createdRR.Code, http.StatusCreated, createdRR.Body.String())
+	}
+
+	duplicateReq := newPhotoUploadRequest(t, userID, activityID, "duplicate.jpg", body)
+	duplicateRR := httptest.NewRecorder()
+	h.UploadActivityPhoto(duplicateRR, duplicateReq)
+	if duplicateRR.Code != http.StatusOK {
+		t.Fatalf("duplicate at limit status = %d, want %d; body=%s", duplicateRR.Code, http.StatusOK, duplicateRR.Body.String())
+	}
+
+	newReq := newPhotoUploadRequest(t, userID, activityID, "new.jpg", jpegTestImage(t, 31, 29, color.RGBA{R: 10, G: 210, B: 120, A: 255}, 90))
+	newRR := httptest.NewRecorder()
+	h.UploadActivityPhoto(newRR, newReq)
+	if newRR.Code != http.StatusConflict {
+		t.Fatalf("new upload at limit status = %d, want %d; body=%s", newRR.Code, http.StatusConflict, newRR.Body.String())
+	}
+	if got := handlerActivityPhotoRowCount(t, pool, userID); got != 1 {
+		t.Fatalf("activity photo rows after rejected upload = %d, want 1", got)
+	}
+}
+
+func TestUploadActivityPhotoQuotaExceededReturns507(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	activityID := insertMinimalActivity(t, db, userID)
+	dir := t.TempDir()
+	fs := shadowfs.NewUnifiedShadowFS(pool, shadowfs.NewLocalBackend(dir), nil, "local", dir, shadowfs.NewSchemaRenderer(), nil, 1, 1, "", "", "")
+	h := &Handler{
+		DB:            db,
+		ShadowFS:      fs,
+		ImportService: importer.NewService(db, fs, nil),
+	}
+
+	req := newPhotoUploadRequest(t, userID, activityID, "quota.jpg", jpegTestImage(t, 24, 24, color.RGBA{R: 50, G: 60, B: 220, A: 255}, 90))
+	rr := httptest.NewRecorder()
+	h.UploadActivityPhoto(rr, req)
+
+	if rr.Code != http.StatusInsufficientStorage {
+		t.Fatalf("quota upload status = %d, want %d; body=%s", rr.Code, http.StatusInsufficientStorage, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), codeStorageQuotaExceeded) {
+		t.Fatalf("quota response missing code %q: %s", codeStorageQuotaExceeded, rr.Body.String())
 	}
 }
 

@@ -81,6 +81,19 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
 
+	releaseLimit, limitErr := h.enforceRoutePhotoLimit(r.Context(), userID, routeID)
+	if limitErr != nil {
+		if writeMediaUploadProblem(w, r, limitErr) {
+			return
+		}
+		slog.Error("route photo limit check failed", "error", limitErr)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to check photo limit", r.URL.Path)
+		return
+	}
+	if releaseLimit != nil {
+		defer releaseLimit()
+	}
+
 	// Generate thumbnail (200x200).
 	thumbData, _ := imageutil.Resize(data, 200, 200, 80)
 
@@ -108,6 +121,9 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 		Tags:        map[string]string{"role": "photo"},
 	}, bytes.NewReader(data))
 	if putErr != nil {
+		if writeMediaUploadProblem(w, r, putErr) {
+			return
+		}
 		slog.Error("shadowfs upload route photo failed", "error", putErr)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store photo", r.URL.Path)
 		return
@@ -122,44 +138,6 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 			if delErr := h.ShadowFS.Delete(cleanupCtx, userID, fid); delErr != nil {
 				slog.Warn("shadowfs orphan cleanup failed", "file_id", fid, "error", delErr)
 			}
-		}
-	}
-
-	// Upload thumbnail to ShadowFS.
-	if thumbData != nil {
-		thumbRec, thumbErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "thumb",
-			ContentType: "image/jpeg",
-			FileName:    "thumb_200x200.jpg",
-			SizeBytes:   int64(len(thumbData)),
-			ParentType:  &routePhotoParent,
-			ParentID:    &routeID,
-			Tags:        map[string]string{"role": "photo_thumb", "source_hash": hash},
-		}, bytes.NewReader(thumbData))
-		if thumbErr != nil {
-			slog.Warn("shadowfs upload route thumb failed", "error", thumbErr)
-		} else {
-			storedFileIDs = append(storedFileIDs, thumbRec.ID)
-		}
-	}
-
-	// Upload preview to ShadowFS.
-	if previewData != nil {
-		previewRec, prevErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "thumb",
-			ContentType: "image/jpeg",
-			FileName:    "preview.jpg",
-			SizeBytes:   int64(len(previewData)),
-			ParentType:  &routePhotoParent,
-			ParentID:    &routeID,
-			Tags:        map[string]string{"role": "photo_preview", "source_hash": hash},
-		}, bytes.NewReader(previewData))
-		if prevErr != nil {
-			slog.Warn("shadowfs upload route preview failed", "error", prevErr)
-		} else {
-			storedFileIDs = append(storedFileIDs, previewRec.ID)
 		}
 	}
 
@@ -184,6 +162,45 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 		photoFileID, saved.ID,
 	); dbErr != nil {
 		slog.Warn("route_photos: set file_id failed", "photo_id", saved.ID, "error", dbErr)
+	}
+
+	routePhotoID := saved.ID
+	// Upload thumbnail to ShadowFS.
+	if thumbData != nil {
+		thumbRec, thumbErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "thumb",
+			ContentType: "image/jpeg",
+			FileName:    "thumb_200x200.jpg",
+			SizeBytes:   int64(len(thumbData)),
+			ParentType:  &routePhotoParent,
+			ParentID:    &routePhotoID,
+			Tags:        map[string]string{"role": "photo_thumb", "source_hash": hash},
+		}, bytes.NewReader(thumbData))
+		if thumbErr != nil {
+			slog.Warn("shadowfs upload route thumb failed", "error", thumbErr)
+		} else {
+			storedFileIDs = append(storedFileIDs, thumbRec.ID)
+		}
+	}
+
+	// Upload preview to ShadowFS.
+	if previewData != nil {
+		previewRec, prevErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "thumb",
+			ContentType: "image/jpeg",
+			FileName:    "preview.jpg",
+			SizeBytes:   int64(len(previewData)),
+			ParentType:  &routePhotoParent,
+			ParentID:    &routePhotoID,
+			Tags:        map[string]string{"role": "photo_preview", "source_hash": hash},
+		}, bytes.NewReader(previewData))
+		if prevErr != nil {
+			slog.Warn("shadowfs upload route preview failed", "error", prevErr)
+		} else {
+			storedFileIDs = append(storedFileIDs, previewRec.ID)
+		}
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, saved)

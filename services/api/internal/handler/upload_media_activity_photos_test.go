@@ -9,6 +9,8 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -83,6 +85,52 @@ func TestMediaPhotoQueueMetadataPreservesExifFields(t *testing.T) {
 	}
 	if meta["candidate_ids"] == nil {
 		t.Fatal("candidate_ids metadata was not preserved")
+	}
+}
+
+func TestUploadMediaAutoAssignSkipsWhenActivityPhotoLimitReached(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	activityID := insertMinimalActivity(t, db, userID)
+	store := settings.NewStoreForTest(map[string]string{"limits.max_activity_photos_per_activity": "1"})
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	svc := importer.NewService(db, fs, nil)
+	svc.ActivityPhotoCreateGuard = NewActivityPhotoCreateGuard(db, store)
+	h := &Handler{
+		DB:            db,
+		ShadowFS:      fs,
+		ImportService: svc,
+		Settings:      store,
+	}
+
+	hash := "existing-limit-row"
+	actID := activityID
+	if _, err := db.InsertActivityPhoto(context.Background(), model.ActivityPhoto{
+		UserID:           userID,
+		ActivityID:       &actID,
+		OriginalFilename: "existing.jpg",
+		ContentType:      "image/jpeg",
+		FileSizeBytes:    1,
+		FileHash:         &hash,
+	}); err != nil {
+		t.Fatalf("insert existing activity photo: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/upload/media", nil)
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	result := h.autoAssignPhoto(req, userID, "new.jpg", "image/jpeg", jpegPatternTestImage(t, 48, 48, 90), database.ActivityTimeMatch{
+		ID: activityID,
+	}, nil, nil, nil, nil)
+
+	if result.Status != "skipped_limit_reached" {
+		t.Fatalf("autoAssignPhoto status = %q, want skipped_limit_reached", result.Status)
+	}
+	if result.ErrorCode == nil || *result.ErrorCode != codeActivityPhotoLimitExceeded {
+		t.Fatalf("autoAssignPhoto error_code = %v, want %q", result.ErrorCode, codeActivityPhotoLimitExceeded)
+	}
+	if got := handlerActivityPhotoRowCount(t, pool, userID); got != 1 {
+		t.Fatalf("activity photo rows after skipped media upload = %d, want 1", got)
 	}
 }
 
