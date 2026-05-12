@@ -457,6 +457,9 @@ func (h *Handler) insertSingleImportUploadJob(ctx context.Context, jobID, userID
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockGDPRTransferAdmission(ctx, tx); err != nil {
+		return err
+	}
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at, metadata)
 		SELECT $1, 'data_import', $2, 'uploading', NOW(), NOW(), '{}'::jsonb
@@ -556,6 +559,11 @@ func (h *Handler) DataImportMultipartCreate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer tx.Rollback(ctx)
+	if err := lockGDPRTransferAdmission(ctx, tx); err != nil {
+		slog.Error("multipart import: admission lock failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
 	err = tx.QueryRow(ctx, `
 		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at, metadata)
 		SELECT $1, 'data_import', $2, 'uploading', NOW(), NOW(), $3::jsonb
@@ -834,8 +842,25 @@ func (h *Handler) DataImportMultipartStart(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+	artifact := artifactFromImportUpload(upload)
+	if src, err := dataimport.NewArtifactMultiPartSource(ctx, h.ArtifactStore, artifact); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "invalid_artifact"})
+		return
+	} else {
+		_ = src.Close()
+	}
+	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	defer tx.Rollback(ctx)
+	if err := lockGDPRTransferAdmission(ctx, tx); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
 	var conflicts int
-	if err := h.DB.Pool.QueryRow(ctx, `
+	if err := tx.QueryRow(ctx, `
 			SELECT COUNT(*) FROM background_jobs
 			WHERE user_id = $1 AND id <> $2
 			  AND job_type IN ('gdpr_export', 'data_import')
@@ -845,27 +870,29 @@ func (h *Handler) DataImportMultipartStart(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var runningImports int
-	if err := h.DB.Pool.QueryRow(ctx, `
+	if err := tx.QueryRow(ctx, `
 		SELECT COUNT(*) FROM background_jobs
 		WHERE job_type = 'data_import'
 		  AND status IN ('queued', 'running')`).Scan(&runningImports); err != nil || runningImports >= 2 {
 		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "import_already_running"})
 		return
 	}
-	artifact := artifactFromImportUpload(upload)
-	if err := h.storeImportUploadMetadata(ctx, jobID, metadata, upload, &artifact); err != nil {
+	updatedMetadata, err := mergeImportUploadMetadata(metadata, upload, &artifact)
+	if err != nil {
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
-	if src, _, _, err := h.openImportJobSource(ctx, jobID, ""); err != nil {
-		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "invalid_artifact"})
-		return
-	} else {
-		_ = src.Close()
-	}
-	tag, err := h.DB.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'running', updated_at = NOW() WHERE id = $1 AND user_id = $2 AND status = 'uploading'`, jobID, userID)
+	tag, err := tx.Exec(ctx, `
+		UPDATE background_jobs
+		SET status = 'running', metadata = $3::jsonb, updated_at = NOW()
+		WHERE id = $1 AND user_id = $2 AND status = 'uploading'`,
+		jobID, userID, updatedMetadata)
 	if err != nil || tag.RowsAffected() != 1 {
 		httputil.WriteJSONNoCache(w, http.StatusConflict, map[string]string{"error": "start_conflict"})
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
 	_ = h.DB.LogAuthEventStrict(ctx, userID, "data_import_multipart_started", middleware.ClientIP(r), r.UserAgent(), map[string]string{"job_id": jobID})

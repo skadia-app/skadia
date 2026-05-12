@@ -178,19 +178,6 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 	// Ensure the background stale-job cleanup timer is running (starts once per process).
 	startStaleExportCleanup(h.shutdownCtx, h.DB.Pool)
 
-	// Per-user: no concurrent export.
-	var userRunning bool
-	if err := h.DB.Pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM background_jobs WHERE user_id = $1 AND job_type = 'gdpr_export' AND status IN ('queued','running'))`,
-		userID).Scan(&userRunning); err != nil {
-		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
-		return
-	}
-	if userRunning {
-		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
-		return
-	}
-
 	var recentStarts int
 	if err := h.DB.Pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM background_jobs
@@ -205,21 +192,6 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Server-wide: max 3 concurrent exports.
-	var serverCount int
-	if err := h.DB.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM background_jobs WHERE job_type = 'gdpr_export' AND status IN ('queued','running')`,
-	).Scan(&serverCount); err != nil {
-		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
-		return
-	}
-	if serverCount >= 3 {
-		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "server_busy"})
-		return
-	}
-
-	// Atomic INSERT — prevents race condition between EXISTS check and INSERT.
-	// Also enforces the server-wide limit of 3 concurrent exports atomically (S5 TOCTOU fix).
 	jobID := uuid.New().String()
 	expiresAt := time.Now().UTC().Add(dataExportDownloadTTL)
 	reservedBytes := h.estimateGDPRExportReservationBytes(ctx, userID)
@@ -230,18 +202,40 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(ctx)
+	if err := lockGDPRTransferAdmission(ctx, tx); err != nil {
+		slog.Error("gdpr export: admission lock failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	var userRunning bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM background_jobs
+			WHERE user_id = $1
+			  AND job_type IN ('gdpr_export', 'data_import')
+			  AND status IN ('uploading', 'queued', 'running'))`,
+		userID).Scan(&userRunning); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	if userRunning {
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
+		return
+	}
+	var serverCount int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM background_jobs WHERE job_type = 'gdpr_export' AND status IN ('queued','running')`,
+	).Scan(&serverCount); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	if serverCount >= 3 {
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "server_busy"})
+		return
+	}
 	err = tx.QueryRow(ctx, `
 		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at)
-		SELECT $1, 'gdpr_export', $2, 'queued', NOW(), NOW()
-		WHERE NOT EXISTS (
-			SELECT 1 FROM background_jobs
-			WHERE user_id = $2
-			  AND job_type IN ('gdpr_export', 'data_import')
-			  AND status IN ('uploading', 'queued', 'running')
-		)
-		AND (SELECT COUNT(*) FROM background_jobs
-		     WHERE job_type = 'gdpr_export'
-		     AND status IN ('queued', 'running')) < 3
+		VALUES ($1, 'gdpr_export', $2, 'queued', NOW(), NOW())
 		RETURNING true`, jobID, userID).Scan(new(bool))
 	if errors.Is(err, pgx.ErrNoRows) {
 		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
