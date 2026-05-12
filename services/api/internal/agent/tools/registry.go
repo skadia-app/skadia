@@ -128,6 +128,18 @@ func NewRegistry() *Registry {
 	return &Registry{tools: make(map[string]*Tool)}
 }
 
+func RegisterAll(reg *Registry) {
+	RegisterActivityTools(reg)
+	RegisterGearTools(reg)
+	RegisterGeoTools(reg)
+	RegisterHealthTools(reg)
+	RegisterRouteTools(reg)
+	RegisterSegmentTools(reg)
+	RegisterTagTools(reg)
+	RegisterRuleWriteTools(reg)
+	RegisterRulePreviewTools(reg)
+}
+
 func (r *Registry) Register(t *Tool) {
 	if r.tools == nil {
 		r.tools = make(map[string]*Tool)
