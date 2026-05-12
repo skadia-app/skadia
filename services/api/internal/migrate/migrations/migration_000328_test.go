@@ -69,8 +69,10 @@ func TestMigration000328BackfillsLegacyActivitySurfaces(t *testing.T) {
 		t.Fatalf("insert replacement activity: %v", err)
 	}
 
-	_, err = tx.Exec(ctx, `
-		DROP TABLE IF EXISTS activity_surfaces;
+	if _, err := tx.Exec(ctx, `DROP TABLE IF EXISTS activity_surfaces`); err != nil {
+		t.Fatalf("drop legacy activity_surfaces table: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		CREATE TABLE activity_surfaces (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			activity_id UUID NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
@@ -79,12 +81,20 @@ func TestMigration000328BackfillsLegacyActivitySurfaces(t *testing.T) {
 			length_m DOUBLE PRECISION,
 			percentage DOUBLE PRECISION,
 			category TEXT NOT NULL DEFAULT 'surface'
-		);
-		CREATE INDEX idx_activity_surfaces_activity ON activity_surfaces (activity_id);
-
+		)
+	`); err != nil {
+		t.Fatalf("create legacy activity_surfaces table: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `CREATE INDEX idx_activity_surfaces_activity ON activity_surfaces (activity_id)`); err != nil {
+		t.Fatalf("create legacy activity_surfaces index: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO activity_enrichments (activity_id, category, type, percentage, length_m)
-		VALUES ($2, 'surface', 'gravel', 77, 77);
-
+		VALUES ($1, 'surface', 'gravel', 77, 77)
+	`, activityWithReplacementSurfaceID); err != nil {
+		t.Fatalf("seed replacement enrichment row: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO activity_surfaces (activity_id, surface_type, path_type, length_m, percentage, category)
 		VALUES
 			($1, 'asphalt', 'cycleway', 40, 30, 'surface'),
@@ -94,9 +104,8 @@ func TestMigration000328BackfillsLegacyActivitySurfaces(t *testing.T) {
 			($1, 'dirt', 'track', 8, 8, 'highway'),
 			($1, '', '', NULL, NULL, ''),
 			($2, 'asphalt', 'cycleway', 40, 40, 'surface'),
-			($2, '', 'residential', 60, 60, 'highway');
-	`, activityID, activityWithReplacementSurfaceID)
-	if err != nil {
+			($2, '', 'residential', 60, 60, 'highway')
+	`, activityID, activityWithReplacementSurfaceID); err != nil {
 		t.Fatalf("seed legacy rows: %v", err)
 	}
 

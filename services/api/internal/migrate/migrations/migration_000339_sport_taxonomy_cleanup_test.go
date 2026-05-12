@@ -156,6 +156,7 @@ func TestMigration000339AppliesAndNormalizesFixtures(t *testing.T) {
 	upSQL, _, _ := readMigration000339SQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 339, "000339 rewrites legacy sport columns that no longer exist in the latest schema")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -304,6 +305,7 @@ func TestMigration000339BlocksSegmentBroadeningWithoutGate(t *testing.T) {
 	upSQL, _, _ := readMigration000339SQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 339, "000339 segment broadening guard needs pre-000339 segment columns")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -339,6 +341,7 @@ func TestMigration000339DoesNotBlockSegmentWhenCanonicalParentAlreadyAllowed(t *
 	upSQL, _, _ := readMigration000339SQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 339, "000339 segment rewrite needs pre-000339 segment columns")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -386,6 +389,7 @@ func TestMigration000339PredicateValidatorMatchesGoFixtures(t *testing.T) {
 	upSQL, _, _ := readMigration000339SQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 339, "000339 validator replay installs migration-era functions")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -440,6 +444,7 @@ func TestMigration000339PredicateValidatorAllowsEmptyAndRejectsExtraKeys(t *test
 	upSQL, _, _ := readMigration000339SQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 339, "000339 validator replay installs migration-era functions")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -485,6 +490,7 @@ func TestMigration000339RejectsUnknownSportDuringRewrite(t *testing.T) {
 	upSQL, _, _ := readMigration000339SQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 339, "000339 rewrite failure case needs pre-000339 automation rule shape")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {

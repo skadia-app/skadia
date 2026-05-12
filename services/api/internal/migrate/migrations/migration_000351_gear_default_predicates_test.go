@@ -57,6 +57,7 @@ func TestMigration000351GearDefaultPredicatesBackfillsLegacyDefaults(t *testing.
 	upSQL, downSQL := readMigration000351GearDefaultPredicatesSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 351, "000351 backfills legacy default_for_sports after recreating the pre-000351 gear shape")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
