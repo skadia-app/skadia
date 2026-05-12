@@ -170,6 +170,10 @@ func (db *DB) GetTagActivityIDs(ctx context.Context, tagID string) ([]string, er
 
 // CreateTag creates a new tag for a user.
 func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor string, isAuto bool, conditions, conditionGroups []byte, conditionsLogic string, description *string, lat, lng *float64) (*model.Tag, error) {
+	return db.CreateTagTx(ctx, db.Pool, userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description, lat, lng)
+}
+
+func (db *DB) CreateTagTx(ctx context.Context, q Querier, userID, name, color, textColor string, isAuto bool, conditions, conditionGroups []byte, conditionsLogic string, description *string, lat, lng *float64) (*model.Tag, error) {
 	if conditionsLogic == "" {
 		conditionsLogic = "and"
 	}
@@ -177,7 +181,7 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 	if lat != nil && lng != nil {
 		category = "standort"
 	}
-	t, err := scanTag(db.Pool.QueryRow(ctx, `
+	t, err := scanTag(q.QueryRow(ctx, `
 		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, condition_groups, conditions_logic, description, lat, lng, category)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING `+tagSelectCols,
@@ -195,6 +199,10 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 //   - locationPresent=true, lat/lng=nil → SET lat=NULL, lng=NULL
 //   - locationPresent=true, lat/lng=non-nil → SET lat=*lat, lng=*lng
 func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textColor string, isAuto *bool, conditions, conditionGroups *[]byte, conditionsLogic *string, description *string, lat, lng *float64, locationPresent bool) (*model.Tag, error) {
+	return db.UpdateTagTx(ctx, db.Pool, tagID, userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description, lat, lng, locationPresent)
+}
+
+func (db *DB) UpdateTagTx(ctx context.Context, q Querier, tagID, userID, name, color, textColor string, isAuto *bool, conditions, conditionGroups *[]byte, conditionsLogic *string, description *string, lat, lng *float64, locationPresent bool) (*model.Tag, error) {
 	b := newSetBuilder(3)
 
 	if name != "" {
@@ -237,7 +245,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 	args := append([]any{tagID, userID}, b.Args()...)
 
 	if !b.HasSets() {
-		t, err := scanTag(db.Pool.QueryRow(ctx,
+		t, err := scanTag(q.QueryRow(ctx,
 			`SELECT `+tagSelectCols+` FROM tags WHERE id = $1 AND user_id = $2`,
 			tagID, userID,
 		))
@@ -257,7 +265,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 		b.Clause(),
 	)
 
-	t, err := scanTag(db.Pool.QueryRow(ctx, query, args...))
+	t, err := scanTag(q.QueryRow(ctx, query, args...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -287,7 +295,11 @@ func (db *DB) ClearTagCoverFile(ctx context.Context, tagID, userID string) (*mod
 
 // DeleteTag deletes a tag.
 func (db *DB) DeleteTag(ctx context.Context, tagID, userID string) error {
-	result, err := db.Pool.Exec(ctx,
+	return db.DeleteTagTx(ctx, db.Pool, tagID, userID)
+}
+
+func (db *DB) DeleteTagTx(ctx context.Context, q Querier, tagID, userID string) error {
+	result, err := q.Exec(ctx,
 		`DELETE FROM tags WHERE id = $1 AND user_id = $2`,
 		tagID, userID,
 	)
@@ -298,6 +310,48 @@ func (db *DB) DeleteTag(ctx context.Context, tagID, userID string) error {
 		return fmt.Errorf("tag not found")
 	}
 	return nil
+}
+
+type TagDeleteImpact struct {
+	ActivityAssignments int  `json:"activity_assignments"`
+	HasZone             bool `json:"has_zone"`
+	RouteLinks          int  `json:"route_links"`
+	RemovalHistory      int  `json:"removal_history"`
+}
+
+func (db *DB) GetTagDeleteImpact(ctx context.Context, userID, tagID string) (*TagDeleteImpact, error) {
+	var owned bool
+	var impact TagDeleteImpact
+	err := db.Pool.QueryRow(ctx, `
+		SELECT
+			EXISTS (SELECT 1 FROM tags WHERE id = $1 AND user_id = $2) AS owned,
+			(SELECT COUNT(*)
+			 FROM activity_tags at
+			 JOIN activities a ON a.id = at.activity_id AND a.user_id = $2
+			 WHERE at.tag_id = $1) AS activity_assignments,
+			EXISTS (
+			 SELECT 1
+			 FROM tag_zones tz
+			 JOIN tags t ON t.id = tz.tag_id AND t.user_id = $2
+			 WHERE tz.tag_id = $1
+			) AS has_zone,
+			(SELECT COUNT(*)
+			 FROM route_tags rt
+			 JOIN planned_routes pr ON pr.id = rt.route_id AND pr.user_id = $2
+			 WHERE rt.tag_id = $1) AS route_links,
+			(SELECT COUNT(*)
+			 FROM activity_tag_removals atr
+			 JOIN activities a ON a.id = atr.activity_id AND a.user_id = $2
+			 WHERE atr.tag_id = $1) AS removal_history`,
+		tagID, userID,
+	).Scan(&owned, &impact.ActivityAssignments, &impact.HasZone, &impact.RouteLinks, &impact.RemovalHistory)
+	if err != nil {
+		return nil, fmt.Errorf("get tag delete impact: %w", err)
+	}
+	if !owned {
+		return nil, ErrNotFound
+	}
+	return &impact, nil
 }
 
 // GetTagsByActivity returns all tags assigned to an activity via the activity_tags junction table.
