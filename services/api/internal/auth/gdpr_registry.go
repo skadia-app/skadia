@@ -141,6 +141,7 @@ var GDPRRegistry = map[string]TableCategory{
 	// -------------------------------------------------------------------------
 	// System — security/transient; not exported
 	// -------------------------------------------------------------------------
+	"agent_audit_log":            System, // user_id SET NULL by design; args scrubbed on user deletion
 	"auth_audit_log":             System, // user_id SET NULL by design
 	"auth_codes":                 System,
 	"background_jobs":            System,

@@ -472,6 +472,15 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 		return fmt.Errorf("GDPR: delete user: %w", err)
 	}
 
+	if _, err := tx.Exec(ctx,
+		`UPDATE agent_audit_log
+		 SET args = '{}'::jsonb,
+		     result_detail = NULL
+		 WHERE user_id IS NULL`); err != nil {
+		recordPurgeFailure("phase2_agent_audit_anonymize", err.Error())
+		return fmt.Errorf("GDPR: anonymize agent audit log: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		recordPurgeFailure("phase2_commit", err.Error())
 		return fmt.Errorf("GDPR: commit: %w", err)
