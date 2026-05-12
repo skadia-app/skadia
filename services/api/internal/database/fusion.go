@@ -241,20 +241,16 @@ func (db *DB) IsFusionCacheStale(ctx context.Context, userID string) (stale bool
 // aus fusion_candidates, angereichert mit den Aktivitäts-Metadaten beider Seiten.
 // Gibt einen leeren Slice (nie nil) zurück wenn keine Einträge vorhanden sind.
 func (db *DB) GetCachedFusionCandidates(ctx context.Context, userID string, limit int) ([]FusionCandidateRow, error) {
+	activityTitleASQL := ActivityDisplayTitleSQL("a1")
+	activityTitleBSQL := ActivityDisplayTitleSQL("a2")
 	rows, err := db.Pool.Query(ctx, `
 		SELECT
 			fc.activity_id_a, fc.activity_id_b,
 			fc.overlap_percent, fc.field_richness_a, fc.field_richness_b, fc.time_diff_sec,
-			CASE
-				WHEN COALESCE(a1.title_is_manual, false) AND NULLIF(a1.title, '') IS NOT NULL THEN a1.title
-				ELSE COALESCE(NULLIF(a1.title_auto, ''), NULLIF(a1.title, ''))
-			END,
+			`+activityTitleASQL+`,
 			a1.title_auto, a1.started_at, a1.sport_type, a1.sub_type, a1.is_electric, a1.is_indoor, a1.is_virtual, a1.distance_m,
 			a1.source_device, a1.source, a1.original_file_format,
-			CASE
-				WHEN COALESCE(a2.title_is_manual, false) AND NULLIF(a2.title, '') IS NOT NULL THEN a2.title
-				ELSE COALESCE(NULLIF(a2.title_auto, ''), NULLIF(a2.title, ''))
-			END,
+			`+activityTitleBSQL+`,
 			a2.title_auto, a2.started_at, a2.sport_type, a2.sub_type, a2.is_electric, a2.is_indoor, a2.is_virtual, a2.distance_m,
 			a2.source_device, a2.source, a2.original_file_format,
 			rgm_a.group_id AS group_id_a, rgm_b.group_id AS group_id_b
