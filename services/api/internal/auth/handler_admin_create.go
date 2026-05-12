@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/alexedwards/argon2id"
-	"github.com/google/uuid"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -94,20 +93,11 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		user, createErr := h.DB.CreateUserWithPassword(r.Context(),
-			req.Email, req.Username, hash, "admin", net.ParseIP(ip), true, false)
+		user, createErr := h.DB.CreateAdminPasswordUserSeeded(r.Context(),
+			req.Email, req.Username, hash, net.ParseIP(ip), h.seedSystemArtifactsTx)
 		if createErr != nil {
 			slog.Error("admin create user: create with password failed", "error", createErr)
 			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "admin_create_failed"})
-			return
-		}
-
-		// Set must_change_password and email_verified (admin-created accounts are pre-verified).
-		if _, err := h.DB.Pool.Exec(r.Context(),
-			`UPDATE users SET must_change_password = true, email_verified = true WHERE id = $1`,
-			user.ID); err != nil {
-			slog.Error("admin create user: set must_change_password failed", "error", err)
-			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
 
@@ -125,17 +115,6 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		user, createErr := h.DB.CreateUserWithoutPassword(r.Context(),
-			req.Email, req.Username, "admin_invite", net.ParseIP(ip), true)
-		if createErr != nil {
-			slog.Error("admin create user: create without password failed", "error", createErr)
-			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "admin_create_failed"})
-			return
-		}
-
-		// Admin explicitly provided the email — mark as verified immediately.
-		h.DB.Pool.Exec(r.Context(), `UPDATE users SET email_verified = true WHERE id = $1`, user.ID)
-
 		token, tokenErr := GenerateToken()
 		if tokenErr != nil {
 			slog.Error("admin create user: generate invite token failed", "error", tokenErr)
@@ -143,10 +122,12 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := h.DB.CreateEmailToken(r.Context(), uuid.MustParse(user.ID),
-			HashToken(token), "reset", time.Now().Add(24*time.Hour)); err != nil {
-			slog.Error("admin create user: create email token failed", "error", err)
-			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		user, createErr := h.DB.CreateInvitedUserSeeded(r.Context(),
+			req.Email, req.Username, "admin_invite", net.ParseIP(ip), true,
+			HashToken(token), time.Now().Add(24*time.Hour), h.seedSystemArtifactsTx)
+		if createErr != nil {
+			slog.Error("admin create user: create invite user failed", "error", createErr)
+			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "admin_create_failed"})
 			return
 		}
 
