@@ -131,22 +131,6 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 			fmt.Sprintf("export has incomplete tables: %s", strings.Join(manifest.IncompleteTables, ", ")))
 	}
 
-	// ── 4. Mutual exclusion: no concurrent export or import for this user ────
-	// Known race window — acceptable for CLI usage; the API handler performs an
-	// atomic INSERT-based lock before calling RunImport.
-	var conflictCount int
-	if err := e.DB.QueryRow(ctx, `
-		SELECT COUNT(*) FROM background_jobs
-		WHERE user_id = $1
-		  AND job_type IN ('data_export', 'data_import')
-		  AND status IN ('queued', 'running')
-	`, input.TargetUserID).Scan(&conflictCount); err != nil {
-		return nil, fmt.Errorf("RunImport: conflict check: %w", err)
-	}
-	if conflictCount > 0 {
-		return nil, fmt.Errorf("RunImport: a data export or import is already running for this user")
-	}
-
 	// ── 5. ValidateAccount — hard gate: reject non-empty accounts ───────────
 	validation, err := e.ValidateAccount(ctx, input.TargetUserID)
 	if err != nil {
@@ -395,7 +379,7 @@ func refreshImportedTagAutomationState(ctx context.Context, pool *pgxpool.Pool, 
 
 // runPhase1 reads data/profile.json and applies allow-listed fields to users.
 func (e *Engine) runPhase1(ctx context.Context, input ImportInput, manifest *Manifest) error {
-	rc, err := input.Source.OpenData("data/profile.json")
+	rc, err := input.Source.OpenDataStream("data/profile.json")
 	if err != nil {
 		// Profile file is optional.
 		return nil
@@ -536,7 +520,7 @@ func (e *Engine) runPhase5Activities(
 	activitySpec := findSpec("activities", allTbls)
 
 	legacyGearAssignments := make(map[string]string)
-	rc, err := input.Source.OpenData("data/activities.json")
+	rc, err := input.Source.OpenDataStream("data/activities.json")
 	if err != nil {
 		// No activities file — skip.
 		return 0, legacyGearAssignments, nil

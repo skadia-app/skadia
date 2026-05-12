@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
+	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/google/uuid"
@@ -142,9 +144,14 @@ func runExportForUser(t *testing.T, pool *pgxpool.Pool, userID string) string {
 	st := settings.NewStoreForTest(map[string]string{})
 	h := NewHandler(db, cfg, st, &Mailer{}, middleware.NewRateLimiter(ctx), ctx)
 	h.ShadowFS = newRoundtripShadowFS()
+	store, err := gdprartifacts.NewLocalStore(t.TempDir()+"/exports", t.TempDir()+"/imports")
+	if err != nil {
+		t.Fatalf("runExportForUser: NewLocalStore: %v", err)
+	}
+	h.ArtifactStore = store
 
 	jobID := uuid.New().String()
-	_, err := pool.Exec(ctx, `
+	_, err = pool.Exec(ctx, `
 		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at)
 		VALUES ($1, 'gdpr_export', $2, 'running', NOW(), NOW())
 	`, jobID, userID)
@@ -159,13 +166,43 @@ func runExportForUser(t *testing.T, pool *pgxpool.Pool, userID string) string {
 		t.Fatalf("runExportForUser: executeExportJobOnce: %v", err)
 	}
 
-	var zipPath string
+	return materializeExportArtifactZip(t, ctx, pool, store, jobID)
+}
+
+func materializeExportArtifactZip(t *testing.T, ctx context.Context, pool *pgxpool.Pool, store gdprartifacts.Store, jobID string) string {
+	t.Helper()
+
+	var metadata []byte
 	if err := pool.QueryRow(ctx,
-		`SELECT metadata->>'file_path' FROM background_jobs WHERE id = $1`, jobID,
-	).Scan(&zipPath); err != nil || zipPath == "" {
-		t.Fatalf("runExportForUser: read zip path: %v", err)
+		`SELECT metadata FROM background_jobs WHERE id = $1`, jobID,
+	).Scan(&metadata); err != nil {
+		t.Fatalf("materializeExportArtifactZip: read metadata: %v", err)
 	}
-	return zipPath
+	meta, err := gdprartifacts.DecodeJobMetadata(metadata)
+	if err != nil {
+		t.Fatalf("materializeExportArtifactZip: DecodeJobMetadata: %v", err)
+	}
+	if meta.Artifact == nil || len(meta.Artifact.Objects) != 1 {
+		t.Fatalf("materializeExportArtifactZip: artifact metadata = %#v", meta.Artifact)
+	}
+	reader, err := store.Open(ctx, meta.Artifact.Objects[0], nil)
+	if err != nil {
+		t.Fatalf("materializeExportArtifactZip: open artifact: %v", err)
+	}
+	defer reader.Close()
+
+	tmp, err := os.CreateTemp(t.TempDir(), "skadia-export-*.zip")
+	if err != nil {
+		t.Fatalf("materializeExportArtifactZip: create temp zip: %v", err)
+	}
+	if _, err := io.Copy(tmp, reader); err != nil {
+		tmp.Close()
+		t.Fatalf("materializeExportArtifactZip: copy artifact: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Fatalf("materializeExportArtifactZip: close temp zip: %v", err)
+	}
+	return tmp.Name()
 }
 
 // readZIPEntry decodes a JSON-array entry from the ZIP into a slice of maps.

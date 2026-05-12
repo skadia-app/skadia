@@ -100,6 +100,9 @@ func (m *handlerTestShadowFS) List(_ context.Context, _ string, _ *string) ([]sh
 func (m *handlerTestShadowFS) StreamToZip(_ context.Context, _ string, _ *zip.Writer) ([]string, error) {
 	return nil, nil
 }
+func (m *handlerTestShadowFS) StreamExportFiles(_ context.Context, _ string, _ shadowfs.ExportFileSink) ([]string, error) {
+	return nil, nil
+}
 func (m *handlerTestShadowFS) Resolve(_ context.Context, _, _ string) (shadowfs.ResolvedFile, error) {
 	return shadowfs.ResolvedFile{}, nil
 }

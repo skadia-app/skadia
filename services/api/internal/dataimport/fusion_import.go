@@ -45,21 +45,30 @@ type rawMembership struct {
 // UserID on all returned rows is always overwritten to importUserID.
 // Returns nil (not an error) when the file is absent.
 func ReadMembershipsJSON(src Source, importUserID string, importedActivityIDs map[string]bool) []database.FusionMembership {
-	rc, err := src.OpenData("data/activity_fusion_memberships.json")
+	rc, err := src.OpenDataStream("data/activity_fusion_memberships.json")
 	if err != nil {
 		// File absent — older export.
 		return nil
 	}
 	defer rc.Close()
 
-	var raw []rawMembership
-	if err := json.NewDecoder(rc).Decode(&raw); err != nil {
+	dec := json.NewDecoder(rc)
+	token, err := dec.Token()
+	if err != nil {
 		slog.Warn("dataimport: activity_fusion_memberships.json parse failed", "error", err)
 		return nil
 	}
-
-	out := make([]database.FusionMembership, 0, len(raw))
-	for _, r := range raw {
+	if delim, ok := token.(json.Delim); !ok || delim != '[' {
+		slog.Warn("dataimport: activity_fusion_memberships.json is not a JSON array")
+		return nil
+	}
+	var out []database.FusionMembership
+	for dec.More() {
+		var r rawMembership
+		if err := dec.Decode(&r); err != nil {
+			slog.Warn("dataimport: activity_fusion_memberships.json row parse failed", "error", err)
+			return out
+		}
 		if !importedActivityIDs[r.MergedID] || !importedActivityIDs[r.SourceID] {
 			slog.Warn("dataimport: membership references activity outside import scope — skipping",
 				"merged_id", r.MergedID, "source_id", r.SourceID)
@@ -71,6 +80,9 @@ func ReadMembershipsJSON(src Source, importUserID string, importedActivityIDs ma
 			FieldKey: r.FieldKey,
 			UserID:   importUserID,
 		})
+	}
+	if _, err := dec.Token(); err != nil {
+		slog.Warn("dataimport: activity_fusion_memberships.json ended malformed", "error", err)
 	}
 	return out
 }
@@ -195,7 +207,7 @@ func RunLegacyFusionMembershipsIfNeeded(
 ) error {
 	// v_new check: if the memberships file exists, the generic importer already
 	// handled it — nothing to do.
-	rc, err := src.OpenData("data/activity_fusion_memberships.json")
+	rc, err := src.OpenDataStream("data/activity_fusion_memberships.json")
 	if err == nil {
 		rc.Close()
 		return nil // v_new — handled by phase 6 generic importTable
@@ -209,7 +221,7 @@ func RunLegacyFusionMembershipsIfNeeded(
 	// fs.ErrNotExist → legitimate v_old path, continue below.
 
 	// Re-read activities.json to collect fusion_sources + parent_id.
-	actRC, err := src.OpenData("data/activities.json")
+	actRC, err := src.OpenDataStream("data/activities.json")
 	if err != nil {
 		return nil // No activities file — nothing to derive.
 	}

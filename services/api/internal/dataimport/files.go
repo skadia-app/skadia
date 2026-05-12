@@ -27,24 +27,38 @@ type userFileRecord struct {
 	Status      string  `json:"status"`
 }
 
+type shadowFSPutStreamer interface {
+	PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error)
+}
+
 // loadUserFilesIndex reads data/user_files.json from source and returns an
 // ID-keyed map of all records.
 func loadUserFilesIndex(source Source) (map[string]userFileRecord, error) {
-	rc, err := source.OpenData("data/user_files.json")
+	rc, err := source.OpenDataStream("data/user_files.json")
 	if err != nil {
 		// Missing file index is not fatal — export may simply have no files.
 		return make(map[string]userFileRecord), nil
 	}
 	defer rc.Close()
 
-	var records []userFileRecord
-	if err := json.NewDecoder(rc).Decode(&records); err != nil {
+	dec := json.NewDecoder(rc)
+	token, err := dec.Token()
+	if err != nil {
 		return nil, fmt.Errorf("dataimport: decode user_files.json: %w", err)
 	}
-
-	index := make(map[string]userFileRecord, len(records))
-	for _, rec := range records {
+	if delim, ok := token.(json.Delim); !ok || delim != '[' {
+		return nil, fmt.Errorf("dataimport: user_files.json is not a JSON array")
+	}
+	index := make(map[string]userFileRecord)
+	for dec.More() {
+		var rec userFileRecord
+		if err := dec.Decode(&rec); err != nil {
+			return nil, fmt.Errorf("dataimport: decode user_files.json row: %w", err)
+		}
 		index[rec.ID] = rec
+	}
+	if _, err := dec.Token(); err != nil {
+		return nil, fmt.Errorf("dataimport: decode user_files.json end: %w", err)
 	}
 	return index, nil
 }
@@ -91,7 +105,7 @@ type exportedActivityFileTags struct {
 }
 
 func loadActivityFileTagIndex(source Source) (map[string]shadowfs.ActivitySchemaTagsInput, []string, error) {
-	rc, err := source.OpenData("data/activities.json")
+	rc, err := source.OpenDataStream("data/activities.json")
 	if err != nil {
 		return map[string]shadowfs.ActivitySchemaTagsInput{}, nil, nil
 	}
@@ -240,9 +254,14 @@ func (e *Engine) importFileByID(
 		}
 	}
 
-	fileRecord, err := e.ShadowFS.Put(ctx, entry, fileRC)
+	var fileRecord shadowfs.FileRecord
+	if streamingFS, ok := e.ShadowFS.(shadowFSPutStreamer); ok {
+		fileRecord, err = streamingFS.PutStream(ctx, entry, fileRC)
+	} else {
+		fileRecord, err = e.ShadowFS.Put(ctx, entry, fileRC)
+	}
 	if err != nil {
-		return fmt.Errorf("dataimport: ShadowFS.Put for old_file_id=%q: %w", oldFileID, err)
+		return fmt.Errorf("dataimport: ShadowFS restore for old_file_id=%q: %w", oldFileID, err)
 	}
 
 	// CRITICAL: map old export ID → new ShadowFS-assigned ID.
@@ -438,9 +457,6 @@ func (e *Engine) importEditSidecars(
 		// pre-remap needed here. The activity is in IDMap after Phase 5, so
 		// importFileByID will find actOldID → actNewID correctly.
 		if err := e.importFileByID(ctx, source, idMap, userID, oldFileID, fileIndex, nil, result); err != nil {
-			if errors.Is(err, shadowfs.ErrQuotaExceeded) {
-				return fmt.Errorf("Edit sidecar %s: %w", oldFileID, err)
-			}
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("Edit sidecar %s: %v", oldFileID, err))
 		}

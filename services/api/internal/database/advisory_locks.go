@@ -14,4 +14,8 @@ const (
 	// CreateBootstrapAdmin. Prevents races between parallel registration
 	// requests when the install has zero users.
 	LockBootstrapAdmin int64 = 0x666974706970655f // "skadia_" as int64
+
+	// LockGDPRTransferAdmission serializes GDPR export/import admission checks
+	// that enforce server-wide active transfer limits.
+	LockGDPRTransferAdmission int64 = 0x6669747069705f02
 )

@@ -3,22 +3,26 @@ package auth
 import (
 	"archive/zip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/go-chi/chi/v5"
@@ -39,6 +43,8 @@ var staleCleanupOnce sync.Once
 
 const dataExportDownloadTTL = 24 * time.Hour
 const dataExportMaxStartsPer24h = 3
+const dataExportDownloadSessionCookie = "skadia_gdpr_download"
+const dataExportDownloadSessionTTL = time.Minute
 
 func dataExportExpiresAt(updatedAt time.Time) time.Time {
 	return updatedAt.Add(dataExportDownloadTTL)
@@ -172,19 +178,6 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 	// Ensure the background stale-job cleanup timer is running (starts once per process).
 	startStaleExportCleanup(h.shutdownCtx, h.DB.Pool)
 
-	// Per-user: no concurrent export.
-	var userRunning bool
-	if err := h.DB.Pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM background_jobs WHERE user_id = $1 AND job_type = 'gdpr_export' AND status IN ('queued','running'))`,
-		userID).Scan(&userRunning); err != nil {
-		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
-		return
-	}
-	if userRunning {
-		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
-		return
-	}
-
 	var recentStarts int
 	if err := h.DB.Pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM background_jobs
@@ -199,9 +192,38 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Server-wide: max 3 concurrent exports.
+	jobID := uuid.New().String()
+	expiresAt := time.Now().UTC().Add(dataExportDownloadTTL)
+	reservedBytes := h.estimateGDPRExportReservationBytes(ctx, userID)
+	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		slog.Error("gdpr export: begin admission tx failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	defer tx.Rollback(ctx)
+	if err := lockGDPRTransferAdmission(ctx, tx); err != nil {
+		slog.Error("gdpr export: admission lock failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	var userRunning bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM background_jobs
+			WHERE user_id = $1
+			  AND job_type IN ('gdpr_export', 'data_import')
+			  AND status IN ('uploading', 'queued', 'running'))`,
+		userID).Scan(&userRunning); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	if userRunning {
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
+		return
+	}
 	var serverCount int
-	if err := h.DB.Pool.QueryRow(ctx,
+	if err := tx.QueryRow(ctx,
 		`SELECT COUNT(*) FROM background_jobs WHERE job_type = 'gdpr_export' AND status IN ('queued','running')`,
 	).Scan(&serverCount); err != nil {
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
@@ -211,28 +233,42 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "server_busy"})
 		return
 	}
-
-	// Atomic INSERT — prevents race condition between EXISTS check and INSERT.
-	// Also enforces the server-wide limit of 3 concurrent exports atomically (S5 TOCTOU fix).
-	jobID := uuid.New().String()
-	err = h.DB.Pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at)
-		SELECT $1, 'gdpr_export', $2, 'queued', NOW(), NOW()
-		WHERE NOT EXISTS (
-			SELECT 1 FROM background_jobs
-			WHERE user_id = $2 AND job_type = 'gdpr_export'
-			AND status IN ('queued', 'running')
-		)
-		AND (SELECT COUNT(*) FROM background_jobs
-		     WHERE job_type = 'gdpr_export'
-		     AND status IN ('queued', 'running')) < 3
+		VALUES ($1, 'gdpr_export', $2, 'queued', NOW(), NOW())
 		RETURNING true`, jobID, userID).Scan(new(bool))
 	if errors.Is(err, pgx.ErrNoRows) {
 		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
 		return
 	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
+		return
+	}
 	if err != nil {
 		slog.Error("gdpr export: insert job failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	if err := h.reserveGDPRArtifactCapacityTx(ctx, tx, gdprArtifactCapacityRequest{
+		JobID:         jobID,
+		UserID:        userID,
+		Backend:       h.gdprArtifactBackendName(),
+		Kind:          "export",
+		ReservedBytes: reservedBytes,
+		ExpiresAt:     expiresAt,
+	}); err != nil {
+		if isArtifactCapacityError(err) {
+			httputil.WriteJSONNoCache(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "artifact_quota_exceeded"})
+			return
+		}
+		slog.Error("gdpr export: reserve artifact capacity failed", "error", err)
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		slog.Error("gdpr export: commit admission tx failed", "error", err)
 		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 		return
 	}
@@ -278,7 +314,12 @@ func (h *Handler) DataExportLatest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	metadata, unavailableReason := h.reconcileExportArtifactForStatus(r.Context(), jobID, userID, metadata)
 	resp := buildDataExportStatusResponse(jobID, status, updatedAt, errText, metadata, time.Now())
+	if unavailableReason == "artifact_backend_unavailable" {
+		stripDataExportDownloadSessionFields(resp)
+		resp["unavailable_reason"] = unavailableReason
+	}
 	resp["started_at"] = startedAt
 	httputil.WriteJSONNoCache(w, http.StatusOK, resp)
 }
@@ -290,6 +331,9 @@ func (h *Handler) runExportJob(ctx context.Context, jobID, userID string) {
 	if err := h.executeExportJob(ctx, jobID, userID); err != nil {
 		slog.Error("gdpr export job failed", "job_id", jobID, "error", err)
 		h.DB.Pool.Exec(ctx, `UPDATE background_jobs SET status = 'failed', error = $2, updated_at = NOW() WHERE id = $1`, jobID, err.Error())
+		if capacityErr := h.finalizeExportReservationAfterError(ctx, jobID, userID); capacityErr != nil {
+			slog.Warn("gdpr export job: finalize artifact reservation after error failed", "job_id", jobID, "error", capacityErr)
+		}
 	}
 }
 
@@ -378,23 +422,35 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		return fmt.Errorf("schema migration ran during introspection (pre=%d, in_tx=%d) — please retry", preIntrospectMigration, schemaMigration)
 	}
 
-	// 5. Create temporary ZIP file.
-	tmpFile, err := os.CreateTemp("", "skadia-export-*.zip")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
+	if h.shouldUseMultipartExport(ctx, userID) {
+		return h.executeMultipartExportJobOnce(ctx, jobID, userID, tx, schemaMigration, colCache, specs, healthTables, introspectErrs)
 	}
-	defer tmpFile.Close()
-	tmpPath := tmpFile.Name()
-	// Clean up on failure (success path and partial-fail path both move ownership
-	// to background_jobs.metadata so the file survives until the 24h cleanup).
-	cleanupNeeded := true
+
+	// 5. Create artifact-backed ZIP writer.
+	if h.ArtifactStore == nil {
+		return fmt.Errorf("artifact_store_unconfigured")
+	}
+	expiresAt := time.Now().UTC().Add(dataExportDownloadTTL)
+	artifactWriter, err := h.ArtifactStore.CreateWriter(ctx, gdprartifacts.ObjectSpec{
+		Kind:        "export",
+		UserID:      userID,
+		JobID:       jobID,
+		Role:        gdprartifacts.RoleSingleZIP,
+		Name:        fmt.Sprintf("skadia-export-%s.zip", time.Now().Format("2006-01-02")),
+		ContentType: "application/zip",
+		ExpiresAt:   expiresAt,
+	})
+	if err != nil {
+		return fmt.Errorf("create artifact writer: %w", err)
+	}
+	artifactCommitted := false
 	defer func() {
-		if cleanupNeeded {
-			os.Remove(tmpPath)
+		if !artifactCommitted {
+			_ = artifactWriter.Abort(ctx)
 		}
 	}()
 
-	zw := zip.NewWriter(tmpFile)
+	zw := zip.NewWriter(artifactWriter)
 
 	// 6. Export all tables via the TX.
 	entityCounts, exportErrs := h.exportAllTables(ctx, zw, tx, userID, colCache, specs, healthTables)
@@ -455,30 +511,24 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	}
 	writeZipJSON(zw, "manifest.json", manifest)
 
-	// 11. Close ZIP + flush file to disk before re-opening for SHA-256.
+	// 11. Close ZIP and commit artifact object.
 	if err := zw.Close(); err != nil {
 		return fmt.Errorf("close zip: %w", err)
 	}
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("close temp file: %w", err)
-	}
-
-	// 12. Compute SHA-256 of the final ZIP.
-	f, err := os.Open(tmpPath)
+	ref, err := artifactWriter.Commit(ctx)
 	if err != nil {
-		return fmt.Errorf("reopen for hash: %w", err)
+		return fmt.Errorf("commit export artifact: %w", err)
 	}
-	defer f.Close()
-	hasher := sha256.New()
-	if _, err := io.Copy(hasher, f); err != nil {
-		return fmt.Errorf("hash: %w", err)
+	artifactCommitted = true
+	artifactPublished := false
+	defer func() {
+		if artifactCommitted && !artifactPublished && h.ArtifactStore != nil {
+			h.cleanupUnpublishedExportArtifacts(context.Background(), userID, jobID)
+		}
+	}()
+	if err := h.commitGDPRArtifactCapacity(ctx, jobID, userID, ref.SizeBytes); err != nil {
+		return fmt.Errorf("commit artifact reservation: %w", err)
 	}
-	fi, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("stat: %w", err)
-	}
-	sizeBytes := fi.Size()
-	checksum := hex.EncodeToString(hasher.Sum(nil))
 
 	// 13a. Partial-export path: errors present → mark failed, keep ZIP for debug.
 	if len(allErrs) > 0 {
@@ -500,34 +550,21 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		// visible in the admin UI, not returned to the end user.
 		topMsg := fmt.Sprintf("export incomplete: %d table(s) errored, first failure on %q",
 			len(allErrs), allErrs[0].Table)
-		// Explicit type casts on every parameter — jsonb_build_object is
-		// polymorphic, so pgx cannot infer types from the function signature
-		// and PostgreSQL refuses the prepared statement otherwise (SQLSTATE 42P18).
+		metadata, metaErr := buildSingleExportArtifactMetadata(ref, expiresAt, errPayload, incompletePayload)
+		if metaErr != nil {
+			return fmt.Errorf("build partial-fail metadata: %w", metaErr)
+		}
 		if _, err := h.DB.Pool.Exec(ctx,
 			`UPDATE background_jobs SET
 				status = 'failed',
-				error = $5::text,
-				metadata = jsonb_build_object(
-					'sha256', $2::text,
-					'size_bytes', $3::bigint,
-					'file_path', $4::text,
-					'export_errors', $6::jsonb,
-					'incomplete_tables', $7::jsonb
-				),
+				error = $3::text,
+				metadata = $2::jsonb,
 				updated_at = NOW()
 			 WHERE id = $1::uuid`,
-			jobID, checksum, sizeBytes, tmpPath, topMsg, errPayload, incompletePayload); err != nil {
+			jobID, string(metadata), topMsg); err != nil {
 			return fmt.Errorf("store partial-fail metadata: %w", err)
 		}
-		cleanupNeeded = false // file is referenced by metadata.file_path
-
-		// Schedule cleanup after 24h.
-		go func(path string) {
-			time.Sleep(24 * time.Hour)
-			if isValidExportPath(path) {
-				os.Remove(path)
-			}
-		}(tmpPath)
+		artifactPublished = true
 
 		// Return an error so runExportJob's error wrapper logs the failure
 		// (the metadata + status are already in place; the wrapper only
@@ -535,31 +572,67 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		return fmt.Errorf("%s", topMsg)
 	}
 
-	// 13b. Success path: store metadata, mark completed, schedule cleanup.
-	// Explicit type casts on every parameter (same reason as the partial-fail path above).
+	// 13b. Success path: store metadata, mark completed.
+	metadata, err := buildSingleExportArtifactMetadata(ref, expiresAt, nil, nil)
+	if err != nil {
+		return fmt.Errorf("build metadata: %w", err)
+	}
 	if _, err := h.DB.Pool.Exec(ctx,
 		`UPDATE background_jobs SET
-			metadata = jsonb_build_object('sha256', $2::text, 'size_bytes', $3::bigint, 'file_path', $4::text),
+			metadata = $2::jsonb,
 			updated_at = NOW()
 		 WHERE id = $1::uuid`,
-		jobID, checksum, sizeBytes, tmpPath); err != nil {
+		jobID, string(metadata)); err != nil {
 		return fmt.Errorf("store metadata: %w", err)
 	}
-
-	cleanupNeeded = false // tmpFile is now owned by the job record.
+	artifactPublished = true
 
 	// Mark completed + create notification (single call, avoids double update).
 	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 
-	// Schedule cleanup after 24h.
-	go func(path string) {
-		time.Sleep(24 * time.Hour)
-		if isValidExportPath(path) {
-			os.Remove(path)
-		}
-	}(tmpPath)
-
 	return nil
+}
+
+func (h *Handler) finalizeExportReservationAfterError(ctx context.Context, jobID, userID string) error {
+	var metadata []byte
+	if err := h.DB.Pool.QueryRow(ctx,
+		`SELECT COALESCE(metadata, '{}'::jsonb) FROM background_jobs WHERE id = $1 AND user_id = $2`,
+		jobID, userID).Scan(&metadata); err != nil {
+		return err
+	}
+	meta, err := gdprartifacts.DecodeJobMetadata(metadata)
+	if err != nil || meta.Artifact == nil {
+		return h.releaseGDPRArtifactCapacity(ctx, jobID, userID, 0)
+	}
+	return h.commitGDPRArtifactCapacity(ctx, jobID, userID, totalArtifactBytes(*meta.Artifact))
+}
+
+func buildSingleExportArtifactMetadata(ref gdprartifacts.ObjectRef, expiresAt time.Time, exportErrors, incompleteTables json.RawMessage) ([]byte, error) {
+	artifact := gdprartifacts.Artifact{
+		Version:   1,
+		Format:    gdprartifacts.ArtifactFormatSingleZIP,
+		ExpiresAt: expiresAt,
+		Objects:   []gdprartifacts.ObjectRef{ref},
+	}
+	raw, err := gdprartifacts.MergeArtifactJSON([]byte(`{}`), artifact)
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, err
+	}
+	sha, _ := json.Marshal(ref.SHA256)
+	size, _ := json.Marshal(ref.SizeBytes)
+	obj["sha256"] = sha
+	obj["size_bytes"] = size
+	if len(exportErrors) > 0 {
+		obj["export_errors"] = exportErrors
+	}
+	if len(incompleteTables) > 0 {
+		obj["incomplete_tables"] = incompleteTables
+	}
+	return json.Marshal(obj)
 }
 
 // gdprExportTableSpec describes one table to export: ZIP path, source table
@@ -724,7 +797,12 @@ func (h *Handler) DataExportStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	metadata, unavailableReason := h.reconcileExportArtifactForStatus(r.Context(), jobID, userID, metadata)
 	resp := buildDataExportStatusResponse(jobID, status, updatedAt, errText, metadata, time.Now())
+	if unavailableReason == "artifact_backend_unavailable" {
+		stripDataExportDownloadSessionFields(resp)
+		resp["unavailable_reason"] = unavailableReason
+	}
 	resp["started_at"] = startedAt
 	httputil.WriteJSONNoCache(w, http.StatusOK, resp)
 }
@@ -746,6 +824,52 @@ func buildDataExportStatusResponse(
 	// A failed job may still have a downloadable ZIP for debugging — the
 	// `partial: true` flag tells the frontend to warn the user.
 	if (status == "completed" || status == "failed") && len(metadata) > 0 {
+		if jobMeta, err := gdprartifacts.DecodeJobMetadata(metadata); err == nil && jobMeta.Artifact != nil {
+			var rawMeta map[string]json.RawMessage
+			_ = json.Unmarshal(metadata, &rawMeta)
+			artifactMissing := len(rawMeta["artifact_missing_at"]) > 0
+
+			artifact := jobMeta.Artifact
+			resp["artifact_format"] = string(artifact.Format)
+			resp["expires_at"] = artifact.ExpiresAt.Format(time.RFC3339)
+			if len(artifact.Objects) > 0 {
+				resp["sha256"] = artifact.Objects[0].SHA256
+				resp["size_bytes"] = artifact.Objects[0].SizeBytes
+			}
+			if now.Before(artifact.ExpiresAt) && !artifactMissing {
+				switch artifact.Format {
+				case gdprartifacts.ArtifactFormatSingleZIP:
+					resp["download_session_url"] = fmt.Sprintf("/api/v1/auth/data-export/%s/download-session", jobID)
+				case gdprartifacts.ArtifactFormatMultipart:
+					resp["manifest_download_session_url"] = fmt.Sprintf("/api/v1/auth/data-export/%s/download-session", jobID)
+					parts := make([]map[string]any, 0, len(artifact.Objects))
+					for _, ref := range artifact.Objects {
+						parts = append(parts, map[string]any{
+							"name":                 ref.Name,
+							"role":                 ref.Role,
+							"download_session_url": fmt.Sprintf("/api/v1/auth/data-export/%s/download-session", jobID),
+							"sha256":               ref.SHA256,
+							"size_bytes":           ref.SizeBytes,
+							"web_import_supported": ref.Role != gdprartifacts.RoleFilesZIP || ref.SizeBytes <= 4<<30,
+						})
+					}
+					resp["parts"] = parts
+				}
+				if status == "failed" {
+					resp["partial"] = true
+				}
+			} else if artifactMissing {
+				resp["unavailable_reason"] = "artifact_missing"
+			}
+			if raw := rawMeta["incomplete_tables"]; len(raw) > 0 {
+				var incompleteTables []string
+				if json.Unmarshal(raw, &incompleteTables) == nil {
+					resp["incomplete_tables"] = incompleteTables
+				}
+			}
+			return resp
+		}
+
 		var meta map[string]any
 		if json.Unmarshal(metadata, &meta) == nil {
 			if v, ok := meta["sha256"]; ok {
@@ -778,6 +902,397 @@ func buildDataExportStatusResponse(
 	}
 
 	return resp
+}
+
+func stripDataExportDownloadSessionFields(resp map[string]any) {
+	delete(resp, "download_session_url")
+	delete(resp, "manifest_download_session_url")
+	if parts, ok := resp["parts"].([]map[string]any); ok {
+		for _, part := range parts {
+			delete(part, "download_session_url")
+		}
+	}
+}
+
+// DataExportDownloadSession handles POST /auth/data-export/{jobID}/download-session.
+func (h *Handler) DataExportDownloadSession(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	jobID := chi.URLParam(r, "jobID")
+	ctx := r.Context()
+	if h.ArtifactStore == nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "artifact_store_unconfigured"})
+		return
+	}
+
+	var req struct {
+		Single bool   `json:"single"`
+		Part   string `json:"part"`
+		All    bool   `json:"all"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	var status string
+	var metadata []byte
+	err := h.DB.Pool.QueryRow(ctx,
+		`SELECT status, COALESCE(metadata, '{}'::jsonb)
+		 FROM background_jobs
+		 WHERE id = $1 AND user_id = $2 AND job_type = 'gdpr_export'`,
+		jobID, userID).Scan(&status, &metadata)
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	if status != "completed" && status != "failed" {
+		httputil.WriteJSONNoCache(w, http.StatusConflict, map[string]string{"error": "not_completed"})
+		return
+	}
+	meta, err := gdprartifacts.DecodeJobMetadata(metadata)
+	if err != nil || meta.Artifact == nil {
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	if !time.Now().Before(meta.Artifact.ExpiresAt) {
+		httputil.WriteJSONNoCache(w, http.StatusGone, map[string]string{"error": "file_expired"})
+		return
+	}
+
+	allowedRefs, err := selectDownloadSessionObjects(*meta.Artifact, req.Single, req.Part, req.All)
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_part"})
+		return
+	}
+	for _, ref := range allowedRefs {
+		stat, err := h.ArtifactStore.Stat(ctx, ref)
+		if err != nil || stat.State != gdprartifacts.ObjectPresent {
+			httputil.WriteJSONNoCache(w, http.StatusGone, map[string]string{"error": "artifact_unavailable"})
+			return
+		}
+	}
+
+	sessionID := uuid.NewString()
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "session_failed"})
+		return
+	}
+	rawSecret := base64.RawURLEncoding.EncodeToString(secret)
+	expiresAt := time.Now().UTC().Add(dataExportDownloadSessionTTL)
+	session := gdprartifacts.DownloadSessionRecord{
+		SessionID:  sessionID,
+		SecretHash: gdprartifacts.HashDownloadSessionSecret([]byte(rawSecret)),
+		UserID:     userID,
+		JobID:      jobID,
+		ExpiresAt:  expiresAt,
+		CreatedAt:  time.Now().UTC(),
+	}
+	for _, ref := range allowedRefs {
+		session.AllowedObjects = append(session.AllowedObjects, gdprartifacts.DownloadSessionObject{
+			Name: ref.Name, Role: ref.Role, SHA256: ref.SHA256, SizeBytes: ref.SizeBytes,
+		})
+	}
+	updated, err := gdprartifacts.AddDownloadSessionJSON(metadata, session)
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "session_failed"})
+		return
+	}
+	if _, err := h.DB.Pool.Exec(ctx, `UPDATE background_jobs SET metadata=$2::jsonb, updated_at=updated_at WHERE id=$1`, jobID, string(updated)); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "session_failed"})
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     dataExportDownloadSessionCookie,
+		Value:    rawSecret,
+		Path:     "/api/v1/downloads/gdpr/data-export/",
+		Expires:  expiresAt,
+		MaxAge:   int(dataExportDownloadSessionTTL.Seconds()),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   isRequestHTTPS(r),
+	})
+	first := allowedRefs[0]
+	downloadURL := dataExportDownloadURL(jobID, first.Name, sessionID)
+	type downloadSessionObjectResponse struct {
+		Name      string                   `json:"name"`
+		Role      gdprartifacts.ObjectRole `json:"role"`
+		URL       string                   `json:"url"`
+		SHA256    string                   `json:"sha256"`
+		SizeBytes int64                    `json:"size_bytes"`
+	}
+	objects := make([]downloadSessionObjectResponse, 0, len(allowedRefs))
+	for _, ref := range allowedRefs {
+		objects = append(objects, downloadSessionObjectResponse{
+			Name: ref.Name, Role: ref.Role, URL: dataExportDownloadURL(jobID, ref.Name, sessionID), SHA256: ref.SHA256, SizeBytes: ref.SizeBytes,
+		})
+	}
+	go h.DB.LogAuthEvent(h.shutdownCtx, userID, "data_export_download_session_issued",
+		middleware.ClientIP(r), r.UserAgent(), map[string]string{"job_id": jobID})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]any{
+		"url":        downloadURL,
+		"expires_at": expiresAt.Format(time.RFC3339),
+		"objects":    objects,
+	})
+}
+
+func (h *Handler) DataExportDownloadManifest(w http.ResponseWriter, r *http.Request) {
+	h.streamDataExportArtifact(w, r, "manifest.json")
+}
+
+func (h *Handler) DataExportDownloadPart(w http.ResponseWriter, r *http.Request) {
+	h.streamDataExportArtifact(w, r, chi.URLParam(r, "partName"))
+}
+
+func (h *Handler) streamDataExportArtifact(w http.ResponseWriter, r *http.Request, objectName string) {
+	jobID := chi.URLParam(r, "jobID")
+	sessionID := r.URL.Query().Get("session_id")
+	cookie, err := r.Cookie(dataExportDownloadSessionCookie)
+	if err != nil || sessionID == "" || objectName == "" {
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "download_session_invalid"})
+		return
+	}
+	ref, _, status, errorCode := h.resolveDataExportDownloadSession(r.Context(), jobID, sessionID, cookie.Value, objectName, false)
+	if status != http.StatusOK {
+		httputil.WriteJSONNoCache(w, status, map[string]string{"error": errorCode})
+		return
+	}
+	rangeSpec, statusCode, err := parseRangeHeader(r.Header.Get("Range"))
+	if err != nil {
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", ref.SizeBytes))
+		httputil.WriteJSONNoCache(w, http.StatusRequestedRangeNotSatisfiable, map[string]string{"error": "invalid_range"})
+		return
+	}
+	contentRange := ""
+	if rangeSpec != nil {
+		start := int64(0)
+		if rangeSpec.Start != nil {
+			start = *rangeSpec.Start
+		}
+		if start >= ref.SizeBytes {
+			w.Header().Set("Accept-Ranges", "bytes")
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", ref.SizeBytes))
+			httputil.WriteJSONNoCache(w, http.StatusRequestedRangeNotSatisfiable, map[string]string{"error": "invalid_range"})
+			return
+		}
+		end := ref.SizeBytes - 1
+		if rangeSpec.End != nil && *rangeSpec.End < end {
+			end = *rangeSpec.End
+		}
+		rangeSpec.End = &end
+		contentRange = fmt.Sprintf("bytes %d-%d/%d", start, end, ref.SizeBytes)
+	}
+	reader, err := h.ArtifactStore.Open(r.Context(), ref, rangeSpec)
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusGone, map[string]string{"error": "artifact_unavailable"})
+		return
+	}
+	defer reader.Close()
+	confirmedRef, clearCookie, status, errorCode := h.consumeDataExportDownloadSession(r.Context(), jobID, sessionID, cookie.Value, objectName)
+	if status != http.StatusOK {
+		httputil.WriteJSONNoCache(w, status, map[string]string{"error": errorCode})
+		return
+	}
+	ref = confirmedRef
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Content-Type", defaultDownloadContentType(ref.ContentType))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, sanitizeDownloadFilename(ref.Name)))
+	w.Header().Set("X-Checksum-SHA256", ref.SHA256)
+	if contentRange != "" {
+		w.Header().Set("Content-Range", contentRange)
+	}
+	if clearCookie {
+		http.SetCookie(w, &http.Cookie{
+			Name:     dataExportDownloadSessionCookie,
+			Value:    "",
+			Path:     "/api/v1/downloads/gdpr/data-export/",
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   isRequestHTTPS(r),
+		})
+	}
+	if reader.Size() >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(reader.Size(), 10))
+	}
+	if statusCode != 0 {
+		w.WriteHeader(statusCode)
+	}
+	if _, err := io.Copy(w, reader); err != nil {
+		slog.Warn("gdpr export download stream failed", "job_id", jobID, "object", objectName, "error", err)
+		return
+	}
+	go h.DB.LogAuthEvent(h.shutdownCtx, ref.UserID, "data_export_download_started",
+		middleware.ClientIP(r), r.UserAgent(), map[string]string{"job_id": jobID, "part_name": objectName})
+}
+
+func (h *Handler) consumeDataExportDownloadSession(ctx context.Context, jobID, sessionID, rawSecret, objectName string) (gdprartifacts.ObjectRef, bool, int, string) {
+	return h.resolveDataExportDownloadSession(ctx, jobID, sessionID, rawSecret, objectName, true)
+}
+
+func (h *Handler) resolveDataExportDownloadSession(ctx context.Context, jobID, sessionID, rawSecret, objectName string, markUsed bool) (gdprartifacts.ObjectRef, bool, int, string) {
+	tx, err := h.DB.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return gdprartifacts.ObjectRef{}, false, http.StatusInternalServerError, "download_session_invalid"
+	}
+	defer tx.Rollback(ctx)
+
+	var metadata []byte
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(metadata, '{}'::jsonb)
+		 FROM background_jobs
+		 WHERE id = $1 AND job_type = 'gdpr_export'
+		 FOR UPDATE`,
+		jobID).Scan(&metadata); err != nil {
+		return gdprartifacts.ObjectRef{}, false, http.StatusNotFound, "not_found"
+	}
+	meta, err := gdprartifacts.DecodeJobMetadata(metadata)
+	if err != nil || meta.Artifact == nil {
+		return gdprartifacts.ObjectRef{}, false, http.StatusUnauthorized, "download_session_invalid"
+	}
+	now := time.Now().UTC()
+	if !now.Before(meta.Artifact.ExpiresAt) {
+		return gdprartifacts.ObjectRef{}, false, http.StatusGone, "file_expired"
+	}
+	session, ok := meta.DownloadSessions[sessionID]
+	if !ok || session.JobID != jobID || now.After(session.ExpiresAt) {
+		return gdprartifacts.ObjectRef{}, false, http.StatusUnauthorized, "download_session_invalid"
+	}
+	if subtle.ConstantTimeCompare([]byte(session.SecretHash), []byte(gdprartifacts.HashDownloadSessionSecret([]byte(rawSecret)))) != 1 {
+		return gdprartifacts.ObjectRef{}, false, http.StatusUnauthorized, "download_session_invalid"
+	}
+	var allowed *gdprartifacts.DownloadSessionObject
+	for i := range session.AllowedObjects {
+		if session.AllowedObjects[i].Name == objectName {
+			allowed = &session.AllowedObjects[i]
+			break
+		}
+	}
+	if allowed == nil {
+		return gdprartifacts.ObjectRef{}, false, http.StatusForbidden, "download_session_invalid"
+	}
+	if allowed.UsedAt != nil {
+		return gdprartifacts.ObjectRef{}, false, http.StatusUnauthorized, "download_session_invalid"
+	}
+	ref, ok := findArtifactObject(*meta.Artifact, objectName)
+	if !ok {
+		return gdprartifacts.ObjectRef{}, false, http.StatusGone, "artifact_unavailable"
+	}
+	if ref.Role != allowed.Role || ref.SHA256 != allowed.SHA256 || ref.SizeBytes != allowed.SizeBytes {
+		return gdprartifacts.ObjectRef{}, false, http.StatusUnauthorized, "download_session_invalid"
+	}
+	if !markUsed {
+		return ref, false, http.StatusOK, ""
+	}
+	updated, err := gdprartifacts.MarkDownloadSessionObjectUsedJSON(metadata, sessionID, objectName, now)
+	if err != nil {
+		return gdprartifacts.ObjectRef{}, false, http.StatusInternalServerError, "download_session_invalid"
+	}
+	if _, err := tx.Exec(ctx, `UPDATE background_jobs SET metadata=$2::jsonb, updated_at=updated_at WHERE id=$1`, jobID, string(updated)); err != nil {
+		return gdprartifacts.ObjectRef{}, false, http.StatusInternalServerError, "download_session_invalid"
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return gdprartifacts.ObjectRef{}, false, http.StatusInternalServerError, "download_session_invalid"
+	}
+	clearCookie := true
+	for _, object := range session.AllowedObjects {
+		if object.Name != objectName && object.UsedAt == nil {
+			clearCookie = false
+			break
+		}
+	}
+	return ref, clearCookie, http.StatusOK, ""
+}
+
+func selectDownloadSessionObjects(artifact gdprartifacts.Artifact, single bool, part string, all bool) ([]gdprartifacts.ObjectRef, error) {
+	if all {
+		return artifact.Objects, nil
+	}
+	if single {
+		for _, ref := range artifact.Objects {
+			if ref.Role == gdprartifacts.RoleSingleZIP {
+				return []gdprartifacts.ObjectRef{ref}, nil
+			}
+		}
+		return nil, fmt.Errorf("single artifact missing")
+	}
+	if part != "" {
+		ref, ok := findArtifactObject(artifact, part)
+		if !ok {
+			return nil, fmt.Errorf("part not found")
+		}
+		return []gdprartifacts.ObjectRef{ref}, nil
+	}
+	return nil, fmt.Errorf("object selector required")
+}
+
+func findArtifactObject(artifact gdprartifacts.Artifact, name string) (gdprartifacts.ObjectRef, bool) {
+	for _, ref := range artifact.Objects {
+		if ref.Name == name {
+			return ref, true
+		}
+	}
+	return gdprartifacts.ObjectRef{}, false
+}
+
+func dataExportDownloadURL(jobID, objectName, sessionID string) string {
+	return fmt.Sprintf("/api/v1/downloads/gdpr/data-export/%s/parts/%s?session_id=%s",
+		url.PathEscape(jobID), url.PathEscape(objectName), url.QueryEscape(sessionID))
+}
+
+func parseRangeHeader(header string) (*gdprartifacts.RangeSpec, int, error) {
+	if header == "" {
+		return nil, 0, nil
+	}
+	if !strings.HasPrefix(header, "bytes=") {
+		return nil, 0, fmt.Errorf("unsupported range")
+	}
+	bounds := strings.TrimPrefix(header, "bytes=")
+	startText, endText, ok := strings.Cut(bounds, "-")
+	if !ok || startText == "" {
+		return nil, 0, fmt.Errorf("invalid range")
+	}
+	start, err := strconv.ParseInt(startText, 10, 64)
+	if err != nil || start < 0 {
+		return nil, 0, fmt.Errorf("invalid range start")
+	}
+	spec := &gdprartifacts.RangeSpec{Start: &start}
+	if endText != "" {
+		end, err := strconv.ParseInt(endText, 10, 64)
+		if err != nil || end < start {
+			return nil, 0, fmt.Errorf("invalid range end")
+		}
+		spec.End = &end
+	}
+	return spec, http.StatusPartialContent, nil
+}
+
+func defaultDownloadContentType(contentType string) string {
+	if contentType == "" {
+		return "application/octet-stream"
+	}
+	return contentType
+}
+
+func sanitizeDownloadFilename(name string) string {
+	name = strings.ReplaceAll(name, `"`, "")
+	name = filepath.Base(name)
+	if name == "." || name == "/" || name == "" {
+		return "download.bin"
+	}
+	return name
+}
+
+func isRequestHTTPS(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 // DataExportDownload handles GET /auth/data-export/{jobID}/download — streams the export ZIP.
