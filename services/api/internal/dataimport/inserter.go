@@ -478,6 +478,9 @@ func (e *Engine) insertAutomationRule(
 	insertCols []string,
 	geometryCols map[string]bool,
 ) (insertResult, error) {
+	if err := setImportUserRLS(ctx, tx, userID); err != nil {
+		return failed, err
+	}
 	isSystem := boolValue(row["is_system"])
 	existingID, found, err := findAutomationRuleForImport(ctx, tx, userID, row, isSystem)
 	if err != nil {
@@ -747,6 +750,16 @@ func stringVal(val any) (string, bool) {
 	return s, ok
 }
 
+func setImportUserRLS(ctx context.Context, tx pgx.Tx, userID string) error {
+	if strings.TrimSpace(userID) == "" {
+		return fmt.Errorf("set import RLS context: userID is required")
+	}
+	if _, err := tx.Exec(ctx, "SELECT set_config('app.current_user_id', $1, true)", userID); err != nil {
+		return fmt.Errorf("set import RLS context: %w", err)
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // runJSONBRemap — Phase 9
 // ---------------------------------------------------------------------------
@@ -759,6 +772,9 @@ func (e *Engine) runJSONBRemap(ctx context.Context, idMap *IDMap, userID string)
 		return fmt.Errorf("jsonb remap begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := setImportUserRLS(ctx, tx, userID); err != nil {
+		return err
+	}
 
 	for table, jsonbCols := range jsonbRemapFields {
 		// Look up correct user column for this table.
