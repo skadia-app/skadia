@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/auth"
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -21,7 +22,8 @@ import (
 )
 
 type Handler struct {
-	DB *database.DB
+	DB      *database.DB
+	Confirm *agent.ConfirmationManager
 
 	// Segregated publisher interfaces. Production wires all six fields to the
 	// same *event.Publisher; tests can substitute a FakeInvalidator (or other

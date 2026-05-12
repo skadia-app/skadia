@@ -3,12 +3,14 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
 import ToolCallCard from './ToolCallCard'
+import ChatToolConfirm, { type ToolConfirmRequest } from './ChatToolConfirm'
 
 export interface StreamMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   toolCalls?: Array<{ tool: string; args?: string; result?: string }>
+  confirmRequest?: ToolConfirmRequest
   isStreaming?: boolean
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
   hops?: number
@@ -50,6 +52,13 @@ export default function ChatMessageList({ messages, thinking }: ChatMessageListP
             {msg.toolCalls?.map((tc, i) => (
               <ToolCallCard key={i} toolName={tc.tool} args={tc.args} result={tc.result} />
             ))}
+            {msg.confirmRequest && (
+              <ChatToolConfirm
+                request={msg.confirmRequest}
+                onConfirmed={() => undefined}
+                onDeclined={() => undefined}
+              />
+            )}
             {msg.role === 'assistant' ? (
               <>
                 <div className="prose prose-sm dark:prose-invert max-w-none">

@@ -49,3 +49,13 @@ export function updateChatPreferences(prefs: ChatPreferences): Promise<ChatPrefe
     body: prefs,
   })
 }
+
+export function confirmChatToolCall(
+  sessionId: string,
+  payload: { tool_call_id: string; confirmed: boolean; args_overrides?: unknown },
+): Promise<void> {
+  return apiClient<void>(`/chat/sessions/${sessionId}/confirm`, {
+    method: 'POST',
+    body: payload,
+  })
+}

@@ -200,8 +200,9 @@ export default function ChatPage() {
       const decoder = new TextDecoder()
       let buffer = ''
 
-      // Tool call tracking: map tool name → index in toolCalls array
+      // Tool call tracking: map tool_call_id → index in toolCalls array
       const toolCallIndexMap = new Map<string, number>()
+      const confirmMessageIndexMap = new Map<string, number>()
 
       while (true) {
         const { done, value } = await reader.read()
@@ -224,10 +225,13 @@ export default function ChatPage() {
             delta?: string
             step?: string
             tool?: string
+            tool_call_id?: string
             args?: unknown
             summary?: string
+            expires_at_iso?: string
             sources?: string[]
             error?: string
+            reason?: string
             usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
             hops?: number
             context_window?: number
@@ -256,13 +260,14 @@ export default function ChatPage() {
 
             case 'chat.tool_call': {
               const toolName = evt.tool ?? 'unknown'
+              const toolCallID = evt.tool_call_id ?? toolName
               const argsStr = evt.args != null ? JSON.stringify(evt.args, null, 2) : undefined
               setMessages(prev =>
                 prev.map(m => {
                   if (m.id !== assistantId) return m
                   const existingCalls = m.toolCalls ?? []
                   const idx = existingCalls.length
-                  toolCallIndexMap.set(toolName, idx)
+                  toolCallIndexMap.set(toolCallID, idx)
                   return {
                     ...m,
                     toolCalls: [...existingCalls, { tool: toolName, args: argsStr }],
@@ -274,8 +279,9 @@ export default function ChatPage() {
 
             case 'chat.tool_result': {
               const toolName = evt.tool ?? 'unknown'
+              const toolCallID = evt.tool_call_id ?? toolName
               const resultStr = evt.summary ?? (evt.args != null ? JSON.stringify(evt.args, null, 2) : undefined)
-              const idx = toolCallIndexMap.get(toolName)
+              const idx = toolCallIndexMap.get(toolCallID)
               if (idx !== undefined) {
                 setMessages(prev =>
                   prev.map(m => {
@@ -287,6 +293,55 @@ export default function ChatPage() {
                     return { ...m, toolCalls: calls }
                   }),
                 )
+              }
+              break
+            }
+
+            case 'chat.tool_confirm_request': {
+              const toolCallID = evt.tool_call_id ?? generateId()
+              setMessages(prev => {
+                confirmMessageIndexMap.set(toolCallID, prev.length)
+                return [
+                  ...prev,
+                  {
+                    id: generateId(),
+                    role: 'assistant',
+                    content: '',
+                    confirmRequest: {
+                      toolCallID,
+                      tool: evt.tool ?? 'unknown',
+                      args: evt.args,
+                      summary: evt.summary ?? 'Aktion bestätigen',
+                      expiresAtISO: evt.expires_at_iso ?? new Date(Date.now() + 5 * 60_000).toISOString(),
+                      sessionID: sessionId,
+                      status: 'pending',
+                    },
+                  },
+                ]
+              })
+              break
+            }
+
+            case 'chat.tool_confirmed':
+            case 'chat.tool_declined': {
+              const idx = evt.tool_call_id ? confirmMessageIndexMap.get(evt.tool_call_id) : undefined
+              if (idx !== undefined) {
+                setMessages(prev => {
+                  const next = [...prev]
+                  const msg = next[idx]
+                  if (msg?.confirmRequest) {
+                    next[idx] = {
+                      ...msg,
+                      content: evt.type === 'chat.tool_confirmed' ? 'Bestätigt - wird ausgeführt...' : `Abgelehnt (${evt.reason ?? 'user'})`,
+                      confirmRequest: {
+                        ...msg.confirmRequest,
+                        status: evt.type === 'chat.tool_confirmed' ? 'confirmed' : 'declined',
+                        reason: evt.reason,
+                      },
+                    }
+                  }
+                  return next
+                })
               }
               break
             }

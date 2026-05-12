@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -58,6 +59,10 @@ var globalChatRateLimiter = &chatRateLimiter{
 	counts: make(map[string][]time.Time),
 }
 
+var confirmRateLimiter = &chatRateLimiter{
+	counts: make(map[string][]time.Time),
+}
+
 // Allow returns true if the user has not exceeded maxPerMin messages in the
 // last minute, and records the current request if allowed.
 func (rl *chatRateLimiter) Allow(userID string, maxPerMin int) bool {
@@ -96,6 +101,7 @@ func (h *Handler) ChatRoutes() http.Handler {
 	r.Get("/sessions/{id}/messages", h.GetChatMessages)
 	r.Delete("/sessions/{id}", h.DeleteChatSession)
 	r.Post("/sessions/{id}/send", h.SendChatMessage)
+	r.Post("/sessions/{id}/confirm", h.ConfirmChatToolCall)
 	return r
 }
 
@@ -448,6 +454,54 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("persist assistant chat message failed", "error", err)
 		}
 	}
+}
+
+type confirmChatToolCallRequest struct {
+	ToolCallID    string          `json:"tool_call_id"`
+	Confirmed     bool            `json:"confirmed"`
+	ArgsOverrides json.RawMessage `json:"args_overrides,omitempty"`
+}
+
+func (h *Handler) ConfirmChatToolCall(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	if !confirmRateLimiter.Allow(userID, 30) {
+		httputil.WriteError(w, http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded (30/min)", r.URL.Path)
+		return
+	}
+	sessionID := chi.URLParam(r, "id")
+	if _, err := h.DB.GetSession(r.Context(), sessionID, userID); err != nil {
+		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "session not available", r.URL.Path)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 8192)
+	var req confirmChatToolCallRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if strings.TrimSpace(req.ToolCallID) == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "tool_call_id is required", r.URL.Path)
+		return
+	}
+	if h.Confirm == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "confirmation not found", r.URL.Path)
+		return
+	}
+	if len(req.ArgsOverrides) > 0 && string(req.ArgsOverrides) == "null" {
+		req.ArgsOverrides = nil
+	}
+	if !h.Confirm.Resolve(sessionID, req.ToolCallID, agent.ConfirmResponse{
+		Confirmed:     req.Confirmed,
+		ArgsOverrides: req.ArgsOverrides,
+		Source:        "user",
+	}) {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "confirmation not found", r.URL.Path)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // mustJSON marshals v to JSON, returning "{}" on error.
