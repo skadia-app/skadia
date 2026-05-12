@@ -954,20 +954,22 @@ func TestDeletedAtNull(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Test 9: TestMutualExclusion
+// Test 9: TestRunImportDoesNotQueryBackgroundJobsForConflict
 // ---------------------------------------------------------------------------
 
-// TestMutualExclusion verifies that RunImport returns an error when a
-// data_export or data_import job is already running for the target user.
-func TestMutualExclusion(t *testing.T) {
+// TestRunImportDoesNotQueryBackgroundJobsForConflict verifies that RunImport
+// does not own auth-layer admission control. API handlers reserve background
+// jobs before calling the engine; CLI/source callers can run the engine without
+// inserting a data_import job first.
+func TestRunImportDoesNotQueryBackgroundJobsForConflict(t *testing.T) {
 	pool := testDB(t)
 	userID := createTestUser(t, pool)
 
-	// Insert a running data_export job.
+	// Insert a running GDPR transfer. The engine must ignore this table.
 	jobID := uuid.New().String()
 	_, err := pool.Exec(context.Background(), `
 		INSERT INTO background_jobs (id, user_id, job_type, status)
-		VALUES ($1, $2, 'data_export', 'running')
+		VALUES ($1, $2, 'gdpr_export', 'running')
 	`, jobID, userID)
 	if err != nil {
 		t.Fatalf("insert background_job: %v", err)
@@ -984,12 +986,8 @@ func TestMutualExclusion(t *testing.T) {
 		Source:       src,
 		TargetUserID: userID,
 	})
-
-	if err == nil {
-		t.Fatal("RunImport should have returned an error due to running export job")
-	}
-	if !strings.Contains(err.Error(), "already running") {
-		t.Errorf("error should mention 'already running', got: %v", err)
+	if err != nil {
+		t.Fatalf("RunImport should ignore background_jobs conflict state: %v", err)
 	}
 }
 

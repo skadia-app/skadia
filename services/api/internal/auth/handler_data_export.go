@@ -226,14 +226,20 @@ func (h *Handler) DataExport(w http.ResponseWriter, r *http.Request) {
 		SELECT $1, 'gdpr_export', $2, 'queued', NOW(), NOW()
 		WHERE NOT EXISTS (
 			SELECT 1 FROM background_jobs
-			WHERE user_id = $2 AND job_type = 'gdpr_export'
-			AND status IN ('queued', 'running')
+			WHERE user_id = $2
+			  AND job_type IN ('gdpr_export', 'data_import')
+			  AND status IN ('uploading', 'queued', 'running')
 		)
 		AND (SELECT COUNT(*) FROM background_jobs
 		     WHERE job_type = 'gdpr_export'
 		     AND status IN ('queued', 'running')) < 3
 		RETURNING true`, jobID, userID).Scan(new(bool))
 	if errors.Is(err, pgx.ErrNoRows) {
+		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
+		return
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]string{"error": "export_already_running"})
 		return
 	}
