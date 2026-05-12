@@ -90,6 +90,7 @@ func TestMigration000348PlanTAppliesAndRewritesRemovedValues(t *testing.T) {
 	upSQL, downSQL := readMigration000348PlanTSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
+	skipIfMigrationAlreadyApplied(t, ctx, pool, 348, "000348 rewrites legacy sport values that latest constraints now reject")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
