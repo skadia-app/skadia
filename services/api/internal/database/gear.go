@@ -1844,6 +1844,10 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 	return rule, err
 }
 
+func (db *DB) CreateRuleTx(ctx context.Context, tx pgx.Tx, userID string, create *model.AutomationRuleCreate) (*model.AutomationRule, error) {
+	return db.createRuleOn(ctx, tx, userID, create)
+}
+
 func (db *DB) createRuleOn(ctx context.Context, q Querier, userID string, create *model.AutomationRuleCreate) (*model.AutomationRule, error) {
 	condLogic := create.ConditionsLogic
 	if condLogic == "" {
@@ -1899,6 +1903,10 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		return err
 	})
 	return rule, err
+}
+
+func (db *DB) UpdateRuleTx(ctx context.Context, tx pgx.Tx, id string, userID string, update *model.AutomationRuleUpdate) (*model.AutomationRule, error) {
+	return db.updateRuleOn(ctx, tx, id, userID, update)
 }
 
 func (db *DB) updateRuleOn(ctx context.Context, q Querier, id string, userID string, update *model.AutomationRuleUpdate) (*model.AutomationRule, error) {
@@ -2041,6 +2049,23 @@ func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
 	return db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
 		return db.deleteRuleOn(ctx, tx, id, userID)
 	})
+}
+
+func (db *DB) DeleteRuleTx(ctx context.Context, tx pgx.Tx, id string, userID string) error {
+	return db.deleteRuleOn(ctx, tx, id, userID)
+}
+
+func (db *DB) GetRule(ctx context.Context, id string, userID string) (*model.AutomationRule, error) {
+	var rule *model.AutomationRule
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		var err error
+		rule, err = scanRule(tx.QueryRow(ctx, `SELECT `+ruleSelectCols+` FROM automation_rules WHERE id = $1 AND user_id = $2`, id, userID))
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get rule: %w", err)
+	}
+	return rule, nil
 }
 
 func (db *DB) deleteRuleOn(ctx context.Context, q Querier, id string, userID string) error {
