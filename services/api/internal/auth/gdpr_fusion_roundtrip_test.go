@@ -38,6 +38,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/dataimport"
+	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
@@ -252,6 +253,11 @@ func TestFusionGDPRRoundtrip(t *testing.T) {
 	testSettings := settings.NewStoreForTest(map[string]string{})
 	h := NewHandler(db, cfg, testSettings, &Mailer{}, middleware.NewRateLimiter(ctx), ctx)
 	h.ShadowFS = fs
+	store, err := gdprartifacts.NewLocalStore(t.TempDir()+"/exports", t.TempDir()+"/imports")
+	if err != nil {
+		t.Fatalf("NewLocalStore: %v", err)
+	}
+	h.ArtifactStore = store
 
 	// Register an export job (executing directly needs a background_jobs row).
 	jobID := uuid.New().String()
@@ -271,13 +277,9 @@ func TestFusionGDPRRoundtrip(t *testing.T) {
 		t.Fatalf("executeExportJobOnce: %v", err)
 	}
 
-	// Retrieve the ZIP path from background_jobs metadata.
-	var zipPath string
-	if err := pool.QueryRow(ctx,
-		`SELECT metadata->>'file_path' FROM background_jobs WHERE id = $1`, jobID,
-	).Scan(&zipPath); err != nil || zipPath == "" {
-		t.Fatalf("could not read export ZIP path from background_jobs: %v", err)
-	}
+	// Materialize the artifact object into a test-local file for the existing
+	// ZIP and import helpers.
+	zipPath := materializeExportArtifactZip(t, ctx, pool, store, jobID)
 	t.Logf("export ZIP: %s", zipPath)
 	t.Cleanup(func() { os.Remove(zipPath) })
 

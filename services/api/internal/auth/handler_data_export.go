@@ -4,10 +4,8 @@ import (
 	"archive/zip"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -386,23 +384,31 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		return fmt.Errorf("schema migration ran during introspection (pre=%d, in_tx=%d) — please retry", preIntrospectMigration, schemaMigration)
 	}
 
-	// 5. Create temporary ZIP file.
-	tmpFile, err := os.CreateTemp("", "skadia-export-*.zip")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
+	// 5. Create artifact-backed ZIP writer.
+	if h.ArtifactStore == nil {
+		return fmt.Errorf("artifact_store_unconfigured")
 	}
-	defer tmpFile.Close()
-	tmpPath := tmpFile.Name()
-	// Clean up on failure (success path and partial-fail path both move ownership
-	// to background_jobs.metadata so the file survives until the 24h cleanup).
-	cleanupNeeded := true
+	expiresAt := time.Now().UTC().Add(dataExportDownloadTTL)
+	artifactWriter, err := h.ArtifactStore.CreateWriter(ctx, gdprartifacts.ObjectSpec{
+		Kind:        "export",
+		UserID:      userID,
+		JobID:       jobID,
+		Role:        gdprartifacts.RoleSingleZIP,
+		Name:        fmt.Sprintf("skadia-export-%s.zip", time.Now().Format("2006-01-02")),
+		ContentType: "application/zip",
+		ExpiresAt:   expiresAt,
+	})
+	if err != nil {
+		return fmt.Errorf("create artifact writer: %w", err)
+	}
+	artifactCommitted := false
 	defer func() {
-		if cleanupNeeded {
-			os.Remove(tmpPath)
+		if !artifactCommitted {
+			_ = artifactWriter.Abort(ctx)
 		}
 	}()
 
-	zw := zip.NewWriter(tmpFile)
+	zw := zip.NewWriter(artifactWriter)
 
 	// 6. Export all tables via the TX.
 	entityCounts, exportErrs := h.exportAllTables(ctx, zw, tx, userID, colCache, specs, healthTables)
@@ -463,30 +469,15 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	}
 	writeZipJSON(zw, "manifest.json", manifest)
 
-	// 11. Close ZIP + flush file to disk before re-opening for SHA-256.
+	// 11. Close ZIP and commit artifact object.
 	if err := zw.Close(); err != nil {
 		return fmt.Errorf("close zip: %w", err)
 	}
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("close temp file: %w", err)
-	}
-
-	// 12. Compute SHA-256 of the final ZIP.
-	f, err := os.Open(tmpPath)
+	ref, err := artifactWriter.Commit(ctx)
 	if err != nil {
-		return fmt.Errorf("reopen for hash: %w", err)
+		return fmt.Errorf("commit export artifact: %w", err)
 	}
-	defer f.Close()
-	hasher := sha256.New()
-	if _, err := io.Copy(hasher, f); err != nil {
-		return fmt.Errorf("hash: %w", err)
-	}
-	fi, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("stat: %w", err)
-	}
-	sizeBytes := fi.Size()
-	checksum := hex.EncodeToString(hasher.Sum(nil))
+	artifactCommitted = true
 
 	// 13a. Partial-export path: errors present → mark failed, keep ZIP for debug.
 	if len(allErrs) > 0 {
@@ -508,34 +499,20 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		// visible in the admin UI, not returned to the end user.
 		topMsg := fmt.Sprintf("export incomplete: %d table(s) errored, first failure on %q",
 			len(allErrs), allErrs[0].Table)
-		// Explicit type casts on every parameter — jsonb_build_object is
-		// polymorphic, so pgx cannot infer types from the function signature
-		// and PostgreSQL refuses the prepared statement otherwise (SQLSTATE 42P18).
+		metadata, metaErr := buildSingleExportArtifactMetadata(ref, expiresAt, errPayload, incompletePayload)
+		if metaErr != nil {
+			return fmt.Errorf("build partial-fail metadata: %w", metaErr)
+		}
 		if _, err := h.DB.Pool.Exec(ctx,
 			`UPDATE background_jobs SET
 				status = 'failed',
-				error = $5::text,
-				metadata = jsonb_build_object(
-					'sha256', $2::text,
-					'size_bytes', $3::bigint,
-					'file_path', $4::text,
-					'export_errors', $6::jsonb,
-					'incomplete_tables', $7::jsonb
-				),
+				error = $3::text,
+				metadata = $2::jsonb,
 				updated_at = NOW()
 			 WHERE id = $1::uuid`,
-			jobID, checksum, sizeBytes, tmpPath, topMsg, errPayload, incompletePayload); err != nil {
+			jobID, string(metadata), topMsg); err != nil {
 			return fmt.Errorf("store partial-fail metadata: %w", err)
 		}
-		cleanupNeeded = false // file is referenced by metadata.file_path
-
-		// Schedule cleanup after 24h.
-		go func(path string) {
-			time.Sleep(24 * time.Hour)
-			if isValidExportPath(path) {
-				os.Remove(path)
-			}
-		}(tmpPath)
 
 		// Return an error so runExportJob's error wrapper logs the failure
 		// (the metadata + status are already in place; the wrapper only
@@ -543,31 +520,52 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 		return fmt.Errorf("%s", topMsg)
 	}
 
-	// 13b. Success path: store metadata, mark completed, schedule cleanup.
-	// Explicit type casts on every parameter (same reason as the partial-fail path above).
+	// 13b. Success path: store metadata, mark completed.
+	metadata, err := buildSingleExportArtifactMetadata(ref, expiresAt, nil, nil)
+	if err != nil {
+		return fmt.Errorf("build metadata: %w", err)
+	}
 	if _, err := h.DB.Pool.Exec(ctx,
 		`UPDATE background_jobs SET
-			metadata = jsonb_build_object('sha256', $2::text, 'size_bytes', $3::bigint, 'file_path', $4::text),
+			metadata = $2::jsonb,
 			updated_at = NOW()
 		 WHERE id = $1::uuid`,
-		jobID, checksum, sizeBytes, tmpPath); err != nil {
+		jobID, string(metadata)); err != nil {
 		return fmt.Errorf("store metadata: %w", err)
 	}
-
-	cleanupNeeded = false // tmpFile is now owned by the job record.
 
 	// Mark completed + create notification (single call, avoids double update).
 	h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
 
-	// Schedule cleanup after 24h.
-	go func(path string) {
-		time.Sleep(24 * time.Hour)
-		if isValidExportPath(path) {
-			os.Remove(path)
-		}
-	}(tmpPath)
-
 	return nil
+}
+
+func buildSingleExportArtifactMetadata(ref gdprartifacts.ObjectRef, expiresAt time.Time, exportErrors, incompleteTables json.RawMessage) ([]byte, error) {
+	artifact := gdprartifacts.Artifact{
+		Version:   1,
+		Format:    gdprartifacts.ArtifactFormatSingleZIP,
+		ExpiresAt: expiresAt,
+		Objects:   []gdprartifacts.ObjectRef{ref},
+	}
+	raw, err := gdprartifacts.MergeArtifactJSON([]byte(`{}`), artifact)
+	if err != nil {
+		return nil, err
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, err
+	}
+	sha, _ := json.Marshal(ref.SHA256)
+	size, _ := json.Marshal(ref.SizeBytes)
+	obj["sha256"] = sha
+	obj["size_bytes"] = size
+	if len(exportErrors) > 0 {
+		obj["export_errors"] = exportErrors
+	}
+	if len(incompleteTables) > 0 {
+		obj["incomplete_tables"] = incompleteTables
+	}
+	return json.Marshal(obj)
 }
 
 // gdprExportTableSpec describes one table to export: ZIP path, source table
@@ -754,6 +752,51 @@ func buildDataExportStatusResponse(
 	// A failed job may still have a downloadable ZIP for debugging — the
 	// `partial: true` flag tells the frontend to warn the user.
 	if (status == "completed" || status == "failed") && len(metadata) > 0 {
+		if jobMeta, err := gdprartifacts.DecodeJobMetadata(metadata); err == nil && jobMeta.Artifact != nil {
+			var rawMeta map[string]json.RawMessage
+			_ = json.Unmarshal(metadata, &rawMeta)
+			artifactMissing := len(rawMeta["artifact_missing_at"]) > 0
+
+			artifact := jobMeta.Artifact
+			resp["artifact_format"] = string(artifact.Format)
+			resp["expires_at"] = artifact.ExpiresAt.Format(time.RFC3339)
+			if len(artifact.Objects) > 0 {
+				resp["sha256"] = artifact.Objects[0].SHA256
+				resp["size_bytes"] = artifact.Objects[0].SizeBytes
+			}
+			if now.Before(artifact.ExpiresAt) && !artifactMissing {
+				switch artifact.Format {
+				case gdprartifacts.ArtifactFormatSingleZIP:
+					resp["download_session_url"] = fmt.Sprintf("/api/v1/auth/data-export/%s/download-session", jobID)
+				case gdprartifacts.ArtifactFormatMultipart:
+					resp["manifest_download_session_url"] = fmt.Sprintf("/api/v1/auth/data-export/%s/download-session", jobID)
+					parts := make([]map[string]any, 0, len(artifact.Objects))
+					for _, ref := range artifact.Objects {
+						parts = append(parts, map[string]any{
+							"name":                 ref.Name,
+							"role":                 ref.Role,
+							"download_session_url": fmt.Sprintf("/api/v1/auth/data-export/%s/download-session", jobID),
+							"sha256":               ref.SHA256,
+							"size_bytes":           ref.SizeBytes,
+						})
+					}
+					resp["parts"] = parts
+				}
+				if status == "failed" {
+					resp["partial"] = true
+				}
+			} else if artifactMissing {
+				resp["unavailable_reason"] = "artifact_missing"
+			}
+			if raw := rawMeta["incomplete_tables"]; len(raw) > 0 {
+				var incompleteTables []string
+				if json.Unmarshal(raw, &incompleteTables) == nil {
+					resp["incomplete_tables"] = incompleteTables
+				}
+			}
+			return resp
+		}
+
 		var meta map[string]any
 		if json.Unmarshal(metadata, &meta) == nil {
 			if v, ok := meta["sha256"]; ok {
