@@ -130,23 +130,20 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 					slog.Info("importer: phash duplicate with higher resolution, replacing",
 						"photo", matchedPhoto.ID, "old_pixels", existingPixels, "new_pixels", newPixels)
 
-					// Update file metadata; fill EXIF fields only when existing lacks them (COALESCE: existing wins).
-					if _, execErr := s.DB.Pool.Exec(ctx,
-						`UPDATE activity_photos
-						 SET file_size_bytes = $1, file_hash = $2, width = $3, height = $4, phash = $5,
-						     taken_at        = COALESCE(taken_at, $6::timestamptz),
-						     lat             = COALESCE(lat, $7::double precision),
-						     lng             = COALESCE(lng, $8::double precision),
-						     location_source = COALESCE(location_source, NULLIF($9, ''))
-						 WHERE id = $10`,
-						int64(len(photoBytes)), fileHash, newW, newH, pHashVal,
-						meta.TakenAt, meta.Lat, meta.Lng, locSrc,
-						matchedPhoto.ID,
-					); execErr != nil {
-						slog.Error("importer: replace photo metadata failed", "photo", matchedPhoto.ID, "err", execErr)
-						return nil, fmt.Errorf("replace photo metadata in DB: %w", execErr)
-					}
-					return &PhotoResult{PhotoID: matchedPhoto.ID, Status: "replaced", PHash: pHashVal}, nil
+					return s.replaceActivityPhotoOriginal(ctx, replaceActivityPhotoOriginalRequest{
+						userID:       userID,
+						activityID:   activityID,
+						photoID:      matchedPhoto.ID,
+						photoBytes:   photoBytes,
+						meta:         meta,
+						contentType:  ct,
+						fileHash:     fileHash,
+						pHash:        pHashVal,
+						width:        newW,
+						height:       newH,
+						locationSrc:  locSrc,
+						previousFile: matchedPhoto.FileID,
+					})
 				}
 				// EXIF enrichment: new photo has timestamp or GPS that the existing photo lacks.
 				// Returns "duplicate_phash" so callers do not treat this as a new file import.
@@ -250,28 +247,9 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	s3Key := fmt.Sprintf("activity-photos/%s/%s%s", userID, fileHash, ext)
 	s3KeyThumb := fmt.Sprintf("activity-photos/%s/%s_thumb.jpg", userID, fileHash)
 
-	// ShadowFS path (preferred): store original via ShadowFS.
-	var shadowFileID string
-	if s.ShadowFS != nil {
-		parentType := "activity"
-		rec, putErr := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
-			UserID:      userID,
-			FileType:    "media",
-			ContentType: ct,
-			FileName:    meta.OriginalFilename,
-			SizeBytes:   int64(len(photoBytes)),
-			FileHash:    fileHash,
-			ParentType:  &parentType,
-			ParentID:    new(activityID),
-		}, bytes.NewReader(photoBytes))
-		if putErr != nil {
-			slog.Warn("importer: ShadowFS.Put photo failed, falling back to S3", "err", putErr)
-		} else {
-			shadowFileID = rec.ID
-		}
-	}
-
-	if shadowFileID == "" {
+	shadowFileID, storeErr := s.storeActivityPhotoOriginal(ctx, userID, activityID, photoBytes, meta, ct, fileHash)
+	if storeErr != nil {
+		slog.Warn("importer: ShadowFS.Put photo failed", "err", storeErr)
 		return nil, fmt.Errorf("no storage available for photo upload")
 	}
 
@@ -344,6 +322,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 
 	saved, err := s.DB.InsertActivityPhoto(ctx, photo)
 	if err != nil {
+		s.deleteStoredPhotoOriginal(ctx, userID, shadowFileID, "insert activity photo rollback")
 		return nil, fmt.Errorf("insert activity photo: %w", err)
 	}
 
@@ -411,6 +390,149 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 		result.PHash = pHashVal
 	}
 	return result, nil
+}
+
+type replaceActivityPhotoOriginalRequest struct {
+	userID       string
+	activityID   string
+	photoID      string
+	photoBytes   []byte
+	meta         PhotoMetadata
+	contentType  string
+	fileHash     string
+	pHash        int64
+	width        int
+	height       int
+	locationSrc  string
+	previousFile string
+}
+
+func (s *Service) replaceActivityPhotoOriginal(ctx context.Context, req replaceActivityPhotoOriginalRequest) (*PhotoResult, error) {
+	tx, err := s.DB.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("replace photo begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "activity_photo:"+req.photoID); err != nil {
+		return nil, fmt.Errorf("replace photo advisory lock: %w", err)
+	}
+
+	var currentFileID string
+	var currentWidth, currentHeight *int
+	if err := tx.QueryRow(ctx,
+		`SELECT COALESCE(file_id::text, ''), width, height
+		 FROM activity_photos
+		 WHERE id = $1 AND user_id = $2
+		 FOR UPDATE`,
+		req.photoID, req.userID,
+	).Scan(&currentFileID, &currentWidth, &currentHeight); err != nil {
+		return nil, fmt.Errorf("replace photo reload: %w", err)
+	}
+
+	currentPixels := 0
+	if currentWidth != nil && currentHeight != nil {
+		currentPixels = *currentWidth * *currentHeight
+	}
+	newPixels := req.width * req.height
+	if currentPixels > 0 && newPixels <= currentPixels {
+		if _, err := tx.Exec(ctx,
+			`UPDATE activity_photos
+			 SET taken_at        = COALESCE(taken_at, $1::timestamptz),
+			     lat             = COALESCE(lat, $2::double precision),
+			     lng             = COALESCE(lng, $3::double precision),
+			     location_source = COALESCE(location_source, NULLIF($4, ''))
+			 WHERE id = $5 AND user_id = $6`,
+			req.meta.TakenAt, req.meta.Lat, req.meta.Lng, req.locationSrc,
+			req.photoID, req.userID,
+		); err != nil {
+			return nil, fmt.Errorf("replace photo fallback EXIF update: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("replace photo fallback commit: %w", err)
+		}
+		return &PhotoResult{PhotoID: req.photoID, Status: "duplicate_phash", PHash: req.pHash}, nil
+	}
+
+	newFileID, err := s.storeActivityPhotoOriginal(ctx, req.userID, req.activityID, req.photoBytes, req.meta, req.contentType, req.fileHash)
+	if err != nil {
+		return nil, fmt.Errorf("replace photo store original: %w", err)
+	}
+	cleanupNew := true
+	defer func() {
+		if cleanupNew {
+			s.deleteStoredPhotoOriginal(ctx, req.userID, newFileID, "replace photo rollback")
+		}
+	}()
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE activity_photos
+		 SET file_id = $1,
+		     file_size_bytes = $2,
+		     file_hash = $3,
+		     width = $4,
+		     height = $5,
+		     phash = $6,
+		     taken_at        = COALESCE(taken_at, $7::timestamptz),
+		     lat             = COALESCE(lat, $8::double precision),
+		     lng             = COALESCE(lng, $9::double precision),
+		     location_source = COALESCE(location_source, NULLIF($10, ''))
+		 WHERE id = $11 AND user_id = $12`,
+		newFileID, int64(len(req.photoBytes)), req.fileHash, req.width, req.height, req.pHash,
+		req.meta.TakenAt, req.meta.Lat, req.meta.Lng, req.locationSrc,
+		req.photoID, req.userID,
+	); err != nil {
+		return nil, fmt.Errorf("replace photo metadata in DB: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("replace photo commit: %w", err)
+	}
+	cleanupNew = false
+
+	oldFileID := currentFileID
+	if oldFileID == "" {
+		oldFileID = req.previousFile
+	}
+	if oldFileID != "" && oldFileID != newFileID && s.ShadowFS != nil {
+		if err := s.ShadowFS.Archive(context.WithoutCancel(ctx), req.userID, oldFileID, newFileID); err != nil {
+			slog.Warn("importer: archive replaced photo original failed",
+				"photo_id", req.photoID, "old_file_id", oldFileID, "new_file_id", newFileID, "err", err)
+		}
+	}
+
+	return &PhotoResult{PhotoID: req.photoID, Status: "replaced", PHash: req.pHash}, nil
+}
+
+func (s *Service) storeActivityPhotoOriginal(ctx context.Context, userID, activityID string, photoBytes []byte, meta PhotoMetadata, contentType, fileHash string) (string, error) {
+	if s.ShadowFS == nil {
+		return "", fmt.Errorf("shadowfs not configured")
+	}
+	parentType := "activity"
+	parentID := activityID
+	rec, err := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
+		UserID:      userID,
+		FileType:    "media",
+		ContentType: contentType,
+		FileName:    meta.OriginalFilename,
+		SizeBytes:   int64(len(photoBytes)),
+		FileHash:    fileHash,
+		ParentType:  &parentType,
+		ParentID:    &parentID,
+	}, bytes.NewReader(photoBytes))
+	if err != nil {
+		return "", err
+	}
+	return rec.ID, nil
+}
+
+func (s *Service) deleteStoredPhotoOriginal(ctx context.Context, userID, fileID, reason string) {
+	if s.ShadowFS == nil || fileID == "" {
+		return
+	}
+	if err := s.ShadowFS.Delete(context.WithoutCancel(ctx), userID, fileID); err != nil {
+		slog.Warn("importer: ShadowFS.Delete stored photo failed", "file_id", fileID, "reason", reason, "err", err)
+	}
 }
 
 // ProcessOrphanPhoto handles a photo without a known activity.
