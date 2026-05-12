@@ -235,7 +235,9 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 		input.OnProgress(ProgressEvent{Phase: 6, PhasesTotal: totalPhases, Message: "Importing activity-dependent data..."})
 	}
 	// Import edit-sidecars first (they need activity IDs in IDMap).
-	e.importEditSidecars(ctx, input.Source, idMap, input.TargetUserID, fileIndex, result)
+	if err := e.importEditSidecars(ctx, input.Source, idMap, input.TargetUserID, fileIndex, result); err != nil {
+		return result, fmt.Errorf("RunImport phase 6 (edit sidecars): %w", err)
+	}
 	// Then import Phase 6 tables.
 	if len(phase6Specs) > 0 {
 		if err := e.runSingleTXPhase(ctx, 6, phase6Specs, input, idMap, schemaMap, manifest.SchemaMigration, result, &deferredFKs); err != nil {

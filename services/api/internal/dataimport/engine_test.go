@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -3280,6 +3281,138 @@ func TestPhase0MissingFileBlob(t *testing.T) {
 		t.Errorf("activity file_id should be NULL when file blob is missing, got %q", *fileID)
 	}
 	_ = result
+}
+
+type quotaExceededShadowFS struct {
+	*mockShadowFS
+}
+
+func newQuotaExceededShadowFS() *quotaExceededShadowFS {
+	return &quotaExceededShadowFS{mockShadowFS: newMockShadowFS()}
+}
+
+func (m *quotaExceededShadowFS) Put(_ context.Context, _ shadowfs.FileEntry, _ io.Reader) (shadowfs.FileRecord, error) {
+	return shadowfs.FileRecord{}, fmt.Errorf("test wrapped quota: %w", shadowfs.ErrQuotaExceeded)
+}
+
+func TestPhase0ShadowFSQuotaExceededHardFails(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+
+	fileID := uuid.New().String()
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		schemaMigration: schemaMig,
+		extraFiles: map[string][]byte{
+			"data/user_files.json": mustMarshalJSON(t, []map[string]any{
+				{
+					"id":           fileID,
+					"file_type":    "original",
+					"content_type": "application/fit",
+					"file_name":    "quota.fit",
+					"size_bytes":   1000,
+					"has_sidecar":  false,
+					"status":       "active",
+				},
+			}),
+			"files/original/quota.fit": []byte("activity bytes"),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := &Engine{
+		DB:       pool,
+		ShadowFS: newQuotaExceededShadowFS(),
+		Config:   EngineConfig{},
+	}
+	result, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err == nil {
+		t.Fatal("RunImport should hard-fail on ShadowFS quota errors")
+	}
+	if !errors.Is(err, shadowfs.ErrQuotaExceeded) {
+		t.Fatalf("RunImport error should wrap ErrQuotaExceeded, got: %v", err)
+	}
+	if result == nil {
+		t.Fatal("RunImport should return partial result with hard failure")
+	}
+	if result.FilesImported != 0 {
+		t.Fatalf("quota failure should not count imported files, got %d", result.FilesImported)
+	}
+}
+
+type editQuotaShadowFS struct {
+	*dbMockShadowFS
+}
+
+func (m *editQuotaShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	if entry.FileType == "edit" {
+		return shadowfs.FileRecord{}, fmt.Errorf("test wrapped edit quota: %w", shadowfs.ErrQuotaExceeded)
+	}
+	return m.dbMockShadowFS.Put(ctx, entry, data)
+}
+
+func TestEditSidecarShadowFSQuotaExceededHardFails(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	userID := createTestUser(t, pool)
+	schemaMig := currentSchemaMigration(t, pool)
+
+	srcUser := uuid.New().String()
+	actOldID := uuid.New().String()
+	editFileID := uuid.New().String()
+	parentType := "activity"
+	now := time.Now().UTC()
+
+	userFilesJSON := mustMarshalJSON(t, []map[string]any{
+		{
+			"id":           editFileID,
+			"file_type":    "edit",
+			"content_type": "application/json",
+			"file_name":    "edit.json",
+			"size_bytes":   12,
+			"parent_type":  parentType,
+			"parent_id":    actOldID,
+			"has_sidecar":  false,
+			"status":       "active",
+		},
+	})
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		sourceUserID:    srcUser,
+		schemaMigration: schemaMig,
+		columns: map[string][]string{
+			"activities": {"id", "user_id", "title", "sport_type", "started_at"},
+		},
+		activities: []map[string]any{
+			{
+				"id":         actOldID,
+				"user_id":    srcUser,
+				"title":      "Quota Edit Sidecar Activity",
+				"sport_type": "running",
+				"started_at": now.Format(time.RFC3339),
+			},
+		},
+		extraFiles: map[string][]byte{
+			"data/user_files.json": userFilesJSON,
+			"files/edit/edit.json": []byte(`{"edits":[]}`),
+		},
+	})
+
+	src := openZipSource(t, zipPath)
+	eng := &Engine{
+		DB:       pool,
+		ShadowFS: &editQuotaShadowFS{dbMockShadowFS: newDBMockShadowFS(pool)},
+		Config:   EngineConfig{},
+	}
+	_, err := eng.RunImport(ctx, ImportInput{Source: src, TargetUserID: userID})
+	if err == nil {
+		t.Fatal("RunImport should hard-fail when edit-sidecar restore hits ShadowFS quota")
+	}
+	if !errors.Is(err, shadowfs.ErrQuotaExceeded) {
+		t.Fatalf("RunImport error should wrap ErrQuotaExceeded, got: %v", err)
+	}
 }
 
 func TestFailedActivityDoesNotLeakIDMapForDeferredFK(t *testing.T) {
