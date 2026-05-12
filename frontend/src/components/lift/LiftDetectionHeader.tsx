@@ -9,14 +9,14 @@ import {
 import type { LiftDetectionConfigResponse } from '@/hooks/useLiftDetectionConfig'
 import { useToast } from '@/lib/toast'
 import { apiFetch } from '@/lib/auth'
-import { ApiError } from '@/api/client'
+import { ApiError, throwOnApiResponse } from '@/api/client'
 import { fetchActiveJobs } from '@/api/jobs'
 
 interface LiftDetectionHeaderProps {
   activityId: string
   /** True while a lift_recompute background job is running for this activity. */
   jobRunning: boolean
-  /** Called after a detection setting change starts recalculate-all successfully (202). */
+  /** Called when recalculate-all starts or an existing recompute job is already running. */
   onJobStarted: () => void
   compact?: boolean
 }
@@ -31,8 +31,9 @@ type DetectionUpdate =
   | { kind: 'reset' }
 
 interface RecomputeResult {
-  res: Response
+  status: number
   startsJob: boolean
+  alreadyRunning?: boolean
 }
 
 function deriveLocalSettings(data: LiftDetectionConfigResponse): LocalSettings {
@@ -48,6 +49,14 @@ function hasActiveOverride(data: LiftDetectionConfigResponse): boolean {
 
 function startsBackgroundRecompute(data: LiftDetectionConfigResponse, settings: LocalSettings): boolean {
   return data.master_enabled && (settings.osm || settings.heuristic)
+}
+
+function apiErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    const detail = err.json?.detail ?? err.json?.message
+    return typeof detail === 'string' ? detail : (err.body || `Fehler ${err.status}`)
+  }
+  return err instanceof Error ? err.message : 'Unbekannter Fehler'
 }
 
 interface ToggleRowProps {
@@ -113,7 +122,7 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
     mutationFn: async (update: DetectionUpdate): Promise<RecomputeResult> => {
       if (!data) throw new Error('Lift-Erkennungskonfiguration fehlt')
       if (await hasRunningLiftRecompute(activityId)) {
-        return { res: { ok: false, status: 409 } as Response, startsJob: true }
+        return { status: 409, startsJob: true, alreadyRunning: true }
       }
       const startsJob = update.kind === 'reset'
         ? startsBackgroundRecompute(data, { osm: data.user_setting.osm, heuristic: data.user_setting.heuristic })
@@ -126,27 +135,30 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
       const res = await apiFetch(`/api/v1/activities/${activityId}/lifts/recalculate-all`, {
         method: 'POST',
       })
-      return { res, startsJob }
+      await throwOnApiResponse(res)
+      return { status: res.status, startsJob }
     },
-    onSuccess: async ({ res, startsJob }) => {
-      // Invalidate lift-candidate caches regardless of whether job was already running.
+    onSuccess: async ({ status, startsJob, alreadyRunning }) => {
+      if (alreadyRunning) {
+        addToast({ type: 'info', title: 'Job läuft bereits — bitte warten' })
+        onJobStarted()
+        return
+      }
+      // An accepted recompute can change lift candidates and activity totals.
       qc.invalidateQueries({ queryKey: ['lift-candidates', activityId] })
       qc.invalidateQueries({ queryKey: ['lift-candidates-inspector', activityId] })
       qc.invalidateQueries({ queryKey: ['activity', activityId] })
-      if (res.status === 409) {
-        addToast({ type: 'info', title: 'Job läuft bereits — bitte warten' })
-        onJobStarted()
-      } else if (res.ok) {
+      if (status >= 200 && status < 300) {
         if (startsJob) onJobStarted()
-      } else {
-        const body = await res.json().catch(() => ({})) as Record<string, unknown>
-        const msg = typeof body.message === 'string' ? body.message : `Fehler ${res.status}`
-        addToast({ type: 'error', title: msg })
       }
     },
     onError: (err) => {
-      const msg = err instanceof ApiError ? err.body : (err instanceof Error ? err.message : 'Unbekannter Fehler')
-      addToast({ type: 'error', title: msg })
+      if (err instanceof ApiError && err.status === 409) {
+        addToast({ type: 'info', title: 'Job läuft bereits — bitte warten' })
+        onJobStarted()
+        return
+      }
+      addToast({ type: 'error', title: apiErrorMessage(err) })
     },
   })
 

@@ -84,6 +84,18 @@ export async function apiClient<T>(path: string, options: RequestOptions = {}): 
   return response.json() as Promise<T>
 }
 
+export async function throwOnApiResponse<T = unknown>(response: Response | Promise<Response>): Promise<T> {
+  const res = await response
+  if (!res.ok) throw await apiErrorFromResponse(res)
+  if (res.status === 204) return null as T
+
+  const ct = res.headers?.get('content-type') ?? ''
+  if (res.status === 202 && !/\bjson\b/.test(ct)) return null as T
+  if (!/\bjson\b/.test(ct)) return null as T
+
+  return res.json() as Promise<T>
+}
+
 /** Store a server-issued ETag against the resource path so a subsequent PATCH /
  *  PUT can use it as `If-Match`. Only successful GET / PATCH / PUT / POST
  *  responses with an ETag header populate the cache — DELETE 204s and other

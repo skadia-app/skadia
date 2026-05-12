@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { HelpCircle, Check, X, Undo2, XIcon } from 'lucide-react'
 import { ModalShell } from '@/components/ui/ModalShell'
 import { apiFetch } from '@/lib/auth'
+import { ApiError, throwOnApiResponse } from '@/api/client'
 import { fetchActivityStreams } from '@/api/activities'
 import { useToast } from '@/lib/toast'
 import type { Activity, LiftCandidate, StreamPoint } from '@/api/types'
@@ -96,6 +97,29 @@ function formatDistance(m?: number | null): string {
   if (m == null) return '–'
   if (m >= 1000) return `${(m / 1000).toFixed(1)} km`
   return `${Math.round(m)} m`
+}
+
+function apiErrorCode(err: unknown): string | undefined {
+  if (err instanceof ApiError) {
+    const code = err.json?.code ?? err.json?.error_code
+    return typeof code === 'string' ? code : undefined
+  }
+  const code = (err as { code?: unknown } | null)?.code
+  return typeof code === 'string' ? code : undefined
+}
+
+function apiErrorStatus(err: unknown): number | undefined {
+  if (err instanceof ApiError) return err.status
+  const status = (err as { status?: unknown } | null)?.status
+  return typeof status === 'number' ? status : undefined
+}
+
+function apiErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    const detail = err.json?.detail ?? err.json?.message
+    return typeof detail === 'string' ? detail : (err.body || err.message)
+  }
+  return err instanceof Error ? err.message : 'Unbekannter Fehler'
 }
 
 export default function LiftReviewModal({ open, onClose, activity, candidates }: LiftReviewModalProps) {
@@ -228,24 +252,9 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
     qc.invalidateQueries({ queryKey: ['lift-candidates-inspector', activityId] })
   }, [qc, activityId])
 
-  // apiFetch returns Response on every status — including 4xx/5xx. Mutations
-  // that participate in Promise.allSettled-based failure counting (F9) must
-  // throw on !ok so the caller can distinguish fulfilled vs rejected. This
-  // helper also surfaces RFC7807 problem+json bodies (Slot 2's F12 pattern).
-  const throwOnError = async (res: Response): Promise<Response> => {
-    if (!res.ok) {
-      const body = await res.json().catch(() => null) as { code?: string; detail?: string } | null
-      throw Object.assign(new Error(body?.detail ?? `HTTP ${res.status}`), {
-        status: res.status,
-        code: body?.code,
-      })
-    }
-    return res
-  }
-
   const confirmAllMutation = useMutation({
     mutationFn: () =>
-      apiFetch(`/api/v1/activities/${activityId}/lifts/confirm-all`, { method: 'POST' }).then(throwOnError),
+      throwOnApiResponse(apiFetch(`/api/v1/activities/${activityId}/lifts/confirm-all`, { method: 'POST' })),
     onSuccess: () => {
       invalidateAfterBulk()
       setBulkActionDone(true)
@@ -255,7 +264,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   const rejectAllMutation = useMutation({
     mutationFn: () =>
-      apiFetch(`/api/v1/activities/${activityId}/lifts/reject-all`, { method: 'POST' }).then(throwOnError),
+      throwOnApiResponse(apiFetch(`/api/v1/activities/${activityId}/lifts/reject-all`, { method: 'POST' })),
     onSuccess: () => {
       invalidateAfterBulk()
       setBulkActionDone(true)
@@ -265,7 +274,7 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   const acknowledgeMutation = useMutation({
     mutationFn: () =>
-      apiFetch(`/api/v1/activities/${activityId}/lifts/acknowledge`, { method: 'POST' }).then(throwOnError),
+      throwOnApiResponse(apiFetch(`/api/v1/activities/${activityId}/lifts/acknowledge`, { method: 'POST' })),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['activity', activityId] })
     },
@@ -273,18 +282,18 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   const confirmMutation = useMutation({
     mutationFn: (cid: string) =>
-      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}/confirm`, { method: 'POST' }).then(throwOnError),
+      throwOnApiResponse(apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}/confirm`, { method: 'POST' })),
     onSuccess: () => invalidateAfterBulk(),
   })
 
   const unconfirmMutation = useMutation({
     mutationFn: (cid: string) =>
-      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}/unconfirm`, { method: 'PATCH' }).then(throwOnError),
+      throwOnApiResponse(apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}/unconfirm`, { method: 'PATCH' })),
     onSuccess: () => invalidateAfterBulk(),
-    onError: (err: Error & { code?: string }) => {
-      const msg = err.code === 'ALREADY_REJECTED'
+    onError: (err: unknown) => {
+      const msg = apiErrorCode(err) === 'ALREADY_REJECTED'
         ? 'Bereits abgelehnt — Liste aktualisiert.'
-        : err.message
+        : apiErrorMessage(err)
       addToast({ type: 'error', title: msg })
       // Re-fetch so the modal reflects the actual server-side state.
       invalidateAfterBulk()
@@ -293,26 +302,26 @@ export default function LiftReviewModal({ open, onClose, activity, candidates }:
 
   const rejectMutation = useMutation({
     mutationFn: (cid: string) =>
-      apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}`, { method: 'DELETE' }).then(throwOnError),
+      throwOnApiResponse(apiFetch(`/api/v1/activities/${activityId}/lift-candidates/${cid}`, { method: 'DELETE' })),
     onSuccess: () => invalidateAfterBulk(),
   })
 
   const restoreMutation = useMutation({
     mutationFn: (cid: string) =>
-      apiFetch(`/api/v1/lift-candidates/${cid}/restore`, { method: 'POST' }).then(throwOnError),
+      throwOnApiResponse(apiFetch(`/api/v1/lift-candidates/${cid}/restore`, { method: 'POST' })),
     onSuccess: () => invalidateAfterBulk(),
   })
 
   const recalcMutation = useMutation({
     mutationFn: () =>
-      apiFetch(`/api/v1/activities/${activityId}/lifts/recalculate-all`, { method: 'POST' }).then(throwOnError),
+      throwOnApiResponse(apiFetch(`/api/v1/activities/${activityId}/lifts/recalculate-all`, { method: 'POST' })),
     onSuccess: () => {
       invalidateAfterBulk()
       setShowRecalcConfirm(false)
       onClose()
     },
-    onError: (err: Error & { status?: number; code?: string }) => {
-      if (err.status === 409 || err.code === 'LIFT_RECOMPUTE_RUNNING') {
+    onError: (err: unknown) => {
+      if (apiErrorStatus(err) === 409 || apiErrorCode(err) === 'LIFT_RECOMPUTE_RUNNING') {
         addToast({ type: 'warning', title: 'Job läuft bereits — bitte warten' })
       } else {
         addToast({ type: 'error', title: 'Fehler beim Neuberechnen', duration: 0 })
