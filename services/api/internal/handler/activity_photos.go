@@ -939,7 +939,7 @@ func (h *Handler) generateThumb(data []byte, ct, filename string) []byte {
 		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0); err == nil {
 			return td
 		}
-	case ct == "image/heic" || ct == "image/heif" || ct == "image/jxl":
+	case isFFmpegStillImageContentType(ct):
 		if td, err := imageutil.GenerateThumbnailFFmpeg(data, ext, 200, 0); err == nil {
 			return td
 		}
@@ -963,10 +963,19 @@ func (h *Handler) generatePreview(data []byte, ct, filename, userID string) []by
 		return nil
 	}
 
-	if ct == "image/heic" || ct == "image/heif" || ct == "image/jxl" {
+	if isFFmpegStillImageContentType(ct) {
 		pd, _ := imageutil.GenerateThumbnailFFmpeg(data, ext, maxW, 0)
 		return pd
 	}
 	pd, _ := imageutil.Resize(data, maxW, maxH, 85)
 	return pd
+}
+
+func isFFmpegStillImageContentType(ct string) bool {
+	switch ct {
+	case "image/heic", "image/heif", "image/jxl", "image/avif":
+		return true
+	default:
+		return false
+	}
 }

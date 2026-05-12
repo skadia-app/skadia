@@ -131,11 +131,12 @@ func (h *Handler) processMediaImage(r *http.Request, userID, filename, ct string
 	if takenAt == nil {
 		return finaliseQueued(h.queueMediaFile(r, userID, filename, ct, data, "image_no_exif", nil))
 	}
+	queueMeta := mediaPhotoQueueMetadata(takenAt, lat, lng, locationSource, nil)
 
 	matches, err := h.DB.FindActivitiesCoveringTime(r.Context(), userID, *takenAt)
 	if err != nil {
 		slog.Error("upload media: find activities by time failed", "error", err)
-		return finaliseQueued(h.queueMediaFile(r, userID, filename, ct, data, "image_ambiguous", nil))
+		return finaliseQueued(h.queueMediaFile(r, userID, filename, ct, data, "image_ambiguous", queueMeta))
 	}
 
 	switch len(matches) {
@@ -155,13 +156,13 @@ func (h *Handler) processMediaImage(r *http.Request, userID, filename, ct string
 		}
 		return result
 	case 0:
-		return finaliseQueued(h.queueMediaFile(r, userID, filename, ct, data, "image_ambiguous", nil))
+		return finaliseQueued(h.queueMediaFile(r, userID, filename, ct, data, "image_ambiguous", queueMeta))
 	default:
 		candidateIDs := make([]string, len(matches))
 		for i, m := range matches {
 			candidateIDs[i] = m.ID
 		}
-		meta := map[string]any{"candidate_ids": candidateIDs}
+		meta := mediaPhotoQueueMetadata(takenAt, lat, lng, locationSource, map[string]any{"candidate_ids": candidateIDs})
 		return finaliseQueued(h.queueMediaFile(r, userID, filename, ct, data, "image_ambiguous", meta))
 	}
 }
@@ -243,6 +244,26 @@ func (h *Handler) autoAssignPhoto(
 		ActivityID:    &activityID,
 		ActivityTitle: match.Title,
 	}
+}
+
+func mediaPhotoQueueMetadata(takenAt *time.Time, lat, lng *float64, locationSource *string, extra map[string]any) map[string]any {
+	meta := map[string]any{}
+	if extra != nil {
+		maps.Copy(meta, extra)
+	}
+	if takenAt != nil {
+		meta["taken_at"] = takenAt.UTC().Format(time.RFC3339Nano)
+	}
+	if lat != nil {
+		meta["lat"] = *lat
+	}
+	if lng != nil {
+		meta["lng"] = *lng
+	}
+	if locationSource != nil && *locationSource != "" {
+		meta["location_source"] = *locationSource
+	}
+	return meta
 }
 
 func detectUploadedMediaContentType(filename string, data []byte) string {

@@ -150,11 +150,10 @@ func (db *DB) FindActivityIDAtTime(ctx context.Context, userID string, ts time.T
 	var id string
 	err := db.Pool.QueryRow(ctx,
 		`SELECT id FROM activities
-		 WHERE user_id = $1
-		   AND deleted_at IS NULL
-		   AND started_at <= $2 + INTERVAL '30 minutes'
-		   AND (ended_at IS NULL OR ended_at >= $2 - INTERVAL '30 minutes')
-		 ORDER BY ABS(EXTRACT(EPOCH FROM (started_at - $2)))
+			 WHERE user_id = $1
+			   AND started_at <= $2::timestamptz + INTERVAL '30 minutes'
+			   AND (ended_at IS NULL OR ended_at >= $2::timestamptz - INTERVAL '30 minutes')
+			 ORDER BY ABS(EXTRACT(EPOCH FROM (started_at - $2)))
 		 LIMIT 1`,
 		userID, ts,
 	).Scan(&id)

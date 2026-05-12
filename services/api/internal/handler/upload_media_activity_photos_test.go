@@ -63,6 +63,29 @@ func TestUploadMediaAutoAssignUsesActivityPhotoDedupPipeline(t *testing.T) {
 	}
 }
 
+func TestMediaPhotoQueueMetadataPreservesExifFields(t *testing.T) {
+	takenAt := time.Date(2026, 5, 12, 15, 30, 0, 123, time.UTC)
+	lat, lng := 47.1, 11.2
+	source := "exif"
+
+	meta := mediaPhotoQueueMetadata(&takenAt, &lat, &lng, &source, map[string]any{
+		"candidate_ids": []string{"a", "b"},
+	})
+
+	if meta["taken_at"] != takenAt.Format(time.RFC3339Nano) {
+		t.Fatalf("taken_at metadata = %v, want %s", meta["taken_at"], takenAt.Format(time.RFC3339Nano))
+	}
+	if meta["lat"] != lat || meta["lng"] != lng {
+		t.Fatalf("gps metadata = (%v,%v), want (%f,%f)", meta["lat"], meta["lng"], lat, lng)
+	}
+	if meta["location_source"] != "exif" {
+		t.Fatalf("location_source metadata = %v, want exif", meta["location_source"])
+	}
+	if meta["candidate_ids"] == nil {
+		t.Fatal("candidate_ids metadata was not preserved")
+	}
+}
+
 func setHandlerPhotoPhashThreshold(t *testing.T, pool *pgxpool.Pool, userID string, threshold int) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), `

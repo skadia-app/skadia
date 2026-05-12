@@ -13,11 +13,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
+	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/google/uuid"
@@ -29,7 +31,7 @@ func TestProcessPhotoReplacementStoresNewOriginalAndArchivesOld(t *testing.T) {
 	svc, pool, userID, activityID := newPhotoServiceStorageFixture(t)
 	setPhotoPhashThreshold(t, pool, userID, 64)
 
-	small := jpegPhotoTestBytes(t, 20, 20, color.RGBA{R: 230, G: 20, B: 20, A: 255}, 90)
+	small := encodeJPEGImage(t, photoPatternImage(300, 300), 90)
 	created, err := svc.ProcessPhoto(ctx, userID, activityID, small, PhotoMetadata{
 		OriginalFilename: "small.jpg",
 		ContentType:      "image/jpeg",
@@ -42,7 +44,7 @@ func TestProcessPhotoReplacementStoresNewOriginalAndArchivesOld(t *testing.T) {
 	}
 	oldFileID := photoFileID(t, pool, created.PhotoID)
 
-	large := jpegPhotoTestBytes(t, 40, 40, color.RGBA{R: 230, G: 20, B: 20, A: 255}, 90)
+	large := encodeJPEGImage(t, photoPatternImage(600, 600), 90)
 	replaced, err := svc.ProcessPhoto(ctx, userID, activityID, large, PhotoMetadata{
 		OriginalFilename: "large.jpg",
 		ContentType:      "image/jpeg",
@@ -72,6 +74,83 @@ func TestProcessPhotoReplacementStoresNewOriginalAndArchivesOld(t *testing.T) {
 	}
 	if got := fileHashForUserFile(t, pool, userID, newFileID); got != sha256Hex(large) {
 		t.Fatalf("replacement active file hash = %q, want %q", got, sha256Hex(large))
+	}
+}
+
+func TestProcessPhotoReplacementRefreshesDerivativesAndContentMetadata(t *testing.T) {
+	ctx := context.Background()
+	svc, pool, userID, activityID := newPhotoServiceStorageFixture(t)
+	publisher := &recordingPhotoEmbedPublisher{}
+	svc.PhotoEmbedPublisher = publisher
+	setPhotoPhashThreshold(t, pool, userID, 64)
+
+	small := encodeJPEGImage(t, photoPatternImage(2600, 2600), 90)
+	created, err := svc.ProcessPhoto(ctx, userID, activityID, small, PhotoMetadata{
+		OriginalFilename: "small.jpg",
+		ContentType:      "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("ProcessPhoto created: %v", err)
+	}
+	if created.Status != "created" {
+		t.Fatalf("first ProcessPhoto status = %q, want created", created.Status)
+	}
+	oldThumbID := activePhotoDerivedFileID(t, pool, userID, created.PhotoID, "thumb")
+	oldPreviewID := activePhotoDerivedFileID(t, pool, userID, created.PhotoID, "preview")
+	setPhotoClipEmbedding(t, pool, created.PhotoID)
+
+	large := encodePNGImage(t, photoPatternImage(2800, 2800))
+	replaced, err := svc.ProcessPhoto(ctx, userID, activityID, large, PhotoMetadata{
+		OriginalFilename: "large.png",
+		ContentType:      "image/png",
+	})
+	if err != nil {
+		t.Fatalf("ProcessPhoto replaced: %v", err)
+	}
+	if replaced.Status != "replaced" {
+		t.Fatalf("replacement status = %q, want replaced", replaced.Status)
+	}
+
+	var filename, contentType string
+	var clipIsNull bool
+	if err := pool.QueryRow(ctx, `
+		SELECT original_filename, content_type, clip_embedding IS NULL
+		FROM activity_photos
+		WHERE id = $1`,
+		created.PhotoID,
+	).Scan(&filename, &contentType, &clipIsNull); err != nil {
+		t.Fatalf("select replacement metadata: %v", err)
+	}
+	if filename != "large.png" {
+		t.Fatalf("original_filename = %q, want large.png", filename)
+	}
+	if contentType != "image/png" {
+		t.Fatalf("content_type = %q, want image/png", contentType)
+	}
+	if !clipIsNull {
+		t.Fatal("clip_embedding was not cleared after replacing original bytes")
+	}
+
+	newThumbID := activePhotoDerivedFileID(t, pool, userID, created.PhotoID, "thumb")
+	newPreviewID := activePhotoDerivedFileID(t, pool, userID, created.PhotoID, "preview")
+	if newThumbID == "" || newPreviewID == "" {
+		t.Fatalf("replacement missing derivatives: thumb=%q preview=%q", newThumbID, newPreviewID)
+	}
+	if newThumbID == oldThumbID {
+		t.Fatalf("replacement kept old thumb %q", oldThumbID)
+	}
+	if newPreviewID == oldPreviewID {
+		t.Fatalf("replacement kept old preview %q", oldPreviewID)
+	}
+	assertUserFileStatus(t, pool, userID, oldThumbID, "archived", newThumbID)
+	assertUserFileStatus(t, pool, userID, oldPreviewID, "archived", newPreviewID)
+
+	if len(publisher.events) != 2 {
+		t.Fatalf("photo embed events = %d, want 2", len(publisher.events))
+	}
+	last := publisher.events[len(publisher.events)-1]
+	if last.PhotoID != created.PhotoID || last.FileID != photoFileID(t, pool, created.PhotoID) || last.ContentType != "image/png" {
+		t.Fatalf("replacement embed event = %#v", last)
 	}
 }
 
@@ -145,6 +224,48 @@ func TestProcessPhotoExactDuplicateIsUserWide(t *testing.T) {
 	}
 }
 
+func TestProcessPhotoExactDuplicateReattachesLegacyNullActivityPhoto(t *testing.T) {
+	ctx := context.Background()
+	svc, pool, userID, activityID := newPhotoServiceStorageFixture(t)
+
+	body := jpegPhotoTestBytes(t, 24, 24, color.RGBA{R: 40, G: 160, B: 90, A: 255}, 90)
+	created, err := svc.ProcessPhoto(ctx, userID, activityID, body, PhotoMetadata{
+		OriginalFilename: "legacy-exact.jpg",
+		ContentType:      "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("ProcessPhoto created: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE activity_photos SET activity_id = NULL WHERE id = $1`, created.PhotoID); err != nil {
+		t.Fatalf("detach legacy exact photo: %v", err)
+	}
+
+	targetActivityID := insertImporterPhotoTestActivity(t, svc.DB, userID)
+	duplicate, err := svc.ProcessPhoto(ctx, userID, targetActivityID, body, PhotoMetadata{
+		OriginalFilename: "target-exact.jpg",
+		ContentType:      "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("ProcessPhoto duplicate: %v", err)
+	}
+	if duplicate.Status != "duplicate_exact" {
+		t.Fatalf("duplicate status = %q, want duplicate_exact", duplicate.Status)
+	}
+	if duplicate.ActivityID != targetActivityID {
+		t.Fatalf("duplicate activity = %q, want %q", duplicate.ActivityID, targetActivityID)
+	}
+	var gotActivityID string
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(activity_id::text, '') FROM activity_photos WHERE id = $1`,
+		created.PhotoID,
+	).Scan(&gotActivityID); err != nil {
+		t.Fatalf("select reattached activity: %v", err)
+	}
+	if gotActivityID != targetActivityID {
+		t.Fatalf("stored activity_id = %q, want %q", gotActivityID, targetActivityID)
+	}
+}
+
 func TestProcessPhotoPhashDuplicateIsUserWideAcrossJPEGAndPNG(t *testing.T) {
 	ctx := context.Background()
 	svc, pool, userID, activityA := newPhotoServiceStorageFixture(t)
@@ -180,6 +301,40 @@ func TestProcessPhotoPhashDuplicateIsUserWideAcrossJPEGAndPNG(t *testing.T) {
 	}
 	if got := activityPhotoRowCount(t, pool, userID); got != 1 {
 		t.Fatalf("activity_photos rows after user-wide phash duplicate = %d, want 1", got)
+	}
+}
+
+func TestProcessPhotoIgnoresLegacyNullActivityPhashMatches(t *testing.T) {
+	ctx := context.Background()
+	svc, pool, userID, activityID := newPhotoServiceStorageFixture(t)
+	setPhotoPhashThreshold(t, pool, userID, 64)
+
+	body := encodeJPEGImage(t, photoPatternImage(48, 48), 95)
+	created, err := svc.ProcessPhoto(ctx, userID, activityID, body, PhotoMetadata{
+		OriginalFilename: "legacy.jpg",
+		ContentType:      "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("ProcessPhoto created: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE activity_photos SET activity_id = NULL WHERE id = $1`, created.PhotoID); err != nil {
+		t.Fatalf("detach legacy photo: %v", err)
+	}
+
+	targetActivityID := insertImporterPhotoTestActivity(t, svc.DB, userID)
+	reupload := encodePNGImage(t, photoPatternImage(48, 48))
+	result, err := svc.ProcessPhoto(ctx, userID, targetActivityID, reupload, PhotoMetadata{
+		OriginalFilename: "target.png",
+		ContentType:      "image/png",
+	})
+	if err != nil {
+		t.Fatalf("ProcessPhoto reupload: %v", err)
+	}
+	if result.Status != "created" {
+		t.Fatalf("reupload status = %q, want created", result.Status)
+	}
+	if result.ActivityID != targetActivityID {
+		t.Fatalf("result activity = %q, want %q", result.ActivityID, targetActivityID)
 	}
 }
 
@@ -370,6 +525,106 @@ func TestProcessPhotoPhashDuplicateAddsMissingTimestampWithoutOverwritingGps(t *
 	}
 	if source != "exif" {
 		t.Fatalf("location_source = %q, want original exif", source)
+	}
+}
+
+func TestResolveQueuedPhotoPreservesQueuedExifMetadata(t *testing.T) {
+	ctx := context.Background()
+	svc, pool, userID, activityID := newPhotoServiceStorageFixture(t)
+
+	takenAt := time.Now().UTC().Add(48 * time.Hour).Truncate(time.Second)
+	lat, lng := 47.123, 11.456
+	body := jpegPhotoTestBytes(t, 24, 24, color.RGBA{R: 20, G: 140, B: 90, A: 255}, 90)
+
+	queued, err := svc.ProcessOrphanPhoto(ctx, userID, body, PhotoMetadata{
+		OriginalFilename: "queued-exif.jpg",
+		ContentType:      "image/jpeg",
+		TakenAt:          &takenAt,
+		Lat:              &lat,
+		Lng:              &lng,
+		LocationSource:   "exif",
+	})
+	if err != nil {
+		t.Fatalf("ProcessOrphanPhoto queued: %v", err)
+	}
+	if queued.Status != "queued" {
+		t.Fatalf("orphan status = %q, want queued", queued.Status)
+	}
+
+	item, err := svc.DB.GetImportQueueItem(ctx, queued.QueueEntryID, userID)
+	if err != nil {
+		t.Fatalf("get queued item: %v", err)
+	}
+	if item.StorageBackend == nil || *item.StorageBackend != "local" {
+		t.Fatalf("storage_backend = %v, want local", item.StorageBackend)
+	}
+	if item.StoragePath != nil {
+		t.Fatalf("storage_path = %q, want nil for ShadowFS-backed queue item", *item.StoragePath)
+	}
+	if item.Metadata["taken_at"] == "" || item.Metadata["lat"] == nil || item.Metadata["lng"] == nil || item.Metadata["location_source"] != "exif" {
+		t.Fatalf("queue metadata missing EXIF fields: %#v", item.Metadata)
+	}
+
+	resolved, err := svc.ResolveQueuedPhoto(ctx, userID, queued.QueueEntryID, activityID)
+	if err != nil {
+		t.Fatalf("ResolveQueuedPhoto: %v", err)
+	}
+	if resolved.Status != "created" {
+		t.Fatalf("resolve status = %q, want created", resolved.Status)
+	}
+
+	var gotTakenAt time.Time
+	var gotLat, gotLng float64
+	var source string
+	if err := pool.QueryRow(ctx, `
+		SELECT taken_at, lat, lng, COALESCE(location_source, '')
+		FROM activity_photos
+		WHERE id = $1`,
+		resolved.PhotoID,
+	).Scan(&gotTakenAt, &gotLat, &gotLng, &source); err != nil {
+		t.Fatalf("select resolved photo metadata: %v", err)
+	}
+	if !gotTakenAt.Equal(takenAt) {
+		t.Fatalf("taken_at = %s, want %s", gotTakenAt, takenAt)
+	}
+	if gotLat != lat || gotLng != lng {
+		t.Fatalf("gps = (%f,%f), want (%f,%f)", gotLat, gotLng, lat, lng)
+	}
+	if source != "exif" {
+		t.Fatalf("location_source = %q, want exif", source)
+	}
+
+	item, err = svc.DB.GetImportQueueItem(ctx, queued.QueueEntryID, userID)
+	if err != nil {
+		t.Fatalf("get resolved item: %v", err)
+	}
+	if item.Status != "resolved" {
+		t.Fatalf("queue status = %q, want resolved", item.Status)
+	}
+	if activeQueuedMediaCount(t, pool, userID) != 0 {
+		t.Fatalf("queued media files still active after resolve")
+	}
+}
+
+func TestProcessOrphanPhotoMatchesActivityByExifTime(t *testing.T) {
+	ctx := context.Background()
+	svc, _, userID, activityID := newPhotoServiceStorageFixture(t)
+
+	takenAt := time.Now().UTC().Truncate(time.Second)
+	body := jpegPhotoTestBytes(t, 24, 24, color.RGBA{R: 90, G: 20, B: 180, A: 255}, 90)
+	result, err := svc.ProcessOrphanPhoto(ctx, userID, body, PhotoMetadata{
+		OriginalFilename: "matched.jpg",
+		ContentType:      "image/jpeg",
+		TakenAt:          &takenAt,
+	})
+	if err != nil {
+		t.Fatalf("ProcessOrphanPhoto: %v", err)
+	}
+	if result.Status != "matched" {
+		t.Fatalf("orphan status = %q, want matched", result.Status)
+	}
+	if result.ActivityID != activityID {
+		t.Fatalf("matched activity = %q, want %q", result.ActivityID, activityID)
 	}
 }
 
@@ -569,4 +824,55 @@ func fileHashForUserFile(t *testing.T, pool *pgxpool.Pool, userID, fileID string
 		t.Fatalf("select user_file hash: %v", err)
 	}
 	return hash
+}
+
+func activePhotoDerivedFileID(t *testing.T, pool *pgxpool.Pool, userID, photoID, fileType string) string {
+	t.Helper()
+	var fileID string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT COALESCE(id::text, '')
+		FROM user_files
+		WHERE user_id = $1 AND parent_type = 'photo' AND parent_id = $2
+		  AND file_type = $3 AND status = 'active'
+		ORDER BY created_at DESC
+		LIMIT 1`,
+		userID, photoID, fileType,
+	).Scan(&fileID); err != nil {
+		t.Fatalf("select active %s for photo: %v", fileType, err)
+	}
+	return fileID
+}
+
+func activeQueuedMediaCount(t *testing.T, pool *pgxpool.Pool, userID string) int {
+	t.Helper()
+	var count int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT COUNT(*) FROM user_files
+		WHERE user_id = $1 AND file_type = 'media' AND status = 'active'
+		  AND parent_type IS NULL`,
+		userID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count queued media files: %v", err)
+	}
+	return count
+}
+
+func setPhotoClipEmbedding(t *testing.T, pool *pgxpool.Pool, photoID string) {
+	t.Helper()
+	zeros := "[" + strings.TrimRight(strings.Repeat("0,", 1152), ",") + "]"
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE activity_photos SET clip_embedding = $1::vector WHERE id = $2`,
+		zeros, photoID,
+	); err != nil {
+		t.Fatalf("set clip embedding: %v", err)
+	}
+}
+
+type recordingPhotoEmbedPublisher struct {
+	events []event.PhotoEmbedEvent
+}
+
+func (p *recordingPhotoEmbedPublisher) PublishPhotoEmbed(ev event.PhotoEmbedEvent) error {
+	p.events = append(p.events, ev)
+	return nil
 }
