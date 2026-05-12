@@ -622,10 +622,9 @@ func (h *Handler) runImportJob(jobID, userID, zipPath string) {
 
 	// Build engine config from handler config.
 	engineCfg := dataimport.EngineConfig{
-		StorageBackend:                 h.Config.StorageBackend,
-		LibraryBasePath:                h.Config.LibraryBasePath,
-		MaxStorageBytes:                h.Config.MaxUserStorageBytes,
-		SkipBackgroundJobConflictCheck: true,
+		StorageBackend:  h.Config.StorageBackend,
+		LibraryBasePath: h.Config.LibraryBasePath,
+		MaxStorageBytes: h.Config.MaxUserStorageBytes,
 	}
 	engine := &dataimport.Engine{
 		DB:            h.DB.Pool,

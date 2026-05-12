@@ -364,6 +364,49 @@ func TestUploadingSessionBlocksOtherGDPRTransfers(t *testing.T) {
 	}
 }
 
+func TestDataExportAdmissionBlocksRunningDataImport(t *testing.T) {
+	h, userID, _ := newMultipartImportHandlerForTest(t)
+	if _, err := h.DB.Pool.Exec(context.Background(), `
+		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at)
+		VALUES ($1, 'data_import', $2, 'running', NOW(), NOW())`,
+		uuid.NewString(), userID); err != nil {
+		t.Fatalf("insert running import: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	h.DataExport(w, httptest.NewRequest(http.MethodPost, "/api/v1/auth/data-export", nil).WithContext(context.WithValue(context.Background(), middleware.UserIDKey, userID)))
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("export while import running status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestDataExportAdmissionBlocksUploadingDataImport(t *testing.T) {
+	h, userID, _ := newMultipartImportHandlerForTest(t)
+	createMultipartImportSessionForTest(t, h, userID, []multipartExpectedPart{{name: "metadata.zip", role: "metadata", data: minimalImportZip(t)}})
+
+	w := httptest.NewRecorder()
+	h.DataExport(w, httptest.NewRequest(http.MethodPost, "/api/v1/auth/data-export", nil).WithContext(context.WithValue(context.Background(), middleware.UserIDKey, userID)))
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("export while import uploading status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestDataImportAdmissionBlocksRunningGDPRExport(t *testing.T) {
+	h, userID, _ := newMultipartImportHandlerForTest(t)
+	if _, err := h.DB.Pool.Exec(context.Background(), `
+		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at)
+		VALUES ($1, 'gdpr_export', $2, 'running', NOW(), NOW())`,
+		uuid.NewString(), userID); err != nil {
+		t.Fatalf("insert running export: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	h.DataImport(w, newDataImportUploadRequest(t, userID, minimalImportZip(t)))
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("import while export running status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestMultipartImportCancelDeletesArtifactsAndReleasesReservation(t *testing.T) {
 	h, userID, store := newMultipartImportHandlerForTest(t)
 	data := minimalImportZip(t)
@@ -567,8 +610,11 @@ func assertImportArtifactPrefixMissing(t *testing.T, store gdprartifacts.Store, 
 
 func clearActiveDataImportJobsForTest(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	if _, err := pool.Exec(context.Background(), `DELETE FROM background_jobs WHERE job_type = 'data_import' AND status IN ('queued', 'running')`); err != nil {
-		t.Fatalf("clear active data_import jobs: %v", err)
+	if _, err := pool.Exec(context.Background(), `
+		DELETE FROM background_jobs
+		WHERE job_type IN ('gdpr_export', 'data_import')
+		  AND status IN ('uploading', 'queued', 'running')`); err != nil {
+		t.Fatalf("clear active GDPR transfer jobs: %v", err)
 	}
 }
 

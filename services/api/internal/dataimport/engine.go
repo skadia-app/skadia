@@ -25,10 +25,9 @@ const maxUserStorageSettingKey = "limits.max_user_storage_bytes"
 
 // EngineConfig holds configuration for the import engine.
 type EngineConfig struct {
-	StorageBackend                 string
-	LibraryBasePath                string
-	MaxStorageBytes                int64
-	SkipBackgroundJobConflictCheck bool
+	StorageBackend  string
+	LibraryBasePath string
+	MaxStorageBytes int64
 }
 
 // Engine orchestrates the GDPR data import.
@@ -130,24 +129,6 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	if len(manifest.IncompleteTables) > 0 {
 		result.Warnings = append(result.Warnings,
 			fmt.Sprintf("export has incomplete tables: %s", strings.Join(manifest.IncompleteTables, ", ")))
-	}
-
-	// ── 4. Mutual exclusion: no concurrent export or import for this user ────
-	// Known race window — acceptable for CLI usage; the API handler performs an
-	// atomic INSERT-based lock before calling RunImport.
-	if !e.Config.SkipBackgroundJobConflictCheck {
-		var conflictCount int
-		if err := e.DB.QueryRow(ctx, `
-			SELECT COUNT(*) FROM background_jobs
-			WHERE user_id = $1
-			  AND job_type IN ('data_export', 'data_import')
-			  AND status IN ('queued', 'running')
-		`, input.TargetUserID).Scan(&conflictCount); err != nil {
-			return nil, fmt.Errorf("RunImport: conflict check: %w", err)
-		}
-		if conflictCount > 0 {
-			return nil, fmt.Errorf("RunImport: a data export or import is already running for this user")
-		}
 	}
 
 	// ── 5. ValidateAccount — hard gate: reject non-empty accounts ───────────
