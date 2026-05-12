@@ -459,8 +459,8 @@ func (db *DB) GetActivityPhotoHashes(ctx context.Context, activityID string) ([]
 func (db *DB) GetUserActivityPhotoHashes(ctx context.Context, userID string) ([]PhotoHashRow, error) {
 	rows, err := db.Pool.Query(ctx,
 		`SELECT id, COALESCE(activity_id::text, ''), COALESCE(file_id::text, ''), phash, width, height, taken_at, lat
-			 FROM activity_photos
-			 WHERE user_id = $1 AND phash IS NOT NULL`,
+				 FROM activity_photos
+				 WHERE user_id = $1 AND activity_id IS NOT NULL AND phash IS NOT NULL`,
 		userID)
 	if err != nil {
 		return nil, err

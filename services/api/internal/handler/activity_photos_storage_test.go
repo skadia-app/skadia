@@ -132,6 +132,14 @@ func TestUploadActivityPhotoAcceptsOctetStreamFFmpegStillByExtension(t *testing.
 	}
 }
 
+func TestFFmpegStillImageContentTypesIncludeAVIF(t *testing.T) {
+	for _, ct := range []string{"image/heic", "image/heif", "image/jxl", "image/avif"} {
+		if !isFFmpegStillImageContentType(ct) {
+			t.Fatalf("isFFmpegStillImageContentType(%q) = false, want true", ct)
+		}
+	}
+}
+
 func newActivityPhotoStorageTestFS(t *testing.T, pool *pgxpool.Pool) shadowfs.ShadowFS {
 	t.Helper()
 	dir := t.TempDir()

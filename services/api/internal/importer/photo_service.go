@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
@@ -47,10 +48,9 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 
 	locSrc := sanitizePhotoLocationSource(meta.LocationSource)
 	if existing, err := s.DB.GetActivityPhotoByHash(ctx, userID, fileHash); err == nil && existing != nil {
-		if err := s.enrichActivityPhotoMetadata(ctx, existing.ID, userID, meta, locSrc); err != nil {
-			return nil, err
+		if existing.ActivityID != "" || activityID == "" {
+			return s.finalizeExactActivityPhotoDuplicate(ctx, existing, userID, activityID, meta, locSrc)
 		}
-		return &PhotoResult{PhotoID: existing.ID, ActivityID: existing.ActivityID, Status: "duplicate_exact"}, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("lookup exact activity photo duplicate: %w", err)
 	}
@@ -107,10 +107,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 	defer unlockDedup()
 
 	if existing, err := s.DB.GetActivityPhotoByHash(ctx, userID, fileHash); err == nil && existing != nil {
-		if err := s.enrichActivityPhotoMetadata(ctx, existing.ID, userID, meta, locSrc); err != nil {
-			return nil, err
-		}
-		return &PhotoResult{PhotoID: existing.ID, ActivityID: existing.ActivityID, Status: "duplicate_exact"}, nil
+		return s.finalizeExactActivityPhotoDuplicate(ctx, existing, userID, activityID, meta, locSrc)
 	} else if err != nil {
 		return nil, fmt.Errorf("recheck exact activity photo duplicate: %w", err)
 	}
@@ -157,6 +154,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 						height:       newH,
 						locationSrc:  locSrc,
 						previousFile: matchedPhoto.FileID,
+						settings:     enrichSettings,
 					})
 				}
 				// EXIF enrichment: new photo has timestamp or GPS that the existing photo lacks.
@@ -327,10 +325,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 				return nil, lookupErr
 			}
 			if existing != nil {
-				if enrichErr := s.enrichActivityPhotoMetadata(ctx, existing.ID, userID, meta, locSrc); enrichErr != nil {
-					return nil, enrichErr
-				}
-				return &PhotoResult{PhotoID: existing.ID, ActivityID: existing.ActivityID, Status: "duplicate_exact"}, nil
+				return s.finalizeExactActivityPhotoDuplicate(ctx, existing, userID, activityID, meta, locSrc)
 			}
 		}
 		return nil, fmt.Errorf("insert activity photo: %w", err)
@@ -338,36 +333,7 @@ func (s *Service) ProcessPhoto(ctx context.Context, userID, activityID string, p
 
 	// Store thumb/preview via ShadowFS with parent_type='photo' (needs photo ID from insert).
 	if s.ShadowFS != nil && saved.ID != "" {
-		if thumbData != nil {
-			_, thumbErr := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
-				UserID:      userID,
-				FileType:    "thumb",
-				ContentType: "image/jpeg",
-				FileName:    fileHash + "_thumb.jpg",
-				SizeBytes:   int64(len(thumbData)),
-				FileHash:    fileHash + "_thumb",
-				ParentType:  new("photo"),
-				ParentID:    new(saved.ID),
-			}, bytes.NewReader(thumbData))
-			if thumbErr != nil {
-				slog.Warn("importer: ShadowFS.Put thumb failed", "photo_id", saved.ID, "err", thumbErr)
-			}
-		}
-		if previewData != nil {
-			_, previewErr := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
-				UserID:      userID,
-				FileType:    "preview",
-				ContentType: "image/jpeg",
-				FileName:    fileHash + "_preview.jpg",
-				SizeBytes:   int64(len(previewData)),
-				FileHash:    fileHash + "_preview",
-				ParentType:  new("photo"),
-				ParentID:    new(saved.ID),
-			}, bytes.NewReader(previewData))
-			if previewErr != nil {
-				slog.Warn("importer: ShadowFS.Put preview failed", "photo_id", saved.ID, "err", previewErr)
-			}
-		}
+		s.storeActivityPhotoDerivatives(ctx, userID, saved.ID, fileHash, thumbData, previewData)
 	}
 
 	// Publish CLIP embed event (best-effort)
@@ -408,6 +374,25 @@ func activityIDForStoredPhoto(existingActivityID, fallbackActivityID string) str
 		return existingActivityID
 	}
 	return fallbackActivityID
+}
+
+func (s *Service) finalizeExactActivityPhotoDuplicate(ctx context.Context, existing *database.PhotoHashRow, userID, targetActivityID string, meta PhotoMetadata, locSrc string) (*PhotoResult, error) {
+	activityID := existing.ActivityID
+	if activityID == "" && targetActivityID != "" {
+		if _, err := s.DB.Pool.Exec(ctx,
+			`UPDATE activity_photos
+			 SET activity_id = $1
+			 WHERE id = $2 AND user_id = $3 AND activity_id IS NULL`,
+			targetActivityID, existing.ID, userID,
+		); err != nil {
+			return nil, fmt.Errorf("reattach legacy exact photo duplicate: %w", err)
+		}
+		activityID = targetActivityID
+	}
+	if err := s.enrichActivityPhotoMetadata(ctx, existing.ID, userID, meta, locSrc); err != nil {
+		return nil, err
+	}
+	return &PhotoResult{PhotoID: existing.ID, ActivityID: activityID, Status: "duplicate_exact"}, nil
 }
 
 func sanitizePhotoLocationSource(locSrc string) string {
@@ -496,6 +481,7 @@ type replaceActivityPhotoOriginalRequest struct {
 	height       int
 	locationSrc  string
 	previousFile string
+	settings     *model.EnrichmentSettings
 }
 
 func (s *Service) replaceActivityPhotoOriginal(ctx context.Context, req replaceActivityPhotoOriginalRequest) (*PhotoResult, error) {
@@ -558,18 +544,27 @@ func (s *Service) replaceActivityPhotoOriginal(ctx context.Context, req replaceA
 
 	if _, err := tx.Exec(ctx,
 		`UPDATE activity_photos
-		 SET file_id = $1,
-		     file_size_bytes = $2,
-		     file_hash = $3,
-		     width = $4,
-		     height = $5,
-		     phash = $6,
-		     taken_at        = COALESCE(taken_at, $7::timestamptz),
-		     lat             = COALESCE(lat, $8::double precision),
-		     lng             = COALESCE(lng, $9::double precision),
-		     location_source = COALESCE(location_source, NULLIF($10, ''))
-		 WHERE id = $11 AND user_id = $12`,
+			 SET file_id = $1,
+			     file_size_bytes = $2,
+			     file_hash = $3,
+			     width = $4,
+			     height = $5,
+			     phash = $6,
+			     original_filename = $7,
+			     content_type = $8,
+			     is_video = $9,
+			     duration_s = $10,
+			     video_width = $11,
+			     video_height = $12,
+			     clip_embedding = NULL,
+			     taken_at        = COALESCE(taken_at, $13::timestamptz),
+			     lat             = COALESCE(lat, $14::double precision),
+			     lng             = COALESCE(lng, $15::double precision),
+			     location_source = COALESCE(location_source, NULLIF($16, ''))
+			 WHERE id = $17 AND user_id = $18`,
 		newFileID, int64(len(req.photoBytes)), req.fileHash, req.width, req.height, req.pHash,
+		req.meta.OriginalFilename, req.contentType, strings.HasPrefix(req.contentType, "video/"),
+		req.meta.DurationS, req.meta.VideoWidth, req.meta.VideoHeight,
 		req.meta.TakenAt, req.meta.Lat, req.meta.Lng, req.locationSrc,
 		req.photoID, req.userID,
 	); err != nil {
@@ -591,6 +586,13 @@ func (s *Service) replaceActivityPhotoOriginal(ctx context.Context, req replaceA
 				"photo_id", req.photoID, "old_file_id", oldFileID, "new_file_id", newFileID, "err", err)
 		}
 	}
+
+	thumbData, previewData := buildActivityPhotoDerivatives(req.photoBytes, req.contentType, fileExtFromContentType(req.contentType, req.meta.OriginalFilename), nil, req.settings)
+	thumbID, previewID := s.storeActivityPhotoDerivatives(context.WithoutCancel(ctx), req.userID, req.photoID, req.fileHash, thumbData, previewData)
+	s.archivePreviousPhotoDerivatives(context.WithoutCancel(ctx), req.userID, req.photoID, "thumb", thumbID)
+	s.archivePreviousPhotoDerivatives(context.WithoutCancel(ctx), req.userID, req.photoID, "preview", previewID)
+
+	s.publishPhotoEmbed(req.userID, req.photoID, newFileID, req.contentType, req.settings)
 
 	return &PhotoResult{PhotoID: req.photoID, ActivityID: req.activityID, Status: "replaced", PHash: req.pHash}, nil
 }
@@ -626,12 +628,141 @@ func (s *Service) deleteStoredPhotoOriginal(ctx context.Context, userID, fileID,
 	}
 }
 
+func buildActivityPhotoDerivatives(photoBytes []byte, ct, ext string, videoMeta *imageutil.VideoMeta, settings *model.EnrichmentSettings) ([]byte, []byte) {
+	isVideo := strings.HasPrefix(ct, "video/")
+	var thumbData []byte
+	switch {
+	case isVideo:
+		if td, err := imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 200, 0); err == nil {
+			thumbData = td
+		}
+	case usesFFmpegStillPipeline(ct):
+		if td, err := imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 200, 0); err == nil {
+			thumbData = td
+		}
+	default:
+		thumbData, _ = imageutil.Resize(photoBytes, 200, 200, 80)
+	}
+
+	var previewData []byte
+	if isVideo {
+		var midOffset float64
+		if videoMeta != nil && videoMeta.DurationS > 2 {
+			midOffset = videoMeta.DurationS / 2
+		}
+		previewData, _ = imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 2560, midOffset)
+	} else {
+		maxW, maxH := 2048, 2048
+		if settings != nil {
+			if w, h := imageutil.PreviewSizePixels(settings.PhotoPreviewSize); w > 0 {
+				maxW, maxH = w, h
+			}
+		}
+		if usesFFmpegStillPipeline(ct) {
+			previewData, _ = imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, maxW, 0)
+		} else {
+			previewData, _ = imageutil.Resize(photoBytes, maxW, maxH, 85)
+		}
+	}
+	return thumbData, previewData
+}
+
+func (s *Service) storeActivityPhotoDerivatives(ctx context.Context, userID, photoID, fileHash string, thumbData, previewData []byte) (string, string) {
+	if s.ShadowFS == nil || photoID == "" {
+		return "", ""
+	}
+	parentType := "photo"
+	parentID := photoID
+	var thumbID, previewID string
+	if thumbData != nil {
+		rec, err := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "thumb",
+			ContentType: "image/jpeg",
+			FileName:    fileHash + "_thumb.jpg",
+			SizeBytes:   int64(len(thumbData)),
+			FileHash:    fileHash + "_thumb",
+			ParentType:  &parentType,
+			ParentID:    &parentID,
+		}, bytes.NewReader(thumbData))
+		if err != nil {
+			slog.Warn("importer: ShadowFS.Put thumb failed", "photo_id", photoID, "err", err)
+		} else {
+			thumbID = rec.ID
+		}
+	}
+	if previewData != nil {
+		rec, err := s.ShadowFS.Put(ctx, shadowfs.FileEntry{
+			UserID:      userID,
+			FileType:    "preview",
+			ContentType: "image/jpeg",
+			FileName:    fileHash + "_preview.jpg",
+			SizeBytes:   int64(len(previewData)),
+			FileHash:    fileHash + "_preview",
+			ParentType:  &parentType,
+			ParentID:    &parentID,
+		}, bytes.NewReader(previewData))
+		if err != nil {
+			slog.Warn("importer: ShadowFS.Put preview failed", "photo_id", photoID, "err", err)
+		} else {
+			previewID = rec.ID
+		}
+	}
+	return thumbID, previewID
+}
+
+func (s *Service) archivePreviousPhotoDerivatives(ctx context.Context, userID, photoID, fileType, replacementID string) {
+	if s.ShadowFS == nil || replacementID == "" {
+		return
+	}
+	rows, err := s.DB.Pool.Query(ctx, `
+		SELECT id::text
+		FROM user_files
+		WHERE user_id = $1 AND parent_type = 'photo' AND parent_id = $2
+		  AND file_type = $3 AND status = 'active' AND id <> $4`,
+		userID, photoID, fileType, replacementID,
+	)
+	if err != nil {
+		slog.Warn("importer: list old photo derivatives failed", "photo_id", photoID, "file_type", fileType, "err", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var oldID string
+		if err := rows.Scan(&oldID); err != nil {
+			continue
+		}
+		if err := s.ShadowFS.Archive(ctx, userID, oldID, replacementID); err != nil {
+			slog.Warn("importer: archive replaced photo derivative failed", "photo_id", photoID, "file_type", fileType, "old_file_id", oldID, "new_file_id", replacementID, "err", err)
+		}
+	}
+}
+
+func (s *Service) publishPhotoEmbed(userID, photoID, fileID, contentType string, settings *model.EnrichmentSettings) {
+	if s.PhotoEmbedPublisher == nil {
+		return
+	}
+	clipFrames := 4
+	if settings != nil && settings.VideoClipFrames > 0 {
+		clipFrames = settings.VideoClipFrames
+	}
+	ev := event.PhotoEmbedEvent{
+		PhotoID:         photoID,
+		UserID:          userID,
+		FileID:          fileID,
+		ContentType:     contentType,
+		VideoClipFrames: clipFrames,
+	}
+	if err := s.PhotoEmbedPublisher.PublishPhotoEmbed(ev); err != nil {
+		slog.Warn("importer: publish photo embed event failed", "photo_id", photoID, "err", err)
+	}
+}
+
 // ProcessOrphanPhoto handles a photo without a known activity.
 // If the photo's TakenAt timestamp falls within a known activity's window, it is
 // immediately processed via ProcessPhoto (status: "matched").
-// Otherwise the photo is stored in S3 under import-queue/{userID}/{hash} and a
-// corresponding import_queue record (queue_type="image_no_match") is created
-// (status: "queued").
+// Otherwise the photo is stored in ShadowFS and a corresponding import_queue
+// record (queue_type="image_no_match") is created (status: "queued").
 func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBytes []byte, meta PhotoMetadata) (*OrphanResult, error) {
 	// 1. Time-based activity lookup
 	if meta.TakenAt != nil {
@@ -674,7 +805,7 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 		if td, err := imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 200, 0); err == nil {
 			thumbData = td
 		}
-	case ct == "image/heic" || ct == "image/heif" || ct == "image/jxl":
+	case usesFFmpegStillPipeline(ct):
 		if td, err := imageutil.GenerateThumbnailFFmpeg(photoBytes, ext, 200, 0); err == nil {
 			thumbData = td
 		}
@@ -683,10 +814,7 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 	}
 
 	fileSize := int64(len(photoBytes))
-	s3Key := fmt.Sprintf("%s/%s/%s", importQueuePrefix, userID, fileHash)
-	queueMeta := map[string]any{
-		"filename": meta.OriginalFilename,
-	}
+	queueMeta := photoMetadataQueueMap(meta)
 
 	if s.ShadowFS != nil {
 		// ShadowFS path: store original via ShadowFS (assigned to _temp internally).
@@ -726,19 +854,24 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 		return nil, fmt.Errorf("no storage backend configured")
 	}
 
-	s3BE := "s3"
+	localBE := "local"
 	queueItem := database.ImportQueueItem{
 		UserID:           userID,
 		QueueType:        "image_no_match",
 		OriginalFilename: meta.OriginalFilename,
 		ContentType:      ct,
 		FileSizeBytes:    &fileSize,
-		StorageBackend:   &s3BE,
-		StoragePath:      &s3Key,
+		StorageBackend:   &localBE,
 		Metadata:         queueMeta,
 	}
 	entryID, err := s.DB.CreateImportQueueItem(ctx, queueItem)
 	if err != nil {
+		if fileID, ok := queueMeta["file_store_id"].(string); ok && fileID != "" {
+			s.deleteStoredPhotoOriginal(ctx, userID, fileID, "orphan queue rollback")
+		}
+		if fileID, ok := queueMeta["file_store_id_thumb"].(string); ok && fileID != "" {
+			s.deleteStoredPhotoOriginal(ctx, userID, fileID, "orphan queue thumb rollback")
+		}
 		return nil, fmt.Errorf("create import queue item: %w", err)
 	}
 
@@ -746,8 +879,8 @@ func (s *Service) ProcessOrphanPhoto(ctx context.Context, userID string, photoBy
 }
 
 // ResolveQueuedPhoto assigns a queued image_no_match item to a specific activity.
-// It loads the file from ShadowFS or S3, runs ProcessPhoto, marks the queue item
-// as resolved, and cleans up the temporary files.
+// It loads the file from ShadowFS, runs ProcessPhoto, marks the queue item as
+// resolved, and cleans up the temporary files.
 func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, targetActivityID string) (*PhotoResult, error) {
 	// 1. Load and validate queue item
 	item, err := s.DB.GetImportQueueItem(ctx, queueEntryID, userID)
@@ -759,7 +892,7 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 	}
 	// Ownership already enforced by GetImportQueueItem (WHERE user_id = $2)
 
-	// 2. Load photo bytes — ShadowFS preferred, S3 as fallback.
+	// 2. Load photo bytes from ShadowFS.
 	var photoBytes []byte
 	ct := item.ContentType
 
@@ -779,9 +912,12 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 	}
 
 	// 3. Process as a normal activity photo
-	meta := PhotoMetadata{
-		OriginalFilename: item.OriginalFilename,
-		ContentType:      ct,
+	meta := photoMetadataFromQueueItem(item)
+	if meta.OriginalFilename == "" {
+		meta.OriginalFilename = item.OriginalFilename
+	}
+	if meta.ContentType == "" {
+		meta.ContentType = ct
 	}
 	result, err := s.ProcessPhoto(ctx, userID, targetActivityID, photoBytes, meta)
 	if err != nil {
@@ -794,21 +930,78 @@ func (s *Service) ResolveQueuedPhoto(ctx context.Context, userID, queueEntryID, 
 
 	// 4. Cleanup: mark resolved + delete temp files
 	if resolveErr := s.DB.ResolveImportQueueItem(ctx, queueEntryID, userID, targetActivityID); resolveErr != nil {
-		slog.Warn("importer: ResolveImportQueueItem failed", "id", queueEntryID, "err", resolveErr)
+		return nil, fmt.Errorf("resolve import queue item: %w", resolveErr)
 	}
 
 	if hasShadowFSID && shadowFSID != "" && s.ShadowFS != nil {
-		if delErr := s.ShadowFS.Delete(ctx, userID, shadowFSID); delErr != nil {
+		cleanupCtx := context.WithoutCancel(ctx)
+		if delErr := s.ShadowFS.Delete(cleanupCtx, userID, shadowFSID); delErr != nil {
 			slog.Warn("importer: ShadowFS.Delete orphan photo failed", "id", shadowFSID, "err", delErr)
 		}
 		if thumbFileID, ok := item.Metadata["file_store_id_thumb"].(string); ok && thumbFileID != "" {
-			if delErr := s.ShadowFS.Delete(ctx, userID, thumbFileID); delErr != nil {
+			if delErr := s.ShadowFS.Delete(cleanupCtx, userID, thumbFileID); delErr != nil {
 				slog.Warn("importer: ShadowFS.Delete orphan thumb failed", "id", thumbFileID, "err", delErr)
 			}
 		}
 	}
 
 	return result, nil
+}
+
+func photoMetadataQueueMap(meta PhotoMetadata) map[string]any {
+	out := map[string]any{
+		"filename": meta.OriginalFilename,
+	}
+	if meta.TakenAt != nil {
+		out["taken_at"] = meta.TakenAt.UTC().Format(time.RFC3339Nano)
+	}
+	if meta.Lat != nil {
+		out["lat"] = *meta.Lat
+	}
+	if meta.Lng != nil {
+		out["lng"] = *meta.Lng
+	}
+	if meta.LocationSource != "" {
+		out["location_source"] = meta.LocationSource
+	}
+	return out
+}
+
+func photoMetadataFromQueueItem(item *database.ImportQueueItem) PhotoMetadata {
+	meta := PhotoMetadata{
+		OriginalFilename: item.OriginalFilename,
+		ContentType:      item.ContentType,
+	}
+	if takenRaw, ok := item.Metadata["taken_at"].(string); ok && takenRaw != "" {
+		if takenAt, err := time.Parse(time.RFC3339Nano, takenRaw); err == nil {
+			meta.TakenAt = &takenAt
+		}
+	}
+	if lat, ok := queueFloat64(item.Metadata["lat"]); ok {
+		meta.Lat = &lat
+	}
+	if lng, ok := queueFloat64(item.Metadata["lng"]); ok {
+		meta.Lng = &lng
+	}
+	if src, ok := item.Metadata["location_source"].(string); ok {
+		meta.LocationSource = src
+	}
+	return meta
+}
+
+func queueFloat64(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	default:
+		return 0, false
+	}
 }
 
 // contentTypeFromFilename derives a MIME type from a filename's extension.
