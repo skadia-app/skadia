@@ -1105,6 +1105,17 @@ function DangerZoneSection() {
           queryClient.invalidateQueries({ queryKey: ['data-export-latest'] })
           return
         }
+        if (status.status === 'failed' && status.partial && (status.download_session_url || (status.parts && status.parts.length > 0))) {
+          await downloadDataExport(status)
+          queryClient.invalidateQueries({ queryKey: ['data-export-latest'] })
+          addToast({
+            type: 'warning',
+            title: S.dataExport.failed.title,
+            message: 'Der Export ist unvollständig; die verfügbare Datei wurde heruntergeladen.',
+            duration: 0,
+          })
+          return
+        }
         if (status.status === 'failed') {
           if (status.error === 'export_failed') {
             addToast({
@@ -1146,7 +1157,7 @@ function DangerZoneSection() {
   }
 
   const latestExportExpiry = formatExportExpiry(latestExport?.expires_at)
-  const showLatestExport = latestExport?.status === 'completed'
+  const showLatestExport = latestExport?.status === 'completed' || Boolean(latestExport?.partial)
   const latestExportAvailable = showLatestExport &&
     !latestExport.unavailable_reason &&
     Boolean(latestExport.download_session_url || (latestExport.parts && latestExport.parts.length > 0)) &&
@@ -1201,6 +1212,7 @@ function DangerZoneSection() {
                       <p className="truncate text-neutral-500 dark:text-neutral-500">
                         {part.size_bytes ? `${(part.size_bytes / 1024 / 1024).toFixed(1)} MB` : ''}
                         {part.sha256 ? ` · SHA-256: ${part.sha256}` : ''}
+                        {part.web_import_supported === false ? ' · Web-Import nur per CLI' : ''}
                       </p>
                     </div>
                     {latestExportAvailable && (

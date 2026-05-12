@@ -255,7 +255,7 @@ func (s *S3Store) AbortIncompleteUploads(ctx context.Context, prefix ArtifactPre
 }
 
 func (s *S3Store) EnsureLifecycle(context.Context) error {
-	return nil
+	return fmt.Errorf("S3 lifecycle setup is not managed automatically for this backend; app cleanup remains authoritative")
 }
 
 func (s *S3Store) bucketAndPrefix(kind string) (string, string, error) {

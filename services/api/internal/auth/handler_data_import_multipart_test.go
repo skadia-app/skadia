@@ -219,6 +219,35 @@ func TestMultipartImportRejectsTooManyParts(t *testing.T) {
 	}
 }
 
+func TestMultipartImportRejectsOversizedExpectedBytes(t *testing.T) {
+	h, userID, _ := newMultipartImportHandlerForTest(t)
+	data := minimalImportZip(t)
+	h.Config.GDPRImportStagingQuotaBytes = int64(len(data) - 1)
+	body := multipartImportManifestJSON(t, []multipartExpectedPart{
+		{name: "metadata.zip", role: "metadata", data: data},
+	})
+
+	w := httptest.NewRecorder()
+	h.DataImportMultipartCreate(w, newJSONAuthRequest(t, userID, http.MethodPost, "/api/v1/auth/data-import/multipart", body))
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized import status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSingleZipImportRejectsOversizedRequestBeforeArtifactWrite(t *testing.T) {
+	h, userID, store := newMultipartImportHandlerForTest(t)
+	h.Config.GDPRImportStagingQuotaBytes = 1
+
+	w := httptest.NewRecorder()
+	h.DataImport(w, newDataImportUploadRequest(t, userID, minimalImportZip(t)))
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized single import status = %d body=%s", w.Code, w.Body.String())
+	}
+	if store.createWriterCalls != 0 {
+		t.Fatalf("artifact writer calls = %d, want 0 before quota admission", store.createWriterCalls)
+	}
+}
+
 func TestMultipartImportPartUploadVerifiesChecksum(t *testing.T) {
 	h, userID, _ := newMultipartImportHandlerForTest(t)
 	jobID := createMultipartImportSessionForTest(t, h, userID, []multipartExpectedPart{
@@ -237,6 +266,83 @@ func TestMultipartImportPartUploadVerifiesChecksum(t *testing.T) {
 	}
 	if bytes.Contains(metadata, []byte(`"received":true`)) {
 		t.Fatalf("part marked received after checksum mismatch: %s", metadata)
+	}
+}
+
+func TestMultipartImportPartUploadRejectsSizeMismatch(t *testing.T) {
+	h, userID, _ := newMultipartImportHandlerForTest(t)
+	expected := minimalImportZip(t)
+	jobID := createMultipartImportSessionForTest(t, h, userID, []multipartExpectedPart{
+		{name: "metadata.zip", role: "metadata", data: expected},
+	})
+	sameChecksumDifferentSize := append(append([]byte(nil), expected...), []byte("extra")...)
+
+	w := httptest.NewRecorder()
+	req := newPartUploadRequest(t, userID, jobID, "metadata.zip", sameChecksumDifferentSize)
+	h.DataImportMultipartPart(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("size mismatch status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestMultipartImportCreateEnforcesServerWideUploadLimit(t *testing.T) {
+	h, userID, _ := newMultipartImportHandlerForTest(t)
+	for i := 0; i < 2; i++ {
+		otherUser := createArtifactExportUser(t, h.DB.Pool)
+		if _, err := h.DB.Pool.Exec(context.Background(), `
+			INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at, metadata)
+			VALUES ($1, 'data_import', $2, 'uploading', NOW(), NOW(), '{}'::jsonb)`,
+			uuid.NewString(), otherUser); err != nil {
+			t.Fatalf("insert upload %d: %v", i, err)
+		}
+	}
+
+	body := multipartImportManifestJSON(t, []multipartExpectedPart{
+		{name: "metadata.zip", role: "metadata", data: minimalImportZip(t)},
+	})
+	w := httptest.NewRecorder()
+	h.DataImportMultipartCreate(w, newJSONAuthRequest(t, userID, http.MethodPost, "/api/v1/auth/data-import/multipart", body))
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("server-wide upload limit status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSingleZipImportAdmissionRunsBeforeArtifactWrite(t *testing.T) {
+	h, userID, store := newMultipartImportHandlerForTest(t)
+	if _, err := h.DB.Pool.Exec(context.Background(), `
+		INSERT INTO background_jobs (id, job_type, user_id, status, started_at, updated_at)
+		VALUES ($1, 'gdpr_export', $2, 'running', NOW(), NOW())`,
+		uuid.NewString(), userID); err != nil {
+		t.Fatalf("insert running export: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	h.DataImport(w, newDataImportUploadRequest(t, userID, bytes.Repeat([]byte("x"), 1024)))
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("import while export running status = %d body=%s", w.Code, w.Body.String())
+	}
+	if store.createWriterCalls != 0 {
+		t.Fatalf("artifact writer calls = %d, want 0 before admission", store.createWriterCalls)
+	}
+}
+
+func TestMultipartImportCancelPreservesUploadingStateWhenDeleteFails(t *testing.T) {
+	h, userID, store := newMultipartImportHandlerForTest(t)
+	store.failDeletePrefix = true
+	data := minimalImportZip(t)
+	jobID := createMultipartImportSessionForTest(t, h, userID, []multipartExpectedPart{{name: "metadata.zip", role: "metadata", data: data}})
+
+	w := httptest.NewRecorder()
+	h.DataImportMultipartCancel(w, newJobActionRequest(t, userID, http.MethodPost, "/api/v1/auth/data-import/"+jobID+"/cancel", jobID))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("cancel delete failure status = %d body=%s", w.Code, w.Body.String())
+	}
+	var status string
+	if err := h.DB.Pool.QueryRow(context.Background(), `SELECT status FROM background_jobs WHERE id=$1`, jobID).Scan(&status); err != nil {
+		t.Fatalf("select status: %v", err)
+	}
+	if status != "uploading" {
+		t.Fatalf("status = %q, want uploading for retryable cleanup", status)
 	}
 }
 
@@ -627,12 +733,26 @@ func canceledContext() context.Context {
 type recordingArtifactStore struct {
 	*gdprartifacts.LocalStore
 	openReaderAtCalled bool
+	createWriterCalls  int
+	failDeletePrefix   bool
+}
+
+func (s *recordingArtifactStore) CreateWriter(ctx context.Context, spec gdprartifacts.ObjectSpec) (gdprartifacts.ObjectWriter, error) {
+	s.createWriterCalls++
+	return s.LocalStore.CreateWriter(ctx, spec)
 }
 
 func (s *recordingArtifactStore) OpenReaderAt(ctx context.Context, ref gdprartifacts.ObjectRef) (gdprartifacts.SizedReaderAt, error) {
 	s.openReaderAtCalled = true
 	ref.Backend = "local"
 	return s.LocalStore.OpenReaderAt(ctx, ref)
+}
+
+func (s *recordingArtifactStore) DeletePrefix(ctx context.Context, prefix gdprartifacts.ArtifactPrefix) error {
+	if s.failDeletePrefix {
+		return fmt.Errorf("delete prefix failed")
+	}
+	return s.LocalStore.DeletePrefix(ctx, prefix)
 }
 
 func stageSingleImportArtifactForTest(t *testing.T, ctx context.Context, userID string, content []byte, recordOpenReaderAt bool) (*recordingArtifactStore, gdprartifacts.Artifact, string) {

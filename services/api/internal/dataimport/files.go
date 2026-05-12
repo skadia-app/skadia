@@ -41,14 +41,24 @@ func loadUserFilesIndex(source Source) (map[string]userFileRecord, error) {
 	}
 	defer rc.Close()
 
-	var records []userFileRecord
-	if err := json.NewDecoder(rc).Decode(&records); err != nil {
+	dec := json.NewDecoder(rc)
+	token, err := dec.Token()
+	if err != nil {
 		return nil, fmt.Errorf("dataimport: decode user_files.json: %w", err)
 	}
-
-	index := make(map[string]userFileRecord, len(records))
-	for _, rec := range records {
+	if delim, ok := token.(json.Delim); !ok || delim != '[' {
+		return nil, fmt.Errorf("dataimport: user_files.json is not a JSON array")
+	}
+	index := make(map[string]userFileRecord)
+	for dec.More() {
+		var rec userFileRecord
+		if err := dec.Decode(&rec); err != nil {
+			return nil, fmt.Errorf("dataimport: decode user_files.json row: %w", err)
+		}
 		index[rec.ID] = rec
+	}
+	if _, err := dec.Token(); err != nil {
+		return nil, fmt.Errorf("dataimport: decode user_files.json end: %w", err)
 	}
 	return index, nil
 }

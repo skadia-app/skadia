@@ -111,6 +111,103 @@ func TestDataExportSessionDownloadStreamsOutsideJWTRouteGroup(t *testing.T) {
 	}
 }
 
+func TestDataExportDownloadSessionConsumesObjectOnce(t *testing.T) {
+	h, ownerID, jobID := newDataExportSessionFixture(t, "export body")
+
+	req := dataExportSessionRequest(t, ownerID, jobID, `{"single":true}`)
+	w := httptest.NewRecorder()
+	h.DataExportDownloadSession(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("session status = %d body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode session response: %v", err)
+	}
+	downloadReq := httptest.NewRequest(http.MethodGet, resp.URL, nil)
+	for _, cookie := range w.Result().Cookies() {
+		downloadReq.AddCookie(cookie)
+	}
+	downloadReq = withJobAndPart(downloadReq, jobID, "export.zip")
+	first := httptest.NewRecorder()
+	h.DataExportDownloadPart(first, downloadReq)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first download status = %d body=%s", first.Code, first.Body.String())
+	}
+
+	replay := httptest.NewRecorder()
+	h.DataExportDownloadPart(replay, downloadReq)
+	if replay.Code != http.StatusUnauthorized {
+		t.Fatalf("replay status = %d, want 401 body=%s", replay.Code, replay.Body.String())
+	}
+}
+
+func TestDataExportDownloadSessionRejectsExpiredArtifactAndMismatchedRef(t *testing.T) {
+	h, ownerID, jobID := newDataExportSessionFixture(t, "export body")
+	var metadata []byte
+	if err := h.DB.Pool.QueryRow(context.Background(), `SELECT metadata FROM background_jobs WHERE id=$1`, jobID).Scan(&metadata); err != nil {
+		t.Fatalf("metadata query: %v", err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(metadata, &obj); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	var artifact gdprartifacts.Artifact
+	if err := json.Unmarshal(obj["artifact"], &artifact); err != nil {
+		t.Fatalf("decode artifact: %v", err)
+	}
+	artifact.ExpiresAt = time.Now().Add(-time.Minute)
+	artifactRaw, _ := json.Marshal(artifact)
+	obj["artifact"] = artifactRaw
+	updated, _ := json.Marshal(obj)
+	if _, err := h.DB.Pool.Exec(context.Background(), `UPDATE background_jobs SET metadata=$2::jsonb WHERE id=$1`, jobID, updated); err != nil {
+		t.Fatalf("expire artifact: %v", err)
+	}
+
+	req := dataExportSessionRequest(t, ownerID, jobID, `{"single":true}`)
+	w := httptest.NewRecorder()
+	h.DataExportDownloadSession(w, req)
+	if w.Code != http.StatusGone {
+		t.Fatalf("expired artifact session status = %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestDataExportDownloadRangeIncludesContentRange(t *testing.T) {
+	h, ownerID, jobID := newDataExportSessionFixture(t, "export body")
+
+	req := dataExportSessionRequest(t, ownerID, jobID, `{"single":true}`)
+	w := httptest.NewRecorder()
+	h.DataExportDownloadSession(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("session status = %d body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode session response: %v", err)
+	}
+	downloadReq := httptest.NewRequest(http.MethodGet, resp.URL, nil)
+	downloadReq.Header.Set("Range", "bytes=0-5")
+	for _, cookie := range w.Result().Cookies() {
+		downloadReq.AddCookie(cookie)
+	}
+	downloadReq = withJobAndPart(downloadReq, jobID, "export.zip")
+	downloadW := httptest.NewRecorder()
+	h.DataExportDownloadPart(downloadW, downloadReq)
+	if downloadW.Code != http.StatusPartialContent {
+		t.Fatalf("range status = %d body=%s", downloadW.Code, downloadW.Body.String())
+	}
+	if got := downloadW.Header().Get("Content-Range"); got != "bytes 0-5/11" {
+		t.Fatalf("Content-Range = %q", got)
+	}
+	if got := downloadW.Header().Get("Accept-Ranges"); got != "bytes" {
+		t.Fatalf("Accept-Ranges = %q", got)
+	}
+}
+
 func TestDataExportDownloadSessionAllReturnsObjectURLs(t *testing.T) {
 	h, ownerID, jobID := newMultipartDataExportSessionFixture(t)
 

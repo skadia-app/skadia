@@ -52,14 +52,23 @@ func ReadMembershipsJSON(src Source, importUserID string, importedActivityIDs ma
 	}
 	defer rc.Close()
 
-	var raw []rawMembership
-	if err := json.NewDecoder(rc).Decode(&raw); err != nil {
+	dec := json.NewDecoder(rc)
+	token, err := dec.Token()
+	if err != nil {
 		slog.Warn("dataimport: activity_fusion_memberships.json parse failed", "error", err)
 		return nil
 	}
-
-	out := make([]database.FusionMembership, 0, len(raw))
-	for _, r := range raw {
+	if delim, ok := token.(json.Delim); !ok || delim != '[' {
+		slog.Warn("dataimport: activity_fusion_memberships.json is not a JSON array")
+		return nil
+	}
+	var out []database.FusionMembership
+	for dec.More() {
+		var r rawMembership
+		if err := dec.Decode(&r); err != nil {
+			slog.Warn("dataimport: activity_fusion_memberships.json row parse failed", "error", err)
+			return out
+		}
 		if !importedActivityIDs[r.MergedID] || !importedActivityIDs[r.SourceID] {
 			slog.Warn("dataimport: membership references activity outside import scope — skipping",
 				"merged_id", r.MergedID, "source_id", r.SourceID)
@@ -71,6 +80,9 @@ func ReadMembershipsJSON(src Source, importUserID string, importedActivityIDs ma
 			FieldKey: r.FieldKey,
 			UserID:   importUserID,
 		})
+	}
+	if _, err := dec.Token(); err != nil {
+		slog.Warn("dataimport: activity_fusion_memberships.json ended malformed", "error", err)
 	}
 	return out
 }
