@@ -127,6 +127,21 @@ test_finalize_uncommitted_branch_migration_and_references() {
   assert_contains "$repo/notes.md" "000361_alpha"
 }
 
+test_finalize_patches_staged_branch_references() {
+  local repo dir
+  repo="$(new_repo)"
+  dir="$repo/services/api/internal/migrate/migrations"
+  add_migration "$repo" "900001" "alpha"
+  printf '900001_alpha\n' > "$repo/notes.md"
+  git -C "$repo" add "$repo/notes.md"
+
+  finalize "$repo" >/dev/null
+
+  assert_file "$dir/000361_alpha.up.sql"
+  assert_no_file "$dir/900001_alpha.up.sql"
+  assert_contains "$repo/notes.md" "000361_alpha"
+}
+
 test_finalize_concrete_branch_numbers_and_references() {
   local repo dir
   repo="$(new_repo)"
@@ -170,6 +185,23 @@ test_refinalizes_colliding_branch_number_after_base_advances() {
   assert_file "$dir/000362_alpha.up.sql"
   assert_file "$dir/000362_alpha.down.sql"
   assert_no_file "$dir/000361_alpha.up.sql"
+}
+
+test_check_rejects_renamed_base_migration() {
+  local repo out code
+  repo="$(new_repo)"
+  git -C "$repo" mv services/api/internal/migrate/migrations/000360_base.up.sql \
+    services/api/internal/migrate/migrations/000361_alpha.up.sql
+  git -C "$repo" mv services/api/internal/migrate/migrations/000360_base.down.sql \
+    services/api/internal/migrate/migrations/000361_alpha.down.sql
+
+  set +e
+  out="$(finalize "$repo" --check 2>&1)"
+  code=$?
+  set -e
+
+  [[ "$code" -ne 0 ]] || fail "--check accepted renamed base migrations"
+  [[ "$out" == *"existing migration SQL changed in branch"* ]] || fail "missing base-rename error: $out"
 }
 
 test_same_number_without_order_prefix_fails() {
@@ -260,8 +292,10 @@ test_check_passes_after_finalize_commit() {
 run_test test_check_fails_for_unfinalized_branch_migration
 run_test test_check_fails_for_uncommitted_branch_migration
 run_test test_finalize_uncommitted_branch_migration_and_references
+run_test test_finalize_patches_staged_branch_references
 run_test test_finalize_concrete_branch_numbers_and_references
 run_test test_refinalizes_colliding_branch_number_after_base_advances
+run_test test_check_rejects_renamed_base_migration
 run_test test_same_number_without_order_prefix_fails
 run_test test_same_number_with_order_prefix_fails
 run_test test_base_999999_finalizes_to_seven_digits

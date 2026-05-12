@@ -57,7 +57,6 @@ func TestMigration000351GearDefaultPredicatesBackfillsLegacyDefaults(t *testing.
 	upSQL, downSQL := readMigration000351GearDefaultPredicatesSQL(t)
 	pool := migrationTestPool(t)
 	ctx := context.Background()
-	skipIfMigrationAlreadyApplied(t, ctx, pool, 351, "000351 backfills legacy default_for_sports after recreating the pre-000351 gear shape")
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -72,6 +71,9 @@ func TestMigration000351GearDefaultPredicatesBackfillsLegacyDefaults(t *testing.
 	if _, err := tx.Exec(ctx, `ALTER TABLE gear DROP COLUMN IF EXISTS default_sport_predicates`); err != nil {
 		t.Fatalf("prepare missing column: %v", err)
 	}
+	if _, err := tx.Exec(ctx, `ALTER TABLE gear ADD COLUMN IF NOT EXISTS default_for_sports TEXT[]`); err != nil {
+		t.Fatalf("prepare legacy default_for_sports column: %v", err)
+	}
 	userID := uuid.NewString()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO users (id, username, email, email_verified, registration_source, is_admin)
@@ -80,11 +82,11 @@ func TestMigration000351GearDefaultPredicatesBackfillsLegacyDefaults(t *testing.
 		t.Fatalf("insert user: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO gear (user_id, name, type, default_for_sports)
+		INSERT INTO gear (user_id, name, type, scope, default_for_sports)
 		VALUES
-			($1, 'Road', 'bike', ARRAY['cycling', 'running']),
-			($1, 'Legacy MTB', 'bike', ARRAY['mountain_biking', 'e_mountain_biking', 'e_biking']),
-			($1, 'Invalid Legacy', 'other', ARRAY['not_a_sport'])
+			($1, 'Road', 'bike', 'bike', ARRAY['cycling', 'running']),
+			($1, 'Legacy MTB', 'bike', 'bike', ARRAY['mountain_biking', 'e_mountain_biking', 'e_biking']),
+			($1, 'Invalid Legacy', 'other', 'other', ARRAY['not_a_sport'])
 	`, userID); err != nil {
 		t.Fatalf("insert gear: %v", err)
 	}

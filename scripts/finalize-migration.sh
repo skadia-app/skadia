@@ -134,7 +134,10 @@ while IFS= read -r line; do
   rest="${line#*$'\t'}"
   path="$rest"
   if [[ "$status" == R* ]]; then
-    path="${rest#*$'\t'}"
+    old_path="${rest%%$'\t'*}"
+    new_path="${rest#*$'\t'}"
+    check_existing_migration_change "$status" "$old_path"
+    path="$new_path"
   fi
   check_existing_migration_change "$status" "$path"
 done < <(git diff --name-status "$merge_base"..HEAD -- "$MIG_DIR")
@@ -144,7 +147,10 @@ while IFS= read -r line; do
   status="${line:0:2}"
   path="${line:3}"
   if [[ "$status" == R* ]]; then
-    path="${path#* -> }"
+    old_path="${path%% -> *}"
+    new_path="${path#* -> }"
+    check_existing_migration_change "$status" "$old_path"
+    path="$new_path"
   fi
   check_existing_migration_change "$status" "$path"
 done < <(git status --porcelain=v1 -- "$MIG_DIR")
@@ -273,7 +279,9 @@ fi
 mapfile -t affected < <(
   {
     git diff --name-only "$merge_base"..HEAD -- \
-      '*.go' '*.ts' '*.tsx' '*.md' '*.sql' '*.yml' '*.yaml' '*.sh' 2>/dev/null \
+      '*.go' '*.ts' '*.tsx' '*.md' '*.sql' '*.yml' '*.yaml' '*.sh' 2>/dev/null
+    git diff --cached --name-only -- \
+      '*.go' '*.ts' '*.tsx' '*.md' '*.sql' '*.yml' '*.yaml' '*.sh' 2>/dev/null
     git diff --name-only -- \
       '*.go' '*.ts' '*.tsx' '*.md' '*.sql' '*.yml' '*.yaml' '*.sh' 2>/dev/null
     git ls-files --others --exclude-standard -- \
