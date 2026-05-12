@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -9,7 +10,8 @@ import (
 func (db *DB) GetLLMSystemConfig(ctx context.Context) ([]model.LLMSystemConfig, error) {
 	rows, err := db.Pool.Query(ctx,
 		`SELECT role, backend_type, api_base, model_name,
-		        api_key_enc IS NOT NULL AS has_api_key, enabled, updated_at
+		        api_key_enc IS NOT NULL AS has_api_key, enabled,
+		        capability_flags, eval_status, eval_report, updated_at
 		 FROM llm_system_config ORDER BY role`)
 	if err != nil {
 		return nil, err
@@ -18,9 +20,18 @@ func (db *DB) GetLLMSystemConfig(ctx context.Context) ([]model.LLMSystemConfig, 
 	var configs []model.LLMSystemConfig
 	for rows.Next() {
 		var c model.LLMSystemConfig
+		var evalReport []byte
 		if err := rows.Scan(&c.Role, &c.BackendType, &c.APIBase, &c.ModelName,
-			&c.HasAPIKey, &c.Enabled, &c.UpdatedAt); err != nil {
+			&c.HasAPIKey, &c.Enabled, &c.CapabilityFlags, &c.EvalStatus, &evalReport, &c.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if len(evalReport) > 0 {
+			if err := json.Unmarshal(evalReport, &c.EvalReport); err != nil {
+				return nil, err
+			}
+		}
+		if c.EvalReport == nil {
+			c.EvalReport = map[string]any{}
 		}
 		configs = append(configs, c)
 	}
@@ -46,7 +57,8 @@ func (db *DB) UpsertLLMSystemConfig(ctx context.Context, role string, update mod
 		   api_base = EXCLUDED.api_base,
 		   model_name = EXCLUDED.model_name,
 		   api_key_enc = COALESCE(EXCLUDED.api_key_enc, llm_system_config.api_key_enc),
-		   enabled = EXCLUDED.enabled`,
+		   enabled = EXCLUDED.enabled,
+		   updated_at = NOW()`,
 		role, update.BackendType, update.APIBase, update.ModelName, encryptedKey, update.Enabled)
 	return err
 }

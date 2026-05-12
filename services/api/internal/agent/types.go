@@ -5,8 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/shared"
+	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
 )
 
 type ChatRequest struct {
@@ -62,7 +61,7 @@ type TokenUsage struct {
 
 type ToolRuntime interface {
 	AddEnabledWriteTools(filter []string, prefs *ChatPreferences) []string
-	Definitions(filter []string, prefs *ChatPreferences) []openai.ChatCompletionToolParam
+	Definitions(filter []string, prefs *ChatPreferences) []llmwire.ToolDefinition
 	Execute(ctx context.Context, req ToolRuntimeRequest, sink SSESink) (ToolRuntimeResult, error)
 }
 
@@ -84,12 +83,8 @@ type ToolRuntimeResult struct {
 
 type ChatStream interface {
 	Next() bool
-	Current() openai.ChatCompletionChunk
+	Current() llmwire.ChatStreamEvent
 	Err() error
 }
 
-type ChatStreamFunc func(ctx context.Context, cfg LLMConfig, params openai.ChatCompletionNewParams) ChatStream
-
-func chatModel(name string) shared.ChatModel {
-	return shared.ChatModel(name)
-}
+type ChatStreamFunc func(ctx context.Context, cfg LLMConfig, params llmwire.ChatRequest) ChatStream

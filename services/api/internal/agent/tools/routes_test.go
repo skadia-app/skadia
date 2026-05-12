@@ -8,6 +8,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/skadia-app/skadia/services/api/internal/agent"
+	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestRegisterRouteToolsOwnershipSplit(t *testing.T) {
@@ -15,11 +22,12 @@ func TestRegisterRouteToolsOwnershipSplit(t *testing.T) {
 	RegisterRouteTools(reg)
 
 	tests := map[string]bool{
-		"search_routes":        true,
-		"plan_route":           false,
-		"search_pois_on_route": true,
-		"get_isochrone":        false,
-		"query_coverage":       false,
+		"search_routes":         true,
+		"list_routing_profiles": false,
+		"plan_route":            false,
+		"search_pois_on_route":  true,
+		"get_isochrone":         false,
+		"query_coverage":        false,
 	}
 	for name, wantUserOwned := range tests {
 		tool := reg.tools[name]
@@ -34,6 +42,17 @@ func TestRegisterRouteToolsOwnershipSplit(t *testing.T) {
 		}
 		if err := validateSchema(name, tool.InputSchema); err != nil {
 			t.Fatalf("%s schema invalid: %v", name, err)
+		}
+	}
+}
+
+func TestRoutingDomainToolsAllRegistered(t *testing.T) {
+	reg := NewRegistry()
+	RegisterAll(reg)
+
+	for _, name := range agent.DomainTools["routing"] {
+		if _, ok := reg.Get(name); !ok {
+			t.Fatalf("routing domain tool %q is not registered", name)
 		}
 	}
 }
@@ -59,7 +78,7 @@ func TestExecutePlanRouteHTTP(t *testing.T) {
 	result, err := executePlanRoute(context.Background(), &Deps{BRouterURL: server.URL}, "", json.RawMessage(`{
 		"waypoints": [[11.394,47.259],[11.450,47.280]],
 		"profile": "hiking-mountain",
-		"profile_params": {"SAC_scale_limit": "2", "unsafe param": "ignored"}
+		"profile_params": {"SAC_scale_limit": "2"}
 	}`))
 	if err != nil {
 		t.Fatalf("executePlanRoute returned error: %v", err)
@@ -77,11 +96,116 @@ func TestExecutePlanRouteHTTP(t *testing.T) {
 			t.Fatalf("query missing %q in %q", want, gotQuery)
 		}
 	}
-	if strings.Contains(gotQuery, "unsafe") {
-		t.Fatalf("unsafe profile param leaked into query: %q", gotQuery)
-	}
 	if result.(map[string]any)["type"] != "FeatureCollection" {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestExecutePlanRouteRejectsUnknownProfileBeforeHTTP(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	defer server.Close()
+
+	result, err := executePlanRoute(context.Background(), &Deps{BRouterURL: server.URL}, "", json.RawMessage(`{
+		"waypoints": [[11.394,47.259],[11.450,47.280]],
+		"profile": "not-a-real-profile"
+	}`))
+	if err != nil {
+		t.Fatalf("executePlanRoute returned error: %v", err)
+	}
+	if called {
+		t.Fatal("unknown profile should be rejected before calling BRouter")
+	}
+	got := result.(map[string]any)
+	if got["error"] == "" || got["fallback"] != true {
+		t.Fatalf("unexpected result: %#v", got)
+	}
+}
+
+func TestExecutePlanRouteRejectsUnknownProfileParamBeforeHTTP(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	defer server.Close()
+
+	result, err := executePlanRoute(context.Background(), &Deps{BRouterURL: server.URL}, "", json.RawMessage(`{
+		"waypoints": [[11.394,47.259],[11.450,47.280]],
+		"profile": "hiking-mountain",
+		"profile_params": {"unknown_param": "1"}
+	}`))
+	if err != nil {
+		t.Fatalf("executePlanRoute returned error: %v", err)
+	}
+	if called {
+		t.Fatal("unknown profile param should be rejected before calling BRouter")
+	}
+	got := result.(map[string]any)
+	if got["error"] == "" || got["fallback"] != true {
+		t.Fatalf("unexpected result: %#v", got)
+	}
+}
+
+func TestExecutePlanRoutePreviewDoesNotUseSaveMethod(t *testing.T) {
+	var gotMethod string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		_ = json.NewEncoder(w).Encode(map[string]any{"type": "FeatureCollection", "features": []any{}})
+	}))
+	defer server.Close()
+
+	_, err := executePlanRoute(context.Background(), &Deps{BRouterURL: server.URL}, "", json.RawMessage(`{
+		"waypoints": [[11.394,47.259],[11.450,47.280]],
+		"profile": "hiking-mountain"
+	}`))
+	if err != nil {
+		t.Fatalf("executePlanRoute returned error: %v", err)
+	}
+	if gotMethod != http.MethodGet {
+		t.Fatalf("method = %q, want GET preview/no-save request", gotMethod)
+	}
+}
+
+func TestExecuteListRoutingProfilesVisibleToUser(t *testing.T) {
+	pool := testdb.Open(t)
+	db := &database.DB{Pool: pool}
+	userID := insertRouteToolUser(t, pool, "owner")
+	foreignUserID := insertRouteToolUser(t, pool, "foreign")
+	ownName := "agent-own-" + uuid.NewString()
+	foreignName := "agent-foreign-" + uuid.NewString()
+	globalName := "agent-global-" + uuid.NewString()
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM routing_profiles WHERE name = ANY($1)`, []string{ownName, foreignName, globalName})
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = ANY($1)`, []string{userID, foreignUserID})
+	})
+
+	if _, err := db.CreateRoutingProfile(context.Background(), userID, ownName, "hiking", nil, sport.ModifierFilters{}, []byte(`{"profile":"hiking","name":"Owner Hiking"}`)); err != nil {
+		t.Fatalf("CreateRoutingProfile owner: %v", err)
+	}
+	if _, err := db.CreateRoutingProfile(context.Background(), foreignUserID, foreignName, "hiking", nil, sport.ModifierFilters{}, []byte(`{"profile":"hiking","name":"Foreign Hiking"}`)); err != nil {
+		t.Fatalf("CreateRoutingProfile foreign: %v", err)
+	}
+	if _, err := db.UpsertGlobalProfile(context.Background(), globalName, "hiking", nil, sport.ModifierFilters{}, []byte(`{"profile":"hiking","name":"Global Hiking"}`), "system"); err != nil {
+		t.Fatalf("UpsertGlobalProfile: %v", err)
+	}
+
+	result, err := executeListRoutingProfiles(context.Background(), &Deps{DB: db}, userID, nil)
+	if err != nil {
+		t.Fatalf("executeListRoutingProfiles: %v", err)
+	}
+	profiles := result.(map[string]any)["profiles"].([]routingProfileToolItem)
+	if !hasRoutingProfileToolName(profiles, ownName) {
+		t.Fatalf("own profile %q missing from %#v", ownName, profiles)
+	}
+	if !hasRoutingProfileToolName(profiles, globalName) {
+		t.Fatalf("global profile %q missing from %#v", globalName, profiles)
+	}
+	if hasRoutingProfileToolName(profiles, foreignName) {
+		t.Fatalf("foreign profile %q leaked into %#v", foreignName, profiles)
 	}
 }
 
@@ -97,7 +221,11 @@ func TestExecuteQueryCoverageHTTP(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := executeQueryCoverage(context.Background(), &Deps{MLBaseURL: server.URL}, "", json.RawMessage(`{
+	oldBase := routeAPIBaseURL
+	routeAPIBaseURL = server.URL
+	t.Cleanup(func() { routeAPIBaseURL = oldBase })
+
+	result, err := executeQueryCoverage(context.Background(), &Deps{MLBaseURL: "http://127.0.0.1:1"}, "", json.RawMessage(`{
 		"lat": 47.2,
 		"lon": 11.4,
 		"layers": "forest,traffic"
@@ -113,6 +241,27 @@ func TestExecuteQueryCoverageHTTP(t *testing.T) {
 	if layers["forest"].(float64) != 7 || layers["traffic"].(float64) != 2 {
 		t.Fatalf("unexpected layers: %#v", layers)
 	}
+}
+
+func hasRoutingProfileToolName(profiles []routingProfileToolItem, name string) bool {
+	for _, p := range profiles {
+		if p.Label == name || p.Key == name {
+			return true
+		}
+	}
+	return false
+}
+
+func insertRouteToolUser(t *testing.T, pool *pgxpool.Pool, prefix string) string {
+	t.Helper()
+	userID := uuid.NewString()
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO users (id, username, email, email_verified, registration_source)
+		VALUES ($1, $2, $3, true, 'test')`,
+		userID, prefix+"-"+userID[:8], prefix+"-"+userID[:8]+"@example.com"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	return userID
 }
 
 func TestBuildSearchRoutesSQLAppliesUserAndActivityFilters(t *testing.T) {

@@ -95,7 +95,7 @@ func TestRegistryDefinitionsFilterWriteTools(t *testing.T) {
 		ChatWriteToolsEnabled: false,
 		ChatAllowedWriteTools: []string{"update_activity"},
 	})
-	if len(defs) != 1 || defs[0].Function.Name != "read_activity" {
+	if len(defs) != 1 || defs[0].Name != "read_activity" {
 		t.Fatalf("expected only read tool, got %#v", defs)
 	}
 
@@ -103,7 +103,7 @@ func TestRegistryDefinitionsFilterWriteTools(t *testing.T) {
 		ChatWriteToolsEnabled: true,
 		ChatAllowedWriteTools: []string{"update_activity"},
 	})
-	if len(defs) != 2 || defs[0].Function.Name != "read_activity" || defs[1].Function.Name != "update_activity" {
+	if len(defs) != 2 || defs[0].Name != "read_activity" || defs[1].Name != "update_activity" {
 		t.Fatalf("expected read and allowed write tool, got %#v", defs)
 	}
 }

@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-func TestEmbedText(t *testing.T) {
+func TestInferenceEmbedText(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ml/embed/text" {
+		if r.URL.Path != "/embed/text" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		var req map[string]string

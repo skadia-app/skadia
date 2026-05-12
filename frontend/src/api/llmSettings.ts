@@ -7,6 +7,9 @@ export interface LLMSystemConfig {
   model_name?: string
   has_api_key: boolean
   enabled: boolean
+  capability_flags: string[]
+  eval_status: 'untested' | 'passed' | 'failed' | 'waived'
+  eval_report: Record<string, unknown>
   updated_at: string
 }
 

@@ -191,7 +191,7 @@ func Load() (*Config, error) {
 		LLMEncryptionKey:   getSecret("LLM_ENCRYPTION_KEY", ""),
 		LLMBaseURL:         getEnvDefault("LLM_BASE_URL", "http://litellm:4000/v1"),
 		LLMAPIKey:          getSecret("LLM_API_KEY", ""),
-		LLMModel:           getEnvDefault("LLM_MODEL", "skadia-default"),
+		LLMModel:           strings.TrimSpace(os.Getenv("LLM_MODEL")),
 		LLMContextWindow:   parseIntDefault(os.Getenv("LLM_CONTEXT_WINDOW"), 8000),
 
 		KomootEncryptionKey: getSecret("KOMOOT_ENCRYPTION_KEY", getSecret("LLM_ENCRYPTION_KEY", "")),

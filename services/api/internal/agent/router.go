@@ -93,6 +93,7 @@ var DomainKeywords = map[string][]string{
 		"wie komme ich", "kürzester weg", "schönste route", "rundtour",
 		"schwierigkeit", "sac", "mtb skala", "steigung",
 		"asphalt", "schotter", "profil", "gelände",
+		"gravel", "trail", "wenig verkehr", "verkehrsarm", "schön", "schoen", "viel wald",
 		"e-bike", "ebike", "e bike", "electric", "elektrisch",
 		"indoor", "virtuell", "virtuelle", "virtual",
 		"pendelroute", "pendeln", "commute",
@@ -112,7 +113,7 @@ var DomainTools = map[string][]string{
 	"photos":   {"search_photos_by_content"},
 	"routing": {
 		"search_pois_nearby", "search_trails_by_difficulty",
-		"plan_route", "search_pois_on_route", "get_isochrone",
+		"list_routing_profiles", "plan_route", "search_pois_on_route", "get_isochrone",
 		"query_geo_features", "search_routes",
 	},
 }

@@ -33,6 +33,23 @@ func TestRouteQueryMatchesPythonRouterCases(t *testing.T) {
 	}
 }
 
+func TestRouteQueryMatchesSubjectiveRoutingPhrases(t *testing.T) {
+	small := GetProfile("small", "", nil)
+	tests := []string{
+		"Plane mir eine schoene Gravel-Runde mit wenig Verkehr",
+		"Ich brauche eine Pendeln-Route",
+		"Finde eine Trail-Route mit viel Wald",
+	}
+	for _, query := range tests {
+		t.Run(query, func(t *testing.T) {
+			got := RouteQuery(query, &small)
+			if !containsString(got.Domains, "routing") {
+				t.Fatalf("domains = %#v, want routing", got.Domains)
+			}
+		})
+	}
+}
+
 func TestRouteQueryFallbackAndLargeProfile(t *testing.T) {
 	small := GetProfile("small", "", nil)
 	if got := RouteQuery("Hallo", &small); !reflect.DeepEqual(got.Domains, []string{"activities", "health"}) || got.Confidence != 0.3 {
