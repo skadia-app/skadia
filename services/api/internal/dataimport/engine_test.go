@@ -3387,6 +3387,10 @@ func (m *quotaExceededShadowFS) Put(_ context.Context, _ shadowfs.FileEntry, _ i
 	return shadowfs.FileRecord{}, fmt.Errorf("test wrapped quota: %w", shadowfs.ErrQuotaExceeded)
 }
 
+func (m *quotaExceededShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
+}
+
 type preflightQuotaShadowFS struct {
 	*mockShadowFS
 	puts int
@@ -3395,6 +3399,10 @@ type preflightQuotaShadowFS struct {
 func (m *preflightQuotaShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
 	m.puts++
 	return m.mockShadowFS.Put(ctx, entry, data)
+}
+
+func (m *preflightQuotaShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
 }
 
 type cleanupQuotaShadowFS struct {
@@ -3409,6 +3417,10 @@ func (m *cleanupQuotaShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry
 		return shadowfs.FileRecord{}, fmt.Errorf("test second put quota: %w", shadowfs.ErrQuotaExceeded)
 	}
 	return m.mockShadowFS.Put(ctx, entry, data)
+}
+
+func (m *cleanupQuotaShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
 }
 
 func (m *cleanupQuotaShadowFS) Delete(_ context.Context, _, fileID string) error {
@@ -3764,6 +3776,10 @@ func (m *editQuotaShadowFS) Put(ctx context.Context, entry shadowfs.FileEntry, d
 		return shadowfs.FileRecord{}, fmt.Errorf("test wrapped edit quota: %w", shadowfs.ErrQuotaExceeded)
 	}
 	return m.dbMockShadowFS.Put(ctx, entry, data)
+}
+
+func (m *editQuotaShadowFS) PutStream(ctx context.Context, entry shadowfs.FileEntry, data io.Reader) (shadowfs.FileRecord, error) {
+	return m.Put(ctx, entry, data)
 }
 
 func TestEditSidecarShadowFSQuotaExceededHardFails(t *testing.T) {
