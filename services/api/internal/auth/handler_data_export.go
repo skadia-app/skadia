@@ -3,7 +3,10 @@ package auth
 import (
 	"archive/zip"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,14 +14,17 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/go-chi/chi/v5"
@@ -39,6 +45,8 @@ var staleCleanupOnce sync.Once
 
 const dataExportDownloadTTL = 24 * time.Hour
 const dataExportMaxStartsPer24h = 3
+const dataExportDownloadSessionCookie = "skadia_gdpr_download"
+const dataExportDownloadSessionTTL = time.Minute
 
 func dataExportExpiresAt(updatedAt time.Time) time.Time {
 	return updatedAt.Add(dataExportDownloadTTL)
@@ -778,6 +786,286 @@ func buildDataExportStatusResponse(
 	}
 
 	return resp
+}
+
+// DataExportDownloadSession handles POST /auth/data-export/{jobID}/download-session.
+func (h *Handler) DataExportDownloadSession(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserID(r.Context())
+	jobID := chi.URLParam(r, "jobID")
+	ctx := r.Context()
+	if h.ArtifactStore == nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "artifact_store_unconfigured"})
+		return
+	}
+
+	var req struct {
+		Single bool   `json:"single"`
+		Part   string `json:"part"`
+		All    bool   `json:"all"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	var status string
+	var metadata []byte
+	err := h.DB.Pool.QueryRow(ctx,
+		`SELECT status, COALESCE(metadata, '{}'::jsonb)
+		 FROM background_jobs
+		 WHERE id = $1 AND user_id = $2 AND job_type = 'gdpr_export'`,
+		jobID, userID).Scan(&status, &metadata)
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	if status != "completed" && status != "failed" {
+		httputil.WriteJSONNoCache(w, http.StatusConflict, map[string]string{"error": "not_completed"})
+		return
+	}
+	meta, err := gdprartifacts.DecodeJobMetadata(metadata)
+	if err != nil || meta.Artifact == nil {
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	if !time.Now().Before(meta.Artifact.ExpiresAt) {
+		httputil.WriteJSONNoCache(w, http.StatusGone, map[string]string{"error": "file_expired"})
+		return
+	}
+
+	allowedRefs, err := selectDownloadSessionObjects(*meta.Artifact, req.Single, req.Part, req.All)
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_part"})
+		return
+	}
+	for _, ref := range allowedRefs {
+		stat, err := h.ArtifactStore.Stat(ctx, ref)
+		if err != nil || stat.State != gdprartifacts.ObjectPresent {
+			httputil.WriteJSONNoCache(w, http.StatusGone, map[string]string{"error": "artifact_unavailable"})
+			return
+		}
+	}
+
+	sessionID := uuid.NewString()
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "session_failed"})
+		return
+	}
+	rawSecret := base64.RawURLEncoding.EncodeToString(secret)
+	expiresAt := time.Now().UTC().Add(dataExportDownloadSessionTTL)
+	session := gdprartifacts.DownloadSessionRecord{
+		SessionID:  sessionID,
+		SecretHash: gdprartifacts.HashDownloadSessionSecret([]byte(rawSecret)),
+		UserID:     userID,
+		JobID:      jobID,
+		ExpiresAt:  expiresAt,
+		CreatedAt:  time.Now().UTC(),
+	}
+	for _, ref := range allowedRefs {
+		session.AllowedObjects = append(session.AllowedObjects, gdprartifacts.DownloadSessionObject{
+			Name: ref.Name, Role: ref.Role, SHA256: ref.SHA256, SizeBytes: ref.SizeBytes,
+		})
+	}
+	updated, err := gdprartifacts.AddDownloadSessionJSON(metadata, session)
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "session_failed"})
+		return
+	}
+	if _, err := h.DB.Pool.Exec(ctx, `UPDATE background_jobs SET metadata=$2::jsonb, updated_at=updated_at WHERE id=$1`, jobID, string(updated)); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "session_failed"})
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     dataExportDownloadSessionCookie,
+		Value:    rawSecret,
+		Path:     "/api/v1/downloads/gdpr/data-export/",
+		Expires:  expiresAt,
+		MaxAge:   int(dataExportDownloadSessionTTL.Seconds()),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   isRequestHTTPS(r),
+	})
+	first := allowedRefs[0]
+	downloadURL := dataExportDownloadURL(jobID, first.Name, sessionID)
+	go h.DB.LogAuthEvent(h.shutdownCtx, userID, "data_export_download_session_issued",
+		middleware.ClientIP(r), r.UserAgent(), map[string]string{"job_id": jobID})
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{
+		"url":        downloadURL,
+		"expires_at": expiresAt.Format(time.RFC3339),
+	})
+}
+
+func (h *Handler) DataExportDownloadManifest(w http.ResponseWriter, r *http.Request) {
+	h.streamDataExportArtifact(w, r, "manifest.json")
+}
+
+func (h *Handler) DataExportDownloadPart(w http.ResponseWriter, r *http.Request) {
+	h.streamDataExportArtifact(w, r, chi.URLParam(r, "partName"))
+}
+
+func (h *Handler) streamDataExportArtifact(w http.ResponseWriter, r *http.Request, objectName string) {
+	jobID := chi.URLParam(r, "jobID")
+	sessionID := r.URL.Query().Get("session_id")
+	cookie, err := r.Cookie(dataExportDownloadSessionCookie)
+	if err != nil || sessionID == "" || objectName == "" {
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "download_session_invalid"})
+		return
+	}
+	var metadata []byte
+	if err := h.DB.Pool.QueryRow(r.Context(),
+		`SELECT COALESCE(metadata, '{}'::jsonb)
+		 FROM background_jobs
+		 WHERE id = $1 AND job_type = 'gdpr_export'`,
+		jobID).Scan(&metadata); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	meta, err := gdprartifacts.DecodeJobMetadata(metadata)
+	if err != nil || meta.Artifact == nil {
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "download_session_invalid"})
+		return
+	}
+	session, ok := meta.DownloadSessions[sessionID]
+	if !ok || session.JobID != jobID || time.Now().After(session.ExpiresAt) {
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "download_session_invalid"})
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(session.SecretHash), []byte(gdprartifacts.HashDownloadSessionSecret([]byte(cookie.Value)))) != 1 {
+		httputil.WriteJSONNoCache(w, http.StatusUnauthorized, map[string]string{"error": "download_session_invalid"})
+		return
+	}
+	var allowed *gdprartifacts.DownloadSessionObject
+	for i := range session.AllowedObjects {
+		if session.AllowedObjects[i].Name == objectName {
+			allowed = &session.AllowedObjects[i]
+			break
+		}
+	}
+	if allowed == nil {
+		httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": "download_session_invalid"})
+		return
+	}
+	ref, ok := findArtifactObject(*meta.Artifact, objectName)
+	if !ok {
+		httputil.WriteJSONNoCache(w, http.StatusGone, map[string]string{"error": "artifact_unavailable"})
+		return
+	}
+	rangeSpec, statusCode, err := parseRangeHeader(r.Header.Get("Range"))
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusRequestedRangeNotSatisfiable, map[string]string{"error": "invalid_range"})
+		return
+	}
+	reader, err := h.ArtifactStore.Open(r.Context(), ref, rangeSpec)
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusGone, map[string]string{"error": "artifact_unavailable"})
+		return
+	}
+	defer reader.Close()
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Content-Type", defaultDownloadContentType(ref.ContentType))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, sanitizeDownloadFilename(ref.Name)))
+	w.Header().Set("X-Checksum-SHA256", ref.SHA256)
+	if reader.Size() >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(reader.Size(), 10))
+	}
+	if statusCode != 0 {
+		w.WriteHeader(statusCode)
+	}
+	if _, err := io.Copy(w, reader); err != nil {
+		slog.Warn("gdpr export download stream failed", "job_id", jobID, "object", objectName, "error", err)
+		return
+	}
+	go h.DB.LogAuthEvent(h.shutdownCtx, session.UserID, "data_export_download_started",
+		middleware.ClientIP(r), r.UserAgent(), map[string]string{"job_id": jobID, "part_name": objectName})
+}
+
+func selectDownloadSessionObjects(artifact gdprartifacts.Artifact, single bool, part string, all bool) ([]gdprartifacts.ObjectRef, error) {
+	if all {
+		return artifact.Objects, nil
+	}
+	if single {
+		for _, ref := range artifact.Objects {
+			if ref.Role == gdprartifacts.RoleSingleZIP {
+				return []gdprartifacts.ObjectRef{ref}, nil
+			}
+		}
+		return nil, fmt.Errorf("single artifact missing")
+	}
+	if part != "" {
+		ref, ok := findArtifactObject(artifact, part)
+		if !ok {
+			return nil, fmt.Errorf("part not found")
+		}
+		return []gdprartifacts.ObjectRef{ref}, nil
+	}
+	return nil, fmt.Errorf("object selector required")
+}
+
+func findArtifactObject(artifact gdprartifacts.Artifact, name string) (gdprartifacts.ObjectRef, bool) {
+	for _, ref := range artifact.Objects {
+		if ref.Name == name {
+			return ref, true
+		}
+	}
+	return gdprartifacts.ObjectRef{}, false
+}
+
+func dataExportDownloadURL(jobID, objectName, sessionID string) string {
+	return fmt.Sprintf("/api/v1/downloads/gdpr/data-export/%s/parts/%s?session_id=%s",
+		url.PathEscape(jobID), url.PathEscape(objectName), url.QueryEscape(sessionID))
+}
+
+func parseRangeHeader(header string) (*gdprartifacts.RangeSpec, int, error) {
+	if header == "" {
+		return nil, 0, nil
+	}
+	if !strings.HasPrefix(header, "bytes=") {
+		return nil, 0, fmt.Errorf("unsupported range")
+	}
+	bounds := strings.TrimPrefix(header, "bytes=")
+	startText, endText, ok := strings.Cut(bounds, "-")
+	if !ok || startText == "" {
+		return nil, 0, fmt.Errorf("invalid range")
+	}
+	start, err := strconv.ParseInt(startText, 10, 64)
+	if err != nil || start < 0 {
+		return nil, 0, fmt.Errorf("invalid range start")
+	}
+	spec := &gdprartifacts.RangeSpec{Start: &start}
+	if endText != "" {
+		end, err := strconv.ParseInt(endText, 10, 64)
+		if err != nil || end < start {
+			return nil, 0, fmt.Errorf("invalid range end")
+		}
+		spec.End = &end
+	}
+	return spec, http.StatusPartialContent, nil
+}
+
+func defaultDownloadContentType(contentType string) string {
+	if contentType == "" {
+		return "application/octet-stream"
+	}
+	return contentType
+}
+
+func sanitizeDownloadFilename(name string) string {
+	name = strings.ReplaceAll(name, `"`, "")
+	name = filepath.Base(name)
+	if name == "." || name == "/" || name == "" {
+		return "download.bin"
+	}
+	return name
+}
+
+func isRequestHTTPS(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 // DataExportDownload handles GET /auth/data-export/{jobID}/download — streams the export ZIP.
