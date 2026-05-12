@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -57,7 +58,7 @@ func (h *Handler) GetSimilarRoutes(w http.ResponseWriter, r *http.Request) {
 	//          in EPSG:3857 (meters). A 50m corridor around each track is used.
 	//          GREATEST(A→B, B→A) picks the better direction (handles out-and-back etc.).
 	//          Only candidates with ≥30% overlap pass.
-	const query = `
+	query := `
 		WITH target AS (
 			SELECT a.id,
 			       ST_Transform(at2.track_simplified, 3857) AS track_m,
@@ -69,7 +70,9 @@ func (h *Handler) GetSimilarRoutes(w http.ResponseWriter, r *http.Request) {
 			WHERE a.id = $1 AND at2.track_simplified IS NOT NULL
 		),
 		candidates AS (
-			SELECT a.id, a.title, a.sport_type, a.started_at,
+			SELECT a.id,
+			       ` + database.ActivityDisplayTitleSQL("a") + ` AS title,
+			       a.sport_type, a.started_at,
 			       ST_Transform(at2.track_simplified, 3857) AS track_m
 			FROM activities a
 			JOIN activity_tracks at2 ON at2.activity_id = a.id

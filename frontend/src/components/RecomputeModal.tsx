@@ -61,6 +61,7 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
 
   const count = activityIds.length
   const label = count === 1 ? '1 Aktivität' : `${count} Aktivitäten`
+  const reprocessesTags = mode === 'all' || selected.has('tags')
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-sm" className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 space-y-5">
@@ -100,6 +101,13 @@ export default function RecomputeModal({ activityIds, onClose, onSuccess }: Prop
             <ScopeCheckboxList selected={selected} onToggle={toggleScope} layout="vertical" />
           </div>
         )}
+
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          Manuelle Titel, Beschreibung und Sichtbarkeit bleiben erhalten.
+          {reprocessesTags
+            ? ' Tags werden durch Regeln und Systemlogik neu ausgewertet.'
+            : ' Tags bleiben unverändert, solange „Tags“ nicht ausgewählt ist.'}
+        </p>
 
         {/* State feedback */}
         {state === 'error' && (

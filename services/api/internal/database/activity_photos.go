@@ -218,6 +218,7 @@ type PhotoFeedRow struct {
 // ListPhotoFeed gibt paginierte Fotos zurück mit zugehörigen Aktivitätsdaten.
 // sort: "date" = nach Aktivitätsdatum DESC, "added" = nach created_at DESC.
 func (db *DB) ListPhotoFeed(ctx context.Context, userID, sort string, limit, offset int) ([]PhotoFeedRow, int, error) {
+	activityTitleSQL := ActivityDisplayTitleSQL("a")
 	var orderExpr string
 	if sort == "added" {
 		orderExpr = "ap.created_at DESC"
@@ -238,7 +239,7 @@ func (db *DB) ListPhotoFeed(ctx context.Context, userID, sort string, limit, off
 			ap.lat, ap.lng, ap.location_source,
 			ap.content_type, ap.is_video, ap.duration_s,
 			a.id              AS act_id,
-			a.title           AS act_title,
+			` + activityTitleSQL + ` AS act_title,
 			a.sport_type      AS act_sport_type,
 			a.started_at      AS act_started_at,
 			a.distance_m      AS act_distance_m,
@@ -297,6 +298,7 @@ func (db *DB) ListPhotoFeed(ctx context.Context, userID, sort string, limit, off
 func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, titleQuery string, limit int) ([]model.PhotoSearchResult, error) {
 	var results []model.PhotoSearchResult
 	seen := map[string]bool{}
+	activityTitleSQL := ActivityDisplayTitleSQL("a")
 
 	if clipVecLiteral != "" {
 		if !clipVecLiteralRe.MatchString(clipVecLiteral) {
@@ -308,7 +310,9 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 				ap.lat, ap.lng, ap.location_source,
 				ap.content_type, ap.is_video, ap.duration_s,
 				1 - (ap.clip_embedding <=> `+clipVecLiteral+`::vector) AS similarity,
-				a.id, a.title, a.sport_type, a.started_at,
+				a.id,
+				`+activityTitleSQL+` AS title,
+				a.sport_type, a.started_at,
 				a.distance_m, a.moving_time_s, a.elevation_gain_m,
 				NULL::text AS act_track_geojson,
 				a.location_lat, a.location_lng, a.timezone
@@ -354,13 +358,15 @@ func (db *DB) SearchPhotos(ctx context.Context, userID string, clipVecLiteral, t
 				ap.id, ap.activity_id, ap.taken_at, ap.created_at,
 				ap.lat, ap.lng, ap.location_source,
 				ap.content_type, ap.is_video, ap.duration_s,
-				a.id, a.title, a.sport_type, a.started_at,
+				a.id,
+				`+activityTitleSQL+` AS title,
+				a.sport_type, a.started_at,
 				a.distance_m, a.moving_time_s, a.elevation_gain_m,
 				NULL::text AS act_track_geojson,
 				a.location_lat, a.location_lng, a.timezone
 			FROM activity_photos ap
 			JOIN activities a ON ap.activity_id = a.id AND a.user_id = ap.user_id
-			WHERE ap.user_id = $1 AND a.title ILIKE '%' || $2 || '%'
+			WHERE ap.user_id = $1 AND `+activityTitleSQL+` ILIKE '%' || $2 || '%'
 			LIMIT $3
 		`, userID, titleQuery, limit)
 		if err != nil {
@@ -550,10 +556,13 @@ func (db *DB) PhotosWithoutPHash(ctx context.Context, userID string) ([]Backfill
 }
 
 func (db *DB) ListMapPhotos(ctx context.Context, userID string) ([]model.MapPhotoEntry, error) {
+	activityTitleSQL := ActivityDisplayTitleSQL("a")
 	rows, err := db.Pool.Query(ctx, `
-		SELECT ap.id, ap.activity_id, a.title, ap.lat, ap.lng, ap.taken_at
+		SELECT ap.id, ap.activity_id,
+		       `+activityTitleSQL+` AS activity_title,
+		       ap.lat, ap.lng, ap.taken_at
 		FROM activity_photos ap
-		LEFT JOIN activities a ON a.id = ap.activity_id
+		LEFT JOIN activities a ON a.id = ap.activity_id AND a.user_id = ap.user_id
 		WHERE ap.user_id = $1 AND ap.lat IS NOT NULL AND ap.lng IS NOT NULL
 		ORDER BY COALESCE(ap.taken_at, ap.created_at) DESC
 	`, userID)

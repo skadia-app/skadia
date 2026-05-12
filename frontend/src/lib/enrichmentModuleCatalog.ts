@@ -18,7 +18,7 @@ export type EnrichmentModuleName =
   | 'embeddings'
 
 export type ReprocessPolicy =
-  | { type: 'standalone'; scope: string; group: 'stream' | 'geo' }
+  | { type: 'standalone'; scope: string; group: 'stream' | 'geo' | 'metadata' }
   | { type: 'coveredBy'; scope: string }
   | { type: 'stage1Covered' }
   | { type: 'inherited' }
@@ -42,7 +42,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
     description: 'Generiert automatisch einen Titel basierend auf Route und Aktivitätstyp.',
     field: 'enable_auto_naming',
     requiresML: false,
-    reprocess: { type: 'stage1Covered' },
+    reprocess: { type: 'standalone', scope: 'auto_title', group: 'metadata' },
     icon: 'M4 6h16M4 12h10M4 18h7',
   },
   {

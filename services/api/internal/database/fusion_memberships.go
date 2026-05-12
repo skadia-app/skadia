@@ -226,13 +226,14 @@ func (db *DB) GetLatestEditData(ctx context.Context, activityID, editType string
 	return raw, nil
 }
 
-// GetActivityTitle returns the display title of an activity (COALESCE(title, ”)).
+// GetActivityTitle returns the display title of an activity.
 // Used by the sidecar writer to embed a human-readable source title in the
 // FusionMemberSnapshot.
 func (db *DB) GetActivityTitle(ctx context.Context, activityID string) (string, error) {
 	var title string
 	err := db.Pool.QueryRow(ctx,
-		`SELECT COALESCE(title, '') FROM activities WHERE id = $1`,
+		`SELECT `+ActivityDisplayTitleSQL("")+`
+		FROM activities WHERE id = $1`,
 		activityID).Scan(&title)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
@@ -248,7 +249,8 @@ func (db *DB) GetActivityTitles(ctx context.Context, ids []string) (map[string]s
 		return map[string]string{}, nil
 	}
 	rows, err := db.Pool.Query(ctx,
-		`SELECT id, COALESCE(title, '') FROM activities WHERE id = ANY($1)`, ids)
+		`SELECT id, `+ActivityDisplayTitleSQL("")+`
+		FROM activities WHERE id = ANY($1)`, ids)
 	if err != nil {
 		return nil, err
 	}

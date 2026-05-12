@@ -13,8 +13,8 @@ import (
 type ImportQueueItem struct {
 	ID               string         `json:"id"`
 	UserID           string         `json:"user_id"`
-	QueueType        string         `json:"item_type"`  // image_no_exif|image_ambiguous|pdf_untyped|duplicate|import_error|sport_conflict
-	Status           string         `json:"status"`     // pending|resolved|dismissed
+	QueueType        string         `json:"item_type"` // image_no_exif|image_ambiguous|pdf_untyped|duplicate|import_error|sport_conflict
+	Status           string         `json:"status"`    // pending|resolved|dismissed
 	OriginalFilename string         `json:"filename"`
 	ContentType      string         `json:"content_type"`
 	FileSizeBytes    *int64         `json:"file_size,omitempty"`
@@ -181,8 +181,11 @@ func (db *DB) GetImportQueueItem(ctx context.Context, id, userID string) (*Impor
 
 // FindActivitiesCoveringTime returns activities whose time window contains ts.
 func (db *DB) FindActivitiesCoveringTime(ctx context.Context, userID string, ts time.Time) ([]ActivityTimeMatch, error) {
+	activityTitleSQL := ActivityDisplayTitleSQL("")
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, title, started_at, ended_at
+		SELECT id,
+		       `+activityTitleSQL+` AS title,
+		       started_at, ended_at
 		FROM activities
 		WHERE user_id = $1
 		  AND started_at <= $2

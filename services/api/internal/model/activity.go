@@ -1134,13 +1134,14 @@ type EnrichmentModuleStatus struct {
 
 // TagActivity is a lightweight activity summary for tag popups.
 type TagActivity struct {
-	ID        string    `json:"id"`
-	Title     *string   `json:"title"`
-	TitleAuto *string   `json:"title_auto,omitempty"`
-	StartedAt time.Time `json:"started_at"`
-	SportType string    `json:"sport_type"`
-	DistanceM *float64  `json:"distance_m,omitempty"`
-	Timezone  *string   `json:"timezone,omitempty"`
+	ID            string    `json:"id"`
+	Title         *string   `json:"title"`
+	TitleAuto     *string   `json:"title_auto,omitempty"`
+	TitleIsManual bool      `json:"title_is_manual,omitempty"`
+	StartedAt     time.Time `json:"started_at"`
+	SportType     string    `json:"sport_type"`
+	DistanceM     *float64  `json:"distance_m,omitempty"`
+	Timezone      *string   `json:"timezone,omitempty"`
 }
 
 // TimeInZoneData represents time spent in a specific training zone.

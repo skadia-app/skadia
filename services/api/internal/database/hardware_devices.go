@@ -430,11 +430,15 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 	}
 
 	var rows pgx.Rows
+	activityTitleSQL := ActivityDisplayTitleSQL("")
+	aliasedActivityTitleSQL := ActivityDisplayTitleSQL("a")
 
 	if deviceType == "recorder" {
 		if afterCursor != "" {
 			rows, err = db.Pool.Query(ctx,
-				`SELECT id::text, started_at, title, sport_type, distance_m, timezone
+				`SELECT id::text, started_at,
+				     `+activityTitleSQL+`,
+				     sport_type, distance_m, timezone
 				 FROM activities
 				 WHERE recording_device_id = $1 AND started_at < $2::timestamptz
 				 ORDER BY started_at DESC LIMIT $3`,
@@ -442,7 +446,9 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 			)
 		} else {
 			rows, err = db.Pool.Query(ctx,
-				`SELECT id::text, started_at, title, sport_type, distance_m, timezone
+				`SELECT id::text, started_at,
+				     `+activityTitleSQL+`,
+				     sport_type, distance_m, timezone
 				 FROM activities
 				 WHERE recording_device_id = $1
 				 ORDER BY started_at DESC LIMIT $2`,
@@ -453,7 +459,9 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 		// sensor: look up via activity_sensors join
 		if afterCursor != "" {
 			rows, err = db.Pool.Query(ctx,
-				`SELECT a.id::text, a.started_at, a.title, a.sport_type, a.distance_m, a.timezone
+				`SELECT a.id::text, a.started_at,
+				     `+aliasedActivityTitleSQL+`,
+				     a.sport_type, a.distance_m, a.timezone
 				 FROM activities a
 				 INNER JOIN (
 					SELECT activity_id FROM activity_sensors WHERE device_id = $1
@@ -466,7 +474,9 @@ func (db *DB) ListDeviceActivities(ctx context.Context, deviceID string, limit i
 			)
 		} else {
 			rows, err = db.Pool.Query(ctx,
-				`SELECT a.id::text, a.started_at, a.title, a.sport_type, a.distance_m, a.timezone
+				`SELECT a.id::text, a.started_at,
+				     `+aliasedActivityTitleSQL+`,
+				     a.sport_type, a.distance_m, a.timezone
 				 FROM activities a
 				 INNER JOIN (
 					SELECT activity_id FROM activity_sensors WHERE device_id = $1

@@ -10,6 +10,7 @@ import {
 import { executeFusionMerge } from '@/api/fusion'
 import { fmtDateCompact } from '@/lib/format'
 import { sportLabel } from '@/lib/sportTaxonomy'
+import { displayActivityTitle } from '@/lib/activityTitle'
 import { deviceLabel } from '@/lib/deviceUtils'
 import { getSourceColor } from '@/lib/comparisonColors'
 import type { RecordingGroup } from '@/api/types'
@@ -54,8 +55,7 @@ function groupLabel(group: RecordingGroup | undefined): string {
   // NOT via m.is_primary field.
   const primary = group.members.find(m => m.activity_id === group.primary_activity_id) ?? group.members[0]
   if (!primary) return ''
-  // || not ?? — empty-string title falls through to title_auto
-  const title = primary.title || primary.title_auto
+  const title = displayActivityTitle(primary, '')
   if (title) return title
   return `${sportLabel(primary.sport_type)} · ${fmtDateCompact(primary.started_at)}`
 }
@@ -292,7 +292,7 @@ export default function FusionPage() {
         ? `${Math.round((member.distance_m / 1000) * 10) / 10} km`
         : '—'
       const date = fmtDateCompact(member.started_at, null)
-      return [member.title || 'Ohne Titel', date, dist, dl].filter(Boolean).join(' — ')
+      return [displayActivityTitle(member, 'Ohne Titel'), date, dist, dl].filter(Boolean).join(' — ')
     }
     return id.slice(0, 8) + '…'
   }

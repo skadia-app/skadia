@@ -430,6 +430,10 @@ func (s *Service) PostProcess(
 	// For non-GPS activities, geo queries are skipped internally but Stage-2 NATS event (embeddings) is still published.
 	enrichment.RunGeoAndPublishStage2(ctx, s.DB, userID, activityID, data.HasGPS, data.SportType, data.IsVirtual, s.Stage2ReadyPublisher, s.GraphReader)
 
+	if err := enrichment.RunAutoTitle(ctx, s.DB, userID, activityID); err != nil {
+		slog.Warn("postprocess: auto title failed (non-fatal)", "activity_id", activityID, "error", err)
+	}
+
 	// Trigger on_enrichment_complete rules after all synchronous enrichment steps finish.
 	if allRules, err := s.DB.ListRules(ctx, userID); err == nil {
 		if rulesErr := automation.ApplyRulesToActivity(ctx, s.DB, activityID, userID, allRules, "on_enrichment_complete"); rulesErr != nil {

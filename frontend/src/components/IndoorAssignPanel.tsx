@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchActivities } from '@/api/activities'
 import { createTag, syncTagLocation, assignActivitiesToTag } from '@/api/tags'
 import type { Tag } from '@/api/tags'
+import { displayActivityTitle } from '@/lib/activityTitle'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { normTz } from '@/lib/format'
 import ColorPicker from '@/components/ColorPicker'
@@ -41,8 +42,9 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
   const filtered = useMemo(() => {
     return activities.filter(act => {
       const q = search.toLowerCase()
+      const displayTitle = displayActivityTitle(act, '')
       const matchSearch = !q || (
-        (act.title ?? '').toLowerCase().includes(q) ||
+        displayTitle.toLowerCase().includes(q) ||
         (act.description ?? '').toLowerCase().includes(q)
       )
       const matchSport = !sportFilter || act.sport_type === sportFilter
@@ -247,6 +249,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
               </label>
             </div>
             {sortedFiltered.map(act => {
+              const displayTitle = displayActivityTitle(act, sportLabel(act.sport_type))
               const dateStr = act.started_at
                 ? new Date(act.started_at).toLocaleDateString('de-DE', {
                     weekday: 'short', day: '2-digit', month: '2-digit',
@@ -272,7 +275,7 @@ export default function IndoorAssignPanel({ locationTags, onClose, onPickLocatio
                   />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">
-                      {act.title || sportLabel(act.sport_type)}
+                      {displayTitle}
                     </div>
                     <div className="text-xs text-neutral-400 flex items-center gap-1.5 mt-0.5 flex-wrap">
                       <span>{sportLabel(act.sport_type)}</span>
