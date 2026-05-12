@@ -170,10 +170,10 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Get or create user (handles email collision internally).
 	isActive := h.Settings.Get("registration.mode").Value != "approval"
-	user, isNewUser, err := h.DB.GetOrCreateUserByOAuth(r.Context(),
+	user, isNewUser, err := h.DB.GetOrCreateUserByOAuthSeeded(r.Context(),
 		provider, providerID, providerEmail, username,
 		[]byte(token.AccessToken), []byte(token.RefreshToken),
-		&token.Expiry, h.Config.OAuthEncryptionKey, isActive, !isActive)
+		&token.Expiry, h.Config.OAuthEncryptionKey, isActive, !isActive, h.seedSystemArtifactsTx)
 	if err != nil {
 		if errors.Is(err, database.ErrEmailCollision) {
 			// TODO: Account linking endpoint — currently users are told to "link in settings"

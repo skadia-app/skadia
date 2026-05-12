@@ -20,6 +20,9 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/skadia-app/skadia/services/api/internal/database"
 )
 
@@ -218,8 +221,24 @@ var OnDemandSystemTypes = []string{"commute_auto"}
 // On success the user's system_artifacts_version is bumped to
 // SystemArtifactsVersion so subsequent sweeps skip the user.
 func EnsureSystemArtifacts(ctx context.Context, db *database.DB, userID string) error {
+	return ensureSystemArtifactsWithQuerier(ctx, db.Pool, userID)
+}
+
+// EnsureSystemArtifactsTx seeds system artifacts inside the caller-owned
+// transaction. The caller controls commit/rollback, so user creation can keep
+// required account state and system artifacts in one atomic boundary.
+func EnsureSystemArtifactsTx(ctx context.Context, tx pgx.Tx, userID string) error {
+	return ensureSystemArtifactsWithQuerier(ctx, tx, userID)
+}
+
+type artifactQuerier interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func ensureSystemArtifactsWithQuerier(ctx context.Context, q artifactQuerier, userID string) error {
 	for _, t := range SystemTags {
-		if _, err := db.Pool.Exec(ctx, `
+		if _, err := q.Exec(ctx, `
 			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)
 			VALUES ($1, $2, $3, $4, 'system', true, false, $5)
 			ON CONFLICT (user_id, name) DO UPDATE
@@ -233,7 +252,7 @@ func EnsureSystemArtifacts(ctx context.Context, db *database.DB, userID string) 
 	}
 	for _, r := range SystemRules {
 		var tagID string
-		if err := db.Pool.QueryRow(ctx,
+		if err := q.QueryRow(ctx,
 			`SELECT id::text FROM tags WHERE user_id = $1 AND name = $2 AND is_system = true`,
 			userID, r.TagName,
 		).Scan(&tagID); err != nil {
@@ -260,7 +279,7 @@ func EnsureSystemArtifacts(ctx context.Context, db *database.DB, userID string) 
 		if err != nil {
 			return fmt.Errorf("marshal actions for %s: %w", r.SystemType, err)
 		}
-		if _, err := db.Pool.Exec(ctx, `
+		if _, err := q.Exec(ctx, `
 			INSERT INTO automation_rules (
 				user_id, name, is_system, system_type, is_active, priority,
 				conditions, conditions_logic, actions, trigger_event
@@ -273,10 +292,10 @@ func EnsureSystemArtifacts(ctx context.Context, db *database.DB, userID string) 
 			return fmt.Errorf("ensure rule %s: %w", r.SystemType, err)
 		}
 	}
-	if err := refreshSystemArtifactAutomationState(ctx, db, userID); err != nil {
+	if err := refreshSystemArtifactAutomationState(ctx, q, userID); err != nil {
 		return err
 	}
-	if _, err := db.Pool.Exec(ctx,
+	if _, err := q.Exec(ctx,
 		`UPDATE users SET system_artifacts_version = $1 WHERE id = $2`,
 		SystemArtifactsVersion, userID,
 	); err != nil {
@@ -285,8 +304,8 @@ func EnsureSystemArtifacts(ctx context.Context, db *database.DB, userID string) 
 	return nil
 }
 
-func refreshSystemArtifactAutomationState(ctx context.Context, db *database.DB, userID string) error {
-	_, err := db.Pool.Exec(ctx, `
+func refreshSystemArtifactAutomationState(ctx context.Context, q artifactQuerier, userID string) error {
+	_, err := q.Exec(ctx, `
 		UPDATE tags t SET has_automation = EXISTS (
 			SELECT 1 FROM automation_rules ar
 			WHERE ar.user_id = t.user_id AND ar.is_active = true
