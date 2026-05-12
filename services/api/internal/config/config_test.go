@@ -1,0 +1,111 @@
+package config
+
+import "testing"
+
+func withBaseEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("DATABASE_URL", "postgres://skadia:skadia@localhost:5432/skadia_test?sslmode=disable")
+	t.Setenv("APP_URL", "http://localhost:5173")
+	t.Setenv("JWT_SECRET", strings.Repeat("test-jwt-secret-", 3))
+	t.Setenv("STORAGE_BACKEND", "local")
+	t.Setenv("GDPR_ARTIFACT_BACKEND", "")
+	t.Setenv("EXPORTS_BASE_PATH", "")
+	t.Setenv("IMPORTS_BASE_PATH", "")
+	t.Setenv("S3_BUCKET_EXPORTS", "")
+	t.Setenv("S3_BUCKET_IMPORTS", "")
+	t.Setenv("S3_EXPORTS_PREFIX", "")
+	t.Setenv("S3_IMPORTS_PREFIX", "")
+	t.Setenv("GDPR_EXPORT_MULTIPART_THRESHOLD_BYTES", "")
+	t.Setenv("GDPR_EXPORT_PART_TARGET_BYTES", "")
+	t.Setenv("GDPR_EXPORT_PART_WARN_BYTES", "")
+	t.Setenv("GDPR_MULTIPART_MAX_PARTS", "")
+	t.Setenv("GDPR_ARTIFACT_LOCAL_QUOTA_BYTES", "")
+	t.Setenv("GDPR_ARTIFACT_LOCAL_MIN_FREE_BYTES", "")
+	t.Setenv("GDPR_ARTIFACT_USER_ACTIVE_BYTES", "")
+	t.Setenv("GDPR_ARTIFACT_S3_QUOTA_BYTES", "")
+	t.Setenv("GDPR_IMPORT_STAGING_QUOTA_BYTES", "")
+}
+
+func TestLoadGDPRArtifactDefaults(t *testing.T) {
+	withBaseEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.GDPRArtifactBackend != "auto" {
+		t.Fatalf("GDPRArtifactBackend = %q", cfg.GDPRArtifactBackend)
+	}
+	if cfg.ExportsBasePath != "/data/exports" {
+		t.Fatalf("ExportsBasePath = %q", cfg.ExportsBasePath)
+	}
+	if cfg.ImportsBasePath != "/data/imports" {
+		t.Fatalf("ImportsBasePath = %q", cfg.ImportsBasePath)
+	}
+	if cfg.S3BucketExports != "skadia-exports" || cfg.S3BucketImports != "skadia-imports" {
+		t.Fatalf("S3 buckets = %q/%q", cfg.S3BucketExports, cfg.S3BucketImports)
+	}
+	if cfg.S3ExportsPrefix != "gdpr/exports" || cfg.S3ImportsPrefix != "gdpr/imports" {
+		t.Fatalf("S3 prefixes = %q/%q", cfg.S3ExportsPrefix, cfg.S3ImportsPrefix)
+	}
+}
+
+func TestLoadRejectsInvalidGDPRArtifactBackend(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("GDPR_ARTIFACT_BACKEND", "ftp")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted invalid GDPR_ARTIFACT_BACKEND")
+	}
+}
+
+func TestLoadRejectsSameS3BucketWithoutDistinctPrefixes(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("S3_BUCKET_EXPORTS", "skadia-artifacts")
+	t.Setenv("S3_BUCKET_IMPORTS", "skadia-artifacts")
+	t.Setenv("S3_EXPORTS_PREFIX", "gdpr")
+	t.Setenv("S3_IMPORTS_PREFIX", "gdpr")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted identical S3 artifact bucket/prefix")
+	}
+}
+
+func TestLoadParsesGDPRArtifactLimits(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("GDPR_EXPORT_MULTIPART_THRESHOLD_BYTES", "1024")
+	t.Setenv("GDPR_EXPORT_PART_TARGET_BYTES", "2048")
+	t.Setenv("GDPR_EXPORT_PART_WARN_BYTES", "4096")
+	t.Setenv("GDPR_MULTIPART_MAX_PARTS", "17")
+	t.Setenv("GDPR_ARTIFACT_LOCAL_QUOTA_BYTES", "100000")
+	t.Setenv("GDPR_ARTIFACT_LOCAL_MIN_FREE_BYTES", "200000")
+	t.Setenv("GDPR_ARTIFACT_USER_ACTIVE_BYTES", "300000")
+	t.Setenv("GDPR_ARTIFACT_S3_QUOTA_BYTES", "400000")
+	t.Setenv("GDPR_IMPORT_STAGING_QUOTA_BYTES", "500000")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.GDPRExportMultipartThresholdBytes != 1024 ||
+		cfg.GDPRExportPartTargetBytes != 2048 ||
+		cfg.GDPRExportPartWarnBytes != 4096 ||
+		cfg.GDPRMultipartMaxParts != 17 ||
+		cfg.GDPRArtifactLocalQuotaBytes != 100000 ||
+		cfg.GDPRArtifactLocalMinFreeBytes != 200000 ||
+		cfg.GDPRArtifactUserActiveBytes != 300000 ||
+		cfg.GDPRArtifactS3QuotaBytes != 400000 ||
+		cfg.GDPRImportStagingQuotaBytes != 500000 {
+		t.Fatalf("parsed limits unexpected: %#v", cfg)
+	}
+}
+
+func TestLoadRejectsUnsafeLocalCapacityDefaults(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("GDPR_ARTIFACT_BACKEND", "local")
+	t.Setenv("GDPR_ARTIFACT_LOCAL_MIN_FREE_BYTES", "0")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted local artifact backend without min-free guard")
+	}
+}
