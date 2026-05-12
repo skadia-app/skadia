@@ -114,9 +114,9 @@ jobs:
           test "$actual" = "$expected"
           test "$dirty" = "f"
 
-      - name: Run sport taxonomy migration tests
+      - name: Run migration tests
         run: |
-          ./scripts/test_db.sh run -- sh -c 'cd services/api && go test -count=1 ./internal/migrate/migrations -run "TestMigration000349|TestMigration000350|TestMigrationModifierRegistry|TestForbidsDirectDatabaseURL"'
+          ./scripts/test_db.sh run -- sh -c 'cd services/api && go test -count=1 ./internal/migrate/migrations'
 
   frontend-tests:
     name: Tests / Frontend
