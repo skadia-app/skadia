@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -76,6 +75,10 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 		slog.Warn("chat profile load failed", "error", err)
 		fallback := GetProfile(a.defaultProfile, "", nil)
 		profile = &fallback
+	}
+	if err := profile.DisabledError(); err != nil {
+		_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: "Chat ist deaktiviert."})
+		return err
 	}
 
 	domains := []string{"activities", "health"}
@@ -229,7 +232,15 @@ func (a *Agent) executeToolCall(ctx context.Context, req ChatRequest, call pendi
 	if len(strings.TrimSpace(string(args))) == 0 {
 		args = json.RawMessage(`{}`)
 	}
-	if err := sink.Send(SSEEvent{Type: EventToolCall, ID: req.MessageID, ToolCallID: call.ID, Tool: call.Name, Args: args}); err != nil {
+	var publicArgs json.RawMessage
+	if gate, ok := a.tools.(interface {
+		PublicToolCallArgs(toolName string, args json.RawMessage) (json.RawMessage, bool)
+	}); ok {
+		if sanitized, include := gate.PublicToolCallArgs(call.Name, args); include {
+			publicArgs = sanitized
+		}
+	}
+	if err := sink.Send(SSEEvent{Type: EventToolCall, ID: req.MessageID, ToolCallID: call.ID, Tool: call.Name, Args: publicArgs}); err != nil {
 		return "", false, err
 	}
 	if a.tools == nil {
@@ -410,7 +421,9 @@ func collectLLMStream(messageID string, stream ChatStream, sink SSESink, usage *
 				entry.ID = tc.ID
 			}
 			if tc.Name != "" {
-				entry.Name += tc.Name
+				if entry.Name == "" || entry.Name != tc.Name && !strings.Contains(entry.Name, tc.Name) {
+					entry.Name += tc.Name
+				}
 			}
 			entry.Args += tc.Args
 		}
@@ -429,12 +442,6 @@ func collectLLMStream(messageID string, stream ChatStream, sink SSESink, usage *
 		return nil, finishReason, streamed, err
 	}
 	calls := sortedToolCalls(acc)
-	if len(calls) == 0 {
-		if call, ok := extractTextToolCall(contentBuffer.String()); ok {
-			calls = []pendingToolCall{call}
-			streamed = false
-		}
-	}
 	return calls, finishReason, streamed, nil
 }
 
@@ -464,31 +471,6 @@ func floatPtr(value float64) *float64 {
 
 func intPtr(value int) *int {
 	return &value
-}
-
-var (
-	textFunctionCallRE = regexp.MustCompile(`(?s)<function=([A-Za-z0-9_-]+)>(.*?)</function>`)
-	textParameterRE    = regexp.MustCompile(`(?s)<parameter=([A-Za-z0-9_-]+)>(.*?)</parameter>`)
-	textJSONToolCallRE = regexp.MustCompile(`(?s)\{"name"\s*:\s*"([A-Za-z0-9_-]+)"\s*,\s*"arguments"\s*:\s*(\{.*?\})\}`)
-)
-
-func extractTextToolCall(content string) (pendingToolCall, bool) {
-	if match := textFunctionCallRE.FindStringSubmatch(content); len(match) == 3 {
-		args := map[string]string{}
-		for _, param := range textParameterRE.FindAllStringSubmatch(match[2], -1) {
-			if len(param) == 3 {
-				args[param[1]] = strings.TrimSpace(param[2])
-			}
-		}
-		if len(args) > 0 {
-			raw, _ := json.Marshal(args)
-			return pendingToolCall{ID: "text_call_0", Name: match[1], Args: string(raw)}, true
-		}
-	}
-	if match := textJSONToolCallRE.FindStringSubmatch(content); len(match) == 3 {
-		return pendingToolCall{ID: "text_call_0", Name: match[1], Args: match[2]}, true
-	}
-	return pendingToolCall{}, false
 }
 
 func compressOldToolResults(messages []conversationMessage) {

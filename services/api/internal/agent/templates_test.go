@@ -11,6 +11,7 @@ func TestMatchTemplate(t *testing.T) {
 	}{
 		{name: "last activities default", message: "letzte Aktivität", wantName: "last_activities", wantParams: []any{5}},
 		{name: "last activities count", message: "letzte 3 Aktivitäten", wantName: "last_activities", wantParams: []any{3}},
+		{name: "last activities count clamped", message: "letzte 500 Aktivitäten", wantName: "last_activities", wantParams: []any{50}},
 		{name: "weekly summary", message: "Wochenzusammenfassung bitte", wantName: "weekly_summary", wantParams: []any{}},
 		{name: "hrv trend", message: "Wie ist mein HRV Trend?", wantName: "hrv_trend", wantParams: []any{}},
 		{name: "readiness", message: "Wie erholt bin ich?", wantName: "readiness", wantParams: []any{}},

@@ -36,6 +36,7 @@ var templates = []*Template{
 					n = parsed
 				}
 			}
+			n = clampTemplateLimit(n, 1, 50)
 			return []any{n}
 		},
 	},
@@ -87,6 +88,16 @@ var templates = []*Template{
 		},
 		params: func([]string) []any { return []any{} },
 	},
+}
+
+func clampTemplateLimit(value, minValue, maxValue int) int {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
 }
 
 func MatchTemplate(message string) *TemplateMatch {

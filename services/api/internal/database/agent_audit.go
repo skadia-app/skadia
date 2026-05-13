@@ -83,6 +83,31 @@ func (db *DB) CompleteAudit(ctx context.Context, tx pgx.Tx, id int64, status str
 	return nil
 }
 
+func (db *DB) CompletePendingAudit(ctx context.Context, tx pgx.Tx, id int64, status string, detail json.RawMessage) error {
+	if tx == nil {
+		return fmt.Errorf("CompletePendingAudit requires tx")
+	}
+	var detailArg any
+	if len(detail) > 0 {
+		detailArg = detail
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE agent_audit_log
+		SET result_status = $2,
+		    result_detail = $3::jsonb,
+		    completed_at = now()
+		WHERE id = $1
+		  AND result_status = 'pending'
+	`, id, status, detailArg)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
 func scanAgentAuditRow(row pgx.Row) (*AgentAuditRow, error) {
 	var r AgentAuditRow
 	if err := row.Scan(

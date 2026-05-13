@@ -13,7 +13,6 @@ func TestSSEToolConfirmRequestMarshalsStableSchema(t *testing.T) {
 		ID:         "msg-1",
 		ToolCallID: "call-1",
 		Tool:       "create_gear",
-		Args:       json.RawMessage(`{"name":"Kette"}`),
 		Summary:    "Erstellt Ausruestung Kette.",
 		Preview:    map[string]any{"arguments": map[string]any{"name": "Kette"}, "tool": "create_gear"},
 		ExpiresAt:  &expires,
@@ -23,7 +22,7 @@ func TestSSEToolConfirmRequestMarshalsStableSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
-	want := `{"type":"chat.tool_confirm_request","id":"msg-1","tool_call_id":"call-1","tool":"create_gear","args":{"name":"Kette"},"summary":"Erstellt Ausruestung Kette.","preview":{"arguments":{"name":"Kette"},"tool":"create_gear"},"expires_at_iso":"2026-05-12T14:30:00Z"}`
+	want := `{"type":"chat.tool_confirm_request","id":"msg-1","tool_call_id":"call-1","tool":"create_gear","summary":"Erstellt Ausruestung Kette.","preview":{"arguments":{"name":"Kette"},"tool":"create_gear"},"expires_at_iso":"2026-05-12T14:30:00Z"}`
 	if string(got) != want {
 		t.Fatalf("json = %s, want %s", got, want)
 	}

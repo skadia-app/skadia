@@ -79,16 +79,17 @@ func (e *ExecutionEnvelope) ExecutePreview(ctx context.Context, req ToolExecutio
 		SessionID:  req.SessionID,
 		ToolCallID: req.ToolCallID,
 		ToolName:   tool.Name,
-		Args:       req.Args,
+		Args:       auditArgsJSON(req.Args),
 	}, func(ctx context.Context, tx pgx.Tx) (json.RawMessage, error) {
 		result, err := tool.ExecutePreview(ctx, &PreviewExecutionDeps{
 			Readonly: e.Deps.Readonly,
 			SQLAgent: e.Deps.SQLAgent,
 		}, req.UserID, req.Args)
 		if err != nil {
-			return nil, err
+			detail, _ := json.Marshal(map[string]string{"error": sanitizeAuditError(err.Error())})
+			return detail, err
 		}
-		return json.Marshal(result)
+		return json.Marshal(sanitizeAuditValue(result))
 	})
 	if err != nil {
 		return nil, err
@@ -138,8 +139,14 @@ func (e *ExecutionEnvelope) RecordDeclined(ctx context.Context, req ToolExecutio
 	}
 	defer tx.Rollback(ctx)
 	detail, _ := json.Marshal(map[string]string{"reason": reason})
-	if err := e.Deps.DB.CompleteAudit(ctx, tx, auditRow.ID, status, detail); err != nil {
+	if err := e.Deps.DB.CompletePendingAudit(ctx, tx, auditRow.ID, status, detail); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
 		return err
+	}
+	if e.Deps != nil && e.Deps.Confirm != nil {
+		e.Deps.Confirm.CancelAction(formatActionID(auditRow.ID))
 	}
 	return tx.Commit(ctx)
 }

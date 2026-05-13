@@ -64,3 +64,51 @@ func TestConfirmationManagerTimeout(t *testing.T) {
 		t.Fatal("timed out waiting for confirmation timeout")
 	}
 }
+
+func TestConfirmationManagerConsumeResolvedAction(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	manager := NewConfirmationManager(time.Minute)
+	ch, err := manager.Register(ctx, &PendingConfirm{
+		ActionID:   "audit:1",
+		SessionID:  "session-1",
+		ToolCallID: "call-1",
+		Args:       json.RawMessage(`{"id":"original"}`),
+		Metadata:   json.RawMessage(`{"caller":{"transport":"internal_chat"}}`),
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if !manager.Resolve("session-1", "call-1", ConfirmResponse{Confirmed: true, Source: "user"}) {
+		t.Fatal("Resolve returned false")
+	}
+	<-ch
+	resp, args, ok := manager.ConsumeConfirmedAction("audit:1")
+	if !ok || !resp.Confirmed || string(args) != `{"id":"original"}` {
+		t.Fatalf("ConsumeConfirmedAction = %#v %s %v, want confirmed original args", resp, args, ok)
+	}
+	if _, _, ok := manager.ConsumeConfirmedAction("audit:1"); ok {
+		t.Fatal("second ConsumeConfirmedAction returned true")
+	}
+}
+
+func TestConfirmationManagerPrunesExpiredResolvedActions(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	manager := NewConfirmationManager(20 * time.Millisecond)
+	if _, err := manager.Register(ctx, &PendingConfirm{
+		ActionID:   "audit:1",
+		SessionID:  "session-1",
+		ToolCallID: "call-1",
+		ExpiresAt:  time.Now().Add(20 * time.Millisecond),
+	}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if !manager.Resolve("session-1", "call-1", ConfirmResponse{Confirmed: true, Source: "user"}) {
+		t.Fatal("Resolve returned false")
+	}
+	time.Sleep(80 * time.Millisecond)
+	if _, ok := manager.ResolvedAction("audit:1"); ok {
+		t.Fatal("ResolvedAction returned expired confirmation")
+	}
+}

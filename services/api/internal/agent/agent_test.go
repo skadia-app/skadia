@@ -115,6 +115,33 @@ func TestAgentStreamUserQuestionSkipsRemainingSameTurnToolCalls(t *testing.T) {
 	assertEventOrder(t, sink.events, []string{EventThinking, EventToolCall, EventUserQuestion})
 }
 
+func TestAgentStreamStopsBeforeLLMWhenChatProfileDisabled(t *testing.T) {
+	streamCalls := 0
+	agent := New(Config{
+		LLMResolver:  NewLLMResolver(fakeLLMConfigStore{}, LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
+		ProfileStore: fakeProfileStore{value: []byte(`{"enabled": false, "base_profile": "small"}`)},
+		StreamChat: func(ctx context.Context, cfg LLMConfig, params llmwire.ChatRequest) ChatStream {
+			streamCalls++
+			return &fakeStream{}
+		},
+	})
+	sink := &captureSink{}
+
+	err := agent.Stream(context.Background(), ChatRequest{
+		UserID:    "user-1",
+		SessionID: "session-1",
+		MessageID: "message-1",
+		Message:   "analysiere mein training",
+	}, sink)
+	if err == nil {
+		t.Fatal("Stream returned nil for disabled chat profile")
+	}
+	if streamCalls != 0 {
+		t.Fatalf("StreamChat calls = %d, want 0", streamCalls)
+	}
+	assertEventOrder(t, sink.events, []string{EventError})
+}
+
 func TestCollectLLMStreamAccumulatesSplitToolDeltasAndGeneratesMissingIDs(t *testing.T) {
 	stream := &fakeStream{events: []llmwire.ChatStreamEvent{
 		{ToolCalls: []llmwire.ToolCallDelta{
@@ -151,9 +178,135 @@ func TestCollectLLMStreamAccumulatesSplitToolDeltasAndGeneratesMissingIDs(t *tes
 	}
 }
 
+func TestCollectLLMStreamDoesNotExecuteTextFallbackToolEnvelope(t *testing.T) {
+	stream := &fakeStream{events: []llmwire.ChatStreamEvent{{
+		Delta:        `{"name":"run_sql","arguments":{"sql":"SELECT * FROM activities"}}`,
+		FinishReason: "stop",
+	}}}
+	sink := &captureSink{}
+
+	calls, finishReason, streamed, err := collectLLMStream("message-1", stream, sink, &TokenUsage{})
+	if err != nil {
+		t.Fatalf("collectLLMStream: %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("calls = %#v, want no free-text fallback tool execution", calls)
+	}
+	if finishReason != "stop" {
+		t.Fatalf("finishReason = %q, want stop", finishReason)
+	}
+	if !streamed || len(sink.events) != 1 || sink.events[0].Type != EventChunk {
+		t.Fatalf("streamed=%v events=%#v, want plain assistant text streamed", streamed, sink.events)
+	}
+}
+
+func TestCollectLLMStreamDoesNotDuplicateRepeatedFullToolNames(t *testing.T) {
+	stream := &fakeStream{events: []llmwire.ChatStreamEvent{
+		{ToolCalls: []llmwire.ToolCallDelta{{Index: 0, ID: "call-1", Name: "run_sql", Args: `{"sql":`}}},
+		{ToolCalls: []llmwire.ToolCallDelta{{Index: 0, Name: "run_sql", Args: `"SELECT 1"}`}}, FinishReason: "tool_calls"},
+	}}
+	calls, _, _, err := collectLLMStream("message-1", stream, &captureSink{}, &TokenUsage{})
+	if err != nil {
+		t.Fatalf("collectLLMStream: %v", err)
+	}
+	if len(calls) != 1 || calls[0].Name != "run_sql" {
+		t.Fatalf("calls = %#v, want one run_sql call", calls)
+	}
+}
+
+func TestAgentStreamOmitsToolCallArgsWhenRuntimeMarksThemPrivate(t *testing.T) {
+	runtime := &fakeToolRuntime{
+		result:          ToolRuntimeResult{Result: map[string]any{"ok": true}, Summary: `{"ok":true}`},
+		publicArgsAllow: false,
+	}
+	streams := []ChatStream{
+		&fakeStream{events: []llmwire.ChatStreamEvent{{
+			ToolCalls: []llmwire.ToolCallDelta{{
+				Index: 0,
+				ID:    "call-write",
+				Name:  "create_gear",
+				Args:  `{"name":"Secret Bike","api_key":"secret"}`,
+			}},
+			FinishReason: "tool_calls",
+		}}},
+		&fakeStream{events: []llmwire.ChatStreamEvent{{
+			Delta:        "Fertig.",
+			FinishReason: "stop",
+		}}},
+	}
+	agent := New(Config{
+		LLMResolver: NewLLMResolver(fakeLLMConfigStore{}, LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
+		Tools:       runtime,
+		StreamChat: func(ctx context.Context, cfg LLMConfig, params llmwire.ChatRequest) ChatStream {
+			next := streams[0]
+			streams = streams[1:]
+			return next
+		},
+	})
+	sink := &captureSink{}
+
+	if err := agent.Stream(context.Background(), ChatRequest{
+		UserID:    "user-1",
+		SessionID: "session-1",
+		MessageID: "message-1",
+		Message:   "lege gear an",
+	}, sink); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+
+	for _, event := range sink.events {
+		if event.Type == EventToolCall && len(event.Args) > 0 {
+			t.Fatalf("tool_call event leaked args: %s", event.Args)
+		}
+	}
+}
+
+func TestAgentStreamOmitsToolCallArgsWhenRuntimeHasNoPublicArgsGate(t *testing.T) {
+	runtime := &fakeToolRuntimeNoPublicArgs{result: ToolRuntimeResult{Result: map[string]any{"ok": true}, Summary: `{"ok":true}`}}
+	streams := []ChatStream{
+		&fakeStream{events: []llmwire.ChatStreamEvent{{
+			ToolCalls: []llmwire.ToolCallDelta{{
+				Index: 0,
+				ID:    "call-write",
+				Name:  "create_gear",
+				Args:  `{"name":"Secret Bike"}`,
+			}},
+			FinishReason: "tool_calls",
+		}}},
+		&fakeStream{events: []llmwire.ChatStreamEvent{{
+			Delta:        "Fertig.",
+			FinishReason: "stop",
+		}}},
+	}
+	agent := New(Config{
+		LLMResolver: NewLLMResolver(fakeLLMConfigStore{}, LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
+		Tools:       runtime,
+		StreamChat: func(ctx context.Context, cfg LLMConfig, params llmwire.ChatRequest) ChatStream {
+			next := streams[0]
+			streams = streams[1:]
+			return next
+		},
+	})
+	sink := &captureSink{}
+	if err := agent.Stream(context.Background(), ChatRequest{
+		UserID:    "user-1",
+		SessionID: "session-1",
+		MessageID: "message-1",
+		Message:   "lege gear an",
+	}, sink); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	for _, event := range sink.events {
+		if event.Type == EventToolCall && len(event.Args) > 0 {
+			t.Fatalf("tool_call event leaked args: %s", event.Args)
+		}
+	}
+}
+
 type fakeToolRuntime struct {
-	result ToolRuntimeResult
-	calls  []ToolRuntimeRequest
+	result          ToolRuntimeResult
+	calls           []ToolRuntimeRequest
+	publicArgsAllow bool
 }
 
 func (r *fakeToolRuntime) AddEnabledWriteTools(filter []string, prefs *ChatPreferences) []string {
@@ -166,6 +319,29 @@ func (r *fakeToolRuntime) Definitions(filter []string, prefs *ChatPreferences) [
 
 func (r *fakeToolRuntime) Execute(ctx context.Context, req ToolRuntimeRequest, sink SSESink) (ToolRuntimeResult, error) {
 	r.calls = append(r.calls, req)
+	return r.result, nil
+}
+
+func (r *fakeToolRuntime) PublicToolCallArgs(toolName string, args json.RawMessage) (json.RawMessage, bool) {
+	if r.publicArgsAllow {
+		return args, true
+	}
+	return nil, false
+}
+
+type fakeToolRuntimeNoPublicArgs struct {
+	result ToolRuntimeResult
+}
+
+func (r *fakeToolRuntimeNoPublicArgs) AddEnabledWriteTools(filter []string, prefs *ChatPreferences) []string {
+	return filter
+}
+
+func (r *fakeToolRuntimeNoPublicArgs) Definitions(filter []string, prefs *ChatPreferences) []llmwire.ToolDefinition {
+	return nil
+}
+
+func (r *fakeToolRuntimeNoPublicArgs) Execute(ctx context.Context, req ToolRuntimeRequest, sink SSESink) (ToolRuntimeResult, error) {
 	return r.result, nil
 }
 
@@ -228,6 +404,8 @@ func (fakeLLMConfigStore) GetLLMSystemConfig(ctx context.Context) ([]model.LLMSy
 			"backend_type":  "llama_server",
 			"api_base_host": "llm.test",
 			"model_name":    "model",
+			"suite_id":      model.LLMEvalSuiteID,
+			"suite_hash":    model.LLMEvalSuiteHash,
 		}},
 	}}, nil
 }
