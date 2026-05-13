@@ -26,6 +26,8 @@ domain_knowledge: |
 tools:
   - query_activities
   - aggregate_stats
+  - aggregate_time_series
+  - query_records
   - compare_periods
 few_shot_examples:
   - q: "Wie weit bin ich diese Woche gelaufen?"
@@ -40,3 +42,7 @@ few_shot_examples:
     tool: aggregate_stats
     args: '{"metric": "count", "sport_type": "cycling", "days": 365}'
     answer: "42 Radtouren in den letzten 12 Monaten, 1.847 km gesamt."
+  - q: "Wie viele Kilometer bin ich pro Jahr Gravel gefahren?"
+    tool: aggregate_time_series
+    args: '{"metric": "total_distance", "bucket": "year", "sport_query": "Gravel", "days": 3650}'
+    answer: "Jahresübersicht Gravel: 2024 420 km, 2025 1.180 km, 2026 bisher 390 km."

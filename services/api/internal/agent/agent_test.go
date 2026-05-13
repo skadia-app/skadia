@@ -147,7 +147,7 @@ func TestAgentChatParamsUsesProviderSpecificOptionalFlags(t *testing.T) {
 	profile := defaultProfiles["small"]
 	messages := []conversationMessage{{Role: "user", Content: "Hallo"}}
 
-	openAIParams := agent.chatParams(LLMConfig{Model: "model", BackendType: model.LLMBackendOpenAI}, &profile, messages, []llmwire.ToolDefinition{{Name: "query_activities"}}, true)
+	openAIParams := agent.chatParams(LLMConfig{Model: "model", BackendType: model.LLMBackendOpenAI}, &profile, messages, []llmwire.ToolDefinition{{Name: "query_activities"}}, true, false)
 	if !openAIParams.IncludeUsage {
 		t.Fatal("OpenAI chat params did not request streaming usage")
 	}
@@ -155,12 +155,44 @@ func TestAgentChatParamsUsesProviderSpecificOptionalFlags(t *testing.T) {
 		t.Fatal("OpenAI chat params did not disable parallel tool calls when tools are allowed")
 	}
 
-	llamaParams := agent.chatParams(LLMConfig{Model: "model", BackendType: model.LLMBackendLlamaServer}, &profile, messages, []llmwire.ToolDefinition{{Name: "query_activities"}}, true)
+	llamaParams := agent.chatParams(LLMConfig{Model: "model", BackendType: model.LLMBackendLlamaServer}, &profile, messages, []llmwire.ToolDefinition{{Name: "query_activities"}}, true, false)
 	if llamaParams.IncludeUsage {
 		t.Fatal("llama_server chat params requested provider-specific streaming usage")
 	}
 	if llamaParams.DisableParallelToolCalls {
 		t.Fatal("llama_server chat params sent provider-specific parallel tool control")
+	}
+}
+
+func TestAgentChatParamsCanRequireToolChoice(t *testing.T) {
+	agent := New(Config{})
+	profile := defaultProfiles["small"]
+	params := agent.chatParams(
+		LLMConfig{Model: "model", BackendType: model.LLMBackendLlamaServer},
+		&profile,
+		[]conversationMessage{{Role: "user", Content: "Wann war ich zuletzt schwimmen?"}},
+		[]llmwire.ToolDefinition{{Name: "query_activities"}},
+		true,
+		true,
+	)
+	if params.ToolChoice != "required" {
+		t.Fatalf("ToolChoice = %q, want required", params.ToolChoice)
+	}
+}
+
+func TestShouldRequireToolForDataQuestions(t *testing.T) {
+	tools := []llmwire.ToolDefinition{{Name: "query_activities"}}
+	if !shouldRequireTool("Wann war ich zuletzt schwimmen?", []string{"activities"}, tools) {
+		t.Fatal("shouldRequireTool returned false for activity data question")
+	}
+	if !shouldRequireTool("When was my last swim?", []string{"activities"}, tools) {
+		t.Fatal("shouldRequireTool returned false for English activity data question")
+	}
+	if shouldRequireTool("Hallo", []string{"activities"}, tools) {
+		t.Fatal("shouldRequireTool returned true for greeting")
+	}
+	if shouldRequireTool("Wann war ich zuletzt schwimmen?", []string{"activities"}, nil) {
+		t.Fatal("shouldRequireTool returned true without tools")
 	}
 }
 

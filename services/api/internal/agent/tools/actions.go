@@ -81,12 +81,13 @@ func (e *ExecutionEnvelope) PrepareAction(ctx context.Context, req ConfirmableAc
 	if err := validateArgs(tool.Name, tool.InputSchema, req.Args); err != nil {
 		return nil, err
 	}
-	summary, err := e.actionSummary(ctx, tool, req)
+	preparedPayload, err := e.prepareWritePayload(ctx, tool, req)
 	if err != nil {
 		return nil, err
 	}
-	preview := actionPreview(tool.Name, req.Args)
-	claimed, existing, err := e.audit().ClaimPending(ctx, auditRowFromAction(req, tool.Name))
+	actionReq := req
+	actionReq.Args = preparedPayload.Args
+	claimed, existing, err := e.audit().ClaimPending(ctx, auditRowFromAction(actionReq, tool.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +96,9 @@ func (e *ExecutionEnvelope) PrepareAction(ctx context.Context, req ConfirmableAc
 	}
 	actionID := formatActionID(existing.ID)
 	if !claimed {
+		if existing.ToolName != tool.Name || !jsonEqualRaw(existing.Args, preparedPayload.Args) {
+			return nil, fmt.Errorf("audit slot already exists with different arguments or tool")
+		}
 		if existing.ResultStatus == string(ActionStatusPending) {
 			if e.Deps == nil || e.Deps.Confirm == nil {
 				return nil, fmt.Errorf("pending action exists without live confirmation")
@@ -103,7 +107,7 @@ func (e *ExecutionEnvelope) PrepareAction(ctx context.Context, req ConfirmableAc
 			if !ok {
 				return nil, fmt.Errorf("pending action exists without live confirmation")
 			}
-			if !jsonEqualRaw(pending.Args, req.Args) {
+			if !jsonEqualRaw(pending.Args, preparedPayload.Args) {
 				return nil, fmt.Errorf("pending action already exists with different arguments")
 			}
 			response, ok := e.Deps.Confirm.PendingActionResponse(actionID)
@@ -114,7 +118,7 @@ func (e *ExecutionEnvelope) PrepareAction(ctx context.Context, req ConfirmableAc
 				ActionID:  actionID,
 				ToolName:  tool.Name,
 				Summary:   pending.Summary,
-				Preview:   actionPreview(tool.Name, pending.Args),
+				Preview:   previewFromPreparedOrArgs(preparedPayload.Preview, tool.Name, pending.Args),
 				ExpiresAt: pending.ExpiresAt,
 				Status:    ActionStatusPending,
 				Caller:    callerFromDetail(pending.Metadata),
@@ -124,8 +128,8 @@ func (e *ExecutionEnvelope) PrepareAction(ctx context.Context, req ConfirmableAc
 		return &PreparedAction{
 			ActionID: actionID,
 			ToolName: tool.Name,
-			Summary:  summary,
-			Preview:  preview,
+			Summary:  preparedPayload.Summary,
+			Preview:  preparedPayload.Preview,
 			Status:   ActionStatus(existing.ResultStatus),
 			Caller:   callerFromDetail(existing.ResultDetail),
 		}, nil
@@ -141,8 +145,8 @@ func (e *ExecutionEnvelope) PrepareAction(ctx context.Context, req ConfirmableAc
 		SessionID:  req.SessionID,
 		ToolCallID: req.ToolCallID,
 		Tool:       tool.Name,
-		Args:       req.Args,
-		Summary:    summary,
+		Args:       preparedPayload.Args,
+		Summary:    preparedPayload.Summary,
 		ExpiresAt:  expiresAt,
 		Metadata:   actionDetailJSON(req.Caller, "", "", nil),
 	})
@@ -153,8 +157,8 @@ func (e *ExecutionEnvelope) PrepareAction(ctx context.Context, req ConfirmableAc
 	return &PreparedAction{
 		ActionID:  actionID,
 		ToolName:  tool.Name,
-		Summary:   summary,
-		Preview:   preview,
+		Summary:   preparedPayload.Summary,
+		Preview:   preparedPayload.Preview,
 		ExpiresAt: expiresAt,
 		Status:    ActionStatusPending,
 		Caller:    req.Caller,
@@ -340,7 +344,8 @@ func (e *ExecutionEnvelope) executeConfirmedAuditRow(ctx context.Context, action
 	if _, _, ok := e.Deps.Confirm.ConsumeConfirmedAction(actionID); !ok {
 		return nil, fmt.Errorf("Skadia confirmation is required")
 	}
-	result, execErr := tool.ExecuteWrite(ctx, &WriteExecutionDeps{Deps: e.Deps, Tx: tx}, row.UserID, req.Args)
+	var afterCommit []func(context.Context)
+	result, execErr := tool.ExecuteWrite(ctx, &WriteExecutionDeps{Deps: e.Deps, Tx: tx, AfterCommit: &afterCommit}, row.UserID, req.Args)
 	if execErr != nil {
 		_ = tx.Rollback(ctx)
 		_ = e.audit().CompletePending(ctx, row.UserID, row.ID, string(ActionStatusError), actionDetailJSON(caller, "", execErr.Error(), nil))
@@ -351,6 +356,11 @@ func (e *ExecutionEnvelope) executeConfirmedAuditRow(ctx context.Context, action
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
+	}
+	for _, hook := range afterCommit {
+		if hook != nil {
+			go hook(context.Background())
+		}
 	}
 	return result, nil
 }
@@ -378,6 +388,49 @@ func (e *ExecutionEnvelope) actionSummary(ctx context.Context, tool *Tool, req C
 		}
 	}
 	return summary, nil
+}
+
+func (e *ExecutionEnvelope) prepareWritePayload(ctx context.Context, tool *Tool, req ConfirmableActionRequest) (*PreparedWrite, error) {
+	out := &PreparedWrite{Args: append(json.RawMessage(nil), req.Args...)}
+	if tool.PrepareWrite != nil {
+		prepared, err := tool.PrepareWrite(ctx, e.Deps, req.UserID, req.Args)
+		if err != nil {
+			return nil, err
+		}
+		if prepared != nil {
+			if len(prepared.Args) > 0 {
+				out.Args = append(json.RawMessage(nil), prepared.Args...)
+				if err := validateArgs(tool.Name, tool.InputSchema, out.Args); err != nil {
+					return nil, err
+				}
+			}
+			out.Summary = prepared.Summary
+			out.Preview = prepared.Preview
+		}
+	}
+	if len(out.Args) == 0 {
+		out.Args = json.RawMessage(`{}`)
+	}
+	if out.Summary == "" {
+		summaryReq := req
+		summaryReq.Args = out.Args
+		summary, err := e.actionSummary(ctx, tool, summaryReq)
+		if err != nil {
+			return nil, err
+		}
+		out.Summary = summary
+	}
+	if out.Preview == nil {
+		out.Preview = actionPreview(tool.Name, out.Args)
+	}
+	return out, nil
+}
+
+func previewFromPreparedOrArgs(preview any, toolName string, args json.RawMessage) any {
+	if preview != nil {
+		return preview
+	}
+	return actionPreview(toolName, args)
 }
 
 func formatActionID(id int64) string {

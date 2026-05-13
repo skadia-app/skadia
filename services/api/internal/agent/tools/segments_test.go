@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,12 +68,134 @@ func TestQuerySegmentsFiltersBySegmentEffortUserID(t *testing.T) {
 	if seg["pr_seconds"] != int32(300) && seg["pr_seconds"] != int64(300) && seg["pr_seconds"] != 300 {
 		t.Fatalf("pr_seconds = %#v, want 300", seg["pr_seconds"])
 	}
+	if seg["pr_date"] == "" {
+		t.Fatalf("pr_date missing in segment result: %#v", seg)
+	}
+	if seg["pr_activity_title"] != "Owner activity" {
+		t.Fatalf("pr_activity_title = %#v, want Owner activity", seg["pr_activity_title"])
+	}
 	efforts := seg["recent_efforts"].([]map[string]any)
 	if len(efforts) != 1 {
 		t.Fatalf("recent efforts len = %d, want 1: %#v", len(efforts), efforts)
 	}
 	if efforts[0]["time"] != "5min" {
 		t.Fatalf("recent effort time = %#v, want 5min", efforts[0]["time"])
+	}
+}
+
+func TestQuerySegmentsDefaultWindowExcludesOldPR(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	ownerID := "00000000-0000-0000-0000-0000000bb105"
+	otherID := "00000000-0000-0000-0000-0000000bb106"
+	insertToolTestUser(t, pool, ownerID, "agent-segment-pr-owner")
+	insertToolTestUser(t, pool, otherID, "agent-segment-pr-other")
+	ids := insertToolTestSegmentFixture(t, pool, ownerID, otherID)
+	oldActivityID := "00000000-0000-0000-0000-0000000bb303"
+	oldEffortID := "00000000-0000-0000-0000-0000000bb503"
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM segment_efforts WHERE segment_id = $1::uuid`, ids.segmentID)
+		_, _ = pool.Exec(ctx, `DELETE FROM activities WHERE id = ANY($1::uuid[])`, []string{ids.ownerActivityID, ids.otherActivityID, oldActivityID})
+		_, _ = pool.Exec(ctx, `DELETE FROM segments WHERE id = $1::uuid`, ids.segmentID)
+	})
+
+	oldDate := time.Now().UTC().AddDate(0, 0, -500)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, is_indoor, is_virtual, is_electric, is_commute, started_at, elapsed_time_s)
+		VALUES ($1::uuid, $2::uuid, 'Historic PR activity', 'cycling', 'road', false, false, false, false, $3, 1200)
+	`, oldActivityID, ownerID, oldDate); err != nil {
+		t.Fatalf("insert old activity: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segment_efforts (id, segment_id, segment_version_id, activity_id, user_id, started_at, elapsed_time_s, sport_type, sub_type, avg_heart_rate, in_leaderboard)
+		SELECT $1::uuid, $2::uuid, sv.id, $3::uuid, $4::uuid, $5, 250, 'cycling', 'road', 150, true
+		FROM segment_versions sv
+		WHERE sv.segment_id = $2::uuid
+		ORDER BY sv.version_number DESC
+		LIMIT 1
+	`, oldEffortID, ids.segmentID, oldActivityID, ownerID, oldDate); err != nil {
+		t.Fatalf("insert old effort: %v", err)
+	}
+
+	got, err := querySegments(ctx, pool, ownerID, querySegmentsArgs{
+		Query:          "Hill",
+		IncludeEfforts: true,
+		Days:           365,
+		Limit:          5,
+	})
+	if err != nil {
+		t.Fatalf("querySegments: %v", err)
+	}
+	segments := got["segments"].([]map[string]any)
+	if len(segments) != 1 {
+		t.Fatalf("segments len = %d, want 1: %#v", len(segments), segments)
+	}
+	seg := segments[0]
+	if seg["pr_seconds"] != int32(300) && seg["pr_seconds"] != int64(300) && seg["pr_seconds"] != 300 {
+		t.Fatalf("pr_seconds = %#v, want 300", seg["pr_seconds"])
+	}
+	if seg["pr_activity_title"] != "Owner activity" {
+		t.Fatalf("pr_activity_title = %#v, want Owner activity", seg["pr_activity_title"])
+	}
+	efforts := seg["recent_efforts"].([]map[string]any)
+	if len(efforts) != 1 || efforts[0]["time"] != "5min" {
+		t.Fatalf("recent efforts = %#v, want only current 5min effort", efforts)
+	}
+}
+
+func TestQuerySegmentsCanUseWiderWindowForHistoricalPR(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	ownerID := "00000000-0000-0000-0000-0000000bb107"
+	otherID := "00000000-0000-0000-0000-0000000bb108"
+	insertToolTestUser(t, pool, ownerID, "agent-segment-wide-owner")
+	insertToolTestUser(t, pool, otherID, "agent-segment-wide-other")
+	ids := insertToolTestSegmentFixture(t, pool, ownerID, otherID)
+	oldActivityID := "00000000-0000-0000-0000-0000000bb304"
+	oldEffortID := "00000000-0000-0000-0000-0000000bb504"
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM segment_efforts WHERE segment_id = $1::uuid`, ids.segmentID)
+		_, _ = pool.Exec(ctx, `DELETE FROM activities WHERE id = ANY($1::uuid[])`, []string{ids.ownerActivityID, ids.otherActivityID, oldActivityID})
+		_, _ = pool.Exec(ctx, `DELETE FROM segments WHERE id = $1::uuid`, ids.segmentID)
+	})
+
+	oldDate := time.Now().UTC().AddDate(0, 0, -500)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, is_indoor, is_virtual, is_electric, is_commute, started_at, elapsed_time_s)
+		VALUES ($1::uuid, $2::uuid, 'Historic PR activity', 'cycling', 'road', false, false, false, false, $3, 1200)
+	`, oldActivityID, ownerID, oldDate); err != nil {
+		t.Fatalf("insert old activity: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segment_efforts (id, segment_id, segment_version_id, activity_id, user_id, started_at, elapsed_time_s, sport_type, sub_type, avg_heart_rate, in_leaderboard)
+		SELECT $1::uuid, $2::uuid, sv.id, $3::uuid, $4::uuid, $5, 250, 'cycling', 'road', 150, true
+		FROM segment_versions sv
+		WHERE sv.segment_id = $2::uuid
+		ORDER BY sv.version_number DESC
+		LIMIT 1
+	`, oldEffortID, ids.segmentID, oldActivityID, ownerID, oldDate); err != nil {
+		t.Fatalf("insert old effort: %v", err)
+	}
+
+	got, err := querySegments(ctx, pool, ownerID, querySegmentsArgs{
+		Query:          "Hill",
+		IncludeEfforts: true,
+		Days:           1000,
+		Limit:          5,
+	})
+	if err != nil {
+		t.Fatalf("querySegments: %v", err)
+	}
+	segments := got["segments"].([]map[string]any)
+	if len(segments) != 1 {
+		t.Fatalf("segments len = %d, want 1: %#v", len(segments), segments)
+	}
+	seg := segments[0]
+	if seg["pr_seconds"] != int32(250) && seg["pr_seconds"] != int64(250) && seg["pr_seconds"] != 250 {
+		t.Fatalf("pr_seconds = %#v, want 250", seg["pr_seconds"])
+	}
+	if seg["pr_activity_title"] != "Historic PR activity" {
+		t.Fatalf("pr_activity_title = %#v, want Historic PR activity", seg["pr_activity_title"])
 	}
 }
 
@@ -102,6 +225,67 @@ func TestQuerySegmentsAppliesEffortFilters(t *testing.T) {
 	}
 	if len(got["segments"].([]map[string]any)) != 0 {
 		t.Fatalf("running/non-leaderboard filter returned segments: %#v", got)
+	}
+}
+
+func TestQuerySegmentsDefaultsToLeaderboardEfforts(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	ownerID := "00000000-0000-0000-0000-0000000bb109"
+	otherID := "00000000-0000-0000-0000-0000000bb110"
+	insertToolTestUser(t, pool, ownerID, "agent-segment-board-owner")
+	insertToolTestUser(t, pool, otherID, "agent-segment-board-other")
+	ids := insertToolTestSegmentFixture(t, pool, ownerID, otherID)
+	fastActivityID := "00000000-0000-0000-0000-0000000bb305"
+	fastEffortID := "00000000-0000-0000-0000-0000000bb505"
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM segment_efforts WHERE segment_id = $1::uuid`, ids.segmentID)
+		_, _ = pool.Exec(ctx, `DELETE FROM activities WHERE id = ANY($1::uuid[])`, []string{ids.ownerActivityID, ids.otherActivityID, fastActivityID})
+		_, _ = pool.Exec(ctx, `DELETE FROM segments WHERE id = $1::uuid`, ids.segmentID)
+	})
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO activities (id, user_id, title, sport_type, sub_type, is_indoor, is_virtual, is_electric, is_commute, started_at, elapsed_time_s)
+		VALUES ($1::uuid, $2::uuid, 'Excluded effort activity', 'cycling', 'road', false, false, false, false, now(), 900)
+	`, fastActivityID, ownerID); err != nil {
+		t.Fatalf("insert fast activity: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segment_efforts (id, segment_id, segment_version_id, activity_id, user_id, started_at, elapsed_time_s, sport_type, sub_type, avg_heart_rate, in_leaderboard)
+		SELECT $1::uuid, $2::uuid, sv.id, $3::uuid, $4::uuid, now(), 100, 'cycling', 'road', 150, false
+		FROM segment_versions sv
+		WHERE sv.segment_id = $2::uuid
+		ORDER BY sv.version_number DESC
+		LIMIT 1
+	`, fastEffortID, ids.segmentID, fastActivityID, ownerID); err != nil {
+		t.Fatalf("insert excluded effort: %v", err)
+	}
+
+	got, err := querySegments(ctx, pool, ownerID, querySegmentsArgs{Query: "Hill", IncludeEfforts: true, Limit: 5})
+	if err != nil {
+		t.Fatalf("querySegments: %v", err)
+	}
+	seg := got["segments"].([]map[string]any)[0]
+	if seg["pr_seconds"] != int32(300) && seg["pr_seconds"] != int64(300) && seg["pr_seconds"] != 300 {
+		t.Fatalf("pr_seconds = %#v, want leaderboard 300 not excluded 100", seg["pr_seconds"])
+	}
+}
+
+func TestQuerySegmentsResolvesSportQuery(t *testing.T) {
+	sql, params, err := buildQuerySegmentsSQL("00000000-0000-0000-0000-0000000bb103", querySegmentsArgs{
+		SportQuery: "Gravel",
+		Limit:      5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"se.sport_type = $3", "se.sub_type = $4"} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("segment SQL missing %q:\n%s", want, sql)
+		}
+	}
+	if params[2] != "cycling" || params[3] != "gravel_cycling" {
+		t.Fatalf("sport params = %#v, want cycling/gravel_cycling", params[2:])
 	}
 }
 

@@ -55,6 +55,7 @@ func WriteActivityTools() []*Tool {
 		UpdateActivityMetadataTool(),
 		RenameActivityTool(),
 		TagActivityTool(),
+		BulkTagActivitiesTool(),
 	}
 }
 

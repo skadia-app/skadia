@@ -22,6 +22,7 @@ domain_knowledge: |
   - routing für 'plane mir eine Route' (prospektiv, was soll kommen)
 tools:
   - query_geo_features
+  - query_activity_geo_context
   - search_routes
 few_shot_examples:
   - q: "Wie viele Gipfel über 2000m habe ich bestiegen?"
@@ -32,3 +33,7 @@ few_shot_examples:
     tool: query_geo_features
     args: '{"feature_type": "gastronomy", "days": 365}'
     answer: "5 Hüttenbesuche: Rappenseehütte (2x), Mindelheimer Hütte, ..."
+  - q: "Auf welchem höchsten Gipfel war ich letztes Jahr und welche Sportart war das?"
+    tool: query_activity_geo_context
+    args: '{"feature_type": "summit", "date_from": "2025-01-01", "date_to": "2025-12-31", "order_by": "elevation", "limit": 1}'
+    answer: "Höchster Gipfel 2025: Beispieler Rothorn, 2861 m, Aktivität Wandern am 18.08.2025."

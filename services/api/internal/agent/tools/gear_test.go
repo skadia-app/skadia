@@ -21,7 +21,7 @@ func TestGearToolsSchemaValidAndUserOwned(t *testing.T) {
 		if !tool.IsUserOwned {
 			t.Fatalf("%s IsUserOwned = false, want true", tool.Name)
 		}
-		if strings.HasPrefix(tool.Name, "create_") || strings.HasPrefix(tool.Name, "update_") || strings.HasPrefix(tool.Name, "retire_") || strings.HasPrefix(tool.Name, "set_") {
+		if tool.ExecuteWrite != nil || tool.RequiresConfirmation {
 			if tool.Permission != PermissionWriteSafe || !tool.RequiresConfirmation {
 				t.Fatalf("%s write flags permission=%s confirmation=%v", tool.Name, tool.Permission, tool.RequiresConfirmation)
 			}
@@ -251,6 +251,44 @@ func TestGearSummaryUsesFusionAwareAggregation(t *testing.T) {
 	}
 	if math.Round(result["total_elevation_gain_m"].(float64)) != 650 {
 		t.Fatalf("total_elevation_gain_m = %#v, want 650", result["total_elevation_gain_m"])
+	}
+}
+
+func TestQueryGearMaintenanceReturnsComponentsAndAlerts(t *testing.T) {
+	fx := newGearToolFixture(t)
+	componentID := fx.insertComponent(t, "GX Kette", "chain")
+	if _, err := fx.pool.Exec(context.Background(), `
+		UPDATE gear_components
+		   SET total_distance_m = 950, total_activities = 2
+		 WHERE id = $1`, componentID); err != nil {
+		t.Fatalf("update component usage: %v", err)
+	}
+	if _, err := fx.pool.Exec(context.Background(), `
+		INSERT INTO gear_service_intervals
+			(id, component_id, name, metric_key, interval_type, interval_value, last_service_metric_value)
+		VALUES ($1, $2, 'Kettenwechsel', 'distance_m', 'distance_m', 1000, 0)`,
+		uuid.NewString(), componentID); err != nil {
+		t.Fatalf("insert service interval: %v", err)
+	}
+
+	got, err := executeQueryGearMaintenance(context.Background(), &Deps{DB: fx.db}, fx.userID, json.RawMessage(`{"gear_query":"Fixture","component_type":"chain"}`))
+	if err != nil {
+		t.Fatalf("executeQueryGearMaintenance: %v", err)
+	}
+	result := got.(map[string]any)
+	components := result["components"].([]map[string]any)
+	if len(components) != 1 {
+		t.Fatalf("components len = %d, want 1: %#v", len(components), components)
+	}
+	if components[0]["component_name"] != "GX Kette" {
+		t.Fatalf("component_name = %#v", components[0]["component_name"])
+	}
+	alerts := result["alerts"].([]map[string]any)
+	if len(alerts) != 1 {
+		t.Fatalf("alerts len = %d, want 1: %#v", len(alerts), alerts)
+	}
+	if alerts[0]["is_overdue"] != false {
+		t.Fatalf("is_overdue = %#v, want false due-soon alert", alerts[0]["is_overdue"])
 	}
 }
 

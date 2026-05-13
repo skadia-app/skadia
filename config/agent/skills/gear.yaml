@@ -27,6 +27,7 @@ domain_knowledge: |
   - gear_summary aggregiert km/Höhenmeter über mehrere Ausrüstungsgegenstände.
   - gear_component_detail zeigt Komponenten (Kette, Reifen, …) mit km-Stand.
   - gear_service_events zeigt Wartungshistorie pro Komponente oder Gerät.
+  - query_gear_maintenance fasst Komponenten, Wartungsintervalle, letzte Service-Events und fällige/überfällige Hinweise zusammen.
 tools:
   - get_gear_stats
   - get_gear_for_activity
@@ -35,6 +36,7 @@ tools:
   - gear_component_detail
   - gear_service_events
   - gear_summary
+  - query_gear_maintenance
 few_shot_examples:
   - q: "Wie viele km haben meine Laufschuhe?"
     tool: get_gear_stats
@@ -54,5 +56,5 @@ few_shot_examples:
     steps:
       - tool: gear_list
         args: {"type": "bike.mtb"}
-      - tool: gear_service_events
-        args: {"gear_id": "<id from previous step>", "order": "desc", "limit": 1}
+      - tool: query_gear_maintenance
+        args: {"gear_id": "<id from previous step>", "limit": 10}

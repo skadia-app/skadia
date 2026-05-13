@@ -148,6 +148,124 @@ func TestRetireGearWriteToolUpdatesStatus(t *testing.T) {
 	}
 }
 
+func TestAddGearComponentRejectsForeignParentComponent(t *testing.T) {
+	fx := newGearToolFixture(t)
+	ctx := context.Background()
+	foreignUserID := fx.insertUser(t)
+	foreignGearID := fx.insertGearForUser(t, foreignUserID, "Foreign Bike", "bike", "bike", false)
+	foreignComponentID := uuid.NewString()
+	if _, err := fx.pool.Exec(ctx, `
+		INSERT INTO gear_components (id, gear_id, name, type, status, is_retired)
+		VALUES ($1, $2, 'Foreign Chain', 'chain', 'active', false)`,
+		foreignComponentID, foreignGearID,
+	); err != nil {
+		t.Fatalf("insert foreign component: %v", err)
+	}
+	envelope := gearWriteEnvelope(t, fx, "add_gear_component")
+	sessionID := uuid.NewString()
+	args := json.RawMessage(`{"gear_id":"` + fx.gearID + `","name":"Child Chain","type":"chain","parent_component_id":"` + foreignComponentID + `"}`)
+
+	if _, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: "call-add-component", ToolName: "add_gear_component", Args: args,
+	}); err != nil {
+		t.Fatalf("PrepareConfirmation: %v", err)
+	}
+	confirmEnvelopeTool(t, envelope, sessionID, "call-add-component")
+	_, err := envelope.ExecuteConfirmed(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: "call-add-component", ToolName: "add_gear_component", Args: args,
+	})
+	if err == nil || !strings.Contains(err.Error(), "FORBIDDEN") {
+		t.Fatalf("ExecuteConfirmed err = %v, want FORBIDDEN", err)
+	}
+}
+
+func TestRecordGearServiceEventRejectsForeignComponentAtPrepare(t *testing.T) {
+	fx := newGearToolFixture(t)
+	ctx := context.Background()
+	foreignUserID := fx.insertUser(t)
+	foreignGearID := fx.insertGearForUser(t, foreignUserID, "Foreign Bike", "bike", "bike", false)
+	foreignComponentID := uuid.NewString()
+	if _, err := fx.pool.Exec(ctx, `
+		INSERT INTO gear_components (id, gear_id, name, type, status, is_retired)
+		VALUES ($1, $2, 'Foreign Chain', 'chain', 'active', false)`,
+		foreignComponentID, foreignGearID,
+	); err != nil {
+		t.Fatalf("insert foreign component: %v", err)
+	}
+	envelope := gearWriteEnvelope(t, fx, "record_gear_service_event")
+	args := json.RawMessage(`{"component_id":"` + foreignComponentID + `","performed_at":"2026-05-13","description":"Cleaned"}`)
+
+	_, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: uuid.NewString(), ToolCallID: "call-service", ToolName: "record_gear_service_event", Args: args,
+	})
+	if err == nil || !strings.Contains(err.Error(), "FORBIDDEN") {
+		t.Fatalf("PrepareConfirmation err = %v, want FORBIDDEN", err)
+	}
+}
+
+func TestUpdateGearDefaultPredicatesRejectsUnknownSport(t *testing.T) {
+	fx := newGearToolFixture(t)
+	ctx := context.Background()
+	envelope := gearWriteEnvelope(t, fx, "update_gear_default_predicates")
+	args := json.RawMessage(`{"gear_id":"` + fx.gearID + `","predicates":[{"sport_type":"not_a_sport"}]}`)
+
+	_, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: uuid.NewString(), ToolCallID: "call-predicates", ToolName: "update_gear_default_predicates", Args: args,
+	})
+	if err == nil {
+		t.Fatal("PrepareConfirmation accepted unknown sport predicate")
+	}
+}
+
+func TestBatchSetActivityGearRequiresPreparedActivityIDs(t *testing.T) {
+	ctx := context.Background()
+	args := json.RawMessage(`{"gear_id":"` + uuid.NewString() + `","role_key":"primary","selection":{"sport_type":"cycling"}}`)
+
+	_, err := BatchSetActivityGearTool().ExecuteWrite(ctx, nil, uuid.NewString(), args)
+	if err == nil || !strings.Contains(err.Error(), "UNSAFE_SELECTION") {
+		t.Fatalf("ExecuteConfirmed err = %v, want UNSAFE_SELECTION", err)
+	}
+}
+
+func TestBatchSetActivityGearSetsConcreteOwnedActivities(t *testing.T) {
+	fx := newGearToolFixture(t)
+	ctx := context.Background()
+	activityA := fx.insertActivity(t, 1200, 600, 10, 10, 0, 0, 0)
+	activityB := fx.insertActivity(t, 1300, 700, 20, 20, 0, 0, 0)
+	envelope := gearWriteEnvelope(t, fx, "batch_set_activity_gear")
+	sessionID := uuid.NewString()
+	args := json.RawMessage(`{"gear_id":"` + fx.gearID + `","role_key":"primary","activity_ids":["` + activityA + `","` + activityB + `"]}`)
+
+	if _, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: "call-batch-concrete", ToolName: "batch_set_activity_gear", Args: args,
+	}); err != nil {
+		t.Fatalf("PrepareConfirmation: %v", err)
+	}
+	confirmEnvelopeTool(t, envelope, sessionID, "call-batch-concrete")
+	result, err := envelope.ExecuteConfirmed(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: "call-batch-concrete", ToolName: "batch_set_activity_gear", Args: args,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteConfirmed: %v", err)
+	}
+	if result.(map[string]any)["affected_count"] != 2 {
+		t.Fatalf("result = %#v, want affected_count 2", result)
+	}
+
+	var count int
+	if err := fx.pool.QueryRow(ctx, `
+		SELECT count(*)
+		FROM activity_gear_assignments
+		WHERE activity_id IN ($1, $2) AND gear_id = $3 AND role_key = 'primary' AND source = 'user'`,
+		activityA, activityB, fx.gearID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count assignments: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("assignment count = %d, want 2", count)
+	}
+}
+
 func gearWriteEnvelope(t *testing.T, fx gearToolFixture, allowedTools ...string) *ExecutionEnvelope {
 	t.Helper()
 	if _, err := fx.db.UpsertChatPrefs(context.Background(), fx.userID, database.ChatUserPreferences{

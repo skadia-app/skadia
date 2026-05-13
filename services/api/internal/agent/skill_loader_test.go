@@ -36,8 +36,8 @@ func TestLoadSkillsParsesMovedYAMLs(t *testing.T) {
 	if gear.Description != "Ausrüstung, Verschleiß, km-Stand, Wartung, Kosten" {
 		t.Fatalf("gear description = %q", gear.Description)
 	}
-	if len(gear.Tools) != 7 {
-		t.Fatalf("gear tools = %d, want 7", len(gear.Tools))
+	if len(gear.Tools) != 8 {
+		t.Fatalf("gear tools = %d, want 8", len(gear.Tools))
 	}
 	if len(gear.FewShotExamples) != 4 {
 		t.Fatalf("gear few-shot examples = %d, want 4", len(gear.FewShotExamples))
@@ -91,6 +91,7 @@ func TestSkillGearContextStringMatchesPythonFormatting(t *testing.T) {
 		"- gear_summary aggregiert km/Höhenmeter über mehrere Ausrüstungsgegenstände.",
 		"- gear_component_detail zeigt Komponenten (Kette, Reifen, …) mit km-Stand.",
 		"- gear_service_events zeigt Wartungshistorie pro Komponente oder Gerät.",
+		"- query_gear_maintenance fasst Komponenten, Wartungsintervalle, letzte Service-Events und fällige/überfällige Hinweise zusammen.",
 	}, "\n")
 
 	if got := skills["gear"].ToContextString(); got != want {

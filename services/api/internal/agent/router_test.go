@@ -14,11 +14,13 @@ func TestRouteQueryMatchesPythonRouterCases(t *testing.T) {
 		{"Wie viele Gipfel habe ich bestiegen?", "geo"},
 		{"Wie ist mein HRV-Trend?", "health"},
 		{"Wann war mein letzter Lauf?", "activities"},
+		{"When was my last swim?", "activities"},
 		{"Wie viele km haben meine Schuhe?", "gear"},
 		{"Wie ist meine CTL?", "training"},
 		{"Was ist meine Bestzeit auf dem Segment?", "segments"},
 		{"Plane mir eine E-Bike Route", "routing"},
 		{"Zeig mir Fotos mit Steinbock", "photos"},
+		{"Suche in meinen Rechnungen nach GX Kette", "documents"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.query, func(t *testing.T) {
@@ -47,6 +49,18 @@ func TestRouteQueryMatchesSubjectiveRoutingPhrases(t *testing.T) {
 				t.Fatalf("domains = %#v, want routing", got.Domains)
 			}
 		})
+	}
+}
+
+func TestRouteQueryPrioritizesSegmentBestzeitOverActivityTitleSearch(t *testing.T) {
+	small := GetProfile("small", "", nil)
+	got := RouteQuery("Wann bin ich meine Bestzeit auf dem Neuland Trail gefahren?", &small)
+	if len(got.Domains) == 0 || got.Domains[0] != "segments" {
+		t.Fatalf("domains = %#v, want segments first", got.Domains)
+	}
+	tools := GetToolsForDomains(got.Domains, &small)
+	if len(tools) == 0 || tools[0] != "query_segments" {
+		t.Fatalf("tools = %#v, want query_segments first", tools)
 	}
 }
 

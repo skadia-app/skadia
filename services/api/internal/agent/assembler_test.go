@@ -17,6 +17,8 @@ func TestAssembleSystemPromptContainsBasePromptSkillsAndFewShots(t *testing.T) {
 
 	for _, want := range []string{
 		"Du bist ein Sport-Datenassistent. Heute ist 08.03.2026.",
+		"Antworte in der Sprache der aktuellen Nutzerfrage",
+		"Wenn ein Tool 'sport_query' anbietet",
 		"## Kontext: Ausrüstung, Verschleiß, km-Stand, Wartung, Kosten",
 		"## Werkzeug-Auswahl",
 		"Subjektive Routing-Wünsche",

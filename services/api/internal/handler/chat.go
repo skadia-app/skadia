@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -30,22 +31,32 @@ type updateChatPreferencesRequest struct {
 }
 
 var chatWriteToolCatalog = map[string]bool{
-	"create_gear":              true,
-	"update_gear_metadata":     true,
-	"retire_gear":              true,
-	"set_activity_gear":        true,
-	"update_activity_metadata": true,
-	"rename_activity":          true,
-	"tag_activity":             true,
-	"record_health_metric":     true,
-	"create_tag":               true,
-	"update_tag":               true,
-	"delete_tag":               true,
-	"create_automation_rule":   true,
-	"update_automation_rule":   true,
-	"delete_automation_rule":   true,
-	"enable_automation_rule":   true,
-	"disable_automation_rule":  true,
+	"create_gear":                         true,
+	"update_gear_metadata":                true,
+	"retire_gear":                         true,
+	"set_activity_gear":                   true,
+	"batch_set_activity_gear":             true,
+	"update_activity_metadata":            true,
+	"rename_activity":                     true,
+	"tag_activity":                        true,
+	"bulk_tag_activities":                 true,
+	"record_health_metric":                true,
+	"create_tag":                          true,
+	"update_tag":                          true,
+	"delete_tag":                          true,
+	"merge_tags":                          true,
+	"create_automation_rule":              true,
+	"update_automation_rule":              true,
+	"delete_automation_rule":              true,
+	"enable_automation_rule":              true,
+	"disable_automation_rule":             true,
+	"apply_automation_rule_retroactively": true,
+	"add_gear_component":                  true,
+	"update_gear_component_status":        true,
+	"record_gear_service_event":           true,
+	"update_gear_default_predicates":      true,
+	"save_planned_route":                  true,
+	"start_recompute_activities":          true,
 }
 
 // chatRateLimiter tracks per-user message rates in memory.
@@ -361,11 +372,30 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+		slog.Warn("disable chat stream write deadline failed", "error", err)
+	}
 
 	var assistantContent strings.Builder
 	baseSink := agent.NewHTTPSSESink(w, flusher)
 	baseSink.OnChunk(func(delta string) { assistantContent.WriteString(delta) })
 	sink := &chatPersistSink{SSESink: baseSink, assistantContent: &assistantContent}
+	heartbeatDone := make(chan struct{})
+	defer close(heartbeatDone)
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				_ = sink.WriteRaw(": ping\n\n")
+			case <-heartbeatDone:
+				return
+			case <-r.Context().Done():
+				return
+			}
+		}
+	}()
 	if err := h.Agent.Stream(r.Context(), agent.ChatRequest{
 		UserID:    userID,
 		SessionID: sessionID,
@@ -373,7 +403,11 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		Message:   req.Message,
 		History:   historyPayload,
 	}, sink); err != nil {
-		slog.Error("agent chat stream failed", "error", err)
+		if r.Context().Err() != nil {
+			slog.Info("agent chat stream canceled", "error", err)
+		} else {
+			slog.Error("agent chat stream failed", "error", err)
+		}
 	}
 
 	// Persist assistant reply
@@ -388,7 +422,9 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 			Content:   content,
 			Sources:   sourcesJSON,
 		}
-		if _, err := h.DB.CreateMessage(r.Context(), assistantMsg); err != nil {
+		persistCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := h.DB.CreateMessage(persistCtx, assistantMsg); err != nil {
 			slog.Warn("persist assistant chat message failed", "error", err)
 		}
 	}
