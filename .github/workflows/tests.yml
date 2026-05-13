@@ -108,6 +108,12 @@ jobs:
           bash -n scripts/finalize-migration.sh scripts/finalize_migration_internal/test.sh
           scripts/finalize_migration_internal/test.sh
 
+      - name: Test setup scripts
+        run: |
+          bash -n scripts/setup.sh scripts/init-garage.sh scripts/setup_internal/test.sh scripts/init_garage_internal/test.sh
+          scripts/setup_internal/test.sh
+          scripts/init_garage_internal/test.sh
+
       - name: Check migration numbering finalized
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
