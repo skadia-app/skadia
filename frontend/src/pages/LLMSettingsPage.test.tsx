@@ -49,15 +49,15 @@ describe('LLMSettingsPage', () => {
     vi.clearAllMocks()
   })
 
-  it('renders roles from API contract with eval status instead of a hard-coded default role', async () => {
+  it('renders roles from API contract with readable status labels instead of a hard-coded default role', async () => {
     renderPage()
 
     expect(await screen.findByText('Gemeinsame Verbindung')).toBeInTheDocument()
     expect(screen.getByText(/Diese Backend-Daten/)).toBeInTheDocument()
     expect(screen.getByText('Tool-Agent')).toBeInTheDocument()
     expect(screen.getByText('Vision')).toBeInTheDocument()
-    expect(screen.getByText('Eval: untested')).toBeInTheDocument()
-    expect(screen.getByText('Eval: waived')).toBeInTheDocument()
+    expect(screen.getByText('Status: nicht geprüft')).toBeInTheDocument()
+    expect(screen.getByText('Status: freigegeben')).toBeInTheDocument()
     expect(screen.queryByText('Standard-LLM')).not.toBeInTheDocument()
     expect(screen.queryByText(/skadia-default/)).not.toBeInTheDocument()
   })
@@ -71,12 +71,12 @@ describe('LLMSettingsPage', () => {
     renderPage()
 
     expect(await screen.findByText('Gemeinsame Verbindung')).toBeInTheDocument()
-    expect(screen.getByText('Eval: untested')).toBeInTheDocument()
+    expect(screen.getByText('Status: nicht geprüft')).toBeInTheDocument()
     expect(screen.queryByText('default')).not.toBeInTheDocument()
     expect(screen.queryByText('vlm')).not.toBeInTheDocument()
   })
 
-  it('submits an eval waiver only with the required reason', async () => {
+  it('submits an admin connection release only with the required reason', async () => {
     mockState.configs = [
       { role: 'tool_agent', backend_type: 'llama_server', api_base: 'https://llm.example/v1', model_name: 'tool-model', enabled: true, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['tool_calls'], eval_status: 'failed', eval_report: {} },
     ]
@@ -85,10 +85,10 @@ describe('LLMSettingsPage', () => {
     await enableSeparateRoles(user)
 
     await screen.findByText('Tool-Agent')
-    await user.type(screen.getByLabelText('Waiver-Begründung'), 'Manuelle lokale Eval-Prüfung')
-    await user.click(screen.getByRole('button', { name: 'Waiver speichern' }))
+    await user.type(screen.getByLabelText('Freigabe-Begründung'), 'Manuelle lokale Prüfung')
+    await user.click(screen.getByRole('button', { name: 'Freigeben' }))
 
-    expect(waiveLLMEval).toHaveBeenCalledWith('tool_agent', 'Manuelle lokale Eval-Prüfung')
+    expect(waiveLLMEval).toHaveBeenCalledWith('tool_agent', 'Manuelle lokale Prüfung')
   })
 
   it('chooses a valid backend before saving an enabled role that was disabled', async () => {
@@ -154,11 +154,11 @@ describe('LLMSettingsPage', () => {
     await user.clear(modelInput)
     await user.type(modelInput, 'other-model')
 
-    expect(screen.getByRole('button', { name: 'Eval starten' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Qualitätsprüfung starten' })).toBeDisabled()
     expect(runLLMEval).not.toHaveBeenCalled()
   })
 
-  it('does not allow waivers while shared role settings are dirty', async () => {
+  it('does not allow connection release while shared role settings are dirty', async () => {
     mockState.configs = [
       { role: 'tool_agent', backend_type: 'llama_server', api_base: 'https://llm.example/v1', model_name: 'tool-model', enabled: true, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['tool_calls'], eval_status: 'failed', eval_report: {} },
     ]
@@ -168,9 +168,9 @@ describe('LLMSettingsPage', () => {
     const modelInput = await screen.findByDisplayValue('tool-model')
     await user.clear(modelInput)
     await user.type(modelInput, 'other-model')
-    await user.type(screen.getByLabelText('Tool-Agent Waiver-Begründung'), 'Manuelle lokale Eval-Prüfung')
+    await user.type(screen.getByLabelText('Tool-Agent Freigabe-Begründung'), 'Manuelle lokale Prüfung')
 
-    expect(screen.getByRole('button', { name: 'Waiver' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Freigeben' })).toBeDisabled()
     expect(waiveLLMEval).not.toHaveBeenCalled()
   })
 
@@ -213,7 +213,7 @@ describe('LLMSettingsPage', () => {
     expect(saveLLMRole).toHaveBeenCalledWith('vision', expect.objectContaining({ model_name: 'shared-model', enabled: true }))
   })
 
-  it('allows waiving an active role from the shared backend view', async () => {
+  it('allows releasing an active role from the shared backend view', async () => {
     mockState.configs = [
       { role: 'tool_agent', backend_type: 'llama_server', api_base: 'https://llm.example/v1', model_name: 'tool-model', enabled: true, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['tool_calls'], eval_status: 'untested', eval_report: {} },
       { role: 'vision', backend_type: 'disabled', enabled: false, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: [], eval_status: 'untested', eval_report: {} },
@@ -222,9 +222,9 @@ describe('LLMSettingsPage', () => {
     renderPage()
 
     await screen.findByText('Gemeinsame Verbindung')
-    await user.type(screen.getByLabelText('Tool-Agent Waiver-Begründung'), 'Lokales Testmodell vor Eval-Durchlauf')
-    await user.click(screen.getByRole('button', { name: 'Waiver' }))
+    await user.type(screen.getByLabelText('Tool-Agent Freigabe-Begründung'), 'Lokales Testmodell geprüft')
+    await user.click(screen.getByRole('button', { name: 'Freigeben' }))
 
-    expect(waiveLLMEval).toHaveBeenCalledWith('tool_agent', 'Lokales Testmodell vor Eval-Durchlauf')
+    expect(waiveLLMEval).toHaveBeenCalledWith('tool_agent', 'Lokales Testmodell geprüft')
   })
 })

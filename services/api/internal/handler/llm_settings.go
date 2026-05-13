@@ -70,6 +70,12 @@ func (h *Handler) PutLLMConfigRole(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save LLM config", r.URL.Path)
 		return
 	}
+	if update.Enabled {
+		if err := h.markLLMRoleAdminConfigured(r.Context(), role, "Admin configured direct LLM backend"); err != nil {
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to activate LLM config", r.URL.Path)
+			return
+		}
+	}
 
 	if err := h.regenerateLiteLLMConfig(r.Context()); err != nil {
 		slog.Warn("failed to regenerate LiteLLM config", "error", err)
@@ -86,6 +92,34 @@ func (h *Handler) PutLLMConfigRole(w http.ResponseWriter, r *http.Request) {
 		"status":                "saved",
 		"litellm_pending_apply": h.liteLLMConfigWritesNeedApply(),
 	})
+}
+
+func (h *Handler) markLLMRoleAdminConfigured(ctx context.Context, role, reason string) error {
+	configs, err := h.DB.GetLLMSystemConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("get LLM config after save: %w", err)
+	}
+	var current *model.LLMSystemConfig
+	for i := range configs {
+		if configs[i].Role == role {
+			current = &configs[i]
+			break
+		}
+	}
+	if current == nil || !current.Enabled {
+		return nil
+	}
+	identity, ok := current.CurrentEvalIdentity()
+	if !ok {
+		return nil
+	}
+	report := map[string]any{
+		"status":       model.LLMEvalStatusWaived,
+		"identity":     identity,
+		"admin_reason": reason,
+		"waived_at":    time.Now().UTC().Format(time.RFC3339),
+	}
+	return h.DB.UpdateLLMEvalResult(ctx, role, model.LLMEvalStatusWaived, report)
 }
 
 func (h *Handler) prepareLLMSystemConfigUpdate(ctx context.Context, role string, update *model.LLMSystemConfigUpdate) error {
@@ -230,7 +264,12 @@ func (h *Handler) PatchLLMConfigEvalWaiver(w http.ResponseWriter, r *http.Reques
 	}
 	if err := h.regenerateLiteLLMConfig(r.Context()); err != nil {
 		slog.Warn("failed to regenerate LiteLLM config after eval waiver", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "eval waiver saved, but optional LiteLLM config could not be regenerated: "+err.Error(), r.URL.Path)
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"status":                "waived",
+			"warning":               "optional LiteLLM config could not be regenerated: " + err.Error(),
+			"litellm_config_stale":  true,
+			"litellm_pending_apply": false,
+		})
 		return
 	}
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
@@ -273,7 +312,21 @@ func (h *Handler) PostLLMConfigEval(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.regenerateLiteLLMConfig(r.Context()); err != nil {
 		slog.Warn("failed to regenerate LiteLLM config after eval", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "eval result saved, but optional LiteLLM config could not be regenerated: "+err.Error(), r.URL.Path)
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"status":                report.Status,
+			"identity":              report.Identity,
+			"suite_id":              report.SuiteID,
+			"suite_hash":            report.SuiteHash,
+			"suite_case_count":      report.SuiteCaseCount,
+			"completed":             report.Completed,
+			"started_at":            report.StartedAt,
+			"completed_at":          report.CompletedAt,
+			"cases":                 report.Cases,
+			"failed_cases":          report.FailedCases,
+			"warning":               "optional LiteLLM config could not be regenerated: " + err.Error(),
+			"litellm_config_stale":  true,
+			"litellm_pending_apply": false,
+		})
 		return
 	}
 	report.LiteLLMPendingApply = h.liteLLMConfigWritesNeedApply()
@@ -421,7 +474,7 @@ func (h *Handler) PatchLLMUserConfig(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if system == nil || !system.EvalGatePassed() || !system.AllowsModelOverride(*req.ModelName) {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "model override has not passed eval gates", r.URL.Path)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "model override is not released for this role", r.URL.Path)
 			return
 		}
 	}

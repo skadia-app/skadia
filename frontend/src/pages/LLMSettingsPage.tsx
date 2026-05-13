@@ -37,6 +37,19 @@ const DEFAULT_URLS: Record<string, string> = {
   openai: 'https://api.openai.com/v1',
 }
 
+function evalStatusLabel(status: LLMSystemConfig['eval_status'] | string | undefined): string {
+  switch (status) {
+    case 'passed':
+      return 'geprüft'
+    case 'waived':
+      return 'freigegeben'
+    case 'failed':
+      return 'Prüfung fehlgeschlagen'
+    default:
+      return 'nicht geprüft'
+  }
+}
+
 function isManagedRole(config: LLMSystemConfig): boolean {
   return ROLE_ORDER.includes(config.role)
 }
@@ -324,7 +337,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
 
   const runEval = async () => {
     if (isDirty) {
-      setEvalResult('Eval erst nach dem Speichern starten')
+      setEvalResult('Qualitätsprüfung erst nach dem Speichern starten')
       return
     }
     setIsEvaluating(true)
@@ -333,18 +346,18 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
       const results = await Promise.all(activeRoleNames.map(async roleName => ({ roleName, result: await runLLMEval(roleName) })))
       const failed = results.filter(item => item.result.status !== 'passed')
       setEvalResult(failed.length === 0
-        ? 'Eval: alle aktiven Rollen passed'
-        : `Eval: ${failed.map(item => `${ROLE_LABELS[item.roleName] ?? item.roleName} ${item.result.status}`).join(', ')}`)
+        ? 'Qualitätsprüfung: alle aktiven Rollen bestanden'
+        : `Qualitätsprüfung: ${failed.map(item => `${ROLE_LABELS[item.roleName] ?? item.roleName} ${evalStatusLabel(item.result.status)}`).join(', ')}`)
       onSave()
     } catch (err) {
-      setEvalResult(`Eval fehlgeschlagen: ${mutationErrorMessage(err)}`)
+      setEvalResult(`Qualitätsprüfung fehlgeschlagen: ${mutationErrorMessage(err)}`)
     }
     setIsEvaluating(false)
   }
 
   const saveWaiver = async (roleName: string) => {
     if (isDirty) {
-      setLocalSaveError('Erst speichern, dann Waiver speichern.')
+      setLocalSaveError('Erst speichern, dann Verbindung freigeben.')
       return
     }
     const reason = (waiverReasons[roleName] ?? '').trim()
@@ -377,8 +390,8 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
   }
 
   const saveError = localSaveError ?? (saveMutation.isError ? mutationErrorMessage(saveMutation.error) : null)
-  const evalDisabledReason = isDirty ? 'Erst speichern, dann Eval starten.' : null
-  const waiverDisabledReason = isDirty ? 'Erst speichern, dann Waiver speichern.' : null
+  const evalDisabledReason = isDirty ? 'Erst speichern, dann Qualitätsprüfung starten.' : null
+  const waiverDisabledReason = isDirty ? 'Erst speichern, dann Verbindung freigeben.' : null
 
   return (
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 space-y-4">
@@ -405,7 +418,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
                         ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
                         : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
                 }`}>
-                  Eval: {role.eval_status}
+                  Status: {evalStatusLabel(role.eval_status)}
                 </span>
               </div>
               <Toggle
@@ -423,15 +436,15 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
                 aria-label={`${ROLE_LABELS[role.role] ?? role.role} aktivieren`}
               />
             </div>
-            {enabledByRole[role.role] && role.eval_status !== 'passed' && (
+            {enabledByRole[role.role] && role.eval_status !== 'passed' && role.eval_status !== 'waived' && (
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={waiverReasons[role.role] ?? ''}
                   onChange={e => setWaiverReasons(current => ({ ...current, [role.role]: e.target.value }))}
-                  placeholder="Waiver-Begründung"
+                  placeholder="Begründung für Freigabe"
                   className="min-w-0 flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-900 dark:text-neutral-100 focus:outline-none"
-                  aria-label={`${ROLE_LABELS[role.role] ?? role.role} Waiver-Begründung`}
+                  aria-label={`${ROLE_LABELS[role.role] ?? role.role} Freigabe-Begründung`}
                 />
                 <button
                   type="button"
@@ -440,11 +453,11 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
                   title={waiverDisabledReason ?? undefined}
                   className="cursor-pointer px-2 py-1 rounded-lg text-xs border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
                 >
-                  {waivingRole === role.role ? 'Speichere...' : 'Waiver'}
+                  {waivingRole === role.role ? 'Speichere...' : 'Freigeben'}
                 </button>
               </div>
             )}
-            {enabledByRole[role.role] && role.eval_status !== 'passed' && waiverDisabledReason && (
+            {enabledByRole[role.role] && role.eval_status !== 'passed' && role.eval_status !== 'waived' && waiverDisabledReason && (
               <p className="text-xs text-amber-600 dark:text-amber-400">{waiverDisabledReason}</p>
             )}
           </div>
@@ -579,7 +592,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
               title={evalDisabledReason ?? undefined}
               className="cursor-pointer px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isEvaluating ? 'Eval läuft...' : 'Evals starten'}
+              {isEvaluating ? 'Prüfung läuft...' : 'Qualitätsprüfung starten'}
             </button>
             {testResult && (
               <span className={`text-xs ${testResult.success ? 'text-green-500' : 'text-rose-500'}`}>
@@ -588,7 +601,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
               </span>
             )}
             {evalResult && (
-              <span className={`text-xs ${evalResult.includes('passed') ? 'text-green-500' : 'text-rose-500'}`}>
+              <span className={`text-xs ${evalResult.includes('bestanden') ? 'text-green-500' : 'text-rose-500'}`}>
                 {evalResult}
               </span>
             )}
@@ -731,7 +744,7 @@ function LLMRoleCard({
 
   const runEval = async () => {
     if (isDirty) {
-      setEvalResult('Eval erst nach dem Speichern starten')
+      setEvalResult('Qualitätsprüfung erst nach dem Speichern starten')
       return
     }
     setIsEvaluating(true)
@@ -740,20 +753,20 @@ function LLMRoleCard({
       const results = await Promise.all(rolesToSave.map(async roleName => ({ roleName, result: await runLLMEval(roleName) })))
       const failed = results.filter(item => item.result.status !== 'passed')
       if (failed.length === 0) {
-        setEvalResult(isSharedCard ? 'Eval: alle passed' : 'Eval: passed')
+        setEvalResult(isSharedCard ? 'Qualitätsprüfung: alle bestanden' : 'Qualitätsprüfung bestanden')
       } else {
-        setEvalResult(`Eval: ${failed.map(item => `${ROLE_LABELS[item.roleName] ?? item.roleName} ${item.result.status}`).join(', ')}`)
+        setEvalResult(`Qualitätsprüfung: ${failed.map(item => `${ROLE_LABELS[item.roleName] ?? item.roleName} ${evalStatusLabel(item.result.status)}`).join(', ')}`)
       }
       onSave()
     } catch (err) {
-      setEvalResult(`Eval fehlgeschlagen: ${mutationErrorMessage(err)}`)
+      setEvalResult(`Qualitätsprüfung fehlgeschlagen: ${mutationErrorMessage(err)}`)
     }
     setIsEvaluating(false)
   }
 
   const saveWaiver = async () => {
     if (isDirty) {
-      setLocalSaveError('Erst speichern, dann Waiver speichern.')
+      setLocalSaveError('Erst speichern, dann Verbindung freigeben.')
       return
     }
     const reason = waiverReason.trim()
@@ -763,7 +776,7 @@ function LLMRoleCard({
     try {
       await waiveLLMEval(role, reason)
       setWaiverReason('')
-      setEvalResult('Eval: waived')
+      setEvalResult('Verbindung freigegeben')
       onSave()
     } catch (err) {
       setLocalSaveError(mutationErrorMessage(err))
@@ -783,8 +796,8 @@ function LLMRoleCard({
     enabled !== (config?.enabled || false) ||
     apiKeyState !== 'unchanged'
   const saveError = localSaveError ?? (saveMutation.isError ? mutationErrorMessage(saveMutation.error) : null)
-  const evalDisabledReason = isDirty ? 'Erst speichern, dann Eval starten.' : null
-  const waiverDisabledReason = isDirty ? 'Erst speichern, dann Waiver speichern.' : null
+  const evalDisabledReason = isDirty ? 'Erst speichern, dann Qualitätsprüfung starten.' : null
+  const waiverDisabledReason = isDirty ? 'Erst speichern, dann Verbindung freigeben.' : null
 
   const validateBeforeSave = (): string | null => {
     if (!enabled) return null
@@ -853,7 +866,7 @@ function LLMRoleCard({
                 const roleConfig = roleConfigsByName.get(roleName)
                 return (
                   <span key={roleName} className="rounded bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 px-2 py-0.5">
-                    {ROLE_LABELS[roleName] ?? roleName}: {roleConfig?.eval_status ?? 'untested'}
+                    {ROLE_LABELS[roleName] ?? roleName}: {evalStatusLabel(roleConfig?.eval_status)}
                   </span>
                 )
               })}
@@ -869,10 +882,10 @@ function LLMRoleCard({
                       ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
                       : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
               }`}>
-                Eval: {config.eval_status}
+                Status: {evalStatusLabel(config.eval_status)}
               </span>
               {config.eval_status === 'waived' && (
-                <span className="text-amber-600 dark:text-amber-400">Waiver aktiv</span>
+                <span className="text-amber-600 dark:text-amber-400">Admin-Freigabe aktiv</span>
               )}
             </div>
           )}
@@ -1036,7 +1049,7 @@ function LLMRoleCard({
                          text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
                          disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isEvaluating ? 'Eval läuft...' : 'Eval starten'}
+              {isEvaluating ? 'Prüfung läuft...' : 'Qualitätsprüfung starten'}
             </button>
             {testResult && (
               <span className={`text-xs ${testResult.success ? 'text-green-500' : 'text-rose-500'}`}>
@@ -1048,7 +1061,7 @@ function LLMRoleCard({
               <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">⚠ {testResult.warning}</p>
             )}
             {evalResult && (
-              <span className={`text-xs ${evalResult.includes('passed') ? 'text-green-500' : 'text-rose-500'}`}>
+              <span className={`text-xs ${evalResult.includes('bestanden') ? 'text-green-500' : 'text-rose-500'}`}>
                 {evalResult}
               </span>
             )}
@@ -1057,10 +1070,10 @@ function LLMRoleCard({
             <p className="text-xs text-amber-600 dark:text-amber-400">{evalDisabledReason}</p>
           )}
 
-          {!isSharedCard && config?.eval_status !== 'passed' && (
+          {!isSharedCard && config?.eval_status !== 'passed' && config?.eval_status !== 'waived' && (
             <div className="pt-2 space-y-2">
               <label htmlFor={`waiver-${role}`} className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
-                Waiver-Begründung
+                Freigabe-Begründung
               </label>
               <div className="flex gap-2">
                 <input
@@ -1068,7 +1081,7 @@ function LLMRoleCard({
                   type="text"
                   value={waiverReason}
                   onChange={e => setWaiverReason(e.target.value)}
-                  placeholder="Warum dieser Rolle vorübergehend vertraut wird"
+                  placeholder="Warum diese Verbindung freigegeben wird"
                   className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700
                              bg-white dark:bg-neutral-800 px-3 py-2 text-sm
                              text-neutral-900 dark:text-neutral-100 focus:outline-none"
@@ -1082,7 +1095,7 @@ function LLMRoleCard({
                              text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
                              disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
                 >
-                  {isWaiving ? 'Speichere...' : 'Waiver speichern'}
+                  {isWaiving ? 'Speichere...' : 'Freigeben'}
                 </button>
               </div>
               {waiverDisabledReason && (

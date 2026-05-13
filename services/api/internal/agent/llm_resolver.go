@@ -66,13 +66,13 @@ func (r *LLMResolver) Resolve(ctx context.Context, userID, role string) (LLMConf
 		}
 	}
 	if system == nil || !system.Enabled {
-		return LLMConfig{}, fmt.Errorf("LLM role %q is not configured", role)
+		return LLMConfig{}, fmt.Errorf("KI-Rolle %q ist nicht aktiviert. Bitte in den KI-Einstellungen eine Verbindung speichern", role)
 	}
 	if !system.EvalGatePassed() {
-		return LLMConfig{}, fmt.Errorf("LLM role %q has not passed eval gates", role)
+		return LLMConfig{}, fmt.Errorf("KI-Rolle %q ist noch nicht freigegeben. Bitte in den KI-Einstellungen die Verbindung speichern oder freigeben", role)
 	}
 	if system.APIBase == nil || strings.TrimSpace(*system.APIBase) == "" || system.ModelName == nil || strings.TrimSpace(*system.ModelName) == "" {
-		return LLMConfig{}, fmt.Errorf("LLM role %q configuration is incomplete", role)
+		return LLMConfig{}, fmt.Errorf("KI-Rolle %q ist unvollständig. Bitte API-Basis-URL und Modell in den KI-Einstellungen speichern", role)
 	}
 	baseURL, err := model.NormalizeLLMAPIBase(system.BackendType, *system.APIBase)
 	if err != nil {
@@ -107,7 +107,7 @@ func (r *LLMResolver) Resolve(ctx context.Context, userID, role string) (LLMConf
 		if cfg.Role == role && cfg.ModelName != nil && strings.TrimSpace(*cfg.ModelName) != "" {
 			overrideModel := strings.TrimSpace(*cfg.ModelName)
 			if !system.AllowsModelOverride(overrideModel) {
-				return LLMConfig{}, fmt.Errorf("LLM role %q model override %q has not passed eval gates", role, overrideModel)
+				return LLMConfig{}, fmt.Errorf("Modell-Override %q für KI-Rolle %q ist nicht freigegeben", overrideModel, role)
 			}
 			resolved.Model = overrideModel
 			break
