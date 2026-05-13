@@ -12,6 +12,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/routing"
 )
 
 // validBRouterProfiles is the allowlist of BRouter routing profiles.
@@ -65,6 +66,10 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 	if !validBRouterProfiles[req.Profile] {
 		req.Profile = "hiking-mountain"
 	}
+	if err := routing.ValidateBRouterProfileParams(req.Profile, req.ProfileParams); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
 	if req.Alternatives < 0 {
 		req.Alternatives = 0
 	}
@@ -100,9 +105,7 @@ func (h *Handler) RouteViabrouter(w http.ResponseWriter, r *http.Request) {
 
 	// profile:key=value Parameter für Fein-Tuning anhängen
 	for k, v := range req.ProfileParams {
-		if isValidProfileParam(k) && isValidProfileParam(v) {
-			queryURL.WriteString(fmt.Sprintf("&profile:%s=%s", k, v))
-		}
+		queryURL.WriteString(fmt.Sprintf("&profile:%s=%s", k, v))
 	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -400,21 +403,6 @@ func fillMissingElevFromDEM(coords []brouterCoord, profile []map[string]any, dem
 		return profile
 	}
 	return rebuilt
-}
-
-// isValidProfileParam validates BRouter profile parameter keys and values.
-// Only allows alphanumeric, underscore, dot, and hyphen characters.
-func isValidProfileParam(s string) bool {
-	if len(s) == 0 || len(s) > 50 {
-		return false
-	}
-	for _, c := range s {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-') {
-			return false
-		}
-	}
-	return true
 }
 
 // brouterBaseURL returns the configured BRouter base URL, defaulting to the

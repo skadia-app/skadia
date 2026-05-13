@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/automation"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/rules"
@@ -367,7 +368,7 @@ func (h *Handler) dryRunAllRules(w http.ResponseWriter, r *http.Request, userID 
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list rules", r.URL.Path)
 		return
 	}
-	actIDs, err := h.DB.ListActivityIDsForUser(r.Context(), userID)
+	actIDs, err := listActivityIDsForRuleDryRun(r.Context(), h.DB, userID)
 	if err != nil {
 		slog.Error("dry-run all rules: list activities", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
@@ -592,7 +593,7 @@ func (h *Handler) applySingleRuleDryRun(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
-	activityIDs, err := h.DB.ListActivityIDsForUser(r.Context(), userID)
+	activityIDs, err := listActivityIDsForRuleDryRun(r.Context(), h.DB, userID)
 	if err != nil {
 		slog.Error("apply single rule dry-run: list activities", "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to list activities", r.URL.Path)
@@ -672,6 +673,13 @@ func (h *Handler) applySingleRuleDryRun(w http.ResponseWriter, r *http.Request, 
 		"total_matches": totalMatches,
 		"truncated":     totalMatches > offset+limit,
 	})
+}
+
+func listActivityIDsForRuleDryRun(ctx context.Context, db *database.DB, userID string) ([]string, error) {
+	if db != nil && db.ReadonlyPool != nil {
+		return database.ListActivityIDsForRulePreview(ctx, db.ReadonlyPool, userID)
+	}
+	return db.ListActivityIDsForUser(ctx, userID)
 }
 
 func (h *Handler) applySingleRuleToAll(ctx context.Context, userID string, rule model.AutomationRule, jobID string) error {

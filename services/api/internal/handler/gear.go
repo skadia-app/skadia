@@ -1396,6 +1396,10 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 		fileType = "media"
 	}
 	var storedFileID string
+	var storedFileType string
+	var storedStorageBackend string
+	var storedStoragePath string
+	var storedSizeBytes int64
 	if h.ShadowFS != nil {
 		rec, putErr := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
 			UserID:      userID,
@@ -1416,6 +1420,10 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		storedFileID = rec.ID
+		storedFileType = rec.FileType
+		storedStorageBackend = rec.StorageBackend
+		storedStoragePath = rec.StoragePath
+		storedSizeBytes = rec.SizeBytes
 	}
 
 	doc := cfg.buildDoc(userID, docType, titlePtr, header.Filename, contentType, int64(len(data)), hashStr)
@@ -1476,14 +1484,18 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 	// NATS event (graceful - no error if NATS unavailable)
 	if cfg.publishEvent && h.DocumentUploadedPublisher != nil {
 		evt := event.DocumentUploadedEvent{
-			DocID:         result.ID,
-			GearID:        result.GearID,
-			ComponentID:   result.ComponentID,
-			UserID:        userID,
-			ContentType:   result.ContentType,
-			IsTextPDF:     isTextPDF,
-			ExtractedText: extractedText,
-			FileID:        storedFileID,
+			DocID:          result.ID,
+			GearID:         result.GearID,
+			ComponentID:    result.ComponentID,
+			UserID:         userID,
+			ContentType:    result.ContentType,
+			IsTextPDF:      isTextPDF,
+			ExtractedText:  extractedText,
+			FileID:         storedFileID,
+			FileType:       storedFileType,
+			StorageBackend: storedStorageBackend,
+			StoragePath:    storedStoragePath,
+			SizeBytes:      storedSizeBytes,
 		}
 		if err := h.DocumentUploadedPublisher.PublishDocumentUploaded(evt); err != nil {
 			slog.Warn("failed to publish document uploaded event", "error", err)

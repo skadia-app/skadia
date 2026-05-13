@@ -13,7 +13,7 @@ from nats.js.api import ConsumerConfig, DeliverPolicy, AckPolicy
 
 from db import get_pool
 from progress import publish_progress
-from enrichment.document_vlm import convert_to_markdown, process_document, upload_to_s3
+from enrichment.document_vlm import RetryableDocumentError, convert_to_markdown, process_document
 from analytics import (
     cluster_activities,
     compute_readiness,
@@ -27,6 +27,9 @@ MAX_CONCURRENT_PER_USER = 2
 MAX_CONCURRENT_ANALYTICS_PER_USER = 1
 MAX_GLOBAL_CONCURRENT = 5
 MAX_CONCURRENT_PHOTO_EMBED = 2
+DOCUMENT_ACK_WAIT_SECONDS = int(os.getenv("ML_DOCUMENT_ACK_WAIT_SECONDS", "900"))
+DOCUMENT_PROCESS_TIMEOUT_SECONDS = float(os.getenv("ML_DOCUMENT_PROCESS_TIMEOUT_SECONDS", "840"))
+DOCUMENT_IN_PROGRESS_INTERVAL_SECONDS = float(os.getenv("ML_DOCUMENT_IN_PROGRESS_INTERVAL_SECONDS", "60"))
 
 # Global semaphore to prevent resource exhaustion under burst load
 _global_semaphore = asyncio.Semaphore(MAX_GLOBAL_CONCURRENT)
@@ -148,6 +151,98 @@ def get_metrics() -> dict:
     return dict(_metrics)
 
 
+def _valid_uuid(value: object) -> str | None:
+    try:
+        parsed = uuid.UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return str(parsed)
+
+
+async def _load_document_file_metadata(pool, file_id: str, user_id: str, doc_id: str) -> dict | None:
+    """Load current user_files storage metadata for a document-processing event."""
+    if not file_id or not user_id:
+        return None
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT uf.storage_backend, uf.storage_path, uf.file_type, uf.content_type, uf.size_bytes
+            FROM user_files uf
+            JOIN gear_documents gd
+              ON gd.file_id = uf.id
+             AND gd.user_id = uf.user_id
+             AND gd.id = $3
+            WHERE uf.id = $1 AND uf.user_id = $2 AND uf.status = 'active'
+            """,
+            file_id,
+            user_id,
+            doc_id,
+        )
+    if not row:
+        return None
+    return dict(row)
+
+
+async def _update_document_processing_status(
+    pool,
+    status: str,
+    doc_id: str,
+    user_id: str,
+    file_id: str | None = None,
+) -> None:
+    async with pool.acquire() as conn:
+        if file_id:
+            await conn.execute(
+                """
+                UPDATE gear_documents
+                SET processing_status = $1
+                WHERE id = $2 AND user_id = $3 AND file_id = $4
+                """,
+                status,
+                doc_id,
+                user_id,
+                file_id,
+            )
+        else:
+            await conn.execute(
+                """
+                UPDATE gear_documents
+                SET processing_status = $1
+                WHERE id = $2 AND user_id = $3
+                """,
+                status,
+                doc_id,
+                user_id,
+            )
+
+
+async def _run_with_in_progress_heartbeat(msg, awaitable, timeout_seconds: float):
+    heartbeat = getattr(msg, "in_progress", None)
+    if heartbeat is None:
+        return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+
+    done = asyncio.Event()
+
+    async def _heartbeat_loop() -> None:
+        while not done.is_set():
+            try:
+                await asyncio.wait_for(done.wait(), timeout=DOCUMENT_IN_PROGRESS_INTERVAL_SECONDS)
+            except asyncio.TimeoutError:
+                try:
+                    await heartbeat()
+                except Exception as e:
+                    logger.warning("document in-progress heartbeat failed: %s", e)
+
+    task = asyncio.create_task(_heartbeat_loop())
+    try:
+        return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+    finally:
+        done.set()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
 @contextlib.contextmanager
 def _track_active():
     """Increment active_tasks on entry and decrement on exit (always)."""
@@ -159,7 +254,7 @@ def _track_active():
 
 
 def _should_give_up(msg) -> bool:
-    """Return True when the message has been delivered MAX_RETRIES or more times."""
+    """Return True on the JetStream delivery that reaches the configured max."""
     num_delivered = getattr(getattr(msg, "metadata", None), "num_delivered", None)
     retry_count = num_delivered if num_delivered is not None else (MAX_RETRIES + 1)
     return retry_count >= MAX_RETRIES
@@ -289,43 +384,74 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
 
     doc_id = data.get("doc_id", "")
     user_id = data.get("user_id", "")
-    if not doc_id or not user_id:
-        logger.error("Missing doc_id or user_id in document message")
+    file_id = data.get("file_id", "")
+
+    valid_doc_id = _valid_uuid(doc_id)
+    valid_user_id = _valid_uuid(user_id)
+    valid_file_id = _valid_uuid(file_id)
+    if not valid_doc_id or not valid_user_id:
+        logger.error("Malformed document message IDs: doc_id=%s user_id=%s", doc_id, user_id)
         await msg.ack()
         return
+    if not valid_file_id:
+        logger.warning(
+            "Ignoring legacy or malformed document message without valid file_id: doc_id=%s user_id=%s",
+            valid_doc_id,
+            valid_user_id,
+        )
+        try:
+            pool = await get_pool()
+            await _update_document_processing_status(pool, "failed", valid_doc_id, valid_user_id)
+        except Exception as e:
+            logger.warning("failed to mark legacy document message as failed for %s: %s", valid_doc_id, e)
+        await msg.ack()
+        return
+
+    doc_id = valid_doc_id
+    user_id = valid_user_id
+    file_id = valid_file_id
 
     sem = _user_semaphores[user_id]
     async with sem:
         with _track_active():
             try:
                 pool = await get_pool()
-                success = await process_document(
-                    pool=pool,
-                    doc_id=doc_id,
-                    gear_id=data.get("gear_id"),
-                    component_id=data.get("component_id"),
-                    user_id=user_id,
-                    is_text_pdf=data.get("is_text_pdf", False),
-                    extracted_text=data.get("extracted_text"),
-                    s3_bucket=data.get("s3_bucket", ""),
-                    s3_key=data.get("s3_key", ""),
+                storage_metadata = await _load_document_file_metadata(pool, file_id, user_id, doc_id)
+                if storage_metadata is None:
+                    logger.error("document message missing active user_files metadata for %s", doc_id)
+                    await _update_document_processing_status(pool, "failed", doc_id, user_id, file_id)
+                    await msg.ack()
+                    return
+                success = await _run_with_in_progress_heartbeat(
+                    msg,
+                    process_document(
+                        pool=pool,
+                        doc_id=doc_id,
+                        gear_id=data.get("gear_id"),
+                        component_id=data.get("component_id"),
+                        user_id=user_id,
+                        is_text_pdf=data.get("is_text_pdf", False),
+                        extracted_text=data.get("extracted_text"),
+                        file_id=file_id,
+                        storage_backend=storage_metadata["storage_backend"],
+                        storage_path=storage_metadata["storage_path"],
+                        file_type=storage_metadata["file_type"],
+                        content_type=storage_metadata["content_type"],
+                        size_bytes=storage_metadata.get("size_bytes"),
+                    ),
+                    DOCUMENT_PROCESS_TIMEOUT_SECONDS,
                 )
-                await msg.ack()
-                _metrics["processed_total"] += 1
                 logger.info("document processed: %s (success=%s)", doc_id, success)
 
-                try:
-                    pool = await get_pool()
-                    async with pool.acquire() as conn:
-                        await conn.execute(
-                            "UPDATE gear_documents SET processing_status = $1 WHERE id = $2",
-                            "processed" if success else "failed",
-                            doc_id,
-                        )
-                except Exception as e:
-                    logger.warning("failed to update document processing status for %s: %s", doc_id, e)
+                await _update_document_processing_status(
+                    pool,
+                    "processed" if success else "failed",
+                    doc_id,
+                    user_id,
+                    file_id,
+                )
 
-                # PDF→Markdown Konvertierung (best-effort)
+                # Markdown conversion is optional; the DB column is the only tracked output.
                 if success:
                     extracted_text = data.get("extracted_text", "") or ""
                     if not extracted_text:
@@ -334,8 +460,10 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                             async with pool.acquire() as conn:
                                 extracted_text = (
                                     await conn.fetchval(
-                                        "SELECT extracted_text FROM gear_documents WHERE id = $1",
+                                        "SELECT extracted_text FROM gear_documents WHERE id = $1 AND user_id = $2 AND file_id = $3",
                                         doc_id,
+                                        user_id,
+                                        file_id,
                                     )
                                     or ""
                                 )
@@ -349,30 +477,16 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                                 pool = await get_pool()
                                 async with pool.acquire() as conn:
                                     await conn.execute(
-                                        "UPDATE gear_documents SET extracted_markdown = $1 WHERE id = $2",
+                                        "UPDATE gear_documents SET extracted_markdown = $1 WHERE id = $2 AND user_id = $3 AND file_id = $4",
                                         markdown,
                                         doc_id,
+                                        user_id,
+                                        file_id,
                                     )
                                 logger.info("stored extracted_markdown for document %s", doc_id)
-
-                                s3_key = data.get("s3_key", "")
-                                s3_bucket = data.get("s3_bucket", "skadia-media")
-                                if s3_key:
-                                    md_key = s3_key.rsplit(".", 1)[0] + ".md"
-                                    try:
-                                        await upload_to_s3(
-                                            s3_bucket,
-                                            md_key,
-                                            markdown.encode("utf-8"),
-                                            "text/markdown",
-                                        )
-                                        logger.info("uploaded markdown sidecar: %s", md_key)
-                                    except Exception as e:
-                                        logger.warning("failed to upload markdown sidecar %s: %s", md_key, e)
                         except Exception as e:
                             logger.warning("markdown conversion failed for document %s: %s", doc_id, e)
 
-                # Publish document.processed event
                 try:
                     await nc.publish(
                         "skadia.document.processed",
@@ -380,24 +494,38 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                             "doc_id": doc_id,
                             "user_id": user_id,
                             "gear_id": data.get("gear_id"),
+                            "file_id": file_id,
                             "success": success,
                         }).encode(),
                     )
                 except Exception as e:
-                    logger.warning("failed to publish document.processed: %s", e)
+                    logger.warning("failed to publish processed event for document %s: %s", doc_id, e)
+
+                await msg.ack()
+                _metrics["processed_total"] += 1
             except Exception as e:
                 logger.error("document processing failed for %s: %s", doc_id, e)
                 _metrics["errors_total"] += 1
 
-                if _should_give_up(msg):
-                    logger.error(
-                        "Max retries (%d) reached for document %s, giving up",
-                        MAX_RETRIES,
-                        doc_id,
-                    )
-                    await msg.ack()
-                else:
+                give_up = _should_give_up(msg)
+                if not give_up:
+                    if isinstance(e, RetryableDocumentError):
+                        logger.info("document processing will be retried for %s", doc_id)
                     await msg.nak(delay=30)
+                    return
+
+                try:
+                    pool = await get_pool()
+                    await _update_document_processing_status(pool, "failed", doc_id, user_id, file_id)
+                except Exception as status_err:
+                    logger.warning("failed to mark document %s as failed: %s", doc_id, status_err)
+
+                logger.error(
+                    "Max retries (%d) reached for document %s, giving up",
+                    MAX_RETRIES,
+                    doc_id,
+                )
+                await msg.ack()
 
 
 class _JetStreamAnalyticsPublisher:
@@ -857,7 +985,7 @@ async def start_consumers(nc: nats.NATS) -> list[asyncio.Task]:
             config=ConsumerConfig(
                 deliver_policy=DeliverPolicy.ALL,
                 ack_policy=AckPolicy.EXPLICIT,
-                max_deliver=MAX_RETRIES + 1,
+                max_deliver=MAX_RETRIES,
             ),
         )
         handler = lambda msg, s=steps: _process_message(msg, s, nc)
@@ -872,8 +1000,8 @@ async def start_consumers(nc: nats.NATS) -> list[asyncio.Task]:
         config=ConsumerConfig(
             deliver_policy=DeliverPolicy.ALL,
             ack_policy=AckPolicy.EXPLICIT,
-            max_deliver=MAX_RETRIES + 1,
-            ack_wait=120,
+            max_deliver=MAX_RETRIES,
+            ack_wait=DOCUMENT_ACK_WAIT_SECONDS,
         ),
     )
     tasks.append(asyncio.create_task(
@@ -889,7 +1017,7 @@ async def start_consumers(nc: nats.NATS) -> list[asyncio.Task]:
         config=ConsumerConfig(
             deliver_policy=DeliverPolicy.ALL,
             ack_policy=AckPolicy.EXPLICIT,
-            max_deliver=MAX_RETRIES + 1,
+            max_deliver=MAX_RETRIES,
             ack_wait=300,
         ),
     )
@@ -923,7 +1051,7 @@ async def start_consumers(nc: nats.NATS) -> list[asyncio.Task]:
         config=ConsumerConfig(
             deliver_policy=DeliverPolicy.ALL,
             ack_policy=AckPolicy.EXPLICIT,
-            max_deliver=MAX_RETRIES + 1,
+            max_deliver=MAX_RETRIES,
             ack_wait=120,
         ),
     )

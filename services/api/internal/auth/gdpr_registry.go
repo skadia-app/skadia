@@ -37,6 +37,7 @@ var GDPRRegistry = map[string]TableCategory{
 	"chain_rotation_members":      Export,
 	"chat_messages":               Export,
 	"chat_sessions":               Export,
+	"chat_user_preferences":       Export,
 	"component_assignments":       Export,
 	"custom_map_markers":          Export,
 	"custom_maps":                 Export,
@@ -141,6 +142,7 @@ var GDPRRegistry = map[string]TableCategory{
 	// -------------------------------------------------------------------------
 	// System — security/transient; not exported
 	// -------------------------------------------------------------------------
+	"agent_audit_log":            System, // user_id SET NULL by design; args scrubbed on user deletion
 	"auth_audit_log":             System, // user_id SET NULL by design
 	"auth_codes":                 System,
 	"background_jobs":            System,
@@ -196,6 +198,7 @@ var ExportedTables = []string{
 	"devices",
 	"chat_sessions",
 	"chat_messages",
+	"chat_user_preferences",
 	"route_photos",
 	"gear_documents",
 	"activity_tags",

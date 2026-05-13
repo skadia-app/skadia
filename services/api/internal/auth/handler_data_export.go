@@ -661,6 +661,7 @@ func gdprExportTables() []gdprExportTableSpec {
 		{"data/devices.json", "devices", "user_id = $1"},
 		{"data/chat_sessions.json", "chat_sessions", "user_id = $1"},
 		{"data/chat_messages.json", "chat_messages", "session_id IN (SELECT id FROM chat_sessions WHERE user_id = $1) ORDER BY created_at"},
+		{"data/chat_user_preferences.json", "chat_user_preferences", "user_id = $1"},
 		{"data/route_photos.json", "route_photos", "user_id = $1"},
 		{"data/gear_documents.json", "gear_documents", "user_id = $1"},
 		{"data/activity_tags.json", "activity_tags", "activity_id IN (SELECT id FROM activities WHERE user_id = $1)"},

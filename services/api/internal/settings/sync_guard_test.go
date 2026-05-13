@@ -121,6 +121,7 @@ func TestEnvVarSync_SecretsInSetupScript(t *testing.T) {
 		"GARAGE_ACCESS_KEY":    true,
 		"GARAGE_SECRET_KEY":    true,
 		"SMTP_PASSWORD":        true,
+		"LLM_API_KEY":          true,
 		// Falls back to OAUTH_ENCRYPTION_KEY at runtime — not auto-generated.
 		"SETTINGS_ENCRYPTION_KEY": true,
 		// Has a dev default in .env.example — user must change for production.

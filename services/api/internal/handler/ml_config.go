@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -116,6 +117,13 @@ func (h *Handler) GetMLUserSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, result)
+}
+
+// GetChatProfileDefaults returns the backend chat profile defaults used by the Go agent.
+//
+// GET /api/v1/settings/ml/chat-profile-defaults
+func (h *Handler) GetChatProfileDefaults(w http.ResponseWriter, r *http.Request) {
+	httputil.WriteJSON(w, http.StatusOK, agent.ChatProfileDefaults("small"))
 }
 
 // validMLUserSettingKeys is the allowlist of accepted user-level ML setting keys.

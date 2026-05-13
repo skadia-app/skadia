@@ -4,14 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/singleflight"
 )
 
 type DB struct {
 	Pool          *pgxpool.Pool
+	ReadonlyPool  *pgxpool.Pool
 	terraInflight singleflight.Group // deduplicates concurrent terra incognita computations per user
 	// syncMetrics holds Prometheus instruments for WithSystemModifierTagSyncSuspended.
 	// Nil means "use the package default". Tests inject an isolated registry.
@@ -41,11 +44,54 @@ func New(ctx context.Context, databaseURL string) (*DB, error) {
 }
 
 func (db *DB) Close() {
-	db.Pool.Close()
+	if db.ReadonlyPool != nil {
+		db.ReadonlyPool.Close()
+	}
+	if db.Pool != nil {
+		db.Pool.Close()
+	}
 }
 
 func (db *DB) Ping(ctx context.Context) error {
 	return db.Pool.Ping(ctx)
+}
+
+func (db *DB) OpenReadonly(ctx context.Context, databaseURL string) error {
+	if strings.TrimSpace(databaseURL) == "" {
+		return fmt.Errorf("readonly database url is required")
+	}
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return fmt.Errorf("parse readonly database config: %w", err)
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		return fmt.Errorf("connect to readonly database: %w", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return fmt.Errorf("ping readonly database: %w", err)
+	}
+	db.ReadonlyPool = pool
+	return nil
+}
+
+func (db *DB) WithUserTx(ctx context.Context, userID string, fn func(pgx.Tx) error) error {
+	if strings.TrimSpace(userID) == "" {
+		return fmt.Errorf("RLS context not initialized: userID is required")
+	}
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, "SELECT set_config('app.current_user_id', $1, true)", userID); err != nil {
+		return fmt.Errorf("set local rls context: %w", err)
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // Helper functions

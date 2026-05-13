@@ -361,7 +361,15 @@ func (e *Engine) cleanupImportedFiles(ctx context.Context, userID string, result
 }
 
 func refreshImportedTagAutomationState(ctx context.Context, pool *pgxpool.Pool, userID string) error {
-	_, err := pool.Exec(ctx, `
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("refresh tag automation state begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := setImportUserRLS(ctx, tx, userID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
 		UPDATE tags t SET has_automation = EXISTS (
 			SELECT 1 FROM automation_rules ar
 			WHERE ar.user_id = t.user_id AND ar.is_active = true
@@ -369,6 +377,9 @@ func refreshImportedTagAutomationState(ctx context.Context, pool *pgxpool.Pool, 
 		) WHERE t.user_id = $1`, userID)
 	if err != nil {
 		return fmt.Errorf("refresh tag automation state: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("refresh tag automation state commit: %w", err)
 	}
 	return nil
 }

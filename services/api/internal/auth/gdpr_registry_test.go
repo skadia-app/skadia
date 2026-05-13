@@ -550,6 +550,9 @@ func TestDeleteCoversAllUserTables(t *testing.T) {
 		// auth_audit_log: user_id is SET NULL on user deletion by design (audit trail preserved).
 		// The FK ON DELETE SET NULL handles the purge-link; no explicit row deletion needed.
 		"auth_audit_log": true,
+		// agent_audit_log: preserved as system audit trail, but user_id and sensitive payloads
+		// are explicitly anonymized in DeleteUserData before deleting users.
+		"agent_audit_log": true,
 		// reverse_geocode_cache: System-wide grid-level cache (no user_id, no user FK).
 		// Migration 000300 rationale: PK is (lat*1000, lng*1000, provider) = ~100m-grid,
 		// shared across users, 30d TTL. Deleting on user-delete would harm other users.

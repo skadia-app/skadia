@@ -12,15 +12,16 @@ import (
 )
 
 type Config struct {
-	DatabaseURL     string
-	NatsURL         string
-	GarageEndpoint  string
-	GarageAccessKey string
-	GarageSecretKey string
-	GarageBucket    string
-	ListenAddr      string
-	DevAuth         bool
-	FrontendURL     string // e.g. "http://localhost:5173"
+	DatabaseURL         string
+	ReadonlyDatabaseURL string
+	NatsURL             string
+	GarageEndpoint      string
+	GarageAccessKey     string
+	GarageSecretKey     string
+	GarageBucket        string
+	ListenAddr          string
+	DevAuth             bool
+	FrontendURL         string // e.g. "http://localhost:5173"
 
 	// JWT (HS256) issued by this backend after OIDC login
 	JWTSecret      string
@@ -73,6 +74,10 @@ type Config struct {
 	LiteLLMConfigPath  string // writable path to litellm config.yaml
 	LiteLLMInternalURL string // e.g. http://litellm:4000
 	LLMEncryptionKey   string // 32-byte hex for AES-256-GCM API key encryption
+	LLMBaseURL         string // OpenAI-compatible chat endpoint base URL
+	LLMAPIKey          string // fallback API key when no DB-backed key is configured
+	LLMModel           string // fallback chat model
+	LLMContextWindow   int    // fallback context window for chat assembly
 
 	// Komoot
 	KomootEncryptionKey string // 32-byte hex for AES-256-GCM password encryption
@@ -129,16 +134,17 @@ type Config struct {
 
 func Load() (*Config, error) {
 	cfg := &Config{
-		DatabaseURL:     os.Getenv("DATABASE_URL"),
-		NatsURL:         getEnvDefault("NATS_URL", "nats://localhost:4222"),
-		GarageEndpoint:  getEnvDefault("GARAGE_ENDPOINT", "http://localhost:3900"),
-		GarageAccessKey: os.Getenv("GARAGE_ACCESS_KEY"),
-		GarageSecretKey: os.Getenv("GARAGE_SECRET_KEY"),
-		GarageBucket:    getEnvDefault("GARAGE_BUCKET", "skadia-originals"),
-		ListenAddr:      getEnvDefault("LISTEN_ADDR", ":8080"),
-		DevAuth:         os.Getenv("DEV_AUTH") == "true",
-		FrontendURL:     getEnvDefault("FRONTEND_URL", "http://localhost:5173"),
-		JWTSecret:       getSecret("JWT_SECRET", ""),
+		DatabaseURL:         os.Getenv("DATABASE_URL"),
+		ReadonlyDatabaseURL: os.Getenv("READONLY_DATABASE_URL"),
+		NatsURL:             getEnvDefault("NATS_URL", "nats://localhost:4222"),
+		GarageEndpoint:      getEnvDefault("GARAGE_ENDPOINT", "http://localhost:3900"),
+		GarageAccessKey:     os.Getenv("GARAGE_ACCESS_KEY"),
+		GarageSecretKey:     os.Getenv("GARAGE_SECRET_KEY"),
+		GarageBucket:        getEnvDefault("GARAGE_BUCKET", "skadia-originals"),
+		ListenAddr:          getEnvDefault("LISTEN_ADDR", ":8080"),
+		DevAuth:             os.Getenv("DEV_AUTH") == "true",
+		FrontendURL:         getEnvDefault("FRONTEND_URL", "http://localhost:5173"),
+		JWTSecret:           getSecret("JWT_SECRET", ""),
 
 		ShadowFSBasePath: os.Getenv("SHADOW_FS_BASE_PATH"),
 		HotfolderPath:    os.Getenv("HOTFOLDER_PATH"),
@@ -183,6 +189,10 @@ func Load() (*Config, error) {
 		LiteLLMConfigPath:  getEnvDefault("LITELLM_CONFIG_PATH", "/app/litellm/config.yaml"),
 		LiteLLMInternalURL: getEnvDefault("LITELLM_INTERNAL_URL", "http://litellm:4000"),
 		LLMEncryptionKey:   getSecret("LLM_ENCRYPTION_KEY", ""),
+		LLMBaseURL:         getEnvDefault("LLM_BASE_URL", "http://litellm:4000/v1"),
+		LLMAPIKey:          getSecret("LLM_API_KEY", ""),
+		LLMModel:           strings.TrimSpace(os.Getenv("LLM_MODEL")),
+		LLMContextWindow:   parseIntDefault(os.Getenv("LLM_CONTEXT_WINDOW"), 8000),
 
 		KomootEncryptionKey: getSecret("KOMOOT_ENCRYPTION_KEY", getSecret("LLM_ENCRYPTION_KEY", "")),
 
@@ -240,6 +250,9 @@ func Load() (*Config, error) {
 
 	if cfg.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
+	}
+	if cfg.ReadonlyDatabaseURL == "" {
+		slog.Warn("READONLY_DATABASE_URL not set — SQL agent will be unavailable until configured")
 	}
 
 	// M24: DEV_AUTH production guard — refuse to enable in non-localhost deployments.

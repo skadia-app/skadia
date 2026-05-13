@@ -1,13 +1,8 @@
 """LLM-gestützte Erklärungen für Analytics-Ergebnisse."""
 import logging
-import os
-
-import httpx
 
 logger = logging.getLogger(__name__)
 
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://litellm:4000/v1")
-LLM_MODEL = os.environ.get("LLM_MODEL", "skadia-default")
 LLM_TIMEOUT = 30.0  # Sekunden
 
 TEMPLATES: dict[str, str] = {
@@ -68,36 +63,6 @@ async def generate_explanation(insight_type: str, data: dict) -> str | None:
         )
         return None
 
-    try:
-        async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
-            response = await client.post(
-                f"{LLM_BASE_URL}/chat/completions",
-                json={
-                    "model": LLM_MODEL,
-                    "messages": [
-                        {"role": "system", "content": "/no_think"},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "max_tokens": 200,
-                    "temperature": 0.5,
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
-            text = (
-                payload.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-                .strip()
-            )
-            return text if text else None
-    except httpx.TimeoutException:
-        logger.warning(
-            "generate_explanation: LLM request timed out for %r", insight_type
-        )
-        return None
-    except Exception as e:
-        logger.warning(
-            "generate_explanation: LLM request failed for %r: %s", insight_type, e
-        )
-        return None
+    logger.info("generate_explanation: analysis LLM role is deferred in this branch")
+    _ = prompt
+    return None

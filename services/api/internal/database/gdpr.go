@@ -465,6 +465,35 @@ func (db *DB) DeleteUserData(ctx context.Context, userID string, storageCleanup 
 		return fmt.Errorf("GDPR: insert completed audit event: %w", err)
 	}
 
+	// agent_audit_log is preserved as a system audit trail, but write-tool args
+	// and result details can contain user data. Anonymize only this user's rows
+	// before deleting users so we do not rely on a broad post-FK SET NULL update.
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.current_user_id', $1, true)`, userID); err != nil {
+		recordPurgeFailure("phase2_agent_audit_rls_context", err.Error())
+		return fmt.Errorf("GDPR: set agent audit RLS context: %w", err)
+	}
+	var agentAuditRows int64
+	if err := tx.QueryRow(ctx,
+		`SELECT count(*) FROM agent_audit_log WHERE user_id = $1`, userID).Scan(&agentAuditRows); err != nil {
+		recordPurgeFailure("phase2_agent_audit_count", err.Error())
+		return fmt.Errorf("GDPR: count agent audit log rows: %w", err)
+	}
+	tag, err := tx.Exec(ctx,
+		`UPDATE agent_audit_log
+		 SET user_id = NULL,
+		     args = '{}'::jsonb,
+		     result_detail = NULL
+		 WHERE user_id = $1`, userID)
+	if err != nil {
+		recordPurgeFailure("phase2_agent_audit_anonymize", err.Error())
+		return fmt.Errorf("GDPR: anonymize agent audit log: %w", err)
+	}
+	if tag.RowsAffected() != agentAuditRows {
+		err := fmt.Errorf("expected to anonymize %d agent audit rows, updated %d", agentAuditRows, tag.RowsAffected())
+		recordPurgeFailure("phase2_agent_audit_anonymize_count", err.Error())
+		return fmt.Errorf("GDPR: anonymize agent audit log: %w", err)
+	}
+
 	// DELETE user — CASCADE handles all remaining dependent tables. The
 	// auth_audit_log row inserted above is preserved via ON DELETE SET NULL.
 	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {

@@ -15,6 +15,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/rules"
+	"github.com/jackc/pgx/v5"
 )
 
 // Phase 4b.A.2.1b — invariant gate against the commute_auto system_type.
@@ -358,15 +359,17 @@ func createCommuteRule(ctx context.Context, db *database.DB, userID string, star
 		return "", err
 	}
 	var ruleID string
-	err := db.Pool.QueryRow(ctx, `
-		INSERT INTO automation_rules
-			(user_id, name, is_system, system_type, is_active, priority,
-			 trigger_event, conditions, conditions_logic, actions, branches, condition_groups)
-		VALUES ($1, 'Pendeln', true, 'commute_auto', true, 0,
-			'on_enrichment_complete', '[]'::jsonb, 'and', '[]'::jsonb, $2::jsonb, '[]'::jsonb)
-		RETURNING id`,
-		userID, branches,
-	).Scan(&ruleID)
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			INSERT INTO automation_rules
+				(user_id, name, is_system, system_type, is_active, priority,
+				 trigger_event, conditions, conditions_logic, actions, branches, condition_groups)
+			VALUES ($1, 'Pendeln', true, 'commute_auto', true, 0,
+				'on_enrichment_complete', '[]'::jsonb, 'and', '[]'::jsonb, $2::jsonb, '[]'::jsonb)
+			RETURNING id`,
+			userID, branches,
+		).Scan(&ruleID)
+	})
 	return ruleID, err
 }
 
@@ -397,10 +400,12 @@ func extendCommuteRuleRaw(ctx context.Context, db *database.DB, rule *model.Auto
 	if err := validateCommuteRuleBranches(allJSON); err != nil {
 		return err
 	}
-	_, err = db.Pool.Exec(ctx,
-		`UPDATE automation_rules SET branches = $1::jsonb WHERE id = $2`,
-		allJSON, rule.ID)
-	return err
+	return db.WithUserTx(ctx, rule.UserID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`UPDATE automation_rules SET branches = $1::jsonb WHERE id = $2 AND user_id = $3`,
+			allJSON, rule.ID, rule.UserID)
+		return err
+	})
 }
 
 // createCommuteRuleRaw inserts a new commute_auto system rule with pre-built branches JSON.
@@ -412,15 +417,17 @@ func createCommuteRuleRaw(ctx context.Context, db *database.DB, userID string, b
 		return "", err
 	}
 	var ruleID string
-	err := db.Pool.QueryRow(ctx, `
-		INSERT INTO automation_rules
-			(user_id, name, is_system, system_type, is_active, priority,
-			 trigger_event, conditions, conditions_logic, actions, branches, condition_groups)
-		VALUES ($1, 'Pendeln', true, 'commute_auto', true, 0,
-			'on_enrichment_complete', '[]'::jsonb, 'and', '[]'::jsonb, $2::jsonb, '[]'::jsonb)
-		RETURNING id`,
-		userID, branches,
-	).Scan(&ruleID)
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			INSERT INTO automation_rules
+				(user_id, name, is_system, system_type, is_active, priority,
+				 trigger_event, conditions, conditions_logic, actions, branches, condition_groups)
+			VALUES ($1, 'Pendeln', true, 'commute_auto', true, 0,
+				'on_enrichment_complete', '[]'::jsonb, 'and', '[]'::jsonb, $2::jsonb, '[]'::jsonb)
+			RETURNING id`,
+			userID, branches,
+		).Scan(&ruleID)
+	})
 	return ruleID, err
 }
 
