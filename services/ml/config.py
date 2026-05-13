@@ -24,7 +24,7 @@ else:
 
 ML_LLM_BROKER_URL = os.getenv(
     "ML_LLM_BROKER_URL",
-    "http://api:8080/api/v1/internal/ai-broker",
+    "http://api:8080/internal/ai-broker",
 ).rstrip("/")
 ML_LLM_BROKER_TOKEN = os.getenv("ML_LLM_BROKER_TOKEN", os.getenv("ML_CALLBACK_SECRET", ""))
 ML_DOCUMENT_ROLE = os.getenv("ML_DOCUMENT_ROLE", "document_extract")

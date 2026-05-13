@@ -3,6 +3,8 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
+	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
@@ -54,6 +57,20 @@ var aiBrokerAllowedRoles = map[string]bool{
 	model.LLMRoleVision:          true,
 }
 
+var aiBrokerTaskTokenLimits = map[string]map[string]int{
+	model.LLMRoleDocumentExtract: {
+		"document_extract": 2048,
+	},
+	model.LLMRoleMarkdownExtract: {
+		"markdown_extract": 2048,
+	},
+	model.LLMRoleVision: {
+		"vision":        2048,
+		"invoice_page":  4096,
+		"invoice_parts": 2048,
+	},
+}
+
 // HandleAIBrokerChat is an internal ML-service endpoint. It accepts only the
 // requested Skadia role, task type, and message payload; provider URLs and
 // credentials stay inside the API service.
@@ -74,11 +91,12 @@ func (h *Handler) HandleAIBrokerChat(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Role = strings.TrimSpace(req.Role)
 	req.TaskType = strings.TrimSpace(req.TaskType)
-	if !aiBrokerAllowedRoles[req.Role] || req.TaskType == "" || len(req.Messages) == 0 {
+	maxTokens, validTask := aiBrokerMaxTokens(req.Role, req.TaskType)
+	if !validTask || len(req.Messages) == 0 {
 		httputil.WriteJSON(w, http.StatusBadRequest, aiBrokerChatResponse{
 			Status: "bad_request",
 			Role:   req.Role,
-			Error:  "invalid role, task_type, or messages",
+			Error:  "invalid role/task_type combination or messages",
 		})
 		return
 	}
@@ -106,7 +124,7 @@ func (h *Handler) HandleAIBrokerChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	text, err := h.forwardAIBrokerChat(r.Context(), cfg, req)
+	text, err := h.forwardAIBrokerChat(r.Context(), cfg, req, maxTokens)
 	if err != nil {
 		httputil.WriteJSON(w, http.StatusBadGateway, aiBrokerChatResponse{
 			Status: "unavailable",
@@ -160,7 +178,7 @@ func (h *Handler) authorizeAIBroker(w http.ResponseWriter, r *http.Request) bool
 	if got == "" {
 		got = r.Header.Get("X-ML-Callback-Secret")
 	}
-	if got != secret {
+	if !aiBrokerTokenMatches(got, secret) {
 		httputil.WriteJSON(w, http.StatusUnauthorized, map[string]string{
 			"status": "unauthorized",
 			"error":  "unauthorized",
@@ -168,6 +186,12 @@ func (h *Handler) authorizeAIBroker(w http.ResponseWriter, r *http.Request) bool
 		return false
 	}
 	return true
+}
+
+func aiBrokerTokenMatches(got, secret string) bool {
+	gotHash := sha256.Sum256([]byte(got))
+	secretHash := sha256.Sum256([]byte(secret))
+	return subtle.ConstantTimeCompare(gotHash[:], secretHash[:]) == 1
 }
 
 func aiBrokerStatusForResolveError(err error) string {
@@ -183,7 +207,7 @@ func aiBrokerStatusForResolveError(err error) string {
 	return "unavailable"
 }
 
-func (h *Handler) forwardAIBrokerChat(ctx context.Context, cfg agent.LLMConfig, req aiBrokerChatRequest) (string, error) {
+func (h *Handler) forwardAIBrokerChat(ctx context.Context, cfg agent.LLMConfig, req aiBrokerChatRequest, maxTokens int) (string, error) {
 	if strings.TrimSpace(cfg.BaseURL) == "" || strings.TrimSpace(cfg.Model) == "" {
 		return "", errors.New("resolved LLM config is incomplete")
 	}
@@ -192,7 +216,7 @@ func (h *Handler) forwardAIBrokerChat(ctx context.Context, cfg agent.LLMConfig, 
 		Messages:    req.Messages,
 		Stream:      false,
 		Temperature: floatPtr(0.1),
-		MaxTokens:   intPtr(aiBrokerMaxTokens(req.TaskType)),
+		MaxTokens:   intPtr(maxTokens),
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -206,7 +230,10 @@ func (h *Handler) forwardAIBrokerChat(ctx context.Context, cfg agent.LLMConfig, 
 	if cfg.APIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	}
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := h.AIBrokerHTTPClient
+	if client == nil {
+		client = llmwire.NewSSRFProtectedHTTPClient(120*time.Second, nil)
+	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return "", err
@@ -255,13 +282,13 @@ func (m providerChatMessage) text() (string, error) {
 	return string(m.Content), nil
 }
 
-func aiBrokerMaxTokens(taskType string) int {
-	switch taskType {
-	case "markdown_extract":
-		return 2048
-	default:
-		return 1024
+func aiBrokerMaxTokens(role, taskType string) (int, bool) {
+	tasks, ok := aiBrokerTaskTokenLimits[role]
+	if !ok {
+		return 0, false
 	}
+	maxTokens, ok := tasks[taskType]
+	return maxTokens, ok
 }
 
 func floatPtr(v float64) *float64 {

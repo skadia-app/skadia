@@ -52,7 +52,7 @@ func TestMigration_LLMRoleCapabilities_ColumnsAndRoles(t *testing.T) {
 		FROM llm_system_config
 		WHERE role = ANY($1)
 		ORDER BY role
-	`, []string{"tool_agent", "sql_readonly", "write_preview", "document_extract", "markdown_extract", "vision"})
+	`, []string{"tool_agent", "document_extract", "markdown_extract", "vision"})
 	if err != nil {
 		t.Fatalf("query roles: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestMigration_LLMRoleCapabilities_ColumnsAndRoles(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("roles rows: %v", err)
 	}
-	wantRoles := []string{"document_extract", "markdown_extract", "sql_readonly", "tool_agent", "vision", "write_preview"}
+	wantRoles := []string{"document_extract", "markdown_extract", "tool_agent", "vision"}
 	if !slices.Equal(got, wantRoles) {
 		t.Fatalf("roles = %#v, want %#v", got, wantRoles)
 	}
@@ -85,7 +85,7 @@ func TestMigration_LLMRoleCapabilities_ColumnsAndRoles(t *testing.T) {
 	}
 }
 
-func TestMigration_LLMRoleCapabilities_LegacyBackfillAndSeedDisable(t *testing.T) {
+func TestMigration_LLMRoleCapabilities_LegacyDefaultBackfillAndSeedDisable(t *testing.T) {
 	pool := migrationTestPool(t)
 	ctx := context.Background()
 
@@ -119,15 +119,153 @@ func TestMigration_LLMRoleCapabilities_LegacyBackfillAndSeedDisable(t *testing.T
 	}
 
 	assertLLMRoleRow(t, ctx, tx, "tool_agent", "ollama", "http://custom.example", "operator-model", true)
-	assertLLMRoleRow(t, ctx, tx, "document_extract", "ollama", "http://ollama:11434", "custom-vlm", true)
-	assertLLMRoleRow(t, ctx, tx, "vision", "ollama", "http://ollama:11434", "custom-vlm", true)
+	assertLLMRoleRow(t, ctx, tx, "document_extract", "disabled", "", "", false)
+	assertLLMRoleRow(t, ctx, tx, "vision", "disabled", "", "", false)
 
 	var enabled bool
 	if err := tx.QueryRow(ctx, `SELECT enabled FROM llm_system_config WHERE role = 'vlm_fallback'`).Scan(&enabled); err != nil {
 		t.Fatalf("query vlm_fallback: %v", err)
 	}
-	if enabled {
-		t.Fatal("vlm_fallback old seed enabled = true, want disabled")
+	if !enabled {
+		t.Fatal("vlm_fallback was modified by 000367, want stale legacy VLM rows left untouched")
+	}
+}
+
+func TestMigration_LLMRoleCapabilities_DownRestoresDefaultSeedOnly(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	upSQL, err := os.ReadFile("000367_llm_role_capabilities.up.sql")
+	if err != nil {
+		t.Fatalf("read up migration: %v", err)
+	}
+	downSQL, err := os.ReadFile("000367_llm_role_capabilities.down.sql")
+	if err != nil {
+		t.Fatalf("read down migration: %v", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM llm_system_config`); err != nil {
+		t.Fatalf("clear table: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, api_key_enc, enabled)
+		VALUES
+			('default', 'ollama', 'http://ollama:11434', 'qwen3:8b', NULL, true),
+			('vlm', 'ollama', 'http://ollama:11434', 'qwen3-vl:8b', NULL, true),
+			('vlm_fallback', 'ollama', 'http://ollama:11434', 'qwen3-vl:4b', NULL, true)
+	`); err != nil {
+		t.Fatalf("insert legacy seed rows: %v", err)
+	}
+
+	if _, err := tx.Exec(ctx, string(upSQL)); err != nil {
+		t.Fatalf("apply up migration: %v", err)
+	}
+	if _, err := tx.Exec(ctx, string(downSQL)); err != nil {
+		t.Fatalf("apply down migration: %v", err)
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT role, enabled
+		FROM llm_system_config
+		WHERE role IN ('default', 'vlm', 'vlm_fallback')
+		ORDER BY role
+	`)
+	if err != nil {
+		t.Fatalf("query legacy seed roles: %v", err)
+	}
+	defer rows.Close()
+
+	got := map[string]bool{}
+	for rows.Next() {
+		var role string
+		var enabled bool
+		if err := rows.Scan(&role, &enabled); err != nil {
+			t.Fatalf("scan legacy seed role: %v", err)
+		}
+		got[role] = enabled
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("legacy seed role rows: %v", err)
+	}
+	for _, role := range []string{"default", "vlm", "vlm_fallback"} {
+		if role == "default" && !got[role] {
+			t.Fatalf("%s enabled after down = false, want true", role)
+		}
+		if role != "default" && got[role] != true {
+			t.Fatalf("%s was modified by 000367 down = false, want untouched true", role)
+		}
+	}
+}
+
+func TestMigration_LLMRoleCapabilities_DownKeepsOperatorModifiedRoleRows(t *testing.T) {
+	pool := migrationTestPool(t)
+	ctx := context.Background()
+
+	downSQL, err := os.ReadFile("000367_llm_role_capabilities.down.sql")
+	if err != nil {
+		t.Fatalf("read down migration: %v", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM llm_system_config`); err != nil {
+		t.Fatalf("clear table: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO llm_system_config (
+			role, backend_type, api_base, model_name, api_key_enc, enabled,
+			capability_flags, eval_status, eval_report
+		)
+		VALUES
+			('document_extract', 'openai', 'https://llm.example.invalid/v1', 'operator-doc', NULL, true,
+			 ARRAY['document_extract']::text[], 'passed', '{"operator_modified": true}'::jsonb),
+			('markdown_extract', 'disabled', NULL, NULL, NULL, false,
+			 ARRAY['operator_custom']::text[], 'untested', '{}'::jsonb),
+			('vision', 'disabled', NULL, NULL, NULL, false,
+			 ARRAY['vision']::text[], 'untested', '{}'::jsonb)
+	`); err != nil {
+		t.Fatalf("insert role rows: %v", err)
+	}
+
+	if _, err := tx.Exec(ctx, string(downSQL)); err != nil {
+		t.Fatalf("apply down migration: %v", err)
+	}
+
+	var backend, model string
+	if err := tx.QueryRow(ctx, `
+		SELECT backend_type, model_name
+		FROM llm_system_config
+		WHERE role = 'document_extract'
+	`).Scan(&backend, &model); err != nil {
+		t.Fatalf("operator-modified document_extract row was deleted: %v", err)
+	}
+	if backend != "openai" || model != "operator-doc" {
+		t.Fatalf("document_extract = backend=%q model=%q, want operator values", backend, model)
+	}
+	var modifiedSeedCount int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM llm_system_config WHERE role = 'markdown_extract'`).Scan(&modifiedSeedCount); err != nil {
+		t.Fatalf("query modified seed row count: %v", err)
+	}
+	if modifiedSeedCount != 1 {
+		t.Fatalf("operator-modified markdown_extract rows = %d, want 1", modifiedSeedCount)
+	}
+
+	var seedCount int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM llm_system_config WHERE role = 'vision'`).Scan(&seedCount); err != nil {
+		t.Fatalf("query seed row count: %v", err)
+	}
+	if seedCount != 0 {
+		t.Fatalf("pristine vision seed rows = %d, want 0", seedCount)
 	}
 }
 
@@ -147,7 +285,15 @@ func assertLLMRoleRow(t *testing.T, ctx context.Context, q llmRoleQuerier, role,
 	`, role).Scan(&gotBackend, &gotAPIBase, &gotModelName, &gotEnabled); err != nil {
 		t.Fatalf("query %s: %v", role, err)
 	}
-	if gotBackend != backend || gotAPIBase == nil || *gotAPIBase != apiBase || gotModelName == nil || *gotModelName != modelName || gotEnabled != enabled {
+	gotAPIBaseValue := ""
+	if gotAPIBase != nil {
+		gotAPIBaseValue = *gotAPIBase
+	}
+	gotModelNameValue := ""
+	if gotModelName != nil {
+		gotModelNameValue = *gotModelName
+	}
+	if gotBackend != backend || gotAPIBaseValue != apiBase || gotModelNameValue != modelName || gotEnabled != enabled {
 		t.Fatalf("%s = backend=%q api_base=%v model=%v enabled=%v, want backend=%q api_base=%q model=%q enabled=%v",
 			role, gotBackend, gotAPIBase, gotModelName, gotEnabled, backend, apiBase, modelName, enabled)
 	}

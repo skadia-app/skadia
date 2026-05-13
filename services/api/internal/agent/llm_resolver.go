@@ -65,13 +65,23 @@ func (r *LLMResolver) Resolve(ctx context.Context, userID, role string) (LLMConf
 	if system.APIBase == nil || strings.TrimSpace(*system.APIBase) == "" || system.ModelName == nil || strings.TrimSpace(*system.ModelName) == "" {
 		return LLMConfig{}, fmt.Errorf("LLM role %q configuration is incomplete", role)
 	}
+	baseURL, err := model.NormalizeLLMAPIBase(system.BackendType, *system.APIBase)
+	if err != nil {
+		return LLMConfig{}, fmt.Errorf("LLM role %q has invalid api_base: %w", role, err)
+	}
 
 	resolved := LLMConfig{
-		BaseURL: strings.TrimSpace(*system.APIBase),
-		APIKey:  r.cfg.APIKey,
+		BaseURL: baseURL,
 		Model:   strings.TrimSpace(*system.ModelName),
 	}
-	if enc, err := r.store.GetLLMAPIKeyEnc(ctx, role); err == nil && strings.TrimSpace(enc) != "" {
+	if system.HasAPIKey {
+		enc, err := r.store.GetLLMAPIKeyEnc(ctx, role)
+		if err != nil {
+			return LLMConfig{}, fmt.Errorf("get system llm api key: %w", err)
+		}
+		if strings.TrimSpace(enc) == "" {
+			return LLMConfig{}, fmt.Errorf("LLM role %q is marked with an API key but no key is available", role)
+		}
 		dec, err := crypto.Decrypt(enc, r.cfg.EncryptionKey)
 		if err != nil {
 			return LLMConfig{}, fmt.Errorf("decrypt system llm api key: %w", err)

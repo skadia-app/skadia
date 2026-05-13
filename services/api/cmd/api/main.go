@@ -714,9 +714,6 @@ func main() {
 
 	confirmMgr := agent.NewConfirmationManager(5 * time.Minute)
 	llmResolver := agent.NewLLMResolver(db, agent.LLMResolverConfig{
-		BaseURL:       cfg.LLMBaseURL,
-		APIKey:        cfg.LLMAPIKey,
-		Model:         cfg.LLMModel,
 		EncryptionKey: cfg.LLMEncryptionKey,
 	})
 	agentSkills, err := agent.LoadSkills("")
@@ -738,15 +735,16 @@ func main() {
 	toolRegistry := agenttools.NewRegistry()
 	agenttools.RegisterAll(toolRegistry)
 	toolDeps := &agenttools.Deps{
-		DB:          db,
-		Readonly:    db.ReadonlyPool,
-		MLBaseURL:   cfg.MLServiceURL,
-		BRouterURL:  cfg.BRouterURL,
-		LLM:         llmResolver,
-		SQLAgent:    agent.NewSQLAgent(db),
-		Audit:       agent.NewAuditWriter(db),
-		Confirm:     confirmMgr,
-		Preferences: agentPrefs,
+		DB:             db,
+		Readonly:       db.ReadonlyPool,
+		MLBaseURL:      cfg.MLServiceURL,
+		BRouterURL:     cfg.BRouterURL,
+		InternalSecret: mlCallbackSecret,
+		LLM:            llmResolver,
+		SQLAgent:       agent.NewSQLAgent(db),
+		Audit:          agent.NewAuditWriter(db),
+		Confirm:        confirmMgr,
+		Preferences:    agentPrefs,
 	}
 	toolEnvelope := agenttools.NewExecutionEnvelope(toolRegistry, toolDeps)
 	chatAgent := agent.New(agent.Config{
@@ -1172,8 +1170,18 @@ func main() {
 	r.Get("/internal/coverage/query", h.QueryCoverage)
 	// ML service callback: authenticated via X-ML-Callback-Secret header, not JWT.
 	r.Post("/api/v1/internal/ml-callback", h.HandleMLCallback)
-	r.Get("/api/v1/internal/ai-broker/roles", h.HandleAIBrokerRoleStatus)
-	r.Post("/api/v1/internal/ai-broker/chat", h.HandleAIBrokerChat)
+	aiBrokerRateLimit := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := middleware.ClientIP(r)
+			if !authRL.Allow("ai-broker:"+ip, 60.0/60, 30) {
+				http.Error(w, `{"error":"too_many_requests"}`, http.StatusTooManyRequests)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+	r.With(aiBrokerRateLimit).Get("/internal/ai-broker/roles", h.HandleAIBrokerRoleStatus)
+	r.With(aiBrokerRateLimit).Post("/internal/ai-broker/chat", h.HandleAIBrokerChat)
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
@@ -1641,6 +1649,7 @@ func main() {
 			r.Delete("/tag-zones/{tagId}", h.DeleteTagZone)
 
 			// ML User Settings (per-user preferences)
+			r.Get("/settings/ml/chat-profile-defaults", h.GetChatProfileDefaults)
 			r.Get("/settings/ml/user", h.GetMLUserSettings)
 			r.Put("/settings/ml/user/{key}", h.PutMLUserSetting)
 

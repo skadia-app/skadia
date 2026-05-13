@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -20,7 +21,7 @@ func TestPutLLMConfigRoleAcceptsExplicitRoleAndRejectsLegacyDefault(t *testing.T
 	h := newTestHandler(t, pool)
 	h.Config = &HandlerConfig{}
 
-	body := []byte(`{"backend_type":"llama_server","api_base":"http://llm.example/v1","model_name":"tool-model","enabled":true}`)
+	body := []byte(`{"backend_type":"llama_server","api_base":"http://llm.example/v1","model_name":"tool-model","api_key_state":"unchanged","enabled":true}`)
 	req := llmRoleRequest(t, http.MethodPut, "/admin/llm-config/tool_agent", "tool_agent", body)
 	rec := httptest.NewRecorder()
 	h.PutLLMConfigRole(rec, req)
@@ -36,6 +37,134 @@ func TestPutLLMConfigRoleAcceptsExplicitRoleAndRejectsLegacyDefault(t *testing.T
 	}
 }
 
+func TestPutLLMConfigRoleRejectsUnsupportedBackendType(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{}
+
+	body := []byte(`{"backend_type":"anthropic","api_base":"https://api.anthropic.com/v1","model_name":"claude","api_key_state":"unchanged","enabled":true}`)
+	req := llmRoleRequest(t, http.MethodPut, "/admin/llm-config/tool_agent", "tool_agent", body)
+	rec := httptest.NewRecorder()
+	h.PutLLMConfigRole(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want 400 for unsupported direct backend", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutLLMConfigRoleNormalizesOllamaExecutionBaseBeforeStorage(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{}
+	if _, err := pool.Exec(context.Background(), `UPDATE llm_system_config SET api_key_enc = NULL WHERE role = 'tool_agent'`); err != nil {
+		t.Fatalf("clear previous key state: %v", err)
+	}
+
+	body := []byte(`{"backend_type":"ollama","api_base":"http://ollama:11434","model_name":"qwen3:8b","api_key_state":"unchanged","enabled":true}`)
+	req := llmRoleRequest(t, http.MethodPut, "/admin/llm-config/tool_agent", "tool_agent", body)
+	rec := httptest.NewRecorder()
+	h.PutLLMConfigRole(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+
+	var apiBase string
+	if err := pool.QueryRow(context.Background(), `SELECT api_base FROM llm_system_config WHERE role = 'tool_agent'`).Scan(&apiBase); err != nil {
+		t.Fatalf("query api_base: %v", err)
+	}
+	if apiBase != "http://ollama:11434/v1" {
+		t.Fatalf("stored api_base = %q, want OpenAI-compatible Ollama execution base", apiBase)
+	}
+}
+
+func TestPutLLMConfigRoleRejectsImplicitKeyCarryAcrossProviderBaseChange(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{}
+
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, api_key_enc, enabled)
+		VALUES ('tool_agent', 'openai', 'https://api.openai.com/v1', 'old-model', 'encrypted-key', true)
+		ON CONFLICT (role) DO UPDATE SET
+			backend_type = EXCLUDED.backend_type,
+			api_base = EXCLUDED.api_base,
+			model_name = EXCLUDED.model_name,
+			api_key_enc = EXCLUDED.api_key_enc,
+			enabled = EXCLUDED.enabled
+	`); err != nil {
+		t.Fatalf("seed system config: %v", err)
+	}
+
+	body := []byte(`{"backend_type":"llama_server","api_base":"https://llm.example/v1","model_name":"new-model","api_key_state":"unchanged","enabled":true}`)
+	req := llmRoleRequest(t, http.MethodPut, "/admin/llm-config/tool_agent", "tool_agent", body)
+	rec := httptest.NewRecorder()
+	h.PutLLMConfigRole(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want 400 for implicit key carry", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutLLMConfigRoleRejectsClearWithAPIKey(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{}
+
+	body := []byte(`{"backend_type":"llama_server","api_base":"https://llm.example/v1","model_name":"tool-model","api_key_state":"clear","api_key":"new-key","enabled":true}`)
+	req := llmRoleRequest(t, http.MethodPut, "/admin/llm-config/tool_agent", "tool_agent", body)
+	rec := httptest.NewRecorder()
+	h.PutLLMConfigRole(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want 400 for clear plus api_key", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutLLMConfigRoleRejectsDisabledRoleWithAPIKey(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{}
+
+	body := []byte(`{"backend_type":"disabled","api_key_state":"set","api_key":"hidden-key","enabled":false}`)
+	req := llmRoleRequest(t, http.MethodPut, "/admin/llm-config/tool_agent", "tool_agent", body)
+	rec := httptest.NewRecorder()
+	h.PutLLMConfigRole(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want 400 for disabled role with api_key", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutLLMConfigRoleRejectsRecursiveLiteLLMAPIBase(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{}
+
+	body := []byte(`{"backend_type":"openai","api_base":"http://litellm:4000/v1","model_name":"tool-model","api_key_state":"unchanged","enabled":true}`)
+	req := llmRoleRequest(t, http.MethodPut, "/admin/llm-config/tool_agent", "tool_agent", body)
+	rec := httptest.NewRecorder()
+	h.PutLLMConfigRole(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want 400 for recursive LiteLLM base", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutLLMConfigRoleSurfacesLiteLLMConfigWriteFailure(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{LiteLLMConfigPath: t.TempDir()}
+	if _, err := pool.Exec(context.Background(), `UPDATE llm_system_config SET api_key_enc = NULL WHERE role = 'tool_agent'`); err != nil {
+		t.Fatalf("clear previous key state: %v", err)
+	}
+
+	body := []byte(`{"backend_type":"llama_server","api_base":"https://llm.example/v1","model_name":"tool-model","api_key_state":"unchanged","enabled":true}`)
+	req := llmRoleRequest(t, http.MethodPut, "/admin/llm-config/tool_agent", "tool_agent", body)
+	rec := httptest.NewRecorder()
+	h.PutLLMConfigRole(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200 because DB config is authoritative", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "warning") {
+		t.Fatalf("body = %s, want warning for optional LiteLLM artifact failure", rec.Body.String())
+	}
+}
+
 func TestPatchLLMUserConfigRejectsUnevaluatedOverride(t *testing.T) {
 	pool := fusionTestPool(t)
 	userID := insertTestUser(t, pool)
@@ -45,6 +174,7 @@ func TestPatchLLMUserConfigRejectsUnevaluatedOverride(t *testing.T) {
 	evalReport := map[string]any{
 		"identity": map[string]any{
 			"role": "tool_agent", "backend_type": "llama_server", "api_base_host": "llm.example", "model_name": "system-model",
+			"suite_id": model.LLMEvalSuiteID, "suite_hash": model.LLMEvalSuiteHash,
 		},
 		"model_evals": []map[string]string{},
 	}
@@ -58,10 +188,11 @@ func TestPatchLLMUserConfigRejectsUnevaluatedOverride(t *testing.T) {
 		ON CONFLICT (role) DO UPDATE SET
 			backend_type = EXCLUDED.backend_type,
 			api_base = EXCLUDED.api_base,
-			model_name = EXCLUDED.model_name,
-			enabled = EXCLUDED.enabled,
-			eval_status = EXCLUDED.eval_status,
-			eval_report = EXCLUDED.eval_report
+				model_name = EXCLUDED.model_name,
+				api_key_enc = NULL,
+				enabled = EXCLUDED.enabled,
+				eval_status = EXCLUDED.eval_status,
+				eval_report = EXCLUDED.eval_report
 	`, string(raw)); err != nil {
 		t.Fatalf("seed system config: %v", err)
 	}
@@ -82,9 +213,11 @@ func TestPatchLLMUserConfigAcceptsEvaluatedOverride(t *testing.T) {
 	evalReport := map[string]any{
 		"identity": map[string]any{
 			"role": "tool_agent", "backend_type": "llama_server", "api_base_host": "llm.example", "model_name": "system-model",
+			"suite_id": model.LLMEvalSuiteID, "suite_hash": model.LLMEvalSuiteHash,
 		},
 		"model_evals": []map[string]string{{
 			"role": "tool_agent", "backend_type": "llama_server", "api_base_host": "llm.example", "model_name": "user-model", "status": "passed",
+			"suite_id": model.LLMEvalSuiteID, "suite_hash": model.LLMEvalSuiteHash,
 		}},
 	}
 	raw, err := json.Marshal(evalReport)
@@ -95,12 +228,13 @@ func TestPatchLLMUserConfigAcceptsEvaluatedOverride(t *testing.T) {
 		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, enabled, eval_status, eval_report)
 		VALUES ('tool_agent', 'llama_server', 'http://llm.example/v1', 'system-model', true, 'passed', $1::jsonb)
 		ON CONFLICT (role) DO UPDATE SET
-			backend_type = EXCLUDED.backend_type,
-			api_base = EXCLUDED.api_base,
-			model_name = EXCLUDED.model_name,
-			enabled = EXCLUDED.enabled,
-			eval_status = EXCLUDED.eval_status,
-			eval_report = EXCLUDED.eval_report
+				backend_type = EXCLUDED.backend_type,
+				api_base = EXCLUDED.api_base,
+				model_name = EXCLUDED.model_name,
+				api_key_enc = NULL,
+				enabled = EXCLUDED.enabled,
+				eval_status = EXCLUDED.eval_status,
+				eval_report = EXCLUDED.eval_report
 	`, string(raw)); err != nil {
 		t.Fatalf("seed system config: %v", err)
 	}
@@ -127,7 +261,7 @@ func TestGetLLMConfigReturnsEvalFieldsAndKeyPresence(t *testing.T) {
 
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO llm_system_config (role, backend_type, enabled, capability_flags, eval_status, eval_report, api_key_enc)
-		VALUES ('write_preview', 'disabled', false, ARRAY['write_preview'], 'waived', '{"admin_reason":"manual"}'::jsonb, 'encrypted')
+		VALUES ('document_extract', 'disabled', false, ARRAY['document_extract'], 'waived', '{"admin_reason":"manual"}'::jsonb, 'encrypted')
 		ON CONFLICT (role) DO UPDATE SET
 			backend_type = EXCLUDED.backend_type,
 			enabled = EXCLUDED.enabled,
@@ -150,16 +284,16 @@ func TestGetLLMConfigReturnsEvalFieldsAndKeyPresence(t *testing.T) {
 	}
 	var found *model.LLMSystemConfig
 	for i := range configs {
-		if configs[i].Role == "write_preview" {
+		if configs[i].Role == "document_extract" {
 			found = &configs[i]
 			break
 		}
 	}
 	if found == nil {
-		t.Fatal("write_preview config not returned")
+		t.Fatal("document_extract config not returned")
 	}
-	if found.EvalStatus != model.LLMEvalStatusWaived || len(found.CapabilityFlags) != 1 || found.CapabilityFlags[0] != "write_preview" || !found.HasAPIKey {
-		t.Fatalf("write_preview = %#v, want eval/capability/key fields", found)
+	if found.EvalStatus != model.LLMEvalStatusWaived || len(found.CapabilityFlags) != 1 || found.CapabilityFlags[0] != "document_extract" || !found.HasAPIKey {
+		t.Fatalf("document_extract = %#v, want eval/capability/key fields", found)
 	}
 }
 
@@ -178,17 +312,20 @@ func TestPatchLLMConfigEvalWaiverRequiresAdminReason(t *testing.T) {
 func TestPatchLLMConfigEvalWaiverStoresReason(t *testing.T) {
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
+	path := t.TempDir() + "/config.yaml"
+	h.Config = &HandlerConfig{LiteLLMConfigPath: path}
 
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, enabled, eval_status, eval_report)
 		VALUES ('tool_agent', 'llama_server', 'http://llm.example/v1', 'candidate-model', true, 'failed', '{"failed_cases":["tool"]}'::jsonb)
-		ON CONFLICT (role) DO UPDATE SET
-			backend_type = EXCLUDED.backend_type,
-			api_base = EXCLUDED.api_base,
-			model_name = EXCLUDED.model_name,
-			enabled = EXCLUDED.enabled,
-			eval_status = EXCLUDED.eval_status,
-			eval_report = EXCLUDED.eval_report
+			ON CONFLICT (role) DO UPDATE SET
+				backend_type = EXCLUDED.backend_type,
+				api_base = EXCLUDED.api_base,
+				model_name = EXCLUDED.model_name,
+				api_key_enc = NULL,
+				enabled = EXCLUDED.enabled,
+				eval_status = EXCLUDED.eval_status,
+				eval_report = EXCLUDED.eval_report
 	`); err != nil {
 		t.Fatalf("seed system config: %v", err)
 	}
@@ -198,6 +335,12 @@ func TestPatchLLMConfigEvalWaiverStoresReason(t *testing.T) {
 	h.PatchLLMConfigEvalWaiver(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "litellm_pending_apply") {
+		t.Fatalf("body = %s, want pending-apply marker after waiver config regeneration", rec.Body.String())
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("waiver did not regenerate LiteLLM config at %s: %v", path, err)
 	}
 
 	configs, err := h.DB.GetLLMSystemConfig(context.Background())
@@ -242,18 +385,25 @@ func TestRegenerateLiteLLMConfigUsesYAMLEncoder(t *testing.T) {
 	h := newTestHandler(t, pool)
 	path := t.TempDir() + "/config.yaml"
 	h.Config = &HandlerConfig{LiteLLMConfigPath: path}
-	evalReport := `{"identity":{"role":"tool_agent","backend_type":"llama_server","api_base_host":"llm.example","model_name":"model:with:colon"}}`
+	evalReport, err := json.Marshal(map[string]any{"identity": map[string]any{
+		"role": "tool_agent", "backend_type": "llama_server", "api_base_host": "llm.example", "model_name": "model:with:colon",
+		"suite_id": model.LLMEvalSuiteID, "suite_hash": model.LLMEvalSuiteHash,
+	}})
+	if err != nil {
+		t.Fatalf("marshal eval report: %v", err)
+	}
 	if _, err := pool.Exec(context.Background(), `
-		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, enabled, eval_status, eval_report)
-		VALUES ('tool_agent', 'llama_server', 'http://llm.example/v1', 'model:with:colon', true, 'passed', $1::jsonb)
-		ON CONFLICT (role) DO UPDATE SET
-			backend_type = EXCLUDED.backend_type,
-			api_base = EXCLUDED.api_base,
-			model_name = EXCLUDED.model_name,
-			enabled = EXCLUDED.enabled,
-			eval_status = EXCLUDED.eval_status,
-			eval_report = EXCLUDED.eval_report
-	`, evalReport); err != nil {
+			INSERT INTO llm_system_config (role, backend_type, api_base, model_name, enabled, eval_status, eval_report)
+			VALUES ('tool_agent', 'llama_server', 'http://llm.example/v1', 'model:with:colon', true, 'passed', $1::jsonb)
+			ON CONFLICT (role) DO UPDATE SET
+				backend_type = EXCLUDED.backend_type,
+				api_base = EXCLUDED.api_base,
+				model_name = EXCLUDED.model_name,
+				api_key_enc = NULL,
+				enabled = EXCLUDED.enabled,
+				eval_status = EXCLUDED.eval_status,
+				eval_report = EXCLUDED.eval_report
+	`, string(evalReport)); err != nil {
 		t.Fatalf("seed system config: %v", err)
 	}
 

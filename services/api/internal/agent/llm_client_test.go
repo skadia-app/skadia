@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
 )
 
-func TestNewLLMClientUsesResolvedBaseURLAndAPIKeyForStreaming(t *testing.T) {
+func TestChatCompletionsClientUsesResolvedBaseURLAndAPIKeyForStreaming(t *testing.T) {
 	var gotAuth string
 	var gotPath string
 	var gotBody map[string]any
@@ -28,11 +29,7 @@ func TestNewLLMClientUsesResolvedBaseURLAndAPIKeyForStreaming(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	client := NewLLMClient(LLMConfig{
-		BaseURL: server.URL + "/v1",
-		APIKey:  "resolved-key",
-		Model:   "test-model",
-	})
+	client := llmwire.NewChatCompletionsClient(server.URL+"/v1", "resolved-key", server.Client())
 
 	stream := client.Stream(context.Background(), llmwire.ChatRequest{
 		Model:    "test-model",
@@ -56,5 +53,23 @@ func TestNewLLMClientUsesResolvedBaseURLAndAPIKeyForStreaming(t *testing.T) {
 	}
 	if got := acc; got != "Hallo" {
 		t.Fatalf("accumulated content = %q, want Hallo", got)
+	}
+}
+
+func TestNewLLMClientBlocksLoopbackBaseURL(t *testing.T) {
+	client := NewLLMClient(LLMConfig{
+		BaseURL: "http://127.0.0.1:9/v1",
+		Model:   "test-model",
+	})
+
+	stream := client.Stream(context.Background(), llmwire.ChatRequest{
+		Model:    "test-model",
+		Messages: []llmwire.ChatMessage{{Role: "user", Content: "Hallo"}},
+	})
+	if stream.Next() {
+		t.Fatal("Next() = true for blocked loopback api_base")
+	}
+	if err := stream.Err(); err == nil || !strings.Contains(err.Error(), "blocked private IP") {
+		t.Fatalf("Err() = %v, want blocked private IP error", err)
 	}
 }

@@ -14,9 +14,6 @@ var testLLMKey = strings.Repeat("0123456789abcdef", 4)
 
 func TestLLMResolverErrorsWhenRoleHasNoUsableSystemConfig(t *testing.T) {
 	resolver := NewLLMResolver(fakeLLMStore{}, LLMResolverConfig{
-		BaseURL:       "http://env.example/v1",
-		APIKey:        "env-key",
-		Model:         "env-model",
 		EncryptionKey: testLLMKey,
 	})
 
@@ -38,15 +35,13 @@ func TestLLMResolverUsesPassedSystemRoleConfig(t *testing.T) {
 			BackendType: "llama_server",
 			APIBase:     &apiBase,
 			ModelName:   &modelName,
+			HasAPIKey:   true,
 			Enabled:     true,
 			EvalStatus:  model.LLMEvalStatusPassed,
 			EvalReport:  evalIdentityReport("tool_agent", "llama_server", "system.example", modelName),
 		}},
 		keys: map[string]string{"tool_agent": enc},
 	}, LLMResolverConfig{
-		BaseURL:       "http://env.example/v1",
-		APIKey:        "env-key",
-		Model:         "env-model",
 		EncryptionKey: testLLMKey,
 	})
 
@@ -77,6 +72,77 @@ func TestLLMResolverAllowsLocalBackendWithoutAPIKey(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, Model: modelName})
+}
+
+func TestLLMResolverDoesNotInheritEnvAPIKeyForDBRole(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	modelName := "system-model"
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:        "tool_agent",
+			BackendType: "llama_server",
+			APIBase:     &apiBase,
+			ModelName:   &modelName,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusPassed,
+			EvalReport:  evalIdentityReport("tool_agent", "llama_server", "system.example", modelName),
+		}},
+	}, LLMResolverConfig{
+		EncryptionKey: testLLMKey,
+	})
+
+	got, err := resolver.Resolve(context.Background(), "user-1", "tool_agent")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got.APIKey != "" {
+		t.Fatalf("APIKey = %q, want no inherited env key", got.APIKey)
+	}
+}
+
+func TestLLMResolverFailsClosedWhenMarkedAPIKeyCannotBeLoaded(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	modelName := "system-model"
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:        "tool_agent",
+			BackendType: "llama_server",
+			APIBase:     &apiBase,
+			ModelName:   &modelName,
+			HasAPIKey:   true,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusPassed,
+			EvalReport:  evalIdentityReport("tool_agent", "llama_server", "system.example", modelName),
+		}},
+	}, LLMResolverConfig{EncryptionKey: testLLMKey})
+
+	if _, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err == nil {
+		t.Fatal("Resolve returned nil error, want fail-closed key retrieval error")
+	}
+}
+
+func TestLLMResolverNormalizesOllamaRuntimeBaseToOpenAICompatibleV1(t *testing.T) {
+	apiBase := "http://ollama:11434"
+	modelName := "system-model"
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:        "tool_agent",
+			BackendType: "ollama",
+			APIBase:     &apiBase,
+			ModelName:   &modelName,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusPassed,
+			EvalReport:  evalIdentityReport("tool_agent", "ollama", "ollama:11434", modelName),
+		}},
+	}, LLMResolverConfig{EncryptionKey: testLLMKey})
+
+	got, err := resolver.Resolve(context.Background(), "user-1", "tool_agent")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got.BaseURL != "http://ollama:11434/v1" {
+		t.Fatalf("BaseURL = %q, want Ollama OpenAI-compatible /v1 base", got.BaseURL)
+	}
 }
 
 func TestLLMResolverRejectsEvalFailedSystemRoleConfig(t *testing.T) {
@@ -153,7 +219,7 @@ func TestLLMResolverUserModelOverrideRequiresEvaluatedTuple(t *testing.T) {
 			Enabled:     true,
 			EvalStatus:  model.LLMEvalStatusPassed,
 			EvalReport: mergeEvalReport(evalIdentityReport("tool_agent", "llama_server", "system.example", systemModel), map[string]any{"model_evals": []any{
-				map[string]any{"role": "tool_agent", "backend_type": "llama_server", "api_base_host": "system.example", "model_name": userModel, "status": "passed"},
+				map[string]any{"role": "tool_agent", "backend_type": "llama_server", "api_base_host": "system.example", "model_name": userModel, "status": "passed", "suite_id": model.LLMEvalSuiteID, "suite_hash": model.LLMEvalSuiteHash},
 			}}),
 		}},
 		user: []model.LLMUserConfig{{
@@ -162,9 +228,6 @@ func TestLLMResolverUserModelOverrideRequiresEvaluatedTuple(t *testing.T) {
 			ModelName: &userModel,
 		}},
 	}, LLMResolverConfig{
-		BaseURL:       "http://env.example/v1",
-		APIKey:        "env-key",
-		Model:         "env-model",
 		EncryptionKey: testLLMKey,
 	})
 
@@ -172,7 +235,7 @@ func TestLLMResolverUserModelOverrideRequiresEvaluatedTuple(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, APIKey: "env-key", Model: userModel})
+	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, Model: userModel})
 }
 
 func TestLLMResolverRejectsUnevaluatedUserModelOverride(t *testing.T) {
@@ -214,16 +277,13 @@ func TestLLMResolverErrorsWhenEncryptedSystemKeyNeedsMissingEncryptionKey(t *tes
 			BackendType: "llama_server",
 			APIBase:     &apiBase,
 			ModelName:   &systemModel,
+			HasAPIKey:   true,
 			Enabled:     true,
 			EvalStatus:  model.LLMEvalStatusPassed,
 			EvalReport:  evalIdentityReport("tool_agent", "llama_server", "system.example", systemModel),
 		}},
 		keys: map[string]string{"tool_agent": enc},
-	}, LLMResolverConfig{
-		BaseURL: "http://env.example/v1",
-		APIKey:  "env-key",
-		Model:   "env-model",
-	})
+	}, LLMResolverConfig{})
 
 	if _, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err == nil {
 		t.Fatal("Resolve returned nil error, want decrypt error")
@@ -271,6 +331,8 @@ func evalIdentityReport(role, backendType, host, modelName string) map[string]an
 		"backend_type":  backendType,
 		"api_base_host": host,
 		"model_name":    modelName,
+		"suite_id":      model.LLMEvalSuiteID,
+		"suite_hash":    model.LLMEvalSuiteHash,
 	}}
 }
 
