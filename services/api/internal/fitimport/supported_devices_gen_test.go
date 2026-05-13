@@ -52,22 +52,22 @@ var skipProducts = map[string]bool{
 	"tacx_training_app_ios":          true,
 	"tacx_training_app_legacy":       true,
 	// ANT+ messaging aliases (duplicates)
-	"hrm_run_single_byte_product_id":   true,
-	"hrm_tri_single_byte_product_id":   true,
-	"hrm4_run_single_byte_product_id":  true,
-	"fr225_single_byte_product_id":     true,
-	"gen3_bsm_single_byte_product_id":  true,
-	"gen3_bcm_single_byte_product_id":  true,
-	"hrm_fit_single_byte_product_id":   true,
+	"hrm_run_single_byte_product_id":  true,
+	"hrm_tri_single_byte_product_id":  true,
+	"hrm4_run_single_byte_product_id": true,
+	"fr225_single_byte_product_id":    true,
+	"gen3_bsm_single_byte_product_id": true,
+	"gen3_bcm_single_byte_product_id": true,
+	"hrm_fit_single_byte_product_id":  true,
 	// Accessories / non-standalone devices
 	"varia_remote": true,
 	// Action cameras (discontinued)
-	"virb_elite":   true,
-	"virb_remote":  true,
-	"virbx":        true,
-	"virbxe":       true,
+	"virb_elite":    true,
+	"virb_remote":   true,
+	"virbx":         true,
+	"virbxe":        true,
 	"virb_ultra_30": true,
-	"virb_360":     true,
+	"virb_360":      true,
 	// Specialty accessories
 	"chirp":        true,
 	"nautix":       true,
@@ -96,14 +96,14 @@ var displayNameOverrides = map[string]string{
 	"instinctE_40mm": "Instinct E 40mm",
 	"instinctE_45mm": "Instinct E 45mm",
 	// D2 series: formatEnumToken splits "d2" as alpha="d" + digit="2" before acronym check
-	"d2airvenu":          "D2 Air Venu",
-	"d2charlie":          "D2 Charlie",
-	"d2_bravo":           "D2 Bravo",
-	"d2_bravo_titanium":  "D2 Bravo Titanium",
-	"d2_air_x10":         "D2 Air X10",
-	"d2_air_x15":         "D2 Air X15",
-	"d2_mach1_pro":       "D2 Mach 1 Pro",
-	"d2_mach2":           "D2 Mach 2",
+	"d2airvenu":         "D2 Air Venu",
+	"d2charlie":         "D2 Charlie",
+	"d2_bravo":          "D2 Bravo",
+	"d2_bravo_titanium": "D2 Bravo Titanium",
+	"d2_air_x10":        "D2 Air X10",
+	"d2_air_x15":        "D2 Air X15",
+	"d2_mach1_pro":      "D2 Mach 1 Pro",
+	"d2_mach2":          "D2 Mach 2",
 	// GPSMAP: acronym match keeps number attached ("GPSMAP66"), need space
 	"gpsmap66":  "GPSMAP 66",
 	"gpsmap66i": "GPSMAP 66i",
@@ -267,10 +267,78 @@ var productOverrides = map[[2]uint16]productOverride{
 	{89, 4274}: {skip: true}, // Tacx Rouvy — software, already in virtualPlatformMap
 	{89, 3111}: {skip: true}, // Tacx Breakaway — film system, not a trainer
 	// Powertap Joule head units are recording devices, not power meters
-	{9, 14}: {category: "recording"},  // Powertap Joule 2.0
-	{9, 18}: {category: "recording"},  // Powertap Joule
-	{9, 19}: {category: "recording"},  // Powertap Joule GPS
-	{9, 22}: {category: "recording"},  // Powertap Joule GPS+
+	{9, 14}: {category: "recording"}, // Powertap Joule 2.0
+	{9, 18}: {category: "recording"}, // Powertap Joule
+	{9, 19}: {category: "recording"}, // Powertap Joule GPS
+	{9, 22}: {category: "recording"}, // Powertap Joule GPS+
+}
+
+type tableFootnotes struct {
+	indexByNote map[string]int
+	notes       []string
+}
+
+func (f *tableFootnotes) marker(note string) string {
+	if f.indexByNote == nil {
+		f.indexByNote = map[string]int{}
+	}
+	if n, ok := f.indexByNote[note]; ok {
+		return fmt.Sprintf("<sup>%d</sup>", n)
+	}
+	f.notes = append(f.notes, note)
+	n := len(f.notes)
+	f.indexByNote[note] = n
+	return fmt.Sprintf("<sup>%d</sup>", n)
+}
+
+func (f *tableFootnotes) formatModel(model string) string {
+	base, note, ok := splitTrailingParenthetical(model)
+	if !ok {
+		return model
+	}
+	note = formatFootnoteText(note)
+	if note == "" {
+		return base
+	}
+	return base + f.marker(note)
+}
+
+func splitTrailingParenthetical(s string) (base, note string, ok bool) {
+	idx := strings.LastIndex(s, " (")
+	if idx < 0 || !strings.HasSuffix(s, ")") {
+		return "", "", false
+	}
+	base = strings.TrimSpace(s[:idx])
+	note = strings.TrimSpace(strings.TrimSuffix(s[idx+2:], ")"))
+	return base, note, base != "" && note != ""
+}
+
+func formatFootnoteText(note string) string {
+	if note == "" {
+		return ""
+	}
+	if note[0] >= 'a' && note[0] <= 'z' {
+		note = string(note[0]-('a'-'A')) + note[1:]
+	}
+	if !strings.HasSuffix(note, ".") {
+		note += "."
+	}
+	return note
+}
+
+var modelPrefixAliases = map[string][]string{
+	"Sigma Sport": {"Sigma "},
+}
+
+func displayModelWithoutManufacturer(e deviceEntry) string {
+	model := strings.TrimSpace(e.model)
+	if strings.EqualFold(model, e.manufacturer) {
+		return "App"
+	}
+	for _, prefix := range append([]string{e.manufacturer + " "}, modelPrefixAliases[e.manufacturer]...) {
+		model = strings.TrimPrefix(model, prefix)
+	}
+	return strings.TrimSpace(model)
 }
 
 // ---------------------------------------------------------------------------
@@ -304,49 +372,44 @@ func generateSupportedDevicesMD() string {
 	w("|---|---|---|\n")
 	w("| [`services/api/internal/fitimport/devicelookup.go`](services/api/internal/fitimport/devicelookup.go) | Device with known `[manufacturer_id, product_id]` pair not in FIT SDK | Static map lookup |\n")
 	w("| [`services/api/internal/fitimport/manufacturer.go`](services/api/internal/fitimport/manufacturer.go) | Development devices (mfr=255): Apple Watch, Samsung, Amazfit, etc. | String pattern matching on product_name |\n")
-	w("| [`services/api/internal/fitimport/developer_app_registry.go`](services/api/internal/fitimport/developer_app_registry.go) | Third-party apps with known Application UUID | UUID hex lookup |\n")
+	w("| [`services/api/internal/fitimport/developer_app_registry.go`](services/api/internal/fitimport/developer_app_registry.go) | Third-party apps with known Application ID | Application ID hex lookup |\n")
 
 	// ---- Section 2: Generic Support ----
 	w("\n## Generic Support\n\n")
-	w("**Skadia imports FIT files from any device. All ANT+ and Bluetooth Low Energy sensors are automatically recognized — data is fully imported even if the specific model name is not listed below.**\n\n")
+	w("Detected recording devices and most sensors with serial numbers appear on activity pages and are also listed under Gear (`/hardware/recorder` and `/hardware/sensor`). They can also be used in activity filters and automation rules.\n\n")
+	w("FIT files from any device are imported. All ANT+ and Bluetooth Low Energy sensors are automatically recognized. Data is fully imported even if the specific model name is not listed below. GPX and TCX files can also be imported, but they usually contain less device and sensor metadata.\n\n")
+	w("This catalog lists recognized recording devices, sensors, sync apps, developer apps, smart trainers, and virtual platforms.\n\n")
 	w("- Sensor data (heart rate, power, cadence, speed, temperature, etc.) is imported regardless of whether the sensor model is known\n")
-	w("- Unknown devices may show only the manufacturer name or no device name — the data itself is unaffected\n")
-	w("- Feature highlights:\n")
-	w("  - Garmin Descent series: dive profiles with decompression, gas mixes, and pO\u2082 fully imported\n")
-	w("  - Radar events (Varia): threat level, count, approach speeds\n")
-	w("  - Running dynamics: ground contact time, vertical oscillation, stride length\n")
-	w("  - Developer fields: custom data from third-party apps preserved in activity streams\n")
+	w("- FIT Developer Field values are imported when present in activity streams; recognized developer apps are listed below.\n")
+	w("- Unknown devices may show only the manufacturer name or no device name; the data itself is unaffected\n")
 	w("\n### Sync Apps\n\n")
 	w("FitnessSyncer, RunGap, HealthFit, and iSmoothRun are recognized as import sources. Activities imported via these apps retain the original recording device information where available.\n")
 
 	// ---- Section 3: Recording Devices ----
 	w("\n## Recording Devices\n\n")
-	// Group by manufacturer
-	mfrModels := map[string][]deviceEntry{}
+	slices.SortFunc(recording, func(a, b deviceEntry) int {
+		if c := cmp.Compare(a.manufacturer, b.manufacturer); c != 0 {
+			return c
+		}
+		return cmp.Compare(displayModelWithoutManufacturer(a), displayModelWithoutManufacturer(b))
+	})
+	recordingFootnotes := tableFootnotes{}
+	w("| Manufacturer | Model | Source |\n")
+	w("|---|---|---|\n")
 	for _, e := range recording {
-		mfrModels[e.manufacturer] = append(mfrModels[e.manufacturer], e)
+		model := recordingFootnotes.formatModel(displayModelWithoutManufacturer(e))
+		w("| %s | %s | %s |\n", e.manufacturer, model, e.source)
 	}
-	mfrNames := make([]string, 0, len(mfrModels))
-	for k := range mfrModels {
-		mfrNames = append(mfrNames, k)
-	}
-	slices.Sort(mfrNames)
-
-	for _, mfr := range mfrNames {
-		entries := mfrModels[mfr]
-		slices.SortFunc(entries, func(a, b deviceEntry) int {
-			return cmp.Compare(a.model, b.model)
-		})
-		w("\n### %s\n\n", mfr)
-		w("| Model | Source |\n")
-		w("|---|---|\n")
-		for _, e := range entries {
-			w("| %s | %s |\n", e.model, e.source)
+	if len(recordingFootnotes.notes) > 0 {
+		w("\n**Recording device notes:**\n\n")
+		for i, note := range recordingFootnotes.notes {
+			w("<sup>%d</sup> %s\n\n", i+1, note)
 		}
 	}
 
 	// ---- Section 4: Sensors ----
 	w("\n## Sensors\n\n")
+	w("Some sensor-like devices and apps, including Stryd, use FIT Developer Fields instead of standard ANT+/BLE sensor records. If a sensor is not listed here, also check [Developer Apps](#developer-apps).\n\n")
 	slices.SortFunc(sensors, func(a, b deviceEntry) int {
 		if c := cmp.Compare(a.manufacturer, b.manufacturer); c != 0 {
 			return c
@@ -359,10 +422,20 @@ func generateSupportedDevicesMD() string {
 		model := strings.TrimPrefix(e.model, e.manufacturer+" ")
 		w("| %s | %s | %s | %s |\n", e.manufacturer, model, e.sensorType, e.source)
 	}
-	w("\n> Stryd running power is listed under [Developer Apps](#developer-apps)\n")
-	w("> as it uses FIT Developer Fields rather than standard ANT+ sensor protocol.\n")
 
-	// ---- Section 5: Smart Trainers & Virtual Platforms ----
+	// ---- Section 5: Developer Apps ----
+	w("\n## Developer Apps\n\n")
+	w("Developer Apps use FIT Developer Fields to embed custom data and are detected by Application ID. Multiple application IDs can resolve to the same app entry.\n\n")
+	slices.SortFunc(devApps, func(a, b deviceEntry) int {
+		return cmp.Compare(a.model, b.model)
+	})
+	w("| App | Category | Source |\n")
+	w("|---|---|---|\n")
+	for _, e := range devApps {
+		w("| %s | %s | %s |\n", e.model, e.sensorType, e.source)
+	}
+
+	// ---- Section 6: Smart Trainers & Virtual Platforms ----
 	w("\n## Smart Trainers & Virtual Platforms\n\n")
 	w("### Smart Trainers\n\n")
 	slices.SortFunc(trainers, func(a, b deviceEntry) int {
@@ -388,25 +461,13 @@ func generateSupportedDevicesMD() string {
 		w("| %s | %s |\n", e.model, e.source)
 	}
 
-	// ---- Section 6: Developer Apps ----
-	w("\n## Developer Apps\n\n")
-	w("Developer Apps use FIT Developer Fields to embed custom data. Detected by Application UUID. Stryd has 3 UUIDs (different app versions) — all resolve to the same entry.\n\n")
-	slices.SortFunc(devApps, func(a, b deviceEntry) int {
-		return cmp.Compare(a.model, b.model)
-	})
-	w("| App | Category | Source |\n")
-	w("|---|---|---|\n")
-	for _, e := range devApps {
-		w("| %s | %s | %s |\n", e.model, e.sensorType, e.source)
-	}
-
 	// ---- Footer ----
 	w("\n---\n\n")
 	w("**Source column legend:**\n")
 	w("- **SDK** — Resolved via FIT SDK enum (GarminProduct, FaveroProduct)\n")
 	w("- **Map** — Resolved via static lookup in [devicelookup.go](services/api/internal/fitimport/devicelookup.go)\n")
 	w("- **Pattern** — Resolved via string pattern matching in [manufacturer.go](services/api/internal/fitimport/manufacturer.go)\n")
-	w("- **Registry** — Resolved via Application UUID in [developer_app_registry.go](services/api/internal/fitimport/developer_app_registry.go)\n")
+	w("- **Registry** — Resolved via Application ID in [developer_app_registry.go](services/api/internal/fitimport/developer_app_registry.go)\n")
 
 	return b.String()
 }
@@ -595,16 +656,24 @@ func collectEntries() (recording, sensors, trainers, virtuals, devApps []deviceE
 	// ---- 4. Apple Watch — single aggregate entry ----
 	recording = append(recording, deviceEntry{
 		manufacturer: "Apple",
-		model:        "Apple Watch (all models: Series 1\u201311, SE, Ultra)",
+		model:        "All Watch models (detected via product name)",
 		source:       "Pattern",
 		category:     "recording",
 	})
 
 	// ---- 5. Development device brands ----
-	for _, label := range []string{"Amazfit", "Google Pixel Watch", "Huawei", "Samsung"} {
+	for _, entry := range []struct {
+		manufacturer string
+		model        string
+	}{
+		{manufacturer: "Amazfit", model: "All models (detected via product name)"},
+		{manufacturer: "Google", model: "All Pixel Watch models (detected via product name)"},
+		{manufacturer: "Huawei", model: "All wearable models (detected via file descriptor; exact model unavailable)"},
+		{manufacturer: "Samsung", model: "All Galaxy Watch models (detected via product name)"},
+	} {
 		recording = append(recording, deviceEntry{
-			manufacturer: label,
-			model:        "All models (detected via product name)",
+			manufacturer: entry.manufacturer,
+			model:        entry.model,
 			source:       "Pattern",
 			category:     "recording",
 		})
@@ -640,7 +709,7 @@ func collectEntries() (recording, sensors, trainers, virtuals, devApps []deviceE
 	}
 
 	// ---- 7. knownDeveloperApps ----
-	// Deduplicate by app Name (Stryd has 3 UUIDs → 1 entry)
+	// Deduplicate by app name: multiple application IDs can resolve to one entry.
 	appSeen := map[string]bool{}
 	for _, info := range knownDeveloperApps {
 		if appSeen[info.Name] {
@@ -669,7 +738,18 @@ func formatDevAppCategory(cat string) string {
 		return "Bike Power"
 	case "app_wearable":
 		return "Wearable"
+	case "app_body_temp":
+		return "Body Temperature"
+	case "app_sport_watch":
+		return "Sport Watch"
+	case "app_radar":
+		return "Radar"
+	case "app_training":
+		return "Training App"
 	default:
+		if strings.HasPrefix(cat, "app_") {
+			panic(fmt.Sprintf("unsupported developer app category %q", cat))
+		}
 		return cat
 	}
 }
@@ -677,6 +757,216 @@ func formatDevAppCategory(cat string) string {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+func TestSupportedDevicesRecordingDevicesTableFormat(t *testing.T) {
+	generated := generateSupportedDevicesMD()
+	sectionStart := strings.Index(generated, "\n## Recording Devices\n")
+	if sectionStart < 0 {
+		t.Fatal("Recording Devices section not found")
+	}
+	sectionEnd := strings.Index(generated[sectionStart:], "\n## Sensors\n")
+	if sectionEnd < 0 {
+		t.Fatal("Sensors section not found after Recording Devices")
+	}
+	section := generated[sectionStart : sectionStart+sectionEnd]
+
+	if !strings.Contains(section, "| Manufacturer | Model | Source |\n|---|---|---|\n") {
+		t.Fatal("Recording Devices section should use a single Manufacturer/Model/Source table")
+	}
+	if strings.Contains(section, "\n### ") {
+		t.Fatal("Recording Devices section should not be split into per-manufacturer subsections")
+	}
+	if !strings.Contains(section, "| COROS | APEX | Map |") {
+		t.Fatal("Recording Devices table should not repeat the manufacturer name in the model column")
+	}
+	if !strings.Contains(section, "| Sigma Sport | ROX 11.1 | Map |") ||
+		strings.Contains(section, "| Sigma Sport | Sigma ") {
+		t.Fatal("Recording Devices table should remove model-prefix aliases for manufacturer names")
+	}
+	if !strings.Contains(section, "| IpBike | App | Map |") {
+		t.Fatal("Recording Devices table should avoid exact manufacturer/model repetition")
+	}
+	productNameMarker := requireRecordingNoteMarker(t, section, "Detected via product name.")
+	fileDescriptorMarker := requireRecordingNoteMarker(t, section, "Detected via file descriptor; exact model unavailable.")
+
+	if !strings.Contains(section, "| Amazfit | All models"+productNameMarker+" | Pattern |") {
+		t.Fatal("parenthetical detection notes should be moved to local note markers")
+	}
+	if !strings.Contains(section, "| Apple | All Watch models"+productNameMarker+" | Pattern |") {
+		t.Fatal("Apple aggregate entry should keep the all-model scope in the table")
+	}
+	if !strings.Contains(section, "| Google | All Pixel Watch models"+productNameMarker+" | Pattern |") {
+		t.Fatal("Google aggregate entry should keep the all-model scope in the table")
+	}
+	if !strings.Contains(section, "| Huawei | All wearable models"+fileDescriptorMarker+" | Pattern |") ||
+		strings.Contains(section, "| Huawei | All models") {
+		t.Fatal("Huawei aggregate entry should be scoped to all wearable models, not all Huawei models")
+	}
+	if !strings.Contains(section, "| Samsung | All Galaxy Watch models"+productNameMarker+" | Pattern |") ||
+		strings.Contains(section, "| Samsung | All models") {
+		t.Fatal("Samsung aggregate entry should keep the all-model scope in the table")
+	}
+	if !strings.Contains(section, "**Recording device notes:**") ||
+		strings.Contains(section, "[^1]:") ||
+		strings.Contains(section, "[^2]:") ||
+		strings.Contains(section, "All models: Series 1\u201311, SE, Ultra.") {
+		t.Fatal("Recording Devices notes should be local to the section and describe detection only")
+	}
+}
+
+func requireRecordingNoteMarker(t *testing.T, section, note string) string {
+	t.Helper()
+	for i := 1; i <= 9; i++ {
+		marker := fmt.Sprintf("<sup>%d</sup>", i)
+		if strings.Contains(section, marker+" "+note) {
+			return marker
+		}
+	}
+	t.Fatalf("Recording Devices notes should contain note %q", note)
+	return ""
+}
+
+func TestSupportedDevicesGenericSupportStaysDeviceFocused(t *testing.T) {
+	generated := generateSupportedDevicesMD()
+	sectionStart := strings.Index(generated, "\n## Generic Support\n")
+	if sectionStart < 0 {
+		t.Fatal("Generic Support section not found")
+	}
+	sectionEnd := strings.Index(generated[sectionStart:], "\n## Recording Devices\n")
+	if sectionEnd < 0 {
+		t.Fatal("Recording Devices section not found after Generic Support")
+	}
+	section := generated[sectionStart : sectionStart+sectionEnd]
+
+	for _, featureText := range []string{
+		"Feature highlights",
+		"Garmin Descent",
+		"Radar events",
+		"Running dynamics",
+		"Developer fields: custom data",
+	} {
+		if strings.Contains(section, featureText) {
+			t.Fatalf("Generic Support should not list feature-level support item %q", featureText)
+		}
+	}
+	if !strings.Contains(section, "This catalog lists recognized recording devices, sensors, sync apps, developer apps, smart trainers, and virtual platforms.") {
+		t.Fatal("Generic Support should explain that this document is a source/device catalog")
+	}
+	if !strings.Contains(section, "FIT Developer Field values are imported when present in activity streams; recognized developer apps are listed below.") {
+		t.Fatal("Generic Support should mention developer-field import without turning into a feature catalog")
+	}
+	inventorySentence := "Detected recording devices and most sensors with serial numbers appear on activity pages and are also listed under Gear (`/hardware/recorder` and `/hardware/sensor`). They can also be used in activity filters and automation rules."
+	if !strings.Contains(section, inventorySentence) {
+		t.Fatal("Generic Support should mention the web UI hardware inventory and rule/filter usage")
+	}
+	if !strings.Contains(section, "\n## Generic Support\n\n"+inventorySentence+"\n\nFIT files from any device are imported.") {
+		t.Fatal("Generic Support should introduce the activity/Gear inventory note before import behavior")
+	}
+	if strings.Contains(section, "**Skadia imports FIT files") ||
+		strings.Contains(section, "**FIT files from any device are imported.") {
+		t.Fatal("Generic Support import statement should not be bold or repeat the product name")
+	}
+	formatParagraph := "FIT files from any device are imported. All ANT+ and Bluetooth Low Energy sensors are automatically recognized. Data is fully imported even if the specific model name is not listed below. GPX and TCX files can also be imported, but they usually contain less device and sensor metadata."
+	if !strings.Contains(section, formatParagraph) {
+		t.Fatal("Generic Support should clarify that non-FIT imports are supported with less metadata")
+	}
+	if strings.Contains(section, "—") {
+		t.Fatal("Generic Support should avoid em dashes in prose")
+	}
+	if strings.Contains(section, "not listed below.\n\nGPX and TCX files") {
+		t.Fatal("Generic Support should keep FIT and GPX/TCX import notes in one paragraph")
+	}
+	if strings.Contains(section, "- Detected recording devices") {
+		t.Fatal("Generic Support should not bury the activity/Gear inventory note as a list item")
+	}
+}
+
+func TestSupportedDevicesDeveloperAppsPresentation(t *testing.T) {
+	generated := generateSupportedDevicesMD()
+	sectionStart := strings.Index(generated, "\n## Developer Apps\n")
+	if sectionStart < 0 {
+		t.Fatal("Developer Apps section not found")
+	}
+	sectionEnd := strings.Index(generated[sectionStart:], "\n## Smart Trainers & Virtual Platforms\n")
+	if sectionEnd < 0 {
+		t.Fatal("Smart Trainers section not found after Developer Apps")
+	}
+	section := generated[sectionStart : sectionStart+sectionEnd]
+
+	if strings.Contains(section, "| app_") {
+		t.Fatal("Developer Apps section should not expose raw app_* categories")
+	}
+	for _, row := range []string{
+		"| CORE | Body Temperature | Registry |",
+		"| Intervals CIQ | Training App | Registry |",
+		"| SuuntoFitExport1 | Sport Watch | Registry |",
+		"| Varia Radar | Radar | Registry |",
+		"| Stryd | Running Power | Registry |",
+	} {
+		if !strings.Contains(section, row) {
+			t.Fatalf("Developer Apps section missing expected row %q", row)
+		}
+	}
+	if strings.Contains(section, "Stryd has 3 UUIDs") {
+		t.Fatal("Developer Apps section should not contain a stale static Stryd UUID count")
+	}
+	for _, text := range []string{
+		"| [`services/api/internal/fitimport/developer_app_registry.go`](services/api/internal/fitimport/developer_app_registry.go) | Third-party apps with known Application ID | Application ID hex lookup |",
+		"Developer Apps use FIT Developer Fields to embed custom data and are detected by Application ID. Multiple application IDs can resolve to the same app entry.",
+		"- **Registry** — Resolved via Application ID in [developer_app_registry.go](services/api/internal/fitimport/developer_app_registry.go)",
+	} {
+		if !strings.Contains(generated, text) {
+			t.Fatalf("Supported devices docs should use Application ID terminology, missing %q", text)
+		}
+	}
+	if strings.Contains(generated, "Application UUID") || strings.Contains(generated, "UUIDs") {
+		t.Fatal("Supported devices docs should not describe FIT application IDs as UUIDs")
+	}
+}
+
+func TestSupportedDevicesGeneratedMarkdownHasNoTrailingWhitespace(t *testing.T) {
+	for lineNo, line := range strings.Split(generateSupportedDevicesMD(), "\n") {
+		if strings.HasSuffix(line, " ") || strings.HasSuffix(line, "\t") {
+			t.Fatalf("Generated markdown line %d has trailing whitespace: %q", lineNo+1, line)
+		}
+	}
+}
+
+func TestSupportedDevicesDeveloperFieldSensorsAreDiscoverable(t *testing.T) {
+	generated := generateSupportedDevicesMD()
+	sectionStart := strings.Index(generated, "\n## Sensors\n")
+	if sectionStart < 0 {
+		t.Fatal("Sensors section not found")
+	}
+	sectionEnd := strings.Index(generated[sectionStart:], "\n## Developer Apps\n")
+	if sectionEnd < 0 {
+		t.Fatal("Developer Apps section not found after Sensors")
+	}
+	section := generated[sectionStart : sectionStart+sectionEnd]
+
+	if !strings.Contains(section, "Some sensor-like devices and apps, including Stryd, use FIT Developer Fields instead of standard ANT+/BLE sensor records. If a sensor is not listed here, also check [Developer Apps](#developer-apps).") {
+		t.Fatal("Sensors section should point users to Developer Apps for developer-field sensors")
+	}
+	for _, notSensor := range []string{
+		"| Stryd | Developer Field | Running Power | Registry |",
+		"| CORE | Developer Field | Body Temperature | Registry |",
+		"| FORM | Developer Field | Swim Goggle | Registry |",
+		"| Varia Radar | Developer Field | Radar | Registry |",
+		"| Zepp | Developer Field | Wearable | Registry |",
+		"| COROS | Developer Field | Running Power | Registry |",
+		"| Daefore | Developer Field | Bike Power | Registry |",
+		"| Intervals CIQ | Developer Field | Training App | Registry |",
+		"| RideWithPower | Developer Field | Bike Power | Registry |",
+		"| SuuntoFitExport1 | Developer Field | Sport Watch | Registry |",
+	} {
+		if strings.Contains(section, notSensor) {
+			t.Fatalf("Sensors section should not include non-sensor developer app row %q", notSensor)
+		}
+	}
+	if strings.Contains(section, "Registry rows in this table are detected from FIT Developer Fields") {
+		t.Fatal("Sensors section should not describe developer-field rows that are no longer listed in the table")
+	}
+}
 
 func TestSupportedDevicesUpToDate(t *testing.T) {
 	generated := generateSupportedDevicesMD()
