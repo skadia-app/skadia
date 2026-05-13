@@ -9,6 +9,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 )
 
 type AgentToolRuntime struct {
@@ -51,12 +52,54 @@ func (r *AgentToolRuntime) Execute(ctx context.Context, req agent.ToolRuntimeReq
 	case tool.AuditMode == AuditPreview && tool.ExecutePreview != nil:
 		result, err := r.Envelope.ExecutePreview(ctx, toExecutionRequest(req, tool.AuditMode))
 		return agent.ToolRuntimeResult{Result: result, Summary: marshalToolResult(result)}, err
+	case tool.AuditMode == AuditRead && tool.Permission == PermissionRead:
+		result, err := r.executeAuditedRead(ctx, req, tool)
+		return agent.ToolRuntimeResult{Result: result, Summary: marshalToolResult(result)}, err
 	case tool.Permission == PermissionRead:
 		result, err := r.Registry.ExecuteRead(ctx, r.Deps, req.UserID, req.ToolName, req.Args)
 		return agent.ToolRuntimeResult{Result: result, Summary: marshalToolResult(result)}, err
 	default:
 		return r.executeConfirmedWrite(ctx, req, sink, tool)
 	}
+}
+
+func (r *AgentToolRuntime) PublicToolCallArgs(toolName string, args json.RawMessage) (json.RawMessage, bool) {
+	if r == nil || r.Registry == nil {
+		return args, true
+	}
+	tool, ok := r.Registry.Get(toolName)
+	if !ok || tool.Permission == PermissionRead {
+		return args, true
+	}
+	return nil, false
+}
+
+func (r *AgentToolRuntime) executeAuditedRead(ctx context.Context, req agent.ToolRuntimeRequest, tool *Tool) (any, error) {
+	if r == nil || r.Deps == nil || r.Deps.DB == nil || r.Deps.Audit == nil {
+		return nil, fmt.Errorf("audited read tool requires audit storage")
+	}
+	args := req.Args
+	var tables []string
+	if tool.Name == "run_sql" {
+		args, tables = runSQLAuditArgs(req.Args)
+	}
+	row, err := claimReadAuditSlot(ctx, r.Deps.Audit, databaseAgentAuditRow(req, tool.Name, args))
+	if err != nil {
+		return nil, err
+	}
+	result, execErr := r.Registry.ExecuteRead(ctx, r.Deps, req.UserID, req.ToolName, req.Args)
+	status := "executed"
+	if execErr != nil {
+		status = "error"
+	}
+	detail := json.RawMessage(nil)
+	if tool.Name == "run_sql" {
+		detail = runSQLAuditDetail(tables, runSQLResultRowCount(result), execErr)
+	}
+	if err := completeReadAudit(ctx, r.Deps.DB, req.UserID, row.ID, status, detail); err != nil {
+		return nil, err
+	}
+	return result, execErr
 }
 
 func (r *AgentToolRuntime) executeConfirmedWrite(ctx context.Context, req agent.ToolRuntimeRequest, sink agent.SSESink, tool *Tool) (agent.ToolRuntimeResult, error) {
@@ -90,7 +133,6 @@ func (r *AgentToolRuntime) executeConfirmedWrite(ctx context.Context, req agent.
 		ID:         req.MessageID,
 		ToolCallID: req.ToolCallID,
 		Tool:       req.ToolName,
-		Args:       req.Args,
 		Summary:    prepared.Summary,
 		Preview:    prepared.Preview,
 		ExpiresAt:  &expiresAt,
@@ -127,6 +169,16 @@ func (r *AgentToolRuntime) executeConfirmedWrite(ctx context.Context, req agent.
 			}
 			return agent.ToolRuntimeResult{Result: map[string]string{"status": "USER_DECLINED", "reason": reason}, Summary: "USER_DECLINED: " + reason}, nil
 		}
+	}
+}
+
+func databaseAgentAuditRow(req agent.ToolRuntimeRequest, toolName string, args json.RawMessage) database.AgentAuditRow {
+	return database.AgentAuditRow{
+		UserID:     req.UserID,
+		SessionID:  req.SessionID,
+		ToolCallID: req.ToolCallID,
+		ToolName:   toolName,
+		Args:       args,
 	}
 }
 

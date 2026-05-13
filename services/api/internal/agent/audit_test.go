@@ -91,7 +91,7 @@ func TestAuditWriterRecordsError(t *testing.T) {
 		if err := json.Unmarshal(existing.ResultDetail, &detail); err != nil {
 			t.Fatalf("unmarshal error detail: %v", err)
 		}
-		if detail["error"] != wantErr.Error() {
+		if detail["error"] != "operation failed" {
 			t.Fatalf("unexpected error detail: %s", existing.ResultDetail)
 		}
 		return nil

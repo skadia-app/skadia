@@ -50,6 +50,22 @@ func (w *AuditWriter) Complete(ctx context.Context, userID string, id int64, sta
 	return tx.Commit(ctx)
 }
 
+func (w *AuditWriter) CompletePending(ctx context.Context, userID string, id int64, status string, detail json.RawMessage) error {
+	tx, err := w.beginAuditTx(ctx, userID, "", "")
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if err := w.DB.CompletePendingAudit(ctx, tx, id, status, detail); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (w *AuditWriter) WithAuditSlot(ctx context.Context, row database.AgentAuditRow, fn func(context.Context, pgx.Tx) (json.RawMessage, error)) (json.RawMessage, bool, error) {
 	if fn == nil {
 		return nil, false, fmt.Errorf("audit execution function is nil")
@@ -82,7 +98,7 @@ func (w *AuditWriter) WithAuditSlot(ctx context.Context, row database.AgentAudit
 	if execErr != nil {
 		status = "error"
 		if len(detail) == 0 {
-			detail, _ = json.Marshal(map[string]string{"error": execErr.Error()})
+			detail, _ = json.Marshal(map[string]string{"error": "operation failed"})
 		}
 	}
 	if len(detail) == 0 {

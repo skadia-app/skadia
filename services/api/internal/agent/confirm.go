@@ -34,10 +34,16 @@ type ConfirmationManager struct {
 	mu         sync.Mutex
 	pending    map[string]*PendingConfirm
 	actions    map[string]*PendingConfirm
-	resolved   map[string]ConfirmResponse
+	resolved   map[string]resolvedConfirm
 	ttl        time.Duration
 	gcInterval time.Duration
 	gcOnce     sync.Once
+}
+
+type resolvedConfirm struct {
+	resp      ConfirmResponse
+	args      json.RawMessage
+	expiresAt time.Time
 }
 
 func NewConfirmationManager(ttl time.Duration) *ConfirmationManager {
@@ -54,7 +60,7 @@ func NewConfirmationManager(ttl time.Duration) *ConfirmationManager {
 	return &ConfirmationManager{
 		pending:    make(map[string]*PendingConfirm),
 		actions:    make(map[string]*PendingConfirm),
-		resolved:   make(map[string]ConfirmResponse),
+		resolved:   make(map[string]resolvedConfirm),
 		ttl:        ttl,
 		gcInterval: gcInterval,
 	}
@@ -104,17 +110,25 @@ func (m *ConfirmationManager) Resolve(sessionID, toolCallID string, resp Confirm
 	if len(resp.Metadata) == 0 {
 		resp.Metadata = p.Metadata
 	}
-	select {
-	case p.respCh <- resp:
-	default:
-	}
 	m.mu.Lock()
 	delete(m.pending, key)
 	if p.ActionID != "" {
 		delete(m.actions, p.ActionID)
-		m.resolved[p.ActionID] = resp
+		expiresAt := p.ExpiresAt
+		if expiresAt.IsZero() {
+			expiresAt = time.Now().Add(m.ttl)
+		}
+		m.resolved[p.ActionID] = resolvedConfirm{
+			resp:      resp,
+			args:      append(json.RawMessage(nil), p.Args...),
+			expiresAt: expiresAt,
+		}
 	}
 	m.mu.Unlock()
+	select {
+	case p.respCh <- resp:
+	default:
+	}
 	return true
 }
 
@@ -128,14 +142,37 @@ func (m *ConfirmationManager) PendingAction(actionID string) (*PendingConfirm, b
 	return p, ok
 }
 
+func (m *ConfirmationManager) CancelAction(actionID string) bool {
+	if m == nil || actionID == "" {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.actions[actionID]
+	if !ok {
+		delete(m.resolved, actionID)
+		return false
+	}
+	delete(m.actions, actionID)
+	delete(m.pending, confirmKey(p.SessionID, p.ToolCallID))
+	delete(m.resolved, actionID)
+	return true
+}
+
 func (m *ConfirmationManager) ConfirmedAction(actionID string) (ConfirmResponse, bool) {
 	if m == nil || actionID == "" {
 		return ConfirmResponse{}, false
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	resp, ok := m.resolved[actionID]
-	return resp, ok && resp.Confirmed
+	resolved, ok := m.resolved[actionID]
+	if !ok || resolvedExpired(resolved, time.Now()) {
+		if ok {
+			delete(m.resolved, actionID)
+		}
+		return ConfirmResponse{}, false
+	}
+	return resolved.resp, resolved.resp.Confirmed
 }
 
 func (m *ConfirmationManager) ResolvedAction(actionID string) (ConfirmResponse, bool) {
@@ -144,8 +181,83 @@ func (m *ConfirmationManager) ResolvedAction(actionID string) (ConfirmResponse, 
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	resp, ok := m.resolved[actionID]
-	return resp, ok
+	resolved, ok := m.resolved[actionID]
+	if !ok || resolvedExpired(resolved, time.Now()) {
+		if ok {
+			delete(m.resolved, actionID)
+		}
+		return ConfirmResponse{}, false
+	}
+	return resolved.resp, true
+}
+
+func (m *ConfirmationManager) PendingActionResponse(actionID string) (<-chan ConfirmResponse, bool) {
+	if m == nil || actionID == "" {
+		return nil, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.actions[actionID]
+	if !ok || p.respCh == nil {
+		return nil, false
+	}
+	return p.respCh, true
+}
+
+func (m *ConfirmationManager) ConsumeConfirmedAction(actionID string) (ConfirmResponse, json.RawMessage, bool) {
+	if m == nil || actionID == "" {
+		return ConfirmResponse{}, nil, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	resolved, ok := m.resolved[actionID]
+	if !ok || resolvedExpired(resolved, time.Now()) {
+		if ok {
+			delete(m.resolved, actionID)
+		}
+		return ConfirmResponse{}, nil, false
+	}
+	if !resolved.resp.Confirmed {
+		return ConfirmResponse{}, nil, false
+	}
+	delete(m.resolved, actionID)
+	return resolved.resp, append(json.RawMessage(nil), resolved.args...), true
+}
+
+func (m *ConfirmationManager) PeekConfirmedAction(actionID string) (ConfirmResponse, json.RawMessage, bool) {
+	if m == nil || actionID == "" {
+		return ConfirmResponse{}, nil, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	resolved, ok := m.resolved[actionID]
+	if !ok || resolvedExpired(resolved, time.Now()) {
+		if ok {
+			delete(m.resolved, actionID)
+		}
+		return ConfirmResponse{}, nil, false
+	}
+	if !resolved.resp.Confirmed {
+		return ConfirmResponse{}, nil, false
+	}
+	return resolved.resp, append(json.RawMessage(nil), resolved.args...), true
+}
+
+func (m *ConfirmationManager) ConsumeResolvedAction(actionID string) (ConfirmResponse, bool) {
+	if m == nil || actionID == "" {
+		return ConfirmResponse{}, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	resolved, ok := m.resolved[actionID]
+	if !ok || resolvedExpired(resolved, time.Now()) {
+		if ok {
+			delete(m.resolved, actionID)
+		}
+		return ConfirmResponse{}, false
+	}
+	delete(m.resolved, actionID)
+	return resolved.resp, true
 }
 
 func (m *ConfirmationManager) gcLoop(ctx context.Context) {
@@ -169,6 +281,11 @@ func (m *ConfirmationManager) resolveExpired(now time.Time) {
 			expired = append(expired, p)
 		}
 	}
+	for actionID, resolved := range m.resolved {
+		if resolvedExpired(resolved, now) {
+			delete(m.resolved, actionID)
+		}
+	}
 	m.mu.Unlock()
 
 	for _, p := range expired {
@@ -181,4 +298,8 @@ func (m *ConfirmationManager) resolveExpired(now time.Time) {
 
 func confirmKey(sessionID, toolCallID string) string {
 	return sessionID + ":" + toolCallID
+}
+
+func resolvedExpired(resolved resolvedConfirm, now time.Time) bool {
+	return !resolved.expiresAt.IsZero() && !resolved.expiresAt.After(now)
 }

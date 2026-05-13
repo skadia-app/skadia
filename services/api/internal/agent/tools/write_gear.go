@@ -255,7 +255,7 @@ func executeSetActivityGear(ctx context.Context, deps *WriteExecutionDeps, userI
 	if err := requireOwnedGear(ctx, deps, in.GearID, userID); err != nil {
 		return nil, err
 	}
-	if err := database.SetPrimaryGearForActivityTx(ctx, deps.Tx, in.ActivityID, in.GearID, "agent_tool"); err != nil {
+	if err := database.SetPrimaryGearForActivityTx(ctx, deps.Tx, in.ActivityID, in.GearID, "user"); err != nil {
 		return nil, err
 	}
 	return map[string]any{"affected_id": in.ActivityID, "activity_id": in.ActivityID, "gear_id": in.GearID, "status": "ok"}, nil

@@ -3,12 +3,15 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
 )
 
 type ModelProfile struct {
+	Enabled           bool    `json:"enabled"`
 	MaxTools          int     `json:"max_tools"`
 	UseRouter         bool    `json:"use_router"`
 	MaxToolsPerTurn   int     `json:"max_tools_per_turn"`
@@ -31,25 +34,25 @@ type ModelProfile struct {
 
 var defaultProfiles = map[string]ModelProfile{
 	"tiny": {
-		MaxTools: 4, UseRouter: true, MaxToolsPerTurn: 1, ToolResultLimit: 5,
+		Enabled: true, MaxTools: 4, UseRouter: true, MaxToolsPerTurn: 1, ToolResultLimit: 5,
 		SchemaMode: "filtered", EnableSQLAgent: false, SQLComplexity: "simple", MaxSQLRetries: 0,
 		FewShotCount: 3, SystemPromptMode: "compact", MaxContextTokens: 2000, HistoryMessages: 5,
 		ReasoningMode: "guided", Temperature: 0.2, TopP: 0.8, TopK: 20, PresencePenalty: 0.3, MaxResponseTokens: 500,
 	},
 	"small": {
-		MaxTools: 6, UseRouter: true, MaxToolsPerTurn: 3, ToolResultLimit: 12,
+		Enabled: true, MaxTools: 6, UseRouter: true, MaxToolsPerTurn: 3, ToolResultLimit: 12,
 		SchemaMode: "filtered", EnableSQLAgent: true, SQLComplexity: "simple", MaxSQLRetries: 1,
 		FewShotCount: 3, SystemPromptMode: "compact", MaxContextTokens: 12000, HistoryMessages: 10,
 		ReasoningMode: "guided", Temperature: 0.3, TopP: 0.9, TopK: 40, PresencePenalty: 0.3, MaxResponseTokens: 1500,
 	},
 	"medium": {
-		MaxTools: 10, UseRouter: true, MaxToolsPerTurn: 2, ToolResultLimit: 15,
+		Enabled: true, MaxTools: 10, UseRouter: true, MaxToolsPerTurn: 2, ToolResultLimit: 15,
 		SchemaMode: "filtered", EnableSQLAgent: true, SQLComplexity: "moderate", MaxSQLRetries: 2,
 		FewShotCount: 2, SystemPromptMode: "standard", MaxContextTokens: 8000, HistoryMessages: 20,
 		ReasoningMode: "free", Temperature: 0.5, TopP: 0.9, TopK: 40, PresencePenalty: 1.0, MaxResponseTokens: 2000,
 	},
 	"large": {
-		MaxTools: 20, UseRouter: false, MaxToolsPerTurn: 5, ToolResultLimit: 50,
+		Enabled: true, MaxTools: 20, UseRouter: false, MaxToolsPerTurn: 5, ToolResultLimit: 50,
 		SchemaMode: "full", EnableSQLAgent: true, SQLComplexity: "advanced", MaxSQLRetries: 2,
 		FewShotCount: 0, SystemPromptMode: "rich", MaxContextTokens: 16000, HistoryMessages: 30,
 		ReasoningMode: "free", Temperature: 0.7, TopP: 0.95, TopK: 50, PresencePenalty: 0.5, MaxResponseTokens: 4000,
@@ -63,6 +66,21 @@ var (
 
 type ProfileStore interface {
 	GetMLUserSetting(ctx context.Context, userID, key string) ([]byte, error)
+}
+
+type ProfileDefaults struct {
+	DefaultProfile string                  `json:"default_profile"`
+	Presets        map[string]ModelProfile `json:"presets"`
+}
+
+func ChatProfileDefaults(defaultProfile string) ProfileDefaults {
+	if defaultProfile == "" {
+		defaultProfile = "small"
+	}
+	return ProfileDefaults{
+		DefaultProfile: defaultProfile,
+		Presets:        maps.Clone(defaultProfiles),
+	}
 }
 
 func DetectModelSize(modelName string) string {
@@ -129,6 +147,7 @@ func LoadProfile(ctx context.Context, store ProfileStore, userID, defaultProfile
 	}
 
 	var setting struct {
+		Enabled     *bool          `json:"enabled"`
 		BaseProfile string         `json:"base_profile"`
 		Overrides   map[string]any `json:"overrides"`
 	}
@@ -141,7 +160,17 @@ func LoadProfile(ctx context.Context, store ProfileStore, userID, defaultProfile
 		baseProfile = defaultProfile
 	}
 	profile := GetProfile(baseProfile, "", setting.Overrides)
+	if setting.Enabled != nil {
+		profile.Enabled = *setting.Enabled
+	}
 	return &profile, nil
+}
+
+func (p ModelProfile) DisabledError() error {
+	if p.Enabled {
+		return nil
+	}
+	return fmt.Errorf("chat profile is disabled")
 }
 
 func applyProfileOverrides(profile *ModelProfile, overrides map[string]any) {

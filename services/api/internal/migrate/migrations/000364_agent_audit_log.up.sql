@@ -19,18 +19,12 @@ CREATE INDEX agent_audit_session_time ON agent_audit_log (session_id, requested_
 ALTER TABLE agent_audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_audit_log FORCE ROW LEVEL SECURITY;
 
-GRANT SELECT ON agent_audit_log TO skadia_readonly;
-
-CREATE POLICY agent_audit_select_readonly ON agent_audit_log
-    FOR SELECT TO skadia_readonly
-    USING (user_id = current_setting('app.current_user_id', true)::uuid);
-
 CREATE POLICY agent_audit_owner_rw ON agent_audit_log
     FOR ALL TO PUBLIC
     USING (user_id = current_setting('app.current_user_id', true)::uuid)
     WITH CHECK (user_id = current_setting('app.current_user_id', true)::uuid);
 
-CREATE POLICY agent_audit_unattributed_update ON agent_audit_log
+CREATE POLICY agent_audit_purge_anonymize ON agent_audit_log
     FOR UPDATE TO PUBLIC
-    USING (user_id IS NULL)
+    USING (user_id = current_setting('app.current_user_id', true)::uuid)
     WITH CHECK (user_id IS NULL);

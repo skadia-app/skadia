@@ -87,6 +87,38 @@ func TestSetActivityGearRejectsForeignGear(t *testing.T) {
 	}
 }
 
+func TestSetActivityGearStoresUserSource(t *testing.T) {
+	fx := newGearToolFixture(t)
+	ctx := context.Background()
+	activityID := fx.insertActivity(t, 1200, 600, 10, 10, 0, 0, 0)
+	envelope := gearWriteEnvelope(t, fx, "set_activity_gear")
+	sessionID := uuid.NewString()
+	args := json.RawMessage(`{"activity_id":"` + activityID + `","gear_id":"` + fx.gearID + `","role_key":"primary"}`)
+
+	if _, err := envelope.PrepareConfirmation(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: "call-set-gear", ToolName: "set_activity_gear", Args: args,
+	}); err != nil {
+		t.Fatalf("PrepareConfirmation: %v", err)
+	}
+	confirmEnvelopeTool(t, envelope, sessionID, "call-set-gear")
+	if _, err := envelope.ExecuteConfirmed(ctx, ToolExecutionRequest{
+		UserID: fx.userID, SessionID: sessionID, ToolCallID: "call-set-gear", ToolName: "set_activity_gear", Args: args,
+	}); err != nil {
+		t.Fatalf("ExecuteConfirmed: %v", err)
+	}
+
+	var source string
+	if err := fx.pool.QueryRow(ctx,
+		`SELECT source FROM activity_gear_assignments WHERE activity_id = $1 AND role_key = 'primary'`,
+		activityID,
+	).Scan(&source); err != nil {
+		t.Fatalf("select assignment source: %v", err)
+	}
+	if source != "user" {
+		t.Fatalf("assignment source = %q, want user", source)
+	}
+}
+
 func TestRetireGearWriteToolUpdatesStatus(t *testing.T) {
 	fx := newGearToolFixture(t)
 	ctx := context.Background()
