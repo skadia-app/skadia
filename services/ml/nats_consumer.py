@@ -487,16 +487,19 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                         except Exception as e:
                             logger.warning("markdown conversion failed for document %s: %s", doc_id, e)
 
-                await nc.publish(
-                    "skadia.document.processed",
-                    json.dumps({
-                        "doc_id": doc_id,
-                        "user_id": user_id,
-                        "gear_id": data.get("gear_id"),
-                        "file_id": file_id,
-                        "success": success,
-                    }).encode(),
-                )
+                try:
+                    await nc.publish(
+                        "skadia.document.processed",
+                        json.dumps({
+                            "doc_id": doc_id,
+                            "user_id": user_id,
+                            "gear_id": data.get("gear_id"),
+                            "file_id": file_id,
+                            "success": success,
+                        }).encode(),
+                    )
+                except Exception as e:
+                    logger.warning("failed to publish processed event for document %s: %s", doc_id, e)
 
                 await msg.ack()
                 _metrics["processed_total"] += 1

@@ -119,6 +119,7 @@ func TestMigration_LLMRoleCapabilities_LegacyDefaultBackfillAndSeedDisable(t *te
 	}
 
 	assertLLMRoleRow(t, ctx, tx, "tool_agent", "ollama", "http://custom.example", "operator-model", true)
+	assertLLMRoleCapabilities(t, ctx, tx, "tool_agent", []string{"streaming_chat", "tool_calls", "json_args", "german_answers", "sql_readonly", "write_preview"})
 	assertLLMRoleRow(t, ctx, tx, "document_extract", "disabled", "", "", false)
 	assertLLMRoleRow(t, ctx, tx, "vision", "disabled", "", "", false)
 
@@ -296,5 +297,22 @@ func assertLLMRoleRow(t *testing.T, ctx context.Context, q llmRoleQuerier, role,
 	if gotBackend != backend || gotAPIBaseValue != apiBase || gotModelNameValue != modelName || gotEnabled != enabled {
 		t.Fatalf("%s = backend=%q api_base=%v model=%v enabled=%v, want backend=%q api_base=%q model=%q enabled=%v",
 			role, gotBackend, gotAPIBase, gotModelName, gotEnabled, backend, apiBase, modelName, enabled)
+	}
+}
+
+func assertLLMRoleCapabilities(t *testing.T, ctx context.Context, q llmRoleQuerier, role string, want []string) {
+	t.Helper()
+	var got []string
+	if err := q.QueryRow(ctx, `
+		SELECT capability_flags
+		FROM llm_system_config
+		WHERE role = $1
+	`, role).Scan(&got); err != nil {
+		t.Fatalf("query %s capabilities: %v", role, err)
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("%s capability_flags = %#v, want %#v", role, got, want)
 	}
 }

@@ -214,12 +214,14 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 
 func (a *Agent) chatParams(cfg LLMConfig, profile *ModelProfile, messages []conversationMessage, tools []llmwire.ToolDefinition, allowTools bool) llmwire.ChatRequest {
 	params := llmwire.ChatRequest{
-		Model:           cfg.Model,
-		Messages:        toLLMMessages(messages),
-		Temperature:     floatPtr(profile.Temperature),
-		TopP:            floatPtr(profile.TopP),
-		PresencePenalty: floatPtr(profile.PresencePenalty),
-		MaxTokens:       intPtr(profile.MaxResponseTokens),
+		Model:                    cfg.Model,
+		Messages:                 toLLMMessages(messages),
+		Temperature:              floatPtr(profile.Temperature),
+		TopP:                     floatPtr(profile.TopP),
+		PresencePenalty:          floatPtr(profile.PresencePenalty),
+		MaxTokens:                intPtr(profile.MaxResponseTokens),
+		IncludeUsage:             cfg.SupportsStreamingUsage(),
+		DisableParallelToolCalls: allowTools && cfg.SupportsParallelToolControl(),
 	}
 	if allowTools {
 		params.Tools = tools

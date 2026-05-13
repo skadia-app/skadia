@@ -216,6 +216,9 @@ export default function ChatPage() {
             body: JSON.stringify({ message_id: messageId, message: text }),
           })
         } else {
+          removeOptimisticUserMessage()
+          setIsStreaming(false)
+          setThinking(null)
           clearToken()
           redirectToLogin()
           return

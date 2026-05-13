@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ChatPage from './ChatPage'
 import { ToastProvider } from '@/lib/toast'
 import { createSession, getMessages, listSessions, type ChatMessage } from '@/api/chat'
+import { clearToken, redirectToLogin, refreshToken } from '@/lib/auth'
 
 vi.mock('@/api/chat', () => ({
   listSessions: vi.fn(),
@@ -188,6 +189,20 @@ describe('ChatPage', () => {
       expect(screen.queryByText('nicht speichern')).not.toBeInTheDocument()
     })
     expect(await screen.findByText('Zu viele Anfragen')).toBeInTheDocument()
+  })
+
+  it('removes the optimistic user message when token refresh fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('unauthorized', { status: 401 })))
+    vi.mocked(refreshToken).mockResolvedValueOnce(false)
+
+    renderPage()
+    await sendMessage('nicht speichern')
+
+    await waitFor(() => {
+      expect(screen.queryByText('nicht speichern')).not.toBeInTheDocument()
+    })
+    expect(clearToken).toHaveBeenCalled()
+    expect(redirectToLogin).toHaveBeenCalled()
   })
 
   it('clears a pending confirmation immediately when switching sessions after streaming', async () => {

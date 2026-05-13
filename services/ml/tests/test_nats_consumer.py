@@ -338,7 +338,7 @@ async def test_process_document_message_acks_malformed_or_legacy_document_ids(mo
 
 
 @pytest.mark.asyncio
-async def test_process_document_message_waits_to_ack_until_processed_event_publishes(monkeypatch):
+async def test_process_document_message_acks_when_processed_event_publish_fails(monkeypatch):
     class _Conn:
         async def fetchrow(self, query, *args):
             return {
@@ -380,8 +380,8 @@ async def test_process_document_message_waits_to_ack_until_processed_event_publi
 
     await nats_consumer._process_document_message(msg, _NC())
 
-    assert msg.acked == 0
-    assert msg.naked == 1
+    assert msg.acked == 1
+    assert msg.naked == 0
 
 
 @pytest.mark.asyncio
