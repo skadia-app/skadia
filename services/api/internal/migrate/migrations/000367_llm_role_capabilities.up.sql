@@ -23,7 +23,7 @@ INSERT INTO llm_system_config (
 )
 SELECT
   'tool_agent', backend_type, api_base, model_name, api_key_enc, enabled,
-  ARRAY['streaming_chat', 'tool_calls', 'json_args', 'german_answers']::text[],
+  ARRAY['streaming_chat', 'tool_calls', 'json_args', 'german_answers', 'sql_readonly', 'write_preview']::text[],
   'untested',
   '{}'::jsonb
 FROM llm_system_config

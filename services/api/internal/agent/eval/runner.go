@@ -380,8 +380,12 @@ func validateCase(tc Case, transcript Transcript) CaseResult {
 		result.Passed = false
 		result.Failures = append(result.Failures, "missing SQL tenant guard")
 	}
-	if tc.Category == CategorySQLReadonly && looksLikeSQL(transcript.Content) {
-		if err := agent.ValidateSQL(agent.AutofixSQL(transcript.Content)); err != nil {
+	if tc.Category == CategorySQLReadonly && (expectsSQLOutput(tc) || looksLikeSQL(transcript.Content) || strings.Contains(transcript.Content, "```")) {
+		sql, err := sqlCandidateForValidation(transcript.Content)
+		if err != nil {
+			result.Passed = false
+			result.Failures = append(result.Failures, err.Error())
+		} else if err := agent.ValidateSQL(agent.AutofixSQL(sql)); err != nil {
 			result.Passed = false
 			result.Failures = append(result.Failures, fmt.Sprintf("SQL rejected by runtime validator: %v", err))
 		}
@@ -450,6 +454,53 @@ func hasSQLTenantGuard(sql string) bool {
 func looksLikeSQL(content string) bool {
 	first, _, _ := strings.Cut(strings.ToLower(strings.TrimSpace(content)), " ")
 	return first == "select" || first == "with"
+}
+
+func expectsSQLOutput(tc Case) bool {
+	for _, needle := range tc.Expectations.MustContain {
+		switch strings.ToLower(strings.TrimSpace(needle)) {
+		case "select", "with":
+			return true
+		}
+	}
+	return false
+}
+
+func sqlCandidateForValidation(content string) (string, error) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return "", fmt.Errorf("SQL eval output is empty")
+	}
+	if strings.HasPrefix(trimmed, "```") {
+		lines := strings.Split(trimmed, "\n")
+		if len(lines) < 3 {
+			return "", fmt.Errorf("SQL eval output has an unterminated fenced block")
+		}
+		lang := strings.TrimSpace(strings.TrimPrefix(lines[0], "```"))
+		if lang != "" && !strings.EqualFold(lang, "sql") {
+			return "", fmt.Errorf("SQL eval fenced block language = %q, want sql or empty", lang)
+		}
+		for i := 1; i < len(lines); i++ {
+			if strings.TrimSpace(lines[i]) == "```" {
+				if strings.TrimSpace(strings.Join(lines[i+1:], "\n")) != "" {
+					return "", fmt.Errorf("SQL eval output must not contain prose after the fenced SQL block")
+				}
+				sql := strings.TrimSpace(strings.Join(lines[1:i], "\n"))
+				if !looksLikeSQL(sql) {
+					return "", fmt.Errorf("SQL eval fenced block does not start with SELECT or WITH")
+				}
+				return sql, nil
+			}
+		}
+		return "", fmt.Errorf("SQL eval output has an unterminated fenced block")
+	}
+	if !looksLikeSQL(trimmed) {
+		return "", fmt.Errorf("SQL eval output must be bare SQL or a single fenced SQL block")
+	}
+	if strings.Contains(trimmed, "```") {
+		return "", fmt.Errorf("SQL eval output must not mix prose and fenced SQL")
+	}
+	return trimmed, nil
 }
 
 func decodeCases(raw []byte) ([]Case, error) {

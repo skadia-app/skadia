@@ -10,9 +10,10 @@ import (
 )
 
 type LLMConfig struct {
-	BaseURL string
-	APIKey  string
-	Model   string
+	BaseURL     string
+	APIKey      string
+	Model       string
+	BackendType string
 }
 
 type LLMResolverConfig struct {
@@ -35,6 +36,14 @@ type LLMResolver struct {
 
 func NewLLMResolver(store LLMConfigStore, cfg LLMResolverConfig) *LLMResolver {
 	return &LLMResolver{store: store, cfg: cfg}
+}
+
+func (c LLMConfig) SupportsStreamingUsage() bool {
+	return c.BackendType == model.LLMBackendOpenAI
+}
+
+func (c LLMConfig) SupportsParallelToolControl() bool {
+	return c.BackendType == model.LLMBackendOpenAI
 }
 
 func (r *LLMResolver) Resolve(ctx context.Context, userID, role string) (LLMConfig, error) {
@@ -71,8 +80,9 @@ func (r *LLMResolver) Resolve(ctx context.Context, userID, role string) (LLMConf
 	}
 
 	resolved := LLMConfig{
-		BaseURL: baseURL,
-		Model:   strings.TrimSpace(*system.ModelName),
+		BaseURL:     baseURL,
+		Model:       strings.TrimSpace(*system.ModelName),
+		BackendType: system.BackendType,
 	}
 	if system.HasAPIKey {
 		enc, err := r.store.GetLLMAPIKeyEnc(ctx, role)

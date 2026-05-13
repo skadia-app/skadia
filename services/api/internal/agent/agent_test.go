@@ -142,6 +142,28 @@ func TestAgentStreamStopsBeforeLLMWhenChatProfileDisabled(t *testing.T) {
 	assertEventOrder(t, sink.events, []string{EventError})
 }
 
+func TestAgentChatParamsUsesProviderSpecificOptionalFlags(t *testing.T) {
+	agent := New(Config{})
+	profile := defaultProfiles["small"]
+	messages := []conversationMessage{{Role: "user", Content: "Hallo"}}
+
+	openAIParams := agent.chatParams(LLMConfig{Model: "model", BackendType: model.LLMBackendOpenAI}, &profile, messages, []llmwire.ToolDefinition{{Name: "query_activities"}}, true)
+	if !openAIParams.IncludeUsage {
+		t.Fatal("OpenAI chat params did not request streaming usage")
+	}
+	if !openAIParams.DisableParallelToolCalls {
+		t.Fatal("OpenAI chat params did not disable parallel tool calls when tools are allowed")
+	}
+
+	llamaParams := agent.chatParams(LLMConfig{Model: "model", BackendType: model.LLMBackendLlamaServer}, &profile, messages, []llmwire.ToolDefinition{{Name: "query_activities"}}, true)
+	if llamaParams.IncludeUsage {
+		t.Fatal("llama_server chat params requested provider-specific streaming usage")
+	}
+	if llamaParams.DisableParallelToolCalls {
+		t.Fatal("llama_server chat params sent provider-specific parallel tool control")
+	}
+}
+
 func TestCollectLLMStreamAccumulatesSplitToolDeltasAndGeneratesMissingIDs(t *testing.T) {
 	stream := &fakeStream{events: []llmwire.ChatStreamEvent{
 		{ToolCalls: []llmwire.ToolCallDelta{

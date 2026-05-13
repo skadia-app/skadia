@@ -234,6 +234,48 @@ func TestValidateCaseRejectsSQLRejectedByRuntimeValidator(t *testing.T) {
 	}
 }
 
+func TestValidateCaseRejectsProseWrappedSQLWhenSQLOutputRequired(t *testing.T) {
+	result := validateCase(Case{
+		ID:       "sql",
+		Category: CategorySQLReadonly,
+		Expectations: Expectations{
+			MustContain: []string{"select", "activities"},
+		},
+	}, Transcript{Content: "Here is the query:\nSELECT count(*) FROM activities", FinishReason: "stop"})
+
+	if result.Passed {
+		t.Fatal("validateCase accepted prose-wrapped SQL output")
+	}
+}
+
+func TestValidateCaseAcceptsSingleFencedSQLBlockWhenSQLOutputRequired(t *testing.T) {
+	result := validateCase(Case{
+		ID:       "sql",
+		Category: CategorySQLReadonly,
+		Expectations: Expectations{
+			MustContain: []string{"select", "activities"},
+		},
+	}, Transcript{Content: "```sql\nSELECT count(*) FROM activities\n```", FinishReason: "stop"})
+
+	if !result.Passed {
+		t.Fatalf("validateCase rejected single fenced SQL block: %#v", result.Failures)
+	}
+}
+
+func TestValidateCaseAllowsReadonlyRefusalWithoutSQL(t *testing.T) {
+	result := validateCase(Case{
+		ID:       "sql-refusal",
+		Category: CategorySQLReadonly,
+		Expectations: Expectations{
+			MinContentChars: 10,
+		},
+	}, Transcript{Content: "Das kann ich nicht als reine Leseabfrage ausfuehren.", FinishReason: "stop"})
+
+	if !result.Passed {
+		t.Fatalf("validateCase rejected non-SQL refusal: %#v", result.Failures)
+	}
+}
+
 func TestValidateCaseRejectsMalformedToolArguments(t *testing.T) {
 	result := validateCase(Case{
 		ID:       "tool",

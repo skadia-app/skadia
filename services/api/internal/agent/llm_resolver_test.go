@@ -49,7 +49,7 @@ func TestLLMResolverUsesPassedSystemRoleConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, APIKey: "system-key", Model: modelName})
+	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, APIKey: "system-key", Model: modelName, BackendType: "llama_server"})
 }
 
 func TestLLMResolverAllowsLocalBackendWithoutAPIKey(t *testing.T) {
@@ -71,7 +71,7 @@ func TestLLMResolverAllowsLocalBackendWithoutAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, Model: modelName})
+	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, Model: modelName, BackendType: "llama_server"})
 }
 
 func TestLLMResolverDoesNotInheritEnvAPIKeyForDBRole(t *testing.T) {
@@ -184,7 +184,7 @@ func TestLLMResolverAcceptsWaivedSystemRoleWithAdminReason(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, Model: systemModel})
+	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, Model: systemModel, BackendType: "llama_server"})
 }
 
 func TestLLMResolverRejectsWaivedSystemRoleWithoutAdminReason(t *testing.T) {
@@ -235,7 +235,7 @@ func TestLLMResolverUserModelOverrideRequiresEvaluatedTuple(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, Model: userModel})
+	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, Model: userModel, BackendType: "llama_server"})
 }
 
 func TestLLMResolverRejectsUnevaluatedUserModelOverride(t *testing.T) {

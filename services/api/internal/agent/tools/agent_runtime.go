@@ -65,10 +65,13 @@ func (r *AgentToolRuntime) Execute(ctx context.Context, req agent.ToolRuntimeReq
 
 func (r *AgentToolRuntime) PublicToolCallArgs(toolName string, args json.RawMessage) (json.RawMessage, bool) {
 	if r == nil || r.Registry == nil {
-		return args, true
+		return nil, false
 	}
 	tool, ok := r.Registry.Get(toolName)
-	if !ok || tool.Permission == PermissionRead {
+	if !ok {
+		return nil, false
+	}
+	if tool.Permission == PermissionRead {
 		return args, true
 	}
 	return nil, false

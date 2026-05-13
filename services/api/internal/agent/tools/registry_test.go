@@ -123,6 +123,19 @@ func TestRegistryAddEnabledWriteTools(t *testing.T) {
 	}
 }
 
+func TestAgentToolRuntimePublicToolCallArgsFailsClosedForUnknownTools(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&Tool{Name: "read_activity", InputSchema: json.RawMessage(`{"type":"object"}`), Permission: PermissionRead})
+	runtime := NewAgentToolRuntime(reg, nil, nil)
+
+	if _, include := runtime.PublicToolCallArgs("missing_tool", json.RawMessage(`{"secret":"value"}`)); include {
+		t.Fatal("PublicToolCallArgs exposed args for an unknown tool")
+	}
+	if args, include := runtime.PublicToolCallArgs("read_activity", json.RawMessage(`{"id":"a1"}`)); !include || string(args) != `{"id":"a1"}` {
+		t.Fatalf("PublicToolCallArgs for read tool = include %v args %s", include, args)
+	}
+}
+
 func TestRegistryLocalMCPReadDefinitionsOmitWriteTools(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(&Tool{
