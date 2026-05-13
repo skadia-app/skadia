@@ -7,10 +7,12 @@ import (
 )
 
 type SQLAnalysis struct {
-	Tables         []string
-	CTENames       []string
-	MultiStatement bool
-	UnsafeKeywords []string
+	Tables          []string
+	CTENames        []string
+	FirstToken      string
+	MultiStatement  bool
+	UnsafeKeywords  []string
+	UnsafeFunctions []string
 }
 
 func AnalyzeSQL(sql string) (SQLAnalysis, error) {
@@ -19,6 +21,7 @@ func AnalyzeSQL(sql string) (SQLAnalysis, error) {
 		return SQLAnalysis{}, err
 	}
 	unsafe := unsafeSQLKeywords(tokens)
+	unsafeFunctions := unsafeSessionConfigFunctions(tokens)
 
 	ctes := extractCTENames(tokens)
 	cteSet := make(map[string]bool, len(ctes))
@@ -26,44 +29,124 @@ func AnalyzeSQL(sql string) (SQLAnalysis, error) {
 		cteSet[strings.ToLower(cte)] = true
 	}
 
-	var tables []string
-	seen := map[string]bool{}
-	for i := 0; i < len(tokens)-1; i++ {
-		if !isKeyword(tokens[i], "from") && !isKeyword(tokens[i], "join") {
-			continue
-		}
-		j := i + 1
-		if j < len(tokens) && isKeyword(tokens[j], "lateral") {
-			j++
-		}
-		if j >= len(tokens) || tokens[j] == "(" {
-			continue
-		}
-		name := normalizeIdentifier(tokens[j])
-		if name == "" || cteSet[strings.ToLower(name)] {
-			continue
-		}
-		key := strings.ToLower(name)
-		if !seen[key] {
-			seen[key] = true
-			tables = append(tables, name)
-		}
+	tables := extractTableNames(tokens, cteSet)
+
+	firstToken := ""
+	if len(tokens) > 0 {
+		firstToken = tokens[0]
 	}
 
-	return SQLAnalysis{Tables: tables, CTENames: ctes, MultiStatement: multi, UnsafeKeywords: unsafe}, nil
+	return SQLAnalysis{Tables: tables, CTENames: ctes, FirstToken: firstToken, MultiStatement: multi, UnsafeKeywords: unsafe, UnsafeFunctions: unsafeFunctions}, nil
+}
+
+func extractTableNames(tokens []string, cteSet map[string]bool) []string {
+	var tables []string
+	seen := map[string]bool{}
+	inFromClause := map[int]bool{}
+	depth := 0
+	addTableAt := func(index int) {
+		name := relationNameAt(tokens, index)
+		if name == "" || cteSet[strings.ToLower(name)] {
+			return
+		}
+		key := strings.ToLower(name)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		tables = append(tables, name)
+	}
+
+	for i, token := range tokens {
+		switch token {
+		case "(":
+			depth++
+			continue
+		case ")":
+			delete(inFromClause, depth)
+			if depth > 0 {
+				depth--
+			}
+			continue
+		}
+		if endsFromClause(token) {
+			inFromClause[depth] = false
+		}
+		if isKeyword(token, "from") {
+			inFromClause[depth] = true
+			addTableAt(i + 1)
+			continue
+		}
+		if isKeyword(token, "join") {
+			addTableAt(i + 1)
+			continue
+		}
+		if token == "," && inFromClause[depth] {
+			addTableAt(i + 1)
+		}
+	}
+	return tables
+}
+
+func relationNameAt(tokens []string, index int) string {
+	for index < len(tokens) && (isKeyword(tokens[index], "lateral") || isKeyword(tokens[index], "only")) {
+		index++
+	}
+	if index >= len(tokens) || tokens[index] == "(" {
+		return ""
+	}
+	name := normalizeIdentifier(tokens[index])
+	if name == "" || endsFromClause(name) {
+		return ""
+	}
+	return name
+}
+
+func endsFromClause(token string) bool {
+	switch strings.ToLower(token) {
+	case "where", "group", "having", "order", "limit", "offset", "fetch", "union", "intersect", "except", "window", "returning", "for":
+		return true
+	default:
+		return false
+	}
 }
 
 func unsafeSQLKeywords(tokens []string) []string {
 	unsafeSet := map[string]bool{
-		"insert": true,
-		"update": true,
-		"delete": true,
-		"merge":  true,
-		"alter":  true,
-		"drop":   true,
-		"create": true,
-		"copy":   true,
-		"do":     true,
+		"alter":      true,
+		"analyze":    true,
+		"begin":      true,
+		"call":       true,
+		"cluster":    true,
+		"commit":     true,
+		"copy":       true,
+		"create":     true,
+		"deallocate": true,
+		"delete":     true,
+		"discard":    true,
+		"do":         true,
+		"drop":       true,
+		"execute":    true,
+		"grant":      true,
+		"insert":     true,
+		"listen":     true,
+		"load":       true,
+		"lock":       true,
+		"merge":      true,
+		"notify":     true,
+		"prepare":    true,
+		"refresh":    true,
+		"release":    true,
+		"reset":      true,
+		"revoke":     true,
+		"rollback":   true,
+		"savepoint":  true,
+		"set":        true,
+		"show":       true,
+		"truncate":   true,
+		"unlisten":   true,
+		"update":     true,
+		"vacuum":     true,
 	}
 	seen := map[string]bool{}
 	var out []string
@@ -73,6 +156,69 @@ func unsafeSQLKeywords(tokens []string) []string {
 			seen[key] = true
 			out = append(out, key)
 		}
+	}
+	return out
+}
+
+func unsafeSessionConfigFunctions(tokens []string) []string {
+	unsafeSet := map[string]bool{
+		"current_catalog":                  true,
+		"current_database":                 true,
+		"current_query":                    true,
+		"current_schema":                   true,
+		"current_schemas":                  true,
+		"current_setting":                  true,
+		"pg_backend_pid":                   true,
+		"pg_conf_load_time":                true,
+		"pg_current_logfile":               true,
+		"pg_notification_queue_usage":      true,
+		"set_config":                       true,
+		"currval":                          true,
+		"lastval":                          true,
+		"nextval":                          true,
+		"setval":                           true,
+		"lo_close":                         true,
+		"lo_creat":                         true,
+		"lo_create":                        true,
+		"lo_export":                        true,
+		"lo_from_bytea":                    true,
+		"lo_get":                           true,
+		"lo_import":                        true,
+		"lo_lseek":                         true,
+		"lo_lseek64":                       true,
+		"lo_open":                          true,
+		"lo_put":                           true,
+		"lo_tell":                          true,
+		"lo_tell64":                        true,
+		"lo_truncate":                      true,
+		"lo_truncate64":                    true,
+		"lo_unlink":                        true,
+		"loread":                           true,
+		"lowrite":                          true,
+		"pg_advisory_lock":                 true,
+		"pg_advisory_lock_shared":          true,
+		"pg_advisory_unlock":               true,
+		"pg_advisory_unlock_all":           true,
+		"pg_advisory_unlock_shared":        true,
+		"pg_advisory_xact_lock":            true,
+		"pg_advisory_xact_lock_shared":     true,
+		"pg_try_advisory_lock":             true,
+		"pg_try_advisory_lock_shared":      true,
+		"pg_try_advisory_xact_lock":        true,
+		"pg_try_advisory_xact_lock_shared": true,
+	}
+	seen := map[string]bool{}
+	var out []string
+	for i, token := range tokens {
+		key := lastIdentifierPart(normalizeIdentifier(token))
+		if key == "" || !unsafeSet[key] || seen[key] {
+			continue
+		}
+		if i+1 < len(tokens) && tokens[i+1] != "(" {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
 	}
 	return out
 }
@@ -241,4 +387,13 @@ func normalizeIdentifier(token string) string {
 		return strings.Join(parts, ".")
 	}
 	return strings.Trim(token, `"`)
+}
+
+func lastIdentifierPart(identifier string) string {
+	identifier = strings.ToLower(strings.TrimSpace(identifier))
+	if identifier == "" {
+		return ""
+	}
+	parts := strings.Split(identifier, ".")
+	return parts[len(parts)-1]
 }

@@ -25,7 +25,7 @@ func TestRegisterRouteToolsOwnershipSplit(t *testing.T) {
 		"search_routes":         true,
 		"list_routing_profiles": false,
 		"plan_route":            false,
-		"search_pois_on_route":  true,
+		"search_pois_on_route":  false,
 		"get_isochrone":         false,
 		"query_coverage":        false,
 	}
@@ -150,6 +150,59 @@ func TestExecutePlanRouteRejectsUnknownProfileParamBeforeHTTP(t *testing.T) {
 	}
 }
 
+func TestExecutePlanRouteRejectsInvalidWaypointBeforeHTTP(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	result, err := executePlanRoute(context.Background(), &Deps{BRouterURL: server.URL}, "", json.RawMessage(`{
+		"waypoints": [[11.394,47.259],[181,47.280]],
+		"profile": "hiking-mountain"
+	}`))
+	if err != nil {
+		t.Fatalf("executePlanRoute returned error: %v", err)
+	}
+	if called {
+		t.Fatal("invalid waypoint should be rejected before calling BRouter")
+	}
+	got := result.(map[string]any)
+	if got["error"] == "" || got["fallback"] != true {
+		t.Fatalf("unexpected result: %#v", got)
+	}
+}
+
+func TestBuildPlanRouteURLRejectsTooManyWaypoints(t *testing.T) {
+	waypoints := make([][]float64, maxPlanRouteWaypoints+1)
+	for i := range waypoints {
+		waypoints[i] = []float64{11.0 + float64(i)/1000, 47.0}
+	}
+	if _, err := buildPlanRouteURL("http://example.test", planRouteArgs{Waypoints: waypoints, Profile: "hiking-mountain"}); err == nil {
+		t.Fatal("buildPlanRouteURL accepted too many waypoints")
+	}
+}
+
+func TestExecutePlanRouteCapsResponseSize(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"payload":"` + strings.Repeat("x", maxPlanRouteResponseBytes) + `"}`))
+	}))
+	defer server.Close()
+
+	result, err := executePlanRoute(context.Background(), &Deps{BRouterURL: server.URL}, "", json.RawMessage(`{
+		"waypoints": [[11.394,47.259],[11.450,47.280]],
+		"profile": "hiking-mountain"
+	}`))
+	if err != nil {
+		t.Fatalf("executePlanRoute returned error: %v", err)
+	}
+	got := result.(map[string]any)
+	if got["fallback"] != true || !strings.Contains(got["error"].(string), "response too large") {
+		t.Fatalf("unexpected capped response result: %#v", got)
+	}
+}
+
 func TestExecutePlanRoutePreviewDoesNotUseSaveMethod(t *testing.T) {
 	var gotMethod string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -264,6 +317,9 @@ func TestExecuteQueryCoverageHTTP(t *testing.T) {
 		if r.URL.Path != "/internal/coverage/query" {
 			t.Fatalf("path = %q, want /internal/coverage/query", r.URL.Path)
 		}
+		if r.Header.Get("X-ML-Callback-Secret") != "secret" {
+			t.Fatalf("missing internal auth header")
+		}
 		if r.URL.Query().Get("lat") != "47.2" || r.URL.Query().Get("lon") != "11.4" || r.URL.Query().Get("layers") != "forest,traffic" {
 			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
 		}
@@ -275,7 +331,7 @@ func TestExecuteQueryCoverageHTTP(t *testing.T) {
 	routeAPIBaseURL = server.URL
 	t.Cleanup(func() { routeAPIBaseURL = oldBase })
 
-	result, err := executeQueryCoverage(context.Background(), &Deps{MLBaseURL: "http://127.0.0.1:1"}, "", json.RawMessage(`{
+	result, err := executeQueryCoverage(context.Background(), &Deps{MLBaseURL: "http://127.0.0.1:1", InternalSecret: "secret"}, "", json.RawMessage(`{
 		"lat": 47.2,
 		"lon": 11.4,
 		"layers": "forest,traffic"
@@ -290,6 +346,96 @@ func TestExecuteQueryCoverageHTTP(t *testing.T) {
 	layers := got["layers"].(map[string]any)
 	if layers["forest"].(float64) != 7 || layers["traffic"].(float64) != 2 {
 		t.Fatalf("unexpected layers: %#v", layers)
+	}
+}
+
+func TestExecuteQueryCoverageRejectsInvalidInputBeforeHTTP(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	oldBase := routeAPIBaseURL
+	routeAPIBaseURL = server.URL
+	t.Cleanup(func() { routeAPIBaseURL = oldBase })
+
+	if _, err := executeQueryCoverage(context.Background(), nil, "", json.RawMessage(`{
+		"lat": 91,
+		"lon": 11.4,
+		"layers": "forest"
+	}`)); err == nil {
+		t.Fatal("executeQueryCoverage accepted out-of-range coordinates")
+	}
+	if _, err := executeQueryCoverage(context.Background(), nil, "", json.RawMessage(`{
+		"lat": 47.2,
+		"lon": 11.4,
+		"layers": "../secret"
+	}`)); err == nil {
+		t.Fatal("executeQueryCoverage accepted invalid layer")
+	}
+	if called {
+		t.Fatal("invalid coverage input should be rejected before HTTP")
+	}
+}
+
+func TestExecuteQueryCoverageCapsResponseSize(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"forest":"` + strings.Repeat("x", maxCoverageResponseBytes) + `"}`))
+	}))
+	defer server.Close()
+	oldBase := routeAPIBaseURL
+	routeAPIBaseURL = server.URL
+	t.Cleanup(func() { routeAPIBaseURL = oldBase })
+
+	_, err := executeQueryCoverage(context.Background(), nil, "", json.RawMessage(`{
+		"lat": 47.2,
+		"lon": 11.4,
+		"layers": "forest"
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "response too large") {
+		t.Fatalf("executeQueryCoverage err = %v, want response cap error", err)
+	}
+}
+
+func TestGetIsochroneSchemaDoesNotAcceptProfile(t *testing.T) {
+	reg := NewRegistry()
+	RegisterRouteTools(reg)
+	tool := reg.tools["get_isochrone"]
+	if tool == nil {
+		t.Fatal("get_isochrone not registered")
+	}
+	if err := validateArgs("get_isochrone", tool.InputSchema, json.RawMessage(`{"lat":47.2,"lng":11.4,"profile":"mtb"}`)); err == nil {
+		t.Fatal("get_isochrone schema accepted ignored profile")
+	}
+}
+
+func TestBuildSearchPOIsOnRouteRejectsInvalidAndOversizedGeometry(t *testing.T) {
+	if _, _, _, err := buildSearchPOIsOnRouteSQL(searchPOIsOnRouteArgs{
+		RouteGeometry: `{"type":"Point","coordinates":[11.4,47.2]}`,
+	}); err == nil {
+		t.Fatal("buildSearchPOIsOnRouteSQL accepted non-line geometry")
+	}
+	if _, _, _, err := buildSearchPOIsOnRouteSQL(searchPOIsOnRouteArgs{
+		RouteGeometry: `{"type":"LineString","coordinates":[[11.4,47.2],[181,47.3]]}`,
+	}); err == nil {
+		t.Fatal("buildSearchPOIsOnRouteSQL accepted out-of-range coordinate")
+	}
+	coords := make([]string, maxRouteGeometryVertices+1)
+	for i := range coords {
+		coords[i] = `[11.4,47.2]`
+	}
+	if _, _, _, err := buildSearchPOIsOnRouteSQL(searchPOIsOnRouteArgs{
+		RouteGeometry: `{"type":"LineString","coordinates":[` + strings.Join(coords, ",") + `]}`,
+	}); err == nil {
+		t.Fatal("buildSearchPOIsOnRouteSQL accepted too many vertices")
+	}
+}
+
+func TestBuildIsochroneQueryCapsReachablePoints(t *testing.T) {
+	_, distanceSQL, _ := buildIsochroneSQL()
+	if !strings.Contains(distanceSQL, "LIMIT 1000") {
+		t.Fatalf("distance SQL missing point cap:\n%s", distanceSQL)
 	}
 }
 

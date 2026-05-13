@@ -16,6 +16,8 @@ func TestAnalyzeSQLTokenizer(t *testing.T) {
 	}{
 		{name: "simple select", sql: `SELECT * FROM activities`, wantTables: []string{"activities"}},
 		{name: "join", sql: `SELECT * FROM activities a JOIN gear g ON g.id = a.gear_id`, wantTables: []string{"activities", "gear"}},
+		{name: "comma separated from", sql: `SELECT * FROM activities a, users u WHERE u.id = a.user_id`, wantTables: []string{"activities", "users"}},
+		{name: "comma after join expression", sql: `SELECT * FROM activities a JOIN gear g ON true, users u`, wantTables: []string{"activities", "gear", "users"}},
 		{name: "multi statement", sql: `SELECT 1; SELECT 2`, wantMultiStmt: true},
 		{name: "semicolon in string", sql: `SELECT ';' AS semi FROM activities`, wantTables: []string{"activities"}},
 		{name: "dollar quoted block", sql: `SELECT $$;$$ AS semi FROM activities`, wantTables: []string{"activities"}},

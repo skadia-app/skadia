@@ -89,7 +89,7 @@ func GeoTools() []*Tool {
 		{
 			Name:        "search_trails_by_difficulty",
 			Description: "Search shared OSM trails by hiking or MTB difficulty near a coordinate.",
-			InputSchema: json.RawMessage(`{"type":"object","required":["lat","lng"],"properties":{"lat":{"type":"number"},"lng":{"type":"number"},"radius_m":{"type":"integer","minimum":1},"max_sac_scale":{"type":"string"},"max_mtb_scale":{"type":"string"},"surface":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","required":["lat","lng"],"properties":{"lat":{"type":"number"},"lng":{"type":"number"},"radius_m":{"type":"integer","minimum":1},"max_sac_scale":{"type":"string","enum":["hiking","mountain_hiking","demanding_mountain_hiking","alpine_hiking","demanding_alpine_hiking","difficult_alpine_hiking"]},"max_mtb_scale":{"type":"string","pattern":"^[sS]?[0-5]$"},"surface":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executeSearchTrailsByDifficulty,
@@ -230,6 +230,9 @@ func buildQueryGeoFeaturesSQL(userID string, args queryGeoFeaturesArgs, now time
 }
 
 func buildSearchPOIsNearbySQL(args searchPOIsNearbyArgs) (string, []any, error) {
+	if !validLatLng(args.Lat, args.Lng) {
+		return "", nil, fmt.Errorf("coordinates out of range")
+	}
 	radius := clampIntPtr(args.RadiusM, 5000, 1, 100000)
 	limit := clampIntPtr(args.Limit, 20, 1, 100)
 	params := []any{args.Lng, args.Lat, radius}
@@ -249,6 +252,9 @@ WHERE ST_DWithin(geom::geography, ST_Point($1,$2)::geography, $3)`
 }
 
 func buildSearchTrailsByDifficultySQL(args searchTrailsByDifficultyArgs) (string, []any, error) {
+	if !validLatLng(args.Lat, args.Lng) {
+		return "", nil, fmt.Errorf("coordinates out of range")
+	}
 	radius := clampIntPtr(args.RadiusM, 10000, 1, 100000)
 	limit := clampIntPtr(args.Limit, 20, 1, 100)
 	params := []any{args.Lng, args.Lat, radius}
@@ -262,7 +268,7 @@ WHERE ST_DWithin(geom::geography, ST_Point($1,$2)::geography, $3)
 	if args.MaxSacScale != "" {
 		maxLevel := sacScaleOrder[args.MaxSacScale]
 		if maxLevel == 0 {
-			maxLevel = 6
+			return "", nil, fmt.Errorf("invalid max_sac_scale %q", args.MaxSacScale)
 		}
 		allowed := make([]string, 0, len(sacScaleOrder))
 		for scale, level := range sacScaleOrder {
@@ -274,7 +280,10 @@ WHERE ST_DWithin(geom::geography, ST_Point($1,$2)::geography, $3)
 		sql += fmt.Sprintf(" AND (sac_scale IS NULL OR sac_scale = ANY($%d))", len(params))
 	}
 	if args.MaxMTBScale != "" {
-		maxLevel := parseMTBScale(args.MaxMTBScale)
+		maxLevel, err := parseMTBScale(args.MaxMTBScale)
+		if err != nil {
+			return "", nil, err
+		}
 		allowed := make([]string, 0, maxLevel+1)
 		for i := 0; i <= maxLevel; i++ {
 			allowed = append(allowed, strconv.Itoa(i))
@@ -318,16 +327,16 @@ func applyGeoDateToFilter(conditions []string, params []any, dateTo string) ([]s
 	return conditions, params, nil
 }
 
-func parseMTBScale(value string) int {
+func parseMTBScale(value string) (int, error) {
 	matches := mtbScaleDigits.FindString(value)
 	if matches == "" {
-		return 5
+		return 0, fmt.Errorf("invalid max_mtb_scale %q", value)
 	}
 	parsed, err := strconv.Atoi(matches)
-	if err != nil {
-		return 5
+	if err != nil || parsed < 0 || parsed > 5 {
+		return 0, fmt.Errorf("invalid max_mtb_scale %q", value)
 	}
-	return min(max(parsed, 0), 5)
+	return parsed, nil
 }
 
 func clampIntPtr(value *int, fallback, minValue, maxValue int) int {
