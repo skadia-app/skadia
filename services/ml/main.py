@@ -9,6 +9,7 @@ from pythonjsonlogger.json import JsonFormatter
 
 from db import get_pool, close_pool
 from nats_consumer import start_consumers, get_metrics
+from config import get_llm_broker_readiness, get_local_shadowfs_readiness
 
 log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 
@@ -97,7 +98,7 @@ async def health():
 
 @app.get("/readyz")
 async def readyz():
-    """Readiness probe: returns 200 if DB and NATS (if configured) are connected, 503 otherwise."""
+    """Readiness probe: returns 200 when dependencies for configured work are ready."""
     issues = {}
 
     # Check DB
@@ -120,9 +121,21 @@ async def readyz():
     except Exception as e:
         issues["nats"] = str(e)
 
+    try:
+        llm_broker = await get_llm_broker_readiness()
+        if llm_broker.get("status") == "degraded":
+            issues["llm_broker"] = llm_broker
+    except Exception as e:
+        llm_broker = {"status": "unavailable", "error": str(e)}
+        issues["llm_broker"] = llm_broker
+
+    shadowfs = get_local_shadowfs_readiness()
+    if shadowfs.get("status") == "degraded":
+        issues["shadowfs"] = shadowfs
+
     if issues:
         return JSONResponse(status_code=503, content={"status": "not ready", **issues})
-    return {"status": "ready"}
+    return {"status": "ready", "llm_broker": llm_broker, "shadowfs": shadowfs}
 
 
 @app.get("/metrics")

@@ -1,10 +1,8 @@
 """LLM-gestützte Erklärungen für Analytics-Ergebnisse."""
 import logging
-import os
 
 logger = logging.getLogger(__name__)
 
-ML_ANALYSIS_ROLE = os.environ.get("ML_ANALYSIS_ROLE", "").strip()
 LLM_TIMEOUT = 30.0  # Sekunden
 
 TEMPLATES: dict[str, str] = {
@@ -65,10 +63,6 @@ async def generate_explanation(insight_type: str, data: dict) -> str | None:
         )
         return None
 
-    if not ML_ANALYSIS_ROLE:
-        logger.info("generate_explanation: no analysis LLM role configured")
-        return None
-
-    logger.info("generate_explanation: analysis role %r is not wired in this branch", ML_ANALYSIS_ROLE)
+    logger.info("generate_explanation: analysis LLM role is deferred in this branch")
     _ = prompt
     return None

@@ -5,13 +5,17 @@ Ablauf:
 2. Bild-PDF (is_text_pdf=False): S3-Download -> vision role -> JSON
 Fallback: Bild-Extraktion fehlgeschlagen + extracted_text vorhanden -> Text-Extraktion
 """
+import asyncio
+import base64
 import json
 import logging
 import os
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Optional
 
 import aioboto3
-import httpx
 
 from config import (
     LLMRoleNotConfigured,
@@ -22,6 +26,16 @@ from config import (
 )
 
 logger = logging.getLogger(__name__)
+
+MAX_VISION_IMAGE_BYTES = int(os.getenv("ML_DOCUMENT_VISION_MAX_IMAGE_BYTES", "700000"))
+MAX_DOCUMENT_DOWNLOAD_BYTES = int(os.getenv("ML_DOCUMENT_MAX_DOWNLOAD_BYTES", str(30 << 20)))
+MAX_SCANNED_PDF_PAGES = int(os.getenv("ML_DOCUMENT_SCANNED_PDF_MAX_PAGES", "3"))
+SCANNED_PDF_RENDER_DPI = int(os.getenv("ML_DOCUMENT_SCANNED_PDF_RENDER_DPI", "120"))
+SCANNED_PDF_RENDER_TIMEOUT_SECONDS = float(os.getenv("ML_DOCUMENT_SCANNED_PDF_RENDER_TIMEOUT_SECONDS", "30"))
+
+
+class RetryableDocumentError(RuntimeError):
+    """Raised for transient document-processing failures that should be redelivered."""
 
 EXTRACTION_PROMPT = """Du bist ein Assistent zum Extrahieren von Produktinformationen aus Rechnungen.
 Extrahiere alle Produkte aus dem Text und gib das Ergebnis als JSON zurueck.
@@ -116,29 +130,188 @@ async def extract_from_text(text: str, prompt: str = EXTRACTION_PROMPT) -> Optio
         return not_configured_payload(e.role)
     except Exception as e:
         logger.warning("text extraction failed: %s", e)
+        raise RetryableDocumentError("text extraction broker call failed") from e
     return None
 
 
 async def download_s3_doc(s3_bucket: str, s3_key: str) -> Optional[bytes]:
     """Lade Dokument aus Garage S3."""
-    garage_endpoint = os.getenv("S3_ENDPOINT", os.getenv("GARAGE_ENDPOINT", "http://garage:3900"))
-
-    url = f"{garage_endpoint}/{s3_bucket}/{s3_key}"
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=30.0)
-            if resp.status_code == 200:
-                return resp.content
+        session = aioboto3.Session()
+        async with session.client(
+            "s3",
+            endpoint_url=os.getenv("S3_ENDPOINT", os.getenv("GARAGE_ENDPOINT", "http://garage:3900")),
+            aws_access_key_id=os.getenv("S3_ACCESS_KEY", os.getenv("GARAGE_ACCESS_KEY")),
+            aws_secret_access_key=os.getenv("S3_SECRET_KEY", os.getenv("GARAGE_SECRET_KEY")),
+            region_name=os.getenv("S3_REGION", "garage"),
+        ) as s3:
+            response = await s3.get_object(Bucket=s3_bucket, Key=s3_key)
+            content_length = response.get("ContentLength")
+            if content_length is not None and int(content_length) > MAX_DOCUMENT_DOWNLOAD_BYTES:
+                logger.warning(
+                    "S3 document exceeds %d bytes: %s/%s",
+                    MAX_DOCUMENT_DOWNLOAD_BYTES,
+                    s3_bucket,
+                    s3_key,
+                )
+                body = response.get("Body")
+                if body and hasattr(body, "close"):
+                    body.close()
+                return None
+            body = response["Body"]
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                chunk = await body.read(64 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_DOCUMENT_DOWNLOAD_BYTES:
+                    logger.warning(
+                        "S3 document exceeds %d bytes: %s/%s",
+                        MAX_DOCUMENT_DOWNLOAD_BYTES,
+                        s3_bucket,
+                        s3_key,
+                    )
+                    if hasattr(body, "close"):
+                        body.close()
+                    return None
+                chunks.append(chunk)
+            if hasattr(body, "close"):
+                body.close()
+            return b"".join(chunks)
     except Exception as e:
         logger.warning("S3 download failed for %s/%s: %s", s3_bucket, s3_key, e)
+        raise RetryableDocumentError("S3 document download failed") from e
     return None
 
 
+def _s3_bucket_for_file_type(file_type: str) -> str:
+    default_bucket = os.getenv("S3_BUCKET", "skadia-originals")
+    if file_type in {"activity", "health"}:
+        return os.getenv("S3_BUCKET_ACTIVITY") or default_bucket
+    if file_type in {"media", "document", "thumb", "preview"}:
+        return os.getenv("S3_BUCKET_MEDIA") or default_bucket
+    return default_bucket
+
+
+def _local_storage_base_path() -> str:
+    return (
+        os.getenv("ML_SHADOWFS_BASE_PATH")
+        or os.getenv("LIBRARY_BASE_PATH")
+        or os.getenv("SHADOW_FS_BASE_PATH")
+        or ""
+    )
+
+
+async def download_user_file(storage_backend: str, storage_path: str, file_type: str, size_bytes: int | None = None) -> Optional[bytes]:
+    """Load bytes for a user_files row without relying on legacy event S3 fields."""
+    storage_backend = (storage_backend or "").strip()
+    storage_path = (storage_path or "").strip()
+    if not storage_backend or not storage_path:
+        return None
+    if size_bytes is not None and size_bytes > MAX_DOCUMENT_DOWNLOAD_BYTES:
+        logger.warning("document metadata exceeds %d bytes: %s", MAX_DOCUMENT_DOWNLOAD_BYTES, storage_path)
+        return None
+    if storage_backend == "s3":
+        return await download_s3_doc(_s3_bucket_for_file_type(file_type), storage_path)
+    if storage_backend == "local":
+        base = _local_storage_base_path()
+        if not base:
+            logger.info("local ShadowFS document storage is not mounted in ML service")
+            return None
+        base_path = Path(base).resolve()
+        full_path = (base_path / storage_path).resolve()
+        try:
+            full_path.relative_to(base_path)
+        except ValueError:
+            logger.warning("blocked document storage path traversal: %s", storage_path)
+            return None
+        try:
+            return await asyncio.to_thread(_read_limited_file, full_path, MAX_DOCUMENT_DOWNLOAD_BYTES)
+        except RetryableDocumentError:
+            raise
+        except Exception as e:
+            logger.warning("local document read failed for %s: %s", storage_path, e)
+            return None
+    logger.info("unsupported document storage backend %s", storage_backend)
+    return None
+
+
+def _read_limited_file(path: Path, max_bytes: int) -> bytes:
+    with path.open("rb") as f:
+        data = f.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ValueError(f"document exceeds {max_bytes} bytes")
+    return data
+
+
+def _is_pdf_bytes(data: bytes) -> bool:
+    return data.lstrip().startswith(b"%PDF-")
+
+
+def _is_image_payload_allowed(image_bytes: bytes, content_type: str) -> bool:
+    if not image_bytes:
+        return False
+    if _is_pdf_bytes(image_bytes) or content_type == "application/pdf":
+        logger.info("refusing raw PDF bytes for vision payload; render pages first")
+        return False
+    if len(image_bytes) > MAX_VISION_IMAGE_BYTES:
+        logger.warning("vision image payload too large: %d bytes", len(image_bytes))
+        return False
+    return True
+
+
+def _render_pdf_pages_sync(pdf_bytes: bytes) -> list[bytes]:
+    if not pdf_bytes or len(pdf_bytes) > MAX_DOCUMENT_DOWNLOAD_BYTES:
+        return []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        pdf_path = tmp_path / "document.pdf"
+        pdf_path.write_bytes(pdf_bytes)
+        try:
+            subprocess.run(
+                [
+                    "pdftoppm",
+                    "-jpeg",
+                    "-f",
+                    "1",
+                    "-l",
+                    str(MAX_SCANNED_PDF_PAGES),
+                    "-r",
+                    str(SCANNED_PDF_RENDER_DPI),
+                    str(pdf_path),
+                    str(tmp_path / "page"),
+                ],
+                check=True,
+                capture_output=True,
+                timeout=SCANNED_PDF_RENDER_TIMEOUT_SECONDS,
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.warning("scanned PDF render unavailable or failed: %s", e)
+            return []
+        rendered: list[bytes] = []
+        for page in sorted(tmp_path.glob("page-*.jpg"))[:MAX_SCANNED_PDF_PAGES]:
+            data = page.read_bytes()
+            if len(data) <= MAX_VISION_IMAGE_BYTES:
+                rendered.append(data)
+            else:
+                logger.warning("rendered PDF page too large: %d bytes", len(data))
+        return rendered
+
+
+async def render_pdf_pages(pdf_bytes: bytes) -> list[bytes]:
+    return await asyncio.to_thread(_render_pdf_pages_sync, pdf_bytes)
+
+
 async def extract_from_image(
-    image_bytes: bytes, prompt: str = EXTRACTION_PROMPT
+    image_bytes: bytes,
+    prompt: str = EXTRACTION_PROMPT,
+    content_type: str = "image/jpeg",
 ) -> Optional[dict]:
     """Extrahiere Produktdaten aus Bild-PDF via vision role."""
-    import base64
+    if not _is_image_payload_allowed(image_bytes, content_type):
+        return None
 
     b64 = base64.b64encode(image_bytes).decode()
     try:
@@ -157,7 +330,7 @@ async def extract_from_image(
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:application/pdf;base64,{b64}"
+                                "url": f"data:{content_type};base64,{b64}"
                             },
                         },
                     ],
@@ -173,6 +346,24 @@ async def extract_from_image(
         return not_configured_payload(e.role)
     except Exception as e:
         logger.warning("image extraction failed: %s", e)
+        raise RetryableDocumentError("image extraction broker call failed") from e
+    return None
+
+
+def merge_extraction_results(results: list[dict]) -> Optional[dict]:
+    """Merge bounded per-page extraction results into one document result."""
+    merged: dict = {"products": []}
+    for result in results:
+        if not isinstance(result, dict) or _is_not_configured_payload(result):
+            continue
+        products = result.get("products") or []
+        if isinstance(products, list):
+            merged["products"].extend(products)
+        for key in ("invoice_date", "vendor", "total"):
+            if merged.get(key) in (None, "") and result.get(key) not in (None, ""):
+                merged[key] = result.get(key)
+    if merged["products"] or any(key in merged for key in ("invoice_date", "vendor", "total")):
+        return merged
     return None
 
 
@@ -184,8 +375,12 @@ async def process_document(
     user_id: str,
     is_text_pdf: bool,
     extracted_text: Optional[str],
-    s3_bucket: str,
-    s3_key: str,
+    file_id: str,
+    storage_backend: str,
+    storage_path: str,
+    file_type: str,
+    content_type: str,
+    size_bytes: int | None = None,
 ) -> bool:
     """Verarbeite ein hochgeladenes Dokument und erstelle Gear-Vorschlaege.
 
@@ -199,10 +394,21 @@ async def process_document(
     if is_text_pdf and extracted_text:
         result = await extract_from_text(extracted_text, prompt)
     else:
-        # Bild-PDF: Download aus S3
-        image_bytes = await download_s3_doc(s3_bucket, s3_key)
-        if image_bytes:
-            result = await extract_from_image(image_bytes, prompt=prompt)
+        file_bytes = await download_user_file(storage_backend, storage_path, file_type, size_bytes=size_bytes)
+        if file_bytes:
+            if content_type == "application/pdf" or _is_pdf_bytes(file_bytes):
+                page_results: list[dict] = []
+                for page_bytes in await render_pdf_pages(file_bytes):
+                    page_result = await extract_from_image(page_bytes, prompt=prompt, content_type="image/jpeg")
+                    if _is_not_configured_payload(page_result):
+                        result = page_result
+                        break
+                    if page_result:
+                        page_results.append(page_result)
+                if page_results:
+                    result = merge_extraction_results(page_results)
+            else:
+                result = await extract_from_image(file_bytes, prompt=prompt, content_type=content_type or "image/jpeg")
 
         # Fallback: Falls Bild-Extraktion fehlschlaegt aber extracted_text vorhanden
         if (not result or _is_not_configured_payload(result)) and extracted_text:
@@ -215,13 +421,29 @@ async def process_document(
     if not result:
         logger.info("document extraction failed for %s", doc_id)
         return False
-    if not result.get("products"):
+
+    products = result.get("products") or []
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE gear_documents
+            SET extracted_data = $1::jsonb, products_found = $2
+            WHERE id = $3 AND user_id = $4 AND file_id = $5
+            """,
+            json.dumps(result, separators=(",", ":")),
+            len(products),
+            doc_id,
+            user_id,
+            file_id,
+        )
+
+    if not products:
         logger.info("no products extracted from document %s", doc_id)
         return True
 
     # Gear-Vorschlaege in DB schreiben
     async with pool.acquire() as conn:
-        for product in result["products"]:
+        for product in products:
             if not product.get("name"):
                 continue
             type_key, scope = _gear_type_and_scope(product.get("type"))
@@ -230,9 +452,20 @@ async def process_document(
                 INSERT INTO gear (id, user_id, name, type, scope, brand, model,
                                   purchase_price, currency, review_status,
                                   source_document_id, created_at)
-                VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6,
-                        $7, $8, 'pending_review', $9, NOW())
-                ON CONFLICT DO NOTHING
+                SELECT gen_random_uuid(), $1, $2, $3, $4, $5, $6,
+                       $7, $8, 'pending_review', $9, NOW()
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM gear
+                    WHERE user_id = $1
+                      AND source_document_id = $9
+                      AND name = $2
+                      AND type = $3
+                      AND brand IS NOT DISTINCT FROM $5
+                      AND model IS NOT DISTINCT FROM $6
+                      AND purchase_price IS NOT DISTINCT FROM $7
+                      AND currency IS NOT DISTINCT FROM $8
+                )
                 """,
                 user_id,
                 product.get("name", "Unbekanntes Produkt"),
@@ -247,7 +480,7 @@ async def process_document(
 
         logger.info(
             "created %d gear suggestions for document %s",
-            len(result["products"]),
+            len(products),
             doc_id,
         )
 
@@ -284,16 +517,3 @@ async def convert_to_markdown(text: str) -> Optional[str]:
         logger.warning("markdown conversion failed: %s", e)
 
     return None
-
-
-async def upload_to_s3(bucket: str, key: str, data: bytes, content_type: str) -> None:
-    """Lädt Daten in S3/Garage hoch."""
-    session = aioboto3.Session()
-    async with session.client(
-        "s3",
-        endpoint_url=os.getenv("S3_ENDPOINT", os.getenv("GARAGE_ENDPOINT", "http://garage:3900")),
-        aws_access_key_id=os.getenv("S3_ACCESS_KEY", os.getenv("GARAGE_ACCESS_KEY")),
-        aws_secret_access_key=os.getenv("S3_SECRET_KEY", os.getenv("GARAGE_SECRET_KEY")),
-        region_name="garage",
-    ) as s3:
-        await s3.put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)
