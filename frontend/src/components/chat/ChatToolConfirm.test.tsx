@@ -52,4 +52,41 @@ describe('ChatToolConfirm', () => {
 
     expect(screen.getByText(/\"name\": \"Kette\"/)).toBeInTheDocument()
   })
+
+  it('does not render raw args when the backend does not provide a confirmation preview', () => {
+    render(<ChatToolConfirm request={request({ args: { name: 'Kette' } })} onConfirmed={vi.fn()} onDeclined={vi.fn()} />)
+
+    expect(screen.queryByText(/\"name\": \"Kette\"/)).not.toBeInTheDocument()
+  })
+
+  it('does not confirm from a global Enter keypress or autofocus the confirm action', () => {
+    render(
+      <>
+        <button type="button">Vorheriger Fokus</button>
+        <ChatToolConfirm request={request()} onConfirmed={vi.fn()} onDeclined={vi.fn()} />
+      </>,
+    )
+
+    expect(screen.getByRole('button', { name: /bestätigen/i })).not.toHaveFocus()
+    const previous = screen.getByRole('button', { name: 'Vorheriger Fokus' })
+    previous.focus()
+
+    fireEvent.keyDown(window, { key: 'Enter' })
+
+    expect(confirmChatToolCall).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /bestätigen/i })).not.toHaveFocus()
+  })
+
+  it('shows an inline error and keeps the request actionable when confirmation fails', async () => {
+    vi.mocked(confirmChatToolCall).mockRejectedValueOnce(new Error('Backend nicht erreichbar'))
+    const onConfirmed = vi.fn()
+    render(<ChatToolConfirm request={request()} onConfirmed={onConfirmed} onDeclined={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /bestätigen/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Backend nicht erreichbar')
+    expect(screen.queryByText(/Bestätigt/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /bestätigen/i })).toBeEnabled()
+    expect(onConfirmed).not.toHaveBeenCalled()
+  })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type KeyboardEvent, useEffect, useMemo, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { confirmChatToolCall } from '@/api/chat'
 import { cn } from '@/lib/utils'
@@ -22,10 +22,10 @@ interface ChatToolConfirmProps {
 }
 
 export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: ChatToolConfirmProps) {
-  const confirmButtonRef = useRef<HTMLButtonElement>(null)
   const [now, setNow] = useState(() => Date.now())
   const [busy, setBusy] = useState(false)
   const [announcement, setAnnouncement] = useState('')
+  const [error, setError] = useState('')
   const [localStatus, setLocalStatus] = useState<ToolConfirmRequest['status']>()
   const expiresAt = useMemo(() => new Date(request.expiresAtISO).getTime(), [request.expiresAtISO])
   const effectiveStatus = request.status && request.status !== 'pending' ? request.status : (localStatus ?? request.status)
@@ -33,15 +33,12 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
   const remainingSeconds = Math.ceil(remainingMs / 1000)
   const expired = remainingMs <= 0 || effectiveStatus === 'expired'
   const disabled = busy || expired || effectiveStatus === 'confirmed' || effectiveStatus === 'declined'
-  const previewText = useMemo(() => formatPreview(request.preview ?? request.args), [request.preview, request.args])
+  const previewText = useMemo(() => formatPreview(request.preview), [request.preview])
 
   useEffect(() => {
     setLocalStatus(undefined)
+    setError('')
   }, [request.toolCallID])
-
-  useEffect(() => {
-    confirmButtonRef.current?.focus()
-  }, [])
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 250)
@@ -54,25 +51,17 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
     }
   }, [remainingSeconds])
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (disabled) return
-      if (event.key === 'Enter') {
-        event.preventDefault()
-        void submit(true)
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        void submit(false)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'Escape' || disabled) return
+    event.preventDefault()
+    event.stopPropagation()
+    void submit(false)
+  }
 
   async function submit(confirmed: boolean) {
     if (disabled) return
     setBusy(true)
+    setError('')
     try {
       await confirmChatToolCall(request.sessionID, {
         tool_call_id: request.toolCallID,
@@ -85,6 +74,8 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
         setLocalStatus('declined')
         onDeclined('user')
       }
+    } catch (err) {
+      setError(errorMessage(err))
     } finally {
       setBusy(false)
     }
@@ -94,6 +85,7 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
     <div
       role="alertdialog"
       aria-labelledby={`confirm-${request.toolCallID}`}
+      onKeyDown={handleKeyDown}
       className={cn(
         'my-2 rounded-lg border p-3 text-sm',
         disabled ? 'border-neutral-300 bg-neutral-50 text-neutral-500 dark:border-neutral-700 dark:bg-neutral-900' : 'border-amber-300 bg-amber-50 text-neutral-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-neutral-100',
@@ -108,11 +100,15 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
           {previewText}
         </pre>
       )}
+      {error && (
+        <div role="alert" className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 dark:border-red-900/70 dark:bg-red-950/30 dark:text-red-200">
+          {error}
+        </div>
+      )}
       {effectiveStatus === 'confirmed' && <div className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">Bestätigt - wird ausgeführt...</div>}
       {effectiveStatus === 'declined' && <div className="mt-2 text-xs text-neutral-500">Abgelehnt</div>}
       <div className="mt-3 flex items-center gap-2">
         <button
-          ref={confirmButtonRef}
           type="button"
           disabled={disabled}
           onClick={() => void submit(true)}
@@ -147,4 +143,29 @@ function formatPreview(preview: unknown): string {
   } catch {
     return ''
   }
+}
+
+function errorMessage(err: unknown): string {
+  if (typeof err === 'string' && err.trim()) return err
+  const maybeStructured = err as { json?: Record<string, unknown>; body?: string } | null
+  const jsonMessage = maybeStructured?.json?.message
+  if (typeof jsonMessage === 'string' && jsonMessage.trim()) return jsonMessage
+  const jsonError = maybeStructured?.json?.error
+  if (typeof jsonError === 'string' && jsonError.trim()) return jsonError
+
+  if (typeof maybeStructured?.body === 'string' && maybeStructured.body.trim()) {
+    try {
+      const parsed = JSON.parse(maybeStructured.body) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const message = (parsed as Record<string, unknown>).message
+        if (typeof message === 'string' && message.trim()) return message
+      }
+    } catch {
+      return maybeStructured.body
+    }
+    return maybeStructured.body
+  }
+
+  if (err instanceof Error && err.message.trim()) return err.message
+  return 'Bestätigung konnte nicht gesendet werden'
 }

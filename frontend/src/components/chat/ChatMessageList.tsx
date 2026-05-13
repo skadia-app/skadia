@@ -9,7 +9,7 @@ export interface StreamMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
-  toolCalls?: Array<{ tool: string; args?: string; result?: string }>
+  toolCalls?: Array<{ id?: string; tool: string; args?: string; result?: string }>
   confirmRequest?: ToolConfirmRequest
   isStreaming?: boolean
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
@@ -50,7 +50,7 @@ export default function ChatMessageList({ messages, thinking }: ChatMessageListP
             )}
           >
             {msg.toolCalls?.map((tc, i) => (
-              <ToolCallCard key={i} toolName={tc.tool} args={tc.args} result={tc.result} />
+              <ToolCallCard key={tc.id ?? i} toolName={tc.tool} args={tc.args} result={tc.result} />
             ))}
             {msg.confirmRequest && (
               <ChatToolConfirm

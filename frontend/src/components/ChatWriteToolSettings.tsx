@@ -63,11 +63,12 @@ const DEFAULT_CHAT_PREFS: ChatPreferences = {
 export default function ChatWriteToolSettings() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, isSuccess } = useQuery({
     queryKey: ['chat-preferences'],
     queryFn: getChatPreferences,
   })
 
+  const preferencesLoaded = isSuccess && data !== undefined
   const prefs = data ?? DEFAULT_CHAT_PREFS
   const allowedSet = useMemo(
     () => new Set(prefs.chat_allowed_write_tools),
@@ -76,17 +77,28 @@ export default function ChatWriteToolSettings() {
 
   const mutation = useMutation({
     mutationFn: updateChatPreferences,
+    onMutate: async next => {
+      await queryClient.cancelQueries({ queryKey: ['chat-preferences'] })
+      const previous = queryClient.getQueryData<ChatPreferences>(['chat-preferences'])
+      queryClient.setQueryData(['chat-preferences'], next)
+      return { previous }
+    },
     onSuccess: saved => {
       queryClient.setQueryData(['chat-preferences'], saved)
       addToast({ type: 'success', title: 'Chat-Einstellungen gespeichert' })
     },
-    onError: () => {
+    onError: (_err, _next, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['chat-preferences'], context.previous)
+      }
       addToast({ type: 'error', title: 'Chat-Einstellungen konnten nicht gespeichert werden', duration: 0 })
     },
   })
 
   const save = (patch: Partial<ChatPreferences>) => {
-    mutation.mutate({ ...prefs, ...patch })
+    if (!preferencesLoaded) return
+    const current = queryClient.getQueryData<ChatPreferences>(['chat-preferences']) ?? prefs
+    mutation.mutate({ ...current, ...patch })
   }
 
   const setToolAllowed = (toolID: string, checked: boolean) => {
@@ -96,8 +108,8 @@ export default function ChatWriteToolSettings() {
     save({ chat_allowed_write_tools: Array.from(next) })
   }
 
-  const busy = isLoading || mutation.isPending
-  const writeToolsDisabled = busy || !prefs.chat_write_tools_enabled
+  const controlsDisabled = isLoading || mutation.isPending || !preferencesLoaded
+  const writeToolsDisabled = controlsDisabled || !prefs.chat_write_tools_enabled
 
   return (
     <SettingsSection
@@ -122,7 +134,7 @@ export default function ChatWriteToolSettings() {
           <Toggle
             checked={prefs.chat_expose_document_extracted_data}
             onChange={checked => save({ chat_expose_document_extracted_data: checked })}
-            disabled={busy}
+            disabled={controlsDisabled}
             aria-label="Dokument-OCR-Text dem Chat-Assistenten zugänglich machen"
           />
         </div>
@@ -139,7 +151,7 @@ export default function ChatWriteToolSettings() {
           <Toggle
             checked={prefs.chat_write_tools_enabled}
             onChange={checked => save({ chat_write_tools_enabled: checked })}
-            disabled={busy}
+            disabled={controlsDisabled}
             aria-label="Chat-Assistent darf Änderungen vorschlagen"
           />
         </div>

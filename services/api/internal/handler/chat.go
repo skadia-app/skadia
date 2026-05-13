@@ -361,7 +361,7 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	var assistantContent strings.Builder
 	baseSink := agent.NewHTTPSSESink(w, flusher)
 	baseSink.OnChunk(func(delta string) { assistantContent.WriteString(delta) })
-	sink := &chatPersistSink{SSESink: baseSink}
+	sink := &chatPersistSink{SSESink: baseSink, assistantContent: &assistantContent}
 	if err := h.Agent.Stream(r.Context(), agent.ChatRequest{
 		UserID:    userID,
 		SessionID: sessionID,
@@ -392,12 +392,19 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 
 type chatPersistSink struct {
 	agent.SSESink
-	sources []string
+	assistantContent *strings.Builder
+	sources          []string
 }
 
 func (s *chatPersistSink) Send(event agent.SSEEvent) error {
 	if event.Type == agent.EventDone {
 		s.sources = append([]string(nil), event.Sources...)
+	}
+	if event.Type == agent.EventUserQuestion && strings.TrimSpace(event.Question) != "" && s.assistantContent != nil {
+		if s.assistantContent.Len() > 0 {
+			s.assistantContent.WriteString("\n\n")
+		}
+		s.assistantContent.WriteString(event.Question)
 	}
 	return s.SSESink.Send(event)
 }
@@ -451,13 +458,13 @@ func (h *Handler) ConfirmChatToolCall(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "confirmation not found", r.URL.Path)
 		return
 	}
-	if len(req.ArgsOverrides) > 0 && string(req.ArgsOverrides) == "null" {
-		req.ArgsOverrides = nil
+	if len(req.ArgsOverrides) > 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "args_overrides is not supported", r.URL.Path)
+		return
 	}
 	if !h.Confirm.Resolve(sessionID, req.ToolCallID, agent.ConfirmResponse{
-		Confirmed:     req.Confirmed,
-		ArgsOverrides: req.ArgsOverrides,
-		Source:        "user",
+		Confirmed: req.Confirmed,
+		Source:    "user",
 	}) {
 		httputil.WriteError(w, http.StatusNotFound, "Not Found", "confirmation not found", r.URL.Path)
 		return

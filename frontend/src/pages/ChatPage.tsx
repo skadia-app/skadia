@@ -38,13 +38,36 @@ export default function ChatPage() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const sessionDropdownRef = useRef<HTMLDivElement>(null)
+  const activeSessionIdRef = useRef<string | null>(null)
+  const streamAbortRef = useRef<AbortController | null>(null)
+  const skipNextSessionLoadRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId
+  }, [activeSessionId])
+
+  useEffect(() => {
+    return () => {
+      streamAbortRef.current?.abort()
+    }
+  }, [])
 
   // Load sessions on mount
   useEffect(() => {
     listSessions()
       .then(data => {
-        setSessions(data)
-        if (data.length > 0 && !activeSessionId) {
+        const currentActiveSessionId = activeSessionIdRef.current
+        setSessions(prev => {
+          if (!currentActiveSessionId || data.some(session => session.id === currentActiveSessionId)) {
+            return data
+          }
+          const activeSession = prev.find(session => session.id === currentActiveSessionId)
+          return activeSession
+            ? [activeSession, ...data.filter(session => session.id !== currentActiveSessionId)]
+            : data
+        })
+        if (data.length > 0 && !currentActiveSessionId) {
+          activeSessionIdRef.current = data[0].id
           setActiveSessionId(data[0].id)
         }
       })
@@ -60,8 +83,16 @@ export default function ChatPage() {
       setMessages([])
       return
     }
+    let cancelled = false
+    const sessionId = activeSessionId
+    if (skipNextSessionLoadRef.current === sessionId) {
+      skipNextSessionLoadRef.current = null
+      return
+    }
+    setMessages([])
     getMessages(activeSessionId)
       .then(data => {
+        if (cancelled || activeSessionIdRef.current !== sessionId) return
         setMessages(
           data
             .filter(m => m.role === 'user' || m.role === 'assistant')
@@ -69,8 +100,12 @@ export default function ChatPage() {
         )
       })
       .catch(() => {
+        if (cancelled || activeSessionIdRef.current !== sessionId) return
         addToast({ type: 'error', title: 'Nachrichten konnten nicht geladen werden', duration: 0 })
       })
+    return () => {
+      cancelled = true
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId])
 
@@ -78,23 +113,28 @@ export default function ChatPage() {
   useClickOutside(sessionDropdownRef, () => setSessionsOpen(false), sessionsOpen)
 
   const handleNewSession = useCallback(async () => {
+    if (isStreaming) return
     try {
       const session = await createSession()
       setSessions(prev => [session, ...prev])
+      activeSessionIdRef.current = session.id
       setActiveSessionId(session.id)
       setMessages([])
     } catch {
       addToast({ type: 'error', title: 'Neue Sitzung konnte nicht erstellt werden', duration: 0 })
     }
-  }, [addToast])
+  }, [addToast, isStreaming])
 
   const handleDeleteSession = useCallback(async (sessionId: string) => {
+    if (isStreaming) return
     try {
       await deleteSession(sessionId)
       setSessions(prev => {
         const next = prev.filter(s => s.id !== sessionId)
         if (activeSessionId === sessionId) {
-          setActiveSessionId(next.length > 0 ? next[0].id : null)
+          const nextActiveSessionId = next.length > 0 ? next[0].id : null
+          activeSessionIdRef.current = nextActiveSessionId
+          setActiveSessionId(nextActiveSessionId)
           setMessages([])
         }
         return next
@@ -102,7 +142,7 @@ export default function ChatPage() {
     } catch {
       addToast({ type: 'error', title: 'Sitzung konnte nicht gelöscht werden', duration: 0 })
     }
-  }, [activeSessionId, addToast])
+  }, [activeSessionId, addToast, isStreaming])
 
   const handleSend = useCallback(async (text: string) => {
     if (isStreaming) return
@@ -114,6 +154,8 @@ export default function ChatPage() {
       try {
         const session = await createSession()
         setSessions(prev => [session, ...prev])
+        activeSessionIdRef.current = session.id
+        skipNextSessionLoadRef.current = session.id
         setActiveSessionId(session.id)
         sessionId = session.id
       } catch {
@@ -131,9 +173,20 @@ export default function ChatPage() {
     setMessages(prev => [...prev, userMsg])
     setIsStreaming(true)
     setThinking(null)
+    const removeOptimisticUserMessage = () => {
+      updateStreamMessages(prev => prev.filter(m => m.id !== userMsg.id))
+    }
 
     // Placeholder for streaming assistant message
     const assistantId = generateId()
+    const streamSessionId = sessionId
+    const controller = new AbortController()
+    streamAbortRef.current = controller
+    let responseAccepted = false
+    const updateStreamMessages = (updater: (messages: StreamMessage[]) => StreamMessage[]) => {
+      if (activeSessionIdRef.current !== streamSessionId) return
+      setMessages(prev => (activeSessionIdRef.current === streamSessionId ? updater(prev) : prev))
+    }
 
     try {
       const token = getToken()
@@ -144,6 +197,7 @@ export default function ChatPage() {
         method: 'POST',
         headers,
         credentials: 'include',
+        signal: controller.signal,
         body: JSON.stringify({ message_id: messageId, message: text }),
       })
 
@@ -158,6 +212,7 @@ export default function ChatPage() {
             method: 'POST',
             headers: retryHeaders,
             credentials: 'include',
+            signal: controller.signal,
             body: JSON.stringify({ message_id: messageId, message: text }),
           })
         } else {
@@ -174,19 +229,22 @@ export default function ChatPage() {
         } else {
           addToast({ type: 'error', title: 'Fehler beim Senden', message: errText, duration: 0 })
         }
+        removeOptimisticUserMessage()
         setIsStreaming(false)
         return
       }
+      responseAccepted = true
 
       const reader = response.body?.getReader()
       if (!reader) {
         addToast({ type: 'error', title: 'Streaming nicht verfügbar', duration: 0 })
+        removeOptimisticUserMessage()
         setIsStreaming(false)
         return
       }
 
       // Initialize streaming assistant message
-      setMessages(prev => [
+      updateStreamMessages(prev => [
         ...prev,
         {
           id: assistantId,
@@ -201,8 +259,8 @@ export default function ChatPage() {
       let buffer = ''
 
       // Tool call tracking: map tool_call_id → index in toolCalls array
-      const toolCallIndexMap = new Map<string, number>()
-      const confirmMessageIndexMap = new Map<string, number>()
+      const toolCallIDSet = new Set<string>()
+      const confirmMessageIDMap = new Map<string, string>()
 
       while (true) {
         const { done, value } = await reader.read()
@@ -232,6 +290,7 @@ export default function ChatPage() {
             expires_at_iso?: string
             sources?: string[]
             error?: string
+            question?: string
             reason?: string
             usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
             hops?: number
@@ -242,6 +301,10 @@ export default function ChatPage() {
           } catch {
             continue
           }
+          if (activeSessionIdRef.current !== streamSessionId) {
+            await reader.cancel()
+            return
+          }
 
           switch (evt.type) {
             case 'chat.thinking':
@@ -250,7 +313,7 @@ export default function ChatPage() {
 
             case 'chat.chunk':
               setThinking(null)
-              setMessages(prev =>
+              updateStreamMessages(prev =>
                 prev.map(m =>
                   m.id === assistantId
                     ? { ...m, content: m.content + (evt.delta ?? '') }
@@ -263,15 +326,22 @@ export default function ChatPage() {
               const toolName = evt.tool ?? 'unknown'
               const toolCallID = evt.tool_call_id ?? toolName
               const argsStr = evt.args != null ? JSON.stringify(evt.args, null, 2) : undefined
-              setMessages(prev =>
+              updateStreamMessages(prev =>
                 prev.map(m => {
                   if (m.id !== assistantId) return m
                   const existingCalls = m.toolCalls ?? []
-                  const idx = existingCalls.length
-                  toolCallIndexMap.set(toolCallID, idx)
+                  if (toolCallIDSet.has(toolCallID)) {
+                    return {
+                      ...m,
+                      toolCalls: existingCalls.map(tc =>
+                        tc.id === toolCallID ? { ...tc, tool: toolName, args: argsStr ?? tc.args } : tc,
+                      ),
+                    }
+                  }
+                  toolCallIDSet.add(toolCallID)
                   return {
                     ...m,
-                    toolCalls: [...existingCalls, { tool: toolName, args: argsStr }],
+                    toolCalls: [...existingCalls, { id: toolCallID, tool: toolName, args: argsStr }],
                   }
                 }),
               )
@@ -282,30 +352,27 @@ export default function ChatPage() {
               const toolName = evt.tool ?? 'unknown'
               const toolCallID = evt.tool_call_id ?? toolName
               const resultStr = evt.summary ?? (evt.args != null ? JSON.stringify(evt.args, null, 2) : undefined)
-              const idx = toolCallIndexMap.get(toolCallID)
-              if (idx !== undefined) {
-                setMessages(prev =>
-                  prev.map(m => {
-                    if (m.id !== assistantId) return m
-                    const calls = [...(m.toolCalls ?? [])]
-                    if (calls[idx]) {
-                      calls[idx] = { ...calls[idx], result: resultStr }
-                    }
-                    return { ...m, toolCalls: calls }
-                  }),
-                )
-              }
+              updateStreamMessages(prev =>
+                prev.map(m => {
+                  if (m.id !== assistantId) return m
+                  const calls = (m.toolCalls ?? []).map(tc =>
+                    tc.id === toolCallID ? { ...tc, tool: toolName, result: resultStr } : tc,
+                  )
+                  return { ...m, toolCalls: calls }
+                }),
+              )
               break
             }
 
             case 'chat.tool_confirm_request': {
               const toolCallID = evt.tool_call_id ?? generateId()
-              setMessages(prev => {
-                confirmMessageIndexMap.set(toolCallID, prev.length)
+              const confirmMessageID = generateId()
+              updateStreamMessages(prev => {
+                confirmMessageIDMap.set(toolCallID, confirmMessageID)
                 return [
                   ...prev,
                   {
-                    id: generateId(),
+                    id: confirmMessageID,
                     role: 'assistant',
                     content: '',
                     confirmRequest: {
@@ -315,7 +382,7 @@ export default function ChatPage() {
                       preview: evt.preview,
                       summary: evt.summary ?? 'Aktion bestätigen',
                       expiresAtISO: evt.expires_at_iso ?? new Date(Date.now() + 5 * 60_000).toISOString(),
-                      sessionID: sessionId,
+                      sessionID: streamSessionId,
                       status: 'pending',
                     },
                   },
@@ -326,13 +393,12 @@ export default function ChatPage() {
 
             case 'chat.tool_confirmed':
             case 'chat.tool_declined': {
-              const idx = evt.tool_call_id ? confirmMessageIndexMap.get(evt.tool_call_id) : undefined
-              if (idx !== undefined) {
-                setMessages(prev => {
-                  const next = [...prev]
-                  const msg = next[idx]
-                  if (msg?.confirmRequest) {
-                    next[idx] = {
+              const confirmMessageID = evt.tool_call_id ? confirmMessageIDMap.get(evt.tool_call_id) : undefined
+              if (confirmMessageID !== undefined) {
+                updateStreamMessages(prev => {
+                  return prev.map(msg => {
+                    if (msg.id !== confirmMessageID || !msg.confirmRequest) return msg
+                    return {
                       ...msg,
                       content: evt.type === 'chat.tool_confirmed' ? 'Bestätigt - wird ausgeführt...' : `Abgelehnt (${evt.reason ?? 'user'})`,
                       confirmRequest: {
@@ -341,16 +407,32 @@ export default function ChatPage() {
                         reason: evt.reason,
                       },
                     }
-                  }
-                  return next
+                  })
                 })
               }
               break
             }
 
+            case 'chat.user_question':
+              setThinking(null)
+              updateStreamMessages(prev =>
+                prev.map(m =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        content: evt.question ?? 'Der Assistent benötigt eine Rückfrage.',
+                        isStreaming: false,
+                      }
+                    : m,
+                ),
+              )
+              setIsStreaming(false)
+              await reader.cancel()
+              return
+
             case 'chat.done':
               setThinking(null)
-              setMessages(prev =>
+              updateStreamMessages(prev =>
                 prev.map(m =>
                   m.id === assistantId
                     ? {
@@ -374,7 +456,7 @@ export default function ChatPage() {
                 message: evt.error ?? 'Unbekannter Fehler',
                 duration: 0,
               })
-              setMessages(prev =>
+              updateStreamMessages(prev =>
                 prev.map(m =>
                   m.id === assistantId
                     ? { ...m, isStreaming: false, content: m.content || '(Fehler)' }
@@ -386,14 +468,25 @@ export default function ChatPage() {
           }
         }
       }
+      updateStreamMessages(prev =>
+        prev.map(m =>
+          m.id === assistantId && m.isStreaming
+            ? { ...m, isStreaming: false, content: m.content || '(Keine Antwort)' }
+            : m,
+        ),
+      )
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
+      if (!responseAccepted) {
+        removeOptimisticUserMessage()
+      }
       addToast({
         type: 'error',
         title: 'Verbindungsfehler',
         message: err instanceof Error ? err.message : 'Unbekannter Fehler',
         duration: 0,
       })
-      setMessages(prev =>
+      updateStreamMessages(prev =>
         prev.map(m =>
           m.id === assistantId
             ? { ...m, isStreaming: false, content: m.content || '(Verbindungsfehler)' }
@@ -403,6 +496,9 @@ export default function ChatPage() {
     } finally {
       setThinking(null)
       setIsStreaming(false)
+      if (streamAbortRef.current === controller) {
+        streamAbortRef.current = null
+      }
     }
   }, [activeSessionId, isStreaming, addToast])
 
@@ -415,7 +511,8 @@ export default function ChatPage() {
         <div ref={sessionDropdownRef} className="relative flex-1 min-w-0">
           <button
             onClick={() => setSessionsOpen(o => !o)}
-            className="flex items-center gap-2 max-w-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors truncate"
+            disabled={isStreaming}
+            className="flex items-center gap-2 max-w-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors truncate disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span className="truncate text-neutral-700 dark:text-neutral-300">
               {activeSession
@@ -438,6 +535,8 @@ export default function ChatPage() {
                       session.id === activeSessionId && 'bg-neutral-100 dark:bg-neutral-800',
                     )}
                     onClick={() => {
+                      if (isStreaming) return
+                      activeSessionIdRef.current = session.id
                       setActiveSessionId(session.id)
                       setSessionsOpen(false)
                     }}
@@ -446,11 +545,12 @@ export default function ChatPage() {
                       {session.title ?? `Sitzung ${new Date(session.created_at).toLocaleDateString('de-DE')}`}
                     </span>
                     <button
+                      disabled={isStreaming}
                       onClick={e => {
                         e.stopPropagation()
                         handleDeleteSession(session.id)
                       }}
-                      className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 cursor-pointer transition-colors flex-shrink-0"
+                      className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 cursor-pointer transition-colors flex-shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
                       title="Sitzung löschen"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -464,7 +564,8 @@ export default function ChatPage() {
 
         <button
           onClick={handleNewSession}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors text-neutral-700 dark:text-neutral-300 flex-shrink-0"
+          disabled={isStreaming}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors text-neutral-700 dark:text-neutral-300 flex-shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Plus className="w-3.5 h-3.5" />
           Neu

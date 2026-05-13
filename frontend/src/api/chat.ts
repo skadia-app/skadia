@@ -52,7 +52,7 @@ export function updateChatPreferences(prefs: ChatPreferences): Promise<ChatPrefe
 
 export function confirmChatToolCall(
   sessionId: string,
-  payload: { tool_call_id: string; confirmed: boolean; args_overrides?: unknown },
+  payload: { tool_call_id: string; confirmed: boolean },
 ): Promise<void> {
   return apiClient<void>(`/chat/sessions/${sessionId}/confirm`, {
     method: 'POST',
