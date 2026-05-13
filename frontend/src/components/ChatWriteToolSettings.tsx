@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getChatPreferences, updateChatPreferences, type ChatPreferences } from '@/api/chat'
 import Toggle from '@/components/Toggle'
@@ -60,52 +60,59 @@ const DEFAULT_CHAT_PREFS: ChatPreferences = {
   chat_allowed_write_tools: [],
 }
 
+function samePreferences(a: ChatPreferences, b: ChatPreferences): boolean {
+  if (a.chat_expose_document_extracted_data !== b.chat_expose_document_extracted_data) return false
+  if (a.chat_write_tools_enabled !== b.chat_write_tools_enabled) return false
+  if (a.chat_allowed_write_tools.length !== b.chat_allowed_write_tools.length) return false
+  return a.chat_allowed_write_tools.every((tool, index) => tool === b.chat_allowed_write_tools[index])
+}
+
 export default function ChatWriteToolSettings() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const [draft, setDraft] = useState<ChatPreferences | null>(null)
   const { data, isLoading, isError, isSuccess } = useQuery({
     queryKey: ['chat-preferences'],
     queryFn: getChatPreferences,
   })
 
   const preferencesLoaded = isSuccess && data !== undefined
-  const prefs = data ?? DEFAULT_CHAT_PREFS
+  const savedPrefs = data ?? DEFAULT_CHAT_PREFS
+  const prefs = draft ?? savedPrefs
+  const isDirty = preferencesLoaded && draft !== null && !samePreferences(draft, savedPrefs)
   const allowedSet = useMemo(
     () => new Set(prefs.chat_allowed_write_tools),
     [prefs.chat_allowed_write_tools],
   )
 
+  useEffect(() => {
+    if (preferencesLoaded && draft === null) {
+      setDraft(savedPrefs)
+    }
+  }, [draft, preferencesLoaded, savedPrefs])
+
   const mutation = useMutation({
     mutationFn: updateChatPreferences,
-    onMutate: async next => {
-      await queryClient.cancelQueries({ queryKey: ['chat-preferences'] })
-      const previous = queryClient.getQueryData<ChatPreferences>(['chat-preferences'])
-      queryClient.setQueryData(['chat-preferences'], next)
-      return { previous }
-    },
     onSuccess: saved => {
       queryClient.setQueryData(['chat-preferences'], saved)
-      addToast({ type: 'success', title: 'Chat-Einstellungen gespeichert' })
+      setDraft(saved)
+      addToast({ type: 'success', title: 'Agent-Berechtigungen gespeichert' })
     },
-    onError: (_err, _next, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(['chat-preferences'], context.previous)
-      }
-      addToast({ type: 'error', title: 'Chat-Einstellungen konnten nicht gespeichert werden', duration: 0 })
+    onError: () => {
+      addToast({ type: 'error', title: 'Agent-Berechtigungen konnten nicht gespeichert werden', duration: 0 })
     },
   })
 
-  const save = (patch: Partial<ChatPreferences>) => {
+  const patchDraft = (patch: Partial<ChatPreferences>) => {
     if (!preferencesLoaded) return
-    const current = queryClient.getQueryData<ChatPreferences>(['chat-preferences']) ?? prefs
-    mutation.mutate({ ...current, ...patch })
+    setDraft(current => ({ ...(current ?? savedPrefs), ...patch }))
   }
 
   const setToolAllowed = (toolID: string, checked: boolean) => {
     const next = new Set(prefs.chat_allowed_write_tools)
     if (checked) next.add(toolID)
     else next.delete(toolID)
-    save({ chat_allowed_write_tools: Array.from(next) })
+    patchDraft({ chat_allowed_write_tools: Array.from(next) })
   }
 
   const controlsDisabled = isLoading || mutation.isPending || !preferencesLoaded
@@ -113,19 +120,19 @@ export default function ChatWriteToolSettings() {
 
   return (
     <SettingsSection
-      title="Chat-Assistent"
+      title="AI-Agent-Berechtigungen"
       description="Steuert, welche sensiblen Dokumentdaten und Änderungsvorschläge der Assistent verwenden darf."
       className="space-y-6"
     >
       {isError && (
-        <p className="text-sm text-red-500 dark:text-red-400">Chat-Einstellungen konnten nicht geladen werden.</p>
+        <p className="text-sm text-red-500 dark:text-red-400">Agent-Berechtigungen konnten nicht geladen werden.</p>
       )}
 
       <div className="space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              Dokument-OCR-Text dem Chat-Assistenten zugänglich machen
+              Dokument-OCR-Text dem AI-Agenten zugänglich machen
             </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
               OCR-Text kann Adressen, Namen oder Beträge enthalten und wird bei passenden Fragen mit dem konfigurierten LLM-Anbieter geteilt.
@@ -133,16 +140,16 @@ export default function ChatWriteToolSettings() {
           </div>
           <Toggle
             checked={prefs.chat_expose_document_extracted_data}
-            onChange={checked => save({ chat_expose_document_extracted_data: checked })}
+            onChange={checked => patchDraft({ chat_expose_document_extracted_data: checked })}
             disabled={controlsDisabled}
-            aria-label="Dokument-OCR-Text dem Chat-Assistenten zugänglich machen"
+            aria-label="Dokument-OCR-Text dem AI-Agenten zugänglich machen"
           />
         </div>
 
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              Chat-Assistent darf Änderungen vorschlagen
+              AI-Agent darf Änderungen vorschlagen
             </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
               Aktivierte Werkzeuge zeigen vor jeder Änderung eine Vorschau und erfordern deine ausdrückliche Bestätigung.
@@ -150,9 +157,9 @@ export default function ChatWriteToolSettings() {
           </div>
           <Toggle
             checked={prefs.chat_write_tools_enabled}
-            onChange={checked => save({ chat_write_tools_enabled: checked })}
+            onChange={checked => patchDraft({ chat_write_tools_enabled: checked })}
             disabled={controlsDisabled}
-            aria-label="Chat-Assistent darf Änderungen vorschlagen"
+            aria-label="AI-Agent darf Änderungen vorschlagen"
           />
         </div>
       </div>
@@ -179,6 +186,27 @@ export default function ChatWriteToolSettings() {
             </fieldset>
           ))}
         </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-3 border-t border-neutral-100 dark:border-neutral-800 pt-4">
+        {isDirty && (
+          <button
+            type="button"
+            onClick={() => setDraft(savedPrefs)}
+            disabled={mutation.isPending}
+            className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 underline disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+          >
+            Abbrechen
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => mutation.mutate(prefs)}
+          disabled={!isDirty || mutation.isPending}
+          className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+        >
+          {mutation.isPending ? 'Speichern…' : 'Speichern'}
+        </button>
       </div>
     </SettingsSection>
   )

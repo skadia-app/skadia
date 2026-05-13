@@ -55,10 +55,12 @@ describe('ChatWriteToolSettings', () => {
     renderSettings()
     await waitForLoadedAllowList()
     const toggle = await screen.findByRole('switch', {
-      name: 'Dokument-OCR-Text dem Chat-Assistenten zugänglich machen',
+      name: 'Dokument-OCR-Text dem AI-Agenten zugänglich machen',
     })
 
     fireEvent.click(toggle)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -72,9 +74,9 @@ describe('ChatWriteToolSettings', () => {
     fetchMock.mockRejectedValue(new Error('load failed'))
 
     renderSettings()
-    await screen.findByText('Chat-Einstellungen konnten nicht geladen werden.')
+    await screen.findByText('Agent-Berechtigungen konnten nicht geladen werden.')
     const toggle = await screen.findByRole('switch', {
-      name: 'Dokument-OCR-Text dem Chat-Assistenten zugänglich machen',
+      name: 'Dokument-OCR-Text dem AI-Agenten zugänglich machen',
     })
 
     expect(toggle).toHaveProperty('disabled', true)
@@ -87,10 +89,12 @@ describe('ChatWriteToolSettings', () => {
     renderSettings()
     await waitForLoadedAllowList()
     const toggle = await screen.findByRole('switch', {
-      name: 'Chat-Assistent darf Änderungen vorschlagen',
+      name: 'AI-Agent darf Änderungen vorschlagen',
     })
 
     fireEvent.click(toggle)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -126,11 +130,47 @@ describe('ChatWriteToolSettings', () => {
     const checkbox = screen.getByLabelText('Gear einer Aktivität zuweisen') as HTMLInputElement
 
     fireEvent.click(checkbox)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(2)
     })
     const body = JSON.parse(fetchMock.mock.calls[1][1].body as string)
     expect(body.chat_allowed_write_tools).toEqual(['rename_activity', 'set_activity_gear'])
+  })
+
+  it('batches rapid checkbox changes into a single save request', async () => {
+    fetchMock.mockImplementation(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (!init || init.method === undefined || init.method === 'GET') {
+        return jsonResponse({
+          chat_expose_document_extracted_data: false,
+          chat_write_tools_enabled: true,
+          chat_allowed_write_tools: ['rename_activity'],
+        })
+      }
+      return jsonResponse(JSON.parse(init.body as string))
+    })
+
+    renderSettings()
+    await waitForLoadedAllowList()
+
+    fireEvent.click(screen.getByLabelText('Gear anlegen'))
+    fireEvent.click(screen.getByLabelText('Gear-Metadaten ändern'))
+    fireEvent.click(screen.getByLabelText('Aktivität taggen'))
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body as string)
+    expect(body.chat_allowed_write_tools).toEqual([
+      'rename_activity',
+      'create_gear',
+      'update_gear_metadata',
+      'tag_activity',
+    ])
   })
 })
