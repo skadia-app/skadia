@@ -40,16 +40,67 @@ var createAutomationRuleInputSchema = json.RawMessage(`{
     "name": {"type": "string", "minLength": 1},
     "priority": {"type": "integer"},
     "trigger_event": {"type": "string", "enum": ["on_import", "on_enrichment_complete", "on_manual_apply", "on_gear_usage_update"]},
-    "conditions": {"type": "array"},
-    "condition_groups": {"type": "array"},
+    "conditions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/condition"}
+    },
+    "condition_groups": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/condition_group"}
+    },
     "conditions_logic": {"type": "string", "enum": ["and", "or"]},
-    "actions": {"type": "array"},
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/action"}
+    },
     "stop_on_match": {"type": "boolean"},
     "apply_retroactively": {"type": "boolean"},
     "branches": {"type": "array"}
   },
   "required": ["name", "trigger_event", "actions"],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "condition": {
+      "type": "object",
+      "properties": {
+        "field": {"type": "string", "minLength": 1},
+        "op": {"type": "string", "enum": ["eq", "neq", "lt", "lte", "gt", "gte", "between", "contains", "in"]},
+        "value": {
+          "oneOf": [
+            {"type": "string"},
+            {"type": "number"},
+            {"type": "boolean"},
+            {"type": "array"}
+          ]
+        }
+      },
+      "required": ["field", "op", "value"],
+      "additionalProperties": false
+    },
+    "condition_group": {
+      "type": "object",
+      "properties": {
+        "logic": {"type": "string", "enum": ["and", "or"]},
+        "conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/condition"}
+        }
+      },
+      "required": ["logic", "conditions"],
+      "additionalProperties": false
+    },
+    "action": {
+      "type": "object",
+      "properties": {
+        "action": {"type": "string", "enum": ["set_gear", "add_tag", "remove_tag", "set_visibility", "set_sport_type", "set_name", "set_intensity", "set_indoor", "set_electric", "set_virtual", "set_commute", "set_field", "notify", "webhook"]},
+        "params": {"type": "object"}
+      },
+      "required": ["action", "params"],
+      "additionalProperties": false
+    }
+  }
 }`)
 
 var updateAutomationRuleInputSchema = json.RawMessage(`{
@@ -63,10 +114,20 @@ var updateAutomationRuleInputSchema = json.RawMessage(`{
         "is_active": {"type": "boolean"},
         "priority": {"type": "integer"},
         "trigger_event": {"type": "string", "enum": ["on_import", "on_enrichment_complete", "on_manual_apply", "on_gear_usage_update"]},
-        "conditions": {"type": "array"},
-        "condition_groups": {"type": "array"},
+        "conditions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/condition"}
+        },
+        "condition_groups": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/condition_group"}
+        },
         "conditions_logic": {"type": "string", "enum": ["and", "or"]},
-        "actions": {"type": "array"},
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/action"}
+        },
         "stop_on_match": {"type": "boolean"},
         "apply_retroactively": {"type": "boolean"},
         "branches": {"type": "array"}
@@ -76,7 +137,48 @@ var updateAutomationRuleInputSchema = json.RawMessage(`{
     }
   },
   "required": ["rule_id", "fields"],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "condition": {
+      "type": "object",
+      "properties": {
+        "field": {"type": "string", "minLength": 1},
+        "op": {"type": "string", "enum": ["eq", "neq", "lt", "lte", "gt", "gte", "between", "contains", "in"]},
+        "value": {
+          "oneOf": [
+            {"type": "string"},
+            {"type": "number"},
+            {"type": "boolean"},
+            {"type": "array"}
+          ]
+        }
+      },
+      "required": ["field", "op", "value"],
+      "additionalProperties": false
+    },
+    "condition_group": {
+      "type": "object",
+      "properties": {
+        "logic": {"type": "string", "enum": ["and", "or"]},
+        "conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/condition"}
+        }
+      },
+      "required": ["logic", "conditions"],
+      "additionalProperties": false
+    },
+    "action": {
+      "type": "object",
+      "properties": {
+        "action": {"type": "string", "enum": ["set_gear", "add_tag", "remove_tag", "set_visibility", "set_sport_type", "set_name", "set_intensity", "set_indoor", "set_electric", "set_virtual", "set_commute", "set_field", "notify", "webhook"]},
+        "params": {"type": "object"}
+      },
+      "required": ["action", "params"],
+      "additionalProperties": false
+    }
+  }
 }`)
 
 var ruleIDInputSchema = json.RawMessage(`{

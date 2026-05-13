@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
+const API_PROXY_TIMEOUT_MS = 10 * 60 * 1000
+
 export default defineConfig({
   test: {
     environment: 'jsdom',
@@ -11,6 +13,20 @@ export default defineConfig({
     alias: [{ find: '@', replacement: path.resolve(__dirname, './src') }],
   },
   plugins: [
+    {
+      name: 'skadia-long-running-api-proxy',
+      configureServer(server) {
+        if (!server.httpServer) return
+        const httpServer = server.httpServer as typeof server.httpServer & {
+          timeout?: number
+          requestTimeout?: number
+          headersTimeout?: number
+        }
+        httpServer.timeout = API_PROXY_TIMEOUT_MS
+        httpServer.requestTimeout = API_PROXY_TIMEOUT_MS
+        httpServer.headersTimeout = API_PROXY_TIMEOUT_MS + 5000
+      },
+    },
     react(),
     tailwindcss(),
   ],
@@ -58,6 +74,16 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+        timeout: API_PROXY_TIMEOUT_MS,
+        proxyTimeout: API_PROXY_TIMEOUT_MS,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setTimeout(API_PROXY_TIMEOUT_MS)
+          })
+          proxy.on('proxyRes', (proxyRes) => {
+            proxyRes.socket?.setTimeout(API_PROXY_TIMEOUT_MS)
+          })
+        },
       },
       '/tiles': {
         target: 'http://localhost:3000',

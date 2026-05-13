@@ -326,6 +326,58 @@ func TestRunnerStoresFailedCasesAndDoesNotFamilyAutoPass(t *testing.T) {
 	}
 }
 
+func TestRunnerDoesNotDemoteCurrentAdminReleaseOnFailedQualityCheck(t *testing.T) {
+	apiBase := "http://llm.example.test/v1"
+	modelName := "candidate-model"
+	releaseReport := evalIdentityReport(model.LLMRoleToolAgent, "llama_server", "llm.example.test", modelName)
+	releaseReport["admin_reason"] = "Admin configured local model"
+	store := &fakeStore{system: []model.LLMSystemConfig{{
+		Role:        model.LLMRoleToolAgent,
+		BackendType: "llama_server",
+		APIBase:     &apiBase,
+		ModelName:   &modelName,
+		Enabled:     true,
+		EvalStatus:  model.LLMEvalStatusWaived,
+		EvalReport:  releaseReport,
+	}}}
+	client := &fakeClient{responses: map[string]Transcript{
+		"tool": {Content: "I cannot call tools, but here is text.", FinishReason: "stop"},
+	}}
+
+	report, err := NewRunner(store, client, RunnerOptions{Cases: []Case{{
+		ID:           "tool",
+		Category:     CategoryToolCall,
+		Expectations: Expectations{RequireToolCall: "search_activities", MustNotContain: []string{"cannot call tools"}},
+	}}}).Run(context.Background(), model.LLMRoleToolAgent)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if report.Status != model.LLMEvalStatusFailed {
+		t.Fatalf("returned status = %q, want diagnostic failure", report.Status)
+	}
+	if store.lastStatus != model.LLMEvalStatusWaived {
+		t.Fatalf("stored status = %q, want preserved admin release", store.lastStatus)
+	}
+	if got, _ := store.lastReportAny.(map[string]any)["quality_status"].(string); got != model.LLMEvalStatusFailed {
+		t.Fatalf("stored quality_status = %q, want failed in diagnostic report %#v", got, store.lastReportAny)
+	}
+	if got, _ := store.lastReportAny.(map[string]any)["admin_reason"].(string); got != "Admin configured local model" {
+		t.Fatalf("stored admin_reason = %q, want preserved reason", got)
+	}
+}
+
+func evalIdentityReport(role, backendType, apiBaseHost, modelName string) map[string]any {
+	return map[string]any{"identity": map[string]any{
+		"role":          role,
+		"backend_type":  backendType,
+		"api_base_host": apiBaseHost,
+		"model_name":    modelName,
+		"suite_id":      model.LLMEvalSuiteID,
+		"suite_hash":    model.LLMEvalSuiteHash,
+	}}
+}
+
 func TestRunnerIsOnlyPathAllowedToExecuteUntestedCandidate(t *testing.T) {
 	apiBase := "http://llm.example.test/v1"
 	modelName := "candidate-model"
@@ -571,6 +623,7 @@ type fakeStore struct {
 	lastRole            string
 	lastStatus          string
 	lastReport          Report
+	lastReportAny       any
 	lastModelEvalRole   string
 	lastModelEvalReport Report
 }
@@ -589,7 +642,16 @@ func (s *fakeStore) GetLLMAPIKeyEnc(_ context.Context, role string) (string, err
 func (s *fakeStore) UpdateLLMEvalResult(_ context.Context, role, status string, report any) error {
 	s.lastRole = role
 	s.lastStatus = status
-	s.lastReport = report.(Report)
+	s.lastReportAny = report
+	switch value := report.(type) {
+	case Report:
+		s.lastReport = value
+	case map[string]any:
+		raw, _ := json.Marshal(value)
+		_ = json.Unmarshal(raw, &s.lastReport)
+	default:
+		panic(fmt.Sprintf("unexpected report type %T", report))
+	}
 	return nil
 }
 

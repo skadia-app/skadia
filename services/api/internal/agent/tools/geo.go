@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 var geoFeatureCategoryMap = map[string]string{
@@ -106,16 +107,23 @@ func executeQueryGeoFeatures(ctx context.Context, deps *Deps, userID string, raw
 	if err != nil {
 		return nil, err
 	}
-	pool, err := readonlyPool(deps)
-	if err != nil {
-		return nil, err
-	}
 	var totalCount int64
-	if err := pool.QueryRow(ctx, countSQL, params...).Scan(&totalCount); err != nil {
-		return nil, err
+	var rows []map[string]any
+	if deps == nil || deps.DB == nil {
+		return nil, fmt.Errorf("database is required")
 	}
-	rows, err := queryRows(ctx, deps, dataSQL, params...)
-	if err != nil {
+	if err := deps.DB.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, countSQL, params...).Scan(&totalCount); err != nil {
+			return err
+		}
+		queryResult, err := tx.Query(ctx, dataSQL, params...)
+		if err != nil {
+			return err
+		}
+		defer queryResult.Close()
+		rows, err = collectToolRows(queryResult)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	return map[string]any{
@@ -200,7 +208,7 @@ func buildQueryGeoFeaturesSQL(userID string, args queryGeoFeaturesArgs, now time
 	}
 	if args.MinElevation != nil {
 		params = append(params, *args.MinElevation)
-		conditions = append(conditions, fmt.Sprintf("gt.ele >= $%d", len(params)))
+		conditions = append(conditions, fmt.Sprintf("COALESCE(gt.ele, gt.ele_m) >= $%d", len(params)))
 	}
 	conditions, params = applyActivityFilters(conditions, params, ActivityFilters{
 		TableAlias: "a",
@@ -225,8 +233,8 @@ func buildQueryGeoFeaturesSQL(userID string, args queryGeoFeaturesArgs, now time
 	}
 	where := strings.Join(conditions, " AND ")
 	join := "FROM activity_geo_tags gt JOIN activities a ON a.id = gt.activity_id WHERE " + where
-	selectSQL := "SELECT gt.name, gt.category, gt.ele, gt.lat, gt.lng, a.started_at::date AS activity_date, a.title AS activity_title "
-	return "SELECT COUNT(*) " + join, selectSQL + join + fmt.Sprintf(" ORDER BY gt.ele DESC NULLS LAST LIMIT %d", limit), params, limit, featureType, nil
+	selectSQL := "SELECT gt.name, gt.category, COALESCE(gt.ele, gt.ele_m) AS ele, gt.lat, gt.lng, a.id::text AS activity_id, a.started_at::date AS activity_date, a.title AS activity_title, COALESCE(a.sport_type, '') AS sport_type, COALESCE(a.sub_type, '') AS sub_type "
+	return "SELECT COUNT(*) " + join, selectSQL + join + fmt.Sprintf(" ORDER BY COALESCE(gt.ele, gt.ele_m) DESC NULLS LAST LIMIT %d", limit), params, limit, featureType, nil
 }
 
 func buildSearchPOIsNearbySQL(args searchPOIsNearbyArgs) (string, []any, error) {

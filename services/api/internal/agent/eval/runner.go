@@ -64,9 +64,11 @@ type Runner struct {
 
 type Candidate struct {
 	Identity
-	APIBase      string
-	APIKey       string
-	Capabilities []string
+	APIBase              string
+	APIKey               string
+	Capabilities         []string
+	PreserveAdminRelease bool
+	AdminReleaseReason   string
 }
 
 type Identity struct {
@@ -203,6 +205,13 @@ func (r *Runner) Run(ctx context.Context, role string) (Report, error) {
 		report.Status = model.LLMEvalStatusPassed
 	}
 
+	persistStatus := report.Status
+	persistReport := any(report)
+	if r.modelNameOverride == "" && report.Status == model.LLMEvalStatusFailed && candidate.PreserveAdminRelease {
+		persistStatus = model.LLMEvalStatusWaived
+		persistReport = adminReleasedQualityReport(report, candidate.AdminReleaseReason)
+	}
+
 	if r.modelNameOverride != "" {
 		store, ok := r.store.(ModelEvalStore)
 		if !ok {
@@ -211,7 +220,7 @@ func (r *Runner) Run(ctx context.Context, role string) (Report, error) {
 		if err := store.UpdateLLMModelEvalResult(ctx, role, report); err != nil {
 			return Report{}, fmt.Errorf("store model eval result: %w", err)
 		}
-	} else if err := r.store.UpdateLLMEvalResult(ctx, role, report.Status, report); err != nil {
+	} else if err := r.store.UpdateLLMEvalResult(ctx, role, persistStatus, persistReport); err != nil {
 		return Report{}, fmt.Errorf("store eval result: %w", err)
 	}
 	return report, nil
@@ -248,6 +257,10 @@ func (r *Runner) loadCandidate(ctx context.Context, role string) (Candidate, err
 		APIBase:      apiBase,
 		Capabilities: append([]string(nil), cfg.CapabilityFlags...),
 	}
+	if cfg.EvalStatus == model.LLMEvalStatusWaived && cfg.EvalGatePassed() {
+		candidate.PreserveAdminRelease = true
+		candidate.AdminReleaseReason = adminReleaseReason(cfg.EvalReport)
+	}
 	if cfg.HasAPIKey {
 		key, err := r.store.GetLLMAPIKeyEnc(ctx, role)
 		if err != nil {
@@ -263,6 +276,40 @@ func (r *Runner) loadCandidate(ctx context.Context, role string) (Candidate, err
 		candidate.APIKey = dec
 	}
 	return candidate, nil
+}
+
+func adminReleasedQualityReport(report Report, reason string) map[string]any {
+	raw, err := json.Marshal(report)
+	if err != nil {
+		return map[string]any{
+			"status":               model.LLMEvalStatusWaived,
+			"quality_status":       report.Status,
+			"quality_failed_cases": append([]string(nil), report.FailedCases...),
+			"identity":             report.Identity,
+			"admin_reason":         reason,
+		}
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		out = map[string]any{}
+	}
+	out["status"] = model.LLMEvalStatusWaived
+	out["quality_status"] = report.Status
+	out["quality_failed_cases"] = append([]string(nil), report.FailedCases...)
+	out["quality_checked_at"] = report.CompletedAt.Format(time.RFC3339Nano)
+	if strings.TrimSpace(reason) != "" {
+		out["admin_reason"] = strings.TrimSpace(reason)
+	}
+	return out
+}
+
+func adminReleaseReason(report map[string]any) string {
+	for _, key := range []string{"admin_reason", "waiver_reason"} {
+		if value, ok := report[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (r *Runner) applicableCases(candidate Candidate) []Case {

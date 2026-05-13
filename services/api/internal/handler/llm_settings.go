@@ -297,6 +297,7 @@ func (h *Handler) PostLLMConfigEval(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.ModelName) != "" {
 		modelNameOverride = strings.TrimSpace(req.ModelName)
 	}
+	headersFlushed := flushLongEvalHeaders(w, r)
 	key := ""
 	if h.Config != nil {
 		key = h.Config.LLMEncryptionKey
@@ -307,12 +308,20 @@ func (h *Handler) PostLLMConfigEval(w http.ResponseWriter, r *http.Request) {
 	})
 	report, err := runner.Run(r.Context(), role)
 	if err != nil {
+		if headersFlushed {
+			writeLongEvalJSON(w, map[string]any{
+				"status":    model.LLMEvalStatusFailed,
+				"completed": true,
+				"error":     err.Error(),
+			})
+			return
+		}
 		httputil.WriteError(w, http.StatusBadGateway, "Bad Gateway", err.Error(), r.URL.Path)
 		return
 	}
 	if err := h.regenerateLiteLLMConfig(r.Context()); err != nil {
 		slog.Warn("failed to regenerate LiteLLM config after eval", "error", err)
-		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+		response := map[string]any{
 			"status":                report.Status,
 			"identity":              report.Identity,
 			"suite_id":              report.SuiteID,
@@ -326,11 +335,41 @@ func (h *Handler) PostLLMConfigEval(w http.ResponseWriter, r *http.Request) {
 			"warning":               "optional LiteLLM config could not be regenerated: " + err.Error(),
 			"litellm_config_stale":  true,
 			"litellm_pending_apply": false,
-		})
+		}
+		if headersFlushed {
+			writeLongEvalJSON(w, response)
+		} else {
+			httputil.WriteJSON(w, http.StatusOK, response)
+		}
 		return
 	}
 	report.LiteLLMPendingApply = h.liteLLMConfigWritesNeedApply()
-	httputil.WriteJSON(w, http.StatusOK, report)
+	if headersFlushed {
+		writeLongEvalJSON(w, report)
+	} else {
+		httputil.WriteJSON(w, http.StatusOK, report)
+	}
+}
+
+func flushLongEvalHeaders(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Query().Get("flush") != "1" {
+		return false
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("\n"))
+	flusher.Flush()
+	return true
+}
+
+func writeLongEvalJSON(w http.ResponseWriter, data any) {
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		slog.Error("failed to encode long eval JSON response", "error", err)
+	}
 }
 
 // GetLLMModels returns available models for a backend (only Ollama supports auto-discovery).

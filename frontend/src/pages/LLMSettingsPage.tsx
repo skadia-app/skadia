@@ -67,6 +67,11 @@ function mutationErrorMessage(err: unknown): string {
     const json = (err as { json?: Record<string, unknown> }).json
     const jsonMessage = json?.message
     if (typeof jsonMessage === 'string' && jsonMessage.trim()) return jsonMessage
+    const status = (err as { status?: number }).status
+    const body = (err as { body?: string }).body
+    if (status === 500 && typeof body === 'string' && body.trim() === '') {
+      return 'Der Server oder Dev-Proxy hat die Verbindung ohne Fehlermeldung beendet.'
+    }
   }
   if (err instanceof Error && err.message.trim()) return err.message
   return 'Unbekannter Fehler'
