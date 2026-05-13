@@ -68,6 +68,21 @@ describe('ChatWriteToolSettings', () => {
     expect(body.chat_allowed_write_tools).toEqual(['rename_activity'])
   })
 
+  it('does not save fallback defaults after preferences fail to load', async () => {
+    fetchMock.mockRejectedValue(new Error('load failed'))
+
+    renderSettings()
+    await screen.findByText('Chat-Einstellungen konnten nicht geladen werden.')
+    const toggle = await screen.findByRole('switch', {
+      name: 'Dokument-OCR-Text dem Chat-Assistenten zugänglich machen',
+    })
+
+    expect(toggle).toHaveProperty('disabled', true)
+    fireEvent.click(toggle)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('persists the global write-tool toggle without dropping the saved allow-list', async () => {
     renderSettings()
     await waitForLoadedAllowList()

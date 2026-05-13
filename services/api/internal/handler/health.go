@@ -38,15 +38,16 @@ type Handler struct {
 	PhotoEmbedPublisher       event.PhotoEmbedPublisher
 	EventConn                 event.EventConn
 
-	ShadowFS        shadowfs.ShadowFS            // nil when not yet initialized
-	ShadowFSConfig  *shadowfs.ShadowFSConfig     // nil when shadow FS is not configured
-	WatcherManager  *shadowfs.WatcherManager     // nil when per-user hotfolder is not configured
-	Config          *HandlerConfig               // LLM/LiteLLM configuration
-	ImportService   *importer.Service            // shared post-processing pipeline
-	GraphManager    *routing.GraphManager        // nil when routing graph is not configured
-	CoverageBaseDir string                       // base directory for FCOV coverage files
-	CoverageReader  *coverage.DiskCoverageReader // nil when coverage binaries are not available
-	PNGCache        *coverage.PNGCache           // LRU cache for rendered PNG tiles
+	ShadowFS           shadowfs.ShadowFS            // nil when not yet initialized
+	ShadowFSConfig     *shadowfs.ShadowFSConfig     // nil when shadow FS is not configured
+	WatcherManager     *shadowfs.WatcherManager     // nil when per-user hotfolder is not configured
+	Config             *HandlerConfig               // LLM/LiteLLM configuration
+	ImportService      *importer.Service            // shared post-processing pipeline
+	AIBrokerHTTPClient *http.Client                 // optional test override; production uses SSRF-protected client
+	GraphManager       *routing.GraphManager        // nil when routing graph is not configured
+	CoverageBaseDir    string                       // base directory for FCOV coverage files
+	CoverageReader     *coverage.DiskCoverageReader // nil when coverage binaries are not available
+	PNGCache           *coverage.PNGCache           // LRU cache for rendered PNG tiles
 
 	DEMSvc dem.Servicer // lazy mmap'd HGT service; nil when not configured
 

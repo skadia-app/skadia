@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -105,15 +106,40 @@ func TestConfirmChatToolCallResolvesPending(t *testing.T) {
 		t.Fatalf("Register: %v", err)
 	}
 
-	req := chatPrefsRequest(t, http.MethodPost, "/sessions/"+session.ID+"/confirm", userID, []byte(`{"tool_call_id":"call-1","confirmed":true,"args_overrides":{"name":"Bike"}}`))
+	req := chatPrefsRequest(t, http.MethodPost, "/sessions/"+session.ID+"/confirm", userID, []byte(`{"tool_call_id":"call-1","confirmed":true}`))
 	w := httptest.NewRecorder()
 	h.ChatRoutes().ServeHTTP(w, req)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("confirm status = %d body=%s", w.Code, w.Body.String())
 	}
 	resp := <-ch
-	if !resp.Confirmed || resp.Source != "user" || string(resp.ArgsOverrides) != `{"name":"Bike"}` {
+	if !resp.Confirmed || resp.Source != "user" {
 		t.Fatalf("confirm response = %#v", resp)
+	}
+}
+
+func TestConfirmChatToolCallRejectsArgsOverrides(t *testing.T) {
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+	h := newTestHandler(t, pool)
+	h.Confirm = agent.NewConfirmationManager(time.Minute)
+	session, err := h.DB.CreateSession(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if _, err := h.Confirm.Register(context.Background(), &agent.PendingConfirm{
+		SessionID:  session.ID,
+		ToolCallID: "call-1",
+		Tool:       "create_gear",
+	}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	req := chatPrefsRequest(t, http.MethodPost, "/sessions/"+session.ID+"/confirm", userID, []byte(`{"tool_call_id":"call-1","confirmed":true,"args_overrides":{"name":"Forged"}}`))
+	w := httptest.NewRecorder()
+	h.ChatRoutes().ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("confirm status = %d body=%s, want 400", w.Code, w.Body.String())
 	}
 }
 
@@ -158,7 +184,7 @@ func TestSendChatMessageUsesGoAgentAndPersistsAssistant(t *testing.T) {
 	pool := fusionTestPool(t)
 	userID := insertTestUser(t, pool)
 	h := newTestHandler(t, pool)
-	evalReport := `{"identity":{"role":"tool_agent","backend_type":"llama_server","api_base_host":"llm.test","model_name":"model"}}`
+	evalReport := fmt.Sprintf(`{"identity":{"role":"tool_agent","backend_type":"llama_server","api_base_host":"llm.test","model_name":"model","suite_id":%q,"suite_hash":%q}}`, model.LLMEvalSuiteID, model.LLMEvalSuiteHash)
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, enabled, eval_status, eval_report)
 		VALUES ('tool_agent', 'llama_server', 'http://llm.test/v1', 'model', true, 'passed', $1::jsonb)
@@ -205,6 +231,58 @@ func TestSendChatMessageUsesGoAgentAndPersistsAssistant(t *testing.T) {
 	}
 }
 
+func TestSendChatMessagePersistsUserQuestionAsAssistantContext(t *testing.T) {
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+	h := newTestHandler(t, pool)
+	evalReport := fmt.Sprintf(`{"identity":{"role":"tool_agent","backend_type":"llama_server","api_base_host":"llm.test","model_name":"model","suite_id":%q,"suite_hash":%q}}`, model.LLMEvalSuiteID, model.LLMEvalSuiteHash)
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, enabled, eval_status, eval_report)
+		VALUES ('tool_agent', 'llama_server', 'http://llm.test/v1', 'model', true, 'passed', $1::jsonb)
+		ON CONFLICT (role) DO UPDATE SET
+			backend_type = EXCLUDED.backend_type,
+			api_base = EXCLUDED.api_base,
+			model_name = EXCLUDED.model_name,
+			enabled = EXCLUDED.enabled,
+			eval_status = EXCLUDED.eval_status,
+			eval_report = EXCLUDED.eval_report
+	`, evalReport); err != nil {
+		t.Fatalf("seed tool_agent config: %v", err)
+	}
+	question := "Der Tag existiert noch nicht. Soll ich ihn anlegen?"
+	h.Agent = agent.New(agent.Config{
+		LLMResolver: agent.NewLLMResolver(h.DB, agent.LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
+		Tools:       handlerAskUserRuntime{question: question},
+		StreamChat: func(ctx context.Context, cfg agent.LLMConfig, params llmwire.ChatRequest) agent.ChatStream {
+			return &handlerFakeStream{events: []llmwire.ChatStreamEvent{{
+				ToolCalls:    []llmwire.ToolCallDelta{{Index: 0, ID: "call-tag", Name: "tag_activity", Args: `{"tag_name":"Intervalle"}`}},
+				FinishReason: "tool_calls",
+			}}}
+		},
+	})
+	session, err := h.DB.CreateSession(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	req := chatPrefsRequest(t, http.MethodPost, "/sessions/"+session.ID+"/send", userID, []byte(`{"message_id":"msg-ask","message":"tagge das"}`))
+	w := httptest.NewRecorder()
+	h.ChatRoutes().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("send status = %d body=%s", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"type":"chat.user_question"`) {
+		t.Fatalf("SSE body missing user question: %s", body)
+	}
+	messages, err := h.DB.GetMessages(context.Background(), session.ID, 10)
+	if err != nil {
+		t.Fatalf("GetMessages: %v", err)
+	}
+	if len(messages) != 2 || messages[1].Role != "assistant" || messages[1].Content != question {
+		t.Fatalf("messages = %#v, want persisted assistant question", messages)
+	}
+}
+
 func TestChatHistoryPayloadDropsOnlyCurrentMessage(t *testing.T) {
 	got := chatHistoryPayload([]*model.ChatMessage{
 		{Role: "user", Content: "gleicher Text"},
@@ -222,6 +300,22 @@ func TestChatHistoryPayloadDropsOnlyCurrentMessage(t *testing.T) {
 	if got[1].Role != "assistant" || got[1].Content != "alte Antwort" {
 		t.Fatalf("second history item = %#v", got[1])
 	}
+}
+
+type handlerAskUserRuntime struct {
+	question string
+}
+
+func (r handlerAskUserRuntime) AddEnabledWriteTools(filter []string, prefs *agent.ChatPreferences) []string {
+	return filter
+}
+
+func (r handlerAskUserRuntime) Definitions(filter []string, prefs *agent.ChatPreferences) []llmwire.ToolDefinition {
+	return nil
+}
+
+func (r handlerAskUserRuntime) Execute(ctx context.Context, req agent.ToolRuntimeRequest, sink agent.SSESink) (agent.ToolRuntimeResult, error) {
+	return agent.ToolRuntimeResult{AskUser: true, Question: r.question}, nil
 }
 
 func chatPrefsRequest(t *testing.T, method, target, userID string, body []byte) *http.Request {
