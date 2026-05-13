@@ -214,6 +214,8 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
   const [evalResult, setEvalResult] = useState<string | null>(null)
   const [localSaveError, setLocalSaveError] = useState<string | null>(null)
   const [saveWarning, setSaveWarning] = useState<string | null>(null)
+  const [waiverReasons, setWaiverReasons] = useState<Record<string, string>>({})
+  const [waivingRole, setWaivingRole] = useState<string | null>(null)
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [isLoadingModels, setIsLoadingModels] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -230,6 +232,8 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
     setEvalResult(null)
     setLocalSaveError(null)
     setSaveWarning(null)
+    setWaiverReasons({})
+    setWaivingRole(null)
   }, [primaryConfig, roles])
 
   const roleConfigsByName = new Map(roles.map(role => [role.role, role]))
@@ -338,6 +342,27 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
     setIsEvaluating(false)
   }
 
+  const saveWaiver = async (roleName: string) => {
+    const reason = (waiverReasons[roleName] ?? '').trim()
+    if (!reason) return
+    setWaivingRole(roleName)
+    setEvalResult(null)
+    setLocalSaveError(null)
+    try {
+      await waiveLLMEval(roleName, reason)
+      setWaiverReasons(current => {
+        const next = { ...current }
+        delete next[roleName]
+        return next
+      })
+      onSave()
+    } catch (err) {
+      setLocalSaveError(mutationErrorMessage(err))
+    } finally {
+      setWaivingRole(null)
+    }
+  }
+
   const handleSave = () => {
     const validationError = validateBeforeSave()
     if (validationError) {
@@ -361,28 +386,58 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
 
       <div className="grid gap-3 md:grid-cols-2">
         {roles.map(role => (
-          <div key={role.role} className="flex items-start justify-between gap-3 rounded-lg border border-neutral-100 dark:border-neutral-800 px-3 py-2">
-            <div>
-              <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{ROLE_LABELS[role.role] ?? role.role}</div>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">{ROLE_DESCRIPTIONS[role.role] ?? 'Benutzerdefinierte Rolle.'}</p>
-              <span className="mt-1 inline-block rounded bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 px-2 py-0.5 text-xs">
-                Eval: {role.eval_status}
-              </span>
+          <div key={role.role} className="rounded-lg border border-neutral-100 dark:border-neutral-800 px-3 py-2 space-y-2">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{ROLE_LABELS[role.role] ?? role.role}</div>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{ROLE_DESCRIPTIONS[role.role] ?? 'Benutzerdefinierte Rolle.'}</p>
+                <span className={`mt-1 inline-block rounded px-2 py-0.5 text-xs ${
+                  role.eval_status === 'passed'
+                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                    : role.eval_status === 'waived'
+                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                      : role.eval_status === 'failed'
+                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+                        : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
+                }`}>
+                  Eval: {role.eval_status}
+                </span>
+              </div>
+              <Toggle
+                checked={!!enabledByRole[role.role]}
+                onChange={checked => {
+                  setEnabledByRole(current => ({ ...current, [role.role]: checked }))
+                  setEvalResult(null)
+                  setLocalSaveError(null)
+                  setSaveWarning(null)
+                  if (checked && backend === 'disabled') {
+                    setBackend('llama_server')
+                    if (!apiBase) setApiBase(DEFAULT_URLS.llama_server)
+                  }
+                }}
+                aria-label={`${ROLE_LABELS[role.role] ?? role.role} aktivieren`}
+              />
             </div>
-            <Toggle
-              checked={!!enabledByRole[role.role]}
-              onChange={checked => {
-                setEnabledByRole(current => ({ ...current, [role.role]: checked }))
-                setEvalResult(null)
-                setLocalSaveError(null)
-                setSaveWarning(null)
-                if (checked && backend === 'disabled') {
-                  setBackend('llama_server')
-                  if (!apiBase) setApiBase(DEFAULT_URLS.llama_server)
-                }
-              }}
-              aria-label={`${ROLE_LABELS[role.role] ?? role.role} aktivieren`}
-            />
+            {enabledByRole[role.role] && role.eval_status !== 'passed' && (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={waiverReasons[role.role] ?? ''}
+                  onChange={e => setWaiverReasons(current => ({ ...current, [role.role]: e.target.value }))}
+                  placeholder="Waiver-Begründung"
+                  className="min-w-0 flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-900 dark:text-neutral-100 focus:outline-none"
+                  aria-label={`${ROLE_LABELS[role.role] ?? role.role} Waiver-Begründung`}
+                />
+                <button
+                  type="button"
+                  onClick={() => saveWaiver(role.role)}
+                  disabled={waivingRole === role.role || !(waiverReasons[role.role] ?? '').trim()}
+                  className="cursor-pointer px-2 py-1 rounded-lg text-xs border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                >
+                  {waivingRole === role.role ? 'Speichere...' : 'Waiver'}
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>

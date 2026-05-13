@@ -180,4 +180,19 @@ describe('LLMSettingsPage', () => {
     expect(saveLLMRole).toHaveBeenCalledWith('markdown_extract', expect.objectContaining({ model_name: 'shared-model', enabled: true }))
     expect(saveLLMRole).toHaveBeenCalledWith('vision', expect.objectContaining({ model_name: 'shared-model', enabled: true }))
   })
+
+  it('allows waiving an active role from the shared backend view', async () => {
+    mockState.configs = [
+      { role: 'tool_agent', backend_type: 'llama_server', api_base: 'https://llm.example/v1', model_name: 'tool-model', enabled: true, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['tool_calls'], eval_status: 'untested', eval_report: {} },
+      { role: 'vision', backend_type: 'disabled', enabled: false, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: [], eval_status: 'untested', eval_report: {} },
+    ]
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Gemeinsame Verbindung')
+    await user.type(screen.getByLabelText('Tool-Agent Waiver-Begründung'), 'Lokales Testmodell vor Eval-Durchlauf')
+    await user.click(screen.getByRole('button', { name: 'Waiver' }))
+
+    expect(waiveLLMEval).toHaveBeenCalledWith('tool_agent', 'Lokales Testmodell vor Eval-Durchlauf')
+  })
 })
