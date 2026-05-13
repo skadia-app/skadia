@@ -720,7 +720,17 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 		return nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+	tag, err := db.MergeTagTx(ctx, tx, targetTagID, sourceTagID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit merge: %w", err)
+	}
+	return tag, nil
+}
 
+func (db *DB) MergeTagTx(ctx context.Context, tx pgx.Tx, targetTagID, sourceTagID, userID string) (*model.Tag, error) {
 	// 1. Resolve names of both tags and verify ownership.
 	var targetName, sourceName string
 	if err := tx.QueryRow(ctx,
@@ -776,7 +786,7 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 	// 2. Move activity_tags rows: for activities that have source but not target,
 	//    update the tag_id. For activities that already have both, just delete the
 	//    source row (to avoid a unique constraint violation).
-	_, err = tx.Exec(ctx, `
+	_, err := tx.Exec(ctx, `
 		UPDATE activity_tags
 		SET tag_id = $1
 		WHERE tag_id = $2
@@ -869,9 +879,6 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 		return nil, fmt.Errorf("get merged tag: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit merge: %w", err)
-	}
 	return &t, nil
 }
 

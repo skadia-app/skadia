@@ -231,6 +231,7 @@ type chatCompletionBody struct {
 	StreamOptions     *streamOptionsBody `json:"stream_options,omitempty"`
 	ParallelToolCalls *bool              `json:"parallel_tool_calls,omitempty"`
 	Tools             []toolBody         `json:"tools,omitempty"`
+	ToolChoice        string             `json:"tool_choice,omitempty"`
 	Temperature       *float64           `json:"temperature,omitempty"`
 	TopP              *float64           `json:"top_p,omitempty"`
 	PresencePenalty   *float64           `json:"presence_penalty,omitempty"`
@@ -279,6 +280,7 @@ func chatCompletionRequestBody(req ChatRequest) chatCompletionBody {
 		TopP:            req.TopP,
 		PresencePenalty: req.PresencePenalty,
 		MaxTokens:       req.MaxTokens,
+		ToolChoice:      req.ToolChoice,
 	}
 	if req.IncludeUsage {
 		body.StreamOptions = &streamOptionsBody{IncludeUsage: true}

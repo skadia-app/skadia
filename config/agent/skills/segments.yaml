@@ -14,6 +14,7 @@ domain_knowledge: |
   - allowed_predicates beschreibt erlaubte Sport-Tuples; NULL = alle, [] = keine
   - query_segments kann sport_type/sub_type und Modifier wie is_electric/is_indoor/is_virtual/is_commute filtern
   - in_leaderboard=false kennzeichnet Efforts, die nicht in PR/Leaderboard zaehlen sollen
+  - sport_query kann Freitext wie "Gravel", "MTB" oder "Rennrad" backendseitig auf Sport/Subsport abbilden
   - Segmente können manuell erstellt oder aus OSM-Liften importiert sein
 tools:
   - query_segments

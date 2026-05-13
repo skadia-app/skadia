@@ -72,6 +72,9 @@ func TestRegistryDefinitionsRespectGlobalWriteDisableAndAllowList(t *testing.T) 
 		t.Fatalf("enabled AddEnabledWriteTools = %#v, want allowed write appended", gotFilter)
 	}
 	defs := reg.Definitions(gotFilter, enabled)
+	if len(defs) < 2 || defs[0].Name != "read_activity" || defs[1].Name != "update_activity" {
+		t.Fatalf("definitions order = %#v, want filter order", defs)
+	}
 	if !hasLLMTool(defs, "update_activity") {
 		t.Fatalf("allowed write tool missing from model definitions: %#v", defs)
 	}

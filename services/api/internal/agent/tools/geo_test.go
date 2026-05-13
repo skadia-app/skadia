@@ -17,6 +17,7 @@ func TestRegisterGeoToolsOwnershipSplit(t *testing.T) {
 
 	tests := map[string]bool{
 		"query_geo_features":          true,
+		"query_activity_geo_context":  true,
 		"search_pois_nearby":          false,
 		"search_trails_by_difficulty": false,
 	}
@@ -99,6 +100,46 @@ func TestBuildQueryGeoFeaturesSQLMapsWaterAndFiltersActivities(t *testing.T) {
 	}
 	if len(params) != 6 {
 		t.Fatalf("params len = %d, want 6", len(params))
+	}
+}
+
+func TestBuildQueryGeoFeatureGroupsUsesFullFilteredSet(t *testing.T) {
+	limitArg := 1
+	args := queryGeoFeaturesArgs{
+		FeatureType: "summit",
+		GroupBy:     "year",
+		Limit:       &limitArg,
+	}
+	sql, params, err := buildQueryGeoFeatureGroupsSQL("00000000-0000-0000-0000-000000000001", args, fixedAgentToolNow())
+	if err != nil {
+		t.Fatalf("buildQueryGeoFeatureGroupsSQL returned error: %v", err)
+	}
+	for _, want := range []string{
+		"COUNT(*) OVER (PARTITION BY group_key)",
+		"ROW_NUMBER() OVER (PARTITION BY group_key",
+		"FROM activity_geo_tags gt JOIN activities a ON a.id = gt.activity_id",
+		"a.user_id = $1",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("group SQL missing %q:\n%s", want, sql)
+		}
+	}
+	if strings.Contains(sql, "features") {
+		t.Fatalf("group SQL must not group over the already limited feature result:\n%s", sql)
+	}
+	if len(params) != 3 {
+		t.Fatalf("params len = %d, want user, since, feature_type", len(params))
+	}
+}
+
+func TestBuildQueryGeoFeatureGroupsByFeatureUsesSourceExpressions(t *testing.T) {
+	args := queryGeoFeaturesArgs{FeatureType: "gastronomy", GroupBy: "feature"}
+	sql, _, err := buildQueryGeoFeatureGroupsSQL("00000000-0000-0000-0000-000000000001", args, fixedAgentToolNow())
+	if err != nil {
+		t.Fatalf("buildQueryGeoFeatureGroupsSQL returned error: %v", err)
+	}
+	if !strings.Contains(sql, "COALESCE(NULLIF(s.poi_name, ''), s.poi_type, 'unknown') AS group_key") {
+		t.Fatalf("feature group must use source columns, got:\n%s", sql)
 	}
 }
 

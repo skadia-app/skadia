@@ -80,6 +80,7 @@ type Tool struct {
 	InputSchema    json.RawMessage
 	ExecuteRead    func(ctx context.Context, deps *Deps, userID string, args json.RawMessage) (any, error)
 	ExecutePreview func(ctx context.Context, deps *PreviewExecutionDeps, userID string, args json.RawMessage) (any, error)
+	PrepareWrite   func(ctx context.Context, deps *Deps, userID string, args json.RawMessage) (*PreparedWrite, error)
 	ExecuteWrite   func(ctx context.Context, deps *WriteExecutionDeps, userID string, args json.RawMessage) (any, error)
 
 	Permission           Permission
@@ -91,9 +92,16 @@ type Tool struct {
 	IsUserOwned          bool
 }
 
+type PreparedWrite struct {
+	Summary string
+	Preview any
+	Args    json.RawMessage
+}
+
 type WriteExecutionDeps struct {
 	*Deps
-	Tx pgx.Tx
+	Tx          pgx.Tx
+	AfterCommit *[]func(context.Context)
 }
 
 type PreviewExecutionDeps struct {
@@ -124,12 +132,16 @@ func NewRegistry() *Registry {
 
 func RegisterAll(reg *Registry) {
 	RegisterActivityTools(reg)
+	RegisterDocumentTools(reg)
+	RegisterEntityTools(reg)
 	RegisterGearTools(reg)
 	RegisterGeoTools(reg)
 	RegisterHealthTools(reg)
+	RegisterMiscWriteTools(reg)
 	RegisterRouteTools(reg)
 	RegisterSegmentTools(reg)
 	reg.Register(SearchPhotosByContentTool())
+	reg.Register(RunSQLTool())
 	RegisterTagTools(reg)
 	RegisterRuleWriteTools(reg)
 	RegisterRulePreviewTools(reg)
@@ -197,7 +209,16 @@ func (r *Registry) Definitions(filter []string, prefs *agent.ChatPreferences) []
 	filterSet := namesSet(filter)
 	allowedWrites := allowedWriteToolSet(prefs)
 	defs := make([]llmwire.ToolDefinition, 0, len(r.tools))
-	for _, name := range r.sortedNames() {
+	names := r.sortedNames()
+	if len(filter) > 0 {
+		names = filter
+	}
+	seen := map[string]bool{}
+	for _, name := range names {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
 		t := r.tools[name]
 		if t == nil || !nameAllowed(filterSet, name) {
 			continue

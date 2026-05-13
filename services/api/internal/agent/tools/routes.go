@@ -228,6 +228,7 @@ func executePlanRoute(ctx context.Context, deps *Deps, userID string, raw json.R
 	result["preview"] = true
 	result["profile_key"] = resolved.Key
 	result["routing_profile"] = resolved.Label
+	attachRoutePreviewToken(userID, result, resolved.Key, resolved.BaseProfile)
 	return result, nil
 }
 

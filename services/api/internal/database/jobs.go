@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -29,11 +30,24 @@ type BackgroundJob struct {
 // InsertBackgroundJob schreibt einen neuen Job-Eintrag und gibt die generierte ID zurück.
 func (db *DB) InsertBackgroundJob(ctx context.Context, userID, jobType string, entityID, entityName *string, total int64) (string, error) {
 	id := uuid.New().String()
-	_, err := db.Pool.Exec(ctx, `
+	return id, db.InsertBackgroundJobWithID(ctx, id, userID, jobType, entityID, entityName, total)
+}
+
+func (db *DB) InsertBackgroundJobTx(ctx context.Context, tx pgx.Tx, userID, jobType string, entityID, entityName *string, total int64) (string, error) {
+	id := uuid.New().String()
+	return id, db.insertBackgroundJobOn(ctx, tx, id, userID, jobType, entityID, entityName, total)
+}
+
+func (db *DB) InsertBackgroundJobWithID(ctx context.Context, id, userID, jobType string, entityID, entityName *string, total int64) error {
+	return db.insertBackgroundJobOn(ctx, db.Pool, id, userID, jobType, entityID, entityName, total)
+}
+
+func (db *DB) insertBackgroundJobOn(ctx context.Context, q Querier, id, userID, jobType string, entityID, entityName *string, total int64) error {
+	_, err := q.Exec(ctx, `
 		INSERT INTO background_jobs (id, user_id, job_type, entity_id, entity_name, status, progress_total)
 		VALUES ($1, $2, $3, $4, $5, 'running', $6)
 	`, id, userID, jobType, entityID, entityName, total)
-	return id, err
+	return err
 }
 
 // InsertBackgroundJobGuarded inserts a new running job only if no job of the same

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +20,8 @@ const (
 	defaultMaxHops          = 5
 	defaultResultCharFactor = 200
 )
+
+var dataQuestionPattern = regexp.MustCompile(`(?i)\b(wann|when|wie viele|how many|wieviele|wie oft|how often|welche|welcher|welches|which|wo|where|wieviel|how much|was war|what was|was ist|what is|zuletzt|last|latest|recent|letzte|letzten|letztes|höchste|hoechste|highest|schnellste|fastest|längste|laengste|longest|bestzeit|personal record|rekord|record|pr|zeige|show|finde|find|suche|search|trend|trends|zeitreihe|zeitreihen|pro jahr|pro monat|jahresvergleich|bestwert|bestwerte)\b`)
 
 type Config struct {
 	DB             *database.DB
@@ -103,6 +106,7 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 	if a.tools != nil {
 		toolDefs = a.tools.Definitions(toolNames, prefs)
 	}
+	requireTool := shouldRequireTool(req.Message, domains, toolDefs)
 
 	if matched := MatchTemplate(req.Message); matched != nil {
 		if err := sink.Send(SSEEvent{Type: EventThinking, ID: req.MessageID, Step: ThinkingTemplate}); err != nil {
@@ -138,7 +142,7 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 	hops := 0
 	for hops < defaultMaxHops {
 		allowTools := len(toolDefs) > 0 && hops < defaultMaxHops-1
-		params := a.chatParams(cfg, profile, messages, toolDefs, allowTools)
+		params := a.chatParams(cfg, profile, messages, toolDefs, allowTools, requireTool && hops == 0)
 		stream := a.streamChat(ctx, cfg, params)
 
 		toolCalls, finishReason, streamed, err := collectLLMStream(req.MessageID, stream, sink, &usage)
@@ -197,7 +201,7 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 			Content: "Du hast Tool-Ergebnisse erhalten aber noch keine Antwort gegeben. " +
 				"Fasse die Ergebnisse jetzt knapp und sachlich zusammen. Wenn keine Daten gefunden wurden, sag das kurz.",
 		})
-		params := a.chatParams(cfg, profile, messages, nil, false)
+		params := a.chatParams(cfg, profile, messages, nil, false, false)
 		stream := a.streamChat(ctx, cfg, params)
 		if _, _, _, err := collectLLMStream(req.MessageID, stream, sink, &usage); err != nil {
 			_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: "Chat nicht verfügbar: " + err.Error()})
@@ -212,7 +216,7 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 	return sink.Send(done)
 }
 
-func (a *Agent) chatParams(cfg LLMConfig, profile *ModelProfile, messages []conversationMessage, tools []llmwire.ToolDefinition, allowTools bool) llmwire.ChatRequest {
+func (a *Agent) chatParams(cfg LLMConfig, profile *ModelProfile, messages []conversationMessage, tools []llmwire.ToolDefinition, allowTools bool, requireTool bool) llmwire.ChatRequest {
 	params := llmwire.ChatRequest{
 		Model:                    cfg.Model,
 		Messages:                 toLLMMessages(messages),
@@ -225,8 +229,24 @@ func (a *Agent) chatParams(cfg LLMConfig, profile *ModelProfile, messages []conv
 	}
 	if allowTools {
 		params.Tools = tools
+		if requireTool {
+			params.ToolChoice = "required"
+		}
 	}
 	return params
+}
+
+func shouldRequireTool(message string, domains []string, toolDefs []llmwire.ToolDefinition) bool {
+	if len(toolDefs) == 0 || !dataQuestionPattern.MatchString(message) {
+		return false
+	}
+	for _, domain := range domains {
+		switch domain {
+		case "activities", "health", "training", "gear", "geo", "segments", "photos", "routing", "documents":
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Agent) executeToolCall(ctx context.Context, req ChatRequest, call pendingToolCall, sink SSESink) (string, bool, error) {

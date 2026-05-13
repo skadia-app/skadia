@@ -137,6 +137,15 @@ func applyRouteImportModifierPatch(route *model.RouteImportData, patch sport.Mod
 
 // CreateRoute inserts a new planned route and returns its UUID.
 func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (string, error) {
+	return db.createRouteOn(ctx, db.Pool, route)
+}
+
+// CreateRouteTx inserts a planned route using an existing transaction.
+func (db *DB) CreateRouteTx(ctx context.Context, tx pgx.Tx, route *model.PlannedRoute) (string, error) {
+	return db.createRouteOn(ctx, tx, route)
+}
+
+func (db *DB) createRouteOn(ctx context.Context, q Querier, route *model.PlannedRoute) (string, error) {
 	sportType, subType, patch, err := normalizePlannedRouteSportTuple(route.SportType, route.SubType)
 	if err != nil {
 		return "", fmt.Errorf("normalize route sport tuple: %w", err)
@@ -157,7 +166,7 @@ func (db *DB) CreateRoute(ctx context.Context, route *model.PlannedRoute) (strin
 	schemaVersion := t0SchemaVersion(route.Segments, route.ElevationProfile)
 
 	var id string
-	err = db.Pool.QueryRow(ctx, `
+	err = q.QueryRow(ctx, `
 		INSERT INTO planned_routes (
 			user_id, name, description, sport_type, sub_type,
 			is_electric, is_indoor, is_virtual, is_commute,

@@ -28,6 +28,8 @@ var metricUnits = map[string]string{
 	"avg_heart_rate":  "bpm",
 	"total_elevation": "m",
 	"avg_distance":    "km",
+	"avg_speed":       "km/h",
+	"avg_power":       "W",
 }
 
 var metricSQL = map[string]string{
@@ -37,17 +39,51 @@ var metricSQL = map[string]string{
 	"avg_heart_rate":  "ROUND(AVG(avg_heart_rate)::numeric, 1)::float8 AS value",
 	"total_elevation": "COALESCE(SUM(elevation_gain_m), 0) AS value",
 	"avg_distance":    "ROUND((COALESCE(AVG(distance_m), 0) / 1000.0)::numeric, 2)::float8 AS value",
+	"avg_speed":       "ROUND((COALESCE(AVG(avg_speed_ms), 0) * 3.6)::numeric, 2)::float8 AS value",
+	"avg_power":       "ROUND(COALESCE(AVG(avg_power_w), 0)::numeric, 1)::float8 AS value",
+}
+
+var recordOrderSQL = map[string]string{
+	"longest_distance":  "a.distance_m DESC NULLS LAST",
+	"longest_duration":  "a.elapsed_time_s DESC NULLS LAST",
+	"most_elevation":    "a.elevation_gain_m DESC NULLS LAST",
+	"highest_avg_speed": "a.avg_speed_ms DESC NULLS LAST",
+	"highest_avg_power": "a.avg_power_w DESC NULLS LAST",
+	"highest_hr":        "a.max_heart_rate DESC NULLS LAST, a.avg_heart_rate DESC NULLS LAST",
+}
+
+var recordValueSQL = map[string]string{
+	"longest_distance":  "ROUND((a.distance_m / 1000.0)::numeric, 2)::float8",
+	"longest_duration":  "a.elapsed_time_s",
+	"most_elevation":    "a.elevation_gain_m",
+	"highest_avg_speed": "ROUND((a.avg_speed_ms * 3.6)::numeric, 2)::float8",
+	"highest_avg_power": "a.avg_power_w",
+	"highest_hr":        "COALESCE(a.max_heart_rate, a.avg_heart_rate)",
+}
+
+var recordUnits = map[string]string{
+	"longest_distance":  "km",
+	"longest_duration":  "s",
+	"most_elevation":    "m",
+	"highest_avg_speed": "km/h",
+	"highest_avg_power": "W",
+	"highest_hr":        "bpm",
 }
 
 type queryActivitiesArgs struct {
+	SportQuery    string   `json:"sport_query,omitempty"`
 	SportType     string   `json:"sport_type,omitempty"`
 	SubType       *string  `json:"sub_type,omitempty"`
 	Days          *int     `json:"days,omitempty"`
+	DateFrom      string   `json:"date_from,omitempty"`
+	DateTo        string   `json:"date_to,omitempty"`
 	Limit         *int     `json:"limit,omitempty"`
 	SortBy        string   `json:"sort_by,omitempty"`
 	MinDistanceKM *float64 `json:"min_distance_km,omitempty"`
+	MaxDistanceKM *float64 `json:"max_distance_km,omitempty"`
 	TitleSearch   string   `json:"title_search,omitempty"`
 	GearID        string   `json:"gear_id,omitempty"`
+	TagName       string   `json:"tag_name,omitempty"`
 	IsElectric    *bool    `json:"is_electric,omitempty"`
 	IsIndoor      *bool    `json:"is_indoor,omitempty"`
 	IsVirtual     *bool    `json:"is_virtual,omitempty"`
@@ -55,15 +91,60 @@ type queryActivitiesArgs struct {
 }
 
 type aggregateStatsArgs struct {
+	Metric        string   `json:"metric,omitempty"`
+	SportQuery    string   `json:"sport_query,omitempty"`
+	SportType     string   `json:"sport_type,omitempty"`
+	SubType       *string  `json:"sub_type,omitempty"`
+	Days          *int     `json:"days,omitempty"`
+	DateFrom      string   `json:"date_from,omitempty"`
+	DateTo        string   `json:"date_to,omitempty"`
+	AllHistory    bool     `json:"all_history,omitempty"`
+	GroupBy       string   `json:"group_by,omitempty"`
+	MinDistanceKM *float64 `json:"min_distance_km,omitempty"`
+	MaxDistanceKM *float64 `json:"max_distance_km,omitempty"`
+	TitleSearch   string   `json:"title_search,omitempty"`
+	GearID        string   `json:"gear_id,omitempty"`
+	TagName       string   `json:"tag_name,omitempty"`
+	IsElectric    *bool    `json:"is_electric,omitempty"`
+	IsIndoor      *bool    `json:"is_indoor,omitempty"`
+	IsVirtual     *bool    `json:"is_virtual,omitempty"`
+	IsCommute     *bool    `json:"is_commute,omitempty"`
+}
+
+type aggregateTimeSeriesArgs struct {
 	Metric     string  `json:"metric,omitempty"`
+	Bucket     string  `json:"bucket,omitempty"`
+	SportQuery string  `json:"sport_query,omitempty"`
 	SportType  string  `json:"sport_type,omitempty"`
 	SubType    *string `json:"sub_type,omitempty"`
 	Days       *int    `json:"days,omitempty"`
-	GroupBy    string  `json:"group_by,omitempty"`
+	DateFrom   string  `json:"date_from,omitempty"`
+	DateTo     string  `json:"date_to,omitempty"`
 	IsElectric *bool   `json:"is_electric,omitempty"`
 	IsIndoor   *bool   `json:"is_indoor,omitempty"`
 	IsVirtual  *bool   `json:"is_virtual,omitempty"`
 	IsCommute  *bool   `json:"is_commute,omitempty"`
+}
+
+type queryRecordsArgs struct {
+	RecordType    string   `json:"record_type,omitempty"`
+	SportQuery    string   `json:"sport_query,omitempty"`
+	SportType     string   `json:"sport_type,omitempty"`
+	SubType       *string  `json:"sub_type,omitempty"`
+	Days          *int     `json:"days,omitempty"`
+	DateFrom      string   `json:"date_from,omitempty"`
+	DateTo        string   `json:"date_to,omitempty"`
+	AllHistory    bool     `json:"all_history,omitempty"`
+	Limit         *int     `json:"limit,omitempty"`
+	MinDistanceKM *float64 `json:"min_distance_km,omitempty"`
+	MaxDistanceKM *float64 `json:"max_distance_km,omitempty"`
+	TitleSearch   string   `json:"title_search,omitempty"`
+	GearID        string   `json:"gear_id,omitempty"`
+	TagName       string   `json:"tag_name,omitempty"`
+	IsElectric    *bool    `json:"is_electric,omitempty"`
+	IsIndoor      *bool    `json:"is_indoor,omitempty"`
+	IsVirtual     *bool    `json:"is_virtual,omitempty"`
+	IsCommute     *bool    `json:"is_commute,omitempty"`
 }
 
 type comparePeriodsArgs struct {
@@ -71,6 +152,7 @@ type comparePeriodsArgs struct {
 	Period1End   string  `json:"period1_end"`
 	Period2Start string  `json:"period2_start"`
 	Period2End   string  `json:"period2_end"`
+	SportQuery   string  `json:"sport_query,omitempty"`
 	SportType    string  `json:"sport_type,omitempty"`
 	SubType      *string `json:"sub_type,omitempty"`
 	IsElectric   *bool   `json:"is_electric,omitempty"`
@@ -93,24 +175,41 @@ func ActivityTools() []*Tool {
 	tools := []*Tool{
 		{
 			Name:        "query_activities",
-			Description: "List recent activities with optional sport, modifier, distance, title, gear, and sort filters.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"limit":{"type":"integer","minimum":1,"maximum":50},"sort_by":{"type":"string","enum":["date","distance","duration","hr","elevation"]},"min_distance_km":{"type":"number","minimum":0},"title_search":{"type":"string"},"gear_id":{"type":"string","format":"uuid"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
+			Description: "List recent activities with optional date, sport, modifier, distance, title, gear, tag, and sort filters.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy, e.g. swim, Freiwasser, MTB, Gravel"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"limit":{"type":"integer","minimum":1,"maximum":50},"sort_by":{"type":"string","enum":["date","distance","duration","hr","elevation"]},"min_distance_km":{"type":"number","minimum":0},"max_distance_km":{"type":"number","minimum":0},"title_search":{"type":"string"},"gear_id":{"type":"string","format":"uuid"},"tag_name":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: true,
 			ExecuteRead: executeQueryActivities,
 		},
+		PreviewActivitySelectionTool(),
 		{
 			Name:        "aggregate_stats",
 			Description: "Aggregate activity metrics over a recent period, optionally grouped by time or sport.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"metric":{"type":"string","enum":["total_distance","total_duration","count","avg_heart_rate","total_elevation","avg_distance"]},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"group_by":{"type":"string","enum":["none","week","month","sport","sport_tuple"]},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"metric":{"type":"string","enum":["total_distance","total_duration","count","avg_heart_rate","total_elevation","avg_distance","avg_speed","avg_power"]},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"all_history":{"type":"boolean"},"group_by":{"type":"string","enum":["none","week","month","sport","sport_tuple"]},"min_distance_km":{"type":"number","minimum":0},"max_distance_km":{"type":"number","minimum":0},"title_search":{"type":"string"},"gear_id":{"type":"string","format":"uuid"},"tag_name":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: true,
 			ExecuteRead: executeAggregateStats,
 		},
 		{
+			Name:        "aggregate_time_series",
+			Description: "Aggregate user-owned activity metrics into day, week, month, or year buckets for trend questions.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"metric":{"type":"string","enum":["total_distance","total_duration","count","avg_heart_rate","total_elevation","avg_distance","avg_speed","avg_power"]},"bucket":{"type":"string","enum":["day","week","month","year"]},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
+			Permission:  PermissionRead,
+			IsUserOwned: true,
+			ExecuteRead: executeAggregateTimeSeries,
+		},
+		{
+			Name:        "query_records",
+			Description: "Find top activities by distance, duration, elevation, speed, power, or heart rate with reusable sport/date/gear/tag filters.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"record_type":{"type":"string","enum":["longest_distance","longest_duration","most_elevation","highest_avg_speed","highest_avg_power","highest_hr"]},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"days":{"type":"integer","minimum":1},"date_from":{"type":"string","format":"date"},"date_to":{"type":"string","format":"date"},"all_history":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":20},"min_distance_km":{"type":"number","minimum":0},"max_distance_km":{"type":"number","minimum":0},"title_search":{"type":"string"},"gear_id":{"type":"string","format":"uuid"},"tag_name":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
+			Permission:  PermissionRead,
+			IsUserOwned: true,
+			ExecuteRead: executeQueryRecords,
+		},
+		{
 			Name:        "compare_periods",
 			Description: "Compare count, distance, duration, heart rate, and elevation between two date ranges.",
-			InputSchema: json.RawMessage(`{"type":"object","required":["period1_start","period1_end","period2_start","period2_end"],"properties":{"period1_start":{"type":"string","format":"date"},"period1_end":{"type":"string","format":"date"},"period2_start":{"type":"string","format":"date"},"period2_end":{"type":"string","format":"date"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","required":["period1_start","period1_end","period2_start","period2_end"],"properties":{"period1_start":{"type":"string","format":"date"},"period1_end":{"type":"string","format":"date"},"period2_start":{"type":"string","format":"date"},"period2_end":{"type":"string","format":"date"},"sport_query":{"type":"string","description":"Natural sport phrase to resolve via Skadia taxonomy"},"sport_type":{"type":"string"},"sub_type":{"type":"string"},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: true,
 			ExecuteRead: executeComparePeriods,
@@ -152,7 +251,10 @@ func executeAggregateStats(ctx context.Context, deps *Deps, userID string, raw j
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, fmt.Errorf("decode aggregate_stats args: %w", err)
 	}
-	sql, params := buildAggregateStatsSQL(userID, args, time.Now().UTC())
+	sql, params, err := buildAggregateStatsSQL(userID, args, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
 	rows, err := queryRows(ctx, deps, sql, params...)
 	if err != nil {
 		return nil, err
@@ -166,6 +268,64 @@ func executeAggregateStats(ctx context.Context, deps *Deps, userID string, raw j
 		"days":       args.days(),
 		"group_by":   args.groupBy(),
 		"data":       rows,
+	}, nil
+}
+
+func executeAggregateTimeSeries(ctx context.Context, deps *Deps, userID string, raw json.RawMessage) (any, error) {
+	var args aggregateTimeSeriesArgs
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, fmt.Errorf("decode aggregate_time_series args: %w", err)
+	}
+	sql, params, criteria, err := buildAggregateTimeSeriesSQL(userID, args, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queryRows(ctx, deps, sql, params...)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		row["period"] = dateString(row["period"])
+	}
+	metric := args.metric()
+	return map[string]any{
+		"metric":   metric,
+		"unit":     metricUnits[metric],
+		"bucket":   args.bucket(),
+		"criteria": criteria,
+		"data":     rows,
+	}, nil
+}
+
+func executeQueryRecords(ctx context.Context, deps *Deps, userID string, raw json.RawMessage) (any, error) {
+	var args queryRecordsArgs
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, fmt.Errorf("decode query_records args: %w", err)
+	}
+	sql, params, criteria, err := buildQueryRecordsSQL(userID, args, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	rows, err := queryRows(ctx, deps, sql, params...)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		record := formatActivityCompact(row)
+		record["record_value"] = row["record_value"]
+		record["record_unit"] = recordUnits[args.recordType()]
+		if args.recordType() == "longest_duration" {
+			record["record_formatted"] = formatDuration(row["record_value"])
+		}
+		records = append(records, record)
+	}
+	return map[string]any{
+		"record_type": args.recordType(),
+		"unit":        recordUnits[args.recordType()],
+		"criteria":    criteria,
+		"records":     records,
+		"count":       len(records),
 	}, nil
 }
 
@@ -216,67 +376,135 @@ func buildQueryActivitiesSQL(userID string, args queryActivitiesArgs, now time.T
 	if sortCol == "" {
 		sortCol = "started_at"
 	}
-	conditions := []string{"a.user_id = $1", "a.started_at >= $2"}
-	params := []any{userID, sinceDate(now, args.days())}
-	conditions, params = applyActivityFilters(conditions, params, ActivityFilters{
-		TableAlias: "a",
-		SportType:  args.SportType,
-		SubType:    args.SubType,
-		IsElectric: args.IsElectric,
-		IsIndoor:   args.IsIndoor,
-		IsVirtual:  args.IsVirtual,
-		IsCommute:  args.IsCommute,
-	})
-	if args.MinDistanceKM != nil {
-		params = append(params, *args.MinDistanceKM*1000)
-		conditions = append(conditions, fmt.Sprintf("a.distance_m >= $%d", len(params)))
-	}
-	if args.TitleSearch != "" {
-		params = append(params, "%"+args.TitleSearch+"%")
-		conditions = append(conditions, fmt.Sprintf("a.title ILIKE $%d", len(params)))
-	}
-	if strings.TrimSpace(args.GearID) != "" {
-		gearID, err := uuid.Parse(args.GearID)
-		if err != nil {
-			return "", nil, fmt.Errorf("invalid gear_id: %w", err)
-		}
-		params = append(params, gearID)
-		conditions = append(conditions, fmt.Sprintf("EXISTS (SELECT 1 FROM activity_gear_assignments aga WHERE aga.activity_id = a.id AND aga.user_id = a.user_id AND aga.role_key = 'primary' AND aga.gear_id = $%d)", len(params)))
+	plan, err := buildActivitySelectionPlan(userID, activitySelectionCriteria{
+		SportType:     args.SportType,
+		SportQuery:    args.SportQuery,
+		SubType:       args.SubType,
+		Days:          args.Days,
+		DateFrom:      args.DateFrom,
+		DateTo:        args.DateTo,
+		MinDistanceKM: args.MinDistanceKM,
+		MaxDistanceKM: args.MaxDistanceKM,
+		TitleSearch:   args.TitleSearch,
+		GearID:        args.GearID,
+		TagName:       args.TagName,
+		IsElectric:    args.IsElectric,
+		IsIndoor:      args.IsIndoor,
+		IsVirtual:     args.IsVirtual,
+		IsCommute:     args.IsCommute,
+	}, now)
+	if err != nil {
+		return "", nil, err
 	}
 	sql := "SELECT a.id, a.title, a.sport_type, a.sub_type, a.started_at, " +
 		"a.distance_m, a.elapsed_time_s, a.avg_heart_rate, a.elevation_gain_m, " +
 		"a.avg_speed_ms, a.is_electric, a.is_indoor, a.is_virtual, a.is_commute, a.start_city " +
-		"FROM activities a WHERE " + strings.Join(conditions, " AND ") + " " +
+		"FROM activities a WHERE " + strings.Join(plan.Conditions, " AND ") + " " +
 		fmt.Sprintf("ORDER BY a.%s DESC NULLS LAST LIMIT %d", sortCol, args.limit())
-	return sql, params, nil
+	return sql, plan.Params, nil
 }
 
-func buildAggregateStatsSQL(userID string, args aggregateStatsArgs, now time.Time) (string, []any) {
-	conditions := []string{"user_id = $1", "started_at >= $2"}
-	params := []any{userID, sinceDate(now, args.days())}
-	conditions, params = applyActivityFilters(conditions, params, ActivityFilters{
+func buildAggregateStatsSQL(userID string, args aggregateStatsArgs, now time.Time) (string, []any, error) {
+	plan, err := buildActivitySelectionPlan(userID, activitySelectionCriteria{
+		SportQuery:    args.SportQuery,
+		SportType:     args.SportType,
+		SubType:       args.SubType,
+		Days:          args.Days,
+		DateFrom:      args.DateFrom,
+		DateTo:        args.DateTo,
+		AllHistory:    args.AllHistory,
+		MinDistanceKM: args.MinDistanceKM,
+		MaxDistanceKM: args.MaxDistanceKM,
+		TitleSearch:   args.TitleSearch,
+		GearID:        args.GearID,
+		TagName:       args.TagName,
+		IsElectric:    args.IsElectric,
+		IsIndoor:      args.IsIndoor,
+		IsVirtual:     args.IsVirtual,
+		IsCommute:     args.IsCommute,
+	}, now)
+	if err != nil {
+		return "", nil, err
+	}
+	where := strings.Join(plan.Conditions, " AND ")
+	aggExpr := metricSQL[args.metric()]
+	switch args.groupBy() {
+	case "week":
+		return fmt.Sprintf("SELECT date_trunc('week', a.started_at)::date AS period, %s FROM activities a WHERE %s GROUP BY period ORDER BY period", aggExpr, where), plan.Params, nil
+	case "month":
+		return fmt.Sprintf("SELECT date_trunc('month', a.started_at)::date AS period, %s FROM activities a WHERE %s GROUP BY period ORDER BY period", aggExpr, where), plan.Params, nil
+	case "sport":
+		return fmt.Sprintf("SELECT a.sport_type AS period, %s FROM activities a WHERE %s GROUP BY a.sport_type ORDER BY value DESC", aggExpr, where), plan.Params, nil
+	case "sport_tuple":
+		periodExpr := "CASE WHEN a.sub_type IS NULL OR a.sub_type = '' THEN a.sport_type ELSE a.sport_type || '/' || a.sub_type END AS period"
+		return fmt.Sprintf("SELECT %s, a.sport_type, a.sub_type, %s FROM activities a WHERE %s GROUP BY a.sport_type, a.sub_type ORDER BY value DESC", periodExpr, aggExpr, where), plan.Params, nil
+	default:
+		return fmt.Sprintf("SELECT %s, COUNT(*) AS activity_count FROM activities a WHERE %s", aggExpr, where), plan.Params, nil
+	}
+}
+
+func buildAggregateTimeSeriesSQL(userID string, args aggregateTimeSeriesArgs, now time.Time) (string, []any, map[string]any, error) {
+	days := args.Days
+	if days == nil && args.DateFrom == "" && args.DateTo == "" {
+		defaultDays := 365
+		days = &defaultDays
+	}
+	plan, err := buildActivitySelectionPlan(userID, activitySelectionCriteria{
+		SportQuery: args.SportQuery,
 		SportType:  args.SportType,
 		SubType:    args.SubType,
+		Days:       days,
+		DateFrom:   args.DateFrom,
+		DateTo:     args.DateTo,
 		IsElectric: args.IsElectric,
 		IsIndoor:   args.IsIndoor,
 		IsVirtual:  args.IsVirtual,
 		IsCommute:  args.IsCommute,
-	})
-	where := strings.Join(conditions, " AND ")
-	aggExpr := metricSQL[args.metric()]
-	switch args.groupBy() {
-	case "week":
-		return fmt.Sprintf("SELECT date_trunc('week', started_at)::date AS period, %s FROM activities WHERE %s GROUP BY period ORDER BY period", aggExpr, where), params
-	case "month":
-		return fmt.Sprintf("SELECT date_trunc('month', started_at)::date AS period, %s FROM activities WHERE %s GROUP BY period ORDER BY period", aggExpr, where), params
-	case "sport":
-		return fmt.Sprintf("SELECT sport_type AS period, %s FROM activities WHERE %s GROUP BY sport_type ORDER BY value DESC", aggExpr, where), params
-	case "sport_tuple":
-		periodExpr := "CASE WHEN sub_type IS NULL OR sub_type = '' THEN sport_type ELSE sport_type || '/' || sub_type END AS period"
-		return fmt.Sprintf("SELECT %s, sport_type, sub_type, %s FROM activities WHERE %s GROUP BY sport_type, sub_type ORDER BY value DESC", periodExpr, aggExpr, where), params
-	default:
-		return fmt.Sprintf("SELECT %s, COUNT(*) AS activity_count FROM activities WHERE %s", aggExpr, where), params
+	}, now)
+	if err != nil {
+		return "", nil, nil, err
 	}
+	aggExpr := metricSQL[args.metric()]
+	where := strings.Join(plan.Conditions, " AND ")
+	sql := fmt.Sprintf("SELECT date_trunc('%s', a.started_at)::date AS period, %s, COUNT(*) AS activity_count FROM activities a WHERE %s GROUP BY period ORDER BY period", args.bucket(), aggExpr, where)
+	return sql, plan.Params, plan.CriteriaForResponse, nil
+}
+
+func buildQueryRecordsSQL(userID string, args queryRecordsArgs, now time.Time) (string, []any, map[string]any, error) {
+	days := args.Days
+	if days == nil && args.DateFrom == "" && args.DateTo == "" && !args.AllHistory {
+		defaultDays := 365
+		days = &defaultDays
+	}
+	plan, err := buildActivitySelectionPlan(userID, activitySelectionCriteria{
+		SportQuery:    args.SportQuery,
+		SportType:     args.SportType,
+		SubType:       args.SubType,
+		Days:          days,
+		DateFrom:      args.DateFrom,
+		DateTo:        args.DateTo,
+		AllHistory:    args.AllHistory,
+		MinDistanceKM: args.MinDistanceKM,
+		MaxDistanceKM: args.MaxDistanceKM,
+		TitleSearch:   args.TitleSearch,
+		GearID:        args.GearID,
+		TagName:       args.TagName,
+		IsElectric:    args.IsElectric,
+		IsIndoor:      args.IsIndoor,
+		IsVirtual:     args.IsVirtual,
+		IsCommute:     args.IsCommute,
+	}, now)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	recordType := args.recordType()
+	sql := "SELECT a.id, a.title, a.sport_type, a.sub_type, a.started_at, " +
+		"a.distance_m, a.elapsed_time_s, a.avg_heart_rate, a.max_heart_rate, a.elevation_gain_m, " +
+		"a.avg_speed_ms, a.avg_power_w, a.is_electric, a.is_indoor, a.is_virtual, a.is_commute, a.start_city, " +
+		recordValueSQL[recordType] + " AS record_value " +
+		"FROM activities a WHERE " + strings.Join(plan.Conditions, " AND ") + " " +
+		fmt.Sprintf("ORDER BY %s, a.started_at DESC NULLS LAST LIMIT %d", recordOrderSQL[recordType], args.limit())
+	return sql, plan.Params, plan.CriteriaForResponse, nil
 }
 
 func buildComparePeriodSQL(userID, start, end string, args comparePeriodsArgs) (string, []any, error) {
@@ -290,13 +518,25 @@ func buildComparePeriodSQL(userID, start, end string, args comparePeriodsArgs) (
 	}
 	conditions := []string{"user_id = $1", "started_at::date BETWEEN $2 AND $3"}
 	params := []any{userID, startDate, endDate}
-	conditions, params = applyActivityFilters(conditions, params, ActivityFilters{
+	criteria, err := normalizeActivitySelectionCriteria(activitySelectionCriteria{
+		SportQuery: args.SportQuery,
 		SportType:  args.SportType,
 		SubType:    args.SubType,
 		IsElectric: args.IsElectric,
 		IsIndoor:   args.IsIndoor,
 		IsVirtual:  args.IsVirtual,
 		IsCommute:  args.IsCommute,
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	conditions, params = applyActivityFilters(conditions, params, ActivityFilters{
+		SportType:  criteria.SportType,
+		SubType:    criteria.SubType,
+		IsElectric: criteria.IsElectric,
+		IsIndoor:   criteria.IsIndoor,
+		IsVirtual:  criteria.IsVirtual,
+		IsCommute:  criteria.IsCommute,
 	})
 	sql := "SELECT COUNT(*) AS count, " +
 		"ROUND((COALESCE(SUM(distance_m), 0) / 1000.0)::numeric, 1)::float8 AS total_distance_km, " +
@@ -376,16 +616,16 @@ func readonlyPool(deps *Deps) (*pgxpool.Pool, error) {
 	if deps == nil {
 		return nil, fmt.Errorf("tool deps are required")
 	}
-	if deps.Readonly != nil {
-		return deps.Readonly, nil
-	}
 	if deps.DB != nil {
-		if deps.DB.ReadonlyPool != nil {
-			return deps.DB.ReadonlyPool, nil
-		}
 		if deps.DB.Pool != nil {
 			return deps.DB.Pool, nil
 		}
+		if deps.DB.ReadonlyPool != nil {
+			return deps.DB.ReadonlyPool, nil
+		}
+	}
+	if deps.Readonly != nil {
+		return deps.Readonly, nil
 	}
 	return nil, fmt.Errorf("readonly database pool is required")
 }
@@ -425,6 +665,36 @@ func (a aggregateStatsArgs) groupBy() string {
 	default:
 		return "none"
 	}
+}
+
+func (a aggregateTimeSeriesArgs) metric() string {
+	if metricSQL[a.Metric] == "" {
+		return "count"
+	}
+	return a.Metric
+}
+
+func (a aggregateTimeSeriesArgs) bucket() string {
+	switch a.Bucket {
+	case "day", "week", "year":
+		return a.Bucket
+	default:
+		return "month"
+	}
+}
+
+func (a queryRecordsArgs) recordType() string {
+	if recordOrderSQL[a.RecordType] == "" {
+		return "longest_distance"
+	}
+	return a.RecordType
+}
+
+func (a queryRecordsArgs) limit() int {
+	if a.Limit == nil {
+		return 5
+	}
+	return min(max(*a.Limit, 1), 20)
 }
 
 func sinceDate(now time.Time, days int) time.Time {

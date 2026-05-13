@@ -146,6 +146,38 @@ var gearSummaryInputSchema = json.RawMessage(`{
   "additionalProperties": false
 }`)
 
+var gearMaintenanceInputSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "gear_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Optional gear UUID"
+    },
+    "gear_query": {
+      "type": "string",
+      "description": "Optional partial gear name when the model does not yet know the gear_id"
+    },
+    "component_type": {
+      "type": "string",
+      "description": "Optional component type filter, e.g. chain, tire, cassette"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "stored", "retired"]
+    },
+    "include_retired": {
+      "type": "boolean"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    }
+  },
+  "additionalProperties": false
+}`)
+
 func GearTools() []*Tool {
 	tools := []*Tool{
 		GetGearStatsTool(),
@@ -155,6 +187,7 @@ func GearTools() []*Tool {
 		GearComponentDetailTool(),
 		GearServiceEventsTool(),
 		GearSummaryTool(),
+		QueryGearMaintenanceTool(),
 	}
 	return append(tools, WriteGearTools()...)
 }
@@ -246,6 +279,18 @@ func GearSummaryTool() *Tool {
 		AuditMode:   AuditNone,
 		IsUserOwned: true,
 		ExecuteRead: executeGearSummary,
+	}
+}
+
+func QueryGearMaintenanceTool() *Tool {
+	return &Tool{
+		Name:        "query_gear_maintenance",
+		Description: "Read maintenance status for gear components, including due/overdue intervals, usage totals, and recent service context.",
+		InputSchema: gearMaintenanceInputSchema,
+		Permission:  PermissionRead,
+		AuditMode:   AuditNone,
+		IsUserOwned: true,
+		ExecuteRead: executeQueryGearMaintenance,
 	}
 }
 
@@ -563,6 +608,15 @@ type gearSummaryArgs struct {
 	IncludeRetired bool    `json:"include_retired"`
 }
 
+type gearMaintenanceArgs struct {
+	GearID         string `json:"gear_id"`
+	GearQuery      string `json:"gear_query"`
+	ComponentType  string `json:"component_type"`
+	Status         string `json:"status"`
+	IncludeRetired bool   `json:"include_retired"`
+	Limit          *int   `json:"limit,omitempty"`
+}
+
 func executeGearSummary(ctx context.Context, deps *Deps, userID string, args json.RawMessage) (any, error) {
 	var req gearSummaryArgs
 	if err := json.Unmarshal(args, &req); err != nil {
@@ -592,6 +646,165 @@ func executeGearSummary(ctx context.Context, deps *Deps, userID string, args jso
 	}, nil
 }
 
+func executeQueryGearMaintenance(ctx context.Context, deps *Deps, userID string, args json.RawMessage) (any, error) {
+	var req gearMaintenanceArgs
+	if err := json.Unmarshal(args, &req); err != nil {
+		return nil, fmt.Errorf("parse query_gear_maintenance args: %w", err)
+	}
+	pool, err := requireReadPool(deps, "query_gear_maintenance")
+	if err != nil {
+		return nil, err
+	}
+	limit := boundedLimit(req.Limit, 20, 50)
+	rows, err := pool.Query(ctx, buildGearMaintenanceSQL(req, limit), buildGearMaintenanceParams(userID, req)...)
+	if err != nil {
+		return nil, fmt.Errorf("query gear maintenance: %w", err)
+	}
+	defer rows.Close()
+	components, err := collectToolRows(rows)
+	if err != nil {
+		return nil, fmt.Errorf("query gear maintenance: %w", err)
+	}
+	for _, row := range components {
+		row["installed_at"] = dateString(row["installed_at"])
+		row["removed_at"] = dateString(row["removed_at"])
+		row["last_service_at"] = dateString(row["last_service_at"])
+		row["next_due_at"] = dateString(row["next_due_at"])
+		row["total_distance_km"] = math.Round((numberValue(row["total_distance_m"])/1000.0)*10) / 10
+		delete(row, "total_distance_m")
+		if row["service_count"] == nil {
+			row["service_count"] = int64(0)
+		}
+	}
+	alerts := []map[string]any{}
+	for _, row := range components {
+		threshold := numberValue(row["interval_value"])
+		current := numberValue(row["current_value"])
+		if threshold <= 0 {
+			continue
+		}
+		ratio := current / threshold
+		row["due_ratio"] = math.Round(ratio*1000) / 1000
+		switch {
+		case ratio >= 1:
+			row["due_status"] = "overdue"
+		case ratio >= 0.9:
+			row["due_status"] = "due_soon"
+		default:
+			row["due_status"] = "ok"
+		}
+		if ratio >= 0.9 {
+			alerts = append(alerts, map[string]any{
+				"interval_id":     row["interval_id"],
+				"gear_id":         row["gear_id"],
+				"gear_name":       row["gear_name"],
+				"component_id":    row["component_id"],
+				"component_name":  row["component_name"],
+				"interval_name":   row["interval_name"],
+				"metric_key":      row["metric_key"],
+				"is_overdue":      ratio >= 1,
+				"current_value":   current,
+				"threshold_value": threshold,
+			})
+		}
+	}
+	return map[string]any{
+		"components": components,
+		"alerts":     alerts,
+		"count":      len(components),
+	}, nil
+}
+
+func buildGearMaintenanceSQL(req gearMaintenanceArgs, limit int) string {
+	conditions := []string{"g.user_id = $1"}
+	nextParam := 2
+	if strings.TrimSpace(req.GearID) != "" {
+		conditions = append(conditions, fmt.Sprintf("g.id = $%d::uuid", nextParam))
+		nextParam++
+	}
+	if strings.TrimSpace(req.GearQuery) != "" {
+		conditions = append(conditions, fmt.Sprintf("g.name ILIKE $%d ESCAPE '\\'", nextParam))
+		nextParam++
+	}
+	if strings.TrimSpace(req.ComponentType) != "" {
+		conditions = append(conditions, fmt.Sprintf("(gc.type = $%d OR gc.type_key = $%d)", nextParam, nextParam))
+		nextParam++
+	}
+	if strings.TrimSpace(req.Status) != "" {
+		conditions = append(conditions, fmt.Sprintf("gc.status = $%d", nextParam))
+		nextParam++
+	} else if !req.IncludeRetired {
+		conditions = append(conditions, "COALESCE(gc.is_retired, false) = false")
+	}
+	return `
+		SELECT gc.id::text AS component_id, gc.name AS component_name, gc.type AS component_type,
+		       gc.status, gc.is_retired, g.id::text AS gear_id, g.name AS gear_name,
+		       gc.total_distance_m, gc.total_elevation_gain_m, gc.total_time_s,
+		       gc.total_moving_time_s, gc.total_activities,
+		       gc.installed_at, gc.removed_at,
+		       gsi.id::text AS interval_id, gsi.name AS interval_name,
+		       COALESCE(gsi.metric_key, gsi.interval_type) AS metric_key,
+		       gsi.interval_value AS interval_value,
+		       gsi.last_service_at, gsi.last_service_metric_value, gsi.next_due_at,
+		       GREATEST(
+		         CASE COALESCE(gsi.metric_key, gsi.interval_type)
+		           WHEN 'distance_m' THEN gc.total_distance_m - COALESCE(gsi.last_service_metric_value, 0)
+		           WHEN 'moving_time_s' THEN gc.total_moving_time_s - COALESCE(gsi.last_service_metric_value, 0)
+		           WHEN 'elapsed_time_s' THEN gc.total_time_s - COALESCE(gsi.last_service_metric_value, 0)
+		           WHEN 'activity_count' THEN gc.total_activities::double precision - COALESCE(gsi.last_service_metric_value, 0)
+		           WHEN 'elapsed_days' THEN EXTRACT(EPOCH FROM (now() - COALESCE(gsi.last_service_at, gc.installed_at, now()))) / 86400.0
+		           WHEN 'elevation_gain_m' THEN gc.total_elevation_gain_m - COALESCE(gsi.last_service_metric_value, 0)
+		           WHEN 'elevation_loss_m' THEN gc.total_elevation_loss_m - COALESCE(gsi.last_service_metric_value, 0)
+		           ELSE 0
+		         END,
+		         0
+		       ) AS current_value,
+		       last_event.performed_at AS last_service_event_at,
+		       COALESCE(event_counts.service_count, 0) AS service_count
+		  FROM gear_components gc
+		  JOIN gear g ON g.id = gc.gear_id
+		  LEFT JOIN LATERAL (
+		      SELECT id, name, metric_key, interval_type, interval_value,
+		             last_service_at, last_service_metric_value, next_due_at
+		        FROM gear_service_intervals
+		       WHERE component_id = gc.id
+		       ORDER BY interval_value DESC NULLS LAST, name ASC
+		       LIMIT 1
+		  ) gsi ON true
+		  LEFT JOIN LATERAL (
+		      SELECT performed_at
+		        FROM gear_service_events
+		       WHERE component_id = gc.id
+		       ORDER BY performed_at DESC
+		       LIMIT 1
+		  ) last_event ON true
+		  LEFT JOIN LATERAL (
+		      SELECT COUNT(*) AS service_count
+		        FROM gear_service_events
+		       WHERE component_id = gc.id
+		  ) event_counts ON true
+		 WHERE ` + strings.Join(conditions, " AND ") + `
+		 ORDER BY COALESCE(gsi.next_due_at, 'infinity'::timestamptz) ASC, gc.total_distance_m DESC
+		 LIMIT ` + fmt.Sprint(limit)
+}
+
+func buildGearMaintenanceParams(userID string, req gearMaintenanceArgs) []any {
+	params := []any{userID}
+	if strings.TrimSpace(req.GearID) != "" {
+		params = append(params, strings.TrimSpace(req.GearID))
+	}
+	if strings.TrimSpace(req.GearQuery) != "" {
+		params = append(params, "%"+escapeLikeContains(strings.TrimSpace(req.GearQuery))+"%")
+	}
+	if strings.TrimSpace(req.ComponentType) != "" {
+		params = append(params, strings.TrimSpace(req.ComponentType))
+	}
+	if strings.TrimSpace(req.Status) != "" {
+		params = append(params, strings.TrimSpace(req.Status))
+	}
+	return params
+}
+
 func requireReadPool(deps *Deps, toolName string) (*pgxpool.Pool, error) {
 	pool := readPool(deps)
 	if pool == nil {
@@ -602,14 +815,16 @@ func requireReadPool(deps *Deps, toolName string) (*pgxpool.Pool, error) {
 
 func readPool(deps *Deps) *pgxpool.Pool {
 	if deps != nil {
-		if deps.Readonly != nil {
-			return deps.Readonly
-		}
 		if deps.DB != nil {
+			if deps.DB.Pool != nil {
+				return deps.DB.Pool
+			}
 			if deps.DB.ReadonlyPool != nil {
 				return deps.DB.ReadonlyPool
 			}
-			return deps.DB.Pool
+		}
+		if deps.Readonly != nil {
+			return deps.Readonly
 		}
 	}
 	return nil

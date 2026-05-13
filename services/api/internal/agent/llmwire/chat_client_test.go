@@ -111,6 +111,36 @@ func TestChatCompletionsClientSendsOptionalProviderParamsOnlyWhenRequested(t *te
 	}
 }
 
+func TestChatCompletionsClientSendsRequiredToolChoiceWhenRequested(t *testing.T) {
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hallo\"},\"finish_reason\":null}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	t.Cleanup(server.Close)
+
+	stream := NewChatCompletionsClient(server.URL, "key", nil).Stream(context.Background(), ChatRequest{
+		Model:      "test-model",
+		Messages:   []ChatMessage{{Role: "user", Content: "Wann war ich zuletzt schwimmen?"}},
+		ToolChoice: "required",
+		Tools: []ToolDefinition{{
+			Name:        "query_activities",
+			Description: "Query activities",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		}},
+	})
+	if !stream.Next() {
+		t.Fatalf("Next() = false, err=%v", stream.Err())
+	}
+	if gotBody["tool_choice"] != "required" {
+		t.Fatalf("tool_choice = %#v, want required", gotBody["tool_choice"])
+	}
+}
+
 func TestChatCompletionsClientRetriesOnlyBeforeFirstStreamEvent(t *testing.T) {
 	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -221,6 +221,35 @@ func TestPrepareActionDuplicatePendingRejectsDifferentArgs(t *testing.T) {
 	}
 }
 
+func TestPrepareActionCompletedAuditRejectsDifferentArgs(t *testing.T) {
+	db, userID := executionEnvelopeTestDB(t)
+	confirm := agent.NewConfirmationManager(time.Minute)
+	envelope := NewExecutionEnvelope(exportTestRegistry(), actionDepsWithConfirm(db, userID, confirm))
+	sessionID := uuid.NewString()
+	req := ConfirmableActionRequest{
+		UserID:     userID,
+		SessionID:  sessionID,
+		ToolCallID: "call-completed-prepare-mismatch",
+		ToolName:   "update_activity",
+		Args:       json.RawMessage(`{"id":"a1"}`),
+		Caller:     CallerContext{Transport: "local_mcp"},
+	}
+	prepared, err := envelope.PrepareAction(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PrepareAction: %v", err)
+	}
+	if !confirm.Resolve(sessionID, req.ToolCallID, agent.ConfirmResponse{Confirmed: true, Source: "user"}) {
+		t.Fatal("Resolve returned false")
+	}
+	if _, err := envelope.ExecuteConfirmedAction(context.Background(), prepared.ActionID, userID); err != nil {
+		t.Fatalf("ExecuteConfirmedAction: %v", err)
+	}
+	req.Args = json.RawMessage(`{"id":"a2"}`)
+	if _, err := envelope.PrepareAction(context.Background(), req); err == nil || !strings.Contains(err.Error(), "different tool or arguments") {
+		t.Fatalf("PrepareAction error = %v, want completed argument mismatch", err)
+	}
+}
+
 func TestExecuteConfirmedActionRequiresSkadiaConfirmation(t *testing.T) {
 	calls := 0
 	reg := NewRegistry()

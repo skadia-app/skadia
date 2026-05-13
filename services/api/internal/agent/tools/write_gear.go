@@ -75,6 +75,11 @@ func WriteGearTools() []*Tool {
 		UpdateGearMetadataTool(),
 		RetireGearTool(),
 		SetActivityGearTool(),
+		AddGearComponentTool(),
+		UpdateGearComponentStatusTool(),
+		RecordGearServiceEventTool(),
+		UpdateGearDefaultPredicatesTool(),
+		BatchSetActivityGearTool(),
 	}
 }
 
