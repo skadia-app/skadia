@@ -487,10 +487,10 @@ async def process_document(
     return True
 
 
-MARKDOWN_PROMPT = """Konvertiere den folgenden extrahierten Text aus einem PDF-Dokument in sauberes Markdown.
-Behalte die Struktur bei: Überschriften, Tabellen, Listen.
-Wenn es eine Rechnung ist, formatiere Positionen als Markdown-Tabelle.
-Gib NUR das Markdown zurück, keine Erklärungen."""
+MARKDOWN_PROMPT = """Convert the following extracted PDF text to clean Markdown.
+Preserve the structure: headings, tables, lists.
+If it is an invoice, format line items as a Markdown table.
+Return ONLY Markdown, no explanations."""
 
 
 async def convert_to_markdown(text: str) -> Optional[str]:
