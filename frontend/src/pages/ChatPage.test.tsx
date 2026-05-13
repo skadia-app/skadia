@@ -170,7 +170,7 @@ describe('ChatPage', () => {
     expect(getMessages).not.toHaveBeenCalledWith('session-1')
   })
 
-  it('disables session switching while a stream is active', async () => {
+  it('allows session switching while a stream is active', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => pendingSseResponse()))
 
     renderPage()
@@ -178,7 +178,13 @@ describe('ChatPage', () => {
     await sendMessage()
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Chat 1/i })).toBeDisabled()
+      expect(screen.getByTitle('Antwort abbrechen')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Chat 1/i }))
+    fireEvent.click(await screen.findByText('Chat 2'))
+
+    await waitFor(() => {
+      expect(getMessages).toHaveBeenCalledWith('session-2')
     })
   })
 

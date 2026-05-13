@@ -18,6 +18,11 @@ const WRITE_TOOL_GROUPS: ToolGroup[] = [
       { id: 'update_gear_metadata', label: 'Gear-Metadaten ändern' },
       { id: 'retire_gear', label: 'Gear in den Ruhestand versetzen' },
       { id: 'set_activity_gear', label: 'Gear einer Aktivität zuweisen' },
+      { id: 'batch_set_activity_gear', label: 'Gear vielen Aktivitäten zuweisen' },
+      { id: 'add_gear_component', label: 'Gear-Komponente anlegen' },
+      { id: 'update_gear_component_status', label: 'Komponentenstatus ändern' },
+      { id: 'record_gear_service_event', label: 'Service-Ereignis erfassen' },
+      { id: 'update_gear_default_predicates', label: 'Gear-Standards ändern' },
     ],
   },
   {
@@ -26,6 +31,8 @@ const WRITE_TOOL_GROUPS: ToolGroup[] = [
       { id: 'update_activity_metadata', label: 'Aktivitäts-Metadaten ändern' },
       { id: 'rename_activity', label: 'Aktivität umbenennen' },
       { id: 'tag_activity', label: 'Aktivität taggen' },
+      { id: 'bulk_tag_activities', label: 'Viele Aktivitäten taggen' },
+      { id: 'start_recompute_activities', label: 'Aktivitäten neu berechnen' },
     ],
   },
   {
@@ -40,6 +47,7 @@ const WRITE_TOOL_GROUPS: ToolGroup[] = [
       { id: 'create_tag', label: 'Tag anlegen' },
       { id: 'update_tag', label: 'Tag ändern' },
       { id: 'delete_tag', label: 'Tag löschen' },
+      { id: 'merge_tags', label: 'Tags zusammenführen' },
     ],
   },
   {
@@ -50,6 +58,13 @@ const WRITE_TOOL_GROUPS: ToolGroup[] = [
       { id: 'delete_automation_rule', label: 'Regel löschen' },
       { id: 'enable_automation_rule', label: 'Regel aktivieren' },
       { id: 'disable_automation_rule', label: 'Regel deaktivieren' },
+      { id: 'apply_automation_rule_retroactively', label: 'Regel rückwirkend anwenden' },
+    ],
+  },
+  {
+    title: 'Routen',
+    tools: [
+      { id: 'save_planned_route', label: 'Geplante Route speichern' },
     ],
   },
 ]

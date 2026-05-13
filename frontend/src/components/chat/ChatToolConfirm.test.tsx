@@ -54,6 +54,12 @@ describe('ChatToolConfirm', () => {
     expect(screen.getByText(/\"name\": \"Kette\"/)).toBeInTheDocument()
   })
 
+  it('renders compact activity sample fields from backend previews', () => {
+    render(<ChatToolConfirm request={request({ preview: { sample_activities: [{ title: 'Kurze Runde', date: '2026-05-13', sport: 'cycling', km: 9.4 }] } })} onConfirmed={vi.fn()} onDeclined={vi.fn()} />)
+
+    expect(screen.getByText(/Kurze Runde · 2026-05-13 · cycling · 9\.4 km/)).toBeInTheDocument()
+  })
+
   it('does not render raw args when the backend does not provide a confirmation preview', () => {
     render(<ChatToolConfirm request={request({ args: { name: 'Kette' } })} onConfirmed={vi.fn()} onDeclined={vi.fn()} />)
 

@@ -1,13 +1,14 @@
 import { useState, useRef, KeyboardEvent } from 'react'
-import { SendHorizonal } from 'lucide-react'
+import { SendHorizonal, Square } from 'lucide-react'
 
 interface ChatInputProps {
   onSend: (message: string) => void
+  onCancel?: () => void
   disabled?: boolean
   placeholder?: string
 }
 
-export default function ChatInput({ onSend, disabled, placeholder = 'Frag mich etwas…' }: ChatInputProps) {
+export default function ChatInput({ onSend, onCancel, disabled, placeholder = 'Frag mich etwas…' }: ChatInputProps) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -55,11 +56,12 @@ export default function ChatInput({ onSend, disabled, placeholder = 'Frag mich e
         <span className="absolute bottom-1 right-2 text-xs text-neutral-400">{value.length}/2000</span>
       </div>
       <button
-        onClick={handleSend}
-        disabled={disabled || !value.trim()}
+        onClick={disabled ? onCancel : handleSend}
+        disabled={disabled ? !onCancel : !value.trim()}
         className="cursor-pointer p-2 rounded-lg bg-accent-DEFAULT text-white hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+        title={disabled ? 'Antwort abbrechen' : 'Senden'}
       >
-        <SendHorizonal className="w-4 h-4" />
+        {disabled ? <Square className="w-4 h-4" /> : <SendHorizonal className="w-4 h-4" />}
       </button>
     </div>
   )
