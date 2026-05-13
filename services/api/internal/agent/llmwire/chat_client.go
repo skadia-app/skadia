@@ -72,6 +72,11 @@ func (s *chatCompletionsStream) Next() bool {
 		}
 		if s.sse.Next() {
 			s.current = s.sse.Current()
+			if s.current.Error != nil {
+				s.err = chatStreamProviderError(s.current.Error)
+				s.closeBody()
+				return false
+			}
 			s.seenEvent = true
 			return true
 		}
@@ -86,6 +91,20 @@ func (s *chatCompletionsStream) Next() bool {
 		}
 		return false
 	}
+}
+
+func chatStreamProviderError(chatErr *ChatError) error {
+	if chatErr == nil {
+		return nil
+	}
+	msg := strings.TrimSpace(chatErr.Message)
+	if msg == "" {
+		msg = "provider stream error"
+	}
+	if chatErr.Code != "" || chatErr.Type != "" {
+		return fmt.Errorf("chat completions stream error: %s (type=%s code=%s)", msg, chatErr.Type, chatErr.Code)
+	}
+	return fmt.Errorf("chat completions stream error: %s", msg)
 }
 
 func (s *chatCompletionsStream) Current() ChatStreamEvent {
@@ -206,16 +225,16 @@ func retryAfter(header string, fallback time.Duration) time.Duration {
 }
 
 type chatCompletionBody struct {
-	Model             string            `json:"model"`
-	Messages          []chatMessageBody `json:"messages"`
-	Stream            bool              `json:"stream"`
-	StreamOptions     streamOptionsBody `json:"stream_options"`
-	ParallelToolCalls bool              `json:"parallel_tool_calls"`
-	Tools             []toolBody        `json:"tools,omitempty"`
-	Temperature       *float64          `json:"temperature,omitempty"`
-	TopP              *float64          `json:"top_p,omitempty"`
-	PresencePenalty   *float64          `json:"presence_penalty,omitempty"`
-	MaxTokens         *int              `json:"max_tokens,omitempty"`
+	Model             string             `json:"model"`
+	Messages          []chatMessageBody  `json:"messages"`
+	Stream            bool               `json:"stream"`
+	StreamOptions     *streamOptionsBody `json:"stream_options,omitempty"`
+	ParallelToolCalls *bool              `json:"parallel_tool_calls,omitempty"`
+	Tools             []toolBody         `json:"tools,omitempty"`
+	Temperature       *float64           `json:"temperature,omitempty"`
+	TopP              *float64           `json:"top_p,omitempty"`
+	PresencePenalty   *float64           `json:"presence_penalty,omitempty"`
+	MaxTokens         *int               `json:"max_tokens,omitempty"`
 }
 
 type streamOptionsBody struct {
@@ -224,7 +243,7 @@ type streamOptionsBody struct {
 
 type chatMessageBody struct {
 	Role       string         `json:"role"`
-	Content    string         `json:"content,omitempty"`
+	Content    any            `json:"content,omitempty"`
 	ToolCallID string         `json:"tool_call_id,omitempty"`
 	ToolCalls  []toolCallBody `json:"tool_calls,omitempty"`
 }
@@ -253,15 +272,20 @@ type toolDefinitionBody struct {
 
 func chatCompletionRequestBody(req ChatRequest) chatCompletionBody {
 	body := chatCompletionBody{
-		Model:             req.Model,
-		Messages:          make([]chatMessageBody, 0, len(req.Messages)),
-		Stream:            true,
-		StreamOptions:     streamOptionsBody{IncludeUsage: true},
-		ParallelToolCalls: false,
-		Temperature:       req.Temperature,
-		TopP:              req.TopP,
-		PresencePenalty:   req.PresencePenalty,
-		MaxTokens:         req.MaxTokens,
+		Model:           req.Model,
+		Messages:        make([]chatMessageBody, 0, len(req.Messages)),
+		Stream:          true,
+		Temperature:     req.Temperature,
+		TopP:            req.TopP,
+		PresencePenalty: req.PresencePenalty,
+		MaxTokens:       req.MaxTokens,
+	}
+	if req.IncludeUsage {
+		body.StreamOptions = &streamOptionsBody{IncludeUsage: true}
+	}
+	if req.DisableParallelToolCalls {
+		parallelToolCalls := false
+		body.ParallelToolCalls = &parallelToolCalls
 	}
 	for _, msg := range req.Messages {
 		body.Messages = append(body.Messages, chatMessageRequestBody(msg))
@@ -282,8 +306,12 @@ func chatCompletionRequestBody(req ChatRequest) chatCompletionBody {
 func chatMessageRequestBody(msg ChatMessage) chatMessageBody {
 	out := chatMessageBody{
 		Role:       msg.Role,
-		Content:    msg.Content,
 		ToolCallID: msg.ToolCallID,
+	}
+	if len(msg.ContentParts) > 0 {
+		out.Content = msg.ContentParts
+	} else {
+		out.Content = msg.Content
 	}
 	for _, call := range msg.ToolCalls {
 		out.ToolCalls = append(out.ToolCalls, toolCallBody{

@@ -45,39 +45,6 @@ ON CONFLICT (role) DO UPDATE SET
   updated_at = NOW()
 WHERE NOT llm_system_config.enabled;
 
-INSERT INTO llm_system_config (
-  role, backend_type, api_base, model_name, api_key_enc, enabled,
-  capability_flags, eval_status, eval_report
-)
-SELECT
-  target.role, source.backend_type, source.api_base, source.model_name, source.api_key_enc, source.enabled,
-  target.flags,
-  'untested',
-  '{}'::jsonb
-FROM llm_system_config AS source
-CROSS JOIN (
-  VALUES
-    ('document_extract', ARRAY['document_extract', 'json_extract', 'long_context']::text[]),
-    ('vision', ARRAY['vision']::text[])
-) AS target(role, flags)
-WHERE source.role = 'vlm'
-  AND source.enabled
-  AND (
-    source.api_key_enc IS NOT NULL
-    OR source.backend_type IS DISTINCT FROM 'ollama'
-    OR source.api_base IS DISTINCT FROM 'http://ollama:11434'
-    OR source.model_name IS DISTINCT FROM 'qwen3-vl:8b'
-  )
-ON CONFLICT (role) DO UPDATE SET
-  backend_type = EXCLUDED.backend_type,
-  api_base = EXCLUDED.api_base,
-  model_name = EXCLUDED.model_name,
-  api_key_enc = EXCLUDED.api_key_enc,
-  enabled = EXCLUDED.enabled,
-  capability_flags = EXCLUDED.capability_flags,
-  updated_at = NOW()
-WHERE NOT llm_system_config.enabled;
-
 UPDATE llm_system_config
 SET enabled = false,
     eval_status = 'untested',
@@ -85,16 +52,12 @@ SET enabled = false,
     updated_at = NOW()
 WHERE api_key_enc IS NULL
   AND (
-    (role = 'default' AND backend_type = 'ollama' AND api_base = 'http://ollama:11434' AND model_name = 'qwen3:8b')
-    OR (role = 'vlm' AND backend_type = 'ollama' AND api_base = 'http://ollama:11434' AND model_name = 'qwen3-vl:8b')
-    OR (role = 'vlm_fallback' AND backend_type = 'ollama' AND api_base = 'http://ollama:11434' AND model_name = 'qwen3-vl:4b')
+    role = 'default' AND backend_type = 'ollama' AND api_base = 'http://ollama:11434' AND model_name = 'qwen3:8b'
   );
 
 INSERT INTO llm_system_config (role, backend_type, enabled, capability_flags, eval_status, eval_report)
 VALUES
-  ('tool_agent', 'disabled', false, ARRAY['streaming_chat', 'tool_calls', 'json_args', 'german_answers']::text[], 'untested', '{}'::jsonb),
-  ('sql_readonly', 'disabled', false, ARRAY['sql_readonly']::text[], 'untested', '{}'::jsonb),
-  ('write_preview', 'disabled', false, ARRAY['write_preview']::text[], 'untested', '{}'::jsonb),
+  ('tool_agent', 'disabled', false, ARRAY['streaming_chat', 'tool_calls', 'json_args', 'german_answers', 'sql_readonly', 'write_preview']::text[], 'untested', '{}'::jsonb),
   ('document_extract', 'disabled', false, ARRAY['document_extract', 'json_extract', 'long_context']::text[], 'untested', '{}'::jsonb),
   ('markdown_extract', 'disabled', false, ARRAY['markdown_extract', 'table_preservation']::text[], 'untested', '{}'::jsonb),
   ('vision', 'disabled', false, ARRAY['vision']::text[], 'untested', '{}'::jsonb)

@@ -3,20 +3,33 @@ package llmwire
 import "encoding/json"
 
 type ChatRequest struct {
-	Model           string           `json:"model"`
-	Messages        []ChatMessage    `json:"messages"`
-	Tools           []ToolDefinition `json:"tools,omitempty"`
-	Temperature     *float64         `json:"temperature,omitempty"`
-	TopP            *float64         `json:"top_p,omitempty"`
-	PresencePenalty *float64         `json:"presence_penalty,omitempty"`
-	MaxTokens       *int             `json:"max_tokens,omitempty"`
+	Model                    string           `json:"model"`
+	Messages                 []ChatMessage    `json:"messages"`
+	Tools                    []ToolDefinition `json:"tools,omitempty"`
+	Temperature              *float64         `json:"temperature,omitempty"`
+	TopP                     *float64         `json:"top_p,omitempty"`
+	PresencePenalty          *float64         `json:"presence_penalty,omitempty"`
+	MaxTokens                *int             `json:"max_tokens,omitempty"`
+	IncludeUsage             bool             `json:"include_usage,omitempty"`
+	DisableParallelToolCalls bool             `json:"disable_parallel_tool_calls,omitempty"`
 }
 
 type ChatMessage struct {
-	Role       string         `json:"role"`
-	Content    string         `json:"content,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
-	ToolCalls  []ChatToolCall `json:"tool_calls,omitempty"`
+	Role         string            `json:"role"`
+	Content      string            `json:"content,omitempty"`
+	ContentParts []ChatContentPart `json:"content_parts,omitempty"`
+	ToolCallID   string            `json:"tool_call_id,omitempty"`
+	ToolCalls    []ChatToolCall    `json:"tool_calls,omitempty"`
+}
+
+type ChatContentPart struct {
+	Type     string        `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	ImageURL *ChatImageURL `json:"image_url,omitempty"`
+}
+
+type ChatImageURL struct {
+	URL string `json:"url"`
 }
 
 type ChatToolCall struct {

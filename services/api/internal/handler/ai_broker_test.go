@@ -29,7 +29,7 @@ func TestAIBrokerRequiresMLServiceToken(t *testing.T) {
 		LLMResolver: fakeAIBrokerResolver{},
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/ai-broker/chat", strings.NewReader(`{"role":"document_extract","task_type":"document_extract","messages":[]}`))
+	req := httptest.NewRequest(http.MethodPost, "/internal/ai-broker/chat", strings.NewReader(`{"role":"document_extract","task_type":"document_extract","messages":[]}`))
 	rec := httptest.NewRecorder()
 
 	h.HandleAIBrokerChat(rec, req)
@@ -45,7 +45,7 @@ func TestAIBrokerRejectsProviderURLInRequest(t *testing.T) {
 		LLMResolver: fakeAIBrokerResolver{},
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/ai-broker/chat", strings.NewReader(`{"role":"document_extract","task_type":"document_extract","provider_url":"http://attacker","messages":[]}`))
+	req := httptest.NewRequest(http.MethodPost, "/internal/ai-broker/chat", strings.NewReader(`{"role":"document_extract","task_type":"document_extract","provider_url":"http://attacker","messages":[]}`))
 	req.Header.Set("X-ML-Service-Token", "secret")
 	rec := httptest.NewRecorder()
 
@@ -74,7 +74,8 @@ func TestAIBrokerResolvesRoleAndForwardsWithoutProviderURLFromML(t *testing.T) {
 	defer provider.Close()
 
 	h := &Handler{
-		Config: &HandlerConfig{MLCallbackSecret: "secret"},
+		Config:             &HandlerConfig{MLCallbackSecret: "secret"},
+		AIBrokerHTTPClient: provider.Client(),
 		LLMResolver: fakeAIBrokerResolver{cfg: agent.LLMConfig{
 			BaseURL: provider.URL + "/v1",
 			APIKey:  "resolved-key",
@@ -83,7 +84,7 @@ func TestAIBrokerResolvesRoleAndForwardsWithoutProviderURLFromML(t *testing.T) {
 	}
 
 	body := `{"role":"document_extract","task_type":"document_extract","messages":[{"role":"user","content":"invoice"}]}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/ai-broker/chat", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/internal/ai-broker/chat", strings.NewReader(body))
 	req.Header.Set("X-ML-Service-Token", "secret")
 	rec := httptest.NewRecorder()
 
@@ -108,5 +109,92 @@ func TestAIBrokerResolvesRoleAndForwardsWithoutProviderURLFromML(t *testing.T) {
 	}
 	if out.Status != "ok" || out.Role != "document_extract" || out.Text != `{"products":[]}` {
 		t.Fatalf("response = %#v", out)
+	}
+}
+
+func TestAIBrokerRejectsTaskRoleMismatch(t *testing.T) {
+	h := &Handler{
+		Config:      &HandlerConfig{MLCallbackSecret: "secret"},
+		LLMResolver: fakeAIBrokerResolver{},
+	}
+
+	tests := []struct {
+		name     string
+		role     string
+		taskType string
+	}{
+		{name: "document role cannot run markdown extraction", role: "document_extract", taskType: "markdown_extract"},
+		{name: "markdown role cannot run document extraction", role: "markdown_extract", taskType: "document_extract"},
+		{name: "document role cannot run invoice page vision", role: "document_extract", taskType: "invoice_page"},
+		{name: "vision role cannot run text document extraction", role: "vision", taskType: "document_extract"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := `{"role":"` + tt.role + `","task_type":"` + tt.taskType + `","messages":[{"role":"user","content":"x"}]}`
+			req := httptest.NewRequest(http.MethodPost, "/internal/ai-broker/chat", strings.NewReader(body))
+			req.Header.Set("X-ML-Service-Token", "secret")
+			rec := httptest.NewRecorder()
+
+			h.HandleAIBrokerChat(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, body = %s, want %d", rec.Code, rec.Body.String(), http.StatusBadRequest)
+			}
+		})
+	}
+}
+
+func TestAIBrokerAppliesTaskSpecificTokenLimits(t *testing.T) {
+	tests := []struct {
+		name      string
+		role      string
+		taskType  string
+		maxTokens float64
+	}{
+		{name: "document extraction", role: "document_extract", taskType: "document_extract", maxTokens: 2048},
+		{name: "markdown extraction", role: "markdown_extract", taskType: "markdown_extract", maxTokens: 2048},
+		{name: "vision document image", role: "vision", taskType: "vision", maxTokens: 2048},
+		{name: "invoice page vision", role: "vision", taskType: "invoice_page", maxTokens: 4096},
+		{name: "invoice parts vision", role: "vision", taskType: "invoice_parts", maxTokens: 2048},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var providerBody map[string]any
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&providerBody); err != nil {
+					t.Fatalf("decode provider body: %v", err)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"choices": []map[string]any{
+						{"message": map[string]any{"content": "ok"}},
+					},
+				})
+			}))
+			defer provider.Close()
+
+			h := &Handler{
+				Config:             &HandlerConfig{MLCallbackSecret: "secret"},
+				AIBrokerHTTPClient: provider.Client(),
+				LLMResolver: fakeAIBrokerResolver{cfg: agent.LLMConfig{
+					BaseURL: provider.URL + "/v1",
+					Model:   "resolved-model",
+				}},
+			}
+			body := `{"role":"` + tt.role + `","task_type":"` + tt.taskType + `","messages":[{"role":"user","content":"x"}]}`
+			req := httptest.NewRequest(http.MethodPost, "/internal/ai-broker/chat", strings.NewReader(body))
+			req.Header.Set("X-ML-Service-Token", "secret")
+			rec := httptest.NewRecorder()
+
+			h.HandleAIBrokerChat(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %s, want %d", rec.Code, rec.Body.String(), http.StatusOK)
+			}
+			if providerBody["max_tokens"] != tt.maxTokens {
+				t.Fatalf("max_tokens = %v, want %v", providerBody["max_tokens"], tt.maxTokens)
+			}
+		})
 	}
 }
