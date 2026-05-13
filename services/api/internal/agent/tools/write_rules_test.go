@@ -85,8 +85,28 @@ func TestCreateAutomationRuleWriteToolRejectsDescriptionAndUnknownAction(t *test
 	_, err = envelope.PrepareConfirmation(context.Background(), ToolExecutionRequest{
 		UserID: userID, SessionID: uuid.NewString(), ToolCallID: "call-rule-action", ToolName: "create_automation_rule", Args: []byte(`{"name":"Bad","trigger_event":"on_import","conditions":[],"actions":[{"action":"teleport","params":{}}]}`),
 	})
-	if err == nil || !strings.Contains(err.Error(), "unknown action") {
-		t.Fatalf("PrepareConfirmation err = %v, want unknown action", err)
+	if err == nil {
+		t.Fatal("PrepareConfirmation accepted unknown action")
+	}
+}
+
+func TestCreateAutomationRuleWriteToolRejectsMalformedAgentArgs(t *testing.T) {
+	pool := testdb.Open(t)
+	userID := insertActivityToolUser(t, pool)
+	envelope := ruleWriteEnvelope(t, pool, userID, "create_automation_rule")
+
+	for name, args := range map[string][]byte{
+		"missing action name":    []byte(`{"name":"Bad","trigger_event":"on_import","conditions":[],"actions":[{"params":{"tag_id":"` + uuid.NewString() + `"}}]}`),
+		"object condition value": []byte(`{"name":"Bad","trigger_event":"on_import","conditions":[{"field":"distance_m","op":"gte","value":{"distance_m":21097}}],"actions":[{"action":"add_tag","params":{"tag_id":"` + uuid.NewString() + `"}}]}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := envelope.PrepareConfirmation(context.Background(), ToolExecutionRequest{
+				UserID: userID, SessionID: uuid.NewString(), ToolCallID: "call-rule-malformed", ToolName: "create_automation_rule", Args: args,
+			})
+			if err == nil {
+				t.Fatal("PrepareConfirmation accepted malformed agent args")
+			}
+		})
 	}
 }
 

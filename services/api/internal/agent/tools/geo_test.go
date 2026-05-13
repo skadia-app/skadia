@@ -1,9 +1,14 @@
 package tools
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 )
 
 func TestRegisterGeoToolsOwnershipSplit(t *testing.T) {
@@ -94,6 +99,42 @@ func TestBuildQueryGeoFeaturesSQLMapsWaterAndFiltersActivities(t *testing.T) {
 	}
 	if len(params) != 6 {
 		t.Fatalf("params len = %d, want 6", len(params))
+	}
+}
+
+func TestExecuteQueryGeoFeaturesSetsRLSContext(t *testing.T) {
+	pool := testdb.Open(t)
+	userID := insertActivityToolUser(t, pool)
+	activityID := insertActivityToolActivity(t, pool, userID, "Summit Tour")
+	if _, err := pool.Exec(context.Background(), `UPDATE activities SET sport_type = 'hiking', started_at = '2025-07-01T10:00:00Z' WHERE id = $1`, activityID); err != nil {
+		t.Fatalf("update activity: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO activity_geo_tags (activity_id, category, name, ele_m)
+		VALUES ($1, 'summit', 'Test Summit', 1234)
+	`, activityID); err != nil {
+		t.Fatalf("insert geo tag: %v", err)
+	}
+
+	result, err := executeQueryGeoFeatures(context.Background(), &Deps{DB: &database.DB{Pool: pool}}, userID, json.RawMessage(`{
+		"feature_type": "summit",
+		"date_from": "2025-01-01",
+		"date_to": "2025-12-31",
+		"limit": 10
+	}`))
+	if err != nil {
+		t.Fatalf("executeQueryGeoFeatures: %v", err)
+	}
+	out := result.(map[string]any)
+	if out["total_count"] != int64(1) {
+		t.Fatalf("total_count = %v, want 1", out["total_count"])
+	}
+	features := out["features"].([]map[string]any)
+	if features[0]["ele"] != float64(1234) {
+		t.Fatalf("ele = %v, want ele_m fallback", features[0]["ele"])
+	}
+	if features[0]["activity_id"] != activityID || features[0]["sport_type"] != "hiking" {
+		t.Fatalf("feature activity fields = %#v", features[0])
 	}
 }
 

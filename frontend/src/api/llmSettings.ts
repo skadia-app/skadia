@@ -77,7 +77,7 @@ export async function testLLMConnection(params: {
 }
 
 export async function runLLMEval(role: string): Promise<LLMEvalResult> {
-  return apiClient<LLMEvalResult>(`/admin/llm-config/${role}/eval`, {
+  return apiClient<LLMEvalResult>(`/admin/llm-config/${role}/eval?flush=1`, {
     method: 'POST',
   })
 }
