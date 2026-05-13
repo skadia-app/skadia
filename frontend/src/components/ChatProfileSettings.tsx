@@ -28,10 +28,7 @@ interface ChatProfile {
   max_context_tokens: number
   history_messages: number
 
-  // Reasoning & Model Behavior
-  reasoning_mode: 'guided' | 'free' | 'react'
   temperature: number
-  top_p: number
   top_k: number
   presence_penalty: number
   max_response_tokens: number
@@ -265,7 +262,7 @@ export default function ChatProfileSettings() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ml-user-settings'] })
       setLocal(null)
-      addToast({ type: 'success', title: 'KI-Assistent-Einstellungen gespeichert' })
+      addToast({ type: 'success', title: 'AI-Agent-Einstellungen gespeichert' })
     },
     onError: () => {
       addToast({ type: 'error', title: 'Fehler beim Speichern', duration: 0 })
@@ -277,8 +274,8 @@ export default function ChatProfileSettings() {
   if (defaultsLoading || settingsLoading) {
     return (
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">KI-Assistent</h2>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">Chat-Einstellungen werden geladen…</p>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">AI-Agent</h2>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">Agent-Einstellungen werden geladen…</p>
       </section>
     )
   }
@@ -286,8 +283,8 @@ export default function ChatProfileSettings() {
   if (settingsError) {
     return (
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">KI-Assistent</h2>
-        <p className="text-sm text-red-600 dark:text-red-400 mt-1">Chat-Einstellungen konnten nicht geladen werden.</p>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">AI-Agent</h2>
+        <p className="text-sm text-red-600 dark:text-red-400 mt-1">Agent-Einstellungen konnten nicht geladen werden.</p>
       </section>
     )
   }
@@ -295,7 +292,7 @@ export default function ChatProfileSettings() {
   if (defaultsError || !profileDefaults || !profile) {
     return (
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
-        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">KI-Assistent</h2>
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">AI-Agent</h2>
         <p className="text-sm text-red-600 dark:text-red-400 mt-1">Profil-Defaults konnten nicht geladen werden.</p>
       </section>
     )
@@ -306,9 +303,9 @@ export default function ChatProfileSettings() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">KI-Assistent</h2>
+          <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">AI-Agent</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-            Verhalten und Fähigkeiten des Chat-Assistenten konfigurieren.
+            Verhalten, Tool-Nutzung und Antwortumfang konfigurieren.
           </p>
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
@@ -348,7 +345,7 @@ export default function ChatProfileSettings() {
 
         <div className="flex items-center justify-between gap-4">
           <label className="text-sm text-neutral-700 dark:text-neutral-300 flex-1">
-            Modell-Profil
+            Agent-Profil
           </label>
           <div className="flex items-center gap-2">
             <select
@@ -356,10 +353,10 @@ export default function ChatProfileSettings() {
               onChange={e => handlePresetChange(e.target.value as ProfilePreset)}
               className="text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1"
             >
-              <option value="tiny">Tiny (≤4B)</option>
-              <option value="small">Small (4–12B)</option>
-              <option value="medium">Medium (12–40B)</option>
-              <option value="large">Large (&gt;40B / API)</option>
+              <option value="tiny">Kompakt</option>
+              <option value="small">Standard</option>
+              <option value="medium">Robust</option>
+              <option value="large">Maximal / API</option>
               <option value="custom">Benutzerdefiniert</option>
             </select>
             {!isCustom && setting.base_profile in profileDefaults.presets && (
@@ -377,21 +374,13 @@ export default function ChatProfileSettings() {
 
         {!isCustom && (
           <p className="text-xs text-neutral-400 dark:text-neutral-500 italic">
-            Preset-Werte werden unten angezeigt. Für individuelle Anpassung auf „Benutzerdefiniert" wechseln.
+            Presets steuern Agent-Verhalten, nicht die Modellqualität. Für individuelle Anpassung auf „Benutzerdefiniert" wechseln.
           </p>
         )}
       </div>
 
       {/* Tools & Routing */}
       <CollapsibleSection title="Tools & Routing">
-        <SliderRow
-          label="Max. Tools pro Anfrage"
-          value={profile.max_tools}
-          min={2}
-          max={20}
-          onChange={v => patchProfile({ max_tools: v })}
-          disabled={!isCustom}
-        />
         <ToggleRow
           label="Semantic Routing"
           description="Intent-basierte Tool-Auswahl"
@@ -400,7 +389,7 @@ export default function ChatProfileSettings() {
           disabled={!isCustom}
         />
         <SliderRow
-          label="Multi-Tool pro Turn"
+          label="Tool-Aufrufe pro Antwort"
           value={profile.max_tools_per_turn}
           min={1}
           max={5}
@@ -419,40 +408,11 @@ export default function ChatProfileSettings() {
 
       {/* Schema & SQL */}
       <CollapsibleSection title="Schema & SQL">
-        <SelectRow
-          label="Schema-Modus"
-          value={profile.schema_mode}
-          options={[
-            { value: 'filtered', label: 'Gefiltert (relevante Tabellen)' },
-            { value: 'full', label: 'Vollständig (alle Tabellen)' },
-          ]}
-          onChange={v => patchProfile({ schema_mode: v })}
-          disabled={!isCustom}
-        />
         <ToggleRow
           label="SQL-Agent"
           description="Direkte DB-Abfragen erlauben"
           value={profile.enable_sql_agent}
           onChange={v => patchProfile({ enable_sql_agent: v })}
-          disabled={!isCustom}
-        />
-        <SliderRow
-          label="SQL-Wiederholungen bei Fehler"
-          value={profile.max_sql_retries}
-          min={0}
-          max={3}
-          onChange={v => patchProfile({ max_sql_retries: v })}
-          disabled={!isCustom}
-        />
-        <SelectRow
-          label="SQL-Komplexität"
-          value={profile.sql_complexity}
-          options={[
-            { value: 'simple', label: 'Einfach (SELECT, Joins)' },
-            { value: 'moderate', label: 'Mittel (Aggregation, Subqueries)' },
-            { value: 'advanced', label: 'Komplex (CTEs, Window-Funktionen)' },
-          ]}
-          onChange={v => patchProfile({ sql_complexity: v })}
           disabled={!isCustom}
         />
       </CollapsibleSection>
@@ -478,19 +438,6 @@ export default function ChatProfileSettings() {
           onChange={v => patchProfile({ system_prompt_mode: v })}
           disabled={!isCustom}
         />
-        <SelectRow
-          label="Max. Kontext-Tokens"
-          value={String(profile.max_context_tokens) as '2000' | '4000' | '8000' | '12000' | '16000'}
-          options={[
-            { value: '2000', label: '2.000 Token' },
-            { value: '4000', label: '4.000 Token' },
-            { value: '8000', label: '8.000 Token' },
-            { value: '12000', label: '12.000 Token' },
-            { value: '16000', label: '16.000 Token' },
-          ]}
-          onChange={v => patchProfile({ max_context_tokens: Number(v) })}
-          disabled={!isCustom}
-        />
         <SliderRow
           label="Chat-History (Nachrichten)"
           value={profile.history_messages}
@@ -501,66 +448,19 @@ export default function ChatProfileSettings() {
         />
       </CollapsibleSection>
 
-      {/* Reasoning & Verhalten */}
-      <CollapsibleSection title="Reasoning & Verhalten">
-        <SelectRow
-          label="Reasoning-Modus"
-          value={profile.reasoning_mode}
-          options={[
-            { value: 'guided', label: 'Geführt (schneller, vorhersagbarer)' },
-            { value: 'free', label: 'Frei (flexibler, kreativer)' },
-            { value: 'react', label: 'ReAct (Chain-of-Thought)' },
-          ]}
-          onChange={v => patchProfile({ reasoning_mode: v })}
-          disabled={!isCustom}
-        />
-        <SliderRow
-          label="Temperatur"
-          value={profile.temperature}
-          min={0.1}
-          max={1.5}
-          step={0.05}
-          format={v => v.toFixed(2)}
-          onChange={v => patchProfile({ temperature: v })}
-          disabled={!isCustom}
-        />
-        <SliderRow
-          label="Top-P"
-          value={profile.top_p}
-          min={0.5}
-          max={1.0}
-          step={0.05}
-          format={v => v.toFixed(2)}
-          onChange={v => patchProfile({ top_p: v })}
-          disabled={!isCustom}
-        />
-        <SliderRow
-          label="Top-K"
-          value={profile.top_k}
-          min={1}
-          max={100}
-          onChange={v => patchProfile({ top_k: v })}
-          disabled={!isCustom}
-        />
-        <SliderRow
-          label="Presence Penalty"
-          value={profile.presence_penalty}
-          min={0.0}
-          max={2.0}
-          step={0.05}
-          format={v => v.toFixed(2)}
-          onChange={v => patchProfile({ presence_penalty: v })}
-          disabled={!isCustom}
-        />
+      <CollapsibleSection title="Antwortumfang">
         <SliderRow
           label="Max. Antwort-Tokens"
           value={profile.max_response_tokens}
-          min={100}
-          max={4000}
-          step={100}
+          min={500}
+          max={16000}
+          step={500}
           onChange={v => patchProfile({ max_response_tokens: v })}
           disabled={!isCustom}
         />
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          Höher wählen, wenn der Agent längere Regeln, strukturierte Vorschläge oder ausführliche Tool-Zusammenfassungen erzeugen soll.
+        </p>
       </CollapsibleSection>
 
       {isCustom && (
