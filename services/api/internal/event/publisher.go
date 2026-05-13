@@ -104,14 +104,18 @@ func (p *Publisher) PublishStage2Ready(event Stage2ReadyEvent) error {
 // DocumentUploadedEvent is emitted when a gear document is uploaded,
 // signalling the ML service to process the document with VLM.
 type DocumentUploadedEvent struct {
-	DocID         string  `json:"doc_id"`
-	GearID        *string `json:"gear_id,omitempty"`
-	ComponentID   *string `json:"component_id,omitempty"`
-	UserID        string  `json:"user_id"`
-	ContentType   string  `json:"content_type"`
-	IsTextPDF     bool    `json:"is_text_pdf"`
-	ExtractedText *string `json:"extracted_text,omitempty"`
-	FileID        string  `json:"file_id"`
+	DocID          string  `json:"doc_id"`
+	GearID         *string `json:"gear_id,omitempty"`
+	ComponentID    *string `json:"component_id,omitempty"`
+	UserID         string  `json:"user_id"`
+	ContentType    string  `json:"content_type"`
+	IsTextPDF      bool    `json:"is_text_pdf"`
+	ExtractedText  *string `json:"extracted_text,omitempty"`
+	FileID         string  `json:"file_id"`
+	FileType       string  `json:"file_type,omitempty"`
+	StorageBackend string  `json:"storage_backend,omitempty"`
+	StoragePath    string  `json:"storage_path,omitempty"`
+	SizeBytes      int64   `json:"size_bytes,omitempty"`
 }
 
 func (p *Publisher) PublishDocumentUploaded(event DocumentUploadedEvent) error {

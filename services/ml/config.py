@@ -1,11 +1,12 @@
 """ML Service configuration.
 
-Reads from environment variables. Provides LLM client initialization.
+Reads from environment variables.
 """
 import logging
 import os
-from typing import Optional
-from openai import AsyncOpenAI
+from pathlib import Path
+
+import httpx
 
 _config_logger = logging.getLogger(__name__)
 
@@ -22,8 +23,15 @@ else:
     )
     READONLY_DATABASE_URL = DATABASE_URL
 
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://litellm:4000/v1")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "sk-dummy")
+ML_LLM_BROKER_URL = os.getenv(
+    "ML_LLM_BROKER_URL",
+    "http://api:8080/internal/ai-broker",
+).rstrip("/")
+ML_LLM_BROKER_TOKEN = os.getenv("ML_LLM_BROKER_TOKEN", os.getenv("ML_CALLBACK_SECRET", ""))
+ML_DOCUMENT_ROLE = os.getenv("ML_DOCUMENT_ROLE", "document_extract")
+ML_MARKDOWN_ROLE = os.getenv("ML_MARKDOWN_ROLE", "markdown_extract")
+ML_VISION_ROLE = os.getenv("ML_VISION_ROLE", "vision")
+ML_LLM_ROLES = (ML_DOCUMENT_ROLE, ML_MARKDOWN_ROLE, ML_VISION_ROLE)
 
 NATS_URL = os.getenv("NATS_URL", "nats://nats:4222")
 HF_HOME = os.getenv("HF_HOME", "/data/models/huggingface")
@@ -31,26 +39,150 @@ HF_HOME = os.getenv("HF_HOME", "/data/models/huggingface")
 ML_CALLBACK_URL = os.getenv("ML_CALLBACK_URL", "")
 ML_CALLBACK_SECRET = os.getenv("ML_CALLBACK_SECRET", "")
 
-# Chat profile default — used when no user setting is present
-# Valid values: "tiny", "small", "medium", "large", "auto"
-CHAT_PROFILE_DEFAULT = os.getenv("CHAT_PROFILE_DEFAULT", "auto")
 
-# LLM context window size (tokens). Must match llama-server --ctx-size.
-LLM_CONTEXT_WINDOW = int(os.getenv("LLM_CONTEXT_WINDOW", "32768"))
+class LLMRoleNotConfigured(Exception):
+    """Raised when the API broker reports that an LLM role is not configured."""
 
-_llm_client: Optional[AsyncOpenAI] = None
+    def __init__(self, role: str, status: str = "not_configured"):
+        super().__init__(f"LLM role {role!r} is {status}")
+        self.role = role
+        self.status = status
 
 
-def get_llm_client() -> Optional[AsyncOpenAI]:
-    """Get async OpenAI-compatible client pointing to LiteLLM."""
-    global _llm_client
-    if _llm_client is None:
-        try:
-            _llm_client = AsyncOpenAI(
-                base_url=LLM_BASE_URL,
-                api_key=LLM_API_KEY,
-            )
-        except Exception as e:
-            _config_logger.error("Failed to initialize LLM client: %s", e)
-            return None
-    return _llm_client
+def _broker_headers() -> dict[str, str]:
+    return {
+        "Content-Type": "application/json",
+        "X-ML-Service-Token": ML_LLM_BROKER_TOKEN,
+    }
+
+
+def configured_llm_roles() -> tuple[str, ...]:
+    roles: list[str] = []
+    for role in ML_LLM_ROLES:
+        role = (role or "").strip()
+        if role and role not in roles:
+            roles.append(role)
+    return tuple(roles)
+
+
+def _role_status_fallback(status: str) -> dict[str, str]:
+    return {role: status for role in configured_llm_roles()}
+
+
+def _normalize_role_statuses(payload: dict) -> dict[str, str]:
+    roles = payload.get("roles", {})
+    statuses: dict[str, str] = {}
+    for role in configured_llm_roles():
+        value = roles.get(role, "not_configured")
+        if isinstance(value, dict):
+            value = value.get("status", "not_configured")
+        if value not in {"configured", "not_configured", "unavailable"}:
+            value = "unavailable"
+        statuses[role] = value
+    return statuses
+
+
+def llm_broker_readiness_from_statuses(statuses: dict[str, str]) -> dict:
+    roles = configured_llm_roles()
+    if not roles:
+        return {"status": "disabled", "roles": {}}
+    normalized = {}
+    for role in roles:
+        value = statuses.get(role, "not_configured")
+        if value not in {"configured", "not_configured", "unavailable"}:
+            value = "unavailable"
+        normalized[role] = value
+    if normalized and not ML_LLM_BROKER_TOKEN:
+        return {"status": "degraded", "roles": normalized, "error": "broker_token_missing"}
+    status = "ready" if all(value == "configured" for value in normalized.values()) else "degraded"
+    return {"status": status, "roles": normalized}
+
+
+def _local_shadowfs_base_path() -> str:
+    return (
+        os.getenv("ML_SHADOWFS_BASE_PATH")
+        or os.getenv("LIBRARY_BASE_PATH")
+        or os.getenv("SHADOW_FS_BASE_PATH")
+        or ""
+    )
+
+
+def get_local_shadowfs_readiness() -> dict:
+    base = _local_shadowfs_base_path()
+    if not base:
+        return {"status": "disabled"}
+    path = Path(base)
+    if not path.exists():
+        return {"status": "degraded", "base_path": base, "error": "missing"}
+    if not path.is_dir():
+        return {"status": "degraded", "base_path": base, "error": "not_directory"}
+    if not os.access(path, os.R_OK):
+        return {"status": "degraded", "base_path": base, "error": "not_readable"}
+    return {"status": "ready", "base_path": str(path)}
+
+
+def get_llm_role_statuses_sync() -> dict[str, str]:
+    """Return broker role status without exposing provider credentials."""
+    if not ML_LLM_BROKER_URL or not ML_LLM_BROKER_TOKEN:
+        return _role_status_fallback("not_configured")
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            response = client.get(f"{ML_LLM_BROKER_URL}/roles", headers=_broker_headers())
+            response.raise_for_status()
+            return _normalize_role_statuses(response.json())
+    except Exception as e:
+        _config_logger.warning("LLM broker status unavailable: %s", e)
+        return _role_status_fallback("unavailable")
+
+
+async def get_llm_role_statuses() -> dict[str, str]:
+    """Async variant for FastAPI health handlers."""
+    if not ML_LLM_BROKER_URL or not ML_LLM_BROKER_TOKEN:
+        return _role_status_fallback("not_configured")
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(f"{ML_LLM_BROKER_URL}/roles", headers=_broker_headers())
+            response.raise_for_status()
+            return _normalize_role_statuses(response.json())
+    except Exception as e:
+        _config_logger.warning("LLM broker status unavailable: %s", e)
+        return _role_status_fallback("unavailable")
+
+
+async def get_llm_broker_readiness() -> dict:
+    """Return readiness for configured brokered LLM roles.
+
+    Empty role env vars explicitly disable brokered LLM/OCR readiness. If at
+    least one role is configured, every configured role must be broker-ready.
+    """
+    return llm_broker_readiness_from_statuses(await get_llm_role_statuses())
+
+
+async def call_llm_broker(
+    role: str,
+    task_type: str,
+    messages: list,
+    timeout: float = 120.0,
+) -> str:
+    """Call the API-owned LLM broker for a configured role."""
+    if not ML_LLM_BROKER_URL or not ML_LLM_BROKER_TOKEN or not role:
+        raise LLMRoleNotConfigured(role or "unknown")
+    payload = {
+        "role": role,
+        "task_type": task_type,
+        "messages": messages,
+    }
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(
+            f"{ML_LLM_BROKER_URL}/chat",
+            headers=_broker_headers(),
+            json=payload,
+        )
+    if response.status_code == 424:
+        body = response.json()
+        raise LLMRoleNotConfigured(body.get("role", role), body.get("status", "not_configured"))
+    response.raise_for_status()
+    body = response.json()
+    if body.get("status") != "ok":
+        raise RuntimeError(f"LLM broker returned {body.get('status', 'unknown')}")
+    return (body.get("text") or "").strip()

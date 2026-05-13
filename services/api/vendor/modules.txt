@@ -365,6 +365,8 @@ github.com/tidwall/geoindex/child
 # github.com/tidwall/geojson v1.4.6
 ## explicit; go 1.15
 github.com/tidwall/geojson/geometry
+# github.com/tidwall/pretty v1.2.1
+## explicit; go 1.16
 # github.com/tidwall/rtree v1.10.0
 ## explicit; go 1.18
 github.com/tidwall/rtree

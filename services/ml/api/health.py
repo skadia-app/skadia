@@ -9,13 +9,11 @@ router = APIRouter(prefix="/ml", tags=["health"])
 @router.get("/models")
 async def list_models():
     """Aggregate model status: LLM availability + TSFM models."""
-    llm_status = "unknown"
     try:
-        from config import get_llm_client
-        client = get_llm_client()
-        llm_status = "available" if client else "unavailable"
+        from config import get_llm_role_statuses
+        llm_roles = await get_llm_role_statuses()
     except Exception:
-        llm_status = "unavailable"
+        llm_roles = {}
 
     tsfm_status = {}
     try:
@@ -25,7 +23,7 @@ async def list_models():
         pass
 
     return {
-        "llm": {"status": llm_status, "base_url": os.getenv("LLM_BASE_URL", "")},
+        "llm": {"roles": llm_roles},
         "tsfm": tsfm_status,
         "python": platform.python_version(),
         "mode": os.getenv("ML_MODE", "local"),

@@ -39,6 +39,8 @@ interface ChatProfile {
 
 type ProfilePreset = 'tiny' | 'small' | 'medium' | 'large' | 'custom'
 
+type BackendProfilePreset = Exclude<ProfilePreset, 'custom'>
+
 interface ChatUserSetting {
   enabled: boolean
   model: string
@@ -46,49 +48,42 @@ interface ChatUserSetting {
   overrides: Partial<ChatProfile>
 }
 
-// -----------------------------------------------------------------------
-// Preset definitions (mirror services/ml/chat/profiles.py)
-// -----------------------------------------------------------------------
-
-const PRESET_PROFILES: Record<Exclude<ProfilePreset, 'custom'>, ChatProfile> = {
-  tiny: {
-    max_tools: 4, use_router: true, max_tools_per_turn: 1, tool_result_limit: 5,
-    schema_mode: 'filtered', enable_sql_agent: false, sql_complexity: 'simple', max_sql_retries: 0,
-    few_shot_count: 3, system_prompt_mode: 'compact', max_context_tokens: 2000, history_messages: 5,
-    reasoning_mode: 'guided', temperature: 0.2, top_p: 0.8, top_k: 20, presence_penalty: 1.5, max_response_tokens: 500,
-  },
-  small: {
-    max_tools: 6, use_router: true, max_tools_per_turn: 1, tool_result_limit: 7,
-    schema_mode: 'filtered', enable_sql_agent: true, sql_complexity: 'simple', max_sql_retries: 1,
-    few_shot_count: 3, system_prompt_mode: 'compact', max_context_tokens: 4000, history_messages: 10,
-    reasoning_mode: 'guided', temperature: 0.3, top_p: 0.8, top_k: 20, presence_penalty: 1.5, max_response_tokens: 1000,
-  },
-  medium: {
-    max_tools: 10, use_router: true, max_tools_per_turn: 2, tool_result_limit: 15,
-    schema_mode: 'filtered', enable_sql_agent: true, sql_complexity: 'moderate', max_sql_retries: 2,
-    few_shot_count: 2, system_prompt_mode: 'standard', max_context_tokens: 8000, history_messages: 20,
-    reasoning_mode: 'free', temperature: 0.5, top_p: 0.9, top_k: 40, presence_penalty: 1.0, max_response_tokens: 2000,
-  },
-  large: {
-    max_tools: 20, use_router: false, max_tools_per_turn: 5, tool_result_limit: 50,
-    schema_mode: 'full', enable_sql_agent: true, sql_complexity: 'advanced', max_sql_retries: 2,
-    few_shot_count: 0, system_prompt_mode: 'rich', max_context_tokens: 16000, history_messages: 30,
-    reasoning_mode: 'free', temperature: 0.7, top_p: 0.95, top_k: 50, presence_penalty: 0.5, max_response_tokens: 4000,
-  },
+interface ChatProfileDefaults {
+  default_profile: BackendProfilePreset
+  presets: Record<BackendProfilePreset, ChatProfile>
 }
 
 const DEFAULT_SETTING: ChatUserSetting = {
   enabled: true,
-  model: 'skadia-default',
+  model: '',
   base_profile: 'small',
   overrides: {},
 }
 
-function resolveProfile(setting: ChatUserSetting): ChatProfile {
+function resolveProfile(setting: ChatUserSetting, presets: ChatProfileDefaults['presets']): ChatProfile {
   const base = setting.base_profile === 'custom'
-    ? PRESET_PROFILES.small  // fallback base for custom
-    : PRESET_PROFILES[setting.base_profile]
+    ? presets.small
+    : presets[setting.base_profile]
   return { ...base, ...setting.overrides }
+}
+
+async function fetchJSON<T>(path: string): Promise<T> {
+  const res = await apiFetch(path)
+  if (!res.ok) {
+    throw new Error(`request failed with status ${res.status}`)
+  }
+  return res.json() as Promise<T>
+}
+
+async function saveChatProfile(value: ChatUserSetting): Promise<void> {
+  const res = await apiFetch('/api/v1/settings/ml/user/chat_profile', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value),
+  })
+  if (!res.ok) {
+    throw new Error(`request failed with status ${res.status}`)
+  }
 }
 
 // -----------------------------------------------------------------------
@@ -211,20 +206,28 @@ export default function ChatProfileSettings() {
   const qc = useQueryClient()
   const { addToast } = useToast()
 
-  const { data: allUserSettings } = useQuery({
+  const { data: allUserSettings, isLoading: settingsLoading, isError: settingsError } = useQuery({
     queryKey: ['ml-user-settings', 'chat-profile'],
-    queryFn: () =>
-      apiFetch('/api/v1/settings/ml/user').then(r => r.json()) as Promise<Record<string, unknown>>,
+    queryFn: () => fetchJSON<Record<string, unknown>>('/api/v1/settings/ml/user'),
+  })
+
+  const { data: profileDefaults, isLoading: defaultsLoading, isError: defaultsError } = useQuery({
+    queryKey: ['ml-user-settings', 'chat-profile-defaults'],
+    queryFn: () => fetchJSON<ChatProfileDefaults>('/api/v1/settings/ml/chat-profile-defaults'),
   })
 
   // Extract chat_profile from the flat user settings map
-  const savedSetting: ChatUserSetting = (allUserSettings?.['chat_profile'] as ChatUserSetting) ?? DEFAULT_SETTING
+  const fallbackSetting: ChatUserSetting = {
+    ...DEFAULT_SETTING,
+    base_profile: profileDefaults?.default_profile ?? DEFAULT_SETTING.base_profile,
+  }
+  const savedSetting: ChatUserSetting = (allUserSettings?.['chat_profile'] as ChatUserSetting) ?? fallbackSetting
 
   const [local, setLocal] = useState<ChatUserSetting | null>(null)
   const setting = local ?? savedSetting
 
   const isCustom = setting.base_profile === 'custom'
-  const profile = resolveProfile(setting)
+  const profile = profileDefaults ? resolveProfile(setting, profileDefaults.presets) : null
 
   function patchSetting(patch: Partial<ChatUserSetting>) {
     setLocal(prev => ({ ...(prev ?? savedSetting), ...patch }))
@@ -241,6 +244,7 @@ export default function ChatProfileSettings() {
   }
 
   function handlePresetChange(preset: ProfilePreset) {
+    if (!profile) return
     if (preset === 'custom') {
       // Switch to custom — keep current values as overrides
       patchSetting({ base_profile: 'custom', overrides: profile })
@@ -257,13 +261,7 @@ export default function ChatProfileSettings() {
   }
 
   const saveMutation = useMutation({
-    mutationFn: async (value: ChatUserSetting) => {
-      await apiFetch('/api/v1/settings/ml/user/chat_profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(value),
-      })
-    },
+    mutationFn: saveChatProfile,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ml-user-settings'] })
       setLocal(null)
@@ -275,6 +273,33 @@ export default function ChatProfileSettings() {
   })
 
   const isDirty = local !== null
+
+  if (defaultsLoading || settingsLoading) {
+    return (
+      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">KI-Assistent</h2>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">Chat-Einstellungen werden geladen…</p>
+      </section>
+    )
+  }
+
+  if (settingsError) {
+    return (
+      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">KI-Assistent</h2>
+        <p className="text-sm text-red-600 dark:text-red-400 mt-1">Chat-Einstellungen konnten nicht geladen werden.</p>
+      </section>
+    )
+  }
+
+  if (defaultsError || !profileDefaults || !profile) {
+    return (
+      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
+        <h2 className="text-lg font-medium text-neutral-900 dark:text-neutral-100">KI-Assistent</h2>
+        <p className="text-sm text-red-600 dark:text-red-400 mt-1">Profil-Defaults konnten nicht geladen werden.</p>
+      </section>
+    )
+  }
 
   return (
     <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6 space-y-5">
@@ -315,19 +340,9 @@ export default function ChatProfileSettings() {
 
         <ToggleRow
           label="Aktiviert"
-          description="Chat-Assistent in der Seitenleiste anzeigen"
+          description="Neue Chat-Antworten erlauben"
           value={setting.enabled}
           onChange={v => patchSetting({ enabled: v })}
-          disabled={false}
-        />
-
-        <SelectRow
-          label="LLM-Modell"
-          value={setting.model}
-          options={[
-            { value: 'skadia-default', label: 'skadia-default (Qwen3.5-9B, multimodal)' },
-          ]}
-          onChange={v => patchSetting({ model: v })}
           disabled={false}
         />
 
@@ -347,7 +362,7 @@ export default function ChatProfileSettings() {
               <option value="large">Large (&gt;40B / API)</option>
               <option value="custom">Benutzerdefiniert</option>
             </select>
-            {!isCustom && setting.base_profile in PRESET_PROFILES && (
+            {!isCustom && setting.base_profile in profileDefaults.presets && (
               <button
                 type="button"
                 onClick={handleResetToPreset}
@@ -465,11 +480,12 @@ export default function ChatProfileSettings() {
         />
         <SelectRow
           label="Max. Kontext-Tokens"
-          value={String(profile.max_context_tokens) as '2000' | '4000' | '8000' | '16000'}
+          value={String(profile.max_context_tokens) as '2000' | '4000' | '8000' | '12000' | '16000'}
           options={[
             { value: '2000', label: '2.000 Token' },
             { value: '4000', label: '4.000 Token' },
             { value: '8000', label: '8.000 Token' },
+            { value: '12000', label: '12.000 Token' },
             { value: '16000', label: '16.000 Token' },
           ]}
           onChange={v => patchProfile({ max_context_tokens: Number(v) })}

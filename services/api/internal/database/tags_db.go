@@ -127,6 +127,24 @@ func (db *DB) GetTagByID(ctx context.Context, tagID, userID string) (*model.Tag,
 	return &t, nil
 }
 
+func (db *DB) FindTagByNameForAgent(ctx context.Context, userID, name string) (*model.Tag, error) {
+	t, err := scanTag(db.Pool.QueryRow(ctx, `
+		SELECT `+tagSelectCols+`
+		FROM tags
+		WHERE user_id = $1 AND lower(name) = lower($2)
+		  AND category IN ('custom', 'standort', 'system', 'weather')
+		ORDER BY CASE category WHEN 'custom' THEN 0 WHEN 'standort' THEN 1 ELSE 2 END, created_at DESC
+		LIMIT 1`, userID, name,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find tag by name for agent: %w", err)
+	}
+	return &t, nil
+}
+
 // GetTagActivityIDs returns the IDs of all activities associated with the given tag.
 func (db *DB) GetTagActivityIDs(ctx context.Context, tagID string) ([]string, error) {
 	rows, err := db.Pool.Query(ctx,
@@ -152,6 +170,10 @@ func (db *DB) GetTagActivityIDs(ctx context.Context, tagID string) ([]string, er
 
 // CreateTag creates a new tag for a user.
 func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor string, isAuto bool, conditions, conditionGroups []byte, conditionsLogic string, description *string, lat, lng *float64) (*model.Tag, error) {
+	return db.CreateTagTx(ctx, db.Pool, userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description, lat, lng)
+}
+
+func (db *DB) CreateTagTx(ctx context.Context, q Querier, userID, name, color, textColor string, isAuto bool, conditions, conditionGroups []byte, conditionsLogic string, description *string, lat, lng *float64) (*model.Tag, error) {
 	if conditionsLogic == "" {
 		conditionsLogic = "and"
 	}
@@ -159,7 +181,7 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 	if lat != nil && lng != nil {
 		category = "standort"
 	}
-	t, err := scanTag(db.Pool.QueryRow(ctx, `
+	t, err := scanTag(q.QueryRow(ctx, `
 		INSERT INTO tags (user_id, name, color, text_color, is_auto, conditions, condition_groups, conditions_logic, description, lat, lng, category)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING `+tagSelectCols,
@@ -177,6 +199,10 @@ func (db *DB) CreateTag(ctx context.Context, userID, name, color, textColor stri
 //   - locationPresent=true, lat/lng=nil → SET lat=NULL, lng=NULL
 //   - locationPresent=true, lat/lng=non-nil → SET lat=*lat, lng=*lng
 func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textColor string, isAuto *bool, conditions, conditionGroups *[]byte, conditionsLogic *string, description *string, lat, lng *float64, locationPresent bool) (*model.Tag, error) {
+	return db.UpdateTagTx(ctx, db.Pool, tagID, userID, name, color, textColor, isAuto, conditions, conditionGroups, conditionsLogic, description, lat, lng, locationPresent)
+}
+
+func (db *DB) UpdateTagTx(ctx context.Context, q Querier, tagID, userID, name, color, textColor string, isAuto *bool, conditions, conditionGroups *[]byte, conditionsLogic *string, description *string, lat, lng *float64, locationPresent bool) (*model.Tag, error) {
 	b := newSetBuilder(3)
 
 	if name != "" {
@@ -219,7 +245,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 	args := append([]any{tagID, userID}, b.Args()...)
 
 	if !b.HasSets() {
-		t, err := scanTag(db.Pool.QueryRow(ctx,
+		t, err := scanTag(q.QueryRow(ctx,
 			`SELECT `+tagSelectCols+` FROM tags WHERE id = $1 AND user_id = $2`,
 			tagID, userID,
 		))
@@ -239,7 +265,7 @@ func (db *DB) UpdateTag(ctx context.Context, tagID, userID, name, color, textCol
 		b.Clause(),
 	)
 
-	t, err := scanTag(db.Pool.QueryRow(ctx, query, args...))
+	t, err := scanTag(q.QueryRow(ctx, query, args...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -269,7 +295,11 @@ func (db *DB) ClearTagCoverFile(ctx context.Context, tagID, userID string) (*mod
 
 // DeleteTag deletes a tag.
 func (db *DB) DeleteTag(ctx context.Context, tagID, userID string) error {
-	result, err := db.Pool.Exec(ctx,
+	return db.DeleteTagTx(ctx, db.Pool, tagID, userID)
+}
+
+func (db *DB) DeleteTagTx(ctx context.Context, q Querier, tagID, userID string) error {
+	result, err := q.Exec(ctx,
 		`DELETE FROM tags WHERE id = $1 AND user_id = $2`,
 		tagID, userID,
 	)
@@ -280,6 +310,48 @@ func (db *DB) DeleteTag(ctx context.Context, tagID, userID string) error {
 		return fmt.Errorf("tag not found")
 	}
 	return nil
+}
+
+type TagDeleteImpact struct {
+	ActivityAssignments int  `json:"activity_assignments"`
+	HasZone             bool `json:"has_zone"`
+	RouteLinks          int  `json:"route_links"`
+	RemovalHistory      int  `json:"removal_history"`
+}
+
+func (db *DB) GetTagDeleteImpact(ctx context.Context, userID, tagID string) (*TagDeleteImpact, error) {
+	var owned bool
+	var impact TagDeleteImpact
+	err := db.Pool.QueryRow(ctx, `
+		SELECT
+			EXISTS (SELECT 1 FROM tags WHERE id = $1 AND user_id = $2) AS owned,
+			(SELECT COUNT(*)
+			 FROM activity_tags at
+			 JOIN activities a ON a.id = at.activity_id AND a.user_id = $2
+			 WHERE at.tag_id = $1) AS activity_assignments,
+			EXISTS (
+			 SELECT 1
+			 FROM tag_zones tz
+			 JOIN tags t ON t.id = tz.tag_id AND t.user_id = $2
+			 WHERE tz.tag_id = $1
+			) AS has_zone,
+			(SELECT COUNT(*)
+			 FROM route_tags rt
+			 JOIN planned_routes pr ON pr.id = rt.route_id AND pr.user_id = $2
+			 WHERE rt.tag_id = $1) AS route_links,
+			(SELECT COUNT(*)
+			 FROM activity_tag_removals atr
+			 JOIN activities a ON a.id = atr.activity_id AND a.user_id = $2
+			 WHERE atr.tag_id = $1) AS removal_history`,
+		tagID, userID,
+	).Scan(&owned, &impact.ActivityAssignments, &impact.HasZone, &impact.RouteLinks, &impact.RemovalHistory)
+	if err != nil {
+		return nil, fmt.Errorf("get tag delete impact: %w", err)
+	}
+	if !owned {
+		return nil, ErrNotFound
+	}
+	return &impact, nil
 }
 
 // GetTagsByActivity returns all tags assigned to an activity via the activity_tags junction table.
@@ -423,77 +495,83 @@ func (db *DB) SeedRecommendedRules(ctx context.Context, userID string) {
 		}
 	}
 
-	// Helper: insert a rule only if no rule with the same user_id + name + is_system=false exists yet.
-	createRule := func(name string, priority int, conditions, actions, triggerEvent string) {
-		if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
-			Conditions: json.RawMessage(conditions),
-			Actions:    json.RawMessage(actions),
-		}); err != nil {
-			slog.Warn("recommended rule validation failed", "name", name, "error", err)
-			return
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		// Helper: insert a rule only if no rule with the same user_id + name + is_system=false exists yet.
+		createRule := func(name string, priority int, conditions, actions, triggerEvent string) {
+			if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+				Conditions: json.RawMessage(conditions),
+				Actions:    json.RawMessage(actions),
+			}); err != nil {
+				slog.Warn("recommended rule validation failed", "name", name, "error", err)
+				return
+			}
+			_, _ = tx.Exec(ctx, `
+				INSERT INTO automation_rules
+					(user_id, name, is_active, priority, conditions, conditions_logic, actions,
+					 trigger_event, stop_on_match, apply_retroactively)
+				SELECT $1, $2, true, $3, $4::jsonb, 'and', $5::jsonb, $6, false, true
+				WHERE NOT EXISTS (
+					SELECT 1 FROM automation_rules
+					WHERE user_id = $1 AND name = $2 AND is_system = false
+				)`,
+				userID, name, priority, conditions, actions, triggerEvent)
 		}
-		_, _ = db.Pool.Exec(ctx, `
-			INSERT INTO automation_rules
-				(user_id, name, is_active, priority, conditions, conditions_logic, actions,
-				 trigger_event, stop_on_match, apply_retroactively)
-			SELECT $1, $2, true, $3, $4::jsonb, 'and', $5::jsonb, $6, false, true
-			WHERE NOT EXISTS (
-				SELECT 1 FROM automation_rules
-				WHERE user_id = $1 AND name = $2 AND is_system = false
-			)`,
-			userID, name, priority, conditions, actions, triggerEvent)
-	}
 
-	// Laufdistanz: ONE rule with ELSE-IF branches (Ultra/Marathon/Halb)
-	ultraID, hasUltra := tagIDs["Ultramarathon"]
-	maraID, hasMara := tagIDs["Marathon"]
-	halbID, hasHalb := tagIDs["Halbmarathon"]
-	if hasUltra && hasMara && hasHalb {
-		branches := `[` +
-			`{"type":"if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":50000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + ultraID + `"}}]},` +
-			`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":42000},{"field":"distance_m","op":"lt","value":50000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + maraID + `"}}]},` +
-			`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":21000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + halbID + `"}}]}` +
-			`]`
-		if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
-			Conditions: json.RawMessage(`[]`),
-			Actions:    json.RawMessage(`[]`),
-			Branches:   json.RawMessage(branches),
-		}); err != nil {
-			slog.Warn("recommended rule validation failed", "name", "Laufdistanz", "error", err)
-		} else {
-			_, _ = db.Pool.Exec(ctx, `
-			INSERT INTO automation_rules
-				(user_id, name, is_active, priority, conditions, conditions_logic, actions,
-				 branches, trigger_event, stop_on_match, apply_retroactively)
-			SELECT $1, 'Laufdistanz', true, 10, '[]'::jsonb, 'and', '[]'::jsonb,
-				$2::jsonb, 'on_import', false, true
-			WHERE NOT EXISTS (
-				SELECT 1 FROM automation_rules
-				WHERE user_id = $1 AND name = 'Laufdistanz' AND is_system = false
-			)`,
-				userID, branches)
+		// Laufdistanz: ONE rule with ELSE-IF branches (Ultra/Marathon/Halb)
+		ultraID, hasUltra := tagIDs["Ultramarathon"]
+		maraID, hasMara := tagIDs["Marathon"]
+		halbID, hasHalb := tagIDs["Halbmarathon"]
+		if hasUltra && hasMara && hasHalb {
+			branches := `[` +
+				`{"type":"if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":50000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + ultraID + `"}}]},` +
+				`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":42000},{"field":"distance_m","op":"lt","value":50000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + maraID + `"}}]},` +
+				`{"type":"else_if","condition_groups":[{"logic":"and","conditions":[{"field":"sport_type","op":"eq","value":"running"},{"field":"distance_m","op":"gte","value":21000}]}],"actions":[{"action":"add_tag","params":{"tag_id":"` + halbID + `"}}]}` +
+				`]`
+			if err := validateAutomationRuleJSON(rules.SportTaxonomyRuleJSON{
+				Conditions: json.RawMessage(`[]`),
+				Actions:    json.RawMessage(`[]`),
+				Branches:   json.RawMessage(branches),
+			}); err != nil {
+				slog.Warn("recommended rule validation failed", "name", "Laufdistanz", "error", err)
+			} else {
+				_, _ = tx.Exec(ctx, `
+				INSERT INTO automation_rules
+					(user_id, name, is_active, priority, conditions, conditions_logic, actions,
+					 branches, trigger_event, stop_on_match, apply_retroactively)
+				SELECT $1, 'Laufdistanz', true, 10, '[]'::jsonb, 'and', '[]'::jsonb,
+					$2::jsonb, 'on_import', false, true
+				WHERE NOT EXISTS (
+					SELECT 1 FROM automation_rules
+					WHERE user_id = $1 AND name = 'Laufdistanz' AND is_system = false
+				)`,
+					userID, branches)
+			}
 		}
-	}
-	// Intervalltraining: enrichment field has_structured_intervals = true
-	if id, ok := tagIDs["Intervalltraining"]; ok {
-		createRule("Intervalltraining", 40,
-			`[{"field":"has_structured_intervals","op":"eq","value":true}]`,
-			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
-			"on_enrichment_complete")
-	}
-	// Mit Einkehr: enrichment field has_gastronomy_stop = true
-	if id, ok := tagIDs["Mit Einkehr"]; ok {
-		createRule("Mit Einkehr", 50,
-			`[{"field":"has_gastronomy_stop","op":"eq","value":true}]`,
-			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
-			"on_enrichment_complete")
-	}
-	// Grenzquerung: border_crossing_count > 0
-	if id, ok := tagIDs["Grenzquerung"]; ok {
-		createRule("Grenzquerung", 60,
-			`[{"field":"border_crossing_count","op":"gt","value":0}]`,
-			`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
-			"on_enrichment_complete")
+		// Intervalltraining: enrichment field has_structured_intervals = true
+		if id, ok := tagIDs["Intervalltraining"]; ok {
+			createRule("Intervalltraining", 40,
+				`[{"field":"has_structured_intervals","op":"eq","value":true}]`,
+				`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
+				"on_enrichment_complete")
+		}
+		// Mit Einkehr: enrichment field has_gastronomy_stop = true
+		if id, ok := tagIDs["Mit Einkehr"]; ok {
+			createRule("Mit Einkehr", 50,
+				`[{"field":"has_gastronomy_stop","op":"eq","value":true}]`,
+				`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
+				"on_enrichment_complete")
+		}
+		// Grenzquerung: border_crossing_count > 0
+		if id, ok := tagIDs["Grenzquerung"]; ok {
+			createRule("Grenzquerung", 60,
+				`[{"field":"border_crossing_count","op":"gt","value":0}]`,
+				`[{"action":"add_tag","params":{"tag_id":"`+id+`"}}]`,
+				"on_enrichment_complete")
+		}
+		return nil
+	})
+	if err != nil {
+		slog.Warn("seed recommended rules failed", "user_id", userID, "error", err)
 	}
 }
 
@@ -680,6 +758,9 @@ func (db *DB) MergeTag(ctx context.Context, targetTagID, sourceTagID, userID str
 	}
 
 	// Block merge if source tag is referenced by an automation rule
+	if _, err := tx.Exec(ctx, "SELECT set_config('app.current_user_id', $1, true)", userID); err != nil {
+		return nil, fmt.Errorf("set automation rule RLS context: %w", err)
+	}
 	var hasRule bool
 	tx.QueryRow(ctx,
 		`SELECT EXISTS(
@@ -966,6 +1047,65 @@ func (db *DB) UnassignActivitiesFromTag(ctx context.Context, tagID, userID strin
 	return owned, nil
 }
 
+func (db *DB) AssignActivityToTagTx(ctx context.Context, tx pgx.Tx, tagID, userID, activityID, mode string) error {
+	var tagName string
+	var isSystem bool
+	if err := tx.QueryRow(ctx,
+		`SELECT name, is_system FROM tags WHERE id = $1 AND user_id = $2`,
+		tagID, userID,
+	).Scan(&tagName, &isSystem); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("agent tag activity: resolve tag: %w", err)
+	}
+	if isSystem {
+		return fmt.Errorf("SYSTEM_TAG_NOT_SUPPORTED")
+	}
+	var owned bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM activities WHERE id = $1 AND user_id = $2)`,
+		activityID, userID,
+	).Scan(&owned); err != nil {
+		return fmt.Errorf("agent tag activity: verify activity: %w", err)
+	}
+	if !owned {
+		return ErrActivityNotFound
+	}
+	switch mode {
+	case "add":
+		if err := linkActivityTagExec(ctx, tx, activityID, tagID, "agent_tool"); err != nil {
+			return err
+		}
+		_, _ = tx.Exec(ctx,
+			`UPDATE activities SET tags = array_append(COALESCE(tags, '{}'), $2)
+			 WHERE id = $1 AND user_id = $3 AND NOT ($2 = ANY(COALESCE(tags, '{}')))`,
+			activityID, tagName, userID)
+	case "remove":
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM activity_tags WHERE activity_id = $1 AND tag_id = $2`,
+			activityID, tagID); err != nil {
+			return fmt.Errorf("agent tag activity: delete: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE activities SET tags = array_remove(tags, $2)
+			 WHERE id = $1 AND user_id = $3`,
+			activityID, tagName, userID); err != nil {
+			return fmt.Errorf("agent tag activity: update cache: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE tags
+			 SET activity_count = (SELECT COUNT(DISTINCT activity_id) FROM activity_tags WHERE tag_id = $1)
+			 WHERE id = $1`,
+			tagID); err != nil {
+			return fmt.Errorf("agent tag activity: update count: %w", err)
+		}
+	default:
+		return fmt.Errorf("INVALID_MODE")
+	}
+	return nil
+}
+
 // resolveOwnedTagForSync looks up the tag by id+user. The user-scope WHERE
 // clause guarantees a same-name tag owned by another user is invisible: the
 // caller's "Indoor" stays a regular custom tag for them and never gets
@@ -1226,16 +1366,24 @@ func (db *DB) RenameSystemRule(ctx context.Context, userID, oldName, newName str
 	if oldName == newName {
 		return 0, nil
 	}
-	tag, err := db.Pool.Exec(ctx, `
-		UPDATE automation_rules
-		   SET name = $3
-		 WHERE user_id = $1
-		   AND name = $2
-		   AND is_system = true`,
-		userID, oldName, newName,
-	)
+	var rowsAffected int64
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE automation_rules
+			   SET name = $3
+			 WHERE user_id = $1
+			   AND name = $2
+			   AND is_system = true`,
+			userID, oldName, newName,
+		)
+		if err != nil {
+			return err
+		}
+		rowsAffected = tag.RowsAffected()
+		return nil
+	})
 	if err != nil {
 		return 0, fmt.Errorf("RenameSystemRule: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return rowsAffected, nil
 }

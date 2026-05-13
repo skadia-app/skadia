@@ -91,13 +91,16 @@ except Exception:  # noqa: BLE001
     doc_vlm = types.ModuleType("enrichment.document_vlm")
     doc_vlm.convert_to_markdown = lambda *a, **kw: None
     doc_vlm.process_document = lambda *a, **kw: None
-    doc_vlm.upload_to_s3 = lambda *a, **kw: None
     sys.modules.setdefault("enrichment", enr)
     sys.modules["enrichment.document_vlm"] = doc_vlm
 
 import nats_consumer  # noqa: E402
 import analytics.readiness as readiness_mod  # noqa: E402
 from tests.conftest import seed_user  # noqa: E402
+
+DOC_ID = "11111111-1111-1111-1111-111111111111"
+USER_ID = "22222222-2222-2222-2222-222222222222"
+FILE_ID = "33333333-3333-3333-3333-333333333333"
 
 
 # ---------------------------------------------------------------------------
@@ -111,12 +114,16 @@ class _FakeMsg:
         self.metadata = type("Meta", (), {"num_delivered": 1})()
         self.acked = 0
         self.naked = 0
+        self.in_progress_calls = 0
 
     async def ack(self):
         self.acked += 1
 
     async def nak(self, delay: int = 0):  # noqa: D401
         self.naked += 1
+
+    async def in_progress(self):
+        self.in_progress_calls += 1
 
 
 class _FakePool:
@@ -143,6 +150,11 @@ class _FakePub:
         self.calls.append(user_id)
 
 
+class _NCNoop:
+    async def publish(self, *args):
+        return None
+
+
 def test_s3_bucket_for_file_type_defaults_to_shadowfs_rules(monkeypatch):
     monkeypatch.delenv("S3_BUCKET", raising=False)
     monkeypatch.delenv("S3_BUCKET_MEDIA", raising=False)
@@ -159,6 +171,303 @@ def test_s3_bucket_for_file_type_defaults_to_shadowfs_rules(monkeypatch):
     assert nats_consumer._s3_bucket_for_file_type("document") == "media-bucket"
     assert nats_consumer._s3_bucket_for_file_type("activity") == "activity-bucket"
     assert nats_consumer._s3_bucket_for_file_type("other") == "default-bucket"
+
+
+@pytest.mark.asyncio
+async def test_load_document_file_metadata_uses_file_id_user_and_doc_scope():
+    class _Conn:
+        def __init__(self):
+            self.calls: list[tuple] = []
+
+        async def fetchrow(self, query, *args):
+            self.calls.append((query, *args))
+            return {
+                "storage_backend": "s3",
+                "storage_path": "documents/invoice.pdf",
+                "file_type": "document",
+                "content_type": "application/pdf",
+                "size_bytes": 1234,
+            }
+
+    conn = _Conn()
+    metadata = await nats_consumer._load_document_file_metadata(_FakePool(conn), FILE_ID, USER_ID, DOC_ID)
+
+    assert metadata == {
+        "storage_backend": "s3",
+        "storage_path": "documents/invoice.pdf",
+        "file_type": "document",
+        "content_type": "application/pdf",
+        "size_bytes": 1234,
+    }
+    assert "user_files" in conn.calls[0][0]
+    assert "gear_documents" in conn.calls[0][0]
+    assert conn.calls[0][1:] == (FILE_ID, USER_ID, DOC_ID)
+
+
+@pytest.mark.asyncio
+async def test_process_document_message_passes_user_file_metadata_not_legacy_s3(monkeypatch):
+    class _Conn:
+        async def fetchrow(self, query, *args):
+            return {
+                "storage_backend": "s3",
+                "storage_path": "documents/current.pdf",
+                "file_type": "document",
+                "content_type": "application/pdf",
+                "size_bytes": 2048,
+            }
+
+        async def execute(self, *args):
+            return "UPDATE 1"
+
+    pool = _FakePool(_Conn())
+
+    async def fake_get_pool():
+        return pool
+
+    calls: list[dict] = []
+
+    async def fake_process_document(**kwargs):
+        calls.append(kwargs)
+        return False
+
+    class _NC:
+        async def publish(self, *args):
+            return None
+
+    monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
+
+    msg = _FakeMsg(
+        {
+            "doc_id": DOC_ID,
+            "user_id": USER_ID,
+            "file_id": FILE_ID,
+            "s3_bucket": "legacy-bucket",
+            "s3_key": "legacy-key",
+        }
+    )
+
+    await nats_consumer._process_document_message(msg, _NC())
+
+    assert msg.acked == 1
+    assert calls[0]["file_id"] == FILE_ID
+    assert calls[0]["storage_backend"] == "s3"
+    assert calls[0]["storage_path"] == "documents/current.pdf"
+    assert calls[0]["file_type"] == "document"
+    assert calls[0]["content_type"] == "application/pdf"
+    assert "s3_bucket" not in calls[0]
+    assert "s3_key" not in calls[0]
+
+
+@pytest.mark.asyncio
+async def test_process_document_message_binds_status_updates_to_document_owner(monkeypatch):
+    executed: list[tuple] = []
+
+    class _Conn:
+        async def fetchrow(self, query, *args):
+            return {
+                "storage_backend": "s3",
+                "storage_path": "documents/current.pdf",
+                "file_type": "document",
+                "content_type": "application/pdf",
+                "size_bytes": 2048,
+            }
+
+        async def execute(self, *args):
+            executed.append(args)
+            return "UPDATE 1"
+
+    pool = _FakePool(_Conn())
+
+    async def fake_get_pool():
+        return pool
+
+    async def fake_process_document(**kwargs):
+        return True
+
+    class _NC:
+        async def publish(self, *args):
+            return None
+
+    monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
+
+    await nats_consumer._process_document_message(
+        _FakeMsg({"doc_id": DOC_ID, "user_id": USER_ID, "file_id": FILE_ID}),
+        _NC(),
+    )
+
+    status_updates = [call for call in executed if "processing_status" in call[0]]
+    assert status_updates
+    assert all("user_id" in call[0] and "file_id" in call[0] for call in status_updates)
+    assert all(call[-2:] == (USER_ID, FILE_ID) for call in status_updates)
+
+
+@pytest.mark.asyncio
+async def test_process_document_message_acks_malformed_or_legacy_document_ids(monkeypatch):
+    async def fail_get_pool():  # pragma: no cover - must not run for invalid doc_id
+        raise AssertionError("malformed messages must not touch DB")
+
+    monkeypatch.setattr(nats_consumer, "get_pool", fail_get_pool)
+    invalid = _FakeMsg({"doc_id": "not-a-uuid", "user_id": USER_ID, "file_id": FILE_ID})
+
+    await nats_consumer._process_document_message(invalid, nc=None)
+
+    assert invalid.acked == 1
+    assert invalid.naked == 0
+
+    executed: list[tuple] = []
+
+    class _Conn:
+        async def execute(self, *args):
+            executed.append(args)
+            return "UPDATE 1"
+
+    async def fake_get_pool():
+        return _FakePool(_Conn())
+
+    monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    legacy = _FakeMsg({"doc_id": DOC_ID, "user_id": USER_ID})
+
+    await nats_consumer._process_document_message(legacy, nc=None)
+
+    assert legacy.acked == 1
+    assert legacy.naked == 0
+    assert executed
+    assert "file_id" not in executed[0][0]
+
+
+@pytest.mark.asyncio
+async def test_process_document_message_acks_when_processed_event_publish_fails(monkeypatch):
+    class _Conn:
+        async def fetchrow(self, query, *args):
+            return {
+                "storage_backend": "s3",
+                "storage_path": "documents/current.pdf",
+                "file_type": "document",
+                "content_type": "application/pdf",
+                "size_bytes": 2048,
+            }
+
+        async def execute(self, *args):
+            return "UPDATE 1"
+
+    async def fake_get_pool():
+        return _FakePool(_Conn())
+
+    async def fake_process_document(**kwargs):
+        return True
+
+    async def fake_markdown(_text):
+        return None
+
+    class _NC:
+        async def publish(self, *args):
+            raise RuntimeError("publish failed")
+
+    monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
+    monkeypatch.setattr(nats_consumer, "convert_to_markdown", fake_markdown)
+
+    msg = _FakeMsg(
+        {
+            "doc_id": DOC_ID,
+            "user_id": USER_ID,
+            "file_id": FILE_ID,
+            "extracted_text": "Rechnungstext " * 20,
+        }
+    )
+
+    await nats_consumer._process_document_message(msg, _NC())
+
+    assert msg.acked == 1
+    assert msg.naked == 0
+
+
+@pytest.mark.asyncio
+async def test_process_document_message_naks_retryable_document_errors_without_marking_failed(monkeypatch):
+    executed: list[tuple] = []
+
+    class _Conn:
+        async def fetchrow(self, query, *args):
+            return {
+                "storage_backend": "s3",
+                "storage_path": "documents/current.pdf",
+                "file_type": "document",
+                "content_type": "application/pdf",
+                "size_bytes": 2048,
+            }
+
+        async def execute(self, *args):
+            executed.append(args)
+            return "UPDATE 1"
+
+    async def fake_get_pool():
+        return _FakePool(_Conn())
+
+    async def fake_process_document(**kwargs):
+        raise nats_consumer.RetryableDocumentError("broker unavailable")
+
+    monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
+
+    msg = _FakeMsg({"doc_id": DOC_ID, "user_id": USER_ID, "file_id": FILE_ID})
+    await nats_consumer._process_document_message(msg, _NCNoop())
+
+    assert msg.acked == 0
+    assert msg.naked == 1
+    assert not [call for call in executed if "processing_status" in call[0]]
+
+
+@pytest.mark.asyncio
+async def test_process_document_message_marks_failed_before_final_ack(monkeypatch):
+    executed: list[tuple] = []
+
+    class _Conn:
+        async def fetchrow(self, query, *args):
+            return {
+                "storage_backend": "s3",
+                "storage_path": "documents/current.pdf",
+                "file_type": "document",
+                "content_type": "application/pdf",
+                "size_bytes": 2048,
+            }
+
+        async def execute(self, *args):
+            executed.append(args)
+            return "UPDATE 1"
+
+    async def fake_get_pool():
+        return _FakePool(_Conn())
+
+    async def fake_process_document(**kwargs):
+        raise nats_consumer.RetryableDocumentError("broker unavailable")
+
+    monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
+
+    msg = _FakeMsg({"doc_id": DOC_ID, "user_id": USER_ID, "file_id": FILE_ID})
+    msg.metadata.num_delivered = nats_consumer.MAX_RETRIES
+    await nats_consumer._process_document_message(msg, _NCNoop())
+
+    assert msg.acked == 1
+    assert msg.naked == 0
+    status_updates = [call for call in executed if "processing_status" in call[0]]
+    assert status_updates
+    assert status_updates[-1][1] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_document_processing_sends_in_progress_heartbeat(monkeypatch):
+    monkeypatch.setattr(nats_consumer, "DOCUMENT_IN_PROGRESS_INTERVAL_SECONDS", 0.001)
+    msg = _FakeMsg({})
+
+    async def slow_work():
+        await asyncio.sleep(0.01)
+        return "done"
+
+    assert await nats_consumer._run_with_in_progress_heartbeat(msg, slow_work(), 1.0) == "done"
+    assert msg.in_progress_calls > 0
 
 
 @pytest.fixture

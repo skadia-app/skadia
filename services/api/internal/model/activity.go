@@ -1085,24 +1085,25 @@ type BikeSetupUpdate struct {
 
 // GearDocument represents a document/image attached to a gear item.
 type GearDocument struct {
-	ID               string    `json:"id"`
-	UserID           string    `json:"user_id"`
-	GearID           *string   `json:"gear_id"`
-	ComponentID      *string   `json:"component_id"`
-	ServiceEventID   *string   `json:"service_event_id"`
-	DocType          string    `json:"doc_type"`
-	Title            *string   `json:"title"`
-	OriginalFilename string    `json:"original_filename"`
-	ContentType      string    `json:"content_type"`
-	FileSizeBytes    int64     `json:"file_size_bytes"`
-	FileHash         *string   `json:"file_hash,omitempty"`
-	FileID           *string   `json:"file_id,omitempty"` // user_files registry ID
-	DocumentDate     *string   `json:"document_date,omitempty"`
-	DocumentAmount   *float64  `json:"document_amount,omitempty"`
-	DocumentCurrency *string   `json:"document_currency,omitempty"`
-	ExtractedText    *string   `json:"extracted_text,omitempty"`
-	ProcessingStatus string    `json:"processing_status"`
-	CreatedAt        time.Time `json:"created_at"`
+	ID               string          `json:"id"`
+	UserID           string          `json:"user_id"`
+	GearID           *string         `json:"gear_id"`
+	ComponentID      *string         `json:"component_id"`
+	ServiceEventID   *string         `json:"service_event_id"`
+	DocType          string          `json:"doc_type"`
+	Title            *string         `json:"title"`
+	OriginalFilename string          `json:"original_filename"`
+	ContentType      string          `json:"content_type"`
+	FileSizeBytes    int64           `json:"file_size_bytes"`
+	FileHash         *string         `json:"file_hash,omitempty"`
+	FileID           *string         `json:"file_id,omitempty"` // user_files registry ID
+	DocumentDate     *string         `json:"document_date,omitempty"`
+	DocumentAmount   *float64        `json:"document_amount,omitempty"`
+	DocumentCurrency *string         `json:"document_currency,omitempty"`
+	ExtractedText    *string         `json:"extracted_text,omitempty"`
+	ExtractedData    json.RawMessage `json:"extracted_data,omitempty"`
+	ProcessingStatus string          `json:"processing_status"`
+	CreatedAt        time.Time       `json:"created_at"`
 }
 
 // GearReviewRequest is the request body for PATCH /gear/{id}/review.

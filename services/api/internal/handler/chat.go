@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -12,9 +11,42 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/agent"
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 )
+
+type chatPreferencesResponse struct {
+	ChatExposeDocumentExtractedData bool     `json:"chat_expose_document_extracted_data"`
+	ChatWriteToolsEnabled           bool     `json:"chat_write_tools_enabled"`
+	ChatAllowedWriteTools           []string `json:"chat_allowed_write_tools"`
+}
+
+type updateChatPreferencesRequest struct {
+	ChatExposeDocumentExtractedData bool     `json:"chat_expose_document_extracted_data"`
+	ChatWriteToolsEnabled           bool     `json:"chat_write_tools_enabled"`
+	ChatAllowedWriteTools           []string `json:"chat_allowed_write_tools"`
+}
+
+var chatWriteToolCatalog = map[string]bool{
+	"create_gear":              true,
+	"update_gear_metadata":     true,
+	"retire_gear":              true,
+	"set_activity_gear":        true,
+	"update_activity_metadata": true,
+	"rename_activity":          true,
+	"tag_activity":             true,
+	"record_health_metric":     true,
+	"create_tag":               true,
+	"update_tag":               true,
+	"delete_tag":               true,
+	"create_automation_rule":   true,
+	"update_automation_rule":   true,
+	"delete_automation_rule":   true,
+	"enable_automation_rule":   true,
+	"disable_automation_rule":  true,
+}
 
 // chatRateLimiter tracks per-user message rates in memory.
 type chatRateLimiter struct {
@@ -23,6 +55,10 @@ type chatRateLimiter struct {
 }
 
 var globalChatRateLimiter = &chatRateLimiter{
+	counts: make(map[string][]time.Time),
+}
+
+var confirmRateLimiter = &chatRateLimiter{
 	counts: make(map[string][]time.Time),
 }
 
@@ -57,12 +93,102 @@ func (rl *chatRateLimiter) Allow(userID string, maxPerMin int) bool {
 // ChatRoutes returns a chi.Router with all chat-related routes.
 func (h *Handler) ChatRoutes() http.Handler {
 	r := chi.NewRouter()
+	r.Get("/preferences", h.GetChatPreferences)
+	r.Put("/preferences", h.PutChatPreferences)
 	r.Get("/sessions", h.ListChatSessions)
 	r.Post("/sessions", h.CreateChatSession)
 	r.Get("/sessions/{id}/messages", h.GetChatMessages)
 	r.Delete("/sessions/{id}", h.DeleteChatSession)
 	r.Post("/sessions/{id}/send", h.SendChatMessage)
+	r.Post("/sessions/{id}/confirm", h.ConfirmChatToolCall)
 	return r
+}
+
+// GetChatPreferences handles GET /api/v1/chat/preferences.
+func (h *Handler) GetChatPreferences(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	if !globalChatRateLimiter.Allow(userID, 10) {
+		httputil.WriteError(w, http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded (10/min)", r.URL.Path)
+		return
+	}
+
+	prefs, err := h.DB.GetChatPrefs(r.Context(), userID)
+	if err != nil {
+		slog.Error("get chat preferences failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to get chat preferences", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, chatPreferencesResponse{
+		ChatExposeDocumentExtractedData: prefs.ExposeDocumentExtractedData,
+		ChatWriteToolsEnabled:           prefs.ChatWriteToolsEnabled,
+		ChatAllowedWriteTools:           prefs.ChatAllowedWriteTools,
+	})
+}
+
+// PutChatPreferences handles PUT /api/v1/chat/preferences.
+func (h *Handler) PutChatPreferences(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	if !globalChatRateLimiter.Allow(userID, 10) {
+		httputil.WriteError(w, http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded (10/min)", r.URL.Path)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 8192)
+	var req updateChatPreferencesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	allowedTools, err := validateChatAllowedWriteTools(req.ChatAllowedWriteTools)
+	if err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+		return
+	}
+
+	prefs, err := h.DB.UpsertChatPrefs(r.Context(), userID, database.ChatUserPreferences{
+		ExposeDocumentExtractedData: req.ChatExposeDocumentExtractedData,
+		ChatWriteToolsEnabled:       req.ChatWriteToolsEnabled,
+		ChatAllowedWriteTools:       allowedTools,
+	})
+	if err != nil {
+		slog.Error("put chat preferences failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to update chat preferences", r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, chatPreferencesResponse{
+		ChatExposeDocumentExtractedData: prefs.ExposeDocumentExtractedData,
+		ChatWriteToolsEnabled:           prefs.ChatWriteToolsEnabled,
+		ChatAllowedWriteTools:           prefs.ChatAllowedWriteTools,
+	})
+}
+
+func validateChatAllowedWriteTools(names []string) ([]string, error) {
+	if len(names) == 0 {
+		return []string{}, nil
+	}
+	seen := make(map[string]bool, len(names))
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("chat_allowed_write_tools contains an empty tool name")
+		}
+		if !chatWriteToolCatalog[name] {
+			return nil, fmt.Errorf("unknown or unsafe chat write tool: %s", name)
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out, nil
 }
 
 // ListChatSessions handles GET /api/v1/chat/sessions
@@ -212,16 +338,13 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("load chat history failed, continuing without history", "error", err)
 	}
 
-	// Build history slice for ML service (exclude the just-added user message)
-	historyPayload := make([]map[string]string, 0, len(history))
-	for _, m := range history {
-		if m.Role == "user" || m.Role == "assistant" {
-			historyPayload = append(historyPayload, map[string]string{
-				"role":    m.Role,
-				"content": m.Content,
-			})
-		}
+	if h.Agent == nil {
+		httputil.WriteError(w, http.StatusServiceUnavailable, "Unavailable", "chat agent is not configured", r.URL.Path)
+		return
 	}
+
+	// Build history slice for the agent, excluding only the just-added user message.
+	historyPayload := chatHistoryPayload(history, req.Message)
 
 	// SSE response setup
 	flusher, ok := w.(http.Flusher)
@@ -235,87 +358,25 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Forward to ML service
-	mlPayload, _ := json.Marshal(map[string]any{
-		"user_id":    userID,
-		"session_id": sessionID,
-		"message_id": req.MessageID,
-		"message":    req.Message,
-		"history":    historyPayload,
-	})
-
-	mlBaseURL := "http://ml:8000"
-	if h.Config != nil && h.Config.MLServiceURL != "" {
-		mlBaseURL = h.Config.MLServiceURL
-	}
-	mlReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		mlBaseURL+"/ml/chat", strings.NewReader(string(mlPayload)))
-	if err != nil {
-		slog.Error("build ML chat request failed", "error", err)
-		fmt.Fprintf(w, "data: %s\n\n", mustJSON(model.WSChatResponse{
-			Type:  "chat.error",
-			ID:    req.MessageID,
-			Error: "failed to reach ML service",
-		}))
-		flusher.Flush()
-		return
-	}
-	mlReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 120 * time.Second}
-	mlResp, err := client.Do(mlReq)
-	if err != nil {
-		slog.Error("ML chat request failed", "error", err)
-		fmt.Fprintf(w, "data: %s\n\n", mustJSON(model.WSChatResponse{
-			Type:  "chat.error",
-			ID:    req.MessageID,
-			Error: fmt.Sprintf("ML service unavailable: %v", err),
-		}))
-		flusher.Flush()
-		return
-	}
-	defer mlResp.Body.Close()
-
-	// Stream SSE from ML service to client; accumulate assistant reply
 	var assistantContent strings.Builder
-	var sourcesRaw []string
-
-	scanner := bufio.NewScanner(mlResp.Body)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB max line
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-
-		data := strings.TrimPrefix(line, "data: ")
-
-		// Parse the event to accumulate content and detect done
-		var evt model.WSChatResponse
-		if err := json.Unmarshal([]byte(data), &evt); err == nil {
-			switch evt.Type {
-			case "chat.chunk":
-				assistantContent.WriteString(evt.Delta)
-			case "chat.done":
-				sourcesRaw = evt.Sources
-			}
-		}
-
-		// Forward to client verbatim
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
-
-		// Stop after done or error
-		if evt.Type == "chat.done" || evt.Type == "chat.error" {
-			break
-		}
+	baseSink := agent.NewHTTPSSESink(w, flusher)
+	baseSink.OnChunk(func(delta string) { assistantContent.WriteString(delta) })
+	sink := &chatPersistSink{SSESink: baseSink, assistantContent: &assistantContent}
+	if err := h.Agent.Stream(r.Context(), agent.ChatRequest{
+		UserID:    userID,
+		SessionID: sessionID,
+		MessageID: req.MessageID,
+		Message:   req.Message,
+		History:   historyPayload,
+	}, sink); err != nil {
+		slog.Error("agent chat stream failed", "error", err)
 	}
 
 	// Persist assistant reply
 	if content := assistantContent.String(); content != "" {
 		var sourcesJSON []byte
-		if len(sourcesRaw) > 0 {
-			sourcesJSON, _ = json.Marshal(sourcesRaw)
+		if len(sink.sources) > 0 {
+			sourcesJSON, _ = json.Marshal(sink.sources)
 		}
 		assistantMsg := &model.ChatMessage{
 			SessionID: sessionID,
@@ -327,6 +388,88 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("persist assistant chat message failed", "error", err)
 		}
 	}
+}
+
+type chatPersistSink struct {
+	agent.SSESink
+	assistantContent *strings.Builder
+	sources          []string
+}
+
+func (s *chatPersistSink) Send(event agent.SSEEvent) error {
+	if event.Type == agent.EventDone {
+		s.sources = append([]string(nil), event.Sources...)
+	}
+	if event.Type == agent.EventUserQuestion && strings.TrimSpace(event.Question) != "" && s.assistantContent != nil {
+		if s.assistantContent.Len() > 0 {
+			s.assistantContent.WriteString("\n\n")
+		}
+		s.assistantContent.WriteString(event.Question)
+	}
+	return s.SSESink.Send(event)
+}
+
+func chatHistoryPayload(history []*model.ChatMessage, currentMessage string) []agent.ChatHistoryMessage {
+	historyPayload := make([]agent.ChatHistoryMessage, 0, len(history))
+	last := len(history) - 1
+	for idx, m := range history {
+		if m.Role != "user" && m.Role != "assistant" {
+			continue
+		}
+		if idx == last && m.Role == "user" && m.Content == currentMessage {
+			continue
+		}
+		historyPayload = append(historyPayload, agent.ChatHistoryMessage{Role: m.Role, Content: m.Content})
+	}
+	return historyPayload
+}
+
+type confirmChatToolCallRequest struct {
+	ToolCallID    string          `json:"tool_call_id"`
+	Confirmed     bool            `json:"confirmed"`
+	ArgsOverrides json.RawMessage `json:"args_overrides,omitempty"`
+}
+
+func (h *Handler) ConfirmChatToolCall(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	if !confirmRateLimiter.Allow(userID, 30) {
+		httputil.WriteError(w, http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded (30/min)", r.URL.Path)
+		return
+	}
+	sessionID := chi.URLParam(r, "id")
+	if _, err := h.DB.GetSession(r.Context(), sessionID, userID); err != nil {
+		httputil.WriteError(w, http.StatusForbidden, "Forbidden", "session not available", r.URL.Path)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 8192)
+	var req confirmChatToolCallRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	if strings.TrimSpace(req.ToolCallID) == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "tool_call_id is required", r.URL.Path)
+		return
+	}
+	if h.Confirm == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "confirmation not found", r.URL.Path)
+		return
+	}
+	if len(req.ArgsOverrides) > 0 {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "args_overrides is not supported", r.URL.Path)
+		return
+	}
+	if !h.Confirm.Resolve(sessionID, req.ToolCallID, agent.ConfirmResponse{
+		Confirmed: req.Confirmed,
+		Source:    "user",
+	}) {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "confirmation not found", r.URL.Path)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // mustJSON marshals v to JSON, returning "{}" on error.

@@ -22,6 +22,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/skadia-app/skadia/services/api/internal/agent"
+	agenttools "github.com/skadia-app/skadia/services/api/internal/agent/tools"
 	"github.com/skadia-app/skadia/services/api/internal/analytics"
 	"github.com/skadia-app/skadia/services/api/internal/auth"
 	"github.com/skadia-app/skadia/services/api/internal/automation"
@@ -407,6 +409,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	if cfg.ReadonlyDatabaseURL != "" {
+		if err := db.OpenReadonly(ctx, cfg.ReadonlyDatabaseURL); err != nil {
+			slog.Error("failed to connect to readonly database", "error", err)
+			os.Exit(1)
+		}
+	}
 
 	// Run database migrations
 	if err := migrate.Run(ctx, db.Pool); err != nil {
@@ -704,8 +712,56 @@ func main() {
 		importSvc.PhotoEmbedPublisher = pub
 	}
 
+	confirmMgr := agent.NewConfirmationManager(5 * time.Minute)
+	llmResolver := agent.NewLLMResolver(db, agent.LLMResolverConfig{
+		EncryptionKey: cfg.LLMEncryptionKey,
+	})
+	agentSkills, err := agent.LoadSkills("")
+	if err != nil {
+		slog.Warn("agent skills load failed; continuing without skill context", "error", err)
+		agentSkills = map[string]*agent.Skill{}
+	}
+	agentPrefs := &agent.PreferenceLoader{LoadFunc: func(ctx context.Context, userID string) (*agent.ChatPreferences, error) {
+		prefs, err := db.GetChatPrefs(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		return &agent.ChatPreferences{
+			ChatExposeDocumentExtractedData: prefs.ExposeDocumentExtractedData,
+			ChatWriteToolsEnabled:           prefs.ChatWriteToolsEnabled,
+			ChatAllowedWriteTools:           prefs.ChatAllowedWriteTools,
+		}, nil
+	}}
+	toolRegistry := agenttools.NewRegistry()
+	agenttools.RegisterAll(toolRegistry)
+	toolDeps := &agenttools.Deps{
+		DB:             db,
+		Readonly:       db.ReadonlyPool,
+		MLBaseURL:      cfg.MLServiceURL,
+		BRouterURL:     cfg.BRouterURL,
+		InternalSecret: mlCallbackSecret,
+		LLM:            llmResolver,
+		SQLAgent:       agent.NewSQLAgent(db),
+		Audit:          agent.NewAuditWriter(db),
+		Confirm:        confirmMgr,
+		Preferences:    agentPrefs,
+	}
+	toolEnvelope := agenttools.NewExecutionEnvelope(toolRegistry, toolDeps)
+	chatAgent := agent.New(agent.Config{
+		DB:             db,
+		LLMResolver:    llmResolver,
+		ProfileStore:   db,
+		Preferences:    agentPrefs,
+		Skills:         agentSkills,
+		Tools:          agenttools.NewAgentToolRuntime(toolRegistry, toolDeps, toolEnvelope),
+		DefaultProfile: "small",
+	})
+
 	h := &handler.Handler{
 		DB:             db,
+		Confirm:        confirmMgr,
+		Agent:          chatAgent,
+		LLMResolver:    llmResolver,
 		PMC:            pmcService,
 		BestEfforts:    bestEffortsService,
 		ShadowFS:       store,
@@ -716,6 +772,10 @@ func main() {
 			LiteLLMConfigPath:   cfg.LiteLLMConfigPath,
 			LiteLLMInternalURL:  cfg.LiteLLMInternalURL,
 			LLMEncryptionKey:    cfg.LLMEncryptionKey,
+			LLMBaseURL:          cfg.LLMBaseURL,
+			LLMAPIKey:           cfg.LLMAPIKey,
+			LLMModel:            cfg.LLMModel,
+			LLMContextWindow:    cfg.LLMContextWindow,
 			MLServiceURL:        cfg.MLServiceURL,
 			MLCallbackSecret:    mlCallbackSecret,
 			BRouterURL:          cfg.BRouterURL,
@@ -1110,6 +1170,18 @@ func main() {
 	r.Get("/internal/coverage/query", h.QueryCoverage)
 	// ML service callback: authenticated via X-ML-Callback-Secret header, not JWT.
 	r.Post("/api/v1/internal/ml-callback", h.HandleMLCallback)
+	aiBrokerRateLimit := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := middleware.ClientIP(r)
+			if !authRL.Allow("ai-broker:"+ip, 60.0/60, 30) {
+				http.Error(w, `{"error":"too_many_requests"}`, http.StatusTooManyRequests)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+	r.With(aiBrokerRateLimit).Get("/internal/ai-broker/roles", h.HandleAIBrokerRoleStatus)
+	r.With(aiBrokerRateLimit).Post("/internal/ai-broker/chat", h.HandleAIBrokerChat)
 
 	// Protected routes
 	r.Group(func(r chi.Router) {
@@ -1180,6 +1252,8 @@ func main() {
 				// LLM config (system-level)
 				r.Get("/llm-config", h.GetLLMConfig)
 				r.Put("/llm-config/{role}", h.PutLLMConfigRole)
+				r.Patch("/llm-config/{role}/eval-waiver", h.PatchLLMConfigEvalWaiver)
+				r.Post("/llm-config/{role}/eval", h.PostLLMConfigEval)
 				r.Get("/llm-config/models", h.GetLLMModels)
 				r.Post("/llm-config/test", h.TestLLMConnection)
 
@@ -1575,6 +1649,7 @@ func main() {
 			r.Delete("/tag-zones/{tagId}", h.DeleteTagZone)
 
 			// ML User Settings (per-user preferences)
+			r.Get("/settings/ml/chat-profile-defaults", h.GetChatProfileDefaults)
 			r.Get("/settings/ml/user", h.GetMLUserSettings)
 			r.Put("/settings/ml/user/{key}", h.PutMLUserSetting)
 

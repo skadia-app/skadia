@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/auth"
 	"github.com/skadia-app/skadia/services/api/internal/bestefforts"
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -21,7 +22,10 @@ import (
 )
 
 type Handler struct {
-	DB *database.DB
+	DB          *database.DB
+	Confirm     *agent.ConfirmationManager
+	Agent       *agent.Agent
+	LLMResolver LLMRoleResolver
 
 	// Segregated publisher interfaces. Production wires all six fields to the
 	// same *event.Publisher; tests can substitute a FakeInvalidator (or other
@@ -34,21 +38,22 @@ type Handler struct {
 	PhotoEmbedPublisher       event.PhotoEmbedPublisher
 	EventConn                 event.EventConn
 
-	ShadowFS       shadowfs.ShadowFS        // nil when not yet initialized
-	ShadowFSConfig *shadowfs.ShadowFSConfig // nil when shadow FS is not configured
-	WatcherManager *shadowfs.WatcherManager // nil when per-user hotfolder is not configured
-	Config         *HandlerConfig           // LLM/LiteLLM configuration
-	ImportService  *importer.Service        // shared post-processing pipeline
-	GraphManager   *routing.GraphManager    // nil when routing graph is not configured
-	CoverageBaseDir string                       // base directory for FCOV coverage files
-	CoverageReader  *coverage.DiskCoverageReader // nil when coverage binaries are not available
-	PNGCache        *coverage.PNGCache           // LRU cache for rendered PNG tiles
+	ShadowFS           shadowfs.ShadowFS            // nil when not yet initialized
+	ShadowFSConfig     *shadowfs.ShadowFSConfig     // nil when shadow FS is not configured
+	WatcherManager     *shadowfs.WatcherManager     // nil when per-user hotfolder is not configured
+	Config             *HandlerConfig               // LLM/LiteLLM configuration
+	ImportService      *importer.Service            // shared post-processing pipeline
+	AIBrokerHTTPClient *http.Client                 // optional test override; production uses SSRF-protected client
+	GraphManager       *routing.GraphManager        // nil when routing graph is not configured
+	CoverageBaseDir    string                       // base directory for FCOV coverage files
+	CoverageReader     *coverage.DiskCoverageReader // nil when coverage binaries are not available
+	PNGCache           *coverage.PNGCache           // LRU cache for rendered PNG tiles
 
 	DEMSvc dem.Servicer // lazy mmap'd HGT service; nil when not configured
 
-	PMC          *pmc.Service          // TSS/PMC recomputation service
-	BestEfforts  *bestefforts.Service  // best effort computation service
-	recomputeJob recomputeJobState     // in-memory state for async recompute-all
+	PMC          *pmc.Service         // TSS/PMC recomputation service
+	BestEfforts  *bestefforts.Service // best effort computation service
+	recomputeJob recomputeJobState    // in-memory state for async recompute-all
 
 	Settings *settings.SettingsStore // server settings store (DB-backed, cached)
 	Mailer   *auth.Mailer            // for admin test-email endpoint
@@ -74,6 +79,10 @@ type HandlerConfig struct {
 	LiteLLMConfigPath   string
 	LiteLLMInternalURL  string
 	LLMEncryptionKey    string
+	LLMBaseURL          string
+	LLMAPIKey           string
+	LLMModel            string
+	LLMContextWindow    int
 	MLServiceURL        string        // e.g. http://ml:8000
 	MLCallbackSecret    string        // ML_CALLBACK_SECRET env var
 	BRouterURL          string        // e.g. http://brouter:17777

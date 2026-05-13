@@ -20,10 +20,9 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-
-	"github.com/skadia-app/skadia/services/api/internal/database"
 )
 
 // SystemTagSpec describes a system tag that should exist for every user.
@@ -221,7 +220,9 @@ var OnDemandSystemTypes = []string{"commute_auto"}
 // On success the user's system_artifacts_version is bumped to
 // SystemArtifactsVersion so subsequent sweeps skip the user.
 func EnsureSystemArtifacts(ctx context.Context, db *database.DB, userID string) error {
-	return ensureSystemArtifactsWithQuerier(ctx, db.Pool, userID)
+	return db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		return ensureSystemArtifactsWithQuerier(ctx, tx, userID)
+	})
 }
 
 // EnsureSystemArtifactsTx seeds system artifacts inside the caller-owned
@@ -237,6 +238,9 @@ type artifactQuerier interface {
 }
 
 func ensureSystemArtifactsWithQuerier(ctx context.Context, q artifactQuerier, userID string) error {
+	if _, err := q.Exec(ctx, "SELECT set_config('app.current_user_id', $1, true)", userID); err != nil {
+		return fmt.Errorf("set system artifact RLS context: %w", err)
+	}
 	for _, t := range SystemTags {
 		if _, err := q.Exec(ctx, `
 			INSERT INTO tags (user_id, name, color, text_color, category, is_system, is_auto, description)

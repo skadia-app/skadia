@@ -222,6 +222,22 @@ func (db *DB) ListGear(ctx context.Context, userID string, status string) ([]mod
 }
 
 func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearCreate) (*model.Gear, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("create gear: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	g, err := db.CreateGearTx(ctx, tx, userID, create)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("create gear: commit: %w", err)
+	}
+	return g, nil
+}
+
+func (db *DB) CreateGearTx(ctx context.Context, tx pgx.Tx, userID string, create *model.GearCreate) (*model.Gear, error) {
 	// Three-state merge: prefer ApplicableSportPredicates, fall back to
 	// DefaultSportPredicates; nil pointer means "not sent / use default".
 	// A non-nil pointer to an empty slice explicitly clears predicates.
@@ -268,12 +284,6 @@ func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearC
 		return nil, fmt.Errorf("create gear: marshal modifiers: %w", err)
 	}
 
-	tx, err := db.Pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("create gear: begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
 	g, err := scanGear(tx.QueryRow(ctx,
 		`INSERT INTO gear (user_id, name, type, scope, sub_type, brand, model, purchased_at,
 		                   applicable_sport_predicates, notes, attributes, modifiers)
@@ -300,12 +310,8 @@ func (db *DB) CreateGear(ctx context.Context, userID string, create *model.GearC
 			return nil, fmt.Errorf("create gear: apply components: %w", err)
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("create gear: commit: %w", err)
-	}
 
-	// Re-read components so the response reflects server-assigned IDs.
-	components, err := db.listComponents(ctx, g.ID)
+	components, err := listComponentsOn(ctx, tx, g.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -334,6 +340,22 @@ func (db *DB) GetGear(ctx context.Context, id string) (*model.Gear, error) {
 }
 
 func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdate) (*model.Gear, error) {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("update gear: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	g, err := db.UpdateGearTx(ctx, tx, id, update)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("update gear: commit: %w", err)
+	}
+	return g, nil
+}
+
+func (db *DB) UpdateGearTx(ctx context.Context, tx pgx.Tx, id string, update *model.GearUpdate) (*model.Gear, error) {
 	b := newSetBuilder(1)
 
 	if update.Name != nil {
@@ -414,14 +436,8 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 		b.Set("weight_g", *update.WeightG)
 	}
 
-	// Open a tx so the gear UPDATE and component diff land atomically.
-	tx, err := db.Pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("update gear: begin tx: %w", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
 	var g *model.Gear
+	var err error
 	if b.HasSets() {
 		args := append(b.Args(), id)
 		query := fmt.Sprintf(
@@ -454,11 +470,8 @@ func (db *DB) UpdateGear(ctx context.Context, id string, update *model.GearUpdat
 			return nil, fmt.Errorf("update gear: apply components: %w", err)
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("update gear: commit: %w", err)
-	}
 
-	components, err := db.listComponents(ctx, id)
+	components, err := listComponentsOn(ctx, tx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -501,8 +514,23 @@ func (db *DB) DeleteGear(ctx context.Context, userID, gearID string) error {
 // UpdateGearStatus changes the status of a gear item (active, stored, retired).
 // userID is required to prevent cross-user updates (defense-in-depth; caller also checks ownership).
 func (db *DB) UpdateGearStatus(ctx context.Context, id, userID, status string) error {
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("update gear status: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := db.UpdateGearStatusTx(ctx, tx, id, userID, status); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("update gear status: commit: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) UpdateGearStatusTx(ctx context.Context, tx pgx.Tx, id, userID, status string) error {
 	isRetired := status == "retired"
-	tag, err := db.Pool.Exec(ctx,
+	tag, err := tx.Exec(ctx,
 		`UPDATE gear SET status = $1, is_retired = $2 WHERE id = $3 AND user_id = $4`,
 		status, isRetired, id, userID,
 	)
@@ -518,7 +546,11 @@ func (db *DB) UpdateGearStatus(ctx context.Context, id, userID, status string) e
 // --- Components ---
 
 func (db *DB) listComponents(ctx context.Context, gearID string) ([]model.GearComponent, error) {
-	rows, err := db.Pool.Query(ctx,
+	return listComponentsOn(ctx, db.Pool, gearID)
+}
+
+func listComponentsOn(ctx context.Context, q Querier, gearID string) ([]model.GearComponent, error) {
+	rows, err := q.Query(ctx,
 		`SELECT `+componentSelectCols+` FROM gear_components WHERE gear_id = $1 ORDER BY name`, gearID,
 	)
 	if err != nil {
@@ -1734,6 +1766,16 @@ func scanRule(row pgx.Row) (*model.AutomationRule, error) {
 }
 
 func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationRule, error) {
+	var items []model.AutomationRule
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		var err error
+		items, err = db.listRulesOn(ctx, tx, userID)
+		return err
+	})
+	return items, err
+}
+
+func (db *DB) listRulesOn(ctx context.Context, q Querier, userID string) ([]model.AutomationRule, error) {
 	readonlySyncs := readonlySystemModifierTagSyncs()
 	args := []any{userID}
 	caseParts := make([]string, 0, len(readonlySyncs))
@@ -1760,7 +1802,7 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 				        ar.last_warning_at, ar.last_warning_code, ar.last_warning_message,
 				        ar.branches
 				 FROM automation_rules ar WHERE ar.user_id = $1 ORDER BY ar.priority, ar.name`, timesAppliedExpr)
-	rows, err := db.Pool.Query(ctx, query, args...)
+	rows, err := q.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list rules: %w", err)
 	}
@@ -1793,6 +1835,20 @@ func (db *DB) ListRules(ctx context.Context, userID string) ([]model.AutomationR
 }
 
 func (db *DB) CreateRule(ctx context.Context, userID string, create *model.AutomationRuleCreate) (*model.AutomationRule, error) {
+	var rule *model.AutomationRule
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		var err error
+		rule, err = db.createRuleOn(ctx, tx, userID, create)
+		return err
+	})
+	return rule, err
+}
+
+func (db *DB) CreateRuleTx(ctx context.Context, tx pgx.Tx, userID string, create *model.AutomationRuleCreate) (*model.AutomationRule, error) {
+	return db.createRuleOn(ctx, tx, userID, create)
+}
+
+func (db *DB) createRuleOn(ctx context.Context, q Querier, userID string, create *model.AutomationRuleCreate) (*model.AutomationRule, error) {
 	condLogic := create.ConditionsLogic
 	if condLogic == "" {
 		condLogic = "and"
@@ -1810,7 +1866,7 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 		return nil, fmt.Errorf("validate rule: %w", err)
 	}
 	var r model.AutomationRule
-	err := db.Pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`INSERT INTO automation_rules (user_id, name, priority, conditions, conditions_logic, condition_groups, actions, trigger_event, stop_on_match, apply_retroactively, branches)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 RETURNING `+ruleSelectCols,
@@ -1830,7 +1886,7 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 		return nil, fmt.Errorf("create rule: %w", err)
 	}
 	// Refresh has_automation for all tags of this user
-	db.Pool.Exec(ctx, `
+	q.Exec(ctx, `
 		UPDATE tags t SET has_automation = EXISTS (
 			SELECT 1 FROM automation_rules ar
 			WHERE ar.user_id = t.user_id AND ar.is_active = true
@@ -1840,10 +1896,24 @@ func (db *DB) CreateRule(ctx context.Context, userID string, create *model.Autom
 }
 
 func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *model.AutomationRuleUpdate) (*model.AutomationRule, error) {
+	var rule *model.AutomationRule
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		var err error
+		rule, err = db.updateRuleOn(ctx, tx, id, userID, update)
+		return err
+	})
+	return rule, err
+}
+
+func (db *DB) UpdateRuleTx(ctx context.Context, tx pgx.Tx, id string, userID string, update *model.AutomationRuleUpdate) (*model.AutomationRule, error) {
+	return db.updateRuleOn(ctx, tx, id, userID, update)
+}
+
+func (db *DB) updateRuleOn(ctx context.Context, q Querier, id string, userID string, update *model.AutomationRuleUpdate) (*model.AutomationRule, error) {
 	// Server-side guard: sync rules are fully read-only.
 	var sysType *string
 	var currentConditions, currentConditionGroups, currentActions, currentBranches json.RawMessage
-	if err := db.Pool.QueryRow(ctx,
+	if err := q.QueryRow(ctx,
 		`SELECT system_type, conditions, condition_groups, actions, branches FROM automation_rules WHERE id = $1 AND user_id = $2`,
 		id, userID,
 	).Scan(&sysType, &currentConditions, &currentConditionGroups, &currentActions, &currentBranches); err != nil {
@@ -1916,7 +1986,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 
 	if !b.HasSets() {
 		// No changes
-		r, err := scanRule(db.Pool.QueryRow(ctx,
+		r, err := scanRule(q.QueryRow(ctx,
 			`SELECT `+ruleSelectCols+` FROM automation_rules WHERE id = $1 AND user_id = $2`, id, userID,
 		))
 		if err != nil {
@@ -1933,7 +2003,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 	)
 
 	var r model.AutomationRule
-	err := db.Pool.QueryRow(ctx, query, args...).Scan(
+	err := q.QueryRow(ctx, query, args...).Scan(
 		&r.ID, &r.UserID, &r.Name, &r.IsActive, &r.Priority,
 		&r.Conditions, &r.ConditionsLogic, &r.ConditionGroups,
 		&r.Actions, &r.TimesApplied, &r.CreatedAt,
@@ -1950,7 +2020,7 @@ func (db *DB) UpdateRule(ctx context.Context, id string, userID string, update *
 		return nil, fmt.Errorf("update rule: %w", err)
 	}
 	// Refresh has_automation for all tags of this user
-	db.Pool.Exec(ctx, `
+	q.Exec(ctx, `
 		UPDATE tags t SET has_automation = EXISTS (
 			SELECT 1 FROM automation_rules ar
 			WHERE ar.user_id = t.user_id AND ar.is_active = true
@@ -1976,9 +2046,32 @@ func isReadonlySyncRuleType(systemType *string) bool {
 }
 
 func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
+	return db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		return db.deleteRuleOn(ctx, tx, id, userID)
+	})
+}
+
+func (db *DB) DeleteRuleTx(ctx context.Context, tx pgx.Tx, id string, userID string) error {
+	return db.deleteRuleOn(ctx, tx, id, userID)
+}
+
+func (db *DB) GetRule(ctx context.Context, id string, userID string) (*model.AutomationRule, error) {
+	var rule *model.AutomationRule
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		var err error
+		rule, err = scanRule(tx.QueryRow(ctx, `SELECT `+ruleSelectCols+` FROM automation_rules WHERE id = $1 AND user_id = $2`, id, userID))
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get rule: %w", err)
+	}
+	return rule, nil
+}
+
+func (db *DB) deleteRuleOn(ctx context.Context, q Querier, id string, userID string) error {
 	// Server-side guard: system rules cannot be deleted
 	var isSystem bool
-	if err := db.Pool.QueryRow(ctx,
+	if err := q.QueryRow(ctx,
 		`SELECT is_system FROM automation_rules WHERE id = $1 AND user_id = $2`,
 		id, userID,
 	).Scan(&isSystem); err != nil {
@@ -1991,7 +2084,7 @@ func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
 		return fmt.Errorf("system rules cannot be deleted")
 	}
 
-	tag, err := db.Pool.Exec(ctx, `DELETE FROM automation_rules WHERE id = $1 AND user_id = $2`, id, userID)
+	tag, err := q.Exec(ctx, `DELETE FROM automation_rules WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return fmt.Errorf("delete rule: %w", err)
 	}
@@ -1999,7 +2092,7 @@ func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
 		return fmt.Errorf("rule not found")
 	}
 	// Refresh has_automation for all tags of this user
-	db.Pool.Exec(ctx, `
+	q.Exec(ctx, `
 		UPDATE tags t SET has_automation = EXISTS (
 			SELECT 1 FROM automation_rules ar
 			WHERE ar.user_id = t.user_id AND ar.is_active = true
@@ -2008,8 +2101,11 @@ func (db *DB) DeleteRule(ctx context.Context, id string, userID string) error {
 	return nil
 }
 
-func (db *DB) IncrementRuleApplied(ctx context.Context, id string) error {
-	_, err := db.Pool.Exec(ctx, `UPDATE automation_rules SET times_applied = times_applied + 1 WHERE id = $1`, id)
+func (db *DB) IncrementRuleApplied(ctx context.Context, id string, userID string) error {
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE automation_rules SET times_applied = times_applied + 1 WHERE id = $1 AND user_id = $2`, id, userID)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("increment rule applied: %w", err)
 	}
@@ -2017,11 +2113,14 @@ func (db *DB) IncrementRuleApplied(ctx context.Context, id string) error {
 }
 
 func (db *DB) SetRuleWarning(ctx context.Context, ruleID, userID, code, message string) error {
-	_, err := db.Pool.Exec(ctx, `
-		UPDATE automation_rules
-		SET last_warning_at = NOW(), last_warning_code = $1, last_warning_message = $2
-		WHERE id = $3 AND user_id = $4`,
-		code, message, ruleID, userID)
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE automation_rules
+			SET last_warning_at = NOW(), last_warning_code = $1, last_warning_message = $2
+			WHERE id = $3 AND user_id = $4`,
+			code, message, ruleID, userID)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("set rule warning: %w", err)
 	}
@@ -2029,13 +2128,39 @@ func (db *DB) SetRuleWarning(ctx context.Context, ruleID, userID, code, message 
 }
 
 func (db *DB) ClearRuleWarning(ctx context.Context, ruleID, userID string) error {
-	_, err := db.Pool.Exec(ctx, `
-		UPDATE automation_rules
-		SET last_warning_at = NULL, last_warning_code = NULL, last_warning_message = NULL
-		WHERE id = $1 AND user_id = $2`,
-		ruleID, userID)
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE automation_rules
+			SET last_warning_at = NULL, last_warning_code = NULL, last_warning_message = NULL
+			WHERE id = $1 AND user_id = $2`,
+			ruleID, userID)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("clear rule warning: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) SetRuleEvaluation(ctx context.Context, ruleID, userID string, matchedCount *int) error {
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		if matchedCount == nil {
+			_, err := tx.Exec(ctx, `
+				UPDATE automation_rules
+				SET last_evaluated_at = NOW()
+				WHERE id = $1 AND user_id = $2`,
+				ruleID, userID)
+			return err
+		}
+		_, err := tx.Exec(ctx, `
+			UPDATE automation_rules
+			SET last_evaluated_at = NOW(), last_matched_count = $1
+			WHERE id = $2 AND user_id = $3`,
+			*matchedCount, ruleID, userID)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("set rule evaluation: %w", err)
 	}
 	return nil
 }
@@ -2464,30 +2589,8 @@ func (db *DB) RefreshGearUsageForActivityMetricChange(ctx context.Context, activ
 // for the owners of the given gear IDs. For each matching (rule, gear) pair it
 // upserts a row in gear_rule_action_state and increments times_applied when the
 // rule body has changed since the last match.
-//
-// An early-exit query checks whether any qualifying rules exist before loading
-// gear stats; for users with no on_gear_usage_update rules this costs one
-// EXISTS query instead of a full gear + rules scan.
 func (db *DB) EvaluateGearUsageRulesForGear(ctx context.Context, gearIDs []string) error {
 	if len(gearIDs) == 0 {
-		return nil
-	}
-	// Fast path: skip all work when no active on_gear_usage_update rules exist
-	// for any owner of the supplied gear IDs. The subquery resolves user_ids
-	// from the gear table, keeping the check self-contained.
-	var hasRules bool
-	err := db.Pool.QueryRow(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM automation_rules ar
-			JOIN gear g ON g.user_id = ar.user_id AND g.id = ANY($1::uuid[])
-			WHERE ar.trigger_event = 'on_gear_usage_update'
-			  AND ar.is_active = true
-			LIMIT 1
-		)`, gearIDs).Scan(&hasRules)
-	if err != nil {
-		return fmt.Errorf("check gear usage rules existence: %w", err)
-	}
-	if !hasRules {
 		return nil
 	}
 	rows, err := db.Pool.Query(ctx, `
@@ -2529,6 +2632,9 @@ func (db *DB) EvaluateGearUsageRulesForGear(ctx context.Context, gearIDs []strin
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("list gear usage rule candidates: %w", err)
 	}
+	if len(candidates) == 0 {
+		return nil
+	}
 	for userID := range userIDs {
 		rulesForUser, err := db.ListRules(ctx, userID)
 		if err != nil {
@@ -2549,16 +2655,14 @@ func (db *DB) EvaluateGearUsageRulesForGear(ctx context.Context, gearIDs []strin
 					return err
 				}
 				if changed {
-					if err := db.IncrementRuleApplied(ctx, rule.ID); err != nil {
+					if err := db.IncrementRuleApplied(ctx, rule.ID, userID); err != nil {
 						return err
 					}
 				}
 				matched++
 			}
 			if matched > 0 {
-				if _, err := db.Pool.Exec(ctx,
-					`UPDATE automation_rules SET last_evaluated_at = NOW(), last_matched_count = $1 WHERE id = $2 AND user_id = $3`,
-					matched, rule.ID, userID); err != nil {
+				if err := db.SetRuleEvaluation(ctx, rule.ID, userID, &matched); err != nil {
 					return fmt.Errorf("update gear usage rule stats: %w", err)
 				}
 			}
@@ -3650,11 +3754,11 @@ func (db *DB) DeleteBikeSetup(ctx context.Context, id string) error {
 
 // --- Gear Documents ---
 
-const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id, document_date::text, document_amount::double precision, document_currency, extracted_text, processing_status, created_at`
+const gearDocSelectCols = `id, user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id, document_date::text, document_amount::double precision, document_currency, extracted_text, extracted_data, processing_status, created_at`
 
 func scanGearDocument(row pgx.Row) (*model.GearDocument, error) {
 	var d model.GearDocument
-	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt)
+	err := row.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ExtractedData, &d.ProcessingStatus, &d.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -3709,7 +3813,7 @@ func (db *DB) ListGearDocuments(ctx context.Context, gearID string) ([]model.Gea
 	var docs []model.GearDocument
 	for rows.Next() {
 		var d model.GearDocument
-		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ExtractedData, &d.ProcessingStatus, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan gear document: %w", err)
 		}
 		docs = append(docs, d)
@@ -3732,7 +3836,7 @@ func (db *DB) ListComponentDocuments(ctx context.Context, componentID string) ([
 	var docs []model.GearDocument
 	for rows.Next() {
 		var d model.GearDocument
-		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ProcessingStatus, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.GearID, &d.ComponentID, &d.ServiceEventID, &d.DocType, &d.Title, &d.OriginalFilename, &d.ContentType, &d.FileSizeBytes, &d.FileHash, &d.FileID, &d.DocumentDate, &d.DocumentAmount, &d.DocumentCurrency, &d.ExtractedText, &d.ExtractedData, &d.ProcessingStatus, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan component document: %w", err)
 		}
 		docs = append(docs, d)
@@ -4051,6 +4155,20 @@ func (db *DB) VerifyGearOwnership(ctx context.Context, gearID, userID string) er
 	).Scan(&id)
 }
 
+func (db *DB) GearOwnedBy(ctx context.Context, gearID, userID string) (bool, error) {
+	if strings.TrimSpace(userID) == "" {
+		return false, fmt.Errorf("userID must not be empty")
+	}
+	var owned bool
+	if err := db.Pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM gear WHERE id = $1 AND user_id = $2)`,
+		gearID, userID,
+	).Scan(&owned); err != nil {
+		return false, err
+	}
+	return owned, nil
+}
+
 // VerifyComponentOwnership returns nil if the component's gear belongs to the user.
 func (db *DB) VerifyComponentOwnership(ctx context.Context, componentID, userID string) error {
 	var id string
@@ -4144,8 +4262,18 @@ func (db *DB) FindGearDuplicates(ctx context.Context, userID string) ([][2]strin
 // GetRuleBySystemType returns the first is_system rule with the given system_type for a user.
 // Returns nil, nil when no such rule exists.
 func (db *DB) GetRuleBySystemType(ctx context.Context, userID, systemType string) (*model.AutomationRule, error) {
+	var rule *model.AutomationRule
+	err := db.WithUserTx(ctx, userID, func(tx pgx.Tx) error {
+		var err error
+		rule, err = db.getRuleBySystemTypeOn(ctx, tx, userID, systemType)
+		return err
+	})
+	return rule, err
+}
+
+func (db *DB) getRuleBySystemTypeOn(ctx context.Context, q Querier, userID, systemType string) (*model.AutomationRule, error) {
 	var r model.AutomationRule
-	err := db.Pool.QueryRow(ctx,
+	err := q.QueryRow(ctx,
 		`SELECT `+ruleSelectCols+`
 		 FROM automation_rules
 		 WHERE user_id = $1 AND system_type = $2 AND is_system = true

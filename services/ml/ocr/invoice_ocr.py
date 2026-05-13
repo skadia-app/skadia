@@ -1,6 +1,6 @@
 """
 Invoice OCR Pipeline
-Converts PDF invoices to structured Markdown using the local VLM (llama-server).
+Converts PDF invoices to structured Markdown using the API LLM broker.
 
 Usage:
     python -m services.ml.ocr.invoice_ocr <pdf_path> [output_path]
@@ -10,15 +10,27 @@ Usage:
 """
 
 import argparse
+import asyncio
 import base64
 import json
 import re
 import subprocess
 import tempfile
-import urllib.request
 from pathlib import Path
 
-DEFAULT_API = "http://localhost:8181/v1/chat/completions"
+from config import ML_VISION_ROLE, call_llm_broker
+
+BROKER_TIMEOUT_SECONDS = 120.0
+MAX_PAGE_IMAGE_BYTES = 700_000
+MAX_INVOICE_PAGES = 8
+MAX_RENDER_DPI = 150
+PDF_RENDER_TIMEOUT_SECONDS = 30.0
+MAX_COMBINED_MARKDOWN_CHARS = 24_000
+
+
+class InvoiceOCRInputTooLarge(ValueError):
+    """Raised when rendered invoice page bytes would exceed broker request limits."""
+
 
 PROMPT_PAGE = (
     "/no_think\n"
@@ -45,32 +57,66 @@ PROMPT_PARTS = (
 )
 
 
-def _call_vlm(messages: list, api_url: str, timeout: int = 300) -> str:
-    payload = {
-        "model": "qwen3.5",
-        "messages": messages,
-        "temperature": 0.3,
-        "top_p": 0.9,
-        "top_k": 20,
-        "frequency_penalty": 0.15,
-        "presence_penalty": 0.1,
-        "stream": False,
-    }
-    req = urllib.request.Request(
-        api_url,
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+def _broker_payload(messages: list, role: str, task_type: str) -> str:
+    return json.dumps(
+        {
+            "role": role,
+            "task_type": task_type,
+            "messages": messages,
+        },
+        separators=(",", ":"),
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        result = json.loads(resp.read())
-    content = result["choices"][0]["message"]["content"]
+
+
+async def _chat_via_broker(
+    role: str,
+    task_type: str,
+    messages: list,
+    timeout: float = BROKER_TIMEOUT_SECONDS,
+) -> str:
+    return await call_llm_broker(role, task_type, messages, timeout=timeout)
+
+
+async def _call_vlm(
+    messages: list,
+    role: str = ML_VISION_ROLE,
+    task_type: str = "invoice_page",
+    timeout: float = BROKER_TIMEOUT_SECONDS,
+) -> str:
+    _broker_payload(messages, role=role, task_type=task_type)
+    content = await _chat_via_broker(role, task_type, messages, timeout=timeout)
     return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+
+
+def _call_vlm_sync(
+    messages: list,
+    role: str = ML_VISION_ROLE,
+    task_type: str = "invoice_page",
+    timeout: float = BROKER_TIMEOUT_SECONDS,
+) -> str:
+    return asyncio.run(_call_vlm(messages, role=role, task_type=task_type, timeout=timeout))
+
+
+def _page_image_message(page: Path) -> dict:
+    data = page.read_bytes()
+    if len(data) > MAX_PAGE_IMAGE_BYTES:
+        raise InvoiceOCRInputTooLarge(
+            f"rendered invoice page {page.name} exceeds {MAX_PAGE_IMAGE_BYTES} bytes"
+        )
+    b64 = base64.b64encode(data).decode()
+    return {
+        "role": "user",
+        "content": [
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+            {"type": "text", "text": PROMPT_PAGE},
+        ],
+    }
 
 
 def process_invoice(
     pdf_path: str,
     output_path: str | None = None,
-    api_url: str = DEFAULT_API,
+    role: str = ML_VISION_ROLE,
     dpi: int = 150,
 ) -> str:
     """
@@ -79,46 +125,61 @@ def process_invoice(
     Args:
         pdf_path:    Path to the input PDF.
         output_path: Where to write the .md file. Defaults to same dir as PDF.
-        api_url:     llama-server API endpoint.
+        role:        Broker role to use for the VLM calls.
         dpi:         Resolution for PDF-to-image conversion.
 
     Returns:
         The generated Markdown string.
     """
     pdf_path = Path(pdf_path)
+    if dpi <= 0 or dpi > MAX_RENDER_DPI:
+        raise InvoiceOCRInputTooLarge(f"invoice render dpi must be between 1 and {MAX_RENDER_DPI}")
     if output_path is None:
         output_path = pdf_path.with_suffix(".md")
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        subprocess.run(
-            ["pdftoppm", "-jpeg", "-r", str(dpi), str(pdf_path), f"{tmpdir}/page"],
-            check=True,
-            capture_output=True,
-        )
-        pages = sorted(Path(tmpdir).glob("page-*.jpg"))
+        try:
+            subprocess.run(
+                [
+                    "pdftoppm",
+                    "-jpeg",
+                    "-f",
+                    "1",
+                    "-l",
+                    str(MAX_INVOICE_PAGES),
+                    "-r",
+                    str(dpi),
+                    str(pdf_path),
+                    f"{tmpdir}/page",
+                ],
+                check=True,
+                capture_output=True,
+                timeout=PDF_RENDER_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise InvoiceOCRInputTooLarge("invoice PDF rendering timed out") from e
+        pages = sorted(Path(tmpdir).glob("page-*.jpg"))[:MAX_INVOICE_PAGES]
         print(f"  {len(pages)} Seite(n) bei {dpi} DPI")
 
         page_results = []
         for i, page in enumerate(pages):
             print(f"  Seite {i + 1}...")
-            with open(page, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            text = _call_vlm(
-                [{"role": "user", "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                    {"type": "text", "text": PROMPT_PAGE},
-                ]}],
-                api_url=api_url,
+            text = _call_vlm_sync(
+                [_page_image_message(page)],
+                role=role,
+                task_type="invoice_page",
             )
             page_results.append(text)
             print(f"    {len(text)} Zeichen")
 
     combined = "\n\n---\n\n".join(page_results)
+    combined_for_parts = combined[:MAX_COMBINED_MARKDOWN_CHARS]
 
     print("  Teile extrahieren...")
-    parts_section = _call_vlm(
-        [{"role": "user", "content": PROMPT_PARTS + combined}],
-        api_url=api_url,
+    parts_section = _call_vlm_sync(
+        [{"role": "user", "content": PROMPT_PARTS + combined_for_parts}],
+        role=role,
+        task_type="invoice_parts",
     )
     print(f"    {len(parts_section)} Zeichen")
 
@@ -132,9 +193,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert PDF invoice to Markdown via VLM.")
     parser.add_argument("pdf", help="Path to input PDF")
     parser.add_argument("output", nargs="?", help="Output .md path (optional)")
-    parser.add_argument("--api", default=DEFAULT_API, help="llama-server API URL")
+    parser.add_argument("--role", default=ML_VISION_ROLE, help="Broker role for invoice vision tasks")
     parser.add_argument("--dpi", type=int, default=150, help="PDF render DPI (default: 150)")
     args = parser.parse_args()
 
-    result = process_invoice(args.pdf, args.output, api_url=args.api, dpi=args.dpi)
+    result = process_invoice(args.pdf, args.output, role=args.role, dpi=args.dpi)
     print(f"\nFertig ({len(result)} Zeichen)")
