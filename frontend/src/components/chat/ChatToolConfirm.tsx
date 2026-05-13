@@ -138,6 +138,42 @@ export default function ChatToolConfirm({ request, onConfirmed, onDeclined }: Ch
 function formatPreview(preview: unknown): string {
   if (preview == null) return ''
   if (typeof preview === 'string') return preview
+  if (isRecord(preview)) {
+    const lines: string[] = []
+    const kind = textValue(preview.kind)
+    const count = preview.activity_count ?? preview.count ?? preview.affected_count
+    if (kind) lines.push(`Typ: ${kind}`)
+    if (typeof count === 'number') lines.push(`Betroffene Aktivitäten: ${count}`)
+    const tagName = textValue(preview.tag_name)
+    if (tagName) lines.push(`Tag: ${tagName}`)
+    const mode = textValue(preview.mode)
+    if (mode) lines.push(`Aktion: ${mode === 'remove' ? 'entfernen' : mode === 'add' ? 'hinzufügen' : mode}`)
+    const gearName = textValue(preview.gear_name)
+    if (gearName) lines.push(`Gear: ${gearName}`)
+    const routeName = textValue(preview.name)
+    if (routeName) lines.push(`Name: ${routeName}`)
+    const profile = textValue(preview.profile)
+    if (profile) lines.push(`Profil: ${profile}`)
+    if (typeof preview.total_distance_m === 'number') {
+      lines.push(`Distanz: ${(preview.total_distance_m / 1000).toFixed(1)} km`)
+    }
+    if (isRecord(preview.criteria)) {
+      lines.push('Auswahl:')
+      lines.push(formatObjectLines(preview.criteria, '  '))
+    }
+    if (Array.isArray(preview.sample_activities) && preview.sample_activities.length > 0) {
+      lines.push('Beispiele:')
+      lines.push(...preview.sample_activities.slice(0, 5).map(item => `  - ${formatActivitySample(item)}`))
+    }
+    if (Array.isArray(preview.sample_ids) && preview.sample_ids.length > 0) {
+      lines.push(`Beispiel-IDs: ${preview.sample_ids.slice(0, 5).join(', ')}`)
+    }
+    if (isRecord(preview.cap)) {
+      lines.push('Grenzen:')
+      lines.push(formatObjectLines(preview.cap, '  '))
+    }
+    if (lines.length > 0) return lines.join('\n')
+  }
   try {
     return JSON.stringify(preview, null, 2)
   } catch {
@@ -168,4 +204,40 @@ function errorMessage(err: unknown): string {
 
   if (err instanceof Error && err.message.trim()) return err.message
   return 'Bestätigung konnte nicht gesendet werden'
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function textValue(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value : ''
+}
+
+function formatObjectLines(record: Record<string, unknown>, prefix: string): string {
+  return Object.entries(record)
+    .map(([key, value]) => `${prefix}${key}: ${formatPreviewValue(value)}`)
+    .join('\n')
+}
+
+function formatPreviewValue(value: unknown): string {
+  if (Array.isArray(value)) return value.join(', ')
+  if (isRecord(value)) return JSON.stringify(value)
+  if (value == null) return '-'
+  return String(value)
+}
+
+function formatActivitySample(value: unknown): string {
+  if (!isRecord(value)) return String(value)
+  const title = textValue(value.title) || textValue(value.name) || textValue(value.id) || 'Aktivität'
+  const startedAt = textValue(value.started_at) || textValue(value.date)
+  const sportType = textValue(value.sport_type) || textValue(value.sport)
+  const distance = typeof value.distance_km === 'number'
+    ? `${value.distance_km.toFixed(1)} km`
+    : typeof value.km === 'number'
+      ? `${value.km.toFixed(1)} km`
+    : typeof value.distance_m === 'number'
+      ? `${(value.distance_m / 1000).toFixed(1)} km`
+      : ''
+  return [title, startedAt, sportType, distance].filter(Boolean).join(' · ')
 }

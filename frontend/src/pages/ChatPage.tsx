@@ -112,8 +112,30 @@ export default function ChatPage() {
   // Close session dropdown on outside click
   useClickOutside(sessionDropdownRef, () => setSessionsOpen(false), sessionsOpen)
 
+  const abortActiveStream = useCallback(() => {
+    const controller = streamAbortRef.current
+    if (!controller) return
+    controller.abort()
+    streamAbortRef.current = null
+    setThinking(null)
+    setIsStreaming(false)
+    setMessages(prev =>
+      prev.map(m =>
+        m.isStreaming
+          ? { ...m, isStreaming: false, content: m.content || '(Abgebrochen)' }
+          : m.confirmRequest?.status === 'pending'
+            ? {
+                ...m,
+                content: 'Abgebrochen',
+                confirmRequest: { ...m.confirmRequest, status: 'declined', reason: 'cancelled' },
+              }
+          : m,
+      ),
+    )
+  }, [])
+
   const handleNewSession = useCallback(async () => {
-    if (isStreaming) return
+    abortActiveStream()
     try {
       const session = await createSession()
       setSessions(prev => [session, ...prev])
@@ -123,10 +145,12 @@ export default function ChatPage() {
     } catch {
       addToast({ type: 'error', title: 'Neue Sitzung konnte nicht erstellt werden', duration: 0 })
     }
-  }, [addToast, isStreaming])
+  }, [abortActiveStream, addToast])
 
   const handleDeleteSession = useCallback(async (sessionId: string) => {
-    if (isStreaming) return
+    if (sessionId === activeSessionIdRef.current) {
+      abortActiveStream()
+    }
     try {
       await deleteSession(sessionId)
       setSessions(prev => {
@@ -142,7 +166,7 @@ export default function ChatPage() {
     } catch {
       addToast({ type: 'error', title: 'Sitzung konnte nicht gelöscht werden', duration: 0 })
     }
-  }, [activeSessionId, addToast, isStreaming])
+  }, [abortActiveStream, activeSessionId, addToast])
 
   const handleSend = useCallback(async (text: string) => {
     if (isStreaming) return
@@ -514,8 +538,7 @@ export default function ChatPage() {
         <div ref={sessionDropdownRef} className="relative flex-1 min-w-0">
           <button
             onClick={() => setSessionsOpen(o => !o)}
-            disabled={isStreaming}
-            className="flex items-center gap-2 max-w-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors truncate disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-2 max-w-xs px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors truncate"
           >
             <span className="truncate text-neutral-700 dark:text-neutral-300">
               {activeSession
@@ -538,7 +561,9 @@ export default function ChatPage() {
                       session.id === activeSessionId && 'bg-neutral-100 dark:bg-neutral-800',
                     )}
                     onClick={() => {
-                      if (isStreaming) return
+                      if (session.id !== activeSessionIdRef.current) {
+                        abortActiveStream()
+                      }
                       activeSessionIdRef.current = session.id
                       setActiveSessionId(session.id)
                       setSessionsOpen(false)
@@ -548,12 +573,11 @@ export default function ChatPage() {
                       {session.title ?? `Sitzung ${new Date(session.created_at).toLocaleDateString('de-DE')}`}
                     </span>
                     <button
-                      disabled={isStreaming}
                       onClick={e => {
                         e.stopPropagation()
                         handleDeleteSession(session.id)
                       }}
-                      className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 cursor-pointer transition-colors flex-shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="p-1 rounded text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 cursor-pointer transition-colors flex-shrink-0"
                       title="Sitzung löschen"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -567,8 +591,7 @@ export default function ChatPage() {
 
         <button
           onClick={handleNewSession}
-          disabled={isStreaming}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors text-neutral-700 dark:text-neutral-300 flex-shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors text-neutral-700 dark:text-neutral-300 flex-shrink-0"
         >
           <Plus className="w-3.5 h-3.5" />
           Neu
@@ -581,6 +604,7 @@ export default function ChatPage() {
       {/* Input */}
       <ChatInput
         onSend={handleSend}
+        onCancel={abortActiveStream}
         disabled={isStreaming}
         placeholder={isStreaming ? 'Assistent antwortet…' : 'Frag mich etwas…'}
       />
