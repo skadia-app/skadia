@@ -114,7 +114,7 @@ var DomainTools = map[string][]string{
 	"routing": {
 		"search_pois_nearby", "search_trails_by_difficulty",
 		"list_routing_profiles", "plan_route", "search_pois_on_route", "get_isochrone",
-		"query_geo_features", "search_routes",
+		"query_geo_features", "search_routes", "query_coverage",
 	},
 }
 

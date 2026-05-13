@@ -19,15 +19,13 @@ var sqlRoundCall = regexp.MustCompile(`(?i)ROUND\(([^()]+(?:\([^()]*\))?[^()]*),
 var sqlGeoElevation = regexp.MustCompile(`\b(agt?|gt)\.elevation\b`)
 
 var TableWhitelist = map[string]bool{
-	"activities": true, "activity_streams": true, "activity_laps": true, "activity_splits": true,
+	"activities": true, "activity_laps": true, "activity_splits": true,
 	"activity_geo_tags": true, "activity_stops": true, "activity_rr_intervals": true, "activity_photos": true,
 	"activity_gear_assignments": true,
 	"health_snapshots":          true, "health_sleep": true, "health_weight_entries": true,
-	"gear": true, "gear_components": true, "segments": true, "segment_versions": true, "segment_efforts": true,
-	"activity_lift_candidates": true,
-	"pmc_daily":                true, "user_daily_features": true, "analytics_cache": true, "tags": true, "activity_tags": true,
+	"gear": true, "gear_components": true, "segment_efforts": true,
+	"pmc_daily": true, "user_daily_features": true, "tags": true, "activity_tags": true,
 	"osm_pois": true, "osm_ways": true, "osm_pistes": true, "osm_glaciers": true, "osm_wetlands": true, "osm_routes": true,
-	"osm_lifts": true, "osm_waterways": true, "osm_waters": true, "osm_forests": true, "osm_boundaries": true,
 	"osm_import_regions": true,
 }
 
@@ -63,8 +61,14 @@ func ValidateSQL(sql string) error {
 	if analysis.MultiStatement {
 		return fmt.Errorf("only a single statement is allowed")
 	}
+	if !isKeyword(analysis.FirstToken, "select") && !isKeyword(analysis.FirstToken, "with") {
+		return fmt.Errorf("only SELECT queries are allowed")
+	}
 	if len(analysis.UnsafeKeywords) > 0 {
 		return fmt.Errorf("only read-only SELECT queries are allowed")
+	}
+	if len(analysis.UnsafeFunctions) > 0 {
+		return fmt.Errorf("session or configuration function access is not allowed")
 	}
 	for _, table := range analysis.Tables {
 		if !TableWhitelist[strings.ToLower(table)] {
@@ -105,11 +109,14 @@ func (a *SQLAgent) ExecuteSQL(ctx context.Context, sql, userID string, maxRows i
 		return nil, fmt.Errorf("SQL validation failed: %w", err)
 	}
 
-	tx, err := a.db.ReadonlyPool.Begin(ctx)
+	tx, err := a.db.ReadonlyPool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	if err := verifyReadonlyRole(ctx, tx); err != nil {
+		return nil, err
+	}
 	if _, err := tx.Exec(ctx, "SELECT set_config('app.current_user_id', $1, true)", userID); err != nil {
 		return nil, fmt.Errorf("set local rls context: %w", err)
 	}
@@ -120,7 +127,7 @@ func (a *SQLAgent) ExecuteSQL(ctx context.Context, sql, userID string, maxRows i
 	}
 	defer rows.Close()
 
-	result, err := collectRows(rows)
+	result, err := collectRows(rows, maxRows+1)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +140,18 @@ func (a *SQLAgent) ExecuteSQL(ctx context.Context, sql, userID string, maxRows i
 	return result, nil
 }
 
-func collectRows(rows pgx.Rows) ([]map[string]any, error) {
+func verifyReadonlyRole(ctx context.Context, tx pgx.Tx) error {
+	var currentUser string
+	if err := tx.QueryRow(ctx, "SELECT current_user").Scan(&currentUser); err != nil {
+		return fmt.Errorf("verify readonly role: %w", err)
+	}
+	if currentUser != "skadia_readonly" {
+		return fmt.Errorf("readonly database pool uses role %q, want skadia_readonly", currentUser)
+	}
+	return nil
+}
+
+func collectRows(rows pgx.Rows, maxRows int) ([]map[string]any, error) {
 	fields := rows.FieldDescriptions()
 	var result []map[string]any
 	for rows.Next() {
@@ -146,6 +164,10 @@ func collectRows(rows pgx.Rows) ([]map[string]any, error) {
 			row[field.Name] = values[i]
 		}
 		result = append(result, row)
+		if maxRows > 0 && len(result) >= maxRows {
+			rows.Close()
+			return result, rows.Err()
+		}
 	}
 	return result, rows.Err()
 }

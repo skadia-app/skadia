@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,6 +19,20 @@ import (
 var (
 	routeHTTPClient = &http.Client{Timeout: 30 * time.Second}
 	routeAPIBaseURL = "http://api:8080"
+)
+
+const (
+	maxPlanRouteWaypoints     = 25
+	maxPlanRouteURLBytes      = 8192
+	maxPlanRouteResponseBytes = 1 << 20
+	maxCoverageLayers         = 8
+	maxCoverageResponseBytes  = 64 << 10
+	maxRouteGeometryBytes     = 500_000
+	maxRouteGeometryVertices  = 2_000
+	maxRouteGeometryLengthM   = 200_000
+	maxRoutePOIBufferM        = 5_000
+	maxIsochroneMinutes       = 180
+	maxIsochronePoints        = 1_000
 )
 
 type searchRoutesArgs struct {
@@ -50,7 +65,6 @@ type getIsochroneArgs struct {
 	Lat         float64 `json:"lat"`
 	Lng         float64 `json:"lng"`
 	TimeMinutes *int    `json:"time_minutes,omitempty"`
-	Profile     string  `json:"profile,omitempty"`
 }
 
 type queryCoverageArgs struct {
@@ -106,15 +120,15 @@ func RouteTools() []*Tool {
 		{
 			Name:        "search_pois_on_route",
 			Description: "Find shared OSM POIs along a provided GeoJSON route geometry.",
-			InputSchema: json.RawMessage(`{"type":"object","required":["route_geometry"],"properties":{"route_geometry":{"type":"string"},"buffer_m":{"type":"integer","minimum":1},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","required":["route_geometry"],"properties":{"route_geometry":{"type":"string","maxLength":500000},"buffer_m":{"type":"integer","minimum":1,"maximum":5000},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
-			IsUserOwned: true,
+			IsUserOwned: false,
 			ExecuteRead: executeSearchPOIsOnRoute,
 		},
 		{
 			Name:        "get_isochrone",
 			Description: "Calculate a reachability area from a coordinate using the pgRouting topology.",
-			InputSchema: json.RawMessage(`{"type":"object","required":["lat","lng"],"properties":{"lat":{"type":"number"},"lng":{"type":"number"},"time_minutes":{"type":"integer","minimum":1},"profile":{"type":"string"}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","required":["lat","lng"],"properties":{"lat":{"type":"number"},"lng":{"type":"number"},"time_minutes":{"type":"integer","minimum":1}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executeGetIsochrone,
@@ -162,6 +176,9 @@ func executePlanRoute(ctx context.Context, deps *Deps, userID string, raw json.R
 	if len(args.Waypoints) < 2 {
 		return map[string]any{"error": "at least 2 waypoints required", "fallback": true}, nil
 	}
+	if err := validateWaypoints(args.Waypoints); err != nil {
+		return map[string]any{"error": err.Error(), "fallback": true}, nil
+	}
 	resolved, err := resolveRoutingProfileForPreview(ctx, deps, userID, args.Profile)
 	if err != nil {
 		return map[string]any{"error": err.Error(), "fallback": true}, nil
@@ -200,8 +217,12 @@ func executePlanRoute(ctx context.Context, deps *Deps, userID string, raw json.R
 	if resp.StatusCode != http.StatusOK {
 		return map[string]any{"error": fmt.Sprintf("BRouter returned HTTP %d", resp.StatusCode), "fallback": true}, nil
 	}
+	body, err := readCappedBody(resp.Body, maxPlanRouteResponseBytes)
+	if err != nil {
+		return map[string]any{"error": err.Error(), "fallback": true}, nil
+	}
 	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("decode BRouter response: %w", err)
 	}
 	result["preview"] = true
@@ -231,6 +252,9 @@ func executeGetIsochrone(ctx context.Context, deps *Deps, _ string, raw json.Raw
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, fmt.Errorf("decode get_isochrone args: %w", err)
 	}
+	if !validLatLng(args.Lat, args.Lng) {
+		return map[string]any{"error": "coordinates out of range"}, nil
+	}
 	nearestSQL, distanceSQL, hullSQL := buildIsochroneSQL()
 	pool, err := readonlyPool(deps)
 	if err != nil {
@@ -240,7 +264,7 @@ func executeGetIsochrone(ctx context.Context, deps *Deps, _ string, raw json.Raw
 	if err := pool.QueryRow(ctx, nearestSQL, args.Lng, args.Lat).Scan(&nearestID); err != nil {
 		return map[string]any{"error": "Keine Topologie verfügbar - OSM-Import mit Trail-Topologie nötig"}, nil
 	}
-	timeMinutes := clampIntPtr(args.TimeMinutes, 60, 1, 24*60)
+	timeMinutes := clampIntPtr(args.TimeMinutes, 30, 1, maxIsochroneMinutes)
 	rows, err := queryRows(ctx, deps, distanceSQL, nearestID, float64(timeMinutes))
 	if err != nil {
 		return nil, err
@@ -277,6 +301,13 @@ func executeQueryCoverage(ctx context.Context, deps *Deps, _ string, raw json.Ra
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, fmt.Errorf("decode query_coverage args: %w", err)
 	}
+	if !validLatLng(args.Lat, args.Lon) {
+		return nil, fmt.Errorf("coordinates out of range")
+	}
+	layers, err := parseCoverageLayers(args.Layers)
+	if err != nil {
+		return nil, err
+	}
 	baseURL := routeAPIBaseURL
 	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/internal/coverage/query")
 	if err != nil {
@@ -285,29 +316,32 @@ func executeQueryCoverage(ctx context.Context, deps *Deps, _ string, raw json.Ra
 	q := u.Query()
 	q.Set("lat", strconvFloat(args.Lat))
 	q.Set("lon", strconvFloat(args.Lon))
-	q.Set("layers", args.Layers)
+	q.Set("layers", strings.Join(layers, ","))
 	u.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+	if deps != nil && deps.InternalSecret != "" {
+		req.Header.Set("X-ML-Callback-Secret", deps.InternalSecret)
 	}
 	resp, err := routeHTTPClient.Do(req)
 	if err != nil {
 		return map[string]any{"error": fmt.Sprintf("Coverage query nicht verfügbar: %v", err), "values": map[string]any{}}, nil
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := readCappedBody(resp.Body, maxCoverageResponseBytes)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
 		return map[string]any{"error": fmt.Sprintf("Coverage query returned HTTP %d", resp.StatusCode), "values": map[string]any{}}, nil
 	}
-	var layers map[string]any
-	if err := json.Unmarshal(body, &layers); err != nil {
+	var coverageValues map[string]any
+	if err := json.Unmarshal(body, &coverageValues); err != nil {
 		return nil, fmt.Errorf("decode coverage response: %w", err)
 	}
-	return map[string]any{"lat": args.Lat, "lon": args.Lon, "layers": layers}, nil
+	return map[string]any{"lat": args.Lat, "lon": args.Lon, "layers": coverageValues}, nil
 }
 
 func buildSearchRoutesSQL(userID string, args searchRoutesArgs, now time.Time) (string, []any, int, error) {
@@ -343,9 +377,15 @@ func buildSearchRoutesSQL(userID string, args searchRoutesArgs, now time.Time) (
 }
 
 func buildPlanRouteURL(baseURL string, args planRouteArgs) (string, error) {
+	if err := validateWaypoints(args.Waypoints); err != nil {
+		return "", err
+	}
 	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/brouter")
 	if err != nil {
 		return "", err
+	}
+	if u.Scheme != "http" && u.Scheme != "https" || u.Host == "" {
+		return "", fmt.Errorf("invalid routing service URL")
 	}
 	lonlats := make([]string, 0, len(args.Waypoints))
 	for _, wp := range args.Waypoints {
@@ -366,14 +406,85 @@ func buildPlanRouteURL(baseURL string, args planRouteArgs) (string, error) {
 		q.Set("profile:"+k, fmt.Sprint(v))
 	}
 	u.RawQuery = q.Encode()
+	if len(u.String()) > maxPlanRouteURLBytes {
+		return "", fmt.Errorf("routing request URL too large")
+	}
 	return u.String(), nil
 }
 
-func buildSearchPOIsOnRouteSQL(args searchPOIsOnRouteArgs) (string, []any, int, error) {
-	if len(args.RouteGeometry) > 500_000 {
-		return "", nil, 0, fmt.Errorf("route geometry too large (max 500KB GeoJSON)")
+func validateWaypoints(waypoints [][]float64) error {
+	if len(waypoints) < 2 {
+		return fmt.Errorf("at least 2 waypoints required")
 	}
-	buffer := clampIntPtr(args.BufferM, 500, 1, 100000)
+	if len(waypoints) > maxPlanRouteWaypoints {
+		return fmt.Errorf("too many waypoints (max %d)", maxPlanRouteWaypoints)
+	}
+	for i, wp := range waypoints {
+		if len(wp) != 2 {
+			return fmt.Errorf("waypoints must be [lng,lat] pairs")
+		}
+		lng, lat := wp[0], wp[1]
+		if !validLatLng(lat, lng) {
+			return fmt.Errorf("waypoint %d coordinates out of range", i)
+		}
+	}
+	return nil
+}
+
+func validLatLng(lat, lng float64) bool {
+	return !math.IsNaN(lat) && !math.IsInf(lat, 0) &&
+		!math.IsNaN(lng) && !math.IsInf(lng, 0) &&
+		lat >= -90 && lat <= 90 &&
+		lng >= -180 && lng <= 180
+}
+
+func readCappedBody(r io.Reader, maxBytes int64) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, fmt.Errorf("response too large (max %d bytes)", maxBytes)
+	}
+	return body, nil
+}
+
+func parseCoverageLayers(raw string) ([]string, error) {
+	allowed := map[string]bool{
+		"forest": true, "landuse": true, "water": true, "protected": true,
+		"urbanization": true, "river_proximity": true, "noise": true, "traffic": true,
+		"populate": true, "industrial": true, "mw_density": true, "hw_density": true,
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0)
+	for _, part := range strings.Split(raw, ",") {
+		layer := strings.TrimSpace(part)
+		if layer == "" {
+			continue
+		}
+		if !allowed[layer] {
+			return nil, fmt.Errorf("invalid coverage layer %q", layer)
+		}
+		if seen[layer] {
+			continue
+		}
+		seen[layer] = true
+		out = append(out, layer)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("at least one coverage layer is required")
+	}
+	if len(out) > maxCoverageLayers {
+		return nil, fmt.Errorf("too many coverage layers (max %d)", maxCoverageLayers)
+	}
+	return out, nil
+}
+
+func buildSearchPOIsOnRouteSQL(args searchPOIsOnRouteArgs) (string, []any, int, error) {
+	if err := validateRouteGeometry(args.RouteGeometry); err != nil {
+		return "", nil, 0, err
+	}
+	buffer := clampIntPtr(args.BufferM, 500, 1, maxRoutePOIBufferM)
 	limit := clampIntPtr(args.Limit, 50, 1, 50)
 	params := []any{args.RouteGeometry, buffer}
 	sql := `
@@ -391,6 +502,95 @@ WHERE ST_DWithin(geom::geography, ST_GeomFromGeoJSON($1)::geography, $2)`
 	return sql, params, limit, nil
 }
 
+func validateRouteGeometry(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("route geometry is required")
+	}
+	if len(raw) > maxRouteGeometryBytes {
+		return fmt.Errorf("route geometry too large (max 500KB GeoJSON)")
+	}
+	var doc struct {
+		Type        string          `json:"type"`
+		Coordinates json.RawMessage `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		return fmt.Errorf("invalid route geometry GeoJSON: %w", err)
+	}
+	var count int
+	var lengthM float64
+	switch doc.Type {
+	case "LineString":
+		var line [][]float64
+		if err := json.Unmarshal(doc.Coordinates, &line); err != nil {
+			return fmt.Errorf("invalid LineString coordinates: %w", err)
+		}
+		n, meters, err := validateRouteLine(line)
+		if err != nil {
+			return err
+		}
+		count += n
+		lengthM += meters
+	case "MultiLineString":
+		var lines [][][]float64
+		if err := json.Unmarshal(doc.Coordinates, &lines); err != nil {
+			return fmt.Errorf("invalid MultiLineString coordinates: %w", err)
+		}
+		for _, line := range lines {
+			n, meters, err := validateRouteLine(line)
+			if err != nil {
+				return err
+			}
+			count += n
+			lengthM += meters
+		}
+	default:
+		return fmt.Errorf("route geometry must be LineString or MultiLineString")
+	}
+	if count < 2 {
+		return fmt.Errorf("route geometry requires at least two coordinates")
+	}
+	if count > maxRouteGeometryVertices {
+		return fmt.Errorf("route geometry has too many vertices (max %d)", maxRouteGeometryVertices)
+	}
+	if lengthM > maxRouteGeometryLengthM {
+		return fmt.Errorf("route geometry too long (max %.0fm)", float64(maxRouteGeometryLengthM))
+	}
+	return nil
+}
+
+func validateRouteLine(line [][]float64) (int, float64, error) {
+	if len(line) < 2 {
+		return 0, 0, fmt.Errorf("route line requires at least two coordinates")
+	}
+	var lengthM float64
+	var prev []float64
+	for i, coord := range line {
+		if len(coord) != 2 {
+			return 0, 0, fmt.Errorf("route coordinate %d must be [lng,lat]", i)
+		}
+		lng, lat := coord[0], coord[1]
+		if !validLatLng(lat, lng) {
+			return 0, 0, fmt.Errorf("route coordinate %d out of range", i)
+		}
+		if prev != nil {
+			lengthM += haversineMeters(prev[1], prev[0], lat, lng)
+		}
+		prev = coord
+	}
+	return len(line), lengthM, nil
+}
+
+func haversineMeters(lat1, lng1, lat2, lng2 float64) float64 {
+	const earthRadiusM = 6371000.0
+	phi1 := lat1 * math.Pi / 180
+	phi2 := lat2 * math.Pi / 180
+	dPhi := (lat2 - lat1) * math.Pi / 180
+	dLambda := (lng2 - lng1) * math.Pi / 180
+	a := math.Sin(dPhi/2)*math.Sin(dPhi/2) +
+		math.Cos(phi1)*math.Cos(phi2)*math.Sin(dLambda/2)*math.Sin(dLambda/2)
+	return earthRadiusM * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+}
+
 func buildIsochroneSQL() (string, string, string) {
 	nearestSQL := `
 SELECT id FROM osm_ways_vertices_pgr
@@ -404,7 +604,9 @@ FROM pgr_drivingDistance(
     'SELECT id, source, target, cost, reverse_cost FROM osm_ways WHERE cost >= 0',
     $1, $2, false
 ) dd
-JOIN osm_ways_vertices_pgr v ON dd.node = v.id`
+JOIN osm_ways_vertices_pgr v ON dd.node = v.id
+ORDER BY agg_cost
+LIMIT ` + fmt.Sprint(maxIsochronePoints)
 	hullSQL := `
 SELECT ST_AsGeoJSON(ST_ConvexHull(ST_Collect(
     ST_SetSRID(ST_Point(lng, lat), 4326)

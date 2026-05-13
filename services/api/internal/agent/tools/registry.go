@@ -31,6 +31,7 @@ type AuditMode string
 const (
 	AuditNone    AuditMode = "none"
 	AuditPreview AuditMode = "preview"
+	AuditRead    AuditMode = "read"
 	AuditWrite   AuditMode = "write"
 )
 
@@ -101,15 +102,16 @@ type PreviewExecutionDeps struct {
 }
 
 type Deps struct {
-	DB          *database.DB
-	Readonly    *pgxpool.Pool
-	MLBaseURL   string
-	BRouterURL  string
-	LLM         *agent.LLMResolver
-	SQLAgent    *agent.SQLAgent
-	Audit       *agent.AuditWriter
-	Confirm     *agent.ConfirmationManager
-	Preferences *agent.PreferenceLoader
+	DB             *database.DB
+	Readonly       *pgxpool.Pool
+	MLBaseURL      string
+	BRouterURL     string
+	InternalSecret string
+	LLM            *agent.LLMResolver
+	SQLAgent       *agent.SQLAgent
+	Audit          *agent.AuditWriter
+	Confirm        *agent.ConfirmationManager
+	Preferences    *agent.PreferenceLoader
 }
 
 type Registry struct {
@@ -156,6 +158,9 @@ func (r *Registry) ExecuteRead(ctx context.Context, deps *Deps, userID, toolName
 	}
 	if t.ExecuteRead == nil {
 		return nil, fmt.Errorf("tool has no read executor: %s", toolName)
+	}
+	if err := validateArgs(t.Name, t.InputSchema, args); err != nil {
+		return nil, err
 	}
 	return t.ExecuteRead(ctx, deps, userID, args)
 }

@@ -261,6 +261,9 @@ type zipBuildOpts struct {
 	// activityTags is written to data/activity_tags.json. nil = omit.
 	activityTags []map[string]any
 
+	// chatUserPreferences is written to data/chat_user_preferences.json. nil = omit.
+	chatUserPreferences []map[string]any
+
 	// columns is written to columns.json. nil = omit.
 	columns map[string][]string
 
@@ -332,6 +335,7 @@ func buildExportZip(t *testing.T, opts zipBuildOpts) string {
 		{"data/segments.json", opts.segments},
 		{"data/oauth_connections.json", opts.oauthConnections},
 		{"data/activity_tags.json", opts.activityTags},
+		{"data/chat_user_preferences.json", opts.chatUserPreferences},
 	}
 	for _, te := range tables {
 		if te.rows != nil {
@@ -465,6 +469,59 @@ func TestProfileAllowList(t *testing.T) {
 	}
 	if gotDisplayName != "Imported Name" {
 		t.Errorf("display_name should be imported: want %q, got %q", "Imported Name", gotDisplayName)
+	}
+}
+
+func TestImportChatUserPreferences(t *testing.T) {
+	pool := testDB(t)
+	userID := createTestUser(t, pool)
+
+	zipPath := buildExportZip(t, zipBuildOpts{
+		columns: map[string][]string{
+			"chat_user_preferences": {
+				"user_id",
+				"chat_expose_document_extracted_data",
+				"chat_write_tools_enabled",
+				"chat_allowed_write_tools",
+			},
+		},
+		chatUserPreferences: []map[string]any{
+			{
+				"user_id":                             uuid.NewString(),
+				"chat_expose_document_extracted_data": true,
+				"chat_write_tools_enabled":            true,
+				"chat_allowed_write_tools":            []any{"update_activity_title", "create_automation_rule"},
+			},
+		},
+	})
+	src := openZipSource(t, zipPath)
+
+	eng := newEngine(pool)
+	result, err := eng.RunImport(context.Background(), ImportInput{
+		Source:       src,
+		TargetUserID: userID,
+	})
+	if err != nil {
+		t.Fatalf("RunImport: %v", err)
+	}
+	if result.EntitiesFailed != 0 {
+		t.Fatalf("EntitiesFailed = %d, errors=%v", result.EntitiesFailed, result.Errors)
+	}
+
+	var exposeDocs, writeTools bool
+	var allowedTools []byte
+	if err := pool.QueryRow(context.Background(), `
+		SELECT chat_expose_document_extracted_data, chat_write_tools_enabled, chat_allowed_write_tools
+		FROM chat_user_preferences
+		WHERE user_id = $1
+	`, userID).Scan(&exposeDocs, &writeTools, &allowedTools); err != nil {
+		t.Fatalf("select chat_user_preferences: %v", err)
+	}
+	if !exposeDocs || !writeTools {
+		t.Fatalf("chat preferences booleans not imported: exposeDocs=%v writeTools=%v", exposeDocs, writeTools)
+	}
+	if string(allowedTools) != `["update_activity_title", "create_automation_rule"]` {
+		t.Fatalf("chat_allowed_write_tools = %s", allowedTools)
 	}
 }
 

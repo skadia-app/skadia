@@ -117,6 +117,12 @@ func TestBuildSearchPOIsNearbySQLDoesNotUseUserFilter(t *testing.T) {
 	}
 }
 
+func TestBuildSearchPOIsNearbyRejectsOutOfRangeCoordinates(t *testing.T) {
+	if _, _, err := buildSearchPOIsNearbySQL(searchPOIsNearbyArgs{Lat: 91, Lng: 11.4}); err == nil {
+		t.Fatal("buildSearchPOIsNearbySQL accepted invalid coordinates")
+	}
+}
+
 func TestBuildSearchTrailsSQLDifficultyFilters(t *testing.T) {
 	sql, params, err := buildSearchTrailsByDifficultySQL(searchTrailsByDifficultyArgs{
 		Lat: 47.2, Lng: 11.4, MaxSacScale: "demanding_mountain_hiking", MaxMTBScale: "S2", Surface: "gravel",
@@ -140,6 +146,19 @@ func TestBuildSearchTrailsSQLDifficultyFilters(t *testing.T) {
 	}
 	if strings.Join(mtbValues, ",") != "0,1,2" {
 		t.Fatalf("mtb values = %#v, want 0..2", mtbValues)
+	}
+}
+
+func TestBuildSearchTrailsSQLRejectsInvalidDifficulty(t *testing.T) {
+	if _, _, err := buildSearchTrailsByDifficultySQL(searchTrailsByDifficultyArgs{
+		Lat: 47.2, Lng: 11.4, MaxSacScale: "not-a-scale",
+	}); err == nil {
+		t.Fatal("buildSearchTrailsByDifficultySQL accepted invalid SAC scale")
+	}
+	if _, _, err := buildSearchTrailsByDifficultySQL(searchTrailsByDifficultyArgs{
+		Lat: 47.2, Lng: 11.4, MaxMTBScale: "S9",
+	}); err == nil {
+		t.Fatal("buildSearchTrailsByDifficultySQL accepted invalid MTB scale")
 	}
 }
 

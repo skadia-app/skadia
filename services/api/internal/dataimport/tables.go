@@ -83,6 +83,13 @@ func allTables() []tableSpec {
 			NaturalKey: []string{"name"},
 		},
 		{
+			Name:       "user_map_layers",
+			Phase:      2,
+			PKField:    "id",
+			Conflict:   cmMergeID,
+			NaturalKey: []string{"name"},
+		},
+		{
 			Name:       "routing_profiles",
 			Phase:      2,
 			PKField:    "id",
@@ -105,6 +112,18 @@ func allTables() []tableSpec {
 			Name:     "llm_user_config",
 			Phase:    2,
 			PKField:  "id",
+			Conflict: cmReplace,
+		},
+		{
+			Name:     "chat_user_preferences",
+			Phase:    2,
+			PKField:  "",
+			Conflict: cmReplace,
+		},
+		{
+			Name:     "user_readiness_preferences",
+			Phase:    2,
+			PKField:  "",
 			Conflict: cmReplace,
 		},
 		{
@@ -484,6 +503,38 @@ func isFileRefColumn(table, col string) bool {
 // use in CI tests that verify registry completeness.
 func ExportedTableSpecs() []tableSpec {
 	return allTables()
+}
+
+// ImportCoverageTableNamesForGDPRGuard returns table names that the GDPR import
+// path either imports through table specs or handles explicitly outside the
+// generic table loop.
+func ImportCoverageTableNamesForGDPRGuard() map[string]bool {
+	covered := make(map[string]bool)
+	for _, spec := range allTables() {
+		if spec.Skip {
+			continue
+		}
+		covered[spec.Name] = true
+	}
+	for _, spec := range healthTables() {
+		covered[spec.Name] = true
+	}
+	for _, table := range []string{
+		"users",      // data/profile.json is handled by runPhase1.
+		"user_files", // metadata plus blobs are handled by importAllFiles.
+	} {
+		covered[table] = true
+	}
+	return covered
+}
+
+// ImportSkippedTableRationalesForGDPRGuard documents exported tables that are
+// intentionally not imported by the generic GDPR table path.
+func ImportSkippedTableRationalesForGDPRGuard() map[string]string {
+	return map[string]string{
+		"best_efforts": "Derived activity achievement rows are recomputed from imported activities.",
+		"import_log":   "Historical import audit rows are not restored; imported activities/files carry the user data.",
+	}
 }
 
 // findSpecByName returns the tableSpec with the given name from allTables and
