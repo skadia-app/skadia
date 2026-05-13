@@ -41,6 +41,14 @@ function isManagedRole(config: LLMSystemConfig): boolean {
   return ROLE_ORDER.includes(config.role)
 }
 
+function sameConnection(a?: LLMSystemConfig, b?: LLMSystemConfig): boolean {
+  if (!a || !b) return false
+  return a.backend_type === b.backend_type &&
+    (a.api_base || '') === (b.api_base || '') &&
+    (a.model_name || '') === (b.model_name || '') &&
+    a.has_api_key === b.has_api_key
+}
+
 function mutationErrorMessage(err: unknown): string {
   if (err && typeof err === 'object') {
     const json = (err as { json?: Record<string, unknown> }).json
@@ -113,6 +121,7 @@ function OcrPromptsSection() {
 
 export default function LLMSettingsPage() {
   const qc = useQueryClient()
+  const [separateRolesOverride, setSeparateRolesOverride] = useState<boolean | null>(null)
   const { data: configs = [], isLoading } = useQuery({
     queryKey: ['llm-config'],
     queryFn: fetchLLMConfig,
@@ -130,6 +139,12 @@ export default function LLMSettingsPage() {
     }
     return a.role.localeCompare(b.role)
   })
+  const primaryRole = roles.find(config => config.role === 'tool_agent') ?? roles[0]
+  const hasActiveSeparateConfig = roles.some(config =>
+    config.role !== primaryRole?.role && config.enabled && !sameConnection(config, primaryRole),
+  )
+  const separateRoles = separateRolesOverride ?? hasActiveSeparateConfig
+  const sharedRoleNames = roles.map(config => config.role)
 
   return (
     <div className="space-y-6">
@@ -140,27 +155,422 @@ export default function LLMSettingsPage() {
         </p>
       </div>
 
+      <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="font-medium text-neutral-900 dark:text-neutral-100">Ein Backend für alle Rollen</h3>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
+              Standardmodus: Chat, Dokumente, Markdown und Vision verwenden dieselbe Verbindung. Separate Rollen nur aktivieren, wenn Modelle gezielt getrennt werden sollen.
+            </p>
+          </div>
+          <Toggle
+            checked={!separateRoles}
+            onChange={checked => setSeparateRolesOverride(!checked)}
+            aria-label="Ein Backend für alle Rollen verwenden"
+          />
+        </div>
+      </section>
+
       <div className="space-y-4">
-        {roles.map(config => {
-          const role = config.role
-          return (
+        {!separateRoles && primaryRole ? (
+          <LLMSharedConfigCard
+            roles={roles}
+            primaryConfig={primaryRole}
+            roleNames={sharedRoleNames}
+            onSave={() => qc.invalidateQueries({ queryKey: ['llm-config'] })}
+          />
+        ) : (
+          roles.map(config => {
+            const role = config.role
+            return (
             <LLMRoleCard
               key={role}
               role={role}
               config={config}
               onSave={() => qc.invalidateQueries({ queryKey: ['llm-config'] })}
             />
-          )
-        })}
+            )
+          })
+        )}
       </div>
       <OcrPromptsSection />
     </div>
   )
 }
 
-function LLMRoleCard({ role, config, onSave }: {
+function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
+  roles: LLMSystemConfig[]
+  primaryConfig: LLMSystemConfig
+  roleNames: string[]
+  onSave: () => void
+}) {
+  const [backend, setBackend] = useState(primaryConfig.backend_type || 'disabled')
+  const [apiBase, setApiBase] = useState(primaryConfig.api_base || '')
+  const [modelName, setModelName] = useState(primaryConfig.model_name || '')
+  const [apiKey, setApiKey] = useState('')
+  const [apiKeyState, setApiKeyState] = useState<LLMAPIKeyState>('unchanged')
+  const [enabledByRole, setEnabledByRole] = useState<Record<string, boolean>>({})
+  const [testResult, setTestResult] = useState<LLMTestResult | null>(null)
+  const [evalResult, setEvalResult] = useState<string | null>(null)
+  const [localSaveError, setLocalSaveError] = useState<string | null>(null)
+  const [saveWarning, setSaveWarning] = useState<string | null>(null)
+  const [ollamaModels, setOllamaModels] = useState<string[]>([])
+  const [isLoadingModels, setIsLoadingModels] = useState(false)
+  const [isTesting, setIsTesting] = useState(false)
+  const [isEvaluating, setIsEvaluating] = useState(false)
+
+  useEffect(() => {
+    setBackend(primaryConfig.backend_type || 'disabled')
+    setApiBase(primaryConfig.api_base || '')
+    setModelName(primaryConfig.model_name || '')
+    setApiKey('')
+    setApiKeyState('unchanged')
+    setEnabledByRole(Object.fromEntries(roles.map(role => [role.role, role.enabled])))
+    setTestResult(null)
+    setEvalResult(null)
+    setLocalSaveError(null)
+    setSaveWarning(null)
+  }, [primaryConfig, roles])
+
+  const roleConfigsByName = new Map(roles.map(role => [role.role, role]))
+  const needsURL = backend !== 'disabled'
+  const needsAPIKey = backend === 'openai'
+  const isOllama = backend === 'ollama'
+  const canShowKeyControls = needsAPIKey || roles.some(role => role.has_api_key)
+  const activeRoleNames = roleNames.filter(roleName => enabledByRole[roleName])
+  const isDirty = backend !== (primaryConfig.backend_type || 'disabled') ||
+    (apiBase || '') !== (primaryConfig.api_base || '') ||
+    (modelName || '') !== (primaryConfig.model_name || '') ||
+    apiKeyState !== 'unchanged' ||
+    roles.some(role => enabledByRole[role.role] !== role.enabled)
+
+  const validateBeforeSave = (): string | null => {
+    if (activeRoleNames.length === 0) return null
+    if (backend === 'disabled') return 'Aktive Rollen brauchen ein Backend.'
+    if (needsURL && !apiBase.trim()) return 'Aktive Rollen brauchen eine API-Basis-URL.'
+    if (!modelName.trim()) return 'Aktive Rollen brauchen ein Modell.'
+    if (needsAPIKey && apiKeyState !== 'set') {
+      const roleWithoutKey = activeRoleNames.find(roleName => !roleConfigsByName.get(roleName)?.has_api_key)
+      if (roleWithoutKey) return 'Für den gemeinsamen OpenAI-Modus den API-Schlüssel neu eingeben, damit alle aktiven Rollen ihn erhalten.'
+    }
+    return null
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const results = await Promise.all(roleNames.map(roleName => saveLLMRole(roleName, {
+        backend_type: backend,
+        api_base: apiBase || undefined,
+        model_name: modelName || undefined,
+        api_key: apiKeyState === 'set' ? apiKey : undefined,
+        api_key_state: apiKeyState,
+        enabled: !!enabledByRole[roleName],
+      })))
+      return results.find(result => result?.warning) ?? results[0]
+    },
+    onMutate: () => {
+      setLocalSaveError(null)
+      setSaveWarning(null)
+    },
+    onSuccess: result => {
+      setSaveWarning(result?.warning ?? null)
+      onSave()
+    },
+    onError: err => {
+      setLocalSaveError(mutationErrorMessage(err))
+    },
+  })
+
+  const handleBackendChange = (newBackend: string) => {
+    setBackend(newBackend as Parameters<typeof setBackend>[0])
+    if (DEFAULT_URLS[newBackend] && !apiBase) setApiBase(DEFAULT_URLS[newBackend])
+    setOllamaModels([])
+    setTestResult(null)
+    setEvalResult(null)
+    setLocalSaveError(null)
+    setSaveWarning(null)
+  }
+
+  const loadOllamaModels = async () => {
+    setIsLoadingModels(true)
+    try {
+      const models = await fetchOllamaModels(apiBase || DEFAULT_URLS.ollama)
+      setOllamaModels(models.map(m => m.name))
+    } finally {
+      setIsLoadingModels(false)
+    }
+  }
+
+  const runTest = async () => {
+    setIsTesting(true)
+    setTestResult(null)
+    try {
+      const result = await testLLMConnection({
+        backend_type: backend,
+        api_base: apiBase || DEFAULT_URLS[backend] || '',
+        model_name: modelName,
+        api_key: apiKey || undefined,
+      })
+      setTestResult(result)
+    } catch {
+      setTestResult({ success: false, message: 'Verbindungsfehler' })
+    }
+    setIsTesting(false)
+  }
+
+  const runEval = async () => {
+    if (isDirty) {
+      setEvalResult('Eval erst nach dem Speichern starten')
+      return
+    }
+    setIsEvaluating(true)
+    setEvalResult(null)
+    try {
+      const results = await Promise.all(activeRoleNames.map(async roleName => ({ roleName, result: await runLLMEval(roleName) })))
+      const failed = results.filter(item => item.result.status !== 'passed')
+      setEvalResult(failed.length === 0
+        ? 'Eval: alle aktiven Rollen passed'
+        : `Eval: ${failed.map(item => `${ROLE_LABELS[item.roleName] ?? item.roleName} ${item.result.status}`).join(', ')}`)
+      onSave()
+    } catch {
+      setEvalResult('Eval fehlgeschlagen')
+    }
+    setIsEvaluating(false)
+  }
+
+  const handleSave = () => {
+    const validationError = validateBeforeSave()
+    if (validationError) {
+      setLocalSaveError(validationError)
+      return
+    }
+    saveMutation.mutate()
+  }
+
+  const saveError = localSaveError ?? (saveMutation.isError ? mutationErrorMessage(saveMutation.error) : null)
+  const evalDisabledReason = isDirty ? 'Erst speichern, dann Eval starten.' : null
+
+  return (
+    <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 space-y-4">
+      <div>
+        <h3 className="font-medium text-neutral-900 dark:text-neutral-100">Gemeinsame Verbindung</h3>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+          Diese Backend-Daten werden für alle unten aktivierten Rollen gespeichert.
+        </p>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        {roles.map(role => (
+          <div key={role.role} className="flex items-start justify-between gap-3 rounded-lg border border-neutral-100 dark:border-neutral-800 px-3 py-2">
+            <div>
+              <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{ROLE_LABELS[role.role] ?? role.role}</div>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">{ROLE_DESCRIPTIONS[role.role] ?? 'Benutzerdefinierte Rolle.'}</p>
+              <span className="mt-1 inline-block rounded bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 px-2 py-0.5 text-xs">
+                Eval: {role.eval_status}
+              </span>
+            </div>
+            <Toggle
+              checked={!!enabledByRole[role.role]}
+              onChange={checked => {
+                setEnabledByRole(current => ({ ...current, [role.role]: checked }))
+                setEvalResult(null)
+                setLocalSaveError(null)
+                setSaveWarning(null)
+                if (checked && backend === 'disabled') {
+                  setBackend('llama_server')
+                  if (!apiBase) setApiBase(DEFAULT_URLS.llama_server)
+                }
+              }}
+              aria-label={`${ROLE_LABELS[role.role] ?? role.role} aktivieren`}
+            />
+          </div>
+        ))}
+      </div>
+
+      {activeRoleNames.length > 0 && (
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">Backend</label>
+            <select
+              value={backend}
+              onChange={e => handleBackendChange(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none"
+            >
+              {BACKEND_OPTIONS.filter(o => o.value !== 'disabled').map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {needsURL && (
+            <div>
+              <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
+                {isOllama ? 'Ollama URL' : 'API-Basis-URL'}
+              </label>
+              <input
+                type="text"
+                value={apiBase}
+                onChange={e => {
+                  setApiBase(e.target.value)
+                  setTestResult(null)
+                  setEvalResult(null)
+                  setLocalSaveError(null)
+                  setSaveWarning(null)
+                }}
+                placeholder={DEFAULT_URLS[backend] || 'https://...'}
+                className="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-mono text-neutral-900 dark:text-neutral-100 focus:outline-none"
+              />
+            </div>
+          )}
+
+          {needsURL && (
+            <div>
+              <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">Modell</label>
+              {isOllama && ollamaModels.length > 0 ? (
+                <select
+                  value={modelName}
+                  onChange={e => setModelName(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none"
+                >
+                  <option value="">-- Modell wählen --</option>
+                  {ollamaModels.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              ) : (
+                <div className="flex gap-2 mt-1">
+                  <input
+                    type="text"
+                    value={modelName}
+                    onChange={e => {
+                      setModelName(e.target.value)
+                      setTestResult(null)
+                      setEvalResult(null)
+                      setLocalSaveError(null)
+                      setSaveWarning(null)
+                    }}
+                    placeholder={isOllama ? 'qwen3:8b' : 'gpt-4o'}
+                    className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-mono text-neutral-900 dark:text-neutral-100 focus:outline-none"
+                  />
+                  {isOllama && (
+                    <button
+                      onClick={loadOllamaModels}
+                      disabled={isLoadingModels}
+                      className="cursor-pointer px-3 py-2 rounded-lg text-sm border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                    >
+                      {isLoadingModels ? 'Lade...' : 'Modelle laden'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {canShowKeyControls && (
+            <div>
+              <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
+                API-Schlüssel {roles.some(role => role.has_api_key) && apiKeyState === 'unchanged' && <span className="text-green-500">(gesetzt)</span>}
+                {apiKeyState === 'clear' && <span className="text-amber-500">(wird gelöscht)</span>}
+              </label>
+              <div className="mt-1 flex gap-2">
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={e => {
+                    setApiKey(e.target.value)
+                    setApiKeyState(e.target.value ? 'set' : 'unchanged')
+                    setTestResult(null)
+                    setEvalResult(null)
+                    setLocalSaveError(null)
+                    setSaveWarning(null)
+                  }}
+                  placeholder={roles.some(role => role.has_api_key) ? 'Neuen Schlüssel für aktive Rollen setzen' : 'sk-...'}
+                  className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-mono text-neutral-900 dark:text-neutral-100 focus:outline-none"
+                />
+                {roles.some(role => role.has_api_key) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setApiKey('')
+                      setApiKeyState(apiKeyState === 'clear' ? 'unchanged' : 'clear')
+                    }}
+                    className="cursor-pointer px-3 py-2 rounded-lg text-sm border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors whitespace-nowrap"
+                  >
+                    {apiKeyState === 'clear' ? 'Behalten' : 'Löschen'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              onClick={runTest}
+              disabled={isTesting || !needsURL}
+              className="cursor-pointer px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isTesting ? 'Teste...' : 'Verbindung testen'}
+            </button>
+            <button
+              onClick={runEval}
+              disabled={isEvaluating || !needsURL || !modelName || isDirty || activeRoleNames.length === 0}
+              title={evalDisabledReason ?? undefined}
+              className="cursor-pointer px-3 py-1.5 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isEvaluating ? 'Eval läuft...' : 'Evals starten'}
+            </button>
+            {testResult && (
+              <span className={`text-xs ${testResult.success ? 'text-green-500' : 'text-rose-500'}`}>
+                {testResult.success ? 'OK' : 'Fehler'} {testResult.message}
+                {testResult.latency_ms ? ` (${testResult.latency_ms}ms)` : ''}
+              </span>
+            )}
+            {evalResult && (
+              <span className={`text-xs ${evalResult.includes('passed') ? 'text-green-500' : 'text-rose-500'}`}>
+                {evalResult}
+              </span>
+            )}
+          </div>
+          {evalDisabledReason && <p className="text-xs text-amber-600 dark:text-amber-400">{evalDisabledReason}</p>}
+        </div>
+      )}
+
+      <div className="flex justify-end pt-1">
+        <button
+          onClick={handleSave}
+          disabled={saveMutation.isPending}
+          className="cursor-pointer px-4 py-1.5 text-sm rounded-lg text-white bg-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {saveMutation.isPending ? 'Speichere...' : 'Speichern'}
+        </button>
+      </div>
+      {saveError && (
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          Speichern fehlgeschlagen: {saveError}
+        </p>
+      )}
+      {saveWarning && (
+        <p role="status" className="text-sm text-amber-600 dark:text-amber-400">
+          Gespeichert, aber LiteLLM-Konfiguration konnte nicht aktualisiert werden: {saveWarning}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function LLMRoleCard({
+  role,
+  roleLabel,
+  roleDescription,
+  config,
+  allRoleConfigs,
+  saveRoleNames,
+  onSave,
+}: {
   role: string
+  roleLabel?: string
+  roleDescription?: string
   config?: LLMSystemConfig
+  allRoleConfigs?: LLMSystemConfig[]
+  saveRoleNames?: string[]
   onSave: () => void
 }) {
   const [backend, setBackend] = useState(config?.backend_type || 'disabled')
@@ -175,6 +585,9 @@ function LLMRoleCard({ role, config, onSave }: {
   const [isWaiving, setIsWaiving] = useState(false)
   const [localSaveError, setLocalSaveError] = useState<string | null>(null)
   const [saveWarning, setSaveWarning] = useState<string | null>(null)
+  const rolesToSave = saveRoleNames?.length ? saveRoleNames : [role]
+  const isSharedCard = rolesToSave.length > 1
+  const roleConfigsByName = new Map((allRoleConfigs ?? (config ? [config] : [])).map(item => [item.role, item]))
 
   useEffect(() => {
     setBackend(config?.backend_type || 'disabled')
@@ -192,9 +605,13 @@ function LLMRoleCard({ role, config, onSave }: {
   const [isEvaluating, setIsEvaluating] = useState(false)
 
   const saveMutation = useMutation({
-    mutationFn: () => saveLLMRole(role, { backend_type: backend, api_base: apiBase || undefined,
-      model_name: modelName || undefined, api_key: apiKeyState === 'set' ? apiKey : undefined,
-      api_key_state: apiKeyState, enabled }),
+    mutationFn: async () => {
+      const update = { backend_type: backend, api_base: apiBase || undefined,
+        model_name: modelName || undefined, api_key: apiKeyState === 'set' ? apiKey : undefined,
+        api_key_state: apiKeyState, enabled }
+      const results = await Promise.all(rolesToSave.map(roleName => saveLLMRole(roleName, update)))
+      return results.find(result => result?.warning) ?? results[0]
+    },
     onMutate: () => {
       setLocalSaveError(null)
       setSaveWarning(null)
@@ -256,9 +673,13 @@ function LLMRoleCard({ role, config, onSave }: {
     setIsEvaluating(true)
     setEvalResult(null)
     try {
-      const result = await runLLMEval(role)
-      const failed = result.failed_cases?.length ? ` (${result.failed_cases.join(', ')})` : ''
-      setEvalResult(`Eval: ${result.status}${failed}`)
+      const results = await Promise.all(rolesToSave.map(async roleName => ({ roleName, result: await runLLMEval(roleName) })))
+      const failed = results.filter(item => item.result.status !== 'passed')
+      if (failed.length === 0) {
+        setEvalResult(isSharedCard ? 'Eval: alle passed' : 'Eval: passed')
+      } else {
+        setEvalResult(`Eval: ${failed.map(item => `${ROLE_LABELS[item.roleName] ?? item.roleName} ${item.result.status}`).join(', ')}`)
+      }
       onSave()
     } catch {
       setEvalResult('Eval fehlgeschlagen')
@@ -302,6 +723,10 @@ function LLMRoleCard({ role, config, onSave }: {
     if (needsURL && !apiBase.trim()) return 'Aktive Rollen brauchen eine API-Basis-URL.'
     if (!modelName.trim()) return 'Aktive Rollen brauchen ein Modell.'
     if (needsAPIKey && !config?.has_api_key && apiKeyState !== 'set') return 'Aktive OpenAI-Rollen brauchen einen API-Schlüssel.'
+    if (isSharedCard && needsAPIKey && apiKeyState !== 'set') {
+      const roleWithoutKey = rolesToSave.find(roleName => !roleConfigsByName.get(roleName)?.has_api_key)
+      if (roleWithoutKey) return 'Für den gemeinsamen OpenAI-Modus den API-Schlüssel neu eingeben, damit alle Rollen ihn erhalten.'
+    }
     if (providerBaseChanged && apiKeyState === 'unchanged') return 'Backend oder URL wurde geändert. Schlüssel neu setzen oder löschen.'
     return null
   }
@@ -348,12 +773,23 @@ function LLMRoleCard({ role, config, onSave }: {
       <div className="flex items-start justify-between">
         <div>
           <h3 className="font-medium text-neutral-900 dark:text-neutral-100">
-            {ROLE_LABELS[role] ?? role}
+            {roleLabel ?? ROLE_LABELS[role] ?? role}
           </h3>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            {ROLE_DESCRIPTIONS[role] ?? 'Benutzerdefinierte Rolle.'}
+            {roleDescription ?? ROLE_DESCRIPTIONS[role] ?? 'Benutzerdefinierte Rolle.'}
           </p>
-          {config && (
+          {isSharedCard ? (
+            <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
+              {rolesToSave.map(roleName => {
+                const roleConfig = roleConfigsByName.get(roleName)
+                return (
+                  <span key={roleName} className="rounded bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 px-2 py-0.5">
+                    {ROLE_LABELS[roleName] ?? roleName}: {roleConfig?.eval_status ?? 'untested'}
+                  </span>
+                )
+              })}
+            </div>
+          ) : config && (
             <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
               <span className={`rounded px-2 py-0.5 ${
                 config.eval_status === 'passed'
@@ -375,7 +811,7 @@ function LLMRoleCard({ role, config, onSave }: {
         <Toggle
           checked={enabled}
           onChange={handleEnabledChange}
-          aria-label={`${ROLE_LABELS[role] ?? role} aktivieren`}
+          aria-label={`${roleLabel ?? ROLE_LABELS[role] ?? role} aktivieren`}
         />
       </div>
 
@@ -552,7 +988,7 @@ function LLMRoleCard({ role, config, onSave }: {
             <p className="text-xs text-amber-600 dark:text-amber-400">{evalDisabledReason}</p>
           )}
 
-          {config?.eval_status !== 'passed' && (
+          {!isSharedCard && config?.eval_status !== 'passed' && (
             <div className="pt-2 space-y-2">
               <label htmlFor={`waiver-${role}`} className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
                 Waiver-Begründung

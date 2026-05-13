@@ -36,6 +36,10 @@ function renderPage() {
   )
 }
 
+async function enableSeparateRoles(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('switch', { name: 'Ein Backend für alle Rollen verwenden' }))
+}
+
 describe('LLMSettingsPage', () => {
   beforeEach(() => {
     mockState.configs = [
@@ -48,7 +52,9 @@ describe('LLMSettingsPage', () => {
   it('renders roles from API contract with eval status instead of a hard-coded default role', async () => {
     renderPage()
 
-    expect(await screen.findByText('Tool-Agent')).toBeInTheDocument()
+    expect(await screen.findByText('Gemeinsame Verbindung')).toBeInTheDocument()
+    expect(screen.getByText(/Diese Backend-Daten/)).toBeInTheDocument()
+    expect(screen.getByText('Tool-Agent')).toBeInTheDocument()
     expect(screen.getByText('Vision')).toBeInTheDocument()
     expect(screen.getByText('Eval: untested')).toBeInTheDocument()
     expect(screen.getByText('Eval: waived')).toBeInTheDocument()
@@ -64,7 +70,8 @@ describe('LLMSettingsPage', () => {
     ]
     renderPage()
 
-    expect(await screen.findByText('Tool-Agent')).toBeInTheDocument()
+    expect(await screen.findByText('Gemeinsame Verbindung')).toBeInTheDocument()
+    expect(screen.getByText('Eval: untested')).toBeInTheDocument()
     expect(screen.queryByText('default')).not.toBeInTheDocument()
     expect(screen.queryByText('vlm')).not.toBeInTheDocument()
   })
@@ -75,6 +82,7 @@ describe('LLMSettingsPage', () => {
     ]
     const user = userEvent.setup()
     renderPage()
+    await enableSeparateRoles(user)
 
     await screen.findByText('Tool-Agent')
     await user.type(screen.getByLabelText('Waiver-Begründung'), 'Manuelle lokale Eval-Prüfung')
@@ -89,6 +97,7 @@ describe('LLMSettingsPage', () => {
     ]
     const user = userEvent.setup()
     renderPage()
+    await enableSeparateRoles(user)
 
     await user.click(await screen.findByLabelText('Vision aktivieren'))
     await user.type(await screen.findByPlaceholderText('gpt-4o'), 'vision-model')
@@ -113,7 +122,7 @@ describe('LLMSettingsPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByText('Tool-Agent')
+    await screen.findByText('Gemeinsame Verbindung')
     await user.click(screen.getByRole('button', { name: 'Speichern' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('optional LiteLLM config could not be regenerated')
@@ -127,7 +136,7 @@ describe('LLMSettingsPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByText('Tool-Agent')
+    await screen.findByText('Gemeinsame Verbindung')
     await user.click(screen.getByRole('button', { name: 'Speichern' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Backend nicht erreichbar')
@@ -139,6 +148,7 @@ describe('LLMSettingsPage', () => {
     ]
     const user = userEvent.setup()
     renderPage()
+    await enableSeparateRoles(user)
 
     const modelInput = await screen.findByDisplayValue('tool-model')
     await user.clear(modelInput)
@@ -146,5 +156,28 @@ describe('LLMSettingsPage', () => {
 
     expect(screen.getByRole('button', { name: 'Eval starten' })).toBeDisabled()
     expect(runLLMEval).not.toHaveBeenCalled()
+  })
+
+  it('saves the shared backend to every managed role shown by the API', async () => {
+    mockState.configs = [
+      { role: 'tool_agent', backend_type: 'llama_server', api_base: 'https://llm.example/v1', model_name: 'shared-model', enabled: true, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['tool_calls'], eval_status: 'passed', eval_report: {} },
+      { role: 'document_extract', backend_type: 'disabled', enabled: false, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['document_extract'], eval_status: 'untested', eval_report: {} },
+      { role: 'markdown_extract', backend_type: 'disabled', enabled: false, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['markdown_extract'], eval_status: 'untested', eval_report: {} },
+      { role: 'vision', backend_type: 'disabled', enabled: false, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['vision'], eval_status: 'untested', eval_report: {} },
+    ]
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Gemeinsame Verbindung')
+    await user.click(screen.getByLabelText('Dokumente aktivieren'))
+    await user.click(screen.getByLabelText('Markdown aktivieren'))
+    await user.click(screen.getByLabelText('Vision aktivieren'))
+    await user.click(screen.getByRole('button', { name: 'Speichern' }))
+
+    expect(saveLLMRole).toHaveBeenCalledTimes(4)
+    expect(saveLLMRole).toHaveBeenCalledWith('tool_agent', expect.objectContaining({ model_name: 'shared-model', enabled: true }))
+    expect(saveLLMRole).toHaveBeenCalledWith('document_extract', expect.objectContaining({ model_name: 'shared-model', enabled: true }))
+    expect(saveLLMRole).toHaveBeenCalledWith('markdown_extract', expect.objectContaining({ model_name: 'shared-model', enabled: true }))
+    expect(saveLLMRole).toHaveBeenCalledWith('vision', expect.objectContaining({ model_name: 'shared-model', enabled: true }))
   })
 })
