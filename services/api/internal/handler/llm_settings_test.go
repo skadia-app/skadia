@@ -28,6 +28,26 @@ func TestPutLLMConfigRoleAcceptsExplicitRoleAndRejectsLegacyDefault(t *testing.T
 	if rec.Code != http.StatusOK {
 		t.Fatalf("tool_agent status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
+	configs, err := h.DB.GetLLMSystemConfig(context.Background())
+	if err != nil {
+		t.Fatalf("GetLLMSystemConfig: %v", err)
+	}
+	var toolConfig *model.LLMSystemConfig
+	for i := range configs {
+		if configs[i].Role == model.LLMRoleToolAgent {
+			toolConfig = &configs[i]
+			break
+		}
+	}
+	if toolConfig == nil {
+		t.Fatal("tool_agent config not found")
+	}
+	if toolConfig.EvalStatus != model.LLMEvalStatusWaived {
+		t.Fatalf("eval status = %q, want admin release after saving active config", toolConfig.EvalStatus)
+	}
+	if reason, _ := toolConfig.EvalReport["admin_reason"].(string); reason == "" {
+		t.Fatalf("eval report = %#v, want admin_reason after saving active config", toolConfig.EvalReport)
+	}
 
 	req = llmRoleRequest(t, http.MethodPut, "/admin/llm-config/default", "default", body)
 	rec = httptest.NewRecorder()
@@ -366,6 +386,55 @@ func TestPatchLLMConfigEvalWaiverStoresReason(t *testing.T) {
 	identity, _ := got.EvalReport["identity"].(map[string]any)
 	if identity["api_base_host"] != "llm.example" || identity["model_name"] != "candidate-model" {
 		t.Fatalf("eval report identity = %#v, want current config identity", got.EvalReport["identity"])
+	}
+}
+
+func TestPatchLLMConfigEvalWaiverDoesNotFailWhenOptionalLiteLLMConfigCannotBeWritten(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{LiteLLMConfigPath: t.TempDir()}
+
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, enabled, eval_status, eval_report)
+		VALUES ('tool_agent', 'llama_server', 'http://llm.example/v1', 'candidate-model', true, 'failed', '{"failed_cases":["tool"]}'::jsonb)
+			ON CONFLICT (role) DO UPDATE SET
+				backend_type = EXCLUDED.backend_type,
+				api_base = EXCLUDED.api_base,
+				model_name = EXCLUDED.model_name,
+				api_key_enc = NULL,
+				enabled = EXCLUDED.enabled,
+				eval_status = EXCLUDED.eval_status,
+				eval_report = EXCLUDED.eval_report
+	`); err != nil {
+		t.Fatalf("seed system config: %v", err)
+	}
+
+	req := llmRoleRequest(t, http.MethodPatch, "/admin/llm-config/tool_agent/eval-waiver", "tool_agent", []byte(`{"admin_reason":"Temporary local validation while eval service is offline"}`))
+	rec := httptest.NewRecorder()
+	h.PatchLLMConfigEvalWaiver(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200 because LiteLLM config is optional", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "warning") || !strings.Contains(rec.Body.String(), "litellm_config_stale") {
+		t.Fatalf("body = %s, want warning for optional LiteLLM artifact failure", rec.Body.String())
+	}
+
+	configs, err := h.DB.GetLLMSystemConfig(context.Background())
+	if err != nil {
+		t.Fatalf("GetLLMSystemConfig: %v", err)
+	}
+	var got *model.LLMSystemConfig
+	for i := range configs {
+		if configs[i].Role == model.LLMRoleToolAgent {
+			got = &configs[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("tool_agent config not found")
+	}
+	if got.EvalStatus != model.LLMEvalStatusWaived {
+		t.Fatalf("eval status = %q, want waived despite optional LiteLLM artifact failure", got.EvalStatus)
 	}
 }
 
