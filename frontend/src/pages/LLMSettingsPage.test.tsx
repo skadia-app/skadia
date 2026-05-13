@@ -4,7 +4,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import LLMSettingsPage from './LLMSettingsPage'
-import { runLLMEval, saveLLMRole, waiveLLMEval } from '@/api/llmSettings'
+import { runLLMEval, saveLLMRole, testLLMConnection, waiveLLMEval } from '@/api/llmSettings'
 
 const mockState = vi.hoisted(() => ({
   configs: [
@@ -156,6 +156,38 @@ describe('LLMSettingsPage', () => {
 
     expect(screen.getByRole('button', { name: 'Eval starten' })).toBeDisabled()
     expect(runLLMEval).not.toHaveBeenCalled()
+  })
+
+  it('does not allow waivers while shared role settings are dirty', async () => {
+    mockState.configs = [
+      { role: 'tool_agent', backend_type: 'llama_server', api_base: 'https://llm.example/v1', model_name: 'tool-model', enabled: true, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['tool_calls'], eval_status: 'failed', eval_report: {} },
+    ]
+    const user = userEvent.setup()
+    renderPage()
+
+    const modelInput = await screen.findByDisplayValue('tool-model')
+    await user.clear(modelInput)
+    await user.type(modelInput, 'other-model')
+    await user.type(screen.getByLabelText('Tool-Agent Waiver-Begründung'), 'Manuelle lokale Eval-Prüfung')
+
+    expect(screen.getByRole('button', { name: 'Waiver' })).toBeDisabled()
+    expect(waiveLLMEval).not.toHaveBeenCalled()
+  })
+
+  it('surfaces connection test validation details from the API', async () => {
+    vi.mocked(testLLMConnection).mockRejectedValueOnce(Object.assign(new Error('Bad Request'), {
+      json: { message: 'api_base address host.containers.internal:8181 is blocked by LLM SSRF policy' },
+    }))
+    mockState.configs = [
+      { role: 'tool_agent', backend_type: 'llama_server', api_base: 'http://host.containers.internal:8181/v1', model_name: 'tool-model', enabled: true, has_api_key: false, updated_at: '2026-05-12T00:00:00Z', capability_flags: ['tool_calls'], eval_status: 'failed', eval_report: {} },
+    ]
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText('Gemeinsame Verbindung')
+    await user.click(screen.getByRole('button', { name: 'Verbindung testen' }))
+
+    expect(await screen.findByText(/host\.containers\.internal:8181 is blocked/)).toBeInTheDocument()
   })
 
   it('saves the shared backend to every managed role shown by the API', async () => {

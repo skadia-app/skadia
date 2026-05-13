@@ -316,8 +316,8 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
         api_key: apiKey || undefined,
       })
       setTestResult(result)
-    } catch {
-      setTestResult({ success: false, message: 'Verbindungsfehler' })
+    } catch (err) {
+      setTestResult({ success: false, message: mutationErrorMessage(err) })
     }
     setIsTesting(false)
   }
@@ -336,13 +336,17 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
         ? 'Eval: alle aktiven Rollen passed'
         : `Eval: ${failed.map(item => `${ROLE_LABELS[item.roleName] ?? item.roleName} ${item.result.status}`).join(', ')}`)
       onSave()
-    } catch {
-      setEvalResult('Eval fehlgeschlagen')
+    } catch (err) {
+      setEvalResult(`Eval fehlgeschlagen: ${mutationErrorMessage(err)}`)
     }
     setIsEvaluating(false)
   }
 
   const saveWaiver = async (roleName: string) => {
+    if (isDirty) {
+      setLocalSaveError('Erst speichern, dann Waiver speichern.')
+      return
+    }
     const reason = (waiverReasons[roleName] ?? '').trim()
     if (!reason) return
     setWaivingRole(roleName)
@@ -374,6 +378,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
 
   const saveError = localSaveError ?? (saveMutation.isError ? mutationErrorMessage(saveMutation.error) : null)
   const evalDisabledReason = isDirty ? 'Erst speichern, dann Eval starten.' : null
+  const waiverDisabledReason = isDirty ? 'Erst speichern, dann Waiver speichern.' : null
 
   return (
     <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 space-y-4">
@@ -431,12 +436,16 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
                 <button
                   type="button"
                   onClick={() => saveWaiver(role.role)}
-                  disabled={waivingRole === role.role || !(waiverReasons[role.role] ?? '').trim()}
+                  disabled={!!waiverDisabledReason || waivingRole === role.role || !(waiverReasons[role.role] ?? '').trim()}
+                  title={waiverDisabledReason ?? undefined}
                   className="cursor-pointer px-2 py-1 rounded-lg text-xs border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
                 >
                   {waivingRole === role.role ? 'Speichere...' : 'Waiver'}
                 </button>
               </div>
+            )}
+            {enabledByRole[role.role] && role.eval_status !== 'passed' && waiverDisabledReason && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">{waiverDisabledReason}</p>
             )}
           </div>
         ))}
@@ -714,8 +723,8 @@ function LLMRoleCard({
         api_key: apiKey || undefined,
       })
       setTestResult(result)
-    } catch {
-      setTestResult({ success: false, message: 'Verbindungsfehler' })
+    } catch (err) {
+      setTestResult({ success: false, message: mutationErrorMessage(err) })
     }
     setIsTesting(false)
   }
@@ -736,13 +745,17 @@ function LLMRoleCard({
         setEvalResult(`Eval: ${failed.map(item => `${ROLE_LABELS[item.roleName] ?? item.roleName} ${item.result.status}`).join(', ')}`)
       }
       onSave()
-    } catch {
-      setEvalResult('Eval fehlgeschlagen')
+    } catch (err) {
+      setEvalResult(`Eval fehlgeschlagen: ${mutationErrorMessage(err)}`)
     }
     setIsEvaluating(false)
   }
 
   const saveWaiver = async () => {
+    if (isDirty) {
+      setLocalSaveError('Erst speichern, dann Waiver speichern.')
+      return
+    }
     const reason = waiverReason.trim()
     if (!reason) return
     setIsWaiving(true)
@@ -752,8 +765,8 @@ function LLMRoleCard({
       setWaiverReason('')
       setEvalResult('Eval: waived')
       onSave()
-    } catch {
-      setEvalResult('Waiver fehlgeschlagen')
+    } catch (err) {
+      setLocalSaveError(mutationErrorMessage(err))
     }
     setIsWaiving(false)
   }
@@ -771,6 +784,7 @@ function LLMRoleCard({
     apiKeyState !== 'unchanged'
   const saveError = localSaveError ?? (saveMutation.isError ? mutationErrorMessage(saveMutation.error) : null)
   const evalDisabledReason = isDirty ? 'Erst speichern, dann Eval starten.' : null
+  const waiverDisabledReason = isDirty ? 'Erst speichern, dann Waiver speichern.' : null
 
   const validateBeforeSave = (): string | null => {
     if (!enabled) return null
@@ -1062,7 +1076,8 @@ function LLMRoleCard({
                 <button
                   type="button"
                   onClick={saveWaiver}
-                  disabled={isWaiving || !waiverReason.trim()}
+                  disabled={!!waiverDisabledReason || isWaiving || !waiverReason.trim()}
+                  title={waiverDisabledReason ?? undefined}
                   className="cursor-pointer px-3 py-2 rounded-lg text-sm border border-neutral-200 dark:border-neutral-700
                              text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800
                              disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
@@ -1070,6 +1085,9 @@ function LLMRoleCard({
                   {isWaiving ? 'Speichere...' : 'Waiver speichern'}
                 </button>
               </div>
+              {waiverDisabledReason && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">{waiverDisabledReason}</p>
+              )}
             </div>
           )}
         </div>

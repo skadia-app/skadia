@@ -58,6 +58,10 @@ var globalChatRateLimiter = &chatRateLimiter{
 	counts: make(map[string][]time.Time),
 }
 
+var chatPreferencesRateLimiter = &chatRateLimiter{
+	counts: make(map[string][]time.Time),
+}
+
 var confirmRateLimiter = &chatRateLimiter{
 	counts: make(map[string][]time.Time),
 }
@@ -110,8 +114,8 @@ func (h *Handler) GetChatPreferences(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !globalChatRateLimiter.Allow(userID, 10) {
-		httputil.WriteError(w, http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded (10/min)", r.URL.Path)
+	if !chatPreferencesRateLimiter.Allow(userID, 60) {
+		httputil.WriteError(w, http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded (60/min)", r.URL.Path)
 		return
 	}
 
@@ -134,8 +138,8 @@ func (h *Handler) PutChatPreferences(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !globalChatRateLimiter.Allow(userID, 10) {
-		httputil.WriteError(w, http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded (10/min)", r.URL.Path)
+	if !chatPreferencesRateLimiter.Allow(userID, 60) {
+		httputil.WriteError(w, http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded (60/min)", r.URL.Path)
 		return
 	}
 

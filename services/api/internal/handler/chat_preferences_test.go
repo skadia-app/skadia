@@ -76,6 +76,33 @@ func TestChatPreferencesRejectsUnknownWriteTool(t *testing.T) {
 	}
 }
 
+func TestChatPreferencesDoNotConsumeChatSendRateLimit(t *testing.T) {
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+	h := newTestHandler(t, pool)
+
+	for i := 0; i < 10; i++ {
+		req := chatPrefsRequest(t, http.MethodGet, "/preferences", userID, nil)
+		w := httptest.NewRecorder()
+		h.ChatRoutes().ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET preferences #%d status = %d body=%s", i+1, w.Code, w.Body.String())
+		}
+	}
+
+	session, err := h.DB.CreateSession(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	body := []byte(`{"message_id":"msg-1","message":"Hallo"}`)
+	req := chatPrefsRequest(t, http.MethodPost, "/sessions/"+session.ID+"/send", userID, body)
+	w := httptest.NewRecorder()
+	h.ChatRoutes().ServeHTTP(w, req)
+	if w.Code == http.StatusTooManyRequests {
+		t.Fatalf("chat send was rate-limited by preferences requests: body=%s", w.Body.String())
+	}
+}
+
 func TestChatPreferencesRequiresUser(t *testing.T) {
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
