@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import '@testing-library/jest-dom'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ChatProfileSettings from './ChatProfileSettings'
@@ -77,14 +78,15 @@ describe('ChatProfileSettings', () => {
     expect(await screen.findByText('KI-Assistent')).toBeInTheDocument()
     expect(apiFetch).toHaveBeenCalledWith('/api/v1/settings/ml/chat-profile-defaults')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Tools & Routing' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Tools & Routing' }))
     const maxTools = screen.getByText('Max. Tools pro Anfrage').closest('div')
     expect(maxTools).not.toBeNull()
     expect(within(maxTools as HTMLElement).getByText('6')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Prompt & Kontext' }))
-    expect(screen.getByDisplayValue('12000')).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '12.000 Token' })).toBeInTheDocument()
+    const maxContext = screen.getByText('Max. Kontext-Tokens').closest('div')
+    expect(maxContext).not.toBeNull()
+    expect(within(maxContext as HTMLElement).getByRole('combobox')).toHaveValue('12000')
   })
 
   it('blocks editing instead of saving fallback defaults when user settings fail to load', async () => {

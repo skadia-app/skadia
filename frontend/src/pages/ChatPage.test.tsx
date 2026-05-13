@@ -1,6 +1,8 @@
+import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ChatPage from './ChatPage'
+import { ToastContainer } from '@/components/Toast'
 import { ToastProvider } from '@/lib/toast'
 import { createSession, getMessages, listSessions, type ChatMessage } from '@/api/chat'
 import { clearToken, redirectToLogin, refreshToken } from '@/lib/auth'
@@ -38,6 +40,7 @@ function renderPage() {
   return render(
     <ToastProvider>
       <ChatPage />
+      <ToastContainer />
     </ToastProvider>,
   )
 }
