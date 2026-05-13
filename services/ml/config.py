@@ -4,6 +4,7 @@ Reads from environment variables.
 """
 import logging
 import os
+from pathlib import Path
 
 import httpx
 
@@ -55,16 +56,23 @@ def _broker_headers() -> dict[str, str]:
     }
 
 
+def configured_llm_roles() -> tuple[str, ...]:
+    roles: list[str] = []
+    for role in ML_LLM_ROLES:
+        role = (role or "").strip()
+        if role and role not in roles:
+            roles.append(role)
+    return tuple(roles)
+
+
 def _role_status_fallback(status: str) -> dict[str, str]:
-    return {role: status for role in ML_LLM_ROLES if role}
+    return {role: status for role in configured_llm_roles()}
 
 
 def _normalize_role_statuses(payload: dict) -> dict[str, str]:
     roles = payload.get("roles", {})
     statuses: dict[str, str] = {}
-    for role in ML_LLM_ROLES:
-        if not role:
-            continue
+    for role in configured_llm_roles():
         value = roles.get(role, "not_configured")
         if isinstance(value, dict):
             value = value.get("status", "not_configured")
@@ -72,6 +80,45 @@ def _normalize_role_statuses(payload: dict) -> dict[str, str]:
             value = "unavailable"
         statuses[role] = value
     return statuses
+
+
+def llm_broker_readiness_from_statuses(statuses: dict[str, str]) -> dict:
+    roles = configured_llm_roles()
+    if not roles:
+        return {"status": "disabled", "roles": {}}
+    normalized = {}
+    for role in roles:
+        value = statuses.get(role, "not_configured")
+        if value not in {"configured", "not_configured", "unavailable"}:
+            value = "unavailable"
+        normalized[role] = value
+    if normalized and not ML_LLM_BROKER_TOKEN:
+        return {"status": "degraded", "roles": normalized, "error": "broker_token_missing"}
+    status = "ready" if all(value == "configured" for value in normalized.values()) else "degraded"
+    return {"status": status, "roles": normalized}
+
+
+def _local_shadowfs_base_path() -> str:
+    return (
+        os.getenv("ML_SHADOWFS_BASE_PATH")
+        or os.getenv("LIBRARY_BASE_PATH")
+        or os.getenv("SHADOW_FS_BASE_PATH")
+        or ""
+    )
+
+
+def get_local_shadowfs_readiness() -> dict:
+    base = _local_shadowfs_base_path()
+    if not base:
+        return {"status": "disabled"}
+    path = Path(base)
+    if not path.exists():
+        return {"status": "degraded", "base_path": base, "error": "missing"}
+    if not path.is_dir():
+        return {"status": "degraded", "base_path": base, "error": "not_directory"}
+    if not os.access(path, os.R_OK):
+        return {"status": "degraded", "base_path": base, "error": "not_readable"}
+    return {"status": "ready", "base_path": str(path)}
 
 
 def get_llm_role_statuses_sync() -> dict[str, str]:
@@ -100,6 +147,15 @@ async def get_llm_role_statuses() -> dict[str, str]:
     except Exception as e:
         _config_logger.warning("LLM broker status unavailable: %s", e)
         return _role_status_fallback("unavailable")
+
+
+async def get_llm_broker_readiness() -> dict:
+    """Return readiness for configured brokered LLM roles.
+
+    Empty role env vars explicitly disable brokered LLM/OCR readiness. If at
+    least one role is configured, every configured role must be broker-ready.
+    """
+    return llm_broker_readiness_from_statuses(await get_llm_role_statuses())
 
 
 async def call_llm_broker(
