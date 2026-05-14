@@ -76,6 +76,8 @@ func TestBuildFeatureStatesCoreBlocksFullOnlyCapabilities(t *testing.T) {
 	assertFeature(t, caps, KeyBadRouter, false, false, ReasonCoreProfile)
 	assertFeature(t, caps, KeyOSMImport, false, false, ReasonCoreProfile)
 	assertFeature(t, caps, KeyCoverageTiles, false, false, ReasonCoreProfile)
+	assertFeature(t, caps, KeySegmentRecompute, false, false, ReasonCoreProfile)
+	assertFeature(t, caps, KeySegmentPublish, false, false, ReasonCoreProfile)
 	assertFeature(t, caps, KeyMLService, false, false, ReasonCoreProfile)
 	assertFeature(t, caps, KeyAIAgent, true, true, "")
 	if caps.BadRouter || caps.RouteSuggestion || caps.MLService {

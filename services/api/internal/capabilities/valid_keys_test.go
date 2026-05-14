@@ -17,6 +17,7 @@ func TestValidKey(t *testing.T) {
 		"system_layers_coverage", "offline_map", "geo_poi_enrichment",
 		"surface_enrichment", "activity_track_summary_geo",
 		"activity_track_summary_surface", "segments",
+		"segment_recompute", "segment_publish",
 		"segment_osm_lift_import", "segment_enrichment_suggest",
 		"osm_lift_snap", "isochrone", "route_suggestion",
 		"local_poi_search", "ml_service", "document_ml",

@@ -7,6 +7,8 @@ import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
 import { useGlobalSportSettings } from '@/lib/globalSportSettings'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 import { fmtDist, fmtDuration } from '@/lib/format'
 import { triggerBlobDownload } from '@/lib/utils'
 import SegmentEditorModal from '@/components/SegmentEditorModal'
@@ -125,6 +127,7 @@ export default function SegmentsPage() {
   const { addToast } = useToast()
   const { isJobActiveForEntity } = useActiveJobs()
   const { hideUnused } = useGlobalSportSettings()
+  const { data: capabilities } = useCapabilities()
   const [localPendingIds, setLocalPendingIds] = useState<Set<string>>(new Set())
   const [searchInput, setSearchInput] = useState(search)
   const [editorMode, setEditorMode] = useState<'draw' | null>(null)
@@ -214,6 +217,14 @@ export default function SegmentsPage() {
     () => showAllSegments ? rawSegments : rawSegments.filter(segment => segment.ridden_count > 0),
     [rawSegments, showAllSegments]
   )
+  const segmentRecomputeAvailable = featureAvailable(capabilities, 'segment_recompute')
+  const fullSegmentEnrichmentAvailable = featureAvailable(capabilities, 'segment_enrichment_suggest')
+  const hasHistoricalDifficulty = rawSegments.some(segment =>
+    !!segment.segment_type_meta?.sac_scale || !!segment.segment_type_meta?.mtb_scale || !!segment.segment_type_meta?.difficulty_color
+  )
+  const hasHistoricalSurface = rawSegments.some(segment => !!segment.segment_type_meta?.surface)
+  const showDifficultyFilters = fullSegmentEnrichmentAvailable || hasHistoricalDifficulty || sacFilter.length > 0 || mtbFilter.length > 0
+  const showSurfaceFilters = fullSegmentEnrichmentAvailable || hasHistoricalSurface || surfaceFilter.length > 0
 
   // Keep old lift-only URLs meaningful after the global all-segments toggle replaced
   // show_lifts. Only lift-scoped old links become show_all_segments=true.
@@ -476,6 +487,7 @@ export default function SegmentsPage() {
         {showAdvanced && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-4 bg-neutral-50/50 dark:bg-neutral-800/20 rounded-xl border border-neutral-200 dark:border-neutral-800 animate-in fade-in slide-in-from-top-2 duration-200">
             {/* Difficulty block: SAC + MTB stacked with shared combine-toggle */}
+            {showDifficultyFilters && (
             <div className="space-y-3">
               <div className="space-y-2">
                 <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">SAC-Skala</label>
@@ -570,8 +582,10 @@ export default function SegmentsPage() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Surface — #3 fix: multi-select checkboxes analog SAC/MTB (was single-select dropdown) */}
+            {showSurfaceFilters && (
             <div className="space-y-2">
               <label className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Oberfläche</label>
               <div className="flex flex-wrap gap-x-3 gap-y-1.5">
@@ -591,6 +605,7 @@ export default function SegmentsPage() {
                 ))}
               </div>
             </div>
+            )}
 
             {/* Visibility — multi-checkbox: both checked = default (all), one checked = filter */}
             <div className="space-y-2">
@@ -776,7 +791,9 @@ export default function SegmentsPage() {
                   {segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
                     <button onClick={(e) => { e.stopPropagation(); setEditingSegment(segment) }} className="p-1 rounded text-neutral-400 hover:text-accent-DEFAULT hover:bg-accent-100 dark:hover:bg-accent-100/20 cursor-pointer"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
                   )}
-                  <button onClick={(e) => handleRecompute(e, segment.id)} disabled={isSegmentRecomputing(segment.id)} className={`p-1 rounded cursor-pointer ${isSegmentRecomputing(segment.id) ? 'text-accent-DEFAULT' : 'text-neutral-400 hover:text-blue-500'}`}><svg className={`w-4 h-4 ${isSegmentRecomputing(segment.id) ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
+                  {segmentRecomputeAvailable && (
+                    <button title="Matching neu berechnen" onClick={(e) => handleRecompute(e, segment.id)} disabled={isSegmentRecomputing(segment.id)} className={`p-1 rounded cursor-pointer ${isSegmentRecomputing(segment.id) ? 'text-accent-DEFAULT' : 'text-neutral-400 hover:text-blue-500'}`}><svg className={`w-4 h-4 ${isSegmentRecomputing(segment.id) ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
+                  )}
                   {segment.segment_type !== 'lift' && (segment.created_by === me?.user_id || me?.is_admin) && (
                     <button onClick={(e) => handleDelete(e, segment.id)} className="p-1 rounded text-neutral-400 hover:text-red-500 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
                   )}
