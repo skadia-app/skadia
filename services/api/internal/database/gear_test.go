@@ -143,6 +143,59 @@ func TestInsertGearDocumentPersistsDocumentMetadata(t *testing.T) {
 	}
 }
 
+func TestInsertGearDocumentHonorsProcessingStatus(t *testing.T) {
+	db, userID := gearTestDB(t)
+	ctx := context.Background()
+	gear, err := db.CreateGear(ctx, userID, &model.GearCreate{Name: "Bike", Type: "bike"})
+	if err != nil {
+		t.Fatalf("CreateGear: %v", err)
+	}
+
+	pending, err := db.InsertGearDocument(ctx, &model.GearDocument{
+		UserID:           userID,
+		GearID:           &gear.ID,
+		DocType:          "manual",
+		OriginalFilename: "manual.pdf",
+		ContentType:      "application/pdf",
+		FileSizeBytes:    1234,
+		ProcessingStatus: "pending",
+	})
+	if err != nil {
+		t.Fatalf("InsertGearDocument pending: %v", err)
+	}
+	if pending.ProcessingStatus != "pending" {
+		t.Fatalf("pending document ProcessingStatus = %q, want pending", pending.ProcessingStatus)
+	}
+
+	idle, err := db.InsertGearDocument(ctx, &model.GearDocument{
+		UserID:           userID,
+		GearID:           &gear.ID,
+		DocType:          "photo",
+		OriginalFilename: "photo.jpg",
+		ContentType:      "image/jpeg",
+		FileSizeBytes:    2345,
+	})
+	if err != nil {
+		t.Fatalf("InsertGearDocument idle default: %v", err)
+	}
+	if idle.ProcessingStatus != "idle" {
+		t.Fatalf("default document ProcessingStatus = %q, want idle", idle.ProcessingStatus)
+	}
+
+	_, err = db.InsertGearDocument(ctx, &model.GearDocument{
+		UserID:           userID,
+		GearID:           &gear.ID,
+		DocType:          "manual",
+		OriginalFilename: "invalid.pdf",
+		ContentType:      "application/pdf",
+		FileSizeBytes:    3456,
+		ProcessingStatus: "bogus",
+	})
+	if err == nil {
+		t.Fatal("InsertGearDocument invalid ProcessingStatus succeeded, want constraint error")
+	}
+}
+
 func TestDeleteServiceEventRestoresPreviousIntervalReset(t *testing.T) {
 	db, userID := gearTestDB(t)
 	ctx := context.Background()

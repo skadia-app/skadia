@@ -3796,11 +3796,15 @@ func (db *DB) GearDocumentExistsByHashAndComponent(ctx context.Context, userID, 
 }
 
 func (db *DB) InsertGearDocument(ctx context.Context, doc *model.GearDocument) (*model.GearDocument, error) {
+	processingStatus := doc.ProcessingStatus
+	if processingStatus == "" {
+		processingStatus = "idle"
+	}
 	return scanGearDocument(db.Pool.QueryRow(ctx, `
-		INSERT INTO gear_documents (user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id, document_date, document_amount, document_currency)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, COALESCE($14, 'EUR'))
+		INSERT INTO gear_documents (user_id, gear_id, component_id, service_event_id, doc_type, title, original_filename, content_type, file_size_bytes, file_hash, file_id, document_date, document_amount, document_currency, processing_status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::date, $13, COALESCE($14, 'EUR'), $15)
 		RETURNING `+gearDocSelectCols,
-		doc.UserID, doc.GearID, doc.ComponentID, doc.ServiceEventID, doc.DocType, doc.Title, doc.OriginalFilename, doc.ContentType, doc.FileSizeBytes, doc.FileHash, doc.FileID, doc.DocumentDate, doc.DocumentAmount, doc.DocumentCurrency,
+		doc.UserID, doc.GearID, doc.ComponentID, doc.ServiceEventID, doc.DocType, doc.Title, doc.OriginalFilename, doc.ContentType, doc.FileSizeBytes, doc.FileHash, doc.FileID, doc.DocumentDate, doc.DocumentAmount, doc.DocumentCurrency, processingStatus,
 	))
 }
 
@@ -3999,10 +4003,27 @@ func (db *DB) GetGearCostSummary(ctx context.Context, gearID string) (*model.Gea
 }
 
 // UpdateGearDocumentText updates the extracted_text field of a gear document.
-func (db *DB) UpdateGearDocumentText(ctx context.Context, docID, text string) error {
+func (db *DB) UpdateGearDocumentText(ctx context.Context, userID, docID, text string) error {
 	_, err := db.Pool.Exec(ctx,
-		`UPDATE gear_documents SET extracted_text = $1, processing_status = 'processed' WHERE id = $2`,
-		text, docID,
+		`UPDATE gear_documents SET extracted_text = $1, processing_status = 'processed' WHERE id = $2 AND user_id = $3`,
+		text, docID, userID,
+	)
+	return err
+}
+
+// UpdateGearDocumentExtractedText stores extracted text without changing the async processing state.
+func (db *DB) UpdateGearDocumentExtractedText(ctx context.Context, userID, docID, text string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE gear_documents SET extracted_text = $1 WHERE id = $2 AND user_id = $3`,
+		text, docID, userID,
+	)
+	return err
+}
+
+func (db *DB) UpdateGearDocumentProcessingStatus(ctx context.Context, userID, docID, status string) error {
+	_, err := db.Pool.Exec(ctx,
+		`UPDATE gear_documents SET processing_status = $1 WHERE id = $2 AND user_id = $3`,
+		status, docID, userID,
 	)
 	return err
 }
