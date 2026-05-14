@@ -23,6 +23,10 @@ type Config struct {
 	DevAuth             bool
 	FrontendURL         string // e.g. "http://localhost:5173"
 
+	// Deployment profile
+	DeploymentProfile       string // "core" or "full"
+	DeploymentProfileSource string // "implicit_legacy" or "env"
+
 	// JWT (HS256) issued by this backend after OIDC login
 	JWTSecret      string
 	JWTSecretBytes []byte // decoded at startup by auth.ValidateConfig
@@ -155,6 +159,7 @@ func Load() (*Config, error) {
 		HotfolderUserID:  os.Getenv("HOTFOLDER_USER_ID"),
 		MaxUploadSize:    parseMaxUploadSize(os.Getenv("MAX_UPLOAD_SIZE"), 52428800),
 
+		DeploymentProfile:     strings.TrimSpace(os.Getenv("SKADIA_DEPLOYMENT_PROFILE")),
 		StorageMode:           strings.TrimSpace(os.Getenv("SKADIA_STORAGE_MODE")),
 		StorageBackend:        getEnvDefault("STORAGE_BACKEND", "local"),
 		LibraryBasePath:       getEnvDefault("LIBRARY_BASE_PATH", "/data/library"),
@@ -306,6 +311,9 @@ func Load() (*Config, error) {
 	if cfg.StorageBackend != "local" && cfg.StorageBackend != "s3" {
 		return nil, fmt.Errorf("STORAGE_BACKEND must be 'local' or 's3', got %q", cfg.StorageBackend)
 	}
+	if err := normalizeDeploymentProfile(cfg); err != nil {
+		return nil, err
+	}
 	if err := normalizeStorageMode(cfg); err != nil {
 		return nil, err
 	}
@@ -338,6 +346,21 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func normalizeDeploymentProfile(cfg *Config) error {
+	if cfg.DeploymentProfile == "" {
+		cfg.DeploymentProfile = "full"
+		cfg.DeploymentProfileSource = "implicit_legacy"
+		return nil
+	}
+	switch cfg.DeploymentProfile {
+	case "core", "full":
+		cfg.DeploymentProfileSource = "env"
+		return nil
+	default:
+		return fmt.Errorf("SKADIA_DEPLOYMENT_PROFILE must be 'core' or 'full', got %q", cfg.DeploymentProfile)
+	}
 }
 
 func isLocalGarageS3(cfg *Config) bool {
