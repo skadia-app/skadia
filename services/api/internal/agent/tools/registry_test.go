@@ -151,7 +151,7 @@ func TestRegistryLocalMCPReadDefinitionsOmitWriteTools(t *testing.T) {
 		Permission:           PermissionWriteSafe,
 		RequiresConfirmation: true,
 		AuditMode:            AuditWrite,
-		RateLimit:            10,
+		RateLimitPerHour:     10,
 		IsUserOwned:          true,
 	})
 

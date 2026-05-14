@@ -3,8 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
@@ -16,13 +18,14 @@ type AgentToolRuntime struct {
 	Registry *Registry
 	Deps     *Deps
 	Envelope *ExecutionEnvelope
+	Limiter  *ToolQuotaLimiter
 }
 
 func NewAgentToolRuntime(reg *Registry, deps *Deps, envelope *ExecutionEnvelope) *AgentToolRuntime {
 	if envelope == nil {
 		envelope = NewExecutionEnvelope(reg, deps)
 	}
-	return &AgentToolRuntime{Registry: reg, Deps: deps, Envelope: envelope}
+	return &AgentToolRuntime{Registry: reg, Deps: deps, Envelope: envelope, Limiter: NewToolQuotaLimiter()}
 }
 
 func (r *AgentToolRuntime) AddEnabledWriteTools(filter []string, prefs *agent.ChatPreferences) []string {
@@ -50,17 +53,134 @@ func (r *AgentToolRuntime) Execute(ctx context.Context, req agent.ToolRuntimeReq
 
 	switch {
 	case tool.AuditMode == AuditPreview && tool.ExecutePreview != nil:
-		result, err := r.Envelope.ExecutePreview(ctx, toExecutionRequest(req, tool.AuditMode))
+		result, err := r.executeGuardedRead(ctx, req, tool, req.Args, func(execCtx context.Context, args json.RawMessage) (any, error) {
+			execReq := toExecutionRequest(req, tool.AuditMode)
+			execReq.Args = args
+			return r.Envelope.ExecutePreview(execCtx, execReq)
+		})
 		return agent.ToolRuntimeResult{Result: result, Summary: marshalToolResult(result)}, err
 	case tool.AuditMode == AuditRead && tool.Permission == PermissionRead:
-		result, err := r.executeAuditedRead(ctx, req, tool)
+		result, err := r.executeGuardedRead(ctx, req, tool, req.Args, func(execCtx context.Context, args json.RawMessage) (any, error) {
+			execReq := req
+			execReq.Args = args
+			return r.executeAuditedRead(execCtx, execReq, tool)
+		})
 		return agent.ToolRuntimeResult{Result: result, Summary: marshalToolResult(result)}, err
 	case tool.Permission == PermissionRead:
-		result, err := r.Registry.ExecuteRead(ctx, r.Deps, req.UserID, req.ToolName, req.Args)
+		result, err := r.executeGuardedRead(ctx, req, tool, req.Args, func(execCtx context.Context, args json.RawMessage) (any, error) {
+			return r.Registry.ExecuteRead(execCtx, r.Deps, req.UserID, req.ToolName, args)
+		})
 		return agent.ToolRuntimeResult{Result: result, Summary: marshalToolResult(result)}, err
 	default:
 		return r.executeConfirmedWrite(ctx, req, sink, tool)
 	}
+}
+
+func (r *AgentToolRuntime) executeGuardedRead(ctx context.Context, req agent.ToolRuntimeRequest, tool *Tool, args json.RawMessage, exec func(context.Context, json.RawMessage) (any, error)) (any, error) {
+	cleanArgs := stripExternalReadConsentArgs(args)
+	if consentResult, ok, err := r.requireExternalReadConsent(ctx, req, tool, cleanArgs, args); ok || err != nil {
+		return consentResult, err
+	}
+
+	var quota *ToolQuotaState
+	if tool.RateLimitPerHour > 0 {
+		state := r.toolQuotaLimiter().Allow(req.UserID, tool.Name, tool.RateLimitPerHour)
+		quota = &state
+		if !state.Allowed {
+			return map[string]any{
+				"status":          "rate_limited",
+				"blocking_reason": "rate_limited",
+				"rate_limit":      state,
+			}, nil
+		}
+	}
+
+	result, err := r.executeReadWithTimeout(ctx, tool, cleanArgs, exec)
+	if status := contextBlockStatus(ctx, err); status != "" {
+		return map[string]any{
+			"status":          status,
+			"blocking_reason": status,
+		}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if quota != nil {
+		return withToolQuotaState(result, *quota), nil
+	}
+	return result, nil
+}
+
+func (r *AgentToolRuntime) requireExternalReadConsent(ctx context.Context, req agent.ToolRuntimeRequest, tool *Tool, cleanArgs, originalArgs json.RawMessage) (any, bool, error) {
+	if tool.ExternalRead == nil || tool.ExternalRead.Policy != ExternalReadPolicyManualConfirm {
+		return nil, false, nil
+	}
+	manager := r.externalConsentManager()
+	consentReq := agentExternalReadConsentRequest{
+		UserID:    req.UserID,
+		SessionID: req.SessionID,
+		ToolName:  tool.Name,
+		Purpose:   tool.ExternalRead.Purpose,
+		TTL:       tool.ExternalRead.TTL,
+		Args:      cleanArgs,
+	}
+	token := externalReadConsentToken(originalArgs)
+	if token != "" && manager.Consume(ctx, consentReq, token) {
+		return nil, false, nil
+	}
+	request, err := manager.Request(ctx, consentReq)
+	if err != nil {
+		return nil, true, err
+	}
+	return map[string]any{
+		"status":                            "requires_user_confirmation",
+		"external_status":                   "requires_user_confirmation",
+		"blocking_reason":                   "requires_user_confirmation",
+		"consent_request":                   request,
+		"confirmed_followup_requires_token": true,
+	}, true, nil
+}
+
+func (r *AgentToolRuntime) executeReadWithTimeout(ctx context.Context, tool *Tool, args json.RawMessage, exec func(context.Context, json.RawMessage) (any, error)) (any, error) {
+	execCtx := ctx
+	cancel := func() {}
+	if tool.Timeout > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, tool.Timeout)
+	}
+	defer cancel()
+
+	type readResult struct {
+		result any
+		err    error
+	}
+	done := make(chan readResult, 1)
+	go func() {
+		result, err := exec(execCtx, args)
+		done <- readResult{result: result, err: err}
+	}()
+
+	select {
+	case out := <-done:
+		return out.result, out.err
+	case <-execCtx.Done():
+		return nil, execCtx.Err()
+	}
+}
+
+func contextBlockStatus(parent context.Context, err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		if parent != nil && errors.Is(parent.Err(), context.Canceled) {
+			return "cancelled"
+		}
+		return "timed_out"
+	}
+	return ""
 }
 
 func (r *AgentToolRuntime) PublicToolCallArgs(toolName string, args json.RawMessage) (json.RawMessage, bool) {
@@ -214,4 +334,89 @@ func tagNotFoundQuestion(args json.RawMessage) string {
 		return "Der Tag existiert noch nicht. Soll ich ihn zuerst erstellen?"
 	}
 	return fmt.Sprintf("Der Tag %q existiert noch nicht. Soll ich ihn zuerst erstellen?", name)
+}
+
+type ToolQuotaState struct {
+	Allowed      bool      `json:"allowed"`
+	LimitPerHour int       `json:"limit_per_hour"`
+	Remaining    int       `json:"remaining"`
+	ResetAt      time.Time `json:"reset_at"`
+}
+
+type ToolQuotaLimiter struct {
+	mu      sync.Mutex
+	windows map[string]toolQuotaWindow
+}
+
+type toolQuotaWindow struct {
+	count   int
+	resetAt time.Time
+}
+
+func NewToolQuotaLimiter() *ToolQuotaLimiter {
+	return &ToolQuotaLimiter{windows: make(map[string]toolQuotaWindow)}
+}
+
+func (l *ToolQuotaLimiter) Allow(userID, toolName string, limitPerHour int) ToolQuotaState {
+	if limitPerHour <= 0 {
+		return ToolQuotaState{Allowed: true}
+	}
+	if l == nil {
+		l = NewToolQuotaLimiter()
+	}
+	now := time.Now().UTC()
+	key := userID + "\x00" + toolName
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	window := l.windows[key]
+	if window.resetAt.IsZero() || !now.Before(window.resetAt) {
+		window = toolQuotaWindow{resetAt: now.Add(time.Hour)}
+	}
+	if window.count >= limitPerHour {
+		l.windows[key] = window
+		return ToolQuotaState{
+			Allowed:      false,
+			LimitPerHour: limitPerHour,
+			Remaining:    0,
+			ResetAt:      window.resetAt,
+		}
+	}
+	window.count++
+	l.windows[key] = window
+	return ToolQuotaState{
+		Allowed:      true,
+		LimitPerHour: limitPerHour,
+		Remaining:    limitPerHour - window.count,
+		ResetAt:      window.resetAt,
+	}
+}
+
+func (r *AgentToolRuntime) toolQuotaLimiter() *ToolQuotaLimiter {
+	if r.Limiter == nil {
+		r.Limiter = NewToolQuotaLimiter()
+	}
+	return r.Limiter
+}
+
+func (r *AgentToolRuntime) externalConsentManager() *ExternalReadConsentManager {
+	if r.Deps == nil {
+		r.Deps = &Deps{}
+	}
+	if r.Deps.ExternalConsent == nil {
+		r.Deps.ExternalConsent = NewExternalReadConsentManager(0)
+	}
+	return r.Deps.ExternalConsent
+}
+
+func withToolQuotaState(result any, quota ToolQuotaState) any {
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return map[string]any{"status": "ok", "result": result, "rate_limit": quota}
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
+		return map[string]any{"status": "ok", "result": result, "rate_limit": quota}
+	}
+	obj["rate_limit"] = quota
+	return obj
 }
