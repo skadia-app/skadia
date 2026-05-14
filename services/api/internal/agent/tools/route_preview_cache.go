@@ -20,17 +20,18 @@ type routePreviewSnapshot struct {
 	GeometryGeoJSON string
 	ProfileKey      string
 	BaseProfile     string
+	ProfileVersion  string
 	CreatedAt       time.Time
 }
 
 var routePreviewCache sync.Map
 
-func attachRoutePreviewToken(userID string, result map[string]any, profileKey, baseProfile string) {
+func attachRoutePreviewToken(userID string, result map[string]any, profileKey, baseProfile, profileVersion string) {
 	geometry, err := routeGeometryGeoJSON(result)
 	if err != nil {
 		return
 	}
-	hash := routePreviewHash(userID, geometry, profileKey, baseProfile)
+	hash := routePreviewHash(userID, geometry, profileKey, baseProfile, profileVersion)
 	token := uuid.NewString()
 	routePreviewCache.Store(token, routePreviewSnapshot{
 		UserID:          userID,
@@ -39,11 +40,13 @@ func attachRoutePreviewToken(userID string, result map[string]any, profileKey, b
 		GeometryGeoJSON: geometry,
 		ProfileKey:      profileKey,
 		BaseProfile:     baseProfile,
+		ProfileVersion:  profileVersion,
 		CreatedAt:       time.Now(),
 	})
 	result["route_preview_token"] = token
 	result["route_preview_hash"] = hash
 	result["geometry_geojson"] = geometry
+	result["route_profile_version"] = profileVersion
 }
 
 func verifyRoutePreviewToken(userID, token, geometry, profile string) (*routePreviewSnapshot, error) {
@@ -89,8 +92,8 @@ func consumeRoutePreviewToken(userID, token, geometry, profile string) (*routePr
 	return &snapshot, nil
 }
 
-func routePreviewHash(userID, geometry, profileKey, baseProfile string) string {
-	sum := sha256.Sum256([]byte(userID + "\x00" + geometry + "\x00" + profileKey + "\x00" + baseProfile))
+func routePreviewHash(userID, geometry, profileKey, baseProfile, profileVersion string) string {
+	sum := sha256.Sum256([]byte(userID + "\x00" + geometry + "\x00" + profileKey + "\x00" + baseProfile + "\x00" + profileVersion))
 	return hex.EncodeToString(sum[:])
 }
 

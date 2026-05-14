@@ -310,6 +310,17 @@ func TestExecuteListRoutingProfilesVisibleToUser(t *testing.T) {
 	if hasRoutingProfileToolName(profiles, foreignName) {
 		t.Fatalf("foreign profile %q leaked into %#v", foreignName, profiles)
 	}
+	for _, profile := range profiles {
+		if profile.Supports == nil || !profile.Supports["direct_route_preview"] {
+			t.Fatalf("profile %q missing direct route support metadata: %#v", profile.Label, profile)
+		}
+		if len(profile.SemanticPreferences) == 0 || len(profile.ElevationSemantics) == 0 {
+			t.Fatalf("profile %q missing semantic/elevation metadata: %#v", profile.Label, profile)
+		}
+		if profile.ProfileVersion == "" {
+			t.Fatalf("profile %q missing profile version/fingerprint metadata: %#v", profile.Label, profile)
+		}
+	}
 }
 
 func TestExecuteQueryCoverageHTTP(t *testing.T) {

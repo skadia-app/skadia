@@ -59,6 +59,16 @@ func TestChatPreferencesDefaultsAndPut(t *testing.T) {
 	}
 }
 
+func TestChatPreferencesAcceptRoutingProfileVariantWriteTool(t *testing.T) {
+	got, err := validateChatAllowedWriteTools([]string{"create_routing_profile_variant"})
+	if err != nil {
+		t.Fatalf("validateChatAllowedWriteTools: %v", err)
+	}
+	if len(got) != 1 || got[0] != "create_routing_profile_variant" {
+		t.Fatalf("allowed tools = %#v", got)
+	}
+}
+
 func TestChatPreferencesRejectsUnknownWriteTool(t *testing.T) {
 	pool := fusionTestPool(t)
 	userID := insertTestUser(t, pool)

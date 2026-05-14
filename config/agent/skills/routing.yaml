@@ -1,5 +1,5 @@
 name: routing
-description: "Routenplanung, Navigation, Trail-Suche, POI-Suche, Isochronen"
+description: "Routenplanung, Navigation, Orts-/Feature-Auflösung, Abdeckung, Profile"
 
 schema_excerpt: |
   osm_ways: id, osm_id, name, highway, surface, tracktype, sac_scale, mtb_scale,
@@ -8,34 +8,87 @@ schema_excerpt: |
   osm_routes: id, osm_id, name, ref, route, network, colour, distance, geom
 
 domain_knowledge: |
-  - BRouter-Profile: hiking-mountain (Wandern alpin, SAC T1-T6 konfigurierbar),
-    hiking-sac2 (SAC T2 max), trekking (Rad-Trekking), cycling-road, cycling-mountain,
-    cycling-gravel, running, walking
-  - Profil-Auswahl statt Master-Profil: Chat-Agent wählt passendes Profil basierend
-    auf Nutzeranfrage (Sportart, Schwierigkeit, Terrain)
-  - Fein-Tuning via profile_params: SAC_scale_limit (0-6), consider_elevation (true/false),
-    iswet (0/1), Offroad_factor, hiking_routes_preference, path_preference
-  - hiking-mountain.brf ist das offizielle BRouter-Wanderprofil mit SAC T1-T6 Support
+  - Orts- und Feature-Namen nie als Koordinaten raten. Erst resolve_route_place
+    für Orte/Adressen/Start/Ziel oder resolve_route_feature für See, Fluss, Wald,
+    Gipfel, Pass, Hütte, Trail oder ähnliche Geländeziele nutzen.
+  - Danach get_routing_coverage prüfen. Wenn keine Abdeckung vorliegt, klar sagen
+    und keine Route erfinden.
+  - Profile immer über list_routing_profiles ermitteln; keine festen Profilnamen
+    oder veralteten Standardprofile voraussetzen.
+  - Profil-Auswahl basiert auf Nutzeranfrage: Sportart, Schwierigkeit, Terrain,
+    Direktverbindung vs. Rundtour, Höhenmeter/Steigung, Oberfläche, Verkehr,
+    Wetter- und Abdeckungsgrenzen.
+  - Fein-Tuning nur mit Parametern verwenden, die list_routing_profiles für das
+    gewählte Profil zurückgibt.
   - SAC-Skala: T1=Wandern, T2=Bergwandern, T3=Anspruchsvoll, T4=Alpinwandern,
     T5=Anspruchsvolles Alpinwandern, T6=Schwieriges Alpinwandern
   - MTB-Skala: S0=Leicht, S1=Mittel, S2=Schwierig, S3=Sehr schwierig, S4=Extrem, S5=Unfahrbar
-  - Workflow: 1) User beschreibt Wunsch -> 2) Passendes Profil wählen ->
-    3) POIs/Trails suchen -> 4) Route planen -> 5) POIs auf Route zeigen
+  - Zielrouten/Rundtouren: suggest_route_goal aktuell nur verwenden, um sauber
+    zu erkennen, dass der Agentenpfad noch nicht verdrahtet ist. Keine
+    Zielrouten-Kandidaten versprechen, wenn das Tool `unsupported_backend_path`
+    meldet.
+  - Wetter und bisherige Aktivitätsdaten sind Zusatzkontext: query_weather_at_point_time
+    und query_activity_terrain_summary nach Orts-/Routenauflösung nutzen, nicht als
+    Ersatz für Abdeckungs- und Profilprüfung.
+  - Workflow: 1) Wunsch verstehen -> 2) Orte/Features auflösen ->
+    3) Abdeckung und Profile prüfen -> 4) Ziel/Waypoints bestimmen ->
+    5) Route als Vorschau planen -> 6) optional POIs entlang der Route anzeigen.
+  - Planung ist read-only. Speichern oder andere Schreibaktionen nur ausführen,
+    wenn ein freigegebenes Write-Tool explizit verfügbar ist und bestätigt wurde.
 
 tools:
+  - resolve_route_place
+  - resolve_route_feature
+  - get_routing_coverage
+  - list_routing_profiles
+  - plan_route_between
   - search_pois_nearby
   - search_trails_by_difficulty
   - plan_route
+  - suggest_route_goal
+  - query_weather_at_point_time
+  - query_activity_terrain_summary
   - search_pois_on_route
   - get_isochrone
+  - query_geo_features
+  - search_routes
+  - query_coverage
+  - resolve_entity
 
 few_shot_examples:
-  - q: "Plane mir eine gemütliche Wanderung ab Innsbruck mit Einkehrmöglichkeit"
-    tool: plan_route
-    args: '{"waypoints": [[11.394, 47.259], [11.450, 47.280]], "profile": "hiking-mountain", "profile_params": {"SAC_scale_limit": "1", "consider_elevation": "true"}}'
-  - q: "Welche Hütten gibt es im Umkreis von 10km um den Patscherkofel?"
-    tool: search_pois_nearby
-    args: '{"lat": 47.209, "lng": 11.461, "radius_m": 10000, "category": "accommodation"}'
-  - q: "Zeig mir T2-T3 Wanderwege rund um Garmisch"
-    tool: search_trails_by_difficulty
-    args: '{"lat": 47.491, "lng": 11.096, "radius_m": 15000, "max_sac_scale": "demanding_mountain_hiking"}'
+  - q: "Plane mir eine gemütliche Wanderung ab Startort zu einem See mit Einkehrmöglichkeit"
+    steps:
+      - tool: resolve_route_place
+        args: '{"query": "Startort", "kind": "place"}'
+      - tool: resolve_route_feature
+        args: '{"query": "See", "feature_kind": "lake", "relation": "target"}'
+      - tool: get_routing_coverage
+        args: '{"place_refs": ["<start_ref>"], "feature_refs": ["<lake_ref>"], "intent": "direct"}'
+      - tool: list_routing_profiles
+        args: '{}'
+      - tool: plan_route_between
+        args: '{"from": {"ref": "<start_ref>"}, "to": {"ref": "<lake_ref>"}, "profile_key": "<profile_from_list_routing_profiles>"}'
+  - q: "Ich brauche eine direkte Gravel-Route von Startort nach Zielort mit wenig Verkehr"
+    steps:
+      - tool: resolve_route_place
+        args: '{"query": "Startort", "kind": "place"}'
+      - tool: resolve_route_place
+        args: '{"query": "Zielort", "kind": "place"}'
+      - tool: get_routing_coverage
+        args: '{"place_refs": ["<start_ref>", "<goal_ref>"], "intent": "direct"}'
+      - tool: list_routing_profiles
+        args: '{}'
+      - tool: plan_route_between
+        args: '{"from": {"ref": "<start_ref>"}, "to": {"ref": "<goal_ref>"}, "profile_key": "<profile_from_list_routing_profiles>"}'
+  - q: "Finde eine Rundtour ab Startort mit viel Wald und moderatem Anstieg"
+    steps:
+      - tool: resolve_route_place
+        args: '{"query": "Startort", "kind": "place"}'
+      - tool: resolve_route_feature
+        args: '{"query": "Wald", "feature_kind": "forest", "relation": "pass_near"}'
+      - tool: get_routing_coverage
+        args: '{"place_refs": ["<start_ref>"], "feature_refs": ["<forest_ref>"], "intent": "goal"}'
+      - tool: list_routing_profiles
+        args: '{}'
+      - tool: suggest_route_goal
+        args: '{"start": {"ref": "<start_ref>"}, "round_trip": true, "elevation_mode": "moderate", "profile_key": "<profile_from_list_routing_profiles>", "preferences": {"min_forest_share": 50}}'

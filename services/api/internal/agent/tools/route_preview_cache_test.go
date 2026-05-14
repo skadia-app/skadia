@@ -12,13 +12,15 @@ func TestConsumeRoutePreviewTokenIsSingleUse(t *testing.T) {
 	token := uuid.NewString()
 	geometry := `{"type":"LineString","coordinates":[[7,47],[7.1,47.1]]}`
 	profile := "bike"
+	profileVersion := "test:1"
 	routePreviewCache.Store(token, routePreviewSnapshot{
 		UserID:          userID,
 		Token:           token,
-		Hash:            routePreviewHash(userID, geometry, profile, profile),
+		Hash:            routePreviewHash(userID, geometry, profile, profile, profileVersion),
 		GeometryGeoJSON: geometry,
 		ProfileKey:      profile,
 		BaseProfile:     profile,
+		ProfileVersion:  profileVersion,
 		CreatedAt:       time.Now(),
 	})
 	t.Cleanup(func() { routePreviewCache.Delete(token) })

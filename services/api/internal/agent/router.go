@@ -95,13 +95,16 @@ var DomainKeywords = map[string][]string{
 		"landschaft", "gesehen", "steinbock", "murmeltier", "panorama",
 	},
 	"routing": {
-		"route", "routen", "routenplanung", "navigation", "wegpunkt",
+		"route", "routen", "routenplanung", "navigation", "wegpunkt", "waypoint",
 		"plane", "planen", "geplant", "wanderung planen", "radtour planen", "tour planen",
 		"strecke", "weg", "pfad", "isochrone", "erreichbar",
-		"wie komme ich", "kürzester weg", "schönste route", "rundtour",
-		"schwierigkeit", "sac", "mtb skala", "steigung",
-		"asphalt", "schotter", "profil", "gelände",
+		"wie komme ich", "kürzester weg", "kuerzester weg", "direkter weg", "direkte route",
+		"schönste route", "schoenste route", "rundtour", "rundroute", "rundkurs", "round trip",
+		"zielroute", "ziel route", "goal route", "point to point", "hin und zurück", "hin und zurueck",
+		"schwierigkeit", "sac", "mtb skala", "steigung", "anstieg", "aufstieg", "ascent", "elevation",
+		"asphalt", "schotter", "profil", "gelände", "gelaende",
 		"gravel", "trail", "wenig verkehr", "verkehrsarm", "schön", "schoen", "viel wald",
+		"wald", "waldweg", "forstweg", "see", "seen", "fluss", "flüsse", "fluesse", "river", "lake",
 		"e-bike", "ebike", "e bike", "electric", "elektrisch",
 		"indoor", "virtuell", "virtuelle", "virtual",
 		"pendelroute", "pendeln", "commute",
@@ -121,8 +124,10 @@ var DomainTools = map[string][]string{
 	"segments":  {"query_segments", "resolve_entity"},
 	"photos":    {"search_photos_by_content"},
 	"routing": {
-		"search_pois_nearby", "search_trails_by_difficulty",
-		"list_routing_profiles", "plan_route", "search_pois_on_route", "get_isochrone",
+		"resolve_route_place", "resolve_route_feature", "get_routing_coverage",
+		"list_routing_profiles", "plan_route_between", "plan_route", "suggest_route_goal",
+		"query_weather_at_point_time", "query_activity_terrain_summary",
+		"search_pois_nearby", "search_trails_by_difficulty", "search_pois_on_route", "get_isochrone",
 		"query_geo_features", "search_routes", "query_coverage", "resolve_entity",
 	},
 }
@@ -178,11 +183,29 @@ func RouteQuery(query string, profile *ModelProfile) RouteResult {
 
 func applyIntentBoosts(queryLower string, scores map[string]int) {
 	if strings.Contains(queryLower, "bestzeit") ||
+		strings.Contains(queryLower, " pr ") ||
 		strings.Contains(queryLower, "personal record") ||
 		strings.Contains(queryLower, "persönlicher rekord") ||
 		strings.Contains(queryLower, "schnellste zeit") {
 		scores["segments"] += 5
 	}
+	if containsAny(queryLower, "route", "routen", "radtour", "wanderung", "tour", "strecke") &&
+		containsAny(queryLower, " von ", " ab ", " nach ", " zu ", " zum ", " zur ", "zwischen") {
+		scores["routing"] += 2
+	}
+	if containsAny(queryLower, "direkt", "direkte", "direkter", "rundtour", "rundroute", "hin und zurück", "hin und zurueck", "zielroute") &&
+		containsAny(queryLower, "plane", "planen", "route", "routen", "strecke", "tour") {
+		scores["routing"] += 2
+	}
+}
+
+func containsAny(value string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func GetToolsForDomains(domains []string, profile *ModelProfile) []string {

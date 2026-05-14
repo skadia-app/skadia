@@ -13,6 +13,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/google/uuid"
 )
 
@@ -73,16 +74,29 @@ type queryCoverageArgs struct {
 	Layers string  `json:"layers"`
 }
 
+type listRoutingProfilesArgs struct {
+	SportQuery string `json:"sport_query,omitempty"`
+	Intent     string `json:"intent,omitempty"`
+	IsElectric *bool  `json:"is_electric,omitempty"`
+	IsIndoor   *bool  `json:"is_indoor,omitempty"`
+	IsVirtual  *bool  `json:"is_virtual,omitempty"`
+	IsCommute  *bool  `json:"is_commute,omitempty"`
+}
+
 type routingProfileToolItem struct {
-	ID            string         `json:"id,omitempty"`
-	Key           string         `json:"key"`
-	Label         string         `json:"label"`
-	Engine        string         `json:"engine"`
-	BaseProfile   string         `json:"base_profile"`
-	SportTypes    []string       `json:"sport_types,omitempty"`
-	DefaultParams map[string]any `json:"default_params,omitempty"`
-	Constraints   map[string]any `json:"constraints"`
-	Source        string         `json:"source"`
+	ID                  string          `json:"id,omitempty"`
+	Key                 string          `json:"key"`
+	Label               string          `json:"label"`
+	Engine              string          `json:"engine"`
+	BaseProfile         string          `json:"base_profile"`
+	SportTypes          []string        `json:"sport_types,omitempty"`
+	DefaultParams       map[string]any  `json:"default_params,omitempty"`
+	Constraints         map[string]any  `json:"constraints"`
+	Supports            map[string]bool `json:"supports"`
+	SemanticPreferences []string        `json:"semantic_preferences"`
+	ElevationSemantics  []string        `json:"elevation_semantics"`
+	ProfileVersion      string          `json:"profile_version"`
+	Source              string          `json:"source"`
 }
 
 func RegisterRouteTools(reg *Registry) {
@@ -104,7 +118,7 @@ func RouteTools() []*Tool {
 		{
 			Name:        "list_routing_profiles",
 			Description: "List real Skadia routing profiles visible to the user, including profile keys for route preview selection and allowed override parameters.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"sport_query":{"type":"string"},"intent":{"type":"string","enum":["direct","round_trip","goal","commute","unknown"]},"is_electric":{"type":"boolean"},"is_indoor":{"type":"boolean"},"is_virtual":{"type":"boolean"},"is_commute":{"type":"boolean"}},"additionalProperties":false}`),
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executeListRoutingProfiles,
@@ -141,14 +155,26 @@ func RouteTools() []*Tool {
 			IsUserOwned: false,
 			ExecuteRead: executeQueryCoverage,
 		},
+		ResolveRoutePlaceTool(),
+		ResolveRouteFeatureTool(),
+		GetRoutingCoverageTool(),
+		PlanRouteBetweenTool(),
+		SuggestRouteGoalTool(),
 	}
 }
 
-func executeListRoutingProfiles(ctx context.Context, deps *Deps, userID string, _ json.RawMessage) (any, error) {
+func executeListRoutingProfiles(ctx context.Context, deps *Deps, userID string, raw json.RawMessage) (any, error) {
+	var args listRoutingProfilesArgs
+	if len(raw) != 0 {
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return nil, fmt.Errorf("decode list_routing_profiles args: %w", err)
+		}
+	}
 	profiles, err := listRoutingProfilesForTool(ctx, deps, userID)
 	if err != nil {
 		return nil, err
 	}
+	profiles = filterRoutingProfilesForTool(profiles, args)
 	return map[string]any{"profiles": profiles, "count": len(profiles)}, nil
 }
 
@@ -228,7 +254,7 @@ func executePlanRoute(ctx context.Context, deps *Deps, userID string, raw json.R
 	result["preview"] = true
 	result["profile_key"] = resolved.Key
 	result["routing_profile"] = resolved.Label
-	attachRoutePreviewToken(userID, result, resolved.Key, resolved.BaseProfile)
+	attachRoutePreviewToken(userID, result, resolved.Key, resolved.BaseProfile, resolved.ProfileVersion)
 	return result, nil
 }
 
@@ -633,12 +659,16 @@ func listRoutingProfilesForTool(ctx context.Context, deps *Deps, userID string) 
 	}
 	for _, name := range routing.BRouterProfileNames() {
 		profiles = append(profiles, routingProfileToolItem{
-			Key:         name,
-			Label:       name,
-			Engine:      "brouter",
-			BaseProfile: name,
-			Constraints: map[string]any{"profile_params": routing.BRouterProfileParamKeys(name)},
-			Source:      routing.SourceFilesystem,
+			Key:                 name,
+			Label:               name,
+			Engine:              "brouter",
+			BaseProfile:         name,
+			Constraints:         map[string]any{"profile_params": routing.BRouterProfileParamKeys(name)},
+			Supports:            routingProfileSupports("brouter", routing.SourceFilesystem),
+			SemanticPreferences: routingProfileSemanticPreferences(),
+			ElevationSemantics:  routingProfileElevationSemantics(),
+			ProfileVersion:      "filesystem:" + name,
+			Source:              routing.SourceFilesystem,
 		})
 	}
 	return profiles, nil
@@ -670,8 +700,90 @@ func routingProfileToolItemFromDB(p database.RoutingProfile) routingProfileToolI
 			"route_preview_no_save":   true,
 			"route_preview_read_only": true,
 		},
-		Source: p.Source,
+		Supports:            routingProfileSupports("badrouter", p.Source),
+		SemanticPreferences: routingProfileSemanticPreferences(),
+		ElevationSemantics:  routingProfileElevationSemantics(),
+		ProfileVersion:      routingProfileVersion(p),
+		Source:              p.Source,
 	}
+}
+
+func routingProfileSupports(engine, source string) map[string]bool {
+	return map[string]bool{
+		"direct_route_preview": true,
+		"route_suggestion":     false,
+		"round_trip":           false,
+		"imported_custom":      source != routing.SourceFilesystem && source != "system",
+	}
+}
+
+func routingProfileSemanticPreferences() []string {
+	return []string{
+		"surface_groups",
+		"highway_groups",
+		"forest_share",
+		"water_or_river_proximity",
+		"protected_area",
+		"traffic",
+		"noise",
+		"sac_scale",
+		"mtb_scale",
+	}
+}
+
+func routingProfileElevationSemantics() []string {
+	return []string{
+		"target_ascent_m",
+		"ascent_tolerance_pct",
+		"elevation_profile",
+		"highest_point",
+		"lowest_point",
+		"max_grade",
+		"ascent_per_km",
+	}
+}
+
+func routingProfileVersion(p database.RoutingProfile) string {
+	if strings.TrimSpace(p.ID) != "" {
+		return p.Source + ":" + p.ID + ":" + p.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return p.Source + ":" + p.Name + ":" + p.BaseProfile
+}
+
+func filterRoutingProfilesForTool(profiles []routingProfileToolItem, args listRoutingProfilesArgs) []routingProfileToolItem {
+	if strings.TrimSpace(args.SportQuery) == "" && strings.TrimSpace(args.Intent) == "" &&
+		args.IsElectric == nil && args.IsIndoor == nil && args.IsVirtual == nil && args.IsCommute == nil {
+		return profiles
+	}
+	sportType := ""
+	if strings.TrimSpace(args.SportQuery) != "" {
+		tuple, _, err := sport.NormalizeSportTuple(args.SportQuery, "")
+		if err == nil {
+			sportType = tuple.SportType
+		}
+	}
+	out := make([]routingProfileToolItem, 0, len(profiles))
+	for _, profile := range profiles {
+		if sportType != "" && len(profile.SportTypes) > 0 && !routingProfileSupportsSport(profile, sportType) {
+			continue
+		}
+		if strings.TrimSpace(args.Intent) == "goal" || strings.TrimSpace(args.Intent) == "round_trip" {
+			if !profile.Supports["route_suggestion"] {
+				profile.Constraints["unsupported_reason"] = "agent route-suggestion tool is not wired to the backend yet"
+			}
+		}
+		out = append(out, profile)
+	}
+	return out
+}
+
+func routingProfileSupportsSport(profile routingProfileToolItem, sportType string) bool {
+	for _, value := range profile.SportTypes {
+		if value == sportType {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveRoutingProfileForPreview(ctx context.Context, deps *Deps, userID, key string) (routingProfileToolItem, error) {

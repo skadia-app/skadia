@@ -746,16 +746,21 @@ func main() {
 	toolRegistry := agenttools.NewRegistry()
 	agenttools.RegisterAll(toolRegistry)
 	toolDeps := &agenttools.Deps{
-		DB:             db,
-		Readonly:       db.ReadonlyPool,
-		MLBaseURL:      cfg.MLServiceURL,
-		BRouterURL:     cfg.BRouterURL,
-		InternalSecret: mlCallbackSecret,
-		LLM:            llmResolver,
-		SQLAgent:       agent.NewSQLAgent(db),
-		Audit:          agent.NewAuditWriter(db),
-		Confirm:        confirmMgr,
-		Preferences:    agentPrefs,
+		DB:                 db,
+		Readonly:           db.ReadonlyPool,
+		MLBaseURL:          cfg.MLServiceURL,
+		BRouterURL:         cfg.BRouterURL,
+		BRouterSegmentsDir: cfg.BRouterSegmentsDir,
+		DEMDataDir:         cfg.DEMDataDir,
+		RoutingGraphPath:   cfg.RoutingGraphPath,
+		RoutingTilesDir:    filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "tiles"),
+		CoverageBaseDir:    filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage"),
+		InternalSecret:     mlCallbackSecret,
+		LLM:                llmResolver,
+		SQLAgent:           agent.NewSQLAgent(db),
+		Audit:              agent.NewAuditWriter(db),
+		Confirm:            confirmMgr,
+		Preferences:        agentPrefs,
 	}
 	toolEnvelope := agenttools.NewExecutionEnvelope(toolRegistry, toolDeps)
 	chatAgent := agent.New(agent.Config{

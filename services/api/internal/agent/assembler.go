@@ -75,7 +75,11 @@ const toolGuide = `## Werkzeug-Auswahl
 - "Dokumente eines bekannten Gear-Objekts auflisten" → get_gear_documents
 - "Details zu einer Aktivität (Drill-Down)" → get_activity_detail
 - "Fotos suchen / Bild nach Inhalt" → search_photos_by_content
-- Subjektive Routing-Wünsche ("Gravel", "wenig Verkehr", "schoen/schön", "Trail", "Pendeln") → zuerst list_routing_profiles, dann passendes Profil wählen, dann plan_route als reine Vorschau ohne Speichern
+- Routing mit Orts-/Feature-Namen → zuerst resolve_route_place oder resolve_route_feature für Start/Ziel/POI, dann get_routing_coverage und list_routing_profiles, dann plan_route_between/plan_route als reine Vorschau ohne Speichern
+- Routing zu See/Fluss/Wald/Höhenziel oder Zielroute/Rundtour → resolve_route_feature nutzen und Abdeckung/Profile prüfen; suggest_route_goal nur als Fähigkeitscheck, bei unsupported_backend_path ehrlich abbrechen
+- Subjektive Routing-Wünsche ("Gravel", "wenig Verkehr", "schoen/schön", "Trail", "Pendeln") → zuerst list_routing_profiles, Abdeckung prüfen, dann passendes Profil wählen und read-only planen
+- Routing-Profil ändern/anpassen → nur create_routing_profile_variant verwenden, wenn es verfügbar ist; bestehende Profile niemals überschreiben
+- Wetter-/Terrain-Kontext für geplante Route → query_weather_at_point_time und query_activity_terrain_summary nur ergänzend nach Orts-/Routenauflösung nutzen
 - "Tags / Welche Aktivitäten haben Tag X" → query_activities mit tag_name, bei komplexer Statistik run_sql mit JOIN tags + activity_tags
 - Komplexe Vergleiche (MTB vs Gravel, Jahresvergleich mit SUB_TYPE) → run_sql`
 
