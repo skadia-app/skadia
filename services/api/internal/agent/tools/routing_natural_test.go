@@ -17,6 +17,7 @@ func TestNaturalRoutingToolsMetadata(t *testing.T) {
 
 	for _, name := range []string{
 		"resolve_user_location",
+		"geocode_place",
 		"resolve_route_place",
 		"resolve_route_feature",
 		"get_routing_coverage",
@@ -228,6 +229,9 @@ func TestGetRoutingCoverageUsesConfiguredDirsForBadRouterAndCoverageLayers(t *te
 		DEMDataDir:         demDir,
 		RoutingTilesDir:    routingTileDir,
 		CoverageBaseDir:    coverageDir,
+		RouteGoalSuggester: func(context.Context, string, RouteGoalSuggestionRequest) (RouteGoalSuggestionResponse, error) {
+			return RouteGoalSuggestionResponse{}, nil
+		},
 	}, "", json.RawMessage(`{
 		"bbox": {"min_lat": 48.1, "min_lng": 11.1, "max_lat": 48.2, "max_lng": 11.2},
 		"intent": "goal"
@@ -236,8 +240,8 @@ func TestGetRoutingCoverageUsesConfiguredDirsForBadRouterAndCoverageLayers(t *te
 		t.Fatalf("executeGetRoutingCoverage: %v", err)
 	}
 	got := result.(map[string]any)
-	if got["can_suggest_goal"] != false {
-		t.Fatalf("can_suggest_goal = %#v, want false until agent goal suggestions are wired: %#v", got["can_suggest_goal"], got)
+	if got["can_suggest_goal"] != true {
+		t.Fatalf("can_suggest_goal = %#v, want true when route suggester and tiles are present: %#v", got["can_suggest_goal"], got)
 	}
 	badrouter := got["badrouter"].(map[string]any)
 	if badrouter["available"] != true {
@@ -318,7 +322,54 @@ func TestPlanRouteBetweenRejectsUnsupportedSemanticConstraintsBeforeHTTP(t *test
 	}
 }
 
-func TestSuggestRouteGoalReturnsStructuredUnsupportedState(t *testing.T) {
+func TestSuggestRouteGoalUsesInjectedRoundTripSuggester(t *testing.T) {
+	var captured RouteGoalSuggestionRequest
+	deps := &Deps{
+		RouteGoalSuggester: func(_ context.Context, userID string, req RouteGoalSuggestionRequest) (RouteGoalSuggestionResponse, error) {
+			if userID != "user-1" {
+				t.Fatalf("userID = %q, want user-1", userID)
+			}
+			captured = req
+			return RouteGoalSuggestionResponse{
+				Variants: []map[string]any{{
+					"variant":    1,
+					"distance_m": 12000.0,
+					"ascent_m":   450.0,
+				}},
+				CoverageAvailable: true,
+			}, nil
+		},
+	}
+	result, err := executeSuggestRouteGoal(context.Background(), deps, "user-1", json.RawMessage(`{
+		"start": {"lat": 48.0, "lng": 11.0},
+		"round_trip": true,
+		"target_distance_m": 12000,
+		"target_ascent_m": 450,
+		"profile_key": "mtb",
+		"difficulty": {"max_mtb_scale": "S2"},
+		"landscape_prefs": {"forest": 8, "water": 4},
+		"max_variants": 2
+	}`))
+	if err != nil {
+		t.Fatalf("executeSuggestRouteGoal: %v", err)
+	}
+	got := result.(map[string]any)
+	if got["status"] != "ok" {
+		t.Fatalf("status = %#v, want ok", got["status"])
+	}
+	if captured.StartLat != 48.0 || captured.StartLng != 11.0 {
+		t.Fatalf("captured start = %#v, want lat/lng", captured)
+	}
+	if captured.Profile != "mtb" || captured.TargetDistanceM != 12000 || captured.MaxMtbScale == nil || *captured.MaxMtbScale != 2 {
+		t.Fatalf("captured request = %#v, want mapped profile/distance/difficulty", captured)
+	}
+	variants := got["variants"].([]map[string]any)
+	if len(variants) != 1 {
+		t.Fatalf("variants = %#v, want one", variants)
+	}
+}
+
+func TestSuggestRouteGoalReturnsStructuredUnsupportedStateWithoutSuggester(t *testing.T) {
 	result, err := executeSuggestRouteGoal(context.Background(), nil, "user-1", json.RawMessage(`{
 		"start": {"lat": 48.0, "lng": 11.0},
 		"round_trip": true,

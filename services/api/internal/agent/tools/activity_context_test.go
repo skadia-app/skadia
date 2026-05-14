@@ -351,6 +351,7 @@ func TestQueryWeatherAtPointTimeExplicitPointAcceptsAtTime(t *testing.T) {
 func insertWeatherToolActivity(t *testing.T, pool *pgxpool.Pool, userID string, withStream bool) string {
 	t.Helper()
 	ctx := context.Background()
+	insertWeatherToolUser(t, pool, userID)
 	activityID := uuid.NewString()
 	startedAt := time.Date(2026, 5, 12, 8, 0, 0, 0, time.UTC)
 	_, err := pool.Exec(ctx, `
@@ -370,6 +371,18 @@ func insertWeatherToolActivity(t *testing.T, pool *pgxpool.Pool, userID string, 
 		}
 	}
 	return activityID
+}
+
+func insertWeatherToolUser(t *testing.T, pool *pgxpool.Pool, userID string) {
+	t.Helper()
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO users (id, username, email, email_verified, registration_source)
+		VALUES ($1, $2, $3, true, 'test')
+		ON CONFLICT (id) DO NOTHING
+	`, userID, "weather-tool-"+userID[:8], "weather-tool-"+userID[:8]+"@example.test")
+	if err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
 }
 
 func insertWeatherToolReading(t *testing.T, pool *pgxpool.Pool, activityID string, recordedAt time.Time) {

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
+	"github.com/skadia-app/skadia/services/api/internal/geosearch"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -86,6 +88,103 @@ func TestResolveUserLocationAmbiguousMissingCoordinatesAndNotFound(t *testing.T)
 	}
 }
 
+func TestGeocodePlaceUsesSharedSearchAndReturnsRouteRefs(t *testing.T) {
+	provider := &geocodePlaceForwardProvider{results: []geosearch.Result{{
+		Name:   "Synthetic External Place",
+		Type:   "place",
+		Lat:    48.3,
+		Lng:    11.3,
+		Source: geosearch.SourceExternal,
+	}}}
+	deps := &Deps{
+		GeoSearchExternal: provider,
+		GeoSearchPolicy:   geosearch.ExternalPolicyAllowed,
+		GeoSearchCache:    geosearch.NewCache(time.Minute),
+		GeoSearchQuota:    geosearch.NewLimiter(10, time.Hour, geocodePlaceFixedClock()),
+	}
+
+	result, err := executeGeocodePlace(context.Background(), deps, "user-a", json.RawMessage(`{
+		"query": "Synthetic External Place",
+		"sources": "external",
+		"limit": 5
+	}`))
+	if err != nil {
+		t.Fatalf("executeGeocodePlace: %v", err)
+	}
+	got := result.(map[string]any)
+	if got["external_status"] != geosearch.ExternalStatusAvailable {
+		t.Fatalf("external_status = %#v, want available", got["external_status"])
+	}
+	candidates := got["candidates"].([]map[string]any)
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %#v, want one external candidate", candidates)
+	}
+	if !strings.HasPrefix(candidates[0]["ref"].(string), "route-ref:") {
+		t.Fatalf("candidate ref = %#v, want route ref", candidates[0]["ref"])
+	}
+	if provider.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", provider.calls)
+	}
+}
+
+func TestGeocodePlaceExternalDisabledAndRateLimited(t *testing.T) {
+	provider := &geocodePlaceForwardProvider{}
+	disabled, err := executeGeocodePlace(context.Background(), &Deps{
+		GeoSearchExternal: provider,
+		GeoSearchPolicy:   geosearch.ExternalPolicyDisabled,
+		GeoSearchCache:    geosearch.NewCache(time.Minute),
+		GeoSearchQuota:    geosearch.NewLimiter(10, time.Hour, geocodePlaceFixedClock()),
+	}, "user-a", json.RawMessage(`{"query":"Synthetic Place","sources":"external"}`))
+	if err != nil {
+		t.Fatalf("executeGeocodePlace disabled: %v", err)
+	}
+	disabledMap := disabled.(map[string]any)
+	if disabledMap["external_status"] != geosearch.ExternalStatusDisabled {
+		t.Fatalf("external_status = %#v, want disabled", disabledMap["external_status"])
+	}
+	if provider.calls != 0 {
+		t.Fatalf("provider calls = %d, want 0 while disabled", provider.calls)
+	}
+
+	limitedDeps := &Deps{
+		GeoSearchExternal: provider,
+		GeoSearchPolicy:   geosearch.ExternalPolicyAllowed,
+		GeoSearchCache:    geosearch.NewCache(time.Minute),
+		GeoSearchQuota:    geosearch.NewLimiter(1, time.Hour, geocodePlaceFixedClock()),
+	}
+	if _, err := executeGeocodePlace(context.Background(), limitedDeps, "user-a", json.RawMessage(`{"query":"First Synthetic Place","sources":"external"}`)); err != nil {
+		t.Fatalf("executeGeocodePlace first allowed: %v", err)
+	}
+	blocked, err := executeGeocodePlace(context.Background(), limitedDeps, "user-a", json.RawMessage(`{"query":"Second Synthetic Place","sources":"external"}`))
+	if err != nil {
+		t.Fatalf("executeGeocodePlace rate limited: %v", err)
+	}
+	blockedMap := blocked.(map[string]any)
+	if blockedMap["external_status"] != geosearch.ExternalStatusRateLimited {
+		t.Fatalf("external_status = %#v, want rate_limited", blockedMap["external_status"])
+	}
+	rateLimit := blockedMap["rate_limit"].(*geosearch.QuotaState)
+	if rateLimit.BlockingReason != "rate_limited" {
+		t.Fatalf("rate_limit = %#v, want blocking reason", rateLimit)
+	}
+}
+
+func TestGeocodePlaceRejectsUnsupportedBBoxAndInvalidNear(t *testing.T) {
+	if _, err := executeGeocodePlace(context.Background(), nil, "user-a", json.RawMessage(`{
+		"query": "Synthetic Place",
+		"bbox": {"min_lat": 48.0, "min_lng": 11.0, "max_lat": 48.5, "max_lng": 11.5}
+	}`)); err == nil || !strings.Contains(err.Error(), "bbox") {
+		t.Fatalf("executeGeocodePlace bbox error = %v, want unsupported bbox error", err)
+	}
+
+	if _, err := executeGeocodePlace(context.Background(), nil, "user-a", json.RawMessage(`{
+		"query": "Synthetic Place",
+		"near": {"ref": "route-ref:not-json"}
+	}`)); err == nil || !strings.Contains(err.Error(), "invalid near") {
+		t.Fatalf("executeGeocodePlace near error = %v, want invalid near error", err)
+	}
+}
+
 func insertRouteLocationTag(t *testing.T, pool *pgxpool.Pool, userID, name, category string, lat, lng float64) string {
 	t.Helper()
 	id := uuid.NewString()
@@ -98,6 +197,30 @@ func insertRouteLocationTag(t *testing.T, pool *pgxpool.Pool, userID, name, cate
 		t.Fatalf("insert route location tag: %v", err)
 	}
 	return id
+}
+
+type geocodePlaceForwardProvider struct {
+	calls   int
+	results []geosearch.Result
+}
+
+func (p *geocodePlaceForwardProvider) ForwardSearch(_ context.Context, opts geosearch.SearchOptions) ([]geosearch.Result, error) {
+	p.calls++
+	if p.results != nil {
+		return p.results, nil
+	}
+	return []geosearch.Result{{
+		Name:   opts.Query,
+		Type:   "place",
+		Lat:    48.3,
+		Lng:    11.3,
+		Source: geosearch.SourceExternal,
+	}}, nil
+}
+
+func geocodePlaceFixedClock() func() time.Time {
+	now := time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC)
+	return func() time.Time { return now }
 }
 
 func insertRouteLocationTagWithoutCoords(t *testing.T, pool *pgxpool.Pool, userID, name, category string) string {

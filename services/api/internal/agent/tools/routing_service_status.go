@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
+
+	"github.com/skadia-app/skadia/services/api/internal/geosearch"
 )
 
 type getAgentServiceStatusArgs struct {
@@ -31,7 +34,7 @@ func executeGetAgentServiceStatus(ctx context.Context, deps *Deps, userID string
 		"difficulty_support":    difficultySupportStatus(args.ProfileKey),
 	}
 	if serviceSet["geocoding"] {
-		result["geocoding"] = geocodingStatus()
+		result["geocoding"] = geocodingStatus(deps, userID)
 	}
 	if serviceSet["weather"] {
 		result["weather"] = weatherStatus()
@@ -64,24 +67,62 @@ func selectedStatusServices(values []string) map[string]bool {
 	return out
 }
 
-func geocodingStatus() map[string]any {
+func geocodingStatus(deps *Deps, userID string) map[string]any {
+	externalStatus := "disabled"
+	if geocodePlacePolicy(deps) == "allowed" {
+		externalStatus = "unconfigured"
+		if geocodePlaceExternal(deps) != nil {
+			externalStatus = "configured"
+		}
+	}
+	quota := geocodePlaceQuota(deps).Check(userID)
 	return map[string]any{
 		"local_search_status":          "available_when_osm_imported",
-		"external_status":              "unconfigured",
-		"privacy_policy":               "not_wired",
-		"external_read_consent_status": "not_wired",
-		"rate_limit":                   map[string]any{"status": "unavailable", "limit_per_hour": nil, "remaining": nil, "reset_at": nil},
+		"external_status":              externalStatus,
+		"privacy_policy":               string(geocodePlacePolicy(deps)),
+		"external_read_consent_status": "policy_owned_by_tool",
+		"rate_limit":                   geosearchQuotaStatusMap(quota),
 	}
 }
 
 func weatherStatus() map[string]any {
+	cfg := liveWeatherConfigFromEnv()
+	liveStatus := "disabled"
+	switch cfg.Policy {
+	case "allowed":
+		liveStatus = "unconfigured"
+		if cfg.ProviderEnabled {
+			liveStatus = "configured"
+		}
+	case "manual_confirm":
+		liveStatus = "requires_user_confirmation"
+	case "blocked":
+		liveStatus = "skipped_by_privacy_policy"
+	}
 	return map[string]any{
 		"stored_read_status":           "available_for_owned_activity_weather",
-		"live_status":                  "unconfigured",
-		"privacy_policy":               "not_wired",
-		"external_read_consent_status": "not_wired",
-		"rate_limit":                   map[string]any{"status": "unavailable", "limit_per_hour": nil, "remaining": nil, "reset_at": nil},
+		"live_status":                  liveStatus,
+		"privacy_policy":               cfg.Policy,
+		"external_read_consent_status": "policy_owned_by_tool",
+		"rate_limit":                   liveWeatherStatusRateLimit(cfg),
 	}
+}
+
+func geosearchQuotaStatusMap(quota geosearch.QuotaState) map[string]any {
+	return map[string]any{
+		"status":          quota.Status,
+		"limit_per_hour":  quota.LimitPerHour,
+		"remaining":       quota.Remaining,
+		"reset_at":        quota.ResetAt,
+		"blocking_reason": quota.BlockingReason,
+	}
+}
+
+func liveWeatherStatusRateLimit(cfg liveWeatherConfig) map[string]any {
+	if cfg.LimitPerHour <= 0 {
+		return map[string]any{"status": "unlimited", "limit_per_hour": nil, "remaining": nil, "reset_at": nil}
+	}
+	return map[string]any{"status": "available", "limit_per_hour": cfg.LimitPerHour, "remaining": cfg.LimitPerHour, "reset_at": nil}
 }
 
 func routingStatus(deps *Deps) map[string]any {
@@ -96,10 +137,17 @@ func routingStatus(deps *Deps) map[string]any {
 	if brouterURL != "" {
 		brouterStatus = "configured"
 	}
+	badrouterStatus := "unconfigured_in_agent_runtime"
+	routeSuggestionStatus := "not_injected"
+	if deps != nil && deps.RouteGoalSuggester != nil {
+		badrouterStatus = "configured_via_route_suggester"
+		routeSuggestionStatus = "configured_round_trip_only"
+	}
 	return map[string]any{
 		"brouter_status":          brouterStatus,
-		"badrouter_status":        "unconfigured_in_agent_runtime",
-		"profile_support_summary": "built-in and DB profile listing is available through list_routing_profiles; route-suggestion execution is not injected into agent tools yet",
+		"badrouter_status":        badrouterStatus,
+		"route_suggestion_status": routeSuggestionStatus,
+		"profile_support_summary": "built-in and DB profile listing is available through list_routing_profiles; route-suggestion supports round-trip variants when injected",
 	}
 }
 
@@ -153,6 +201,152 @@ func rawHasJSONKey(raw json.RawMessage, key string) bool {
 	}
 	_, ok := obj[key]
 	return ok
+}
+
+func buildRouteGoalSuggestionRequest(ctx context.Context, deps *Deps, userID string, start routeResolverRef, args suggestRouteGoalArgs) (RouteGoalSuggestionRequest, error) {
+	profile, err := routeGoalSuggestionProfile(ctx, deps, userID, args.ProfileKey)
+	if err != nil {
+		return RouteGoalSuggestionRequest{}, err
+	}
+	return RouteGoalSuggestionRequest{
+		StartLat:             start.Lat,
+		StartLng:             start.Lng,
+		RoundTrip:            valueOrDefaultBool(args.RoundTrip, true),
+		TargetDistanceM:      floatPtrValue(args.TargetDistanceM),
+		TargetAscentM:        args.TargetAscentM,
+		AscentTolerancePct:   args.AscentTolerancePct,
+		SportType:            strings.TrimSpace(args.SportQuery),
+		Profile:              profile,
+		SurfaceTendency:      strings.TrimSpace(args.SurfaceTendency),
+		MaxSacScale:          difficultyScaleInt(args.Difficulty, "max_sac_scale", "T"),
+		MaxMtbScale:          difficultyScaleInt(args.Difficulty, "max_mtb_scale", "S"),
+		LandscapePrefs:       routeGoalLandscapePrefs(args.LandscapePrefs),
+		Modifiers:            routeGoalModifiers(args.Modifiers),
+		MaxVariants:          args.MaxVariants,
+		ProfileSportOverride: true,
+	}, nil
+}
+
+func routeGoalSuggestionProfile(ctx context.Context, deps *Deps, userID, key string) (string, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", fmt.Errorf("profile_key is required; call list_routing_profiles first")
+	}
+	profile, err := resolveRoutingProfileForPreview(ctx, deps, userID, key)
+	if err != nil {
+		return key, nil
+	}
+	if profile.Engine == "badrouter" && strings.TrimSpace(profile.Label) != "" {
+		return profile.Label, nil
+	}
+	if strings.TrimSpace(profile.BaseProfile) != "" {
+		return profile.BaseProfile, nil
+	}
+	return key, nil
+}
+
+func floatPtrValue(value *float64) float64 {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func difficultyScaleInt(values map[string]any, key, prefix string) *int {
+	if values == nil {
+		return nil
+	}
+	raw, ok := values[key]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case float64:
+		n := int(v)
+		return &n
+	case int:
+		n := v
+		return &n
+	case string:
+		text := strings.TrimSpace(strings.TrimPrefix(strings.ToUpper(v), prefix))
+		n, err := strconv.Atoi(text)
+		if err != nil {
+			return nil
+		}
+		return &n
+	default:
+		return nil
+	}
+}
+
+func routeGoalLandscapePrefs(values map[string]any) map[string]int {
+	out := map[string]int{}
+	for _, key := range []string{"forest", "water", "protected", "low_noise", "low_traffic"} {
+		if n, ok := intFromAny(values[key]); ok {
+			if n < 0 {
+				n = 0
+			}
+			if n > 10 {
+				n = 10
+			}
+			out[key] = n
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func routeGoalModifiers(values map[string]any) RouteGoalSuggestionModifiers {
+	return RouteGoalSuggestionModifiers{
+		IsElectric: boolPtrFromAny(values["is_electric"]),
+		IsIndoor:   boolPtrFromAny(values["is_indoor"]),
+		IsVirtual:  boolPtrFromAny(values["is_virtual"]),
+		IsCommute:  boolPtrFromAny(values["is_commute"]),
+	}
+}
+
+func intFromAny(value any) (int, bool) {
+	switch v := value.(type) {
+	case float64:
+		return int(v), true
+	case int:
+		return v, true
+	default:
+		return 0, false
+	}
+}
+
+func boolPtrFromAny(value any) *bool {
+	v, ok := value.(bool)
+	if !ok {
+		return nil
+	}
+	return &v
+}
+
+func routeGoalAppliedConstraints(req RouteGoalSuggestionRequest) []string {
+	out := []string{"round_trip"}
+	if req.TargetDistanceM > 0 {
+		out = append(out, "target_distance_m")
+	}
+	if req.TargetAscentM != nil {
+		out = append(out, "target_ascent_m")
+	}
+	if req.MaxSacScale != nil {
+		out = append(out, "max_sac_scale")
+	}
+	if req.MaxMtbScale != nil {
+		out = append(out, "max_mtb_scale")
+	}
+	if len(req.LandscapePrefs) > 0 {
+		out = append(out, "landscape_prefs")
+	}
+	if req.SurfaceTendency != "" {
+		out = append(out, "surface_tendency")
+	}
+	return out
 }
 
 func suggestRouteGoalUnsupportedConstraints(args suggestRouteGoalArgs) []string {

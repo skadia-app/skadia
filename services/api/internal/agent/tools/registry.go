@@ -12,6 +12,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/geosearch"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -124,6 +125,11 @@ type Deps struct {
 	RoutingGraphPath   string
 	RoutingTilesDir    string
 	CoverageBaseDir    string
+	GeoSearchExternal  geosearch.ForwardSearcher
+	GeoSearchPolicy    geosearch.ExternalPolicy
+	GeoSearchCache     *geosearch.Cache
+	GeoSearchQuota     *geosearch.Limiter
+	RouteGoalSuggester RouteGoalSuggester
 	InternalSecret     string
 	LLM                *agent.LLMResolver
 	SQLAgent           *agent.SQLAgent
@@ -131,6 +137,40 @@ type Deps struct {
 	Confirm            *agent.ConfirmationManager
 	Preferences        *agent.PreferenceLoader
 	ExternalConsent    *ExternalReadConsentManager
+}
+
+type RouteGoalSuggester func(ctx context.Context, userID string, req RouteGoalSuggestionRequest) (RouteGoalSuggestionResponse, error)
+
+type RouteGoalSuggestionRequest struct {
+	StartLat             float64
+	StartLng             float64
+	RoundTrip            bool
+	TargetDistanceM      float64
+	TargetAscentM        *float64
+	AscentTolerancePct   *float64
+	SportType            string
+	SubType              *string
+	Profile              string
+	SurfaceTendency      string
+	MaxSacScale          *int
+	MaxMtbScale          *int
+	LandscapePrefs       map[string]int
+	Modifiers            RouteGoalSuggestionModifiers
+	MaxVariants          *int
+	ProfileSportOverride bool
+}
+
+type RouteGoalSuggestionModifiers struct {
+	IsElectric *bool
+	IsIndoor   *bool
+	IsVirtual  *bool
+	IsCommute  *bool
+}
+
+type RouteGoalSuggestionResponse struct {
+	Variants          []map[string]any
+	CoverageAvailable bool
+	PartialSearch     bool
 }
 
 type Registry struct {
