@@ -104,7 +104,7 @@ func (h *Handler) GetFileSchemasContext(w http.ResponseWriter, r *http.Request) 
 	backend := h.storageBackend()
 
 	canEdit := h.Settings != nil && h.Settings.Get("library.user_can_edit_schemas").Value == "true"
-	editable := canEdit
+	editable := canEdit && backend != "s3"
 
 	// Priority: s3 > admin_locked > null
 	var reason *string
@@ -123,11 +123,23 @@ func (h *Handler) GetFileSchemasContext(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func (h *Handler) rejectS3LibraryMutation(w http.ResponseWriter, r *http.Request) bool {
+	if h.storageBackend() != "s3" {
+		return false
+	}
+	httputil.WriteError(w, http.StatusForbidden, "Forbidden",
+		"local library file schemas are unavailable for s3_backend", r.URL.Path)
+	return true
+}
+
 // UpdateFileSchema sets a custom schema template for a specific file type.
 // PUT /api/v1/settings/file-schemas/{type}
 func (h *Handler) UpdateFileSchema(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if h.rejectS3LibraryMutation(w, r) {
 		return
 	}
 
@@ -331,6 +343,9 @@ func (h *Handler) PreviewFileRename(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if h.rejectS3LibraryMutation(w, r) {
+		return
+	}
 
 	fileType := chi.URLParam(r, "type")
 	if !isAllowedFileType(fileType) {
@@ -461,6 +476,9 @@ func (h *Handler) PreviewFileRename(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ExecuteFileRename(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if h.rejectS3LibraryMutation(w, r) {
 		return
 	}
 
