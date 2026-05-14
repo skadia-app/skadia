@@ -67,10 +67,10 @@ migrations_fingerprint() {
 }
 
 migrations_fingerprint_for_root() {
-  local repo_root="$1"
-  (
-    cd "$repo_root"
-    find services/api/internal/migrate \
+	local repo_root="$1"
+	(
+		cd "$repo_root" || exit
+		find services/api/internal/migrate \
       \( -name '*.up.sql' -o -name '*.down.sql' \
       -o -name 'migrate.go' -o -name 'migrations.go' \
       -o -name 'migration_*_test.go' \) -print0 \
@@ -84,13 +84,9 @@ migrations_fingerprint_for_root() {
   )
 }
 
-cmd_ensure() {
-  local db slug fingerprint repo_root branch lock_file
-  db="$(worktree_db_name)"
+cmd_with_worktree_db_lock() {
+  local slug lock_file
   slug="$(worktree_slug)"
-  fingerprint="$(migrations_fingerprint)"
-  repo_root="$(worktree_root)"
-  branch="$(git rev-parse --abbrev-ref HEAD)"
   lock_file="/tmp/skadia-test-db-${slug}.lock"
 
   exec 9>"$lock_file"
@@ -99,6 +95,16 @@ cmd_ensure() {
   if [ -n "${SKADIA_TEST_LOCK_HOLD_SECONDS:-}" ]; then
     sleep "$SKADIA_TEST_LOCK_HOLD_SECONDS"
   fi
+
+  "$@"
+}
+
+cmd_ensure_locked() {
+  local db fingerprint repo_root branch
+  db="$(worktree_db_name)"
+  fingerprint="$(migrations_fingerprint)"
+  repo_root="$(worktree_root)"
+  branch="$(git rev-parse --abbrev-ref HEAD)"
 
   local needs_rebuild=1
   if psql_admin --set=db="$db" <<'SQL' | grep -q 1; then
@@ -114,7 +120,6 @@ SQL
   if [ "$needs_rebuild" -eq 0 ]; then
     psql_test -c "UPDATE _test_meta SET last_used_at = now() WHERE id = 1" >/dev/null
     echo "test_db.sh: $db is current (fingerprint=$fingerprint)" >&2
-    exec 9>&-
     return 0
   fi
 
@@ -132,10 +137,10 @@ SQL
 CREATE DATABASE :"db" OWNER :"owner";
 SQL
 
-  (
-    cd "$repo_root/services/api"
-    DATABASE_URL="$(worktree_dsn)" go run ./cmd/migrate
-  ) >&2
+	(
+		cd "$repo_root/services/api" || exit
+		DATABASE_URL="$(worktree_dsn)" go run ./cmd/migrate
+	) >&2
 
   psql_test \
     --set=repo_root="$repo_root" \
@@ -153,8 +158,10 @@ CREATE TABLE _test_meta (
 INSERT INTO _test_meta (worktree_path, branch, migrations_fingerprint)
 VALUES (:'repo_root', :'branch', :'fingerprint');
 SQL
+}
 
-  exec 9>&-
+cmd_ensure() {
+  cmd_with_worktree_db_lock cmd_ensure_locked
 }
 cmd_emit_url() { printf 'export TEST_DATABASE_URL="%s"\n' "$(worktree_dsn)"; }
 cmd_run() {
@@ -167,7 +174,7 @@ cmd_run() {
     echo "test_db.sh run: no command given after '--'" >&2
     return 2
   fi
-  cmd_ensure
+  cmd_with_worktree_db_lock cmd_ensure_locked
   local dsn
   dsn="$(worktree_dsn)"
   TEST_DATABASE_URL="$dsn" DATABASE_URL="$dsn" exec "$@"
