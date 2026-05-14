@@ -1,0 +1,23 @@
+services:
+  api:
+    environment:
+      SKADIA_DEPLOYMENT_PROFILE: core
+      BADROUTER_PROFILE_DIR: /data/disabled/badrouter
+      OSM_DATA_DIR: /data/disabled/osm
+      DEM_DATA_DIR: /data/disabled/dem
+      ROUTING_GRAPH_PATH: /data/disabled/routing/graph.bin
+      TILES_DIR: /data/disabled/tiles
+    volumes: !override
+      - ${SHADOW_FS_HOST_PATH:-./data/shadow-fs}:/data/shadow-fs:Z
+      - ${HOTFOLDER_HOST_PATH:-./data/hotfolder}:/data/hotfolder:Z
+      - ./data/litellm:/data/litellm:z
+      - ${IMPORT_DATA_HOST_PATH:-./data/import}:/data/import:ro,Z
+      - ./data/brouter/segments:/data/brouter/segments:z
+      - ./data/brouter/profiles:/data/brouter/profiles:z
+      - ./data/library:/data/library:z
+      - ./data/exports:/data/exports:Z
+      - ./data/imports:/data/imports:Z
+      - ./config/agent:/config/agent:ro,Z
+
+  martin:
+    profiles: ["full-local-data"]

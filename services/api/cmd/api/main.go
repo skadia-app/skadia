@@ -1136,28 +1136,24 @@ func main() {
 	if profileDir == "" {
 		profileDir = "config/badrouter"
 	}
-	profileCount, profileErr := routing.LoadBuiltinProfiles(profileDir)
-	if profileErr != nil {
-		slog.Error("built-in profile load errors", "dir", profileDir, "error", profileErr)
+	profileStatus := loadBadRouterProfilesForStartup(cfg.DeploymentProfile, cfg.DeploymentProfileSource, profileDir)
+	if profileStatus.Error != "" {
+		slog.Warn("built-in profile load issue", "dir", profileDir, "reason", profileStatus.Reason, "error", profileStatus.Error)
 	}
-	if profileCount == 0 {
-		slog.Error("no profiles found — check directory and JSON files", "dir", profileDir)
-		os.Exit(1)
+	if profileStatus.Available {
+		slog.Info("built-in profiles loaded", "count", profileStatus.Count, "dir", profileDir)
+	} else {
+		slog.Warn("BadRouter profiles unavailable", "dir", profileDir, "deployment_profile", cfg.DeploymentProfile, "reason", profileStatus.Reason)
 	}
-	for _, name := range routing.ValidProfileNames {
-		if _, err := routing.BuiltinProfile(name); err != nil {
-			slog.Error("required profile missing after load", "profile", name, "dir", profileDir)
-			os.Exit(1)
-		}
-	}
-	slog.Info("built-in profiles loaded", "count", profileCount, "dir", profileDir)
 
 	// Seed profiles into DB: config/badrouter/ as system, data/profiles/ as filesystem.
 	// Order matters: filesystem overrides system on name collision (ON CONFLICT).
-	if n, err := handler.SeedProfiles(ctx, profileDir, db, routing.SourceSystem); err != nil {
-		slog.Warn("system profile seed failed", "error", err)
-	} else if n > 0 {
-		slog.Info("system profiles seeded", "count", n)
+	if profileStatus.Count > 0 {
+		if n, err := handler.SeedProfiles(ctx, profileDir, db, routing.SourceSystem); err != nil {
+			slog.Warn("system profile seed failed", "error", err)
+		} else if n > 0 {
+			slog.Info("system profiles seeded", "count", n)
+		}
 	}
 
 	// Filesystem profile scan — import BadRouter JSON profiles from data/profiles/badrouter/
