@@ -1,22 +1,28 @@
 import { useState, useCallback, useRef, useEffect, type ChangeEvent, type KeyboardEvent } from 'react'
 import type maplibregl from 'maplibre-gl'
+import { apiFetch } from '@/lib/auth'
 
-interface NominatimResult {
-  place_id: number
-  display_name: string
-  lat: string
-  lon: string
+interface GeoSearchResult {
+  name: string
   type: string
-  addresstype: string
+  subtype?: string
+  lat: number
+  lng: number
+  source?: string
+}
+
+interface GeoSearchResponse {
+  results: GeoSearchResult[]
 }
 
 export default function GeoSearch({ mapRef, embedded }: { mapRef: React.RefObject<maplibregl.Map | null>, embedded?: boolean }) {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<NominatimResult[]>([])
+  const [results, setResults] = useState<GeoSearchResult[]>([])
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Close dropdown on outside click
@@ -30,24 +36,33 @@ export default function GeoSearch({ mapRef, embedded }: { mapRef: React.RefObjec
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const searchNominatim = useCallback(async (q: string) => {
+  const searchPlaces = useCallback(async (q: string) => {
     if (q.length < 3) {
       setResults([])
       setIsOpen(false)
       return
     }
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
     setIsLoading(true)
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5&addressdetails=1`
-      const resp = await fetch(url, {
-        headers: { 'User-Agent': 'Skadia/1.0' },
+      const params = new URLSearchParams({
+        q,
+        type: 'all',
+        limit: '5',
+        sources: 'local',
       })
-      if (!resp.ok) throw new Error(`Nominatim: ${resp.status}`)
-      const data: NominatimResult[] = await resp.json()
-      setResults(data)
-      setIsOpen(data.length > 0)
+      const resp = await apiFetch(`/api/v1/geo/search?${params.toString()}`, {
+        signal: abortRef.current.signal,
+      })
+      if (!resp.ok) throw new Error(`Geosearch: ${resp.status}`)
+      const data = await resp.json() as GeoSearchResponse
+      const next = data.results ?? []
+      setResults(next)
+      setIsOpen(next.length > 0)
       setActiveIndex(-1)
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
       console.error('Geocoding error:', err)
       setResults([])
       setIsOpen(false)
@@ -65,16 +80,14 @@ export default function GeoSearch({ mapRef, embedded }: { mapRef: React.RefObjec
       setIsOpen(false)
       return
     }
-    debounceRef.current = setTimeout(() => searchNominatim(value), 500)
+    debounceRef.current = setTimeout(() => searchPlaces(value), 500)
   }
 
-  const handleSelect = (result: NominatimResult) => {
+  const handleSelect = (result: GeoSearchResult) => {
     const map = mapRef.current
     if (!map) return
-    const lat = parseFloat(result.lat)
-    const lon = parseFloat(result.lon)
-    map.flyTo({ center: [lon, lat], zoom: 14, duration: 1500 })
-    setQuery(result.display_name)
+    map.flyTo({ center: [result.lng, result.lat], zoom: 14, duration: 1500 })
+    setQuery(result.name)
     setIsOpen(false)
   }
 
@@ -135,7 +148,7 @@ export default function GeoSearch({ mapRef, embedded }: { mapRef: React.RefObjec
       {isOpen && results.length > 0 && (
         <ul className="mt-1 max-h-60 overflow-y-auto rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white/95 dark:bg-neutral-800/95 backdrop-blur-sm shadow-lg">
           {results.map((r, i) => (
-            <li key={r.place_id}>
+            <li key={`${r.source ?? 'local'}-${r.type}-${r.lat}-${r.lng}-${i}`}>
               <button
                 onClick={() => handleSelect(r)}
                 className={`w-full text-left px-3 py-2 text-sm cursor-pointer transition-colors ${
@@ -144,7 +157,7 @@ export default function GeoSearch({ mapRef, embedded }: { mapRef: React.RefObjec
                     : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700'
                 }`}
               >
-                <span className="line-clamp-2">{r.display_name}</span>
+                <span className="line-clamp-2">{r.name}</span>
               </button>
             </li>
           ))}

@@ -49,6 +49,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
+	"github.com/skadia-app/skadia/services/api/internal/sport"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -746,16 +747,21 @@ func main() {
 	toolRegistry := agenttools.NewRegistry()
 	agenttools.RegisterAll(toolRegistry)
 	toolDeps := &agenttools.Deps{
-		DB:             db,
-		Readonly:       db.ReadonlyPool,
-		MLBaseURL:      cfg.MLServiceURL,
-		BRouterURL:     cfg.BRouterURL,
-		InternalSecret: mlCallbackSecret,
-		LLM:            llmResolver,
-		SQLAgent:       agent.NewSQLAgent(db),
-		Audit:          agent.NewAuditWriter(db),
-		Confirm:        confirmMgr,
-		Preferences:    agentPrefs,
+		DB:                 db,
+		Readonly:           db.ReadonlyPool,
+		MLBaseURL:          cfg.MLServiceURL,
+		BRouterURL:         cfg.BRouterURL,
+		BRouterSegmentsDir: cfg.BRouterSegmentsDir,
+		DEMDataDir:         cfg.DEMDataDir,
+		RoutingGraphPath:   cfg.RoutingGraphPath,
+		RoutingTilesDir:    filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "tiles"),
+		CoverageBaseDir:    filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage"),
+		InternalSecret:     mlCallbackSecret,
+		LLM:                llmResolver,
+		SQLAgent:           agent.NewSQLAgent(db),
+		Audit:              agent.NewAuditWriter(db),
+		Confirm:            confirmMgr,
+		Preferences:        agentPrefs,
 	}
 	toolEnvelope := agenttools.NewExecutionEnvelope(toolRegistry, toolDeps)
 	chatAgent := agent.New(agent.Config{
@@ -809,6 +815,75 @@ func main() {
 			S3BE:                s3BE,
 			BucketFn:            store.BucketFor,
 		},
+	}
+	toolDeps.RouteGoalSuggester = func(ctx context.Context, userID string, req agenttools.RouteGoalSuggestionRequest) (agenttools.RouteGoalSuggestionResponse, error) {
+		routeReq := handler.RouteSuggestionRequest{
+			Start:                [2]float64{req.StartLng, req.StartLat},
+			RoundTrip:            req.RoundTrip,
+			TargetDistanceM:      req.TargetDistanceM,
+			SportType:            req.SportType,
+			SubType:              req.SubType,
+			Profile:              req.Profile,
+			ProfileSportOverride: req.ProfileSportOverride,
+			SurfaceTendency:      req.SurfaceTendency,
+			MaxSacScale:          req.MaxSacScale,
+			MaxMtbScale:          req.MaxMtbScale,
+			TargetAscentM:        req.TargetAscentM,
+			AscentTolerancePct:   req.AscentTolerancePct,
+			MaxVariants:          req.MaxVariants,
+		}
+		if req.Modifiers.IsElectric != nil || req.Modifiers.IsIndoor != nil || req.Modifiers.IsVirtual != nil || req.Modifiers.IsCommute != nil {
+			routeReq.Modifiers = &sport.ModifierFilters{
+				IsElectric: req.Modifiers.IsElectric,
+				IsIndoor:   req.Modifiers.IsIndoor,
+				IsVirtual:  req.Modifiers.IsVirtual,
+				IsCommute:  req.Modifiers.IsCommute,
+			}
+		}
+		if len(req.LandscapePrefs) > 0 {
+			routeReq.LandscapePrefs = &handler.LandscapePreferences{
+				Forest:     req.LandscapePrefs["forest"],
+				Water:      req.LandscapePrefs["water"],
+				Protected:  req.LandscapePrefs["protected"],
+				LowNoise:   req.LandscapePrefs["low_noise"],
+				LowTraffic: req.LandscapePrefs["low_traffic"],
+			}
+		}
+		resp, err := h.SuggestRoutesForUser(ctx, userID, routeReq)
+		if err != nil {
+			return agenttools.RouteGoalSuggestionResponse{}, err
+		}
+		variants := make([]map[string]any, 0, len(resp.Suggestions))
+		for _, suggestion := range resp.Suggestions {
+			variants = append(variants, map[string]any{
+				"variant":                  suggestion.Variant,
+				"profile":                  suggestion.Profile,
+				"via_point":                suggestion.ViaPoint,
+				"variant_id":               suggestion.VariantID,
+				"variant_label_key":        suggestion.VariantLabelKey,
+				"distance_m":               suggestion.DistanceM,
+				"ascent_m":                 suggestion.AscentM,
+				"descent_m":                suggestion.DescentM,
+				"loop_quality":             suggestion.LoopQuality,
+				"overlap_pct":              suggestion.OverlapPct,
+				"distance_target_achieved": suggestion.DistanceTargetAchieved,
+				"ascent_target_achieved":   suggestion.AscentTargetAchieved,
+				"forest_pct":               suggestion.ForestPct,
+				"protected_pct":            suggestion.ProtectedPct,
+				"variant_descriptors":      suggestion.Descriptors,
+				"summits_passed":           suggestion.SummitsPassed,
+				"geojson":                  suggestion.GeoJSON,
+				"elevation_profile":        suggestion.ElevationProfile,
+				"is_fallback":              suggestion.IsFallback,
+				"saveable":                 false,
+				"preview_token":            nil,
+			})
+		}
+		return agenttools.RouteGoalSuggestionResponse{
+			Variants:          variants,
+			CoverageAvailable: resp.CoverageAvailable,
+			PartialSearch:     resp.PartialSearch,
+		}, nil
 	}
 
 	// Wire the segregated publisher interfaces. When NATS is unavailable
