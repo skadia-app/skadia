@@ -31,6 +31,7 @@ type ExportedTool struct {
 	AuditMode            AuditMode       `json:"audit_mode"`
 	RequiresConfirmation bool            `json:"requires_confirmation"`
 	MutationMode         MutationMode    `json:"mutation_mode"`
+	RequiredCapabilities []string        `json:"required_capabilities,omitempty"`
 }
 
 func (r *Registry) ExportDefinitions(profile ToolExportProfile, filter []string, prefs *agent.ChatPreferences) []ExportedTool {
@@ -54,6 +55,7 @@ func (r *Registry) ExportDefinitions(profile ToolExportProfile, filter []string,
 			AuditMode:            t.AuditMode,
 			RequiresConfirmation: t.RequiresConfirmation,
 			MutationMode:         mode,
+			RequiredCapabilities: append([]string(nil), t.RequiredCapabilities...),
 		})
 	}
 	return defs

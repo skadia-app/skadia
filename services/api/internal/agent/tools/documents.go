@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -66,6 +67,9 @@ func DocumentTools() []*Tool {
 			AuditMode:   AuditRead,
 			IsUserOwned: true,
 			ExecuteRead: executeSearchDocuments,
+			RequiredCapabilities: []string{
+				capabilities.KeyDocumentML,
+			},
 		},
 	}
 }

@@ -768,6 +768,20 @@ func main() {
 		Confirm:            confirmMgr,
 		Preferences:        agentPrefs,
 	}
+	toolDeps.CapabilityProvider = func(ctx context.Context) capabilities.Capabilities {
+		return capabilities.Detect(ctx, db.Pool, capabilities.DetectInput{
+			DeploymentProfile:    cfg.DeploymentProfile,
+			DeploymentProfileSrc: cfg.DeploymentProfileSource,
+			StorageMode:          cfg.StorageMode,
+			StorageBackend:       cfg.StorageBackend,
+			BRouterURL:           cfg.BRouterURL,
+			TileDir:              filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "tiles"),
+			PMTilesDir:           cfg.TilesDir,
+			CoverageDir:          filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage"),
+			ImportAllowedDirs:    cfg.ImportAllowedDirs,
+			MLProbeVersion:       capabilities.MLProbeVersion(),
+		})
+	}
 	toolEnvelope := agenttools.NewExecutionEnvelope(toolRegistry, toolDeps)
 	chatAgent := agent.New(agent.Config{
 		DB:             db,

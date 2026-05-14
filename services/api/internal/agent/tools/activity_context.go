@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/google/uuid"
@@ -90,6 +91,9 @@ func QueryActivityTerrainSummaryTool() *Tool {
 		Permission:  PermissionRead,
 		IsUserOwned: true,
 		ExecuteRead: executeQueryActivityTerrainSummary,
+		RequiredCapabilities: []string{
+			capabilities.KeyActivityTrackSummaryGeo,
+		},
 	}
 }
 
