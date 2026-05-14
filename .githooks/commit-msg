@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+#
+# Git commit-msg hook: keep future public commit messages free of internal
+# coordination wording.
+#
+# The hook checks the commit message only. It does not inspect staged file
+# contents.
+
+set -uo pipefail
+
+if [ -z "${BASH_VERSION:-}" ]; then
+    echo "commit-msg: Bash required (this hook is not POSIX-portable)." >&2
+    exit 2
+fi
+
+MSG_FILE="${1:-}"
+if [ -z "$MSG_FILE" ] || [ ! -f "$MSG_FILE" ]; then
+    echo "commit-msg: missing commit message file argument." >&2
+    exit 2
+fi
+
+# Remove Git's commented template/help lines. Keep subject and body because
+# internal workflow wording in bodies is just as public as the subject.
+MESSAGE="$(sed '/^[[:space:]]*#/d' "$MSG_FILE")"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+SCAN_MESSAGE="$MESSAGE"
+
+INTERNAL_PATH_RE='(^|[^[:alnum:]_.-])(\.?docs/(plans|research|_internal|archive|superpowers|reviews)(/[^[:space:]]*)?|\.private(/[^[:space:]]*)?|\.superpowers(/[^[:space:]]*)?|\.claude(/[^[:space:]]*)?|memory/[^[:space:]]*|ideas/[^[:space:]]*)($|[^[:alnum:]_.-])'
+INTERNAL_WORKFLOW_RE='(^|[^[:alnum:]_])(plans?|specs?|phases?|tasks?|phase[[:space:]_-]*[0-9]+|task[[:space:]_-]*[0-9]+|critics?|kritiker|findings?)([^[:alnum:]_]|$)'
+AGENT_MODEL_RE='(^|[^[:alnum:]_])(claude|codex|gemini|opus|sonnet|haiku|gpt([[:space:]-]*[0-9][A-Za-z0-9_.-]*)?|openai|anthropic)([^[:alnum:]_]|$)'
+LOCAL_PRIVATE_RE='(/home/[[:alnum:]_.-]+|/var/home/[[:alnum:]_.-]+|/Users/[[:alnum:]_.-]+|[A-Za-z]:\\Users\\)'
+COORDINATE_RE='(^|[^0-9])[-+]?[0-9]{1,2}\.[0-9]{4,}[[:space:]]*[^0-9,;[:space:]]?[[:space:]]*[NS]?[,;[:space:]]+(lon(gitude)?[[:space:]]*=[[:space:]]*)?[-+]?[0-9]{1,3}\.[0-9]{4,}[[:space:]]*[^0-9[:space:]]?[[:space:]]*[EW]?([^0-9]|$)|lat(itude)?[[:space:]]*=[[:space:]]*[-+]?[0-9]{1,2}\.[0-9]{4,}[^0-9]+lon(gitude)?[[:space:]]*=[[:space:]]*[-+]?[0-9]{1,3}\.[0-9]{4,}'
+FILENAME_PATH_RE='(^|[^[:alnum:]_.-])[[:alnum:]_.-]+\.(fit|gpx|tcx|kml|kmz|zip|tar|tgz|7z|xlsx|xls|docx|pdf|png|jpe?g|heic|avif)($|[^[:alnum:]_.-])'
+PRIVATE_TAG_RE='(^|[[:space:]])#[[:alpha:]_][[:alnum:]_-]*|(^|[[:space:]])tags?:[[:space:]]*[^[:space:]]+'
+PRIVATE_PATTERNS_FILE="${SKADIA_COMMIT_MSG_PRIVATE_PATTERNS:-$REPO_ROOT/.githooks/private-patterns.local.re}"
+
+validate_private_patterns_file() {
+    local file="$1"
+    local pattern
+    local status
+
+    [ -f "$file" ] || return 0
+    if [ ! -r "$file" ]; then
+        echo "commit-msg: private pattern file is not readable: $file" >&2
+        exit 2
+    fi
+
+    while IFS= read -r pattern; do
+        [ -z "$pattern" ] && continue
+        printf 'x\n' | grep -Eq "$pattern" >/dev/null 2>&1
+        status=$?
+        if [ "$status" -eq 2 ]; then
+            echo "commit-msg: invalid regex in $file: $pattern" >&2
+            exit 2
+        fi
+    done < <(awk 'NF && $0 !~ /^[[:space:]]*#/ {print}' "$file")
+}
+
+validate_private_patterns_file "$PRIVATE_PATTERNS_FILE"
+
+path_match="$(printf '%s\n' "$SCAN_MESSAGE" | grep -inEi "$INTERNAL_PATH_RE" | head -1 || true)"
+WORKFLOW_SCAN_MESSAGE="$(
+    printf '%s\n' "$SCAN_MESSAGE" \
+        | sed -E \
+            -e 's/\bbroker[[:space:]_-]+tasks?\b/broker operations/Ig'
+)"
+workflow_match="$(printf '%s\n' "$WORKFLOW_SCAN_MESSAGE" | grep -inEi "$INTERNAL_WORKFLOW_RE" | head -1 || true)"
+agent_scan_message="$(printf '%s\n' "$SCAN_MESSAGE" | grep -viE '^[[:space:]]*Co-authored-by:[[:space:]]+GPT-5\.5[[:space:]]+<noreply@openai\.com>[[:space:]]*$' || true)"
+agent_match="$(printf '%s\n' "$agent_scan_message" | grep -inEi "$AGENT_MODEL_RE" | head -1 || true)"
+private_match="$(printf '%s\n' "$SCAN_MESSAGE" | grep -inE "$LOCAL_PRIVATE_RE" | head -1 || true)"
+coordinate_match="$(printf '%s\n' "$SCAN_MESSAGE" | grep -inEi "$COORDINATE_RE" | head -1 || true)"
+filename_match="$(printf '%s\n' "$SCAN_MESSAGE" | grep -inE "$FILENAME_PATH_RE" | head -1 || true)"
+tag_match="$(printf '%s\n' "$SCAN_MESSAGE" | grep -inE "$PRIVATE_TAG_RE" | head -1 || true)"
+local_pattern_match=""
+if [ -f "$PRIVATE_PATTERNS_FILE" ]; then
+    local_pattern_match="$(
+        printf '%s\n' "$SCAN_MESSAGE" \
+            | grep -inE -f <(awk 'NF && $0 !~ /^[[:space:]]*#/ {print}' "$PRIVATE_PATTERNS_FILE") \
+            | head -1 || true
+    )"
+fi
+
+if [ -z "$path_match" ] \
+    && [ -z "$workflow_match" ] \
+    && [ -z "$agent_match" ] \
+    && [ -z "$private_match" ] \
+    && [ -z "$coordinate_match" ] \
+    && [ -z "$filename_match" ] \
+    && [ -z "$tag_match" ] \
+    && [ -z "$local_pattern_match" ]; then
+    exit 0
+fi
+
+echo "" >&2
+echo "commit-msg: public-message guard blocked this commit message" >&2
+echo "" >&2
+if [ -n "$path_match" ]; then
+    echo "  internal path: $path_match" >&2
+fi
+if [ -n "$workflow_match" ]; then
+    echo "  workflow term: $workflow_match" >&2
+fi
+if [ -n "$agent_match" ]; then
+    echo "  agent/model name: $agent_match" >&2
+fi
+if [ -n "$private_match" ]; then
+    echo "  local/private detail: $private_match" >&2
+fi
+if [ -n "$coordinate_match" ]; then
+    echo "  coordinate: $coordinate_match" >&2
+fi
+if [ -n "$filename_match" ]; then
+    echo "  filename/path: $filename_match" >&2
+fi
+if [ -n "$tag_match" ]; then
+    echo "  private tag: $tag_match" >&2
+fi
+if [ -n "$local_pattern_match" ]; then
+    echo "  local private pattern: $local_pattern_match" >&2
+fi
+echo "" >&2
+echo "Commit messages are public release artifacts. Describe the shipped behavior or document surface, not internal coordination state." >&2
+echo "Tests may still contain synthetic or explicitly public place/coordinate fixtures; this hook only checks the commit message." >&2
+echo "Private place/tag names can be kept in a local gitignored pattern file: .githooks/private-patterns.local.re" >&2
+echo "" >&2
+echo "Rewrite examples:" >&2
+echo "  fix: fixed critic findings" >&2
+echo "    -> fix(imports): keep review queue counters current" >&2
+echo "  fix(imports): apply phase 1 task 2 from cleanup plan" >&2
+echo "    -> fix(imports): preserve review queue navigation" >&2
+echo "" >&2
+
+exit 1

@@ -14,9 +14,27 @@ See [`../../../../AGENTS.md`](../../../../AGENTS.md) (project-wide), [`../../AGE
 - MUST ship both `.up.sql` and `.down.sql`. The `.down.sql` must actually undo the `.up.sql` (verify locally where feasible).
 - Optional matching test inside `migrations/`: `migration_NNNNNN_test.go` (see `migrations/migration_000326_test.go`).
 
-## Picking the next number
+## Branch numbering and finalization
 
-**Always `ls migrations/` before assigning.** Other sessions or branches may have added migrations in between — `git fetch --all` first when collaborating across branches. Take the highest existing number + 1. Never trust a remembered "next free number".
+Branch migration numbers are provisional until `scripts/finalize-migration.sh`
+normalizes them against `BASE_REF` (default `main`); another branch may merge
+first.
+
+- Use unique high provisional numbers, e.g. `900001_<topic>`, `900002_<next>`.
+- Multiple branch migrations must never share one provisional number.
+- Test names use `TestMigration_<TopicCamelCase>_*`, never numeric names.
+- Plan text references the topic, not the provisional number.
+- Before merge:
+  `./scripts/finalize-migration.sh`;
+  `BASE_REF=main ./scripts/finalize-migration.sh --check`;
+  `./scripts/test_db.sh run -- sh -c 'cd services/api && go test ./internal/migrate/...'`.
+- The script scans branch-only migrations, assigns sequential base-branch
+  numbers, `git mv`s files, patches code/doc references, and CI blocks
+  unfinalized numbers.
+
+On single-branch hotfixes directly on `main`, explicit user approval can skip
+provisional numbering; still `ls migrations/` before assigning and never trust a
+remembered next free number.
 
 ## Session-variable namespaces
 
@@ -27,7 +45,9 @@ When introducing a Postgres `SET LOCAL` / `current_setting` key:
 
 ## GDPR
 
-Migration adds a table with a user_id reference (direct or via FK chain) → same commit must update the GDPR registry. See **GDPR for new tables** in [`../../../../AGENTS.md`](../../../../AGENTS.md).
+Migration adds a table with a user_id reference (direct or via FK chain) → same
+commit must update the GDPR registry; follow the GDPR checklist in
+[`../../AGENTS.md`](../../AGENTS.md).
 
 ## Column drops
 
