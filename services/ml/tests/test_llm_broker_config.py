@@ -24,6 +24,21 @@ def test_llm_broker_config_uses_roles_and_callback_secret(monkeypatch):
     assert "analysis" not in cfg.configured_llm_roles()
 
 
+def test_llm_broker_config_reads_callback_secret_file(monkeypatch, tmp_path):
+    secret_file = tmp_path / "ml_callback_secret"
+    secret_file.write_text("file-secret\n", encoding="utf-8")
+    monkeypatch.delenv("ML_LLM_BROKER_TOKEN", raising=False)
+    monkeypatch.delenv("ML_CALLBACK_SECRET", raising=False)
+    monkeypatch.setenv("ML_CALLBACK_SECRET_FILE", str(secret_file))
+
+    import config
+
+    cfg = importlib.reload(config)
+
+    assert cfg.ML_LLM_BROKER_TOKEN == "file-secret"
+    assert cfg.ML_CALLBACK_SECRET == "file-secret"
+
+
 def test_role_statuses_do_not_contact_broker_without_token(monkeypatch):
     monkeypatch.delenv("ML_LLM_BROKER_TOKEN", raising=False)
     monkeypatch.delenv("ML_CALLBACK_SECRET", raising=False)

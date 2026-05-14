@@ -409,17 +409,28 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
-	if cfg.ReadonlyDatabaseURL != "" {
-		if err := db.OpenReadonly(ctx, cfg.ReadonlyDatabaseURL); err != nil {
-			slog.Error("failed to connect to readonly database", "error", err)
-			os.Exit(1)
-		}
-	}
 
 	// Run database migrations
 	if err := migrate.Run(ctx, db.Pool); err != nil {
 		slog.Error("failed to run migrations", "error", err)
 		os.Exit(1)
+	}
+	if cfg.ReadonlyDatabaseURL != "" {
+		if err := db.OpenReadonly(ctx, cfg.ReadonlyDatabaseURL); err != nil {
+			if !database.IsReadonlyAuthError(err) {
+				slog.Error("failed to connect to readonly database", "error", err)
+				os.Exit(1)
+			}
+			slog.Warn("readonly database connection failed; synchronizing skadia_readonly password and retrying", "error", err)
+			if syncErr := db.EnsureReadonlyRolePassword(ctx, cfg.ReadonlyDatabaseURL); syncErr != nil {
+				slog.Error("failed to synchronize readonly database role", "error", syncErr)
+				os.Exit(1)
+			}
+			if retryErr := db.OpenReadonly(ctx, cfg.ReadonlyDatabaseURL); retryErr != nil {
+				slog.Error("failed to connect to readonly database", "error", retryErr)
+				os.Exit(1)
+			}
+		}
 	}
 	if err := shadowfs.CanonicalizeParentTypes(ctx, db.Pool); err != nil {
 		slog.Error("failed to canonicalize parent_type values", "error", err)
@@ -657,10 +668,10 @@ func main() {
 	}
 
 	// Handler
-	mlCallbackSecret := os.Getenv("ML_CALLBACK_SECRET")
+	mlCallbackSecret := cfg.MLCallbackSecret
 	if mlCallbackSecret == "" {
 		// Log at Error level so it is clearly visible in logs; no os.Exit to allow dev startup.
-		slog.Error("SECURITY: ML_CALLBACK_SECRET is not set — the /internal/ml-callback endpoint is unauthenticated and must be secured before production deployment")
+		slog.Error("SECURITY: ML_CALLBACK_SECRET is not set — the /internal/ml-callback endpoint is unavailable until configured")
 	}
 	if cfg.KomootEncryptionKey == "" {
 		slog.Warn("KOMOOT_ENCRYPTION_KEY is not set — Komoot import will be unavailable until configured")
@@ -778,6 +789,7 @@ func main() {
 			LLMContextWindow:    cfg.LLMContextWindow,
 			MLServiceURL:        cfg.MLServiceURL,
 			MLCallbackSecret:    mlCallbackSecret,
+			MLLLMBrokerToken:    cfg.MLLLMBrokerToken,
 			BRouterURL:          cfg.BRouterURL,
 			KomootEncryptionKey: cfg.KomootEncryptionKey,
 			RoutingGraphPath:    cfg.RoutingGraphPath,

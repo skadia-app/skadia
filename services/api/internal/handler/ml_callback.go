@@ -24,7 +24,11 @@ func (h *Handler) HandleMLCallback(w http.ResponseWriter, r *http.Request) {
 	if h.Config != nil {
 		secret = h.Config.MLCallbackSecret
 	}
-	if secret != "" && r.Header.Get("X-ML-Callback-Secret") != secret {
+	if secret == "" {
+		http.Error(w, "ML callback secret is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if r.Header.Get("X-ML-Callback-Secret") != secret {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}

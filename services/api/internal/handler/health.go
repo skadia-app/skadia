@@ -85,6 +85,7 @@ type HandlerConfig struct {
 	LLMContextWindow    int
 	MLServiceURL        string        // e.g. http://ml:8000
 	MLCallbackSecret    string        // ML_CALLBACK_SECRET env var
+	MLLLMBrokerToken    string        // ML_LLM_BROKER_TOKEN or ML_CALLBACK_SECRET fallback
 	BRouterURL          string        // e.g. http://brouter:17777
 	KomootEncryptionKey string        // 32-byte hex for AES-256-GCM Komoot password encryption
 	RoutingGraphPath    string        // path to binary graph file

@@ -39,6 +39,29 @@ func TestAIBrokerRequiresMLServiceToken(t *testing.T) {
 	}
 }
 
+func TestAIBrokerUsesDedicatedBrokerTokenWhenConfigured(t *testing.T) {
+	h := &Handler{
+		Config:      &HandlerConfig{MLCallbackSecret: "callback-secret", MLLLMBrokerToken: "broker-secret"},
+		LLMResolver: fakeAIBrokerResolver{},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/ai-broker/chat", strings.NewReader(`{"role":"document_extract","task_type":"document_extract","messages":[]}`))
+	req.Header.Set("X-ML-Service-Token", "callback-secret")
+	rec := httptest.NewRecorder()
+	h.HandleAIBrokerChat(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("callback token status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/internal/ai-broker/chat", strings.NewReader(`{"role":"document_extract","task_type":"document_extract","messages":[]}`))
+	req.Header.Set("X-ML-Service-Token", "broker-secret")
+	rec = httptest.NewRecorder()
+	h.HandleAIBrokerChat(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("broker token status = %d, want request to reach validation with %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
 func TestAIBrokerRejectsProviderURLInRequest(t *testing.T) {
 	h := &Handler{
 		Config:      &HandlerConfig{MLCallbackSecret: "secret"},
