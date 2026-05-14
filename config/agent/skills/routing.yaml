@@ -112,4 +112,4 @@ few_shot_examples:
       - tool: list_routing_profiles
         args: '{}'
       - tool: suggest_route_goal
-        args: '{"start": {"ref": "<start_ref>"}, "round_trip": true, "elevation_mode": "moderate", "profile_key": "<profile_from_list_routing_profiles>", "preferences": {"min_forest_share": 50}}'
+        args: '{"start": {"ref": "<start_ref>"}, "round_trip": true, "target_ascent_m": 600, "profile_key": "<profile_from_list_routing_profiles>", "landscape_prefs": {"forest": 8}}'

@@ -48,7 +48,8 @@ describe('GeoSearch', () => {
     const [url] = mockedApiFetch.mock.calls[0]
     expect(url).toContain('/api/v1/geo/search?')
     expect(url).toContain('q=Syn')
-    expect(url).toContain('external=1')
+    expect(url).toContain('sources=local')
+    expect(url).not.toContain('external=1')
     expect(url).not.toMatch(/^https?:\/\//)
 
     vi.useRealTimers()

@@ -296,7 +296,7 @@ func TestQueryWeatherAtPointTimePolicyAndQuotaStatuses(t *testing.T) {
 		{
 			name:   "manual confirmation",
 			cfg:    liveWeatherConfig{Policy: "manual_confirm"},
-			status: "requires_user_confirmation",
+			status: "live_weather_manual_confirmation_not_supported",
 		},
 		{
 			name:   "privacy blocked",

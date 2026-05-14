@@ -34,16 +34,15 @@ type queryActivityTerrainSummaryArgs struct {
 }
 
 type queryWeatherAtPointTimeArgs struct {
-	ActivityID   string   `json:"activity_id,omitempty"`
-	AtTime       string   `json:"at_time,omitempty"`
-	OffsetS      *float64 `json:"offset_s,omitempty"`
-	Lat          *float64 `json:"lat,omitempty"`
-	Lng          *float64 `json:"lng,omitempty"`
-	Time         string   `json:"time,omitempty"`
-	Mode         string   `json:"mode,omitempty"`
-	StoredOnly   *bool    `json:"stored_only,omitempty"`
-	ConsentToken string   `json:"consent_token,omitempty"`
-	Limit        *int     `json:"limit,omitempty"`
+	ActivityID string   `json:"activity_id,omitempty"`
+	AtTime     string   `json:"at_time,omitempty"`
+	OffsetS    *float64 `json:"offset_s,omitempty"`
+	Lat        *float64 `json:"lat,omitempty"`
+	Lng        *float64 `json:"lng,omitempty"`
+	Time       string   `json:"time,omitempty"`
+	Mode       string   `json:"mode,omitempty"`
+	StoredOnly *bool    `json:"stored_only,omitempty"`
+	Limit      *int     `json:"limit,omitempty"`
 }
 
 type liveWeatherPoint struct {
@@ -95,12 +94,14 @@ func QueryActivityTerrainSummaryTool() *Tool {
 
 func QueryWeatherAtPointTimeTool() *Tool {
 	return &Tool{
-		Name:        "query_weather_at_point_time",
-		Description: "Return stored or explicitly enabled live weather for an owned activity or explicit point/time.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"activity_id":{"type":"string","format":"uuid"},"at_time":{"type":"string","format":"date-time"},"offset_s":{"type":"number","minimum":0},"lat":{"type":"number","minimum":-90,"maximum":90},"lng":{"type":"number","minimum":-180,"maximum":180},"time":{"type":"string","format":"date-time"},"mode":{"type":"string","enum":["stored_only","stored_then_fetch","fetch_only"],"default":"stored_only"},"stored_only":{"type":"boolean","default":true},"consent_token":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":false}`),
-		Permission:  PermissionRead,
-		IsUserOwned: true,
-		ExecuteRead: executeQueryWeatherAtPointTime,
+		Name:             "query_weather_at_point_time",
+		Description:      "Return stored or explicitly enabled live weather for an owned activity or explicit point/time.",
+		InputSchema:      json.RawMessage(`{"type":"object","properties":{"activity_id":{"type":"string","format":"uuid"},"at_time":{"type":"string","format":"date-time"},"offset_s":{"type":"number","minimum":0},"lat":{"type":"number","minimum":-90,"maximum":90},"lng":{"type":"number","minimum":-180,"maximum":180},"time":{"type":"string","format":"date-time"},"mode":{"type":"string","enum":["stored_only","stored_then_fetch","fetch_only"],"default":"stored_only"},"stored_only":{"type":"boolean","default":true},"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":false}`),
+		Permission:       PermissionRead,
+		RateLimitPerHour: 120,
+		Timeout:          15 * time.Second,
+		IsUserOwned:      true,
+		ExecuteRead:      executeQueryWeatherAtPointTime,
 	}
 }
 
@@ -447,16 +448,12 @@ func liveWeatherPolicyBlockedResponse(cfg liveWeatherConfig, mode string, rateLi
 		}
 	case "manual_confirm":
 		return map[string]any{
-			"weather":    []map[string]any{},
-			"count":      0,
-			"mode":       mode,
-			"status":     "requires_user_confirmation",
-			"rate_limit": rateLimit,
-			"consent_request": map[string]any{
-				"type":    "live_weather_external_read",
-				"service": "weather",
-				"scope":   "point_time",
-			},
+			"weather":         []map[string]any{},
+			"count":           0,
+			"mode":            mode,
+			"status":          "live_weather_manual_confirmation_not_supported",
+			"blocking_reason": "manual_confirmation_not_supported",
+			"rate_limit":      rateLimit,
 		}
 	case "allowed":
 		if !cfg.ProviderEnabled {

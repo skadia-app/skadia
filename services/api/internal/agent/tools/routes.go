@@ -658,7 +658,7 @@ func listRoutingProfilesForTool(ctx context.Context, deps *Deps, userID string) 
 			return nil, fmt.Errorf("list routing profiles: %w", err)
 		}
 		for _, p := range dbProfiles {
-			profiles = append(profiles, routingProfileToolItemFromDB(p))
+			profiles = append(profiles, routingProfileToolItemFromDB(p, deps.RouteGoalSuggester != nil))
 		}
 	}
 	for _, name := range routing.BRouterProfileNames() {
@@ -668,7 +668,7 @@ func listRoutingProfilesForTool(ctx context.Context, deps *Deps, userID string) 
 			Engine:              "brouter",
 			BaseProfile:         name,
 			Constraints:         map[string]any{"profile_params": routing.BRouterProfileParamKeys(name)},
-			Supports:            routingProfileSupports("brouter", routing.SourceFilesystem),
+			Supports:            routingProfileSupports("brouter", routing.SourceFilesystem, deps != nil && deps.RouteGoalSuggester != nil, name),
 			SemanticPreferences: routingProfileSemanticPreferences(),
 			ElevationSemantics:  routingProfileElevationSemantics(),
 			ProfileVersion:      "filesystem:" + name,
@@ -678,7 +678,7 @@ func listRoutingProfilesForTool(ctx context.Context, deps *Deps, userID string) 
 	return profiles, nil
 }
 
-func routingProfileToolItemFromDB(p database.RoutingProfile) routingProfileToolItem {
+func routingProfileToolItemFromDB(p database.RoutingProfile, routeSuggesterAvailable bool) routingProfileToolItem {
 	defaultParams := map[string]any{}
 	if len(p.Config) > 0 {
 		_ = json.Unmarshal(p.Config, &defaultParams)
@@ -704,7 +704,7 @@ func routingProfileToolItemFromDB(p database.RoutingProfile) routingProfileToolI
 			"route_preview_no_save":   true,
 			"route_preview_read_only": true,
 		},
-		Supports:            routingProfileSupports("badrouter", p.Source),
+		Supports:            routingProfileSupports("badrouter", p.Source, routeSuggesterAvailable, p.BaseProfile),
 		SemanticPreferences: routingProfileSemanticPreferences(),
 		ElevationSemantics:  routingProfileElevationSemantics(),
 		ProfileVersion:      routingProfileVersion(p),
@@ -712,12 +712,22 @@ func routingProfileToolItemFromDB(p database.RoutingProfile) routingProfileToolI
 	}
 }
 
-func routingProfileSupports(engine, source string) map[string]bool {
+func routingProfileSupports(engine, source string, routeSuggesterAvailable bool, profileKey string) map[string]bool {
+	routeSuggestion := routeSuggesterAvailable && routeSuggestionProfileSupported(profileKey)
 	return map[string]bool{
 		"direct_route_preview": true,
-		"route_suggestion":     false,
-		"round_trip":           false,
+		"route_suggestion":     routeSuggestion,
+		"round_trip":           routeSuggestion,
 		"imported_custom":      source != routing.SourceFilesystem && source != "system",
+	}
+}
+
+func routeSuggestionProfileSupported(profileKey string) bool {
+	switch strings.TrimSpace(profileKey) {
+	case "hiking", "hiking-sac2", "trekking", "mtb", "gravel", "road":
+		return true
+	default:
+		return false
 	}
 }
 

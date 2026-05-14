@@ -140,34 +140,40 @@ func ResolveRouteFeatureTool() *Tool {
 
 func GetRoutingCoverageTool() *Tool {
 	return &Tool{
-		Name:        "get_routing_coverage",
-		Description: "Check imported map region, BRouter tile, DEM cell, and semantic coverage hints for route points before promising a route.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"place_refs":{"type":"array","items":{"type":"string"}},"feature_refs":{"type":"array","items":{"type":"string"}},"points":{"type":"array","items":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false}},"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"additionalProperties":false},"profile_key":{"type":"string"},"intent":{"type":"string","enum":["resolve_only","direct","round_trip","goal","diagnostics"]}},"additionalProperties":false}`),
-		Permission:  PermissionRead,
-		IsUserOwned: false,
-		ExecuteRead: executeGetRoutingCoverage,
+		Name:             "get_routing_coverage",
+		Description:      "Check imported map region, BRouter tile, DEM cell, and semantic coverage hints for route points before promising a route.",
+		InputSchema:      json.RawMessage(`{"type":"object","properties":{"place_refs":{"type":"array","items":{"type":"string"}},"feature_refs":{"type":"array","items":{"type":"string"}},"points":{"type":"array","items":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false}},"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"additionalProperties":false},"profile_key":{"type":"string"},"intent":{"type":"string","enum":["resolve_only","direct","round_trip","goal","diagnostics"]}},"additionalProperties":false}`),
+		Permission:       PermissionRead,
+		RateLimitPerHour: 120,
+		Timeout:          5 * time.Second,
+		IsUserOwned:      false,
+		ExecuteRead:      executeGetRoutingCoverage,
 	}
 }
 
 func AnalyzeRoutePointsTool() *Tool {
 	return &Tool{
-		Name:        "analyze_route_points",
-		Description: "Resolve route-point refs or lat/lng points and compute straight-line route diagnostics, required local tiles, and long-leg waypoint requirements before expensive routing.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["points"],"properties":{"points":{"type":"array","minItems":2,"items":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false}},"intent":{"type":"string","enum":["distance_only","direct_route","goal_route"]}},"additionalProperties":false}`),
-		Permission:  PermissionRead,
-		IsUserOwned: true,
-		ExecuteRead: executeAnalyzeRoutePoints,
+		Name:             "analyze_route_points",
+		Description:      "Resolve route-point refs or lat/lng points and compute straight-line route diagnostics, required local tiles, and long-leg waypoint requirements before expensive routing.",
+		InputSchema:      json.RawMessage(`{"type":"object","required":["points"],"properties":{"points":{"type":"array","minItems":2,"items":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false}},"intent":{"type":"string","enum":["distance_only","direct_route","goal_route"]}},"additionalProperties":false}`),
+		Permission:       PermissionRead,
+		RateLimitPerHour: 120,
+		Timeout:          5 * time.Second,
+		IsUserOwned:      true,
+		ExecuteRead:      executeAnalyzeRoutePoints,
 	}
 }
 
 func GetAgentServiceStatusTool() *Tool {
 	return &Tool{
-		Name:        "get_agent_service_status",
-		Description: "Return cheap status for agent geocoding, weather, routing, coverage, long-distance policy, and difficulty support before promising route work.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"services":{"type":"array","items":{"type":"string","enum":["geocoding","weather","routing","coverage"]}},"points":{"type":"array","items":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false}},"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"additionalProperties":false},"profile_key":{"type":"string"}},"additionalProperties":false}`),
-		Permission:  PermissionRead,
-		IsUserOwned: true,
-		ExecuteRead: executeGetAgentServiceStatus,
+		Name:             "get_agent_service_status",
+		Description:      "Return cheap status for agent geocoding, weather, routing, coverage, long-distance policy, and difficulty support before promising route work.",
+		InputSchema:      json.RawMessage(`{"type":"object","properties":{"services":{"type":"array","items":{"type":"string","enum":["geocoding","weather","routing","coverage"]}},"points":{"type":"array","items":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false}},"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"additionalProperties":false},"profile_key":{"type":"string"}},"additionalProperties":false}`),
+		Permission:       PermissionRead,
+		RateLimitPerHour: 120,
+		Timeout:          5 * time.Second,
+		IsUserOwned:      true,
+		ExecuteRead:      executeGetAgentServiceStatus,
 	}
 }
 
@@ -184,12 +190,14 @@ func PlanRouteBetweenTool() *Tool {
 
 func SuggestRouteGoalTool() *Tool {
 	return &Tool{
-		Name:        "suggest_route_goal",
-		Description: "Explain whether Skadia can suggest a goal-based or round-trip route from a start point. Returns structured unsupported details when route-suggestion coverage is missing.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["start"],"properties":{"start":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false},"end":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false},"round_trip":{"type":"boolean"},"target_distance_m":{"type":"number","minimum":1},"target_ascent_m":{"type":"number","minimum":0},"ascent_tolerance_pct":{"type":"number","minimum":0},"elevation_mode":{"type":"string","enum":["flat","moderate","climby","avoid_steep","custom"]},"sport_query":{"type":"string"},"profile_key":{"type":"string"},"preferences":{"type":"object"},"difficulty":{"type":"object","properties":{"max_sac_scale":{"oneOf":[{"type":"string","enum":["T1","T2","T3","T4","T5","T6"]},{"type":"integer","minimum":0,"maximum":6}]},"max_mtb_scale":{"oneOf":[{"type":"string","enum":["S0","S1","S2","S3","S4","S5"]},{"type":"integer","minimum":0,"maximum":5}]},"max_via_ferrata":{"oneOf":[{"type":"string","enum":["K1","K2","K3","K4","K5","K6"]},{"type":"integer","minimum":1,"maximum":6}]},"climbing_grade":{"type":"string"},"difficulty_intent":{"type":"string","enum":["avoid","allow","seek"]}},"additionalProperties":false},"target_feature_refs":{"type":"array","items":{"type":"string"}},"near_feature_refs":{"type":"array","items":{"type":"string"}},"along_feature_refs":{"type":"array","items":{"type":"string"}},"avoid_feature_refs":{"type":"array","items":{"type":"string"}},"landscape_prefs":{"type":"object"},"surface_tendency":{"type":"string"},"modifiers":{"type":"object"},"max_variants":{"type":"integer","minimum":1,"maximum":10}},"additionalProperties":false}`),
-		Permission:  PermissionRead,
-		IsUserOwned: false,
-		ExecuteRead: executeSuggestRouteGoal,
+		Name:             "suggest_route_goal",
+		Description:      "Explain whether Skadia can suggest a goal-based or round-trip route from a start point. Returns structured unsupported details when route-suggestion coverage is missing.",
+		InputSchema:      json.RawMessage(`{"type":"object","required":["start"],"properties":{"start":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false},"end":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false},"round_trip":{"type":"boolean"},"target_distance_m":{"type":"number","minimum":1},"target_ascent_m":{"type":"number","minimum":0},"ascent_tolerance_pct":{"type":"number","minimum":0},"elevation_mode":{"type":"string","enum":["flat","moderate","climby","avoid_steep","custom"]},"sport_query":{"type":"string"},"profile_key":{"type":"string"},"preferences":{"type":"object"},"difficulty":{"type":"object","properties":{"max_sac_scale":{"oneOf":[{"type":"string","enum":["T1","T2","T3","T4","T5","T6"]},{"type":"integer","minimum":0,"maximum":6}]},"max_mtb_scale":{"oneOf":[{"type":"string","enum":["S0","S1","S2","S3","S4","S5"]},{"type":"integer","minimum":0,"maximum":5}]},"max_via_ferrata":{"oneOf":[{"type":"string","enum":["K1","K2","K3","K4","K5","K6"]},{"type":"integer","minimum":1,"maximum":6}]},"climbing_grade":{"type":"string"},"difficulty_intent":{"type":"string","enum":["avoid","allow","seek"]}},"additionalProperties":false},"target_feature_refs":{"type":"array","items":{"type":"string"}},"near_feature_refs":{"type":"array","items":{"type":"string"}},"along_feature_refs":{"type":"array","items":{"type":"string"}},"avoid_feature_refs":{"type":"array","items":{"type":"string"}},"landscape_prefs":{"type":"object"},"surface_tendency":{"type":"string"},"modifiers":{"type":"object"},"max_variants":{"type":"integer","minimum":1,"maximum":10}},"additionalProperties":false}`),
+		Permission:       PermissionRead,
+		RateLimitPerHour: 30,
+		Timeout:          75 * time.Second,
+		IsUserOwned:      false,
+		ExecuteRead:      executeSuggestRouteGoal,
 	}
 }
 
@@ -264,6 +272,7 @@ func executeGetRoutingCoverage(ctx context.Context, deps *Deps, userID string, r
 		bbox = &b
 	}
 	regions, importedRegionVerified := regionsForBBox(ctx, deps, bbox)
+	intent := defaultString(args.Intent, "diagnostics")
 	requiredTiles := []string{}
 	if bbox != nil {
 		requiredTiles = osm.BRouterTileIDs([]osm.Region{{MinLon: bbox.MinLng, MinLat: bbox.MinLat, MaxLon: bbox.MaxLng, MaxLat: bbox.MaxLat}})
@@ -278,35 +287,46 @@ func executeGetRoutingCoverage(ctx context.Context, deps *Deps, userID string, r
 	canPlan := bbox != nil && len(requiredTiles) > 0 && len(missingTiles) == 0
 	badRouterAvailable := len(graphTileIDs) > 0 && len(missingGraphTiles) == 0 && !graphTileListTruncated
 	canSuggestGoal := deps != nil && deps.RouteGoalSuggester != nil && badRouterAvailable
+	profileStatus := routingCoverageProfileStatus(ctx, deps, userID, args.ProfileKey)
 	blockingReason := ""
 	nextAdminAction := ""
 	if len(invalidRefs) > 0 {
 		canResolve = false
 		canPlan = false
+		canSuggestGoal = false
 		blockingReason = "invalid_or_expired_resolver_ref"
 		nextAdminAction = "resolve the named place or feature again"
 	} else if bbox == nil {
 		blockingReason = "no_points_or_bbox"
 		nextAdminAction = "call resolve_route_place or provide explicit lat/lng points"
-	} else if len(missingTiles) > 0 {
+	} else if !boolValue(profileStatus["valid"]) {
+		canPlan = false
+		canSuggestGoal = false
+		blockingReason = "invalid_or_incompatible_profile"
+		nextAdminAction = "call list_routing_profiles and choose a compatible profile_key"
+	} else if intent == "direct" && len(missingTiles) > 0 {
 		blockingReason = "missing_brouter_segments"
 		nextAdminAction = "download or build the missing BRouter rd5 segment files"
-	} else if defaultString(args.Intent, "diagnostics") == "goal" && len(missingGraphTiles) > 0 {
+	} else if intent == "goal" && deps != nil && deps.RouteGoalSuggester == nil {
+		blockingReason = "route_suggester_unavailable"
+		nextAdminAction = "start the API with routing graph support before asking for goal route suggestions"
+	} else if intent == "goal" && len(missingGraphTiles) > 0 {
 		blockingReason = "missing_badrouter_tiles"
 		nextAdminAction = "build routing tiles for the requested area"
-	} else if !canResolve && defaultString(args.Intent, "diagnostics") == "resolve_only" {
+	} else if !canResolve && intent == "resolve_only" {
 		blockingReason = "missing_imported_osm_region"
 		nextAdminAction = "import OSM data for the requested region"
 	}
 	return map[string]any{
-		"intent":            defaultString(args.Intent, "diagnostics"),
+		"intent":            intent,
 		"profile_key":       args.ProfileKey,
+		"profile":           profileStatus,
 		"points":            points,
 		"invalid_refs":      invalidRefs,
 		"bbox":              bbox,
 		"regions":           regions,
 		"place_search":      map[string]any{"available": canResolve, "source": "imported_osm", "verified": importedRegionVerified},
-		"brouter":           map[string]any{"available": canPlan, "segments_dir": segmentsDir, "required_rd5_tiles": requiredTiles, "present_rd5_tiles": presentTiles, "missing_rd5_tiles": missingTiles},
+		"brouter":           map[string]any{"available": canPlan, "service_status": "configured_by_default_or_env", "segments_dir": segmentsDir, "required_rd5_tiles": requiredTiles, "present_rd5_tiles": presentTiles, "missing_rd5_tiles": missingTiles},
 		"badrouter":         map[string]any{"available": badRouterAvailable, "tiles_dir": routingTilesDir, "required_tiles": graphTileLabels(graphTileIDs), "present_tiles": presentGraphTiles, "missing_tiles": missingGraphTiles, "tile_count": len(graphTileIDs), "tile_list_truncated": graphTileListTruncated, "verification": "file_presence_only"},
 		"dem":               map[string]any{"dem_data_dir": demDir, "required_hgt_cells": demCells, "present_hgt_cells": presentDEMCells, "missing_hgt_cells": missingDEMCells, "status": demCoverageStatus(demCells, missingDEMCells)},
 		"surface_highway":   map[string]any{"available": "unknown", "status": "depends on imported OSM way tags and route graph coverage"},
@@ -348,7 +368,7 @@ func executePlanRouteBetween(ctx context.Context, deps *Deps, userID string, raw
 			"fallback":               true,
 		}, nil
 	}
-	if coverageResult, blocked := routeBetweenCoverageBlock(ctx, deps, points, args.ProfileKey); blocked {
+	if coverageResult, blocked := routeBetweenCoverageBlock(ctx, deps, userID, points, args.ProfileKey); blocked {
 		return coverageResult, nil
 	}
 	payload, err := json.Marshal(planRouteArgs{Waypoints: waypoints, Profile: args.ProfileKey, ProfileParams: args.ProfileParams})
@@ -441,6 +461,9 @@ func executeSuggestRouteGoal(ctx context.Context, deps *Deps, userID string, raw
 			"post_validation":         map[string]any{"status": "not_run"},
 		}, nil
 	}
+	if coverage, blocked := suggestRouteGoalCoverageBlock(ctx, deps, userID, args); blocked {
+		return coverage, nil
+	}
 	req, err := buildRouteGoalSuggestionRequest(ctx, deps, userID, start, args)
 	if err != nil {
 		return map[string]any{"status": "error", "error": err.Error(), "variants": []any{}}, nil
@@ -471,13 +494,42 @@ func executeSuggestRouteGoal(ctx context.Context, deps *Deps, userID string, raw
 		"status":                  "ok",
 		"unsupported_constraints": unsupported,
 		"applied_constraints":     routeGoalAppliedConstraints(req),
+		"saveable":                false,
+		"save_note":               "goal suggestions are read-only previews here; saving a route requires a separate route save action",
 		"variants":                resp.Variants,
 		"coverage":                map[string]any{"available": resp.CoverageAvailable, "partial_search": resp.PartialSearch},
 		"post_validation":         map[string]any{"status": "backend_validated"},
 	}, nil
 }
 
-func routeBetweenCoverageBlock(ctx context.Context, deps *Deps, points []routePoint, profileKey string) (map[string]any, bool) {
+func suggestRouteGoalCoverageBlock(ctx context.Context, deps *Deps, userID string, args suggestRouteGoalArgs) (map[string]any, bool) {
+	raw, err := json.Marshal(getRoutingCoverageArgs{
+		Points:     []routePoint{args.Start},
+		ProfileKey: args.ProfileKey,
+		Intent:     "goal",
+	})
+	if err != nil {
+		return nil, false
+	}
+	result, err := executeGetRoutingCoverage(ctx, deps, userID, raw)
+	if err != nil {
+		return map[string]any{"status": "coverage_error", "error": err.Error(), "variants": []any{}}, true
+	}
+	coverage, ok := result.(map[string]any)
+	if !ok || coverage["can_suggest_goal"] == true {
+		return nil, false
+	}
+	return map[string]any{
+		"status":            "coverage_blocked",
+		"coverage":          coverage,
+		"blocking_reason":   coverage["blocking_reason"],
+		"next_admin_action": coverage["next_admin_action"],
+		"variants":          []any{},
+		"post_validation":   map[string]any{"status": "not_run"},
+	}, true
+}
+
+func routeBetweenCoverageBlock(ctx context.Context, deps *Deps, userID string, points []routePoint, profileKey string) (map[string]any, bool) {
 	raw, err := json.Marshal(getRoutingCoverageArgs{
 		Points:     points,
 		ProfileKey: profileKey,
@@ -486,7 +538,7 @@ func routeBetweenCoverageBlock(ctx context.Context, deps *Deps, points []routePo
 	if err != nil {
 		return nil, false
 	}
-	result, err := executeGetRoutingCoverage(ctx, deps, "", raw)
+	result, err := executeGetRoutingCoverage(ctx, deps, userID, raw)
 	if err != nil {
 		return map[string]any{"error": err.Error(), "fallback": true}, true
 	}

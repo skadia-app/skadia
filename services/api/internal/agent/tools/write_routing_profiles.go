@@ -211,13 +211,13 @@ func resolveVariantBaseProfile(ctx context.Context, deps *Deps, userID, key stri
 		}
 	}
 	if isValidBadRouterProfile(key) {
-		return routingProfileVariantBase{BaseProfile: key, Config: map[string]any{"profile": key}}, nil
+		return routingProfileVariantBase{BaseProfile: key, Config: map[string]any{"profile": key}, Predicates: defaultRoutingProfilePredicates(key)}, nil
 	}
 	baseProfile, err := brouterPreviewProfileToBadRouter(key)
 	if err != nil {
 		return routingProfileVariantBase{}, err
 	}
-	return routingProfileVariantBase{BaseProfile: baseProfile, Config: map[string]any{"profile": baseProfile}}, nil
+	return routingProfileVariantBase{BaseProfile: baseProfile, Config: map[string]any{"profile": baseProfile}, Predicates: defaultRoutingProfilePredicates(baseProfile)}, nil
 }
 
 func routingProfileVariantBaseFromProfile(ctx context.Context, db *database.DB, profileID, baseProfile string) (routingProfileVariantBase, error) {
@@ -268,6 +268,23 @@ func isValidBadRouterProfile(profile string) bool {
 		}
 	}
 	return false
+}
+
+func defaultRoutingProfilePredicates(baseProfile string) []sport.Predicate {
+	switch baseProfile {
+	case "mtb":
+		sub := "mountain"
+		return []sport.Predicate{{Sport: "cycling", SubType: &sub}}
+	case "gravel":
+		sub := "gravel_cycling"
+		return []sport.Predicate{{Sport: "cycling", SubType: &sub}}
+	case "road", "trekking":
+		return []sport.Predicate{{Sport: "cycling"}}
+	case "hiking":
+		return []sport.Predicate{{Sport: "hiking"}}
+	default:
+		return []sport.Predicate{{Sport: "generic"}}
+	}
 }
 
 func routingProfileOverrideKeySet() map[string]bool {
