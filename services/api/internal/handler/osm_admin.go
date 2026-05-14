@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/dem"
+	"github.com/skadia-app/skadia/services/api/internal/geosearch"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
@@ -23,6 +25,8 @@ import (
 )
 
 var validRegionID = regexp.MustCompile(`^[a-z0-9_-]+$`)
+var geoSearchCache = geosearch.NewCache(10 * time.Minute)
+var geoSearchLimiter = geosearch.NewLimiter(60, time.Hour, time.Now)
 
 // GetOSMStatus returns counts from OSM tables.
 // GET /api/v1/admin/osm-status
@@ -238,8 +242,8 @@ func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-// SearchAddress performs trigram-based search across streets and places.
-// GET /api/v1/geo/search?q=Bergstraße&type=street|place|all&limit=20&lat=47.1&lng=11.4
+// SearchAddress searches imported map data and reports optional external lookup status.
+// GET /api/v1/geo/search?q=...&type=street|place|all&limit=20&lat=1.2&lng=3.4&external=1
 func (h *Handler) SearchAddress(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if len(q) < 2 {
@@ -260,90 +264,58 @@ func (h *Handler) SearchAddress(w http.ResponseWriter, r *http.Request) {
 	lat, _ := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
 	lng, _ := strconv.ParseFloat(r.URL.Query().Get("lng"), 64)
 
-	type searchResult struct {
-		Name       string   `json:"name"`
-		Type       string   `json:"type"`
-		Subtype    string   `json:"subtype,omitempty"`
-		Lat        float64  `json:"lat"`
-		Lng        float64  `json:"lng"`
-		Similarity float64  `json:"similarity"`
-		DistanceM  *float64 `json:"distance_m,omitempty"`
+	opts := geosearch.SearchOptions{
+		Query:           q,
+		Type:            searchType,
+		Limit:           limit,
+		UserID:          middleware.GetUserID(r.Context()),
+		IncludeExternal: geoSearchIncludesExternal(r),
+	}
+	if hasLocation {
+		opts.Near = &geosearch.Point{Lat: lat, Lng: lng}
 	}
 
-	ctx := r.Context()
-	var results []searchResult
-
-	// Straßensuche
-	if searchType == "all" || searchType == "street" {
-		var streetQuery string
-		var streetParams []any
-		if hasLocation {
-			streetQuery = `
-				SELECT name, highway,
-				       ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
-				       similarity(name, $1) AS sim,
-				       ST_Distance(geom::geography, ST_Point($2,$3)::geography) AS dist_m
-				FROM osm_ways
-				WHERE name % $1 AND name IS NOT NULL
-				ORDER BY geom::geography <-> ST_Point($2,$3)::geography
-				LIMIT $4`
-			streetParams = []any{q, lng, lat, limit}
-		} else {
-			streetQuery = `
-				SELECT name, highway,
-				       ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
-				       similarity(name, $1) AS sim,
-				       NULL::float8 AS dist_m
-				FROM osm_ways
-				WHERE name % $1 AND name IS NOT NULL
-				ORDER BY similarity(name, $1) DESC
-				LIMIT $2`
-			streetParams = []any{q, limit}
-		}
-
-		streetRows, err := h.DB.Pool.Query(ctx, streetQuery, streetParams...)
-		if err == nil {
-			for streetRows.Next() {
-				var sr searchResult
-				sr.Type = "street"
-				if err := streetRows.Scan(&sr.Name, &sr.Subtype, &sr.Lat, &sr.Lng, &sr.Similarity, &sr.DistanceM); err == nil {
-					results = append(results, sr)
-				}
-			}
-			streetRows.Close()
-		}
+	var local geosearch.LocalSearcher
+	if h.DB != nil && h.DB.Pool != nil {
+		local = geosearch.NewLocalDBSearcher(h.DB.Pool)
 	}
-
-	// Ortssuche
-	if searchType == "all" || searchType == "place" {
-		placeQuery := `
-			SELECT name, category, subtype,
-			       ST_Y(ST_Centroid(geom)) AS lat, ST_X(ST_Centroid(geom)) AS lng,
-			       similarity(name, $1) AS sim
-			FROM osm_pois
-			WHERE name % $1 AND name IS NOT NULL
-			  AND category IN ('settlement', 'summit', 'pass')
-			ORDER BY similarity(name, $1) DESC
-			LIMIT $2`
-		placeRows, err := h.DB.Pool.Query(ctx, placeQuery, q, limit)
-		if err == nil {
-			for placeRows.Next() {
-				var sr searchResult
-				sr.Type = "place"
-				var category string
-				if err := placeRows.Scan(&sr.Name, &category, &sr.Subtype, &sr.Lat, &sr.Lng, &sr.Similarity); err == nil {
-					sr.Type = category // summit, pass, settlement
-					results = append(results, sr)
-				}
-			}
-			placeRows.Close()
-		}
+	policy := h.geoSearchExternalPolicy(r.Context(), opts.UserID, opts.IncludeExternal)
+	svc := geosearch.NewService(geosearch.ServiceConfig{
+		Local:  local,
+		Policy: policy,
+		Cache:  geoSearchCache,
+		Quota:  geoSearchLimiter,
+	})
+	result, err := svc.Search(r.Context(), opts)
+	if err != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", err.Error(), r.URL.Path)
+		return
 	}
+	httputil.WriteJSON(w, http.StatusOK, result)
+}
 
-	if results == nil {
-		results = []searchResult{}
+func geoSearchIncludesExternal(r *http.Request) bool {
+	q := r.URL.Query()
+	switch strings.ToLower(strings.TrimSpace(q.Get("external"))) {
+	case "1", "true", "yes":
+		return true
 	}
-	httputil.WriteJSON(w, http.StatusOK, map[string]any{"results": results, "count": len(results)})
+	sources := strings.ToLower(strings.TrimSpace(q.Get("sources")))
+	return sources == "all" || sources == "external"
+}
+
+func (h *Handler) geoSearchExternalPolicy(ctx context.Context, userID string, requested bool) geosearch.ExternalPolicy {
+	if !requested || userID == "" || h.DB == nil {
+		return geosearch.ExternalPolicyDisabled
+	}
+	settings, err := h.DB.GetEnrichmentSettings(ctx, userID)
+	if err != nil || settings == nil {
+		return geosearch.ExternalPolicyDisabled
+	}
+	if strings.TrimSpace(settings.GeocodeFallbackProvider) == "" || settings.GeocodeFallbackProvider == "off" {
+		return geosearch.ExternalPolicyDisabled
+	}
+	return geosearch.ExternalPolicyAllowed
 }
 
 // GetDEMStatus returns available DEM data sources and tile counts.
@@ -530,8 +502,8 @@ func (h *Handler) checkAndRunScheduledUpdates(ctx context.Context) {
 			weekday, day, hour        int
 			lastSeq                   int
 			lastUpdatedAt             time.Time
-			replURL                   string  // safe: WHERE replication_url IS NOT NULL
-			pbfPath                   string  // safe: WHERE pbf_path IS NOT NULL
+			replURL                   string // safe: WHERE replication_url IS NOT NULL
+			pbfPath                   string // safe: WHERE pbf_path IS NOT NULL
 		)
 		if err := rows.Scan(&regionID, &label, &interval, &weekday, &day,
 			&hour, &lastUpdatedAt, &replURL, &lastSeq, &pbfPath); err != nil {
