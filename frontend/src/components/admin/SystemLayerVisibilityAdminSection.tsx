@@ -44,11 +44,13 @@ interface RowProps {
   layerKey: string
   defaultLabel: string
   isCoverage: boolean
+  available?: boolean
+  unavailableReason?: string
   visibility: SystemLayerVisibility | undefined
   onPatch: (key: string, body: Partial<SystemLayerVisibility>) => void
 }
 
-function VisibilityRow({ layerKey, defaultLabel, isCoverage, visibility, onPatch }: RowProps) {
+function VisibilityRow({ layerKey, defaultLabel, isCoverage, available = true, unavailableReason, visibility, onPatch }: RowProps) {
   // Local state mirrors DB value; parent patches debounced
   const [enabled, setEnabled] = useState(visibility?.enabled ?? true)
   const [defaultEnabled, setDefaultEnabled] = useState(
@@ -60,34 +62,43 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, visibility, onPatch
   const [label, setLabel] = useState(visibility?.label_override ?? '')
 
   function handleEnabled(val: boolean) {
+    if (!available) return
     setEnabled(val)
     onPatch(layerKey, { enabled: val })
   }
 
   function handleDefaultEnabled(val: boolean) {
+    if (!available) return
     setDefaultEnabled(val)
     onPatch(layerKey, { default_enabled_for_new_users: val })
   }
 
   function handleOpacity(val: number) {
+    if (!available) return
     setOpacity(val)
     onPatch(layerKey, { default_opacity: val })
   }
 
   function handleLabel(val: string) {
+    if (!available) return
     const trimmed = val.slice(0, LABELS.labelMaxLength)
     setLabel(trimmed)
     onPatch(layerKey, { label_override: trimmed || undefined })
   }
 
   return (
-    <li className="grid grid-cols-[1fr_5rem_8rem_10rem] gap-3 items-center px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700">
+    <li className={`grid grid-cols-[1fr_5rem_8rem_10rem] gap-3 items-center px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 ${available ? '' : 'opacity-50'}`}>
       {/* Key / label */}
       <div className="min-w-0">
         <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
           {defaultLabel}
         </p>
         <p className="text-xs text-neutral-400 font-mono">{layerKey}</p>
+        {!available && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            Nicht verfügbar{unavailableReason ? `: ${unavailableReason}` : ''}
+          </p>
+        )}
       </div>
 
       {/* Enabled toggle */}
@@ -96,7 +107,8 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, visibility, onPatch
           type="checkbox"
           checked={enabled}
           onChange={e => handleEnabled(e.target.checked)}
-          className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer"
+          disabled={!available}
+          className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer disabled:cursor-not-allowed"
           aria-label={`${defaultLabel} — ${LABELS.colEnabled}`}
         />
       </div>
@@ -107,7 +119,8 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, visibility, onPatch
           type="checkbox"
           checked={defaultEnabled}
           onChange={e => handleDefaultEnabled(e.target.checked)}
-          className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer"
+          disabled={!available}
+          className="h-4 w-4 rounded accent-accent-DEFAULT cursor-pointer disabled:cursor-not-allowed"
           aria-label={`${defaultLabel} — ${LABELS.colDefaultNew}`}
         />
       </div>
@@ -123,7 +136,8 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, visibility, onPatch
               max={100}
               value={opacity}
               onChange={e => handleOpacity(Number(e.target.value))}
-              className="flex-1 accent-accent-DEFAULT"
+              disabled={!available}
+              className="flex-1 accent-accent-DEFAULT disabled:cursor-not-allowed"
               aria-label={`${defaultLabel} — ${LABELS.colOpacity}`}
             />
             <span className="tabular-nums text-xs text-neutral-500 w-10 text-right">{opacity}%</span>
@@ -135,7 +149,8 @@ function VisibilityRow({ layerKey, defaultLabel, isCoverage, visibility, onPatch
           maxLength={LABELS.labelMaxLength}
           placeholder={LABELS.placeholderLabel}
           onChange={e => handleLabel(e.target.value)}
-          className="w-full rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT"
+          disabled={!available}
+          className="w-full rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-accent-DEFAULT disabled:cursor-not-allowed"
           aria-label={`${defaultLabel} — ${LABELS.colLabel}`}
         />
       </div>
@@ -235,6 +250,8 @@ export function SystemLayerVisibilityAdminSection() {
             layerKey={descriptor.key}
             defaultLabel={descriptor.default_label}
             isCoverage={false}
+            available={descriptor.available}
+            unavailableReason={descriptor.reason}
             visibility={systemVisibility[descriptor.key]}
             onPatch={debouncedPatch}
           />
@@ -249,6 +266,8 @@ export function SystemLayerVisibilityAdminSection() {
             layerKey={descriptor.key}
             defaultLabel={descriptor.default_label}
             isCoverage={true}
+            available={descriptor.available}
+            unavailableReason={descriptor.reason}
             visibility={systemVisibility[descriptor.key]}
             onPatch={debouncedPatch}
           />

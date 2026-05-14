@@ -134,6 +134,23 @@ describe('SystemLayerVisibilityAdminSection', () => {
     expect(sliders).toHaveLength(0)
   })
 
+  it('disables unavailable capability-backed rows', async () => {
+    mockFetchSystemLayerKeys.mockResolvedValue([
+      { ...VECTOR_KEY, required_capability: 'system_layers_vector', available: false, reason: 'core_profile' },
+      COVERAGE_KEY,
+    ])
+
+    render(<SystemLayerVisibilityAdminSection />, { wrapper: makeWrapper() })
+    await waitFor(() => expect(screen.getByText('Wanderwege')).toBeInTheDocument())
+
+    const enabledCheckbox = screen.getByRole('checkbox', {
+      name: /Wanderwege.*Aktiv/i,
+    })
+    expect(enabledCheckbox).toBeDisabled()
+    fireEvent.click(enabledCheckbox)
+    expect(mockPatchSystemLayerVisibility).not.toHaveBeenCalled()
+  })
+
   it('label_override input is length-limited to 100 characters', async () => {
     render(<SystemLayerVisibilityAdminSection />, { wrapper: makeWrapper() })
     await waitFor(() => expect(screen.getByText('Wanderwege')).toBeInTheDocument())

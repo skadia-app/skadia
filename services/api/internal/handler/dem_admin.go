@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	osmregions "github.com/skadia-app/skadia/services/api/internal/osm"
@@ -19,6 +20,9 @@ import (
 // DownloadDEM triggers a background DEM download for specified or all imported regions.
 // POST /api/v1/admin/dem/download
 func (h *Handler) DownloadDEM(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyDEMCorrection) {
+		return
+	}
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
@@ -134,6 +138,9 @@ func (h *Handler) DownloadDEM(w http.ResponseWriter, r *http.Request) {
 // GetDEMRegionStatus returns DEM coverage per imported region + disk space info.
 // GET /api/v1/admin/dem/status
 func (h *Handler) GetDEMRegionStatus(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyDEMCorrection) {
+		return
+	}
 	// Existing source info
 	type demSource struct {
 		Source      string  `json:"source"`
@@ -231,9 +238,9 @@ func (h *Handler) GetDEMRegionStatus(w http.ResponseWriter, r *http.Request) {
 				}
 				regionStatus = append(regionStatus, dem.RegionDEMStatus{
 					ID: r.ID, Label: label,
-					TilesNeeded: -1, // -1 = unknown (no manifest)
+					TilesNeeded:  -1, // -1 = unknown (no manifest)
 					TilesPresent: present,
-					Complete: false, // can't determine without manifest
+					Complete:     false, // can't determine without manifest
 				})
 			}
 		}

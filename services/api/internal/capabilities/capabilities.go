@@ -335,7 +335,7 @@ func probeRuntime(ctx context.Context, pool *pgxpool.Pool, input DetectInput) Ru
 	if hasFileWithSuffix(input.TileDir, ".bin") {
 		runtime.BadRouter = true
 	}
-	if input.CoverageDir != "" && hasFileWithSuffix(input.CoverageDir, ".pmtiles") {
+	if input.CoverageDir != "" && hasFileWithSuffixRecursive(input.CoverageDir, ".bin", 2) {
 		runtime.Coverage = true
 		runtime.CoverageTiles = true
 	}
@@ -352,6 +352,28 @@ func hasFileWithSuffix(dir, suffix string) bool {
 		return false
 	}
 	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFileWithSuffixRecursive(dir, suffix string, maxDepth int) bool {
+	if dir == "" || maxDepth < 0 {
+		return false
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			if hasFileWithSuffixRecursive(filepath.Join(dir, e.Name()), suffix, maxDepth-1) {
+				return true
+			}
+			continue
+		}
 		if strings.HasSuffix(e.Name(), suffix) {
 			return true
 		}

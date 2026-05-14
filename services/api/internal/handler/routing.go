@@ -307,6 +307,9 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 // RebuildRoutingTiles triggers a background tile build from PostGIS data.
 // POST /admin/routing/rebuild-tiles
 func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyRoutingTiles) {
+		return
+	}
 	if h.GraphManager == nil {
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "routing not configured",
@@ -405,6 +408,9 @@ func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
 // Does NOT rebuild tiles. Use when tiles exist but landmarks need recomputing.
 // POST /admin/routing/rebuild-landmarks
 func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyRoutingTiles) {
+		return
+	}
 	if h.GraphManager == nil {
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "routing not configured"})
 		return
@@ -446,6 +452,9 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 // This is a standalone endpoint — does NOT trigger OSM reimport or enrichment.
 // POST /admin/routing/build-brouter-segments
 func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyBRouterSegmentBuild) {
+		return
+	}
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return

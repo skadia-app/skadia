@@ -16,6 +16,7 @@ import { OSMRegionManager, type OSMRegionManagerBatchUpdateProps } from '@/compo
 import OSMImportModal from '@/components/OSMImportModal'
 import { osmCategoryLabel } from '@/lib/osmCategoryLabels'
 import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureConfigured } from '@/lib/deploymentCapabilities'
 import { useToast } from '@/lib/toast'
 import { getToken } from '@/lib/auth'
 import {
@@ -68,11 +69,16 @@ export default function AdminMapTilesSubTab() {
 
   // Capabilities (powers Routing-Dienste badges + DEM badge)
   const { data: caps, isLoading: capsLoading } = useCapabilities()
+  const osmImportConfigured = featureConfigured(caps, 'osm_import')
+  const demConfigured = featureConfigured(caps, 'dem_correction')
+  const offlineMapConfigured = featureConfigured(caps, 'offline_map')
+  const tileProbeConfigured = featureConfigured(caps, 'routing_tiles') || featureConfigured(caps, 'system_layers_vector') || offlineMapConfigured
 
   // OSM data presence drives whether lift-import button is available
   const { data: osmStatus } = useQuery({
     queryKey: ['osm-status'],
     queryFn: fetchOSMStatus,
+    enabled: osmImportConfigured,
   })
   const hasOsmData = osmStatus?.has_data ?? false
 
@@ -86,6 +92,11 @@ export default function AdminMapTilesSubTab() {
   const [tileCheckKey, setTileCheckKey] = useState(0)
 
   useEffect(() => {
+    if (!tileProbeConfigured) {
+      setTileStatus('unavailable')
+      setTileSources([])
+      return
+    }
     let cancelled = false
     setTileStatus('loading')
     setTileSources([])
@@ -111,12 +122,13 @@ export default function AdminMapTilesSubTab() {
     return () => {
       cancelled = true
     }
-  }, [styleUrl, tileCheckKey])
+  }, [styleUrl, tileCheckKey, tileProbeConfigured])
 
   // OSM region list + schedule (only meaningful when at least one region is imported)
   const { data: regionData } = useQuery({
     queryKey: ['osm-regions-status'],
     queryFn: fetchOSMRegionStatus,
+    enabled: osmImportConfigured,
   })
   const importedRegions = regionData?.regions ?? []
   const hasImportedRegions = importedRegions.length > 0
@@ -137,7 +149,7 @@ export default function AdminMapTilesSubTab() {
   const { data: schedData } = useQuery<OSMSchedule>({
     queryKey: ['osm-schedule'],
     queryFn: getOSMSchedule,
-    enabled: hasImportedRegions,
+    enabled: osmImportConfigured && hasImportedRegions,
   })
 
   useEffect(() => {
@@ -224,19 +236,21 @@ export default function AdminMapTilesSubTab() {
         )}
       </section>
 
-      {/* 4. OSM region manager + import assistant */}
+      {/* 4. Geodata region manager + BRouter segment download */}
       <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-4">
         <div>
           <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-            OSM-Geodaten
+            {osmImportConfigured ? 'OSM-Geodaten' : 'BRouter-Segmente'}
           </h3>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            Regionen importieren, Lift-Segmente aktualisieren und Statistiken einsehen.
+            {osmImportConfigured
+              ? 'Regionen importieren, Lift-Segmente aktualisieren und Statistiken einsehen.'
+              : 'RD5-Segmente für das Core-Routing herunterladen.'}
           </p>
         </div>
 
         {/* OSM stats grid (POIs, Wege, Flächen) */}
-        {osmStatus && (
+        {osmImportConfigured && osmStatus && (
           <div className="space-y-3">
             {osmStatus.categories && Object.keys(osmStatus.categories).length > 0 && (
               <div>
@@ -291,10 +305,14 @@ export default function AdminMapTilesSubTab() {
           </div>
         )}
 
-        <OSMRegionManager hasOsmData={hasOsmData} onBatchUpdateState={setBatchUpdateProps} />
+        <OSMRegionManager
+          hasOsmData={hasOsmData}
+          fullGeodataAvailable={osmImportConfigured}
+          onBatchUpdateState={osmImportConfigured ? setBatchUpdateProps : undefined}
+        />
 
         {/* OSM update scheduler — only meaningful with at least one imported region */}
-        {hasImportedRegions && (
+        {osmImportConfigured && hasImportedRegions && (
           <div className="space-y-3 pt-3 border-t border-neutral-200 dark:border-neutral-700">
             <h4 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
               Automatische Karten-Updates
@@ -392,41 +410,46 @@ export default function AdminMapTilesSubTab() {
         )}
 
         {/* Bottom-anchored primary-action row — all OSM data-modifying actions live here */}
-        <div className="space-y-2 pt-3 border-t border-neutral-200 dark:border-neutral-700">
-          <button
-            type="button"
-            onClick={() => setShowImportModal(true)}
-            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 cursor-pointer transition-colors"
-          >
-            Import-Assistent
-          </button>
-          {batchUpdateProps?.visible && (
-            <button
-              type="button"
-              onClick={batchUpdateProps.onClick}
-              disabled={batchUpdateProps.disabled}
-              className="w-full px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
-            >
-              {batchUpdateProps.label}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => importLiftsMut.mutate()}
-            disabled={importLiftsMut.isPending || !hasOsmData}
-            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
-          >
-            {importLiftsMut.isPending ? 'Importiere…' : 'Lift-Segmente importieren'}
-          </button>
-        </div>
-        {importLiftsMut.isSuccess && (
-          <p className="text-xs text-emerald-600 dark:text-emerald-400">
-            {importLiftsMut.data.imported} Lift-Segmente importiert.
-          </p>
+        {osmImportConfigured && (
+          <>
+            <div className="space-y-2 pt-3 border-t border-neutral-200 dark:border-neutral-700">
+              <button
+                type="button"
+                onClick={() => setShowImportModal(true)}
+                className="w-full px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 cursor-pointer transition-colors"
+              >
+                Import-Assistent
+              </button>
+              {batchUpdateProps?.visible && (
+                <button
+                  type="button"
+                  onClick={batchUpdateProps.onClick}
+                  disabled={batchUpdateProps.disabled}
+                  className="w-full px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                >
+                  {batchUpdateProps.label}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => importLiftsMut.mutate()}
+                disabled={importLiftsMut.isPending || !hasOsmData}
+                className="w-full px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                {importLiftsMut.isPending ? 'Importiere…' : 'Lift-Segmente importieren'}
+              </button>
+            </div>
+            {importLiftsMut.isSuccess && (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                {importLiftsMut.data.imported} Lift-Segmente importiert.
+              </p>
+            )}
+          </>
         )}
       </section>
 
       {/* 5. DEM height data — narrative content first, primary action anchored at bottom of DEMSettings */}
+      {demConfigured && (
       <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -441,8 +464,10 @@ export default function AdminMapTilesSubTab() {
         </div>
         <DEMSettings />
       </section>
+      )}
 
       {/* 6. Offline-Karte — combined card: tile-server status + PMTiles basemap as two sub-blocks */}
+      {(offlineMapConfigured || tileProbeConfigured) && (
       <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-5">
         <div>
           <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
@@ -508,8 +533,9 @@ export default function AdminMapTilesSubTab() {
           <OfflineMapSettings />
         </div>
       </section>
+      )}
 
-      {showImportModal && <OSMImportModal onClose={() => setShowImportModal(false)} />}
+      {osmImportConfigured && showImportModal && <OSMImportModal onClose={() => setShowImportModal(false)} />}
     </div>
   )
 }
