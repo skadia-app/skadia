@@ -93,6 +93,12 @@ public_filename_diff='diff --git a/docs/documentation/user/features/import.md b/
 @@ -1,1 +1,2 @@
 +Do not mention morning-run.gpx in public examples.'
 
+public_synthetic_filename_diff='diff --git a/docs/documentation/user/features/import.md b/docs/documentation/user/features/import.md
+--- a/docs/documentation/user/features/import.md
++++ b/docs/documentation/user/features/import.md
+@@ -1,1 +1,2 @@
++Use synthetic-activity.gpx in public examples.'
+
 source_filename_diff='diff --git a/services/api/internal/imports/example.go b/services/api/internal/imports/example.go
 --- a/services/api/internal/imports/example.go
 +++ b/services/api/internal/imports/example.go
@@ -153,6 +159,18 @@ legacy_private_coordinate_diff='diff --git a/docs/internal/example.md b/docs/int
 @@ -1,1 +1,2 @@
 +Private planning note near 48.0000, 11.0000.'
 
+legacy_private_filename_diff='diff --git a/docs/internal/example.md b/docs/internal/example.md
+--- a/docs/internal/example.md
++++ b/docs/internal/example.md
+@@ -1,1 +1,2 @@
++Private planning note mentioning morning-run.gpx.'
+
+legacy_private_synthetic_filename_diff='diff --git a/docs/internal/example.md b/docs/internal/example.md
+--- a/docs/internal/example.md
++++ b/docs/internal/example.md
+@@ -1,1 +1,2 @@
++Private planning note mentioning synthetic-run.gpx.'
+
 legacy_review_coordinate_diff='diff --git a/docs/reviews/example.md b/docs/reviews/example.md
 --- a/docs/reviews/example.md
 +++ b/docs/reviews/example.md
@@ -174,6 +192,7 @@ assert_passes "$test_coordinate_diff"
 assert_blocks_with "$source_coordinate_diff" "coordinate in public/private text"
 assert_blocks_with "$host_path_diff" "local/private detail"
 assert_blocks_with "$public_filename_diff" "sensitive filename in public/private text"
+assert_passes "$public_synthetic_filename_diff"
 assert_blocks_with "$source_filename_diff" "sensitive filename in public/private text"
 assert_blocks_with "$public_workflow_diff" "internal workflow wording in public text"
 assert_blocks_with "$public_docs_workflow_diff" "internal workflow wording in public text"
@@ -184,6 +203,8 @@ assert_blocks_with "$public_tag_diff" "private tag marker in public text"
 assert_blocks_with "$agents_coordinate_diff" "coordinate in public/private text"
 assert_blocks_with "$subtree_agents_tag_diff" "private tag marker in public/private text"
 assert_blocks_with "$legacy_private_coordinate_diff" "coordinate in public/private text"
+assert_blocks_with "$legacy_private_filename_diff" "sensitive filename in public/private text"
+assert_passes "$legacy_private_synthetic_filename_diff"
 assert_blocks_with "$legacy_review_coordinate_diff" "coordinate in public/private text"
 assert_blocks_with "$local_private_diff" "local private pattern" "$private_patterns"
 
