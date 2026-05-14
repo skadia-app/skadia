@@ -8,8 +8,9 @@
 // package test binary — cross-package _test.go imports are forbidden.
 // The file remains as testonly_helpers.go with explicit doc marking.
 // Callers: auth/handler_test.go, auth/gdpr_fusion_roundtrip_test.go,
-//          handler/admin_rename_test.go, handler/testhelper_routing_test.go,
-//          handler/admin_routing_coverage_test.go, handler/admin_library_settings_test.go.
+//
+//	handler/admin_rename_test.go, handler/testhelper_routing_test.go,
+//	handler/admin_routing_coverage_test.go, handler/admin_library_settings_test.go.
 package settings
 
 import (
@@ -37,7 +38,8 @@ func NewStoreForTest(values map[string]string) *SettingsStore {
 		// db stays nil — callers that need Set() must wire a real DB.
 	}
 	for k, v := range values {
-		s.cache[k] = CachedSetting{Value: v, Source: "test"}
+		kd := KeysByKey[k]
+		s.cache[k] = CachedSetting{Value: v, Source: "test", Encrypted: kd.Encrypted}
 	}
 	return s
 }

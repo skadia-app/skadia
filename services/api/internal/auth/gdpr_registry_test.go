@@ -561,6 +561,9 @@ func TestDeleteCoversAllUserTables(t *testing.T) {
 		// ON DELETE SET NULL — audit-trail is preserved by design. No explicit row
 		// deletion needed (the single user's audit reference is nulled by the FK rule).
 		"server_settings": true,
+		// email_templates: System-wide admin config. updated_by is nulled by the FK
+		// so the instance template remains while the deleted user's identifier is removed.
+		"email_templates": true,
 	}
 
 	// Query: which tables are reachable via ON DELETE CASCADE from users?

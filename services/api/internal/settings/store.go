@@ -31,6 +31,7 @@ type CachedSetting struct {
 	Value     string `json:"value"`
 	Source    string `json:"source"`           // "env", "db", "default"
 	Locked    bool   `json:"locked,omitempty"` // true when overridden by env var
+	HasValue  bool   `json:"has_value,omitempty"`
 	Encrypted bool   `json:"-"`
 }
 
@@ -349,8 +350,10 @@ func (s *SettingsStore) Put(ctx context.Context, updates map[string]*string, adm
 
 	// --- Phase 2: cross-field validation ---
 
-	if effective["registration.mode"] == "open" && effective["smtp.host"] == "" {
-		return nil, fmt.Errorf("registration.mode=open requires smtp.host to be configured: %w", ErrValidation)
+	if effective["registration.mode"] == "open" {
+		if err := validateSMTPDeliverySettings(effective); err != nil {
+			return nil, fmt.Errorf("registration.mode=open requires complete SMTP delivery settings: %w", err)
+		}
 	}
 	if effective["library.sync_auto_import"] == "true" && effective["library.sync_enabled"] != "true" {
 		return nil, fmt.Errorf("library.sync_auto_import=true requires library.sync_enabled=true: %w", ErrValidation)

@@ -81,7 +81,7 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if user.Email != nil {
-			h.Mailer.SendResetEmail(*user.Email, user.Username, token) // raw token, not hash
+			h.Mailer.SendResetEmail(user.ID, *user.Email, user.Username, token) // raw token, not hash
 		}
 	}()
 }
