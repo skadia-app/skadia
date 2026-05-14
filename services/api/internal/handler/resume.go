@@ -114,6 +114,12 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 			_ = h.DB.FailBackgroundJob(ctx, job.ID)
 			continue
 		}
+		if !h.resumeJobAllowedByCapabilities(job.JobType) {
+			slog.Warn("resume: job blocked by deployment capabilities, marking failed",
+				"job_id", job.ID, "job_type", job.JobType, "deployment_profile", h.deploymentProfile())
+			_ = h.DB.FailBackgroundJob(ctx, job.ID)
+			continue
+		}
 
 		switch job.JobType {
 		case "segment_recompute":
@@ -129,6 +135,25 @@ func (h *Handler) ResumeInterruptedJobs(ctx context.Context) {
 		}
 	}
 
+}
+
+func (h *Handler) deploymentProfile() string {
+	if h != nil && h.Config != nil && h.Config.DeploymentProfile != "" {
+		return h.Config.DeploymentProfile
+	}
+	return "full"
+}
+
+func (h *Handler) resumeJobAllowedByCapabilities(jobType string) bool {
+	if h.deploymentProfile() != "core" {
+		return true
+	}
+	switch jobType {
+	case "segment_recompute", "segment_publish":
+		return false
+	default:
+		return true
+	}
 }
 
 func bestEffortsCheckpointFromJob(job database.BackgroundJob) allUsersBestEffortsCheckpoint {
