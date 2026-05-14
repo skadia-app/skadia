@@ -106,6 +106,41 @@ func TestEnvVarSync_ComposeVarsInEnvExample(t *testing.T) {
 	}
 }
 
+func TestEnvVarSync_S3DefaultsStayAligned(t *testing.T) {
+	root := projectRoot(t)
+
+	files := map[string][]string{
+		"docker-compose.yml": {
+			"S3_BUCKET: ${S3_BUCKET:-skadia-originals}",
+			"S3_REGION: ${S3_REGION:-us-east-1}",
+			"S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}",
+		},
+		".env.example": {
+			"# S3_BUCKET=skadia-originals",
+			"# S3_REGION=us-east-1",
+			"# S3_FORCE_PATH_STYLE=true",
+		},
+		"scripts/setup.sh": {
+			`env_set "S3_BUCKET" "skadia-originals"`,
+			`env_set "S3_REGION" "us-east-1"`,
+			`env_set "S3_FORCE_PATH_STYLE" "true"`,
+		},
+	}
+
+	for rel, needles := range files {
+		data, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatalf("reading %s: %v", rel, err)
+		}
+		content := string(data)
+		for _, needle := range needles {
+			if !strings.Contains(content, needle) {
+				t.Fatalf("%s missing %q", rel, needle)
+			}
+		}
+	}
+}
+
 // TestEnvVarSync_SecretsInSetupScript verifies that every *_SECRET, *_PASSWORD,
 // or *_KEY variable in .env.example that must be auto-generated is also handled
 // by scripts/setup.sh.
