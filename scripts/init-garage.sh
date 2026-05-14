@@ -155,6 +155,34 @@ ensure_access_key() {
 
 detect_compose
 
+storage_mode="$(env_get SKADIA_STORAGE_MODE)"
+storage_backend="$(env_get STORAGE_BACKEND)"
+s3_provider="$(env_get SKADIA_S3_PROVIDER)"
+s3_endpoint="$(env_get S3_ENDPOINT)"
+if [ -z "$storage_mode" ] && [ "$s3_provider" != "local-garage" ]; then
+    echo "ERROR: Garage initialization requires SKADIA_STORAGE_MODE=s3-local-garage or SKADIA_S3_PROVIDER=local-garage." >&2
+    exit 1
+fi
+if [ "$storage_backend" = "local" ]; then
+    echo "ERROR: Garage initialization requires S3 storage, got STORAGE_BACKEND=local." >&2
+    exit 1
+fi
+if [ -n "$storage_mode" ] && [ "$storage_mode" != "s3-local-garage" ]; then
+    echo "ERROR: Garage initialization requires SKADIA_STORAGE_MODE=s3-local-garage, got ${storage_mode}." >&2
+    exit 1
+fi
+if [ -n "$s3_provider" ] && [ "$s3_provider" != "local-garage" ]; then
+    echo "ERROR: Garage initialization requires SKADIA_S3_PROVIDER=local-garage, got ${s3_provider}." >&2
+    exit 1
+fi
+case "${s3_endpoint%/}" in
+    ""|"http://garage:3900"|"https://garage:3900"|"http://localhost:3900"|"http://127.0.0.1:3900") ;;
+    *)
+        echo "ERROR: Garage initialization cannot run with external S3_ENDPOINT=${s3_endpoint}." >&2
+        exit 1
+        ;;
+esac
+
 if $START_GARAGE; then
     echo "Starting Garage service..."
     compose up -d garage

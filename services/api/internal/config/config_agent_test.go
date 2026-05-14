@@ -73,6 +73,7 @@ func TestLoadS3CredentialsFromDeprecatedGarageFiles(t *testing.T) {
 		t.Fatalf("write secret file: %v", err)
 	}
 	t.Setenv("DATABASE_URL", "postgres://skadia:secret@localhost:5432/skadia_test_abcdef123456?sslmode=disable")
+	t.Setenv("SKADIA_STORAGE_MODE", "s3-local-garage")
 	t.Setenv("STORAGE_BACKEND", "s3")
 	t.Setenv("GARAGE_ACCESS_KEY_FILE", accessFile)
 	t.Setenv("GARAGE_SECRET_KEY_FILE", secretFile)

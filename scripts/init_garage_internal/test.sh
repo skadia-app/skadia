@@ -38,6 +38,9 @@ S3_BUCKET_ACTIVITY=skadia-activities
 S3_BUCKET_MEDIA=skadia-media
 S3_ACCESS_KEY=custom-key
 S3_SECRET_KEY=custom-secret
+SKADIA_STORAGE_MODE=s3-local-garage
+STORAGE_BACKEND=s3
+SKADIA_S3_PROVIDER=local-garage
 ENV
 
 cat > "$tmp/bin/podman" <<'SH'
@@ -86,6 +89,11 @@ cp "$tmp/bin/docker" "$fresh/bin/docker"
 
 export PATH="$fresh/bin:$PATH"
 export SKADIA_TEST_COMMAND_LOG="$fresh/commands.log"
+cat > "$fresh/.env" <<'ENV'
+SKADIA_STORAGE_MODE=s3-local-garage
+STORAGE_BACKEND=s3
+SKADIA_S3_PROVIDER=local-garage
+ENV
 
 (cd "$fresh" && ./scripts/init-garage.sh --start >/tmp/skadia-init-garage-fresh-test.out)
 
@@ -105,6 +113,7 @@ S3_ACCESS_KEY=skadia-dev-key
 S3_SECRET_KEY=skadia-dev-secret
 GARAGE_ACCESS_KEY=skadia-dev-key
 GARAGE_SECRET_KEY=skadia-dev-secret
+SKADIA_S3_PROVIDER=local-garage
 ENV
 
 export PATH="$legacy/bin:$PATH"
@@ -127,6 +136,7 @@ cat > "$metachar/.env" <<'ENV'
 S3_ACCESS_KEY=custom-key
 # S3_SECRET_KEY=
 GARAGE_SECRET_KEY=abc&def|ghi\jkl
+SKADIA_S3_PROVIDER=local-garage
 ENV
 
 export PATH="$metachar/bin:$PATH"
@@ -136,5 +146,71 @@ export SKADIA_TEST_COMMAND_LOG="$metachar/commands.log"
 
 grep -Fq 'S3_SECRET_KEY=abc&def|ghi\jkl' "$metachar/.env" || fail "S3_SECRET_KEY metacharacters were not preserved"
 rm -rf "$metachar"
+
+external="$(mktemp -d)"
+mkdir -p "$external/scripts" "$external/bin"
+cp "$ROOT/scripts/init-garage.sh" "$external/scripts/init-garage.sh"
+chmod +x "$external/scripts/init-garage.sh"
+cp "$tmp/bin/podman" "$external/bin/podman"
+cp "$tmp/bin/docker" "$external/bin/docker"
+cat > "$external/.env" <<'ENV'
+SKADIA_STORAGE_MODE=s3-external
+SKADIA_S3_PROVIDER=external
+S3_ENDPOINT=https://s3.example.invalid
+ENV
+
+export PATH="$external/bin:$PATH"
+export SKADIA_TEST_COMMAND_LOG="$external/commands.log"
+
+if (cd "$external" && ./scripts/init-garage.sh --start >"$external/out" 2>&1); then
+    fail "init-garage accepted external S3 mode"
+fi
+grep -Fq "Garage initialization requires SKADIA_STORAGE_MODE=s3-local-garage" "$external/out" || fail "missing external S3 rejection"
+if [ -f "$external/commands.log" ] && grep -Fq "compose up -d garage" "$external/commands.log"; then
+    fail "init-garage started Garage for external S3"
+fi
+rm -rf "$external"
+
+local_storage="$(mktemp -d)"
+mkdir -p "$local_storage/scripts" "$local_storage/bin"
+cp "$ROOT/scripts/init-garage.sh" "$local_storage/scripts/init-garage.sh"
+chmod +x "$local_storage/scripts/init-garage.sh"
+cp "$tmp/bin/podman" "$local_storage/bin/podman"
+cp "$tmp/bin/docker" "$local_storage/bin/docker"
+cat > "$local_storage/.env" <<'ENV'
+SKADIA_STORAGE_MODE=local
+STORAGE_BACKEND=local
+ENV
+
+export PATH="$local_storage/bin:$PATH"
+export SKADIA_TEST_COMMAND_LOG="$local_storage/commands.log"
+
+if (cd "$local_storage" && ./scripts/init-garage.sh --start >"$local_storage/out" 2>&1); then
+    fail "init-garage accepted local storage mode"
+fi
+grep -Fq "Garage initialization requires S3 storage" "$local_storage/out" || fail "missing local storage rejection"
+if [ -f "$local_storage/commands.log" ] && grep -Fq "compose up -d garage" "$local_storage/commands.log"; then
+    fail "init-garage started Garage for local storage"
+fi
+rm -rf "$local_storage"
+
+ambiguous="$(mktemp -d)"
+mkdir -p "$ambiguous/scripts" "$ambiguous/bin"
+cp "$ROOT/scripts/init-garage.sh" "$ambiguous/scripts/init-garage.sh"
+chmod +x "$ambiguous/scripts/init-garage.sh"
+cp "$tmp/bin/podman" "$ambiguous/bin/podman"
+cp "$tmp/bin/docker" "$ambiguous/bin/docker"
+
+export PATH="$ambiguous/bin:$PATH"
+export SKADIA_TEST_COMMAND_LOG="$ambiguous/commands.log"
+
+if (cd "$ambiguous" && ./scripts/init-garage.sh --start >"$ambiguous/out" 2>&1); then
+    fail "init-garage accepted ambiguous storage mode"
+fi
+grep -Fq "Garage initialization requires SKADIA_STORAGE_MODE=s3-local-garage" "$ambiguous/out" || fail "missing ambiguous storage rejection"
+if [ -f "$ambiguous/commands.log" ] && grep -Fq "compose up -d garage" "$ambiguous/commands.log"; then
+    fail "init-garage started Garage for ambiguous storage"
+fi
+rm -rf "$ambiguous"
 
 echo "init-garage internal tests passed"
