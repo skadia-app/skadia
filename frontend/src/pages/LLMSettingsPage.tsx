@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useId, useState, useEffect } from 'react'
 import Toggle from '@/components/Toggle'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -37,6 +37,28 @@ const DEFAULT_URLS: Record<string, string> = {
   openai: 'https://api.openai.com/v1',
 }
 
+const CONTEXT_WINDOW_MIN = 1024
+const CONTEXT_WINDOW_MAX = 2000000
+
+function contextWindowToInput(value?: number | null): string {
+  return typeof value === 'number' && Number.isFinite(value) ? String(value) : ''
+}
+
+function parseContextWindowInput(value: string): number | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  return Number(trimmed)
+}
+
+function validateContextWindowInput(value: string): string | null {
+  const parsed = parseContextWindowInput(value)
+  if (parsed === null) return null
+  if (!Number.isInteger(parsed) || parsed < CONTEXT_WINDOW_MIN || parsed > CONTEXT_WINDOW_MAX) {
+    return `Kontextfenster muss leer sein oder zwischen ${CONTEXT_WINDOW_MIN} und ${CONTEXT_WINDOW_MAX} liegen.`
+  }
+  return null
+}
+
 function evalStatusLabel(status: LLMSystemConfig['eval_status'] | string | undefined): string {
   switch (status) {
     case 'passed':
@@ -59,6 +81,7 @@ function sameConnection(a?: LLMSystemConfig, b?: LLMSystemConfig): boolean {
   return a.backend_type === b.backend_type &&
     (a.api_base || '') === (b.api_base || '') &&
     (a.model_name || '') === (b.model_name || '') &&
+    (a.context_window ?? null) === (b.context_window ?? null) &&
     a.has_api_key === b.has_api_key
 }
 
@@ -225,6 +248,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
   const [backend, setBackend] = useState(primaryConfig.backend_type || 'disabled')
   const [apiBase, setApiBase] = useState(primaryConfig.api_base || '')
   const [modelName, setModelName] = useState(primaryConfig.model_name || '')
+  const [contextWindow, setContextWindow] = useState(contextWindowToInput(primaryConfig.context_window))
   const [apiKey, setApiKey] = useState('')
   const [apiKeyState, setApiKeyState] = useState<LLMAPIKeyState>('unchanged')
   const [enabledByRole, setEnabledByRole] = useState<Record<string, boolean>>({})
@@ -238,11 +262,13 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
   const [isLoadingModels, setIsLoadingModels] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [isEvaluating, setIsEvaluating] = useState(false)
+  const contextWindowInputID = useId()
 
   useEffect(() => {
     setBackend(primaryConfig.backend_type || 'disabled')
     setApiBase(primaryConfig.api_base || '')
     setModelName(primaryConfig.model_name || '')
+    setContextWindow(contextWindowToInput(primaryConfig.context_window))
     setApiKey('')
     setApiKeyState('unchanged')
     setEnabledByRole(Object.fromEntries(roles.map(role => [role.role, role.enabled])))
@@ -263,6 +289,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
   const isDirty = backend !== (primaryConfig.backend_type || 'disabled') ||
     (apiBase || '') !== (primaryConfig.api_base || '') ||
     (modelName || '') !== (primaryConfig.model_name || '') ||
+    contextWindow !== contextWindowToInput(primaryConfig.context_window) ||
     apiKeyState !== 'unchanged' ||
     roles.some(role => enabledByRole[role.role] !== role.enabled)
 
@@ -271,6 +298,8 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
     if (backend === 'disabled') return 'Aktive Rollen brauchen ein Backend.'
     if (needsURL && !apiBase.trim()) return 'Aktive Rollen brauchen eine API-Basis-URL.'
     if (!modelName.trim()) return 'Aktive Rollen brauchen ein Modell.'
+    const contextWindowError = validateContextWindowInput(contextWindow)
+    if (contextWindowError) return contextWindowError
     if (needsAPIKey && apiKeyState !== 'set') {
       const roleWithoutKey = activeRoleNames.find(roleName => !roleConfigsByName.get(roleName)?.has_api_key)
       if (roleWithoutKey) return 'Für den gemeinsamen OpenAI-Modus den API-Schlüssel neu eingeben, damit alle aktiven Rollen ihn erhalten.'
@@ -284,6 +313,7 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
         backend_type: backend,
         api_base: apiBase || undefined,
         model_name: modelName || undefined,
+        context_window: parseContextWindowInput(contextWindow),
         api_key: apiKeyState === 'set' ? apiKey : undefined,
         api_key_state: apiKeyState,
         enabled: !!enabledByRole[roleName],
@@ -324,6 +354,11 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
   }
 
   const runTest = async () => {
+    const contextWindowError = validateContextWindowInput(contextWindow)
+    if (contextWindowError) {
+      setTestResult({ success: false, message: contextWindowError })
+      return
+    }
     setIsTesting(true)
     setTestResult(null)
     try {
@@ -546,6 +581,31 @@ function LLMSharedConfigCard({ roles, primaryConfig, roleNames, onSave }: {
             </div>
           )}
 
+          {needsURL && (
+            <div>
+              <label htmlFor={contextWindowInputID} className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">Kontextfenster</label>
+              <input
+                id={contextWindowInputID}
+                type="number"
+                min={CONTEXT_WINDOW_MIN}
+                max={CONTEXT_WINDOW_MAX}
+                step={1024}
+                value={contextWindow}
+                onChange={e => {
+                  setContextWindow(e.target.value)
+                  setEvalResult(null)
+                  setLocalSaveError(null)
+                  setSaveWarning(null)
+                }}
+                placeholder="Standard aus Server-Umgebung"
+                className="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-mono text-neutral-900 dark:text-neutral-100 focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                Optional. Muss zum tatsächlich gestarteten LLM-Backend passen; leer verwendet den Server-Fallback.
+              </p>
+            </div>
+          )}
+
           {canShowKeyControls && (
             <div>
               <label className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
@@ -658,6 +718,7 @@ function LLMRoleCard({
   const [backend, setBackend] = useState(config?.backend_type || 'disabled')
   const [apiBase, setApiBase] = useState(config?.api_base || '')
   const [modelName, setModelName] = useState(config?.model_name || '')
+  const [contextWindow, setContextWindow] = useState(contextWindowToInput(config?.context_window))
   const [apiKey, setApiKey] = useState('')
   const [apiKeyState, setApiKeyState] = useState<LLMAPIKeyState>('unchanged')
   const [enabled, setEnabled] = useState(config?.enabled || false)
@@ -675,6 +736,7 @@ function LLMRoleCard({
     setBackend(config?.backend_type || 'disabled')
     setApiBase(config?.api_base || '')
     setModelName(config?.model_name || '')
+    setContextWindow(contextWindowToInput(config?.context_window))
     setApiKey('')
     setApiKeyState('unchanged')
     setEnabled(config?.enabled || false)
@@ -685,11 +747,13 @@ function LLMRoleCard({
   const [isLoadingModels, setIsLoadingModels] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [isEvaluating, setIsEvaluating] = useState(false)
+  const contextWindowInputID = useId()
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       const update = { backend_type: backend, api_base: apiBase || undefined,
-        model_name: modelName || undefined, api_key: apiKeyState === 'set' ? apiKey : undefined,
+        model_name: modelName || undefined, context_window: parseContextWindowInput(contextWindow),
+        api_key: apiKeyState === 'set' ? apiKey : undefined,
         api_key_state: apiKeyState, enabled }
       const results = await Promise.all(rolesToSave.map(roleName => saveLLMRole(roleName, update)))
       return results.find(result => result?.warning) ?? results[0]
@@ -731,6 +795,11 @@ function LLMRoleCard({
   }
 
   const runTest = async () => {
+    const contextWindowError = validateContextWindowInput(contextWindow)
+    if (contextWindowError) {
+      setTestResult({ success: false, message: contextWindowError })
+      return
+    }
     setIsTesting(true)
     setTestResult(null)
     try {
@@ -798,6 +867,7 @@ function LLMRoleCard({
   const isDirty = backend !== (config?.backend_type || 'disabled') ||
     (apiBase || '') !== (config?.api_base || '') ||
     (modelName || '') !== (config?.model_name || '') ||
+    contextWindow !== contextWindowToInput(config?.context_window) ||
     enabled !== (config?.enabled || false) ||
     apiKeyState !== 'unchanged'
   const saveError = localSaveError ?? (saveMutation.isError ? mutationErrorMessage(saveMutation.error) : null)
@@ -809,6 +879,8 @@ function LLMRoleCard({
     if (backend === 'disabled') return 'Aktive Rollen brauchen ein Backend.'
     if (needsURL && !apiBase.trim()) return 'Aktive Rollen brauchen eine API-Basis-URL.'
     if (!modelName.trim()) return 'Aktive Rollen brauchen ein Modell.'
+    const contextWindowError = validateContextWindowInput(contextWindow)
+    if (contextWindowError) return contextWindowError
     if (needsAPIKey && !config?.has_api_key && apiKeyState !== 'set') return 'Aktive OpenAI-Rollen brauchen einen API-Schlüssel.'
     if (isSharedCard && needsAPIKey && apiKeyState !== 'set') {
       const roleWithoutKey = rolesToSave.find(roleName => !roleConfigsByName.get(roleName)?.has_api_key)
@@ -841,6 +913,13 @@ function LLMRoleCard({
   const handleModelNameChange = (nextModelName: string) => {
     setModelName(nextModelName)
     setTestResult(null)
+    setEvalResult(null)
+    setLocalSaveError(null)
+    setSaveWarning(null)
+  }
+
+  const handleContextWindowChange = (nextContextWindow: string) => {
+    setContextWindow(nextContextWindow)
     setEvalResult(null)
     setLocalSaveError(null)
     setSaveWarning(null)
@@ -981,6 +1060,31 @@ function LLMRoleCard({
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Kontextfenster */}
+          {needsURL && (
+            <div>
+              <label htmlFor={contextWindowInputID} className="text-xs font-medium text-neutral-600 dark:text-neutral-400 uppercase tracking-wide">
+                Kontextfenster
+              </label>
+              <input
+                id={contextWindowInputID}
+                type="number"
+                min={CONTEXT_WINDOW_MIN}
+                max={CONTEXT_WINDOW_MAX}
+                step={1024}
+                value={contextWindow}
+                onChange={e => handleContextWindowChange(e.target.value)}
+                placeholder="Standard aus Server-Umgebung"
+                className="mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700
+                           bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-mono
+                           text-neutral-900 dark:text-neutral-100 focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                Optional. Muss zum tatsächlich gestarteten LLM-Backend passen; leer verwendet den Server-Fallback.
+              </p>
             </div>
           )}
 

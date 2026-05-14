@@ -5,6 +5,7 @@ export interface LLMSystemConfig {
   backend_type: 'ollama' | 'llama_server' | 'openai' | 'disabled'
   api_base?: string
   model_name?: string
+  context_window?: number | null
   has_api_key: boolean
   enabled: boolean
   capability_flags: string[]
@@ -46,6 +47,7 @@ export async function saveLLMRole(role: string, update: {
   backend_type: string
   api_base?: string
   model_name?: string
+  context_window?: number | null
   api_key?: string
   api_key_state: LLMAPIKeyState
   enabled: boolean

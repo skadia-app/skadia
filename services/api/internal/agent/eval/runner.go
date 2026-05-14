@@ -45,21 +45,23 @@ type Client interface {
 }
 
 type RunnerOptions struct {
-	Cases             []Case
-	Now               func() time.Time
-	EncryptionKey     string
-	ModelNameOverride string
+	Cases                 []Case
+	Now                   func() time.Time
+	EncryptionKey         string
+	ModelNameOverride     string
+	ContextWindowFallback int
 }
 
 type Runner struct {
-	store             Store
-	client            Client
-	cases             []Case
-	now               func() time.Time
-	key               string
-	suiteID           string
-	suiteHash         string
-	modelNameOverride string
+	store                 Store
+	client                Client
+	cases                 []Case
+	now                   func() time.Time
+	key                   string
+	suiteID               string
+	suiteHash             string
+	modelNameOverride     string
+	contextWindowFallback int
 }
 
 type Candidate struct {
@@ -72,12 +74,13 @@ type Candidate struct {
 }
 
 type Identity struct {
-	Role        string `json:"role"`
-	BackendType string `json:"backend_type"`
-	APIBaseHost string `json:"api_base_host"`
-	ModelName   string `json:"model_name"`
-	SuiteID     string `json:"suite_id"`
-	SuiteHash   string `json:"suite_hash"`
+	Role          string `json:"role"`
+	BackendType   string `json:"backend_type"`
+	APIBaseHost   string `json:"api_base_host"`
+	ModelName     string `json:"model_name"`
+	ContextWindow int    `json:"context_window,omitempty"`
+	SuiteID       string `json:"suite_id"`
+	SuiteHash     string `json:"suite_hash"`
 }
 
 type Case struct {
@@ -148,7 +151,7 @@ func NewRunner(store Store, client Client, opts RunnerOptions) *Runner {
 	if now == nil {
 		now = time.Now
 	}
-	return &Runner{store: store, client: client, cases: cases, now: now, key: opts.EncryptionKey, suiteID: model.LLMEvalSuiteID, suiteHash: suiteHash, modelNameOverride: strings.TrimSpace(opts.ModelNameOverride)}
+	return &Runner{store: store, client: client, cases: cases, now: now, key: opts.EncryptionKey, suiteID: model.LLMEvalSuiteID, suiteHash: suiteHash, modelNameOverride: strings.TrimSpace(opts.ModelNameOverride), contextWindowFallback: opts.ContextWindowFallback}
 }
 
 func (r *Runner) Run(ctx context.Context, role string) (Report, error) {
@@ -244,7 +247,7 @@ func (r *Runner) loadCandidate(ctx context.Context, role string) (Candidate, err
 	if cfg.APIBase == nil || strings.TrimSpace(*cfg.APIBase) == "" || cfg.ModelName == nil || strings.TrimSpace(*cfg.ModelName) == "" {
 		return Candidate{}, fmt.Errorf("LLM role %q configuration is incomplete", role)
 	}
-	identity, err := IdentityForConfig(*cfg)
+	identity, err := IdentityForConfigWithFallback(*cfg, r.contextWindowFallback)
 	if err != nil {
 		return Candidate{}, err
 	}
@@ -257,7 +260,7 @@ func (r *Runner) loadCandidate(ctx context.Context, role string) (Candidate, err
 		APIBase:      apiBase,
 		Capabilities: append([]string(nil), cfg.CapabilityFlags...),
 	}
-	if cfg.EvalStatus == model.LLMEvalStatusWaived && cfg.EvalGatePassed() {
+	if cfg.EvalStatus == model.LLMEvalStatusWaived && cfg.EvalGatePassedWithFallback(r.contextWindowFallback) {
 		candidate.PreserveAdminRelease = true
 		candidate.AdminReleaseReason = adminReleaseReason(cfg.EvalReport)
 	}
@@ -355,6 +358,10 @@ func caseCapabilitiesSatisfied(tc Case, capabilities []string) bool {
 }
 
 func IdentityForConfig(cfg model.LLMSystemConfig) (Identity, error) {
+	return IdentityForConfigWithFallback(cfg, 0)
+}
+
+func IdentityForConfigWithFallback(cfg model.LLMSystemConfig, contextWindowFallback int) (Identity, error) {
 	if cfg.APIBase == nil || strings.TrimSpace(*cfg.APIBase) == "" {
 		return Identity{}, errors.New("api_base is required for eval identity")
 	}
@@ -369,12 +376,13 @@ func IdentityForConfig(cfg model.LLMSystemConfig) (Identity, error) {
 		return Identity{}, errors.New("api_base host is required for eval identity")
 	}
 	return Identity{
-		Role:        strings.TrimSpace(cfg.Role),
-		BackendType: strings.TrimSpace(cfg.BackendType),
-		APIBaseHost: parsed.Host,
-		ModelName:   strings.TrimSpace(*cfg.ModelName),
-		SuiteID:     model.LLMEvalSuiteID,
-		SuiteHash:   model.LLMEvalSuiteHash,
+		Role:          strings.TrimSpace(cfg.Role),
+		BackendType:   strings.TrimSpace(cfg.BackendType),
+		APIBaseHost:   parsed.Host,
+		ModelName:     strings.TrimSpace(*cfg.ModelName),
+		ContextWindow: cfg.EffectiveContextWindow(contextWindowFallback),
+		SuiteID:       model.LLMEvalSuiteID,
+		SuiteHash:     model.LLMEvalSuiteHash,
 	}, nil
 }
 

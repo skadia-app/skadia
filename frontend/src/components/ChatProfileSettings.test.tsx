@@ -87,6 +87,7 @@ describe('ChatProfileSettings', () => {
     const history = screen.getByText('Chat-History (Nachrichten)').closest('div')
     expect(history).not.toBeNull()
     expect(within(history as HTMLElement).getByText('10')).toBeInTheDocument()
+    expect(screen.getByLabelText('Max. Kontext-Tokens')).toHaveValue(12000)
   })
 
   it('blocks editing instead of saving fallback defaults when user settings fail to load', async () => {

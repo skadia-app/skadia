@@ -204,13 +204,14 @@ describe('LLMSettingsPage', () => {
     await user.click(screen.getByLabelText('Dokumente aktivieren'))
     await user.click(screen.getByLabelText('Markdown aktivieren'))
     await user.click(screen.getByLabelText('Vision aktivieren'))
+    await user.type(screen.getByPlaceholderText('Standard aus Server-Umgebung'), '32768')
     await user.click(screen.getByRole('button', { name: 'Speichern' }))
 
     expect(saveLLMRole).toHaveBeenCalledTimes(4)
-    expect(saveLLMRole).toHaveBeenCalledWith('tool_agent', expect.objectContaining({ model_name: 'shared-model', enabled: true }))
-    expect(saveLLMRole).toHaveBeenCalledWith('document_extract', expect.objectContaining({ model_name: 'shared-model', enabled: true }))
-    expect(saveLLMRole).toHaveBeenCalledWith('markdown_extract', expect.objectContaining({ model_name: 'shared-model', enabled: true }))
-    expect(saveLLMRole).toHaveBeenCalledWith('vision', expect.objectContaining({ model_name: 'shared-model', enabled: true }))
+    expect(saveLLMRole).toHaveBeenCalledWith('tool_agent', expect.objectContaining({ model_name: 'shared-model', context_window: 32768, enabled: true }))
+    expect(saveLLMRole).toHaveBeenCalledWith('document_extract', expect.objectContaining({ model_name: 'shared-model', context_window: 32768, enabled: true }))
+    expect(saveLLMRole).toHaveBeenCalledWith('markdown_extract', expect.objectContaining({ model_name: 'shared-model', context_window: 32768, enabled: true }))
+    expect(saveLLMRole).toHaveBeenCalledWith('vision', expect.objectContaining({ model_name: 'shared-model', context_window: 32768, enabled: true }))
   })
 
   it('allows releasing an active role from the shared backend view', async () => {

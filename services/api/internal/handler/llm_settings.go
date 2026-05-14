@@ -109,7 +109,7 @@ func (h *Handler) markLLMRoleAdminConfigured(ctx context.Context, role, reason s
 	if current == nil || !current.Enabled {
 		return nil
 	}
-	identity, ok := current.CurrentEvalIdentity()
+	identity, ok := current.CurrentEvalIdentityWithFallback(h.llmContextWindowFallback())
 	if !ok {
 		return nil
 	}
@@ -154,6 +154,8 @@ func (h *Handler) prepareLLMSystemConfigUpdate(ctx context.Context, role string,
 	if update.BackendType == model.LLMBackendDisabled {
 		update.APIBase = nil
 		update.ModelName = nil
+		update.ContextWindow = nil
+		update.ContextWindowSet = true
 		update.APIKey = nil
 		update.APIKeyState = model.LLMAPIKeyStateClear
 	} else {
@@ -171,6 +173,11 @@ func (h *Handler) prepareLLMSystemConfigUpdate(ctx context.Context, role string,
 		}
 		if update.Enabled && (update.ModelName == nil || *update.ModelName == "") {
 			return fmt.Errorf("model_name is required for enabled LLM roles")
+		}
+		if update.ContextWindow != nil {
+			if *update.ContextWindow < model.LLMContextWindowMin || *update.ContextWindow > model.LLMContextWindowMax {
+				return fmt.Errorf("context_window must be between %d and %d", model.LLMContextWindowMin, model.LLMContextWindowMax)
+			}
 		}
 	}
 
@@ -212,6 +219,13 @@ func normalizedAPIBaseString(backendType string, apiBase *string) string {
 	return normalized
 }
 
+func (h *Handler) llmContextWindowFallback() int {
+	if h.Config == nil {
+		return 0
+	}
+	return h.Config.LLMContextWindow
+}
+
 // PatchLLMConfigEvalWaiver records an explicit admin waiver for a role eval gate.
 func (h *Handler) PatchLLMConfigEvalWaiver(w http.ResponseWriter, r *http.Request) {
 	role := chi.URLParam(r, "role")
@@ -247,7 +261,7 @@ func (h *Handler) PatchLLMConfigEvalWaiver(w http.ResponseWriter, r *http.Reques
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "role is not configured", r.URL.Path)
 		return
 	}
-	identity, ok := current.CurrentEvalIdentity()
+	identity, ok := current.CurrentEvalIdentityWithFallback(h.llmContextWindowFallback())
 	if !ok {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "role configuration is incomplete", r.URL.Path)
 		return
@@ -303,8 +317,9 @@ func (h *Handler) PostLLMConfigEval(w http.ResponseWriter, r *http.Request) {
 		key = h.Config.LLMEncryptionKey
 	}
 	runner := agenteval.NewRunner(h.DB, agenteval.WireClient{HTTPClient: llmwire.NewSSRFProtectedHTTPClient(60*time.Second, nil)}, agenteval.RunnerOptions{
-		EncryptionKey:     key,
-		ModelNameOverride: modelNameOverride,
+		EncryptionKey:         key,
+		ModelNameOverride:     modelNameOverride,
+		ContextWindowFallback: h.llmContextWindowFallback(),
 	})
 	report, err := runner.Run(r.Context(), role)
 	if err != nil {
@@ -512,7 +527,8 @@ func (h *Handler) PatchLLMUserConfig(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		if system == nil || !system.EvalGatePassed() || !system.AllowsModelOverride(*req.ModelName) {
+		contextWindowFallback := h.llmContextWindowFallback()
+		if system == nil || !system.EvalGatePassedWithFallback(contextWindowFallback) || !system.AllowsModelOverrideWithFallback(*req.ModelName, contextWindowFallback) {
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "model override is not released for this role", r.URL.Path)
 			return
 		}
@@ -564,7 +580,7 @@ func (h *Handler) regenerateLiteLLMConfig(ctx context.Context) error {
 
 	entries := make([]liteLLMModelEntry, 0, len(configs))
 	for _, c := range configs {
-		if !c.EvalGatePassed() || c.ModelName == nil || c.APIBase == nil {
+		if !c.EvalGatePassedWithFallback(h.llmContextWindowFallback()) || c.ModelName == nil || c.APIBase == nil {
 			continue
 		}
 		// LiteLLM provider prefix

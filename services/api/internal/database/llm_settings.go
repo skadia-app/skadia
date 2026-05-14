@@ -11,7 +11,7 @@ import (
 
 func (db *DB) GetLLMSystemConfig(ctx context.Context) ([]model.LLMSystemConfig, error) {
 	rows, err := db.Pool.Query(ctx,
-		`SELECT role, backend_type, api_base, model_name,
+		`SELECT role, backend_type, api_base, model_name, context_window,
 		        api_key_enc IS NOT NULL AS has_api_key, enabled,
 		        capability_flags, eval_status, eval_report, updated_at
 		 FROM llm_system_config ORDER BY role`)
@@ -24,7 +24,7 @@ func (db *DB) GetLLMSystemConfig(ctx context.Context) ([]model.LLMSystemConfig, 
 		var c model.LLMSystemConfig
 		var evalReport []byte
 		if err := rows.Scan(&c.Role, &c.BackendType, &c.APIBase, &c.ModelName,
-			&c.HasAPIKey, &c.Enabled, &c.CapabilityFlags, &c.EvalStatus, &evalReport, &c.UpdatedAt); err != nil {
+			&c.ContextWindow, &c.HasAPIKey, &c.Enabled, &c.CapabilityFlags, &c.EvalStatus, &evalReport, &c.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if len(evalReport) > 0 {
@@ -58,6 +58,9 @@ func (db *DB) UpsertLLMSystemConfig(ctx context.Context, role string, update mod
 	if keyState == "" {
 		keyState = model.LLMAPIKeyStateUnchanged
 	}
+	if update.ContextWindow != nil {
+		update.ContextWindowSet = true
+	}
 	if !model.IsValidLLMBackendType(update.BackendType) {
 		return fmt.Errorf("invalid LLM backend_type %q", update.BackendType)
 	}
@@ -70,17 +73,20 @@ func (db *DB) UpsertLLMSystemConfig(ctx context.Context, role string, update mod
 	if update.BackendType == model.LLMBackendDisabled {
 		encryptedKey = nil
 		keyState = model.LLMAPIKeyStateClear
+		update.ContextWindow = nil
+		update.ContextWindowSet = true
 	}
 	_, err := db.Pool.Exec(ctx,
-		`INSERT INTO llm_system_config (role, backend_type, api_base, model_name, api_key_enc, enabled, eval_status, eval_report, updated_at)
-	 VALUES ($1, $2, $3, $4, $5, $6, 'untested', '{}'::jsonb, NOW())
+		`INSERT INTO llm_system_config (role, backend_type, api_base, model_name, context_window, api_key_enc, enabled, eval_status, eval_report, updated_at)
+	 VALUES ($1, $2, $3, $4, $5, $6, $7, 'untested', '{}'::jsonb, NOW())
 		 ON CONFLICT (role) DO UPDATE SET
 		   eval_status = CASE
 		     WHEN llm_system_config.backend_type IS DISTINCT FROM EXCLUDED.backend_type
 			       OR llm_system_config.api_base IS DISTINCT FROM EXCLUDED.api_base
 			       OR llm_system_config.model_name IS DISTINCT FROM EXCLUDED.model_name
+				       OR ($9::boolean AND llm_system_config.context_window IS DISTINCT FROM EXCLUDED.context_window)
 			       OR llm_system_config.enabled IS DISTINCT FROM EXCLUDED.enabled
-			       OR $7 IN ('set', 'clear')
+			       OR $8 IN ('set', 'clear')
 			     THEN 'untested'
 			     ELSE llm_system_config.eval_status
 			   END,
@@ -88,22 +94,27 @@ func (db *DB) UpsertLLMSystemConfig(ctx context.Context, role string, update mod
 		     WHEN llm_system_config.backend_type IS DISTINCT FROM EXCLUDED.backend_type
 			       OR llm_system_config.api_base IS DISTINCT FROM EXCLUDED.api_base
 			       OR llm_system_config.model_name IS DISTINCT FROM EXCLUDED.model_name
+				       OR ($9::boolean AND llm_system_config.context_window IS DISTINCT FROM EXCLUDED.context_window)
 			       OR llm_system_config.enabled IS DISTINCT FROM EXCLUDED.enabled
-			       OR $7 IN ('set', 'clear')
+			       OR $8 IN ('set', 'clear')
 			     THEN '{}'::jsonb
 			     ELSE llm_system_config.eval_report
 			   END,
 			   backend_type = EXCLUDED.backend_type,
 			   api_base = EXCLUDED.api_base,
 			   model_name = EXCLUDED.model_name,
+			   context_window = CASE
+			     WHEN $9::boolean THEN EXCLUDED.context_window
+			     ELSE llm_system_config.context_window
+			   END,
 			   api_key_enc = CASE
-			     WHEN $7 = 'set' THEN EXCLUDED.api_key_enc
-			     WHEN $7 = 'clear' THEN NULL
+			     WHEN $8 = 'set' THEN EXCLUDED.api_key_enc
+			     WHEN $8 = 'clear' THEN NULL
 			     ELSE llm_system_config.api_key_enc
 			   END,
 			   enabled = EXCLUDED.enabled,
 			   updated_at = NOW()`,
-		role, update.BackendType, update.APIBase, update.ModelName, encryptedKey, update.Enabled, keyState)
+		role, update.BackendType, update.APIBase, update.ModelName, update.ContextWindow, encryptedKey, update.Enabled, keyState, update.ContextWindowSet)
 	return err
 }
 
@@ -146,6 +157,7 @@ func (db *DB) UpdateLLMModelEvalResult(ctx context.Context, role string, report 
 		         AND COALESCE(existing.item->>'backend_type', existing.item #>> '{identity,backend_type}') = ($2::jsonb #>> '{identity,backend_type}')
 		         AND COALESCE(existing.item->>'api_base_host', existing.item #>> '{identity,api_base_host}') = ($2::jsonb #>> '{identity,api_base_host}')
 		         AND COALESCE(existing.item->>'model_name', existing.item #>> '{identity,model_name}') = ($2::jsonb #>> '{identity,model_name}')
+		         AND COALESCE(existing.item->>'context_window', existing.item #>> '{identity,context_window}', '0') = COALESCE($2::jsonb #>> '{identity,context_window}', '0')
 		         AND COALESCE(existing.item->>'suite_id', existing.item #>> '{identity,suite_id}') = ($2::jsonb #>> '{identity,suite_id}')
 		         AND COALESCE(existing.item->>'suite_hash', existing.item #>> '{identity,suite_hash}') = ($2::jsonb #>> '{identity,suite_hash}')
 		       )

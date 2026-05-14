@@ -60,7 +60,7 @@ func TestRouteQueryMatchesRoutingDiagnosticsAndExternalLookupPhrases(t *testing.
 	tests := []string{
 		"Plane eine Rundtour ab meinem gespeicherten Standort mit hohem Waldanteil",
 		"Finde die Koordinaten für einen unbekannten Ort und prüfe die Routing-Abdeckung",
-		"Wie weit ist es Luftlinie von Beispielort A nach Beispielort B?",
+		"Wie weit ist es Luftlinie von einem Startpunkt zu einem Zielpunkt?",
 		"Plane eine Route mit maximal S2 und SAC T3",
 		"Wie war das Wetter an diesem GPS-Punkt um 14 Uhr?",
 		"Plane eine Route nach Berlin, aber sag mir wenn Zwischenpunkte nötig sind",
@@ -105,6 +105,71 @@ func TestRoutingDomainIncludesPlanningToolsWithoutWrites(t *testing.T) {
 	}
 	if containsString(tools, "save_planned_route") {
 		t.Fatalf("tools = %#v, did not want write tool save_planned_route", tools)
+	}
+}
+
+func TestGetToolsForQueryNarrowsPointToPointRouting(t *testing.T) {
+	small := GetProfile("small", "", nil)
+	query := "Wie weit ist die Strecke von einem Startpunkt zu einem Zielpunkt, und kannst du eine MTB-Route planen?"
+	got := RouteQuery(query, &small)
+	if len(got.Domains) == 0 || got.Domains[0] != "routing" {
+		t.Fatalf("domains = %#v, want routing first", got.Domains)
+	}
+
+	tools := GetToolsForQuery(query, got.Domains, &small)
+	for _, want := range []string{
+		"get_agent_service_status",
+		"geocode_place",
+		"resolve_user_location",
+		"resolve_route_place",
+		"get_routing_coverage",
+		"analyze_route_points",
+		"list_routing_profiles",
+		"plan_route_between",
+	} {
+		if !containsString(tools, want) {
+			t.Fatalf("tools = %#v, want %q", tools, want)
+		}
+	}
+	for _, reject := range []string{
+		"query_activities",
+		"run_sql",
+		"query_weather_at_point_time",
+		"search_pois_nearby",
+		"resolve_entity",
+	} {
+		if containsString(tools, reject) {
+			t.Fatalf("tools = %#v, did not want %q for point-to-point routing", tools, reject)
+		}
+	}
+	if len(tools) > 8 {
+		t.Fatalf("tools = %#v, want narrowed routing set with at most 8 tools", tools)
+	}
+}
+
+func TestGetToolsForQueryKeepsWeatherToolForMixedRoutingWeatherIntent(t *testing.T) {
+	small := GetProfile("small", "", nil)
+	query := "Plane eine MTB-Route von einem Startpunkt zu einem Zielpunkt und prüfe das Wetter am Ziel."
+	got := RouteQuery(query, &small)
+	tools := GetToolsForQuery(query, got.Domains, &small)
+
+	for _, want := range []string{"plan_route_between", "query_weather_at_point_time"} {
+		if !containsString(tools, want) {
+			t.Fatalf("tools = %#v, want mixed-intent tool %q", tools, want)
+		}
+	}
+}
+
+func TestGetToolsForQueryKeepsGoalToolsBeforePointToPointFallback(t *testing.T) {
+	small := GetProfile("small", "", nil)
+	query := "Plane eine Rundtour von einem Startpunkt zu einem Zielpunkt mit viel Wald und See."
+	got := RouteQuery(query, &small)
+	tools := GetToolsForQuery(query, got.Domains, &small)
+
+	for _, want := range []string{"suggest_route_goal", "resolve_route_feature", "plan_route_between"} {
+		if !containsString(tools, want) {
+			t.Fatalf("tools = %#v, want routing goal/point tool %q", tools, want)
+		}
 	}
 }
 
