@@ -209,6 +209,62 @@ func TestUpsertLLMSystemConfigResetsEvalOnIdentityChange(t *testing.T) {
 	}
 }
 
+func TestUpsertLLMSystemConfigStoresContextWindowAndResetsEval(t *testing.T) {
+	pool := testdb.Open(t)
+	db := &DB{Pool: pool}
+	ctx := context.Background()
+	apiBase := "http://llm.example/v1"
+	modelName := "candidate-model"
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, enabled, eval_status, eval_report)
+		VALUES ('tool_agent', 'llama_server', $1, $2, true, 'passed', '{"identity":{"role":"tool_agent","backend_type":"llama_server","api_base_host":"llm.example","model_name":"candidate-model","suite_id":"legacy","suite_hash":"legacy"}}'::jsonb)
+		ON CONFLICT (role) DO UPDATE SET
+			backend_type = EXCLUDED.backend_type,
+			api_base = EXCLUDED.api_base,
+			model_name = EXCLUDED.model_name,
+			context_window = NULL,
+			enabled = EXCLUDED.enabled,
+			eval_status = EXCLUDED.eval_status,
+			eval_report = EXCLUDED.eval_report
+	`, apiBase, modelName); err != nil {
+		t.Fatalf("seed system config: %v", err)
+	}
+
+	contextWindow := 16000
+	if err := db.UpsertLLMSystemConfig(ctx, model.LLMRoleToolAgent, model.LLMSystemConfigUpdate{
+		BackendType:   "llama_server",
+		APIBase:       &apiBase,
+		ModelName:     &modelName,
+		ContextWindow: &contextWindow,
+		APIKeyState:   model.LLMAPIKeyStateUnchanged,
+		Enabled:       true,
+	}, nil); err != nil {
+		t.Fatalf("UpsertLLMSystemConfig: %v", err)
+	}
+
+	configs, err := db.GetLLMSystemConfig(ctx)
+	if err != nil {
+		t.Fatalf("GetLLMSystemConfig: %v", err)
+	}
+	var cfg *model.LLMSystemConfig
+	for i := range configs {
+		if configs[i].Role == model.LLMRoleToolAgent {
+			cfg = &configs[i]
+			break
+		}
+	}
+	if cfg == nil || cfg.ContextWindow == nil || *cfg.ContextWindow != contextWindow {
+		t.Fatalf("context_window = %#v, want %d", cfg, contextWindow)
+	}
+	if cfg.EvalStatus != model.LLMEvalStatusUntested {
+		t.Fatalf("eval status = %q, want untested", cfg.EvalStatus)
+	}
+	if len(cfg.EvalReport) != 0 {
+		t.Fatalf("eval report = %#v, want reset empty object", cfg.EvalReport)
+	}
+}
+
 func TestUpsertLLMSystemConfigClearsHiddenKeyWhenDisabled(t *testing.T) {
 	pool := testdb.Open(t)
 	db := &DB{Pool: pool}
