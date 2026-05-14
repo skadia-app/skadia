@@ -276,7 +276,8 @@ func executeGetRoutingCoverage(ctx context.Context, deps *Deps, userID string, r
 	coverageBaseDir, presentLayers, missingLayers := coverageLayerPresence(deps, graphTileIDs)
 	canResolve := bbox != nil && len(regions) > 0 && importedRegionVerified
 	canPlan := bbox != nil && len(requiredTiles) > 0 && len(missingTiles) == 0
-	canSuggestGoal := false
+	badRouterAvailable := len(graphTileIDs) > 0 && len(missingGraphTiles) == 0 && !graphTileListTruncated
+	canSuggestGoal := deps != nil && deps.RouteGoalSuggester != nil && badRouterAvailable
 	blockingReason := ""
 	nextAdminAction := ""
 	if len(invalidRefs) > 0 {
@@ -306,7 +307,7 @@ func executeGetRoutingCoverage(ctx context.Context, deps *Deps, userID string, r
 		"regions":           regions,
 		"place_search":      map[string]any{"available": canResolve, "source": "imported_osm", "verified": importedRegionVerified},
 		"brouter":           map[string]any{"available": canPlan, "segments_dir": segmentsDir, "required_rd5_tiles": requiredTiles, "present_rd5_tiles": presentTiles, "missing_rd5_tiles": missingTiles},
-		"badrouter":         map[string]any{"available": len(graphTileIDs) > 0 && len(missingGraphTiles) == 0 && !graphTileListTruncated, "tiles_dir": routingTilesDir, "required_tiles": graphTileLabels(graphTileIDs), "present_tiles": presentGraphTiles, "missing_tiles": missingGraphTiles, "tile_count": len(graphTileIDs), "tile_list_truncated": graphTileListTruncated, "verification": "file_presence_only"},
+		"badrouter":         map[string]any{"available": badRouterAvailable, "tiles_dir": routingTilesDir, "required_tiles": graphTileLabels(graphTileIDs), "present_tiles": presentGraphTiles, "missing_tiles": missingGraphTiles, "tile_count": len(graphTileIDs), "tile_list_truncated": graphTileListTruncated, "verification": "file_presence_only"},
 		"dem":               map[string]any{"dem_data_dir": demDir, "required_hgt_cells": demCells, "present_hgt_cells": presentDEMCells, "missing_hgt_cells": missingDEMCells, "status": demCoverageStatus(demCells, missingDEMCells)},
 		"surface_highway":   map[string]any{"available": "unknown", "status": "depends on imported OSM way tags and route graph coverage"},
 		"coverage_layers":   map[string]any{"available": len(presentLayers) > 0 && !graphTileListTruncated, "coverage_base_dir": coverageBaseDir, "required_layers": routeCoverageLayerNames(), "present_layers": presentLayers, "missing_layers": missingLayers, "tile_count": len(graphTileIDs), "tile_list_truncated": graphTileListTruncated, "verification": "file_presence_only"},
@@ -424,19 +425,55 @@ func executeSuggestRouteGoal(ctx context.Context, deps *Deps, userID string, raw
 			return analysis, nil
 		}
 	}
+	if status == "unsupported_constraint" || deps == nil || deps.RouteGoalSuggester == nil {
+		return map[string]any{
+			"start":                   start,
+			"profile_key":             args.ProfileKey,
+			"round_trip":              valueOrDefaultBool(args.RoundTrip, true),
+			"target_distance_m":       args.TargetDistanceM,
+			"target_ascent_m":         args.TargetAscentM,
+			"status":                  status,
+			"unsupported_constraints": unsupported,
+			"applied_constraints":     []string{},
+			"unsupported_reason":      suggestRouteGoalUnsupportedReason(status),
+			"variants":                []any{},
+			"coverage":                map[string]any{"status": "not_checked"},
+			"post_validation":         map[string]any{"status": "not_run"},
+		}, nil
+	}
+	req, err := buildRouteGoalSuggestionRequest(ctx, deps, userID, start, args)
+	if err != nil {
+		return map[string]any{"status": "error", "error": err.Error(), "variants": []any{}}, nil
+	}
+	resp, err := deps.RouteGoalSuggester(ctx, userID, req)
+	if err != nil {
+		return map[string]any{
+			"start":               start,
+			"profile_key":         args.ProfileKey,
+			"round_trip":          req.RoundTrip,
+			"target_distance_m":   args.TargetDistanceM,
+			"target_ascent_m":     args.TargetAscentM,
+			"status":              "backend_error",
+			"error":               err.Error(),
+			"variants":            []any{},
+			"coverage":            map[string]any{"status": "not_checked"},
+			"post_validation":     map[string]any{"status": "not_run"},
+			"clarification_hint":  "route suggestion backend could not generate variants; report the backend status before asking for new constraints",
+			"applied_constraints": []string{},
+		}, nil
+	}
 	return map[string]any{
 		"start":                   start,
 		"profile_key":             args.ProfileKey,
-		"round_trip":              valueOrDefaultBool(args.RoundTrip, true),
+		"round_trip":              req.RoundTrip,
 		"target_distance_m":       args.TargetDistanceM,
 		"target_ascent_m":         args.TargetAscentM,
-		"status":                  status,
+		"status":                  "ok",
 		"unsupported_constraints": unsupported,
-		"applied_constraints":     []string{},
-		"unsupported_reason":      suggestRouteGoalUnsupportedReason(status),
-		"variants":                []any{},
-		"coverage":                map[string]any{"status": "not_checked"},
-		"post_validation":         map[string]any{"status": "not_run"},
+		"applied_constraints":     routeGoalAppliedConstraints(req),
+		"variants":                resp.Variants,
+		"coverage":                map[string]any{"available": resp.CoverageAvailable, "partial_search": resp.PartialSearch},
+		"post_validation":         map[string]any{"status": "backend_validated"},
 	}, nil
 }
 

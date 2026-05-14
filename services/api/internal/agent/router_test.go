@@ -55,6 +55,26 @@ func TestRouteQueryMatchesSubjectiveRoutingPhrases(t *testing.T) {
 	}
 }
 
+func TestRouteQueryMatchesRoutingDiagnosticsAndExternalLookupPhrases(t *testing.T) {
+	small := GetProfile("small", "", nil)
+	tests := []string{
+		"Plane eine Rundtour ab meinem gespeicherten Standort mit hohem Waldanteil",
+		"Finde die Koordinaten für einen unbekannten Ort und prüfe die Routing-Abdeckung",
+		"Wie weit ist es Luftlinie von Beispielort A nach Beispielort B?",
+		"Plane eine Route mit maximal S2 und SAC T3",
+		"Wie war das Wetter an diesem GPS-Punkt um 14 Uhr?",
+		"Plane eine Route nach Berlin, aber sag mir wenn Zwischenpunkte nötig sind",
+	}
+	for _, query := range tests {
+		t.Run(query, func(t *testing.T) {
+			got := RouteQuery(query, &small)
+			if !containsString(got.Domains, "routing") {
+				t.Fatalf("domains = %#v, want routing", got.Domains)
+			}
+		})
+	}
+}
+
 func TestRoutingDomainIncludesPlanningToolsWithoutWrites(t *testing.T) {
 	small := GetProfile("small", "", nil)
 	got := RouteQuery("Plane eine direkte Wanderroute von Startort zu einem See", &small)
@@ -65,8 +85,12 @@ func TestRoutingDomainIncludesPlanningToolsWithoutWrites(t *testing.T) {
 	tools := GetToolsForDomains(got.Domains, &small)
 	for _, want := range []string{
 		"resolve_route_place",
+		"resolve_user_location",
+		"geocode_place",
 		"resolve_route_feature",
 		"get_routing_coverage",
+		"get_agent_service_status",
+		"analyze_route_points",
 		"list_routing_profiles",
 		"plan_route_between",
 		"suggest_route_goal",
@@ -86,7 +110,7 @@ func TestRoutingDomainIncludesPlanningToolsWithoutWrites(t *testing.T) {
 
 func TestRouteQueryPrioritizesSegmentBestzeitOverActivityTitleSearch(t *testing.T) {
 	small := GetProfile("small", "", nil)
-	got := RouteQuery("Wann bin ich meine Bestzeit auf dem Neuland Trail gefahren?", &small)
+	got := RouteQuery("Wann bin ich meine Bestzeit auf dem Forsttrail gefahren?", &small)
 	if len(got.Domains) == 0 || got.Domains[0] != "segments" {
 		t.Fatalf("domains = %#v, want segments first", got.Domains)
 	}

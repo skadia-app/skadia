@@ -8,9 +8,10 @@ schema_excerpt: |
   osm_routes: id, osm_id, name, ref, route, network, colour, distance, geom
 
 domain_knowledge: |
-  - Orts- und Feature-Namen nie als Koordinaten raten. Erst resolve_route_place
-    für Orte/Adressen/Start/Ziel oder resolve_route_feature für See, Fluss, Wald,
-    Gipfel, Pass, Hütte, Trail oder ähnliche Geländeziele nutzen.
+  - Orts- und Feature-Namen nie als Koordinaten raten. Erst get_agent_service_status
+    nutzen, dann resolve_user_location für gespeicherte Orte, geocode_place für
+    Orts-/Adressnamen oder resolve_route_feature für See, Fluss, Wald, Gipfel,
+    Pass, Hütte, Trail oder ähnliche Geländeziele nutzen.
   - Danach get_routing_coverage prüfen. Wenn keine Abdeckung vorliegt, klar sagen
     und keine Route erfinden.
   - Profile immer über list_routing_profiles ermitteln; keine festen Profilnamen
@@ -23,23 +24,39 @@ domain_knowledge: |
   - SAC-Skala: T1=Wandern, T2=Bergwandern, T3=Anspruchsvoll, T4=Alpinwandern,
     T5=Anspruchsvolles Alpinwandern, T6=Schwieriges Alpinwandern
   - MTB-Skala: S0=Leicht, S1=Mittel, S2=Schwierig, S3=Sehr schwierig, S4=Extrem, S5=Unfahrbar
+  - Via-Ferrata-/Kletter-Schwierigkeiten nur als Constraint nennen, wenn das
+    Tool sie als angewendet meldet. Sonst als unsupported_constraint erklären.
+  - Dauer ist kein Routing-Input. Bei "2 Stunden", "halber Tag" usw. keine
+    Dauer schätzen und kein duration-Argument senden; stattdessen nach Distanz,
+    Anstieg, Schwierigkeit, Routentyp oder Profil fragen.
+  - Bei langen Punkt-zu-Punkt-Wünschen oder Luftlinienfragen analyze_route_points
+    nutzen. Wenn max_direct_leg_m überschritten ist, Zwischenpunkte verlangen.
   - Zielrouten/Rundtouren: suggest_route_goal aktuell nur verwenden, um sauber
-    zu erkennen, dass der Agentenpfad noch nicht verdrahtet ist. Keine
-    Zielrouten-Kandidaten versprechen, wenn das Tool `unsupported_backend_path`
+    zu erkennen, was real unterstützt ist. Keine Zielrouten-Kandidaten
+    versprechen, wenn das Tool `unsupported_backend_path`,
+    `unsupported_constraint`, `missing_coverage` oder `provider_unavailable`
     meldet.
+  - Tool-Antworten mit disabled, unconfigured, rate_limited,
+    requires_user_confirmation, skipped_by_privacy_policy oder timed_out
+    sachlich melden und nicht wiederholt dieselbe externe Anfrage senden.
   - Wetter und bisherige Aktivitätsdaten sind Zusatzkontext: query_weather_at_point_time
     und query_activity_terrain_summary nach Orts-/Routenauflösung nutzen, nicht als
     Ersatz für Abdeckungs- und Profilprüfung.
-  - Workflow: 1) Wunsch verstehen -> 2) Orte/Features auflösen ->
-    3) Abdeckung und Profile prüfen -> 4) Ziel/Waypoints bestimmen ->
-    5) Route als Vorschau planen -> 6) optional POIs entlang der Route anzeigen.
+  - Workflow: 1) Wunsch verstehen -> 2) Service-Status prüfen ->
+    3) Orte/Features auflösen -> 4) Abdeckung, Distanzdiagnose und Profile prüfen ->
+    5) Ziel/Waypoints bestimmen -> 6) Route als Vorschau planen ->
+    7) angewendete/nicht unterstützte Constraints und Post-Validation melden.
   - Planung ist read-only. Speichern oder andere Schreibaktionen nur ausführen,
     wenn ein freigegebenes Write-Tool explizit verfügbar ist und bestätigt wurde.
 
 tools:
   - resolve_route_place
+  - resolve_user_location
+  - geocode_place
   - resolve_route_feature
+  - get_agent_service_status
   - get_routing_coverage
+  - analyze_route_points
   - list_routing_profiles
   - plan_route_between
   - search_pois_nearby
@@ -62,6 +79,8 @@ few_shot_examples:
         args: '{"query": "Startort", "kind": "place"}'
       - tool: resolve_route_feature
         args: '{"query": "See", "feature_kind": "lake", "relation": "target"}'
+      - tool: analyze_route_points
+        args: '{"points": [{"ref": "<start_ref>"}, {"ref": "<lake_ref>"}], "intent": "direct_route"}'
       - tool: get_routing_coverage
         args: '{"place_refs": ["<start_ref>"], "feature_refs": ["<lake_ref>"], "intent": "direct"}'
       - tool: list_routing_profiles
@@ -74,6 +93,8 @@ few_shot_examples:
         args: '{"query": "Startort", "kind": "place"}'
       - tool: resolve_route_place
         args: '{"query": "Zielort", "kind": "place"}'
+      - tool: analyze_route_points
+        args: '{"points": [{"ref": "<start_ref>"}, {"ref": "<goal_ref>"}], "intent": "direct_route"}'
       - tool: get_routing_coverage
         args: '{"place_refs": ["<start_ref>", "<goal_ref>"], "intent": "direct"}'
       - tool: list_routing_profiles

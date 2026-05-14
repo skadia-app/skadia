@@ -156,6 +156,7 @@ func RouteTools() []*Tool {
 			ExecuteRead: executeQueryCoverage,
 		},
 		ResolveUserLocationTool(),
+		GeocodePlaceTool(),
 		ResolveRoutePlaceTool(),
 		ResolveRouteFeatureTool(),
 		GetRoutingCoverageTool(),
