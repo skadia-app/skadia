@@ -6,10 +6,17 @@ import { useToast } from '@/lib/toast'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import {
   getAdminSettings,
+  getEmailTemplates,
+  previewEmailTemplate,
   putAdminSettings,
+  resetEmailTemplate,
   sendTestEmail,
+  saveEmailTemplate,
+  sendEmailTemplateTest,
   type SettingsResponse,
   type SettingField,
+  type EmailTemplate,
+  type RenderedEmailTemplate,
 } from '@/api/adminSettings'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -20,6 +27,12 @@ function getField(settings: SettingsResponse | null, section: string, key: strin
 
 function getValue(settings: SettingsResponse | null, section: string, key: string): string {
   return getField(settings, section, key).value ?? ''
+}
+
+function isSmtpDeliveryConfigured(host: string, port: string, username: string, password: string, from: string) {
+  const hasCredentials = username.trim() !== '' || password !== ''
+  const credentialsComplete = !hasCredentials || (username.trim() !== '' && password !== '')
+  return host.trim() !== '' && port.trim() !== '' && from.trim() !== '' && credentialsComplete
 }
 
 function isLocked(settings: SettingsResponse | null, section: string, key: string): boolean {
@@ -33,6 +46,7 @@ const STATUS_DOT_GRAY = 'h-2 w-2 rounded-full bg-neutral-400'
 
 const RESET_LINK_CLASS = 'text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer transition-colors underline-offset-2 hover:underline'
 const SAVE_BTN_CLASS = 'px-4 py-2 rounded-lg bg-accent-500 hover:bg-accent-600 text-white text-sm font-medium cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+const SECONDARY_BTN_CLASS = 'px-3 py-1.5 rounded border border-neutral-300 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
 
 const ENV_VAR_NAMES: Record<string, string> = {
   'smtp.host': 'SMTP_HOST',
@@ -167,12 +181,12 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
     setHost(getValue(settings, 'smtp', 'host'))
     setPort(getValue(settings, 'smtp', 'port') || '587')
     setUsername(getValue(settings, 'smtp', 'username'))
-    setPassword(getValue(settings, 'smtp', 'password') ? '***' : '')
+    setPassword(getField(settings, 'smtp', 'password').has_value ? '***' : '')
     setFrom(getValue(settings, 'smtp', 'from'))
     setTlsMode(getValue(settings, 'smtp', 'tls') || 'starttls')
   }, [settings])
 
-  const smtpConfigured = host.trim() !== ''
+  const smtpConfigured = isSmtpDeliveryConfigured(host, port, username, password, from)
 
   async function handleSave() {
     setSaving(true)
@@ -303,7 +317,175 @@ function SmtpSection({ settings, onSaved }: SmtpSectionProps) {
   )
 }
 
-// ── Section 2 — Registrierung & App ──────────────────────────────────────────
+// ── Section 2 — E-Mail Templates ──────────────────────────────────────────────
+
+const EMAIL_TEMPLATE_LABELS: Record<string, string> = {
+  verify_email: 'E-Mail verifizieren',
+  reset_password: 'Passwort zurücksetzen',
+  invite_user: 'Einladung',
+  change_email: 'E-Mail-Adresse ändern',
+  account_deletion: 'Account-Löschung',
+  admin_approval_needed: 'Admin-Freigabe',
+  test_email: 'SMTP-Test',
+}
+
+interface EmailTemplatesSectionProps {
+  smtpConfigured: boolean
+}
+
+function EmailTemplatesSection({ smtpConfigured }: EmailTemplatesSectionProps) {
+  const queryClient = useQueryClient()
+  const { addToast } = useToast()
+  const { data: templates = [], isLoading } = useQuery({
+    queryKey: ['admin-email-templates'],
+    queryFn: getEmailTemplates,
+    staleTime: 60_000,
+  })
+  const [selectedKey, setSelectedKey] = useState('')
+  const [subject, setSubject] = useState('')
+  const [html, setHtml] = useState('')
+  const [text, setText] = useState('')
+  const [preview, setPreview] = useState<RenderedEmailTemplate | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const selected = templates.find(t => t.key === selectedKey) ?? templates[0]
+
+  useEffect(() => {
+    if (!selectedKey && templates.length > 0) setSelectedKey(templates[0].key)
+  }, [selectedKey, templates])
+
+  useEffect(() => {
+    if (!selected) return
+    setSubject(selected.subject)
+    setHtml(selected.html)
+    setText(selected.text)
+    setPreview(null)
+  }, [selected])
+
+  async function handleSave() {
+    if (!selected) return
+    setBusy(true)
+    try {
+      await saveEmailTemplate(selected.key, { subject, html, text, enabled: true })
+      await queryClient.invalidateQueries({ queryKey: ['admin-email-templates'] })
+      addToast({ type: 'success', title: 'E-Mail-Template gespeichert' })
+    } catch (err) {
+      addToast({ type: 'error', title: 'Speichern fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handlePreview() {
+    if (!selected) return
+    setBusy(true)
+    try {
+      const rendered = await previewEmailTemplate(selected.key, { subject, html, text, enabled: true })
+      setPreview(rendered)
+    } catch (err) {
+      addToast({ type: 'error', title: 'Vorschau fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleTest() {
+    if (!selected) return
+    setBusy(true)
+    try {
+      await sendEmailTemplateTest(selected.key)
+      addToast({ type: 'success', title: 'Test-E-Mail gesendet' })
+    } catch (err) {
+      addToast({ type: 'error', title: 'Test-E-Mail fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleReset() {
+    if (!selected) return
+    setBusy(true)
+    try {
+      await resetEmailTemplate(selected.key)
+      await queryClient.invalidateQueries({ queryKey: ['admin-email-templates'] })
+      addToast({ type: 'success', title: 'Standard wiederhergestellt' })
+    } catch (err) {
+      addToast({ type: 'error', title: 'Zurücksetzen fehlgeschlagen', message: err instanceof Error ? err.message : undefined, duration: 0 })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function handleHtmlChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    setHtml(e.currentTarget.value)
+  }
+
+  function handleTextChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    setText(e.currentTarget.value)
+  }
+
+  return (
+    <SettingsSection
+      title="E-Mail-Texte"
+      description="Betreff, HTML und Textversion der ausgehenden System-E-Mails."
+    >
+      {isLoading || !selected ? (
+        <div className="py-8 text-sm text-neutral-500">Templates werden geladen…</div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-5">
+          <div className="space-y-2">
+            {templates.map((template: EmailTemplate) => (
+              <button
+                key={template.key}
+                type="button"
+                onClick={() => setSelectedKey(template.key)}
+                className={`w-full text-left px-3 py-2 rounded border text-sm transition-colors ${
+                  selected.key === template.key
+                    ? 'border-accent-400 bg-accent-50 text-accent-700 dark:bg-accent-900/20 dark:border-accent-600 dark:text-accent-300'
+                    : 'border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+                }`}
+              >
+                <span className="block font-medium">{EMAIL_TEMPLATE_LABELS[template.key] ?? template.key}</span>
+                <span className="text-xs text-neutral-500">{template.source === 'db' ? 'Angepasst' : 'Standard'}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-4">
+            <LabeledInput
+              label="Betreff"
+              value={subject}
+              onChange={setSubject}
+              fieldKey="email.subject"
+            />
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">HTML</label>
+              <textarea value={html} onChange={handleHtmlChange} rows={8} className={`${AUTH_INPUT_CLASS} font-mono text-xs min-h-48`} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Text</label>
+              <textarea value={text} onChange={handleTextChange} rows={6} className={`${AUTH_INPUT_CLASS} font-mono text-xs min-h-36`} />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={handleSave} disabled={busy} className={SAVE_BTN_CLASS}>Speichern</button>
+              <button type="button" onClick={handlePreview} disabled={busy} className={SECONDARY_BTN_CLASS}>Vorschau</button>
+              <button type="button" onClick={handleTest} disabled={busy || !smtpConfigured} className={SECONDARY_BTN_CLASS}>Test senden</button>
+              <button type="button" onClick={handleReset} disabled={busy || selected.source !== 'db'} className={RESET_LINK_CLASS}>Auf Standard zurücksetzen</button>
+            </div>
+            {preview && (
+              <div className="space-y-2 border-t border-neutral-200 dark:border-neutral-800 pt-4">
+                <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{preview.subject}</div>
+                <pre className="whitespace-pre-wrap rounded bg-neutral-100 dark:bg-neutral-900 p-3 text-xs text-neutral-700 dark:text-neutral-300 overflow-auto">{preview.text}</pre>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </SettingsSection>
+  )
+}
+
+// ── Section 3 — Registrierung & App ──────────────────────────────────────────
 
 interface RegistrationSectionProps {
   settings: SettingsResponse | null
@@ -531,13 +713,14 @@ function SocialLoginSection({ settings, onSaved }: SocialLoginSectionProps) {
   const [googleClientId, setGoogleClientId] = useState('')
   const [googleClientSecret, setGoogleClientSecret] = useState('***')
   const [saving, setSaving] = useState(false)
+  const oauthEncryptionConfigured = settings?._meta?.oauth_encryption_configured !== 'false'
 
   useEffect(() => {
     if (!settings) return
     setStravaClientId(getValue(settings, 'social', 'strava_client_id'))
-    setStravaClientSecret(getValue(settings, 'social', 'strava_client_secret') ? '***' : '')
+    setStravaClientSecret(getField(settings, 'social', 'strava_client_secret').has_value ? '***' : '')
     setGoogleClientId(getValue(settings, 'social', 'google_client_id'))
-    setGoogleClientSecret(getValue(settings, 'social', 'google_client_secret') ? '***' : '')
+    setGoogleClientSecret(getField(settings, 'social', 'google_client_secret').has_value ? '***' : '')
   }, [settings])
 
   async function handleSave() {
@@ -571,6 +754,11 @@ function SocialLoginSection({ settings, onSaved }: SocialLoginSectionProps) {
       description="OAuth-Provider für die Anmeldung mit externen Konten."
     >
       <div className="space-y-3">
+        {!oauthEncryptionConfigured && (
+          <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+            OAUTH_ENCRYPTION_KEY fehlt. Social Login bleibt deaktiviert, bis der Server-Schlüssel gesetzt ist.
+          </div>
+        )}
         <ProviderBlock
           name="Strava"
           clientId={stravaClientId}
@@ -783,7 +971,13 @@ export default function AdminSystemTab() {
     queryClient.invalidateQueries({ queryKey: ['admin-settings'] })
   }
 
-  const smtpConfigured = (settings?.smtp?.host?.value ?? '').trim() !== ''
+  const smtpConfigured = isSmtpDeliveryConfigured(
+    settings?.smtp?.host?.value ?? '',
+    settings?.smtp?.port?.value ?? '',
+    settings?.smtp?.username?.value ?? '',
+    settings?.smtp?.password?.has_value ? '***' : (settings?.smtp?.password?.value ?? ''),
+    settings?.smtp?.from?.value ?? '',
+  )
 
   if (isLoading) {
     return (
@@ -811,6 +1005,7 @@ export default function AdminSystemTab() {
   return (
     <div className="space-y-6">
       <SmtpSection settings={settings ?? null} onSaved={handleSaved} />
+      <EmailTemplatesSection smtpConfigured={smtpConfigured} />
       <RegistrationSection settings={settings ?? null} smtpConfigured={smtpConfigured} onSaved={handleSaved} />
       <SocialLoginSection settings={settings ?? null} onSaved={handleSaved} />
       <FilesystemSection settings={settings ?? null} onSaved={handleSaved} />

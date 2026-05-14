@@ -1407,6 +1407,12 @@ func main() {
 				r.Put("/settings", h.AdminPutSettings)
 				r.Post("/settings/reload", h.AdminReloadSettings)
 				r.Post("/settings/test-email", h.AdminTestEmail)
+				r.Get("/email/templates", h.AdminListEmailTemplates)
+				r.Get("/email/templates/{key}", h.AdminGetEmailTemplate)
+				r.Put("/email/templates/{key}", h.AdminPutEmailTemplate)
+				r.Post("/email/templates/{key}/preview", h.AdminPreviewEmailTemplate)
+				r.Post("/email/templates/{key}/test", h.AdminTestEmailTemplate)
+				r.Delete("/email/templates/{key}", h.AdminResetEmailTemplate)
 
 				// Library admin settings
 				r.Get("/library-settings", h.GetAdminLibrarySettings)
