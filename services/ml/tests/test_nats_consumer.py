@@ -101,6 +101,7 @@ from tests.conftest import seed_user  # noqa: E402
 DOC_ID = "11111111-1111-1111-1111-111111111111"
 USER_ID = "22222222-2222-2222-2222-222222222222"
 FILE_ID = "33333333-3333-3333-3333-333333333333"
+PHOTO_ID = "44444444-4444-4444-4444-444444444444"
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +217,111 @@ async def test_load_document_file_metadata_uses_file_id_user_and_doc_scope():
     assert "user_files" in conn.calls[0][0]
     assert "gear_documents" in conn.calls[0][0]
     assert conn.calls[0][1:] == (FILE_ID, USER_ID, DOC_ID)
+
+
+@pytest.mark.asyncio
+async def test_load_photo_file_metadata_uses_photo_file_and_user_scope():
+    class _Conn:
+        def __init__(self):
+            self.calls: list[tuple] = []
+
+        async def fetchrow(self, query, *args):
+            self.calls.append((query, *args))
+            return {
+                "storage_backend": "local",
+                "storage_path": "user/media/synthetic-photo.jpg",
+                "file_type": "media",
+                "content_type": "image/jpeg",
+                "size_bytes": 1234,
+            }
+
+    conn = _Conn()
+    metadata = await nats_consumer._load_photo_file_metadata(_FakePool(conn), FILE_ID, USER_ID, PHOTO_ID)
+
+    assert metadata == {
+        "storage_backend": "local",
+        "storage_path": "user/media/synthetic-photo.jpg",
+        "file_type": "media",
+        "content_type": "image/jpeg",
+        "size_bytes": 1234,
+    }
+    assert "activity_photos" in conn.calls[0][0]
+    assert "user_files" in conn.calls[0][0]
+    assert conn.calls[0][1:] == (FILE_ID, USER_ID, PHOTO_ID)
+
+
+@pytest.mark.asyncio
+async def test_process_photo_embed_loads_storage_metadata_from_file_id(monkeypatch):
+    class _Conn:
+        def __init__(self):
+            self.execute_calls: list[tuple] = []
+
+        async def fetchrow(self, query, *args):
+            if "enable_photo_clip_embedding" in query:
+                return {"enable_photo_clip_embedding": True}
+            return {
+                "storage_backend": "local",
+                "storage_path": "user/media/synthetic-photo.jpg",
+                "file_type": "media",
+                "content_type": "image/jpeg",
+                "size_bytes": 1234,
+            }
+
+        async def execute(self, *args):
+            self.execute_calls.append(args)
+            return "UPDATE 1"
+
+    downloaded: list[tuple] = []
+
+    async def fake_download_user_file(storage_backend, storage_path, file_type, *, size_bytes=None, max_bytes=None, label="user_file"):
+        downloaded.append((storage_backend, storage_path, file_type, size_bytes, max_bytes, label))
+        return b"fake-image"
+
+    async def fake_embed_image(_bytes):
+        return [0.1] * 1152
+
+    clip_mod = types.ModuleType("models.clip")
+    clip_mod.embed_image = fake_embed_image
+    clip_mod.embed_video_bytes = lambda *args, **kwargs: None
+    clip_mod.is_video = lambda *args, **kwargs: False
+
+    monkeypatch.setattr(nats_consumer, "download_user_file", fake_download_user_file)
+    monkeypatch.setitem(sys.modules, "models.clip", clip_mod)
+
+    conn = _Conn()
+    msg = _FakeMsg({"photo_id": PHOTO_ID, "user_id": USER_ID, "file_id": FILE_ID})
+    await nats_consumer._process_photo_embed(msg, _FakePool(conn), nc=None)
+
+    assert msg.acked == 1
+    assert downloaded == [
+        ("local", "user/media/synthetic-photo.jpg", "media", 1234, nats_consumer.MAX_PHOTO_EMBED_IMAGE_BYTES, "photo")
+    ]
+    assert "file_id = $4::uuid" in conn.execute_calls[0][0]
+    assert conn.execute_calls[0][1:] == ("[" + ",".join(["0.100000"] * 1152) + "]", PHOTO_ID, USER_ID, FILE_ID)
+
+
+@pytest.mark.asyncio
+async def test_process_photo_embed_acks_without_storage_read_on_metadata_mismatch(monkeypatch):
+    class _Conn:
+        async def fetchrow(self, query, *args):
+            if "enable_photo_clip_embedding" in query:
+                return {"enable_photo_clip_embedding": True}
+            return None
+
+    reads = 0
+
+    async def fake_download_user_file(*args, **kwargs):
+        nonlocal reads
+        reads += 1
+        return b"bad"
+
+    monkeypatch.setattr(nats_consumer, "download_user_file", fake_download_user_file)
+
+    msg = _FakeMsg({"photo_id": PHOTO_ID, "user_id": USER_ID, "file_id": FILE_ID})
+    await nats_consumer._process_photo_embed(msg, _FakePool(_Conn()), nc=None)
+
+    assert msg.acked == 1
+    assert reads == 0
 
 
 @pytest.mark.asyncio
