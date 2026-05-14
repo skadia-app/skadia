@@ -171,15 +171,27 @@ func buildActivityTerrainSummarySQL(userID string, args queryActivityTerrainSumm
 SELECT s.id::text AS activity_id, s.title, s.sport_type, s.sub_type, s.started_at,
        s.distance_m, s.elevation_gain_m, s.elevation_loss_m, s.min_elevation_m, s.max_elevation_m,
        s.avg_grade_pct, s.avg_pos_grade_pct, s.avg_neg_grade_pct, s.max_pos_grade_pct, s.max_neg_grade_pct,
-       COALESCE((SELECT jsonb_agg(jsonb_build_object('type', e.type, 'percentage', e.percentage, 'length_m', e.length_m) ORDER BY e.percentage DESC, e.type)
+       COALESCE((SELECT jsonb_agg(jsonb_build_object('type', e.type, 'percentage', e.percentage, 'length_m', e.length_m, 'ranges', e.ranges) ORDER BY e.percentage DESC, e.type)
                  FROM activity_enrichments e WHERE e.activity_id = s.id AND e.category = 'surface'), '[]'::jsonb) AS surfaces,
-       COALESCE((SELECT jsonb_agg(jsonb_build_object('type', e.type, 'percentage', e.percentage, 'length_m', e.length_m) ORDER BY e.percentage DESC, e.type)
+       COALESCE((SELECT jsonb_agg(jsonb_build_object('type', e.type, 'percentage', e.percentage, 'length_m', e.length_m, 'ranges', e.ranges) ORDER BY e.percentage DESC, e.type)
                  FROM activity_enrichments e WHERE e.activity_id = s.id AND e.category = 'highway'), '[]'::jsonb) AS highways,
-       COALESCE((SELECT jsonb_agg(jsonb_build_object('category', e.category, 'type', e.type, 'percentage', e.percentage) ORDER BY e.category, e.percentage DESC, e.type)
+       COALESCE((SELECT jsonb_agg(jsonb_build_object('category', e.category, 'type', e.type, 'percentage', e.percentage, 'ranges', e.ranges) ORDER BY e.category, e.percentage DESC, e.type)
                  FROM activity_enrichments e WHERE e.activity_id = s.id AND e.category IN ('sac_scale','mtb_scale','vf_scale','vf_unknown')), '[]'::jsonb) AS difficulty,
        (SELECT e.percentage FROM activity_enrichments e WHERE e.activity_id = s.id AND e.category = 'forest_pct' AND e.type = '') AS forest_pct,
        (SELECT e.percentage FROM activity_enrichments e WHERE e.activity_id = s.id AND e.category = 'protected_pct' AND e.type = '') AS protected_pct,
        (SELECT COUNT(*) FROM activity_geo_tags gt WHERE gt.activity_id = s.id AND gt.category IN ('still_water','flowing_water')) AS water_feature_count,
+       (SELECT jsonb_build_object('path', m.path, 'resample_spacing_m', m.resample_spacing_m, 'computed_at', m.computed_at)
+          FROM activity_enrichment_meta m WHERE m.activity_id = s.id) AS enrichment_meta,
+       COALESCE((SELECT jsonb_object_agg(category, count ORDER BY category)
+                 FROM (
+                   SELECT e.category, COUNT(*) AS count
+                   FROM activity_enrichments e
+                   WHERE e.activity_id = s.id
+                   GROUP BY e.category
+                 ) counts), '{}'::jsonb) AS enrichment_categories,
+       COALESCE((SELECT jsonb_agg(jsonb_build_object('category', gt.category, 'name', gt.name, 'source', gt.source, 'distance_m', gt.dist_m, 'length_m', gt.length_m) ORDER BY gt.category, gt.dist_m NULLS LAST, gt.name)
+                 FROM activity_geo_tags gt
+                 WHERE gt.activity_id = s.id AND gt.category IN ('summit','pass','still_water','flowing_water','forest')), '[]'::jsonb) AS geo_context,
        jsonb_build_object(
          'surfaces', EXISTS (SELECT 1 FROM activity_enrichments e WHERE e.activity_id = s.id AND e.category = 'surface'),
          'highways', EXISTS (SELECT 1 FROM activity_enrichments e WHERE e.activity_id = s.id AND e.category = 'highway'),
