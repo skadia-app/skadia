@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image/color"
 	"mime/multipart"
 	"net/http"
@@ -175,6 +176,69 @@ func TestUploadGearPDFSurvivesSynchronousProcessedCallback(t *testing.T) {
 	}
 	if logStatus != "completed" || markdownStatus != "skipped" {
 		t.Fatalf("gear pdf import_log after synchronous callback = status %q markdown_step %q, want completed/skipped", logStatus, markdownStatus)
+	}
+}
+
+func TestUploadGearPDFPublishFailureKeepsUploadCompleted(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	gearID := insertTestGear(t, pool, userID, "Test Bike", "bike", "bike")
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	pub := &recordingDocumentPublisher{
+		onPublish: func(event.DocumentUploadedEvent) error {
+			return errors.New("broker unavailable")
+		},
+	}
+	h := &Handler{DB: db, ShadowFS: fs, DocumentUploadedPublisher: pub}
+
+	req := newGearDocumentUploadRequest(t, userID, gearID, "broker-down.pdf", "application/pdf", []byte("%PDF-1.4\n%%EOF\n"), "manual")
+	rr := httptest.NewRecorder()
+	h.UploadGearDocument(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("UploadGearDocument pdf status = %d, want %d; body=%s", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+
+	var response struct {
+		ID               string `json:"id"`
+		ProcessingStatus string `json:"processing_status"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode upload response: %v", err)
+	}
+	if response.ProcessingStatus != "failed" {
+		t.Fatalf("pdf response processing_status = %q, want failed", response.ProcessingStatus)
+	}
+
+	var dbStatus string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT processing_status
+		FROM gear_documents
+		WHERE id = $1 AND user_id = $2`,
+		response.ID, userID,
+	).Scan(&dbStatus); err != nil {
+		t.Fatalf("select gear document processing_status: %v", err)
+	}
+	if dbStatus != "failed" {
+		t.Fatalf("gear document processing_status = %q, want failed", dbStatus)
+	}
+
+	var logStatus string
+	var errorMsg *string
+	var textStep, markdownStep string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT status, error_msg, metadata #>> '{steps,1,status}', metadata #>> '{steps,2,status}'
+		FROM import_log
+		WHERE user_id = $1 AND filename = 'broker-down.pdf'
+		ORDER BY created_at DESC
+		LIMIT 1`,
+		userID,
+	).Scan(&logStatus, &errorMsg, &textStep, &markdownStep); err != nil {
+		t.Fatalf("select gear pdf import_log: %v", err)
+	}
+	if logStatus != "completed" || errorMsg != nil || textStep != "failed" || markdownStep != "failed" {
+		t.Fatalf("gear pdf import_log after publish failure = status %q error %v text %q markdown %q, want completed/<nil>/failed/failed",
+			logStatus, errorMsg, textStep, markdownStep)
 	}
 }
 

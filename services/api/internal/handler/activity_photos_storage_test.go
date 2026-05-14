@@ -91,20 +91,21 @@ func TestUploadActivityPhotoStoresOneOriginalUserFile(t *testing.T) {
 		t.Fatalf("linked active media rows = %d, want 1", linkedRows)
 	}
 
-	var logStatus, importType, targetType, targetID string
+	var logStatus, importType, targetType, targetID, uploadStep string
 	if err := pool.QueryRow(context.Background(), `
-		SELECT status, import_type, metadata->>'target_type', metadata->>'target_id'
+		SELECT status, import_type, metadata->>'target_type', metadata->>'target_id',
+		       metadata #>> '{steps,0,status}'
 		FROM import_log
 		WHERE user_id = $1 AND filename = 'created.jpg'
 		ORDER BY created_at DESC
 		LIMIT 1`,
 		userID,
-	).Scan(&logStatus, &importType, &targetType, &targetID); err != nil {
+	).Scan(&logStatus, &importType, &targetType, &targetID, &uploadStep); err != nil {
 		t.Fatalf("select activity photo import_log: %v", err)
 	}
-	if logStatus != "completed" || importType != "photo" || targetType != "activity_photo" || targetID == "" {
-		t.Fatalf("activity photo import_log = status %q type %q target_type %q target_id %q, want completed/photo/activity_photo/<id>",
-			logStatus, importType, targetType, targetID)
+	if logStatus != "completed" || importType != "photo" || targetType != "activity_photo" || targetID == "" || uploadStep != "completed" {
+		t.Fatalf("activity photo import_log = status %q type %q target_type %q target_id %q upload_step %q, want completed/photo/activity_photo/<id>/completed",
+			logStatus, importType, targetType, targetID, uploadStep)
 	}
 }
 
@@ -287,6 +288,20 @@ func TestUploadActivityPhotoLimitBlocksOnlyNewRows(t *testing.T) {
 	if duplicateRR.Code != http.StatusOK {
 		t.Fatalf("duplicate at limit status = %d, want %d; body=%s", duplicateRR.Code, http.StatusOK, duplicateRR.Body.String())
 	}
+	var duplicateLogStatus string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT status
+		FROM import_log
+		WHERE user_id = $1 AND filename = 'duplicate.jpg'
+		ORDER BY created_at DESC
+		LIMIT 1`,
+		userID,
+	).Scan(&duplicateLogStatus); err != nil {
+		t.Fatalf("select duplicate photo import_log: %v", err)
+	}
+	if duplicateLogStatus != "skipped" {
+		t.Fatalf("duplicate photo import_log status = %q, want skipped", duplicateLogStatus)
+	}
 
 	newReq := newPhotoUploadRequest(t, userID, activityID, "new.jpg", jpegTestImage(t, 31, 29, color.RGBA{R: 10, G: 210, B: 120, A: 255}, 90))
 	newRR := httptest.NewRecorder()
@@ -296,6 +311,45 @@ func TestUploadActivityPhotoLimitBlocksOnlyNewRows(t *testing.T) {
 	}
 	if got := handlerActivityPhotoRowCount(t, pool, userID); got != 1 {
 		t.Fatalf("activity photo rows after rejected upload = %d, want 1", got)
+	}
+}
+
+func TestUploadActivityPhotoDuplicateImportLogIsTerminal(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	activityID := insertMinimalActivity(t, db, userID)
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	h := &Handler{DB: db, ShadowFS: fs, ImportService: importer.NewService(db, fs, nil)}
+	body := jpegTestImage(t, 24, 24, color.RGBA{R: 40, G: 120, B: 200, A: 255}, 90)
+
+	firstReq := newPhotoUploadRequest(t, userID, activityID, "synthetic-duplicate-photo.jpg", body)
+	firstRR := httptest.NewRecorder()
+	h.UploadActivityPhoto(firstRR, firstReq)
+	if firstRR.Code != http.StatusCreated {
+		t.Fatalf("first upload status = %d, want %d; body=%s", firstRR.Code, http.StatusCreated, firstRR.Body.String())
+	}
+
+	dupReq := newPhotoUploadRequest(t, userID, activityID, "synthetic-duplicate-photo.jpg", body)
+	dupRR := httptest.NewRecorder()
+	h.UploadActivityPhoto(dupRR, dupReq)
+	if dupRR.Code != http.StatusOK {
+		t.Fatalf("duplicate upload status = %d, want %d; body=%s", dupRR.Code, http.StatusOK, dupRR.Body.String())
+	}
+
+	var status, uploadStep string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT status, metadata #>> '{steps,0,status}'
+		FROM import_log
+		WHERE user_id = $1 AND filename = 'synthetic-duplicate-photo.jpg'
+		ORDER BY created_at DESC
+		LIMIT 1`,
+		userID,
+	).Scan(&status, &uploadStep); err != nil {
+		t.Fatalf("select duplicate import_log: %v", err)
+	}
+	if status != "skipped" || uploadStep != "completed" {
+		t.Fatalf("duplicate import_log status/upload_step = %q/%q, want skipped/completed", status, uploadStep)
 	}
 }
 
