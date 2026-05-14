@@ -11,6 +11,7 @@ import (
 // mlServiceAvailable ist der gecachte Status des ML-Service.
 // Wird von der Background-Goroutine alle 30s aktualisiert.
 var mlServiceAvailable atomic.Bool
+var mlProbeVersion atomic.Uint64
 
 // StartMLProbe startet eine Background-Goroutine, die alle 30s die ML-Readiness
 // probt (GET <url>/readyz, 2s Timeout). Läuft bis ctx abgebrochen wird.
@@ -21,12 +22,14 @@ func StartMLProbe(ctx context.Context, mlServiceURL string) {
 			resp, err := client.Get(mlServiceURL + "/readyz")
 			if err != nil {
 				mlServiceAvailable.Store(false)
+				mlProbeVersion.Add(1)
 				slog.Debug("ml probe: unavailable", "error", err)
 				return
 			}
 			resp.Body.Close()
 			available := resp.StatusCode == http.StatusOK
 			mlServiceAvailable.Store(available)
+			mlProbeVersion.Add(1)
 		}
 		probe() // sofort beim Start einmal ausführen
 		ticker := time.NewTicker(30 * time.Second)
@@ -45,4 +48,8 @@ func StartMLProbe(ctx context.Context, mlServiceURL string) {
 // MLServiceAvailable gibt den letzten gecachten Probe-Status zurück.
 func MLServiceAvailable() bool {
 	return mlServiceAvailable.Load()
+}
+
+func MLProbeVersion() uint64 {
+	return mlProbeVersion.Load()
 }

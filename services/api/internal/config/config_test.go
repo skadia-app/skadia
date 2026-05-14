@@ -9,6 +9,7 @@ func withBaseEnv(t *testing.T) {
 	t.Setenv("JWT_SECRET", strings.Repeat("test-jwt-secret-", 3))
 	t.Setenv("STORAGE_BACKEND", "local")
 	t.Setenv("SKADIA_STORAGE_MODE", "")
+	t.Setenv("SKADIA_DEPLOYMENT_PROFILE", "")
 	t.Setenv("SKADIA_S3_PROVIDER", "")
 	t.Setenv("GDPR_ARTIFACT_BACKEND", "")
 	t.Setenv("EXPORTS_BASE_PATH", "")
@@ -31,6 +32,62 @@ func withBaseEnv(t *testing.T) {
 	t.Setenv("GDPR_ARTIFACT_USER_ACTIVE_BYTES", "")
 	t.Setenv("GDPR_ARTIFACT_S3_QUOTA_BYTES", "")
 	t.Setenv("GDPR_IMPORT_STAGING_QUOTA_BYTES", "")
+}
+
+func TestLoadDeploymentProfileDefaultsToFullLegacy(t *testing.T) {
+	withBaseEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.DeploymentProfile != "full" {
+		t.Fatalf("DeploymentProfile = %q, want full", cfg.DeploymentProfile)
+	}
+	if cfg.DeploymentProfileSource != "implicit_legacy" {
+		t.Fatalf("DeploymentProfileSource = %q, want implicit_legacy", cfg.DeploymentProfileSource)
+	}
+}
+
+func TestLoadDeploymentProfileExplicitCore(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("SKADIA_DEPLOYMENT_PROFILE", "core")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.DeploymentProfile != "core" {
+		t.Fatalf("DeploymentProfile = %q, want core", cfg.DeploymentProfile)
+	}
+	if cfg.DeploymentProfileSource != "env" {
+		t.Fatalf("DeploymentProfileSource = %q, want env", cfg.DeploymentProfileSource)
+	}
+}
+
+func TestLoadDeploymentProfileExplicitFull(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("SKADIA_DEPLOYMENT_PROFILE", "full")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.DeploymentProfile != "full" {
+		t.Fatalf("DeploymentProfile = %q, want full", cfg.DeploymentProfile)
+	}
+	if cfg.DeploymentProfileSource != "env" {
+		t.Fatalf("DeploymentProfileSource = %q, want env", cfg.DeploymentProfileSource)
+	}
+}
+
+func TestLoadRejectsInvalidDeploymentProfile(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("SKADIA_DEPLOYMENT_PROFILE", "lite")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted invalid SKADIA_DEPLOYMENT_PROFILE")
+	}
 }
 
 func TestLoadGDPRArtifactDefaults(t *testing.T) {

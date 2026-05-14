@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -15,165 +14,449 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Capabilities describes which routing and geo features are available
-// based on the current infrastructure (Lite vs. Full mode).
-type Capabilities struct {
-	Routing         bool `json:"routing"`
-	BRouter         bool `json:"brouter"`
-	BadRouter       bool `json:"badrouter"`
-	OfflineMap      bool `json:"offline_map"`
-	SurfaceEnrich   bool `json:"surface_enrichment"`
-	DEMCorrection   bool `json:"dem_correction"`
-	Isochrone       bool `json:"isochrone"`
-	RouteSuggestion bool `json:"route_suggestion"`
-	MLService       bool `json:"ml_service"`
-	// ImportPathEnabled is true when IMPORT_ALLOWED_DIRS is configured, allowing
-	// users to specify local filesystem paths for Garmin/Strava imports instead
-	// of being limited to ZIP uploads. False in default/cloud deployments.
-	ImportPathEnabled bool `json:"import_path_enabled"`
+const (
+	KeyDeploymentProfile           = "deployment_profile"
+	KeyStorageMode                 = "storage_mode"
+	KeyStorageBackend              = "storage_backend"
+	KeyLibraryPaths                = "library_paths"
+	KeyLibrarySchemas              = "library_schemas"
+	KeyLibrarySync                 = "library_sync"
+	KeyImportPathEnabled           = "import_path_enabled"
+	KeyDirectUploadLifecycle       = "direct_upload_lifecycle"
+	KeyRoutePhotoMedia             = "route_photo_media"
+	KeyGDPRArtifacts               = "gdpr_artifacts"
+	KeyOSMImport                   = "osm_import"
+	KeyOSMEnrichment               = "osm_enrichment"
+	KeyBRouter                     = "brouter"
+	KeyBRouterSegmentDownload      = "brouter_segment_download"
+	KeyBRouterSegmentBuild         = "brouter_segment_build"
+	KeyBadRouter                   = "badrouter"
+	KeyRouting                     = "routing"
+	KeyRoutingTiles                = "routing_tiles"
+	KeyDEMCorrection               = "dem_correction"
+	KeyCoverage                    = "coverage"
+	KeyCoverageTiles               = "coverage_tiles"
+	KeySystemLayersVector          = "system_layers_vector"
+	KeySystemLayersCoverage        = "system_layers_coverage"
+	KeyOfflineMap                  = "offline_map"
+	KeyGeoPOIEnrichment            = "geo_poi_enrichment"
+	KeySurfaceEnrichment           = "surface_enrichment"
+	KeyActivityTrackSummaryGeo     = "activity_track_summary_geo"
+	KeyActivityTrackSummarySurface = "activity_track_summary_surface"
+	KeySegments                    = "segments"
+	KeySegmentOSMLiftImport        = "segment_osm_lift_import"
+	KeySegmentEnrichmentSuggest    = "segment_enrichment_suggest"
+	KeyOSMLiftSnap                 = "osm_lift_snap"
+	KeyIsochrone                   = "isochrone"
+	KeyRouteSuggestion             = "route_suggestion"
+	KeyLocalPOISearch              = "local_poi_search"
+	KeyMLService                   = "ml_service"
+	KeyDocumentML                  = "document_ml"
+	KeyPhotoEmbeddings             = "photo_embeddings"
+	KeyPhotoEmbeddingStorageAccess = "photo_embedding_storage_access"
+	KeyAIAgent                     = "ai_agent"
+
+	ReasonCoreProfile      = "core_profile"
+	ReasonMissingArtifacts = "missing_artifacts"
+	ReasonMissingProfiles  = "missing_profiles"
+	ReasonMissingService   = "missing_service"
+	ReasonS3Storage        = "s3_storage"
+	ReasonNotConfigured    = "not_configured"
+)
+
+var canonicalKeys = []string{
+	KeyDeploymentProfile,
+	KeyStorageMode,
+	KeyStorageBackend,
+	KeyLibraryPaths,
+	KeyLibrarySchemas,
+	KeyLibrarySync,
+	KeyImportPathEnabled,
+	KeyDirectUploadLifecycle,
+	KeyRoutePhotoMedia,
+	KeyGDPRArtifacts,
+	KeyOSMImport,
+	KeyOSMEnrichment,
+	KeyBRouter,
+	KeyBRouterSegmentDownload,
+	KeyBRouterSegmentBuild,
+	KeyBadRouter,
+	KeyRouting,
+	KeyRoutingTiles,
+	KeyDEMCorrection,
+	KeyCoverage,
+	KeyCoverageTiles,
+	KeySystemLayersVector,
+	KeySystemLayersCoverage,
+	KeyOfflineMap,
+	KeyGeoPOIEnrichment,
+	KeySurfaceEnrichment,
+	KeyActivityTrackSummaryGeo,
+	KeyActivityTrackSummarySurface,
+	KeySegments,
+	KeySegmentOSMLiftImport,
+	KeySegmentEnrichmentSuggest,
+	KeyOSMLiftSnap,
+	KeyIsochrone,
+	KeyRouteSuggestion,
+	KeyLocalPOISearch,
+	KeyMLService,
+	KeyDocumentML,
+	KeyPhotoEmbeddings,
+	KeyPhotoEmbeddingStorageAccess,
+	KeyAIAgent,
 }
 
-// validKeys is the set of JSON tags exported by the Capabilities struct.
-// Built once at init via reflection so map_layers.requires_capability
-// validation cannot drift from the struct shape.
 var validKeys = func() map[string]struct{} {
-	out := make(map[string]struct{})
-	t := reflect.TypeOf(Capabilities{})
-	for i := 0; i < t.NumField(); i++ {
-		tag := t.Field(i).Tag.Get("json")
-		if tag == "" || tag == "-" {
-			continue
-		}
-		if comma := strings.IndexByte(tag, ','); comma >= 0 {
-			tag = tag[:comma]
-		}
-		out[tag] = struct{}{}
+	out := make(map[string]struct{}, len(canonicalKeys))
+	for _, key := range canonicalKeys {
+		out[key] = struct{}{}
 	}
 	return out
 }()
 
-// ValidKey reports whether key is one of the known capability JSON keys.
+// FeatureState is the canonical capability contract. configured says the
+// deployment profile/storage mode intends to expose the feature; available says
+// the runtime artifacts or services needed for it are present right now.
+type FeatureState struct {
+	Configured bool   `json:"configured"`
+	Available  bool   `json:"available"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// Capabilities describes deployment, storage, feature states, and legacy
+// boolean fields kept for older frontend callers.
+type Capabilities struct {
+	DeploymentProfile       string                  `json:"deployment_profile"`
+	DeploymentProfileSource string                  `json:"deployment_profile_source"`
+	StorageMode             string                  `json:"storage_mode"`
+	StorageBackend          string                  `json:"storage_backend"`
+	Features                map[string]FeatureState `json:"features"`
+
+	Routing                     bool `json:"routing"`
+	BRouter                     bool `json:"brouter"`
+	BadRouter                   bool `json:"badrouter"`
+	OfflineMap                  bool `json:"offline_map"`
+	SurfaceEnrich               bool `json:"surface_enrichment"`
+	DEMCorrection               bool `json:"dem_correction"`
+	Isochrone                   bool `json:"isochrone"`
+	RouteSuggestion             bool `json:"route_suggestion"`
+	MLService                   bool `json:"ml_service"`
+	ImportPathEnabled           bool `json:"import_path_enabled"`
+	Coverage                    bool `json:"coverage"`
+	CoverageTiles               bool `json:"coverage_tiles"`
+	PhotoEmbeddings             bool `json:"photo_embeddings"`
+	PhotoEmbeddingStorageAccess bool `json:"photo_embedding_storage_access"`
+}
+
+// RuntimeProbeState contains runtime artifact/service checks before profile and
+// storage policy are applied.
+type RuntimeProbeState struct {
+	SurfaceEnrich bool
+	BRouter       bool
+	BadRouter     bool
+	DEMCorrection bool
+	OfflineMap    bool
+	Coverage      bool
+	CoverageTiles bool
+	MLService     bool
+}
+
+type DetectInput struct {
+	DeploymentProfile     string
+	DeploymentProfileSrc  string
+	StorageMode           string
+	StorageBackend        string
+	BRouterURL            string
+	TileDir               string
+	PMTilesDir            string
+	CoverageDir           string
+	ImportAllowedDirs     []string
+	ImportPathEnabledHint bool
+	MLProbeVersion        uint64
+}
+
+func (in DetectInput) normalized() DetectInput {
+	if in.DeploymentProfile == "" {
+		in.DeploymentProfile = "full"
+	}
+	if in.DeploymentProfileSrc == "" {
+		in.DeploymentProfileSrc = "implicit_legacy"
+	}
+	if in.StorageBackend == "" {
+		in.StorageBackend = "local"
+	}
+	if in.StorageMode == "" {
+		if in.StorageBackend == "s3" {
+			in.StorageMode = "s3-external"
+		} else {
+			in.StorageMode = "local"
+		}
+	}
+	return in
+}
+
+func (in DetectInput) CacheKey() string {
+	in = in.normalized()
+	parts := []string{
+		"profile=" + in.DeploymentProfile,
+		"profile_source=" + in.DeploymentProfileSrc,
+		"storage_mode=" + in.StorageMode,
+		"storage_backend=" + in.StorageBackend,
+		"brouter_url=" + in.BRouterURL,
+		"tile_dir=" + in.TileDir,
+		"pmtiles_dir=" + in.PMTilesDir,
+		"coverage_dir=" + in.CoverageDir,
+		"ml_probe=" + strconvFormatUint(in.MLProbeVersion),
+	}
+	dirs := append([]string(nil), in.ImportAllowedDirs...)
+	sort.Strings(dirs)
+	parts = append(parts, "import_dirs="+strings.Join(dirs, "\x1f"))
+	if in.ImportPathEnabledHint {
+		parts = append(parts, "import_path_hint=true")
+	}
+	return strings.Join(parts, "\x1e")
+}
+
+func strconvFormatUint(v uint64) string {
+	if v == 0 {
+		return "0"
+	}
+	const digits = "0123456789"
+	var buf [20]byte
+	i := len(buf)
+	for v > 0 {
+		i--
+		buf[i] = digits[v%10]
+		v /= 10
+	}
+	return string(buf[i:])
+}
+
 func ValidKey(key string) bool {
 	_, ok := validKeys[key]
 	return ok
 }
 
-// ValidKeysSorted returns the known capability keys in alphabetical order.
-// Used for human-readable error messages.
 func ValidKeysSorted() []string {
-	out := make([]string, 0, len(validKeys))
-	for k := range validKeys {
-		out = append(out, k)
-	}
+	out := append([]string(nil), canonicalKeys...)
 	sort.Strings(out)
 	return out
+}
+
+func (c *Capabilities) ApplyLegacyBooleans() {
+	c.Routing = c.FeatureEnabled(KeyRouting)
+	c.BRouter = c.FeatureEnabled(KeyBRouter)
+	c.BadRouter = c.FeatureEnabled(KeyBadRouter)
+	c.OfflineMap = c.FeatureEnabled(KeyOfflineMap)
+	c.SurfaceEnrich = c.FeatureEnabled(KeySurfaceEnrichment)
+	c.DEMCorrection = c.FeatureEnabled(KeyDEMCorrection)
+	c.Isochrone = c.FeatureEnabled(KeyIsochrone)
+	c.RouteSuggestion = c.FeatureEnabled(KeyRouteSuggestion)
+	c.MLService = c.FeatureEnabled(KeyMLService)
+	c.ImportPathEnabled = c.FeatureEnabled(KeyImportPathEnabled)
+	c.Coverage = c.FeatureEnabled(KeyCoverage)
+	c.CoverageTiles = c.FeatureEnabled(KeyCoverageTiles)
+	c.PhotoEmbeddings = c.FeatureEnabled(KeyPhotoEmbeddings)
+	c.PhotoEmbeddingStorageAccess = c.FeatureEnabled(KeyPhotoEmbeddingStorageAccess)
+}
+
+func (c Capabilities) FeatureEnabled(key string) bool {
+	state, ok := c.Features[key]
+	return ok && state.Configured && state.Available
 }
 
 const cacheTTL = 60 * time.Second
 
 var (
-	cacheMu      sync.Mutex
-	cachedCaps   Capabilities
-	cacheExpires time.Time
+	cacheMu sync.Mutex
+	cache   = map[string]cachedCapabilities{}
 )
 
-// InvalidateCache resets the capabilities cache so the next Detect call
-// performs a fresh probe. Call this after significant infrastructure changes
-// such as tile rebuilds or coverage builds.
+type cachedCapabilities struct {
+	caps    Capabilities
+	expires time.Time
+}
+
 func InvalidateCache() {
 	cacheMu.Lock()
-	cacheExpires = time.Time{}
+	cache = map[string]cachedCapabilities{}
 	cacheMu.Unlock()
 }
 
-// Detect probes the database and BRouter to determine which features are
-// available at runtime. All checks are best-effort — failures are logged
-// and treated as "not available". Results are cached for 60 seconds.
-//
-// tileDir is the routing-tiles directory (BadRouter .bin files).
-// pmTilesDir is the directory scanned for offline PMTiles map files.
-func Detect(ctx context.Context, pool *pgxpool.Pool, brouterURL, tileDir, pmTilesDir string, importAllowedDirs []string) Capabilities {
+func Detect(ctx context.Context, pool *pgxpool.Pool, input DetectInput) Capabilities {
+	input = input.normalized()
+	key := input.CacheKey()
 	cacheMu.Lock()
-	if time.Now().Before(cacheExpires) {
-		cached := cachedCaps
+	if cached, ok := cache[key]; ok && time.Now().Before(cached.expires) {
+		caps := cached.caps
 		cacheMu.Unlock()
-		return cached
+		return caps
 	}
 	cacheMu.Unlock()
 
-	caps := Capabilities{}
+	runtime := probeRuntime(ctx, pool, input)
+	caps := BuildFromRuntime(input, runtime)
 
-	// Surface enrichment: check if osm_ways has data
-	var hasWays bool
-	if err := pool.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM osm_ways WHERE highway IS NOT NULL LIMIT 1)").Scan(&hasWays); err == nil && hasWays {
-		caps.SurfaceEnrich = true
+	cacheMu.Lock()
+	cache[key] = cachedCapabilities{caps: caps, expires: time.Now().Add(cacheTTL)}
+	cacheMu.Unlock()
+	return caps
+}
+
+func probeRuntime(ctx context.Context, pool *pgxpool.Pool, input DetectInput) RuntimeProbeState {
+	var runtime RuntimeProbeState
+	if pool != nil {
+		var hasWays bool
+		if err := pool.QueryRow(ctx,
+			"SELECT EXISTS(SELECT 1 FROM osm_ways WHERE highway IS NOT NULL LIMIT 1)").Scan(&hasWays); err == nil && hasWays {
+			runtime.SurfaceEnrich = true
+		}
+		var hasDEM bool
+		if err := pool.QueryRow(ctx,
+			"SELECT EXISTS(SELECT 1 FROM dem.raster_tiles LIMIT 1)").Scan(&hasDEM); err == nil && hasDEM {
+			runtime.DEMCorrection = true
+		}
 	}
 
-	// BRouter reachable? Just check if the service responds — no routing request
-	// with hardcoded coordinates, which would fail for non-European regions.
-	if brouterURL != "" {
+	if input.BRouterURL != "" {
 		client := &http.Client{Timeout: 2 * time.Second}
-		resp, err := client.Get(brouterURL)
+		resp, err := client.Get(input.BRouterURL)
 		if err == nil {
 			resp.Body.Close()
-			caps.BRouter = true
+			runtime.BRouter = true
 		} else {
 			slog.Warn("BRouter not reachable", "error", err)
 		}
 	}
-
-	// DEM raster tiles available?
-	var hasDEM bool
-	if err := pool.QueryRow(ctx,
-		"SELECT EXISTS(SELECT 1 FROM dem.raster_tiles LIMIT 1)").Scan(&hasDEM); err == nil && hasDEM {
-		caps.DEMCorrection = true
+	if hasFileWithSuffix(input.PMTilesDir, ".pmtiles") {
+		runtime.OfflineMap = true
 	}
+	if hasFileWithSuffix(input.TileDir, ".bin") {
+		runtime.BadRouter = true
+	}
+	if input.CoverageDir != "" && hasFileWithSuffix(input.CoverageDir, ".pmtiles") {
+		runtime.Coverage = true
+		runtime.CoverageTiles = true
+	}
+	runtime.MLService = MLServiceAvailable()
+	return runtime
+}
 
-	// OfflineMap: PMTiles files present in configured tiles directory?
-	if entries, err := os.ReadDir(pmTilesDir); err == nil {
-		for _, e := range entries {
-			if strings.HasSuffix(e.Name(), ".pmtiles") {
-				caps.OfflineMap = true
-				break
-			}
+func hasFileWithSuffix(dir, suffix string) bool {
+	if dir == "" {
+		return false
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func BuildFromRuntime(input DetectInput, runtime RuntimeProbeState) Capabilities {
+	input = input.normalized()
+	features := make(map[string]FeatureState, len(canonicalKeys))
+	set := func(key string, configured, available bool, reason string) {
+		if configured && available {
+			reason = ""
+		}
+		features[key] = FeatureState{Configured: configured, Available: configured && available, Reason: reason}
+	}
+	localStorage := input.StorageBackend == "local" && input.StorageMode == "local"
+	core := input.DeploymentProfile == "core"
+
+	set(KeyDeploymentProfile, true, true, "")
+	set(KeyStorageMode, true, true, "")
+	set(KeyStorageBackend, true, true, "")
+	set(KeyLibraryPaths, localStorage, localStorage, reasonIf(!localStorage, ReasonS3Storage))
+	set(KeyLibrarySchemas, localStorage, localStorage, reasonIf(!localStorage, ReasonS3Storage))
+	set(KeyLibrarySync, localStorage, localStorage, reasonIf(!localStorage, ReasonS3Storage))
+	set(KeyImportPathEnabled, input.ImportPathEnabledHint || importPathEnabled(input.ImportAllowedDirs), input.ImportPathEnabledHint || importPathEnabled(input.ImportAllowedDirs), ReasonNotConfigured)
+	set(KeyDirectUploadLifecycle, true, true, "")
+	set(KeyRoutePhotoMedia, true, true, "")
+	set(KeyGDPRArtifacts, true, true, "")
+	set(KeyBRouter, true, runtime.BRouter, reasonMissing(runtime.BRouter, ReasonMissingService))
+	set(KeyBRouterSegmentDownload, true, true, "")
+	set(KeyRouting, true, runtime.BRouter || (!core && runtime.BadRouter), reasonMissing(runtime.BRouter || (!core && runtime.BadRouter), ReasonMissingService))
+	set(KeySegments, true, true, "")
+	set(KeyAIAgent, true, true, "")
+	set(KeyPhotoEmbeddingStorageAccess, true, true, "")
+
+	fullOnly := []struct {
+		key       string
+		available bool
+		reason    string
+	}{
+		{KeyOSMImport, false, ReasonMissingArtifacts},
+		{KeyOSMEnrichment, runtime.SurfaceEnrich, ReasonMissingArtifacts},
+		{KeyBRouterSegmentBuild, false, ReasonMissingArtifacts},
+		{KeyBadRouter, runtime.BadRouter, ReasonMissingProfiles},
+		{KeyRoutingTiles, runtime.BadRouter, ReasonMissingArtifacts},
+		{KeyDEMCorrection, runtime.DEMCorrection, ReasonMissingArtifacts},
+		{KeyCoverage, runtime.Coverage, ReasonMissingArtifacts},
+		{KeyCoverageTiles, runtime.CoverageTiles, ReasonMissingArtifacts},
+		{KeySystemLayersVector, runtime.SurfaceEnrich, ReasonMissingArtifacts},
+		{KeySystemLayersCoverage, runtime.Coverage, ReasonMissingArtifacts},
+		{KeyOfflineMap, runtime.OfflineMap, ReasonMissingArtifacts},
+		{KeyGeoPOIEnrichment, runtime.SurfaceEnrich, ReasonMissingArtifacts},
+		{KeySurfaceEnrichment, runtime.SurfaceEnrich, ReasonMissingArtifacts},
+		{KeyActivityTrackSummaryGeo, runtime.SurfaceEnrich, ReasonMissingArtifacts},
+		{KeyActivityTrackSummarySurface, runtime.SurfaceEnrich, ReasonMissingArtifacts},
+		{KeySegmentOSMLiftImport, runtime.SurfaceEnrich, ReasonMissingArtifacts},
+		{KeySegmentEnrichmentSuggest, runtime.SurfaceEnrich && runtime.BadRouter, ReasonMissingArtifacts},
+		{KeyOSMLiftSnap, runtime.SurfaceEnrich, ReasonMissingArtifacts},
+		{KeyIsochrone, runtime.BadRouter, ReasonMissingArtifacts},
+		{KeyRouteSuggestion, runtime.BadRouter, ReasonMissingArtifacts},
+		{KeyLocalPOISearch, runtime.SurfaceEnrich, ReasonMissingArtifacts},
+		{KeyMLService, runtime.MLService, ReasonMissingService},
+		{KeyDocumentML, runtime.MLService, ReasonMissingService},
+		{KeyPhotoEmbeddings, runtime.MLService, ReasonMissingService},
+	}
+	for _, item := range fullOnly {
+		if core {
+			set(item.key, false, false, ReasonCoreProfile)
+		} else {
+			set(item.key, true, item.available, item.reason)
 		}
 	}
 
-	// Check if routing tiles exist (BadRouter tiled reader)
-	if tileDir != "" {
-		if entries, err := os.ReadDir(tileDir); err == nil {
-			for _, e := range entries {
-				if strings.HasSuffix(e.Name(), ".bin") {
-					caps.BadRouter = true
-					caps.Isochrone = true
-					caps.RouteSuggestion = true
-					break
-				}
-			}
-		}
+	caps := Capabilities{
+		DeploymentProfile:       input.DeploymentProfile,
+		DeploymentProfileSource: input.DeploymentProfileSrc,
+		StorageMode:             input.StorageMode,
+		StorageBackend:          input.StorageBackend,
+		Features:                features,
 	}
+	caps.ApplyLegacyBooleans()
+	return caps
+}
 
-	// Routing = at least one engine available
-	caps.Routing = caps.BRouter || caps.BadRouter
+func reasonIf(cond bool, reason string) string {
+	if cond {
+		return reason
+	}
+	return ""
+}
 
-	// ML Service availability (cached from background probe)
-	caps.MLService = MLServiceAvailable()
+func reasonMissing(available bool, reason string) string {
+	if available {
+		return ""
+	}
+	return reason
+}
 
-	// ImportPathEnabled: true if at least one allowed import dir is configured
-	// beyond /tmp (which is the secure default for multi-user deployments).
+func importPathEnabled(importAllowedDirs []string) bool {
 	tmpDir := os.TempDir()
 	for _, dir := range importAllowedDirs {
 		if dir != "" && filepath.Clean(dir) != filepath.Clean(tmpDir) {
-			caps.ImportPathEnabled = true
-			break
+			return true
 		}
 	}
-
-	cacheMu.Lock()
-	cachedCaps = caps
-	cacheExpires = time.Now().Add(cacheTTL)
-	cacheMu.Unlock()
-
-	return caps
+	return false
 }
