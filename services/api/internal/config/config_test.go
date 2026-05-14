@@ -8,6 +8,8 @@ func withBaseEnv(t *testing.T) {
 	t.Setenv("APP_URL", "http://localhost:5173")
 	t.Setenv("JWT_SECRET", strings.Repeat("test-jwt-secret-", 3))
 	t.Setenv("STORAGE_BACKEND", "local")
+	t.Setenv("SKADIA_STORAGE_MODE", "")
+	t.Setenv("SKADIA_S3_PROVIDER", "")
 	t.Setenv("GDPR_ARTIFACT_BACKEND", "")
 	t.Setenv("EXPORTS_BASE_PATH", "")
 	t.Setenv("IMPORTS_BASE_PATH", "")
@@ -15,6 +17,11 @@ func withBaseEnv(t *testing.T) {
 	t.Setenv("S3_BUCKET_IMPORTS", "")
 	t.Setenv("S3_EXPORTS_PREFIX", "")
 	t.Setenv("S3_IMPORTS_PREFIX", "")
+	t.Setenv("S3_ENDPOINT", "")
+	t.Setenv("S3_ACCESS_KEY", "")
+	t.Setenv("S3_SECRET_KEY", "")
+	t.Setenv("S3_REGION", "")
+	t.Setenv("S3_FORCE_PATH_STYLE", "")
 	t.Setenv("GDPR_EXPORT_MULTIPART_THRESHOLD_BYTES", "")
 	t.Setenv("GDPR_EXPORT_PART_TARGET_BYTES", "")
 	t.Setenv("GDPR_EXPORT_PART_WARN_BYTES", "")
@@ -52,6 +59,7 @@ func TestLoadGDPRArtifactDefaults(t *testing.T) {
 
 func TestLoadS3DefaultsMatchComposeSetupAndML(t *testing.T) {
 	withBaseEnv(t)
+	t.Setenv("SKADIA_STORAGE_MODE", "s3-local-garage")
 	t.Setenv("STORAGE_BACKEND", "s3")
 	t.Setenv("S3_ENDPOINT", "http://garage:3900")
 	t.Setenv("S3_ACCESS_KEY", "test-access")
@@ -70,6 +78,9 @@ func TestLoadS3DefaultsMatchComposeSetupAndML(t *testing.T) {
 	if cfg.S3Region != "us-east-1" {
 		t.Fatalf("S3Region = %q, want us-east-1", cfg.S3Region)
 	}
+	if cfg.StorageMode != "s3-local-garage" {
+		t.Fatalf("StorageMode = %q, want s3-local-garage", cfg.StorageMode)
+	}
 	if !cfg.S3ForcePathStyle {
 		t.Fatalf("S3ForcePathStyle = false, want true for local Garage endpoint")
 	}
@@ -77,18 +88,82 @@ func TestLoadS3DefaultsMatchComposeSetupAndML(t *testing.T) {
 
 func TestLoadExternalS3DoesNotForcePathStyleWhenUnset(t *testing.T) {
 	withBaseEnv(t)
+	t.Setenv("SKADIA_STORAGE_MODE", "s3-external")
 	t.Setenv("STORAGE_BACKEND", "s3")
 	t.Setenv("S3_ENDPOINT", "https://s3.example.invalid")
 	t.Setenv("S3_ACCESS_KEY", "test-access")
 	t.Setenv("S3_SECRET_KEY", "test-secret")
+	t.Setenv("S3_REGION", "test-region")
 	t.Setenv("S3_FORCE_PATH_STYLE", "")
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
+	if cfg.StorageMode != "s3-external" {
+		t.Fatalf("StorageMode = %q, want s3-external", cfg.StorageMode)
+	}
 	if cfg.S3ForcePathStyle {
 		t.Fatalf("S3ForcePathStyle = true, want false for external S3 unless explicitly configured")
+	}
+}
+
+func TestLoadRejectsExternalS3WithoutRegion(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("SKADIA_STORAGE_MODE", "s3-external")
+	t.Setenv("STORAGE_BACKEND", "s3")
+	t.Setenv("S3_ENDPOINT", "https://s3.example.invalid")
+	t.Setenv("S3_ACCESS_KEY", "test-access")
+	t.Setenv("S3_SECRET_KEY", "test-secret")
+	t.Setenv("S3_REGION", "")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted s3-external without S3_REGION")
+	}
+}
+
+func TestLoadRejectsExternalS3WithGarageEndpoint(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("SKADIA_STORAGE_MODE", "s3-external")
+	t.Setenv("STORAGE_BACKEND", "s3")
+	t.Setenv("S3_ENDPOINT", "http://garage:3900")
+	t.Setenv("S3_ACCESS_KEY", "test-access")
+	t.Setenv("S3_SECRET_KEY", "test-secret")
+	t.Setenv("S3_REGION", "test-region")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted s3-external with local Garage endpoint")
+	}
+}
+
+func TestLoadDerivesStorageModeFromLegacyProvider(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("SKADIA_STORAGE_MODE", "")
+	t.Setenv("SKADIA_S3_PROVIDER", "local-garage")
+	t.Setenv("STORAGE_BACKEND", "s3")
+	t.Setenv("S3_ACCESS_KEY", "test-access")
+	t.Setenv("S3_SECRET_KEY", "test-secret")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.StorageMode != "s3-local-garage" {
+		t.Fatalf("StorageMode = %q, want s3-local-garage", cfg.StorageMode)
+	}
+	if cfg.S3Endpoint != "http://garage:3900" {
+		t.Fatalf("S3Endpoint = %q, want local Garage default", cfg.S3Endpoint)
+	}
+}
+
+func TestLoadRejectsContradictoryStorageModeAndBackend(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("SKADIA_STORAGE_MODE", "s3-external")
+	t.Setenv("STORAGE_BACKEND", "local")
+	t.Setenv("S3_REGION", "test-region")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted s3-external with STORAGE_BACKEND=local")
 	}
 }
 
