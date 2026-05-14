@@ -35,6 +35,7 @@ import Toggle from '@/components/Toggle'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 import { ANALYSIS_MODULES } from '@/lib/enrichmentModuleCatalog'
 import { featureAvailable } from '@/lib/deploymentCapabilities'
+import { useCapabilities } from '@/hooks/useCapabilities'
 
 function AutomatischeAnalysenSection() {
   const { addToast } = useToast()
@@ -284,13 +285,16 @@ const PREVIEW_SIZE_OPTIONS = [
   { value: 'original', label: 'Original' },
 ] as const
 
-function PhotoPreviewSection() {
+export function PhotoPreviewSection() {
   const { addToast } = useToast()
   const { isAdmin } = useUser()
+  const { data: capabilities } = useCapabilities()
 
   const { settings, isLoading, mutation } = useEnrichmentSettings()
 
   const [framesLocal, setFramesLocal] = useState<number | null>(null)
+  const framesInputRef = useRef<HTMLInputElement | null>(null)
+  const photoEmbeddingsAvailable = featureAvailable(capabilities, 'photo_embeddings')
 
   function mutateFrames(n: number) {
     mutation.mutate({ video_clip_frames: n }, { onSuccess: () => setFramesLocal(null) })
@@ -353,61 +357,66 @@ function PhotoPreviewSection() {
         ))}
       </div>
 
-      <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
-        <div>
-          <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100 mb-1">
-            Video-Analyse: Frames für KI-Bildsuche
-          </h3>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
-            Anzahl der Frames, die aus einem Video extrahiert werden.
-          </p>
+      {photoEmbeddingsAvailable && (
+        <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
+          <div>
+            <h3 className="text-sm font-medium text-neutral-900 dark:text-neutral-100 mb-1">
+              Video-Analyse: Frames für KI-Bildsuche
+            </h3>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+              Anzahl der Frames, die aus einem Video extrahiert werden.
+            </p>
 
-          {/* Timeline-Visualisierung */}
-          <div className="relative h-6 flex items-center mb-1">
-            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-neutral-300 dark:bg-neutral-600" />
-            {Array.from({ length: currentFrames }, (_, i) => {
-              const pct = currentFrames >= 4
-                ? (i / (currentFrames - 1)) * 100
-                : ((i + 1) / (currentFrames + 1)) * 100
-              return (
-                <div
-                  key={i}
-                  className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-accent-DEFAULT shadow-sm"
-                  style={{ left: `${pct}%` }}
-                />
-              )
-            })}
-          </div>
-          <div className="flex justify-between text-xs text-neutral-400 dark:text-neutral-500 mb-3">
-            <span>Start</span>
-            <span>Ende</span>
-          </div>
+            {/* Timeline-Visualisierung */}
+            <div className="relative h-6 flex items-center mb-1">
+              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-neutral-300 dark:bg-neutral-600" />
+              {Array.from({ length: currentFrames }, (_, i) => {
+                const pct = currentFrames >= 4
+                  ? (i / (currentFrames - 1)) * 100
+                  : ((i + 1) / (currentFrames + 1)) * 100
+                return (
+                  <div
+                    key={i}
+                    className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-accent-DEFAULT shadow-sm"
+                    style={{ left: `${pct}%` }}
+                  />
+                )
+              })}
+            </div>
+            <div className="flex justify-between text-xs text-neutral-400 dark:text-neutral-500 mb-3">
+              <span>Start</span>
+              <span>Ende</span>
+            </div>
 
-          <div className="flex items-center gap-4">
-            <input
-              type="range"
-              min={1}
-              max={10}
-              step={1}
-              value={currentFrames}
-              disabled={isLoading}
-              onChange={e => setFramesLocal(Number(e.target.value))}
-              onMouseUp={e => mutateFrames(Number((e.target as HTMLInputElement).value))}
-              onTouchEnd={e => mutateFrames(Number((e.target as HTMLInputElement).value))}
-              className="flex-1 accent-accent-DEFAULT cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            />
-            <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100 w-8 text-center tabular-nums">
-              {currentFrames}
-            </span>
+            <div className="flex items-center gap-4">
+              <input
+                ref={framesInputRef}
+                type="range"
+                min={1}
+                max={10}
+                step={1}
+                value={currentFrames}
+                disabled={isLoading}
+                onChange={() => setFramesLocal(Number(framesInputRef.current?.value ?? currentFrames))}
+                onMouseUp={() => mutateFrames(Number(framesInputRef.current?.value ?? currentFrames))}
+                onTouchEnd={() => mutateFrames(Number(framesInputRef.current?.value ?? currentFrames))}
+                className="flex-1 accent-accent-DEFAULT cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+              <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100 w-8 text-center tabular-nums">
+                {currentFrames}
+              </span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {isAdmin && (
         <div className="pt-2 border-t border-neutral-100 dark:border-neutral-800/60 space-y-3">
           {[
             { label: 'Vorschauen neu erstellen', onClick: handleRecompute, desc: 'Generiert Vorschau-Bilder für alle vorhandenen Fotos mit der aktuellen Einstellung neu.' },
-            { label: 'Bildsuche neu indexieren', onClick: handleRecomputeEmbeddings, desc: 'Berechnet KI-Embeddings für alle Fotos (ermöglicht semantische Suche nach Inhalt).' },
+            ...(photoEmbeddingsAvailable
+              ? [{ label: 'Bildsuche neu indexieren', onClick: handleRecomputeEmbeddings, desc: 'Berechnet KI-Embeddings für alle Fotos (ermöglicht semantische Suche nach Inhalt).' }]
+              : []),
           ].map(({ label, onClick, desc }) => (
             <div key={label} className="flex items-center gap-3">
               <button

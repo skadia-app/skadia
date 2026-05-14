@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -81,6 +82,9 @@ func (h *Handler) ListPhotoFeed(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SearchPhotos(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyPhotoEmbeddings) {
 		return
 	}
 

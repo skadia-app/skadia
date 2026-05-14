@@ -117,6 +117,13 @@ func (h *Handler) coreProfile() bool {
 	return false
 }
 
+func (h *Handler) requireImportPathAvailable(w http.ResponseWriter, r *http.Request, sourcePath string) bool {
+	if isTempSourcePath(sourcePath) {
+		return true
+	}
+	return h.requireFeatureAvailable(w, r, capabilities.KeyImportPathEnabled)
+}
+
 func writeFeatureUnavailable(w http.ResponseWriter, r *http.Request, key, reason string) {
 	httputil.WriteProblem(w, http.StatusServiceUnavailable, "Feature Unavailable", "feature "+key+" is unavailable: "+reason, "feature_unavailable", r.URL.Path)
 }

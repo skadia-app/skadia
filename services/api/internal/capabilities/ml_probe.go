@@ -53,3 +53,15 @@ func MLServiceAvailable() bool {
 func MLProbeVersion() uint64 {
 	return mlProbeVersion.Load()
 }
+
+func SetMLServiceAvailableForTest(available bool) func() {
+	previous := mlServiceAvailable.Load()
+	mlServiceAvailable.Store(available)
+	mlProbeVersion.Add(1)
+	InvalidateCache()
+	return func() {
+		mlServiceAvailable.Store(previous)
+		mlProbeVersion.Add(1)
+		InvalidateCache()
+	}
+}

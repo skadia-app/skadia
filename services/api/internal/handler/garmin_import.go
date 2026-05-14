@@ -67,6 +67,9 @@ func (h *Handler) DetectGarminModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.SourcePath = cleaned
+	if !h.requireImportPathAvailable(w, r, req.SourcePath) {
+		return
+	}
 
 	src := garmin.NewDirSource(req.SourcePath)
 	registry := h.buildGarminRegistry()
@@ -100,6 +103,9 @@ func (h *Handler) StartGarminImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.SourcePath = cleaned
+	if !h.requireImportPathAvailable(w, r, req.SourcePath) {
+		return
+	}
 
 	cb := h.garminJobCallbacks()
 	h.startImportAsync(w, r, userID, req.SourcePath, isTempSourcePath(req.SourcePath), cb,
@@ -245,6 +251,9 @@ func (h *Handler) ScanGarminExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.SourcePath = cleaned
+	if !h.requireImportPathAvailable(w, r, req.SourcePath) {
+		return
+	}
 
 	src := garmin.NewDirSource(req.SourcePath)
 	registry := h.buildGarminRegistry()
