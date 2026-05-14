@@ -23,6 +23,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/activityutil"
 	"github.com/skadia-app/skadia/services/api/internal/automation"
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/event"
@@ -99,6 +100,10 @@ func (h *Handler) RecomputeActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scopeFlags := buildRecomputeScopeFlags(scope)
+	if key, reason := h.recomputeScopeUnavailableReason(r.Context(), scope); key != "" {
+		writeFeatureUnavailable(w, r, key, reason)
+		return
+	}
 
 	// Multisport parent: reprocess all children asynchronously via background job.
 	if activity.SportType == "multisport" {
@@ -248,6 +253,10 @@ func (h *Handler) RecomputeAllActivities(w http.ResponseWriter, r *http.Request)
 			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", scopeErr.Error(), r.URL.Path)
 			return
 		}
+	}
+	if key, reason := h.recomputeScopeUnavailableReason(r.Context(), scope); key != "" {
+		writeFeatureUnavailable(w, r, key, reason)
+		return
 	}
 
 	// Prevent double execution.
@@ -510,6 +519,9 @@ func (h *Handler) RecomputeStatus(w http.ResponseWriter, r *http.Request) {
 // responsible for ranking them after all workers complete.
 func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID string, scope map[string]bool, smoothWindow int, skipAnalyticsEvent bool, segColl *segCollector) error {
 	scopeFlags := buildRecomputeScopeFlags(scope)
+	if key, reason := h.recomputeScopeUnavailableReason(ctx, scope); key != "" {
+		return fmt.Errorf("feature %s unavailable: %s", key, reason)
+	}
 	allScope := scopeFlags.allScope // nil/empty = reprocess everything
 	doStreams := scopeFlags.doStreams
 	doSensors := scopeFlags.doSensors
@@ -927,6 +939,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			EnableAscentDetection:   doAscents,
 			EnableIntervalDetection: doIntervals,
 			EnableLiftDetection:     doLifts,
+			ForceDisableOSMSnap:     h.featureUnavailableReason(capabilities.KeyOSMLiftSnap) != "",
 		}
 		if err := enrichment.RunStreamEnrichment(ctx, h.DB, userID, activityID, streamSettings); err != nil {
 			slog.Warn("reprocess: stream enrichment failed (non-fatal)", "id", activityID, "error", err)

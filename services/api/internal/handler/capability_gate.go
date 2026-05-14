@@ -19,6 +19,15 @@ func (h *Handler) requireFeature(w http.ResponseWriter, r *http.Request, key str
 	return false
 }
 
+func (h *Handler) requireFeatureAvailable(w http.ResponseWriter, r *http.Request, key string) bool {
+	reason := h.featureNotAvailableReasonWithContext(r.Context(), key)
+	if reason == "" {
+		return true
+	}
+	writeFeatureUnavailable(w, r, key, reason)
+	return false
+}
+
 func (h *Handler) featureUnavailableReason(key string) string {
 	return h.featureUnavailableReasonWithContext(context.Background(), key)
 }
@@ -42,6 +51,30 @@ func (h *Handler) featureUnavailableReasonWithContext(ctx context.Context, key s
 		return ""
 	}
 	return ""
+}
+
+func (h *Handler) featureNotAvailableReasonWithContext(ctx context.Context, key string) string {
+	if !capabilities.ValidKey(key) {
+		return capabilities.ReasonNotConfigured
+	}
+	caps := h.detectCapabilitiesForGate(ctx)
+	state, ok := caps.Features[key]
+	if !ok {
+		return capabilities.ReasonNotConfigured
+	}
+	if !state.Configured {
+		if state.Reason != "" {
+			return state.Reason
+		}
+		return capabilities.ReasonNotConfigured
+	}
+	if state.Available {
+		return ""
+	}
+	if state.Reason != "" {
+		return state.Reason
+	}
+	return capabilities.ReasonMissingArtifacts
 }
 
 func (h *Handler) detectCapabilitiesForGate(ctx context.Context) capabilities.Capabilities {

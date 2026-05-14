@@ -3,6 +3,7 @@ import type { Activity } from '@/api/types'
 import { correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance } from '@/api/activities'
 import { getCapabilities } from '@/api/routes'
 import { useToast } from '@/lib/toast'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 
 interface DataCorrectionsSectionProps {
   activity: Activity
@@ -57,6 +58,7 @@ export function DataCorrectionsSection({ activity }: DataCorrectionsSectionProps
   const distanceSource = activity.distance_source ?? 'device'
   const isElevationCorrected = elevationSource === 'dem'
   const isDistanceCorrected = distanceSource === 'computed'
+  const demCorrectionAvailable = featureAvailable(routingCapabilities, 'dem_correction')
 
   const distanceKm = activity.distance_m != null
     ? (activity.distance_m / 1000).toFixed(2) + ' km'
@@ -94,7 +96,7 @@ export function DataCorrectionsSection({ activity }: DataCorrectionsSectionProps
               </span>
             </div>
           </div>
-          {!isElevationCorrected && routingCapabilities?.dem_correction ? (
+          {!isElevationCorrected && demCorrectionAvailable ? (
             <button
               onClick={() => elevationCorrectionMutation.mutate()}
               disabled={elevationCorrectionMutation.isPending}

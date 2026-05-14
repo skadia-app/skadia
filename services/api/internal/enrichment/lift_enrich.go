@@ -60,7 +60,7 @@ func enrichStreamLifts(
 	userID, activityID string,
 	stream []EnrichmentStreamPoint,
 ) error {
-	return enrichStreamLiftsOpts(ctx, db, userID, activityID, stream, false)
+	return enrichStreamLiftsOpts(ctx, db, userID, activityID, stream, false, false)
 }
 
 // enrichStreamLiftsOpts loads the user enrichment settings, then calls
@@ -74,12 +74,13 @@ func enrichStreamLiftsOpts(
 	userID, activityID string,
 	stream []EnrichmentStreamPoint,
 	skipGearRefresh bool,
+	forceDisableOSMSnap bool,
 ) error {
 	settings, err := db.GetEnrichmentSettings(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("enrichStreamLiftsOpts: get enrichment settings: %w", err)
 	}
-	return enrichStreamLiftsCore(ctx, db, userID, activityID, stream, skipGearRefresh, settings)
+	return enrichStreamLiftsCore(ctx, db, userID, activityID, stream, skipGearRefresh, forceDisableOSMSnap, settings)
 }
 
 // enrichStreamLiftsCore is the internal variant that accepts pre-loaded
@@ -103,6 +104,7 @@ func enrichStreamLiftsCore(
 	userID, activityID string,
 	stream []EnrichmentStreamPoint,
 	skipGearRefresh bool,
+	forceDisableOSMSnap bool,
 	settings *model.EnrichmentSettings,
 ) error {
 	// Critic F18 — serialize concurrent re-enrichments of the same activity.
@@ -180,6 +182,9 @@ func enrichStreamLiftsCore(
 		act.LiftDetectionOSMOverride,
 		act.LiftDetectionHeuristicOverride,
 	)
+	if forceDisableOSMSnap {
+		opts.OSMSnap = false
+	}
 
 	// Both-off: delete existing non-rejected candidates so stale rows from a
 	// previous enabled run do not persist after the user disables detection.

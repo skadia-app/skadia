@@ -18,6 +18,7 @@ const MODULE_TO_GEO_GROUPS: Record<string, string[]> = {
 interface GeoTagsListProps {
   activityId: string
   hiddenModules?: Set<string>
+  enabled?: boolean
 }
 
 interface CategoryConfig {
@@ -165,12 +166,13 @@ function getConfig(groupKey: string): CategoryConfig {
   }
 }
 
-export default function GeoTagsList({ activityId, hiddenModules }: GeoTagsListProps) {
+export default function GeoTagsList({ activityId, hiddenModules, enabled = true }: GeoTagsListProps) {
   const [collapsed, setCollapsed] = useState(true)
 
   const { data: tags, isLoading } = useQuery({
     queryKey: ['geo-tags', activityId],
     queryFn: () => fetchGeoTags(activityId),
+    enabled,
   })
 
   if (isLoading || !tags || tags.length === 0) return null

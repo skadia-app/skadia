@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
@@ -82,6 +83,47 @@ func TestElevationProfile_AtVertices_HappyPath(t *testing.T) {
 	}
 	if math.Abs(pt1.Fraction-1.0) > 0.001 {
 		t.Errorf("profile[1].fraction = %f, want 1.0", pt1.Fraction)
+	}
+}
+
+func TestCoreBlocksDirectElevationEndpoints(t *testing.T) {
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "core"}}
+	userID := "user-test"
+
+	tests := []struct {
+		name string
+		req  *http.Request
+		call func(http.ResponseWriter, *http.Request)
+	}{
+		{
+			name: "query",
+			req:  httptest.NewRequest(http.MethodPost, "/api/v1/elevation/query", strings.NewReader(`{"points":[[11.0,47.0]]}`)),
+			call: h.QueryElevation,
+		},
+		{
+			name: "profile",
+			req:  httptest.NewRequest(http.MethodPost, "/api/v1/elevation/profile", bytes.NewReader([]byte(`{"geometry":{"type":"LineString","coordinates":[[11,47],[11.1,47.1]]},"num_points":2}`))),
+			call: h.ElevationProfile,
+		},
+		{
+			name: "dem-import",
+			req:  httptest.NewRequest(http.MethodPost, "/api/v1/dem/import", strings.NewReader(`{"source":"test"}`)),
+			call: h.ImportDEM,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := tt.req.WithContext(context.WithValue(tt.req.Context(), middleware.UserIDKey, userID))
+			rec := httptest.NewRecorder()
+			tt.call(rec, req)
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status = %d, want 503; body: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), `"code":"feature_unavailable"`) {
+				t.Fatalf("response missing feature_unavailable: %s", rec.Body.String())
+			}
+		})
 	}
 }
 

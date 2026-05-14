@@ -34,6 +34,7 @@ import { useMapLayers } from '@/hooks/useMapLayers'
 import Toggle from '@/components/Toggle'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 import { ANALYSIS_MODULES } from '@/lib/enrichmentModuleCatalog'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 
 function AutomatischeAnalysenSection() {
   const { addToast } = useToast()
@@ -95,11 +96,11 @@ function AutomatischeAnalysenSection() {
       )}
 
       <div className="space-y-2">
-        {ANALYSIS_MODULES.filter(m => !m.parentName).map((module) => {
+        {ANALYSIS_MODULES.filter(m => !m.parentName && (!m.requiresCapability || featureAvailable(capabilities, m.requiresCapability))).map((module) => {
           const enabled = settings ? (settings[module.field] !== false) : true
           const mlUnavailable = module.requiresML && capabilities !== undefined && !capabilities.ml_service
           // Sub-modules (parentName === module.name) rendered indented below parent
-          const children = ANALYSIS_MODULES.filter(m => m.parentName === module.name)
+          const children = ANALYSIS_MODULES.filter(m => m.parentName === module.name && (!m.requiresCapability || featureAvailable(capabilities, m.requiresCapability)))
           return (
             <div key={module.field as string}>
               <div className="flex items-start justify-between gap-4 py-1">

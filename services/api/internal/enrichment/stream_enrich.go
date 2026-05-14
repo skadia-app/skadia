@@ -78,6 +78,10 @@ type StreamEnrichmentSettings struct {
 	// affected gear replaces N redundant per-activity refreshes.
 	SkipGearRefresh bool
 
+	// ForceDisableOSMSnap preserves heuristic lift detection while disabling
+	// OSM-backed snap stages for deployment profiles without local OSM data.
+	ForceDisableOSMSnap bool
+
 	// FailOnModuleError makes RunStreamEnrichment return the first enabled
 	// module error instead of only logging it. Keep false for import-time
 	// best-effort enrichment; set true for user-visible single-module jobs.
@@ -170,11 +174,12 @@ func RunStreamEnrichment(ctx context.Context, db *database.DB, userID, activityI
 		}
 	}
 
-	// Capture SkipGearRefresh in a closure so the lifts module can forward it
+	// Capture lift-specific options in a closure so the lifts module can forward them
 	// to enrichStreamLiftsOpts without changing the shared module fn signature.
 	skipGear := settings.SkipGearRefresh
+	forceDisableOSMSnap := settings.ForceDisableOSMSnap
 	liftFn := func(ctx context.Context, db *database.DB, userID, activityID string, stream []EnrichmentStreamPoint) error {
-		return enrichStreamLiftsOpts(ctx, db, userID, activityID, stream, skipGear)
+		return enrichStreamLiftsOpts(ctx, db, userID, activityID, stream, skipGear, forceDisableOSMSnap)
 	}
 
 	type module struct {

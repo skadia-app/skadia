@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from './client'
 import type { CoordRange } from './routes'
+import type { CapabilityFeatureState } from './routes'
 
 export interface TrackSummarySurfaceItem {
   type: string
@@ -52,6 +53,7 @@ export interface ActivityTrackSummary {
   // Absent in older responses; fall back to the frontend constant RESAMPLE_SPACING_M.
   // Added by backend R1-B wave.
   resample_spacing_m?: number
+  feature_capabilities?: Record<string, CapabilityFeatureState | undefined>
 }
 
 export function fetchActivityTrackSummary(activityId: string): Promise<ActivityTrackSummary> {

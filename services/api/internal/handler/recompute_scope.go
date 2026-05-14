@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"sort"
+
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 )
 
 type recomputeScopeFlags struct {
@@ -138,6 +141,35 @@ func buildRecomputeScopeFlags(scope map[string]bool) recomputeScopeFlags {
 		flags.doTags || flags.doDetails || flags.doSensors || flags.doGeo
 
 	return flags
+}
+
+func (h *Handler) recomputeScopeUnavailableReason(ctx context.Context, scope map[string]bool) (string, string) {
+	for _, key := range recomputeScopeRequiredCapabilities(scope) {
+		if reason := h.featureUnavailableReasonWithContext(ctx, key); reason != "" {
+			return key, reason
+		}
+	}
+	return "", ""
+}
+
+func recomputeScopeRequiredCapabilities(scope map[string]bool) []string {
+	flags := buildRecomputeScopeFlags(scope)
+	keys := make([]string, 0, 2)
+	add := func(key string) {
+		for _, existing := range keys {
+			if existing == key {
+				return
+			}
+		}
+		keys = append(keys, key)
+	}
+	if flags.doSummits || flags.doSettlements || flags.doForests || flags.doWater || flags.doBorders || flags.doStops {
+		add(capabilities.KeyGeoPOIEnrichment)
+	}
+	if flags.doSurfaces {
+		add(capabilities.KeySurfaceEnrichment)
+	}
+	return keys
 }
 
 func (f recomputeScopeFlags) autoTitleOnly() bool {

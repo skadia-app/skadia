@@ -43,6 +43,17 @@ vi.mock('@/api/activityPhotos', () => ({ uploadActivityPhoto: vi.fn() }))
 vi.mock('@/api/enrichment', () => ({ fetchGeoTags: vi.fn(), fetchStops: vi.fn() }))
 vi.mock('@/api/bestEfforts', () => ({ fetchActivityBestEfforts: vi.fn() }))
 vi.mock('@/api/trackSummary', () => ({ useActivityTrackSummary: vi.fn() }))
+vi.mock('@/hooks/useCapabilities', () => ({
+  useCapabilities: () => ({
+    data: {
+      features: {
+        geo_poi_enrichment: { configured: true, available: true },
+        surface_enrichment: { configured: true, available: true },
+        osm_lift_snap: { configured: true, available: true },
+      },
+    },
+  }),
+}))
 
 vi.mock('@/hooks/useStickyHighlight', () => ({
   useStickyHighlight: () => ({
