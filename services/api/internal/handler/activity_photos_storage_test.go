@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -24,6 +25,8 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -102,6 +105,82 @@ func TestUploadActivityPhotoStoresOneOriginalUserFile(t *testing.T) {
 	if logStatus != "completed" || importType != "photo" || targetType != "activity_photo" || targetID == "" {
 		t.Fatalf("activity photo import_log = status %q type %q target_type %q target_id %q, want completed/photo/activity_photo/<id>",
 			logStatus, importType, targetType, targetID)
+	}
+}
+
+func TestActivityPhotoPreviewURLUsesPreviewEndpointRegardlessOfLegacyS3Field(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	activityID := insertMinimalActivity(t, db, userID)
+	if _, err := pool.Exec(context.Background(), `UPDATE activities SET title = 'Preview Search Ride' WHERE id = $1`, activityID); err != nil {
+		t.Fatalf("set activity title: %v", err)
+	}
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	h := &Handler{DB: db, ShadowFS: fs, ImportService: importer.NewService(db, fs, nil)}
+
+	req := newPhotoUploadRequest(t, userID, activityID, "synthetic-preview-photo.jpg", jpegTestImage(t, 48, 48, color.RGBA{R: 20, G: 140, B: 220, A: 255}, 90))
+	rr := httptest.NewRecorder()
+	h.UploadActivityPhoto(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("UploadActivityPhoto status = %d; body=%s", rr.Code, rr.Body.String())
+	}
+
+	listReq := httptest.NewRequest("GET", "/api/v1/activities/"+activityID+"/photos", nil)
+	listReq = listReq.WithContext(context.WithValue(listReq.Context(), middleware.UserIDKey, userID))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", activityID)
+	listReq = listReq.WithContext(context.WithValue(listReq.Context(), chi.RouteCtxKey, rctx))
+	listRR := httptest.NewRecorder()
+	h.ListActivityPhotos(listRR, listReq)
+	if listRR.Code != http.StatusOK {
+		t.Fatalf("ListActivityPhotos status = %d; body=%s", listRR.Code, listRR.Body.String())
+	}
+	var photos []model.ActivityPhoto
+	if err := json.NewDecoder(listRR.Body).Decode(&photos); err != nil {
+		t.Fatalf("decode photos: %v", err)
+	}
+	if len(photos) != 1 {
+		t.Fatalf("photos len = %d, want 1", len(photos))
+	}
+	if photos[0].PreviewURL != "/photos/"+photos[0].ID+"/preview" {
+		t.Fatalf("PreviewURL = %q, want preview endpoint", photos[0].PreviewURL)
+	}
+
+	feedReq := httptest.NewRequest("GET", "/api/v1/photos?sort=added&page=1", nil)
+	feedReq = feedReq.WithContext(context.WithValue(feedReq.Context(), middleware.UserIDKey, userID))
+	feedRR := httptest.NewRecorder()
+	h.ListPhotoFeed(feedRR, feedReq)
+	if feedRR.Code != http.StatusOK {
+		t.Fatalf("ListPhotoFeed status = %d; body=%s", feedRR.Code, feedRR.Body.String())
+	}
+	var feed model.PhotoFeedPage
+	if err := json.NewDecoder(feedRR.Body).Decode(&feed); err != nil {
+		t.Fatalf("decode feed: %v", err)
+	}
+	if len(feed.Groups) == 0 || len(feed.Groups[0].Photos) == 0 {
+		t.Fatalf("feed response missing photo: %#v", feed)
+	}
+	if feed.Groups[0].Photos[0].PreviewURL != "/photos/"+photos[0].ID+"/preview" {
+		t.Fatalf("feed PreviewURL = %q, want preview endpoint", feed.Groups[0].Photos[0].PreviewURL)
+	}
+
+	searchReq := httptest.NewRequest("GET", "/api/v1/photos/search?q=Preview%20Search&limit=10", nil)
+	searchReq = searchReq.WithContext(context.WithValue(searchReq.Context(), middleware.UserIDKey, userID))
+	searchRR := httptest.NewRecorder()
+	h.SearchPhotos(searchRR, searchReq)
+	if searchRR.Code != http.StatusOK {
+		t.Fatalf("SearchPhotos status = %d; body=%s", searchRR.Code, searchRR.Body.String())
+	}
+	var results []model.PhotoSearchResult
+	if err := json.NewDecoder(searchRR.Body).Decode(&results); err != nil {
+		t.Fatalf("decode search: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("search results len = %d, want 1", len(results))
+	}
+	if results[0].Photo.PreviewURL != "/photos/"+photos[0].ID+"/preview" {
+		t.Fatalf("search PreviewURL = %q, want preview endpoint", results[0].Photo.PreviewURL)
 	}
 }
 

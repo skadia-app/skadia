@@ -10,7 +10,7 @@ import (
 // GetRoutePhotos returns all photos for a route owned by the given user, ordered by sort_order.
 func (db *DB) GetRoutePhotos(ctx context.Context, routeID, userID string) ([]model.RoutePhoto, error) {
 	rows, err := db.Pool.Query(ctx, `
-		SELECT id, route_id, user_id, file_hash,
+		SELECT id, route_id, user_id, COALESCE(file_id::text, ''), file_hash,
 			original_name, width, height, sort_order, created_at
 		FROM route_photos
 		WHERE route_id = $1 AND user_id = $2
@@ -25,7 +25,7 @@ func (db *DB) GetRoutePhotos(ctx context.Context, routeID, userID string) ([]mod
 	for rows.Next() {
 		var p model.RoutePhoto
 		if err := rows.Scan(
-			&p.ID, &p.RouteID, &p.UserID, &p.FileHash,
+			&p.ID, &p.RouteID, &p.UserID, &p.FileID, &p.FileHash,
 			&p.OriginalName, &p.Width, &p.Height,
 			&p.SortOrder, &p.CreatedAt,
 		); err != nil {
@@ -64,6 +64,25 @@ func (db *DB) InsertRoutePhoto(ctx context.Context, photo model.RoutePhoto) (mod
 		return model.RoutePhoto{}, fmt.Errorf("insert route photo: %w", err)
 	}
 	return saved, nil
+}
+
+// GetRoutePhoto returns one route photo when both route and photo belong to userID.
+func (db *DB) GetRoutePhoto(ctx context.Context, routeID, photoID, userID string) (model.RoutePhoto, error) {
+	var p model.RoutePhoto
+	err := db.Pool.QueryRow(ctx, `
+		SELECT id, route_id, user_id, COALESCE(file_id::text, ''), file_hash,
+			original_name, width, height, sort_order, created_at
+		FROM route_photos
+		WHERE id = $1 AND route_id = $2 AND user_id = $3
+	`, photoID, routeID, userID).Scan(
+		&p.ID, &p.RouteID, &p.UserID, &p.FileID, &p.FileHash,
+		&p.OriginalName, &p.Width, &p.Height,
+		&p.SortOrder, &p.CreatedAt,
+	)
+	if err != nil {
+		return model.RoutePhoto{}, fmt.Errorf("get route photo: %w", err)
+	}
+	return p, nil
 }
 
 // DeleteRoutePhoto deletes a route photo by ID. Only photos owned by userID and

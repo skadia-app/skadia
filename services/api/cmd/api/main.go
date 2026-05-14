@@ -1907,6 +1907,9 @@ func main() {
 			r.Post("/routes/{id}/photos", h.UploadRoutePhoto)
 			r.Delete("/routes/{id}/photos/{photoId}", h.DeleteRoutePhoto)
 			r.Put("/routes/{id}/photos/reorder", h.ReorderRoutePhotos)
+			r.Get("/routes/{id}/photos/{photoId}/thumb", h.StreamRoutePhotoThumb)
+			r.Get("/routes/{id}/photos/{photoId}/preview", h.StreamRoutePhotoPreview)
+			r.Get("/routes/{id}/photos/{photoId}/full", h.StreamRoutePhotoFull)
 			r.Post("/routes/from-activity/{activityId}", h.RouteFromActivity)
 			r.Get("/routes/from-activity/{activityId}/waypoints", h.RouteFromActivityWaypoints)
 

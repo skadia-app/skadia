@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -242,7 +244,119 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	})
 	tracker.Completed(r.Context(), "")
 
+	saved.FileID = photoFileID
+	setRoutePhotoURLs(routeID, &saved)
 	httputil.WriteJSON(w, http.StatusCreated, saved)
+}
+
+func setRoutePhotoURLs(routeID string, p *model.RoutePhoto) {
+	base := "/routes/" + routeID + "/photos/" + p.ID
+	p.ThumbURL = base + "/thumb"
+	p.PreviewURL = base + "/preview"
+	p.FullURL = base + "/full"
+}
+
+func setRoutePhotoListURLs(routeID string, photos []model.RoutePhoto) {
+	for i := range photos {
+		setRoutePhotoURLs(routeID, &photos[i])
+	}
+}
+
+func (h *Handler) StreamRoutePhotoFull(w http.ResponseWriter, r *http.Request) {
+	h.streamRoutePhotoVariant(w, r, "full")
+}
+
+func (h *Handler) StreamRoutePhotoThumb(w http.ResponseWriter, r *http.Request) {
+	h.streamRoutePhotoVariant(w, r, "thumb")
+}
+
+func (h *Handler) StreamRoutePhotoPreview(w http.ResponseWriter, r *http.Request) {
+	h.streamRoutePhotoVariant(w, r, "preview")
+}
+
+func (h *Handler) streamRoutePhotoVariant(w http.ResponseWriter, r *http.Request, variant string) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	routeID := chi.URLParam(r, "id")
+	photoID := chi.URLParam(r, "photoId")
+
+	if h.ShadowFS == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not available", r.URL.Path)
+		return
+	}
+
+	if _, err := h.DB.GetRoute(r.Context(), routeID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
+		return
+	}
+	photo, err := h.DB.GetRoutePhoto(r.Context(), routeID, photoID, userID)
+	if err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not found", r.URL.Path)
+		return
+	}
+
+	fileID := photo.FileID
+	if variant != "full" {
+		role := "photo_thumb"
+		if variant == "preview" {
+			role = "photo_preview"
+		}
+		_ = h.DB.Pool.QueryRow(r.Context(),
+			`SELECT id::text FROM user_files
+			 WHERE user_id = $1
+			   AND parent_type = 'route_photo'
+			   AND parent_id = $2
+			   AND file_type = 'thumb'
+			   AND tags->>'role' = $3
+			   AND status = 'active'
+			 ORDER BY created_at DESC
+			 LIMIT 1`,
+			userID, photoID, role,
+		).Scan(&fileID)
+	}
+	if fileID == "" {
+		fileID = photo.FileID
+	}
+	if fileID == "" {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not available", r.URL.Path)
+		return
+	}
+
+	rc, getErr := h.ShadowFS.Get(r.Context(), userID, fileID)
+	if getErr != nil {
+		slog.Warn("stream route photo: ShadowFS.Get failed", "route_id", routeID, "photo_id", photoID, "variant", variant, "file_id", fileID, "error", getErr)
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "photo not available", r.URL.Path)
+		return
+	}
+	defer rc.Close()
+
+	contentType, fileName, sizeBytes := h.routePhotoFileMetadata(r.Context(), userID, fileID)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	if fileName == "" {
+		fileName = "route-photo"
+	}
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": fileName}))
+	w.Header().Set("Content-Type", contentType)
+	if sizeBytes > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(sizeBytes, 10))
+	}
+	io.Copy(w, rc) //nolint:errcheck
+}
+
+func (h *Handler) routePhotoFileMetadata(ctx context.Context, userID, fileID string) (contentType, fileName string, sizeBytes int64) {
+	_ = h.DB.Pool.QueryRow(ctx,
+		`SELECT content_type, file_name, size_bytes
+		 FROM user_files
+		 WHERE id = $1 AND user_id = $2 AND status = 'active'`,
+		fileID, userID,
+	).Scan(&contentType, &fileName, &sizeBytes)
+	return contentType, fileName, sizeBytes
 }
 
 // DeleteRoutePhoto handles DELETE /api/v1/routes/{id}/photos/{photoId}

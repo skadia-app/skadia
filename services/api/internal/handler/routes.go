@@ -182,6 +182,7 @@ func (h *Handler) GetRoute(w http.ResponseWriter, r *http.Request) {
 	if httputil.HandleDBErr(w, r, err, "route not found", "id", id, "user_id", userID) {
 		return
 	}
+	setRoutePhotoListURLs(route.ID, route.Photos)
 
 	w.Header().Set("ETag", routeETag(route.Version))
 	httputil.WriteJSON(w, http.StatusOK, route)
