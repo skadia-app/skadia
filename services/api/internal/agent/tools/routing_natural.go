@@ -230,7 +230,7 @@ func executeGetRoutingCoverage(ctx context.Context, deps *Deps, _ string, raw js
 	demCells := demCellsForBBox(bbox)
 	segmentsDir, presentTiles, missingTiles := brouterSegmentPresence(deps, requiredTiles)
 	demDir, presentDEMCells, missingDEMCells := demCellPresence(deps, demCells)
-	graphTileIDs := graphTileIDsForBBox(bbox)
+	graphTileIDs, graphTileListTruncated := graphTileIDsForBBox(bbox)
 	routingTilesDir, presentGraphTiles, missingGraphTiles := badRouterTilePresence(deps, graphTileIDs)
 	coverageBaseDir, presentLayers, missingLayers := coverageLayerPresence(deps, graphTileIDs)
 	canResolve := bbox != nil && len(regions) > 0 && importedRegionVerified
@@ -265,10 +265,10 @@ func executeGetRoutingCoverage(ctx context.Context, deps *Deps, _ string, raw js
 		"regions":           regions,
 		"place_search":      map[string]any{"available": canResolve, "source": "imported_osm", "verified": importedRegionVerified},
 		"brouter":           map[string]any{"available": canPlan, "segments_dir": segmentsDir, "required_rd5_tiles": requiredTiles, "present_rd5_tiles": presentTiles, "missing_rd5_tiles": missingTiles},
-		"badrouter":         map[string]any{"available": len(graphTileIDs) > 0 && len(missingGraphTiles) == 0, "tiles_dir": routingTilesDir, "required_tiles": graphTileLabels(graphTileIDs), "present_tiles": presentGraphTiles, "missing_tiles": missingGraphTiles},
+		"badrouter":         map[string]any{"available": len(graphTileIDs) > 0 && len(missingGraphTiles) == 0 && !graphTileListTruncated, "tiles_dir": routingTilesDir, "required_tiles": graphTileLabels(graphTileIDs), "present_tiles": presentGraphTiles, "missing_tiles": missingGraphTiles, "tile_count": len(graphTileIDs), "tile_list_truncated": graphTileListTruncated, "verification": "file_presence_only"},
 		"dem":               map[string]any{"dem_data_dir": demDir, "required_hgt_cells": demCells, "present_hgt_cells": presentDEMCells, "missing_hgt_cells": missingDEMCells, "status": demCoverageStatus(demCells, missingDEMCells)},
 		"surface_highway":   map[string]any{"available": "unknown", "status": "depends on imported OSM way tags and route graph coverage"},
-		"coverage_layers":   map[string]any{"available": len(presentLayers) > 0, "coverage_base_dir": coverageBaseDir, "required_layers": routeCoverageLayerNames(), "present_layers": presentLayers, "missing_layers": missingLayers},
+		"coverage_layers":   map[string]any{"available": len(presentLayers) > 0 && !graphTileListTruncated, "coverage_base_dir": coverageBaseDir, "required_layers": routeCoverageLayerNames(), "present_layers": presentLayers, "missing_layers": missingLayers, "tile_count": len(graphTileIDs), "tile_list_truncated": graphTileListTruncated, "verification": "file_presence_only"},
 		"can_resolve_place": canResolve,
 		"can_plan_direct":   canPlan,
 		"can_suggest_goal":  canSuggestGoal,
@@ -813,21 +813,21 @@ func configuredCoverageBaseDir(deps *Deps) string {
 	return "/data/routing/coverage"
 }
 
-func graphTileIDsForBBox(bbox *routeBBox) []uint32 {
+func graphTileIDsForBBox(bbox *routeBBox) ([]uint32, bool) {
 	if bbox == nil || !validBBox(*bbox) {
-		return []uint32{}
+		return []uint32{}, false
 	}
 	const maxTiles = 512
 	ids := []uint32{}
 	for lat := int(math.Floor(bbox.MinLat)); lat <= int(math.Floor(bbox.MaxLat)); lat++ {
 		for lng := int(math.Floor(bbox.MinLng)); lng <= int(math.Floor(bbox.MaxLng)); lng++ {
 			if len(ids) >= maxTiles {
-				return ids
+				return ids, true
 			}
 			ids = append(ids, graphpkg.TileIDFromCoord(float64(lat)+0.5, float64(lng)+0.5))
 		}
 	}
-	return ids
+	return ids, false
 }
 
 func graphTileLabels(tileIDs []uint32) []string {

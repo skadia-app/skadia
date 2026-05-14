@@ -240,7 +240,13 @@ func TestGetRoutingCoverageUsesConfiguredDirsForBadRouterAndCoverageLayers(t *te
 	if badrouter["available"] != true {
 		t.Fatalf("badrouter = %#v, want available", badrouter)
 	}
+	if badrouter["verification"] != "file_presence_only" || badrouter["tile_list_truncated"] != false {
+		t.Fatalf("badrouter diagnostic metadata = %#v, want file presence and not truncated", badrouter)
+	}
 	coverageLayers := got["coverage_layers"].(map[string]any)
+	if coverageLayers["verification"] != "file_presence_only" || coverageLayers["tile_list_truncated"] != false {
+		t.Fatalf("coverage layer diagnostic metadata = %#v, want file presence and not truncated", coverageLayers)
+	}
 	present := coverageLayers["present_layers"].([]string)
 	for _, want := range []string{"forest", "water"} {
 		if !containsRoutingTestString(present, want) {
