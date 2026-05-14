@@ -91,6 +91,14 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hashStr := fmt.Sprintf("%x", sha256.Sum256(data))
+	tracker := directUploadTracker(r.Context(), h.DB, userID, header.Filename, int64(len(data)), directMediaImportType(ct), hashStr, map[string]any{
+		"target_type":  "activity_photo",
+		"activity_id":  activityID,
+		"content_type": ct,
+		"steps":        []directImportStep{{Key: "upload", Label: "Upload", Status: "pending"}},
+	})
+
 	// Delegate all remaining processing (dedup, pHash, thumbnails, S3 upload, DB insert,
 	// CLIP embed event) to the shared ImportService.ProcessPhoto pipeline.
 	photoMeta := importer.PhotoMetadata{
@@ -102,6 +110,11 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		EnforceActivityPhotoLimit: true,
 	})
 	if err != nil {
+		if errors.Is(err, importer.ErrActivityPhotoLimitExceeded) {
+			tracker.Skipped(r.Context(), "limit_reached", &activityID)
+		} else {
+			tracker.Error(r.Context(), err)
+		}
 		if writeMediaUploadProblem(w, r, err) {
 			return
 		}
@@ -110,12 +123,23 @@ func (h *Handler) UploadActivityPhoto(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	metadata := map[string]any{
+		"target_type":  "activity_photo",
+		"target_id":    result.PhotoID,
+		"activity_id":  activityID,
+		"content_type": ct,
+		"steps":        []directImportStep{{Key: "upload", Label: "Upload", Status: "completed"}},
+	}
+	setDirectImportMetadata(r.Context(), tracker, metadata)
 	switch result.Status {
 	case "duplicate_exact", "duplicate_phash":
+		tracker.Skipped(r.Context(), "duplicate", &activityID)
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 	case "replaced":
+		tracker.Completed(r.Context(), activityID)
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "replaced", "photo_id": result.PhotoID})
 	default:
+		tracker.Completed(r.Context(), activityID)
 		// "created" — ProcessPhoto already stored the original and linked file_id.
 		saved, err := h.DB.GetActivityPhoto(r.Context(), result.PhotoID, userID)
 		if err != nil {

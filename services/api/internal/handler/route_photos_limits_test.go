@@ -50,6 +50,38 @@ func TestUploadRoutePhotoLimitBlocksNewRows(t *testing.T) {
 	}
 }
 
+func TestUploadRoutePhotoWritesImportLog(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	h := &Handler{DB: db, ShadowFS: fs}
+	routeID := insertTestRoute(t, h, userID)
+
+	req := newRoutePhotoUploadRequest(t, userID, routeID, "route-photo.jpg", jpegTestImage(t, 24, 24, color.RGBA{R: 100, G: 40, B: 20, A: 255}, 90))
+	rr := httptest.NewRecorder()
+	h.UploadRoutePhoto(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("route photo status = %d, want %d; body=%s", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+
+	var logStatus, importType, targetType, targetID, metaRouteID string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT status, import_type, metadata->>'target_type', metadata->>'target_id', metadata->>'route_id'
+		FROM import_log
+		WHERE user_id = $1 AND filename = 'route-photo.jpg'
+		ORDER BY created_at DESC
+		LIMIT 1`,
+		userID,
+	).Scan(&logStatus, &importType, &targetType, &targetID, &metaRouteID); err != nil {
+		t.Fatalf("select route photo import_log: %v", err)
+	}
+	if logStatus != "completed" || importType != "photo" || targetType != "route_photo" || targetID == "" || metaRouteID != routeID {
+		t.Fatalf("route photo import_log = status %q type %q target_type %q target_id %q route_id %q, want completed/photo/route_photo/<id>/%s",
+			logStatus, importType, targetType, targetID, metaRouteID, routeID)
+	}
+}
+
 func TestUploadRoutePhotoQuotaExceededReturns507(t *testing.T) {
 	pool := fusionTestPool(t)
 	db := &database.DB{Pool: pool}
