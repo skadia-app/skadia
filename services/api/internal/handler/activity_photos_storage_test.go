@@ -87,6 +87,22 @@ func TestUploadActivityPhotoStoresOneOriginalUserFile(t *testing.T) {
 	if linkedRows != 1 {
 		t.Fatalf("linked active media rows = %d, want 1", linkedRows)
 	}
+
+	var logStatus, importType, targetType, targetID string
+	if err := pool.QueryRow(context.Background(), `
+		SELECT status, import_type, metadata->>'target_type', metadata->>'target_id'
+		FROM import_log
+		WHERE user_id = $1 AND filename = 'created.jpg'
+		ORDER BY created_at DESC
+		LIMIT 1`,
+		userID,
+	).Scan(&logStatus, &importType, &targetType, &targetID); err != nil {
+		t.Fatalf("select activity photo import_log: %v", err)
+	}
+	if logStatus != "completed" || importType != "photo" || targetType != "activity_photo" || targetID == "" {
+		t.Fatalf("activity photo import_log = status %q type %q target_type %q target_id %q, want completed/photo/activity_photo/<id>",
+			logStatus, importType, targetType, targetID)
+	}
 }
 
 func TestUploadActivityPhotoUsesConfiguredUploadLimit(t *testing.T) {

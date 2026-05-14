@@ -186,6 +186,13 @@ describe('ImportsPage', () => {
               id: 'active-log',
               filename: 'active-import.fit',
               status: 'processing',
+              metadata: {
+                steps: [
+                  { key: 'upload', label: 'Upload', status: 'completed' },
+                  { key: 'text_extraction', label: 'Texterkennung', status: 'pending' },
+                  { key: 'markdown', label: 'Markdown', status: 'pending' },
+                ],
+              },
             }),
           ],
           total: 1,
@@ -198,6 +205,7 @@ describe('ImportsPage', () => {
 
     expect(await screen.findByText('Import-Warteschlange')).toBeInTheDocument()
     expect(await screen.findByText('active-import.fit')).toBeInTheDocument()
+    expect(await screen.findByText('Schritt 2/3: Texterkennung')).toBeInTheDocument()
   })
 
   it('preserves source wizard state when switching sources', async () => {

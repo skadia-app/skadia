@@ -293,6 +293,7 @@ func (h *Handler) ResolvePDFQueueItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	title := item.OriginalFilename
+	shouldProcessDocument := h.DocumentUploadedPublisher != nil
 	doc := &model.GearDocument{
 		UserID:           userID,
 		GearID:           &req.GearID,
@@ -303,6 +304,9 @@ func (h *Handler) ResolvePDFQueueItem(w http.ResponseWriter, r *http.Request) {
 		FileSizeBytes:    int64(len(data)),
 		FileHash:         &hashStr,
 		FileID:           &stored.ID,
+	}
+	if shouldProcessDocument {
+		doc.ProcessingStatus = "pending"
 	}
 	result, err := h.DB.InsertGearDocument(r.Context(), doc)
 	if err != nil {
@@ -319,11 +323,21 @@ func (h *Handler) ResolvePDFQueueItem(w http.ResponseWriter, r *http.Request) {
 	if text := extractPDFText(data); text != "" {
 		extractedText = &text
 		isTextPDF = true
-		if err := h.DB.UpdateGearDocumentText(r.Context(), result.ID, text); err != nil {
-			slog.Warn("resolve PDF queue item: failed to update extracted text", "doc_id", result.ID, "error", err)
+		var updateErr error
+		if shouldProcessDocument {
+			updateErr = h.DB.UpdateGearDocumentExtractedText(r.Context(), userID, result.ID, text)
+		} else {
+			updateErr = h.DB.UpdateGearDocumentText(r.Context(), userID, result.ID, text)
+		}
+		if updateErr != nil {
+			slog.Warn("resolve PDF queue item: failed to update extracted text", "doc_id", result.ID, "error", updateErr)
 		} else {
 			result.ExtractedText = &text
-			result.ProcessingStatus = "processed"
+			if shouldProcessDocument {
+				result.ProcessingStatus = "pending"
+			} else {
+				result.ProcessingStatus = "processed"
+			}
 		}
 	}
 
@@ -343,7 +357,16 @@ func (h *Handler) ResolvePDFQueueItem(w http.ResponseWriter, r *http.Request) {
 	if delErr := h.ShadowFS.Delete(r.Context(), userID, queueFileID); delErr != nil {
 		slog.Warn("resolve PDF queue item: delete queued file failed", "id", id, "file_id", queueFileID, "error", delErr)
 	}
-	if h.DocumentUploadedPublisher != nil {
+	if shouldProcessDocument {
+		importMeta := directDocumentImportMetadata("gear_document", result.ID, stored.ID, "gear_id", req.GearID, req.DocType, item.ContentType, true)
+		if isTextPDF && extractedText != nil {
+			markDirectDocumentStep(importMeta, "text_extraction", "completed")
+		}
+		if importMetaBytes, marshalErr := json.Marshal(importMeta); marshalErr != nil {
+			slog.Warn("resolve PDF queue item: marshal document import metadata failed", "doc_id", result.ID, "error", marshalErr)
+		} else if err := h.DB.SetQueuedDocumentImportProcessing(r.Context(), userID, id, importMetaBytes); err != nil {
+			slog.Warn("resolve PDF queue item: failed to mark import log processing", "queue_id", id, "error", err)
+		}
 		evt := event.DocumentUploadedEvent{
 			DocID:          result.ID,
 			GearID:         result.GearID,
@@ -359,6 +382,12 @@ func (h *Handler) ResolvePDFQueueItem(w http.ResponseWriter, r *http.Request) {
 			SizeBytes:      stored.SizeBytes,
 		}
 		if err := h.DocumentUploadedPublisher.PublishDocumentUploaded(evt); err != nil {
+			if statusErr := h.DB.UpdateGearDocumentProcessingStatus(r.Context(), userID, result.ID, "failed"); statusErr != nil {
+				slog.Warn("resolve PDF queue item: failed to mark document event failure", "doc_id", result.ID, "error", statusErr)
+			}
+			if logErr := h.DB.SetQueuedDocumentImportError(r.Context(), userID, id, err.Error()); logErr != nil {
+				slog.Warn("resolve PDF queue item: failed to mark import log event failure", "queue_id", id, "error", logErr)
+			}
 			slog.Warn("resolve PDF queue item: failed to publish document uploaded event", "error", err)
 		}
 	}

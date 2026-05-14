@@ -873,7 +873,7 @@ export interface GearDocument {
   document_date?: string | null
   document_amount?: number | null
   document_currency?: string
-  processing_status?: 'pending' | 'processed' | 'failed'
+  processing_status?: 'idle' | 'pending' | 'processed' | 'failed'
   created_at: string
 }
 

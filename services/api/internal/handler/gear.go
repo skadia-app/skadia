@@ -1286,6 +1286,20 @@ type docUploadConfig struct {
 	publishEvent bool
 }
 
+func classifyGearDocumentContentType(declared string, data []byte) string {
+	detected := http.DetectContentType(data)
+	if bytes.HasPrefix(bytes.TrimSpace(data), []byte("%PDF-")) {
+		return "application/pdf"
+	}
+	if strings.HasPrefix(detected, "image/") {
+		return detected
+	}
+	if declared != "" {
+		return declared
+	}
+	return detected
+}
+
 // processDocumentUpload implements the shared multipart upload pipeline used by
 // UploadGearDocument and UploadComponentDocument. It writes the HTTP response
 // directly and returns false on any error so callers can return immediately.
@@ -1310,10 +1324,7 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	contentType := header.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = http.DetectContentType(data)
-	}
+	contentType := classifyGearDocumentContentType(header.Header.Get("Content-Type"), data)
 
 	allowed := map[string]bool{
 		"image/jpeg":      true,
@@ -1344,8 +1355,38 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 	hash := sha256.Sum256(data)
 	hashStr := hex.EncodeToString(hash[:])
 
+	var docType string
+	if cfg.readDocType {
+		docType = r.FormValue("doc_type")
+	}
+	if docType == "" {
+		if strings.HasPrefix(contentType, "image/") {
+			docType = "photo"
+		} else {
+			docType = "other"
+		}
+	}
+
+	importType := model.ImportTypeDocument
+	if strings.HasPrefix(contentType, "image/") {
+		importType = model.ImportTypePhoto
+	}
+	shouldProcessDocument := cfg.extractPDF && cfg.publishEvent && contentType == "application/pdf" && h.DocumentUploadedPublisher != nil
+	parentMetaKey := "gear_id"
+	if cfg.parentType == "gear_component" {
+		parentMetaKey = "component_id"
+	}
+	tracker := directUploadTracker(r.Context(), h.DB, userID, header.Filename, int64(len(data)), importType, hashStr, map[string]any{
+		"target_type":  cfg.parentType + "_document",
+		parentMetaKey:  cfg.parentID,
+		"doc_type":     docType,
+		"content_type": contentType,
+		"steps":        []directImportStep{{Key: "upload", Label: "Upload", Status: "pending"}},
+	})
+
 	// Duplikat-Prüfung (per gear/component, not global — same file allowed on different items)
 	if exists, err := cfg.dupCheck(userID, hashStr); err == nil && exists {
+		tracker.Skipped(r.Context(), "duplicate", nil)
 		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
 		return
 	}
@@ -1372,22 +1413,30 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 	}
 	_ = ext // computed for potential future use (e.g. forced filename)
 
-	var docType string
-	if cfg.readDocType {
-		docType = r.FormValue("doc_type")
-	}
-	if docType == "" {
-		if strings.HasPrefix(contentType, "image/") {
-			docType = "photo"
-		} else {
-			docType = "other"
-		}
-	}
-
 	title := r.FormValue("title")
 	var titlePtr *string
 	if title != "" {
 		titlePtr = &title
+	}
+
+	var documentDatePtr *string
+	if documentDate := strings.TrimSpace(r.FormValue("document_date")); documentDate != "" {
+		documentDatePtr = &documentDate
+	}
+	var documentAmountPtr *float64
+	if amountValue := strings.TrimSpace(r.FormValue("document_amount")); amountValue != "" {
+		amount, parseErr := strconv.ParseFloat(amountValue, 64)
+		if parseErr != nil || amount < 0 {
+			err := fmt.Errorf("document_amount must be a non-negative number")
+			tracker.Error(r.Context(), err)
+			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
+			return
+		}
+		documentAmountPtr = &amount
+	}
+	var documentCurrencyPtr *string
+	if currency := strings.TrimSpace(r.FormValue("document_currency")); currency != "" {
+		documentCurrencyPtr = &currency
 	}
 
 	// Upload to ShadowFS — images go to media/, everything else to documents/.
@@ -1408,13 +1457,14 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 			FileName:    header.Filename,
 			SizeBytes:   int64(len(data)),
 			FileHash:    hashStr,
-			ParentType:  new(cfg.parentType),
-			ParentID:    new(cfg.parentID),
+			ParentType:  &cfg.parentType,
+			ParentID:    &cfg.parentID,
 			Tags: map[string]string{
 				"doc_type": docType,
 			},
 		}, bytes.NewReader(data))
 		if putErr != nil {
+			tracker.Error(r.Context(), putErr)
 			slog.Error(cfg.logPrefix+": shadowfs put failed", "error", putErr)
 			httputil.WriteError(w, http.StatusInternalServerError, "Upload failed", "Failed to store file", r.URL.Path)
 			return
@@ -1427,23 +1477,18 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 	}
 
 	doc := cfg.buildDoc(userID, docType, titlePtr, header.Filename, contentType, int64(len(data)), hashStr)
-	if documentDate := strings.TrimSpace(r.FormValue("document_date")); documentDate != "" {
-		doc.DocumentDate = &documentDate
+	if shouldProcessDocument {
+		doc.ProcessingStatus = "pending"
+	} else {
+		doc.ProcessingStatus = "idle"
 	}
-	if amountValue := strings.TrimSpace(r.FormValue("document_amount")); amountValue != "" {
-		amount, parseErr := strconv.ParseFloat(amountValue, 64)
-		if parseErr != nil || amount < 0 {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "document_amount must be a non-negative number", r.URL.Path)
-			return
-		}
-		doc.DocumentAmount = &amount
-	}
-	if currency := strings.TrimSpace(r.FormValue("document_currency")); currency != "" {
-		doc.DocumentCurrency = &currency
-	}
+	doc.DocumentDate = documentDatePtr
+	doc.DocumentAmount = documentAmountPtr
+	doc.DocumentCurrency = documentCurrencyPtr
 
 	result, err := h.DB.InsertGearDocument(r.Context(), doc)
 	if err != nil {
+		tracker.Error(r.Context(), err)
 		// Clean up the already-stored file to avoid orphans.
 		if storedFileID != "" && h.ShadowFS != nil {
 			if delErr := h.ShadowFS.Delete(r.Context(), userID, storedFileID); delErr != nil {
@@ -1465,6 +1510,8 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
+	metadata := directDocumentImportMetadata(cfg.parentType+"_document", result.ID, storedFileID, parentMetaKey, cfg.parentID, docType, contentType, shouldProcessDocument)
+
 	// PDF text extraction via pdfcpu (best-effort)
 	var extractedText *string
 	var isTextPDF bool
@@ -1472,17 +1519,27 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 		if text := extractPDFText(data); text != "" {
 			extractedText = &text
 			isTextPDF = true
-			if err := h.DB.UpdateGearDocumentText(r.Context(), result.ID, text); err != nil {
+			var err error
+			if shouldProcessDocument {
+				err = h.DB.UpdateGearDocumentExtractedText(r.Context(), userID, result.ID, text)
+			} else {
+				err = h.DB.UpdateGearDocumentText(r.Context(), userID, result.ID, text)
+			}
+			if err != nil {
 				slog.Warn("failed to update extracted text", "doc_id", result.ID, "error", err)
 			} else {
 				result.ExtractedText = &text
-				result.ProcessingStatus = "processed"
+				if shouldProcessDocument {
+					markDirectDocumentStep(metadata, "text_extraction", "completed")
+				} else {
+					result.ProcessingStatus = "processed"
+				}
 			}
 		}
 	}
 
-	// NATS event (graceful - no error if NATS unavailable)
-	if cfg.publishEvent && h.DocumentUploadedPublisher != nil {
+	// Document event (graceful - no error if unavailable)
+	if shouldProcessDocument {
 		evt := event.DocumentUploadedEvent{
 			DocID:          result.ID,
 			GearID:         result.GearID,
@@ -1497,9 +1554,20 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 			StoragePath:    storedStoragePath,
 			SizeBytes:      storedSizeBytes,
 		}
+		setDirectImportMetadata(r.Context(), tracker, metadata)
+		tracker.Processing(r.Context())
 		if err := h.DocumentUploadedPublisher.PublishDocumentUploaded(evt); err != nil {
+			tracker.Error(r.Context(), err)
+			if statusErr := h.DB.UpdateGearDocumentProcessingStatus(r.Context(), userID, result.ID, "failed"); statusErr != nil {
+				slog.Warn("failed to mark document upload event failure", "doc_id", result.ID, "error", statusErr)
+			} else {
+				result.ProcessingStatus = "failed"
+			}
 			slog.Warn("failed to publish document uploaded event", "error", err)
 		}
+	} else {
+		setDirectImportMetadata(r.Context(), tracker, metadata)
+		tracker.Completed(r.Context(), "")
 	}
 
 	httputil.WriteJSON(w, http.StatusCreated, result)

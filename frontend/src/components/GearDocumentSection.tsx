@@ -64,15 +64,21 @@ function DocTypeIcon({ docType, className = 'w-5 h-5' }: { docType: string; clas
 }
 
 const STATUS_STYLES: Record<string, string> = {
+  idle: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400',
   pending: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400',
   processed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
   failed: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
 }
 
 const STATUS_LABELS: Record<string, string> = {
+  idle: 'Bereit',
   pending: 'Ausstehend',
   processed: 'Verarbeitet',
   failed: 'Fehlgeschlagen',
+}
+
+function showProcessingBadge(status?: string): boolean {
+  return !!status && !['idle', 'processed'].includes(status)
 }
 
 function formatFileSize(bytes: number): string {
@@ -231,9 +237,9 @@ export default function GearDocumentSection({ gearId }: Props) {
                         )}
                       </div>
                     </div>
-                    {doc.processing_status && doc.processing_status !== 'processed' && (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${STATUS_STYLES[doc.processing_status] ?? STATUS_STYLES.pending}`}>
-                        {STATUS_LABELS[doc.processing_status] ?? doc.processing_status}
+                    {showProcessingBadge(doc.processing_status) && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${STATUS_STYLES[doc.processing_status ?? 'pending'] ?? STATUS_STYLES.pending}`}>
+                        {STATUS_LABELS[doc.processing_status ?? 'pending'] ?? doc.processing_status}
                       </span>
                     )}
                   </button>

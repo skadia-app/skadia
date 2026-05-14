@@ -93,6 +93,101 @@ func (db *DB) UpdateImportLogMetadata(ctx context.Context, id string, metadata [
 	return nil
 }
 
+func (db *DB) CompleteDocumentImportLog(ctx context.Context, userID, docID, fileID string, success bool, markdownStatus string) error {
+	if userID == "" || docID == "" {
+		return nil
+	}
+	status := "completed"
+	stepStatus := "completed"
+	var errorMsg *string
+	if !success {
+		status = "error"
+		stepStatus = "failed"
+		msg := "document processing failed"
+		errorMsg = &msg
+	}
+	if markdownStatus != "" && markdownStatus != "completed" && markdownStatus != "failed" && markdownStatus != "skipped" {
+		markdownStatus = ""
+	}
+	result, err := db.Pool.Exec(ctx, `
+			UPDATE import_log AS l
+			SET status = $4,
+			    error_msg = $5,
+			    duration_ms = GREATEST(0, (EXTRACT(EPOCH FROM (NOW() - l.created_at)) * 1000)::int),
+			    metadata = COALESCE(l.metadata, '{}'::jsonb) || jsonb_build_object(
+			      'document_processed', jsonb_build_object('success', $3::boolean, 'file_id', NULLIF($2, ''), 'markdown_status', NULLIF($8, '')),
+			      'steps', COALESCE((
+			        SELECT jsonb_agg(
+			          CASE
+			            WHEN step->>'key' = 'markdown' AND $8 <> '' THEN jsonb_set(step, '{status}', to_jsonb($8::text), true)
+			            WHEN step->>'status' = 'pending' THEN jsonb_set(step, '{status}', to_jsonb($6::text), true)
+			            ELSE step
+			          END ORDER BY ordinality
+			        )
+			        FROM jsonb_array_elements(COALESCE(l.metadata->'steps', '[]'::jsonb)) WITH ORDINALITY AS s(step, ordinality)
+			      ), '[]'::jsonb)
+			    )
+			WHERE l.user_id = $7
+			  AND l.import_type = 'document'
+			  AND l.status IN ('pending', 'processing')
+			  AND l.metadata->>'target_id' = $1
+			  AND ($2 = '' OR l.metadata->>'file_id' = $2)`,
+		docID, fileID, success, status, errorMsg, stepStatus, userID, markdownStatus,
+	)
+	if err != nil {
+		return fmt.Errorf("complete document import log: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return nil
+	}
+	return nil
+}
+
+func (db *DB) SetQueuedDocumentImportProcessing(ctx context.Context, userID, queueID string, metadata json.RawMessage) error {
+	if userID == "" || queueID == "" {
+		return nil
+	}
+	result, err := db.Pool.Exec(ctx, `
+		UPDATE import_log
+		SET status = 'processing',
+		    error_msg = NULL,
+		    metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
+		WHERE user_id = $1
+		  AND metadata->>'queue_id' = $2
+		  AND status IN ('queued', 'completed')`,
+		userID, queueID, metadata,
+	)
+	if err != nil {
+		return fmt.Errorf("set queued document import processing: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("set queued document import processing: queue row %s not found", queueID)
+	}
+	return nil
+}
+
+func (db *DB) SetQueuedDocumentImportError(ctx context.Context, userID, queueID string, errMsg string) error {
+	if userID == "" || queueID == "" {
+		return nil
+	}
+	result, err := db.Pool.Exec(ctx, `
+		UPDATE import_log
+		SET status = 'error',
+		    error_msg = $3
+		WHERE user_id = $1
+		  AND metadata->>'queue_id' = $2
+		  AND status IN ('queued', 'completed', 'processing')`,
+		userID, queueID, errMsg,
+	)
+	if err != nil {
+		return fmt.Errorf("set queued document import error: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("set queued document import error: queue row %s not found", queueID)
+	}
+	return nil
+}
+
 // ListImportLog returns paginated import_log entries for a user, with optional filters.
 // importType: "" = no filter; "unknown" = import_type IS NULL; other = import_type = value.
 // Returns (entries, total, error).
