@@ -101,10 +101,7 @@ func (db *DB) CompleteDocumentImportLog(ctx context.Context, userID, docID, file
 	stepStatus := "completed"
 	var errorMsg *string
 	if !success {
-		status = "error"
 		stepStatus = "failed"
-		msg := "document processing failed"
-		errorMsg = &msg
 	}
 	if markdownStatus != "" && markdownStatus != "completed" && markdownStatus != "failed" && markdownStatus != "skipped" {
 		markdownStatus = ""

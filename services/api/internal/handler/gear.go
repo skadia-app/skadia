@@ -1557,12 +1557,18 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 		setDirectImportMetadata(r.Context(), tracker, metadata)
 		tracker.Processing(r.Context())
 		if err := h.DocumentUploadedPublisher.PublishDocumentUploaded(evt); err != nil {
-			tracker.Error(r.Context(), err)
 			if statusErr := h.DB.UpdateGearDocumentProcessingStatus(r.Context(), userID, result.ID, "failed"); statusErr != nil {
 				slog.Warn("failed to mark document upload event failure", "doc_id", result.ID, "error", statusErr)
 			} else {
 				result.ProcessingStatus = "failed"
 			}
+			failPendingDirectDocumentSteps(metadata)
+			metadata["document_processing"] = map[string]any{
+				"status": "failed",
+				"reason": "publish_failed",
+			}
+			setDirectImportMetadata(r.Context(), tracker, metadata)
+			tracker.Completed(r.Context(), "")
 			slog.Warn("failed to publish document uploaded event", "error", err)
 		}
 	} else {
