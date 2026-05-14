@@ -135,11 +135,17 @@ public_agent_diff='diff --git a/CHANGELOG.md b/CHANGELOG.md
 @@ -1,1 +1,2 @@
 +Synced OpenAI Codex GPT-5.5 notes.'
 
-public_doc_last_updated_diff='diff --git a/docs/documentation/user/features/example.md b/docs/documentation/user/features/example.md
---- a/docs/documentation/user/features/example.md
-+++ b/docs/documentation/user/features/example.md
+public_doc_metadata_agent_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
+--- a/docs/documentation/user/how-to/example.md
++++ b/docs/documentation/user/how-to/example.md
 @@ -1,1 +1,2 @@
 +*Last updated: 2026-05-14 (GPT-5.5)*'
+
+public_doc_body_agent_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
+--- a/docs/documentation/user/how-to/example.md
++++ b/docs/documentation/user/how-to/example.md
+@@ -1,1 +1,2 @@
++This page was revised with GPT-5.5.'
 
 public_tag_diff='diff --git a/docs/documentation/user/features/import.md b/docs/documentation/user/features/import.md
 --- a/docs/documentation/user/features/import.md
@@ -205,7 +211,8 @@ assert_blocks_with "$public_docs_workflow_diff" "internal workflow wording in pu
 assert_blocks_with "$public_internal_path_diff" "internal path in public text"
 assert_blocks_with "$public_backtick_internal_path_diff" "internal path in public text"
 assert_blocks_with "$public_agent_diff" "agent/model name in public text"
-assert_passes "$public_doc_last_updated_diff"
+assert_passes "$public_doc_metadata_agent_diff"
+assert_blocks_with "$public_doc_body_agent_diff" "agent/model name in public text"
 assert_blocks_with "$public_tag_diff" "private tag marker in public text"
 assert_blocks_with "$agents_coordinate_diff" "coordinate in public/private text"
 assert_blocks_with "$subtree_agents_tag_diff" "private tag marker in public/private text"
