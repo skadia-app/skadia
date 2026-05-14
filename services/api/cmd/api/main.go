@@ -987,7 +987,7 @@ func main() {
 	analyticsHandler := analyticshandler.NewHandlerWithML(db, pub, mlClient)
 
 	// Auth handler (Go-native auth)
-	authMailer := auth.NewMailer(settingsStore)
+	authMailer := auth.NewMailerWithDB(db, settingsStore, cfg.SettingsEncryptionKey)
 	authRL := middleware.NewRateLimiter(ctx)
 	authHandler := auth.NewHandler(db, cfg, settingsStore, authMailer, authRL, ctx)
 	authHandler.ShadowFS = store
@@ -997,6 +997,15 @@ func main() {
 	// Wire settings store and mailer into main handler (needed for admin settings endpoints).
 	h.Settings = settingsStore
 	h.Mailer = authMailer
+
+	if authMailer.HasOutbox() {
+		hostname, _ := os.Hostname()
+		if hostname == "" {
+			hostname = "api"
+		}
+		emailWorker := auth.NewEmailWorker("email-worker-"+hostname, authMailer, 10)
+		shutdown.Go("email-worker", func(ctx context.Context) { emailWorker.Run(ctx, 10*time.Second) })
+	}
 
 	// Library watcher (polling, local backend only)
 	if cfg.StorageBackend == "local" && cfg.LibrarySyncEnabled {
@@ -1188,6 +1197,8 @@ func main() {
 			Post("/register", authHandler.Register)
 		r.With(middleware.RateLimitGeneric(authRL)).
 			Post("/verify-email", authHandler.VerifyEmail)
+		r.With(middleware.RateLimitGeneric(authRL)).
+			Post("/resend-verification-email", authHandler.ResendVerificationByEmail)
 		r.With(middleware.RateLimitForgotPW(authRL)).
 			Post("/forgot-password", authHandler.ForgotPassword)
 		r.With(middleware.RateLimitGeneric(authRL)).

@@ -116,7 +116,7 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 				time.Now().Add(30*24*time.Hour)); err != nil {
 				slog.Error("delete account: create cancel token failed", "error", err)
 			} else {
-				go h.Mailer.SendDeletionEmail(*user.Email, user.Username, cancelToken)
+				go h.Mailer.SendDeletionEmail(userID, *user.Email, user.Username, cancelToken)
 			}
 		}
 	}

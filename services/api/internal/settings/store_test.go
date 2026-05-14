@@ -2,6 +2,8 @@ package settings
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -126,14 +128,16 @@ func TestGetAll_GroupedBySection(t *testing.T) {
 	}
 }
 
-// TestValidation_InvalidPort verifies that smtp.port rejects non-integer values.
+// TestValidation_InvalidPort verifies that smtp.port rejects invalid values.
 func TestValidation_InvalidPort(t *testing.T) {
 	kd := KeysByKey["smtp.port"]
 	if kd.Validate == nil {
 		t.Fatal("smtp.port has no Validate function")
 	}
-	if err := kd.Validate("abc"); err == nil {
-		t.Error("expected error for non-integer port, got nil")
+	for _, value := range []string{"abc", "0", "-1", "65536"} {
+		if err := kd.Validate(value); err == nil {
+			t.Errorf("expected error for invalid port %q, got nil", value)
+		}
 	}
 }
 
@@ -156,6 +160,28 @@ func TestValidation_InvalidTLSMode(t *testing.T) {
 	}
 	if err := kd.Validate("xxx"); err == nil {
 		t.Error("expected error for invalid TLS mode, got nil")
+	}
+}
+
+func TestSMTPDeliveryConfigTrimsWhitespaceCredentials(t *testing.T) {
+	s := NewStoreForTest(map[string]string{
+		"smtp.host":     " smtp.example.test ",
+		"smtp.port":     " 25 ",
+		"smtp.from":     " noreply@example.test ",
+		"smtp.username": "   ",
+		"smtp.password": "",
+		"smtp.tls":      " none ",
+	})
+
+	cfg, ok := s.EmailDeliveryConfig()
+	if !ok {
+		t.Fatal("expected whitespace-padded relay settings to be configured")
+	}
+	if cfg.Host != "smtp.example.test" || cfg.From != "noreply@example.test" || cfg.Port != 25 || cfg.TLSMode != "none" {
+		t.Fatalf("normalized config = %#v", cfg)
+	}
+	if cfg.HasAuth {
+		t.Fatalf("whitespace-only username must not enable SMTP auth: %#v", cfg)
 	}
 }
 
@@ -250,6 +276,32 @@ func TestSettingsStoreInvalidRuntimeLimitValuesFallback(t *testing.T) {
 	got = store.Get("limits.max_activity_photos_per_activity")
 	if got.Value != "100" || got.Source != "default" {
 		t.Fatalf("invalid DB setting should fall back to default, got value=%q source=%q", got.Value, got.Source)
+	}
+}
+
+func TestSettingsStoreOpenRegistrationRequiresCompleteSMTP(t *testing.T) {
+	pool := settingsTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	keys := []string{"registration.mode", "smtp.host", "smtp.port", "smtp.username", "smtp.password", "smtp.from", "smtp.tls"}
+	_, _ = pool.Exec(ctx, `DELETE FROM server_settings WHERE key = ANY($1)`, keys)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM server_settings WHERE key = ANY($1)`, keys)
+	})
+
+	store := newTestSettingsStore(t, pool)
+	host := "smtp.example.test"
+	open := "open"
+
+	_, err := store.Put(ctx, map[string]*string{
+		"smtp.host":         &host,
+		"registration.mode": &open,
+	}, "00000000-0000-0000-0000-000000000001")
+	if !errors.Is(err, ErrValidation) {
+		t.Fatalf("expected validation error for open registration without smtp.from, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "smtp.from") {
+		t.Fatalf("expected smtp.from in error, got %v", err)
 	}
 }
 

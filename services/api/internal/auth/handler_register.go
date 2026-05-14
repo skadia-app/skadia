@@ -107,6 +107,11 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !isBootstrap && h.Settings.Get("registration.mode").Value == "open" && !h.Mailer.IsConfigured() {
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "smtp_not_configured"})
+		return
+	}
+
 	// HIBP check — always, not just open mode (M12).
 	compromised, err := CheckHIBP(req.Password)
 	if err != nil {
@@ -188,7 +193,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 		// Send verification email (async) — send the RAW token, not the hash.
 		if h.Mailer.IsConfigured() {
-			h.Mailer.SendVerificationEmail(req.Email, req.Username, verificationToken)
+			h.Mailer.SendVerificationEmail(user.ID, req.Email, req.Username, verificationToken)
 			httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "verification_email_sent"})
 		} else {
 			httputil.WriteJSONNoCache(w, http.StatusCreated, map[string]string{"status": "created"})
@@ -231,8 +236,63 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "no_email_configured"})
 		return
 	}
-	go h.Mailer.SendVerificationEmail(*user.Email, user.Username, token)
+	go h.Mailer.SendVerificationEmail(userID, *user.Email, user.Username, token)
 	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "verification_email_sent"})
+}
+
+// ResendVerificationByEmail handles POST /auth/resend-verification-email.
+// It is intentionally unauthenticated because unverified email-registration
+// users cannot receive a normal session token. The response is always generic
+// for syntactically valid email addresses to avoid account enumeration.
+func (h *Handler) ResendVerificationByEmail(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Email) == "" {
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "email_required"})
+		return
+	}
+
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if _, err := mail.ParseAddress(email); err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid_email"})
+		return
+	}
+
+	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "ok"})
+	if !h.RL.Allow("resend-email:"+email, 3.0/3600, 3) {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(h.shutdownCtx, 30*time.Second)
+		defer cancel()
+
+		user, err := h.DB.GetUserByEmail(ctx, email)
+		if err != nil || user.Email == nil || user.EmailVerified {
+			return
+		}
+		if user.RegistrationSrc == nil || *user.RegistrationSrc != "email" {
+			return
+		}
+		if !h.Mailer.IsConfigured() {
+			slog.Warn("resend-verification-email: SMTP not configured")
+			return
+		}
+		token, err := GenerateToken()
+		if err != nil {
+			slog.Error("resend-verification-email: generate token failed", "error", err)
+			return
+		}
+		if err := h.DB.CreateEmailToken(ctx, uuid.MustParse(user.ID), HashToken(token), "verification",
+			time.Now().Add(24*time.Hour)); err != nil {
+			slog.Error("resend-verification-email: create email token failed", "error", err)
+			return
+		}
+		h.Mailer.SendVerificationEmail(user.ID, *user.Email, user.Username, token)
+	}()
 }
 
 // VerifyEmail handles POST /auth/verify-email.

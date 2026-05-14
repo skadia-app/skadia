@@ -86,7 +86,7 @@ func (h *Handler) ChangeEmail(w http.ResponseWriter, r *http.Request) {
 
 	if !exists {
 		// Send verification to the NEW email address.
-		go h.Mailer.SendChangeEmailVerification(req.NewEmail, user.Username, token)
+		go h.Mailer.SendChangeEmailVerification(userID, req.NewEmail, user.Username, token)
 	}
 	// Silent drop if email collision — timing equalized, token expires in 24h.
 

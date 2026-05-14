@@ -167,7 +167,17 @@ func (h *Handler) authenticateUser(w http.ResponseWriter, r *http.Request, email
 		return nil
 	}
 
-	// 7. Success — clear delays.
+	// 7. Email self-registrations must verify the address before receiving tokens.
+	if user.RegistrationSrc != nil && *user.RegistrationSrc == "email" && !user.EmailVerified {
+		slog.Info("auth.login_email_unverified", "user_id", user.ID)
+		if err := h.DB.LogAuthEventStrict(r.Context(), user.ID, "login_email_unverified", middleware.ClientIP(r), r.UserAgent(), map[string]string{"method": "email"}); err != nil {
+			slog.Error("log unverified email login failed", "user_id", user.ID, "error", err)
+		}
+		httputil.WriteJSONNoCache(w, http.StatusForbidden, map[string]string{"error": "email_not_verified"})
+		return nil
+	}
+
+	// 8. Success — clear delays.
 	if err := h.DB.UpdateLoginSuccess(r.Context(), user.ID); err != nil {
 		slog.Error("update login success failed", "error", err)
 	}
