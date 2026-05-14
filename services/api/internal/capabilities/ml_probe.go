@@ -12,13 +12,13 @@ import (
 // Wird von der Background-Goroutine alle 30s aktualisiert.
 var mlServiceAvailable atomic.Bool
 
-// StartMLProbe startet eine Background-Goroutine, die alle 30s den ML-Service
-// probt (GET <url>/health, 2s Timeout). Läuft bis ctx abgebrochen wird.
+// StartMLProbe startet eine Background-Goroutine, die alle 30s die ML-Readiness
+// probt (GET <url>/readyz, 2s Timeout). Läuft bis ctx abgebrochen wird.
 func StartMLProbe(ctx context.Context, mlServiceURL string) {
 	go func() {
 		client := &http.Client{Timeout: 2 * time.Second}
 		probe := func() {
-			resp, err := client.Get(mlServiceURL + "/health")
+			resp, err := client.Get(mlServiceURL + "/readyz")
 			if err != nil {
 				mlServiceAvailable.Store(false)
 				slog.Debug("ml probe: unavailable", "error", err)

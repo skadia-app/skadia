@@ -124,9 +124,9 @@ func (c *Client) Post(ctx context.Context, path string, body any) (json.RawMessa
 	return json.RawMessage(respBody), nil
 }
 
-// Health checks if the ML service is reachable.
+// Health checks if the ML service is ready for API-facing work.
 func (c *Client) Health(ctx context.Context) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/readyz", nil)
 	if err != nil {
 		return false, err
 	}
