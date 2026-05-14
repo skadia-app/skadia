@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -84,9 +85,21 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hash := fmt.Sprintf("%x", sha256.Sum256(data))
+	tracker := directUploadTracker(r.Context(), h.DB, userID, header.Filename, int64(len(data)), model.ImportTypePhoto, hash, map[string]any{
+		"target_type":  "route_photo",
+		"route_id":     routeID,
+		"content_type": ct,
+		"steps":        []directImportStep{{Key: "upload", Label: "Upload", Status: "pending"}},
+	})
 
 	releaseLimit, limitErr := h.enforceRoutePhotoLimit(r.Context(), userID, routeID)
 	if limitErr != nil {
+		var routeLimit *routePhotoLimitError
+		if errors.As(limitErr, &routeLimit) {
+			tracker.Skipped(r.Context(), "limit_reached", nil)
+		} else {
+			tracker.Error(r.Context(), limitErr)
+		}
 		if writeMediaUploadProblem(w, r, limitErr) {
 			return
 		}
@@ -125,6 +138,7 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 		Tags:        map[string]string{"role": "photo"},
 	}, bytes.NewReader(data))
 	if putErr != nil {
+		tracker.Error(r.Context(), putErr)
 		if writeMediaUploadProblem(w, r, putErr) {
 			return
 		}
@@ -154,6 +168,7 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 
 	saved, err := h.DB.InsertRoutePhoto(r.Context(), photo)
 	if err != nil {
+		tracker.Error(r.Context(), err)
 		slog.Error("insert route photo failed", "error", err)
 		cleanup()
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to save photo", r.URL.Path)
@@ -165,6 +180,7 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 		`UPDATE route_photos SET file_id = $1 WHERE id = $2`,
 		photoFileID, saved.ID,
 	); dbErr != nil {
+		tracker.Error(r.Context(), dbErr)
 		slog.Error("route_photos: set file_id failed", "photo_id", saved.ID, "error", dbErr)
 		if _, delErr := h.DB.Pool.Exec(cleanupCtx,
 			`DELETE FROM route_photos WHERE id = $1 AND user_id = $2`,
@@ -215,6 +231,16 @@ func (h *Handler) UploadRoutePhoto(w http.ResponseWriter, r *http.Request) {
 			storedFileIDs = append(storedFileIDs, previewRec.ID)
 		}
 	}
+
+	setDirectImportMetadata(r.Context(), tracker, map[string]any{
+		"target_type":  "route_photo",
+		"target_id":    saved.ID,
+		"route_id":     routeID,
+		"file_id":      photoFileID,
+		"content_type": ct,
+		"steps":        []directImportStep{{Key: "upload", Label: "Upload", Status: "completed"}},
+	})
+	tracker.Completed(r.Context(), "")
 
 	httputil.WriteJSON(w, http.StatusCreated, saved)
 }

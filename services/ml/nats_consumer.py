@@ -214,7 +214,59 @@ async def _update_document_processing_status(
                 status,
                 doc_id,
                 user_id,
-            )
+                )
+
+
+async def _complete_document_import_log(
+    pool,
+    doc_id: str,
+    user_id: str,
+    file_id: str,
+    success: bool,
+    markdown_status: str = "",
+) -> None:
+    if not doc_id or not user_id:
+        return
+    if markdown_status not in ("completed", "failed", "skipped"):
+        markdown_status = ""
+    status = "completed" if success else "error"
+    step_status = "completed" if success else "failed"
+    error_msg = None if success else "document processing failed"
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE import_log AS l
+            SET status = $4,
+                error_msg = $5,
+                duration_ms = GREATEST(0, (EXTRACT(EPOCH FROM (NOW() - l.created_at)) * 1000)::int),
+                metadata = COALESCE(l.metadata, '{}'::jsonb) || jsonb_build_object(
+                  'document_processed', jsonb_build_object('success', $3::boolean, 'file_id', NULLIF($2, ''), 'markdown_status', NULLIF($8, '')),
+                  'steps', COALESCE((
+                    SELECT jsonb_agg(
+                      CASE
+                        WHEN step->>'key' = 'markdown' AND $8 <> '' THEN jsonb_set(step, '{status}', to_jsonb($8::text), true)
+                        WHEN step->>'status' = 'pending' THEN jsonb_set(step, '{status}', to_jsonb($6::text), true)
+                        ELSE step
+                      END ORDER BY ordinality
+                    )
+                    FROM jsonb_array_elements(COALESCE(l.metadata->'steps', '[]'::jsonb)) WITH ORDINALITY AS s(step, ordinality)
+                  ), '[]'::jsonb)
+                )
+            WHERE l.user_id = $7
+              AND l.import_type = 'document'
+              AND l.status IN ('pending', 'processing')
+              AND l.metadata->>'target_id' = $1
+              AND ($2 = '' OR l.metadata->>'file_id' = $2)
+            """,
+            doc_id,
+            file_id or "",
+            success,
+            status,
+            error_msg,
+            step_status,
+            user_id,
+            markdown_status,
+        )
 
 
 async def _run_with_in_progress_heartbeat(msg, awaitable, timeout_seconds: float):
@@ -403,6 +455,7 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
         try:
             pool = await get_pool()
             await _update_document_processing_status(pool, "failed", valid_doc_id, valid_user_id)
+            await _complete_document_import_log(pool, valid_doc_id, valid_user_id, "", False)
         except Exception as e:
             logger.warning("failed to mark legacy document message as failed for %s: %s", valid_doc_id, e)
         await msg.ack()
@@ -421,6 +474,7 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                 if storage_metadata is None:
                     logger.error("document message missing active user_files metadata for %s", doc_id)
                     await _update_document_processing_status(pool, "failed", doc_id, user_id, file_id)
+                    await _complete_document_import_log(pool, doc_id, user_id, file_id, False)
                     await msg.ack()
                     return
                 success = await _run_with_in_progress_heartbeat(
@@ -452,6 +506,7 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                     file_id,
                 )
 
+                markdown_status = "skipped"
                 # Markdown conversion is optional; the DB column is the only tracked output.
                 if success:
                     extracted_text = data.get("extracted_text", "") or ""
@@ -485,8 +540,16 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                                         file_id,
                                     )
                                 logger.info("stored extracted_markdown for document %s", doc_id)
+                                markdown_status = "completed"
+                            else:
+                                markdown_status = "failed"
                         except Exception as e:
+                            markdown_status = "failed"
                             logger.warning("markdown conversion failed for document %s: %s", doc_id, e)
+                else:
+                    markdown_status = "failed"
+
+                await _complete_document_import_log(pool, doc_id, user_id, file_id, success, markdown_status)
 
                 try:
                     await nc.publish(
@@ -497,6 +560,7 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                             "gear_id": data.get("gear_id"),
                             "file_id": file_id,
                             "success": success,
+                            "markdown_status": markdown_status,
                         }).encode(),
                     )
                 except Exception as e:
@@ -518,6 +582,7 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                 try:
                     pool = await get_pool()
                     await _update_document_processing_status(pool, "failed", doc_id, user_id, file_id)
+                    await _complete_document_import_log(pool, doc_id, user_id, file_id, False)
                 except Exception as status_err:
                     logger.warning("failed to mark document %s as failed: %s", doc_id, status_err)
 

@@ -21,6 +21,7 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	natsgo "github.com/nats-io/nats.go"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
 	agenttools "github.com/skadia-app/skadia/services/api/internal/agent/tools"
@@ -53,7 +54,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-const metricsAddrEnv = "SKADIA_METRICS_ADDR"
+const (
+	metricsAddrEnv             = "SKADIA_METRICS_ADDR"
+	importLogProcessingTimeout = 30 * time.Minute
+)
 
 func main() {
 	// Parse LOG_LEVEL before config.Load() so startup logs use the correct level.
@@ -502,18 +506,18 @@ func main() {
 	}
 
 	// Clean up stale processing entries from previous runs (crash recovery).
-	if cleaned, cleanErr := db.CleanupStaleProcessing(ctx, 10*time.Minute); cleanErr == nil && cleaned > 0 {
+	if cleaned, cleanErr := db.CleanupStaleProcessing(ctx, importLogProcessingTimeout); cleanErr == nil && cleaned > 0 {
 		slog.Info("import_log: cleaned stale processing entries", "count", cleaned)
 	}
 
-	// Periodic cleanup of stale import_log 'processing' entries (every 10 min).
+	// Periodic cleanup of stale import_log 'processing' entries.
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				if n, err := db.CleanupStaleProcessing(ctx, 10*time.Minute); err != nil {
+				if n, err := db.CleanupStaleProcessing(ctx, importLogProcessingTimeout); err != nil {
 					slog.Warn("import_log: periodic cleanup stale processing", "error", err)
 				} else if n > 0 {
 					slog.Info("import_log: periodic cleanup stale processing", "count", n)
@@ -897,6 +901,15 @@ func main() {
 		h.DocumentUploadedPublisher = pub
 		h.PhotoEmbedPublisher = pub
 		h.EventConn = pub
+		if sub, subErr := pub.Subscribe("skadia.document.processed", func(msg *natsgo.Msg) {
+			if err := h.HandleDocumentProcessedMessage(ctx, msg.Data); err != nil {
+				slog.Warn("document processed message ignored", "error", err)
+			}
+		}); subErr != nil {
+			slog.Warn("document processed subscription failed", "error", subErr)
+		} else {
+			defer sub.Unsubscribe()
+		}
 	}
 
 	// Routing graph manager — initialize tiled routing (UnifiedRouter).
