@@ -928,7 +928,9 @@ func main() {
 			tileCacheBytes = n
 		}
 	}
-	if unified, err := graphMgr.InitTiledReader(tileDir, tileCacheBytes); err != nil {
+	if cfg.DeploymentProfile == "core" {
+		slog.Info("routing: tiled BadRouter reader disabled by deployment profile")
+	} else if unified, err := graphMgr.InitTiledReader(tileDir, tileCacheBytes); err != nil {
 		slog.Warn("unified tiled reader init failed", "error", err)
 	} else if unified {
 		slog.Info("routing: unified router active")
@@ -944,7 +946,9 @@ func main() {
 
 	// DiskCoverageReader — mmap-based reader for FCOV coverage binaries
 	coverageDir := filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage")
-	if _, statErr := os.Stat(coverageDir); statErr == nil {
+	if cfg.DeploymentProfile == "core" {
+		slog.Info("disk coverage reader disabled by deployment profile")
+	} else if _, statErr := os.Stat(coverageDir); statErr == nil {
 		diskReader, drErr := coverage.NewDiskCoverageReader(coverageDir, 256)
 		if drErr != nil {
 			slog.Warn("disk coverage reader init failed", "error", drErr)

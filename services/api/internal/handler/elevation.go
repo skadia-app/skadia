@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
@@ -136,6 +137,7 @@ func (h *Handler) QueryElevation(w http.ResponseWriter, r *http.Request) {
 //	    ...
 //	  ]
 //	}
+//
 // atVerticesMaxCoords is the maximum number of vertices accepted in
 // at_vertices mode. Requests exceeding this limit return 400 polyline_too_long.
 const atVerticesMaxCoords = 50_000
@@ -308,6 +310,9 @@ func extractLineStringCoords(geometryJSON json.RawMessage) ([][]float64, error) 
 //  1. scripts/dem-import.sh <source> <dir>   → lädt GeoTIFFs per raster2pgsql in DB
 //  2. POST /api/v1/dem/import                → ANALYZE + Overview-Raster im Hintergrund
 func (h *Handler) ImportDEM(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyDEMCorrection) {
+		return
+	}
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return

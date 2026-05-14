@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/geosearch"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -31,6 +32,9 @@ var geoSearchLimiter = geosearch.NewLimiter(60, time.Hour, time.Now)
 // GetOSMStatus returns counts from OSM tables.
 // GET /api/v1/admin/osm-status
 func (h *Handler) GetOSMStatus(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+		return
+	}
 	ctx := r.Context()
 
 	// POI categories
@@ -94,6 +98,9 @@ func (h *Handler) GetOSMStatus(w http.ResponseWriter, r *http.Request) {
 // GetOSMRegionStatus returns all tracked import regions with metadata.
 // GET /api/v1/admin/osm-regions/status
 func (h *Handler) GetOSMRegionStatus(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+		return
+	}
 	rows, err := h.DB.Pool.Query(r.Context(), `
 		SELECT region_id, label, continent, imported_at, pbf_date,
 		       pbf_size_bytes, import_duration_s, categories, status,
@@ -153,6 +160,9 @@ func (h *Handler) GetOSMRegionStatus(w http.ResponseWriter, r *http.Request) {
 // Uses direct query instead of view for robustness (view may not exist or have permission issues).
 // GET /api/v1/admin/osm-disk-usage
 func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+		return
+	}
 	// Bekannte OSM-Tabellen direkt abfragen — vermeidet Abhängigkeit auf osm_disk_usage View
 	osmTables := []string{
 		"osm_pois", "osm_ways", "osm_lifts", "osm_waterways", "osm_waters",
@@ -195,6 +205,9 @@ func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
 // DeleteOSMRegion removes a region: deletes OSM data, tracking entry, and PBF files.
 // DELETE /api/v1/admin/osm-regions/{regionID}
 func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+		return
+	}
 	regionID := chi.URLParam(r, "regionID")
 	if regionID == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "missing region ID", r.URL.Path)
@@ -321,6 +334,9 @@ func (h *Handler) geoSearchExternalPolicy(ctx context.Context, userID string, re
 // GetDEMStatus returns available DEM data sources and tile counts.
 // GET /api/v1/admin/dem-status
 func (h *Handler) GetDEMStatus(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyDEMCorrection) {
+		return
+	}
 	type demSource struct {
 		Source      string  `json:"source"`
 		ResolutionM float64 `json:"resolution_m"`
@@ -358,6 +374,9 @@ func (h *Handler) GetDEMStatus(w http.ResponseWriter, r *http.Request) {
 // RetryOSMEnrichment re-runs only the enrichment + splitting phases (6+7) on existing osm_ways.
 // POST /api/v1/admin/osm-import/retry-enrichment
 func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyOSMEnrichment) {
+		return
+	}
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
@@ -412,6 +431,9 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 // GetOSMSchedule returns current scheduler settings shared across all imported regions.
 // GET /api/v1/admin/osm-schedule
 func (h *Handler) GetOSMSchedule(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+		return
+	}
 	var schedule struct {
 		Interval string `json:"interval"`
 		Weekday  int    `json:"weekday"`
@@ -436,6 +458,9 @@ func (h *Handler) GetOSMSchedule(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/admin/osm-schedule
 // Body: { "interval": "weekly"|"monthly"|"manual", "weekday": 1, "day": 1, "hour": 3 }
 func (h *Handler) SetOSMSchedule(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+		return
+	}
 	var req struct {
 		Interval string `json:"interval"`
 		Weekday  int    `json:"weekday"`
@@ -468,6 +493,10 @@ func (h *Handler) SetOSMSchedule(w http.ResponseWriter, r *http.Request) {
 // whether any imported region has an automatic update due and triggers it.
 // Call once from main after the handler is initialised.
 func (h *Handler) StartOSMUpdateScheduler(ctx context.Context) {
+	if h.featureUnavailableReasonWithContext(ctx, capabilities.KeyOSMImport) != "" {
+		slog.Info("OSM update scheduler disabled by deployment capabilities")
+		return
+	}
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
@@ -647,6 +676,9 @@ func (h *Handler) runRegionUpdate(ctx context.Context, jobID, regionID, label, r
 // TriggerOSMRegionUpdate triggers an immediate incremental update for a single region.
 // POST /api/v1/admin/osm-regions/{regionID}/update
 func (h *Handler) TriggerOSMRegionUpdate(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+		return
+	}
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return
@@ -726,6 +758,9 @@ type patchTarget struct {
 // PBFs are patched individually, then reimported via per-region RunPerRegion.
 // POST /api/v1/admin/osm-regions/update-all
 func (h *Handler) BatchUpdateAllRegions(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+		return
+	}
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return

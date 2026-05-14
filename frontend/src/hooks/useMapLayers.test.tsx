@@ -90,6 +90,21 @@ describe('useMapLayers', () => {
     expect(result.current.base.map((l) => l.key)).toContain('offline')
   })
 
+  it('filters configured-but-unavailable feature-state layers', async () => {
+    ;(useCapabilities as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: {
+        features: {
+          offline_map: { configured: true, available: false, reason: 'missing_artifacts' },
+        },
+      },
+      isLoading: false,
+    })
+    const { result } = renderHook(() => useMapLayers(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.base.map((l) => l.key)).toEqual(['osm'])
+    expect(result.current.disabled.map((d) => d.layer.key)).toEqual(['offline'])
+  })
+
   it('filters out capability-gated layers while caps still loading (restrictive default)', async () => {
     ;(useCapabilities as ReturnType<typeof vi.fn>).mockReturnValue({
       data: undefined,

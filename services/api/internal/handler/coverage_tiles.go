@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/osm/coverage"
 	graphpkg "github.com/skadia-app/skadia/services/api/internal/routing/graph"
@@ -15,6 +16,9 @@ import (
 )
 
 func (h *Handler) CoverageTile(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyCoverageTiles) {
+		return
+	}
 	// Chi wildcard routes pass the entire remainder as a single parameter.
 	// We split the path to extract layer/z/x/y components.
 	// Format: /api/v1/coverage/tiles/{layer}/{z}/{x}/{y}.png
@@ -80,7 +84,7 @@ func (h *Handler) CoverageTile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.CoverageReader == nil {
-		writePNG(w, coverage.TransparentPNG())
+		writeFeatureUnavailable(w, r, capabilities.KeyCoverageTiles, capabilities.ReasonMissingArtifacts)
 		return
 	}
 

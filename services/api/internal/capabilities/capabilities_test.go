@@ -1,6 +1,10 @@
 package capabilities
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestFeatureStateLegacyBooleansRequireConfiguredAndAvailable(t *testing.T) {
 	caps := Capabilities{
@@ -93,6 +97,21 @@ func TestBuildFeatureStatesFullReportsMissingArtifacts(t *testing.T) {
 	assertFeature(t, caps, KeyMLService, true, false, ReasonMissingService)
 	if caps.BadRouter || caps.Coverage || caps.MLService {
 		t.Fatalf("legacy booleans should be false for missing full artifacts: %#v", caps)
+	}
+}
+
+func TestDetectRuntimeFindsCoverageBinArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "forest"), 0o755); err != nil {
+		t.Fatalf("mkdir coverage layer: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "forest", "47_8.bin"), []byte("fixture"), 0o644); err != nil {
+		t.Fatalf("write coverage fixture: %v", err)
+	}
+
+	runtime := probeRuntime(t.Context(), nil, DetectInput{CoverageDir: dir})
+	if !runtime.Coverage || !runtime.CoverageTiles {
+		t.Fatalf("coverage runtime = %#v, want coverage and coverage tiles from nested .bin artifacts", runtime)
 	}
 }
 

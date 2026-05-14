@@ -14,7 +14,23 @@ import (
 // Returns the 14 SystemLayerDescriptors that are the code source-of-truth.
 // Mounted on the top-level router (no jwtAuth middleware) in main.go.
 func (h *Handler) GetSystemLayerKeys(w http.ResponseWriter, r *http.Request) {
-	httputil.WriteJSON(w, http.StatusOK, model.SystemLayers)
+	type systemLayerDescriptorResponse struct {
+		model.SystemLayerDescriptor
+		Available bool   `json:"available"`
+		Reason    string `json:"reason,omitempty"`
+	}
+	resp := make([]systemLayerDescriptorResponse, 0, len(model.SystemLayers))
+	for _, layer := range model.SystemLayers {
+		item := systemLayerDescriptorResponse{SystemLayerDescriptor: layer, Available: true}
+		if layer.RequiredCapability != "" {
+			if reason := h.featureUnavailableReasonWithContext(r.Context(), layer.RequiredCapability); reason != "" {
+				item.Available = false
+				item.Reason = reason
+			}
+		}
+		resp = append(resp, item)
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // PatchSystemLayerVisibility — admin only.
@@ -28,13 +44,22 @@ func (h *Handler) PatchSystemLayerVisibility(w http.ResponseWriter, r *http.Requ
 			mapLayerErrBody("unknown_key", "no system layer with key: "+key))
 		return
 	}
+	for _, layer := range model.SystemLayers {
+		if layer.Key == key && layer.RequiredCapability != "" {
+			if reason := h.featureUnavailableReasonWithContext(r.Context(), layer.RequiredCapability); reason != "" {
+				writeFeatureUnavailable(w, r, layer.RequiredCapability, reason)
+				return
+			}
+			break
+		}
+	}
 
 	patch, ok := httputil.DecodeJSON[map[string]any](w, r)
 	if !ok {
 		return
 	}
 	allowed := map[string]bool{
-		"enabled":                      true,
+		"enabled":                       true,
 		"default_enabled_for_new_users": true,
 		"default_opacity":               true,
 		"label_override":                true,
