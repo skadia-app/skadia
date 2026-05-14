@@ -33,11 +33,12 @@ def s3_bucket_for_file_type(file_type: str) -> str:
     return default_bucket
 
 
-def read_limited_file(path: Path, max_bytes: int) -> bytes:
+def read_limited_file(path: Path, max_bytes: int) -> Optional[bytes]:
     with path.open("rb") as f:
         data = f.read(max_bytes + 1)
     if len(data) > max_bytes:
-        raise RetryableStorageReadError(f"file exceeds {max_bytes} bytes")
+        logger.warning("local user file exceeds %d bytes: %s", max_bytes, path)
+        return None
     return data
 
 
