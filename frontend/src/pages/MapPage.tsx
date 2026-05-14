@@ -26,6 +26,7 @@ import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
 import { buildMapLineColor } from '@/lib/mapSportColors'
 import { buildLayerStyle, expandSwitch, opacityPercentToFloat, type BaseStyle } from '@/lib/mapStyles'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 import { mapLayerStackDiff } from '@/lib/mapLayerStackDiff'
 import { useMapLayersMerged } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
@@ -2731,7 +2732,9 @@ export default function MapPage() {
     return () => cancelAnimationFrame(id)
   }, [styleVersion, layerEntries, applyOrder])
 
-  const plannerAvailable = planner.capabilities?.routing ?? false
+  const plannerAvailable = featureAvailable(planner.capabilities, 'routing')
+  const badRouterAvailable = featureAvailable(planner.capabilities, 'badrouter')
+  const routeSuggestionAvailable = featureAvailable(planner.capabilities, 'route_suggestion')
 
   // System overlay layers from the catalog (raster or vector_style, enabled).
   const sysOverlaysForPicker = rawLayers.filter(
@@ -2800,7 +2803,8 @@ export default function MapPage() {
                 showHeatmap={viewMode === 'heatmap'}
                 routingEngine={planner.routingEngine}
                 brouterProfile={planner.brouterProfile}
-                badRouterAvailable={planner.capabilities?.routing ?? false}
+                badRouterAvailable={badRouterAvailable}
+                routeSuggestionAvailable={routeSuggestionAvailable}
                 onRoutingEngineChange={planner.setRoutingEngine}
                 onBrouterProfileChange={planner.setBrouterProfile}
                 totalDistanceM={planner.totals.distance_m}
@@ -2845,7 +2849,9 @@ export default function MapPage() {
                     setShowSaveDialog(true)
                   }
                 }}
-                onSuggest={() => setShowSuggestionDialog(true)}
+                onSuggest={() => {
+                  if (routeSuggestionAvailable) setShowSuggestionDialog(true)
+                }}
                 onClose={handlePlannerClose}
                 calculationError={planner.calculationError}
                 onClearError={planner.clearError}
@@ -3281,7 +3287,7 @@ export default function MapPage() {
         )}
 
         {/* Route Suggestion Dialog */}
-        {showSuggestionDialog && (() => {
+        {showSuggestionDialog && routeSuggestionAvailable && (() => {
           const map = mapRef.current
           const center = map ? map.getCenter() : { lat: 47.5, lng: 11.0 }
           const firstWaypoint = planner.waypoints[0]

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
@@ -158,15 +159,17 @@ func (h *Handler) HandleListProfiles(w http.ResponseWriter, r *http.Request) {
 
 	var profiles []profileListItem
 
-	// 1. All BadRouter profiles from DB (system, filesystem, user)
-	dbProfiles, err := h.DB.ListRoutingProfiles(r.Context(), userID)
-	if err != nil {
-		slog.Error("HandleListProfiles: ListRoutingProfiles failed", "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to list profiles", r.URL.Path)
-		return
-	}
-	for _, dp := range dbProfiles {
-		profiles = append(profiles, profileListItemFromDBProfile(dp, userID))
+	if h.featureUnavailableReason(capabilities.KeyBadRouter) == "" {
+		// 1. All BadRouter profiles from DB (system, filesystem, user)
+		dbProfiles, err := h.DB.ListRoutingProfiles(r.Context(), userID)
+		if err != nil {
+			slog.Error("HandleListProfiles: ListRoutingProfiles failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Server Error", "failed to list profiles", r.URL.Path)
+			return
+		}
+		for _, dp := range dbProfiles {
+			profiles = append(profiles, profileListItemFromDBProfile(dp, userID))
+		}
 	}
 
 	// 2. BRouter profiles from filesystem (cached with TTL to avoid per-request Glob).
@@ -213,6 +216,9 @@ type createProfileRequest struct {
 func (h *Handler) HandleCreateProfile(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if !h.requireFeature(w, r, capabilities.KeyBadRouter) {
 		return
 	}
 
@@ -284,6 +290,9 @@ func (h *Handler) HandleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.requireFeature(w, r, capabilities.KeyBadRouter) {
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	// Ownership check
@@ -353,6 +362,9 @@ func (h *Handler) HandleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.requireFeature(w, r, capabilities.KeyBadRouter) {
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	if err := h.DB.DeleteRoutingProfile(r.Context(), id, userID); err != nil {
@@ -373,6 +385,9 @@ func (h *Handler) HandleDeleteProfile(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleImportProfiles(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if !h.requireFeature(w, r, capabilities.KeyBadRouter) {
 		return
 	}
 
@@ -513,6 +528,9 @@ func (h *Handler) HandleExportProfile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.requireFeature(w, r, capabilities.KeyBadRouter) {
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	profile, err := h.DB.GetRoutingProfile(r.Context(), id)
@@ -571,6 +589,9 @@ func (h *Handler) HandleExportProfile(w http.ResponseWriter, r *http.Request) {
 // HandleUploadBrouterProfile uploads a .brf profile file to the BRouter profiles directory.
 // POST /admin/routing/brouter-profiles
 func (h *Handler) HandleUploadBrouterProfile(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyBRouterSegmentBuild) {
+		return
+	}
 	if err := r.ParseMultipartForm(4 << 20); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "failed to parse multipart form", r.URL.Path)
 		return
@@ -621,6 +642,9 @@ func (h *Handler) HandleUploadBrouterProfile(w http.ResponseWriter, r *http.Requ
 // HandleDeleteBrouterProfile deletes a .brf profile file from the BRouter profiles directory.
 // DELETE /admin/routing/brouter-profiles/{name}
 func (h *Handler) HandleDeleteBrouterProfile(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeature(w, r, capabilities.KeyBRouterSegmentBuild) {
+		return
+	}
 	name := chi.URLParam(r, "name")
 
 	// Reject path traversal

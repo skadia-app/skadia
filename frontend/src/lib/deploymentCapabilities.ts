@@ -51,34 +51,34 @@ export function validateCapabilityKey(key: string): key is CapabilityKey {
   return CAPABILITY_KEY_SET.has(key)
 }
 
-export function featureConfigured(caps: Capabilities | undefined, key: string): boolean {
+export function featureConfigured(caps: Capabilities | null | undefined, key: string): boolean {
   const state = caps?.features?.[key]
   if (state) return state.configured === true
   return caps?.[key] === true
 }
 
-export function featureAvailable(caps: Capabilities | undefined, key: string): boolean {
+export function featureAvailable(caps: Capabilities | null | undefined, key: string): boolean {
   const state = caps?.features?.[key]
   if (state) return state.configured === true && state.available === true
   return caps?.[key] === true
 }
 
-export function featureReason(caps: Capabilities | undefined, key: string): string | undefined {
+export function featureReason(caps: Capabilities | null | undefined, key: string): string | undefined {
   return caps?.features?.[key]?.reason
 }
 
-export function legacyCapability(caps: Capabilities | undefined, key: string): boolean {
+export function legacyCapability(caps: Capabilities | null | undefined, key: string): boolean {
   return featureAvailable(caps, key)
 }
 
-export function deploymentProfile(caps: Capabilities | undefined): string {
+export function deploymentProfile(caps: Capabilities | null | undefined): string {
   return typeof caps?.deployment_profile === 'string' ? caps.deployment_profile : 'full'
 }
 
-export function storageMode(caps: Capabilities | undefined): string {
+export function storageMode(caps: Capabilities | null | undefined): string {
   return typeof caps?.storage_mode === 'string' ? caps.storage_mode : 'local'
 }
 
-export function storageBackend(caps: Capabilities | undefined): string {
+export function storageBackend(caps: Capabilities | null | undefined): string {
   return typeof caps?.storage_backend === 'string' ? caps.storage_backend : 'local'
 }
