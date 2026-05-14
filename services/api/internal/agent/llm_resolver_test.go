@@ -177,7 +177,32 @@ func TestLLMResolverRejectsStaleContextWindowIdentity(t *testing.T) {
 	}
 }
 
-func TestLLMResolverAcceptsLegacyFallbackContextWindowIdentityWhenRoleContextUnset(t *testing.T) {
+func TestLLMResolverAcceptsLegacyDefaultContextWindowIdentityWhenRoleContextUnset(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	modelName := "system-model"
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:        "tool_agent",
+			BackendType: "llama_server",
+			APIBase:     &apiBase,
+			ModelName:   &modelName,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusPassed,
+			EvalReport:  evalIdentityReport("tool_agent", "llama_server", "system.example", modelName),
+		}},
+	}, LLMResolverConfig{
+		EncryptionKey: testLLMKey,
+		ContextWindow: 8000,
+	})
+
+	if got, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err != nil {
+		t.Fatalf("Resolve returned error for legacy eval identity with unset role context: %v", err)
+	} else if got.ContextWindow != 8000 {
+		t.Fatalf("ContextWindow = %d, want fallback 8000", got.ContextWindow)
+	}
+}
+
+func TestLLMResolverRejectsLegacyIdentityWhenFallbackContextWindowChanged(t *testing.T) {
 	apiBase := "http://system.example/v1"
 	modelName := "system-model"
 	resolver := NewLLMResolver(fakeLLMStore{
@@ -195,10 +220,8 @@ func TestLLMResolverAcceptsLegacyFallbackContextWindowIdentityWhenRoleContextUns
 		ContextWindow: 16000,
 	})
 
-	if got, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err != nil {
-		t.Fatalf("Resolve returned error for legacy eval identity with unset role context: %v", err)
-	} else if got.ContextWindow != 16000 {
-		t.Fatalf("ContextWindow = %d, want fallback 16000", got.ContextWindow)
+	if _, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err == nil {
+		t.Fatal("Resolve returned nil error, want stale context window eval identity error")
 	}
 }
 

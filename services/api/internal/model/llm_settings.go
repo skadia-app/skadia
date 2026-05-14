@@ -34,6 +34,8 @@ const (
 
 	LLMContextWindowMin = 1024
 	LLMContextWindowMax = 2000000
+
+	legacyEvalContextWindowFallback = 8000
 )
 
 var ValidLLMRoles = []string{
@@ -231,7 +233,7 @@ func (c LLMSystemConfig) EvalIdentityMatchesCurrentConfigWithFallback(contextWin
 	if reportIdentity == current {
 		return true
 	}
-	if c.ContextWindow == nil && contextWindowFallback > 0 && reportIdentity.ContextWindow == 0 {
+	if c.ContextWindow == nil && legacyEvalAllowsMissingContextWindow(contextWindowFallback) && reportIdentity.ContextWindow == 0 {
 		legacyCurrent, legacyOK := c.CurrentEvalIdentityWithFallback(0)
 		return legacyOK && reportIdentity == legacyCurrent
 	}
@@ -268,12 +270,16 @@ func (c LLMSystemConfig) AllowsModelOverrideWithFallback(modelName string, conte
 		if record.matches(c.Role, c.BackendType, apiBaseHost, modelName, contextWindow) && record.gatePassed() {
 			return true
 		}
-		if c.ContextWindow == nil && contextWindowFallback > 0 && !record.hasContextWindow() &&
+		if c.ContextWindow == nil && legacyEvalAllowsMissingContextWindow(contextWindowFallback) && !record.hasContextWindow() &&
 			record.matches(c.Role, c.BackendType, apiBaseHost, modelName, 0) && record.gatePassed() {
 			return true
 		}
 	}
 	return false
+}
+
+func legacyEvalAllowsMissingContextWindow(contextWindowFallback int) bool {
+	return contextWindowFallback <= 0 || contextWindowFallback == legacyEvalContextWindowFallback
 }
 
 type llmEvalRecord map[string]any
