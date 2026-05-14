@@ -19,6 +19,7 @@ interface LiftDetectionHeaderProps {
   /** Called when recalculate-all starts or an existing recompute job is already running. */
   onJobStarted: () => void
   compact?: boolean
+  osmSnapAvailable?: boolean
 }
 
 interface LocalSettings {
@@ -102,7 +103,7 @@ async function hasRunningLiftRecompute(activityId: string): Promise<boolean> {
   )
 }
 
-export default function LiftDetectionHeader({ activityId, jobRunning, onJobStarted, compact = false }: LiftDetectionHeaderProps) {
+export default function LiftDetectionHeader({ activityId, jobRunning, onJobStarted, compact = false, osmSnapAvailable = true }: LiftDetectionHeaderProps) {
   const { addToast } = useToast()
   const qc = useQueryClient()
   const { data, isLoading } = useLiftDetectionConfig(activityId)
@@ -114,9 +115,11 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
   // Sync local state when query data arrives or changes (e.g. after reset).
   useEffect(() => {
     if (data) {
-      setLocal(deriveLocalSettings(data))
+      const next = deriveLocalSettings(data)
+      if (!osmSnapAvailable) next.osm = false
+      setLocal(next)
     }
-  }, [data])
+  }, [data, osmSnapAvailable])
 
   const recomputeMutation = useMutation({
     mutationFn: async (update: DetectionUpdate): Promise<RecomputeResult> => {
@@ -203,13 +206,15 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
         </span>
         {compact && (
           <div className="flex flex-wrap items-center gap-3">
-            <ToggleRow
-              label="OSM-Snap"
-              checked={local.osm}
-              disabled={allDisabled}
-              onChange={osm => handleToggle({ osm })}
-              testId="toggle-osm"
-            />
+            {osmSnapAvailable && (
+              <ToggleRow
+                label="OSM-Snap"
+                checked={local.osm}
+                disabled={allDisabled}
+                onChange={osm => handleToggle({ osm })}
+                testId="toggle-osm"
+              />
+            )}
             <ToggleRow
               label="Heuristik"
               checked={local.heuristic}
@@ -241,13 +246,15 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
 
       {!compact && (
         <div className="flex flex-wrap items-center gap-4">
-          <ToggleRow
-            label="OSM-Snap"
-            checked={local.osm}
-            disabled={allDisabled}
-            onChange={osm => handleToggle({ osm })}
-            testId="toggle-osm"
-          />
+          {osmSnapAvailable && (
+            <ToggleRow
+              label="OSM-Snap"
+              checked={local.osm}
+              disabled={allDisabled}
+              onChange={osm => handleToggle({ osm })}
+              testId="toggle-osm"
+            />
+          )}
           <ToggleRow
             label="Heuristik"
             checked={local.heuristic}

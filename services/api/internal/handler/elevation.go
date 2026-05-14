@@ -107,6 +107,9 @@ func (h *Handler) QueryElevation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyDEMCorrection) {
+		return
+	}
 	elevations, source, err := h.DB.GetElevation(r.Context(), req.Points)
 	if err != nil {
 		slog.Error("elevation query failed", "error", err, "user_id", userID)
@@ -175,6 +178,9 @@ func (h *Handler) ElevationProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Legacy resample mode: delegate to PostGIS dem.get_elevation_profile().
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyDEMCorrection) {
+		return
+	}
 	profile, err := h.DB.GetElevationProfile(r.Context(), string(req.Geometry), req.NumPoints)
 	if err != nil {
 		slog.Error("elevation profile failed", "error", err, "user_id", userID)
@@ -203,6 +209,9 @@ func (h *Handler) elevationProfileAtVertices(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if !h.requireDEMSvcAvailable(w, r) {
+		return
+	}
 	if h.DEMSvc == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "elevation service not configured", r.URL.Path)
 		return
@@ -228,6 +237,18 @@ func (h *Handler) elevationProfileAtVertices(w http.ResponseWriter, r *http.Requ
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"profile": profile,
 	})
+}
+
+func (h *Handler) requireDEMSvcAvailable(w http.ResponseWriter, r *http.Request) bool {
+	reason := h.featureNotAvailableReasonWithContext(r.Context(), capabilities.KeyDEMCorrection)
+	if reason == "" {
+		return true
+	}
+	if reason == capabilities.ReasonMissingArtifacts && h.DEMSvc != nil {
+		return true
+	}
+	writeFeatureUnavailable(w, r, capabilities.KeyDEMCorrection, reason)
+	return false
 }
 
 // buildPerVertexProfile constructs a []database.ElevationPoint from the raw
@@ -310,11 +331,11 @@ func extractLineStringCoords(geometryJSON json.RawMessage) ([][]float64, error) 
 //  1. scripts/dem-import.sh <source> <dir>   → lädt GeoTIFFs per raster2pgsql in DB
 //  2. POST /api/v1/dem/import                → ANALYZE + Overview-Raster im Hintergrund
 func (h *Handler) ImportDEM(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyDEMCorrection) {
-		return
-	}
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyDEMCorrection) {
 		return
 	}
 
@@ -409,6 +430,9 @@ func (h *Handler) runDEMImportJob(jobID, source string) {
 func (h *Handler) CorrectActivityElevation(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyDEMCorrection) {
 		return
 	}
 

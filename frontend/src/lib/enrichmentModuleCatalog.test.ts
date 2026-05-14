@@ -68,6 +68,17 @@ describe('enrichment module catalog', () => {
     expect(MODULE_API_FIELD['lifts_heuristic']).toBe('enable_lift_detection_heuristic')
   })
 
+  it('marks OSM-backed modules with deployment capabilities while keeping heuristic lifts core-safe', () => {
+    const byName = Object.fromEntries(ANALYSIS_MODULES.map(module => [module.name, module]))
+    for (const name of ['summits', 'forests', 'water', 'settlements', 'borders', 'stops']) {
+      expect(byName[name]?.requiresCapability).toBe('geo_poi_enrichment')
+    }
+    expect(byName.surfaces?.requiresCapability).toBe('surface_enrichment')
+    expect(byName.lifts_osm?.requiresCapability).toBe('osm_lift_snap')
+    expect(byName.lifts_heuristic?.requiresCapability).toBeUndefined()
+    expect(byName.lifts?.requiresCapability).toBeUndefined()
+  })
+
   // ── regression: existing modules untouched ────────────────────────────────
 
   it('existing standalone modules still return their scopes (regression)', () => {

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/edgetags"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -49,10 +51,11 @@ type activityTrackSummaryResponse struct {
 	// nil = not yet enriched; true = graph (map-snap) path with range data;
 	// false = SQL fallback path (ranges absent). Read from activity_enrichment_meta,
 	// written by EnrichTrackAnalysis at enrichment time.
-	GraphSnapUsed    *bool   `json:"graph_snap_used"`
+	GraphSnapUsed *bool `json:"graph_snap_used"`
 	// ResampleSpacingM is the uniform point spacing used during track resampling.
 	// The frontend uses this for stream-index mapping when interpreting range data.
-	ResampleSpacingM float64 `json:"resample_spacing_m"`
+	ResampleSpacingM    float64                              `json:"resample_spacing_m"`
+	FeatureCapabilities map[string]capabilities.FeatureState `json:"feature_capabilities,omitempty"`
 }
 
 type surfaceItem struct {
@@ -174,6 +177,7 @@ func (h *Handler) ActivityTrackSummary(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to build track summary", r.URL.Path)
 		return
 	}
+	summary.FeatureCapabilities = h.activityTrackSummaryFeatureCapabilities(r.Context())
 
 	body, err := json.Marshal(summary)
 	if err != nil {
@@ -195,6 +199,17 @@ func (h *Handler) ActivityTrackSummary(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(body); err != nil {
 		slog.Error("activity track summary: write failed", "activity_id", activityID, "error", err)
 	}
+}
+
+func (h *Handler) activityTrackSummaryFeatureCapabilities(ctx context.Context) map[string]capabilities.FeatureState {
+	caps := h.detectCapabilitiesForGate(ctx)
+	out := make(map[string]capabilities.FeatureState, 2)
+	for _, key := range []string{capabilities.KeyActivityTrackSummaryGeo, capabilities.KeyActivityTrackSummarySurface} {
+		if state, ok := caps.Features[key]; ok {
+			out[key] = state
+		}
+	}
+	return out
 }
 
 func (h *Handler) readTrackSummaryEnrichments(r *http.Request, activityID string) ([]trackSummaryEnrichmentRow, error) {

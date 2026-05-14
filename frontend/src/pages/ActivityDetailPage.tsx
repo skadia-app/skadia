@@ -78,6 +78,8 @@ import TrackSummary, { buildStatsRowProps } from '@/components/track-summary/Tra
 import type { ScaleKind } from '@/components/track-summary/TrackSummary'
 import StatsRow from '@/components/track-summary/StatsRow'
 import { normalizeSportTuple } from '@/lib/sportTaxonomy'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 
 function getSportEmoji(sportType: string): string {
   const normalized = normalizeSportTuple(sportType)
@@ -106,6 +108,10 @@ export default function ActivityDetailPage() {
   const [activeActivityId, setActiveActivityId] = useState(urlId!)
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const { data: capabilities } = useCapabilities()
+  const geoPOIAvailable = featureAvailable(capabilities, 'geo_poi_enrichment')
+  const surfaceEnrichmentAvailable = featureAvailable(capabilities, 'surface_enrichment')
+  const osmLiftSnapAvailable = featureAvailable(capabilities, 'osm_lift_snap')
 
   // Sync when URL changes from external navigation (not tab clicks)
   useEffect(() => {
@@ -172,18 +178,18 @@ export default function ActivityDetailPage() {
   const { data: geoTags } = useQuery<GeoTag[]>({
     queryKey: ['activity-geo-tags', activeActivityId],
     queryFn: () => fetchGeoTags(activeActivityId!),
-    enabled: !!activeActivityId && (activity?.has_gps ?? false),
+    enabled: !!activeActivityId && (activity?.has_gps ?? false) && geoPOIAvailable,
   })
 
   const { data: stops } = useQuery<ActivityStop[]>({
     queryKey: ['activity-stops', activeActivityId],
     queryFn: () => fetchStops(activeActivityId!),
-    enabled: !!activeActivityId,
+    enabled: !!activeActivityId && geoPOIAvailable,
   })
 
   const trackSummaryQuery = useActivityTrackSummary(
     activeActivityId,
-    !!activity && activity.sport_type !== 'multisport',
+    !!activity && activity.sport_type !== 'multisport' && (geoPOIAvailable || surfaceEnrichmentAvailable),
   )
 
   // Load child activities for multisport parent
@@ -320,6 +326,22 @@ export default function ActivityDetailPage() {
       return next
     })
   }
+
+  const effectiveHiddenModules = useMemo(() => {
+    const next = new Set(hiddenModules)
+    if (!geoPOIAvailable) {
+      for (const name of ['summits', 'forests', 'water', 'settlements', 'borders', 'stops']) {
+        next.add(name)
+      }
+    }
+    if (!surfaceEnrichmentAvailable) {
+      next.add('surfaces')
+    }
+    if (!osmLiftSnapAvailable) {
+      next.add('lifts_osm')
+    }
+    return next
+  }, [geoPOIAvailable, hiddenModules, osmLiftSnapAvailable, surfaceEnrichmentAvailable])
 
   // Drag & drop photo upload — page-level
   const [isDraggingPhotos, setIsDraggingPhotos] = useState(false)
@@ -902,7 +924,9 @@ export default function ActivityDetailPage() {
       )}
 
       {/* Geo Tags (nicht für Multisport-Parent — Enrichments werden oben in der Multisport-Sektion gezeigt) */}
-      {activity.sport_type !== 'multisport' && <GeoTagsList activityId={activity.id} hiddenModules={hiddenModules} />}
+      {activity.sport_type !== 'multisport' && (
+        <GeoTagsList activityId={activity.id} hiddenModules={effectiveHiddenModules} enabled={geoPOIAvailable} />
+      )}
 
       {/* Standort (nur für Indoor-Aktivitäten ohne GPS, nicht für Multisport-Parent) */}
       {!activity.has_gps && activity.sport_type !== 'multisport' && (
@@ -931,7 +955,7 @@ export default function ActivityDetailPage() {
               onScalePin={handleScalePin}
               suppressPillsAtTop
             >
-              {!hiddenModules.has('surfaces') && (
+              {!effectiveHiddenModules.has('surfaces') && (
                 <SurfacesSection
                   summary={trackSummaryQuery.data ?? null}
                   summaryLoading={trackSummaryQuery.isLoading}
@@ -1087,16 +1111,17 @@ export default function ActivityDetailPage() {
         onClose={() => setReviewModalOpen(false)}
         activity={activity}
         candidates={liftCandidates ?? []}
+        osmSnapAvailable={osmLiftSnapAvailable}
       />
 
       {/* Stopps (nicht für Multisport-Parent) */}
-      {activity.sport_type !== 'multisport' && !hiddenModules.has('stops') && <StopsSection activityId={activity.id} timezone={activity.timezone} />}
+      {activity.sport_type !== 'multisport' && !effectiveHiddenModules.has('stops') && <StopsSection activityId={activity.id} timezone={activity.timezone} />}
 
       {/* Enrichment-Modul-Status */}
       <EnrichmentStatusSection
         activityId={activity.id}
         enrichmentStatus={activity.enrichment_status}
-        hiddenModules={hiddenModules}
+        hiddenModules={effectiveHiddenModules}
         onToggleModule={toggleModule}
       />
 

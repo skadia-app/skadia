@@ -168,6 +168,43 @@ func TestLiftDetectionConfig_PutThenGet(t *testing.T) {
 	}
 }
 
+func TestCoreLiftDetectionConfigRejectsOSMSnapEnableAndCoercesEffective(t *testing.T) {
+	h, db := liftDetectionConfigSetup(t)
+	h.Config = &HandlerConfig{DeploymentProfile: "core"}
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	rec := callPutDetectionConfig(t, h, userID, activityID, `{"osm":true,"heuristic":true}`)
+	assertFeatureUnavailable(t, rec)
+
+	trueValue := true
+	rows, err := db.SetLiftDetectionOverride(context.Background(), userID, activityID, &trueValue, &trueValue)
+	if err != nil {
+		t.Fatalf("SetLiftDetectionOverride historical fixture: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("SetLiftDetectionOverride rows=%d, want 1", rows)
+	}
+
+	rec = callGetDetectionConfig(t, h, userID, activityID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status=%d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp detectionConfigResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Override.OSM == nil || *resp.Override.OSM != true {
+		t.Fatalf("historical override.osm = %v, want raw true preserved", resp.Override.OSM)
+	}
+	if resp.Effective.OSM {
+		t.Fatalf("effective.osm = true in Core, want coerced false")
+	}
+	if !resp.Effective.Heuristic {
+		t.Fatalf("effective.heuristic = false, want true")
+	}
+}
+
 // TestLiftDetectionConfig_PutIdempotent verifies that PUT twice with the same
 // body both return 204.
 func TestLiftDetectionConfig_PutIdempotent(t *testing.T) {

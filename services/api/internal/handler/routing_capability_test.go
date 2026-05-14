@@ -93,6 +93,7 @@ func TestCoreBlocksAdminGeodataAndCoverageEndpoints(t *testing.T) {
 		{name: "coverage-info", req: httptest.NewRequest(http.MethodGet, "/api/v1/coverage/info", nil), call: h.CoverageBuildInfo},
 		{name: "coverage-tile", req: httptest.NewRequest(http.MethodGet, "/api/v1/coverage/tiles/forest/10/535/362.png", nil), call: h.CoverageTile},
 		{name: "coverage-query", req: httptest.NewRequest(http.MethodGet, "/internal/coverage/query?lat=47.2&lon=11.4&layers=forest", nil), call: h.QueryCoverage},
+		{name: "activity-stops", req: httptest.NewRequest(http.MethodGet, "/api/v1/activities/activity-1/stops", nil), call: h.GetActivityStops},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

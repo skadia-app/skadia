@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/automation"
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -452,6 +453,9 @@ func (h *Handler) GetActivityClimbs(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetActivityStops(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if !h.requireFeature(w, r, capabilities.KeyGeoPOIEnrichment) {
 		return
 	}
 	_, activityID, ok := h.requireActivity(w, r, userID)
