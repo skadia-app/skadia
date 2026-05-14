@@ -67,6 +67,56 @@ func TestResolveImportQueueItem_FlipsImportLogToCompleted(t *testing.T) {
 	}
 }
 
+func TestDeleteImportQueueItem_FlipsImportLogToSkipped(t *testing.T) {
+	pool := testdb.Open(t)
+	db := &DB{Pool: pool}
+	ctx := context.Background()
+
+	suffix := uuid.NewString()[:8]
+	var userID string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO users (username, email, registration_source)
+		 VALUES ($1, $2, 'test') RETURNING id`,
+		"queue-delete-"+suffix, "queue-delete-"+suffix+"@test.localhost",
+	).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	queueID := uuid.NewString()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO import_queue (id, user_id, queue_type, status, original_filename, content_type)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		queueID, userID, "pdf_untyped", "pending", "manual.pdf", "application/pdf",
+	); err != nil {
+		t.Fatalf("insert queue: %v", err)
+	}
+
+	documentType := model.ImportTypeDocument
+	logID, err := db.InsertImportLog(ctx, model.ImportLogEntry{
+		UserID: userID, SourcePlatform: "upload", Filename: "manual.pdf",
+		Status: "queued", ImportType: &documentType,
+		Metadata: []byte(fmt.Sprintf(`{"queue_id":%q}`, queueID)),
+	})
+	if err != nil {
+		t.Fatalf("insert log: %v", err)
+	}
+
+	if err := db.DeleteImportQueueItem(ctx, queueID, userID); err != nil {
+		t.Fatalf("delete queue: %v", err)
+	}
+
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM import_log WHERE id = $1`, logID).Scan(&status); err != nil {
+		t.Fatalf("requery log: %v", err)
+	}
+	if status != "skipped" {
+		t.Fatalf("import_log.status: want skipped, got %s", status)
+	}
+}
+
 // TestResolveImportQueueItem_PropagatesActivityID verifies that when activityID is
 // provided to ResolveImportQueueItem, it is written to the import_log.activity_id column.
 func TestResolveImportQueueItem_PropagatesActivityID(t *testing.T) {

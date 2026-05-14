@@ -1728,7 +1728,9 @@ func main() {
 			r.Patch("/import-queue/{id}", h.PatchImportQueueItem)
 			r.Delete("/import-queue/{id}", h.DeleteImportQueueItem)
 			r.Post("/import-queue/{id}/assign", h.AssignImportQueueItem)
+			r.Post("/import-queue/{id}/resolve-pdf", h.ResolvePDFQueueItem)
 			r.Get("/import-queue/{id}/thumb", h.GetImportQueueItemThumb)
+			r.Get("/import-queue/{id}/preview", h.GetImportQueueItemPreview)
 
 			// Tag Zones
 			r.Get("/tag-zones/{tagId}", h.GetTagZone)

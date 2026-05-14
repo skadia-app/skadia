@@ -1,16 +1,23 @@
 package handler
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
+	"github.com/skadia-app/skadia/services/api/internal/model"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
 // ListImportQueue handles GET /api/v1/import-queue
@@ -72,8 +79,18 @@ func (h *Handler) PatchImportQueueItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Status == "resolved" {
+		if err := h.DB.ResolveImportQueueItem(r.Context(), id, userID, ""); err != nil {
+			slog.Error("resolve import queue item failed", "id", id, "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to resolve queue item", r.URL.Path)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	var resolvedAt *time.Time
-	if req.Status == "resolved" || req.Status == "dismissed" {
+	if req.Status == "dismissed" {
 		now := time.Now()
 		resolvedAt = &now
 	}
@@ -161,6 +178,194 @@ func (h *Handler) AssignImportQueueItem(w http.ResponseWriter, r *http.Request) 
 	httputil.WriteJSON(w, http.StatusCreated, result)
 }
 
+// ResolvePDFQueueItem handles POST /api/v1/import-queue/{id}/resolve-pdf.
+// It turns a queued PDF into a gear document and resolves the linked import log.
+func (h *Handler) ResolvePDFQueueItem(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+
+	var req struct {
+		DocType string `json:"doc_type"`
+		GearID  string `json:"gear_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON body", r.URL.Path)
+		return
+	}
+	req.DocType = strings.TrimSpace(req.DocType)
+	req.GearID = strings.TrimSpace(req.GearID)
+	if req.DocType == "" {
+		req.DocType = "other"
+	}
+	switch req.DocType {
+	case "receipt", "invoice", "other":
+	default:
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "doc_type must be receipt, invoice, or other", r.URL.Path)
+		return
+	}
+	if req.GearID == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "gear_id is required", r.URL.Path)
+		return
+	}
+	if err := h.DB.VerifyGearOwnership(r.Context(), req.GearID, userID); err != nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "gear not found", r.URL.Path)
+		return
+	}
+	if h.ShadowFS == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "queued file not available", r.URL.Path)
+		return
+	}
+
+	item, err := h.DB.GetImportQueueItem(r.Context(), id, userID)
+	if err != nil || item == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "queue item not found", r.URL.Path)
+		return
+	}
+	if item.QueueType != "pdf_untyped" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "queue item is not a PDF review item", r.URL.Path)
+		return
+	}
+	if item.Status != "pending" {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "queue item is already resolved", r.URL.Path)
+		return
+	}
+	queueFileID, ok := item.Metadata["file_store_id"].(string)
+	if !ok || queueFileID == "" {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "queued file not available", r.URL.Path)
+		return
+	}
+
+	rc, err := h.ShadowFS.Get(r.Context(), userID, queueFileID)
+	if err != nil {
+		slog.Error("resolve PDF queue item: ShadowFS.Get failed", "id", id, "file_id", queueFileID, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to retrieve queued PDF", r.URL.Path)
+		return
+	}
+	data, readErr := io.ReadAll(rc)
+	closeErr := rc.Close()
+	if readErr != nil {
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to read queued PDF", r.URL.Path)
+		return
+	}
+	if closeErr != nil {
+		slog.Warn("resolve PDF queue item: close queued file failed", "id", id, "error", closeErr)
+	}
+
+	hash := sha256.Sum256(data)
+	hashStr := hex.EncodeToString(hash[:])
+	if exists, dupErr := h.DB.GearDocumentExistsByHashAndGear(r.Context(), userID, hashStr, req.GearID); dupErr != nil {
+		slog.Error("resolve PDF queue item: duplicate check failed", "id", id, "error", dupErr)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to check duplicate document", r.URL.Path)
+		return
+	} else if exists {
+		if err := h.DB.ResolveImportQueueItem(r.Context(), id, userID, ""); err != nil {
+			slog.Error("resolve PDF queue item: resolve duplicate queue failed", "id", id, "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to resolve duplicate PDF", r.URL.Path)
+			return
+		}
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, queueFileID); delErr != nil {
+			slog.Warn("resolve PDF queue item: delete duplicate queued file failed", "id", id, "file_id", queueFileID, "error", delErr)
+		}
+		httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "duplicate"})
+		return
+	}
+
+	parentType := "gear"
+	stored, err := h.ShadowFS.Put(r.Context(), shadowfs.FileEntry{
+		UserID:            userID,
+		FileType:          "document",
+		ContentType:       item.ContentType,
+		FileName:          item.OriginalFilename,
+		SizeBytes:         int64(len(data)),
+		FileHash:          hashStr,
+		ParentType:        &parentType,
+		ParentID:          &req.GearID,
+		Tags:              map[string]string{"doc_type": req.DocType},
+		QuotaCreditFileID: queueFileID,
+	}, bytes.NewReader(data))
+	if err != nil {
+		slog.Error("resolve PDF queue item: ShadowFS.Put failed", "id", id, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to store PDF document", r.URL.Path)
+		return
+	}
+
+	title := item.OriginalFilename
+	doc := &model.GearDocument{
+		UserID:           userID,
+		GearID:           &req.GearID,
+		DocType:          req.DocType,
+		Title:            &title,
+		OriginalFilename: item.OriginalFilename,
+		ContentType:      item.ContentType,
+		FileSizeBytes:    int64(len(data)),
+		FileHash:         &hashStr,
+		FileID:           &stored.ID,
+	}
+	result, err := h.DB.InsertGearDocument(r.Context(), doc)
+	if err != nil {
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, stored.ID); delErr != nil {
+			slog.Warn("resolve PDF queue item: cleanup stored document failed", "file_id", stored.ID, "error", delErr)
+		}
+		slog.Error("resolve PDF queue item: insert gear document failed", "id", id, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Database error", "failed to save document", r.URL.Path)
+		return
+	}
+
+	var extractedText *string
+	var isTextPDF bool
+	if text := extractPDFText(data); text != "" {
+		extractedText = &text
+		isTextPDF = true
+		if err := h.DB.UpdateGearDocumentText(r.Context(), result.ID, text); err != nil {
+			slog.Warn("resolve PDF queue item: failed to update extracted text", "doc_id", result.ID, "error", err)
+		} else {
+			result.ExtractedText = &text
+			result.ProcessingStatus = "processed"
+		}
+	}
+
+	if err := h.DB.ResolveImportQueueItem(r.Context(), id, userID, ""); err != nil {
+		if fileID, delDocErr := h.DB.DeleteGearDocument(r.Context(), result.ID, userID); delDocErr != nil {
+			slog.Warn("resolve PDF queue item: cleanup gear document after queue failure failed", "doc_id", result.ID, "error", delDocErr)
+		} else if fileID != "" {
+			if delFileErr := h.ShadowFS.Delete(r.Context(), userID, fileID); delFileErr != nil {
+				slog.Warn("resolve PDF queue item: cleanup stored file after queue failure failed", "file_id", fileID, "error", delFileErr)
+			}
+		}
+		slog.Error("resolve PDF queue item: resolve queue failed", "id", id, "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to resolve queue item", r.URL.Path)
+		return
+	}
+
+	if delErr := h.ShadowFS.Delete(r.Context(), userID, queueFileID); delErr != nil {
+		slog.Warn("resolve PDF queue item: delete queued file failed", "id", id, "file_id", queueFileID, "error", delErr)
+	}
+	if h.DocumentUploadedPublisher != nil {
+		evt := event.DocumentUploadedEvent{
+			DocID:          result.ID,
+			GearID:         result.GearID,
+			ComponentID:    result.ComponentID,
+			UserID:         userID,
+			ContentType:    result.ContentType,
+			IsTextPDF:      isTextPDF,
+			ExtractedText:  extractedText,
+			FileID:         stored.ID,
+			FileType:       stored.FileType,
+			StorageBackend: stored.StorageBackend,
+			StoragePath:    stored.StoragePath,
+			SizeBytes:      stored.SizeBytes,
+		}
+		if err := h.DocumentUploadedPublisher.PublishDocumentUploaded(evt); err != nil {
+			slog.Warn("resolve PDF queue item: failed to publish document uploaded event", "error", err)
+		}
+	}
+
+	httputil.WriteJSON(w, http.StatusCreated, result)
+}
+
 // GetImportQueueItemThumb handles GET /api/v1/import-queue/{id}/thumb
 // Returns the thumbnail image for a queued item stored in ShadowFS or S3.
 func (h *Handler) GetImportQueueItemThumb(w http.ResponseWriter, r *http.Request) {
@@ -215,4 +420,60 @@ func (h *Handler) GetImportQueueItemThumb(w http.ResponseWriter, r *http.Request
 
 	// No thumbnail available.
 	httputil.WriteError(w, http.StatusNotFound, "Not Found", "no thumbnail available for this queue item", r.URL.Path)
+}
+
+// GetImportQueueItemPreview handles GET /api/v1/import-queue/{id}/preview
+// It streams the queued original file for manual review, falling back to the thumbnail.
+func (h *Handler) GetImportQueueItemPreview(w http.ResponseWriter, r *http.Request) {
+	userID, ok := httputil.RequireUserID(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+
+	item, err := h.DB.GetImportQueueItem(r.Context(), id, userID)
+	if err != nil || item == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "queue item not found", r.URL.Path)
+		return
+	}
+	if h.ShadowFS == nil {
+		httputil.WriteError(w, http.StatusNotFound, "Not Found", "preview not available for this queue item", r.URL.Path)
+		return
+	}
+
+	if mainFileID, hasMain := item.Metadata["file_store_id"].(string); hasMain && mainFileID != "" {
+		rc, getErr := h.ShadowFS.Get(r.Context(), userID, mainFileID)
+		if getErr != nil {
+			slog.Error("get queue item preview: ShadowFS.Get failed", "id", id, "file_id", mainFileID, "error", getErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to retrieve preview", r.URL.Path)
+			return
+		}
+		defer rc.Close()
+		ct := item.ContentType
+		if ct == "" {
+			ct = "image/jpeg"
+		}
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("Cache-Control", "private, max-age=3600")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.Copy(w, rc)
+		return
+	}
+
+	if thumbFileID, hasThumb := item.Metadata["file_store_id_thumb"].(string); hasThumb && thumbFileID != "" {
+		rc, getErr := h.ShadowFS.Get(r.Context(), userID, thumbFileID)
+		if getErr != nil {
+			slog.Error("get queue item preview: ShadowFS.Get thumb failed", "id", id, "file_id", thumbFileID, "error", getErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to retrieve preview", r.URL.Path)
+			return
+		}
+		defer rc.Close()
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Cache-Control", "private, max-age=3600")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.Copy(w, rc)
+		return
+	}
+
+	httputil.WriteError(w, http.StatusNotFound, "Not Found", "preview not available for this queue item", r.URL.Path)
 }

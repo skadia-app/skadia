@@ -145,11 +145,31 @@ func (db *DB) UpdateImportQueueStatus(ctx context.Context, id, userID, status st
 
 // DeleteImportQueueItem hard-deletes an item (dismiss).
 func (db *DB) DeleteImportQueueItem(ctx context.Context, id, userID string) error {
-	_, err := db.Pool.Exec(ctx,
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("delete queue: begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE import_log
+		SET status = 'skipped', updated_at = NOW()
+		WHERE user_id = $1
+		  AND status = 'queued'
+		  AND metadata->>'queue_id' = $2`,
+		userID, id,
+	); err != nil {
+		return fmt.Errorf("delete queue: update log: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
 		`DELETE FROM import_queue WHERE id = $1 AND user_id = $2`,
 		id, userID,
-	)
-	return err
+	); err != nil {
+		return fmt.Errorf("delete queue: delete item: %w", err)
+	}
+
+	return tx.Commit(ctx)
 }
 
 // GetImportQueueItem returns a single item by ID for the given user.

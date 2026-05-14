@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getImports: vi.fn<(params?: ImportLogParams) => Promise<ImportLogResponse>>(),
   fetchImportQueue: vi.fn<(status?: string) => Promise<ImportQueueItem[]>>(),
   fetchImportQueueCount: vi.fn<() => Promise<number>>(),
+  fetchGear: vi.fn<() => Promise<Array<{ id: string; name: string; is_retired?: boolean }>>>(),
   getCapabilities: vi.fn<() => Promise<{ import_path_enabled: boolean }>>(),
 }))
 
@@ -27,8 +28,13 @@ vi.mock('@/api/importQueue', async () => {
     fetchImportQueueCount: mocks.fetchImportQueueCount,
     assignQueueItem: vi.fn(),
     patchQueueItem: vi.fn(),
+    resolvePdfQueueItem: vi.fn(),
   }
 })
+
+vi.mock('@/api/gear', () => ({
+  fetchGear: mocks.fetchGear,
+}))
 
 vi.mock('@/api/routes', () => ({
   getCapabilities: mocks.getCapabilities,
@@ -86,11 +92,35 @@ const reviewItem: ImportQueueItem = {
   created_at: '2026-05-13T09:00:00Z',
 }
 
+const sportConflictItem: ImportQueueItem = {
+  id: 'queue-sport-1',
+  item_type: 'sport_conflict',
+  status: 'pending',
+  filename: 'activity.fit',
+  created_at: '2026-04-13T09:00:00Z',
+  metadata: {
+    activity_id: 'activity-1',
+    platform_sport: 'training',
+    file_sport: 'activity',
+    platform_source: 'strava',
+    file_source: 'fit',
+  },
+}
+
+const pdfItem: ImportQueueItem = {
+  id: 'queue-pdf-1',
+  item_type: 'pdf_untyped',
+  status: 'pending',
+  filename: 'rechnung.pdf',
+  created_at: '2026-05-13T09:00:00Z',
+}
+
 describe('ImportsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.fetchImportQueue.mockResolvedValue([])
     mocks.fetchImportQueueCount.mockResolvedValue(0)
+    mocks.fetchGear.mockResolvedValue([{ id: 'gear-1', name: 'Gravel Bike', is_retired: false }])
     mocks.getCapabilities.mockResolvedValue({ import_path_enabled: false })
     mocks.getImports.mockImplementation(async (params = {}) => {
       if (params.status === 'pending,processing') {
@@ -196,6 +226,48 @@ describe('ImportsPage', () => {
       'src',
       '/api/v1/import-queue/queue-1/thumb',
     )
+  })
+
+  it('opens a larger preview for image queue items', async () => {
+    mocks.fetchImportQueueCount.mockResolvedValue(1)
+    mocks.fetchImportQueue.mockResolvedValue([reviewItem])
+    const user = userEvent.setup()
+
+    renderImportsPage('/imports?view=review')
+
+    await user.click(await screen.findByRole('button', { name: /Bildvorschau von photo-without-date\.jpg vergrößern/i }))
+
+    expect(screen.getByRole('dialog', { name: 'Bildvorschau' })).toBeInTheDocument()
+    expect(
+      screen.getAllByRole('img', { name: 'photo-without-date.jpg' }).some(img =>
+        img.getAttribute('src') === '/api/v1/import-queue/queue-1/preview',
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps sport conflict resolution controls in the central review tab', async () => {
+    mocks.fetchImportQueueCount.mockResolvedValue(1)
+    mocks.fetchImportQueue.mockResolvedValue([sportConflictItem])
+
+    renderImportsPage('/imports?view=review')
+
+    expect(await screen.findByText('Sport-Typ-Konflikt')).toBeInTheDocument()
+    expect(screen.getByText(/Strava/i)).toBeInTheDocument()
+    expect(screen.getByText(/FIT-Datei/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Zur Aktivität/i })).toHaveAttribute('href', '/activities/activity-1')
+    expect(screen.queryByRole('button', { name: /Aktivität zuordnen/i })).not.toBeInTheDocument()
+  })
+
+  it('requires a gear selection before resolving queued PDFs', async () => {
+    mocks.fetchImportQueueCount.mockResolvedValue(1)
+    mocks.fetchImportQueue.mockResolvedValue([pdfItem])
+
+    renderImportsPage('/imports?view=review')
+
+    expect(await screen.findByText('PDF ohne Kategorie')).toBeInTheDocument()
+    expect(screen.getByText(/Wähle die Dokumentart und die Ausrüstung/i)).toBeInTheDocument()
+    expect(await screen.findByRole('option', { name: 'Gravel Bike' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Kategorisieren' })).toBeDisabled()
   })
 
   it('renders queued history rows as Zu prüfen with review link', async () => {

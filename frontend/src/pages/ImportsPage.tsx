@@ -23,7 +23,7 @@ import { useImportQueue, useImportHistory } from '@/hooks/useImportLog'
 import type { ImportLogEntry } from '@/api/imports'
 import { fetchImportQueueCount } from '@/api/importQueue'
 import { ImportUploadPanel } from '@/components/ImportHub'
-import { ImportQueueReview } from '@/pages/ImportQueuePage'
+import ImportQueueTab from '@/components/ImportQueueTab'
 import { ImportSourcePanel, type ImportSource } from '@/pages/ImportPage'
 
 // ---------------------------------------------------------------------------
@@ -709,7 +709,19 @@ export default function ImportsPage() {
           onNavigate={navigate}
         />
       )}
-      {activeView === 'review' && <ImportQueueReview />}
+      {activeView === 'review' && (
+        <section className="space-y-6">
+          <div>
+            <h2 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
+              Zu prüfen
+            </h2>
+            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+              Importierte Dateien mit manueller Nacharbeit prüfen, zuordnen oder verwerfen.
+            </p>
+          </div>
+          <ImportQueueTab />
+        </section>
+      )}
       {activeView === 'queue' && <QueueSection />}
       {activeView === 'history' && <HistorySection />}
     </div>
