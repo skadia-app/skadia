@@ -396,6 +396,7 @@ func BuildFromRuntime(input DetectInput, runtime RuntimeProbeState) Capabilities
 	}
 	localStorage := input.StorageBackend == "local" && input.StorageMode == "local"
 	core := input.DeploymentProfile == "core"
+	importPathConfigured := localStorage && (input.ImportPathEnabledHint || importPathEnabled(input.ImportAllowedDirs))
 
 	set(KeyDeploymentProfile, true, true, "")
 	set(KeyStorageMode, true, true, "")
@@ -403,7 +404,7 @@ func BuildFromRuntime(input DetectInput, runtime RuntimeProbeState) Capabilities
 	set(KeyLibraryPaths, localStorage, localStorage, reasonIf(!localStorage, ReasonS3Storage))
 	set(KeyLibrarySchemas, localStorage, localStorage, reasonIf(!localStorage, ReasonS3Storage))
 	set(KeyLibrarySync, localStorage, localStorage, reasonIf(!localStorage, ReasonS3Storage))
-	set(KeyImportPathEnabled, input.ImportPathEnabledHint || importPathEnabled(input.ImportAllowedDirs), input.ImportPathEnabledHint || importPathEnabled(input.ImportAllowedDirs), ReasonNotConfigured)
+	set(KeyImportPathEnabled, importPathConfigured, importPathConfigured, reasonIf(!localStorage, ReasonS3Storage))
 	set(KeyDirectUploadLifecycle, true, true, "")
 	set(KeyRoutePhotoMedia, true, true, "")
 	set(KeyGDPRArtifacts, true, true, "")

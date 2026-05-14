@@ -110,6 +110,8 @@ func TestUploadActivityPhotoStoresOneOriginalUserFile(t *testing.T) {
 }
 
 func TestActivityPhotoPreviewURLUsesPreviewEndpointRegardlessOfLegacyS3Field(t *testing.T) {
+	enableMLServiceForTest(t)
+
 	pool := fusionTestPool(t)
 	db := &database.DB{Pool: pool}
 	userID := insertTestUser(t, pool)

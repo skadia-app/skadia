@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/importer"
@@ -293,7 +294,8 @@ func (h *Handler) ResolvePDFQueueItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	title := item.OriginalFilename
-	shouldProcessDocument := h.DocumentUploadedPublisher != nil
+	shouldProcessDocument := h.DocumentUploadedPublisher != nil &&
+		h.featureNotAvailableReasonWithContext(r.Context(), capabilities.KeyDocumentML) == ""
 	doc := &model.GearDocument{
 		UserID:           userID,
 		GearID:           &req.GearID,

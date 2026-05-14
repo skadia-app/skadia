@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import {
   listPhotoFeed, searchPhotos,
@@ -8,6 +8,8 @@ import { isVideoPhoto, type ActivityPhoto } from '@/api/activityPhotos'
 import ActivityMiniCard from '@/components/ActivityMiniCard'
 import AuthenticatedImage from '@/components/AuthenticatedImage'
 import AuthenticatedMedia from '@/components/AuthenticatedMedia'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 import { cn } from '@/lib/utils'
 import { useDebounce } from '@/lib/useDebounce'
 
@@ -24,9 +26,12 @@ export default function PhotoGalleryPage() {
   const [sortMode, setSortMode] = useState<PhotoSortMode>('date')
   const [searchQuery, setSearchQuery] = useState('')
   const [lightbox, setLightbox] = useState<LightboxState | null>(null)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
 
+  const { data: capabilities } = useCapabilities()
+  const semanticPhotoSearchAvailable = featureAvailable(capabilities, 'photo_embeddings')
   const debouncedQuery = useDebounce(searchQuery, 300)
-  const isSearching = debouncedQuery.length >= 2
+  const isSearching = semanticPhotoSearchAvailable && debouncedQuery.length >= 2
 
   // Feed — infinite scroll
   const {
@@ -60,25 +65,28 @@ export default function PhotoGalleryPage() {
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div className="flex gap-3 items-center flex-wrap">
-        <div className="relative flex-1 min-w-48 max-w-lg">
-          <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Fotos durchsuchen (Stichwort oder Bildinhalt)…"
-            className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="cursor-pointer absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 text-lg leading-none"
-              aria-label="Suche löschen"
-            >
-              ×
-            </button>
-          )}
-        </div>
+        {semanticPhotoSearchAvailable && (
+          <div className="relative flex-1 min-w-48 max-w-lg">
+            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={() => setSearchQuery(searchInputRef.current?.value ?? '')}
+              placeholder="Fotos durchsuchen (Stichwort oder Bildinhalt)…"
+              className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="cursor-pointer absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 text-lg leading-none"
+                aria-label="Suche löschen"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )}
 
         {!isSearching && (
           <div className="flex rounded-lg overflow-hidden border border-neutral-200 dark:border-neutral-700 text-sm shrink-0">

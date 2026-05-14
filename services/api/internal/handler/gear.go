@@ -28,6 +28,7 @@ import (
 	pdfcpuapi "github.com/pdfcpu/pdfcpu/pkg/api"
 	pdfcpumodel "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
@@ -1371,7 +1372,8 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 	if strings.HasPrefix(contentType, "image/") {
 		importType = model.ImportTypePhoto
 	}
-	shouldProcessDocument := cfg.extractPDF && cfg.publishEvent && contentType == "application/pdf" && h.DocumentUploadedPublisher != nil
+	shouldProcessDocument := cfg.extractPDF && cfg.publishEvent && contentType == "application/pdf" && h.DocumentUploadedPublisher != nil &&
+		h.featureNotAvailableReasonWithContext(r.Context(), capabilities.KeyDocumentML) == ""
 	parentMetaKey := "gear_id"
 	if cfg.parentType == "gear_component" {
 		parentMetaKey = "component_id"

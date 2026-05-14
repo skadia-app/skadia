@@ -82,6 +82,8 @@ func TestUploadGearImageCompletesImportLogWithoutDocumentProcessing(t *testing.T
 }
 
 func TestUploadGearPDFTracksProcessingImportLogWhenDocumentEventIsPublished(t *testing.T) {
+	enableMLServiceForTest(t)
+
 	pool := fusionTestPool(t)
 	db := &database.DB{Pool: pool}
 	userID := insertTestUser(t, pool)
@@ -133,6 +135,8 @@ func TestUploadGearPDFTracksProcessingImportLogWhenDocumentEventIsPublished(t *t
 }
 
 func TestUploadGearPDFSurvivesSynchronousProcessedCallback(t *testing.T) {
+	enableMLServiceForTest(t)
+
 	pool := fusionTestPool(t)
 	db := &database.DB{Pool: pool}
 	userID := insertTestUser(t, pool)
@@ -180,6 +184,8 @@ func TestUploadGearPDFSurvivesSynchronousProcessedCallback(t *testing.T) {
 }
 
 func TestUploadGearPDFPublishFailureKeepsUploadCompleted(t *testing.T) {
+	enableMLServiceForTest(t)
+
 	pool := fusionTestPool(t)
 	db := &database.DB{Pool: pool}
 	userID := insertTestUser(t, pool)
@@ -243,6 +249,8 @@ func TestUploadGearPDFPublishFailureKeepsUploadCompleted(t *testing.T) {
 }
 
 func TestUploadGearDocumentSniffsPDFDespiteImageHeader(t *testing.T) {
+	enableMLServiceForTest(t)
+
 	pool := fusionTestPool(t)
 	db := &database.DB{Pool: pool}
 	userID := insertTestUser(t, pool)
