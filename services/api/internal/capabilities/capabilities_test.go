@@ -95,7 +95,7 @@ func TestBuildFeatureStatesFullReportsMissingArtifacts(t *testing.T) {
 
 	assertFeature(t, caps, KeyLibraryPaths, false, false, ReasonS3Storage)
 	assertFeature(t, caps, KeyImportPathEnabled, false, false, ReasonS3Storage)
-	assertFeature(t, caps, KeyBadRouter, true, false, ReasonMissingArtifacts)
+	assertFeature(t, caps, KeyBadRouter, true, false, ReasonMissingProfiles)
 	assertFeature(t, caps, KeyCoverage, true, false, ReasonMissingArtifacts)
 	assertFeature(t, caps, KeyMLService, true, false, ReasonMissingService)
 	if caps.BadRouter || caps.Coverage || caps.MLService {
