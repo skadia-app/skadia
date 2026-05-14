@@ -15,8 +15,8 @@ Selfhosted Fitness-Tracking-Plattform mit BRouter-basiertem Routing, Multi-Sport
 
 ## Voraussetzungen
 
-- **Container-Runtime:** Podman (rootless empfohlen) oder Docker
-- **Compose-Plugin:** `podman compose` oder `docker compose`
+- **Container-Runtime:** Podman (rootless empfohlen). Docker braucht derzeit ein geprüftes Override für User-Namespace- und Volume-Ownership.
+- **Compose-Plugin:** `podman compose`
 - **Disk:** Min. 20 GB für OSM-Daten + Aktivitäten (mehr je nach Region)
 - **RAM:** 4 GB (Basis), 8+ GB mit ML-Features
 - **OS:** Linux (Fedora, Ubuntu, Debian getestet)
