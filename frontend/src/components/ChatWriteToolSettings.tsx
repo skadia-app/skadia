@@ -3,11 +3,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getChatPreferences, updateChatPreferences, type ChatPreferences } from '@/api/chat'
 import Toggle from '@/components/Toggle'
 import { SettingsSection } from '@/components/ui/SettingsSection'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureAvailable, type CapabilityKey } from '@/lib/deploymentCapabilities'
 import { useToast } from '@/lib/toast'
 
 type ToolGroup = {
   title: string
-  tools: Array<{ id: string; label: string }>
+  tools: Array<{ id: string; label: string; requiredCapability?: CapabilityKey }>
 }
 
 const WRITE_TOOL_GROUPS: ToolGroup[] = [
@@ -85,6 +87,7 @@ function samePreferences(a: ChatPreferences, b: ChatPreferences): boolean {
 export default function ChatWriteToolSettings() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
+  const { data: capabilities } = useCapabilities()
   const [draft, setDraft] = useState<ChatPreferences | null>(null)
   const { data, isLoading, isError, isSuccess } = useQuery({
     queryKey: ['chat-preferences'],
@@ -132,6 +135,11 @@ export default function ChatWriteToolSettings() {
 
   const controlsDisabled = isLoading || mutation.isPending || !preferencesLoaded
   const writeToolsDisabled = controlsDisabled || !prefs.chat_write_tools_enabled
+  const documentTextAvailable = capabilities === undefined || featureAvailable(capabilities, 'document_ml')
+  const visibleToolGroups = WRITE_TOOL_GROUPS.map(group => ({
+    ...group,
+    tools: group.tools.filter(tool => !tool.requiredCapability || capabilities === undefined || featureAvailable(capabilities, tool.requiredCapability)),
+  })).filter(group => group.tools.length > 0)
 
   return (
     <SettingsSection
@@ -144,22 +152,24 @@ export default function ChatWriteToolSettings() {
       )}
 
       <div className="space-y-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              Dokument-OCR-Text dem AI-Agenten zugänglich machen
+        {documentTextAvailable && (
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                Dokument-OCR-Text dem AI-Agenten zugänglich machen
+              </div>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+                OCR-Text kann Adressen, Namen oder Beträge enthalten und wird bei passenden Fragen mit dem konfigurierten LLM-Anbieter geteilt.
+              </p>
             </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-              OCR-Text kann Adressen, Namen oder Beträge enthalten und wird bei passenden Fragen mit dem konfigurierten LLM-Anbieter geteilt.
-            </p>
+            <Toggle
+              checked={prefs.chat_expose_document_extracted_data}
+              onChange={checked => patchDraft({ chat_expose_document_extracted_data: checked })}
+              disabled={controlsDisabled}
+              aria-label="Dokument-OCR-Text dem AI-Agenten zugänglich machen"
+            />
           </div>
-          <Toggle
-            checked={prefs.chat_expose_document_extracted_data}
-            onChange={checked => patchDraft({ chat_expose_document_extracted_data: checked })}
-            disabled={controlsDisabled}
-            aria-label="Dokument-OCR-Text dem AI-Agenten zugänglich machen"
-          />
-        </div>
+        )}
 
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
@@ -181,7 +191,7 @@ export default function ChatWriteToolSettings() {
 
       <div className={writeToolsDisabled ? 'opacity-60' : undefined}>
         <div className="grid gap-4 md:grid-cols-2">
-          {WRITE_TOOL_GROUPS.map(group => (
+          {visibleToolGroups.map(group => (
             <fieldset key={group.title} className="space-y-2">
               <legend className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{group.title}</legend>
               <div className="space-y-1.5">

@@ -34,7 +34,7 @@ import { useMapLayers } from '@/hooks/useMapLayers'
 import Toggle from '@/components/Toggle'
 import { SettingsSection } from '@/components/ui/SettingsSection'
 import { ANALYSIS_MODULES } from '@/lib/enrichmentModuleCatalog'
-import { featureAvailable } from '@/lib/deploymentCapabilities'
+import { featureAvailable, featureConfigured } from '@/lib/deploymentCapabilities'
 import { useCapabilities } from '@/hooks/useCapabilities'
 
 function AutomatischeAnalysenSection() {
@@ -918,6 +918,7 @@ export default function SettingsPage() {
   const queryClient = useQueryClient()
   const { accent, setAccent } = useAccentColor()
   const { isAdmin } = useUser()
+  const { data: capabilities } = useCapabilities()
   const [searchParams, setSearchParams] = useSearchParams()
   const rawTab = searchParams.get('tab')
   const activeTab: SettingsTab = VALID_TABS.has(rawTab as SettingsTab) ? (rawTab as SettingsTab) : 'general'
@@ -935,6 +936,13 @@ export default function SettingsPage() {
     queryKey: ['shadow-fs-settings'],
     queryFn: getShadowFSSettings,
   })
+  const fullMapAdminConfigured = [
+    'dem_correction',
+    'offline_map',
+    'osm_import',
+    'coverage',
+    'routing_tiles',
+  ].some(key => featureConfigured(capabilities, key))
 
 
   const toggleMutation = useMutation({
@@ -1035,7 +1043,7 @@ export default function SettingsPage() {
       {activeTab === 'ai' && (
         <div role="tabpanel" id="settings-panel-ai" aria-labelledby="settings-tab-ai" className="space-y-8">
           {isAdmin && <LLMSettingsPage />}
-          {isAdmin && <MLServiceSection />}
+          {isAdmin && featureConfigured(capabilities, 'ml_service') && <MLServiceSection />}
           <NotificationSettingsSection />
           <ChatProfileSettings />
           <ChatWriteToolSettings />
@@ -1171,7 +1179,7 @@ export default function SettingsPage() {
       <UserCustomLayersSection />
 
       {/* Admin-Hinweis: DEM, Offline-Karten, OSM jetzt unter Admin → Karten & Tiles */}
-      {isAdmin && (
+      {isAdmin && fullMapAdminConfigured && (
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           Admin-Optionen (DEM, Offline-Karten, OSM-Regionen, Layer-Verwaltung) jetzt unter{' '}
           <Link

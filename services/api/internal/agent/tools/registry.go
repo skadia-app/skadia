@@ -12,6 +12,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/geosearch"
 	"github.com/jackc/pgx/v5"
@@ -97,7 +98,9 @@ type Tool struct {
 	Timeout      time.Duration
 	ExternalRead *ExternalReadRequirement
 	IsUserOwned  bool
-	Capability   *ToolCapability
+
+	Capability           *ToolCapability
+	RequiredCapabilities []string
 }
 
 type ToolCapability struct {
@@ -145,6 +148,7 @@ type Deps struct {
 	Confirm            *agent.ConfirmationManager
 	Preferences        *agent.PreferenceLoader
 	ExternalConsent    *ExternalReadConsentManager
+	CapabilityProvider func(context.Context) capabilities.Capabilities
 }
 
 type RouteGoalSuggester func(ctx context.Context, userID string, req RouteGoalSuggestionRequest) (RouteGoalSuggestionResponse, error)
@@ -237,6 +241,9 @@ func (r *Registry) ExecuteRead(ctx context.Context, deps *Deps, userID, toolName
 	if t.ExecuteRead == nil {
 		return nil, fmt.Errorf("tool has no read executor: %s", toolName)
 	}
+	if err := requireToolCapabilities(ctx, deps, t); err != nil {
+		return nil, err
+	}
 	if err := validateArgs(t.Name, t.InputSchema, args); err != nil {
 		return nil, err
 	}
@@ -278,6 +285,49 @@ func (r *Registry) Definitions(filter []string, prefs *agent.ChatPreferences) []
 		defs = append(defs, t.definition())
 	}
 	return defs
+}
+
+func requireToolCapabilities(ctx context.Context, deps *Deps, tool *Tool) error {
+	if reason, key := toolCapabilityUnavailableReason(ctx, deps, tool); reason != "" {
+		return FeatureUnavailableError{Tool: tool.Name, Capability: key, Reason: reason}
+	}
+	return nil
+}
+
+func toolCapabilityUnavailableReason(ctx context.Context, deps *Deps, tool *Tool) (string, string) {
+	if tool == nil || len(tool.RequiredCapabilities) == 0 || deps == nil || deps.CapabilityProvider == nil {
+		return "", ""
+	}
+	caps := deps.CapabilityProvider(ctx)
+	for _, key := range tool.RequiredCapabilities {
+		state, ok := caps.Features[key]
+		if !ok {
+			return capabilities.ReasonNotConfigured, key
+		}
+		if !state.Configured {
+			if state.Reason != "" {
+				return state.Reason, key
+			}
+			return capabilities.ReasonNotConfigured, key
+		}
+		if !state.Available {
+			if state.Reason != "" {
+				return state.Reason, key
+			}
+			return capabilities.ReasonMissingArtifacts, key
+		}
+	}
+	return "", ""
+}
+
+type FeatureUnavailableError struct {
+	Tool       string
+	Capability string
+	Reason     string
+}
+
+func (e FeatureUnavailableError) Error() string {
+	return fmt.Sprintf("feature_unavailable: tool %s requires %s: %s", e.Tool, e.Capability, e.Reason)
 }
 
 func (r *Registry) ValidateSchemas() error {
