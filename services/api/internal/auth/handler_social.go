@@ -49,6 +49,22 @@ func (h *Handler) googleOAuthConfig() *oauth2.Config {
 	}
 }
 
+func (h *Handler) socialProviderConfigured(provider string) bool {
+	if h == nil || h.Settings == nil || h.Config == nil || h.Config.OAuthEncryptionKey == "" {
+		return false
+	}
+	switch provider {
+	case "strava":
+		return h.Settings.Get("social.strava_client_id").Value != "" &&
+			h.Settings.Get("social.strava_client_secret").Value != ""
+	case "google":
+		return h.Settings.Get("social.google_client_id").Value != "" &&
+			h.Settings.Get("social.google_client_secret").Value != ""
+	default:
+		return false
+	}
+}
+
 // --- Handlers ---
 
 // SocialLogin handles GET /auth/social/{provider}.
@@ -59,13 +75,13 @@ func (h *Handler) SocialLogin(w http.ResponseWriter, r *http.Request) {
 	var oauthCfg *oauth2.Config
 	switch provider {
 	case "strava":
-		if h.Settings.Get("social.strava_client_id").Value == "" {
+		if !h.socialProviderConfigured("strava") {
 			httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "provider not configured"})
 			return
 		}
 		oauthCfg = h.stravaOAuthConfig()
 	case "google":
-		if h.Settings.Get("social.google_client_id").Value == "" {
+		if !h.socialProviderConfigured("google") {
 			httputil.WriteJSONNoCache(w, http.StatusNotFound, map[string]string{"error": "provider not configured"})
 			return
 		}
@@ -144,8 +160,16 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 	var oauthCfg *oauth2.Config
 	switch provider {
 	case "strava":
+		if !h.socialProviderConfigured("strava") {
+			h.socialError(w, r, "unknown_provider")
+			return
+		}
 		oauthCfg = h.stravaOAuthConfig()
 	case "google":
+		if !h.socialProviderConfigured("google") {
+			h.socialError(w, r, "unknown_provider")
+			return
+		}
 		oauthCfg = h.googleOAuthConfig()
 	default:
 		h.socialError(w, r, "unknown_provider")
@@ -161,7 +185,7 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch user profile from the provider.
-	providerID, providerEmail, username, err := h.fetchProviderProfile(r.Context(), provider, token)
+	providerID, providerEmail, providerEmailVerified, username, err := h.fetchProviderProfile(r.Context(), provider, token)
 	if err != nil {
 		slog.Error("fetch provider profile failed", "provider", provider, "error", err)
 		h.socialError(w, r, "profile_failed")
@@ -171,7 +195,7 @@ func (h *Handler) SocialCallback(w http.ResponseWriter, r *http.Request) {
 	// Get or create user (handles email collision internally).
 	isActive := h.Settings.Get("registration.mode").Value != "approval"
 	user, isNewUser, err := h.DB.GetOrCreateUserByOAuthSeeded(r.Context(),
-		provider, providerID, providerEmail, username,
+		provider, providerID, providerEmail, providerEmailVerified, username,
 		[]byte(token.AccessToken), []byte(token.RefreshToken),
 		&token.Expiry, h.Config.OAuthEncryptionKey, isActive, !isActive, h.seedSystemArtifactsTx)
 	if err != nil {
@@ -230,7 +254,7 @@ func (h *Handler) socialError(w http.ResponseWriter, r *http.Request, errCode st
 
 // --- Provider Profile Fetching ---
 
-func (h *Handler) fetchProviderProfile(ctx context.Context, provider string, token *oauth2.Token) (providerID, email, username string, err error) {
+func (h *Handler) fetchProviderProfile(ctx context.Context, provider string, token *oauth2.Token) (providerID, email string, emailVerified bool, username string, err error) {
 	client := oauth2.NewClient(ctx, oauth2.StaticTokenSource(token))
 
 	switch provider {
@@ -239,26 +263,26 @@ func (h *Handler) fetchProviderProfile(ctx context.Context, provider string, tok
 	case "google":
 		return h.fetchGoogleProfile(client)
 	default:
-		return "", "", "", fmt.Errorf("unknown provider: %s", provider)
+		return "", "", false, "", fmt.Errorf("unknown provider: %s", provider)
 	}
 }
 
-func (h *Handler) fetchStravaProfile(client *http.Client) (string, string, string, error) {
+func (h *Handler) fetchStravaProfile(client *http.Client) (string, string, bool, string, error) {
 	resp, err := client.Get("https://www.strava.com/api/v3/athlete")
 	if err != nil {
-		return "", "", "", fmt.Errorf("strava athlete request: %w", err)
+		return "", "", false, "", fmt.Errorf("strava athlete request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check provider API status before parsing (I8).
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return "", "", "", fmt.Errorf("strava API returned %d: %s", resp.StatusCode, string(errBody))
+		return "", "", false, "", fmt.Errorf("strava API returned %d: %s", resp.StatusCode, string(errBody))
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB max
 	if err != nil {
-		return "", "", "", fmt.Errorf("read strava response: %w", err)
+		return "", "", false, "", fmt.Errorf("read strava response: %w", err)
 	}
 
 	// NOTE: Strava may return empty email (user privacy settings). Users created
@@ -271,7 +295,7 @@ func (h *Handler) fetchStravaProfile(client *http.Client) (string, string, strin
 		Email     string `json:"email"` // may be empty (privacy settings)
 	}
 	if err := json.Unmarshal(body, &athlete); err != nil {
-		return "", "", "", fmt.Errorf("decode strava athlete: %w", err)
+		return "", "", false, "", fmt.Errorf("decode strava athlete: %w", err)
 	}
 
 	username := strings.TrimSpace(athlete.FirstName + " " + athlete.LastName)
@@ -279,35 +303,36 @@ func (h *Handler) fetchStravaProfile(client *http.Client) (string, string, strin
 		username = "strava_" + strconv.FormatInt(athlete.ID, 10)
 	}
 
-	return strconv.FormatInt(athlete.ID, 10), athlete.Email, username, nil
+	return strconv.FormatInt(athlete.ID, 10), athlete.Email, false, username, nil
 }
 
-func (h *Handler) fetchGoogleProfile(client *http.Client) (string, string, string, error) {
+func (h *Handler) fetchGoogleProfile(client *http.Client) (string, string, bool, string, error) {
 	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
 	if err != nil {
-		return "", "", "", fmt.Errorf("google userinfo request: %w", err)
+		return "", "", false, "", fmt.Errorf("google userinfo request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check provider API status before parsing (I8).
 	if resp.StatusCode != http.StatusOK {
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return "", "", "", fmt.Errorf("google API returned %d: %s", resp.StatusCode, string(errBody))
+		return "", "", false, "", fmt.Errorf("google API returned %d: %s", resp.StatusCode, string(errBody))
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB max
 	if err != nil {
-		return "", "", "", fmt.Errorf("read google response: %w", err)
+		return "", "", false, "", fmt.Errorf("read google response: %w", err)
 	}
 
 	var profile struct {
-		ID    string `json:"id"`
-		Email string `json:"email"`
-		Name  string `json:"name"`
+		ID            string `json:"id"`
+		Email         string `json:"email"`
+		VerifiedEmail bool   `json:"verified_email"`
+		Name          string `json:"name"`
 	}
 	if err := json.Unmarshal(body, &profile); err != nil {
-		return "", "", "", fmt.Errorf("decode google profile: %w", err)
+		return "", "", false, "", fmt.Errorf("decode google profile: %w", err)
 	}
 
-	return profile.ID, profile.Email, profile.Name, nil
+	return profile.ID, profile.Email, profile.VerifiedEmail, profile.Name, nil
 }

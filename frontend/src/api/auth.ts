@@ -121,6 +121,19 @@ export async function resendVerification(): Promise<{ status: string }> {
   return res.json() as Promise<{ status: string }>
 }
 
+export async function resendVerificationEmail(email: string): Promise<{ status: string }> {
+  const res = await fetch(`${API_BASE}/auth/resend-verification-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Request failed')
+  }
+  return res.json() as Promise<{ status: string }>
+}
+
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
   const res = await apiFetch(`${API_BASE}/auth/change-password`, {
     method: 'POST',

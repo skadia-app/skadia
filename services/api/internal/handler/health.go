@@ -88,6 +88,7 @@ type HandlerConfig struct {
 	MLLLMBrokerToken    string        // ML_LLM_BROKER_TOKEN or ML_CALLBACK_SECRET fallback
 	BRouterURL          string        // e.g. http://brouter:17777
 	KomootEncryptionKey string        // 32-byte hex for AES-256-GCM Komoot password encryption
+	OAuthEncryptionKey  string        // 32-byte hex for OAuth token encryption
 	RoutingGraphPath    string        // path to binary graph file
 	RoutingTimeout      time.Duration // request timeout for route calculations (default 30s)
 	MaxUploadSize       int64         // maximum upload size in bytes

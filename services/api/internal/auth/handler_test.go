@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +19,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/config"
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
@@ -39,13 +40,29 @@ func testHandler(t *testing.T, cfg *config.Config) *Handler {
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = strings.Repeat("ab", 32) // 64 hex chars
 	}
+	smtpPort := cfg.SMTPPort
+	if smtpPort == 0 {
+		smtpPort = 587
+	}
+	smtpTLS := cfg.SMTPTLSMode
+	if smtpTLS == "" {
+		smtpTLS = "starttls"
+	}
 	// Populate a test-only SettingsStore from cfg so handlers that read
 	// from Settings (registration.mode, social.*, smtp.*) see the same
 	// values the test set on cfg.
 	testSettings := settings.NewStoreForTest(map[string]string{
-		"registration.mode":       cfg.RegistrationMode,
-		"social.strava_client_id": cfg.StravaClientID,
-		"social.google_client_id": cfg.GoogleClientID,
+		"registration.mode":           cfg.RegistrationMode,
+		"social.strava_client_id":     cfg.StravaClientID,
+		"social.strava_client_secret": cfg.StravaClientSecret,
+		"social.google_client_id":     cfg.GoogleClientID,
+		"social.google_client_secret": cfg.GoogleClientSecret,
+		"smtp.host":                   cfg.SMTPHost,
+		"smtp.port":                   strconv.Itoa(smtpPort),
+		"smtp.username":               cfg.SMTPUsername,
+		"smtp.password":               cfg.SMTPPassword,
+		"smtp.from":                   cfg.SMTPFrom,
+		"smtp.tls":                    smtpTLS,
 	})
 	return NewHandler(nil, cfg, testSettings, &Mailer{}, middleware.NewRateLimiter(context.Background()), context.Background())
 }
@@ -54,9 +71,11 @@ func testHandler(t *testing.T, cfg *config.Config) *Handler {
 
 func TestAuthConfigEndpoint(t *testing.T) {
 	h := testHandler(t, &config.Config{
-		RegistrationMode: "open",
-		StravaClientID:   "test-strava-id",
-		GoogleClientID:   "", // not configured
+		RegistrationMode:   "open",
+		StravaClientID:     "test-strava-id",
+		StravaClientSecret: "test-strava-secret",
+		OAuthEncryptionKey: strings.Repeat("0123456789abcdef", 2),
+		GoogleClientID:     "", // not configured
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/config", nil)
@@ -87,9 +106,12 @@ func TestAuthConfigEndpoint(t *testing.T) {
 
 func TestAuthConfigBothProviders(t *testing.T) {
 	h := testHandler(t, &config.Config{
-		RegistrationMode: "invite",
-		StravaClientID:   "strava-id",
-		GoogleClientID:   "google-id",
+		RegistrationMode:   "invite",
+		StravaClientID:     "strava-id",
+		StravaClientSecret: "strava-secret",
+		GoogleClientID:     "google-id",
+		GoogleClientSecret: "google-secret",
+		OAuthEncryptionKey: strings.Repeat("0123456789abcdef", 2),
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/config", nil)
@@ -108,6 +130,33 @@ func TestAuthConfigBothProviders(t *testing.T) {
 	providers := resp["social_providers"].([]any)
 	if len(providers) != 2 {
 		t.Errorf("expected 2 providers, got %d: %v", len(providers), providers)
+	}
+}
+
+func TestAuthConfigHidesIncompleteOAuthProviders(t *testing.T) {
+	h := testHandler(t, &config.Config{
+		RegistrationMode:   "invite",
+		StravaClientID:     "strava-id",
+		StravaClientSecret: "",
+		GoogleClientID:     "google-id",
+		GoogleClientSecret: "google-secret",
+		OAuthEncryptionKey: "",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/config", nil)
+	w := httptest.NewRecorder()
+	h.AuthConfig(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	providers := resp["social_providers"].([]any)
+	if len(providers) != 0 {
+		t.Fatalf("expected no providers for incomplete OAuth config, got %v", providers)
 	}
 }
 
@@ -160,7 +209,7 @@ func TestRegistrationModeInviteBlocksRegister(t *testing.T) {
 // --- Login Validation ---
 
 func TestLoginMissingFields(t *testing.T) {
-	h := testHandler(t, &config.Config{})
+	h := testHandler(t, &config.Config{SMTPHost: "smtp.example.test", SMTPFrom: "noreply@example.test"})
 
 	tests := []struct {
 		name string
@@ -185,7 +234,7 @@ func TestLoginMissingFields(t *testing.T) {
 }
 
 func TestLoginInvalidJSON(t *testing.T) {
-	h := testHandler(t, &config.Config{})
+	h := testHandler(t, &config.Config{SMTPHost: "smtp.example.test", SMTPFrom: "noreply@example.test"})
 
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
@@ -194,6 +243,160 @@ func TestLoginInvalidJSON(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestLoginRejectsUnverifiedOpenRegistrationUser(t *testing.T) {
+	dbURL := testdb.RequireSafeDSN(t)
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("connect to test DB: %v", err)
+	}
+	defer pool.Close()
+
+	userID := uuid.New().String()
+	email := "unverified_login_" + userID[:8] + "@example.test"
+	username := "unverified_login_" + userID[:8]
+	password := "correct horse battery staple"
+	hash, err := argon2id.CreateHash(password, GetArgon2Params())
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, username, email, password_hash, email_verified, registration_source, is_active)
+		 VALUES ($1, $2, $3, $4, false, 'email', true)`,
+		userID, username, email, hash)
+	if err != nil {
+		t.Fatalf("insert unverified user: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM refresh_tokens WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	h := testHandler(t, &config.Config{})
+	h.DB = &database.DB{Pool: pool}
+	h.secret = []byte(strings.Repeat("a", 32))
+
+	body := fmt.Sprintf(`{"email":%q,"password":%q}`, email, password)
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "192.0.2.10:12345"
+	w := httptest.NewRecorder()
+
+	h.Login(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for unverified email login, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp["error"] != "email_not_verified" {
+		t.Fatalf("expected email_not_verified, got %q", resp["error"])
+	}
+	if cookies := w.Result().Cookies(); len(cookies) != 0 {
+		t.Fatalf("unverified login must not set refresh cookie, got %#v", cookies)
+	}
+}
+
+func TestResendVerificationByEmailQueuesTokenWithoutSession(t *testing.T) {
+	stubHIBP(t)
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	db := &database.DB{Pool: pool}
+	suffix := uuid.NewString()
+	email := "resend-public-" + suffix + "@example.test"
+	username := "resend_public_" + strings.ReplaceAll(suffix[:8], "-", "_")
+
+	hash, err := argon2id.CreateHash("correct horse battery staple", GetArgon2Params())
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, username, email, password_hash, email_verified, registration_source, is_active)
+		 VALUES ($1, $2, $3, $4, false, 'email', true)`,
+		uuid.NewString(), username, email, hash,
+	)
+	if err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	h := testHandler(t, &config.Config{
+		SMTPHost: "smtp.example.test",
+		SMTPFrom: "noreply@example.test",
+	})
+	h.DB = db
+	h.Mailer = NewMailerWithDB(db, h.Settings, testOutboxEncryptionKey)
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/resend-verification-email", strings.NewReader(`{"email":"`+email+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.ResendVerificationByEmail(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var tokenCount int
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM email_tokens et
+			  JOIN users u ON u.id = et.user_id
+			 WHERE u.email = $1 AND et.type = 'verification'`,
+			email,
+		).Scan(&tokenCount); err != nil {
+			t.Fatalf("count verification tokens: %v", err)
+		}
+		if tokenCount == 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if tokenCount != 1 {
+		t.Fatalf("verification token count=%d, want 1", tokenCount)
+	}
+}
+
+func TestRegisterOpenModeWithoutSMTPDoesNotCreateUnverifiableUser(t *testing.T) {
+	stubHIBP(t)
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	db := &database.DB{Pool: pool}
+	suffix := uuid.NewString()
+	email := "open-no-smtp-" + suffix + "@example.test"
+
+	h := testHandler(t, &config.Config{RegistrationMode: "open"})
+	h.DB = db
+	h.Mailer = NewMailerWithDB(db, h.Settings, testOutboxEncryptionKey)
+
+	body := `{"email":"` + email + `","username":"open_no_smtp_` + strings.ReplaceAll(suffix[:8], "-", "_") + `","password":"correct horse battery staple"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "192.0.2.20:12345"
+	rr := httptest.NewRecorder()
+
+	h.Register(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp["error"] != "smtp_not_configured" {
+		t.Fatalf("error=%q, want smtp_not_configured", resp["error"])
+	}
+
+	var userCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE email = $1`, email).Scan(&userCount); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if userCount != 0 {
+		t.Fatalf("created unverifiable user count=%d, want 0", userCount)
 	}
 }
 
@@ -379,6 +582,52 @@ func TestMobileExchangeMissingVerifier(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestMobileExchangeWrongVerifierDoesNotConsumeCode(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	db := &database.DB{Pool: pool}
+	userID := uuid.NewString()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO users (id, username, email, email_verified, registration_source, is_active)
+		 VALUES ($1, $2, $3, true, 'test', true)`,
+		userID, "pkce-"+userID, "pkce-"+userID+"@example.test",
+	); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:      strings.Repeat("ab", 32),
+		JWTSecretBytes: []byte(strings.Repeat("a", 32)),
+		AppURL:         "http://localhost:5173",
+	}
+	st := settings.NewStoreForTest(map[string]string{"registration.mode": "open"})
+	h := NewHandler(db, cfg, st, NewMailerWithDB(db, st, testOutboxEncryptionKey), middleware.NewRateLimiter(context.Background()), context.Background())
+
+	code := "mobile-pkce-code-" + uuid.NewString()
+	verifier := "correct-verifier"
+	if err := db.CreateAuthCode(ctx, uuid.MustParse(userID), HashToken(code), computeS256Challenge(verifier), "", time.Now().Add(time.Minute)); err != nil {
+		t.Fatalf("create auth code: %v", err)
+	}
+
+	wrongReq := httptest.NewRequest(http.MethodPost, "/auth/mobile/exchange",
+		strings.NewReader(`{"code":"`+code+`","code_verifier":"wrong-verifier"}`))
+	wrongReq.Header.Set("Content-Type", "application/json")
+	wrongW := httptest.NewRecorder()
+	h.MobileExchange(wrongW, wrongReq)
+	if wrongW.Code != http.StatusBadRequest {
+		t.Fatalf("wrong verifier status=%d, want 400", wrongW.Code)
+	}
+
+	rightReq := httptest.NewRequest(http.MethodPost, "/auth/mobile/exchange",
+		strings.NewReader(`{"code":"`+code+`","code_verifier":"`+verifier+`"}`))
+	rightReq.Header.Set("Content-Type", "application/json")
+	rightW := httptest.NewRecorder()
+	h.MobileExchange(rightW, rightReq)
+	if rightW.Code != http.StatusOK {
+		t.Fatalf("correct verifier after wrong attempt status=%d body=%s", rightW.Code, rightW.Body.String())
 	}
 }
 

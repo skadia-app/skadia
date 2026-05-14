@@ -9,11 +9,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -21,12 +21,46 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/shutdown"
 )
 
-// testEmailCooldown tracks per-admin cooldown for the test-email endpoint.
-var (
-	testEmailLastSent   = make(map[string]time.Time)
-	testEmailLastSentMu sync.Mutex
-	testEmailCooldown   = 60 * time.Second
-)
+var testEmailCooldown = 60 * time.Second
+
+func consumeTestEmailCooldown(ctx context.Context, h *Handler, adminID string) (int, bool) {
+	if h == nil || h.DB == nil {
+		return 0, true
+	}
+	key := "admin_test_email:" + adminID
+	var userID any
+	if parsed, err := uuid.Parse(adminID); err == nil {
+		userID = parsed
+	}
+	seconds := int(testEmailCooldown.Seconds())
+	var sentAt time.Time
+	err := h.DB.Pool.QueryRow(ctx,
+		`INSERT INTO email_rate_limits (key, user_id, sent_at)
+		 VALUES ($1, $3, now())
+		 ON CONFLICT (key) DO UPDATE
+		   SET sent_at = EXCLUDED.sent_at,
+		       user_id = COALESCE(EXCLUDED.user_id, email_rate_limits.user_id)
+		 WHERE email_rate_limits.sent_at <= now() - make_interval(secs => $2)
+		 RETURNING sent_at`,
+		key, seconds, userID,
+	).Scan(&sentAt)
+	if err == nil {
+		return 0, true
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		slog.Warn("admin test email cooldown failed open", "admin_id", adminID, "error", err)
+		return 0, true
+	}
+	if err := h.DB.Pool.QueryRow(ctx, `SELECT sent_at FROM email_rate_limits WHERE key = $1`, key).Scan(&sentAt); err != nil {
+		slog.Warn("admin test email cooldown read failed open", "admin_id", adminID, "error", err)
+		return 0, true
+	}
+	remaining := testEmailCooldown - time.Since(sentAt)
+	if remaining < 0 {
+		return 0, true
+	}
+	return int(remaining.Seconds()), false
+}
 
 // AdminGetSettings handles GET /api/v1/admin/settings.
 // Returns all settings grouped by category; encrypted values are masked as "***".
@@ -35,11 +69,16 @@ var (
 func (h *Handler) AdminGetSettings(w http.ResponseWriter, r *http.Request) {
 	all := h.Settings.GetAll()
 
-	// Mask encrypted values: replace plaintext with "***" for the API response.
+	// Mask encrypted values: replace plaintext with "***" for the API response,
+	// but preserve empty secrets so unauthenticated SMTP relays don't look as if
+	// they had a password configured.
 	for group, keys := range all {
 		for key, cs := range keys {
 			if cs.Encrypted {
-				cs.Value = "***"
+				cs.HasValue = cs.Value != ""
+				if cs.HasValue {
+					cs.Value = "***"
+				}
 				all[group][key] = cs
 			}
 		}
@@ -57,7 +96,8 @@ func (h *Handler) AdminGetSettings(w http.ResponseWriter, r *http.Request) {
 		resp[k] = v
 	}
 	resp["_meta"] = map[string]string{
-		"storage_backend": storageBackend,
+		"storage_backend":             storageBackend,
+		"oauth_encryption_configured": strconv.FormatBool(h.Config != nil && h.Config.OAuthEncryptionKey != ""),
 	}
 
 	httputil.WriteJSONNoCache(w, http.StatusOK, resp)
@@ -202,8 +242,7 @@ func (h *Handler) AdminReloadSettings(w http.ResponseWriter, r *http.Request) {
 // Sends a test email to the requesting admin to verify SMTP configuration.
 // Rate-limited to 1 request per minute per admin to prevent SMTP flooding.
 func (h *Handler) AdminTestEmail(w http.ResponseWriter, r *http.Request) {
-	smtpHost := h.Settings.Get("smtp.host").Value
-	if smtpHost == "" {
+	if !h.Mailer.IsConfigured() {
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "smtp_not_configured"})
 		return
 	}
@@ -211,18 +250,13 @@ func (h *Handler) AdminTestEmail(w http.ResponseWriter, r *http.Request) {
 	adminID := middleware.GetUserID(r.Context())
 
 	// Per-admin cooldown.
-	testEmailLastSentMu.Lock()
-	if last, ok := testEmailLastSent[adminID]; ok && time.Since(last) < testEmailCooldown {
-		remaining := testEmailCooldown - time.Since(last)
-		testEmailLastSentMu.Unlock()
+	if remaining, ok := consumeTestEmailCooldown(r.Context(), h, adminID); !ok {
 		httputil.WriteJSONNoCache(w, http.StatusTooManyRequests, map[string]any{
 			"error":       "rate_limited",
-			"retry_after": int(remaining.Seconds()),
+			"retry_after": remaining,
 		})
 		return
 	}
-	testEmailLastSent[adminID] = time.Now()
-	testEmailLastSentMu.Unlock()
 
 	admin, err := h.DB.GetUserByID(r.Context(), adminID)
 	if err != nil {

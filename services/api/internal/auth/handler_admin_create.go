@@ -131,7 +131,7 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		go h.Mailer.SendInviteEmail(req.Email, req.Username, token)
+		go h.Mailer.SendInviteEmail(user.ID, req.Email, req.Username, token)
 
 		go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_create_user", ip, r.UserAgent(),
 			map[string]string{"target_email": req.Email, "method": "invite"})
