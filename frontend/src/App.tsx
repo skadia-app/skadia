@@ -49,13 +49,11 @@ const VerifyEmailPage = lazy(() => import('@/pages/VerifyEmailPage'))
 const CallbackPage = lazy(() => import('@/pages/CallbackPage'))
 const ConfirmEmailChangePage = lazy(() => import('@/pages/auth/ConfirmEmailChangePage'))
 const CancelDeletionPage = lazy(() => import('@/pages/auth/CancelDeletionPage'))
-const ImportPage = lazy(() => import('@/pages/ImportPage'))
 const ActivityComparisonPage = lazy(() => import('@/pages/ActivityComparisonPage'))
 const FusionPage = lazy(() => import('@/pages/FusionPage'))
 const ChatPage = lazy(() => import('@/pages/ChatPage'))
 const FusionQueuePage = lazy(() => import('@/pages/FusionQueuePage'))
 const RoutesPage = lazy(() => import('@/pages/RoutesPage'))
-const ImportQueuePage = lazy(() => import('@/pages/ImportQueuePage'))
 const ImportsPage = lazy(() => import('@/pages/ImportsPage'))
 const DeviceListPage = lazy(() => import('@/pages/DeviceListPage'))
 const DeviceDetailPage = lazy(() => import('@/pages/DeviceDetailPage'))
@@ -103,6 +101,21 @@ function ImportRedirect() {
 function RecordsRedirect() {
   const { search } = useLocation()
   return <Navigate to={`/analytics/records${search}`} replace />
+}
+
+function SettingsImportRedirect() {
+  const [searchParams] = useSearchParams()
+  const tab = searchParams.get('tab')
+
+  if (tab === 'garmin' || tab === 'strava' || tab === 'komoot') {
+    return <Navigate to={`/imports?source=${tab}`} replace />
+  }
+
+  if (tab === 'queue') {
+    return <Navigate to="/imports?view=review" replace />
+  }
+
+  return <Navigate to="/imports?view=import" replace />
 }
 
 function LoadingSpinner() {
@@ -183,12 +196,12 @@ export default function App() {
                             <Route path="workshop/summits" element={<SummitCollectionPage />} />
                             <Route path="map/summits" element={<SummitCollectionPage defaultView="map" />} />
                             <Route path="workshop/fusion" element={<FusionQueuePage />} />
-                            <Route path="workshop/import-queue" element={<ImportQueuePage />} />
+                            <Route path="workshop/import-queue" element={<Navigate to="/imports?view=review" replace />} />
                             <Route path="settings/rules" element={<Navigate to="/workshop/rules" replace />} />
                             <Route path="settings/tags" element={<TagsPage />} />
-                            <Route path="settings/import" element={<ImportPage />} />
+                            <Route path="settings/import" element={<SettingsImportRedirect />} />
                             <Route path="import/url" element={<ImportRedirect />} />
-                            <Route path="queue" element={<Navigate to="/settings/import?tab=queue" replace />} />
+                            <Route path="queue" element={<Navigate to="/imports?view=review" replace />} />
                             <Route path="imports" element={<ImportsPage />} />
 
                             {/* Admin routes */}

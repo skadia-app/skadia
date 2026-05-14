@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
+import { useQuery } from '@tanstack/react-query'
 import {
   Folder,
   Upload,
@@ -20,10 +21,51 @@ import {
 } from 'lucide-react'
 import { useImportQueue, useImportHistory } from '@/hooks/useImportLog'
 import type { ImportLogEntry } from '@/api/imports'
+import { fetchImportQueueCount } from '@/api/importQueue'
+import { ImportUploadPanel } from '@/components/ImportHub'
+import { ImportQueueReview } from '@/pages/ImportQueuePage'
+import { ImportSourcePanel, type ImportSource } from '@/pages/ImportPage'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+type ViewId = 'import' | 'review' | 'queue' | 'history'
+
+const VIEWS: Array<{ id: ViewId; label: string }> = [
+  { id: 'import', label: 'Importieren' },
+  { id: 'review', label: 'Zu prüfen' },
+  { id: 'queue', label: 'Warteschlange' },
+  { id: 'history', label: 'Verlauf' },
+]
+
+const IMPORT_SOURCES: Array<{ id: ImportSource; label: string; description: string }> = [
+  {
+    id: 'garmin',
+    label: 'Garmin',
+    description: 'Export-ZIP oder freigegebenes Export-Verzeichnis importieren.',
+  },
+  {
+    id: 'strava',
+    label: 'Strava',
+    description: 'Strava-Archiv hochladen oder aus einem lokalen Export lesen.',
+  },
+  {
+    id: 'komoot',
+    label: 'Komoot',
+    description: 'Aufgezeichnete und geplante Touren über den bestehenden Wizard importieren.',
+  },
+]
+
+function parseView(value: string | null): ViewId | null {
+  return value === 'import' || value === 'review' || value === 'queue' || value === 'history'
+    ? value
+    : null
+}
+
+function parseSource(value: string | null): ImportSource | null {
+  return value === 'garmin' || value === 'strava' || value === 'komoot' ? value : null
+}
 
 const IMPORT_ERROR_TRANSLATIONS: Record<string, string> = {
   'processing timeout — server may have restarted':
@@ -109,7 +151,7 @@ function getPlatformConfig(platform: string): PlatformConfig {
 // Status badge
 // ---------------------------------------------------------------------------
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, linkQueued = false }: { status: string; linkQueued?: boolean }) {
   switch (status) {
     case 'pending':
       return (
@@ -147,12 +189,17 @@ function StatusBadge({ status }: { status: string }) {
         </span>
       )
     case 'queued':
-      return (
+      const badge = (
         <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
           <Inbox className="h-3 w-3" />
-          In Queue
+          Zu prüfen
         </span>
       )
+      return linkQueued ? (
+        <Link to="/imports?view=review" className="inline-flex hover:opacity-80">
+          {badge}
+        </Link>
+      ) : badge
     default:
       return (
         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
@@ -400,7 +447,7 @@ function HistorySection() {
           <option value="processing">Verarbeitung</option>
           <option value="completed">Fertig</option>
           <option value="skipped">Duplikat</option>
-          <option value="queued">In Queue</option>
+          <option value="queued">Zu prüfen</option>
           <option value="error">Fehler</option>
         </select>
       </div>
@@ -525,7 +572,7 @@ function HistoryRow({ entry, isExpanded, onToggleExpand }: HistoryRowProps) {
         {/* Status */}
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-1">
-            <StatusBadge status={entry.status} />
+            <StatusBadge status={entry.status} linkQueued />
             {hasError && (
               <button
                 onClick={onToggleExpand}
@@ -582,22 +629,171 @@ function HistoryRow({ entry, isExpanded, onToggleExpand }: HistoryRowProps) {
 // ---------------------------------------------------------------------------
 
 export default function ImportsPage() {
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const viewParam = parseView(searchParams.get('view'))
+  const sourceParam = parseSource(searchParams.get('source'))
+  const hasExplicitImportParam = searchParams.has('view') || searchParams.has('source')
+
+  const { data: reviewCount = 0 } = useQuery({
+    queryKey: ['import-queue-count'],
+    queryFn: fetchImportQueueCount,
+    staleTime: 30_000,
+    retry: false,
+  })
+
+  const activeView: ViewId =
+    viewParam ?? (sourceParam ? 'import' : !hasExplicitImportParam && reviewCount > 0 ? 'review' : 'import')
+  const activeSource = activeView === 'import' ? sourceParam : null
+
+  const setView = (view: ViewId) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('view', view)
+    next.delete('source')
+    setSearchParams(next, { replace: false })
+  }
+
+  const setSource = (source: ImportSource) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('view', 'import')
+    next.set('source', source)
+    setSearchParams(next, { replace: false })
+  }
+
   return (
-    <div className="space-y-10">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
           Imports
         </h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Übersicht aller importierten Dateien aus allen Quellen.
+          Importieren, offene Prüfungen, aktive Warteschlange und Verlauf an einem Ort.
         </p>
       </div>
 
-      <QueueSection />
+      <div
+        role="tablist"
+        aria-label="Import-Ansichten"
+        className="flex flex-wrap gap-1 border-b border-neutral-200 dark:border-neutral-800"
+      >
+        {VIEWS.map(view => (
+          <button
+            key={view.id}
+            type="button"
+            role="tab"
+            aria-selected={activeView === view.id}
+            onClick={() => setView(view.id)}
+            className={`cursor-pointer relative px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              activeView === view.id
+                ? 'border-accent-DEFAULT text-accent-DEFAULT'
+                : 'border-transparent text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100'
+            }`}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              {view.label}
+              {view.id === 'review' && reviewCount > 0 && (
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold leading-none text-white">
+                  {reviewCount > 9 ? '9+' : reviewCount}
+                </span>
+              )}
+            </span>
+          </button>
+        ))}
+      </div>
 
-      <div className="border-t border-neutral-200 dark:border-neutral-800" />
+      {activeView === 'import' && (
+        <ImportStartSection
+          activeSource={activeSource}
+          onSelectSource={setSource}
+          onGoToReview={() => setView('review')}
+          onNavigate={navigate}
+        />
+      )}
+      {activeView === 'review' && <ImportQueueReview />}
+      {activeView === 'queue' && <QueueSection />}
+      {activeView === 'history' && <HistorySection />}
+    </div>
+  )
+}
 
-      <HistorySection />
+function ImportStartSection({
+  activeSource,
+  onSelectSource,
+  onGoToReview,
+  onNavigate,
+}: {
+  activeSource: ImportSource | null
+  onSelectSource: (source: ImportSource) => void
+  onGoToReview: () => void
+  onNavigate: (path: string) => void
+}) {
+  return (
+    <div className="space-y-6">
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+            Dateien importieren
+          </h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">
+            FIT, GPX, TCX, Bilder und PDFs direkt hochladen.
+          </p>
+        </div>
+        <ImportUploadPanel
+          onGoToQueue={onGoToReview}
+          onNavigate={onNavigate}
+        />
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+            Quellen
+          </h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">
+            Bestehende Import-Wizards direkt in dieser Oberfläche starten.
+          </p>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          {IMPORT_SOURCES.map(source => (
+            <button
+              key={source.id}
+              type="button"
+              onClick={() => onSelectSource(source.id)}
+              className={`cursor-pointer rounded-lg border p-4 text-left transition-colors ${
+                activeSource === source.id
+                  ? 'border-accent-DEFAULT bg-accent-DEFAULT/5'
+                  : 'border-neutral-200 bg-white hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700'
+              }`}
+            >
+              <span className="block text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                {source.label}
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+                {source.description}
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {activeSource && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+              {IMPORT_SOURCES.find(source => source.id === activeSource)?.label}-Import
+            </h2>
+          </div>
+          {IMPORT_SOURCES.map(source => (
+            <div
+              key={source.id}
+              className={activeSource === source.id ? undefined : 'hidden'}
+            >
+              <ImportSourcePanel source={source.id} />
+            </div>
+          ))}
+        </section>
+      )}
     </div>
   )
 }

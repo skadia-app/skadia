@@ -50,9 +50,9 @@ const sections = [
     icon: FusionIcon,
   },
   {
-    to: '/workshop/import-queue',
-    title: 'Nicht zugeordnete Fotos',
-    description: 'Importierte Fotos ohne Aktivitätszuordnung manuell zuweisen oder verwerfen',
+    to: '/imports?view=review',
+    title: 'Zu prüfen',
+    description: 'Importierte Dateien mit manueller Nacharbeit prüfen, zuordnen oder verwerfen',
     icon: PhotoIcon,
   },
 ]
