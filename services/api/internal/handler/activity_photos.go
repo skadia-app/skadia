@@ -766,11 +766,7 @@ func setPhotoURLs(p *model.ActivityPhoto) {
 	base := "/photos/" + p.ID
 	p.ThumbURL = base + "/thumb"
 	p.FullURL = base + "/full"
-	if p.S3KeyPreview != "" {
-		p.PreviewURL = base + "/preview"
-	} else {
-		p.PreviewURL = base + "/full" // fallback: original
-	}
+	p.PreviewURL = base + "/preview"
 }
 
 // contentTypeFromExtension gibt den MIME-Type anhand der Dateiendung zurück.

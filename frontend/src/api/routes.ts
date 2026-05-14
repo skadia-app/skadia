@@ -39,6 +39,9 @@ export interface RoutePhoto {
   id: string
   original_name?: string
   sort_order: number
+  thumb_url?: string
+  preview_url?: string
+  full_url?: string
 }
 
 export interface PlannedRoute {

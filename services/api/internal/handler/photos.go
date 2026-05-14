@@ -167,11 +167,7 @@ func fillFeedPhotoURLs(p *model.ActivityPhoto) {
 	base := "/photos/" + p.ID
 	p.ThumbURL = base + "/thumb"
 	p.FullURL = base + "/full"
-	if p.S3KeyPreview != "" {
-		p.PreviewURL = base + "/preview"
-	} else {
-		p.PreviewURL = base + "/full"
-	}
+	p.PreviewURL = base + "/preview"
 }
 
 // pgvecLiteral wandelt einen float32-Slice in ein pgvector-Literal um.

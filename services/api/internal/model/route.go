@@ -129,10 +129,14 @@ type RoutePhoto struct {
 	ID           string    `json:"id"`
 	RouteID      string    `json:"route_id"`
 	UserID       string    `json:"user_id"`
+	FileID       string    `json:"-"`
 	FileHash     string    `json:"file_hash"`
 	OriginalName *string   `json:"original_name,omitempty"`
 	Width        *int      `json:"width,omitempty"`
 	Height       *int      `json:"height,omitempty"`
 	SortOrder    int       `json:"sort_order"`
 	CreatedAt    time.Time `json:"created_at"`
+	ThumbURL     string    `json:"thumb_url,omitempty"`
+	PreviewURL   string    `json:"preview_url,omitempty"`
+	FullURL      string    `json:"full_url,omitempty"`
 }
