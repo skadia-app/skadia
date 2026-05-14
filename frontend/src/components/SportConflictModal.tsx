@@ -152,8 +152,8 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
 
   const selectionButtonClass = (key: string) =>
     selection?.key === key
-      ? 'ring-2 ring-accent-DEFAULT bg-accent-DEFAULT/10 dark:bg-accent-DEFAULT/15 text-neutral-900 dark:text-neutral-100'
-      : 'bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-900 dark:text-neutral-100'
+      ? 'bg-accent-DEFAULT text-white shadow-sm hover:bg-accent-600'
+      : 'border border-accent-DEFAULT/35 bg-accent-DEFAULT/10 text-accent-DEFAULT hover:bg-accent-DEFAULT/20 dark:border-accent-DEFAULT/45 dark:bg-accent-DEFAULT/15 dark:text-accent-DEFAULT dark:hover:bg-accent-DEFAULT/25'
 
   const selectionListClass = (key: string) =>
     selection?.key === key
@@ -170,8 +170,8 @@ export default function SportConflictModal({ activity, open, onClose, onResolved
           </h2>
           <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
             {bothGeneric
-              ? 'Keine Sportart erkannt — bitte manuell wählen.'
-              : 'Die Plattform und die Aktivitätsdatei erkennen unterschiedliche Sportarten.'}
+              ? 'Keine Sportart erkannt. Bitte wähle die passende Sportart.'
+              : 'Es wurden unterschiedliche Sportarten erkannt. Bitte wähle, welche Sportart übernommen werden soll.'}
           </p>
           {effectiveActivity.sport_type && (
             <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-500">

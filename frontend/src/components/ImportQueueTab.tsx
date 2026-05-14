@@ -6,14 +6,17 @@ import {
   assignQueueItem,
   patchQueueItem,
   deleteQueueItem,
+  resolvePdfQueueItem,
   type ImportQueueItem,
 } from '@/api/importQueue'
+import { fetchGear } from '@/api/gear'
 import { resolveSportConflict } from '@/api/sportConflict'
 import { fetchActivities } from '@/api/activities'
 import { displayActivityTitle } from '@/lib/activityTitle'
 import { fmtDateCompact } from '@/lib/format'
 import { sportLabel } from '@/lib/sportTaxonomy'
 import { useToast } from '@/lib/toast'
+import AuthenticatedImage from '@/components/AuthenticatedImage'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,7 +31,7 @@ function formatBytes(bytes?: number): string {
 
 function itemTypeLabel(type: ImportQueueItem['item_type']): string {
   const labels: Record<ImportQueueItem['item_type'], string> = {
-    image_no_exif: 'Bild ohne GPS-Datum',
+    image_no_exif: 'Kein Aufnahmedatum',
     image_ambiguous: 'Bild – mehrere Aktivitäten',
     image_no_match: 'Bild ohne Aktivität',
     pdf_untyped: 'PDF ohne Kategorie',
@@ -50,6 +53,12 @@ function itemTypeBadgeColor(type: ImportQueueItem['item_type']): string {
     sport_conflict: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
   }
   return colors[type] ?? 'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300'
+}
+
+function isImageQueueItem(item: ImportQueueItem): boolean {
+  return item.item_type === 'image_no_exif' ||
+    item.item_type === 'image_ambiguous' ||
+    item.item_type === 'image_no_match'
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +128,68 @@ interface ItemProps {
   onRefresh: () => void
 }
 
+function QueueImagePreview({ item }: { item: ImportQueueItem }) {
+  const [open, setOpen] = useState(false)
+  const thumbUrl = `/api/v1/import-queue/${item.id}/thumb`
+  const previewUrl = `/api/v1/import-queue/${item.id}/preview`
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="group flex w-full flex-col gap-2 rounded-lg border border-neutral-200 bg-neutral-50 p-2 text-left transition-colors hover:border-accent-DEFAULT/70 hover:bg-orange-50/40 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:border-accent-DEFAULT/70 dark:hover:bg-orange-950/10 sm:w-64"
+        aria-label={`Bildvorschau von ${item.filename} vergrößern`}
+      >
+        <span className="flex h-40 w-full items-center justify-center overflow-hidden rounded-md bg-white dark:bg-neutral-900">
+          <AuthenticatedImage
+            src={thumbUrl}
+            alt={item.filename}
+            className="h-full w-full object-contain"
+          />
+        </span>
+        <span className="text-xs font-medium text-accent-DEFAULT group-hover:underline">
+          Bild vergrößern
+        </span>
+      </button>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Bildvorschau"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setOpen(false)
+          }}
+        >
+          <div className="flex max-h-[92vh] max-w-[92vw] flex-col gap-3 rounded-lg bg-white p-3 shadow-2xl dark:bg-neutral-950">
+            <div className="flex items-center justify-between gap-4">
+              <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                {item.filename}
+              </p>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="cursor-pointer rounded-lg border border-neutral-200 px-3 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-900"
+              >
+                Schließen
+              </button>
+            </div>
+            <div className="flex min-h-0 items-center justify-center overflow-auto rounded-md bg-neutral-50 dark:bg-neutral-900">
+              <AuthenticatedImage
+                src={previewUrl}
+                alt={item.filename}
+                className="max-h-[78vh] max-w-[88vw] object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 function ImageNoExifItem({ item, onRefresh }: ItemProps) {
   const [selectedActivityId, setSelectedActivityId] = useState('')
   const [selectedActivityTitle, setSelectedActivityTitle] = useState('')
@@ -140,6 +211,11 @@ function ImageNoExifItem({ item, onRefresh }: ItemProps) {
           <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">{item.filename}</p>
           {item.file_size && (
             <p className="text-xs text-neutral-400">{formatBytes(item.file_size)}</p>
+          )}
+          {item.item_type === 'image_no_exif' && (
+            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+              Das EXIF-Aufnahmedatum fehlt; wähle die passende Aktivität manuell aus.
+            </p>
           )}
         </div>
       </div>
@@ -246,7 +322,7 @@ function ImageAmbiguousItem({ item, onRefresh }: ItemProps) {
 }
 
 const PDF_TYPES = [
-  { value: 'gear_document', label: 'Gear-Dokument' },
+  { value: 'receipt', label: 'Beleg' },
   { value: 'invoice', label: 'Rechnung' },
   { value: 'other', label: 'Sonstiges' },
 ] as const
@@ -257,11 +333,16 @@ function PdfUntypedItem({ item, onRefresh }: ItemProps) {
   const [pdfType, setPdfType] = useState<PdfType>('other')
   const [gearId, setGearId] = useState('')
 
+  const { data: gearList = [], isLoading: isLoadingGear } = useQuery({
+    queryKey: ['gear-list'],
+    queryFn: () => fetchGear(false),
+  })
+  const activeGear = gearList.filter(g => !g.is_retired)
+
   const categorizeMutation = useMutation({
-    mutationFn: () => patchQueueItem(item.id, {
-      status: 'resolved',
-      pdf_type: pdfType,
-      gear_id: pdfType === 'gear_document' ? gearId : undefined,
+    mutationFn: () => resolvePdfQueueItem(item.id, {
+      doc_type: pdfType,
+      gear_id: gearId,
     }),
     onSuccess: onRefresh,
   })
@@ -274,6 +355,9 @@ function PdfUntypedItem({ item, onRefresh }: ItemProps) {
   return (
     <div className="space-y-3">
       <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">{item.filename}</p>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+        Wähle die Dokumentart und die Ausrüstung, an der das PDF abgelegt werden soll.
+      </p>
       <div className="flex gap-2 flex-wrap">
         {PDF_TYPES.map(t => (
           <button
@@ -290,19 +374,23 @@ function PdfUntypedItem({ item, onRefresh }: ItemProps) {
           </button>
         ))}
       </div>
-      {pdfType === 'gear_document' && (
-        <input
-          type="text"
-          value={gearId}
-          onChange={e => setGearId(e.target.value)}
-          placeholder="Ausrüstungs-ID (optional)"
-          className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT"
-        />
-      )}
+      <select
+        value={gearId}
+        onChange={e => setGearId(e.target.value)}
+        disabled={isLoadingGear}
+        className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-accent-DEFAULT disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <option value="">{isLoadingGear ? 'Ausrüstung wird geladen…' : 'Ausrüstung wählen…'}</option>
+        {activeGear.map(gear => (
+          <option key={gear.id} value={gear.id}>
+            {gear.name}
+          </option>
+        ))}
+      </select>
       <div className="flex gap-2">
         <button
           onClick={() => categorizeMutation.mutate()}
-          disabled={categorizeMutation.isPending}
+          disabled={categorizeMutation.isPending || !gearId}
           className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {categorizeMutation.isPending ? 'Wird gespeichert…' : 'Kategorisieren'}
@@ -577,27 +665,32 @@ function QueueItemCard({ item, onRefresh }: ItemProps) {
         </span>
       </div>
 
-      {item.item_type === 'image_no_exif' && (
-        <ImageNoExifItem item={item} onRefresh={onRefresh} />
-      )}
-      {item.item_type === 'image_ambiguous' && (
-        <ImageAmbiguousItem item={item} onRefresh={onRefresh} />
-      )}
-      {item.item_type === 'pdf_untyped' && (
-        <PdfUntypedItem item={item} onRefresh={onRefresh} />
-      )}
-      {item.item_type === 'duplicate' && (
-        <DuplicateItem item={item} onRefresh={onRefresh} />
-      )}
-      {item.item_type === 'import_error' && (
-        <ImportErrorItem item={item} onRefresh={onRefresh} />
-      )}
-      {item.item_type === 'sport_conflict' && (
-        <SportConflictItem item={item} onRefresh={onRefresh} />
-      )}
-      {!KNOWN_ITEM_TYPES.includes(item.item_type as string) && (
-        <FallbackItem item={item} onRefresh={onRefresh} />
-      )}
+      <div className={isImageQueueItem(item) ? 'flex flex-col gap-4 lg:flex-row' : undefined}>
+        {isImageQueueItem(item) && <QueueImagePreview item={item} />}
+        <div className="min-w-0 flex-1">
+          {(item.item_type === 'image_no_exif' || item.item_type === 'image_no_match') && (
+            <ImageNoExifItem item={item} onRefresh={onRefresh} />
+          )}
+          {item.item_type === 'image_ambiguous' && (
+            <ImageAmbiguousItem item={item} onRefresh={onRefresh} />
+          )}
+          {item.item_type === 'pdf_untyped' && (
+            <PdfUntypedItem item={item} onRefresh={onRefresh} />
+          )}
+          {item.item_type === 'duplicate' && (
+            <DuplicateItem item={item} onRefresh={onRefresh} />
+          )}
+          {item.item_type === 'import_error' && (
+            <ImportErrorItem item={item} onRefresh={onRefresh} />
+          )}
+          {item.item_type === 'sport_conflict' && (
+            <SportConflictItem item={item} onRefresh={onRefresh} />
+          )}
+          {!KNOWN_ITEM_TYPES.includes(item.item_type as string) && (
+            <FallbackItem item={item} onRefresh={onRefresh} />
+          )}
+        </div>
+      </div>
     </div>
   )
 }

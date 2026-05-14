@@ -67,6 +67,18 @@ export async function patchQueueItem(id: string, updates: object): Promise<void>
   })
 }
 
+export interface ResolvePdfQueueItemPayload {
+  doc_type: 'receipt' | 'invoice' | 'other'
+  gear_id: string
+}
+
+export async function resolvePdfQueueItem(id: string, payload: ResolvePdfQueueItemPayload): Promise<void> {
+  return apiClient<void>(`/import-queue/${id}/resolve-pdf`, {
+    method: 'POST',
+    body: payload,
+  })
+}
+
 export async function deleteQueueItem(id: string): Promise<void> {
   return apiClient<void>(`/import-queue/${id}`, { method: 'DELETE' })
 }
