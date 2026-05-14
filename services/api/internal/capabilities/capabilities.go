@@ -44,6 +44,8 @@ const (
 	KeyActivityTrackSummaryGeo     = "activity_track_summary_geo"
 	KeyActivityTrackSummarySurface = "activity_track_summary_surface"
 	KeySegments                    = "segments"
+	KeySegmentRecompute            = "segment_recompute"
+	KeySegmentPublish              = "segment_publish"
 	KeySegmentOSMLiftImport        = "segment_osm_lift_import"
 	KeySegmentEnrichmentSuggest    = "segment_enrichment_suggest"
 	KeyOSMLiftSnap                 = "osm_lift_snap"
@@ -94,6 +96,8 @@ var canonicalKeys = []string{
 	KeyActivityTrackSummaryGeo,
 	KeyActivityTrackSummarySurface,
 	KeySegments,
+	KeySegmentRecompute,
+	KeySegmentPublish,
 	KeySegmentOSMLiftImport,
 	KeySegmentEnrichmentSuggest,
 	KeyOSMLiftSnap,
@@ -430,6 +434,8 @@ func BuildFromRuntime(input DetectInput, runtime RuntimeProbeState) Capabilities
 		{KeySurfaceEnrichment, runtime.SurfaceEnrich, ReasonMissingArtifacts},
 		{KeyActivityTrackSummaryGeo, runtime.SurfaceEnrich, ReasonMissingArtifacts},
 		{KeyActivityTrackSummarySurface, runtime.SurfaceEnrich, ReasonMissingArtifacts},
+		{KeySegmentRecompute, runtime.SurfaceEnrich, ReasonMissingArtifacts},
+		{KeySegmentPublish, runtime.SurfaceEnrich, ReasonMissingArtifacts},
 		{KeySegmentOSMLiftImport, runtime.SurfaceEnrich, ReasonMissingArtifacts},
 		{KeySegmentEnrichmentSuggest, runtime.SurfaceEnrich && runtime.BadRouter, ReasonMissingArtifacts},
 		{KeyOSMLiftSnap, runtime.SurfaceEnrich, ReasonMissingArtifacts},

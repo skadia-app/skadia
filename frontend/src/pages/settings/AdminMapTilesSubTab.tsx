@@ -16,7 +16,7 @@ import { OSMRegionManager, type OSMRegionManagerBatchUpdateProps } from '@/compo
 import OSMImportModal from '@/components/OSMImportModal'
 import { osmCategoryLabel } from '@/lib/osmCategoryLabels'
 import { useCapabilities } from '@/hooks/useCapabilities'
-import { featureConfigured } from '@/lib/deploymentCapabilities'
+import { featureAvailable, featureConfigured } from '@/lib/deploymentCapabilities'
 import { useToast } from '@/lib/toast'
 import { getToken } from '@/lib/auth'
 import {
@@ -72,6 +72,7 @@ export default function AdminMapTilesSubTab() {
   const osmImportConfigured = featureConfigured(caps, 'osm_import')
   const demConfigured = featureConfigured(caps, 'dem_correction')
   const offlineMapConfigured = featureConfigured(caps, 'offline_map')
+  const segmentLiftImportAvailable = featureAvailable(caps, 'segment_osm_lift_import')
   const tileProbeConfigured = featureConfigured(caps, 'routing_tiles') || featureConfigured(caps, 'system_layers_vector') || offlineMapConfigured
 
   // OSM data presence drives whether lift-import button is available
@@ -430,14 +431,16 @@ export default function AdminMapTilesSubTab() {
                   {batchUpdateProps.label}
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => importLiftsMut.mutate()}
-                disabled={importLiftsMut.isPending || !hasOsmData}
-                className="w-full px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
-              >
-                {importLiftsMut.isPending ? 'Importiere…' : 'Lift-Segmente importieren'}
-              </button>
+              {segmentLiftImportAvailable && (
+                <button
+                  type="button"
+                  onClick={() => importLiftsMut.mutate()}
+                  disabled={importLiftsMut.isPending || !hasOsmData}
+                  className="w-full px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                >
+                  {importLiftsMut.isPending ? 'Importiere…' : 'Lift-Segmente importieren'}
+                </button>
+              )}
             </div>
             {importLiftsMut.isSuccess && (
               <p className="text-xs text-emerald-600 dark:text-emerald-400">

@@ -7,6 +7,8 @@ import { fetchSegment, recomputeSegment, publishSegment, deleteSegment, exportSe
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
 import { useActiveJobs } from '@/lib/useActiveJobs'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 import { fmtDist } from '@/lib/format'
 import { triggerBlobDownload } from '@/lib/utils'
 import { SegmentMinimap } from '@/components/SegmentDetail/SegmentMinimap'
@@ -39,6 +41,9 @@ export default function SegmentDetailPage() {
   const { isJobActiveForEntity } = useActiveJobs()
   const { openModal } = useModal()
   const { addToast } = useToast()
+  const { data: capabilities } = useCapabilities()
+  const segmentRecomputeAvailable = featureAvailable(capabilities, 'segment_recompute')
+  const segmentPublishAvailable = featureAvailable(capabilities, 'segment_publish')
 
   const { data: me } = useQuery({
     queryKey: ['me'],
@@ -133,18 +138,20 @@ export default function SegmentDetailPage() {
             <Pencil size={14} /> Bearbeiten
           </button>
           )}
-          <button
-            onClick={() => { if (!isRecomputing) recomputeMut.mutate() }}
-            disabled={isRecomputing}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-              isRecomputing
-                ? 'border-accent-DEFAULT text-accent-DEFAULT bg-accent-100 dark:bg-accent-100/20'
-                : 'border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
-            }`}
-            title="Matching neu berechnen"
-          >
-            <RefreshCw size={14} className={isRecomputing ? 'animate-spin' : ''} /> {isRecomputing ? 'Läuft…' : 'Neu berechnen'}
-          </button>
+          {segmentRecomputeAvailable && (
+            <button
+              onClick={() => { if (!isRecomputing) recomputeMut.mutate() }}
+              disabled={isRecomputing}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                isRecomputing
+                  ? 'border-accent-DEFAULT text-accent-DEFAULT bg-accent-100 dark:bg-accent-100/20'
+                  : 'border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
+              }`}
+              title="Matching neu berechnen"
+            >
+              <RefreshCw size={14} className={isRecomputing ? 'animate-spin' : ''} /> {isRecomputing ? 'Läuft…' : 'Neu berechnen'}
+            </button>
+          )}
           <button
             onClick={() => handleExport('gpx')}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
@@ -164,7 +171,7 @@ export default function SegmentDetailPage() {
             <Map size={14} /> Auf Karte
           </button>
           {/* Publish: shown for creator of private segment OR admin */}
-          {segment.visibility === 'private' && (segment.created_by === me?.user_id || me?.is_admin) && (
+          {segmentPublishAvailable && segment.visibility === 'private' && (segment.created_by === me?.user_id || me?.is_admin) && (
             <button
               onClick={() => {
                 const isForeignAdmin = me?.is_admin && segment.created_by !== me?.user_id

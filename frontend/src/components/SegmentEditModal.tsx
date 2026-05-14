@@ -7,6 +7,8 @@ import { ModalShell } from '@/components/ui/ModalShell'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { useModal } from '@/lib/modal'
 import { useToast } from '@/lib/toast'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 
 // Shared Components
 import { DifficultySelects } from './segment-editor/DifficultySelects'
@@ -91,6 +93,8 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
 
   const { openModal } = useModal()
   const { addToast } = useToast()
+  const { data: capabilities } = useCapabilities()
+  const segmentPublishAvailable = featureAvailable(capabilities, 'segment_publish')
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -330,17 +334,19 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
         {segType !== 'lift' && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setVisibility('public')}
-                className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
-                  visibility === 'public'
-                    ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
-                    : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-                }`}
-              >
-                Öffentlich
-              </button>
+              {(initialSegment.visibility === 'public' || segmentPublishAvailable) && (
+                <button
+                  type="button"
+                  onClick={() => setVisibility('public')}
+                  className={`flex-1 py-1.5 text-sm rounded-lg border cursor-pointer transition-colors ${
+                    visibility === 'public'
+                      ? 'bg-accent-DEFAULT text-white border-accent-DEFAULT'
+                      : 'border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                  }`}
+                >
+                  Öffentlich
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setVisibility('private')}
@@ -353,7 +359,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
                 Privat
               </button>
             </div>
-            {initialSegment.visibility === 'private' && visibility === 'public' && (
+            {segmentPublishAvailable && initialSegment.visibility === 'private' && visibility === 'public' && (
               <p className="text-xs text-amber-400">
                 Veröffentlichen: alle User können das Segment sehen. Ein Recompute-Job startet.
               </p>
@@ -413,7 +419,7 @@ export default function SegmentEditModal({ segment: initialSegment, onClose }: P
             </button>
             <button
               onClick={() => {
-                if (initialSegment.visibility === 'private' && visibility === 'public') {
+                if (segmentPublishAvailable && initialSegment.visibility === 'private' && visibility === 'public') {
                   const isForeignAdmin = me?.is_admin && initialSegment.created_by !== me?.user_id
                   openModal({
                     title: 'Segment veröffentlichen?',

@@ -7,6 +7,12 @@ import SegmentsPage from '../SegmentsPage'
 
 const mocks = vi.hoisted(() => ({
   fetchSegments: vi.fn(),
+  capabilities: {
+    features: {
+      segment_recompute: { configured: true, available: true },
+      segment_enrichment_suggest: { configured: true, available: true },
+    },
+  } as Record<string, unknown>,
 }))
 
 vi.mock('@/api/segments', async () => {
@@ -34,6 +40,10 @@ vi.mock('@/lib/useActiveJobs', () => ({
   useActiveJobs: () => ({
     isJobActiveForEntity: () => false,
   }),
+}))
+
+vi.mock('@/hooks/useCapabilities', () => ({
+  useCapabilities: () => ({ data: mocks.capabilities }),
 }))
 
 vi.mock('@/lib/modal', () => ({
@@ -68,6 +78,12 @@ describe('SegmentsPage filters', () => {
   beforeEach(() => {
     mocks.fetchSegments.mockReset()
     mocks.fetchSegments.mockResolvedValue({ segments: [], has_more: false })
+    mocks.capabilities = {
+      features: {
+        segment_recompute: { configured: true, available: true },
+        segment_enrichment_suggest: { configured: true, available: true },
+      },
+    }
   })
 
   it('preserves explicit empty segment type selection after unchecking the last type', async () => {
@@ -179,5 +195,47 @@ describe('SegmentsPage filters', () => {
     expect(mocks.fetchSegments).toHaveBeenCalledWith(expect.objectContaining({
       completed_only: true,
     }))
+  })
+
+  it('keeps core-safe segment actions but hides full-only recompute and enrichment filters', async () => {
+    mocks.capabilities = {
+      features: {
+        segment_recompute: { configured: false, available: false, reason: 'core_profile' },
+        segment_enrichment_suggest: { configured: false, available: false, reason: 'core_profile' },
+      },
+    }
+    mocks.fetchSegments.mockResolvedValue({
+      segments: [
+        {
+          id: 'seg-1',
+          name: 'Core Segment',
+          sport_group: 'foot',
+          segment_type: 'standard',
+          segment_type_meta: {},
+          effort_count: 1,
+          athlete_count: 1,
+          ridden_count: 1,
+          is_favorite: false,
+          visibility: 'public',
+          created_by: 'user-1',
+          created_at: '2026-05-07T00:00:00Z',
+          bidirectional: true,
+        },
+      ],
+      has_more: false,
+    })
+
+    renderSegmentsPage('/segments')
+
+    expect(await screen.findByText('Core Segment')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Segment zeichnen' })).toBeInTheDocument()
+    expect(screen.queryByTitle('Matching neu berechnen')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Erweiterte Filter/ }))
+
+    expect(screen.queryByText('SAC-Skala')).not.toBeInTheDocument()
+    expect(screen.queryByText('MTB-Skala')).not.toBeInTheDocument()
+    expect(screen.queryByText('Oberfläche')).not.toBeInTheDocument()
+    expect(screen.getByText('Sichtbarkeit')).toBeInTheDocument()
   })
 })

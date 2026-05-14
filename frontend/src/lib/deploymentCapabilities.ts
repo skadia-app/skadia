@@ -30,6 +30,8 @@ export const CAPABILITY_KEYS = [
   'activity_track_summary_geo',
   'activity_track_summary_surface',
   'segments',
+  'segment_recompute',
+  'segment_publish',
   'segment_osm_lift_import',
   'segment_enrichment_suggest',
   'osm_lift_snap',
