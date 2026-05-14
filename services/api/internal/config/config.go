@@ -182,8 +182,8 @@ func Load() (*Config, error) {
 		S3Endpoint:       getEnvDefault("S3_ENDPOINT", os.Getenv("GARAGE_ENDPOINT")),
 		S3AccessKey:      getSecretWithFallback("S3_ACCESS_KEY", "GARAGE_ACCESS_KEY", ""),
 		S3SecretKey:      getSecretWithFallback("S3_SECRET_KEY", "GARAGE_SECRET_KEY", ""),
-		S3Bucket:         getEnvDefault("S3_BUCKET", "skadia"),
-		S3Region:         getEnvDefault("S3_REGION", "garage"),
+		S3Bucket:         getEnvDefault("S3_BUCKET", "skadia-originals"),
+		S3Region:         getEnvDefault("S3_REGION", "us-east-1"),
 		S3ForcePathStyle: os.Getenv("S3_FORCE_PATH_STYLE") == "true",
 		S3BucketActivity: os.Getenv("S3_BUCKET_ACTIVITY"),
 		S3BucketMedia:    os.Getenv("S3_BUCKET_MEDIA"),
@@ -311,6 +311,9 @@ func Load() (*Config, error) {
 	if cfg.MLLLMBrokerToken == "" {
 		cfg.MLLLMBrokerToken = cfg.MLCallbackSecret
 	}
+	if strings.TrimSpace(os.Getenv("S3_FORCE_PATH_STYLE")) == "" && isLocalGarageS3(cfg) {
+		cfg.S3ForcePathStyle = true
+	}
 
 	if cfg.StorageBackend == "s3" {
 		if cfg.S3AccessKey == "" {
@@ -318,9 +321,6 @@ func Load() (*Config, error) {
 		}
 		if cfg.S3SecretKey == "" {
 			return nil, fmt.Errorf("S3_SECRET_KEY (or GARAGE_SECRET_KEY) is required when STORAGE_BACKEND=s3")
-		}
-		if !cfg.S3ForcePathStyle && isLocalGarageS3(cfg) {
-			slog.Warn("S3_FORCE_PATH_STYLE is not set but local Garage requires path-style access; set S3_FORCE_PATH_STYLE=true")
 		}
 	}
 

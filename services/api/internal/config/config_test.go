@@ -50,6 +50,48 @@ func TestLoadGDPRArtifactDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadS3DefaultsMatchComposeSetupAndML(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("STORAGE_BACKEND", "s3")
+	t.Setenv("S3_ENDPOINT", "http://garage:3900")
+	t.Setenv("S3_ACCESS_KEY", "test-access")
+	t.Setenv("S3_SECRET_KEY", "test-secret")
+	t.Setenv("S3_BUCKET", "")
+	t.Setenv("S3_REGION", "")
+	t.Setenv("S3_FORCE_PATH_STYLE", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.S3Bucket != "skadia-originals" {
+		t.Fatalf("S3Bucket = %q, want skadia-originals", cfg.S3Bucket)
+	}
+	if cfg.S3Region != "us-east-1" {
+		t.Fatalf("S3Region = %q, want us-east-1", cfg.S3Region)
+	}
+	if !cfg.S3ForcePathStyle {
+		t.Fatalf("S3ForcePathStyle = false, want true for local Garage endpoint")
+	}
+}
+
+func TestLoadExternalS3DoesNotForcePathStyleWhenUnset(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("STORAGE_BACKEND", "s3")
+	t.Setenv("S3_ENDPOINT", "https://s3.example.invalid")
+	t.Setenv("S3_ACCESS_KEY", "test-access")
+	t.Setenv("S3_SECRET_KEY", "test-secret")
+	t.Setenv("S3_FORCE_PATH_STYLE", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.S3ForcePathStyle {
+		t.Fatalf("S3ForcePathStyle = true, want false for external S3 unless explicitly configured")
+	}
+}
+
 func TestLoadRejectsInvalidGDPRArtifactBackend(t *testing.T) {
 	withBaseEnv(t)
 	t.Setenv("GDPR_ARTIFACT_BACKEND", "ftp")
