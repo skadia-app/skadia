@@ -165,7 +165,10 @@ func (h *Handler) HandleAIBrokerRoleStatus(w http.ResponseWriter, r *http.Reques
 func (h *Handler) authorizeAIBroker(w http.ResponseWriter, r *http.Request) bool {
 	secret := ""
 	if h.Config != nil {
-		secret = strings.TrimSpace(h.Config.MLCallbackSecret)
+		secret = strings.TrimSpace(h.Config.MLLLMBrokerToken)
+		if secret == "" {
+			secret = strings.TrimSpace(h.Config.MLCallbackSecret)
+		}
 	}
 	if secret == "" {
 		httputil.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{

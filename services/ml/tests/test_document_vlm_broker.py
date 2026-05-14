@@ -325,6 +325,61 @@ async def test_download_s3_doc_uses_aioboto3_credentials_and_size_cap(monkeypatc
     assert body.closed is True
 
 
+@pytest.mark.asyncio
+async def test_download_s3_doc_reads_file_secrets_region_and_path_style(monkeypatch, tmp_path):
+    calls: dict[str, object] = {}
+
+    access_file = tmp_path / "s3_access_key"
+    secret_file = tmp_path / "s3_secret_key"
+    access_file.write_text("file-access\n", encoding="utf-8")
+    secret_file.write_text("file-secret\n", encoding="utf-8")
+
+    class _Body:
+        def __init__(self):
+            self._chunks = [b"ok", b""]
+
+        async def read(self, _size):
+            return self._chunks.pop(0)
+
+        def close(self):
+            return None
+
+    class _S3:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get_object(self, **kwargs):
+            calls["get_object"] = kwargs
+            return {"ContentLength": 2, "Body": _Body()}
+
+    class _Session:
+        def client(self, service, **kwargs):
+            calls["client"] = (service, kwargs)
+            return _S3()
+
+    monkeypatch.setenv("S3_ENDPOINT", "http://garage:3900")
+    monkeypatch.delenv("S3_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("S3_SECRET_KEY", raising=False)
+    monkeypatch.setenv("S3_ACCESS_KEY_FILE", str(access_file))
+    monkeypatch.setenv("S3_SECRET_KEY_FILE", str(secret_file))
+    monkeypatch.setenv("S3_REGION", "us-east-1")
+    monkeypatch.setenv("S3_FORCE_PATH_STYLE", "true")
+    monkeypatch.setattr(document_vlm.aioboto3, "Session", lambda: _Session(), raising=False)
+
+    assert await document_vlm.download_s3_doc("bucket", "doc.pdf") == b"ok"
+
+    service, kwargs = calls["client"]
+    assert service == "s3"
+    assert kwargs["aws_access_key_id"] == "file-access"
+    assert kwargs["aws_secret_access_key"] == "file-secret"
+    assert kwargs["region_name"] == "us-east-1"
+    assert kwargs["endpoint_url"] == "http://garage:3900"
+    assert kwargs["config"].s3 == {"addressing_style": "path"}
+
+
 def test_render_pdf_pages_timeout_returns_empty(monkeypatch):
     def fake_run(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd="pdftoppm", timeout=1)

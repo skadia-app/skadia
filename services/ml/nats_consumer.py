@@ -13,6 +13,7 @@ from nats.js.api import ConsumerConfig, DeliverPolicy, AckPolicy
 
 from db import get_pool
 from progress import publish_progress
+from s3_client import s3_client_kwargs
 from enrichment.document_vlm import RetryableDocumentError, convert_to_markdown, process_document
 from analytics import (
     cluster_activities,
@@ -666,14 +667,9 @@ async def _upsert_analytics_cache(conn, user_id: str, cache_key: str, result) ->
 
 
 async def _download_from_s3(bucket: str, key: str) -> bytes:
-    """Download an object from Garage S3 using aioboto3."""
+    """Download an object from S3-compatible storage using aioboto3."""
     session = aioboto3.Session()
-    async with session.client(
-        "s3",
-        endpoint_url=os.getenv("S3_ENDPOINT", os.getenv("GARAGE_ENDPOINT", "http://garage:3900")),
-        aws_access_key_id=os.getenv("S3_ACCESS_KEY", os.getenv("GARAGE_ACCESS_KEY")),
-        aws_secret_access_key=os.getenv("S3_SECRET_KEY", os.getenv("GARAGE_SECRET_KEY")),
-    ) as s3:
+    async with session.client("s3", **s3_client_kwargs()) as s3:
         response = await s3.get_object(Bucket=bucket, Key=key)
         return await response["Body"].read()
 

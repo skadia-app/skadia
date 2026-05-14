@@ -10,6 +10,23 @@ import httpx
 
 _config_logger = logging.getLogger(__name__)
 
+
+def _env_or_file(key: str, default: str = "") -> str:
+    file_value = os.getenv(f"{key}_FILE", "").strip()
+    if file_value:
+        path = Path(file_value)
+        if not path.is_absolute():
+            raise ValueError(f"{key}_FILE must be an absolute path")
+        value = path.read_text(encoding="utf-8").strip()
+        if not value:
+            raise ValueError(f"{key}_FILE points to an empty file")
+        return value
+    value = os.getenv(key, "").strip()
+    if value:
+        return value
+    return default
+
+
 ML_MODE = os.getenv("ML_MODE", "local")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://skadia:skadia@postgres:5432/skadia")
@@ -27,7 +44,8 @@ ML_LLM_BROKER_URL = os.getenv(
     "ML_LLM_BROKER_URL",
     "http://api:8080/internal/ai-broker",
 ).rstrip("/")
-ML_LLM_BROKER_TOKEN = os.getenv("ML_LLM_BROKER_TOKEN", os.getenv("ML_CALLBACK_SECRET", ""))
+_ML_CALLBACK_SECRET = _env_or_file("ML_CALLBACK_SECRET", "")
+ML_LLM_BROKER_TOKEN = _env_or_file("ML_LLM_BROKER_TOKEN", _ML_CALLBACK_SECRET)
 ML_DOCUMENT_ROLE = os.getenv("ML_DOCUMENT_ROLE", "document_extract")
 ML_MARKDOWN_ROLE = os.getenv("ML_MARKDOWN_ROLE", "markdown_extract")
 ML_VISION_ROLE = os.getenv("ML_VISION_ROLE", "vision")
@@ -37,7 +55,7 @@ NATS_URL = os.getenv("NATS_URL", "nats://nats:4222")
 HF_HOME = os.getenv("HF_HOME", "/data/models/huggingface")
 
 ML_CALLBACK_URL = os.getenv("ML_CALLBACK_URL", "")
-ML_CALLBACK_SECRET = os.getenv("ML_CALLBACK_SECRET", "")
+ML_CALLBACK_SECRET = _ML_CALLBACK_SECRET
 
 
 class LLMRoleNotConfigured(Exception):

@@ -24,6 +24,7 @@ from config import (
     ML_VISION_ROLE,
     call_llm_broker,
 )
+from s3_client import s3_client_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -135,16 +136,10 @@ async def extract_from_text(text: str, prompt: str = EXTRACTION_PROMPT) -> Optio
 
 
 async def download_s3_doc(s3_bucket: str, s3_key: str) -> Optional[bytes]:
-    """Lade Dokument aus Garage S3."""
+    """Download a document from S3-compatible storage."""
     try:
         session = aioboto3.Session()
-        async with session.client(
-            "s3",
-            endpoint_url=os.getenv("S3_ENDPOINT", os.getenv("GARAGE_ENDPOINT", "http://garage:3900")),
-            aws_access_key_id=os.getenv("S3_ACCESS_KEY", os.getenv("GARAGE_ACCESS_KEY")),
-            aws_secret_access_key=os.getenv("S3_SECRET_KEY", os.getenv("GARAGE_SECRET_KEY")),
-            region_name=os.getenv("S3_REGION", "garage"),
-        ) as s3:
+        async with session.client("s3", **s3_client_kwargs()) as s3:
             response = await s3.get_object(Bucket=s3_bucket, Key=s3_key)
             content_length = response.get("ContentLength")
             if content_length is not None and int(content_length) > MAX_DOCUMENT_DOWNLOAD_BYTES:

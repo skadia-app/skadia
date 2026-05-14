@@ -83,7 +83,9 @@ type Config struct {
 	KomootEncryptionKey string // 32-byte hex for AES-256-GCM password encryption
 
 	// ML Service
-	MLServiceURL string // e.g. http://ml:8000
+	MLServiceURL     string // e.g. http://ml:8000
+	MLCallbackSecret string // shared secret for ML callbacks
+	MLLLMBrokerToken string // token for ML-to-API broker calls; defaults to MLCallbackSecret
 
 	// Routing
 	BRouterURL       string // e.g. http://brouter:17777
@@ -178,8 +180,8 @@ func Load() (*Config, error) {
 
 		// S3 with fallback to GARAGE_* for backward compatibility
 		S3Endpoint:       getEnvDefault("S3_ENDPOINT", os.Getenv("GARAGE_ENDPOINT")),
-		S3AccessKey:      getSecret("S3_ACCESS_KEY", os.Getenv("GARAGE_ACCESS_KEY")),
-		S3SecretKey:      getSecret("S3_SECRET_KEY", os.Getenv("GARAGE_SECRET_KEY")),
+		S3AccessKey:      getSecretWithFallback("S3_ACCESS_KEY", "GARAGE_ACCESS_KEY", ""),
+		S3SecretKey:      getSecretWithFallback("S3_SECRET_KEY", "GARAGE_SECRET_KEY", ""),
 		S3Bucket:         getEnvDefault("S3_BUCKET", "skadia"),
 		S3Region:         getEnvDefault("S3_REGION", "garage"),
 		S3ForcePathStyle: os.Getenv("S3_FORCE_PATH_STYLE") == "true",
@@ -196,7 +198,9 @@ func Load() (*Config, error) {
 
 		KomootEncryptionKey: getSecret("KOMOOT_ENCRYPTION_KEY", getSecret("LLM_ENCRYPTION_KEY", "")),
 
-		MLServiceURL: getEnvDefault("ML_SERVICE_URL", "http://ml:8000"),
+		MLServiceURL:     getEnvDefault("ML_SERVICE_URL", "http://ml:8000"),
+		MLCallbackSecret: getSecret("ML_CALLBACK_SECRET", ""),
+		MLLLMBrokerToken: getSecret("ML_LLM_BROKER_TOKEN", ""),
 
 		BRouterURL:       os.Getenv("BROUTER_URL"),
 		RoutingGraphPath: getEnvDefault("ROUTING_GRAPH_PATH", "/data/routing/graph.bin"),
@@ -304,6 +308,10 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	if cfg.MLLLMBrokerToken == "" {
+		cfg.MLLLMBrokerToken = cfg.MLCallbackSecret
+	}
+
 	if cfg.StorageBackend == "s3" {
 		if cfg.S3AccessKey == "" {
 			return nil, fmt.Errorf("S3_ACCESS_KEY (or GARAGE_ACCESS_KEY) is required when STORAGE_BACKEND=s3")
@@ -311,9 +319,8 @@ func Load() (*Config, error) {
 		if cfg.S3SecretKey == "" {
 			return nil, fmt.Errorf("S3_SECRET_KEY (or GARAGE_SECRET_KEY) is required when STORAGE_BACKEND=s3")
 		}
-		// Garage requires path-style access. Warn if ForcePathStyle is off with a Garage-like region.
-		if !cfg.S3ForcePathStyle && cfg.S3Region == "garage" {
-			slog.Warn("S3_FORCE_PATH_STYLE is not set but S3_REGION=garage — Garage requires path-style access; set S3_FORCE_PATH_STYLE=true")
+		if !cfg.S3ForcePathStyle && isLocalGarageS3(cfg) {
+			slog.Warn("S3_FORCE_PATH_STYLE is not set but local Garage requires path-style access; set S3_FORCE_PATH_STYLE=true")
 		}
 	}
 
@@ -323,6 +330,14 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func isLocalGarageS3(cfg *Config) bool {
+	if strings.TrimSpace(os.Getenv("SKADIA_S3_PROVIDER")) == "local-garage" {
+		return true
+	}
+	endpoint := strings.TrimSpace(strings.ToLower(cfg.S3Endpoint))
+	return endpoint == "http://garage:3900" || endpoint == "http://localhost:3900" || endpoint == "http://127.0.0.1:3900"
 }
 
 func validateGDPRArtifactConfig(cfg *Config) error {
@@ -461,6 +476,19 @@ func getSecret(key, defaultValue string) string {
 	}
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return defaultValue
+}
+
+func getSecretWithFallback(key, fallbackKey, defaultValue string) string {
+	if filePath := os.Getenv(key + "_FILE"); filePath != "" {
+		return getSecret(key, defaultValue)
+	}
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	if fallbackKey != "" {
+		return getSecret(fallbackKey, defaultValue)
 	}
 	return defaultValue
 }
