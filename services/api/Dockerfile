@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # BRouter mapcreator JAR for building rd5 segments from PBF files.
 # Only the JAR is baked in; lookups.dat + profiles come via bind-mount
 # (data/brouter/profiles) so API and BRouter containers share the same version.
-COPY --from=ghcr.io/abrensch/brouter:1.7.5 /brouter.jar /brouter/brouter.jar
+COPY --from=ghcr.io/abrensch/brouter:v1.7.8 /brouter.jar /brouter/brouter.jar
 
 COPY --from=builder /api /api
 
