@@ -1572,7 +1572,53 @@ function KomootImportPanel() {
 // Main page with tabs
 // ---------------------------------------------------------------------------
 
-type TabId = 'garmin' | 'strava' | 'komoot' | 'queue'
+export type ImportSource = 'garmin' | 'strava' | 'komoot'
+type TabId = ImportSource | 'queue'
+
+export function ImportSourcePanel({ source }: { source: ImportSource }) {
+  const { data: capabilities, isPending: capsLoading } = useQuery({
+    queryKey: ['capabilities'],
+    queryFn: getCapabilities,
+    staleTime: 30_000,
+  })
+  const pathImportEnabled = capabilities?.import_path_enabled ?? false
+
+  if (source === 'garmin') {
+    return (
+      <ImportPanel
+        platform="garmin"
+        defaultPath={DEFAULT_GARMIN_PATH}
+        dirLabel="Garmin-Export-Verzeichnis"
+        dirHint="Gib den absoluten Pfad zum entpackten Garmin-Export an, oder lade die Export-ZIP direkt hoch."
+        dirPlaceholder="/pfad/zum/garmin/export"
+        startFn={startGarminImportJob}
+        pollFn={getGarminImportJob}
+        scanZipFn={uploadGarminZIPScan}
+        pathImportEnabled={pathImportEnabled}
+        capsLoading={capsLoading}
+      />
+    )
+  }
+
+  if (source === 'strava') {
+    return (
+      <ImportPanel
+        platform="strava"
+        defaultPath={DEFAULT_STRAVA_PATH}
+        dirLabel="Strava-Export-Verzeichnis"
+        dirHint="Gib den absoluten Pfad zum entpackten Strava-Export an, oder lade die Export-ZIP direkt hoch."
+        dirPlaceholder="/pfad/zum/strava/export"
+        startFn={startStravaImportJob}
+        pollFn={getStravaImportJob}
+        scanZipFn={uploadStravaZIPScan}
+        pathImportEnabled={pathImportEnabled}
+        capsLoading={capsLoading}
+      />
+    )
+  }
+
+  return <KomootImportPanel />
+}
 
 export default function ImportPage() {
   const [searchParams] = useSearchParams()
@@ -1595,13 +1641,6 @@ export default function ImportPage() {
     staleTime: 30_000,
     retry: false,
   })
-
-  const { data: capabilities, isPending: capsLoading } = useQuery({
-    queryKey: ['capabilities'],
-    queryFn: getCapabilities,
-    staleTime: 30_000,
-  })
-  const pathImportEnabled = capabilities?.import_path_enabled ?? false
 
   return (
     <div className="max-w-3xl mx-auto space-y-8 py-6 px-4">
@@ -1645,37 +1684,15 @@ export default function ImportPage() {
 
       {/* Tab content — panels are always mounted to preserve state during tab switches */}
       <div className={activeTab !== 'garmin' ? 'hidden' : ''}>
-        <ImportPanel
-          platform="garmin"
-          defaultPath={DEFAULT_GARMIN_PATH}
-          dirLabel="Garmin-Export-Verzeichnis"
-          dirHint="Gib den absoluten Pfad zum entpackten Garmin-Export an, oder lade die Export-ZIP direkt hoch."
-          dirPlaceholder="/pfad/zum/garmin/export"
-          startFn={startGarminImportJob}
-          pollFn={getGarminImportJob}
-          scanZipFn={uploadGarminZIPScan}
-          pathImportEnabled={pathImportEnabled}
-          capsLoading={capsLoading}
-        />
+        <ImportSourcePanel source="garmin" />
       </div>
 
       <div className={activeTab !== 'strava' ? 'hidden' : ''}>
-        <ImportPanel
-          platform="strava"
-          defaultPath={DEFAULT_STRAVA_PATH}
-          dirLabel="Strava-Export-Verzeichnis"
-          dirHint="Gib den absoluten Pfad zum entpackten Strava-Export an, oder lade die Export-ZIP direkt hoch."
-          dirPlaceholder="/pfad/zum/strava/export"
-          startFn={startStravaImportJob}
-          pollFn={getStravaImportJob}
-          scanZipFn={uploadStravaZIPScan}
-          pathImportEnabled={pathImportEnabled}
-          capsLoading={capsLoading}
-        />
+        <ImportSourcePanel source="strava" />
       </div>
 
       <div className={activeTab !== 'komoot' ? 'hidden' : ''}>
-        <KomootImportPanel />
+        <ImportSourcePanel source="komoot" />
       </div>
 
       {activeTab === 'queue' && (

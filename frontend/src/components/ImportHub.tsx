@@ -175,9 +175,9 @@ function MediaResultItem({ item }: { item: MediaUploadResultItem }) {
     return (
       <div className="flex items-start gap-2 text-xs">
         <span className="w-3.5 h-3.5 shrink-0 mt-0.5 rounded-full bg-orange-400 inline-block" />
-        <span className="text-neutral-600 dark:text-neutral-300 truncate">
-          <span className="font-medium">{item.filename}</span>
-          {' – In Warteschlange'}
+          <span className="text-neutral-600 dark:text-neutral-300 truncate">
+            <span className="font-medium">{item.filename}</span>
+          {' – Zu prüfen'}
         </span>
       </div>
     )
@@ -240,7 +240,7 @@ function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
       {queued.length > 0 && (
         <div className="space-y-1">
           <p className="text-xs font-semibold text-orange-600 dark:text-orange-400">
-            In Warteschlange ({queued.length})
+            Zu prüfen ({queued.length})
           </p>
           {queued.slice(0, 3).map((item, i) => <MediaResultItem key={i} item={item} />)}
           {queued.length > 3 && (
@@ -250,7 +250,7 @@ function MediaSuccessPanel({ result, onReset, onGoToQueue }: {
             onClick={onGoToQueue}
             className="cursor-pointer text-xs text-accent-DEFAULT hover:underline"
           >
-            Warteschlange öffnen →
+            Zu prüfen öffnen →
           </button>
         </div>
       )}
@@ -447,6 +447,132 @@ function DropZone({ onFiles, disabled }: DropZoneProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Reusable upload panel
+// ---------------------------------------------------------------------------
+
+interface ImportUploadPanelProps {
+  onGoToQueue: () => void
+  onNavigate: (path: string) => void
+}
+
+export function ImportUploadPanel({ onGoToQueue, onNavigate }: ImportUploadPanelProps) {
+  const [uploadState, setUploadState] = useState<UploadState>({ type: 'idle' })
+
+  const { refetch: refetchQueueCount } = useQuery({
+    queryKey: ['import-queue-count'],
+    queryFn: fetchImportQueueCount,
+    enabled: false,
+    retry: false,
+  })
+
+  const handleFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return
+
+    const activityFiles = files.filter(isActivityFile)
+    const mediaFiles = files.filter(isMediaFile)
+
+    if (activityFiles.length > 0) {
+      const batchResults: BatchResultEntry[] = []
+      for (const file of activityFiles) {
+        setUploadState({ type: 'uploading', filename: file.name })
+        try {
+          const result = await uploadActivityFile(file)
+          batchResults.push({ filename: file.name, status: result.status, activity_id: result.activity_id })
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          batchResults.push({ filename: file.name, status: 'error', error: msg })
+        }
+      }
+      if (mediaFiles.length === 0) {
+        if (activityFiles.length === 1 && batchResults[0].status !== 'error') {
+          const entry = batchResults[0]
+          const count = entry.status !== 'skipped' ? 1 : 0
+          setUploadState({ type: 'success', count })
+          setTimeout(() => setUploadState({ type: 'idle' }), 4000)
+        } else {
+          setUploadState({ type: 'batch_results', results: batchResults })
+        }
+        return
+      }
+    }
+
+    if (mediaFiles.length > 0) {
+      setUploadState({ type: 'uploading', filename: mediaFiles.length === 1 ? mediaFiles[0].name : `${mediaFiles.length} Dateien` })
+      try {
+        const result = await uploadMediaFiles(mediaFiles)
+        setUploadState({ type: 'media_success', result })
+        refetchQueueCount()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setUploadState({ type: 'error', message: msg })
+      }
+    }
+  }, [refetchQueueCount])
+
+  return (
+    <div className="space-y-2">
+      {uploadState.type === 'idle' && (
+        <DropZone onFiles={handleFiles} disabled={false} />
+      )}
+
+      {uploadState.type === 'uploading' && (
+        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 px-3 py-3 text-sm text-neutral-600 dark:text-neutral-300">
+          <SpinnerIcon className="w-4 h-4 animate-spin shrink-0 text-accent-DEFAULT" />
+          <span className="truncate">{uploadState.filename}</span>
+        </div>
+      )}
+
+      {uploadState.type === 'success' && (
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 px-3 py-3 text-sm">
+          <CheckIcon className="w-4 h-4 shrink-0 text-green-600 dark:text-green-400" />
+          <span className="text-green-700 dark:text-green-300 font-medium">
+            {uploadState.count === 0
+              ? 'Aktivität bereits vorhanden'
+              : `${uploadState.count} Aktivität${uploadState.count !== 1 ? 'en' : ''} importiert`}
+          </span>
+          <button
+            onClick={() => setUploadState({ type: 'idle' })}
+            className="cursor-pointer ml-auto text-xs text-green-600 dark:text-green-400 hover:underline shrink-0"
+          >
+            Weitere
+          </button>
+        </div>
+      )}
+
+      {uploadState.type === 'batch_results' && (
+        <BatchResultsPanel
+          results={uploadState.results}
+          onReset={() => setUploadState({ type: 'idle' })}
+          onClose={onNavigate}
+        />
+      )}
+
+      {uploadState.type === 'media_success' && (
+        <MediaSuccessPanel
+          result={uploadState.result}
+          onReset={() => setUploadState({ type: 'idle' })}
+          onGoToQueue={onGoToQueue}
+        />
+      )}
+
+      {uploadState.type === 'error' && (
+        <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-3 text-sm space-y-1.5">
+          <p className="text-red-700 dark:text-red-300 font-medium line-clamp-2">
+            {uploadState.message}
+          </p>
+          <button
+            onClick={() => setUploadState({ type: 'idle' })}
+            className="cursor-pointer text-xs text-red-600 dark:text-red-400 hover:underline"
+          >
+            Erneut versuchen
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main ImportHub component
 // ---------------------------------------------------------------------------
 
@@ -568,12 +694,12 @@ export default function ImportHub() {
 
   function handleImporterLink(tab: 'garmin' | 'strava' | 'komoot') {
     setOpen(false)
-    navigate(`/settings/import?tab=${tab}`)
+    navigate(`/imports?source=${tab}`)
   }
 
   function handleGoToQueue() {
     setOpen(false)
-    navigate('/settings/import?tab=queue')
+    navigate('/imports?view=review')
   }
 
   function handleNavigateAndClose(path: string) {
@@ -620,7 +746,7 @@ export default function ImportHub() {
                 className="cursor-pointer flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400 hover:underline"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />
-                {queueCount} in Warteschlange
+                {queueCount} zu prüfen
               </button>
             )}
           </div>
