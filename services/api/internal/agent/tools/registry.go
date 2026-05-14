@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
@@ -88,8 +89,12 @@ type Tool struct {
 	AuditMode            AuditMode
 	SummaryForUser       func(ctx context.Context, deps *Deps, userID string, args json.RawMessage) (string, error)
 	RequiresAdmin        bool
-	RateLimit            int
-	IsUserOwned          bool
+	// RateLimitPerHour applies per user and tool in the agent runtime.
+	RateLimitPerHour int
+	// Timeout bounds read-tool execution in the agent runtime.
+	Timeout      time.Duration
+	ExternalRead *ExternalReadRequirement
+	IsUserOwned  bool
 }
 
 type PreparedWrite struct {
@@ -125,6 +130,7 @@ type Deps struct {
 	Audit              *agent.AuditWriter
 	Confirm            *agent.ConfirmationManager
 	Preferences        *agent.PreferenceLoader
+	ExternalConsent    *ExternalReadConsentManager
 }
 
 type Registry struct {
