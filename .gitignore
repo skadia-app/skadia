@@ -72,6 +72,7 @@ TASKS.md
 
 # Per-clone hook overrides (gitignored on purpose; defaults live in .githooks/pre-commit)
 .githooks/config.local.sh
+.githooks/private-patterns.local.re
 
 
 

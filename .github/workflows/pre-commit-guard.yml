@@ -1,10 +1,10 @@
 name: pre-commit guard
 
-# Server-side enforcement of the same checks defined in .githooks/pre-commit,
-# plus a dedicated secret scan via gitleaks.
+# Server-side enforcement of the same checks defined in .githooks/pre-commit
+# and .githooks/commit-msg, plus a dedicated secret scan via gitleaks.
 #
-# Runs on every PR and push to main — non-bypassable, regardless of whether
-# the contributor has activated the local hook via core.hooksPath.
+# Runs on every PR and push to main as a central backstop, regardless of
+# whether the contributor has activated the local hook via core.hooksPath.
 #
 # Branch-protection note (manual repo setup):
 #   Both jobs (`guard` and `gitleaks`) must be added to "Required status checks"
@@ -88,6 +88,105 @@ jobs:
           fi
           chmod +x /tmp/canonical-pre-commit
 
+      - name: Load public-content helper from main branch (not from PR)
+        run: |
+          if git cat-file -e origin/main:.githooks/public-content-guard 2>/dev/null; then
+              git show origin/main:.githooks/public-content-guard > /tmp/canonical-public-content-guard
+              echo "Loaded canonical public-content helper from origin/main"
+          else
+              cp .githooks/public-content-guard /tmp/canonical-public-content-guard
+              echo "::warning::origin/main has no .githooks/public-content-guard yet — using working-tree version. Future PRs will load the canonical version once main has the helper."
+          fi
+          chmod +x /tmp/canonical-public-content-guard
+
+      - name: Load commit-message hook from main branch (not from PR)
+        run: |
+          if git cat-file -e origin/main:.githooks/commit-msg 2>/dev/null; then
+              git show origin/main:.githooks/commit-msg > /tmp/canonical-commit-msg
+              echo "Loaded canonical commit-message hook from origin/main"
+          else
+              cp .githooks/commit-msg /tmp/canonical-commit-msg
+              echo "::warning::origin/main has no .githooks/commit-msg yet — using working-tree version. Future PRs will load the canonical version once main has the hook."
+          fi
+          chmod +x /tmp/canonical-commit-msg
+
+      - name: Run hook smoke tests
+        env:
+          SKADIA_COMMIT_MSG_HOOK: /tmp/canonical-commit-msg
+          SKADIA_PUBLIC_CONTENT_GUARD: /tmp/canonical-public-content-guard
+        run: |
+          set -euo pipefail
+          scripts/commit_msg_guard_internal/test.sh
+          scripts/public_content_guard_internal/test.sh
+
+      - name: Run canonical commit-message hook
+        env:
+          BASE_SHA: ${{ steps.range.outputs.base }}
+          HEAD_SHA: ${{ steps.range.outputs.head }}
+        run: |
+          set -euo pipefail
+          base="$BASE_SHA"
+          head="$HEAD_SHA"
+
+          COMMITS_FILE=$(mktemp)
+          MSG_FILE=$(mktemp)
+          trap 'rm -f "$COMMITS_FILE" "$MSG_FILE"' EXIT
+
+          git rev-list --reverse "$base..$head" > "$COMMITS_FILE"
+          if [ ! -s "$COMMITS_FILE" ]; then
+              echo "No new commits in this range — skipping commit-message check."
+              exit 0
+          fi
+
+          while IFS= read -r commit; do
+              [ -z "$commit" ] && continue
+              git log -1 --format=%B "$commit" > "$MSG_FILE"
+              if ! /tmp/canonical-commit-msg "$MSG_FILE"; then
+                  subject=$(git log -1 --format=%s "$commit")
+                  echo "::error title=Commit message blocked::${commit:0:12} $subject"
+                  exit 1
+              fi
+          done < "$COMMITS_FILE"
+
+      - name: Run canonical commit-message hook on PR title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          MSG_FILE=$(mktemp)
+          trap 'rm -f "$MSG_FILE"' EXIT
+          printf '%s\n' "$PR_TITLE" > "$MSG_FILE"
+          if ! /tmp/canonical-commit-msg "$MSG_FILE"; then
+              echo "::error title=PR title blocked::Use a public-neutral title; it may become the default squash commit subject."
+              exit 1
+          fi
+
+      - name: Guard hardening file deletions
+        env:
+          BASE_SHA: ${{ steps.range.outputs.base }}
+          HEAD_SHA: ${{ steps.range.outputs.head }}
+        run: |
+          set -euo pipefail
+          base="$BASE_SHA"
+          head="$HEAD_SHA"
+
+          deleted=$(
+            git diff --name-only --diff-filter=D "$base...$head" -- \
+              .githooks/pre-commit \
+              .githooks/commit-msg \
+              .githooks/public-content-guard \
+              .github/workflows/pre-commit-guard.yml \
+              scripts/commit_msg_guard_internal/test.sh \
+              scripts/public_content_guard_internal/test.sh \
+              || true
+          )
+          if [ -n "$deleted" ]; then
+              echo "::error title=Hardening file deletion blocked::These public-release guard files may not be deleted without changing the guard policy first."
+              printf '%s\n' "$deleted"
+              exit 1
+          fi
+
       - name: Stage diff into index
         env:
           BASE_SHA: ${{ steps.range.outputs.base }}
@@ -101,6 +200,8 @@ jobs:
           # `...` (three dots) = symmetric diff via merge-base, the correct
           # semantic for "what does this PR add". `AMR` covers Add, Modify,
           # and Rename — renames with content changes can carry secrets.
+          # Deletions have no added lines to scan; protected guard-file
+          # deletions are blocked in the previous step.
           #
           # NUL-separated diff goes to a TEMP FILE, never to a shell
           # variable. Bash variable assignment via $(...) strips NUL
@@ -124,6 +225,11 @@ jobs:
               exit 1
           fi
 
+          # Reset the index to the base tree while keeping the checked-out
+          # working tree. Without this, a clean PR checkout has no staged diff
+          # and the pre-commit mirror would scan nothing.
+          git reset --mixed "$base"
+
           # Force-add even files that are now in .gitignore — staging is what
           # the hook scans, not the gitignore. Read the NUL-separated list
           # directly from the file via xargs -0 to preserve filenames with
@@ -131,6 +237,8 @@ jobs:
           xargs -0 -r git add -f -- < "$DIFF_FILE"
 
       - name: Run canonical pre-commit hook
+        env:
+          SKADIA_PUBLIC_CONTENT_GUARD: /tmp/canonical-public-content-guard
         run: /tmp/canonical-pre-commit
 
   gitleaks:

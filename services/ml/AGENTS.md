@@ -34,7 +34,9 @@ See [`../../AGENTS.md`](../../AGENTS.md) for project-wide rules. Python ML/agent
 - Connect via the async pool from `db.py` (`get_pool()`); never open ad-hoc connections.
 - Same Postgres instance + schema as `services/api/`. The Go service owns migrations — do not write SQL DDL here.
 - Respect RLS (`SET LOCAL app.current_user_id`) for user-scoped queries; service-tier queries that intentionally bypass RLS must be commented as such.
-- See **Database column drops**, **No precomputed enrichment columns**, and **Database session variables** in [`../../AGENTS.md`](../../AGENTS.md).
+- Shared schema rules live in [`../api/AGENTS.md`](../api/AGENTS.md)
+  (column drops, session variables, GDPR) and [`../../AGENTS.md`](../../AGENTS.md)
+  (no precomputed enrichment columns).
 
 ## NATS
 

@@ -30,9 +30,33 @@ See [`../../AGENTS.md`](../../AGENTS.md) for project-wide rules. Go-backend spec
 - **Test helpers are file-scoped, not shared.** No project-wide `newTestPool` / `insertRecordingGroup`. Each `_test.go` defines its own setup helper (named like `*TestPool`). Before referencing any helper in a plan/task, `grep` for `func.*TestPool` in the package and use the actual one — or add a new file-scoped helper. Never invent shared helpers.
 - Before writing `SomeStruct{Field: ...}`, `Read` the struct definition. Field names like `RecordingGroupID` vs `GroupID` matter; missing required fields silently mis-compile.
 
+## Verify backend reality
+
+- Assuming `DATABASE_URL` instead of grepping tests for `TEST_DATABASE_URL` is a known failure mode.
+- Writing `FusionMergeRequest{RecordingGroupID: ...}` without reading the struct is wrong; the real field is `GroupID`, plus required fields.
+- Verify helper/function/struct names and current `path:line` anchors against this checkout; do not cite remembered lines such as `fusion_merge.go:601`.
+- Recompute LOC/function counts with `wc -l` / `grep -c '^func'`; do not reuse remembered counts.
+
+## Test DB per worktree
+
+- Parallel worktrees must not share `skadia_test`: divergent migrations overwrite schema state, provisional numbers collide, and the runner trusts highest `schema_migrations`.
+- Each worktree uses `skadia_test_<slug>` via `scripts/test_db.sh`.
+- Full rebuild means `DROP DATABASE` + `CREATE DATABASE` + `migrate up`, never `DROP SCHEMA public CASCADE`.
+- Migration fingerprints include `(relative_path + file_content)` for every migration and migration test file.
+- Tests use `TEST_DATABASE_URL` or `services/api/internal/database/testdb.Open(t)`; uncontrolled `os.Getenv("DATABASE_URL")` is forbidden by `testdb_safety_test.go`.
+- Per new shell: `./scripts/test_db.sh ensure`; `eval "$(./scripts/test_db.sh emit-url)"`; then run tests, or use `./scripts/test_db.sh run -- sh -c 'cd services/api && go test ./...'`.
+- Cleanup/inspect: `./scripts/test_db.sh gc`; `./scripts/test_db.sh inspect`.
+- Details: `docs/documentation/dev/subsystems/test-db.md`, `docs/documentation/dev/adr/0037-test-db-per-worktree.md`.
+
 ## GDPR
 
-Any new table with a user_id reference (direct or via FK chain) → all 5 steps from the project-wide GDPR checklist in [`../../AGENTS.md`](../../AGENTS.md) (section: GDPR for new tables). CI test `gdpr_registry_test.go` fails if missing from `internal/auth/gdpr_registry.go`.
+Any new table with a `user_id` reference, direct or via FK chain:
+
+1. Register in `internal/auth/gdpr_registry.go`.
+2. If Export/External, add `exportTable()` in `internal/auth/handler_data_export.go`.
+3. Verify CASCADE or add deletion in `internal/database/gdpr.go`.
+4. Add security-sensitive columns to `ExportDenyColumns`.
+5. `gdpr_registry_test.go` must pass.
 
 ## Session variables
 
@@ -63,4 +87,16 @@ Expanding a hot-path query (e.g. `GetStreamPoints` from 10 to 80+ columns) is **
 
 ## Outdoor routing
 
-`internal/routing/` is for outdoor profiles (foot, bike, ski, …) — not street/car routing. See **Routing mindset** in [`../../AGENTS.md`](../../AGENTS.md) for the cost-function principles.
+Routing is part of the API container. These rules apply to routing code and to
+plans/specs for router behavior, even when the plan file itself lives outside
+`services/api/`.
+
+- Verify whether the change targets BRouter, BadRouter, or both.
+- Skadia routing is outdoor routing, not street/car routing: elevation,
+  surface, traffic, and noise weights differ from street-router heuristics.
+- Harder terrain is not always more expensive; some bike profiles may prefer
+  unpaved surfaces.
+- Noise and traffic penalties scale with surface and population density, not
+  linearly with road class.
+- Elevation gain is per-segment work; a flat detour can beat a steep shortcut.
+- Surface preferences are profile-specific; never hard-code one global ranking.
