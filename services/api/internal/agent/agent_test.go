@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
@@ -147,7 +148,7 @@ func TestAgentChatParamsUsesProviderSpecificOptionalFlags(t *testing.T) {
 	profile := defaultProfiles["small"]
 	messages := []conversationMessage{{Role: "user", Content: "Hallo"}}
 
-	openAIParams := agent.chatParams(LLMConfig{Model: "model", BackendType: model.LLMBackendOpenAI}, &profile, messages, []llmwire.ToolDefinition{{Name: "query_activities"}}, true, false)
+	openAIParams := agent.chatParams(LLMConfig{Model: "model", BackendType: model.LLMBackendOpenAI}, &profile, messages, []llmwire.ToolDefinition{{Name: "query_activities"}}, true, false, profile.MaxResponseTokens)
 	if !openAIParams.IncludeUsage {
 		t.Fatal("OpenAI chat params did not request streaming usage")
 	}
@@ -155,7 +156,7 @@ func TestAgentChatParamsUsesProviderSpecificOptionalFlags(t *testing.T) {
 		t.Fatal("OpenAI chat params did not disable parallel tool calls when tools are allowed")
 	}
 
-	llamaParams := agent.chatParams(LLMConfig{Model: "model", BackendType: model.LLMBackendLlamaServer}, &profile, messages, []llmwire.ToolDefinition{{Name: "query_activities"}}, true, false)
+	llamaParams := agent.chatParams(LLMConfig{Model: "model", BackendType: model.LLMBackendLlamaServer}, &profile, messages, []llmwire.ToolDefinition{{Name: "query_activities"}}, true, false, profile.MaxResponseTokens)
 	if llamaParams.IncludeUsage {
 		t.Fatal("llama_server chat params requested provider-specific streaming usage")
 	}
@@ -174,9 +175,154 @@ func TestAgentChatParamsCanRequireToolChoice(t *testing.T) {
 		[]llmwire.ToolDefinition{{Name: "query_activities"}},
 		true,
 		true,
+		profile.MaxResponseTokens,
 	)
 	if params.ToolChoice != "required" {
 		t.Fatalf("ToolChoice = %q, want required", params.ToolChoice)
+	}
+}
+
+func TestAgentStreamFitsPromptToConfiguredContextWindow(t *testing.T) {
+	runtime := &fakeToolRuntime{
+		defs: []llmwire.ToolDefinition{{
+			Name:        "query_activities",
+			Description: "Aktivitäten lesen.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"limit":{"type":"integer"}}}`),
+		}},
+	}
+	var captured llmwire.ChatRequest
+	agent := New(Config{
+		LLMResolver: NewLLMResolver(fakeLLMConfigStore{}, LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
+		ProfileStore: fakeProfileStore{value: []byte(`{
+			"base_profile": "small",
+			"overrides": {
+				"max_context_tokens": 3500,
+				"history_messages": 20,
+				"max_response_tokens": 1500
+			}
+		}`)},
+		Tools: runtime,
+		StreamChat: func(ctx context.Context, cfg LLMConfig, params llmwire.ChatRequest) ChatStream {
+			captured = params
+			return &fakeStream{events: []llmwire.ChatStreamEvent{{
+				Delta:        "Fertig.",
+				FinishReason: "stop",
+			}}}
+		},
+	})
+	history := make([]ChatHistoryMessage, 0, 20)
+	for idx := 0; idx < 20; idx++ {
+		history = append(history, ChatHistoryMessage{
+			Role:    "user",
+			Content: "old-marker " + strings.Repeat("lange Historie ", 120),
+		})
+	}
+
+	if err := agent.Stream(context.Background(), ChatRequest{
+		UserID:    "user-1",
+		SessionID: "session-1",
+		MessageID: "message-1",
+		Message:   "Wann war ich zuletzt Radfahren?",
+		History:   history,
+	}, &captureSink{}); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if got := estimateLLMRequestTokens(captured); got > 3500 {
+		t.Fatalf("estimated request tokens = %d, want <= 3500", got)
+	}
+	if captured.MaxTokens == nil || *captured.MaxTokens >= 1500 {
+		t.Fatalf("max_tokens = %v, want capped below profile response tokens", captured.MaxTokens)
+	}
+	oldHistoryMessages := 0
+	for _, message := range captured.Messages {
+		if strings.Contains(message.Content, "old-marker") {
+			oldHistoryMessages++
+		}
+	}
+	if oldHistoryMessages >= len(history) {
+		t.Fatalf("captured all old history despite tight context budget: %#v", captured.Messages)
+	}
+}
+
+func TestAgentStreamFitsPromptAfterToolResults(t *testing.T) {
+	runtime := &fakeToolRuntime{
+		defs: []llmwire.ToolDefinition{{
+			Name:        "query_activities",
+			Description: "Aktivitäten lesen.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"limit":{"type":"integer"}}}`),
+		}},
+		result: ToolRuntimeResult{Summary: strings.Repeat("sehr langes Tool-Ergebnis ", 180)},
+	}
+	var secondCall llmwire.ChatRequest
+	streamCalls := 0
+	agent := New(Config{
+		LLMResolver: NewLLMResolver(fakeLLMConfigStore{}, LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
+		ProfileStore: fakeProfileStore{value: []byte(`{
+			"base_profile": "small",
+			"overrides": {
+				"max_context_tokens": 2600,
+				"max_response_tokens": 1200,
+				"tool_result_limit": 40
+			}
+		}`)},
+		Tools: runtime,
+		StreamChat: func(ctx context.Context, cfg LLMConfig, params llmwire.ChatRequest) ChatStream {
+			streamCalls++
+			if streamCalls == 2 {
+				secondCall = params
+				return &fakeStream{events: []llmwire.ChatStreamEvent{{Delta: "Fertig.", FinishReason: "stop"}}}
+			}
+			return &fakeStream{events: []llmwire.ChatStreamEvent{{
+				ToolCalls:    []llmwire.ToolCallDelta{{Index: 0, ID: "call-1", Name: "query_activities", Args: `{"limit":10}`}},
+				FinishReason: "tool_calls",
+			}}}
+		},
+	})
+
+	if err := agent.Stream(context.Background(), ChatRequest{
+		UserID:    "user-1",
+		SessionID: "session-1",
+		MessageID: "message-1",
+		Message:   "Wann war ich zuletzt Radfahren?",
+	}, &captureSink{}); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if streamCalls != 2 {
+		t.Fatalf("stream calls = %d, want 2", streamCalls)
+	}
+	if got := estimateLLMRequestTokens(secondCall); got > 2600 {
+		t.Fatalf("estimated second request tokens = %d, want <= 2600", got)
+	}
+}
+
+func TestAgentStreamStopsWhenBaseRequestCannotFitContext(t *testing.T) {
+	streamCalls := 0
+	agent := New(Config{
+		LLMResolver: NewLLMResolver(fakeLLMConfigStore{}, LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
+		ProfileStore: fakeProfileStore{value: []byte(`{
+			"base_profile": "small",
+			"overrides": {
+				"max_context_tokens": 1024,
+				"max_response_tokens": 1000
+			}
+		}`)},
+		StreamChat: func(ctx context.Context, cfg LLMConfig, params llmwire.ChatRequest) ChatStream {
+			streamCalls++
+			return &fakeStream{}
+		},
+	})
+
+	err := agent.Stream(context.Background(), ChatRequest{
+		UserID:    "user-1",
+		SessionID: "session-1",
+		MessageID: "message-1",
+		Message:   strings.Repeat("lange aktuelle Frage ", 600),
+	}, &captureSink{})
+	if err == nil {
+		t.Fatal("Stream returned nil, want context budget error")
+	}
+	if streamCalls != 0 {
+		t.Fatalf("stream calls = %d, want 0", streamCalls)
 	}
 }
 
@@ -361,6 +507,7 @@ type fakeToolRuntime struct {
 	result          ToolRuntimeResult
 	calls           []ToolRuntimeRequest
 	publicArgsAllow bool
+	defs            []llmwire.ToolDefinition
 }
 
 func (r *fakeToolRuntime) AddEnabledWriteTools(filter []string, prefs *ChatPreferences) []string {
@@ -368,7 +515,7 @@ func (r *fakeToolRuntime) AddEnabledWriteTools(filter []string, prefs *ChatPrefe
 }
 
 func (r *fakeToolRuntime) Definitions(filter []string, prefs *ChatPreferences) []llmwire.ToolDefinition {
-	return nil
+	return r.defs
 }
 
 func (r *fakeToolRuntime) Execute(ctx context.Context, req ToolRuntimeRequest, sink SSESink) (ToolRuntimeResult, error) {
@@ -483,4 +630,19 @@ func assertEventOrder(t *testing.T, events []SSEEvent, want []string) {
 	if string(rawGot) != string(rawWant) {
 		t.Fatalf("events = %s, want %s", rawGot, rawWant)
 	}
+}
+
+func estimateLLMRequestTokens(req llmwire.ChatRequest) int {
+	raw, _ := json.Marshal(struct {
+		Messages []llmwire.ChatMessage    `json:"messages"`
+		Tools    []llmwire.ToolDefinition `json:"tools,omitempty"`
+	}{
+		Messages: req.Messages,
+		Tools:    req.Tools,
+	})
+	total := (len(raw) + 2) / 3
+	if req.MaxTokens != nil {
+		total += *req.MaxTokens
+	}
+	return total
 }

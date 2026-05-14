@@ -100,6 +100,106 @@ func TestLLMResolverDoesNotInheritEnvAPIKeyForDBRole(t *testing.T) {
 	}
 }
 
+func TestLLMResolverUsesRoleContextWindowBeforeFallback(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	modelName := "system-model"
+	contextWindow := 16000
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:          "tool_agent",
+			BackendType:   "llama_server",
+			APIBase:       &apiBase,
+			ModelName:     &modelName,
+			ContextWindow: &contextWindow,
+			Enabled:       true,
+			EvalStatus:    model.LLMEvalStatusPassed,
+			EvalReport:    evalIdentityReportWithContext("tool_agent", "llama_server", "system.example", modelName, contextWindow),
+		}},
+	}, LLMResolverConfig{
+		EncryptionKey: testLLMKey,
+		ContextWindow: 8000,
+	})
+
+	got, err := resolver.Resolve(context.Background(), "user-1", "tool_agent")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, Model: modelName, BackendType: "llama_server", ContextWindow: contextWindow})
+}
+
+func TestLLMResolverUsesFallbackContextWindowWhenRoleUnset(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	modelName := "system-model"
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:        "tool_agent",
+			BackendType: "llama_server",
+			APIBase:     &apiBase,
+			ModelName:   &modelName,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusPassed,
+			EvalReport:  evalIdentityReportWithContext("tool_agent", "llama_server", "system.example", modelName, 8000),
+		}},
+	}, LLMResolverConfig{
+		EncryptionKey: testLLMKey,
+		ContextWindow: 8000,
+	})
+
+	got, err := resolver.Resolve(context.Background(), "user-1", "tool_agent")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	assertLLMConfig(t, got, LLMConfig{BaseURL: apiBase, Model: modelName, BackendType: "llama_server", ContextWindow: 8000})
+}
+
+func TestLLMResolverRejectsStaleContextWindowIdentity(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	modelName := "system-model"
+	contextWindow := 16000
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:          "tool_agent",
+			BackendType:   "llama_server",
+			APIBase:       &apiBase,
+			ModelName:     &modelName,
+			ContextWindow: &contextWindow,
+			Enabled:       true,
+			EvalStatus:    model.LLMEvalStatusPassed,
+			EvalReport:    evalIdentityReportWithContext("tool_agent", "llama_server", "system.example", modelName, 8000),
+		}},
+	}, LLMResolverConfig{
+		EncryptionKey: testLLMKey,
+		ContextWindow: 8000,
+	})
+
+	if _, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err == nil {
+		t.Fatal("Resolve returned nil error, want stale context window eval identity error")
+	}
+}
+
+func TestLLMResolverRejectsStaleFallbackContextWindowIdentity(t *testing.T) {
+	apiBase := "http://system.example/v1"
+	modelName := "system-model"
+	resolver := NewLLMResolver(fakeLLMStore{
+		system: []model.LLMSystemConfig{{
+			Role:        "tool_agent",
+			BackendType: "llama_server",
+			APIBase:     &apiBase,
+			ModelName:   &modelName,
+			Enabled:     true,
+			EvalStatus:  model.LLMEvalStatusPassed,
+			EvalReport:  evalIdentityReport("tool_agent", "llama_server", "system.example", modelName),
+		}},
+	}, LLMResolverConfig{
+		EncryptionKey: testLLMKey,
+		ContextWindow: 16000,
+	})
+
+	if _, err := resolver.Resolve(context.Background(), "user-1", "tool_agent"); err == nil {
+		t.Fatal("Resolve returned nil error, want stale fallback context window eval identity error")
+	}
+}
+
 func TestLLMResolverFailsClosedWhenMarkedAPIKeyCannotBeLoaded(t *testing.T) {
 	apiBase := "http://system.example/v1"
 	modelName := "system-model"
@@ -334,6 +434,12 @@ func evalIdentityReport(role, backendType, host, modelName string) map[string]an
 		"suite_id":      model.LLMEvalSuiteID,
 		"suite_hash":    model.LLMEvalSuiteHash,
 	}}
+}
+
+func evalIdentityReportWithContext(role, backendType, host, modelName string, contextWindow int) map[string]any {
+	report := evalIdentityReport(role, backendType, host, modelName)
+	report["identity"].(map[string]any)["context_window"] = contextWindow
+	return report
 }
 
 func mergeEvalReport(base map[string]any, extra map[string]any) map[string]any {

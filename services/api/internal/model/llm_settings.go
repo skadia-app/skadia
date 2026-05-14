@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -30,6 +31,9 @@ const (
 
 	LLMEvalSuiteID   = "skadia-agent-eval-v2"
 	LLMEvalSuiteHash = "367ddd89b5b30040743f3e2248a06f6cf69cee7f15478224589d51ddfcdd0a38"
+
+	LLMContextWindowMin = 1024
+	LLMContextWindowMax = 2000000
 )
 
 var ValidLLMRoles = []string{
@@ -51,6 +55,7 @@ type LLMSystemConfig struct {
 	BackendType     string         `json:"backend_type"`
 	APIBase         *string        `json:"api_base,omitempty"`
 	ModelName       *string        `json:"model_name,omitempty"`
+	ContextWindow   *int           `json:"context_window,omitempty"`
 	APIKeyMasked    *string        `json:"api_key_masked,omitempty"` // never return plaintext
 	HasAPIKey       bool           `json:"has_api_key"`
 	Enabled         bool           `json:"enabled"`
@@ -61,21 +66,44 @@ type LLMSystemConfig struct {
 }
 
 type LLMSystemConfigUpdate struct {
-	BackendType string  `json:"backend_type"`
-	APIBase     *string `json:"api_base,omitempty"`
-	ModelName   *string `json:"model_name,omitempty"`
-	APIKey      *string `json:"api_key,omitempty"` // plaintext input, encrypted before storage
-	APIKeyState string  `json:"api_key_state,omitempty"`
-	Enabled     bool    `json:"enabled"`
+	BackendType      string  `json:"backend_type"`
+	APIBase          *string `json:"api_base,omitempty"`
+	ModelName        *string `json:"model_name,omitempty"`
+	ContextWindow    *int    `json:"context_window,omitempty"`
+	ContextWindowSet bool    `json:"-"`
+	APIKey           *string `json:"api_key,omitempty"` // plaintext input, encrypted before storage
+	APIKeyState      string  `json:"api_key_state,omitempty"`
+	Enabled          bool    `json:"enabled"`
+}
+
+func (u *LLMSystemConfigUpdate) UnmarshalJSON(data []byte) error {
+	type alias LLMSystemConfigUpdate
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*u = LLMSystemConfigUpdate(decoded)
+	if value, ok := raw["context_window"]; ok {
+		u.ContextWindowSet = true
+		if string(value) == "null" {
+			u.ContextWindow = nil
+		}
+	}
+	return nil
 }
 
 type LLMEvalIdentity struct {
-	Role        string `json:"role"`
-	BackendType string `json:"backend_type"`
-	APIBaseHost string `json:"api_base_host"`
-	ModelName   string `json:"model_name"`
-	SuiteID     string `json:"suite_id"`
-	SuiteHash   string `json:"suite_hash"`
+	Role          string `json:"role"`
+	BackendType   string `json:"backend_type"`
+	APIBaseHost   string `json:"api_base_host"`
+	ModelName     string `json:"model_name"`
+	ContextWindow int    `json:"context_window,omitempty"`
+	SuiteID       string `json:"suite_id"`
+	SuiteHash     string `json:"suite_hash"`
 }
 
 type LLMUserConfig struct {
@@ -134,10 +162,14 @@ func IsValidLLMAPIKeyState(state string) bool {
 }
 
 func (c LLMSystemConfig) EvalGatePassed() bool {
+	return c.EvalGatePassedWithFallback(0)
+}
+
+func (c LLMSystemConfig) EvalGatePassedWithFallback(contextWindowFallback int) bool {
 	if !c.Enabled {
 		return false
 	}
-	if !c.EvalIdentityMatchesCurrentConfig() {
+	if !c.EvalIdentityMatchesCurrentConfigWithFallback(contextWindowFallback) {
 		return false
 	}
 	switch c.EvalStatus {
@@ -150,7 +182,21 @@ func (c LLMSystemConfig) EvalGatePassed() bool {
 	}
 }
 
+func (c LLMSystemConfig) EffectiveContextWindow(fallback int) int {
+	if c.ContextWindow != nil {
+		return *c.ContextWindow
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return 0
+}
+
 func (c LLMSystemConfig) CurrentEvalIdentity() (LLMEvalIdentity, bool) {
+	return c.CurrentEvalIdentityWithFallback(0)
+}
+
+func (c LLMSystemConfig) CurrentEvalIdentityWithFallback(contextWindowFallback int) (LLMEvalIdentity, bool) {
 	modelName := ""
 	if c.ModelName != nil {
 		modelName = strings.TrimSpace(*c.ModelName)
@@ -163,11 +209,18 @@ func (c LLMSystemConfig) CurrentEvalIdentity() (LLMEvalIdentity, bool) {
 		SuiteID:     LLMEvalSuiteID,
 		SuiteHash:   LLMEvalSuiteHash,
 	}
+	if contextWindow := c.EffectiveContextWindow(contextWindowFallback); contextWindow > 0 {
+		identity.ContextWindow = contextWindow
+	}
 	return identity, identity.Role != "" && identity.BackendType != "" && identity.APIBaseHost != "" && identity.ModelName != "" && identity.SuiteID != "" && identity.SuiteHash != ""
 }
 
 func (c LLMSystemConfig) EvalIdentityMatchesCurrentConfig() bool {
-	current, ok := c.CurrentEvalIdentity()
+	return c.EvalIdentityMatchesCurrentConfigWithFallback(0)
+}
+
+func (c LLMSystemConfig) EvalIdentityMatchesCurrentConfigWithFallback(contextWindowFallback int) bool {
+	current, ok := c.CurrentEvalIdentityWithFallback(contextWindowFallback)
 	if !ok {
 		return false
 	}
@@ -185,19 +238,24 @@ func (c LLMSystemConfig) HasAdminWaiverReason() bool {
 }
 
 func (c LLMSystemConfig) AllowsModelOverride(modelName string) bool {
+	return c.AllowsModelOverrideWithFallback(modelName, 0)
+}
+
+func (c LLMSystemConfig) AllowsModelOverrideWithFallback(modelName string, contextWindowFallback int) bool {
 	modelName = strings.TrimSpace(modelName)
 	if modelName == "" {
 		return true
 	}
 	if c.ModelName != nil && strings.TrimSpace(*c.ModelName) == modelName {
-		return c.EvalGatePassed()
+		return c.EvalGatePassedWithFallback(contextWindowFallback)
 	}
 	apiBaseHost := apiBaseHost(c.APIBase)
 	if apiBaseHost == "" {
 		return false
 	}
+	contextWindow := c.EffectiveContextWindow(contextWindowFallback)
 	for _, record := range llmEvalRecords(c.EvalReport["model_evals"]) {
-		if record.matches(c.Role, c.BackendType, apiBaseHost, modelName) && record.gatePassed() {
+		if record.matches(c.Role, c.BackendType, apiBaseHost, modelName, contextWindow) && record.gatePassed() {
 			return true
 		}
 	}
@@ -212,12 +270,13 @@ func evalIdentityFromReport(raw any) (LLMEvalIdentity, bool) {
 		return LLMEvalIdentity{}, false
 	}
 	identity := LLMEvalIdentity{
-		Role:        stringValue(record["role"]),
-		BackendType: stringValue(record["backend_type"]),
-		APIBaseHost: stringValue(record["api_base_host"]),
-		ModelName:   stringValue(record["model_name"]),
-		SuiteID:     stringValue(record["suite_id"]),
-		SuiteHash:   stringValue(record["suite_hash"]),
+		Role:          stringValue(record["role"]),
+		BackendType:   stringValue(record["backend_type"]),
+		APIBaseHost:   stringValue(record["api_base_host"]),
+		ModelName:     stringValue(record["model_name"]),
+		ContextWindow: intValue(record["context_window"]),
+		SuiteID:       stringValue(record["suite_id"]),
+		SuiteHash:     stringValue(record["suite_hash"]),
 	}
 	return identity, identity.Role != "" && identity.BackendType != "" && identity.APIBaseHost != "" && identity.ModelName != "" && identity.SuiteID != "" && identity.SuiteHash != ""
 }
@@ -236,11 +295,12 @@ func llmEvalRecords(raw any) []llmEvalRecord {
 	return records
 }
 
-func (r llmEvalRecord) matches(role, backendType, apiBaseHost, modelName string) bool {
+func (r llmEvalRecord) matches(role, backendType, apiBaseHost, modelName string, contextWindow int) bool {
 	return llmEvalRecordString(r, "role") == role &&
 		llmEvalRecordString(r, "backend_type") == backendType &&
 		llmEvalRecordString(r, "api_base_host") == apiBaseHost &&
 		llmEvalRecordString(r, "model_name") == modelName &&
+		llmEvalRecordInt(r, "context_window") == contextWindow &&
 		llmEvalRecordString(r, "suite_id") == LLMEvalSuiteID &&
 		llmEvalRecordString(r, "suite_hash") == LLMEvalSuiteHash
 }
@@ -268,11 +328,42 @@ func llmEvalRecordString(r llmEvalRecord, key string) string {
 	return stringValue(identity[key])
 }
 
+func llmEvalRecordInt(r llmEvalRecord, key string) int {
+	if value := intValue(r[key]); value != 0 {
+		return value
+	}
+	identity, ok := r["identity"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	return intValue(identity[key])
+}
+
 func stringValue(v any) string {
 	if s, ok := v.(string); ok {
 		return strings.TrimSpace(s)
 	}
 	return ""
+}
+
+func intValue(v any) int {
+	switch typed := v.(type) {
+	case int:
+		return typed
+	case int32:
+		return int(typed)
+	case int64:
+		return int(typed)
+	case float64:
+		if typed == float64(int(typed)) {
+			return int(typed)
+		}
+	case float32:
+		if typed == float32(int(typed)) {
+			return int(typed)
+		}
+	}
+	return 0
 }
 
 func apiBaseHost(raw *string) string {

@@ -266,6 +266,85 @@ func GetToolsForDomains(domains []string, profile *ModelProfile) []string {
 	return out
 }
 
+func GetToolsForQuery(query string, domains []string, profile *ModelProfile) []string {
+	if profile == nil {
+		p := GetProfile("small", "", nil)
+		profile = &p
+	}
+	if !profile.UseRouter {
+		return GetToolsForDomains(domains, profile)
+	}
+	if containsToolName(domains, "routing") {
+		queryLower := strings.ToLower(query)
+		tools := []string{"get_agent_service_status", "geocode_place", "resolve_user_location"}
+		if isPointToPointRoutingQuery(queryLower) {
+			tools = appendUniqueToolNames(tools,
+				"resolve_route_place",
+				"get_routing_coverage",
+				"analyze_route_points",
+				"list_routing_profiles",
+				"plan_route_between",
+			)
+		}
+		if isRoutingWeatherQuery(queryLower) {
+			tools = appendUniqueToolNames(tools,
+				"query_weather_at_point_time",
+			)
+		}
+		if isRoutingCoverageQuery(queryLower) {
+			tools = appendUniqueToolNames(tools,
+				"get_routing_coverage",
+				"analyze_route_points",
+				"query_coverage",
+			)
+		}
+		if isRoutingGoalQuery(queryLower) {
+			tools = appendUniqueToolNames(tools,
+				"resolve_route_feature",
+				"get_routing_coverage",
+				"analyze_route_points",
+				"list_routing_profiles",
+				"suggest_route_goal",
+				"plan_route",
+			)
+		}
+		if len(tools) > 3 {
+			return tools
+		}
+	}
+	return GetToolsForDomains(domains, profile)
+}
+
+func appendUniqueToolNames(base []string, names ...string) []string {
+	for _, name := range names {
+		if !containsToolName(base, name) {
+			base = append(base, name)
+		}
+	}
+	return base
+}
+
+func isPointToPointRoutingQuery(queryLower string) bool {
+	return containsAny(queryLower, "wie weit", "entfernt", "distanz", "luftlinie", "route", "strecke", "plane", "planen") &&
+		containsAny(queryLower, " von ", " nach ", " zu ", " zum ", " zur ", "zwischen")
+}
+
+func isRoutingWeatherQuery(queryLower string) bool {
+	return containsAny(queryLower, "wetter", "weather", "regen", "wind", "temperatur")
+}
+
+func isRoutingCoverageQuery(queryLower string) bool {
+	return containsAny(queryLower, "abdeckung", "coverage", "rd5", "dem", "tiles", "osm")
+}
+
+func isRoutingGoalQuery(queryLower string) bool {
+	return containsAny(queryLower,
+		"rundtour", "rundroute", "rundkurs", "round trip", "zielroute", "goal route",
+		"see", "wald", "fluss", "sac", "mtb skala",
+		"s0", "s1", "s2", "s3", "s4", "s5", "t1", "t2", "t3", "t4", "t5", "t6",
+	)
+}
+
 func containsToolName(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

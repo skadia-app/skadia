@@ -19,6 +19,8 @@ import (
 const (
 	defaultMaxHops          = 5
 	defaultResultCharFactor = 200
+	defaultContextWindow    = 8000
+	minResponseTokens       = 256
 )
 
 var dataQuestionPattern = regexp.MustCompile(`(?i)\b(wann|when|wie viele|how many|wieviele|wie oft|how often|welche|welcher|welches|which|wo|where|wieviel|how much|was war|what was|was ist|what is|zuletzt|last|latest|recent|letzte|letzten|letztes|höchste|hoechste|highest|schnellste|fastest|längste|laengste|longest|bestzeit|personal record|rekord|record|pr|zeige|show|finde|find|suche|search|trend|trends|zeitreihe|zeitreihen|pro jahr|pro monat|jahresvergleich|bestwert|bestwerte)\b`)
@@ -98,7 +100,7 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 		prefs = &ChatPreferences{}
 	}
 
-	toolNames := GetToolsForDomains(domains, profile)
+	toolNames := GetToolsForQuery(req.Message, domains, profile)
 	if a.tools != nil {
 		toolNames = a.tools.AddEnabledWriteTools(toolNames, prefs)
 	}
@@ -131,6 +133,7 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 		return err
 	}
 
+	contextWindow := effectiveContextWindow(profile, cfg)
 	messages := buildConversation(systemPrompt, req.History, req.Message, profile.HistoryMessages)
 	resultLimit := profile.ToolResultLimit * defaultResultCharFactor
 	if resultLimit <= 0 {
@@ -142,7 +145,20 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 	hops := 0
 	for hops < defaultMaxHops {
 		allowTools := len(toolDefs) > 0 && hops < defaultMaxHops-1
-		params := a.chatParams(cfg, profile, messages, toolDefs, allowTools, requireTool && hops == 0)
+		activeTools := []llmwire.ToolDefinition(nil)
+		if allowTools {
+			activeTools = toolDefs
+		}
+		fit, ok := fitChatRequest(messages, activeTools, profile, contextWindow)
+		if !ok {
+			msg := "Chat nicht verfügbar: Anfrage passt nicht in das konfigurierte Kontextfenster."
+			_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: msg})
+			return fmt.Errorf("chat request exceeds configured context window")
+		}
+		messages = fit.Messages
+		activeTools = fit.Tools
+		requireToolNow := requireTool && hops == 0 && len(activeTools) > 0
+		params := a.chatParams(cfg, profile, messages, activeTools, len(activeTools) > 0, requireToolNow, fit.MaxTokens)
 		stream := a.streamChat(ctx, cfg, params)
 
 		toolCalls, finishReason, streamed, err := collectLLMStream(req.MessageID, stream, sink, &usage)
@@ -201,7 +217,14 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 			Content: "Du hast Tool-Ergebnisse erhalten aber noch keine Antwort gegeben. " +
 				"Fasse die Ergebnisse jetzt knapp und sachlich zusammen. Wenn keine Daten gefunden wurden, sag das kurz.",
 		})
-		params := a.chatParams(cfg, profile, messages, nil, false, false)
+		fit, ok := fitChatRequest(messages, nil, profile, contextWindow)
+		if !ok {
+			msg := "Chat nicht verfügbar: Anfrage passt nicht in das konfigurierte Kontextfenster."
+			_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: msg})
+			return fmt.Errorf("chat request exceeds configured context window")
+		}
+		messages = fit.Messages
+		params := a.chatParams(cfg, profile, messages, nil, false, false, fit.MaxTokens)
 		stream := a.streamChat(ctx, cfg, params)
 		if _, _, _, err := collectLLMStream(req.MessageID, stream, sink, &usage); err != nil {
 			_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: "Chat nicht verfügbar: " + err.Error()})
@@ -209,21 +232,24 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 		}
 	}
 
-	done := SSEEvent{Type: EventDone, ID: req.MessageID, Sources: []string{"llm"}, Hops: hops, ContextWindow: profile.MaxContextTokens}
+	done := SSEEvent{Type: EventDone, ID: req.MessageID, Sources: []string{"llm"}, Hops: hops, ContextWindow: contextWindow}
 	if usage.TotalTokens > 0 {
 		done.Usage = &usage
 	}
 	return sink.Send(done)
 }
 
-func (a *Agent) chatParams(cfg LLMConfig, profile *ModelProfile, messages []conversationMessage, tools []llmwire.ToolDefinition, allowTools bool, requireTool bool) llmwire.ChatRequest {
+func (a *Agent) chatParams(cfg LLMConfig, profile *ModelProfile, messages []conversationMessage, tools []llmwire.ToolDefinition, allowTools bool, requireTool bool, maxTokens int) llmwire.ChatRequest {
+	if maxTokens <= 0 {
+		maxTokens = profile.MaxResponseTokens
+	}
 	params := llmwire.ChatRequest{
 		Model:                    cfg.Model,
 		Messages:                 toLLMMessages(messages),
 		Temperature:              floatPtr(profile.Temperature),
 		TopP:                     floatPtr(profile.TopP),
 		PresencePenalty:          floatPtr(profile.PresencePenalty),
-		MaxTokens:                intPtr(profile.MaxResponseTokens),
+		MaxTokens:                intPtr(maxTokens),
 		IncludeUsage:             cfg.SupportsStreamingUsage(),
 		DisableParallelToolCalls: allowTools && cfg.SupportsParallelToolControl(),
 	}
@@ -234,6 +260,133 @@ func (a *Agent) chatParams(cfg LLMConfig, profile *ModelProfile, messages []conv
 		}
 	}
 	return params
+}
+
+func effectiveContextWindow(profile *ModelProfile, cfg LLMConfig) int {
+	window := defaultContextWindow
+	if profile != nil && profile.MaxContextTokens > 0 {
+		window = profile.MaxContextTokens
+	}
+	if cfg.ContextWindow > 0 && cfg.ContextWindow < window {
+		window = cfg.ContextWindow
+	}
+	return window
+}
+
+func responseTokenBudget(profile *ModelProfile, contextWindow int) int {
+	maxTokens := 1000
+	if profile != nil && profile.MaxResponseTokens > 0 {
+		maxTokens = profile.MaxResponseTokens
+	}
+	if contextWindow <= 0 {
+		return maxTokens
+	}
+	capTokens := contextWindow / 4
+	if capTokens < minResponseTokens {
+		capTokens = minResponseTokens
+	}
+	if maxTokens > capTokens {
+		maxTokens = capTokens
+	}
+	return maxTokens
+}
+
+type fittedChatRequest struct {
+	Messages  []conversationMessage
+	Tools     []llmwire.ToolDefinition
+	MaxTokens int
+}
+
+func fitChatRequest(messages []conversationMessage, tools []llmwire.ToolDefinition, profile *ModelProfile, contextWindow int) (fittedChatRequest, bool) {
+	maxTokens := responseTokenBudget(profile, contextWindow)
+	if contextWindow <= 0 {
+		return fittedChatRequest{Messages: messages, Tools: tools, MaxTokens: maxTokens}, true
+	}
+	messages = trimConversationToContext(messages, tools, maxTokens, contextWindow)
+	tools = trimToolsToContext(messages, tools, maxTokens, contextWindow)
+	messages = trimConversationToContext(messages, tools, maxTokens, contextWindow)
+	messages = shrinkToolResultsToContext(messages, tools, maxTokens, contextWindow)
+	if estimatedRequestTokens(messages, tools, maxTokens) <= contextWindow {
+		return fittedChatRequest{Messages: messages, Tools: tools, MaxTokens: maxTokens}, true
+	}
+	baseTokens := estimatedRequestTokens(messages, tools, 0)
+	available := contextWindow - baseTokens
+	if available < minResponseTokens {
+		return fittedChatRequest{Messages: messages, Tools: tools, MaxTokens: maxTokens}, false
+	}
+	if maxTokens > available {
+		maxTokens = available
+	}
+	if estimatedRequestTokens(messages, tools, maxTokens) > contextWindow {
+		return fittedChatRequest{Messages: messages, Tools: tools, MaxTokens: maxTokens}, false
+	}
+	return fittedChatRequest{Messages: messages, Tools: tools, MaxTokens: maxTokens}, true
+}
+
+func shrinkToolResultsToContext(messages []conversationMessage, tools []llmwire.ToolDefinition, maxTokens int, contextWindow int) []conversationMessage {
+	if contextWindow <= 0 || estimatedRequestTokens(messages, tools, maxTokens) <= contextWindow {
+		return messages
+	}
+	out := append([]conversationMessage(nil), messages...)
+	for estimatedRequestTokens(out, tools, maxTokens) > contextWindow {
+		longest := -1
+		for idx, msg := range out {
+			if msg.Role == "tool" && len(msg.Content) > 200 && (longest == -1 || len(msg.Content) > len(out[longest].Content)) {
+				longest = idx
+			}
+		}
+		if longest == -1 {
+			return out
+		}
+		excessTokens := estimatedRequestTokens(out, tools, maxTokens) - contextWindow
+		cutBytes := excessTokens*3 + 200
+		nextLen := len(out[longest].Content) - cutBytes
+		if nextLen < 200 {
+			nextLen = 200
+		}
+		if nextLen >= len(out[longest].Content) {
+			nextLen = len(out[longest].Content) / 2
+		}
+		out[longest].Content = truncate(out[longest].Content, nextLen) + "...[gekürzt]"
+	}
+	return out
+}
+
+func trimConversationToContext(messages []conversationMessage, tools []llmwire.ToolDefinition, maxTokens int, contextWindow int) []conversationMessage {
+	if contextWindow <= 0 || len(messages) <= 2 {
+		return messages
+	}
+	out := append([]conversationMessage(nil), messages...)
+	for len(out) > 2 && estimatedRequestTokens(out, tools, maxTokens) > contextWindow {
+		out = append(out[:1], out[2:]...)
+	}
+	return out
+}
+
+func trimToolsToContext(messages []conversationMessage, tools []llmwire.ToolDefinition, maxTokens int, contextWindow int) []llmwire.ToolDefinition {
+	if contextWindow <= 0 || len(tools) == 0 {
+		return tools
+	}
+	out := append([]llmwire.ToolDefinition(nil), tools...)
+	for len(out) > 0 && estimatedRequestTokens(messages, out, maxTokens) > contextWindow {
+		out = out[:len(out)-1]
+	}
+	return out
+}
+
+func estimatedRequestTokens(messages []conversationMessage, tools []llmwire.ToolDefinition, maxTokens int) int {
+	raw, _ := json.Marshal(struct {
+		Messages []llmwire.ChatMessage    `json:"messages"`
+		Tools    []llmwire.ToolDefinition `json:"tools,omitempty"`
+	}{
+		Messages: toLLMMessages(messages),
+		Tools:    tools,
+	})
+	total := (len(raw) + 2) / 3
+	if maxTokens > 0 {
+		total += maxTokens
+	}
+	return total
 }
 
 func shouldRequireTool(message string, domains []string, toolDefs []llmwire.ToolDefinition) bool {

@@ -21,7 +21,7 @@ func TestPutLLMConfigRoleAcceptsExplicitRoleAndRejectsLegacyDefault(t *testing.T
 	h := newTestHandler(t, pool)
 	h.Config = &HandlerConfig{}
 
-	body := []byte(`{"backend_type":"llama_server","api_base":"http://llm.example/v1","model_name":"tool-model","api_key_state":"unchanged","enabled":true}`)
+	body := []byte(`{"backend_type":"llama_server","api_base":"http://llm.example/v1","model_name":"tool-model","context_window":16000,"api_key_state":"unchanged","enabled":true}`)
 	req := llmRoleRequest(t, http.MethodPut, "/admin/llm-config/tool_agent", "tool_agent", body)
 	rec := httptest.NewRecorder()
 	h.PutLLMConfigRole(rec, req)
@@ -48,12 +48,68 @@ func TestPutLLMConfigRoleAcceptsExplicitRoleAndRejectsLegacyDefault(t *testing.T
 	if reason, _ := toolConfig.EvalReport["admin_reason"].(string); reason == "" {
 		t.Fatalf("eval report = %#v, want admin_reason after saving active config", toolConfig.EvalReport)
 	}
+	if toolConfig.ContextWindow == nil || *toolConfig.ContextWindow != 16000 {
+		t.Fatalf("context_window = %#v, want 16000", toolConfig.ContextWindow)
+	}
+	if identity, _ := toolConfig.EvalReport["identity"].(map[string]any); identity["context_window"] != float64(16000) {
+		t.Fatalf("eval identity = %#v, want context_window 16000", toolConfig.EvalReport["identity"])
+	}
 
 	req = llmRoleRequest(t, http.MethodPut, "/admin/llm-config/default", "default", body)
 	rec = httptest.NewRecorder()
 	h.PutLLMConfigRole(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("default status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutLLMConfigRoleRejectsInvalidContextWindow(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{}
+
+	body := []byte(`{"backend_type":"llama_server","api_base":"http://llm.example/v1","model_name":"tool-model","context_window":512,"api_key_state":"unchanged","enabled":true}`)
+	req := llmRoleRequest(t, http.MethodPut, "/admin/llm-config/tool_agent", "tool_agent", body)
+	rec := httptest.NewRecorder()
+	h.PutLLMConfigRole(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want 400 for invalid context_window", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPutLLMConfigRolePreservesContextWindowWhenOmitted(t *testing.T) {
+	pool := fusionTestPool(t)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{}
+	ctx := context.Background()
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO llm_system_config (role, backend_type, api_base, model_name, context_window, enabled)
+		VALUES ('tool_agent', 'llama_server', 'http://llm.example/v1', 'tool-model', 16000, true)
+		ON CONFLICT (role) DO UPDATE SET
+			backend_type = EXCLUDED.backend_type,
+			api_base = EXCLUDED.api_base,
+			model_name = EXCLUDED.model_name,
+			context_window = EXCLUDED.context_window,
+			enabled = EXCLUDED.enabled
+	`); err != nil {
+		t.Fatalf("seed system config: %v", err)
+	}
+
+	body := []byte(`{"backend_type":"llama_server","api_base":"http://llm.example/v1","model_name":"tool-model","api_key_state":"unchanged","enabled":true}`)
+	req := llmRoleRequest(t, http.MethodPut, "/admin/llm-config/tool_agent", "tool_agent", body)
+	rec := httptest.NewRecorder()
+	h.PutLLMConfigRole(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+
+	var contextWindow int
+	if err := pool.QueryRow(ctx, `SELECT context_window FROM llm_system_config WHERE role = 'tool_agent'`).Scan(&contextWindow); err != nil {
+		t.Fatalf("query context_window: %v", err)
+	}
+	if contextWindow != 16000 {
+		t.Fatalf("context_window = %d, want preserved 16000", contextWindow)
 	}
 }
 
@@ -208,8 +264,9 @@ func TestPatchLLMUserConfigRejectsUnevaluatedOverride(t *testing.T) {
 		ON CONFLICT (role) DO UPDATE SET
 			backend_type = EXCLUDED.backend_type,
 			api_base = EXCLUDED.api_base,
-				model_name = EXCLUDED.model_name,
-				api_key_enc = NULL,
+					model_name = EXCLUDED.model_name,
+					context_window = NULL,
+					api_key_enc = NULL,
 				enabled = EXCLUDED.enabled,
 				eval_status = EXCLUDED.eval_status,
 				eval_report = EXCLUDED.eval_report
@@ -250,8 +307,9 @@ func TestPatchLLMUserConfigAcceptsEvaluatedOverride(t *testing.T) {
 		ON CONFLICT (role) DO UPDATE SET
 				backend_type = EXCLUDED.backend_type,
 				api_base = EXCLUDED.api_base,
-				model_name = EXCLUDED.model_name,
-				api_key_enc = NULL,
+					model_name = EXCLUDED.model_name,
+					context_window = NULL,
+					api_key_enc = NULL,
 				enabled = EXCLUDED.enabled,
 				eval_status = EXCLUDED.eval_status,
 				eval_report = EXCLUDED.eval_report

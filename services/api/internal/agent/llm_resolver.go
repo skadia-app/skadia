@@ -10,16 +10,18 @@ import (
 )
 
 type LLMConfig struct {
-	BaseURL     string
-	APIKey      string
-	Model       string
-	BackendType string
+	BaseURL       string
+	APIKey        string
+	Model         string
+	BackendType   string
+	ContextWindow int
 }
 
 type LLMResolverConfig struct {
 	BaseURL       string
 	APIKey        string
 	Model         string
+	ContextWindow int
 	EncryptionKey string
 }
 
@@ -68,7 +70,7 @@ func (r *LLMResolver) Resolve(ctx context.Context, userID, role string) (LLMConf
 	if system == nil || !system.Enabled {
 		return LLMConfig{}, fmt.Errorf("KI-Rolle %q ist nicht aktiviert. Bitte in den KI-Einstellungen eine Verbindung speichern", role)
 	}
-	if !system.EvalGatePassed() {
+	if !system.EvalGatePassedWithFallback(r.cfg.ContextWindow) {
 		return LLMConfig{}, fmt.Errorf("KI-Rolle %q ist noch nicht freigegeben. Bitte in den KI-Einstellungen die Verbindung speichern oder freigeben", role)
 	}
 	if system.APIBase == nil || strings.TrimSpace(*system.APIBase) == "" || system.ModelName == nil || strings.TrimSpace(*system.ModelName) == "" {
@@ -78,11 +80,16 @@ func (r *LLMResolver) Resolve(ctx context.Context, userID, role string) (LLMConf
 	if err != nil {
 		return LLMConfig{}, fmt.Errorf("LLM role %q has invalid api_base: %w", role, err)
 	}
+	contextWindow := r.cfg.ContextWindow
+	if system.ContextWindow != nil {
+		contextWindow = *system.ContextWindow
+	}
 
 	resolved := LLMConfig{
-		BaseURL:     baseURL,
-		Model:       strings.TrimSpace(*system.ModelName),
-		BackendType: system.BackendType,
+		BaseURL:       baseURL,
+		Model:         strings.TrimSpace(*system.ModelName),
+		BackendType:   system.BackendType,
+		ContextWindow: contextWindow,
 	}
 	if system.HasAPIKey {
 		enc, err := r.store.GetLLMAPIKeyEnc(ctx, role)
@@ -106,7 +113,7 @@ func (r *LLMResolver) Resolve(ctx context.Context, userID, role string) (LLMConf
 	for _, cfg := range userConfigs {
 		if cfg.Role == role && cfg.ModelName != nil && strings.TrimSpace(*cfg.ModelName) != "" {
 			overrideModel := strings.TrimSpace(*cfg.ModelName)
-			if !system.AllowsModelOverride(overrideModel) {
+			if !system.AllowsModelOverrideWithFallback(overrideModel, r.cfg.ContextWindow) {
 				return LLMConfig{}, fmt.Errorf("Modell-Override %q für KI-Rolle %q ist nicht freigegeben", overrideModel, role)
 			}
 			resolved.Model = overrideModel

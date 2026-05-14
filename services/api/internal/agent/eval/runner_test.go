@@ -21,24 +21,27 @@ import (
 func TestIdentityIncludesRoleProviderHostAndModel(t *testing.T) {
 	apiBase := "https://llm.example.test:8443/v1"
 	modelName := "candidate-model"
+	contextWindow := 16000
 
 	got, err := IdentityForConfig(model.LLMSystemConfig{
-		Role:        model.LLMRoleToolAgent,
-		BackendType: "llama_server",
-		APIBase:     &apiBase,
-		ModelName:   &modelName,
+		Role:          model.LLMRoleToolAgent,
+		BackendType:   "llama_server",
+		APIBase:       &apiBase,
+		ModelName:     &modelName,
+		ContextWindow: &contextWindow,
 	})
 	if err != nil {
 		t.Fatalf("IdentityForConfig: %v", err)
 	}
 
 	want := Identity{
-		Role:        model.LLMRoleToolAgent,
-		BackendType: "llama_server",
-		APIBaseHost: "llm.example.test:8443",
-		ModelName:   "candidate-model",
-		SuiteID:     model.LLMEvalSuiteID,
-		SuiteHash:   model.LLMEvalSuiteHash,
+		Role:          model.LLMRoleToolAgent,
+		BackendType:   "llama_server",
+		APIBaseHost:   "llm.example.test:8443",
+		ModelName:     "candidate-model",
+		ContextWindow: contextWindow,
+		SuiteID:       model.LLMEvalSuiteID,
+		SuiteHash:     model.LLMEvalSuiteHash,
 	}
 	if got != want {
 		t.Fatalf("identity = %#v, want %#v", got, want)
