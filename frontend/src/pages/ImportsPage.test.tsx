@@ -1,0 +1,237 @@
+import '@testing-library/jest-dom/vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, useLocation } from 'react-router-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import ImportsPage from './ImportsPage'
+import type { ImportLogEntry, ImportLogParams, ImportLogResponse } from '@/api/imports'
+import type { ImportQueueItem } from '@/api/importQueue'
+
+const mocks = vi.hoisted(() => ({
+  getImports: vi.fn<(params?: ImportLogParams) => Promise<ImportLogResponse>>(),
+  fetchImportQueue: vi.fn<(status?: string) => Promise<ImportQueueItem[]>>(),
+  fetchImportQueueCount: vi.fn<() => Promise<number>>(),
+  getCapabilities: vi.fn<() => Promise<{ import_path_enabled: boolean }>>(),
+}))
+
+vi.mock('@/api/imports', () => ({
+  getImports: mocks.getImports,
+}))
+
+vi.mock('@/api/importQueue', async () => {
+  const actual = await vi.importActual<typeof import('@/api/importQueue')>('@/api/importQueue')
+  return {
+    ...actual,
+    fetchImportQueue: mocks.fetchImportQueue,
+    fetchImportQueueCount: mocks.fetchImportQueueCount,
+    assignQueueItem: vi.fn(),
+    patchQueueItem: vi.fn(),
+  }
+})
+
+vi.mock('@/api/routes', () => ({
+  getCapabilities: mocks.getCapabilities,
+}))
+
+vi.mock('@/lib/toast', () => ({
+  useToast: () => ({ addToast: vi.fn() }),
+}))
+
+vi.mock('@/components/AuthenticatedImage', () => ({
+  default: ({ src, alt, className }: { src: string; alt?: string; className?: string }) => (
+    <img src={src} alt={alt} className={className} />
+  ),
+}))
+
+function LocationProbe() {
+  const location = useLocation()
+  return <div data-testid="location">{location.pathname + location.search}</div>
+}
+
+function renderImportsPage(initialEntry = '/imports') {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <ImportsPage />
+        <LocationProbe />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+function makeLogEntry(overrides: Partial<ImportLogEntry>): ImportLogEntry {
+  return {
+    id: 'log-1',
+    user_id: 'user-1',
+    source_platform: 'upload',
+    filename: 'activity.fit',
+    status: 'completed',
+    created_at: '2026-05-13T10:00:00Z',
+    updated_at: '2026-05-13T10:00:00Z',
+    ...overrides,
+  }
+}
+
+const reviewItem: ImportQueueItem = {
+  id: 'queue-1',
+  item_type: 'image_no_exif',
+  status: 'pending',
+  filename: 'photo-without-date.jpg',
+  file_size: 2048,
+  created_at: '2026-05-13T09:00:00Z',
+}
+
+describe('ImportsPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.fetchImportQueue.mockResolvedValue([])
+    mocks.fetchImportQueueCount.mockResolvedValue(0)
+    mocks.getCapabilities.mockResolvedValue({ import_path_enabled: false })
+    mocks.getImports.mockImplementation(async (params = {}) => {
+      if (params.status === 'pending,processing') {
+        return { entries: [], total: 0 }
+      }
+      return { entries: [], total: 0 }
+    })
+  })
+
+  it('opens Zu prüfen by default when manual review items are pending', async () => {
+    mocks.fetchImportQueueCount.mockResolvedValue(1)
+    mocks.fetchImportQueue.mockResolvedValue([reviewItem])
+
+    renderImportsPage('/imports')
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Zu prüfen/i })).toHaveAttribute('aria-selected', 'true')
+    })
+    expect(await screen.findByText('photo-without-date.jpg')).toBeInTheDocument()
+  })
+
+  it('opens Importieren by default when no manual review item is pending', async () => {
+    renderImportsPage('/imports')
+
+    expect(await screen.findByRole('tab', { name: /Importieren/i })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText('Dateien importieren')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['/imports?source=garmin', 'Garmin-Export-Verzeichnis'],
+    ['/imports?source=strava', 'Strava-Export-Verzeichnis'],
+    ['/imports?source=komoot', 'Anmelden & Scannen'],
+  ])('opens the requested source wizard from %s', async (route, visibleText) => {
+    mocks.getCapabilities.mockResolvedValue({ import_path_enabled: true })
+
+    renderImportsPage(route)
+
+    expect(await screen.findByRole('tab', { name: /Importieren/i })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByText(visibleText)).toBeVisible()
+  })
+
+  it('updates the URL when source cards and view tabs are clicked', async () => {
+    const user = userEvent.setup()
+
+    renderImportsPage('/imports?view=import')
+
+    await user.click(await screen.findByRole('button', { name: /^Komoot/i }))
+    expect(screen.getByTestId('location')).toHaveTextContent('/imports?view=import&source=komoot')
+
+    await user.click(screen.getByRole('tab', { name: /Warteschlange/i }))
+    expect(screen.getByTestId('location')).toHaveTextContent('/imports?view=queue')
+
+    await user.click(screen.getByRole('tab', { name: /Verlauf/i }))
+    expect(screen.getByTestId('location')).toHaveTextContent('/imports?view=history')
+  })
+
+  it('renders the active queue from ?view=queue', async () => {
+    mocks.getImports.mockImplementation(async (params = {}) => {
+      if (params.status === 'pending,processing') {
+        return {
+          entries: [
+            makeLogEntry({
+              id: 'active-log',
+              filename: 'active-import.fit',
+              status: 'processing',
+            }),
+          ],
+          total: 1,
+        }
+      }
+      return { entries: [], total: 0 }
+    })
+
+    renderImportsPage('/imports?view=queue')
+
+    expect(await screen.findByText('Import-Warteschlange')).toBeInTheDocument()
+    expect(await screen.findByText('active-import.fit')).toBeInTheDocument()
+  })
+
+  it('preserves source wizard state when switching sources', async () => {
+    mocks.getCapabilities.mockResolvedValue({ import_path_enabled: true })
+    const user = userEvent.setup()
+
+    renderImportsPage('/imports?source=garmin')
+
+    const input = await screen.findByPlaceholderText('/pfad/zum/garmin/export')
+    await user.type(input, '/tmp/garmin-export')
+    await user.click(screen.getByRole('button', { name: /^Strava/i }))
+    await user.click(screen.getByRole('button', { name: /^Garmin/i }))
+
+    expect(screen.getByPlaceholderText('/pfad/zum/garmin/export')).toHaveValue('/tmp/garmin-export')
+  })
+
+  it('renders image_no_exif as missing capture date with thumbnail', async () => {
+    mocks.fetchImportQueueCount.mockResolvedValue(1)
+    mocks.fetchImportQueue.mockResolvedValue([reviewItem])
+
+    renderImportsPage('/imports?view=review')
+
+    expect(await screen.findByText('Kein Aufnahmedatum')).toBeInTheDocument()
+    expect(screen.getByText(/EXIF-Aufnahmedatum fehlt/i)).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'photo-without-date.jpg' })).toHaveAttribute(
+      'src',
+      '/api/v1/import-queue/queue-1/thumb',
+    )
+  })
+
+  it('renders queued history rows as Zu prüfen with review link', async () => {
+    mocks.getImports.mockImplementation(async (params = {}) => {
+      if (params.status === 'pending,processing') {
+        return { entries: [], total: 0 }
+      }
+      return {
+        entries: [
+          makeLogEntry({
+            id: 'log-queued',
+            filename: 'queued-photo.jpg',
+            status: 'queued',
+            import_type: 'photo',
+          }),
+        ],
+        total: 1,
+      }
+    })
+
+    renderImportsPage('/imports?view=history')
+
+    expect(await screen.findByText('queued-photo.jpg')).toBeInTheDocument()
+    const reviewLinks = screen.getAllByRole('link', { name: /Zu prüfen/i })
+    expect(reviewLinks.some(link => link.getAttribute('href') === '/imports?view=review')).toBe(true)
+  })
+
+  it('keeps explicit view query parameters ahead of the automatic default', async () => {
+    mocks.fetchImportQueueCount.mockResolvedValue(2)
+    mocks.fetchImportQueue.mockResolvedValue([reviewItem])
+
+    renderImportsPage('/imports?view=import')
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Importieren/i })).toHaveAttribute('aria-selected', 'true')
+    })
+    expect(screen.queryByText('photo-without-date.jpg')).not.toBeInTheDocument()
+  })
+})

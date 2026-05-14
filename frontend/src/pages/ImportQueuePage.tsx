@@ -145,7 +145,7 @@ function QueueCard({ item, onAssign, onDismiss, isAssigning, isDismissing }: Que
     : null
 
   const typeLabel: Record<ImportQueueItem['item_type'], string> = {
-    image_no_exif: 'Kein EXIF-Datum',
+    image_no_exif: 'Kein Aufnahmedatum',
     image_ambiguous: 'Mehrdeutig',
     image_no_match: 'Foto ohne Zuordnung',
     pdf_untyped: 'PDF',
@@ -201,6 +201,11 @@ function QueueCard({ item, onAssign, onDismiss, isAssigning, isDismissing }: Que
               {item.metadata.error}
             </p>
           )}
+          {item.item_type === 'image_no_exif' && (
+            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+              Das EXIF-Aufnahmedatum fehlt; wähle die passende Aktivität manuell aus.
+            </p>
+          )}
           {item.metadata?.duplicate_of_title && (
             <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
               Mögliches Duplikat von: {item.metadata.duplicate_of_title}
@@ -238,7 +243,15 @@ function QueueCard({ item, onAssign, onDismiss, isAssigning, isDismissing }: Que
 // Main page
 // ---------------------------------------------------------------------------
 
-export default function ImportQueuePage() {
+interface ImportQueueReviewProps {
+  title?: string
+  description?: string
+}
+
+export function ImportQueueReview({
+  title = 'Zu prüfen',
+  description = 'Importierte Dateien mit manueller Nacharbeit prüfen, zuordnen oder verwerfen.',
+}: ImportQueueReviewProps = {}) {
   const qc = useQueryClient()
   const { addToast } = useToast()
   const [assigningId, setAssigningId] = useState<string | null>(null)
@@ -255,6 +268,7 @@ export default function ImportQueuePage() {
     onMutate: ({ id }) => setAssigningId(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['import-queue'] })
+      qc.invalidateQueries({ queryKey: ['import-queue-count'] })
       addToast({ type: 'success', title: 'Foto zugeordnet' })
     },
     onError: () => {
@@ -268,6 +282,7 @@ export default function ImportQueuePage() {
     onMutate: (id) => setDismissingId(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['import-queue'] })
+      qc.invalidateQueries({ queryKey: ['import-queue-count'] })
       addToast({ type: 'info', title: 'Eintrag verworfen' })
     },
     onError: () => {
@@ -280,10 +295,10 @@ export default function ImportQueuePage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">
-          Nicht zugeordnete Fotos
+          {title}
         </h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-          Importierte Fotos ohne Aktivitätszuordnung manuell einer Aktivität zuweisen oder verwerfen.
+          {description}
         </p>
       </div>
 
@@ -294,8 +309,8 @@ export default function ImportQueuePage() {
           <div className="flex justify-center mb-3">
             <PhotoPlaceholderIcon size={40} />
           </div>
-          <p className="text-lg font-medium">Keine wartenden Fotos</p>
-          <p className="text-sm mt-1">Alle importierten Fotos wurden bereits zugeordnet.</p>
+          <p className="text-lg font-medium">Keine offenen Prüfungen</p>
+          <p className="text-sm mt-1">Alle Import-Einträge wurden bereits bearbeitet.</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -312,6 +327,15 @@ export default function ImportQueuePage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function ImportQueuePage() {
+  return (
+    <ImportQueueReview
+      title="Nicht zugeordnete Fotos"
+      description="Importierte Fotos ohne Aktivitätszuordnung manuell einer Aktivität zuweisen oder verwerfen."
+    />
   )
 }
 
