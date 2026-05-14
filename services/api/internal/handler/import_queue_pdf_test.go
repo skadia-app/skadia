@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
 )
 
 func TestResolvePDFQueueItemCreatesGearDocumentAndCompletesLog(t *testing.T) {
@@ -75,5 +76,71 @@ func TestResolvePDFQueueItemCreatesGearDocumentAndCompletesLog(t *testing.T) {
 	}
 	if logStatus != "completed" {
 		t.Fatalf("import log status = %q, want completed", logStatus)
+	}
+}
+
+func TestGetImportQueueItemPreviewFallsBackToThumbnailWhenOriginalMissing(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	h := &Handler{DB: db, ShadowFS: fs}
+	ctx := context.Background()
+
+	origRec, err := fs.Put(ctx, shadowfs.FileEntry{
+		UserID:      userID,
+		FileType:    "media",
+		ContentType: "image/png",
+		FileName:    "photo.png",
+		SizeBytes:   int64(len("original")),
+	}, bytes.NewBufferString("original"))
+	if err != nil {
+		t.Fatalf("put original: %v", err)
+	}
+	thumbRec, err := fs.Put(ctx, shadowfs.FileEntry{
+		UserID:      userID,
+		FileType:    "thumb",
+		ContentType: "image/jpeg",
+		FileName:    "photo-thumb.jpg",
+		SizeBytes:   int64(len("thumb")),
+	}, bytes.NewBufferString("thumb"))
+	if err != nil {
+		t.Fatalf("put thumb: %v", err)
+	}
+	if err := fs.Delete(ctx, userID, origRec.ID); err != nil {
+		t.Fatalf("delete original: %v", err)
+	}
+
+	queueID, err := db.CreateImportQueueItem(ctx, database.ImportQueueItem{
+		UserID:           userID,
+		QueueType:        "image_no_exif",
+		OriginalFilename: "photo.png",
+		ContentType:      "image/png",
+		Metadata: map[string]any{
+			"file_store_id":       origRec.ID,
+			"file_store_id_thumb": thumbRec.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create queue item: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/import-queue/"+queueID+"/preview", nil)
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	routeCtx := chi.NewRouteContext()
+	routeCtx.URLParams.Add("id", queueID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
+	rec := httptest.NewRecorder()
+
+	h.GetImportQueueItemPreview(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GetImportQueueItemPreview status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/jpeg" {
+		t.Fatalf("Content-Type = %q, want image/jpeg", got)
+	}
+	if got := rec.Body.String(); got != "thumb" {
+		t.Fatalf("body = %q, want thumb fallback", got)
 	}
 }

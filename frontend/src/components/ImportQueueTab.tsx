@@ -179,6 +179,7 @@ function QueueImagePreview({ item }: { item: ImportQueueItem }) {
             <div className="flex min-h-0 items-center justify-center overflow-auto rounded-md bg-neutral-50 dark:bg-neutral-900">
               <AuthenticatedImage
                 src={previewUrl}
+                fallbackSrc={thumbUrl}
                 alt={item.filename}
                 className="max-h-[78vh] max-w-[88vw] object-contain"
               />

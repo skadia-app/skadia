@@ -473,20 +473,19 @@ func (h *Handler) GetImportQueueItemPreview(w http.ResponseWriter, r *http.Reque
 	if mainFileID, hasMain := item.Metadata["file_store_id"].(string); hasMain && mainFileID != "" {
 		rc, getErr := h.ShadowFS.Get(r.Context(), userID, mainFileID)
 		if getErr != nil {
-			slog.Error("get queue item preview: ShadowFS.Get failed", "id", id, "file_id", mainFileID, "error", getErr)
-			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to retrieve preview", r.URL.Path)
+			slog.Warn("get queue item preview: original unavailable, falling back to thumbnail", "id", id, "file_id", mainFileID, "error", getErr)
+		} else {
+			defer rc.Close()
+			ct := item.ContentType
+			if ct == "" {
+				ct = "image/jpeg"
+			}
+			w.Header().Set("Content-Type", ct)
+			w.Header().Set("Cache-Control", "private, max-age=3600")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.Copy(w, rc)
 			return
 		}
-		defer rc.Close()
-		ct := item.ContentType
-		if ct == "" {
-			ct = "image/jpeg"
-		}
-		w.Header().Set("Content-Type", ct)
-		w.Header().Set("Cache-Control", "private, max-age=3600")
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.Copy(w, rc)
-		return
 	}
 
 	if thumbFileID, hasThumb := item.Metadata["file_store_id_thumb"].(string); hasThumb && thumbFileID != "" {

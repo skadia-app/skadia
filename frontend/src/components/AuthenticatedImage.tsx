@@ -4,6 +4,7 @@ import { apiDownload } from '@/api/client'
 
 interface Props {
   src: string
+  fallbackSrc?: string
   alt?: string
   className?: string
 }
@@ -13,14 +14,22 @@ interface Props {
  * via a blob URL. Necessary because <img src="..."> cannot send Authorization headers.
  * Results are cached by React Query (staleTime: 1h).
  */
-export default function AuthenticatedImage({ src, alt, className }: Props) {
+export default function AuthenticatedImage({ src, fallbackSrc, alt, className }: Props) {
   const [objectUrl, setObjectUrl] = useState<string>('')
 
   const { data: blob } = useQuery({
-    queryKey: ['auth-image', src],
+    queryKey: ['auth-image', src, fallbackSrc],
     queryFn: async () => {
-      const { blob } = await apiDownload(src)
-      return blob
+      try {
+        const { blob } = await apiDownload(src)
+        return blob
+      } catch (err) {
+        if (fallbackSrc && fallbackSrc !== src) {
+          const { blob } = await apiDownload(fallbackSrc)
+          return blob
+        }
+        throw err
+      }
     },
     staleTime: 60 * 60 * 1000, // 1 hour — photo content doesn't change
     enabled: !!src,
