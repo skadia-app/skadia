@@ -29,13 +29,31 @@ def _bool_env(key: str) -> bool:
 
 
 def s3_client_kwargs() -> dict:
+    endpoint = _env_or_file("S3_ENDPOINT", "GARAGE_ENDPOINT")
+    storage_mode = os.getenv("SKADIA_STORAGE_MODE", "").strip()
+    provider = os.getenv("SKADIA_S3_PROVIDER", "").strip()
+    local_garage = storage_mode == "s3-local-garage" or (not storage_mode and provider == "local-garage")
+    if not endpoint and local_garage:
+        endpoint = "http://garage:3900"
+    force_path_style = _bool_env("S3_FORCE_PATH_STYLE") or local_garage
+    region = os.getenv("S3_REGION", "").strip()
+    if not region and local_garage:
+        region = "us-east-1"
+    if storage_mode == "s3-external":
+        if not endpoint:
+            raise ValueError("S3_ENDPOINT is required when SKADIA_STORAGE_MODE=s3-external")
+        if not region:
+            raise ValueError("S3_REGION is required when SKADIA_STORAGE_MODE=s3-external")
+
     kwargs = {
-        "endpoint_url": _env_or_file("S3_ENDPOINT", "GARAGE_ENDPOINT", "http://garage:3900"),
         "aws_access_key_id": _env_or_file("S3_ACCESS_KEY", "GARAGE_ACCESS_KEY"),
         "aws_secret_access_key": _env_or_file("S3_SECRET_KEY", "GARAGE_SECRET_KEY"),
-        "region_name": os.getenv("S3_REGION", "us-east-1"),
     }
-    if _bool_env("S3_FORCE_PATH_STYLE"):
+    if region:
+        kwargs["region_name"] = region
+    if endpoint:
+        kwargs["endpoint_url"] = endpoint
+    if force_path_style:
         from botocore.config import Config
 
         kwargs["config"] = Config(s3={"addressing_style": "path"})
