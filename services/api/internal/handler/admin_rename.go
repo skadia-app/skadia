@@ -23,6 +23,10 @@ import (
 // WHERE status='running' — duplicate INSERT returns 23505 → 200 + rename_in_progress.
 // POST /api/v1/admin/users/{id}/files/{type}/rename-execute
 func (h *Handler) PostAdminRenameUser(w http.ResponseWriter, r *http.Request) {
+	if h.rejectS3LibraryMutation(w, r) {
+		return
+	}
+
 	targetID := chi.URLParam(r, "id")
 	fileType := chi.URLParam(r, "type")
 
@@ -119,6 +123,10 @@ func (h *Handler) PostAdminRenameUser(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/admin/rename-execute-bulk
 // Body: {"file_type": "activity"}
 func (h *Handler) PostAdminRenameBulk(w http.ResponseWriter, r *http.Request) {
+	if h.rejectS3LibraryMutation(w, r) {
+		return
+	}
+
 	body, ok := httputil.DecodeJSON[struct {
 		FileType string `json:"file_type"`
 	}](w, r)

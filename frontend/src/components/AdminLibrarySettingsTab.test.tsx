@@ -35,6 +35,9 @@ const MOCK_SETTINGS: AdminLibrarySettings = {
     health: '{user_id}/health',
     route: '{user_id}/route',
   },
+  backend: 'local',
+  local_actions_available: true,
+  admin_managed_reason: null,
 }
 
 // ── Wrapper ──────────────────────────────────────────────────────────────────
@@ -96,6 +99,23 @@ describe('AdminLibrarySettingsTab', () => {
 
     // Only 1 textbox visible (other rows are collapsed)
     expect(screen.getAllByRole('textbox')).toHaveLength(1)
+  })
+
+  it('hides local schema and rename controls in s3 mode', async () => {
+    mockGetAdminLibrarySettings.mockResolvedValue({
+      ...MOCK_SETTINGS,
+      backend: 's3',
+      local_actions_available: false,
+      admin_managed_reason: 's3_backend',
+    } as AdminLibrarySettings)
+
+    render(<AdminLibrarySettingsTab />, { wrapper: makeWrapper() })
+
+    expect(await screen.findByText(/S3-Storage/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/User dürfen Verzeichnisname bearbeiten/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/User dürfen Schema-Templates bearbeiten/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Aktivitäten/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Rename auf alle User anwenden/i })).not.toBeInTheDocument()
   })
 
   it('bulk-rename confirm-dialog prevents double-click', async () => {

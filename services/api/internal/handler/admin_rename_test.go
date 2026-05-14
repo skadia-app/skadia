@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 )
 
@@ -84,6 +86,33 @@ func seedLocalActivityFileForRename(t *testing.T, pool *pgxpool.Pool, userID str
 			'application/octet-stream', $3, 4, false, false, 'active')
 	`, userID, "/tmp/"+userID+".fit", userID+".fit"); err != nil {
 		t.Fatalf("seed local activity file: %v", err)
+	}
+}
+
+func TestAdminRenameRejectsS3Backend(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	targetID := insertTestUser(t, pool)
+	h := &Handler{
+		DB:       db,
+		Settings: settings.NewStoreForTest(map[string]string{}),
+		Config:   &HandlerConfig{StorageBackend: "s3", LibraryBasePath: t.TempDir()},
+	}
+
+	userRR := doAdminRenameUser(t, h, targetID, "activity")
+	if userRR.Code != http.StatusForbidden {
+		t.Fatalf("user rename status = %d, want 403; body=%s", userRR.Code, userRR.Body.String())
+	}
+	if !strings.Contains(userRR.Body.String(), "s3_backend") {
+		t.Fatalf("user rename response does not mention s3_backend: %s", userRR.Body.String())
+	}
+
+	bulkRR := doAdminRenameBulk(t, h, `{"file_type":"activity"}`)
+	if bulkRR.Code != http.StatusForbidden {
+		t.Fatalf("bulk rename status = %d, want 403; body=%s", bulkRR.Code, bulkRR.Body.String())
+	}
+	if !strings.Contains(bulkRR.Body.String(), "s3_backend") {
+		t.Fatalf("bulk rename response does not mention s3_backend: %s", bulkRR.Body.String())
 	}
 }
 
