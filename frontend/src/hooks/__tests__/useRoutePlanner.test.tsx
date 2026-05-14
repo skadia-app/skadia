@@ -30,15 +30,21 @@ vi.mock('@/api/routes', async () => {
     ...actual,
     getCapabilities: vi.fn().mockResolvedValue({
       routing: true,
-      brouter: false,
-      badrouter: false,
+      brouter: true,
+      badrouter: true,
       offline_map: false,
       surface_enrichment: false,
       dem_correction: false,
       isochrone: false,
-      route_suggestion: false,
+      route_suggestion: true,
       ml_service: false,
       import_path_enabled: false,
+      features: {
+        routing: { configured: true, available: true },
+        brouter: { configured: true, available: true },
+        badrouter: { configured: true, available: true },
+        route_suggestion: { configured: true, available: true },
+      },
     }),
     getProfileDefaults: vi.fn().mockResolvedValue({
       profile: 'hiking',
@@ -409,6 +415,28 @@ describe('useRoutePlanner routeStats V6-Retrofit', () => {
   it('routeStats startet als null', () => {
     const { result } = renderHook(() => useRoutePlanner(), { wrapper })
     expect(result.current.routeStats).toBeNull()
+  })
+
+  it('Core mit BRouter-only faellt beim frischen Planen auf BRouter zurueck', async () => {
+    const { getCapabilities } = await import('@/api/routes')
+    vi.mocked(getCapabilities).mockResolvedValueOnce({
+      routing: true,
+      brouter: true,
+      badrouter: false,
+      route_suggestion: false,
+      features: {
+        routing: { configured: true, available: true },
+        brouter: { configured: true, available: true },
+        badrouter: { configured: false, available: false, reason: 'core_profile' },
+        route_suggestion: { configured: false, available: false, reason: 'core_profile' },
+      },
+    } as any)
+
+    const { result } = renderHook(() => useRoutePlanner(), { wrapper })
+
+    await waitFor(() => {
+      expect(result.current.routingEngine).toBe('brouter')
+    })
   })
 
   it('loadSuggestion setzt routeStats mit forest_pct + sac_ranges (Quelle 2)', async () => {

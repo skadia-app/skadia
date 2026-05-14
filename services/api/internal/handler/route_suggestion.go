@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
@@ -228,6 +229,7 @@ type routeSuggestionError struct {
 	Status int
 	Title  string
 	Detail string
+	Code   string
 }
 
 func (e routeSuggestionError) Error() string {
@@ -267,7 +269,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var suggestErr routeSuggestionError
 		if errors.As(err, &suggestErr) {
-			httputil.WriteError(w, suggestErr.Status, suggestErr.Title, suggestErr.Detail, r.URL.Path)
+			httputil.WriteProblem(w, suggestErr.Status, suggestErr.Title, suggestErr.Detail, suggestErr.Code, r.URL.Path)
 			return
 		}
 		httputil.WriteError(w, http.StatusInternalServerError, "Routing Error", err.Error(), r.URL.Path)
@@ -279,6 +281,9 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 // SuggestRoutesForUser runs the route suggestion engine without an HTTP request.
 // It is used by the HTTP handler and by internal callers such as agent tools.
 func (h *Handler) SuggestRoutesForUser(ctx context.Context, userID string, req RouteSuggestionRequest) (RouteSuggestionResponse, error) {
+	if reason := h.featureUnavailableReason(capabilities.KeyRouteSuggestion); reason != "" {
+		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusServiceUnavailable, Title: "Feature Unavailable", Detail: "feature route_suggestion is unavailable: " + reason, Code: "feature_unavailable"}
+	}
 	// --- Input validation ---
 	if req.Start[0] < -180 || req.Start[0] > 180 || req.Start[1] < -90 || req.Start[1] > 90 {
 		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusBadRequest, Title: "Bad Request", Detail: "start coordinates out of range"}
@@ -330,11 +335,11 @@ func (h *Handler) SuggestRoutesForUser(ctx context.Context, userID string, req R
 
 	// --- Get UnifiedRouter ---
 	if h.GraphManager == nil {
-		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusServiceUnavailable, Title: "Routing Unavailable", Detail: "Routing graph not configured. Import OSM data and build tiles first."}
+		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusServiceUnavailable, Title: "Feature Unavailable", Detail: "feature route_suggestion is unavailable: " + capabilities.ReasonMissingArtifacts, Code: "feature_unavailable"}
 	}
 	router := h.GraphManager.UnifiedRouter()
 	if router == nil {
-		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusServiceUnavailable, Title: "Routing Unavailable", Detail: "Tiled graph not loaded. Build routing tiles first via Settings → OSM."}
+		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusServiceUnavailable, Title: "Feature Unavailable", Detail: "feature route_suggestion is unavailable: " + capabilities.ReasonMissingArtifacts, Code: "feature_unavailable"}
 	}
 
 	// --- Map profile ---
