@@ -225,7 +225,17 @@ func (c LLMSystemConfig) EvalIdentityMatchesCurrentConfigWithFallback(contextWin
 		return false
 	}
 	reportIdentity, ok := evalIdentityFromReport(c.EvalReport["identity"])
-	return ok && reportIdentity == current
+	if !ok {
+		return false
+	}
+	if reportIdentity == current {
+		return true
+	}
+	if c.ContextWindow == nil && contextWindowFallback > 0 && reportIdentity.ContextWindow == 0 {
+		legacyCurrent, legacyOK := c.CurrentEvalIdentityWithFallback(0)
+		return legacyOK && reportIdentity == legacyCurrent
+	}
+	return false
 }
 
 func (c LLMSystemConfig) HasAdminWaiverReason() bool {
@@ -256,6 +266,10 @@ func (c LLMSystemConfig) AllowsModelOverrideWithFallback(modelName string, conte
 	contextWindow := c.EffectiveContextWindow(contextWindowFallback)
 	for _, record := range llmEvalRecords(c.EvalReport["model_evals"]) {
 		if record.matches(c.Role, c.BackendType, apiBaseHost, modelName, contextWindow) && record.gatePassed() {
+			return true
+		}
+		if c.ContextWindow == nil && contextWindowFallback > 0 && !record.hasContextWindow() &&
+			record.matches(c.Role, c.BackendType, apiBaseHost, modelName, 0) && record.gatePassed() {
 			return true
 		}
 	}
@@ -303,6 +317,18 @@ func (r llmEvalRecord) matches(role, backendType, apiBaseHost, modelName string,
 		llmEvalRecordInt(r, "context_window") == contextWindow &&
 		llmEvalRecordString(r, "suite_id") == LLMEvalSuiteID &&
 		llmEvalRecordString(r, "suite_hash") == LLMEvalSuiteHash
+}
+
+func (r llmEvalRecord) hasContextWindow() bool {
+	if _, ok := r["context_window"]; ok {
+		return true
+	}
+	identity, ok := r["identity"].(map[string]any)
+	if !ok {
+		return false
+	}
+	_, ok = identity["context_window"]
+	return ok
 }
 
 func (r llmEvalRecord) gatePassed() bool {

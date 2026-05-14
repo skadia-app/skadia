@@ -184,7 +184,7 @@ func TestEvalGatePassedKeepsLegacyReportsCompatibleWhenContextWindowUnset(t *tes
 	}
 }
 
-func TestEvalGatePassedWithFallbackRequiresFallbackContextWindowIdentity(t *testing.T) {
+func TestEvalGatePassedWithFallbackKeepsLegacyReportsCompatibleWhenContextWindowUnset(t *testing.T) {
 	apiBase := "https://llm-a.example.test/v1"
 	systemModel := "system-model"
 	cfg := LLMSystemConfig{
@@ -204,8 +204,35 @@ func TestEvalGatePassedWithFallbackRequiresFallbackContextWindowIdentity(t *test
 		}},
 	}
 
+	if !cfg.EvalGatePassedWithFallback(16000) {
+		t.Fatal("EvalGatePassedWithFallback rejected legacy identity without explicit role context_window")
+	}
+}
+
+func TestEvalGatePassedWithFallbackRequiresContextWindowIdentityWhenRoleContextSet(t *testing.T) {
+	apiBase := "https://llm-a.example.test/v1"
+	systemModel := "system-model"
+	contextWindow := 16000
+	cfg := LLMSystemConfig{
+		Role:          LLMRoleToolAgent,
+		BackendType:   "llama_server",
+		APIBase:       &apiBase,
+		ModelName:     &systemModel,
+		ContextWindow: &contextWindow,
+		Enabled:       true,
+		EvalStatus:    LLMEvalStatusPassed,
+		EvalReport: map[string]any{"identity": map[string]any{
+			"role":          LLMRoleToolAgent,
+			"backend_type":  "llama_server",
+			"api_base_host": "llm-a.example.test",
+			"model_name":    systemModel,
+			"suite_id":      LLMEvalSuiteID,
+			"suite_hash":    LLMEvalSuiteHash,
+		}},
+	}
+
 	if cfg.EvalGatePassedWithFallback(16000) {
-		t.Fatal("EvalGatePassedWithFallback accepted legacy identity without fallback context_window")
+		t.Fatal("EvalGatePassedWithFallback accepted legacy identity with explicit role context_window")
 	}
 
 	cfg.EvalReport["identity"].(map[string]any)["context_window"] = float64(16000)
