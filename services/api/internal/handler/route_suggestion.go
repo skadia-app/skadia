@@ -224,6 +224,16 @@ type RouteSuggestionResponse struct {
 	PartialSearch     bool              `json:"partial_search"`
 }
 
+type routeSuggestionError struct {
+	Status int
+	Title  string
+	Detail string
+}
+
+func (e routeSuggestionError) Error() string {
+	return e.Detail
+}
+
 // SuggestRoutes generates round-trip route suggestions starting from the given
 // point. The algorithm:
 //
@@ -253,15 +263,29 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resp, err := h.SuggestRoutesForUser(r.Context(), userID, req)
+	if err != nil {
+		var suggestErr routeSuggestionError
+		if errors.As(err, &suggestErr) {
+			httputil.WriteError(w, suggestErr.Status, suggestErr.Title, suggestErr.Detail, r.URL.Path)
+			return
+		}
+		httputil.WriteError(w, http.StatusInternalServerError, "Routing Error", err.Error(), r.URL.Path)
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp)
+}
+
+// SuggestRoutesForUser runs the route suggestion engine without an HTTP request.
+// It is used by the HTTP handler and by internal callers such as agent tools.
+func (h *Handler) SuggestRoutesForUser(ctx context.Context, userID string, req RouteSuggestionRequest) (RouteSuggestionResponse, error) {
 	// --- Input validation ---
 	if req.Start[0] < -180 || req.Start[0] > 180 || req.Start[1] < -90 || req.Start[1] > 90 {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "start coordinates out of range", r.URL.Path)
-		return
+		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusBadRequest, Title: "Bad Request", Detail: "start coordinates out of range"}
 	}
 	if req.End != nil {
 		if req.End[0] < -180 || req.End[0] > 180 || req.End[1] < -90 || req.End[1] > 90 {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "end coordinates out of range", r.URL.Path)
-			return
+			return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusBadRequest, Title: "Bad Request", Detail: "end coordinates out of range"}
 		}
 	}
 	if req.TargetDistanceM <= 0 {
@@ -270,9 +294,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	if req.SurfaceTendency != "" {
 		validTendencies := map[string]bool{"trails": true, "forest_roads": true, "mixed": true, "paved": true}
 		if !validTendencies[req.SurfaceTendency] {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request",
-				"surface_tendency must be one of: trails, forest_roads, mixed, paved", r.URL.Path)
-			return
+			return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusBadRequest, Title: "Bad Request", Detail: "surface_tendency must be one of: trails, forest_roads, mixed, paved"}
 		}
 	}
 
@@ -308,27 +330,18 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 
 	// --- Get UnifiedRouter ---
 	if h.GraphManager == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable,
-			"Routing Unavailable",
-			"Routing graph not configured. Import OSM data and build tiles first.",
-			r.URL.Path)
-		return
+		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusServiceUnavailable, Title: "Routing Unavailable", Detail: "Routing graph not configured. Import OSM data and build tiles first."}
 	}
 	router := h.GraphManager.UnifiedRouter()
 	if router == nil {
-		httputil.WriteError(w, http.StatusServiceUnavailable,
-			"Routing Unavailable",
-			"Tiled graph not loaded. Build routing tiles first via Settings → OSM.",
-			r.URL.Path)
-		return
+		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusServiceUnavailable, Title: "Routing Unavailable", Detail: "Tiled graph not loaded. Build routing tiles first via Settings → OSM."}
 	}
 
 	// --- Map profile ---
 	mappedProfile := profileMap[req.Profile]
 	profileCfg := routing.ProfileConfig{Profile: mappedProfile}
 	if mappedProfile != "" && !req.ProfileSportOverride && !builtinProfileMatchesSuggestionRequest(mappedProfile, req) {
-		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "profile does not match requested sport tuple", r.URL.Path)
-		return
+		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusBadRequest, Title: "Bad Request", Detail: "profile does not match requested sport tuple"}
 	}
 
 	// If profile not in system defaults, try loading custom profile from DB.
@@ -336,19 +349,17 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		var customProfile *database.RoutingProfile
 		var dbErr error
 		if h.DB != nil {
-			customProfile, dbErr = h.DB.GetRoutingProfileByNameOrGlobal(r.Context(), userID, req.Profile)
+			customProfile, dbErr = h.DB.GetRoutingProfileByNameOrGlobal(ctx, userID, req.Profile)
 		}
 		if dbErr == nil && customProfile != nil {
 			if !req.ProfileSportOverride && !routingProfileMatchesSuggestionRequest(*customProfile, req) {
-				httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "profile does not match requested sport tuple", r.URL.Path)
-				return
+				return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusBadRequest, Title: "Bad Request", Detail: "profile does not match requested sport tuple"}
 			}
 			_ = json.Unmarshal(customProfile.Config, &profileCfg)
 			profileCfg.Profile = customProfile.BaseProfile
 			mappedProfile = customProfile.BaseProfile
 		} else {
-			httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "unknown routing profile", r.URL.Path)
-			return
+			return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusBadRequest, Title: "Bad Request", Detail: "unknown routing profile"}
 		}
 	}
 
@@ -367,8 +378,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	cfg, err := routing.BuildCostConfig(profileCfg)
 	if err != nil {
 		slog.Error("suggest routes: BuildCostConfig failed", "error", err, "profile", mappedProfile)
-		httputil.WriteError(w, http.StatusInternalServerError, "Routing Error", "failed to build cost config", r.URL.Path)
-		return
+		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusInternalServerError, Title: "Routing Error", Detail: "failed to build cost config"}
 	}
 	baselineAvgFlat := routing.ProfileBaselineAvgFlat(mappedProfile)
 
@@ -383,7 +393,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	// --- Terra Incognita: load visited way IDs ---
 	var visitedWayIDs map[int64]bool
 	if req.PreferUnknown {
-		rows, dbErr := h.DB.Pool.Query(r.Context(),
+		rows, dbErr := h.DB.Pool.Query(ctx,
 			`SELECT DISTINCT way_id FROM heatmap_trail_matches WHERE user_id = $1`, userID)
 		if dbErr != nil {
 			slog.Warn("suggest routes: could not load visited trail IDs", "error", dbErr)
@@ -401,33 +411,29 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 
 	// Step 1: Pareto findReachable
 	reachable, rs, truncated, err := router.FindReachableWithCoords(
-		r.Context(), startLat, startLon, cfg, halfBudgetCost, visitedWayIDs)
+		ctx, startLat, startLon, cfg, halfBudgetCost, visitedWayIDs)
 	if err != nil {
 		slog.Error("suggest routes: FindReachableWithCoords failed", "error", err, "user_id", userID)
-		httputil.WriteError(w, http.StatusInternalServerError, "Routing Error", "reachability query failed", r.URL.Path)
-		return
+		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusInternalServerError, Title: "Routing Error", Detail: "reachability query failed"}
 	}
 
 	coverageAvailable := h.CoverageReader != nil
 
 	if len(reachable) == 0 {
-		httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{
+		return RouteSuggestionResponse{
 			Suggestions: []RouteSuggestion{}, CoverageAvailable: coverageAvailable, PartialSearch: truncated,
-		})
-		return
+		}, nil
 	}
 
 	// Step 2: Load routing state (opts + ctx are request-scoped, not part of pool helper)
 	opts := DefaultRoundTripOptions()
-	ctx := r.Context()
 	maxVariants := *req.MaxVariants
 
 	// Step 3: Build candidate pool (filter + sort + truncate + diversify)
 	filtered, pool := buildCandidatePool(reachable, startLat, startLon, req.TargetDistanceM, maxVariants)
 	routingMetricDiversityPoolSize.Observe(float64(len(pool)))
 	if len(pool) == 0 {
-		httputil.WriteError(w, http.StatusNotFound, "Not Found", "no candidate pool built", r.URL.Path)
-		return
+		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusNotFound, Title: "Not Found", Detail: "no candidate pool built"}
 	}
 
 	// Step 4: Build all candidates in parallel via errgroup.
@@ -461,9 +467,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(built) == 0 {
-		httputil.WriteError(w, http.StatusInternalServerError, "Routing Error",
-			"no routes built", r.URL.Path)
-		return
+		return RouteSuggestionResponse{}, routeSuggestionError{Status: http.StatusInternalServerError, Title: "Routing Error", Detail: "no routes built"}
 	}
 
 	// Step 6: Derive candidate metrics (nullable GreenScore / CalmScore).
@@ -515,7 +519,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 	// In that case summit detection is skipped and the default radius is used.
 	radiusM := 80.0 // Default fallback (matches Migration 000318 DEFAULT)
 	if h.DB != nil && userID != "" {
-		if settings, err := h.DB.GetEnrichmentSettings(r.Context(), userID); err == nil && settings != nil {
+		if settings, err := h.DB.GetEnrichmentSettings(ctx, userID); err == nil && settings != nil {
 			radiusM = settings.SummitDetectionRadiusM
 		} else if err != nil {
 			slog.Warn("get enrichment settings failed; falling back to default radius",
@@ -544,7 +548,7 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 					}
 					return nil // per-variant isolation
 				}
-				summits, err := database.FindSummitsAlongGeom(r.Context(), h.DB.Pool, wkbBytes, radiusM)
+				summits, err := database.FindSummitsAlongGeom(ctx, h.DB.Pool, wkbBytes, radiusM)
 				if err != nil {
 					slog.Warn("summits along route failed", "variant", lr.VariantID, "error", err)
 					return nil // per-variant isolation (Spec §4.1.5)
@@ -627,11 +631,11 @@ func (h *Handler) SuggestRoutes(w http.ResponseWriter, r *http.Request) {
 
 	// assignLabels already sorts by DistanceM; no redundant sort needed here.
 
-	httputil.WriteJSON(w, http.StatusOK, RouteSuggestionResponse{
+	return RouteSuggestionResponse{
 		Suggestions:       suggestions,
 		CoverageAvailable: coverageAvailable,
 		PartialSearch:     truncated,
-	})
+	}, nil
 }
 
 // buildRouteCandidate constructs a RouteCandidate from a CandidateSelection by

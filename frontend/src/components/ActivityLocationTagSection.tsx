@@ -12,12 +12,19 @@ import ColorPicker from '@/components/ColorPicker'
 import { buildLayerStyle } from '@/lib/mapStyles'
 import { useMapLayers } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
+import { apiFetch } from '@/lib/auth'
 
-interface NominatimResult {
-  place_id: number
-  display_name: string
-  lat: string
-  lon: string
+interface GeoSearchResult {
+  name: string
+  type: string
+  subtype?: string
+  lat: number
+  lng: number
+  source?: string
+}
+
+interface GeoSearchResponse {
+  results: GeoSearchResult[]
 }
 
 // ---------------------------------------------------------------------------
@@ -31,7 +38,7 @@ interface GeoSearchInlineProps {
 
 function GeoSearchInline({ mapRef, onSelect }: GeoSearchInlineProps) {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<NominatimResult[]>([])
+  const [results, setResults] = useState<GeoSearchResult[]>([])
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
@@ -49,21 +56,26 @@ function GeoSearchInline({ mapRef, onSelect }: GeoSearchInlineProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const searchNominatim = useCallback(async (q: string) => {
+  const searchPlaces = useCallback(async (q: string) => {
     if (q.length < 3) { setResults([]); setIsOpen(false); return }
     abortRef.current?.abort()
     abortRef.current = new AbortController()
     setIsLoading(true)
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5`
-      const resp = await fetch(url, {
-        headers: { 'User-Agent': 'Skadia/1.0' },
+      const params = new URLSearchParams({
+        q,
+        type: 'all',
+        limit: '5',
+        sources: 'local',
+      })
+      const resp = await apiFetch(`/api/v1/geo/search?${params.toString()}`, {
         signal: abortRef.current.signal,
       })
-      if (!resp.ok) throw new Error(`Nominatim: ${resp.status}`)
-      const data: NominatimResult[] = await resp.json()
-      setResults(data)
-      setIsOpen(data.length > 0)
+      if (!resp.ok) throw new Error(`Geosearch: ${resp.status}`)
+      const data = await resp.json() as GeoSearchResponse
+      const next = data.results ?? []
+      setResults(next)
+      setIsOpen(next.length > 0)
       setActiveIndex(-1)
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return
@@ -80,16 +92,16 @@ function GeoSearchInline({ mapRef, onSelect }: GeoSearchInlineProps) {
     setQuery(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (value.length < 3) { setResults([]); setIsOpen(false); return }
-    debounceRef.current = setTimeout(() => searchNominatim(value), 500)
+    debounceRef.current = setTimeout(() => searchPlaces(value), 500)
   }
 
-  const handleSelect = (result: NominatimResult) => {
-    const lat = parseFloat(result.lat)
-    const lng = parseFloat(result.lon)
+  const handleSelect = (result: GeoSearchResult) => {
+    const lat = result.lat
+    const lng = result.lng
     mapRef.current?.flyTo({ center: [lng, lat], zoom: 15, duration: 1000 })
-    setQuery(result.display_name)
+    setQuery(result.name)
     setIsOpen(false)
-    onSelect?.(lat, lng, result.display_name)
+    onSelect?.(lat, lng, result.name)
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -139,7 +151,7 @@ function GeoSearchInline({ mapRef, onSelect }: GeoSearchInlineProps) {
       {isOpen && results.length > 0 && (
         <ul className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 shadow-lg">
           {results.map((r, i) => (
-            <li key={r.place_id}>
+            <li key={`${r.source ?? 'local'}-${r.type}-${r.lat}-${r.lng}-${i}`}>
               <button
                 onClick={() => handleSelect(r)}
                 className={`w-full text-left px-3 py-2 text-xs cursor-pointer transition-colors ${
@@ -148,7 +160,7 @@ function GeoSearchInline({ mapRef, onSelect }: GeoSearchInlineProps) {
                     : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700'
                 }`}
               >
-                <span className="line-clamp-2">{r.display_name}</span>
+                <span className="line-clamp-2">{r.name}</span>
               </button>
             </li>
           ))}
