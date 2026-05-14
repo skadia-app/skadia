@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
+	"github.com/skadia-app/skadia/services/api/internal/model"
 )
 
 // GetMLSystemSettings returns ML system-wide settings (nightly jobs config).
@@ -85,6 +87,44 @@ func (h *Handler) PutMLSystemSetting(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
+func validateMLUserSetting(key string, body any) error {
+	if key != "chat_profile" {
+		return nil
+	}
+	record, ok := body.(map[string]any)
+	if !ok {
+		return fmt.Errorf("chat_profile must be an object")
+	}
+	overrides, ok := record["overrides"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	raw, ok := overrides["max_context_tokens"]
+	if !ok {
+		return nil
+	}
+	value, ok := jsonNumberAsInt(raw)
+	if !ok {
+		return fmt.Errorf("max_context_tokens must be an integer")
+	}
+	if value < model.LLMContextWindowMin || value > model.LLMContextWindowMax {
+		return fmt.Errorf("max_context_tokens must be between %d and %d", model.LLMContextWindowMin, model.LLMContextWindowMax)
+	}
+	return nil
+}
+
+func jsonNumberAsInt(raw any) (int, bool) {
+	switch value := raw.(type) {
+	case float64:
+		asInt := int(value)
+		return asInt, value == float64(asInt)
+	case int:
+		return value, true
+	default:
+		return 0, false
+	}
+}
+
 // GetMLUserSettings returns ML user preferences (notification toggles).
 //
 // GET /api/v1/settings/ml/user
@@ -155,6 +195,10 @@ func (h *Handler) PutMLUserSetting(w http.ResponseWriter, r *http.Request) {
 
 	body, ok := httputil.DecodeJSON[any](w, r)
 	if !ok {
+		return
+	}
+	if err := validateMLUserSetting(key, body); err != nil {
+		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
 	}
 

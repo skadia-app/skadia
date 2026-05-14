@@ -731,6 +731,7 @@ func main() {
 	confirmMgr := agent.NewConfirmationManager(5 * time.Minute)
 	llmResolver := agent.NewLLMResolver(db, agent.LLMResolverConfig{
 		EncryptionKey: cfg.LLMEncryptionKey,
+		ContextWindow: cfg.LLMContextWindow,
 	})
 	agentSkills, err := agent.LoadSkills("")
 	if err != nil {

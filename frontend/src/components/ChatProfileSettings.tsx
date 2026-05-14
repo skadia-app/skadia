@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/auth'
@@ -57,11 +57,23 @@ const DEFAULT_SETTING: ChatUserSetting = {
   overrides: {},
 }
 
+const CONTEXT_WINDOW_MIN = 1024
+const CONTEXT_WINDOW_MAX = 2000000
+
 function resolveProfile(setting: ChatUserSetting, presets: ChatProfileDefaults['presets']): ChatProfile {
   const base = setting.base_profile === 'custom'
     ? presets.small
     : presets[setting.base_profile]
   return { ...base, ...setting.overrides }
+}
+
+function validateChatProfileSetting(setting: ChatUserSetting): string | null {
+  const value = setting.overrides.max_context_tokens
+  if (value === undefined) return null
+  if (!Number.isInteger(value) || value < CONTEXT_WINDOW_MIN || value > CONTEXT_WINDOW_MAX) {
+    return `Max. Kontext-Tokens muss zwischen ${CONTEXT_WINDOW_MIN} und ${CONTEXT_WINDOW_MAX} liegen.`
+  }
+  return null
 }
 
 async function fetchJSON<T>(path: string): Promise<T> {
@@ -144,6 +156,37 @@ function SelectRow<T extends string>({ label, value, options, onChange, disabled
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
       </select>
+    </div>
+  )
+}
+
+function NumberRow({ label, value, min, max, step = 1, onChange, disabled }: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step?: number
+  onChange: (v: number) => void
+  disabled: boolean
+}) {
+  const id = useId()
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <label htmlFor={id} className="text-sm text-neutral-700 dark:text-neutral-300 flex-1">{label}</label>
+      <input
+        id={id}
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={disabled}
+        onChange={e => {
+          const next = Number(e.target.value)
+          if (Number.isFinite(next)) onChange(next)
+        }}
+        className="w-36 text-sm font-mono rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 px-2 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+      />
     </div>
   )
 }
@@ -271,6 +314,15 @@ export default function ChatProfileSettings() {
 
   const isDirty = local !== null
 
+  const handleSave = () => {
+    const validationError = validateChatProfileSetting(setting)
+    if (validationError) {
+      addToast({ type: 'error', title: validationError, duration: 0 })
+      return
+    }
+    saveMutation.mutate(setting)
+  }
+
   if (defaultsLoading || settingsLoading) {
     return (
       <section className="border border-neutral-200 dark:border-neutral-800 rounded-xl p-6">
@@ -320,7 +372,7 @@ export default function ChatProfileSettings() {
           )}
           <button
             type="button"
-            onClick={() => saveMutation.mutate(setting)}
+              onClick={handleSave}
             disabled={!isDirty || saveMutation.isPending}
             className="px-4 py-1.5 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
           >
@@ -436,6 +488,15 @@ export default function ChatProfileSettings() {
             { value: 'rich', label: 'Ausführlich (mehr Kontext)' },
           ]}
           onChange={v => patchProfile({ system_prompt_mode: v })}
+          disabled={!isCustom}
+        />
+        <NumberRow
+	          label="Max. Kontext-Tokens"
+	          value={profile.max_context_tokens}
+	          min={CONTEXT_WINDOW_MIN}
+	          max={CONTEXT_WINDOW_MAX}
+          step={1024}
+          onChange={v => patchProfile({ max_context_tokens: v })}
           disabled={!isCustom}
         />
         <SliderRow
