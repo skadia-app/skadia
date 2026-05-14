@@ -135,29 +135,17 @@ public_agent_diff='diff --git a/CHANGELOG.md b/CHANGELOG.md
 @@ -1,1 +1,2 @@
 +Synced OpenAI Codex GPT-5.5 notes.'
 
-public_doc_metadata_agent_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
+public_doc_provenance_metadata_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
 --- a/docs/documentation/user/how-to/example.md
 +++ b/docs/documentation/user/how-to/example.md
 @@ -1,1 +1,2 @@
 +*Last updated: 2026-05-14 (GPT-5.5)*'
 
-public_doc_created_sonnet_metadata_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
+public_doc_created_provenance_metadata_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
 --- a/docs/documentation/user/how-to/example.md
 +++ b/docs/documentation/user/how-to/example.md
 @@ -1,1 +1,2 @@
-+*Created: 2026-04-12 (Sonnet 4.6)*'
-
-public_doc_updated_opus_metadata_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
---- a/docs/documentation/user/how-to/example.md
-+++ b/docs/documentation/user/how-to/example.md
-@@ -1,1 +1,2 @@
-+*Last updated: 2026-05-14 (Opus 4.7)*'
-
-public_doc_updated_haiku_metadata_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
---- a/docs/documentation/user/how-to/example.md
-+++ b/docs/documentation/user/how-to/example.md
-@@ -1,1 +1,2 @@
-+*Last updated: 2026-05-14 (Haiku)*'
++*Created: 2026-04-12 (Any Provider Model 123.4)*'
 
 public_doc_wrong_metadata_agent_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
 --- a/docs/documentation/user/how-to/example.md
@@ -235,10 +223,8 @@ assert_blocks_with "$public_docs_workflow_diff" "internal workflow wording in pu
 assert_blocks_with "$public_internal_path_diff" "internal path in public text"
 assert_blocks_with "$public_backtick_internal_path_diff" "internal path in public text"
 assert_blocks_with "$public_agent_diff" "agent/model name in public text"
-assert_passes "$public_doc_metadata_agent_diff"
-assert_passes "$public_doc_created_sonnet_metadata_diff"
-assert_passes "$public_doc_updated_opus_metadata_diff"
-assert_passes "$public_doc_updated_haiku_metadata_diff"
+assert_passes "$public_doc_provenance_metadata_diff"
+assert_passes "$public_doc_created_provenance_metadata_diff"
 assert_blocks_with "$public_doc_wrong_metadata_agent_diff" "agent/model name in public text"
 assert_blocks_with "$public_doc_body_agent_diff" "agent/model name in public text"
 assert_blocks_with "$public_tag_diff" "private tag marker in public text"
