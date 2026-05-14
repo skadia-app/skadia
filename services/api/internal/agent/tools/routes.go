@@ -155,9 +155,12 @@ func RouteTools() []*Tool {
 			IsUserOwned: false,
 			ExecuteRead: executeQueryCoverage,
 		},
+		ResolveUserLocationTool(),
 		ResolveRoutePlaceTool(),
 		ResolveRouteFeatureTool(),
 		GetRoutingCoverageTool(),
+		AnalyzeRoutePointsTool(),
+		GetAgentServiceStatusTool(),
 		PlanRouteBetweenTool(),
 		SuggestRouteGoalTool(),
 	}
