@@ -803,6 +803,7 @@ func main() {
 			MLLLMBrokerToken:    cfg.MLLLMBrokerToken,
 			BRouterURL:          cfg.BRouterURL,
 			KomootEncryptionKey: cfg.KomootEncryptionKey,
+			OAuthEncryptionKey:  cfg.OAuthEncryptionKey,
 			RoutingGraphPath:    cfg.RoutingGraphPath,
 			RoutingTimeout:      parseDuration(os.Getenv("ROUTING_TIMEOUT"), 30*time.Second),
 			MaxUploadSize:       cfg.MaxUploadSize,
@@ -1223,7 +1224,7 @@ func main() {
 			if cfg.DevAuth {
 				r.Use(middleware.DevAuthMiddleware)
 			} else {
-				jwtAuth := middleware.NewJWTAuth(cfg.JWTSecretBytes)
+				jwtAuth := middleware.NewJWTAuthWithDB(cfg.JWTSecretBytes, db)
 				r.Use(jwtAuth.Middleware)
 			}
 			r.Use(middleware.RequirePasswordChanged())
@@ -1290,7 +1291,7 @@ func main() {
 			slog.Warn("DEV_AUTH enabled – using fixed dev user ID, NOT for production")
 			r.Use(middleware.DevAuthMiddleware)
 		} else {
-			jwtAuth := middleware.NewJWTAuth(cfg.JWTSecretBytes)
+			jwtAuth := middleware.NewJWTAuthWithDB(cfg.JWTSecretBytes, db)
 			r.Use(jwtAuth.Middleware)
 			slog.Info("JWT auth enabled", "hs256", cfg.JWTSecret != "")
 		}

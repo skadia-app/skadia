@@ -183,7 +183,7 @@ func (h *Handler) MobileExchange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	codeHash := HashToken(req.Code)
-	userID, codeChallenge, _, err := h.DB.ConsumeAuthCode(r.Context(), codeHash)
+	_, codeChallenge, _, err := h.DB.GetAuthCode(r.Context(), codeHash)
 	if err != nil {
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid or expired code"})
 		return
@@ -197,6 +197,12 @@ func (h *Handler) MobileExchange(w http.ResponseWriter, r *http.Request) {
 	computedChallenge := computeS256Challenge(req.CodeVerifier)
 	if computedChallenge != codeChallenge {
 		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid code_verifier"})
+		return
+	}
+
+	userID, _, _, err := h.DB.ConsumeAuthCode(r.Context(), codeHash)
+	if err != nil {
+		httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "invalid or expired code"})
 		return
 	}
 

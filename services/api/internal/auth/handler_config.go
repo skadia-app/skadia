@@ -10,10 +10,10 @@ import (
 // AuthConfig handles GET /auth/config (public, no authentication required).
 func (h *Handler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	providers := make([]string, 0, 2)
-	if h.Settings.Get("social.strava_client_id").Value != "" {
+	if h.socialProviderConfigured("strava") {
 		providers = append(providers, "strava")
 	}
-	if h.Settings.Get("social.google_client_id").Value != "" {
+	if h.socialProviderConfigured("google") {
 		providers = append(providers, "google")
 	}
 
@@ -31,7 +31,7 @@ func (h *Handler) AuthConfig(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSONNoCache(w, http.StatusOK, map[string]any{
 		"registration_mode": h.Settings.Get("registration.mode").Value,
 		"social_providers":  providers,
-		"smtp_configured":   h.Settings.Get("smtp.host").Value != "",
+		"smtp_configured":   h.Settings.EmailDeliveryConfigured(),
 		"bootstrap_mode":    bootstrapMode,
 	})
 }
