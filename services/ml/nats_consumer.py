@@ -22,6 +22,7 @@ from enrichment.document_vlm import (
     convert_document_to_markdown,
     process_document,
 )
+from enrichment.user_files import download_user_file
 from analytics import (
     cluster_activities,
     compute_readiness,
@@ -49,6 +50,8 @@ DOCUMENT_PROCESS_TIMEOUT_SECONDS = float(
     )
 )
 DOCUMENT_IN_PROGRESS_INTERVAL_SECONDS = float(os.getenv("ML_DOCUMENT_IN_PROGRESS_INTERVAL_SECONDS", "60"))
+MAX_PHOTO_EMBED_IMAGE_BYTES = int(os.getenv("ML_PHOTO_EMBED_IMAGE_MAX_BYTES", str(50 << 20)))
+MAX_PHOTO_EMBED_VIDEO_BYTES = int(os.getenv("ML_PHOTO_EMBED_VIDEO_MAX_BYTES", str(500 << 20)))
 
 # Global semaphore to prevent resource exhaustion under burst load
 _global_semaphore = asyncio.Semaphore(MAX_GLOBAL_CONCURRENT)
@@ -178,6 +181,21 @@ def _valid_uuid(value: object) -> str | None:
     return str(parsed)
 
 
+def _looks_like_video(path: str, content_type: str = "") -> bool:
+    ext = os.path.splitext((path or "").lower())[1]
+    video_mimetypes = {
+        "video/mp4",
+        "video/quicktime",
+        "video/x-msvideo",
+        "video/x-matroska",
+        "video/webm",
+    }
+    return (
+        ext in {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
+        or (content_type or "").lower() in video_mimetypes
+    )
+
+
 async def _load_document_file_metadata(pool, file_id: str, user_id: str, doc_id: str) -> dict | None:
     """Load current user_files storage metadata for a document-processing event."""
     if not file_id or not user_id:
@@ -196,6 +214,30 @@ async def _load_document_file_metadata(pool, file_id: str, user_id: str, doc_id:
             file_id,
             user_id,
             doc_id,
+        )
+    if not row:
+        return None
+    return dict(row)
+
+
+async def _load_photo_file_metadata(pool, file_id: str, user_id: str, photo_id: str) -> dict | None:
+    """Load current user_files storage metadata for a photo embedding event."""
+    if not file_id or not user_id or not photo_id:
+        return None
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT uf.storage_backend, uf.storage_path, uf.file_type, uf.content_type, uf.size_bytes
+            FROM user_files uf
+            JOIN activity_photos ap
+              ON ap.file_id = uf.id
+             AND ap.user_id = uf.user_id
+             AND ap.id = $3
+            WHERE uf.id = $1 AND uf.user_id = $2 AND uf.status = 'active'
+            """,
+            file_id,
+            user_id,
+            photo_id,
         )
     if not row:
         return None
@@ -783,15 +825,19 @@ async def _process_photo_embed(msg, pool, nc) -> None:
     if data is None:
         return
 
-    photo_id = data.get("photo_id", "")
-    user_id = data.get("user_id", "")
-    if not photo_id:
-        logger.error("photo_embed: missing photo_id in message")
+    valid_photo_id = _valid_uuid(data.get("photo_id", ""))
+    valid_user_id = _valid_uuid(data.get("user_id", ""))
+    valid_file_id = _valid_uuid(data.get("file_id", ""))
+    if not valid_photo_id or not valid_user_id or not valid_file_id:
+        logger.warning("photo_embed: ignoring malformed or legacy message")
         await msg.ack()
         return
+    photo_id = valid_photo_id
+    user_id = valid_user_id
+    file_id = valid_file_id
 
     # Respect per-user setting — skip if user has disabled photo CLIP embedding
-    if user_id and pool:
+    if pool:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT enable_photo_clip_embedding FROM user_enrichment_settings WHERE user_id = $1::uuid",
@@ -802,37 +848,36 @@ async def _process_photo_embed(msg, pool, nc) -> None:
             await msg.ack()
             return
 
-    # For videos: use original file (need full video for multi-frame extraction).
-    # For images: prefer preview (smaller), fall back to original.
-    content_type = data.get("content_type", "")
-    is_video_file = content_type.lower().startswith("video/")
-    storage_backend = data.get("storage_backend", "s3")
-    if storage_backend != "s3":
-        logger.info(
-            "photo_embed: skipped photo %s on unsupported storage backend %s",
-            photo_id,
-            storage_backend,
-        )
+    storage_metadata = await _load_photo_file_metadata(pool, file_id, user_id, photo_id)
+    if storage_metadata is None:
+        logger.warning("photo_embed: missing active user_files metadata for photo %s", photo_id)
         await msg.ack()
         return
-    s3_bucket = data.get("s3_bucket") or _s3_bucket_for_file_type(data.get("file_type", "media"))
-    if is_video_file:
-        image_key = data.get("s3_key") or data.get("storage_path") or data.get("s3_key_preview", "")
-    else:
-        image_key = data.get("s3_key_preview") or data.get("s3_key") or data.get("storage_path", "")
-    if not image_key:
-        logger.error("photo_embed: no storage key in message for photo %s", photo_id)
-        await msg.ack()
-        return
+
+    content_type = storage_metadata.get("content_type") or data.get("content_type", "")
+    storage_path = storage_metadata["storage_path"]
+    is_video_file = _looks_like_video(storage_path, content_type)
+    max_bytes = MAX_PHOTO_EMBED_VIDEO_BYTES if is_video_file else MAX_PHOTO_EMBED_IMAGE_BYTES
 
     async with _photo_embed_semaphore:
         with _track_active():
             try:
                 from models.clip import embed_image, embed_video_bytes, is_video  # lazy imports
 
-                image_bytes = await _download_from_s3(s3_bucket, image_key)
+                image_bytes = await download_user_file(
+                    storage_metadata["storage_backend"],
+                    storage_path,
+                    storage_metadata["file_type"],
+                    size_bytes=storage_metadata.get("size_bytes"),
+                    max_bytes=max_bytes,
+                    label="photo",
+                )
+                if not image_bytes:
+                    logger.warning("photo_embed: storage bytes unavailable for photo %s", photo_id)
+                    await msg.ack()
+                    return
 
-                if is_video_file or is_video(image_key, content_type):
+                if is_video_file or is_video(storage_path, content_type):
                     num_frames = max(1, min(10, int(data.get("video_clip_frames", 4) or 4)))
                     logger.info("photo_embed: video detected for photo %s, extracting %d frame(s)", photo_id, num_frames)
                     embedding = await embed_video_bytes(image_bytes, num_frames=num_frames)
@@ -842,11 +887,17 @@ async def _process_photo_embed(msg, pool, nc) -> None:
                 # Store as pgvector literal string
                 vec_str = "[" + ",".join(f"{v:.6f}" for v in embedding) + "]"
                 async with pool.acquire() as conn:
-                    await conn.execute(
-                        "UPDATE activity_photos SET clip_embedding = $1::vector WHERE id = $2::uuid",
+                    result = await conn.execute(
+                        "UPDATE activity_photos SET clip_embedding = $1::vector WHERE id = $2::uuid AND user_id = $3::uuid AND file_id = $4::uuid",
                         vec_str,
                         photo_id,
+                        user_id,
+                        file_id,
                     )
+                if result != "UPDATE 1":
+                    logger.warning("photo_embed: stale photo/file binding for photo %s file %s", photo_id, file_id)
+                    await msg.ack()
+                    return
                 logger.info("photo_embed: embedding saved for photo %s", photo_id)
                 await msg.ack()
                 _metrics["processed_total"] += 1
@@ -958,8 +1009,7 @@ async def _catchup_missing_embeddings(pool, js) -> None:
                 # Exclude permanently failed photos (enrichment_errors module='clip_embedding').
                 # All other formats (image/*, video/*, HEIC, JXL) are now supported.
                 rows = await conn.fetch(
-                    "SELECT ap.id, ap.user_id, uf.storage_backend, uf.storage_path, uf.file_type, "
-                    "ap.content_type, "
+                    "SELECT ap.id, ap.user_id, ap.file_id, ap.content_type, "
                     "ues.video_clip_frames "
                     "FROM activity_photos ap "
                     "JOIN user_files uf ON uf.id = ap.file_id AND uf.user_id = ap.user_id "
@@ -980,16 +1030,7 @@ async def _catchup_missing_embeddings(pool, js) -> None:
                     payload = {
                         "photo_id": str(row["id"]),
                         "user_id": str(row["user_id"]),
-                        "storage_backend": row["storage_backend"],
-                        "storage_path": row["storage_path"],
-                        "file_type": row["file_type"],
-                        "s3_bucket": (
-                            _s3_bucket_for_file_type(row["file_type"])
-                            if row["storage_backend"] == "s3"
-                            else ""
-                        ),
-                        "s3_key": row["storage_path"] if row["storage_backend"] == "s3" else "",
-                        "s3_key_preview": "",
+                        "file_id": str(row["file_id"]),
                         "content_type": row.get("content_type") or "",
                         "video_clip_frames": row.get("video_clip_frames") or 4,
                     }
