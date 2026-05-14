@@ -803,6 +803,7 @@ func main() {
 			MLLLMBrokerToken:    cfg.MLLLMBrokerToken,
 			BRouterURL:          cfg.BRouterURL,
 			KomootEncryptionKey: cfg.KomootEncryptionKey,
+			OAuthEncryptionKey:  cfg.OAuthEncryptionKey,
 			RoutingGraphPath:    cfg.RoutingGraphPath,
 			RoutingTimeout:      parseDuration(os.Getenv("ROUTING_TIMEOUT"), 30*time.Second),
 			MaxUploadSize:       cfg.MaxUploadSize,
@@ -986,7 +987,7 @@ func main() {
 	analyticsHandler := analyticshandler.NewHandlerWithML(db, pub, mlClient)
 
 	// Auth handler (Go-native auth)
-	authMailer := auth.NewMailer(settingsStore)
+	authMailer := auth.NewMailerWithDB(db, settingsStore, cfg.SettingsEncryptionKey)
 	authRL := middleware.NewRateLimiter(ctx)
 	authHandler := auth.NewHandler(db, cfg, settingsStore, authMailer, authRL, ctx)
 	authHandler.ShadowFS = store
@@ -996,6 +997,15 @@ func main() {
 	// Wire settings store and mailer into main handler (needed for admin settings endpoints).
 	h.Settings = settingsStore
 	h.Mailer = authMailer
+
+	if authMailer.HasOutbox() {
+		hostname, _ := os.Hostname()
+		if hostname == "" {
+			hostname = "api"
+		}
+		emailWorker := auth.NewEmailWorker("email-worker-"+hostname, authMailer, 10)
+		shutdown.Go("email-worker", func(ctx context.Context) { emailWorker.Run(ctx, 10*time.Second) })
+	}
 
 	// Library watcher (polling, local backend only)
 	if cfg.StorageBackend == "local" && cfg.LibrarySyncEnabled {
@@ -1187,6 +1197,8 @@ func main() {
 			Post("/register", authHandler.Register)
 		r.With(middleware.RateLimitGeneric(authRL)).
 			Post("/verify-email", authHandler.VerifyEmail)
+		r.With(middleware.RateLimitGeneric(authRL)).
+			Post("/resend-verification-email", authHandler.ResendVerificationByEmail)
 		r.With(middleware.RateLimitForgotPW(authRL)).
 			Post("/forgot-password", authHandler.ForgotPassword)
 		r.With(middleware.RateLimitGeneric(authRL)).
@@ -1223,7 +1235,7 @@ func main() {
 			if cfg.DevAuth {
 				r.Use(middleware.DevAuthMiddleware)
 			} else {
-				jwtAuth := middleware.NewJWTAuth(cfg.JWTSecretBytes)
+				jwtAuth := middleware.NewJWTAuthWithDB(cfg.JWTSecretBytes, db)
 				r.Use(jwtAuth.Middleware)
 			}
 			r.Use(middleware.RequirePasswordChanged())
@@ -1290,7 +1302,7 @@ func main() {
 			slog.Warn("DEV_AUTH enabled – using fixed dev user ID, NOT for production")
 			r.Use(middleware.DevAuthMiddleware)
 		} else {
-			jwtAuth := middleware.NewJWTAuth(cfg.JWTSecretBytes)
+			jwtAuth := middleware.NewJWTAuthWithDB(cfg.JWTSecretBytes, db)
 			r.Use(jwtAuth.Middleware)
 			slog.Info("JWT auth enabled", "hs256", cfg.JWTSecret != "")
 		}
@@ -1395,6 +1407,12 @@ func main() {
 				r.Put("/settings", h.AdminPutSettings)
 				r.Post("/settings/reload", h.AdminReloadSettings)
 				r.Post("/settings/test-email", h.AdminTestEmail)
+				r.Get("/email/templates", h.AdminListEmailTemplates)
+				r.Get("/email/templates/{key}", h.AdminGetEmailTemplate)
+				r.Put("/email/templates/{key}", h.AdminPutEmailTemplate)
+				r.Post("/email/templates/{key}/preview", h.AdminPreviewEmailTemplate)
+				r.Post("/email/templates/{key}/test", h.AdminTestEmailTemplate)
+				r.Delete("/email/templates/{key}", h.AdminResetEmailTemplate)
 
 				// Library admin settings
 				r.Get("/library-settings", h.GetAdminLibrarySettings)

@@ -22,7 +22,7 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
 
   // Social login errors
   email_exists:
-    'Diese E-Mail ist bereits registriert. Bitte melde dich an und verknüpfe dein Konto in den Einstellungen.', // context: social login email collision
+    'Diese E-Mail ist bereits registriert. Bitte melde dich mit E-Mail und Passwort an.', // context: social login email collision
   provider_error: 'Fehler beim Social Login. Bitte versuche es erneut.', // context: OAuth provider returned error
   exchange_failed: 'Anmeldung fehlgeschlagen. Bitte versuche es erneut.', // context: auth code exchange failed
   invalid_state: 'Ungültige Sitzung. Bitte versuche es erneut.', // context: OAuth state mismatch

@@ -19,6 +19,7 @@ import (
 
 	"github.com/skadia-app/skadia/services/api/internal/automation"
 	"github.com/skadia-app/skadia/services/api/internal/config"
+	"github.com/skadia-app/skadia/services/api/internal/crypto"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/database/testdb"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
@@ -80,6 +81,8 @@ func newDBBackedAuthHandler(t *testing.T, db *database.DB, overrides map[string]
 	values := map[string]string{
 		"registration.mode": "open",
 		"app.url":           "http://localhost:5173",
+		"smtp.port":         "587",
+		"smtp.tls":          "starttls",
 	}
 	for k, v := range overrides {
 		values[k] = v
@@ -91,7 +94,7 @@ func newDBBackedAuthHandler(t *testing.T, db *database.DB, overrides map[string]
 		AppURL:             values["app.url"],
 		OAuthEncryptionKey: strings.Repeat("0123456789abcdef", 2),
 	}
-	return NewHandler(db, cfg, st, NewMailer(st), middleware.NewRateLimiter(context.Background()), context.Background())
+	return NewHandler(db, cfg, st, NewMailerWithDB(db, st, testOutboxEncryptionKey), middleware.NewRateLimiter(context.Background()), context.Background())
 }
 
 func assertUserSystemArtifacts(t *testing.T, db *database.DB, userID string) {
@@ -133,6 +136,38 @@ func assertEmailToken(t *testing.T, db *database.DB, userID, tokenType string) {
 	}
 	if count != 1 {
 		t.Fatalf("email token count for %s = %d, want 1", tokenType, count)
+	}
+}
+
+func assertEmailOutboxJob(t *testing.T, db *database.DB, templateKey EmailTemplateKey, recipient string) {
+	t.Helper()
+	rows, err := db.Pool.Query(context.Background(),
+		`SELECT recipient_ciphertext FROM email_outbox WHERE template_key = $1`,
+		string(templateKey),
+	)
+	if err != nil {
+		t.Fatalf("query email_outbox: %v", err)
+	}
+	defer rows.Close()
+	var count int
+	for rows.Next() {
+		var ciphertext string
+		if err := rows.Scan(&ciphertext); err != nil {
+			t.Fatalf("scan email_outbox: %v", err)
+		}
+		plain, err := crypto.Decrypt(ciphertext, testOutboxEncryptionKey)
+		if err != nil {
+			t.Fatalf("decrypt email_outbox recipient: %v", err)
+		}
+		if plain == recipient {
+			count++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate email_outbox: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("email_outbox count for template=%s recipient=%s = %d, want 1", templateKey, recipient, count)
 	}
 }
 
@@ -237,7 +272,10 @@ func TestRegisterCreatesSystemArtifacts(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Open(t)
 	db := &database.DB{Pool: pool}
-	h := newDBBackedAuthHandler(t, db, nil)
+	h := newDBBackedAuthHandler(t, db, map[string]string{
+		"smtp.host": "smtp.invalid",
+		"smtp.from": "noreply@example.com",
+	})
 	suffix := uuid.NewString()
 	email := "new-user-" + suffix + "@example.com"
 	username := "new_user_" + strings.ReplaceAll(suffix[:8], "-", "_")
@@ -268,6 +306,7 @@ func TestRegisterCreatesSystemArtifacts(t *testing.T) {
 	}
 	assertUserSystemArtifacts(t, db, user.ID)
 	assertEmailToken(t, db, user.ID, "verification")
+	assertEmailOutboxJob(t, db, EmailTemplateVerification, email)
 }
 
 func TestSeedFailureRollsBackPasswordUser(t *testing.T) {
@@ -435,7 +474,7 @@ func TestSeedFailureRollsBackOAuthUser(t *testing.T) {
 	var seenUserID string
 
 	_, isNew, err := db.GetOrCreateUserByOAuthSeeded(ctx,
-		provider, providerID, email, "oauth_seed_rollback_"+strings.ReplaceAll(suffix[:8], "-", "_"),
+		provider, providerID, email, true, "oauth_seed_rollback_"+strings.ReplaceAll(suffix[:8], "-", "_"),
 		[]byte("access"), []byte("refresh"), nil, strings.Repeat("0123456789abcdef", 4),
 		true, false, seedArtifactsThenFail(t, &seenUserID))
 	if err == nil {
@@ -571,7 +610,7 @@ func TestOAuthNewUserCreatesSystemArtifactsExistingLoginDoesNotReseed(t *testing
 	suffix := uuid.NewString()
 
 	user, isNew, err := db.GetOrCreateUserByOAuthSeeded(ctx,
-		"test_provider", "provider-"+suffix, "oauth-"+suffix+"@example.com", "oauth_"+suffix[:8],
+		"test_provider", "provider-"+suffix, "oauth-"+suffix+"@example.com", true, "oauth_"+suffix[:8],
 		[]byte("access"), []byte("refresh"), nil, strings.Repeat("0123456789abcdef", 4),
 		true, false, automation.EnsureSystemArtifactsTx)
 	if err != nil {
@@ -583,7 +622,7 @@ func TestOAuthNewUserCreatesSystemArtifactsExistingLoginDoesNotReseed(t *testing
 	assertUserSystemArtifacts(t, db, user.ID)
 
 	_, isNew, err = db.GetOrCreateUserByOAuthSeeded(ctx,
-		"test_provider", "provider-"+suffix, "oauth-"+suffix+"@example.com", "oauth_"+suffix[:8],
+		"test_provider", "provider-"+suffix, "oauth-"+suffix+"@example.com", true, "oauth_"+suffix[:8],
 		[]byte("access-2"), []byte("refresh-2"), nil, strings.Repeat("0123456789abcdef", 4),
 		true, false, func(context.Context, pgx.Tx, string) error {
 			return errors.New("existing login must not reseed")
@@ -593,5 +632,29 @@ func TestOAuthNewUserCreatesSystemArtifactsExistingLoginDoesNotReseed(t *testing
 	}
 	if isNew {
 		t.Fatal("second OAuth lookup unexpectedly created a new user")
+	}
+}
+
+func TestOAuthUserWithoutVerifiedProviderEmailDoesNotClaimLocalEmail(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	db := &database.DB{Pool: pool}
+	suffix := uuid.NewString()
+
+	user, isNew, err := db.GetOrCreateUserByOAuthSeeded(ctx,
+		"google", "provider-unverified-"+suffix, "oauth-unverified-"+suffix+"@example.com", false, "oauth_"+suffix[:8],
+		[]byte("access"), []byte("refresh"), nil, strings.Repeat("0123456789abcdef", 4),
+		true, false, automation.EnsureSystemArtifactsTx)
+	if err != nil {
+		t.Fatalf("create oauth user: %v", err)
+	}
+	if !isNew {
+		t.Fatal("OAuth lookup returned existing user")
+	}
+	if user.Email != nil {
+		t.Fatalf("unverified provider email claimed local email %q", *user.Email)
+	}
+	if user.EmailVerified {
+		t.Fatal("unverified provider email marked local email as verified")
 	}
 }

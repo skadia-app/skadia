@@ -375,12 +375,12 @@ func (db *DB) CreateBootstrapAdminSeeded(ctx context.Context, email, username, p
 // GetOrCreateUserByOAuth looks up or creates a user via OAuth provider.
 // Returns (user, isNewUser, error). Returns ErrEmailCollision if the provider
 // email already belongs to an existing user.
-func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, providerEmail, username string, accessToken, refreshToken []byte, tokenExpiry *time.Time, oauthEncKey string, isActive bool, pendingApproval bool) (*model.User, bool, error) {
-	return db.GetOrCreateUserByOAuthSeeded(ctx, provider, providerID, providerEmail, username, accessToken, refreshToken, tokenExpiry, oauthEncKey, isActive, pendingApproval, nil)
+func (db *DB) GetOrCreateUserByOAuth(ctx context.Context, provider, providerID, providerEmail string, providerEmailVerified bool, username string, accessToken, refreshToken []byte, tokenExpiry *time.Time, oauthEncKey string, isActive bool, pendingApproval bool) (*model.User, bool, error) {
+	return db.GetOrCreateUserByOAuthSeeded(ctx, provider, providerID, providerEmail, providerEmailVerified, username, accessToken, refreshToken, tokenExpiry, oauthEncKey, isActive, pendingApproval, nil)
 }
 
 // GetOrCreateUserByOAuthSeeded creates seed data in the same transaction as a new OAuth user.
-func (db *DB) GetOrCreateUserByOAuthSeeded(ctx context.Context, provider, providerID, providerEmail, username string, accessToken, refreshToken []byte, tokenExpiry *time.Time, oauthEncKey string, isActive bool, pendingApproval bool, seeder UserCreateSeeder) (*model.User, bool, error) {
+func (db *DB) GetOrCreateUserByOAuthSeeded(ctx context.Context, provider, providerID, providerEmail string, providerEmailVerified bool, username string, accessToken, refreshToken []byte, tokenExpiry *time.Time, oauthEncKey string, isActive bool, pendingApproval bool, seeder UserCreateSeeder) (*model.User, bool, error) {
 	// 1. Check oauth_connections for existing link.
 	var userID string
 	err := db.Pool.QueryRow(ctx,
@@ -416,9 +416,10 @@ func (db *DB) GetOrCreateUserByOAuthSeeded(ctx context.Context, provider, provid
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	// Email may be NULL for providers like Strava that don't always provide it.
+	// Only provider-verified email addresses become local account emails.
 	var emailPtr *string
-	if providerEmail != "" {
+	emailVerified := providerEmail != "" && providerEmailVerified
+	if emailVerified {
 		emailPtr = &providerEmail
 
 		// Check email collision inside tx to prevent TOCTOU race.
@@ -440,9 +441,9 @@ func (db *DB) GetOrCreateUserByOAuthSeeded(ctx context.Context, provider, provid
 	newID := uuid.New().String()
 	u, err := scanUser(tx.QueryRow(ctx,
 		`INSERT INTO users (id, username, email, email_verified, registration_source, is_active, pending_approval)
-		 VALUES ($1, $2, $3, true, $4, $5, $6)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING `+allUserColumns,
-		newID, username, emailPtr, provider, isActive, pendingApproval))
+		newID, username, emailPtr, emailVerified, provider, isActive, pendingApproval))
 	if err != nil {
 		return nil, false, fmt.Errorf("create oauth user: %w", err)
 	}

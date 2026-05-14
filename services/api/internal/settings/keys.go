@@ -87,9 +87,9 @@ var AllKeys = []KeyDef{
 	{
 		Key: "smtp.port", EnvVar: "SMTP_PORT", Default: "587", Encrypted: false, Group: "smtp",
 		Validate: func(v string) error {
-			_, err := strconv.Atoi(v)
-			if err != nil {
-				return fmt.Errorf("smtp.port must be a valid integer, got %q", v)
+			port, err := strconv.Atoi(v)
+			if err != nil || port < 1 || port > 65535 {
+				return fmt.Errorf("smtp.port must be between 1 and 65535, got %q", v)
 			}
 			return nil
 		},

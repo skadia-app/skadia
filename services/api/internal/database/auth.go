@@ -170,6 +170,28 @@ func (db *DB) CreateAuthCode(ctx context.Context, userID uuid.UUID, codeHash, co
 	return nil
 }
 
+// GetAuthCode validates an auth code without consuming it.
+func (db *DB) GetAuthCode(ctx context.Context, codeHash string) (uuid.UUID, string, string, error) {
+	var (
+		userID        uuid.UUID
+		codeChallenge string
+		redirectURI   string
+	)
+	err := db.Pool.QueryRow(ctx,
+		`SELECT user_id, code_challenge, redirect_uri
+		   FROM auth_codes
+		  WHERE code_hash = $1 AND expires_at > NOW()`,
+		codeHash,
+	).Scan(&userID, &codeChallenge, &redirectURI)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, "", "", pgx.ErrNoRows
+		}
+		return uuid.Nil, "", "", fmt.Errorf("get auth code: %w", err)
+	}
+	return userID, codeChallenge, redirectURI, nil
+}
+
 // ConsumeAuthCode validates and consumes an auth code. Returns userID, codeChallenge, redirectURI.
 func (db *DB) ConsumeAuthCode(ctx context.Context, codeHash string) (uuid.UUID, string, string, error) {
 	var (

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { isAuthenticated, isDevAuth, setToken } from '@/lib/auth'
 import { clearQueryClientCache } from '@/lib/queryClient'
-import { getAuthConfig, loginWithEmail, type AuthConfig } from '@/api/auth'
+import { getAuthConfig, loginWithEmail, resendVerificationEmail, type AuthConfig } from '@/api/auth'
 import { AUTH_INPUT_CLASS } from '@/pages/auth/styles'
 import { getAuthErrorMessage } from '@/pages/auth/errorMessages'
 import { useToast } from '@/lib/toast'
@@ -21,6 +21,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [resendingVerification, setResendingVerification] = useState(false)
+  const [canResendVerification, setCanResendVerification] = useState(false)
   const [config, setConfig] = useState<AuthConfig | null>(null)
 
   const returnTo = searchParams.get('returnTo') || '/activities'
@@ -50,6 +52,7 @@ export default function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    setCanResendVerification(false)
     setLoading(true)
 
     try {
@@ -62,9 +65,23 @@ export default function LoginPage() {
       navigate(returnTo, { replace: true })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen'
+      setCanResendVerification(msg === 'email_not_verified')
       setError(getAuthErrorMessage(msg))
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleResendVerification() {
+    if (!email || resendingVerification) return
+    setResendingVerification(true)
+    try {
+      await resendVerificationEmail(email)
+      addToast({ type: 'success', title: 'Bestätigungs-E-Mail wurde angefordert' })
+    } catch (err) {
+      addToast({ type: 'error', title: 'Anfrage fehlgeschlagen', message: err instanceof Error ? getAuthErrorMessage(err.message) : undefined })
+    } finally {
+      setResendingVerification(false)
     }
   }
 
@@ -87,6 +104,16 @@ export default function LoginPage() {
         {error && (
           <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800">
             <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            {canResendVerification && (
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={resendingVerification || !email}
+                className="mt-2 text-sm font-medium text-red-700 dark:text-red-300 hover:underline disabled:opacity-60 disabled:no-underline"
+              >
+                {resendingVerification ? 'Wird gesendet…' : 'Bestätigung erneut senden'}
+              </button>
+            )}
           </div>
         )}
 

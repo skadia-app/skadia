@@ -322,7 +322,7 @@ func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteJSONNoCache(w, http.StatusOK, map[string]string{"status": "password_reset"})
 
 	} else if req.SendEmail {
-		if h.Settings.Get("smtp.host").Value == "" {
+		if !h.Mailer.IsConfigured() {
 			httputil.WriteJSONNoCache(w, http.StatusBadRequest, map[string]string{"error": "smtp_not_configured"})
 			return
 		}
@@ -340,7 +340,7 @@ func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteJSONNoCache(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
-		go h.Mailer.SendResetEmail(*targetUser.Email, targetUser.Username, token)
+		go h.Mailer.SendResetEmail(targetID, *targetUser.Email, targetUser.Username, token)
 		go h.DB.LogAuthEvent(h.shutdownCtx, adminID, "admin_reset_password", ip, r.UserAgent(),
 			map[string]string{"target_user_id": targetID, "method": "email"})
 		slog.Info("admin reset password (email)", "target_user_id", targetID, "admin_id", adminID)
@@ -587,6 +587,6 @@ func (h *Handler) notifyAdminsNewRegistration(user *model.User) {
 		return
 	}
 	for _, email := range admins {
-		h.Mailer.SendAdminApprovalNeeded(email, user.Username, *user.Email)
+		h.Mailer.SendAdminApprovalNeeded(user.ID, email, user.Username, *user.Email)
 	}
 }

@@ -3,10 +3,13 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
+	"github.com/jackc/pgx/v5"
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwt"
 )
@@ -21,11 +24,18 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 // JWTAuth validates HS256 JWTs issued by this backend.
 type JWTAuth struct {
 	jwtSecret []byte
+	db        *database.DB
 }
 
 // NewJWTAuth creates JWT validation middleware.
 func NewJWTAuth(jwtSecret []byte) *JWTAuth {
 	return &JWTAuth{jwtSecret: jwtSecret}
+}
+
+// NewJWTAuthWithDB creates JWT validation middleware that revalidates mutable
+// account state from the database on every request.
+func NewJWTAuthWithDB(jwtSecret []byte, db *database.DB) *JWTAuth {
+	return &JWTAuth{jwtSecret: jwtSecret, db: db}
 }
 
 // Middleware validates JWT from Authorization header.
@@ -56,8 +66,6 @@ func (j *JWTAuth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), UserIDKey, sub)
-
 		// Extract custom claims from JWT into context
 		isAdminVal, _ := token.Get("is_admin")
 		isAdmin, _ := isAdminVal.(bool)
@@ -66,6 +74,31 @@ func (j *JWTAuth) Middleware(next http.Handler) http.Handler {
 		mustChangePWVal, _ := token.Get("must_change_password")
 		mustChangePW, _ := mustChangePWVal.(bool)
 
+		if j.db != nil && j.db.Pool != nil {
+			var active bool
+			var deleted bool
+			err := j.db.Pool.QueryRow(r.Context(),
+				`SELECT is_active, deleted_at IS NOT NULL, is_admin, email_verified, must_change_password
+				   FROM users
+				  WHERE id = $1`,
+				sub,
+			).Scan(&active, &deleted, &isAdmin, &emailVerified, &mustChangePW)
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					writeJSONError(w, http.StatusUnauthorized, "invalid or inactive account")
+					return
+				}
+				slog.Error("JWT account state revalidation failed", "error", err)
+				writeJSONError(w, http.StatusServiceUnavailable, "auth state unavailable")
+				return
+			}
+			if !active || deleted {
+				writeJSONError(w, http.StatusUnauthorized, "invalid or inactive account")
+				return
+			}
+		}
+
+		ctx := context.WithValue(r.Context(), UserIDKey, sub)
 		ctx = context.WithValue(ctx, IsAdminKey, isAdmin)
 		ctx = context.WithValue(ctx, EmailVerifiedKey, emailVerified)
 		ctx = context.WithValue(ctx, MustChangePWKey, mustChangePW)
