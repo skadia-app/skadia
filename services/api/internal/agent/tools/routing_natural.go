@@ -74,13 +74,20 @@ type suggestRouteGoalArgs struct {
 	End                *routePoint    `json:"end,omitempty"`
 	RoundTrip          *bool          `json:"round_trip,omitempty"`
 	TargetDistanceM    *float64       `json:"target_distance_m,omitempty"`
-	TargetDurationMin  *float64       `json:"target_duration_min,omitempty"`
 	TargetAscentM      *float64       `json:"target_ascent_m,omitempty"`
 	AscentTolerancePct *float64       `json:"ascent_tolerance_pct,omitempty"`
 	ElevationMode      string         `json:"elevation_mode,omitempty"`
 	SportQuery         string         `json:"sport_query,omitempty"`
 	ProfileKey         string         `json:"profile_key,omitempty"`
 	Preferences        map[string]any `json:"preferences,omitempty"`
+	Difficulty         map[string]any `json:"difficulty,omitempty"`
+	AlongFeatureRefs   []string       `json:"along_feature_refs,omitempty"`
+	AvoidFeatureRefs   []string       `json:"avoid_feature_refs,omitempty"`
+	NearFeatureRefs    []string       `json:"near_feature_refs,omitempty"`
+	TargetFeatureRefs  []string       `json:"target_feature_refs,omitempty"`
+	LandscapePrefs     map[string]any `json:"landscape_prefs,omitempty"`
+	SurfaceTendency    string         `json:"surface_tendency,omitempty"`
+	Modifiers          map[string]any `json:"modifiers,omitempty"`
 	MaxVariants        *int           `json:"max_variants,omitempty"`
 }
 
@@ -89,6 +96,7 @@ type routeResolverRef struct {
 	Source      string    `json:"source"`
 	SourceID    string    `json:"source_id,omitempty"`
 	SourceOSMID string    `json:"source_osm_id,omitempty"`
+	UserID      string    `json:"user_id,omitempty"`
 	Name        string    `json:"name"`
 	Lat         float64   `json:"lat"`
 	Lng         float64   `json:"lng"`
@@ -105,6 +113,17 @@ func ResolveRoutePlaceTool() *Tool {
 		Permission:  PermissionRead,
 		IsUserOwned: false,
 		ExecuteRead: executeResolveRoutePlace,
+	}
+}
+
+func ResolveUserLocationTool() *Tool {
+	return &Tool{
+		Name:        "resolve_user_location",
+		Description: "Resolve the current user's saved location tags into route-point refs with coordinates. Only user-owned location tags are returned.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"near":{"type":"object","properties":{"lat":{"type":"number"},"lng":{"type":"number"},"ref":{"type":"string"}},"additionalProperties":false},"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":false}`),
+		Permission:  PermissionRead,
+		IsUserOwned: true,
+		ExecuteRead: executeResolveUserLocation,
 	}
 }
 
@@ -130,6 +149,28 @@ func GetRoutingCoverageTool() *Tool {
 	}
 }
 
+func AnalyzeRoutePointsTool() *Tool {
+	return &Tool{
+		Name:        "analyze_route_points",
+		Description: "Resolve route-point refs or lat/lng points and compute straight-line route diagnostics, required local tiles, and long-leg waypoint requirements before expensive routing.",
+		InputSchema: json.RawMessage(`{"type":"object","required":["points"],"properties":{"points":{"type":"array","minItems":2,"items":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false}},"intent":{"type":"string","enum":["distance_only","direct_route","goal_route"]}},"additionalProperties":false}`),
+		Permission:  PermissionRead,
+		IsUserOwned: true,
+		ExecuteRead: executeAnalyzeRoutePoints,
+	}
+}
+
+func GetAgentServiceStatusTool() *Tool {
+	return &Tool{
+		Name:        "get_agent_service_status",
+		Description: "Return cheap status for agent geocoding, weather, routing, coverage, long-distance policy, and difficulty support before promising route work.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"services":{"type":"array","items":{"type":"string","enum":["geocoding","weather","routing","coverage"]}},"points":{"type":"array","items":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false}},"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"additionalProperties":false},"profile_key":{"type":"string"}},"additionalProperties":false}`),
+		Permission:  PermissionRead,
+		IsUserOwned: true,
+		ExecuteRead: executeGetAgentServiceStatus,
+	}
+}
+
 func PlanRouteBetweenTool() *Tool {
 	return &Tool{
 		Name:        "plan_route_between",
@@ -145,7 +186,7 @@ func SuggestRouteGoalTool() *Tool {
 	return &Tool{
 		Name:        "suggest_route_goal",
 		Description: "Explain whether Skadia can suggest a goal-based or round-trip route from a start point. Returns structured unsupported details when route-suggestion coverage is missing.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["start"],"properties":{"start":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false},"end":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false},"round_trip":{"type":"boolean"},"target_distance_m":{"type":"number","minimum":1},"target_duration_min":{"type":"number","minimum":1},"target_ascent_m":{"type":"number","minimum":0},"ascent_tolerance_pct":{"type":"number","minimum":0},"elevation_mode":{"type":"string","enum":["flat","moderate","climby","avoid_steep","custom"]},"sport_query":{"type":"string"},"profile_key":{"type":"string"},"preferences":{"type":"object"},"max_variants":{"type":"integer","minimum":1,"maximum":10}},"additionalProperties":false}`),
+		InputSchema: json.RawMessage(`{"type":"object","required":["start"],"properties":{"start":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false},"end":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false},"round_trip":{"type":"boolean"},"target_distance_m":{"type":"number","minimum":1},"target_ascent_m":{"type":"number","minimum":0},"ascent_tolerance_pct":{"type":"number","minimum":0},"elevation_mode":{"type":"string","enum":["flat","moderate","climby","avoid_steep","custom"]},"sport_query":{"type":"string"},"profile_key":{"type":"string"},"preferences":{"type":"object"},"difficulty":{"type":"object","properties":{"max_sac_scale":{"oneOf":[{"type":"string","enum":["T1","T2","T3","T4","T5","T6"]},{"type":"integer","minimum":0,"maximum":6}]},"max_mtb_scale":{"oneOf":[{"type":"string","enum":["S0","S1","S2","S3","S4","S5"]},{"type":"integer","minimum":0,"maximum":5}]},"max_via_ferrata":{"oneOf":[{"type":"string","enum":["K1","K2","K3","K4","K5","K6"]},{"type":"integer","minimum":1,"maximum":6}]},"climbing_grade":{"type":"string"},"difficulty_intent":{"type":"string","enum":["avoid","allow","seek"]}},"additionalProperties":false},"target_feature_refs":{"type":"array","items":{"type":"string"}},"near_feature_refs":{"type":"array","items":{"type":"string"}},"along_feature_refs":{"type":"array","items":{"type":"string"}},"avoid_feature_refs":{"type":"array","items":{"type":"string"}},"landscape_prefs":{"type":"object"},"surface_tendency":{"type":"string"},"modifiers":{"type":"object"},"max_variants":{"type":"integer","minimum":1,"maximum":10}},"additionalProperties":false}`),
 		Permission:  PermissionRead,
 		IsUserOwned: false,
 		ExecuteRead: executeSuggestRouteGoal,
@@ -211,12 +252,12 @@ func executeResolveRouteFeature(ctx context.Context, deps *Deps, _ string, raw j
 	}, nil
 }
 
-func executeGetRoutingCoverage(ctx context.Context, deps *Deps, _ string, raw json.RawMessage) (any, error) {
+func executeGetRoutingCoverage(ctx context.Context, deps *Deps, userID string, raw json.RawMessage) (any, error) {
 	var args getRoutingCoverageArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, fmt.Errorf("decode get_routing_coverage args: %w", err)
 	}
-	points, invalidRefs := routeCoveragePoints(args)
+	points, invalidRefs := routeCoveragePointsForUser(args, userID)
 	bbox := args.BBox
 	if bbox == nil && len(points) > 0 {
 		b := bboxForPoints(points)
@@ -288,12 +329,15 @@ func executePlanRouteBetween(ctx context.Context, deps *Deps, userID string, raw
 	waypoints := make([][]float64, 0, len(points))
 	resolvedNames := make([]string, 0, len(points))
 	for _, point := range points {
-		resolved, err := resolveRoutePoint(point)
+		resolved, err := resolveRoutePointForUser(point, userID)
 		if err != nil {
 			return map[string]any{"error": err.Error(), "needs_resolution": true, "fallback": true}, nil
 		}
 		waypoints = append(waypoints, []float64{resolved.Lng, resolved.Lat})
 		resolvedNames = append(resolvedNames, resolved.Name)
+	}
+	if analysisResult, blocked := routeBetweenLongRouteBlock(ctx, deps, userID, points); blocked {
+		return analysisResult, nil
 	}
 	if len(args.Constraints) > 0 {
 		return map[string]any{
@@ -324,25 +368,75 @@ func executePlanRouteBetween(ctx context.Context, deps *Deps, userID string, raw
 	return result, nil
 }
 
-func executeSuggestRouteGoal(_ context.Context, _ *Deps, _ string, raw json.RawMessage) (any, error) {
+func routeBetweenLongRouteBlock(ctx context.Context, deps *Deps, userID string, points []routePoint) (map[string]any, bool) {
+	raw, err := json.Marshal(analyzeRoutePointsArgs{Points: points, Intent: "direct_route"})
+	if err != nil {
+		return nil, false
+	}
+	result, err := executeAnalyzeRoutePoints(ctx, deps, userID, raw)
+	if err != nil {
+		return map[string]any{"error": err.Error(), "fallback": true}, true
+	}
+	analysis, ok := result.(map[string]any)
+	if !ok || analysis["long_route_status"] != "requires_waypoints" {
+		return nil, false
+	}
+	return map[string]any{
+		"error":                    "direct route leg exceeds the configured max direct-leg distance",
+		"fallback":                 true,
+		"long_route_status":        "requires_waypoints",
+		"analysis":                 analysis,
+		"blocking_reason":          "max_direct_leg_exceeded",
+		"recommended_next_step":    analysis["recommended_next_step"],
+		"unsupported_constraint":   true,
+		"requires_waypoints":       true,
+		"suggested_waypoint_count": analysis["suggested_intermediate_point_count"],
+	}, true
+}
+
+func executeSuggestRouteGoal(ctx context.Context, deps *Deps, userID string, raw json.RawMessage) (any, error) {
+	if rawHasJSONKey(raw, "target_duration_min") {
+		return map[string]any{
+			"status":                  "unsupported_constraint",
+			"unsupported_constraints": []string{"target_duration_min"},
+			"unsupported_reason":      "duration is not a supported route-planning input; use distance, ascent, difficulty, route type, or profile constraints",
+			"clarification_question":  "Welche Distanz, welchen Anstieg, welche Schwierigkeit oder welches Profil soll die Route haben?",
+			"variants":                []any{},
+			"applied_constraints":     []string{},
+			"post_validation":         map[string]any{"status": "not_run"},
+		}, nil
+	}
 	var args suggestRouteGoalArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, fmt.Errorf("decode suggest_route_goal args: %w", err)
 	}
-	start, err := resolveRoutePoint(args.Start)
+	start, err := resolveRoutePointForUser(args.Start, userID)
 	if err != nil {
 		return map[string]any{"error": err.Error(), "needs_resolution": true, "fallback": true}, nil
 	}
+	unsupported := suggestRouteGoalUnsupportedConstraints(args)
+	status := "unsupported_backend_path"
+	if len(unsupported) > 0 {
+		status = "unsupported_constraint"
+	}
+	if args.End != nil {
+		if analysis, blocked := suggestRouteGoalLongRouteBlock(ctx, deps, userID, args); blocked {
+			return analysis, nil
+		}
+	}
 	return map[string]any{
-		"start":               start,
-		"profile_key":         args.ProfileKey,
-		"round_trip":          valueOrDefaultBool(args.RoundTrip, false),
-		"target_distance_m":   args.TargetDistanceM,
-		"target_duration_min": args.TargetDurationMin,
-		"target_ascent_m":     args.TargetAscentM,
-		"status":              "unsupported_backend_path",
-		"unsupported_reason":  "goal-based route suggestions are not exposed through the agent runtime yet; use plan_route_between for direct previews after resolving a concrete destination",
-		"variants":            []any{},
+		"start":                   start,
+		"profile_key":             args.ProfileKey,
+		"round_trip":              valueOrDefaultBool(args.RoundTrip, true),
+		"target_distance_m":       args.TargetDistanceM,
+		"target_ascent_m":         args.TargetAscentM,
+		"status":                  status,
+		"unsupported_constraints": unsupported,
+		"applied_constraints":     []string{},
+		"unsupported_reason":      suggestRouteGoalUnsupportedReason(status),
+		"variants":                []any{},
+		"coverage":                map[string]any{"status": "not_checked"},
+		"post_validation":         map[string]any{"status": "not_run"},
 	}, nil
 }
 
@@ -577,9 +671,24 @@ func decodeRouteResolverRef(raw string) (routeResolverRef, error) {
 	return ref, nil
 }
 
+func decodeRouteResolverRefForUser(raw, userID string) (routeResolverRef, error) {
+	ref, err := decodeRouteResolverRef(raw)
+	if err != nil {
+		return routeResolverRef{}, err
+	}
+	if ref.Source == "user_location" && (userID == "" || ref.UserID != userID) {
+		return routeResolverRef{}, fmt.Errorf("invalid_or_foreign_route_ref")
+	}
+	return ref, nil
+}
+
 func resolveRoutePoint(point routePoint) (routeResolverRef, error) {
+	return resolveRoutePointForUser(point, "")
+}
+
+func resolveRoutePointForUser(point routePoint, userID string) (routeResolverRef, error) {
 	if point.Ref != "" {
-		return decodeRouteResolverRef(point.Ref)
+		return decodeRouteResolverRefForUser(point.Ref, userID)
 	}
 	if point.Lat == nil || point.Lng == nil {
 		return routeResolverRef{}, fmt.Errorf("route point needs a resolver ref or lat/lng")
@@ -591,10 +700,14 @@ func resolveRoutePoint(point routePoint) (routeResolverRef, error) {
 }
 
 func routeCoveragePoints(args getRoutingCoverageArgs) ([]routeResolverRef, []string) {
+	return routeCoveragePointsForUser(args, "")
+}
+
+func routeCoveragePointsForUser(args getRoutingCoverageArgs, userID string) ([]routeResolverRef, []string) {
 	points := make([]routeResolverRef, 0)
 	invalidRefs := []string{}
 	for _, ref := range append(append([]string{}, args.PlaceRefs...), args.FeatureRefs...) {
-		decoded, err := decodeRouteResolverRef(ref)
+		decoded, err := decodeRouteResolverRefForUser(ref, userID)
 		if err != nil {
 			invalidRefs = append(invalidRefs, ref)
 			continue
@@ -602,7 +715,7 @@ func routeCoveragePoints(args getRoutingCoverageArgs) ([]routeResolverRef, []str
 		points = append(points, decoded)
 	}
 	for _, point := range args.Points {
-		decoded, err := resolveRoutePoint(point)
+		decoded, err := resolveRoutePointForUser(point, userID)
 		if err != nil {
 			if point.Ref != "" {
 				invalidRefs = append(invalidRefs, point.Ref)

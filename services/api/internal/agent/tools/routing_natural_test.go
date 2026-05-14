@@ -16,9 +16,12 @@ func TestNaturalRoutingToolsMetadata(t *testing.T) {
 	RegisterRouteTools(reg)
 
 	for _, name := range []string{
+		"resolve_user_location",
 		"resolve_route_place",
 		"resolve_route_feature",
 		"get_routing_coverage",
+		"analyze_route_points",
+		"get_agent_service_status",
 		"plan_route_between",
 		"suggest_route_goal",
 	} {
@@ -333,10 +336,68 @@ func TestSuggestRouteGoalReturnsStructuredUnsupportedState(t *testing.T) {
 	}
 }
 
+func TestSuggestRouteGoalSchemaRemovesAndRejectsDuration(t *testing.T) {
+	tool := SuggestRouteGoalTool()
+	if strings.Contains(string(tool.InputSchema), "target_duration_min") {
+		t.Fatalf("suggest_route_goal schema still exposes target_duration_min: %s", tool.InputSchema)
+	}
+	if err := validateArgs(tool.Name, tool.InputSchema, json.RawMessage(`{
+		"start": {"lat": 48.0, "lng": 11.0},
+		"round_trip": true,
+		"target_duration_min": 90
+	}`)); err == nil {
+		t.Fatal("validateArgs accepted duration-based suggest_route_goal request")
+	}
+}
+
+func TestSuggestRouteGoalRejectsFixedEndAlongAvoidAndViaFerrata(t *testing.T) {
+	result, err := executeSuggestRouteGoal(context.Background(), nil, "user-1", json.RawMessage(`{
+		"start": {"lat": 48.0, "lng": 11.0},
+		"end": {"lat": 48.1, "lng": 11.1},
+		"round_trip": false,
+		"along_feature_refs": ["route-ref:00000000-0000-0000-0000-000000000000"],
+		"avoid_feature_refs": ["route-ref:00000000-0000-0000-0000-000000000000"],
+		"difficulty": {"max_via_ferrata": "K3"}
+	}`))
+	if err != nil {
+		t.Fatalf("executeSuggestRouteGoal: %v", err)
+	}
+	got := result.(map[string]any)
+	if got["status"] != "unsupported_constraint" {
+		t.Fatalf("status = %#v, want unsupported_constraint: %#v", got["status"], got)
+	}
+	for _, want := range []string{"fixed_end_goal", "along_feature_refs", "avoid_feature_refs", "max_via_ferrata"} {
+		if !containsAnyString(got["unsupported_constraints"], want) {
+			t.Fatalf("unsupported_constraints = %#v, want %s", got["unsupported_constraints"], want)
+		}
+	}
+	if variants := got["variants"].([]any); len(variants) != 0 {
+		t.Fatalf("variants = %#v, want none for unsupported constraints", variants)
+	}
+}
+
 func containsRoutingTestString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
 			return true
+		}
+	}
+	return false
+}
+
+func containsAnyString(raw any, want string) bool {
+	switch values := raw.(type) {
+	case []string:
+		for _, value := range values {
+			if value == want {
+				return true
+			}
+		}
+	case []any:
+		for _, value := range values {
+			if s, ok := value.(string); ok && s == want {
+				return true
+			}
 		}
 	}
 	return false
