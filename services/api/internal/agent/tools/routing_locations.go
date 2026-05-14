@@ -100,12 +100,14 @@ func executeResolveUserLocation(ctx context.Context, deps *Deps, userID string, 
 
 func GeocodePlaceTool() *Tool {
 	return &Tool{
-		Name:        "geocode_place",
-		Description: "Resolve user locations, imported map places, or optional external place names into route-point refs. Always check routing coverage before planning.",
-		InputSchema: json.RawMessage(`{"type":"object","required":["query"],"properties":{"query":{"type":"string","minLength":2},"sources":{"type":"string","enum":["user_locations","local_map","external","all"],"default":"all"},"near":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false},"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"additionalProperties":false},"limit":{"type":"integer","minimum":1,"maximum":10}},"additionalProperties":false}`),
-		Permission:  PermissionRead,
-		IsUserOwned: true,
-		ExecuteRead: executeGeocodePlace,
+		Name:             "geocode_place",
+		Description:      "Resolve user locations, imported map places, or optional external place names into route-point refs. Always check routing coverage before planning.",
+		InputSchema:      json.RawMessage(`{"type":"object","required":["query"],"properties":{"query":{"type":"string","minLength":2},"sources":{"type":"string","enum":["user_locations","local_map","external","all"],"default":"all"},"near":{"type":"object","properties":{"ref":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"}},"additionalProperties":false},"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"additionalProperties":false},"limit":{"type":"integer","minimum":1,"maximum":10}},"additionalProperties":false}`),
+		Permission:       PermissionRead,
+		RateLimitPerHour: 60,
+		Timeout:          5 * time.Second,
+		IsUserOwned:      true,
+		ExecuteRead:      executeGeocodePlace,
 	}
 }
 
@@ -262,7 +264,7 @@ func normalizeGeocodePlaceSources(raw string) map[string]bool {
 	case "external":
 		return map[string]bool{"external": true}
 	default:
-		return map[string]bool{"user_locations": true, "local_map": true, "external": true}
+		return map[string]bool{"user_locations": true, "local_map": true}
 	}
 }
 

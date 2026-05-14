@@ -297,6 +297,33 @@ func TestPlanRouteBetweenConvertsNamedLatLngToLegacyLonLatPreview(t *testing.T) 
 	}
 }
 
+func TestPlanRouteBetweenCoverageAcceptsOwnedUserLocationRefs(t *testing.T) {
+	userID := "user-owned-route-ref"
+	segmentsDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(segmentsDir, "E10_N45.rd5"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write rd5 fixture: %v", err)
+	}
+	startRef := encodeRouteResolverRef(routeResolverRef{Kind: "location_tag", Source: "user_location", UserID: userID, Name: "Saved Start", Lat: 48.0, Lng: 11.0})
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		_ = json.NewEncoder(w).Encode(map[string]any{"type": "FeatureCollection", "features": []any{}})
+	}))
+	defer server.Close()
+
+	result, err := executePlanRouteBetween(context.Background(), &Deps{BRouterURL: server.URL, BRouterSegmentsDir: segmentsDir}, userID, json.RawMessage(`{
+		"from": {"ref": "`+startRef+`"},
+		"to": {"lat": 48.1, "lng": 11.2},
+		"profile_key": "hiking-mountain"
+	}`))
+	if err != nil {
+		t.Fatalf("executePlanRouteBetween: %v", err)
+	}
+	if !called {
+		t.Fatalf("route preview was not called; result=%#v", result)
+	}
+}
+
 func TestPlanRouteBetweenRejectsUnsupportedSemanticConstraintsBeforeHTTP(t *testing.T) {
 	called := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -324,7 +351,14 @@ func TestPlanRouteBetweenRejectsUnsupportedSemanticConstraintsBeforeHTTP(t *test
 
 func TestSuggestRouteGoalUsesInjectedRoundTripSuggester(t *testing.T) {
 	var captured RouteGoalSuggestionRequest
+	routingTileDir := t.TempDir()
+	for _, tile := range []string{"tile_47_10.bin", "tile_47_11.bin", "tile_48_10.bin", "tile_48_11.bin"} {
+		if err := os.WriteFile(filepath.Join(routingTileDir, tile), []byte("x"), 0o644); err != nil {
+			t.Fatalf("write routing tile fixture: %v", err)
+		}
+	}
 	deps := &Deps{
+		RoutingTilesDir: routingTileDir,
 		RouteGoalSuggester: func(_ context.Context, userID string, req RouteGoalSuggestionRequest) (RouteGoalSuggestionResponse, error) {
 			if userID != "user-1" {
 				t.Fatalf("userID = %q, want user-1", userID)
@@ -355,7 +389,7 @@ func TestSuggestRouteGoalUsesInjectedRoundTripSuggester(t *testing.T) {
 	}
 	got := result.(map[string]any)
 	if got["status"] != "ok" {
-		t.Fatalf("status = %#v, want ok", got["status"])
+		t.Fatalf("status = %#v, want ok: %#v", got["status"], got)
 	}
 	if captured.StartLat != 48.0 || captured.StartLng != 11.0 {
 		t.Fatalf("captured start = %#v, want lat/lng", captured)
@@ -406,6 +440,10 @@ func TestSuggestRouteGoalRejectsFixedEndAlongAvoidAndViaFerrata(t *testing.T) {
 		"start": {"lat": 48.0, "lng": 11.0},
 		"end": {"lat": 48.1, "lng": 11.1},
 		"round_trip": false,
+		"elevation_mode": "moderate",
+		"preferences": {"min_forest_share": 60},
+		"target_feature_refs": ["route-ref:target"],
+		"near_feature_refs": ["route-ref:near"],
 		"along_feature_refs": ["route-ref:00000000-0000-0000-0000-000000000000"],
 		"avoid_feature_refs": ["route-ref:00000000-0000-0000-0000-000000000000"],
 		"difficulty": {"max_via_ferrata": "K3"}
@@ -417,7 +455,7 @@ func TestSuggestRouteGoalRejectsFixedEndAlongAvoidAndViaFerrata(t *testing.T) {
 	if got["status"] != "unsupported_constraint" {
 		t.Fatalf("status = %#v, want unsupported_constraint: %#v", got["status"], got)
 	}
-	for _, want := range []string{"fixed_end_goal", "along_feature_refs", "avoid_feature_refs", "max_via_ferrata"} {
+	for _, want := range []string{"fixed_end_goal", "elevation_mode", "preferences", "target_feature_refs", "near_feature_refs", "along_feature_refs", "avoid_feature_refs", "max_via_ferrata"} {
 		if !containsAnyString(got["unsupported_constraints"], want) {
 			t.Fatalf("unsupported_constraints = %#v, want %s", got["unsupported_constraints"], want)
 		}

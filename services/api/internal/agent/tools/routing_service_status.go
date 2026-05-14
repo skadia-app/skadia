@@ -95,7 +95,7 @@ func weatherStatus() map[string]any {
 			liveStatus = "configured"
 		}
 	case "manual_confirm":
-		liveStatus = "requires_user_confirmation"
+		liveStatus = "manual_confirmation_not_supported"
 	case "blocked":
 		liveStatus = "skipped_by_privacy_policy"
 	}
@@ -201,6 +201,26 @@ func rawHasJSONKey(raw json.RawMessage, key string) bool {
 	}
 	_, ok := obj[key]
 	return ok
+}
+
+func routingCoverageProfileStatus(ctx context.Context, deps *Deps, userID, profileKey string) map[string]any {
+	if strings.TrimSpace(profileKey) == "" {
+		return map[string]any{"valid": true, "status": "not_supplied"}
+	}
+	if routeSuggestionProfileSupported(profileKey) {
+		return map[string]any{"valid": true, "status": "ok", "key": profileKey, "engine": "badrouter", "base_profile": profileKey}
+	}
+	profile, err := resolveRoutingProfileForPreview(ctx, deps, userID, profileKey)
+	if err != nil {
+		return map[string]any{"valid": false, "status": "invalid", "error": err.Error()}
+	}
+	return map[string]any{
+		"valid":        true,
+		"status":       "ok",
+		"key":          profile.Key,
+		"engine":       profile.Engine,
+		"base_profile": profile.BaseProfile,
+	}
 }
 
 func buildRouteGoalSuggestionRequest(ctx context.Context, deps *Deps, userID string, start routeResolverRef, args suggestRouteGoalArgs) (RouteGoalSuggestionRequest, error) {
@@ -353,6 +373,18 @@ func suggestRouteGoalUnsupportedConstraints(args suggestRouteGoalArgs) []string 
 	out := []string{}
 	if args.End != nil || (args.RoundTrip != nil && !*args.RoundTrip) {
 		out = append(out, "fixed_end_goal")
+	}
+	if strings.TrimSpace(args.ElevationMode) != "" {
+		out = append(out, "elevation_mode")
+	}
+	if len(args.Preferences) > 0 {
+		out = append(out, "preferences")
+	}
+	if len(args.TargetFeatureRefs) > 0 {
+		out = append(out, "target_feature_refs")
+	}
+	if len(args.NearFeatureRefs) > 0 {
+		out = append(out, "near_feature_refs")
 	}
 	if len(args.AlongFeatureRefs) > 0 {
 		out = append(out, "along_feature_refs")

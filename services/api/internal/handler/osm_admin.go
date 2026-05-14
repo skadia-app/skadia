@@ -315,7 +315,7 @@ func (h *Handler) geoSearchExternalPolicy(ctx context.Context, userID string, re
 	if strings.TrimSpace(settings.GeocodeFallbackProvider) == "" || settings.GeocodeFallbackProvider == "off" {
 		return geosearch.ExternalPolicyDisabled
 	}
-	return geosearch.ExternalPolicyAllowed
+	return geosearch.ExternalPolicyDisabled
 }
 
 // GetDEMStatus returns available DEM data sources and tile counts.

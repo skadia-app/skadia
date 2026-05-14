@@ -130,7 +130,7 @@ func TestExecuteCreateRoutingProfileVariantPreservesBaseProfileScopeAndConfig(t 
 	pool := testdb.Open(t)
 	db := &database.DB{Pool: pool}
 	userID := insertRouteToolUser(t, pool, "route-profile-variant-scope")
-	preds := []sport.Predicate{{Sport: "cycling", SubType: stringPtr("gravel")}}
+	preds := []sport.Predicate{{Sport: "cycling", SubType: stringPtr("gravel_cycling")}}
 	base, err := db.CreateRoutingProfile(context.Background(), userID, "Base Gravel "+userID[:8], "gravel", preds, sport.ModifierFilters{}, []byte(`{"profile":"gravel","name":"Base Gravel","traffic_penalty":0.2}`))
 	if err != nil {
 		t.Fatalf("CreateRoutingProfile base: %v", err)

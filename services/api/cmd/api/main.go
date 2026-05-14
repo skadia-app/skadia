@@ -875,6 +875,8 @@ func main() {
 				"geojson":                  suggestion.GeoJSON,
 				"elevation_profile":        suggestion.ElevationProfile,
 				"is_fallback":              suggestion.IsFallback,
+				"saveable":                 false,
+				"preview_token":            nil,
 			})
 		}
 		return agenttools.RouteGoalSuggestionResponse{

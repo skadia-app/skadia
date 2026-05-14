@@ -66,8 +66,7 @@ function GeoSearchInline({ mapRef, onSelect }: GeoSearchInlineProps) {
         q,
         type: 'all',
         limit: '5',
-        sources: 'all',
-        external: '1',
+        sources: 'local',
       })
       const resp = await apiFetch(`/api/v1/geo/search?${params.toString()}`, {
         signal: abortRef.current.signal,

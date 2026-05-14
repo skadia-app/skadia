@@ -97,7 +97,7 @@ func (e *ExecutionEnvelope) PrepareAction(ctx context.Context, req ConfirmableAc
 	actionID := formatActionID(existing.ID)
 	if !claimed {
 		if existing.ToolName != tool.Name || !jsonEqualRaw(existing.Args, preparedPayload.Args) {
-			return nil, fmt.Errorf("audit slot already exists with different arguments or tool")
+			return nil, fmt.Errorf("audit slot already exists with different arguments (different tool or arguments)")
 		}
 		if existing.ResultStatus == string(ActionStatusPending) {
 			if e.Deps == nil || e.Deps.Confirm == nil {
