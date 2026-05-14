@@ -110,16 +110,21 @@ type PreviewExecutionDeps struct {
 }
 
 type Deps struct {
-	DB             *database.DB
-	Readonly       *pgxpool.Pool
-	MLBaseURL      string
-	BRouterURL     string
-	InternalSecret string
-	LLM            *agent.LLMResolver
-	SQLAgent       *agent.SQLAgent
-	Audit          *agent.AuditWriter
-	Confirm        *agent.ConfirmationManager
-	Preferences    *agent.PreferenceLoader
+	DB                 *database.DB
+	Readonly           *pgxpool.Pool
+	MLBaseURL          string
+	BRouterURL         string
+	BRouterSegmentsDir string
+	DEMDataDir         string
+	RoutingGraphPath   string
+	RoutingTilesDir    string
+	CoverageBaseDir    string
+	InternalSecret     string
+	LLM                *agent.LLMResolver
+	SQLAgent           *agent.SQLAgent
+	Audit              *agent.AuditWriter
+	Confirm            *agent.ConfirmationManager
+	Preferences        *agent.PreferenceLoader
 }
 
 type Registry struct {
@@ -139,6 +144,8 @@ func RegisterAll(reg *Registry) {
 	RegisterHealthTools(reg)
 	RegisterMiscWriteTools(reg)
 	RegisterRouteTools(reg)
+	RegisterRoutingProfileWriteTools(reg)
+	RegisterActivityContextTools(reg)
 	RegisterSegmentTools(reg)
 	reg.Register(SearchPhotosByContentTool())
 	reg.Register(RunSQLTool())
