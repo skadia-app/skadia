@@ -149,6 +149,10 @@ if [ "$storage_backend" = "local" ]; then
     echo "ERROR: Garage initialization requires S3 storage, got STORAGE_BACKEND=local." >&2
     exit 1
 fi
+if [ "$storage_backend" != "s3" ]; then
+    echo "ERROR: Garage initialization requires STORAGE_BACKEND=s3, got ${storage_backend:-unset}." >&2
+    exit 1
+fi
 if [ -n "$storage_mode" ] && [ "$storage_mode" != "s3-local-garage" ]; then
     echo "ERROR: Garage initialization requires SKADIA_STORAGE_MODE=s3-local-garage, got ${storage_mode}." >&2
     exit 1

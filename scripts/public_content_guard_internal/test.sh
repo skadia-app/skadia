@@ -93,6 +93,12 @@ container_home_path_diff='diff --git a/docker-compose.yml b/docker-compose.yml
 @@ -1,1 +1,2 @@
 +      - ${SKADIA_DATA_ROOT:-./data}/postgres:/home/postgres/pgdata${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}'
 
+mixed_host_and_container_home_path_diff='diff --git a/docker-compose.yml b/docker-compose.yml
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -1,1 +1,2 @@
++      - /var/home/example/Skadia/data/postgres:/home/postgres/pgdata'
+
 public_filename_diff='diff --git a/docs/documentation/user/features/import.md b/docs/documentation/user/features/import.md
 --- a/docs/documentation/user/features/import.md
 +++ b/docs/documentation/user/features/import.md
@@ -222,6 +228,7 @@ assert_passes "$test_coordinate_diff"
 assert_blocks_with "$source_coordinate_diff" "coordinate in public/private text"
 assert_blocks_with "$host_path_diff" "local/private detail"
 assert_passes "$container_home_path_diff"
+assert_blocks_with "$mixed_host_and_container_home_path_diff" "local/private detail"
 assert_blocks_with "$public_filename_diff" "sensitive filename in public/private text"
 assert_passes "$public_synthetic_filename_diff"
 assert_blocks_with "$source_filename_diff" "sensitive filename in public/private text"

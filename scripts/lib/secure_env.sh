@@ -73,13 +73,20 @@ secure_env_set() {
     local quiet="${4:-false}"
     local tmpdir
     local tmp
+    local value_file
 
     secure_env_ensure_private "$file" "$quiet"
     tmpdir="$(secure_env_tmp_dir_for_file "$file")"
     tmp="$tmpdir/env"
-    ENV_SET_VALUE="$value" awk -v key="$key" '
+    value_file="$tmpdir/value"
+    printf '%s' "$value" > "$value_file"
+    chmod 0600 "$value_file"
+    awk -v key="$key" -v value_file="$value_file" '
         BEGIN {
-            value = ENVIRON["ENV_SET_VALUE"]
+            if ((getline value < value_file) < 0) {
+                value = ""
+            }
+            close(value_file)
             written = 0
         }
         $0 ~ "^" key "=" {
@@ -99,6 +106,7 @@ secure_env_set() {
             }
         }
     ' "$file" > "$tmp"
+    rm -f "$value_file"
     chmod 0600 "$tmp"
     mv "$tmp" "$file"
     rmdir "$tmpdir" 2>/dev/null || rm -rf "$tmpdir"

@@ -121,6 +121,8 @@ S3_ACCESS_KEY=skadia-dev-key
 S3_SECRET_KEY=skadia-dev-secret
 GARAGE_ACCESS_KEY=skadia-dev-key
 GARAGE_SECRET_KEY=skadia-dev-secret
+SKADIA_STORAGE_MODE=s3-local-garage
+STORAGE_BACKEND=s3
 SKADIA_S3_PROVIDER=local-garage
 ENV
 chmod 0600 "$legacy/.env"
@@ -147,6 +149,8 @@ cat > "$metachar/.env" <<'ENV'
 S3_ACCESS_KEY=custom-key
 # S3_SECRET_KEY=
 GARAGE_SECRET_KEY=abc&def|ghi\jkl
+SKADIA_STORAGE_MODE=s3-local-garage
+STORAGE_BACKEND=s3
 SKADIA_S3_PROVIDER=local-garage
 ENV
 chmod 0600 "$metachar/.env"
@@ -169,6 +173,7 @@ cp "$tmp/bin/podman" "$external/bin/podman"
 cp "$tmp/bin/docker" "$external/bin/docker"
 cat > "$external/.env" <<'ENV'
 SKADIA_STORAGE_MODE=s3-external
+STORAGE_BACKEND=s3
 SKADIA_S3_PROVIDER=external
 S3_ENDPOINT=https://s3.example.invalid
 ENV
@@ -211,6 +216,31 @@ if [ -f "$local_storage/commands.log" ] && grep -Fq "compose up -d garage" "$loc
     fail "init-garage started Garage for local storage"
 fi
 rm -rf "$local_storage"
+
+provider_only="$(mktemp -d)"
+mkdir -p "$provider_only/scripts/lib" "$provider_only/bin"
+cp "$ROOT/scripts/init-garage.sh" "$provider_only/scripts/init-garage.sh"
+cp "$ROOT/scripts/lib/secure_temp.sh" "$provider_only/scripts/lib/secure_temp.sh"
+cp "$ROOT/scripts/lib/secure_env.sh" "$provider_only/scripts/lib/secure_env.sh"
+chmod +x "$provider_only/scripts/init-garage.sh" "$provider_only/scripts/lib/secure_temp.sh" "$provider_only/scripts/lib/secure_env.sh"
+cp "$tmp/bin/podman" "$provider_only/bin/podman"
+cp "$tmp/bin/docker" "$provider_only/bin/docker"
+cat > "$provider_only/.env" <<'ENV'
+SKADIA_S3_PROVIDER=local-garage
+ENV
+chmod 0600 "$provider_only/.env"
+
+export PATH="$provider_only/bin:$PATH"
+export SKADIA_TEST_COMMAND_LOG="$provider_only/commands.log"
+
+if (cd "$provider_only" && ./scripts/init-garage.sh --start >"$provider_only/out" 2>&1); then
+    fail "init-garage accepted provider-only local Garage config"
+fi
+grep -Fq "Garage initialization requires STORAGE_BACKEND=s3" "$provider_only/out" || fail "missing provider-only storage backend rejection"
+if [ -f "$provider_only/commands.log" ] && grep -Fq "compose up -d garage" "$provider_only/commands.log"; then
+    fail "init-garage started Garage for provider-only config"
+fi
+rm -rf "$provider_only"
 
 ambiguous="$(mktemp -d)"
 mkdir -p "$ambiguous/scripts/lib" "$ambiguous/bin"
