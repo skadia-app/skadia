@@ -949,6 +949,15 @@ func buildParallelIndexGroups(categories []string) [][]string {
 	if len(indexStmts) > 0 {
 		groups = append(groups, indexStmts)
 	}
+	grantTables := buildVacuumTables(categories)
+	if len(grantTables) > 0 {
+		grantStmts := make([]string, 0, len(grantTables))
+		for _, table := range grantTables {
+			grantStmts = append(grantStmts, "GRANT SELECT ON "+table+" TO skadia_readonly")
+		}
+		slices.Sort(grantStmts)
+		groups = append(groups, grantStmts)
+	}
 	if len(analyzeStmts) > 0 {
 		groups = append(groups, analyzeStmts)
 	}
