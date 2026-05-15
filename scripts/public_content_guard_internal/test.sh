@@ -87,6 +87,12 @@ host_path_diff='diff --git a/services/api/internal/example.go b/services/api/int
 @@ -1,1 +1,2 @@
 +const localPath = "/home/example-user/Skadia/private.fit"'
 
+container_home_path_diff='diff --git a/docker-compose.yml b/docker-compose.yml
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -1,1 +1,2 @@
++      - ${SKADIA_DATA_ROOT:-./data}/postgres:/home/postgres/pgdata${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}'
+
 public_filename_diff='diff --git a/docs/documentation/user/features/import.md b/docs/documentation/user/features/import.md
 --- a/docs/documentation/user/features/import.md
 +++ b/docs/documentation/user/features/import.md
@@ -215,6 +221,7 @@ assert_blocks_with "$public_latlon_coordinate_diff" "coordinate in public/privat
 assert_passes "$test_coordinate_diff"
 assert_blocks_with "$source_coordinate_diff" "coordinate in public/private text"
 assert_blocks_with "$host_path_diff" "local/private detail"
+assert_passes "$container_home_path_diff"
 assert_blocks_with "$public_filename_diff" "sensitive filename in public/private text"
 assert_passes "$public_synthetic_filename_diff"
 assert_blocks_with "$source_filename_diff" "sensitive filename in public/private text"
