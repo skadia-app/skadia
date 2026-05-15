@@ -26,9 +26,11 @@ assert_env_matches() {
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-mkdir -p "$tmp/scripts" "$tmp/bin"
+mkdir -p "$tmp/scripts/lib" "$tmp/bin"
 cp "$ROOT/scripts/init-garage.sh" "$tmp/scripts/init-garage.sh"
-chmod +x "$tmp/scripts/init-garage.sh"
+cp "$ROOT/scripts/lib/secure_temp.sh" "$tmp/scripts/lib/secure_temp.sh"
+cp "$ROOT/scripts/lib/secure_env.sh" "$tmp/scripts/lib/secure_env.sh"
+chmod +x "$tmp/scripts/init-garage.sh" "$tmp/scripts/lib/secure_temp.sh" "$tmp/scripts/lib/secure_env.sh"
 
 cat > "$tmp/.env" <<'ENV'
 S3_BUCKET=skadia-library
@@ -81,9 +83,11 @@ for bucket in skadia-library custom-exports custom-imports skadia-activities ska
 done
 
 fresh="$(mktemp -d)"
-mkdir -p "$fresh/scripts" "$fresh/bin"
+mkdir -p "$fresh/scripts/lib" "$fresh/bin"
 cp "$ROOT/scripts/init-garage.sh" "$fresh/scripts/init-garage.sh"
-chmod +x "$fresh/scripts/init-garage.sh"
+cp "$ROOT/scripts/lib/secure_temp.sh" "$fresh/scripts/lib/secure_temp.sh"
+cp "$ROOT/scripts/lib/secure_env.sh" "$fresh/scripts/lib/secure_env.sh"
+chmod +x "$fresh/scripts/init-garage.sh" "$fresh/scripts/lib/secure_temp.sh" "$fresh/scripts/lib/secure_env.sh"
 cp "$tmp/bin/podman" "$fresh/bin/podman"
 cp "$tmp/bin/docker" "$fresh/bin/docker"
 
@@ -103,9 +107,11 @@ assert_contains "compose exec garage /garage bucket allow skadia-exports --read 
 rm -rf "$fresh"
 
 legacy="$(mktemp -d)"
-mkdir -p "$legacy/scripts" "$legacy/bin"
+mkdir -p "$legacy/scripts/lib" "$legacy/bin"
 cp "$ROOT/scripts/init-garage.sh" "$legacy/scripts/init-garage.sh"
-chmod +x "$legacy/scripts/init-garage.sh"
+cp "$ROOT/scripts/lib/secure_temp.sh" "$legacy/scripts/lib/secure_temp.sh"
+cp "$ROOT/scripts/lib/secure_env.sh" "$legacy/scripts/lib/secure_env.sh"
+chmod +x "$legacy/scripts/init-garage.sh" "$legacy/scripts/lib/secure_temp.sh" "$legacy/scripts/lib/secure_env.sh"
 cp "$tmp/bin/podman" "$legacy/bin/podman"
 cp "$tmp/bin/docker" "$legacy/bin/docker"
 cat > "$legacy/.env" <<'ENV'
@@ -127,9 +133,11 @@ assert_contains "compose exec garage /garage bucket allow skadia-exports --read 
 rm -rf "$legacy"
 
 metachar="$(mktemp -d)"
-mkdir -p "$metachar/scripts" "$metachar/bin"
+mkdir -p "$metachar/scripts/lib" "$metachar/bin"
 cp "$ROOT/scripts/init-garage.sh" "$metachar/scripts/init-garage.sh"
-chmod +x "$metachar/scripts/init-garage.sh"
+cp "$ROOT/scripts/lib/secure_temp.sh" "$metachar/scripts/lib/secure_temp.sh"
+cp "$ROOT/scripts/lib/secure_env.sh" "$metachar/scripts/lib/secure_env.sh"
+chmod +x "$metachar/scripts/init-garage.sh" "$metachar/scripts/lib/secure_temp.sh" "$metachar/scripts/lib/secure_env.sh"
 cp "$tmp/bin/podman" "$metachar/bin/podman"
 cp "$tmp/bin/docker" "$metachar/bin/docker"
 cat > "$metachar/.env" <<'ENV'
@@ -148,9 +156,11 @@ grep -Fq 'S3_SECRET_KEY=abc&def|ghi\jkl' "$metachar/.env" || fail "S3_SECRET_KEY
 rm -rf "$metachar"
 
 external="$(mktemp -d)"
-mkdir -p "$external/scripts" "$external/bin"
+mkdir -p "$external/scripts/lib" "$external/bin"
 cp "$ROOT/scripts/init-garage.sh" "$external/scripts/init-garage.sh"
-chmod +x "$external/scripts/init-garage.sh"
+cp "$ROOT/scripts/lib/secure_temp.sh" "$external/scripts/lib/secure_temp.sh"
+cp "$ROOT/scripts/lib/secure_env.sh" "$external/scripts/lib/secure_env.sh"
+chmod +x "$external/scripts/init-garage.sh" "$external/scripts/lib/secure_temp.sh" "$external/scripts/lib/secure_env.sh"
 cp "$tmp/bin/podman" "$external/bin/podman"
 cp "$tmp/bin/docker" "$external/bin/docker"
 cat > "$external/.env" <<'ENV'
@@ -172,9 +182,11 @@ fi
 rm -rf "$external"
 
 local_storage="$(mktemp -d)"
-mkdir -p "$local_storage/scripts" "$local_storage/bin"
+mkdir -p "$local_storage/scripts/lib" "$local_storage/bin"
 cp "$ROOT/scripts/init-garage.sh" "$local_storage/scripts/init-garage.sh"
-chmod +x "$local_storage/scripts/init-garage.sh"
+cp "$ROOT/scripts/lib/secure_temp.sh" "$local_storage/scripts/lib/secure_temp.sh"
+cp "$ROOT/scripts/lib/secure_env.sh" "$local_storage/scripts/lib/secure_env.sh"
+chmod +x "$local_storage/scripts/init-garage.sh" "$local_storage/scripts/lib/secure_temp.sh" "$local_storage/scripts/lib/secure_env.sh"
 cp "$tmp/bin/podman" "$local_storage/bin/podman"
 cp "$tmp/bin/docker" "$local_storage/bin/docker"
 cat > "$local_storage/.env" <<'ENV'
@@ -195,9 +207,11 @@ fi
 rm -rf "$local_storage"
 
 ambiguous="$(mktemp -d)"
-mkdir -p "$ambiguous/scripts" "$ambiguous/bin"
+mkdir -p "$ambiguous/scripts/lib" "$ambiguous/bin"
 cp "$ROOT/scripts/init-garage.sh" "$ambiguous/scripts/init-garage.sh"
-chmod +x "$ambiguous/scripts/init-garage.sh"
+cp "$ROOT/scripts/lib/secure_temp.sh" "$ambiguous/scripts/lib/secure_temp.sh"
+cp "$ROOT/scripts/lib/secure_env.sh" "$ambiguous/scripts/lib/secure_env.sh"
+chmod +x "$ambiguous/scripts/init-garage.sh" "$ambiguous/scripts/lib/secure_temp.sh" "$ambiguous/scripts/lib/secure_env.sh"
 cp "$tmp/bin/podman" "$ambiguous/bin/podman"
 cp "$tmp/bin/docker" "$ambiguous/bin/docker"
 
