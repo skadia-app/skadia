@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent/llmwire"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -179,6 +180,16 @@ func TestAgentChatParamsCanRequireToolChoice(t *testing.T) {
 	)
 	if params.ToolChoice != "required" {
 		t.Fatalf("ToolChoice = %q, want required", params.ToolChoice)
+	}
+}
+
+func TestNewLLMClientUsesLongTimeoutForLocalStreams(t *testing.T) {
+	client := NewLLMClient(LLMConfig{BaseURL: "http://llm.test/v1"})
+	if client.HTTPClient == nil {
+		t.Fatal("HTTPClient is nil")
+	}
+	if client.HTTPClient.Timeout < 10*time.Minute {
+		t.Fatalf("HTTPClient.Timeout = %s, want at least 10m for local LLM streams", client.HTTPClient.Timeout)
 	}
 }
 

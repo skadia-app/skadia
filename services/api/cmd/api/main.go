@@ -1920,7 +1920,7 @@ func main() {
 		Addr:         cfg.ListenAddr,
 		Handler:      r,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		WriteTimeout: apiWriteTimeout(),
 		IdleTimeout:  120 * time.Second,
 	}
 	metricsSrv := newInternalMetricsServer(os.Getenv(metricsAddrEnv), observability.NewMetricsHandler(prometheus.DefaultGatherer))
@@ -2112,6 +2112,10 @@ func parseDuration(s string, defaultVal time.Duration) time.Duration {
 		return defaultVal
 	}
 	return d
+}
+
+func apiWriteTimeout() time.Duration {
+	return 10 * time.Minute
 }
 
 // gearIdempotencyCleanupEnabled reports whether the Go-side fallback cleanup

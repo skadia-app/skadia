@@ -10,6 +10,6 @@ func NewLLMClient(cfg LLMConfig) *llmwire.ChatCompletionsClient {
 	return llmwire.NewChatCompletionsClient(
 		cfg.BaseURL,
 		cfg.APIKey,
-		llmwire.NewSSRFProtectedHTTPClient(120*time.Second, nil),
+		llmwire.NewSSRFProtectedHTTPClient(10*time.Minute, nil),
 	)
 }
