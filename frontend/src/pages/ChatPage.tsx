@@ -310,6 +310,7 @@ export default function ChatPage() {
             delta?: string
             step?: string
             tool?: string
+            tools?: string[]
             tool_call_id?: string
             args?: unknown
             summary?: string
@@ -336,6 +337,16 @@ export default function ChatPage() {
           switch (evt.type) {
             case 'chat.thinking':
               setThinking(evt.step ?? 'Denke nach')
+              break
+
+            case 'chat.tools_loaded':
+              updateStreamMessages(prev =>
+                prev.map(m =>
+                  m.id === assistantId
+                    ? { ...m, loadedTools: evt.tools ?? [] }
+                    : m,
+                ),
+              )
               break
 
             case 'chat.chunk':

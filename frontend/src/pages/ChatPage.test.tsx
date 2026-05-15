@@ -145,6 +145,25 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Soll ich den Tag anlegen?')).toBeInTheDocument()
   })
 
+  it('shows tools loaded for the current request', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          { type: 'chat.tools_loaded', tools: ['geocode_place', 'analyze_route_points'] },
+          { type: 'chat.chunk', delta: 'Fertig.' },
+          { type: 'chat.done' },
+        ]),
+      ),
+    )
+
+    renderPage()
+    await sendMessage('wie weit ist Beispielort A von Beispielort B entfernt?')
+
+    expect(await screen.findByText('Geladene Tools:')).toBeInTheDocument()
+    expect(screen.getByText('geocode_place, analyze_route_points')).toBeInTheDocument()
+  })
+
   it('preserves an active newly-created session when the initial list resolves later', async () => {
     const initialList = deferred<typeof sessions>()
     vi.mocked(listSessions).mockReturnValue(initialList.promise)

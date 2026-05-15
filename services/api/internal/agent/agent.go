@@ -108,6 +108,15 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 	if a.tools != nil {
 		toolDefs = a.tools.Definitions(toolNames, prefs)
 	}
+	if len(toolDefs) > 0 {
+		loadedTools := make([]string, 0, len(toolDefs))
+		for _, def := range toolDefs {
+			loadedTools = append(loadedTools, def.Name)
+		}
+		if err := sink.Send(SSEEvent{Type: EventToolsLoaded, ID: req.MessageID, Tools: loadedTools}); err != nil {
+			return err
+		}
+	}
 	requireTool := shouldRequireTool(req.Message, domains, toolDefs)
 
 	if matched := MatchTemplate(req.Message); matched != nil {
