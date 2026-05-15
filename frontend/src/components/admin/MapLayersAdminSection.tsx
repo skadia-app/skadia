@@ -16,6 +16,7 @@ import {
 import { ModalShell } from '@/components/ui/ModalShell'
 import ConfirmModal from '@/components/ConfirmModal'
 import { ApiError } from '@/api/client'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 
 // ── i18n-ready labels ─────────────────────────────────────────────────────────
 
@@ -449,8 +450,12 @@ export function MapLayersAdminSection() {
   // Sorted copy for display
   const sorted = [...layers].sort((a, b) => a.sort_order - b.sort_order)
 
-  // Extract capability keys from the fetched capabilities object
-  const capabilityKeys = caps ? Object.keys(caps) : []
+  const capabilityKeys = caps
+    ? Array.from(new Set([
+        ...Object.keys(caps.features ?? {}),
+        ...Object.keys(caps).filter(k => typeof caps[k] === 'boolean'),
+      ])).sort()
+    : []
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => deleteMapLayer(id),
@@ -500,7 +505,7 @@ export function MapLayersAdminSection() {
   function capSatisfied(l: MapLayer): boolean {
     if (!l.requires_capability) return true
     if (!caps) return false
-    return caps[l.requires_capability as keyof typeof caps] === true
+    return featureAvailable(caps, l.requires_capability)
   }
 
   if (isLoading) {

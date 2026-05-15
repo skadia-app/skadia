@@ -101,4 +101,14 @@ describe('buildLayerStyle', () => {
       buildLayerStyle(baseLayer({ requires_capability: 'offline_map' }), { offline_map: true }),
     ).not.toThrow()
   })
+
+  it('passes when requires_capability is available only in feature state', () => {
+    expect(() =>
+      buildLayerStyle(baseLayer({ requires_capability: 'offline_map' }), {
+        features: {
+          offline_map: { configured: true, available: true },
+        },
+      }),
+    ).not.toThrow()
+  })
 })

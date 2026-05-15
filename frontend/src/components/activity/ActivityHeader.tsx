@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Pencil } from 'lucide-react'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useActiveJobs } from '@/lib/useActiveJobs'
@@ -8,8 +8,10 @@ import { useToast } from '@/lib/toast'
 import { updateActivity, reprocessActivity, ungroupActivity, type ExportFormat } from '@/api/activities'
 import { revertFusion } from '@/api/fusion'
 import { invalidateAfterFusion } from '@/lib/fusionCacheInvalidation'
-import { getCapabilities, getWaypointsFromActivity } from '@/api/routes'
+import { getWaypointsFromActivity } from '@/api/routes'
 import { apiDownload } from '@/api/client'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 import type { Activity } from '@/api/types'
 import { SportIcon } from '@/components/SportIcon'
 import SportConflictBadge from '@/components/SportConflictBadge'
@@ -48,11 +50,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
   const [ungroupConfirm, setUngroupConfirm] = useState(false)
   const [ungroupLoading, setUngroupLoading] = useState(false)
   const [openInPlannerLoading, setOpenInPlannerLoading] = useState(false)
-  const { data: routingCapabilities } = useQuery({
-    queryKey: ['routing-capabilities'],
-    queryFn: getCapabilities,
-    staleTime: 5 * 60 * 1000,
-  })
+  const { data: routingCapabilities } = useCapabilities()
   const reprocessMenuRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -507,8 +505,8 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
           &#9998; Bearbeiten
         </Link>
       )}
-      {/* Open in Route Planner — only when routing + offline map are available */}
-      {activity.has_gps && activity.sport_type !== 'multisport' && routingCapabilities?.routing && routingCapabilities?.offline_map && (
+      {/* Open in Route Planner — only when routing is available */}
+      {activity.has_gps && activity.sport_type !== 'multisport' && featureAvailable(routingCapabilities, 'routing') && (
         <button
           onClick={async () => {
             setOpenInPlannerLoading(true)

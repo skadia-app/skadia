@@ -18,6 +18,7 @@ const mockCreateMapLayer = vi.fn()
 const mockPatchMapLayer = vi.fn()
 const mockDeleteMapLayer = vi.fn()
 const mockBulkSortMapLayers = vi.fn()
+const mockGetCapabilities = vi.fn()
 
 vi.mock('@/api/mapLayers', async () => {
   const actual = await vi.importActual<typeof import('@/api/mapLayers')>('@/api/mapLayers')
@@ -32,9 +33,8 @@ vi.mock('@/api/mapLayers', async () => {
   }
 })
 
-// Capabilities: offline_map = true, brouter = false
 vi.mock('@/api/routes', () => ({
-  getCapabilities: vi.fn().mockResolvedValue({ offline_map: true, brouter: false }),
+  getCapabilities: () => mockGetCapabilities(),
 }))
 
 // mapStyles: use real opacityPercentToFloat
@@ -117,6 +117,7 @@ describe('MapLayersAdminSection', () => {
     mockPatchMapLayer.mockResolvedValue(undefined)
     mockDeleteMapLayer.mockResolvedValue(undefined)
     mockBulkSortMapLayers.mockResolvedValue(undefined)
+    mockGetCapabilities.mockResolvedValue({ offline_map: true, brouter: false })
   })
 
   it('renders layer list with system and user-defined layers', async () => {
@@ -200,6 +201,20 @@ describe('MapLayersAdminSection', () => {
 
     // Suppress unused var warning
     void editBtns
+  })
+
+  it('treats feature-state availability as satisfying requires_capability', async () => {
+    mockGetCapabilities.mockResolvedValue({
+      features: {
+        offline_map: { configured: true, available: true },
+      },
+    })
+
+    render(<MapLayersAdminSection />, { wrapper: makeWrapper() })
+    await waitFor(() => expect(screen.getByText('Mein Overlay')).toBeInTheDocument())
+
+    expect(screen.queryByText('Fähigkeit nicht erfüllt')).not.toBeInTheDocument()
+    expect(screen.getByText(/offline_map/)).toBeInTheDocument()
   })
 
   it('Edit-Save with URL change sends updated_at as X-If-Match-Updated-At', async () => {

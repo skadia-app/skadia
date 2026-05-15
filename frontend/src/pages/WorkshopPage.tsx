@@ -41,7 +41,9 @@ const sections = [
     icon: DocumentIcon,
     requiredCapability: 'document_ml',
     disabledWhenUnavailable: true,
+    showWhenUnconfigured: true,
   },
+  {
     to: '/workshop/fusion',
     title: 'Fusionskandidaten',
     description: 'Aktivitäten aus mehreren Geräten erkennen und zusammenführen',
@@ -60,6 +62,7 @@ const sections = [
   icon: () => ReactNode
   requiredCapability?: CapabilityKey
   disabledWhenUnavailable?: boolean
+  showWhenUnconfigured?: boolean
 }>
 
 export default function WorkshopPage() {
@@ -71,8 +74,8 @@ export default function WorkshopPage() {
       }
       const configured = featureConfigured(capabilities, section.requiredCapability)
       const available = featureAvailable(capabilities, section.requiredCapability)
-      if (!configured && !section.disabledWhenUnavailable) {
-        return null
+      if (!configured) {
+        return section.showWhenUnconfigured ? { ...section, disabled: true } : null
       }
       if (!available && !section.disabledWhenUnavailable) {
         return null

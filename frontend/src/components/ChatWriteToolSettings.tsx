@@ -87,7 +87,7 @@ function samePreferences(a: ChatPreferences, b: ChatPreferences): boolean {
 export default function ChatWriteToolSettings() {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
-  const { data: capabilities } = useCapabilities()
+  const { data: capabilities, isLoading: capabilitiesLoading } = useCapabilities()
   const [draft, setDraft] = useState<ChatPreferences | null>(null)
   const { data, isLoading, isError, isSuccess } = useQuery({
     queryKey: ['chat-preferences'],
@@ -133,12 +133,15 @@ export default function ChatWriteToolSettings() {
     patchDraft({ chat_allowed_write_tools: Array.from(next) })
   }
 
-  const controlsDisabled = isLoading || mutation.isPending || !preferencesLoaded
+  const capabilitiesKnown = capabilities !== undefined
+  const controlsDisabled = isLoading || mutation.isPending || !preferencesLoaded || capabilitiesLoading || !capabilitiesKnown
   const writeToolsDisabled = controlsDisabled || !prefs.chat_write_tools_enabled
-  const documentTextAvailable = capabilities === undefined || featureAvailable(capabilities, 'document_ml')
+  const documentTextAvailable = capabilitiesKnown && featureAvailable(capabilities, 'document_ml')
   const visibleToolGroups = WRITE_TOOL_GROUPS.map(group => ({
     ...group,
-    tools: group.tools.filter(tool => !tool.requiredCapability || capabilities === undefined || featureAvailable(capabilities, tool.requiredCapability)),
+    tools: capabilitiesKnown
+      ? group.tools.filter(tool => !tool.requiredCapability || featureAvailable(capabilities, tool.requiredCapability))
+      : [],
   })).filter(group => group.tools.length > 0)
 
   return (
