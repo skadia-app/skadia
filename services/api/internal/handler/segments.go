@@ -1346,7 +1346,7 @@ func (h *Handler) EnrichmentSuggest(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "seg_type must be one of standard|trail|lap|wintersport|wassersport", r.URL.Path)
 		return
 	}
-	if !h.requireFeatureAvailable(w, r, capabilities.KeySegmentEnrichmentSuggest) {
+	if !h.requireFeature(w, r, capabilities.KeySegmentEnrichmentSuggest) {
 		return
 	}
 

@@ -68,7 +68,7 @@ func (h *Handler) GetLiftDetectionConfig(w http.ResponseWriter, r *http.Request)
 		overrideOSM,
 		overrideHeuristic,
 	)
-	if h.featureUnavailableReason(capabilities.KeyOSMLiftSnap) != "" {
+	if h.featureNotAvailableReasonWithContext(r.Context(), capabilities.KeyOSMLiftSnap) != "" {
 		effective.OSMSnap = false
 	}
 
@@ -120,7 +120,7 @@ func (h *Handler) PutLiftDetectionConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if body.OSM != nil && *body.OSM {
-		if reason := h.featureUnavailableReason(capabilities.KeyOSMLiftSnap); reason != "" {
+		if reason := h.featureNotAvailableReasonWithContext(r.Context(), capabilities.KeyOSMLiftSnap); reason != "" {
 			writeFeatureUnavailable(w, r, capabilities.KeyOSMLiftSnap, reason)
 			return
 		}

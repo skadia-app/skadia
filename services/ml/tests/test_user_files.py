@@ -62,3 +62,20 @@ async def test_download_user_file_rejects_local_read_time_oversize_without_retry
     )
 
     assert got is None
+
+
+@pytest.mark.asyncio
+async def test_download_user_file_retries_when_local_storage_mount_unavailable(monkeypatch):
+    monkeypatch.delenv("ML_SHADOWFS_BASE_PATH", raising=False)
+    monkeypatch.delenv("LIBRARY_BASE_PATH", raising=False)
+    monkeypatch.delenv("SHADOW_FS_BASE_PATH", raising=False)
+
+    with pytest.raises(user_files.RetryableStorageReadError):
+        await user_files.download_user_file(
+            "local",
+            "user/synthetic-media.bin",
+            "media",
+            size_bytes=5,
+            max_bytes=10,
+            label="photo",
+        )

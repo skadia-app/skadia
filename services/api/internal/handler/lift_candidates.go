@@ -543,7 +543,7 @@ func (h *Handler) dispatchLiftReEnrichmentBackground(ctx context.Context, userID
 	streamSettings := enrichment.StreamEnrichmentSettings{
 		EnableLiftDetection: true,
 		FailOnModuleError:   true,
-		ForceDisableOSMSnap: h.featureUnavailableReason(capabilities.KeyOSMLiftSnap) != "",
+		ForceDisableOSMSnap: h.featureNotAvailableReasonWithContext(ctx, capabilities.KeyOSMLiftSnap) != "",
 	}
 	return enrichment.RunStreamEnrichment(ctx, h.DB, userID, activityID, streamSettings)
 }

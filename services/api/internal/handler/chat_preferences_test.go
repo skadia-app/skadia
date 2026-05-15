@@ -21,6 +21,7 @@ func TestChatPreferencesDefaultsAndPut(t *testing.T) {
 	pool := fusionTestPool(t)
 	userID := insertTestUser(t, pool)
 	h := newTestHandler(t, pool)
+	enableMLServiceForTest(t)
 
 	req := chatPrefsRequest(t, http.MethodGet, "/preferences", userID, nil)
 	w := httptest.NewRecorder()
@@ -83,6 +84,28 @@ func TestChatPreferencesRejectsUnknownWriteTool(t *testing.T) {
 	h.ChatRoutes().ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("PUT status = %d body=%s, want 400", w.Code, w.Body.String())
+	}
+}
+
+func TestChatPreferencesRejectDocumentExposureWhenDocumentMLUnavailable(t *testing.T) {
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{DeploymentProfile: "full"}
+
+	body := []byte(`{
+		"chat_expose_document_extracted_data": true,
+		"chat_write_tools_enabled": false,
+		"chat_allowed_write_tools": []
+	}`)
+	req := chatPrefsRequest(t, http.MethodPut, "/preferences", userID, body)
+	w := httptest.NewRecorder()
+	h.ChatRoutes().ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("PUT status = %d body=%s, want 503", w.Code, w.Body.String())
+	}
+	if got := w.Body.String(); !strings.Contains(got, `"code":"feature_unavailable"`) {
+		t.Fatalf("response body %q missing feature_unavailable", got)
 	}
 }
 

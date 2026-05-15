@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/model"
@@ -165,6 +166,18 @@ func (h *Handler) PutChatPreferences(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", err.Error(), r.URL.Path)
 		return
+	}
+	if req.ChatExposeDocumentExtractedData {
+		if reason := h.featureNotAvailableReasonWithContext(r.Context(), capabilities.KeyDocumentML); reason != "" {
+			writeFeatureUnavailable(w, r, capabilities.KeyDocumentML, reason)
+			return
+		}
+	}
+	if req.ChatWriteToolsEnabled {
+		if reason := h.featureNotAvailableReasonWithContext(r.Context(), capabilities.KeyAIAgent); reason != "" {
+			writeFeatureUnavailable(w, r, capabilities.KeyAIAgent, reason)
+			return
+		}
 	}
 
 	prefs, err := h.DB.UpsertChatPrefs(r.Context(), userID, database.ChatUserPreferences{

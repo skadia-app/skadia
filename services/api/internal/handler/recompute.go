@@ -928,7 +928,19 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 		if h.GraphManager != nil {
 			gr = h.GraphManager.Reader()
 		}
-		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Stage2ReadyPublisher, false, false, gr, !geoViaStage1, h.Stage1Deps)
+		forceDisableOSMSnap := h.featureNotAvailableReasonWithContext(ctx, capabilities.KeyOSMLiftSnap) != ""
+		stage1RunsStream := geoViaStage1 && !forceDisableOSMSnap
+		enrichment.RunStage1(ctx, h.DB, userID, activityID, data, h.Stage2ReadyPublisher, false, !stage1RunsStream, gr, !geoViaStage1, h.Stage1Deps)
+		if geoViaStage1 && forceDisableOSMSnap {
+			streamSettings := enrichment.AllStreamEnabled()
+			if userSettings, err := h.DB.GetEnrichmentSettings(ctx, userID); err == nil && userSettings != nil {
+				streamSettings = enrichment.StreamSettingsFromModel(userSettings)
+			}
+			streamSettings.ForceDisableOSMSnap = true
+			if err := enrichment.RunStreamEnrichment(ctx, h.DB, userID, activityID, streamSettings); err != nil {
+				slog.Warn("reprocess: stream enrichment failed (non-fatal)", "id", activityID, "error", err)
+			}
+		}
 	}
 
 	// Scoped stream enrichment: stops, ascents, and intervals are derived from
@@ -939,7 +951,7 @@ func (h *Handler) reprocessActivity(ctx context.Context, activityID, userID stri
 			EnableAscentDetection:   doAscents,
 			EnableIntervalDetection: doIntervals,
 			EnableLiftDetection:     doLifts,
-			ForceDisableOSMSnap:     h.featureUnavailableReason(capabilities.KeyOSMLiftSnap) != "",
+			ForceDisableOSMSnap:     h.featureNotAvailableReasonWithContext(ctx, capabilities.KeyOSMLiftSnap) != "",
 		}
 		if err := enrichment.RunStreamEnrichment(ctx, h.DB, userID, activityID, streamSettings); err != nil {
 			slog.Warn("reprocess: stream enrichment failed (non-fatal)", "id", activityID, "error", err)

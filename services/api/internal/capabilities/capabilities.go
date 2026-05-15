@@ -58,12 +58,13 @@ const (
 	KeyPhotoEmbeddingStorageAccess = "photo_embedding_storage_access"
 	KeyAIAgent                     = "ai_agent"
 
-	ReasonCoreProfile      = "core_profile"
-	ReasonMissingArtifacts = "missing_artifacts"
-	ReasonMissingProfiles  = "missing_profiles"
-	ReasonMissingService   = "missing_service"
-	ReasonS3Storage        = "s3_storage"
-	ReasonNotConfigured    = "not_configured"
+	ReasonCoreProfile        = "core_profile"
+	ReasonMissingArtifacts   = "missing_artifacts"
+	ReasonMissingProfiles    = "missing_profiles"
+	ReasonMissingService     = "missing_service"
+	ReasonStorageUnavailable = "storage_unavailable"
+	ReasonS3Storage          = "s3_storage"
+	ReasonNotConfigured      = "not_configured"
 )
 
 var canonicalKeys = []string{
@@ -156,14 +157,16 @@ type Capabilities struct {
 // RuntimeProbeState contains runtime artifact/service checks before profile and
 // storage policy are applied.
 type RuntimeProbeState struct {
-	SurfaceEnrich bool
-	BRouter       bool
-	BadRouter     bool
-	DEMCorrection bool
-	OfflineMap    bool
-	Coverage      bool
-	CoverageTiles bool
-	MLService     bool
+	SurfaceEnrich      bool
+	BRouter            bool
+	BadRouter          bool
+	DEMCorrection      bool
+	OfflineMap         bool
+	Coverage           bool
+	CoverageTiles      bool
+	MLService          bool
+	MLLocalStorageRead bool
+	MLS3StorageRead    bool
 }
 
 type DetectInput struct {
@@ -344,6 +347,8 @@ func probeRuntime(ctx context.Context, pool *pgxpool.Pool, input DetectInput) Ru
 		runtime.CoverageTiles = true
 	}
 	runtime.MLService = MLServiceAvailable()
+	runtime.MLLocalStorageRead = MLLocalStorageReadAvailable()
+	runtime.MLS3StorageRead = MLS3StorageReadAvailable()
 	return runtime
 }
 
@@ -413,7 +418,19 @@ func BuildFromRuntime(input DetectInput, runtime RuntimeProbeState) Capabilities
 	set(KeyRouting, true, runtime.BRouter || (!core && runtime.BadRouter), reasonMissing(runtime.BRouter || (!core && runtime.BadRouter), ReasonMissingService))
 	set(KeySegments, true, true, "")
 	set(KeyAIAgent, true, true, "")
-	set(KeyPhotoEmbeddingStorageAccess, true, true, "")
+
+	mlStorageReadAvailable := false
+	switch input.StorageBackend {
+	case "local":
+		mlStorageReadAvailable = runtime.MLLocalStorageRead
+	case "s3":
+		mlStorageReadAvailable = runtime.MLS3StorageRead
+	}
+	mlStorageReadReason := ReasonStorageUnavailable
+	if !runtime.MLService {
+		mlStorageReadReason = ReasonMissingService
+	}
+	set(KeyPhotoEmbeddingStorageAccess, true, runtime.MLService && mlStorageReadAvailable, mlStorageReadReason)
 
 	fullOnly := []struct {
 		key       string
@@ -444,8 +461,8 @@ func BuildFromRuntime(input DetectInput, runtime RuntimeProbeState) Capabilities
 		{KeyRouteSuggestion, runtime.BadRouter, ReasonMissingArtifacts},
 		{KeyLocalPOISearch, runtime.SurfaceEnrich, ReasonMissingArtifacts},
 		{KeyMLService, runtime.MLService, ReasonMissingService},
-		{KeyDocumentML, runtime.MLService, ReasonMissingService},
-		{KeyPhotoEmbeddings, runtime.MLService, ReasonMissingService},
+		{KeyDocumentML, runtime.MLService && mlStorageReadAvailable, mlStorageReadReason},
+		{KeyPhotoEmbeddings, runtime.MLService && mlStorageReadAvailable, mlStorageReadReason},
 	}
 	for _, item := range fullOnly {
 		if core {

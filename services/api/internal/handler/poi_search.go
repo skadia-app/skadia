@@ -27,7 +27,7 @@ func (h *Handler) SearchPOIs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !h.requireFeature(w, r, capabilities.KeyLocalPOISearch) {
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyLocalPOISearch) {
 		return
 	}
 

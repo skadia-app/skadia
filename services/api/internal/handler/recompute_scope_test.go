@@ -193,6 +193,32 @@ func TestRecomputeScopeUnavailableReason_CoreAllowsSafeScopes(t *testing.T) {
 	}
 }
 
+func TestRecomputeScopeUnavailableReason_FullBlocksUnavailableGeodataScopes(t *testing.T) {
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full"}}
+
+	for _, tc := range []struct {
+		name  string
+		scope []string
+		want  string
+	}{
+		{name: "all", scope: nil, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "geo", scope: []string{"geo"}, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "stops", scope: []string{"stops"}, want: capabilities.KeyGeoPOIEnrichment},
+		{name: "surfaces", scope: []string{"surfaces"}, want: capabilities.KeySurfaceEnrichment},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			scope, err := parseRecomputeScopeValues(tc.scope)
+			if err != nil {
+				t.Fatalf("parseRecomputeScopeValues: %v", err)
+			}
+			key, reason := h.recomputeScopeUnavailableReason(t.Context(), scope)
+			if key != tc.want || reason != capabilities.ReasonMissingArtifacts {
+				t.Fatalf("unavailable = (%q,%q), want (%q,%q)", key, reason, tc.want, capabilities.ReasonMissingArtifacts)
+			}
+		})
+	}
+}
+
 func TestGoNativeModulesAreCoveredByRecomputeScopes(t *testing.T) {
 	for module := range enrichment.GoNativeModules {
 		if !isValidRecomputeScope(module) {

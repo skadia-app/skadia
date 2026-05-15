@@ -251,6 +251,7 @@ func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
 	pbfPath := filepath.Join(dataDir, regionID+"-latest.osm.pbf")
 	os.Remove(pbfPath)
 	os.Remove(strings.TrimSuffix(pbfPath, ".osm.pbf") + "-filtered.osm.pbf")
+	capabilities.InvalidateCache()
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
@@ -417,6 +418,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 
 	regionFilter := strings.Join(req.Regions, ",")
 	shutdown.Go(jobID, func(ctx context.Context) {
+		defer capabilities.InvalidateCache()
 		reporter := &jobReporter{db: h.DB, jobID: jobID}
 		pipeline := &osmregions.Pipeline{Pool: h.DB.Pool, DataDir: h.Config.OSMDataDir, DBURL: os.Getenv("DATABASE_URL")}
 		pipeline.RunEnrichmentAndSplitting(ctx, regionFilter, reporter)
@@ -603,6 +605,8 @@ func isUpdateDue(interval string, weekday, day, hour int, lastUpdatedAt time.Tim
 // Called both by the scheduler and by the manual TriggerOSMRegionUpdate endpoint.
 // NOTE: jobReporter is defined in osm_import.go (same package).
 func (h *Handler) runRegionUpdate(ctx context.Context, jobID, regionID, label, replURL, pbfPath string, lastSeq int) {
+	defer capabilities.InvalidateCache()
+
 	slog.Info("osm update: starting", "region", regionID, "seq", lastSeq)
 
 	// Phase 1: Patch PBF (download .osc.gz diffs + osmium apply-changes)
@@ -818,6 +822,8 @@ func (h *Handler) BatchUpdateAllRegions(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) runBatchUpdate(ctx context.Context, jobID string, targets []patchTarget, rebuildTiles bool) {
+	defer capabilities.InvalidateCache()
+
 	reporter := &jobReporter{db: h.DB, jobID: jobID}
 
 	// Phase 1: Patch all PBFs
