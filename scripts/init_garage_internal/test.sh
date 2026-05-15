@@ -44,6 +44,7 @@ SKADIA_STORAGE_MODE=s3-local-garage
 STORAGE_BACKEND=s3
 SKADIA_S3_PROVIDER=local-garage
 ENV
+chmod 0600 "$tmp/.env"
 
 cat > "$tmp/bin/podman" <<'SH'
 #!/usr/bin/env bash
@@ -98,6 +99,7 @@ SKADIA_STORAGE_MODE=s3-local-garage
 STORAGE_BACKEND=s3
 SKADIA_S3_PROVIDER=local-garage
 ENV
+chmod 0600 "$fresh/.env"
 
 (cd "$fresh" && ./scripts/init-garage.sh --start >/tmp/skadia-init-garage-fresh-test.out)
 
@@ -121,6 +123,7 @@ GARAGE_ACCESS_KEY=skadia-dev-key
 GARAGE_SECRET_KEY=skadia-dev-secret
 SKADIA_S3_PROVIDER=local-garage
 ENV
+chmod 0600 "$legacy/.env"
 
 export PATH="$legacy/bin:$PATH"
 export SKADIA_TEST_COMMAND_LOG="$legacy/commands.log"
@@ -146,6 +149,7 @@ S3_ACCESS_KEY=custom-key
 GARAGE_SECRET_KEY=abc&def|ghi\jkl
 SKADIA_S3_PROVIDER=local-garage
 ENV
+chmod 0600 "$metachar/.env"
 
 export PATH="$metachar/bin:$PATH"
 export SKADIA_TEST_COMMAND_LOG="$metachar/commands.log"
@@ -168,6 +172,7 @@ SKADIA_STORAGE_MODE=s3-external
 SKADIA_S3_PROVIDER=external
 S3_ENDPOINT=https://s3.example.invalid
 ENV
+chmod 0600 "$external/.env"
 
 export PATH="$external/bin:$PATH"
 export SKADIA_TEST_COMMAND_LOG="$external/commands.log"
@@ -193,6 +198,7 @@ cat > "$local_storage/.env" <<'ENV'
 SKADIA_STORAGE_MODE=local
 STORAGE_BACKEND=local
 ENV
+chmod 0600 "$local_storage/.env"
 
 export PATH="$local_storage/bin:$PATH"
 export SKADIA_TEST_COMMAND_LOG="$local_storage/commands.log"

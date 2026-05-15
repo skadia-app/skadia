@@ -62,6 +62,14 @@ if ! command -v "$RUNTIME" >/dev/null 2>&1 || ! "$RUNTIME" compose version >/dev
     exit 1
 fi
 
+project_name="${SKADIA_DEPLOYMENT_SMOKE_PROJECT_NAME:-skadia-smoke}"
+case "$project_name" in
+    *[!A-Za-z0-9_.-]*|"")
+        echo "ERROR: invalid smoke COMPOSE_PROJECT_NAME: $project_name" >&2
+        exit 2
+        ;;
+esac
+
 mkdir -p "$DATA_ROOT"
 marker="$DATA_ROOT/.skadia-smoke-before"
 printf 'skadia deployment smoke\n' > "$marker"
@@ -73,8 +81,8 @@ else
     compose_args+=(up -d --remove-orphans)
 fi
 
-SKADIA_DATA_ROOT="$DATA_ROOT" COMPOSE_FILE=docker-compose.yml "$RUNTIME" "${compose_args[@]}"
-SKADIA_DATA_ROOT="$DATA_ROOT" COMPOSE_FILE=docker-compose.yml "$RUNTIME" compose down --remove-orphans
+COMPOSE_PROJECT_NAME="$project_name" SKADIA_DATA_ROOT="$DATA_ROOT" COMPOSE_FILE=docker-compose.yml "$RUNTIME" "${compose_args[@]}"
+COMPOSE_PROJECT_NAME="$project_name" SKADIA_DATA_ROOT="$DATA_ROOT" COMPOSE_FILE=docker-compose.yml "$RUNTIME" compose down --remove-orphans
 
 if [ ! -f "$marker" ]; then
     echo "ERROR: data-root marker disappeared after compose down." >&2
