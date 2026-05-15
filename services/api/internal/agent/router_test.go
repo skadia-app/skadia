@@ -147,6 +147,36 @@ func TestGetToolsForQueryNarrowsPointToPointRouting(t *testing.T) {
 	}
 }
 
+func TestGetToolsForQueryNarrowsPlainPlaceDistanceQuestion(t *testing.T) {
+	small := GetProfile("small", "", nil)
+	query := "Wie weit ist Beispielort A von Beispielort B entfernt?"
+	got := RouteQuery(query, &small)
+	if len(got.Domains) == 0 || got.Domains[0] != "routing" {
+		t.Fatalf("domains = %#v, want routing first", got.Domains)
+	}
+
+	tools := GetToolsForQuery(query, got.Domains, &small)
+	for _, want := range []string{
+		"get_agent_service_status",
+		"geocode_place",
+		"resolve_user_location",
+		"resolve_route_place",
+		"analyze_route_points",
+	} {
+		if !containsString(tools, want) {
+			t.Fatalf("tools = %#v, want %q", tools, want)
+		}
+	}
+	for _, reject := range []string{"get_routing_coverage", "list_routing_profiles", "plan_route_between"} {
+		if containsString(tools, reject) {
+			t.Fatalf("tools = %#v, did not want route-planning tool %q for a distance-only question", tools, reject)
+		}
+	}
+	if containsString(tools, "query_activities") {
+		t.Fatalf("tools = %#v, did not want activity tools for a place distance question", tools)
+	}
+}
+
 func TestGetToolsForQueryKeepsWeatherToolForMixedRoutingWeatherIntent(t *testing.T) {
 	small := GetProfile("small", "", nil)
 	query := "Plane eine MTB-Route von einem Startpunkt zu einem Zielpunkt und prüfe das Wetter am Ziel."

@@ -98,6 +98,7 @@ var DomainKeywords = map[string][]string{
 		"route", "routen", "routenplanung", "navigation", "wegpunkt", "waypoint",
 		"plane", "planen", "geplant", "wanderung planen", "radtour planen", "tour planen",
 		"strecke", "weg", "pfad", "isochrone", "erreichbar",
+		"wie weit", "entfernt", "distanz", "distance",
 		"koordinaten", "gps-punkt", "gps punkt", "luftlinie", "abdeckung", "routing-abdeckung",
 		"zwischenpunkt", "zwischenpunkte",
 		"wie komme ich", "kürzester weg", "kuerzester weg", "direkter weg", "direkte route",
@@ -176,6 +177,9 @@ func RouteQuery(query string, profile *ModelProfile) RouteResult {
 		}
 		return scores[domains[i]] > scores[domains[j]]
 	})
+	if len(domains) > 1 && domains[0] == "routing" && scores["routing"] >= scores[domains[1]]+3 {
+		domains = domains[:1]
+	}
 	if len(domains) > 2 {
 		domains = domains[:2]
 	}
@@ -197,6 +201,10 @@ func applyIntentBoosts(queryLower string, scores map[string]int) {
 	if containsAny(queryLower, "route", "routen", "radtour", "wanderung", "tour", "strecke") &&
 		containsAny(queryLower, " von ", " ab ", " nach ", " zu ", " zum ", " zur ", "zwischen") {
 		scores["routing"] += 2
+	}
+	if containsAny(queryLower, "wie weit", "entfernt", "distanz", "distance", "luftlinie") &&
+		containsAny(queryLower, " von ", " nach ", " zu ", " zum ", " zur ", "zwischen") {
+		scores["routing"] += 4
 	}
 	if containsAny(queryLower, "koordinaten", "luftlinie", "gps-punkt", "gps punkt", "routing-abdeckung", "abdeckung") &&
 		containsAny(queryLower, "ort", "route", "routen", "punkt", "gps", "zwischenpunkt", "zwischenpunkte") {
@@ -277,7 +285,12 @@ func GetToolsForQuery(query string, domains []string, profile *ModelProfile) []s
 	if containsToolName(domains, "routing") {
 		queryLower := strings.ToLower(query)
 		tools := []string{"get_agent_service_status", "geocode_place", "resolve_user_location"}
-		if isPointToPointRoutingQuery(queryLower) {
+		if isDistanceOnlyRoutingQuery(queryLower) {
+			tools = appendUniqueToolNames(tools,
+				"resolve_route_place",
+				"analyze_route_points",
+			)
+		} else if isPointToPointRoutingQuery(queryLower) {
 			tools = appendUniqueToolNames(tools,
 				"resolve_route_place",
 				"get_routing_coverage",
@@ -327,6 +340,12 @@ func appendUniqueToolNames(base []string, names ...string) []string {
 func isPointToPointRoutingQuery(queryLower string) bool {
 	return containsAny(queryLower, "wie weit", "entfernt", "distanz", "luftlinie", "route", "strecke", "plane", "planen") &&
 		containsAny(queryLower, " von ", " nach ", " zu ", " zum ", " zur ", "zwischen")
+}
+
+func isDistanceOnlyRoutingQuery(queryLower string) bool {
+	return containsAny(queryLower, "wie weit", "entfernt", "distanz", "distance", "luftlinie") &&
+		containsAny(queryLower, " von ", " nach ", " zu ", " zum ", " zur ", "zwischen") &&
+		!containsAny(queryLower, "route", "routen", "routenplanung", "plane", "planen", "strecke")
 }
 
 func isRoutingWeatherQuery(queryLower string) bool {
