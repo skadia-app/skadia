@@ -23,6 +23,25 @@ func TestCategoryToRestoreTablesCoverage(t *testing.T) {
 	}
 }
 
+func TestPostImportStatementsRestoreReadonlyGrants(t *testing.T) {
+	groups := buildParallelIndexGroups([]string{"settlements", "ways"})
+	flat := map[string]bool{}
+	for _, group := range groups {
+		for _, stmt := range group {
+			flat[stmt] = true
+		}
+	}
+
+	for _, want := range []string{
+		"GRANT SELECT ON osm_pois TO skadia_readonly",
+		"GRANT SELECT ON osm_ways TO skadia_readonly",
+	} {
+		if !flat[want] {
+			t.Fatalf("post-import statements missing %q in %#v", want, groups)
+		}
+	}
+}
+
 // TestRestoreExemptCategoriesNotInRestoreMap verifies that a category cannot
 // be listed in both categoryToRestoreTables and restoreExemptCategories. The
 // two sets are mutually exclusive by design: exempt means "we do not want a
