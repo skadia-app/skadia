@@ -49,6 +49,13 @@ if [ -z "$DATA_ROOT" ]; then
     exit 2
 fi
 
+case "$DATA_ROOT" in
+    ""|"."|"data"|"./data"|"$PWD/data"|"$PWD/data/"*)
+        echo "ERROR: refusing to run deployment smoke against the project data root." >&2
+        exit 2
+        ;;
+esac
+
 git_dir="$(cd "$(git rev-parse --git-dir)" && pwd -P)"
 git_common="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)"
 if [ "$git_dir" != "$git_common" ] && [ "${SKADIA_ALLOW_WORKTREE_SMOKE:-false}" != "true" ]; then
@@ -70,7 +77,20 @@ case "$project_name" in
         ;;
 esac
 
+if [ -e "$DATA_ROOT" ] && [ ! -d "$DATA_ROOT" ]; then
+    echo "ERROR: --data-root exists but is not a directory: $DATA_ROOT" >&2
+    exit 2
+fi
+if [ -d "$DATA_ROOT" ] && [ ! -f "$DATA_ROOT/.skadia-smoke-root" ]; then
+    if find "$DATA_ROOT" -mindepth 1 -maxdepth 1 2>/dev/null | grep -q .; then
+        echo "ERROR: refusing to run deployment smoke against a non-empty unmarked data root: $DATA_ROOT" >&2
+        echo "Use a fresh empty directory, or a directory containing .skadia-smoke-root from a previous smoke run." >&2
+        exit 2
+    fi
+fi
+
 mkdir -p "$DATA_ROOT"
+printf 'skadia deployment smoke root\n' > "$DATA_ROOT/.skadia-smoke-root"
 marker="$DATA_ROOT/.skadia-smoke-before"
 printf 'skadia deployment smoke\n' > "$marker"
 
