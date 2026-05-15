@@ -69,3 +69,30 @@ func TestS3StorageBlocksLocalPathImportSurfaces(t *testing.T) {
 		}
 	}
 }
+
+func TestFullDeploymentBlocksUnavailableGeodataReadsBeforeDBWork(t *testing.T) {
+	h := &Handler{
+		Config: &HandlerConfig{DeploymentProfile: "full"},
+		DB:     &database.DB{Pool: nil},
+	}
+	r := chi.NewRouter()
+	r.Get("/api/v1/search/pois", h.SearchPOIs)
+	r.Get("/api/v1/activities/{id}/stops", h.GetActivityStops)
+
+	for _, path := range []string{
+		"/api/v1/search/pois?q=hut",
+		"/api/v1/activities/00000000-0000-0000-0000-000000000007/stops",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req = req.WithContext(withUserAndAdmin(req.Context(), "00000000-0000-0000-0000-000000000007", false))
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s status = %d, want 503; body=%s", path, rec.Code, rec.Body.String())
+		}
+		if body := rec.Body.String(); !strings.Contains(body, `"code":"feature_unavailable"`) || !strings.Contains(body, "missing_artifacts") {
+			t.Fatalf("%s response body %q missing feature_unavailable/missing_artifacts", path, body)
+		}
+	}
+}

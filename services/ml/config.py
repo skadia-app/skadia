@@ -8,6 +8,8 @@ from pathlib import Path
 
 import httpx
 
+from s3_client import s3_client_kwargs
+
 _config_logger = logging.getLogger(__name__)
 
 
@@ -137,6 +139,38 @@ def get_local_shadowfs_readiness() -> dict:
     if not os.access(path, os.R_OK):
         return {"status": "degraded", "base_path": base, "error": "not_readable"}
     return {"status": "ready", "base_path": str(path)}
+
+
+def get_s3_storage_readiness() -> dict:
+    storage_mode = os.getenv("SKADIA_STORAGE_MODE", "").strip()
+    provider = os.getenv("SKADIA_S3_PROVIDER", "").strip()
+    has_s3_config = any(
+        os.getenv(key, "").strip()
+        for key in (
+            "S3_ENDPOINT",
+            "GARAGE_ENDPOINT",
+            "S3_ACCESS_KEY",
+            "GARAGE_ACCESS_KEY",
+            "S3_SECRET_KEY",
+            "GARAGE_SECRET_KEY",
+        )
+    )
+    if not storage_mode.startswith("s3") and provider != "local-garage" and not has_s3_config:
+        return {"status": "disabled"}
+    try:
+        kwargs = s3_client_kwargs()
+    except Exception as e:
+        return {"status": "degraded", "error": str(e)}
+    if not kwargs.get("aws_access_key_id") or not kwargs.get("aws_secret_access_key"):
+        return {"status": "degraded", "error": "credentials_missing"}
+    return {"status": "ready"}
+
+
+def get_storage_readiness() -> dict:
+    return {
+        "local": get_local_shadowfs_readiness(),
+        "s3": get_s3_storage_readiness(),
+    }
 
 
 def get_llm_role_statuses_sync() -> dict[str, str]:

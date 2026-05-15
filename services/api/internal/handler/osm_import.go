@@ -191,6 +191,8 @@ func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) runOSMImport(ctx context.Context, jobID, userID string, regions []osmregions.Region, req osmImportRequest) {
+	defer capabilities.InvalidateCache()
+
 	pipeline := &osmregions.Pipeline{
 		Pool:    h.DB.Pool,
 		DataDir: h.Config.OSMDataDir,

@@ -145,7 +145,7 @@ func buildRecomputeScopeFlags(scope map[string]bool) recomputeScopeFlags {
 
 func (h *Handler) recomputeScopeUnavailableReason(ctx context.Context, scope map[string]bool) (string, string) {
 	for _, key := range recomputeScopeRequiredCapabilities(scope) {
-		if reason := h.featureUnavailableReasonWithContext(ctx, key); reason != "" {
+		if reason := h.featureNotAvailableReasonWithContext(ctx, key); reason != "" {
 			return key, reason
 		}
 	}

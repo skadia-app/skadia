@@ -128,9 +128,9 @@ func TestLiftDetectionConfig_GetDefaults(t *testing.T) {
 	if resp.Override.Heuristic != nil {
 		t.Errorf("override.heuristic=%v, want nil", resp.Override.Heuristic)
 	}
-	// effective = user_setting when no override.
-	if resp.Effective.OSM != resp.UserSetting.OSM {
-		t.Errorf("effective.osm=%v, want %v", resp.Effective.OSM, resp.UserSetting.OSM)
+	// OSM snap needs runtime artifacts in addition to the user setting.
+	if resp.Effective.OSM {
+		t.Errorf("effective.osm=true without OSM artifacts, want false")
 	}
 }
 
@@ -141,7 +141,7 @@ func TestLiftDetectionConfig_PutThenGet(t *testing.T) {
 	userID := insertTestUser(t, db.Pool)
 	activityID := insertMinimalActivity(t, db, userID)
 
-	rec := callPutDetectionConfig(t, h, userID, activityID, `{"osm":true,"heuristic":false}`)
+	rec := callPutDetectionConfig(t, h, userID, activityID, `{"osm":false,"heuristic":false}`)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("PUT status=%d, want 204; body=%s", rec.Code, rec.Body.String())
 	}
@@ -154,17 +154,57 @@ func TestLiftDetectionConfig_PutThenGet(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if resp.Override.OSM == nil || *resp.Override.OSM != true {
-		t.Errorf("override.osm=%v, want true", resp.Override.OSM)
+	if resp.Override.OSM == nil || *resp.Override.OSM != false {
+		t.Errorf("override.osm=%v, want false", resp.Override.OSM)
 	}
 	if resp.Override.Heuristic == nil || *resp.Override.Heuristic != false {
 		t.Errorf("override.heuristic=%v, want false", resp.Override.Heuristic)
 	}
-	if !resp.Effective.OSM {
-		t.Errorf("effective.osm=false, want true")
+	if resp.Effective.OSM {
+		t.Errorf("effective.osm=true, want false")
 	}
 	if resp.Effective.Heuristic {
 		t.Errorf("effective.heuristic=true, want false")
+	}
+}
+
+func TestFullLiftDetectionConfigRejectsUnavailableOSMSnapEnableAndCoercesEffective(t *testing.T) {
+	h, db := liftDetectionConfigSetup(t)
+	h.Config = &HandlerConfig{DeploymentProfile: "full"}
+	userID := insertTestUser(t, db.Pool)
+	activityID := insertMinimalActivity(t, db, userID)
+
+	rec := callPutDetectionConfig(t, h, userID, activityID, `{"osm":true,"heuristic":true}`)
+	assertFeatureUnavailable(t, rec)
+	if body := rec.Body.String(); !strings.Contains(body, "missing_artifacts") {
+		t.Fatalf("response body %q missing missing_artifacts reason", body)
+	}
+
+	trueValue := true
+	rows, err := db.SetLiftDetectionOverride(context.Background(), userID, activityID, &trueValue, &trueValue)
+	if err != nil {
+		t.Fatalf("SetLiftDetectionOverride historical fixture: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("SetLiftDetectionOverride rows=%d, want 1", rows)
+	}
+
+	rec = callGetDetectionConfig(t, h, userID, activityID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status=%d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp detectionConfigResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Override.OSM == nil || *resp.Override.OSM != true {
+		t.Fatalf("historical override.osm = %v, want raw true preserved", resp.Override.OSM)
+	}
+	if resp.Effective.OSM {
+		t.Fatalf("effective.osm = true without OSM artifacts, want coerced false")
+	}
+	if !resp.Effective.Heuristic {
+		t.Fatalf("effective.heuristic = false, want true")
 	}
 }
 

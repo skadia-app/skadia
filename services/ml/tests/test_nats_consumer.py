@@ -325,6 +325,37 @@ async def test_process_photo_embed_acks_without_storage_read_on_metadata_mismatc
 
 
 @pytest.mark.asyncio
+async def test_process_photo_embed_naks_when_local_storage_mount_unavailable(monkeypatch):
+    class _Conn:
+        async def fetchrow(self, query, *args):
+            if "enable_photo_clip_embedding" in query:
+                return {"enable_photo_clip_embedding": True}
+            return {
+                "storage_backend": "local",
+                "storage_path": "user/media/synthetic-photo.jpg",
+                "file_type": "media",
+                "content_type": "image/jpeg",
+                "size_bytes": 1234,
+            }
+
+    monkeypatch.delenv("ML_SHADOWFS_BASE_PATH", raising=False)
+    monkeypatch.delenv("LIBRARY_BASE_PATH", raising=False)
+    monkeypatch.delenv("SHADOW_FS_BASE_PATH", raising=False)
+
+    clip_mod = types.ModuleType("models.clip")
+    clip_mod.embed_image = lambda *args, **kwargs: None
+    clip_mod.embed_video_bytes = lambda *args, **kwargs: None
+    clip_mod.is_video = lambda *args, **kwargs: False
+    monkeypatch.setitem(sys.modules, "models.clip", clip_mod)
+
+    msg = _FakeMsg({"photo_id": PHOTO_ID, "user_id": USER_ID, "file_id": FILE_ID})
+    await nats_consumer._process_photo_embed(msg, _FakePool(_Conn()), nc=None)
+
+    assert msg.acked == 0
+    assert msg.naked == 1
+
+
+@pytest.mark.asyncio
 async def test_process_document_message_passes_user_file_metadata_not_legacy_s3(monkeypatch):
     class _Conn:
         async def fetchrow(self, query, *args):

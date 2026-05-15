@@ -103,9 +103,12 @@ async def download_user_file(
     if storage_backend == "local":
         base = local_storage_base_path()
         if not base:
-            logger.info("local ShadowFS %s storage is not mounted in ML service", label)
-            return None
+            logger.warning("local ShadowFS %s storage is not mounted in ML service", label)
+            raise RetryableStorageReadError(f"local ShadowFS {label} storage is not mounted")
         base_path = Path(base).resolve()
+        if not base_path.exists() or not base_path.is_dir():
+            logger.warning("local ShadowFS %s base is unavailable: %s", label, base)
+            raise RetryableStorageReadError(f"local ShadowFS {label} base is unavailable")
         full_path = (base_path / storage_path).resolve()
         try:
             full_path.relative_to(base_path)

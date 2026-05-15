@@ -455,7 +455,7 @@ func (h *Handler) GetActivityStops(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !h.requireFeature(w, r, capabilities.KeyGeoPOIEnrichment) {
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyGeoPOIEnrichment) {
 		return
 	}
 	_, activityID, ok := h.requireActivity(w, r, userID)

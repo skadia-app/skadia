@@ -103,6 +103,37 @@ func TestBuildFeatureStatesFullReportsMissingArtifacts(t *testing.T) {
 	}
 }
 
+func TestBuildFeatureStatesMLRequiresStorageReadAccess(t *testing.T) {
+	caps := BuildFromRuntime(DetectInput{
+		DeploymentProfile:    "full",
+		DeploymentProfileSrc: "env",
+		StorageMode:          "local",
+		StorageBackend:       "local",
+	}, RuntimeProbeState{
+		MLService:          true,
+		MLLocalStorageRead: false,
+	})
+
+	assertFeature(t, caps, KeyMLService, true, true, "")
+	assertFeature(t, caps, KeyPhotoEmbeddingStorageAccess, true, false, ReasonStorageUnavailable)
+	assertFeature(t, caps, KeyDocumentML, true, false, ReasonStorageUnavailable)
+	assertFeature(t, caps, KeyPhotoEmbeddings, true, false, ReasonStorageUnavailable)
+
+	caps = BuildFromRuntime(DetectInput{
+		DeploymentProfile:    "full",
+		DeploymentProfileSrc: "env",
+		StorageMode:          "s3-external",
+		StorageBackend:       "s3",
+	}, RuntimeProbeState{
+		MLService:       true,
+		MLS3StorageRead: true,
+	})
+
+	assertFeature(t, caps, KeyPhotoEmbeddingStorageAccess, true, true, "")
+	assertFeature(t, caps, KeyDocumentML, true, true, "")
+	assertFeature(t, caps, KeyPhotoEmbeddings, true, true, "")
+}
+
 func TestDetectRuntimeFindsCoverageBinArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "forest"), 0o755); err != nil {
