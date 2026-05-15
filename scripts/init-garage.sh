@@ -27,9 +27,12 @@ done
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
+# shellcheck source=scripts/lib/secure_env.sh
+source "$PROJECT_ROOT/scripts/lib/secure_env.sh"
+
 env_file_get() {
     local key="$1"
-    grep "^${key}=" .env 2>/dev/null | head -1 | cut -d= -f2- || true
+    secure_env_get ".env" "$key"
 }
 
 env_get() {
@@ -44,29 +47,7 @@ env_get() {
 env_set() {
     local key="$1"
     local value="$2"
-    local tmp
-    touch .env
-    tmp="$(mktemp .env.XXXXXX)"
-    awk -v key="$key" -v value="$value" '
-        BEGIN { written = 0 }
-        $0 ~ "^" key "=" {
-            print key "=" value
-            written = 1
-            next
-        }
-        $0 ~ "^#[[:space:]]*" key "=" {
-            print key "=" value
-            written = 1
-            next
-        }
-        { print }
-        END {
-            if (!written) {
-                print key "=" value
-            }
-        }
-    ' .env > "$tmp"
-    mv "$tmp" .env
+    secure_env_set ".env" "$key" "$value" "true"
 }
 
 env_default() {
@@ -94,20 +75,21 @@ gen_garage_access_key() {
 }
 
 detect_compose() {
+    local requested
+    requested="$(env_get "SKADIA_CONTAINER_RUNTIME")"
     if [ -n "${SKADIA_COMPOSE_CMD:-}" ]; then
         # shellcheck disable=SC2206
         COMPOSE=($SKADIA_COMPOSE_CMD)
-    elif command -v podman &>/dev/null && podman compose version &>/dev/null; then
+    elif [ "$requested" = "docker" ] && command -v docker &>/dev/null && docker compose version &>/dev/null; then
+        COMPOSE=(docker compose)
+    elif [ "$requested" = "podman" ] && command -v podman &>/dev/null && podman compose version &>/dev/null; then
         COMPOSE=(podman compose)
     elif command -v docker &>/dev/null && docker compose version &>/dev/null; then
         COMPOSE=(docker compose)
+    elif command -v podman &>/dev/null && podman compose version &>/dev/null; then
+        COMPOSE=(podman compose)
     else
         echo "ERROR: neither 'podman compose' nor 'docker compose' is available." >&2
-        exit 1
-    fi
-    if [ "${COMPOSE[0]}" = "docker" ] && [ "${SKADIA_ALLOW_DOCKER_EXPERIMENTAL:-}" != "true" ]; then
-        echo "ERROR: Docker runtime is not currently supported by this compose file." >&2
-        echo "Use Podman, or set SKADIA_ALLOW_DOCKER_EXPERIMENTAL=true after adding a reviewed Docker override for userns/volume ownership." >&2
         exit 1
     fi
 }
