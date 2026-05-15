@@ -85,6 +85,13 @@ const toolGuide = `## Werkzeug-Auswahl
 - "Tags / Welche Aktivitäten haben Tag X" → query_activities mit tag_name, bei komplexer Statistik run_sql mit JOIN tags + activity_tags
 - Komplexe Vergleiche (MTB vs Gravel, Jahresvergleich mit SUB_TYPE) → run_sql`
 
+const compactRoutingToolGuide = `## Werkzeug-Auswahl
+- Orts-/Distanzfrage: get_agent_service_status, geocode_place/resolve_user_location/resolve_route_place, dann analyze_route_points. Keine Route erfinden.
+- Routenplanung: erst Orte/Features auflösen, dann get_routing_coverage und list_routing_profiles, dann plan_route_between/plan_route als Vorschau.
+- Zielroute/Rundtour/See/Fluss/Wald/Höhenziel: resolve_route_feature und ggf. suggest_route_goal; unsupported/missing_coverage klar melden.
+- Lange Punkt-zu-Punkt-Wünsche: analyze_route_points nutzen; bei zu langen Direktsegmenten Zwischenpunkte verlangen.
+- Dauerbasierte Routingwünsche: keine Dauer berechnen oder als Tool-Argument senden; nach Distanz, Anstieg, Schwierigkeit, Routentyp oder Profil fragen.`
+
 func AssembleSystemPrompt(profile ModelProfile, skills []*Skill, today time.Time) string {
 	if today.IsZero() {
 		today = time.Now()
@@ -99,15 +106,51 @@ func AssembleSystemPrompt(profile ModelProfile, skills []*Skill, today time.Time
 		parts = append(parts, "", skill.ToContextString())
 	}
 	if profile.UseRouter {
-		parts = append(parts, "", toolGuide)
+		parts = append(parts, "", toolGuideForProfile(profile, skills))
 	}
 	if profile.FewShotCount > 0 {
-		examples := collectFewShots(skills, profile.FewShotCount)
+		exampleSkills := skills
+		if profile.SystemPromptMode == "compact" {
+			exampleSkills = skillsWithoutRoutingExamples(skills)
+		}
+		examples := collectFewShots(exampleSkills, profile.FewShotCount)
 		if len(examples) > 0 {
 			parts = append(parts, "", formatPromptFewShots(examples))
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+func toolGuideForProfile(profile ModelProfile, skills []*Skill) string {
+	if profile.SystemPromptMode == "compact" && hasOnlySkill(skills, "routing") {
+		return compactRoutingToolGuide
+	}
+	return toolGuide
+}
+
+func hasOnlySkill(skills []*Skill, name string) bool {
+	found := false
+	for _, skill := range skills {
+		if skill != nil && skill.Name == name {
+			found = true
+			continue
+		}
+		if skill != nil {
+			return false
+		}
+	}
+	return found
+}
+
+func skillsWithoutRoutingExamples(skills []*Skill) []*Skill {
+	out := make([]*Skill, 0, len(skills))
+	for _, skill := range skills {
+		if skill == nil || skill.Name == "routing" {
+			continue
+		}
+		out = append(out, skill)
+	}
+	return out
 }
 
 func promptForMode(mode string) string {
