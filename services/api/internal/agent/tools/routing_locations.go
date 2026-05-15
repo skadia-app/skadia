@@ -344,7 +344,7 @@ func geosearchPlaceType(sources map[string]bool) string {
 	if sources["external"] && !sources["local_map"] {
 		return "external"
 	}
-	return "all"
+	return "place"
 }
 
 func geocodePlaceCandidate(result geosearch.Result) map[string]any {

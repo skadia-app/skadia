@@ -24,6 +24,7 @@ type ChatHistoryMessage struct {
 const (
 	EventThinking           = "chat.thinking"
 	EventChunk              = "chat.chunk"
+	EventToolsLoaded        = "chat.tools_loaded"
 	EventToolCall           = "chat.tool_call"
 	EventToolResult         = "chat.tool_result"
 	EventToolConfirmRequest = "chat.tool_confirm_request"
@@ -41,6 +42,7 @@ type SSEEvent struct {
 	Delta         string          `json:"delta,omitempty"`
 	ToolCallID    string          `json:"tool_call_id,omitempty"`
 	Tool          string          `json:"tool,omitempty"`
+	Tools         []string        `json:"tools,omitempty"`
 	Args          json.RawMessage `json:"args,omitempty"`
 	Summary       string          `json:"summary,omitempty"`
 	Preview       any             `json:"preview,omitempty"`

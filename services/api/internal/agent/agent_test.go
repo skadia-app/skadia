@@ -144,6 +144,46 @@ func TestAgentStreamStopsBeforeLLMWhenChatProfileDisabled(t *testing.T) {
 	assertEventOrder(t, sink.events, []string{EventError})
 }
 
+func TestAgentStreamEmitsLoadedToolsBeforeModelCall(t *testing.T) {
+	runtime := &fakeToolRuntime{
+		defs: []llmwire.ToolDefinition{
+			{Name: "geocode_place", Description: "Orte suchen.", InputSchema: json.RawMessage(`{"type":"object"}`)},
+			{Name: "analyze_route_points", Description: "Distanz messen.", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		},
+	}
+	streamCalled := false
+	agent := New(Config{
+		LLMResolver: NewLLMResolver(fakeLLMConfigStore{}, LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
+		Tools:       runtime,
+		StreamChat: func(ctx context.Context, cfg LLMConfig, params llmwire.ChatRequest) ChatStream {
+			streamCalled = true
+			return &fakeStream{events: []llmwire.ChatStreamEvent{{
+				Delta:        "Fertig.",
+				FinishReason: "stop",
+			}}}
+		},
+	})
+	sink := &captureSink{}
+
+	if err := agent.Stream(context.Background(), ChatRequest{
+		UserID:    "user-1",
+		SessionID: "session-1",
+		MessageID: "message-1",
+		Message:   "wie weit ist Beispielort A von Beispielort B entfernt?",
+	}, sink); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if !streamCalled {
+		t.Fatal("StreamChat was not called")
+	}
+	if len(sink.events) == 0 || sink.events[0].Type != EventToolsLoaded {
+		t.Fatalf("first event = %#v, want tools_loaded", sink.events)
+	}
+	if got := strings.Join(sink.events[0].Tools, ","); got != "geocode_place,analyze_route_points" {
+		t.Fatalf("loaded tools = %#v", sink.events[0].Tools)
+	}
+}
+
 func TestAgentChatParamsUsesProviderSpecificOptionalFlags(t *testing.T) {
 	agent := New(Config{})
 	profile := defaultProfiles["small"]
