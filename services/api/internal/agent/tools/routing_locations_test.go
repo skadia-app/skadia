@@ -127,6 +127,23 @@ func TestGeocodePlaceUsesSharedSearchAndReturnsRouteRefs(t *testing.T) {
 	}
 }
 
+func TestGeocodePlaceLocalMapUsesPlaceSearch(t *testing.T) {
+	sources := normalizeGeocodePlaceSources("local_map")
+	if got := geosearchPlaceType(sources); got != "place" {
+		t.Fatalf("geosearchPlaceType(local_map) = %q, want place", got)
+	}
+
+	allSources := normalizeGeocodePlaceSources("")
+	if got := geosearchPlaceType(allSources); got != "place" {
+		t.Fatalf("geosearchPlaceType(default) = %q, want place", got)
+	}
+
+	externalSources := normalizeGeocodePlaceSources("external")
+	if got := geosearchPlaceType(externalSources); got != "external" {
+		t.Fatalf("geosearchPlaceType(external) = %q, want external", got)
+	}
+}
+
 func TestGeocodePlaceExternalDisabledAndRateLimited(t *testing.T) {
 	provider := &geocodePlaceForwardProvider{}
 	disabled, err := executeGeocodePlace(context.Background(), &Deps{

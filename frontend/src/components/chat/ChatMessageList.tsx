@@ -9,6 +9,7 @@ export interface StreamMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  loadedTools?: string[]
   toolCalls?: Array<{ id?: string; tool: string; args?: string; result?: string }>
   confirmRequest?: ToolConfirmRequest
   isStreaming?: boolean
@@ -54,6 +55,12 @@ export default function ChatMessageList({ messages, thinking }: ChatMessageListP
             {msg.toolCalls?.map((tc, i) => (
               <ToolCallCard key={tc.id ?? i} toolName={tc.tool} args={tc.args} result={tc.result} />
             ))}
+            {msg.loadedTools && msg.loadedTools.length > 0 && (
+              <div className="mb-1 rounded border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+                <span className="font-medium">Geladene Tools:</span>{' '}
+                <span className="font-mono">{msg.loadedTools.join(', ')}</span>
+              </div>
+            )}
             {msg.confirmRequest && (
               <ChatToolConfirm
                 request={msg.confirmRequest}
