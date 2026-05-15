@@ -18,6 +18,11 @@ secure_env_ensure_private() {
     if [ ! -e "$file" ]; then
         (umask 077 && : > "$file")
     fi
+    mode="$(secure_env_stat_mode "$file")"
+    if [ "$quiet" = "true" ] && [ -n "$mode" ] && [ "$mode" != "600" ]; then
+        echo "ERROR: $file permissions are $mode; expected 600." >&2
+        return 1
+    fi
     chmod 0600 "$file" 2>/dev/null || {
         if [ "$quiet" = "true" ]; then
             echo "ERROR: cannot set private permissions on $file" >&2
@@ -46,6 +51,21 @@ secure_env_is_set() {
     grep -q "^${key}=.\+" "$file" 2>/dev/null
 }
 
+secure_env_tmp_dir_for_file() {
+    local file="$1"
+    local dir
+    local base
+
+    dir="$(dirname "$file")"
+    base="$(basename "$file")"
+    mkdir -p "$dir"
+    if ! command -v mktemp >/dev/null 2>&1; then
+        echo "ERROR: mktemp is required to update $file safely." >&2
+        return 1
+    fi
+    (umask 077 && mktemp -d "$dir/.${base}.tmp.XXXXXXXXXX")
+}
+
 secure_env_set() {
     local file="$1"
     local key="$2"
@@ -55,7 +75,7 @@ secure_env_set() {
     local tmp
 
     secure_env_ensure_private "$file" "$quiet"
-    tmpdir="$(secure_temp_dir env)"
+    tmpdir="$(secure_env_tmp_dir_for_file "$file")"
     tmp="$tmpdir/env"
     ENV_SET_VALUE="$value" awk -v key="$key" '
         BEGIN {
@@ -87,10 +107,18 @@ secure_env_set() {
 secure_env_install_from_example() {
     local example="$1"
     local target="$2"
+    local tmpdir
+    local tmp
+
+    tmpdir="$(secure_env_tmp_dir_for_file "$target")"
+    tmp="$tmpdir/env"
     if [ -f "$example" ]; then
-        (umask 077 && cp "$example" "$target")
+        (umask 077 && cp "$example" "$tmp")
     else
-        (umask 077 && : > "$target")
+        (umask 077 && : > "$tmp")
     fi
+    chmod 0600 "$tmp"
+    mv "$tmp" "$target"
+    rmdir "$tmpdir" 2>/dev/null || rm -rf "$tmpdir"
     chmod 0600 "$target"
 }
