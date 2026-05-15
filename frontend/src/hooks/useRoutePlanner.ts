@@ -12,7 +12,6 @@ import type {
   RouteElevationPoint,
 } from '@/api/routes'
 import {
-  getCapabilities,
   listRoutes,
   getRoute,
   createRoute,
@@ -25,6 +24,7 @@ import {
   getProfileDefaults as fetchProfileDefaults,
 } from '@/api/routes'
 import { getElevationAtVerticesChunked } from '@/api/elevation-chunked'
+import { useCapabilities } from '@/hooks/useCapabilities'
 import { needsMigration, migrateRouteCached } from './migrateRoute'
 import type { ProfileConfig } from '@/lib/routingProfiles'
 import { getProfileDefaults, cacheServerDefaults } from '@/lib/routingProfiles'
@@ -717,12 +717,7 @@ export function useRoutePlanner() {
 
   // ── Capabilities ────────────────────────────────────────────────────────────
 
-  const capabilitiesQuery = useQuery({
-    queryKey: ['routing-capabilities'],
-    queryFn: getCapabilities,
-    staleTime: 30 * 1000, // 30s — matches backend cache TTL
-    retry: 1,
-  })
+  const capabilitiesQuery = useCapabilities()
 
   // Set default engine based on capabilities: if BadRouter is unavailable for
   // fresh planning, fall back to BRouter. Loaded BadRouter routes keep their

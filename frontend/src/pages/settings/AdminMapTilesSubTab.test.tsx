@@ -65,6 +65,7 @@ function wrapper() {
 describe('AdminMapTilesSubTab capability gates', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal('fetch', vi.fn())
     useCapabilities.mockReturnValue({
       isLoading: false,
       data: {
@@ -92,5 +93,32 @@ describe('AdminMapTilesSubTab capability gates', () => {
     expect(fetchOSMStatus).not.toHaveBeenCalled()
     expect(fetchOSMRegionStatus).not.toHaveBeenCalled()
     expect(getOSMSchedule).not.toHaveBeenCalled()
+  })
+
+  it('shows configured-but-unavailable artifact sections without active probes or operations', async () => {
+    useCapabilities.mockReturnValue({
+      isLoading: false,
+      data: {
+        features: {
+          osm_import: { configured: true, available: false, reason: 'missing_artifacts' },
+          dem_correction: { configured: true, available: false, reason: 'missing_artifacts' },
+          offline_map: { configured: true, available: false, reason: 'missing_artifacts' },
+          routing_tiles: { configured: true, available: false, reason: 'missing_artifacts' },
+          system_layers_vector: { configured: true, available: false, reason: 'missing_artifacts' },
+          segment_osm_lift_import: { configured: true, available: false, reason: 'missing_artifacts' },
+        },
+      },
+    })
+
+    render(<AdminMapTilesSubTab />, { wrapper: wrapper() })
+
+    expect(await screen.findByText('OSM-Geodaten')).toBeInTheDocument()
+    expect(screen.getAllByText('Nicht verfügbar').length).toBeGreaterThan(0)
+    expect(screen.queryByText('DEMSettings')).not.toBeInTheDocument()
+    expect(screen.queryByText('OfflineMapSettings')).not.toBeInTheDocument()
+    expect(screen.queryByText('Erneut prüfen')).not.toBeInTheDocument()
+    expect(fetch).not.toHaveBeenCalled()
+    expect(screen.queryByText('Import-Assistent')).not.toBeInTheDocument()
+    expect(screen.queryByText('Lift-Segmente importieren')).not.toBeInTheDocument()
   })
 })

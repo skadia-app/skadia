@@ -187,10 +187,8 @@ export default function ActivityDetailPage() {
     enabled: !!activeActivityId && geoPOIAvailable,
   })
 
-  const trackSummaryQuery = useActivityTrackSummary(
-    activeActivityId,
-    !!activity && activity.sport_type !== 'multisport' && (geoPOIAvailable || surfaceEnrichmentAvailable),
-  )
+  const trackSummaryEnabled = !!activity && activity.sport_type !== 'multisport' && (geoPOIAvailable || surfaceEnrichmentAvailable)
+  const trackSummaryQuery = useActivityTrackSummary(activeActivityId, trackSummaryEnabled)
 
   // Load child activities for multisport parent
   const { data: childActivities } = useQuery<Activity[]>({
@@ -943,7 +941,7 @@ export default function ActivityDetailPage() {
       {/* Track-Zusammenfassung + Wege/Oberflächen + Karte als zusammenhängender Block (nicht für Multisport) */}
       {activity.sport_type !== 'multisport' && (
         <section className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 space-y-4">
-          {!trackSummaryQuery.isError && (
+          {trackSummaryEnabled && !trackSummaryQuery.isError && (
             <TrackSummary
               summary={trackSummaryQuery.data}
               sportType={activity.sport_type}

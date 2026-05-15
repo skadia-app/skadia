@@ -4,6 +4,7 @@
 // MapLibre StyleSpecification. Consumers MUST use useMapLayers() — never
 // import MapLayer objects from outside that hook.
 import type { MapLayer } from '@/api/mapLayers'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 // Single source-of-truth: Capabilities is defined in routes.ts with an open
 // index signature so future backend capability keys compile without casting.
 export type { Capabilities } from '@/api/routes'
@@ -28,7 +29,7 @@ export function expandSwitch(template: string): string[] {
  * object (for raster_tiles / protomaps_offline).
  */
 export function buildLayerStyle(layer: MapLayer, caps: Capabilities): unknown {
-  if (layer.requires_capability && !caps[layer.requires_capability]) {
+  if (layer.requires_capability && !featureAvailable(caps, layer.requires_capability)) {
     throw new Error(`capability_missing:${layer.requires_capability}`)
   }
   switch (layer.source_kind) {

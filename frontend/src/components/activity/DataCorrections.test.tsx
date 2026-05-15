@@ -7,8 +7,12 @@ import type { Activity } from '@/api/types'
 import { ToastProvider } from '@/lib/toast'
 import { DataCorrectionsSection } from './DataCorrections'
 
-vi.mock('@/api/routes', () => ({
-  getCapabilities: vi.fn(),
+const mocks = vi.hoisted(() => ({
+  capabilities: {} as Record<string, unknown>,
+}))
+
+vi.mock('@/hooks/useCapabilities', () => ({
+  useCapabilities: () => ({ data: mocks.capabilities }),
 }))
 
 vi.mock('@/api/activities', () => ({
@@ -17,10 +21,6 @@ vi.mock('@/api/activities', () => ({
   correctActivityDistance: vi.fn(),
   resetActivityDistance: vi.fn(),
 }))
-
-import { getCapabilities } from '@/api/routes'
-
-const mockGetCapabilities = getCapabilities as ReturnType<typeof vi.fn>
 
 function wrapper({ children }: { children: ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -45,15 +45,16 @@ function activity(overrides: Partial<Activity> = {}): Activity {
 describe('DataCorrectionsSection capability gates', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.capabilities = {}
   })
 
   it('hides DEM correction action when dem_correction is configured but unavailable', async () => {
-    mockGetCapabilities.mockResolvedValue({
+    mocks.capabilities = {
       features: {
         dem_correction: { configured: true, available: false, reason: 'missing_artifacts' },
       },
       dem_correction: false,
-    })
+    }
 
     render(<DataCorrectionsSection activity={activity()} />, { wrapper })
 

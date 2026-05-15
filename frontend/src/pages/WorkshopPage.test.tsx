@@ -35,7 +35,7 @@ describe('WorkshopPage deployment capabilities', () => {
     }
   })
 
-  it('keeps core-safe tiles, disables document review, and hides summit collection in Core', () => {
+  it('keeps core-safe tiles, disables document review, and hides unconfigured summit collection in Core', () => {
     renderWorkshop()
 
     expect(screen.getByText('Physiologisches Profil')).toBeInTheDocument()
@@ -45,6 +45,19 @@ describe('WorkshopPage deployment capabilities', () => {
     expect(screen.getByText('Zu prüfen')).toBeInTheDocument()
     expect(screen.getByText('Dokument-Überprüfung').closest('[aria-disabled="true"]')).not.toBeNull()
     expect(screen.queryByText('Gipfelsammlung')).not.toBeInTheDocument()
+  })
+
+  it('shows summit collection disabled when geodata is configured but unavailable', () => {
+    mocks.capabilities = {
+      features: {
+        document_ml: { configured: false, available: false, reason: 'core_profile' },
+        geo_poi_enrichment: { configured: true, available: false, reason: 'missing_artifacts' },
+      },
+    }
+
+    renderWorkshop()
+
+    expect(screen.getByText('Gipfelsammlung').closest('[aria-disabled="true"]')).not.toBeNull()
   })
 
   it('shows full navigation when geodata and document capabilities are available', () => {

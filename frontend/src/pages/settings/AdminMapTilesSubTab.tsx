@@ -70,16 +70,25 @@ export default function AdminMapTilesSubTab() {
   // Capabilities (powers Routing-Dienste badges + DEM badge)
   const { data: caps, isLoading: capsLoading } = useCapabilities()
   const osmImportConfigured = featureConfigured(caps, 'osm_import')
+  const osmImportAvailable = featureAvailable(caps, 'osm_import')
   const demConfigured = featureConfigured(caps, 'dem_correction')
+  const demAvailable = featureAvailable(caps, 'dem_correction')
   const offlineMapConfigured = featureConfigured(caps, 'offline_map')
+  const offlineMapAvailable = featureAvailable(caps, 'offline_map')
+  const brouterAvailable = featureAvailable(caps, 'brouter')
+  const badrouterAvailable = featureAvailable(caps, 'badrouter')
+  const isochroneAvailable = featureAvailable(caps, 'isochrone')
+  const surfaceEnrichmentAvailable = featureAvailable(caps, 'surface_enrichment')
+  const routeSuggestionAvailable = featureAvailable(caps, 'route_suggestion')
   const segmentLiftImportAvailable = featureAvailable(caps, 'segment_osm_lift_import')
   const tileProbeConfigured = featureConfigured(caps, 'routing_tiles') || featureConfigured(caps, 'system_layers_vector') || offlineMapConfigured
+  const tileProbeAvailable = featureAvailable(caps, 'routing_tiles') || featureAvailable(caps, 'system_layers_vector') || offlineMapAvailable
 
   // OSM data presence drives whether lift-import button is available
   const { data: osmStatus } = useQuery({
     queryKey: ['osm-status'],
     queryFn: fetchOSMStatus,
-    enabled: osmImportConfigured,
+    enabled: osmImportAvailable,
   })
   const hasOsmData = osmStatus?.has_data ?? false
 
@@ -93,7 +102,7 @@ export default function AdminMapTilesSubTab() {
   const [tileCheckKey, setTileCheckKey] = useState(0)
 
   useEffect(() => {
-    if (!tileProbeConfigured) {
+    if (!tileProbeAvailable) {
       setTileStatus('unavailable')
       setTileSources([])
       return
@@ -123,13 +132,13 @@ export default function AdminMapTilesSubTab() {
     return () => {
       cancelled = true
     }
-  }, [styleUrl, tileCheckKey, tileProbeConfigured])
+  }, [styleUrl, tileCheckKey, tileProbeAvailable])
 
   // OSM region list + schedule (only meaningful when at least one region is imported)
   const { data: regionData } = useQuery({
     queryKey: ['osm-regions-status'],
     queryFn: fetchOSMRegionStatus,
-    enabled: osmImportConfigured,
+    enabled: osmImportAvailable,
   })
   const importedRegions = regionData?.regions ?? []
   const hasImportedRegions = importedRegions.length > 0
@@ -150,7 +159,7 @@ export default function AdminMapTilesSubTab() {
   const { data: schedData } = useQuery<OSMSchedule>({
     queryKey: ['osm-schedule'],
     queryFn: getOSMSchedule,
-    enabled: osmImportConfigured && hasImportedRegions,
+    enabled: osmImportAvailable && hasImportedRegions,
   })
 
   useEffect(() => {
@@ -220,15 +229,15 @@ export default function AdminMapTilesSubTab() {
         ) : (
           <>
             <div className="flex flex-wrap gap-2">
-              <CapBadge status={caps?.brouter ? 'active' : 'inactive'}            label="BRouter" />
-              <CapBadge status={caps?.badrouter ? 'active' : 'inactive'}          label="BadRouter" />
-              <CapBadge status={caps?.isochrone ? 'active' : 'inactive'}          label="Isochrone" />
-              <CapBadge status={caps?.dem_correction ? 'active' : 'inactive'}     label="DEM-Höhenkorrektur" />
-              <CapBadge status={caps?.surface_enrichment ? 'active' : 'inactive'} label="Oberflächen-Anreicherung" />
-              <CapBadge status={caps?.route_suggestion ? 'active' : 'inactive'}   label="Routen-Vorschläge" />
-              <CapBadge status={caps?.offline_map ? 'active' : 'inactive'}        label="Offline-Karte" />
+              <CapBadge status={brouterAvailable ? 'active' : 'inactive'}           label="BRouter" />
+              <CapBadge status={badrouterAvailable ? 'active' : 'inactive'}         label="BadRouter" />
+              <CapBadge status={isochroneAvailable ? 'active' : 'inactive'}         label="Isochrone" />
+              <CapBadge status={demAvailable ? 'active' : 'inactive'}               label="DEM-Höhenkorrektur" />
+              <CapBadge status={surfaceEnrichmentAvailable ? 'active' : 'inactive'} label="Oberflächen-Anreicherung" />
+              <CapBadge status={routeSuggestionAvailable ? 'active' : 'inactive'}   label="Routen-Vorschläge" />
+              <CapBadge status={offlineMapAvailable ? 'active' : 'inactive'}        label="Offline-Karte" />
             </div>
-            {!caps?.brouter && !caps?.badrouter && (
+            {!brouterAvailable && !badrouterAvailable && (
               <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">
                 Kein Routing-Dienst verfügbar. BRouter benötigt rd5-Segmente und .brf-Profile. BadRouter benötigt Routing-Tiles (mit DEM).
               </p>
@@ -308,12 +317,17 @@ export default function AdminMapTilesSubTab() {
 
         <OSMRegionManager
           hasOsmData={hasOsmData}
-          fullGeodataAvailable={osmImportConfigured}
-          onBatchUpdateState={osmImportConfigured ? setBatchUpdateProps : undefined}
+          fullGeodataAvailable={osmImportAvailable}
+          onBatchUpdateState={osmImportAvailable ? setBatchUpdateProps : undefined}
         />
+        {osmImportConfigured && !osmImportAvailable && (
+          <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">
+            OSM-Geodaten sind konfiguriert, aber aktuell nicht verfügbar. Datenimporte und Aktualisierungen bleiben deaktiviert, bis die Artefakte bereitstehen.
+          </p>
+        )}
 
         {/* OSM update scheduler — only meaningful with at least one imported region */}
-        {osmImportConfigured && hasImportedRegions && (
+        {osmImportAvailable && hasImportedRegions && (
           <div className="space-y-3 pt-3 border-t border-neutral-200 dark:border-neutral-700">
             <h4 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
               Automatische Karten-Updates
@@ -411,7 +425,7 @@ export default function AdminMapTilesSubTab() {
         )}
 
         {/* Bottom-anchored primary-action row — all OSM data-modifying actions live here */}
-        {osmImportConfigured && (
+        {osmImportAvailable && (
           <>
             <div className="space-y-2 pt-3 border-t border-neutral-200 dark:border-neutral-700">
               <button
@@ -463,9 +477,18 @@ export default function AdminMapTilesSubTab() {
               Digitales Höhenmodell für Höhenkorrektur und Routing.
             </p>
           </div>
-          <CapBadge status={caps?.dem_correction ? 'active' : 'inactive'} label="DEM aktiv" />
+          <CapBadge
+            status={demAvailable ? 'active' : 'warning'}
+            label={demAvailable ? 'DEM aktiv' : 'Nicht verfügbar'}
+          />
         </div>
-        <DEMSettings />
+        {demAvailable ? (
+          <DEMSettings />
+        ) : (
+          <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">
+            Höhendaten sind konfiguriert, aber die benötigten Artefakte sind aktuell nicht verfügbar. Download- und Korrekturaktionen bleiben deaktiviert.
+          </p>
+        )}
       </section>
       )}
 
@@ -489,7 +512,7 @@ export default function AdminMapTilesSubTab() {
             </h4>
             <div className="flex items-center gap-3 flex-wrap">
               <CapBadge status={tileBadgeStatus} label={tileBadgeLabel} />
-              {tileStatus !== 'loading' && (
+              {tileProbeAvailable && tileStatus !== 'loading' && (
                 <button
                   onClick={() => setTileCheckKey(k => k + 1)}
                   className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 underline underline-offset-2 cursor-pointer"
@@ -533,12 +556,18 @@ export default function AdminMapTilesSubTab() {
               PMTiles-Datei als Offline-Basemap für die Kartenansicht.
             </p>
           </div>
-          <OfflineMapSettings />
+          {offlineMapAvailable ? (
+            <OfflineMapSettings />
+          ) : (
+            <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">
+              Offline-Karten sind konfiguriert, aber die PMTiles-Artefakte sind aktuell nicht verfügbar.
+            </p>
+          )}
         </div>
       </section>
       )}
 
-      {osmImportConfigured && showImportModal && <OSMImportModal onClose={() => setShowImportModal(false)} />}
+      {osmImportAvailable && showImportModal && <OSMImportModal onClose={() => setShowImportModal(false)} />}
     </div>
   )
 }

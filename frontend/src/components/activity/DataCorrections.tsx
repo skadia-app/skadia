@@ -1,7 +1,7 @@
-import { useQueryClient, useMutation, useQuery } from '@tanstack/react-query'
+import { useQueryClient, useMutation } from '@tanstack/react-query'
 import type { Activity } from '@/api/types'
 import { correctActivityElevation, resetActivityElevation, correctActivityDistance, resetActivityDistance } from '@/api/activities'
-import { getCapabilities } from '@/api/routes'
+import { useCapabilities } from '@/hooks/useCapabilities'
 import { useToast } from '@/lib/toast'
 import { featureAvailable } from '@/lib/deploymentCapabilities'
 
@@ -12,11 +12,7 @@ interface DataCorrectionsSectionProps {
 export function DataCorrectionsSection({ activity }: DataCorrectionsSectionProps) {
   const queryClient = useQueryClient()
   const { addToast } = useToast()
-  const { data: routingCapabilities } = useQuery({
-    queryKey: ['routing-capabilities'],
-    queryFn: getCapabilities,
-    staleTime: 5 * 60 * 1000,
-  })
+  const { data: routingCapabilities } = useCapabilities()
 
   const elevationCorrectionMutation = useMutation({
     mutationFn: () => correctActivityElevation(activity.id),

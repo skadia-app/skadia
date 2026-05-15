@@ -7,10 +7,11 @@ import { ToastProvider } from '@/lib/toast'
 
 const mocks = vi.hoisted(() => ({
   capabilities: undefined as Record<string, unknown> | undefined,
+  capabilitiesLoading: false,
 }))
 
 vi.mock('@/hooks/useCapabilities', () => ({
-  useCapabilities: () => ({ data: mocks.capabilities }),
+  useCapabilities: () => ({ data: mocks.capabilities, isLoading: mocks.capabilitiesLoading }),
 }))
 
 function renderSettings() {
@@ -43,7 +44,12 @@ describe('ChatWriteToolSettings', () => {
   let fetchMock: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
-    mocks.capabilities = undefined
+    mocks.capabilities = {
+      features: {
+        document_ml: { configured: true, available: true },
+      },
+    }
+    mocks.capabilitiesLoading = false
     fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (!init || init.method === undefined || init.method === 'GET') {
         return jsonResponse({
@@ -73,6 +79,22 @@ describe('ChatWriteToolSettings', () => {
     expect(screen.getByRole('switch', {
       name: 'AI-Agent darf Änderungen vorschlagen',
     })).toBeInTheDocument()
+  })
+
+  it('does not expose sensitive controls while capabilities are unknown', async () => {
+    mocks.capabilities = undefined
+    mocks.capabilitiesLoading = true
+
+    renderSettings()
+    await screen.findByText('AI-Agent-Berechtigungen')
+
+    expect(screen.queryByRole('switch', {
+      name: 'Dokument-OCR-Text dem AI-Agenten zugänglich machen',
+    })).not.toBeInTheDocument()
+    expect(screen.getByRole('switch', {
+      name: 'AI-Agent darf Änderungen vorschlagen',
+    })).toHaveProperty('disabled', true)
+    expect(screen.queryByLabelText('Aktivität umbenennen')).not.toBeInTheDocument()
   })
 
   afterEach(() => {
