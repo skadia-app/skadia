@@ -37,11 +37,22 @@ interface RecomputeResult {
   alreadyRunning?: boolean
 }
 
-function deriveLocalSettings(data: LiftDetectionConfigResponse): LocalSettings {
+function clampSettingsForCapabilities(settings: LocalSettings, osmSnapAvailable: boolean): LocalSettings {
   return {
-    osm: data.override.osm ?? data.user_setting.osm,
+    osm: osmSnapAvailable ? settings.osm : false,
+    heuristic: settings.heuristic,
+  }
+}
+
+function deriveLocalSettings(data: LiftDetectionConfigResponse, osmSnapAvailable: boolean): LocalSettings {
+  return {
+    osm: osmSnapAvailable ? (data.override.osm ?? data.user_setting.osm) : false,
     heuristic: data.override.heuristic ?? data.user_setting.heuristic,
   }
+}
+
+function resetTargetSettings(data: LiftDetectionConfigResponse, osmSnapAvailable: boolean): LocalSettings {
+  return clampSettingsForCapabilities(data.user_setting, osmSnapAvailable)
 }
 
 function hasActiveOverride(data: LiftDetectionConfigResponse): boolean {
@@ -115,9 +126,7 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
   // Sync local state when query data arrives or changes (e.g. after reset).
   useEffect(() => {
     if (data) {
-      const next = deriveLocalSettings(data)
-      if (!osmSnapAvailable) next.osm = false
-      setLocal(next)
+      setLocal(deriveLocalSettings(data, osmSnapAvailable))
     }
   }, [data, osmSnapAvailable])
 
@@ -127,13 +136,17 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
       if (await hasRunningLiftRecompute(activityId)) {
         return { status: 409, startsJob: true, alreadyRunning: true }
       }
-      const startsJob = update.kind === 'reset'
-        ? startsBackgroundRecompute(data, { osm: data.user_setting.osm, heuristic: data.user_setting.heuristic })
-        : startsBackgroundRecompute(data, update.settings)
+      const settings = update.kind === 'reset'
+        ? resetTargetSettings(data, osmSnapAvailable)
+        : clampSettingsForCapabilities(update.settings, osmSnapAvailable)
+      const startsJob = startsBackgroundRecompute(data, settings)
+      if (update.kind === 'reset' && !startsJob) {
+        return { status: 204, startsJob: false }
+      }
       if (update.kind === 'reset') {
         await resetMutation.mutateAsync()
       } else {
-        await putMutation.mutateAsync({ osm: update.settings.osm, heuristic: update.settings.heuristic })
+        await putMutation.mutateAsync({ osm: settings.osm, heuristic: settings.heuristic })
       }
       const res = await apiFetch(`/api/v1/activities/${activityId}/lifts/recalculate-all`, {
         method: 'POST',
@@ -179,15 +192,17 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
   const isApplying = recomputeMutation.isPending
   const disablingAll = isApplying && !jobRunning && local && !local.osm && !local.heuristic
   const allDisabled = masterOff || jobRunning || isApplying
+  const resetUnavailable = override && !startsBackgroundRecompute(data, resetTargetSettings(data, osmSnapAvailable))
 
   const handleToggle = (patch: Partial<LocalSettings>) => {
     if (!local) return
-    const next = { ...local, ...patch }
+    const next = clampSettingsForCapabilities({ ...local, ...patch }, osmSnapAvailable)
     setLocal(next)
     recomputeMutation.mutate({ kind: 'put', settings: next })
   }
 
   const handleReset = () => {
+    if (resetUnavailable) return
     recomputeMutation.mutate({ kind: 'reset' })
   }
 
@@ -228,10 +243,10 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
           <button
             type="button"
             onClick={handleReset}
-            disabled={allDisabled}
+            disabled={allDisabled || resetUnavailable}
             className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs font-medium px-2 py-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
             data-testid="override-badge"
-            title="Aktivitätsspezifische Einstellung zurücksetzen"
+            title={resetUnavailable ? 'Kein aktiver Lift-Detektor verfügbar' : 'Aktivitätsspezifische Einstellung zurücksetzen'}
           >
             Override gesetzt
           </button>
@@ -268,6 +283,11 @@ export default function LiftDetectionHeader({ activityId, jobRunning, onJobStart
       {masterOff && (
         <p className="text-xs text-amber-700 dark:text-amber-400" data-testid="master-off-notice">
           Globale Lift-Erkennung deaktiviert, siehe Einstellungen
+        </p>
+      )}
+      {!masterOff && resetUnavailable && (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          Kein aktiver Lift-Detektor verfügbar.
         </p>
       )}
 
