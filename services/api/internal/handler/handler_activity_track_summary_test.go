@@ -276,3 +276,17 @@ func TestTrackSummaryCacheControl_RegressionGuard(t *testing.T) {
 			trackSummaryCacheControl, want)
 	}
 }
+
+func TestActivityTrackSummaryReadPlanSkipsGeodataQueriesWhenCapabilitiesUnavailable(t *testing.T) {
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "core"}}
+	readEnrichments, readGeoTags := h.activityTrackSummaryReadPlan(t.Context())
+	if readEnrichments || readGeoTags {
+		t.Fatalf("core read plan = enrichments:%v geoTags:%v, want both false", readEnrichments, readGeoTags)
+	}
+
+	h = &Handler{Config: &HandlerConfig{DeploymentProfile: "full"}}
+	readEnrichments, readGeoTags = h.activityTrackSummaryReadPlan(t.Context())
+	if readEnrichments || readGeoTags {
+		t.Fatalf("full missing-artifacts read plan = enrichments:%v geoTags:%v, want both false", readEnrichments, readGeoTags)
+	}
+}

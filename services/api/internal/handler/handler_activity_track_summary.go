@@ -149,17 +149,26 @@ func (h *Handler) ActivityTrackSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	enrichmentRows, err := h.readTrackSummaryEnrichments(r, activityID)
-	if err != nil {
-		slog.Error("activity track summary: enrichment lookup failed", "activity_id", activityID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity enrichments", r.URL.Path)
-		return
+	readEnrichments, readGeoTags := h.activityTrackSummaryReadPlan(r.Context())
+	var enrichmentRows []trackSummaryEnrichmentRow
+	if readEnrichments {
+		var err error
+		enrichmentRows, err = h.readTrackSummaryEnrichments(r, activityID)
+		if err != nil {
+			slog.Error("activity track summary: enrichment lookup failed", "activity_id", activityID, "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity enrichments", r.URL.Path)
+			return
+		}
 	}
-	geoTagRows, err := h.readTrackSummaryGeoTags(r, activityID, userID)
-	if err != nil {
-		slog.Error("activity track summary: geo tag lookup failed", "activity_id", activityID, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity geo tags", r.URL.Path)
-		return
+	var geoTagRows []trackSummaryGeoTagRow
+	if readGeoTags {
+		var err error
+		geoTagRows, err = h.readTrackSummaryGeoTags(r, activityID, userID)
+		if err != nil {
+			slog.Error("activity track summary: geo tag lookup failed", "activity_id", activityID, "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load activity geo tags", r.URL.Path)
+			return
+		}
 	}
 	// Read persisted enrichment path from activity_enrichment_meta.
 	// Nil means the activity has not been enriched via EnrichTrackAnalysis yet.
@@ -210,6 +219,13 @@ func (h *Handler) activityTrackSummaryFeatureCapabilities(ctx context.Context) m
 		}
 	}
 	return out
+}
+
+func (h *Handler) activityTrackSummaryReadPlan(ctx context.Context) (readEnrichments bool, readGeoTags bool) {
+	caps := h.detectCapabilitiesForGate(ctx)
+	geoAvailable := caps.FeatureEnabled(capabilities.KeyActivityTrackSummaryGeo)
+	surfaceAvailable := caps.FeatureEnabled(capabilities.KeyActivityTrackSummarySurface)
+	return geoAvailable || surfaceAvailable, geoAvailable
 }
 
 func (h *Handler) readTrackSummaryEnrichments(r *http.Request, activityID string) ([]trackSummaryEnrichmentRow, error) {

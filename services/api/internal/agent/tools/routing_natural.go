@@ -198,7 +198,6 @@ func PlanRouteBetweenTool() *Tool {
 		ExecuteRead: executePlanRouteBetween,
 		RequiredCapabilities: []string{
 			capabilities.KeyRouting,
-			capabilities.KeyBRouter,
 		},
 	}
 }

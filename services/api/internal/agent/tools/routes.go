@@ -125,7 +125,6 @@ func RouteTools() []*Tool {
 			ExecuteRead: executeListRoutingProfiles,
 			RequiredCapabilities: []string{
 				capabilities.KeyRouting,
-				capabilities.KeyBRouter,
 			},
 		},
 		{
@@ -137,7 +136,6 @@ func RouteTools() []*Tool {
 			ExecuteRead: executePlanRoute,
 			RequiredCapabilities: []string{
 				capabilities.KeyRouting,
-				capabilities.KeyBRouter,
 			},
 		},
 		{

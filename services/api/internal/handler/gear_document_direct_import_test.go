@@ -248,6 +248,74 @@ func TestUploadGearPDFPublishFailureKeepsUploadCompleted(t *testing.T) {
 	}
 }
 
+func TestUploadGearPDFDoesNotPublishWhenFileLinkFailsAndCleansStoredFile(t *testing.T) {
+	enableMLServiceForTest(t)
+
+	pool := fusionTestPool(t)
+	if _, err := pool.Exec(context.Background(), `
+		CREATE OR REPLACE FUNCTION fail_gear_document_file_link_for_test()
+		RETURNS trigger AS $$
+		BEGIN
+			IF NEW.original_filename = 'link-fails.pdf' THEN
+				RAISE EXCEPTION 'forced gear document file_id link failure';
+			END IF;
+			RETURN NEW;
+		END
+		$$ LANGUAGE plpgsql;
+		DROP TRIGGER IF EXISTS fail_gear_document_file_link_for_test ON gear_documents;
+		CREATE TRIGGER fail_gear_document_file_link_for_test
+		BEFORE UPDATE OF file_id ON gear_documents
+		FOR EACH ROW
+		EXECUTE FUNCTION fail_gear_document_file_link_for_test();
+	`); err != nil {
+		t.Fatalf("install file-link failure trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `
+			DROP TRIGGER IF EXISTS fail_gear_document_file_link_for_test ON gear_documents;
+			DROP FUNCTION IF EXISTS fail_gear_document_file_link_for_test();
+		`)
+	})
+
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	gearID := insertTestGear(t, pool, userID, "Test Bike", "bike", "bike")
+	fs := newActivityPhotoStorageTestFS(t, pool)
+	pub := &recordingDocumentPublisher{}
+	h := &Handler{DB: db, ShadowFS: fs, DocumentUploadedPublisher: pub}
+
+	req := newGearDocumentUploadRequest(t, userID, gearID, "link-fails.pdf", "application/pdf", []byte("%PDF-1.4\n%%EOF\n"), "manual")
+	rr := httptest.NewRecorder()
+	h.UploadGearDocument(rr, req)
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("UploadGearDocument link failure status = %d, want 500; body=%s", rr.Code, rr.Body.String())
+	}
+	if len(pub.events) != 0 {
+		t.Fatalf("published document events after file link failure = %d, want 0", len(pub.events))
+	}
+
+	var docRows, fileRows int
+	if err := pool.QueryRow(context.Background(), `
+		SELECT COUNT(*)
+		FROM gear_documents
+		WHERE user_id = $1 AND gear_id = $2 AND original_filename = 'link-fails.pdf'`,
+		userID, gearID,
+	).Scan(&docRows); err != nil {
+		t.Fatalf("count gear documents after link failure: %v", err)
+	}
+	if err := pool.QueryRow(context.Background(), `
+		SELECT COUNT(*)
+		FROM user_files
+		WHERE user_id = $1 AND file_name = 'link-fails.pdf'`,
+		userID,
+	).Scan(&fileRows); err != nil {
+		t.Fatalf("count stored files after link failure: %v", err)
+	}
+	if docRows != 0 || fileRows != 0 {
+		t.Fatalf("rows after file link failure = gear_documents %d user_files %d, want 0/0", docRows, fileRows)
+	}
+}
+
 func TestUploadGearDocumentSniffsPDFDespiteImageHeader(t *testing.T) {
 	enableMLServiceForTest(t)
 

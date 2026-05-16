@@ -307,7 +307,7 @@ func (h *Handler) RouteCalculate(w http.ResponseWriter, r *http.Request) {
 // RebuildRoutingTiles triggers a background tile build from PostGIS data.
 // POST /admin/routing/rebuild-tiles
 func (h *Handler) RebuildRoutingTiles(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyRoutingTiles) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyRoutingTiles) {
 		return
 	}
 	if h.GraphManager == nil {
@@ -452,7 +452,7 @@ func (h *Handler) RebuildLandmarks(w http.ResponseWriter, r *http.Request) {
 // This is a standalone endpoint — does NOT trigger OSM reimport or enrichment.
 // POST /admin/routing/build-brouter-segments
 func (h *Handler) BuildBRouterSegments(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyBRouterSegmentBuild) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyBRouterSegmentBuild) {
 		return
 	}
 	userID, ok := httputil.RequireUserID(w, r)

@@ -44,15 +44,6 @@ func (h *Handler) PatchSystemLayerVisibility(w http.ResponseWriter, r *http.Requ
 			mapLayerErrBody("unknown_key", "no system layer with key: "+key))
 		return
 	}
-	for _, layer := range model.SystemLayers {
-		if layer.Key == key && layer.RequiredCapability != "" {
-			if reason := h.featureUnavailableReasonWithContext(r.Context(), layer.RequiredCapability); reason != "" {
-				writeFeatureUnavailable(w, r, layer.RequiredCapability, reason)
-				return
-			}
-			break
-		}
-	}
 
 	patch, ok := httputil.DecodeJSON[map[string]any](w, r)
 	if !ok {
@@ -80,6 +71,22 @@ func (h *Handler) PatchSystemLayerVisibility(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
+	for _, layer := range model.SystemLayers {
+		if layer.Key != key || layer.RequiredCapability == "" {
+			continue
+		}
+		if reason := h.featureNotConfiguredReasonWithContext(r.Context(), layer.RequiredCapability); reason != "" {
+			writeFeatureUnavailable(w, r, layer.RequiredCapability, reason)
+			return
+		}
+		if enablesUnavailableSystemLayer(patch) {
+			if reason := h.featureUnavailableReasonWithContext(r.Context(), layer.RequiredCapability); reason != "" {
+				writeFeatureUnavailable(w, r, layer.RequiredCapability, reason)
+				return
+			}
+		}
+		break
+	}
 
 	err := h.DB.UpdateSystemLayerVisibility(r.Context(), key, patch)
 	switch {
@@ -90,4 +97,18 @@ func (h *Handler) PatchSystemLayerVisibility(w http.ResponseWriter, r *http.Requ
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+func enablesUnavailableSystemLayer(patch map[string]any) bool {
+	for _, field := range []string{"enabled", "default_enabled_for_new_users"} {
+		v, ok := patch[field]
+		if !ok {
+			continue
+		}
+		enabled, ok := v.(bool)
+		if ok && enabled {
+			return true
+		}
+	}
+	return false
 }

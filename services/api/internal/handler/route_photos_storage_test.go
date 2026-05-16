@@ -161,6 +161,60 @@ func TestDeleteRoutePhotoRemovesDerivativesForLocalAndS3(t *testing.T) {
 	}
 }
 
+type routeDeleteOrderFS struct {
+	shadowfs.ShadowFS
+	t                *testing.T
+	pool             *pgxpool.Pool
+	routeID          string
+	sawRouteAtDelete bool
+}
+
+func (fs *routeDeleteOrderFS) Delete(ctx context.Context, userID, fileID string) error {
+	var count int
+	if err := fs.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM planned_routes WHERE id = $1 AND user_id = $2`,
+		fs.routeID, userID,
+	).Scan(&count); err != nil {
+		fs.t.Fatalf("count route row during storage delete: %v", err)
+	}
+	fs.sawRouteAtDelete = count > 0
+	return fs.ShadowFS.Delete(ctx, userID, fileID)
+}
+
+func TestDeleteRouteDeletesDBRowBeforeRoutePhotoFiles(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	userID := insertTestUser(t, pool)
+	baseFS := newRoutePhotoStorageTestFS(t, pool, "local")
+	h := &Handler{DB: db, ShadowFS: baseFS}
+	routeID := insertTestRoute(t, h, userID)
+
+	req := newRoutePhotoUploadRequest(t, userID, routeID, "synthetic-route-delete-order.jpg", jpegPatternTestImage(t, 300, 300, 90))
+	rr := httptest.NewRecorder()
+	h.UploadRoutePhoto(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("upload route photo status = %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+
+	fs := &routeDeleteOrderFS{ShadowFS: baseFS, t: t, pool: pool, routeID: routeID}
+	h.ShadowFS = fs
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/routes/"+routeID, nil)
+	delReq = delReq.WithContext(context.WithValue(delReq.Context(), middleware.UserIDKey, userID))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", routeID)
+	delReq = delReq.WithContext(context.WithValue(delReq.Context(), chi.RouteCtxKey, rctx))
+	delRR := httptest.NewRecorder()
+
+	h.DeleteRoute(delRR, delReq)
+
+	if delRR.Code != http.StatusNoContent {
+		t.Fatalf("delete route status = %d, want 204; body=%s", delRR.Code, delRR.Body.String())
+	}
+	if fs.sawRouteAtDelete {
+		t.Fatal("route photo storage delete ran while planned_routes row still existed")
+	}
+}
+
 func newRoutePhotoStorageTestFS(t *testing.T, pool *pgxpool.Pool, target string) shadowfs.ShadowFS {
 	t.Helper()
 	dir := t.TempDir()

@@ -32,7 +32,7 @@ var geoSearchLimiter = geosearch.NewLimiter(60, time.Hour, time.Now)
 // GetOSMStatus returns counts from OSM tables.
 // GET /api/v1/admin/osm-status
 func (h *Handler) GetOSMStatus(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyOSMImport) {
 		return
 	}
 	ctx := r.Context()
@@ -98,7 +98,7 @@ func (h *Handler) GetOSMStatus(w http.ResponseWriter, r *http.Request) {
 // GetOSMRegionStatus returns all tracked import regions with metadata.
 // GET /api/v1/admin/osm-regions/status
 func (h *Handler) GetOSMRegionStatus(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyOSMImport) {
 		return
 	}
 	rows, err := h.DB.Pool.Query(r.Context(), `
@@ -160,7 +160,7 @@ func (h *Handler) GetOSMRegionStatus(w http.ResponseWriter, r *http.Request) {
 // Uses direct query instead of view for robustness (view may not exist or have permission issues).
 // GET /api/v1/admin/osm-disk-usage
 func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyOSMImport) {
 		return
 	}
 	// Bekannte OSM-Tabellen direkt abfragen — vermeidet Abhängigkeit auf osm_disk_usage View
@@ -205,7 +205,7 @@ func (h *Handler) GetOSMDiskUsage(w http.ResponseWriter, r *http.Request) {
 // DeleteOSMRegion removes a region: deletes OSM data, tracking entry, and PBF files.
 // DELETE /api/v1/admin/osm-regions/{regionID}
 func (h *Handler) DeleteOSMRegion(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyOSMImport) {
 		return
 	}
 	regionID := chi.URLParam(r, "regionID")
@@ -335,7 +335,7 @@ func (h *Handler) geoSearchExternalPolicy(ctx context.Context, userID string, re
 // GetDEMStatus returns available DEM data sources and tile counts.
 // GET /api/v1/admin/dem-status
 func (h *Handler) GetDEMStatus(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyDEMCorrection) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyDEMCorrection) {
 		return
 	}
 	type demSource struct {
@@ -433,7 +433,7 @@ func (h *Handler) RetryOSMEnrichment(w http.ResponseWriter, r *http.Request) {
 // GetOSMSchedule returns current scheduler settings shared across all imported regions.
 // GET /api/v1/admin/osm-schedule
 func (h *Handler) GetOSMSchedule(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyOSMImport) {
 		return
 	}
 	var schedule struct {
@@ -460,7 +460,7 @@ func (h *Handler) GetOSMSchedule(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/admin/osm-schedule
 // Body: { "interval": "weekly"|"monthly"|"manual", "weekday": 1, "day": 1, "hour": 3 }
 func (h *Handler) SetOSMSchedule(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyOSMImport) {
 		return
 	}
 	var req struct {
@@ -680,7 +680,7 @@ func (h *Handler) runRegionUpdate(ctx context.Context, jobID, regionID, label, r
 // TriggerOSMRegionUpdate triggers an immediate incremental update for a single region.
 // POST /api/v1/admin/osm-regions/{regionID}/update
 func (h *Handler) TriggerOSMRegionUpdate(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyOSMImport) {
 		return
 	}
 	userID, ok := httputil.RequireUserID(w, r)
@@ -762,7 +762,7 @@ type patchTarget struct {
 // PBFs are patched individually, then reimported via per-region RunPerRegion.
 // POST /api/v1/admin/osm-regions/update-all
 func (h *Handler) BatchUpdateAllRegions(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyOSMImport) {
 		return
 	}
 	userID, ok := httputil.RequireUserID(w, r)

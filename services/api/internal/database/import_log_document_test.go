@@ -55,7 +55,7 @@ func TestCompleteDocumentImportLogCompletesProcessingEntry(t *testing.T) {
 	}
 }
 
-func TestCompleteDocumentImportLogKeepsUploadCompletedWhenOptionalProcessingFails(t *testing.T) {
+func TestCompleteDocumentImportLogMarksProcessingErrorWhenMLFails(t *testing.T) {
 	db, userID := gearTestDB(t)
 	ctx := context.Background()
 	fileSize := int64(4321)
@@ -100,8 +100,8 @@ func TestCompleteDocumentImportLogKeepsUploadCompletedWhenOptionalProcessingFail
 	).Scan(&status, &errorMsg, &processedSuccess, &textStep, &markdownStep); err != nil {
 		t.Fatalf("select import log: %v", err)
 	}
-	if status != "completed" || errorMsg != nil || processedSuccess || textStep != "failed" || markdownStep != "failed" {
-		t.Fatalf("document import log after optional failure = status %q error %v success %v text %q markdown %q, want completed/<nil>/false/failed/failed",
+	if status != "error" || errorMsg == nil || *errorMsg != "document processing failed" || processedSuccess || textStep != "failed" || markdownStep != "failed" {
+		t.Fatalf("document import log after ML failure = status %q error %v success %v text %q markdown %q, want error/document processing failed/false/failed/failed",
 			status, errorMsg, processedSuccess, textStep, markdownStep)
 	}
 }

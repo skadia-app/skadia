@@ -751,6 +751,7 @@ func main() {
 	}}
 	toolRegistry := agenttools.NewRegistry()
 	agenttools.RegisterAll(toolRegistry)
+	var profileStatus badRouterProfileStartupStatus
 	toolDeps := &agenttools.Deps{
 		DB:                 db,
 		Readonly:           db.ReadonlyPool,
@@ -770,16 +771,20 @@ func main() {
 	}
 	toolDeps.CapabilityProvider = func(ctx context.Context) capabilities.Capabilities {
 		return capabilities.Detect(ctx, db.Pool, capabilities.DetectInput{
-			DeploymentProfile:    cfg.DeploymentProfile,
-			DeploymentProfileSrc: cfg.DeploymentProfileSource,
-			StorageMode:          cfg.StorageMode,
-			StorageBackend:       cfg.StorageBackend,
-			BRouterURL:           cfg.BRouterURL,
-			TileDir:              filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "tiles"),
-			PMTilesDir:           cfg.TilesDir,
-			CoverageDir:          filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage"),
-			ImportAllowedDirs:    cfg.ImportAllowedDirs,
-			MLProbeVersion:       capabilities.MLProbeVersion(),
+			DeploymentProfile:           cfg.DeploymentProfile,
+			DeploymentProfileSrc:        cfg.DeploymentProfileSource,
+			StorageMode:                 cfg.StorageMode,
+			StorageBackend:              cfg.StorageBackend,
+			BRouterURL:                  cfg.BRouterURL,
+			TileDir:                     filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "tiles"),
+			PMTilesDir:                  cfg.TilesDir,
+			CoverageDir:                 filepath.Join(filepath.Dir(cfg.RoutingGraphPath), "coverage"),
+			BadRouterProfilesKnown:      true,
+			BadRouterProfilesConfigured: profileStatus.Configured,
+			BadRouterProfilesAvailable:  profileStatus.Available,
+			BadRouterProfilesReason:     profileStatus.Reason,
+			ImportAllowedDirs:           cfg.ImportAllowedDirs,
+			MLProbeVersion:              capabilities.MLProbeVersion(),
 		})
 	}
 	toolEnvelope := agenttools.NewExecutionEnvelope(toolRegistry, toolDeps)
@@ -805,38 +810,42 @@ func main() {
 		ImportService:  importSvc,
 		DEMSvc:         demSvc,
 		Config: &handler.HandlerConfig{
-			DeploymentProfile:       cfg.DeploymentProfile,
-			DeploymentProfileSource: cfg.DeploymentProfileSource,
-			StorageMode:             cfg.StorageMode,
-			LiteLLMConfigPath:       cfg.LiteLLMConfigPath,
-			LiteLLMInternalURL:      cfg.LiteLLMInternalURL,
-			LLMEncryptionKey:        cfg.LLMEncryptionKey,
-			LLMBaseURL:              cfg.LLMBaseURL,
-			LLMAPIKey:               cfg.LLMAPIKey,
-			LLMModel:                cfg.LLMModel,
-			LLMContextWindow:        cfg.LLMContextWindow,
-			MLServiceURL:            cfg.MLServiceURL,
-			MLCallbackSecret:        mlCallbackSecret,
-			MLLLMBrokerToken:        cfg.MLLLMBrokerToken,
-			BRouterURL:              cfg.BRouterURL,
-			KomootEncryptionKey:     cfg.KomootEncryptionKey,
-			OAuthEncryptionKey:      cfg.OAuthEncryptionKey,
-			RoutingGraphPath:        cfg.RoutingGraphPath,
-			RoutingTimeout:          parseDuration(os.Getenv("ROUTING_TIMEOUT"), 30*time.Second),
-			MaxUploadSize:           cfg.MaxUploadSize,
-			ImportAllowedDirs:       cfg.ImportAllowedDirs,
-			OSMDataDir:              cfg.OSMDataDir,
-			DEMDataDir:              cfg.DEMDataDir,
-			BRouterSegmentsDir:      cfg.BRouterSegmentsDir,
-			BRouterProfilesDir:      cfg.BRouterProfilesDir,
-			TilesDir:                cfg.TilesDir,
-			LibraryBasePath:         cfg.LibraryBasePath,
-			StorageBackend:          cfg.StorageBackend,
-			KeepVersions:            cfg.LibraryKeepVersions,
-			SyncEnabled:             cfg.LibrarySyncEnabled,
-			LocalBE:                 localBE,
-			S3BE:                    s3BE,
-			BucketFn:                store.BucketFor,
+			DeploymentProfile:           cfg.DeploymentProfile,
+			DeploymentProfileSource:     cfg.DeploymentProfileSource,
+			StorageMode:                 cfg.StorageMode,
+			LiteLLMConfigPath:           cfg.LiteLLMConfigPath,
+			LiteLLMInternalURL:          cfg.LiteLLMInternalURL,
+			LLMEncryptionKey:            cfg.LLMEncryptionKey,
+			LLMBaseURL:                  cfg.LLMBaseURL,
+			LLMAPIKey:                   cfg.LLMAPIKey,
+			LLMModel:                    cfg.LLMModel,
+			LLMContextWindow:            cfg.LLMContextWindow,
+			MLServiceURL:                cfg.MLServiceURL,
+			MLCallbackSecret:            mlCallbackSecret,
+			MLLLMBrokerToken:            cfg.MLLLMBrokerToken,
+			BRouterURL:                  cfg.BRouterURL,
+			BadRouterProfilesKnown:      true,
+			BadRouterProfilesConfigured: profileStatus.Configured,
+			BadRouterProfilesAvailable:  profileStatus.Available,
+			BadRouterProfilesReason:     profileStatus.Reason,
+			KomootEncryptionKey:         cfg.KomootEncryptionKey,
+			OAuthEncryptionKey:          cfg.OAuthEncryptionKey,
+			RoutingGraphPath:            cfg.RoutingGraphPath,
+			RoutingTimeout:              parseDuration(os.Getenv("ROUTING_TIMEOUT"), 30*time.Second),
+			MaxUploadSize:               cfg.MaxUploadSize,
+			ImportAllowedDirs:           cfg.ImportAllowedDirs,
+			OSMDataDir:                  cfg.OSMDataDir,
+			DEMDataDir:                  cfg.DEMDataDir,
+			BRouterSegmentsDir:          cfg.BRouterSegmentsDir,
+			BRouterProfilesDir:          cfg.BRouterProfilesDir,
+			TilesDir:                    cfg.TilesDir,
+			LibraryBasePath:             cfg.LibraryBasePath,
+			StorageBackend:              cfg.StorageBackend,
+			KeepVersions:                cfg.LibraryKeepVersions,
+			SyncEnabled:                 cfg.LibrarySyncEnabled,
+			LocalBE:                     localBE,
+			S3BE:                        s3BE,
+			BucketFn:                    store.BucketFor,
 		},
 	}
 	toolDeps.RouteGoalSuggester = func(ctx context.Context, userID string, req agenttools.RouteGoalSuggestionRequest) (agenttools.RouteGoalSuggestionResponse, error) {
@@ -1154,7 +1163,11 @@ func main() {
 	if profileDir == "" {
 		profileDir = "config/badrouter"
 	}
-	profileStatus := loadBadRouterProfilesForStartup(cfg.DeploymentProfile, cfg.DeploymentProfileSource, profileDir)
+	profileStatus = loadBadRouterProfilesForStartup(cfg.DeploymentProfile, cfg.DeploymentProfileSource, profileDir)
+	h.Config.BadRouterProfilesKnown = true
+	h.Config.BadRouterProfilesConfigured = profileStatus.Configured
+	h.Config.BadRouterProfilesAvailable = profileStatus.Available
+	h.Config.BadRouterProfilesReason = profileStatus.Reason
 	if profileStatus.Error != "" {
 		slog.Warn("built-in profile load issue", "dir", profileDir, "reason", profileStatus.Reason, "error", profileStatus.Error)
 	}

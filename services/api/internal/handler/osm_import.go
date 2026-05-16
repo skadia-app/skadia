@@ -71,7 +71,7 @@ func (r osmImportRequest) shouldRunEnrichment() bool {
 // CancelOSMImport bricht einen laufenden OSM-Import ab.
 // POST /api/v1/admin/osm-import/cancel/{jobID}
 func (h *Handler) CancelOSMImport(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyOSMImport) {
 		return
 	}
 	jobID := chi.URLParam(r, "jobID")
@@ -99,7 +99,7 @@ func (h *Handler) ListOSMRegions(w http.ResponseWriter, r *http.Request) {
 // StartOSMImport startet einen asynchronen OSM-Import-Job.
 // POST /api/v1/admin/osm-import/start
 func (h *Handler) StartOSMImport(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyOSMImport) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyOSMImport) {
 		return
 	}
 	userID, ok := httputil.RequireUserID(w, r)

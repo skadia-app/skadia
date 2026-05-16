@@ -44,6 +44,21 @@ env_get() {
     env_file_get "$key"
 }
 
+env_is_set() {
+    local key="$1"
+    [ -n "$(env_get "$key")" ]
+}
+
+read_secret_path() {
+    local key="$1"
+    local file="$2"
+    if [ ! -r "$file" ]; then
+        echo "ERROR: ${key}_FILE points to an unreadable file: $file" >&2
+        exit 1
+    fi
+    sed -n '1p' "$file"
+}
+
 env_set() {
     local key="$1"
     local value="$2"
@@ -141,6 +156,7 @@ storage_mode="$(env_get SKADIA_STORAGE_MODE)"
 storage_backend="$(env_get STORAGE_BACKEND)"
 s3_provider="$(env_get SKADIA_S3_PROVIDER)"
 s3_endpoint="$(env_get S3_ENDPOINT)"
+garage_endpoint="$(env_get GARAGE_ENDPOINT)"
 if [ -z "$storage_mode" ] && [ "$s3_provider" != "local-garage" ]; then
     echo "ERROR: Garage initialization requires SKADIA_STORAGE_MODE=s3-local-garage or SKADIA_S3_PROVIDER=local-garage." >&2
     exit 1
@@ -165,6 +181,13 @@ case "${s3_endpoint%/}" in
     ""|"http://garage:3900"|"https://garage:3900"|"http://localhost:3900"|"http://127.0.0.1:3900") ;;
     *)
         echo "ERROR: Garage initialization cannot run with external S3_ENDPOINT=${s3_endpoint}." >&2
+        exit 1
+        ;;
+esac
+case "${garage_endpoint%/}" in
+    ""|"http://garage:3900"|"https://garage:3900"|"http://localhost:3900"|"http://127.0.0.1:3900") ;;
+    *)
+        echo "ERROR: Garage initialization cannot run with external GARAGE_ENDPOINT=${garage_endpoint}." >&2
         exit 1
         ;;
 esac
@@ -208,31 +231,78 @@ LAYOUT_VERSION="${LAYOUT_VERSION:-1}"
 compose exec garage /garage layout apply --version "$LAYOUT_VERSION"
 echo "Layout applied."
 
-S3_ACCESS_KEY="$(env_default S3_ACCESS_KEY "$(env_default GARAGE_ACCESS_KEY "")")"
+_s3_access_inline="$(env_get S3_ACCESS_KEY)"
+_s3_access_file="$(env_get S3_ACCESS_KEY_FILE)"
+_garage_access_inline="$(env_get GARAGE_ACCESS_KEY)"
+_garage_access_file="$(env_get GARAGE_ACCESS_KEY_FILE)"
+if [ -n "$_s3_access_file" ]; then
+    S3_ACCESS_KEY="$(read_secret_path S3_ACCESS_KEY "$_s3_access_file")"
+    access_source="s3-file"
+elif [ -n "$_s3_access_inline" ]; then
+    S3_ACCESS_KEY="$_s3_access_inline"
+    access_source="s3-inline"
+elif [ -n "$_garage_access_file" ]; then
+    S3_ACCESS_KEY="$(read_secret_path GARAGE_ACCESS_KEY "$_garage_access_file")"
+    access_source="garage-file"
+elif [ -n "$_garage_access_inline" ]; then
+    S3_ACCESS_KEY="$_garage_access_inline"
+    access_source="garage-inline"
+else
+    S3_ACCESS_KEY=""
+    access_source=""
+fi
 if [ -z "$S3_ACCESS_KEY" ] || [ "$S3_ACCESS_KEY" = "skadia-dev-key" ]; then
     S3_ACCESS_KEY="$(gen_garage_access_key)"
     if [ -n "$S3_ACCESS_KEY" ]; then
         echo "Generated S3_ACCESS_KEY for local Garage and saved it to .env."
+        env_set S3_ACCESS_KEY "$S3_ACCESS_KEY"
+        env_set GARAGE_ACCESS_KEY "$S3_ACCESS_KEY"
+        access_source="generated"
     fi
 fi
-if [ -z "$(env_file_get S3_ACCESS_KEY)" ] || [ "$(env_file_get S3_ACCESS_KEY)" = "skadia-dev-key" ]; then
+if [ "$access_source" = "garage-inline" ] && { [ -z "$(env_file_get S3_ACCESS_KEY)" ] || [ "$(env_file_get S3_ACCESS_KEY)" = "skadia-dev-key" ]; }; then
     env_set S3_ACCESS_KEY "$S3_ACCESS_KEY"
 fi
-if [ -z "$(env_file_get GARAGE_ACCESS_KEY)" ] || [ "$(env_file_get GARAGE_ACCESS_KEY)" = "skadia-dev-key" ]; then
+if [ "$access_source" = "s3-inline" ] && { [ -z "$(env_file_get GARAGE_ACCESS_KEY)" ] || [ "$(env_file_get GARAGE_ACCESS_KEY)" = "skadia-dev-key" ]; }; then
     env_set GARAGE_ACCESS_KEY "$S3_ACCESS_KEY"
 fi
 
-S3_SECRET_KEY="$(env_get S3_SECRET_KEY)"
+_s3_secret_inline="$(env_get S3_SECRET_KEY)"
+_s3_secret_file="$(env_get S3_SECRET_KEY_FILE)"
+_garage_secret_inline="$(env_get GARAGE_SECRET_KEY)"
+_garage_secret_file="$(env_get GARAGE_SECRET_KEY_FILE)"
+if [ -n "$_s3_secret_file" ]; then
+    S3_SECRET_KEY="$(read_secret_path S3_SECRET_KEY "$_s3_secret_file")"
+    secret_source="s3-file"
+elif [ -n "$_s3_secret_inline" ]; then
+    S3_SECRET_KEY="$_s3_secret_inline"
+    secret_source="s3-inline"
+else
+    S3_SECRET_KEY=""
+    secret_source=""
+fi
 if [ -z "$S3_SECRET_KEY" ] || [ "$S3_SECRET_KEY" = "skadia-dev-secret" ]; then
-    garage_secret="$(env_get GARAGE_SECRET_KEY)"
+    if [ -n "$_garage_secret_file" ]; then
+        garage_secret="$(read_secret_path GARAGE_SECRET_KEY "$_garage_secret_file")"
+        garage_secret_source="garage-file"
+    else
+        garage_secret="$_garage_secret_inline"
+        garage_secret_source="garage-inline"
+    fi
     if [ -n "$garage_secret" ] && [ "$garage_secret" != "skadia-dev-secret" ]; then
         S3_SECRET_KEY="$garage_secret"
+        secret_source="$garage_secret_source"
     else
         S3_SECRET_KEY="$(gen_secret)"
+        secret_source="generated"
     fi
     if [ -n "$S3_SECRET_KEY" ]; then
-        env_set S3_SECRET_KEY "$S3_SECRET_KEY"
-        env_set GARAGE_SECRET_KEY "$S3_SECRET_KEY"
+        if [ "$secret_source" = "generated" ] || [ "$secret_source" = "garage-inline" ]; then
+            env_set S3_SECRET_KEY "$S3_SECRET_KEY"
+        fi
+        if [ "$secret_source" = "generated" ] || [ "$secret_source" = "s3-inline" ]; then
+            env_set GARAGE_SECRET_KEY "$S3_SECRET_KEY"
+        fi
         echo "Generated S3_SECRET_KEY for local Garage and saved it to .env."
     fi
 fi

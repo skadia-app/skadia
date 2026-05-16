@@ -100,6 +100,33 @@ func TestRoutePreviewToolsRequireRoutingAndBRouterCapabilities(t *testing.T) {
 	}
 }
 
+func TestRoutePreviewToolsAllowBadRouterOnlyRouting(t *testing.T) {
+	reg := NewRegistry()
+	RegisterAll(reg)
+	runtime := NewAgentToolRuntime(reg, &Deps{CapabilityProvider: badRouterOnlyCapabilitiesForTest}, nil)
+
+	defs := runtime.Definitions([]string{"list_routing_profiles", "plan_route", "plan_route_between"}, nil)
+	for _, name := range []string{"list_routing_profiles", "plan_route", "plan_route_between"} {
+		if !hasLLMTool(defs, name) {
+			t.Fatalf("%s missing for BadRouter-only routing: %#v", name, defs)
+		}
+	}
+}
+
+func TestRoutingProfileVariantWriteToolRequiresRoutingCapability(t *testing.T) {
+	reg := NewRegistry()
+	RegisterAll(reg)
+	runtime := NewAgentToolRuntime(reg, &Deps{CapabilityProvider: routingUnavailableCapabilitiesForTest}, nil)
+
+	filter := runtime.AddEnabledWriteTools([]string{"list_routing_profiles"}, &agent.ChatPreferences{
+		ChatWriteToolsEnabled: true,
+		ChatAllowedWriteTools: []string{"create_routing_profile_variant"},
+	})
+	if containsRoutingProfileWriteTestString(filter, "create_routing_profile_variant") {
+		t.Fatalf("create_routing_profile_variant exposed without routing capability: %#v", filter)
+	}
+}
+
 func TestToolExportIncludesRequiredCapabilitiesMetadata(t *testing.T) {
 	reg := exportTestRegistry()
 	tool, _ := reg.Get("read_activity")
@@ -128,4 +155,15 @@ func routingUnavailableCapabilitiesForTest(context.Context) capabilities.Capabil
 		StorageMode:       "local",
 		StorageBackend:    "local",
 	}, capabilities.RuntimeProbeState{})
+}
+
+func badRouterOnlyCapabilitiesForTest(context.Context) capabilities.Capabilities {
+	return capabilities.BuildFromRuntime(capabilities.DetectInput{
+		DeploymentProfile: "full",
+		StorageMode:       "local",
+		StorageBackend:    "local",
+	}, capabilities.RuntimeProbeState{
+		BadRouterTiles:    true,
+		BadRouterProfiles: true,
+	})
 }

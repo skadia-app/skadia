@@ -71,6 +71,7 @@ export default function AdminMapTilesSubTab() {
   const { data: caps, isLoading: capsLoading } = useCapabilities()
   const osmImportConfigured = featureConfigured(caps, 'osm_import')
   const osmImportAvailable = featureAvailable(caps, 'osm_import')
+  const osmImportEnabled = osmImportConfigured
   const demConfigured = featureConfigured(caps, 'dem_correction')
   const demAvailable = featureAvailable(caps, 'dem_correction')
   const offlineMapConfigured = featureConfigured(caps, 'offline_map')
@@ -88,7 +89,7 @@ export default function AdminMapTilesSubTab() {
   const { data: osmStatus } = useQuery({
     queryKey: ['osm-status'],
     queryFn: fetchOSMStatus,
-    enabled: osmImportAvailable,
+    enabled: osmImportEnabled,
   })
   const hasOsmData = osmStatus?.has_data ?? false
 
@@ -138,7 +139,7 @@ export default function AdminMapTilesSubTab() {
   const { data: regionData } = useQuery({
     queryKey: ['osm-regions-status'],
     queryFn: fetchOSMRegionStatus,
-    enabled: osmImportAvailable,
+    enabled: osmImportEnabled,
   })
   const importedRegions = regionData?.regions ?? []
   const hasImportedRegions = importedRegions.length > 0
@@ -159,7 +160,7 @@ export default function AdminMapTilesSubTab() {
   const { data: schedData } = useQuery<OSMSchedule>({
     queryKey: ['osm-schedule'],
     queryFn: getOSMSchedule,
-    enabled: osmImportAvailable && hasImportedRegions,
+    enabled: osmImportEnabled && hasImportedRegions,
   })
 
   useEffect(() => {
@@ -317,17 +318,17 @@ export default function AdminMapTilesSubTab() {
 
         <OSMRegionManager
           hasOsmData={hasOsmData}
-          fullGeodataAvailable={osmImportAvailable}
-          onBatchUpdateState={osmImportAvailable ? setBatchUpdateProps : undefined}
+          fullGeodataAvailable={osmImportEnabled}
+          onBatchUpdateState={osmImportEnabled ? setBatchUpdateProps : undefined}
         />
         {osmImportConfigured && !osmImportAvailable && (
           <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">
-            OSM-Geodaten sind konfiguriert, aber aktuell nicht verfügbar. Datenimporte und Aktualisierungen bleiben deaktiviert, bis die Artefakte bereitstehen.
+            OSM-Geodaten sind konfiguriert, aber Laufzeit-Artefakte fehlen aktuell. Import- und Aktualisierungsaktionen bleiben verfügbar.
           </p>
         )}
 
         {/* OSM update scheduler — only meaningful with at least one imported region */}
-        {osmImportAvailable && hasImportedRegions && (
+        {osmImportEnabled && hasImportedRegions && (
           <div className="space-y-3 pt-3 border-t border-neutral-200 dark:border-neutral-700">
             <h4 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
               Automatische Karten-Updates
@@ -425,7 +426,7 @@ export default function AdminMapTilesSubTab() {
         )}
 
         {/* Bottom-anchored primary-action row — all OSM data-modifying actions live here */}
-        {osmImportAvailable && (
+        {osmImportEnabled && (
           <>
             <div className="space-y-2 pt-3 border-t border-neutral-200 dark:border-neutral-700">
               <button
@@ -482,11 +483,10 @@ export default function AdminMapTilesSubTab() {
             label={demAvailable ? 'DEM aktiv' : 'Nicht verfügbar'}
           />
         </div>
-        {demAvailable ? (
-          <DEMSettings />
-        ) : (
+        <DEMSettings />
+        {!demAvailable && (
           <p className="text-xs text-amber-600 dark:text-amber-400 leading-relaxed">
-            Höhendaten sind konfiguriert, aber die benötigten Artefakte sind aktuell nicht verfügbar. Download- und Korrekturaktionen bleiben deaktiviert.
+            Höhendaten sind konfiguriert, aber die Korrektur-Artefakte sind aktuell nicht verfügbar. Downloads bleiben verfügbar.
           </p>
         )}
       </section>
@@ -567,7 +567,7 @@ export default function AdminMapTilesSubTab() {
       </section>
       )}
 
-      {osmImportAvailable && showImportModal && <OSMImportModal onClose={() => setShowImportModal(false)} />}
+      {osmImportEnabled && showImportModal && <OSMImportModal onClose={() => setShowImportModal(false)} />}
     </div>
   )
 }

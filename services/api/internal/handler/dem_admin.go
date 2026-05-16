@@ -20,7 +20,7 @@ import (
 // DownloadDEM triggers a background DEM download for specified or all imported regions.
 // POST /api/v1/admin/dem/download
 func (h *Handler) DownloadDEM(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyDEMCorrection) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyDEMCorrection) {
 		return
 	}
 	userID, ok := httputil.RequireUserID(w, r)
@@ -138,7 +138,7 @@ func (h *Handler) DownloadDEM(w http.ResponseWriter, r *http.Request) {
 // GetDEMRegionStatus returns DEM coverage per imported region + disk space info.
 // GET /api/v1/admin/dem/status
 func (h *Handler) GetDEMRegionStatus(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyDEMCorrection) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyDEMCorrection) {
 		return
 	}
 	// Existing source info

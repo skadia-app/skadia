@@ -589,7 +589,7 @@ func (h *Handler) HandleExportProfile(w http.ResponseWriter, r *http.Request) {
 // HandleUploadBrouterProfile uploads a .brf profile file to the BRouter profiles directory.
 // POST /admin/routing/brouter-profiles
 func (h *Handler) HandleUploadBrouterProfile(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyBRouterSegmentBuild) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyBRouterSegmentBuild) {
 		return
 	}
 	if err := r.ParseMultipartForm(4 << 20); err != nil {
@@ -642,7 +642,7 @@ func (h *Handler) HandleUploadBrouterProfile(w http.ResponseWriter, r *http.Requ
 // HandleDeleteBrouterProfile deletes a .brf profile file from the BRouter profiles directory.
 // DELETE /admin/routing/brouter-profiles/{name}
 func (h *Handler) HandleDeleteBrouterProfile(w http.ResponseWriter, r *http.Request) {
-	if !h.requireFeature(w, r, capabilities.KeyBRouterSegmentBuild) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyBRouterSegmentBuild) {
 		return
 	}
 	name := chi.URLParam(r, "name")
