@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import { type SummitVisit } from '@/api/summits'
 import SummitBadges from '@/components/summit/SummitBadges'
 import SummitMap from '@/components/summit/SummitMap'
@@ -11,12 +11,17 @@ type SortField = 'name' | 'elevation_m' | 'first_visit' | 'last_visit' | 'visit_
 type SortDir = 'asc' | 'desc'
 type ViewMode = 'list' | 'map'
 
+const SUMMIT_COUNTRY_PARAM = 'summit_country'
+const SUMMIT_YEAR_PARAM = 'summit_year'
+const SUMMIT_ELEV_PARAM = 'summit_elev'
+
 function formatDate(iso: string): string {
   if (!iso) return '-'
   return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 export default function SummitCollectionPage({ defaultView = 'list' }: { defaultView?: 'list' | 'map' }) {
+  const location = useLocation()
   const [sortField, setSortField] = useState<SortField>('elevation_m')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [viewMode, setViewMode] = useState<ViewMode>(defaultView)
@@ -24,29 +29,34 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
   const [selectedSummit, setSelectedSummit] = useState<SummitVisit | null>(null)
   const [nameFilter, setNameFilter] = useState('')
 
-  // Fix 1: URL-State für Filter
+  // Summit filters use namespaced URL params so Analytics filters can remain in
+  // the URL without changing the summit collection tab.
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const countryFilter = searchParams.get('country') ?? ''
-  const yearFilter = searchParams.get('year') ?? ''
-  const elevClassLabel = searchParams.get('elev') ?? 'Alle'
+  const allowLegacySummitParams = location.pathname.startsWith('/map/summits')
+  const countryFilter = searchParams.get(SUMMIT_COUNTRY_PARAM) ?? (allowLegacySummitParams ? searchParams.get('country') ?? '' : '')
+  const yearFilter = searchParams.get(SUMMIT_YEAR_PARAM) ?? (allowLegacySummitParams ? searchParams.get('year') ?? '' : '')
+  const elevClassLabel = searchParams.get(SUMMIT_ELEV_PARAM) ?? (allowLegacySummitParams ? searchParams.get('elev') ?? 'Alle' : 'Alle')
   const elevClass = ELEV_CLASSES.find(c => c.label === elevClassLabel) ?? ELEV_CLASSES[0]
 
   const setCountryFilter = (v: string) => setSearchParams(prev => {
     const next = new URLSearchParams(prev)
-    v ? next.set('country', v) : next.delete('country')
+    v ? next.set(SUMMIT_COUNTRY_PARAM, v) : next.delete(SUMMIT_COUNTRY_PARAM)
+    if (allowLegacySummitParams) next.delete('country')
     return next
   }, { replace: true })
 
   const setYearFilter = (v: string) => setSearchParams(prev => {
     const next = new URLSearchParams(prev)
-    v ? next.set('year', v) : next.delete('year')
+    v ? next.set(SUMMIT_YEAR_PARAM, v) : next.delete(SUMMIT_YEAR_PARAM)
+    if (allowLegacySummitParams) next.delete('year')
     return next
   }, { replace: true })
 
   const setElevClass = (cls: ElevClass) => setSearchParams(prev => {
     const next = new URLSearchParams(prev)
-    cls.label !== 'Alle' ? next.set('elev', cls.label) : next.delete('elev')
+    cls.label !== 'Alle' ? next.set(SUMMIT_ELEV_PARAM, cls.label) : next.delete(SUMMIT_ELEV_PARAM)
+    if (allowLegacySummitParams) next.delete('elev')
     return next
   }, { replace: true })
 
@@ -78,7 +88,7 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
     return sorted
   }, [summits, sortField, sortDir])
 
-  // Fix 2: client-side name filter on top of sorted results
+  // Client-side name filter on top of sorted results.
   const displaySummits = useMemo(() =>
     sortedSummits.filter(s =>
       !nameFilter || s.name.toLowerCase().includes(nameFilter.toLowerCase())
@@ -92,7 +102,7 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
     )
   }, [summits])
 
-  // Fix 3: stable reference — prevents SummitMap from recreating markers on every render
+  // Stable reference prevents SummitMap from recreating markers on every render.
   const handleSelectSummit = useCallback((s: SummitVisit) => {
     setSelectedSummit(s)
     setIsFullscreen(true)
@@ -209,7 +219,7 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
           </select>
         )}
 
-        {/* Fix 2: Textsuche nach Gipfelname */}
+        {/* Summit name search */}
         <input
           type="text"
           value={nameFilter}
@@ -225,9 +235,14 @@ export default function SummitCollectionPage({ defaultView = 'list' }: { default
             onClick={() => {
               setSearchParams(prev => {
                 const next = new URLSearchParams(prev)
-                next.delete('country')
-                next.delete('year')
-                next.delete('elev')
+                next.delete(SUMMIT_COUNTRY_PARAM)
+                next.delete(SUMMIT_YEAR_PARAM)
+                next.delete(SUMMIT_ELEV_PARAM)
+                if (allowLegacySummitParams) {
+                  next.delete('country')
+                  next.delete('year')
+                  next.delete('elev')
+                }
                 return next
               }, { replace: true })
               setNameFilter('')

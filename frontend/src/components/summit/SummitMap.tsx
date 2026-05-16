@@ -21,6 +21,24 @@ function addMarkers(
   })
 }
 
+function removeMarkers(markers: SummitMarker[]) {
+  markers.forEach(m => {
+    m.abort()
+    m.marker.remove()
+  })
+}
+
+function replaceMarkers(
+  map: maplibregl.Map,
+  previous: SummitMarker[],
+  summits: SummitVisit[],
+  selectedSummit: SummitVisit | null | undefined,
+  onSelect: (summit: SummitVisit) => void,
+): SummitMarker[] {
+  removeMarkers(previous)
+  return addMarkers(map, summits, selectedSummit, onSelect)
+}
+
 interface SummitMapProps {
   summits: SummitVisit[]
   selectedSummit?: SummitVisit | null
@@ -42,11 +60,15 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
     [defaultLayer?.key, caps],
   )
 
-  // Initialize map once
+  // Initialize only after layout produced a measurable container, then keep the
+  // MapLibre canvas in sync with embedded tab/layout size changes.
   useEffect(() => {
-    if (!mapContainer.current || mapRef.current || !mapStyle) return
+    const el = mapContainer.current
+    if (!el || mapRef.current || !mapStyle) return
 
     const summitsWithCoords = summits.filter(s => s.lat != null && s.lng != null)
+    let map: maplibregl.Map | null = null
+    let disposed = false
 
     let center: [number, number] = [11.4, 47.3]
     if (summitsWithCoords.length > 0) {
@@ -58,35 +80,52 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
       ]
     }
 
-    const map = new maplibregl.Map({
-      container: mapContainer.current,
-      style: mapStyle as import('maplibre-gl').StyleSpecification | string,
-      center,
-      zoom: 7,
-    })
+    const initMap = () => {
+      if (disposed || map || el.clientWidth === 0 || el.clientHeight === 0) return
 
-    // Ensure map canvas gets correct dimensions after layout
-    requestAnimationFrame(() => map.resize())
+      map = new maplibregl.Map({
+        container: el,
+        style: mapStyle as import('maplibre-gl').StyleSpecification | string,
+        center,
+        zoom: 7,
+      })
 
-    map.addControl(new maplibregl.NavigationControl(), 'top-right')
+      map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
-    map.on('load', () => {
-      markersRef.current = addMarkers(map, summitsWithCoords, selectedSummit, onSelectSummit)
+      map.on('load', () => {
+        map?.resize()
+        if (!map) return
+        markersRef.current = replaceMarkers(map, markersRef.current, summitsWithCoords, selectedSummit, onSelectSummit)
 
-      if (summitsWithCoords.length > 1) {
-        const bounds = new maplibregl.LngLatBounds()
-        summitsWithCoords.forEach(s => bounds.extend([s.lng!, s.lat!]))
-        map.fitBounds(bounds, { padding: 60, maxZoom: 13 })
-      } else if (summitsWithCoords.length === 1) {
-        map.setCenter([summitsWithCoords[0].lng!, summitsWithCoords[0].lat!])
-        map.setZoom(12)
+        if (summitsWithCoords.length > 1) {
+          const bounds = new maplibregl.LngLatBounds()
+          summitsWithCoords.forEach(s => bounds.extend([s.lng!, s.lat!]))
+          map.fitBounds(bounds, { padding: 60, maxZoom: 13 })
+        } else if (summitsWithCoords.length === 1) {
+          map.setCenter([summitsWithCoords[0].lng!, summitsWithCoords[0].lat!])
+          map.setZoom(12)
+        }
+      })
+
+      mapRef.current = map
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (!map) {
+        initMap()
+      } else {
+        map.resize()
       }
     })
-
-    mapRef.current = map
+    resizeObserver.observe(el)
+    initMap()
 
     return () => {
-      map.remove()
+      disposed = true
+      resizeObserver.disconnect()
+      removeMarkers(markersRef.current)
+      markersRef.current = []
+      map?.remove()
       mapRef.current = null
     }
     // mapStyle triggers init once layers arrive; mapRef.current guard prevents re-init.
@@ -97,8 +136,7 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
   useEffect(() => {
     if (!mapRef.current) return
     const summitsWithCoords = summits.filter(s => s.lat != null && s.lng != null)
-    markersRef.current.forEach(m => { m.abort(); m.marker.remove() })
-    markersRef.current = addMarkers(mapRef.current, summitsWithCoords, selectedSummit, onSelectSummit)
+    markersRef.current = replaceMarkers(mapRef.current, markersRef.current, summitsWithCoords, selectedSummit, onSelectSummit)
   }, [summits, selectedSummit, onSelectSummit])
 
   // Fly to selected summit
@@ -109,8 +147,7 @@ export default function SummitMap({ summits, selectedSummit, onSelectSummit, onM
   }, [selectedSummit])
 
   return (
-    <div className="relative w-full h-[500px] rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
-      <div ref={mapContainer} className="absolute inset-0" />
+    <div ref={mapContainer} className="relative w-full h-[500px] rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
       {/* Maximize button */}
       <button
         onClick={onMaximize}
