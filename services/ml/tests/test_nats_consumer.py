@@ -104,6 +104,19 @@ FILE_ID = "33333333-3333-3333-3333-333333333333"
 PHOTO_ID = "44444444-4444-4444-4444-444444444444"
 
 
+@pytest.fixture(autouse=True)
+def full_profile_storage_ready(monkeypatch):
+    async def ready_storage():
+        return {"local": {"status": "ready", "base_path": "/tmp"}, "s3": {"status": "disabled"}}
+
+    monkeypatch.setenv("SKADIA_DEPLOYMENT_PROFILE", "full")
+    monkeypatch.setattr(
+        nats_consumer,
+        "get_storage_readiness_async",
+        ready_storage,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -356,6 +369,89 @@ async def test_process_photo_embed_naks_when_local_storage_mount_unavailable(mon
 
 
 @pytest.mark.asyncio
+async def test_process_photo_embed_acks_without_processing_in_core_profile(monkeypatch):
+    class _Conn:
+        async def fetchrow(self, query, *args):
+            raise AssertionError("core profile must not query photo settings")
+
+    calls = 0
+
+    async def fake_download_user_file(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return b"bad"
+
+    monkeypatch.setenv("SKADIA_DEPLOYMENT_PROFILE", "core")
+    monkeypatch.setattr(nats_consumer, "download_user_file", fake_download_user_file)
+
+    msg = _FakeMsg({"photo_id": PHOTO_ID, "user_id": USER_ID, "file_id": FILE_ID})
+    await nats_consumer._process_photo_embed(msg, _FakePool(_Conn()), nc=None)
+
+    assert msg.acked == 1
+    assert msg.naked == 0
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+async def test_photo_embed_catchup_skips_db_scan_when_storage_read_unready(monkeypatch):
+    class _StopLoop(Exception):
+        pass
+
+    class _Pool:
+        acquire_calls = 0
+
+        def acquire(self):
+            self.acquire_calls += 1
+            raise AssertionError("catch-up must not query photos when storage_read is unready")
+
+    async def stop_sleep(_seconds):
+        raise _StopLoop()
+
+    async def unready_storage():
+        return {"local": {"status": "disabled"}, "s3": {"status": "degraded", "error": "probe_failed"}}
+
+    monkeypatch.setenv("SKADIA_DEPLOYMENT_PROFILE", "full")
+    monkeypatch.setattr(
+        nats_consumer,
+        "get_storage_readiness_async",
+        unready_storage,
+        raising=False,
+    )
+    monkeypatch.setattr(nats_consumer.asyncio, "sleep", stop_sleep)
+
+    pool = _Pool()
+    with pytest.raises(_StopLoop):
+        await nats_consumer._catchup_missing_embeddings(pool, js=None)
+
+    assert pool.acquire_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_photo_embed_catchup_skips_db_scan_in_core_profile(monkeypatch):
+    class _StopLoop(Exception):
+        pass
+
+    class _Pool:
+        acquire_calls = 0
+
+        def acquire(self):
+            self.acquire_calls += 1
+            raise AssertionError("catch-up must not query photos in core profile")
+
+    async def stop_sleep(_seconds):
+        raise _StopLoop()
+
+    monkeypatch.setenv("SKADIA_DEPLOYMENT_PROFILE", "core")
+    monkeypatch.setattr(nats_consumer.asyncio, "sleep", stop_sleep)
+
+    pool = _Pool()
+    with pytest.raises(_StopLoop):
+        await nats_consumer._catchup_missing_embeddings(pool, js=None)
+
+    assert pool.acquire_calls == 0
+
+
+@pytest.mark.asyncio
 async def test_process_document_message_passes_user_file_metadata_not_legacy_s3(monkeypatch):
     class _Conn:
         async def fetchrow(self, query, *args):
@@ -412,6 +508,63 @@ async def test_process_document_message_passes_user_file_metadata_not_legacy_s3(
     assert calls[0]["content_type"] == "application/pdf"
     assert "s3_bucket" not in calls[0]
     assert "s3_key" not in calls[0]
+
+
+@pytest.mark.asyncio
+async def test_process_document_message_acks_without_processing_in_core_profile(monkeypatch):
+    pool_reads = 0
+
+    async def fake_get_pool():
+        nonlocal pool_reads
+        pool_reads += 1
+        raise AssertionError("core profile must not start document processing")
+
+    calls: list[dict] = []
+
+    async def fake_process_document(**kwargs):
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setenv("SKADIA_DEPLOYMENT_PROFILE", "core")
+    monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
+
+    msg = _FakeMsg({"doc_id": DOC_ID, "user_id": USER_ID, "file_id": FILE_ID})
+    await nats_consumer._process_document_message(msg, _NCNoop())
+
+    assert msg.acked == 1
+    assert msg.naked == 0
+    assert pool_reads == 0
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_process_document_message_naks_without_processing_when_storage_read_unready(monkeypatch):
+    pool_reads = 0
+
+    async def fake_get_pool():
+        nonlocal pool_reads
+        pool_reads += 1
+        raise AssertionError("storage_read unready must stop before DB work")
+
+    async def unready_storage():
+        return {"local": {"status": "disabled"}, "s3": {"status": "degraded", "error": "probe_failed"}}
+
+    monkeypatch.setenv("SKADIA_DEPLOYMENT_PROFILE", "full")
+    monkeypatch.setattr(
+        nats_consumer,
+        "get_storage_readiness_async",
+        unready_storage,
+        raising=False,
+    )
+    monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+
+    msg = _FakeMsg({"doc_id": DOC_ID, "user_id": USER_ID, "file_id": FILE_ID})
+    await nats_consumer._process_document_message(msg, _NCNoop())
+
+    assert msg.acked == 0
+    assert msg.naked == 1
+    assert pool_reads == 0
 
 
 @pytest.mark.asyncio

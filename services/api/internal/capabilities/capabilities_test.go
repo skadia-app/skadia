@@ -1,6 +1,8 @@
 package capabilities
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -146,6 +148,30 @@ func TestDetectRuntimeFindsCoverageBinArtifacts(t *testing.T) {
 	runtime := probeRuntime(t.Context(), nil, DetectInput{CoverageDir: dir})
 	if !runtime.Coverage || !runtime.CoverageTiles {
 		t.Fatalf("coverage runtime = %#v, want coverage and coverage tiles from nested .bin artifacts", runtime)
+	}
+}
+
+func TestDetectRuntimeBRouterProbeRequiresUsableStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		status    int
+		available bool
+	}{
+		{name: "ok", status: http.StatusOK, available: true},
+		{name: "not found", status: http.StatusNotFound, available: false},
+		{name: "server error", status: http.StatusInternalServerError, available: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+			}))
+			defer server.Close()
+
+			runtime := probeRuntime(t.Context(), nil, DetectInput{BRouterURL: server.URL})
+			if runtime.BRouter != tc.available {
+				t.Fatalf("runtime.BRouter = %v, want %v for status %d", runtime.BRouter, tc.available, tc.status)
+			}
+		})
 	}
 }
 

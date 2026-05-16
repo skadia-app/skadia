@@ -12,6 +12,7 @@ import nats
 from nats.js.api import ConsumerConfig, DeliverPolicy, AckPolicy
 
 from db import get_pool
+from config import get_storage_readiness_async, storage_readiness_ready
 from progress import publish_progress
 from s3_client import s3_client_kwargs
 from enrichment.document_vlm import (
@@ -52,6 +53,7 @@ DOCUMENT_PROCESS_TIMEOUT_SECONDS = float(
 DOCUMENT_IN_PROGRESS_INTERVAL_SECONDS = float(os.getenv("ML_DOCUMENT_IN_PROGRESS_INTERVAL_SECONDS", "60"))
 MAX_PHOTO_EMBED_IMAGE_BYTES = int(os.getenv("ML_PHOTO_EMBED_IMAGE_MAX_BYTES", str(50 << 20)))
 MAX_PHOTO_EMBED_VIDEO_BYTES = int(os.getenv("ML_PHOTO_EMBED_VIDEO_MAX_BYTES", str(500 << 20)))
+FULL_ONLY_STORAGE_NAK_DELAY_SECONDS = int(os.getenv("ML_FULL_ONLY_STORAGE_NAK_DELAY_SECONDS", "30"))
 
 # Global semaphore to prevent resource exhaustion under burst load
 _global_semaphore = asyncio.Semaphore(MAX_GLOBAL_CONCURRENT)
@@ -160,6 +162,28 @@ _analytics_semaphores = _BoundedSemaphoreMap(MAX_CONCURRENT_ANALYTICS_PER_USER)
 
 # Global semaphore for photo embedding (CPU/GPU-bound CLIP inference)
 _photo_embed_semaphore = asyncio.Semaphore(MAX_CONCURRENT_PHOTO_EMBED)
+
+
+def _full_only_processing_disabled() -> bool:
+    return os.getenv("SKADIA_DEPLOYMENT_PROFILE", "full").strip() == "core"
+
+
+async def _storage_read_ready_for_full_processing() -> tuple[bool, dict]:
+    storage_readiness = await get_storage_readiness_async()
+    return storage_readiness_ready(storage_readiness), storage_readiness
+
+
+async def _stop_if_full_processing_unavailable(msg, label: str) -> bool:
+    if _full_only_processing_disabled():
+        logger.info("%s: skipped because SKADIA_DEPLOYMENT_PROFILE=core", label)
+        await msg.ack()
+        return True
+    ready, storage_readiness = await _storage_read_ready_for_full_processing()
+    if not ready:
+        logger.warning("%s: storage_read not ready: %s", label, storage_readiness)
+        await msg.nak(delay=FULL_ONLY_STORAGE_NAK_DELAY_SECONDS)
+        return True
+    return False
 
 # Metrics counters
 _metrics = {
@@ -521,6 +545,9 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
         await msg.ack()
         return
 
+    if await _stop_if_full_processing_unavailable(msg, "document processing"):
+        return
+
     doc_id = valid_doc_id
     user_id = valid_user_id
     file_id = valid_file_id
@@ -836,6 +863,9 @@ async def _process_photo_embed(msg, pool, nc) -> None:
     user_id = valid_user_id
     file_id = valid_file_id
 
+    if await _stop_if_full_processing_unavailable(msg, "photo_embed"):
+        return
+
     # Respect per-user setting — skip if user has disabled photo CLIP embedding
     if pool:
         async with pool.acquire() as conn:
@@ -951,6 +981,16 @@ async def _catchup_missing_embeddings(pool, js) -> None:
     """
     while True:
         try:
+            if _full_only_processing_disabled():
+                logger.debug("photo_embed catch-up: skipped because SKADIA_DEPLOYMENT_PROFILE=core")
+                await asyncio.sleep(60)
+                continue
+            ready, storage_readiness = await _storage_read_ready_for_full_processing()
+            if not ready:
+                logger.warning("photo_embed catch-up: storage_read not ready: %s", storage_readiness)
+                await asyncio.sleep(60)
+                continue
+
             async with pool.acquire() as conn:
                 # --- per-user stats (total + missing) ---
                 stats = await conn.fetch(

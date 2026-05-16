@@ -196,6 +196,10 @@ func PlanRouteBetweenTool() *Tool {
 		Permission:  PermissionRead,
 		IsUserOwned: false,
 		ExecuteRead: executePlanRouteBetween,
+		RequiredCapabilities: []string{
+			capabilities.KeyRouting,
+			capabilities.KeyBRouter,
+		},
 	}
 }
 

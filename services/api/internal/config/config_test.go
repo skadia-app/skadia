@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func withBaseEnv(t *testing.T) {
 	t.Helper()
@@ -20,7 +23,13 @@ func withBaseEnv(t *testing.T) {
 	t.Setenv("S3_IMPORTS_PREFIX", "")
 	t.Setenv("S3_ENDPOINT", "")
 	t.Setenv("S3_ACCESS_KEY", "")
+	t.Setenv("S3_ACCESS_KEY_FILE", "")
 	t.Setenv("S3_SECRET_KEY", "")
+	t.Setenv("S3_SECRET_KEY_FILE", "")
+	t.Setenv("GARAGE_ACCESS_KEY", "")
+	t.Setenv("GARAGE_ACCESS_KEY_FILE", "")
+	t.Setenv("GARAGE_SECRET_KEY", "")
+	t.Setenv("GARAGE_SECRET_KEY_FILE", "")
 	t.Setenv("S3_REGION", "")
 	t.Setenv("S3_FORCE_PATH_STYLE", "")
 	t.Setenv("GDPR_EXPORT_MULTIPART_THRESHOLD_BYTES", "")
@@ -176,6 +185,64 @@ func TestLoadRejectsExternalS3WithoutRegion(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load accepted s3-external without S3_REGION")
+	}
+}
+
+func TestLoadRejectsExternalS3WithOnlyGarageCredentials(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("SKADIA_STORAGE_MODE", "s3-external")
+	t.Setenv("STORAGE_BACKEND", "s3")
+	t.Setenv("S3_ENDPOINT", "https://s3.example.invalid")
+	t.Setenv("S3_REGION", "test-region")
+	t.Setenv("GARAGE_ACCESS_KEY", "stale-garage-access")
+	t.Setenv("GARAGE_SECRET_KEY", "stale-garage-secret")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted s3-external with only GARAGE_* credentials")
+	}
+}
+
+func TestLoadExternalS3AcceptsExplicitS3CredentialFiles(t *testing.T) {
+	accessFile := t.TempDir() + "/s3_access_key"
+	secretFile := t.TempDir() + "/s3_secret_key"
+	if err := os.WriteFile(accessFile, []byte("external-access\n"), 0o600); err != nil {
+		t.Fatalf("write access file: %v", err)
+	}
+	if err := os.WriteFile(secretFile, []byte("external-secret\n"), 0o600); err != nil {
+		t.Fatalf("write secret file: %v", err)
+	}
+	withBaseEnv(t)
+	t.Setenv("SKADIA_STORAGE_MODE", "s3-external")
+	t.Setenv("STORAGE_BACKEND", "s3")
+	t.Setenv("S3_ENDPOINT", "https://s3.example.invalid")
+	t.Setenv("S3_REGION", "test-region")
+	t.Setenv("S3_ACCESS_KEY_FILE", accessFile)
+	t.Setenv("S3_SECRET_KEY_FILE", secretFile)
+	t.Setenv("GARAGE_ACCESS_KEY", "stale-garage-access")
+	t.Setenv("GARAGE_SECRET_KEY", "stale-garage-secret")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.S3AccessKey != "external-access" || cfg.S3SecretKey != "external-secret" {
+		t.Fatalf("S3 credentials = %q/%q, want S3 *_FILE values", cfg.S3AccessKey, cfg.S3SecretKey)
+	}
+}
+
+func TestLoadLocalGarageAcceptsGarageCredentialFallback(t *testing.T) {
+	withBaseEnv(t)
+	t.Setenv("SKADIA_STORAGE_MODE", "s3-local-garage")
+	t.Setenv("STORAGE_BACKEND", "s3")
+	t.Setenv("GARAGE_ACCESS_KEY", "garage-access")
+	t.Setenv("GARAGE_SECRET_KEY", "garage-secret")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.S3AccessKey != "garage-access" || cfg.S3SecretKey != "garage-secret" {
+		t.Fatalf("S3 credentials = %q/%q, want GARAGE_* fallback", cfg.S3AccessKey, cfg.S3SecretKey)
 	}
 }
 

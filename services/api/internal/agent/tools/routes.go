@@ -123,6 +123,10 @@ func RouteTools() []*Tool {
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executeListRoutingProfiles,
+			RequiredCapabilities: []string{
+				capabilities.KeyRouting,
+				capabilities.KeyBRouter,
+			},
 		},
 		{
 			Name:        "plan_route",
@@ -131,6 +135,10 @@ func RouteTools() []*Tool {
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executePlanRoute,
+			RequiredCapabilities: []string{
+				capabilities.KeyRouting,
+				capabilities.KeyBRouter,
+			},
 		},
 		{
 			Name:        "search_pois_on_route",
