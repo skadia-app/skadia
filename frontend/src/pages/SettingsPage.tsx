@@ -1139,30 +1139,6 @@ export default function SettingsPage() {
 
       </section>
 
-      {/* Datenimport */}
-      <SettingsSection title="Datenimport" description="Importiere Aktivitäten, Ausrüstung und Gesundheitsdaten aus einem Garmin-, Strava- oder Komoot-Export.">
-        <div className="flex gap-3 flex-wrap">
-          <Link
-            to="/imports?source=garmin"
-            className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
-          >
-            Garmin-Import
-          </Link>
-          <Link
-            to="/imports?source=strava"
-            className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
-          >
-            Strava-Import
-          </Link>
-          <Link
-            to="/imports?source=komoot"
-            className="inline-block px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-DEFAULT hover:bg-accent-600 transition-colors"
-          >
-            Komoot-Import
-          </Link>
-        </div>
-      </SettingsSection>
-
       {/* Dateiablage */}
       <FileSchemaSettings />
 
