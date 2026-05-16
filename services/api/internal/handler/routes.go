@@ -433,13 +433,15 @@ func (h *Handler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clean up route photo files in ShadowFS before the CASCADE delete removes the DB rows.
-	h.cleanupRoutePhotoFiles(r.Context(), id, userID)
+	// Capture route photo file IDs before the CASCADE removes route_photos, but
+	// delete storage only after the route row is gone.
+	routePhotoFileIDs := h.collectRoutePhotoFileIDs(r.Context(), id, userID)
 
 	// DeleteRoute enforces ownership via WHERE id = $1 AND user_id = $2
 	if err := h.DB.DeleteRoute(r.Context(), id, userID); httputil.HandleDBErr(w, r, err, "route not found", "id", id) {
 		return
 	}
+	h.cleanupRoutePhotoFiles(r.Context(), id, userID, routePhotoFileIDs)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -467,13 +469,14 @@ func (h *Handler) DuplicateRoute(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": newID})
 }
 
-// cleanupRoutePhotoFiles deletes ShadowFS (or legacy S3) files for all photos
-// belonging to a route. Must be called BEFORE the route is deleted (CASCADE
-// would drop the route_photos rows and lose the file_id references).
-func (h *Handler) cleanupRoutePhotoFiles(ctx context.Context, routeID, userID string) {
-	if h.ShadowFS != nil {
-		rows, err := h.DB.Pool.Query(ctx,
-			`SELECT file_id
+// collectRoutePhotoFileIDs captures ShadowFS (or legacy S3) file IDs for all
+// route photos before the route delete cascades route_photos away.
+func (h *Handler) collectRoutePhotoFileIDs(ctx context.Context, routeID, userID string) []string {
+	if h.ShadowFS == nil {
+		return nil
+	}
+	rows, err := h.DB.Pool.Query(ctx,
+		`SELECT file_id
 			 FROM (
 			     SELECT file_id::text AS file_id
 			     FROM route_photos
@@ -487,22 +490,32 @@ func (h *Handler) cleanupRoutePhotoFiles(ctx context.Context, routeID, userID st
 			      AND uf.parent_id = rp.id
 			     WHERE rp.route_id = $1 AND rp.user_id = $2
 			 ) files`,
-			routeID, userID,
-		)
-		if err != nil {
-			slog.Warn("route delete: query route_photos file_ids failed", "route_id", routeID, "error", err)
-			return
-		}
-		defer rows.Close()
+		routeID, userID,
+	)
+	if err != nil {
+		slog.Warn("route delete: query route_photos file_ids failed", "route_id", routeID, "error", err)
+		return nil
+	}
+	defer rows.Close()
 
-		for rows.Next() {
-			var fileID string
-			if err := rows.Scan(&fileID); err != nil || fileID == "" {
-				continue
-			}
-			if delErr := h.ShadowFS.Delete(ctx, userID, fileID); delErr != nil {
-				slog.Warn("route delete: ShadowFS.Delete route photo failed", "route_id", routeID, "file_id", fileID, "error", delErr)
-			}
+	var fileIDs []string
+	for rows.Next() {
+		var fileID string
+		if err := rows.Scan(&fileID); err != nil || fileID == "" {
+			continue
+		}
+		fileIDs = append(fileIDs, fileID)
+	}
+	return fileIDs
+}
+
+func (h *Handler) cleanupRoutePhotoFiles(ctx context.Context, routeID, userID string, fileIDs []string) {
+	if h.ShadowFS == nil {
+		return
+	}
+	for _, fileID := range fileIDs {
+		if delErr := h.ShadowFS.Delete(ctx, userID, fileID); delErr != nil {
+			slog.Warn("route delete: ShadowFS.Delete route photo failed", "route_id", routeID, "file_id", fileID, "error", delErr)
 		}
 	}
 }

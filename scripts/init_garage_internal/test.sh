@@ -108,6 +108,36 @@ assert_env_matches "$fresh/.env" "S3_SECRET_KEY" '^[0-9a-f]{64}$'
 assert_contains "compose exec garage /garage bucket allow skadia-exports --read --write --key GK" "$fresh/commands.log"
 rm -rf "$fresh"
 
+file_secrets="$(mktemp -d)"
+mkdir -p "$file_secrets/scripts/lib" "$file_secrets/bin" "$file_secrets/secrets"
+cp "$ROOT/scripts/init-garage.sh" "$file_secrets/scripts/init-garage.sh"
+cp "$ROOT/scripts/lib/secure_temp.sh" "$file_secrets/scripts/lib/secure_temp.sh"
+cp "$ROOT/scripts/lib/secure_env.sh" "$file_secrets/scripts/lib/secure_env.sh"
+chmod +x "$file_secrets/scripts/init-garage.sh" "$file_secrets/scripts/lib/secure_temp.sh" "$file_secrets/scripts/lib/secure_env.sh"
+cp "$tmp/bin/podman" "$file_secrets/bin/podman"
+cp "$tmp/bin/docker" "$file_secrets/bin/docker"
+printf 'file-key\n' > "$file_secrets/secrets/s3_access_key"
+printf 'file-secret\n' > "$file_secrets/secrets/s3_secret_key"
+cat > "$file_secrets/.env" <<ENV
+S3_ACCESS_KEY_FILE=$file_secrets/secrets/s3_access_key
+S3_SECRET_KEY_FILE=$file_secrets/secrets/s3_secret_key
+SKADIA_STORAGE_MODE=s3-local-garage
+STORAGE_BACKEND=s3
+SKADIA_S3_PROVIDER=local-garage
+ENV
+chmod 0600 "$file_secrets/.env"
+
+export PATH="$file_secrets/bin:$PATH"
+export SKADIA_TEST_COMMAND_LOG="$file_secrets/commands.log"
+
+(cd "$file_secrets" && ./scripts/init-garage.sh --start >/tmp/skadia-init-garage-file-secret-test.out)
+
+assert_contains "compose exec garage /garage key import --yes -n skadia-dev-key file-key file-secret" "$file_secrets/commands.log"
+if grep -Eq '^(S3_ACCESS_KEY|S3_SECRET_KEY|GARAGE_ACCESS_KEY|GARAGE_SECRET_KEY)=' "$file_secrets/.env"; then
+    fail "init-garage converted _FILE secrets into inline .env secrets"
+fi
+rm -rf "$file_secrets"
+
 legacy="$(mktemp -d)"
 mkdir -p "$legacy/scripts/lib" "$legacy/bin"
 cp "$ROOT/scripts/init-garage.sh" "$legacy/scripts/init-garage.sh"
@@ -262,5 +292,33 @@ if [ -f "$ambiguous/commands.log" ] && grep -Fq "compose up -d garage" "$ambiguo
     fail "init-garage started Garage for ambiguous storage"
 fi
 rm -rf "$ambiguous"
+
+garage_endpoint_external="$(mktemp -d)"
+mkdir -p "$garage_endpoint_external/scripts/lib" "$garage_endpoint_external/bin"
+cp "$ROOT/scripts/init-garage.sh" "$garage_endpoint_external/scripts/init-garage.sh"
+cp "$ROOT/scripts/lib/secure_temp.sh" "$garage_endpoint_external/scripts/lib/secure_temp.sh"
+cp "$ROOT/scripts/lib/secure_env.sh" "$garage_endpoint_external/scripts/lib/secure_env.sh"
+chmod +x "$garage_endpoint_external/scripts/init-garage.sh" "$garage_endpoint_external/scripts/lib/secure_temp.sh" "$garage_endpoint_external/scripts/lib/secure_env.sh"
+cp "$tmp/bin/podman" "$garage_endpoint_external/bin/podman"
+cp "$tmp/bin/docker" "$garage_endpoint_external/bin/docker"
+cat > "$garage_endpoint_external/.env" <<'ENV'
+SKADIA_STORAGE_MODE=s3-local-garage
+STORAGE_BACKEND=s3
+SKADIA_S3_PROVIDER=local-garage
+GARAGE_ENDPOINT=https://s3.example.invalid
+ENV
+chmod 0600 "$garage_endpoint_external/.env"
+
+export PATH="$garage_endpoint_external/bin:$PATH"
+export SKADIA_TEST_COMMAND_LOG="$garage_endpoint_external/commands.log"
+
+if (cd "$garage_endpoint_external" && ./scripts/init-garage.sh --start >"$garage_endpoint_external/out" 2>&1); then
+    fail "init-garage accepted external GARAGE_ENDPOINT for local Garage mode"
+fi
+grep -Fq "Garage initialization cannot run with external GARAGE_ENDPOINT=https://s3.example.invalid" "$garage_endpoint_external/out" || fail "missing external GARAGE_ENDPOINT rejection"
+if [ -f "$garage_endpoint_external/commands.log" ] && grep -Fq "compose up -d garage" "$garage_endpoint_external/commands.log"; then
+    fail "init-garage started Garage with external GARAGE_ENDPOINT"
+fi
+rm -rf "$garage_endpoint_external"
 
 echo "init-garage internal tests passed"

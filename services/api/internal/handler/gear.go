@@ -1506,7 +1506,20 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 	// Persist the ShadowFS file_id on the row.
 	if storedFileID != "" {
 		if setErr := h.DB.UpdateGearDocumentFileID(r.Context(), result.ID, storedFileID); setErr != nil {
-			slog.Warn(cfg.logPrefix+": failed to set file_id", "doc_id", result.ID, "file_id", storedFileID, "error", setErr)
+			tracker.Error(r.Context(), setErr)
+			if _, delDocErr := h.DB.DeleteGearDocument(r.Context(), result.ID, userID); delDocErr != nil {
+				slog.Warn(cfg.logPrefix+": cleanup document row after file link failure failed",
+					"doc_id", result.ID, "error", delDocErr)
+			}
+			if h.ShadowFS != nil {
+				if delErr := h.ShadowFS.Delete(r.Context(), userID, storedFileID); delErr != nil {
+					slog.Warn(cfg.logPrefix+": shadowfs cleanup after file link failure failed",
+						"file_id", storedFileID, "error", delErr)
+				}
+			}
+			slog.Error(cfg.logPrefix+": failed to set file_id", "doc_id", result.ID, "file_id", storedFileID, "error", setErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
+			return
 		} else {
 			result.FileID = &storedFileID
 		}

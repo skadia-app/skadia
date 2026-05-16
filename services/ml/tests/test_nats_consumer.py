@@ -427,6 +427,20 @@ async def test_photo_embed_catchup_skips_db_scan_when_storage_read_unready(monke
 
 
 @pytest.mark.asyncio
+async def test_full_processing_readiness_uses_active_storage_backend(monkeypatch):
+    async def local_only_storage():
+        return {"local": {"status": "ready"}, "s3": {"status": "disabled"}}
+
+    monkeypatch.setattr(nats_consumer, "get_storage_readiness_async", local_only_storage)
+
+    ready, storage_readiness = await nats_consumer._storage_read_ready_for_full_processing()
+
+    assert ready
+    assert storage_readiness["local"]["status"] == "ready"
+    assert storage_readiness["s3"]["status"] == "disabled"
+
+
+@pytest.mark.asyncio
 async def test_photo_embed_catchup_skips_db_scan_in_core_profile(monkeypatch):
     class _StopLoop(Exception):
         pass

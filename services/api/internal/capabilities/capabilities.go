@@ -160,6 +160,8 @@ type RuntimeProbeState struct {
 	SurfaceEnrich      bool
 	BRouter            bool
 	BadRouter          bool
+	BadRouterTiles     bool
+	BadRouterProfiles  bool
 	DEMCorrection      bool
 	OfflineMap         bool
 	Coverage           bool
@@ -170,17 +172,21 @@ type RuntimeProbeState struct {
 }
 
 type DetectInput struct {
-	DeploymentProfile     string
-	DeploymentProfileSrc  string
-	StorageMode           string
-	StorageBackend        string
-	BRouterURL            string
-	TileDir               string
-	PMTilesDir            string
-	CoverageDir           string
-	ImportAllowedDirs     []string
-	ImportPathEnabledHint bool
-	MLProbeVersion        uint64
+	DeploymentProfile           string
+	DeploymentProfileSrc        string
+	StorageMode                 string
+	StorageBackend              string
+	BRouterURL                  string
+	TileDir                     string
+	PMTilesDir                  string
+	CoverageDir                 string
+	BadRouterProfilesKnown      bool
+	BadRouterProfilesConfigured bool
+	BadRouterProfilesAvailable  bool
+	BadRouterProfilesReason     string
+	ImportAllowedDirs           []string
+	ImportPathEnabledHint       bool
+	MLProbeVersion              uint64
 }
 
 func (in DetectInput) normalized() DetectInput {
@@ -214,6 +220,10 @@ func (in DetectInput) CacheKey() string {
 		"tile_dir=" + in.TileDir,
 		"pmtiles_dir=" + in.PMTilesDir,
 		"coverage_dir=" + in.CoverageDir,
+		"badrouter_profiles_known=" + strconvFormatBool(in.BadRouterProfilesKnown),
+		"badrouter_profiles_configured=" + strconvFormatBool(in.BadRouterProfilesConfigured),
+		"badrouter_profiles_available=" + strconvFormatBool(in.BadRouterProfilesAvailable),
+		"badrouter_profiles_reason=" + in.BadRouterProfilesReason,
 		"ml_probe=" + strconvFormatUint(in.MLProbeVersion),
 	}
 	dirs := append([]string(nil), in.ImportAllowedDirs...)
@@ -238,6 +248,13 @@ func strconvFormatUint(v uint64) string {
 		v /= 10
 	}
 	return string(buf[i:])
+}
+
+func strconvFormatBool(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
 }
 
 func ValidKey(key string) bool {
@@ -343,7 +360,13 @@ func probeRuntime(ctx context.Context, pool *pgxpool.Pool, input DetectInput) Ru
 	if hasFileWithSuffix(input.PMTilesDir, ".pmtiles") {
 		runtime.OfflineMap = true
 	}
-	if hasFileWithSuffix(input.TileDir, ".bin") {
+	if hasBadRouterTileFile(input.TileDir) {
+		runtime.BadRouterTiles = true
+	}
+	if !input.BadRouterProfilesKnown || input.BadRouterProfilesAvailable {
+		runtime.BadRouterProfiles = true
+	}
+	if runtime.BadRouterTiles && runtime.BadRouterProfiles {
 		runtime.BadRouter = true
 	}
 	if input.CoverageDir != "" && hasFileWithSuffixRecursive(input.CoverageDir, ".bin", 2) {
@@ -370,6 +393,30 @@ func hasFileWithSuffix(dir, suffix string) bool {
 	}
 	for _, e := range entries {
 		if strings.HasSuffix(e.Name(), suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasBadRouterTileFile(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasPrefix(name, "tile_") || !strings.HasSuffix(name, ".bin") {
+			continue
+		}
+		info, err := e.Info()
+		if err == nil && info.Size() > 0 {
 			return true
 		}
 	}
@@ -410,6 +457,23 @@ func BuildFromRuntime(input DetectInput, runtime RuntimeProbeState) Capabilities
 	localStorage := input.StorageBackend == "local" && input.StorageMode == "local"
 	core := input.DeploymentProfile == "core"
 	importPathConfigured := localStorage && (input.ImportPathEnabledHint || importPathEnabled(input.ImportAllowedDirs))
+	badRouterTilesAvailable := runtime.BadRouterTiles || runtime.BadRouter
+	badRouterProfilesAvailable := runtime.BadRouterProfiles || runtime.BadRouter
+	badRouterAvailable := runtime.BadRouter || (badRouterTilesAvailable && badRouterProfilesAvailable)
+	badRouterReason := ReasonMissingProfiles
+	if !badRouterProfilesAvailable {
+		badRouterReason = ReasonMissingProfiles
+		if input.BadRouterProfilesReason != "" {
+			badRouterReason = input.BadRouterProfilesReason
+		}
+	} else if !badRouterTilesAvailable {
+		badRouterReason = ReasonMissingArtifacts
+	}
+	routingAvailable := runtime.BRouter || (!core && badRouterAvailable)
+	routingReason := reasonMissing(routingAvailable, ReasonMissingService)
+	if !runtime.BRouter && !core {
+		routingReason = badRouterReason
+	}
 
 	set(KeyDeploymentProfile, true, true, "")
 	set(KeyStorageMode, true, true, "")
@@ -423,7 +487,7 @@ func BuildFromRuntime(input DetectInput, runtime RuntimeProbeState) Capabilities
 	set(KeyGDPRArtifacts, true, true, "")
 	set(KeyBRouter, true, runtime.BRouter, reasonMissing(runtime.BRouter, ReasonMissingService))
 	set(KeyBRouterSegmentDownload, true, true, "")
-	set(KeyRouting, true, runtime.BRouter || (!core && runtime.BadRouter), reasonMissing(runtime.BRouter || (!core && runtime.BadRouter), ReasonMissingService))
+	set(KeyRouting, true, routingAvailable, routingReason)
 	set(KeySegments, true, true, "")
 	set(KeyAIAgent, true, true, "")
 
@@ -445,11 +509,11 @@ func BuildFromRuntime(input DetectInput, runtime RuntimeProbeState) Capabilities
 		available bool
 		reason    string
 	}{
-		{KeyOSMImport, false, ReasonMissingArtifacts},
+		{KeyOSMImport, true, ""},
 		{KeyOSMEnrichment, runtime.SurfaceEnrich, ReasonMissingArtifacts},
-		{KeyBRouterSegmentBuild, false, ReasonMissingArtifacts},
-		{KeyBadRouter, runtime.BadRouter, ReasonMissingProfiles},
-		{KeyRoutingTiles, runtime.BadRouter, ReasonMissingArtifacts},
+		{KeyBRouterSegmentBuild, true, ""},
+		{KeyBadRouter, badRouterAvailable, badRouterReason},
+		{KeyRoutingTiles, badRouterTilesAvailable, ReasonMissingArtifacts},
 		{KeyDEMCorrection, runtime.DEMCorrection, ReasonMissingArtifacts},
 		{KeyCoverage, runtime.Coverage, ReasonMissingArtifacts},
 		{KeyCoverageTiles, runtime.CoverageTiles, ReasonMissingArtifacts},
@@ -463,10 +527,10 @@ func BuildFromRuntime(input DetectInput, runtime RuntimeProbeState) Capabilities
 		{KeySegmentRecompute, runtime.SurfaceEnrich, ReasonMissingArtifacts},
 		{KeySegmentPublish, runtime.SurfaceEnrich, ReasonMissingArtifacts},
 		{KeySegmentOSMLiftImport, runtime.SurfaceEnrich, ReasonMissingArtifacts},
-		{KeySegmentEnrichmentSuggest, runtime.SurfaceEnrich && runtime.BadRouter, ReasonMissingArtifacts},
+		{KeySegmentEnrichmentSuggest, runtime.SurfaceEnrich && badRouterAvailable, ReasonMissingArtifacts},
 		{KeyOSMLiftSnap, runtime.SurfaceEnrich, ReasonMissingArtifacts},
-		{KeyIsochrone, runtime.BadRouter, ReasonMissingArtifacts},
-		{KeyRouteSuggestion, runtime.BadRouter, ReasonMissingArtifacts},
+		{KeyIsochrone, badRouterAvailable, badRouterReason},
+		{KeyRouteSuggestion, badRouterAvailable, badRouterReason},
 		{KeyLocalPOISearch, runtime.SurfaceEnrich, ReasonMissingArtifacts},
 		{KeyMLService, runtime.MLService, ReasonMissingService},
 		{KeyDocumentML, runtime.MLService && mlStorageReadAvailable, mlStorageReadReason},

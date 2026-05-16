@@ -1346,9 +1346,6 @@ func (h *Handler) EnrichmentSuggest(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "seg_type must be one of standard|trail|lap|wintersport|wassersport", r.URL.Path)
 		return
 	}
-	if !h.requireFeature(w, r, capabilities.KeySegmentEnrichmentSuggest) {
-		return
-	}
 
 	// Wintersport / Wassersport short-circuit — no graph/postgis call needed.
 	if req.SegType == "wintersport" || req.SegType == "wassersport" {
@@ -1356,6 +1353,10 @@ func (h *Handler) EnrichmentSuggest(w http.ResponseWriter, r *http.Request) {
 			CoveragePct: 0,
 			Reason:      req.SegType,
 		})
+		return
+	}
+
+	if !h.requireFeatureConfigured(w, r, capabilities.KeySegmentEnrichmentSuggest) {
 		return
 	}
 	// Build orb.Point slice (GeoJSON convention: [lng, lat]).

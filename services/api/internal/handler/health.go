@@ -76,25 +76,29 @@ type Handler struct {
 }
 
 type HandlerConfig struct {
-	DeploymentProfile       string
-	DeploymentProfileSource string
-	StorageMode             string
-	LiteLLMConfigPath       string
-	LiteLLMInternalURL      string
-	LLMEncryptionKey        string
-	LLMBaseURL              string
-	LLMAPIKey               string
-	LLMModel                string
-	LLMContextWindow        int
-	MLServiceURL            string        // e.g. http://ml:8000
-	MLCallbackSecret        string        // ML_CALLBACK_SECRET env var
-	MLLLMBrokerToken        string        // ML_LLM_BROKER_TOKEN or ML_CALLBACK_SECRET fallback
-	BRouterURL              string        // e.g. http://brouter:17777
-	KomootEncryptionKey     string        // 32-byte hex for AES-256-GCM Komoot password encryption
-	OAuthEncryptionKey      string        // 32-byte hex for OAuth token encryption
-	RoutingGraphPath        string        // path to binary graph file
-	RoutingTimeout          time.Duration // request timeout for route calculations (default 30s)
-	MaxUploadSize           int64         // maximum upload size in bytes
+	DeploymentProfile           string
+	DeploymentProfileSource     string
+	StorageMode                 string
+	LiteLLMConfigPath           string
+	LiteLLMInternalURL          string
+	LLMEncryptionKey            string
+	LLMBaseURL                  string
+	LLMAPIKey                   string
+	LLMModel                    string
+	LLMContextWindow            int
+	MLServiceURL                string        // e.g. http://ml:8000
+	MLCallbackSecret            string        // ML_CALLBACK_SECRET env var
+	MLLLMBrokerToken            string        // ML_LLM_BROKER_TOKEN or ML_CALLBACK_SECRET fallback
+	BRouterURL                  string        // e.g. http://brouter:17777
+	KomootEncryptionKey         string        // 32-byte hex for AES-256-GCM Komoot password encryption
+	OAuthEncryptionKey          string        // 32-byte hex for OAuth token encryption
+	RoutingGraphPath            string        // path to binary graph file
+	RoutingTimeout              time.Duration // request timeout for route calculations (default 30s)
+	BadRouterProfilesKnown      bool
+	BadRouterProfilesConfigured bool
+	BadRouterProfilesAvailable  bool
+	BadRouterProfilesReason     string
+	MaxUploadSize               int64 // maximum upload size in bytes
 	// Data directories
 	OSMDataDir         string // directory for OSM PBF files (default /data/osm)
 	DEMDataDir         string // directory for DEM/HGT files (default /data/dem)

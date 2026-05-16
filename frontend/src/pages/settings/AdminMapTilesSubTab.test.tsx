@@ -95,7 +95,7 @@ describe('AdminMapTilesSubTab capability gates', () => {
     expect(getOSMSchedule).not.toHaveBeenCalled()
   })
 
-  it('shows configured-but-unavailable artifact sections without active probes or operations', async () => {
+  it('keeps configured bootstrap operations visible when runtime artifacts are unavailable', async () => {
     useCapabilities.mockReturnValue({
       isLoading: false,
       data: {
@@ -114,11 +114,11 @@ describe('AdminMapTilesSubTab capability gates', () => {
 
     expect(await screen.findByText('OSM-Geodaten')).toBeInTheDocument()
     expect(screen.getAllByText('Nicht verfügbar').length).toBeGreaterThan(0)
-    expect(screen.queryByText('DEMSettings')).not.toBeInTheDocument()
+    expect(screen.getByText('DEMSettings')).toBeInTheDocument()
     expect(screen.queryByText('OfflineMapSettings')).not.toBeInTheDocument()
     expect(screen.queryByText('Erneut prüfen')).not.toBeInTheDocument()
     expect(fetch).not.toHaveBeenCalled()
-    expect(screen.queryByText('Import-Assistent')).not.toBeInTheDocument()
+    expect(screen.getByText('Import-Assistent')).toBeInTheDocument()
     expect(screen.queryByText('Lift-Segmente importieren')).not.toBeInTheDocument()
   })
 })

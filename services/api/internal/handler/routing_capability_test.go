@@ -158,6 +158,46 @@ func TestCoreSystemLayerKeysExposeAvailabilityAndPatchBlocksFullOnlyKeys(t *test
 	assertFeatureUnavailable(t, patchRec)
 }
 
+func TestFullMissingArtifactsSystemLayerKeysExposeUnavailableAndPatchBlocks(t *testing.T) {
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full"}}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system-layers/keys", nil)
+	rec := httptest.NewRecorder()
+	h.GetSystemLayerKeys(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	var layers []struct {
+		model.SystemLayerDescriptor
+		Available bool   `json:"available"`
+		Reason    string `json:"reason"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &layers); err != nil {
+		t.Fatalf("decode system layers: %v", err)
+	}
+	for _, layer := range layers {
+		if layer.Key == "coverage_forest" {
+			if layer.Available || layer.Reason != capabilities.ReasonMissingArtifacts {
+				t.Fatalf("coverage_forest = %#v, want unavailable missing_artifacts", layer)
+			}
+		}
+	}
+
+	body := bytes.NewReader([]byte(`{"enabled":true}`))
+	patchReq := withRouteParam(httptest.NewRequest(http.MethodPatch, "/api/v1/admin/system-layer-visibility/coverage_forest", body), "key", "coverage_forest")
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchReq = patchReq.WithContext(context.WithValue(patchReq.Context(), middleware.UserIDKey, "user-test"))
+	patchRec := httptest.NewRecorder()
+	h.PatchSystemLayerVisibility(patchRec, patchReq)
+	if patchRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("patch status = %d, want 503; body: %s", patchRec.Code, patchRec.Body.String())
+	}
+	if !strings.Contains(patchRec.Body.String(), capabilities.ReasonMissingArtifacts) {
+		t.Fatalf("patch response missing missing_artifacts: %s", patchRec.Body.String())
+	}
+}
+
 func withRouteParam(req *http.Request, key, value string) *http.Request {
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add(key, value)
@@ -189,8 +229,13 @@ func TestCoreRoutingStatusRedactsBadRouterArtifacts(t *testing.T) {
 	}
 }
 
-func TestFullMissingBadRouterArtifactsReturnsFeatureUnavailable(t *testing.T) {
-	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full"}}
+func TestFullMissingBadRouterReadinessReturnsFeatureUnavailable(t *testing.T) {
+	h := &Handler{Config: &HandlerConfig{
+		DeploymentProfile:          "full",
+		BadRouterProfilesKnown:     true,
+		BadRouterProfilesReason:    capabilities.ReasonMissingProfiles,
+		BadRouterProfilesAvailable: false,
+	}}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/routing/route-internal", strings.NewReader(`{"from":[47,11],"to":[47.1,11.1]}`))
 	req = req.WithContext(context.WithValue(req.Context(), middleware.UserIDKey, "user-test"))
 	rec := httptest.NewRecorder()
@@ -200,7 +245,7 @@ func TestFullMissingBadRouterArtifactsReturnsFeatureUnavailable(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503; body: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"code":"feature_unavailable"`) || !strings.Contains(rec.Body.String(), "missing_artifacts") {
-		t.Fatalf("response missing feature_unavailable/missing_artifacts: %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"code":"feature_unavailable"`) || !strings.Contains(rec.Body.String(), capabilities.ReasonMissingProfiles) {
+		t.Fatalf("response missing feature_unavailable/missing_profiles: %s", rec.Body.String())
 	}
 }

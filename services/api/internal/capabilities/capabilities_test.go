@@ -105,6 +105,38 @@ func TestBuildFeatureStatesFullReportsMissingArtifacts(t *testing.T) {
 	}
 }
 
+func TestBuildFeatureStatesFullRequiresBadRouterTilesAndProfiles(t *testing.T) {
+	caps := BuildFromRuntime(DetectInput{
+		DeploymentProfile:    "full",
+		DeploymentProfileSrc: "env",
+		StorageMode:          "local",
+		StorageBackend:       "local",
+	}, RuntimeProbeState{
+		BadRouterTiles: true,
+	})
+
+	assertFeature(t, caps, KeyRoutingTiles, true, true, "")
+	assertFeature(t, caps, KeyBadRouter, true, false, ReasonMissingProfiles)
+	assertFeature(t, caps, KeyRouting, true, false, ReasonMissingProfiles)
+	if caps.BadRouter || caps.Routing {
+		t.Fatalf("legacy booleans should not treat tiles-only BadRouter as available: %#v", caps)
+	}
+}
+
+func TestBuildFeatureStatesFullKeepsBootstrapCapabilitiesAvailableWithoutArtifacts(t *testing.T) {
+	caps := BuildFromRuntime(DetectInput{
+		DeploymentProfile:    "full",
+		DeploymentProfileSrc: "env",
+		StorageMode:          "local",
+		StorageBackend:       "local",
+	}, RuntimeProbeState{})
+
+	assertFeature(t, caps, KeyOSMImport, true, true, "")
+	assertFeature(t, caps, KeyBRouterSegmentBuild, true, true, "")
+	assertFeature(t, caps, KeyCoverage, true, false, ReasonMissingArtifacts)
+	assertFeature(t, caps, KeyRoutingTiles, true, false, ReasonMissingArtifacts)
+}
+
 func TestBuildFeatureStatesMLRequiresStorageReadAccess(t *testing.T) {
 	caps := BuildFromRuntime(DetectInput{
 		DeploymentProfile:    "full",
@@ -134,6 +166,29 @@ func TestBuildFeatureStatesMLRequiresStorageReadAccess(t *testing.T) {
 	assertFeature(t, caps, KeyPhotoEmbeddingStorageAccess, true, true, "")
 	assertFeature(t, caps, KeyDocumentML, true, true, "")
 	assertFeature(t, caps, KeyPhotoEmbeddings, true, true, "")
+}
+
+func TestDetectRuntimeBadRouterIgnoresNonTileBinArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "landmark_checkpoint_S0_L00.bin"), []byte("fixture"), 0o644); err != nil {
+		t.Fatalf("write landmark checkpoint fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "random.bin"), []byte("fixture"), 0o644); err != nil {
+		t.Fatalf("write random bin fixture: %v", err)
+	}
+
+	runtime := probeRuntime(t.Context(), nil, DetectInput{TileDir: dir})
+	if runtime.BadRouterTiles {
+		t.Fatalf("runtime.BadRouterTiles = true for non-tile .bin artifacts: %#v", runtime)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "tile_48_11.bin"), []byte("fixture"), 0o644); err != nil {
+		t.Fatalf("write tile fixture: %v", err)
+	}
+	runtime = probeRuntime(t.Context(), nil, DetectInput{TileDir: dir})
+	if !runtime.BadRouterTiles {
+		t.Fatalf("runtime.BadRouterTiles = false with tile_*.bin fixture: %#v", runtime)
+	}
 }
 
 func TestDetectRuntimeFindsCoverageBinArtifacts(t *testing.T) {

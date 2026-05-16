@@ -143,6 +143,32 @@ def get_local_shadowfs_readiness() -> dict:
     return {"status": "ready", "base_path": str(path)}
 
 
+def _active_storage_backend() -> str:
+    storage_mode = os.getenv("SKADIA_STORAGE_MODE", "").strip()
+    if storage_mode == "local":
+        return "local"
+    if storage_mode.startswith("s3"):
+        return "s3"
+    backend = os.getenv("STORAGE_BACKEND", "").strip()
+    if backend in {"local", "s3"}:
+        return backend
+    return "local"
+
+
+def _s3_storage_buckets() -> list[str]:
+    default_bucket = os.getenv("S3_BUCKET", "skadia-originals").strip() or "skadia-originals"
+    buckets = [
+        default_bucket,
+        os.getenv("S3_BUCKET_ACTIVITY", "").strip() or default_bucket,
+        os.getenv("S3_BUCKET_MEDIA", "").strip() or default_bucket,
+    ]
+    unique: list[str] = []
+    for bucket in buckets:
+        if bucket and bucket not in unique:
+            unique.append(bucket)
+    return unique
+
+
 def get_s3_storage_readiness() -> dict:
     storage_mode = os.getenv("SKADIA_STORAGE_MODE", "").strip()
     provider = os.getenv("SKADIA_S3_PROVIDER", "").strip()
@@ -165,9 +191,9 @@ def get_s3_storage_readiness() -> dict:
         return {"status": "degraded", "error": str(e)}
     if not kwargs.get("aws_access_key_id") or not kwargs.get("aws_secret_access_key"):
         return {"status": "degraded", "error": "credentials_missing"}
-    bucket = os.getenv("S3_BUCKET", "skadia-originals").strip() or "skadia-originals"
     try:
-        _probe_s3_bucket_readable(kwargs, bucket)
+        for bucket in _s3_storage_buckets():
+            _probe_s3_bucket_readable(kwargs, bucket)
     except Exception as e:
         return {"status": "degraded", "error": "s3_read_probe_failed", "detail": str(e)}
     return {"status": "ready"}
@@ -189,7 +215,14 @@ def _probe_s3_bucket_readable(kwargs: dict, bucket: str) -> None:
     else:
         probe_kwargs["config"] = probe_config
     client = boto3.client("s3", **probe_kwargs)
-    client.list_objects_v2(Bucket=bucket, MaxKeys=1)
+    read_probe_key = os.getenv("ML_S3_READ_PROBE_KEY", "").strip()
+    if read_probe_key:
+        response = client.get_object(Bucket=bucket, Key=read_probe_key, Range="bytes=0-0")
+        body = response.get("Body")
+        if body is not None and hasattr(body, "close"):
+            body.close()
+        return
+    client.head_bucket(Bucket=bucket)
 
 
 def storage_readiness_ready(storage_readiness: dict) -> bool:
@@ -210,16 +243,18 @@ def storage_readiness_degraded(storage_readiness: dict) -> bool:
 
 
 def get_storage_readiness() -> dict:
+    backend = _active_storage_backend()
     return {
-        "local": get_local_shadowfs_readiness(),
-        "s3": get_s3_storage_readiness(),
+        "local": get_local_shadowfs_readiness() if backend == "local" else {"status": "disabled"},
+        "s3": get_s3_storage_readiness() if backend == "s3" else {"status": "disabled"},
     }
 
 
 async def get_storage_readiness_async() -> dict:
+    backend = _active_storage_backend()
     return {
-        "local": get_local_shadowfs_readiness(),
-        "s3": await asyncio.to_thread(get_s3_storage_readiness),
+        "local": get_local_shadowfs_readiness() if backend == "local" else {"status": "disabled"},
+        "s3": await asyncio.to_thread(get_s3_storage_readiness) if backend == "s3" else {"status": "disabled"},
     }
 
 

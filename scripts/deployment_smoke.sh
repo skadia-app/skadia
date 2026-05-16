@@ -109,6 +109,34 @@ case "$data_root_canonical" in
 esac
 DATA_ROOT="$data_root_canonical"
 
+data_host_env_names=(
+    SHADOW_FS_HOST_PATH
+    HOTFOLDER_HOST_PATH
+    IMPORT_DATA_HOST_PATH
+    OSM_HOST_PATH
+    ROUTING_HOST_PATH
+    BROUTER_SEGMENTS_HOST_PATH
+    BROUTER_PROFILES_HOST_PATH
+    DEM_HOST_PATH
+    LIBRARY_HOST_PATH
+    EXPORTS_HOST_PATH
+    IMPORTS_HOST_PATH
+    BADROUTER_CONFIG_HOST_PATH
+    TILES_HOST_PATH
+    OLLAMA_HOST_PATH
+    MODELS_HOST_PATH
+    ML_HOST_PATH
+)
+
+without_data_host_env() {
+    local unset_args=()
+    local name
+    for name in "${data_host_env_names[@]}"; do
+        unset_args+=("-u" "$name")
+    done
+    env "${unset_args[@]}" "$@"
+}
+
 git_dir="$(cd "$(git rev-parse --git-dir)" && pwd -P)"
 git_common="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)"
 if [ "$git_dir" != "$git_common" ] && [ "${SKADIA_ALLOW_WORKTREE_SMOKE:-false}" != "true" ]; then
@@ -117,7 +145,7 @@ if [ "$git_dir" != "$git_common" ] && [ "${SKADIA_ALLOW_WORKTREE_SMOKE:-false}" 
     exit 1
 fi
 
-if ! command -v "$RUNTIME" >/dev/null 2>&1 || ! "$RUNTIME" compose version >/dev/null 2>&1; then
+if ! command -v "$RUNTIME" >/dev/null 2>&1 || ! without_data_host_env "$RUNTIME" compose version >/dev/null 2>&1; then
     echo "ERROR: '$RUNTIME compose' is not available." >&2
     exit 1
 fi
@@ -154,6 +182,48 @@ printf 'skadia deployment smoke root\n' > "$DATA_ROOT/.skadia-smoke-root"
 marker="$DATA_ROOT/.skadia-smoke-before"
 printf 'skadia deployment smoke\n' > "$marker"
 
+smoke_host_paths=(
+    "$DATA_ROOT/shadow-fs"
+    "$DATA_ROOT/hotfolder"
+    "$DATA_ROOT/import-data"
+    "$DATA_ROOT/osm"
+    "$DATA_ROOT/routing"
+    "$DATA_ROOT/brouter/segments"
+    "$DATA_ROOT/brouter/profiles"
+    "$DATA_ROOT/dem"
+    "$DATA_ROOT/library"
+    "$DATA_ROOT/exports"
+    "$DATA_ROOT/imports"
+    "$DATA_ROOT/config/badrouter"
+    "$DATA_ROOT/tiles"
+    "$DATA_ROOT/ollama"
+    "$DATA_ROOT/models"
+    "$DATA_ROOT/ml"
+)
+mkdir -p "${smoke_host_paths[@]}"
+
+smoke_env=(
+    "COMPOSE_PROJECT_NAME=$project_name"
+    "SKADIA_DATA_ROOT=$DATA_ROOT"
+    "COMPOSE_FILE=docker-compose.yml"
+    "SHADOW_FS_HOST_PATH=$DATA_ROOT/shadow-fs"
+    "HOTFOLDER_HOST_PATH=$DATA_ROOT/hotfolder"
+    "IMPORT_DATA_HOST_PATH=$DATA_ROOT/import-data"
+    "OSM_HOST_PATH=$DATA_ROOT/osm"
+    "ROUTING_HOST_PATH=$DATA_ROOT/routing"
+    "BROUTER_SEGMENTS_HOST_PATH=$DATA_ROOT/brouter/segments"
+    "BROUTER_PROFILES_HOST_PATH=$DATA_ROOT/brouter/profiles"
+    "DEM_HOST_PATH=$DATA_ROOT/dem"
+    "LIBRARY_HOST_PATH=$DATA_ROOT/library"
+    "EXPORTS_HOST_PATH=$DATA_ROOT/exports"
+    "IMPORTS_HOST_PATH=$DATA_ROOT/imports"
+    "BADROUTER_CONFIG_HOST_PATH=$DATA_ROOT/config/badrouter"
+    "TILES_HOST_PATH=$DATA_ROOT/tiles"
+    "OLLAMA_HOST_PATH=$DATA_ROOT/ollama"
+    "MODELS_HOST_PATH=$DATA_ROOT/models"
+    "ML_HOST_PATH=$DATA_ROOT/ml"
+)
+
 compose_args=(compose)
 if ! $NO_BUILD; then
     compose_args+=(up -d --build --remove-orphans)
@@ -162,13 +232,13 @@ else
 fi
 
 smoke_compose() {
-    COMPOSE_PROJECT_NAME="$project_name" SKADIA_DATA_ROOT="$DATA_ROOT" COMPOSE_FILE=docker-compose.yml "$RUNTIME" compose "$@"
+    env "${smoke_env[@]}" "$RUNTIME" compose "$@"
 }
 
 guard_smoke_project_containers() {
     local names
     local name
-    names="$("$RUNTIME" ps -a --filter "label=com.docker.compose.project=$project_name" --format '{{.Names}}' 2>/dev/null || true)"
+    names="$(without_data_host_env "$RUNTIME" ps -a --filter "label=com.docker.compose.project=$project_name" --format '{{.Names}}' 2>/dev/null || true)"
     while IFS= read -r name; do
         [ -n "$name" ] || continue
         case "$name" in
@@ -222,8 +292,8 @@ check_ready_endpoints() {
     fi
     base="$(api_base_url || true)"
     if [ -z "$base" ]; then
-        echo "WARN: api:8080 is not published by compose; skipping HTTP readiness checks." >&2
-        return 0
+        echo "ERROR: api:8080 is not published by compose; cannot verify deployment smoke readiness." >&2
+        return 1
     fi
     wait_for_endpoint "$base/readyz"
     wait_for_endpoint "$base/api/v1/capabilities"
@@ -238,7 +308,7 @@ cleanup_smoke() {
 }
 trap cleanup_smoke EXIT
 
-COMPOSE_PROJECT_NAME="$project_name" SKADIA_DATA_ROOT="$DATA_ROOT" COMPOSE_FILE=docker-compose.yml "$RUNTIME" "${compose_args[@]}"
+env "${smoke_env[@]}" "$RUNTIME" "${compose_args[@]}"
 SMOKE_STARTED=true
 check_ready_endpoints
 cleanup_smoke

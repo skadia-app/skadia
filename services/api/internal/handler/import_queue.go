@@ -112,16 +112,22 @@ func (h *Handler) DeleteImportQueueItem(w http.ResponseWriter, r *http.Request) 
 	}
 	id := chi.URLParam(r, "id")
 
-	// Clean up ShadowFS files stored in metadata before deleting the queue item.
+	// Capture ShadowFS file IDs before deleting the queue item; cleanup only
+	// runs after the DB row is gone so a failed DB delete cannot leave a row
+	// pointing at removed objects.
+	var fileIDs []struct {
+		metaKey string
+		fileID  string
+	}
 	if h.ShadowFS != nil {
 		item, itemErr := h.DB.GetImportQueueItem(r.Context(), id, userID)
 		if itemErr == nil && item != nil && item.Metadata != nil {
 			for _, metaKey := range []string{"file_store_id", "file_store_id_thumb"} {
 				if fileID, ok := item.Metadata[metaKey].(string); ok && fileID != "" {
-					if delErr := h.ShadowFS.Delete(r.Context(), userID, fileID); delErr != nil {
-						slog.Warn("delete import queue item: shadowfs delete failed",
-							"queue_id", id, "meta_key", metaKey, "file_id", fileID, "error", delErr)
-					}
+					fileIDs = append(fileIDs, struct {
+						metaKey string
+						fileID  string
+					}{metaKey: metaKey, fileID: fileID})
 				}
 			}
 		}
@@ -131,6 +137,12 @@ func (h *Handler) DeleteImportQueueItem(w http.ResponseWriter, r *http.Request) 
 		slog.Error("delete import queue item failed", "id", id, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to delete queue item", r.URL.Path)
 		return
+	}
+	for _, entry := range fileIDs {
+		if delErr := h.ShadowFS.Delete(r.Context(), userID, entry.fileID); delErr != nil {
+			slog.Warn("delete import queue item: shadowfs delete failed",
+				"queue_id", id, "meta_key", entry.metaKey, "file_id", entry.fileID, "error", delErr)
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
