@@ -177,6 +177,18 @@ public_tag_diff='diff --git a/docs/documentation/user/features/import.md b/docs/
 @@ -1,1 +1,2 @@
 +Do not expose #home in public examples.'
 
+public_parenthesized_tag_diff='diff --git a/docs/documentation/user/features/import.md b/docs/documentation/user/features/import.md
+--- a/docs/documentation/user/features/import.md
++++ b/docs/documentation/user/features/import.md
+@@ -1,1 +1,2 @@
++Do not expose (#home) in public examples.'
+
+public_backtick_tag_diff='diff --git a/docs/documentation/user/features/import.md b/docs/documentation/user/features/import.md
+--- a/docs/documentation/user/features/import.md
++++ b/docs/documentation/user/features/import.md
+@@ -1,1 +1,2 @@
++Do not expose `#home` in public examples.'
+
 agents_coordinate_diff='diff --git a/AGENTS.md b/AGENTS.md
 --- a/AGENTS.md
 +++ b/AGENTS.md
@@ -242,6 +254,8 @@ assert_passes "$public_doc_created_provenance_metadata_diff"
 assert_blocks_with "$public_doc_wrong_metadata_agent_diff" "agent/model name in public text"
 assert_blocks_with "$public_doc_body_agent_diff" "agent/model name in public text"
 assert_blocks_with "$public_tag_diff" "private tag marker in public text"
+assert_blocks_with "$public_parenthesized_tag_diff" "private tag marker in public text"
+assert_blocks_with "$public_backtick_tag_diff" "private tag marker in public text"
 assert_blocks_with "$agents_coordinate_diff" "coordinate in public/private text"
 assert_blocks_with "$subtree_agents_tag_diff" "private tag marker in public/private text"
 assert_blocks_with "$legacy_private_coordinate_diff" "coordinate in public/private text"
