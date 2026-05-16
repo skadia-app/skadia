@@ -115,6 +115,10 @@ if (( latest_base == 0 )); then
   echo "ERROR: cannot determine latest migration number on $BASE_REF" >&2
   exit 1
 fi
+if (( latest_base >= 900000 )); then
+  echo "ERROR: base ref '$BASE_REF' contains provisional migration number $(format_num "$latest_base"); finalize that base migration before assigning branch migrations" >&2
+  exit 1
+fi
 
 errors=()
 check_existing_migration_change() {
