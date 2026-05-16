@@ -1041,18 +1041,20 @@ export default function SettingsPage() {
 
       {/* Erscheinungsbild */}
       <SettingsSection title="Erscheinungsbild" description="Wähle eine Akzentfarbe für die Benutzeroberfläche.">
-        <ColorPicker
-          value={accent.shade500}
-          onChange={hex => setAccent(deriveAccentEntry(hex))}
-        />
-        {accent.shade500.toLowerCase() !== DEFAULT_ACCENT_COLOR.toLowerCase() && (
-          <button
-            onClick={() => setAccent(ACCENT_PALETTE[0])}
-            className="text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 underline cursor-pointer transition-colors"
-          >
-            Auf Standard zurücksetzen
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <ColorPicker
+            value={accent.shade500}
+            onChange={hex => setAccent(deriveAccentEntry(hex))}
+          />
+          {accent.shade500.toLowerCase() !== DEFAULT_ACCENT_COLOR.toLowerCase() && (
+            <button
+              onClick={() => setAccent(ACCENT_PALETTE[0])}
+              className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-sm text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 cursor-pointer transition-colors"
+            >
+              Auf Standard zurücksetzen
+            </button>
+          )}
+        </div>
       </SettingsSection>
 
       <PhotoPreviewSection />
