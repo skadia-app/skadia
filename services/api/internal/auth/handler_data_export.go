@@ -25,6 +25,7 @@ import (
 	"github.com/skadia-app/skadia/services/api/internal/gdprartifacts"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
+	"github.com/skadia-app/skadia/services/api/internal/migrate"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -385,8 +386,8 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	//     baseline we will compare against inside the TX (Finding #7 defense).
 	//     On error we use 0 — a mismatch will then always trigger on any non-zero
 	//     in-TX version, which is the conservative/safe direction.
-	var preIntrospectMigration int
-	if err := h.DB.Pool.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&preIntrospectMigration); err != nil {
+	preIntrospectMigration, err := migrate.CurrentVersion(ctx, h.DB.Pool)
+	if err != nil {
 		slog.Warn("gdpr export: could not read pre-introspect schema version, defaulting to 0", "error", err)
 		preIntrospectMigration = 0
 	}
@@ -407,8 +408,8 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	defer tx.Rollback(ctx)
 
 	// 4. Read schema version from the TX snapshot so it matches the exported data.
-	var schemaMigration int
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&schemaMigration); err != nil {
+	schemaMigration, err := migrate.ReadSchemaVersion(ctx, tx)
+	if err != nil {
 		return fmt.Errorf("read schema_migrations: %w", err)
 	}
 
@@ -421,9 +422,10 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	if schemaMigration != preIntrospectMigration {
 		return fmt.Errorf("schema migration ran during introspection (pre=%d, in_tx=%d) — please retry", preIntrospectMigration, schemaMigration)
 	}
+	schemaMigrationInt := int(schemaMigration)
 
 	if h.shouldUseMultipartExport(ctx, userID) {
-		return h.executeMultipartExportJobOnce(ctx, jobID, userID, tx, schemaMigration, colCache, specs, healthTables, introspectErrs)
+		return h.executeMultipartExportJobOnce(ctx, jobID, userID, tx, schemaMigrationInt, colCache, specs, healthTables, introspectErrs)
 	}
 
 	// 5. Create artifact-backed ZIP writer.
@@ -492,7 +494,7 @@ func (h *Handler) executeExportJobOnce(ctx context.Context, jobID, userID string
 	manifest := map[string]any{
 		"format_version":   1,
 		"skadia_version":  skadiaExportVersion,
-		"schema_migration": schemaMigration,
+		"schema_migration": schemaMigrationInt,
 		"exported_at":      time.Now().Format(time.RFC3339),
 		"user_id":          userID,
 		"entity_counts":    entityCounts,
