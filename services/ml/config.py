@@ -2,6 +2,7 @@
 
 Reads from environment variables.
 """
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -58,6 +59,7 @@ HF_HOME = os.getenv("HF_HOME", "/data/models/huggingface")
 
 ML_CALLBACK_URL = os.getenv("ML_CALLBACK_URL", "")
 ML_CALLBACK_SECRET = _ML_CALLBACK_SECRET
+S3_READ_PROBE_TIMEOUT_SECONDS = float(os.getenv("ML_S3_READ_PROBE_TIMEOUT_SECONDS", "1.0"))
 
 
 class LLMRoleNotConfigured(Exception):
@@ -163,13 +165,61 @@ def get_s3_storage_readiness() -> dict:
         return {"status": "degraded", "error": str(e)}
     if not kwargs.get("aws_access_key_id") or not kwargs.get("aws_secret_access_key"):
         return {"status": "degraded", "error": "credentials_missing"}
+    bucket = os.getenv("S3_BUCKET", "skadia-originals").strip() or "skadia-originals"
+    try:
+        _probe_s3_bucket_readable(kwargs, bucket)
+    except Exception as e:
+        return {"status": "degraded", "error": "s3_read_probe_failed", "detail": str(e)}
     return {"status": "ready"}
+
+
+def _probe_s3_bucket_readable(kwargs: dict, bucket: str) -> None:
+    import boto3
+    from botocore.config import Config
+
+    probe_kwargs = dict(kwargs)
+    probe_config = Config(
+        connect_timeout=S3_READ_PROBE_TIMEOUT_SECONDS,
+        read_timeout=S3_READ_PROBE_TIMEOUT_SECONDS,
+        retries={"max_attempts": 1, "mode": "standard"},
+    )
+    existing_config = probe_kwargs.get("config")
+    if existing_config is not None and hasattr(existing_config, "merge"):
+        probe_kwargs["config"] = existing_config.merge(probe_config)
+    else:
+        probe_kwargs["config"] = probe_config
+    client = boto3.client("s3", **probe_kwargs)
+    client.list_objects_v2(Bucket=bucket, MaxKeys=1)
+
+
+def storage_readiness_ready(storage_readiness: dict) -> bool:
+    statuses = [
+        entry.get("status")
+        for entry in storage_readiness.values()
+        if isinstance(entry, dict)
+    ]
+    return "degraded" not in statuses and "ready" in statuses
+
+
+def storage_readiness_degraded(storage_readiness: dict) -> bool:
+    return any(
+        entry.get("status") == "degraded"
+        for entry in storage_readiness.values()
+        if isinstance(entry, dict)
+    )
 
 
 def get_storage_readiness() -> dict:
     return {
         "local": get_local_shadowfs_readiness(),
         "s3": get_s3_storage_readiness(),
+    }
+
+
+async def get_storage_readiness_async() -> dict:
+    return {
+        "local": get_local_shadowfs_readiness(),
+        "s3": await asyncio.to_thread(get_s3_storage_readiness),
     }
 
 

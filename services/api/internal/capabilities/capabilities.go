@@ -331,7 +331,11 @@ func probeRuntime(ctx context.Context, pool *pgxpool.Pool, input DetectInput) Ru
 		resp, err := client.Get(input.BRouterURL)
 		if err == nil {
 			resp.Body.Close()
-			runtime.BRouter = true
+			if brouterProbeStatusUsable(resp.StatusCode) {
+				runtime.BRouter = true
+			} else {
+				slog.Warn("BRouter probe returned unusable status", "status", resp.StatusCode)
+			}
 		} else {
 			slog.Warn("BRouter not reachable", "error", err)
 		}
@@ -350,6 +354,10 @@ func probeRuntime(ctx context.Context, pool *pgxpool.Pool, input DetectInput) Ru
 	runtime.MLLocalStorageRead = MLLocalStorageReadAvailable()
 	runtime.MLS3StorageRead = MLS3StorageReadAvailable()
 	return runtime
+}
+
+func brouterProbeStatusUsable(status int) bool {
+	return status >= http.StatusOK && status < http.StatusMultipleChoices
 }
 
 func hasFileWithSuffix(dir, suffix string) bool {

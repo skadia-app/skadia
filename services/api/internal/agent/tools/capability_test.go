@@ -73,6 +73,33 @@ func TestToolRuntimeRejectsMissingCapabilityExecution(t *testing.T) {
 	}
 }
 
+func TestRoutePreviewToolsRequireRoutingAndBRouterCapabilities(t *testing.T) {
+	reg := NewRegistry()
+	RegisterRouteTools(reg)
+	runtime := NewAgentToolRuntime(reg, &Deps{CapabilityProvider: routingUnavailableCapabilitiesForTest}, nil)
+
+	defs := runtime.Definitions(nil, nil)
+	for _, name := range []string{"plan_route", "plan_route_between"} {
+		if hasLLMTool(defs, name) {
+			t.Fatalf("%s reached definitions without available routing/BRouter: %#v", name, defs)
+		}
+		_, err := runtime.Execute(context.Background(), agent.ToolRuntimeRequest{
+			UserID:     "user-1",
+			SessionID:  "session-1",
+			ToolCallID: "call-" + name,
+			ToolName:   name,
+			Args:       json.RawMessage(`{}`),
+		}, nil)
+		var featureErr FeatureUnavailableError
+		if !errors.As(err, &featureErr) {
+			t.Fatalf("Execute(%s) err = %v, want FeatureUnavailableError", name, err)
+		}
+		if featureErr.Capability != capabilities.KeyRouting && featureErr.Capability != capabilities.KeyBRouter {
+			t.Fatalf("Execute(%s) unavailable capability = %q, want routing or brouter", name, featureErr.Capability)
+		}
+	}
+}
+
 func TestToolExportIncludesRequiredCapabilitiesMetadata(t *testing.T) {
 	reg := exportTestRegistry()
 	tool, _ := reg.Get("read_activity")
@@ -93,4 +120,12 @@ func coreCapabilitiesForTest(context.Context) capabilities.Capabilities {
 		StorageMode:       "local",
 		StorageBackend:    "local",
 	}, capabilities.RuntimeProbeState{BRouter: true})
+}
+
+func routingUnavailableCapabilitiesForTest(context.Context) capabilities.Capabilities {
+	return capabilities.BuildFromRuntime(capabilities.DetectInput{
+		DeploymentProfile: "core",
+		StorageMode:       "local",
+		StorageBackend:    "local",
+	}, capabilities.RuntimeProbeState{})
 }
