@@ -171,6 +171,7 @@ export default function App() {
                               <Route path="stats" element={<StatsTab />} />
                               <Route path="insights" element={<InsightsTab />} />
                               <Route path="records" element={<PersonalRecordsTab />} />
+                              <Route path="summits" element={<SummitCollectionPage />} />
                             </Route>
                             <Route path="chat" element={<ChatPage />} />
                             <Route path="routes" element={<RoutesPage />} />
@@ -193,7 +194,7 @@ export default function App() {
                             <Route path="settings/enrichment" element={<Navigate to="/settings?tab=analysen" replace />} />
                             <Route path="workshop/rules" element={<AutomationRulesPage />} />
                             <Route path="workshop/document-review" element={<DocumentReviewPage />} />
-                            <Route path="workshop/summits" element={<SummitCollectionPage />} />
+                            <Route path="workshop/summits" element={<Navigate to="/analytics/summits" replace />} />
                             <Route path="map/summits" element={<SummitCollectionPage defaultView="map" />} />
                             <Route path="workshop/fusion" element={<FusionQueuePage />} />
                             <Route path="workshop/import-queue" element={<Navigate to="/imports?view=review" replace />} />

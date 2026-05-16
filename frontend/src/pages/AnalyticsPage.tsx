@@ -19,6 +19,7 @@ const tabs = [
   { to: '/analytics/stats', label: 'Statistiken' },
   { to: '/analytics/insights', label: 'Insights' },
   { to: '/analytics/records', label: 'Bestleistungen' },
+  { to: '/analytics/summits', label: 'Gipfelsammlung' },
 ]
 
 // Quick-select date presets
@@ -674,6 +675,8 @@ export default function AnalyticsPage() {
     }
   }, [])
   const isRecordsTab = location.pathname === '/analytics/records' || location.pathname === '/analytics/records/'
+  const isSummitsTab = location.pathname === '/analytics/summits' || location.pathname === '/analytics/summits/'
+  const hideFilterControls = isRecordsTab || isSummitsTab
 
   const filterCount = activeFilterCount(filters)
 
@@ -734,8 +737,8 @@ export default function AnalyticsPage() {
             </NavLink>
           ))}
         </div>
-        {/* Filter toggle button — hidden on Records tab */}
-        {!isRecordsTab && (
+        {/* Filter toggle button — hidden on tabs with their own filter model */}
+        {!hideFilterControls && (
           <button
             onClick={() => setFilterOpen(o => !o)}
             className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border cursor-pointer transition-colors whitespace-nowrap ${
@@ -758,8 +761,8 @@ export default function AnalyticsPage() {
         )}
       </div>
 
-      {/* Active filter chips summary — hidden on Records tab */}
-      {!isRecordsTab && filterCount > 0 && !filterOpen && filterSummary.length > 0 && (
+      {/* Active filter chips summary — hidden on tabs with their own filter model */}
+      {!hideFilterControls && filterCount > 0 && !filterOpen && filterSummary.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-neutral-500 dark:text-neutral-400">Aktiv:</span>
           {filterSummary.map((s, i) => (
@@ -779,8 +782,8 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* Collapsible filter panel — hidden on Records tab */}
-      {!isRecordsTab && filterOpen && (
+      {/* Collapsible filter panel — hidden on tabs with their own filter model */}
+      {!hideFilterControls && filterOpen && (
         <div id="analytics-filter-panel">
           <FilterPanel
             filters={filters}
