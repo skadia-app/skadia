@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/skadia-app/skadia/services/api/internal/migrate"
 	"github.com/skadia-app/skadia/services/api/internal/model"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 	"github.com/skadia-app/skadia/services/api/internal/shadowfs"
@@ -112,13 +113,11 @@ func (e *Engine) RunImport(ctx context.Context, input ImportInput) (*ImportResul
 	}
 
 	// ── 2. Schema-migration check ────────────────────────────────────────────
-	var currentMigration int
-	if err := e.DB.QueryRow(ctx,
-		`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`,
-	).Scan(&currentMigration); err != nil {
+	currentMigration, err := migrate.CurrentVersion(ctx, e.DB)
+	if err != nil {
 		return nil, fmt.Errorf("RunImport: read schema_migrations: %w", err)
 	}
-	if manifest.SchemaMigration > currentMigration {
+	if int64(manifest.SchemaMigration) > currentMigration {
 		return nil, fmt.Errorf(
 			"RunImport: export requires schema migration %d but current is %d — upgrade the server first",
 			manifest.SchemaMigration, currentMigration,

@@ -10,42 +10,110 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 //go:embed migrations/*.up.sql
 var migrationFS embed.FS
 
+const provisionalMigrationFloor int64 = 900000
+
+var finalizedMigrationAliases = map[int64]int64{
+	900001: 371,
+}
+
+type schemaVersionQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func ensureSchemaMigrations(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version BIGINT PRIMARY KEY NOT NULL,
+			dirty   BOOLEAN NOT NULL DEFAULT false
+		)`)
+	if err != nil {
+		return fmt.Errorf("ensure schema_migrations table: %w", err)
+	}
+	return nil
+}
+
+func repairFinalizedMigrationAliases(ctx context.Context, pool *pgxpool.Pool) error {
+	for provisional, final := range finalizedMigrationAliases {
+		if _, err := pool.Exec(ctx, `
+			UPDATE schema_migrations
+			   SET version = $2
+			 WHERE version = $1
+			   AND dirty = false
+			   AND NOT EXISTS (
+				   SELECT 1 FROM schema_migrations WHERE version = $2
+			   )`, provisional, final); err != nil {
+			return fmt.Errorf("repair finalized migration alias %d -> %d: %w", provisional, final, err)
+		}
+		if _, err := pool.Exec(ctx, `
+			DELETE FROM schema_migrations
+			 WHERE version = $1
+			   AND dirty = false
+			   AND EXISTS (
+				   SELECT 1 FROM schema_migrations WHERE version = $2
+			   )`, provisional, final); err != nil {
+			return fmt.Errorf("remove finalized migration alias %d after %d exists: %w", provisional, final, err)
+		}
+	}
+	return nil
+}
+
+func normalizeFinalizedMigrationAlias(version int64) int64 {
+	if final, ok := finalizedMigrationAliases[version]; ok {
+		return final
+	}
+	return version
+}
+
+// CurrentVersion returns the effective schema version for a live database,
+// repairing known finalized provisional migration numbers first.
+func CurrentVersion(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	if err := ensureSchemaMigrations(ctx, pool); err != nil {
+		return 0, err
+	}
+	if err := repairFinalizedMigrationAliases(ctx, pool); err != nil {
+		return 0, err
+	}
+	return ReadSchemaVersion(ctx, pool)
+}
+
+// ReadSchemaVersion returns the effective schema version visible to q. It does
+// not mutate state, so it is safe inside read-only transactions.
+func ReadSchemaVersion(ctx context.Context, q schemaVersionQuerier) (int64, error) {
+	var current int64
+	if err := q.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&current); err != nil {
+		return 0, fmt.Errorf("read current migration version: %w", err)
+	}
+
+	var dirty bool
+	if err := q.QueryRow(ctx, `SELECT dirty FROM schema_migrations WHERE version = $1`, current).Scan(&dirty); err != nil {
+		if current != 0 {
+			return 0, fmt.Errorf("check dirty state for version %d: %w", current, err)
+		}
+	} else if dirty {
+		return 0, fmt.Errorf("migration version %d is dirty; manual intervention required", current)
+	}
+
+	current = normalizeFinalizedMigrationAlias(current)
+	if current >= provisionalMigrationFloor {
+		return 0, fmt.Errorf("schema_migrations contains unfinalized provisional version %d; finalize or repair migration numbering before continuing", current)
+	}
+	return current, nil
+}
+
 // Run reads the current schema version from schema_migrations and applies
 // all embedded *.up.sql files with a higher version number, each inside
 // its own transaction. It creates the schema_migrations table if missing.
 func Run(ctx context.Context, pool *pgxpool.Pool) error {
-	// Ensure the schema_migrations table exists
-	if _, err := pool.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS schema_migrations (
-			version BIGINT PRIMARY KEY NOT NULL,
-			dirty   BOOLEAN NOT NULL DEFAULT false
-		)`); err != nil {
-		return fmt.Errorf("ensure schema_migrations table: %w", err)
-	}
-
-	// Read current version (0 if table is empty)
-	var current int64
-	err := pool.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&current)
+	current, err := CurrentVersion(ctx, pool)
 	if err != nil {
-		return fmt.Errorf("read current migration version: %w", err)
-	}
-
-	// Check for dirty state — distinguish "no row" (version 0, empty table) from real errors.
-	var dirty bool
-	err = pool.QueryRow(ctx, `SELECT dirty FROM schema_migrations WHERE version = $1`, current).Scan(&dirty)
-	if err != nil {
-		// pgx.ErrNoRows means current==0 and table is empty — not dirty.
-		if current != 0 {
-			return fmt.Errorf("check dirty state for version %d: %w", current, err)
-		}
-	} else if dirty {
-		return fmt.Errorf("migration version %d is dirty; manual intervention required", current)
+		return err
 	}
 
 	// List and sort embedded migration files
