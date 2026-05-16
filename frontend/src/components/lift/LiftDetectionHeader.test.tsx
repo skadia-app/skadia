@@ -327,4 +327,28 @@ describe('LiftDetectionHeader — Reset control', () => {
       )
     })
   })
+
+  it('disables reset/recompute when OSM snap is unavailable and the reset target has no effective detector', async () => {
+    mockDelete.mockResolvedValue(undefined)
+    mockApiFetch.mockResolvedValue({ ok: true, status: 202 })
+
+    await renderHeader({
+      osmSnapAvailable: false,
+      config: makeConfig({
+        effective: { osm: false, heuristic: false },
+        user_setting: { osm: true, heuristic: false },
+        override: { osm: true, heuristic: null },
+      }),
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('override-badge').hasAttribute('disabled')).toBe(true)
+    })
+    expect(screen.getByText(/kein aktiver Lift-Detektor verfügbar/i)).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('override-badge'))
+
+    expect(mockDelete).not.toHaveBeenCalled()
+    expect(mockApiFetch).not.toHaveBeenCalled()
+  })
 })

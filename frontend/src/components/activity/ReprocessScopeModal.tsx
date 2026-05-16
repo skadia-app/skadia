@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import type { Capabilities } from '@/api/routes'
 import {
+  availableReprocessScopeKeys,
   DEFAULT_SCOPES,
   toBackendScope,
   toggleScopeKey,
@@ -11,13 +13,17 @@ function ReprocessScopeModal({
   onConfirm,
   onClose,
   isPending,
+  capabilities,
 }: {
   onConfirm: (scope: string[]) => void
   onClose: () => void
   isPending: boolean
+  capabilities?: Capabilities | null
 }) {
   const [scope, setScope] = useState<Set<AnyReprocessKey>>(new Set(DEFAULT_SCOPES))
-  const reprocessesTags = scope.has('tags')
+  const availableScopeKeys = availableReprocessScopeKeys(capabilities)
+  const selectedScopeKeys = toBackendScope(scope, availableScopeKeys)
+  const reprocessesTags = selectedScopeKeys.includes('tags')
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -37,6 +43,7 @@ function ReprocessScopeModal({
           selected={scope}
           onToggle={key => setScope(prev => toggleScopeKey(prev, key))}
           layout="vertical"
+          capabilities={capabilities}
         />
 
         <div className="flex justify-end gap-3 pt-1">
@@ -50,8 +57,8 @@ function ReprocessScopeModal({
             Abbrechen
           </button>
           <button
-            onClick={() => onConfirm(toBackendScope(scope))}
-            disabled={isPending || scope.size === 0}
+            onClick={() => onConfirm(selectedScopeKeys)}
+            disabled={isPending || selectedScopeKeys.length === 0}
             className="px-4 py-2 rounded-lg text-sm font-medium bg-accent-DEFAULT text-white
                        hover:bg-accent-600 transition-colors cursor-pointer
                        disabled:opacity-50 disabled:cursor-not-allowed"
