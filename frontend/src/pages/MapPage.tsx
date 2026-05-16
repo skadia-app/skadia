@@ -24,7 +24,7 @@ import { fmtDateCompact } from '@/lib/format'
 import { displayActivityTitle } from '@/lib/activityTitle'
 import { useRouteEditor } from '@/components/route-planner/useRouteEditor'
 import { getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
-import { SPORT_DEFS, categoryForSport, sportColor } from '@/lib/sportTaxonomy'
+import { buildMapLineColor } from '@/lib/mapSportColors'
 import { buildLayerStyle, expandSwitch, opacityPercentToFloat, type BaseStyle } from '@/lib/mapStyles'
 import { mapLayerStackDiff } from '@/lib/mapLayerStackDiff'
 import { useMapLayersMerged } from '@/hooks/useMapLayers'
@@ -63,6 +63,7 @@ import { useStickyHighlight } from '@/hooks/useStickyHighlight'
 import { isInteractiveDescriptorKey } from '@/lib/descriptorFilter'
 import { SAC_COLORS, MTB_COLORS, HIGHLIGHT_COLORS, VF_COLORS, VF_UNKNOWN_COLOR } from '@/lib/scaleColors'
 import type { CoordRange } from '@/api/routes'
+import { useGlobalSportSettings } from '@/lib/globalSportSettings'
 
 // Re-export so existing consumers (if any) of the old MapPage exports still compile.
 export type { SportOption } from '@/lib/sportOptions'
@@ -304,6 +305,7 @@ export default function MapPage() {
     colorConfig: loadColorConfig(),
     heatmapColor: loadHeatmapColor(),
   })
+  const { customColors: globalSportColors } = useGlobalSportSettings()
   const [viewMode, setViewMode] = useState<ViewMode>(
     VALID_VIEW_MODES.includes(savedViewport?.viewMode as ViewMode)
       ? (savedViewport!.viewMode as ViewMode)
@@ -1451,6 +1453,7 @@ export default function MapPage() {
   // Refs damit der style.load-Handler immer die aktuellen Werte sieht,
   // ohne jedes Mal neu registriert werden zu müssen.
   const filtersRef = useRef(filters)
+  const globalSportColorsRef = useRef(globalSportColors)
   const viewModeRef = useRef(viewMode)
   const teleportRef = useRef(teleportThresholdM)
   const samplingRef = useRef(samplingIntervalM)
@@ -1458,6 +1461,7 @@ export default function MapPage() {
   // Kamera-Zustand vor setStyle() sichern → persistenter style.load-Handler stellt ihn wieder her
   const pendingCameraRestoreRef = useRef<{ center: maplibregl.LngLat; zoom: number } | null>(null)
   useEffect(() => { filtersRef.current = filters }, [filters])
+  useEffect(() => { globalSportColorsRef.current = globalSportColors }, [globalSportColors])
   useEffect(() => {
     viewModeRef.current = viewMode
     const stored = loadViewport()
@@ -1601,11 +1605,11 @@ export default function MapPage() {
       removeOverlayLayers(map)
       removeTerraIncognitaLayers(map)
       if (filters.sportTypes === null || filters.sportTypes.size > 0) {
-        addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId)
+        addOverlayLayers(map, filters, viewMode, teleportThresholdM, samplingIntervalM, currentUserId, globalSportColors)
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, filters.isElectric, filters.isCommute, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion, currentUserId])
+  }, [filters.sportTypes, filters.dateFrom, filters.dateTo, filters.opacity, filters.colorConfig, filters.heatmapColor, filters.tagFilters, filters.gearFilters, filters.isElectric, filters.isCommute, viewMode, heatmapSettings, teleportThresholdM, samplingIntervalM, styleVersion, currentUserId, globalSportColors])
 
   // ── Terra Incognita Overlay Layer ────────────────────────────────────────
   // styleVersion in deps: nach Stilwechsel muss der Overlay neu aufgebaut werden,
@@ -2822,7 +2826,7 @@ export default function MapPage() {
                   removeTerraIncognitaLayers(map)
                   if (enabled) {
                     if (filtersRef.current.sportTypes === null || filtersRef.current.sportTypes.size > 0) {
-                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current)
+                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, globalSportColorsRef.current)
                     }
                     setViewMode('heatmap')
                   } else {
@@ -3106,7 +3110,7 @@ export default function MapPage() {
                     removeOverlayLayers(map)
                     removeTerraIncognitaLayers(map)
                     if (filtersRef.current.sportTypes === null || filtersRef.current.sportTypes.size > 0) {
-                      addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current)
+                      addOverlayLayers(map, filtersRef.current, 'tracks', teleportRef.current, samplingRef.current, currentUserIdRef.current, globalSportColorsRef.current)
                     }
                   }
                   setViewMode('tracks')
@@ -3126,7 +3130,7 @@ export default function MapPage() {
                     removeOverlayLayers(map)
                     removeTerraIncognitaLayers(map)
                     if (filtersRef.current.sportTypes === null || filtersRef.current.sportTypes.size > 0) {
-                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current)
+                      addOverlayLayers(map, filtersRef.current, 'heatmap', teleportRef.current, samplingRef.current, currentUserIdRef.current, globalSportColorsRef.current)
                     }
                   }
                   setViewMode('heatmap')
@@ -3831,24 +3835,6 @@ function removeOverlayLayers(map: maplibregl.Map) {
   removeHeatmapLayers(map)
 }
 
-function buildLineColor(filters: MapFilterState): string | maplibregl.ExpressionSpecification {
-  if (filters.colorConfig.mode === 'uniform') {
-    return filters.colorConfig.uniformColor
-  }
-  // Build match expression from taxonomy: each sport_type → its category color
-  const entries: string[] = []
-  for (const s of SPORT_DEFS) {
-    const catKey = categoryForSport(s.sportType).key
-    entries.push(s.sportType, filters.colorConfig.colors[catKey] ?? sportColor(s.sportType))
-  }
-  return [
-    'match', ['get', 'sport_type'],
-    ...entries,
-    filters.colorConfig.uniformColor, // Fallback
-  ] as unknown as maplibregl.ExpressionSpecification
-}
-
-
 function addOverlayLayers(
   map: maplibregl.Map,
   filters: MapFilterState,
@@ -3856,6 +3842,7 @@ function addOverlayLayers(
   teleportThresholdM: number,
   samplingIntervalM?: number,
   userId?: string,
+  globalSportColors: Record<string, string> = {},
 ) {
   // Layer und Source vollständig entfernen und neu aufbauen.
   // removeOverlayLayers() stellt sicher, dass kein "Source already exists"-Fehler entsteht.
@@ -3871,7 +3858,7 @@ function addOverlayLayers(
       maxzoom: 14,
     })
 
-    const lineColor = buildLineColor(filters)
+    const lineColor = buildMapLineColor(filters.colorConfig, globalSportColors)
     const opacity = Math.pow(opacityPercentToFloat(filters.opacity), 2)
     const glowOpacity = opacity * 0.35
 
