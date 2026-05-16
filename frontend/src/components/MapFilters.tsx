@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { DayPicker } from 'react-day-picker'
 import 'react-day-picker/style.css'
@@ -7,8 +8,10 @@ import { MonthYearCaption } from '@/components/DateRangePicker'
 import { de } from 'date-fns/locale'
 import type { MapFilterState } from '@/pages/MapPage'
 import type { SportOption } from '@/lib/sportOptions'
-import { SPORT_OPTIONS, getAllSportKeys, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
-import { CATEGORIES } from '@/lib/sportTaxonomy'
+import { filterToExistingSports, getAllSportKeys, getOptionKey, DEFAULT_SPORT_COLORS } from '@/lib/sportOptions'
+import { useGlobalSportSettings } from '@/lib/globalSportSettings'
+import { sportFilterOptionsForPreset } from '@/lib/sportFilterPresets'
+import { fetchSportTypeStats } from '@/api/stats'
 import ColorPicker from '@/components/ColorPicker'
 import TagFilterInput from '@/components/TagFilterInput'
 import GearFilterInput, { gearTypeIcon } from '@/components/GearFilterInput'
@@ -20,15 +23,23 @@ import { HeatmapApplicableModifierKeys } from '@/lib/generatedHeatmapApplicableM
 import type { SegmentColorConfig, SegmentsOverlayFilters } from '@/components/Map/SegmentsOverlay'
 import { DEFAULT_SEGMENT_COLORS } from '@/components/Map/SegmentsOverlay'
 
-const ALL_SPORT_KEYS = getAllSportKeys()
-const USER_DEFAULT_KEY = 'skadia-sport-colors-user-default'
+const MAP_FILTER_OPTIONS = sportFilterOptionsForPreset('MAP_PANEL_GPS')
+const ALL_SPORT_KEYS = getAllSportKeys(MAP_FILTER_OPTIONS)
 
-function loadUserDefaultColors(): Record<string, string> | null {
-  try {
-    const saved = localStorage.getItem(USER_DEFAULT_KEY)
-    if (saved) return JSON.parse(saved)
-  } catch { /* ignore */ }
-  return null
+function uniqueSportTypes(options: SportOption[]): string[] {
+  const types = new Set<string>()
+  for (const opt of options) {
+    if (opt.children) {
+      for (const child of opt.children) types.add(child.value)
+    } else {
+      types.add(opt.value)
+    }
+  }
+  return [...types]
+}
+
+function optionLeaves(opt: SportOption): SportOption[] {
+  return opt.children ?? [opt]
 }
 
 interface Props {
@@ -50,11 +61,53 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
   const [expandedColorGroups, setExpandedColorGroups] = useState<Set<string>>(new Set())
   const [datePickerOpen, setDatePickerOpen] = useState(false)
   const datePickerRef = useRef<HTMLDivElement>(null)
-  const visibleOptions = useMemo(() => SPORT_OPTIONS, [])
+  const { getSportColor, setSportColor, resetSportColor, hideUnused } = useGlobalSportSettings()
+  const { data: statsData } = useQuery({
+    queryKey: ['sport-type-stats', ''],
+    queryFn: () => fetchSportTypeStats(),
+    enabled: hideUnused,
+  })
+  const existingSportKeys = useMemo(
+    () => new Set((statsData ?? []).map((s) => s.sub_type ? `${s.sport_type}:${s.sub_type}` : s.sport_type)),
+    [statsData],
+  )
+  const visibleOptions = useMemo(() => {
+    if (hideUnused && existingSportKeys.size > 0) {
+      return filterToExistingSports(MAP_FILTER_OPTIONS, existingSportKeys)
+    }
+    return MAP_FILTER_OPTIONS
+  }, [existingSportKeys, hideUnused])
   const allSelected = filters.sportTypes === null || ALL_SPORT_KEYS.every(k => filters.sportTypes!.has(k))
 
-  function getKey(opt: SportOption): string {
-    return opt.subType ? `${opt.value}:${opt.subType}` : opt.value
+  function setOptionColor(opt: SportOption, hex: string) {
+    const sportTypes = uniqueSportTypes(optionLeaves(opt))
+    for (const sportType of sportTypes) setSportColor(sportType, hex)
+    onChange({
+      ...filters,
+      colorConfig: {
+        ...filters.colorConfig,
+        colors: {
+          ...filters.colorConfig.colors,
+          ...Object.fromEntries(sportTypes.map((sportType) => [sportType, hex])),
+        },
+      },
+    })
+  }
+
+  function resetVisibleColors() {
+    const deleteKeys = new Set<string>()
+    for (const opt of visibleOptions) {
+      if (opt.groupKey) deleteKeys.add(opt.groupKey)
+      deleteKeys.add(opt.value)
+      for (const leaf of optionLeaves(opt)) {
+        deleteKeys.add(leaf.value)
+        deleteKeys.add(getOptionKey(leaf))
+        resetSportColor(leaf.value)
+      }
+    }
+    const colors = { ...filters.colorConfig.colors }
+    for (const key of deleteKeys) delete colors[key]
+    onChange({ ...filters, colorConfig: { ...filters.colorConfig, colors } })
   }
 
   // Close date picker on click outside
@@ -314,30 +367,30 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                   {filters.colorConfig.mode === 'per-type' && (
                     <div className="space-y-1">
                       {visibleOptions.map(opt => {
-                        const key = opt.subType ? `${opt.value}:${opt.subType}` : opt.value
+                        const key = getOptionKey(opt)
                         const isActive = opt.children
-                          ? (filters.sportTypes === null || opt.children.some(c => filters.sportTypes!.has(getKey(c))))
+                          ? (filters.sportTypes === null || opt.children.some(c => filters.sportTypes!.has(getOptionKey(c))))
                           : (filters.sportTypes === null || filters.sportTypes.has(key))
 
                         if (!isActive) return null
 
                         const hasChildren = !!opt.children && opt.children.length > 0
                         const isExpanded = expandedColorGroups.has(opt.value)
-                        // Resolve category color for group options
-                        const catColor = opt.groupKey
-                          ? CATEGORIES.find(c => c.key === opt.groupKey)?.color ?? '#888'
-                          : DEFAULT_SPORT_COLORS[opt.value] ?? '#888'
+                        const activeLeaves = filters.sportTypes === null
+                          ? optionLeaves(opt)
+                          : optionLeaves(opt).filter((leaf) => filters.sportTypes!.has(getOptionKey(leaf)))
+                        const groupSportTypes = uniqueSportTypes(activeLeaves.length ? activeLeaves : optionLeaves(opt))
+                        const firstGroupColor = groupSportTypes.length > 0 ? getSportColor(groupSportTypes[0]) : '#888'
+                        const groupColor = groupSportTypes.every((sportType) => getSportColor(sportType) === firstGroupColor)
+                          ? firstGroupColor
+                          : filters.colorConfig.colors[opt.groupKey ?? opt.value] ?? '#888'
 
                         return (
                           <div key={opt.value}>
                             <div className="flex items-center gap-1.5">
                               <ColorPicker
-                                value={filters.colorConfig.colors[opt.groupKey ?? opt.value] ?? catColor}
-                                onChange={hex => {
-                                  const colorKey = opt.groupKey ?? opt.value
-                                  const next = { ...filters, colorConfig: { ...filters.colorConfig, colors: { ...filters.colorConfig.colors, [colorKey]: hex } } }
-                                  onChange(next)
-                                }}
+                                value={groupColor}
+                                onChange={hex => setOptionColor(opt, hex)}
                               />
                               <span className="flex-1 text-xs text-neutral-700 dark:text-neutral-300 truncate">{opt.label}</span>
                               {hasChildren && (
@@ -359,14 +412,15 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                             </div>
                             {hasChildren && isExpanded && (
                               <div className="ml-4 mt-1 space-y-1">
-                                {(filters.sportTypes === null ? opt.children! : opt.children!.filter(c => filters.sportTypes!.has(getKey(c)))).map(child => {
-                                  const childKey = getKey(child)
+                                {(filters.sportTypes === null ? opt.children! : opt.children!.filter(c => filters.sportTypes!.has(getOptionKey(c)))).map(child => {
+                                  const childKey = getOptionKey(child)
                                   return (
                                     <div key={childKey} className="flex items-center gap-1.5">
                                       <ColorPicker
-                                        value={filters.colorConfig.colors[childKey] ?? filters.colorConfig.colors[child.value] ?? DEFAULT_SPORT_COLORS[child.value] ?? '#888'}
+                                        value={getSportColor(child.value)}
                                         onChange={hex => {
-                                          const next = { ...filters, colorConfig: { ...filters.colorConfig, colors: { ...filters.colorConfig.colors, [childKey]: hex } } }
+                                          setSportColor(child.value, hex)
+                                          const next = { ...filters, colorConfig: { ...filters.colorConfig, colors: { ...filters.colorConfig.colors, [child.value]: hex } } }
                                           onChange(next)
                                         }}
                                       />
@@ -381,19 +435,10 @@ function MapFilters({ filters, onChange, forceDark, viewMode = 'tracks', docked 
                       })}
                       <div className="flex gap-2 mt-1">
                         <button
-                          onClick={() => {
-                            const userDefault = loadUserDefaultColors()
-                            onChange({ ...filters, colorConfig: { ...filters.colorConfig, colors: userDefault ?? Object.fromEntries(CATEGORIES.map(c => [c.key, c.color])) } })
-                          }}
+                          onClick={resetVisibleColors}
                           className="flex-1 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 cursor-pointer"
                         >
                           Zurücksetzen
-                        </button>
-                        <button
-                          onClick={() => localStorage.setItem(USER_DEFAULT_KEY, JSON.stringify(filters.colorConfig.colors))}
-                          className="flex-1 text-xs text-orange-400 hover:text-accent-600 dark:hover:text-orange-300 cursor-pointer"
-                        >
-                          Als Standard speichern
                         </button>
                       </div>
                     </div>
