@@ -765,15 +765,11 @@ func applyMetaUserFields(ctx context.Context, db *database.DB, activityID string
 	sets := []string{}
 	args := []any{}
 	argN := 1
+	primaryGearID := strings.TrimSpace(meta.GearID)
 
 	if meta.Description != "" {
 		sets = append(sets, fmt.Sprintf("description = $%d", argN))
 		args = append(args, meta.Description)
-		argN++
-	}
-	if meta.GearID != "" {
-		sets = append(sets, fmt.Sprintf("gear_id = $%d", argN))
-		args = append(args, meta.GearID)
 		argN++
 	}
 	if meta.Visibility != "" {
@@ -834,6 +830,11 @@ func applyMetaUserFields(ctx context.Context, db *database.DB, activityID string
 		query := fmt.Sprintf("UPDATE activities SET %s WHERE id = $%d", strings.Join(sets, ", "), argN)
 		if _, err := db.Pool.Exec(ctx, query, args...); err != nil {
 			slog.Warn("restore: apply meta user fields failed", "activity_id", activityID, "error", err)
+		}
+	}
+	if primaryGearID != "" {
+		if err := database.SetPrimaryGearForActivityTx(ctx, db.Pool, activityID, primaryGearID, "import"); err != nil {
+			slog.Warn("restore: apply meta gear assignment failed", "activity_id", activityID, "gear_id", primaryGearID, "error", err)
 		}
 	}
 
