@@ -16,8 +16,8 @@ const ROLE_LABELS: Record<string, string> = {
 }
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
-  tool_agent: 'Chat, Tool-Aufrufe, SQL-Readonly, Write-Preview, JSON-Argumente und deutsche Antworten.',
-  document_extract: 'OCR/PDF-Textextraktion und strukturierte Felder.',
+  tool_agent: 'Chat, Tool-Aufrufe, SQL-Readonly, Write-Preview, JSON-Argumente und passende Antwortsprache.',
+  document_extract: 'OCR/PDF-Textextraktion, Gear-Dokumente und strukturierte Felder.',
   markdown_extract: 'Markdown-Konvertierung mit Tabellen-Erhalt.',
   vision: 'Bild-, PDF- und Screenshot-Verständnis.',
 }
