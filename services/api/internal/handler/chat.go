@@ -386,10 +386,21 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
+		startedAt := time.Now()
+		progressSent := false
 		for {
 			select {
 			case <-ticker.C:
 				_ = sink.WriteRaw(": ping\n\n")
+				if !progressSent && time.Since(startedAt) >= 45*time.Second {
+					progressSent = true
+					_ = sink.Send(agent.SSEEvent{
+						Type:  agent.EventProgress,
+						ID:    req.MessageID,
+						Step:  "model_wait",
+						Delta: "Das lokale Modell arbeitet noch. Du kannst die Sitzung wechseln oder eine neue Sitzung starten.",
+					})
+				}
 			case <-heartbeatDone:
 				return
 			case <-r.Context().Done():
@@ -408,6 +419,9 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 			slog.Info("agent chat stream canceled", "error", err)
 		} else {
 			slog.Error("agent chat stream failed", "error", err)
+			if !sink.errorSent {
+				_ = sink.Send(agent.SSEEvent{Type: agent.EventError, ID: req.MessageID, Error: safeChatStreamError(err.Error())})
+			}
 		}
 	}
 
@@ -435,11 +449,22 @@ type chatPersistSink struct {
 	agent.SSESink
 	assistantContent *strings.Builder
 	sources          []string
+	errorSent        bool
 }
 
 func (s *chatPersistSink) Send(event agent.SSEEvent) error {
 	if event.Type == agent.EventDone {
 		s.sources = append([]string(nil), event.Sources...)
+	}
+	if event.Type == agent.EventError {
+		s.errorSent = true
+		if strings.TrimSpace(event.Error) != "" && s.assistantContent != nil {
+			if s.assistantContent.Len() > 0 {
+				s.assistantContent.WriteString("\n\n")
+			}
+			s.assistantContent.WriteString("(Fehler)\n\n")
+			s.assistantContent.WriteString(safeChatStreamError(event.Error))
+		}
 	}
 	if event.Type == agent.EventUserQuestion && strings.TrimSpace(event.Question) != "" && s.assistantContent != nil {
 		if s.assistantContent.Len() > 0 {
@@ -448,6 +473,24 @@ func (s *chatPersistSink) Send(event agent.SSEEvent) error {
 		s.assistantContent.WriteString(event.Question)
 	}
 	return s.SSESink.Send(event)
+}
+
+func safeChatStreamError(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "Unbekannter Fehler"
+	}
+	lower := strings.ToLower(value)
+	switch {
+	case strings.Contains(lower, "context deadline exceeded"):
+		return "Chat nicht verfügbar: Zeitlimit überschritten."
+	case strings.Contains(lower, "context canceled"):
+		return "Chat abgebrochen."
+	case strings.Contains(lower, "context window"):
+		return "Chat nicht verfügbar: Anfrage passt nicht in das konfigurierte Kontextfenster."
+	default:
+		return "Chat nicht verfügbar: Das Modell oder ein Tool ist derzeit nicht erreichbar."
+	}
 }
 
 func chatHistoryPayload(history []*model.ChatMessage, currentMessage string) []agent.ChatHistoryMessage {
