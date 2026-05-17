@@ -173,6 +173,7 @@ func GetAgentServiceStatusTool() *Tool {
 		RateLimitPerHour: 120,
 		Timeout:          5 * time.Second,
 		IsUserOwned:      true,
+		Capability:       &ToolCapability{Area: "routing", PlannerSelectable: true},
 		ExecuteRead:      executeGetAgentServiceStatus,
 	}
 }

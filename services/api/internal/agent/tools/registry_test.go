@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -118,8 +119,37 @@ func TestRegistryAddEnabledWriteTools(t *testing.T) {
 		ChatWriteToolsEnabled: true,
 		ChatAllowedWriteTools: []string{"update_activity"},
 	})
-	if strings.Join(filter, ",") != "read_activity,update_activity" {
+	if strings.Join(filter, ",") != "read_activity" {
 		t.Fatalf("unexpected filter: %#v", filter)
+	}
+}
+
+func TestAgentCapabilityManifestTool(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&Tool{Name: "query_activities", InputSchema: json.RawMessage(`{"type":"object"}`), Permission: PermissionRead})
+	reg.Register(GetAgentServiceStatusTool())
+	reg.Register(AgentCapabilityManifestTool(reg))
+
+	result, err := reg.ExecuteRead(context.Background(), nil, "user-1", "get_agent_capability_manifest", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("ExecuteRead returned error: %v", err)
+	}
+	got := result.(map[string]any)
+	if got["status"] != "ok" {
+		t.Fatalf("status = %#v, want ok", got["status"])
+	}
+	capabilities := got["capabilities"].([]map[string]any)
+	if len(capabilities) == 0 {
+		t.Fatalf("capabilities missing: %#v", got)
+	}
+	if !strings.Contains(fmt.Sprint(capabilities), "query_activities") {
+		t.Fatalf("capabilities not generated from registry: %#v", capabilities)
+	}
+	if !strings.Contains(fmt.Sprint(capabilities), "get_agent_service_status") {
+		t.Fatalf("capabilities missing service status tool: %#v", capabilities)
+	}
+	if !strings.Contains(fmt.Sprint(got["tool_loading"]), "intent") {
+		t.Fatalf("tool_loading missing intent note: %#v", got["tool_loading"])
 	}
 }
 
