@@ -21,6 +21,7 @@ func TestChatPreferencesDefaultsAndPut(t *testing.T) {
 	pool := fusionTestPool(t)
 	userID := insertTestUser(t, pool)
 	h := newTestHandler(t, pool)
+	enableMLServiceForTest(t)
 
 	req := chatPrefsRequest(t, http.MethodGet, "/preferences", userID, nil)
 	w := httptest.NewRecorder()
@@ -83,6 +84,28 @@ func TestChatPreferencesRejectsUnknownWriteTool(t *testing.T) {
 	h.ChatRoutes().ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("PUT status = %d body=%s, want 400", w.Code, w.Body.String())
+	}
+}
+
+func TestChatPreferencesRejectDocumentExposureWhenDocumentMLUnavailable(t *testing.T) {
+	pool := fusionTestPool(t)
+	userID := insertTestUser(t, pool)
+	h := newTestHandler(t, pool)
+	h.Config = &HandlerConfig{DeploymentProfile: "full"}
+
+	body := []byte(`{
+		"chat_expose_document_extracted_data": true,
+		"chat_write_tools_enabled": false,
+		"chat_allowed_write_tools": []
+	}`)
+	req := chatPrefsRequest(t, http.MethodPut, "/preferences", userID, body)
+	w := httptest.NewRecorder()
+	h.ChatRoutes().ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("PUT status = %d body=%s, want 503", w.Code, w.Body.String())
+	}
+	if got := w.Body.String(); !strings.Contains(got, `"code":"feature_unavailable"`) {
+		t.Fatalf("response body %q missing feature_unavailable", got)
 	}
 }
 
@@ -289,7 +312,11 @@ func TestSendChatMessagePersistsUserQuestionAsAssistantContext(t *testing.T) {
 	question := "Der Tag existiert noch nicht. Soll ich ihn anlegen?"
 	h.Agent = agent.New(agent.Config{
 		LLMResolver: agent.NewLLMResolver(h.DB, agent.LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
-		Tools:       handlerAskUserRuntime{question: question},
+		Preferences: &agent.PreferenceLoader{Defaults: agent.ChatPreferences{
+			ChatWriteToolsEnabled: true,
+			ChatAllowedWriteTools: []string{"tag_activity"},
+		}},
+		Tools: handlerAskUserRuntime{question: question},
 		StreamChat: func(ctx context.Context, cfg agent.LLMConfig, params llmwire.ChatRequest) agent.ChatStream {
 			return &handlerFakeStream{events: []llmwire.ChatStreamEvent{{
 				ToolCalls:    []llmwire.ToolCallDelta{{Index: 0, ID: "call-tag", Name: "tag_activity", Args: `{"tag_name":"Intervalle"}`}},
@@ -348,7 +375,17 @@ func (r handlerAskUserRuntime) AddEnabledWriteTools(filter []string, prefs *agen
 }
 
 func (r handlerAskUserRuntime) Definitions(filter []string, prefs *agent.ChatPreferences) []llmwire.ToolDefinition {
-	return nil
+	defs := make([]llmwire.ToolDefinition, 0, len(filter))
+	for _, name := range filter {
+		if name == "tag_activity" {
+			defs = append(defs, llmwire.ToolDefinition{
+				Name:        "tag_activity",
+				Description: "Tag an activity.",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+			})
+		}
+	}
+	return defs
 }
 
 func (r handlerAskUserRuntime) Execute(ctx context.Context, req agent.ToolRuntimeRequest, sink agent.SSESink) (agent.ToolRuntimeResult, error) {

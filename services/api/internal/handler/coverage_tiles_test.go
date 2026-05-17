@@ -2,8 +2,26 @@ package handler
 
 import (
 	"math"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+func TestCoverageTileUnavailableWithoutCoverageArtifacts(t *testing.T) {
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full"}}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/coverage/tiles/forest/10/535/362.png", nil)
+	rec := httptest.NewRecorder()
+
+	h.CoverageTile(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"feature_unavailable"`) {
+		t.Fatalf("response missing feature_unavailable code: %s", rec.Body.String())
+	}
+}
 
 func TestSlippyTileBBox(t *testing.T) {
 	bbox := slippyTileBBox(10, 535, 362)

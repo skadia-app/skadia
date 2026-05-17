@@ -20,6 +20,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/skadia-app/skadia/services/api/internal/imageutil"
@@ -659,6 +660,9 @@ func (h *Handler) RecomputePhotoEmbeddings(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyPhotoEmbeddings) {
+		return
+	}
 
 	photos, err := h.DB.GetPhotosWithoutEmbedding(r.Context(), userID)
 	if err != nil {
@@ -766,11 +770,7 @@ func setPhotoURLs(p *model.ActivityPhoto) {
 	base := "/photos/" + p.ID
 	p.ThumbURL = base + "/thumb"
 	p.FullURL = base + "/full"
-	if p.S3KeyPreview != "" {
-		p.PreviewURL = base + "/preview"
-	} else {
-		p.PreviewURL = base + "/full" // fallback: original
-	}
+	p.PreviewURL = base + "/preview"
 }
 
 // contentTypeFromExtension gibt den MIME-Type anhand der Dateiendung zurück.

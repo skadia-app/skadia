@@ -244,6 +244,11 @@ func (db *DB) GetRoute(ctx context.Context, id, userID string) (*model.PlannedRo
 	if err := json.Unmarshal(segmentsJSON, &route.Segments); err != nil {
 		return nil, fmt.Errorf("unmarshal segments: %w", err)
 	}
+	photos, err := db.GetRoutePhotos(ctx, route.ID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get route photos: %w", err)
+	}
+	route.Photos = photos
 	return route, nil
 }
 

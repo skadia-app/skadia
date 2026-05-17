@@ -87,6 +87,18 @@ host_path_diff='diff --git a/services/api/internal/example.go b/services/api/int
 @@ -1,1 +1,2 @@
 +const localPath = "/home/example-user/Skadia/private.fit"'
 
+container_home_path_diff='diff --git a/docker-compose.yml b/docker-compose.yml
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -1,1 +1,2 @@
++      - ${SKADIA_DATA_ROOT:-./data}/postgres:/home/postgres/pgdata${SKADIA_VOLUME_OPTS_RW_PRIVATE:-:Z}'
+
+mixed_host_and_container_home_path_diff='diff --git a/docker-compose.yml b/docker-compose.yml
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -1,1 +1,2 @@
++      - /var/home/example/Skadia/data/postgres:/home/postgres/pgdata'
+
 public_filename_diff='diff --git a/docs/documentation/user/features/import.md b/docs/documentation/user/features/import.md
 --- a/docs/documentation/user/features/import.md
 +++ b/docs/documentation/user/features/import.md
@@ -135,17 +147,47 @@ public_agent_diff='diff --git a/CHANGELOG.md b/CHANGELOG.md
 @@ -1,1 +1,2 @@
 +Synced OpenAI Codex GPT-5.5 notes.'
 
-public_doc_last_updated_diff='diff --git a/docs/documentation/user/features/example.md b/docs/documentation/user/features/example.md
---- a/docs/documentation/user/features/example.md
-+++ b/docs/documentation/user/features/example.md
+public_doc_provenance_metadata_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
+--- a/docs/documentation/user/how-to/example.md
++++ b/docs/documentation/user/how-to/example.md
 @@ -1,1 +1,2 @@
 +*Last updated: 2026-05-14 (GPT-5.5)*'
+
+public_doc_created_provenance_metadata_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
+--- a/docs/documentation/user/how-to/example.md
++++ b/docs/documentation/user/how-to/example.md
+@@ -1,1 +1,2 @@
++*Created: 2026-04-12 (Any Provider Model 123.4)*'
+
+public_doc_wrong_metadata_agent_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
+--- a/docs/documentation/user/how-to/example.md
++++ b/docs/documentation/user/how-to/example.md
+@@ -1,1 +1,2 @@
++*Reviewed: 2026-05-14 (GPT-5.5)*'
+
+public_doc_body_agent_diff='diff --git a/docs/documentation/user/how-to/example.md b/docs/documentation/user/how-to/example.md
+--- a/docs/documentation/user/how-to/example.md
++++ b/docs/documentation/user/how-to/example.md
+@@ -1,1 +1,2 @@
++This page was revised with GPT-5.5.'
 
 public_tag_diff='diff --git a/docs/documentation/user/features/import.md b/docs/documentation/user/features/import.md
 --- a/docs/documentation/user/features/import.md
 +++ b/docs/documentation/user/features/import.md
 @@ -1,1 +1,2 @@
 +Do not expose #home in public examples.'
+
+public_parenthesized_tag_diff='diff --git a/docs/documentation/user/features/import.md b/docs/documentation/user/features/import.md
+--- a/docs/documentation/user/features/import.md
++++ b/docs/documentation/user/features/import.md
+@@ -1,1 +1,2 @@
++Do not expose (#home) in public examples.'
+
+public_backtick_tag_diff='diff --git a/docs/documentation/user/features/import.md b/docs/documentation/user/features/import.md
+--- a/docs/documentation/user/features/import.md
++++ b/docs/documentation/user/features/import.md
+@@ -1,1 +1,2 @@
++Do not expose `#home` in public examples.'
 
 agents_coordinate_diff='diff --git a/AGENTS.md b/AGENTS.md
 --- a/AGENTS.md
@@ -197,6 +239,8 @@ assert_blocks_with "$public_latlon_coordinate_diff" "coordinate in public/privat
 assert_passes "$test_coordinate_diff"
 assert_blocks_with "$source_coordinate_diff" "coordinate in public/private text"
 assert_blocks_with "$host_path_diff" "local/private detail"
+assert_passes "$container_home_path_diff"
+assert_blocks_with "$mixed_host_and_container_home_path_diff" "local/private detail"
 assert_blocks_with "$public_filename_diff" "sensitive filename in public/private text"
 assert_passes "$public_synthetic_filename_diff"
 assert_blocks_with "$source_filename_diff" "sensitive filename in public/private text"
@@ -205,8 +249,13 @@ assert_blocks_with "$public_docs_workflow_diff" "internal workflow wording in pu
 assert_blocks_with "$public_internal_path_diff" "internal path in public text"
 assert_blocks_with "$public_backtick_internal_path_diff" "internal path in public text"
 assert_blocks_with "$public_agent_diff" "agent/model name in public text"
-assert_passes "$public_doc_last_updated_diff"
+assert_passes "$public_doc_provenance_metadata_diff"
+assert_passes "$public_doc_created_provenance_metadata_diff"
+assert_blocks_with "$public_doc_wrong_metadata_agent_diff" "agent/model name in public text"
+assert_blocks_with "$public_doc_body_agent_diff" "agent/model name in public text"
 assert_blocks_with "$public_tag_diff" "private tag marker in public text"
+assert_blocks_with "$public_parenthesized_tag_diff" "private tag marker in public text"
+assert_blocks_with "$public_backtick_tag_diff" "private tag marker in public text"
 assert_blocks_with "$agents_coordinate_diff" "coordinate in public/private text"
 assert_blocks_with "$subtree_agents_tag_diff" "private tag marker in public/private text"
 assert_blocks_with "$legacy_private_coordinate_diff" "coordinate in public/private text"

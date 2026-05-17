@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/paulmach/orb"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
@@ -861,6 +862,9 @@ func (h *Handler) RecomputeSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
+	if !h.requireFeatureAvailable(w, r, capabilities.KeySegmentRecompute) {
+		return
+	}
 
 	seg, err := h.DB.GetSegment(r.Context(), id, userID, isAdmin, false)
 	if err != nil {
@@ -947,6 +951,9 @@ func (h *Handler) PublishSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	isAdmin, _ := r.Context().Value(middleware.IsAdminKey).(bool)
+	if !h.requireFeatureAvailable(w, r, capabilities.KeySegmentPublish) {
+		return
+	}
 
 	// Get segment to verify ownership and retrieve name for job display.
 	// Admins may publish any private segment they can read.
@@ -1346,6 +1353,10 @@ func (h *Handler) EnrichmentSuggest(w http.ResponseWriter, r *http.Request) {
 			CoveragePct: 0,
 			Reason:      req.SegType,
 		})
+		return
+	}
+
+	if !h.requireFeatureConfigured(w, r, capabilities.KeySegmentEnrichmentSuggest) {
 		return
 	}
 	// Build orb.Point slice (GeoJSON convention: [lng, lat]).

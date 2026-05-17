@@ -16,6 +16,9 @@ import (
 )
 
 func (h *Handler) BuildCoverage(w http.ResponseWriter, r *http.Request) {
+	if !h.requireFeatureConfigured(w, r, capabilities.KeyCoverage) {
+		return
+	}
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
 		return

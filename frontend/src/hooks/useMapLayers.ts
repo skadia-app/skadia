@@ -9,6 +9,7 @@ import {
 } from '@/api/mapLayers'
 import { useCapabilities } from './useCapabilities'
 import { useCurrentUserId } from '@/providers/UserProvider'
+import { featureAvailable, validateCapabilityKey } from '@/lib/deploymentCapabilities'
 
 // Module-level set so capability-warning fires once per session per missing key.
 const warnedCaps = new Set<string>()
@@ -50,8 +51,7 @@ function buildResult(
   const passesCap = (l: MapLayer): boolean => {
     if (!l.requires_capability) return true
     if (!caps) return false
-    const key = l.requires_capability as keyof typeof caps
-    if (!(key in caps)) {
+    if (!validateCapabilityKey(l.requires_capability)) {
       if (!warnedCaps.has(l.requires_capability)) {
         console.warn(
           `map_layers.${l.key}: requires_capability=${l.requires_capability} but capability is not exposed by /capabilities`,
@@ -60,7 +60,7 @@ function buildResult(
       }
       return false
     }
-    return caps[key] === true
+    return featureAvailable(caps, l.requires_capability)
   }
 
   const enabledLayers = (data?.layers ?? []).filter((l) => l.enabled)
@@ -196,4 +196,3 @@ export function useAdminMapLayers(): UseMapLayersResult {
 
   return buildResult(data, isLoading, caps, capsLoading)
 }
-

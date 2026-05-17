@@ -28,6 +28,7 @@ import (
 	pdfcpuapi "github.com/pdfcpu/pdfcpu/pkg/api"
 	pdfcpumodel "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/event"
 	gearpkg "github.com/skadia-app/skadia/services/api/internal/gear"
@@ -1371,7 +1372,8 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 	if strings.HasPrefix(contentType, "image/") {
 		importType = model.ImportTypePhoto
 	}
-	shouldProcessDocument := cfg.extractPDF && cfg.publishEvent && contentType == "application/pdf" && h.DocumentUploadedPublisher != nil
+	shouldProcessDocument := cfg.extractPDF && cfg.publishEvent && contentType == "application/pdf" && h.DocumentUploadedPublisher != nil &&
+		h.featureNotAvailableReasonWithContext(r.Context(), capabilities.KeyDocumentML) == ""
 	parentMetaKey := "gear_id"
 	if cfg.parentType == "gear_component" {
 		parentMetaKey = "component_id"
@@ -1504,7 +1506,20 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 	// Persist the ShadowFS file_id on the row.
 	if storedFileID != "" {
 		if setErr := h.DB.UpdateGearDocumentFileID(r.Context(), result.ID, storedFileID); setErr != nil {
-			slog.Warn(cfg.logPrefix+": failed to set file_id", "doc_id", result.ID, "file_id", storedFileID, "error", setErr)
+			tracker.Error(r.Context(), setErr)
+			if _, delDocErr := h.DB.DeleteGearDocument(r.Context(), result.ID, userID); delDocErr != nil {
+				slog.Warn(cfg.logPrefix+": cleanup document row after file link failure failed",
+					"doc_id", result.ID, "error", delDocErr)
+			}
+			if h.ShadowFS != nil {
+				if delErr := h.ShadowFS.Delete(r.Context(), userID, storedFileID); delErr != nil {
+					slog.Warn(cfg.logPrefix+": shadowfs cleanup after file link failure failed",
+						"file_id", storedFileID, "error", delErr)
+				}
+			}
+			slog.Error(cfg.logPrefix+": failed to set file_id", "doc_id", result.ID, "file_id", storedFileID, "error", setErr)
+			httputil.WriteError(w, http.StatusInternalServerError, "Database error", "Failed to save document", r.URL.Path)
+			return
 		} else {
 			result.FileID = &storedFileID
 		}
@@ -1557,12 +1572,18 @@ func (h *Handler) processDocumentUpload(w http.ResponseWriter, r *http.Request, 
 		setDirectImportMetadata(r.Context(), tracker, metadata)
 		tracker.Processing(r.Context())
 		if err := h.DocumentUploadedPublisher.PublishDocumentUploaded(evt); err != nil {
-			tracker.Error(r.Context(), err)
 			if statusErr := h.DB.UpdateGearDocumentProcessingStatus(r.Context(), userID, result.ID, "failed"); statusErr != nil {
 				slog.Warn("failed to mark document upload event failure", "doc_id", result.ID, "error", statusErr)
 			} else {
 				result.ProcessingStatus = "failed"
 			}
+			failPendingDirectDocumentSteps(metadata)
+			metadata["document_processing"] = map[string]any{
+				"status": "failed",
+				"reason": "publish_failed",
+			}
+			setDirectImportMetadata(r.Context(), tracker, metadata)
+			tracker.Completed(r.Context(), "")
 			slog.Warn("failed to publish document uploaded event", "error", err)
 		}
 	} else {

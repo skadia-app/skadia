@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 	"github.com/skadia-app/skadia/services/api/internal/geo"
@@ -106,6 +107,9 @@ func (h *Handler) QueryElevation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyDEMCorrection) {
+		return
+	}
 	elevations, source, err := h.DB.GetElevation(r.Context(), req.Points)
 	if err != nil {
 		slog.Error("elevation query failed", "error", err, "user_id", userID)
@@ -136,6 +140,7 @@ func (h *Handler) QueryElevation(w http.ResponseWriter, r *http.Request) {
 //	    ...
 //	  ]
 //	}
+//
 // atVerticesMaxCoords is the maximum number of vertices accepted in
 // at_vertices mode. Requests exceeding this limit return 400 polyline_too_long.
 const atVerticesMaxCoords = 50_000
@@ -173,6 +178,9 @@ func (h *Handler) ElevationProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Legacy resample mode: delegate to PostGIS dem.get_elevation_profile().
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyDEMCorrection) {
+		return
+	}
 	profile, err := h.DB.GetElevationProfile(r.Context(), string(req.Geometry), req.NumPoints)
 	if err != nil {
 		slog.Error("elevation profile failed", "error", err, "user_id", userID)
@@ -201,6 +209,9 @@ func (h *Handler) elevationProfileAtVertices(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if !h.requireDEMSvcAvailable(w, r) {
+		return
+	}
 	if h.DEMSvc == nil {
 		httputil.WriteError(w, http.StatusServiceUnavailable, "Service Unavailable", "elevation service not configured", r.URL.Path)
 		return
@@ -226,6 +237,18 @@ func (h *Handler) elevationProfileAtVertices(w http.ResponseWriter, r *http.Requ
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"profile": profile,
 	})
+}
+
+func (h *Handler) requireDEMSvcAvailable(w http.ResponseWriter, r *http.Request) bool {
+	reason := h.featureNotAvailableReasonWithContext(r.Context(), capabilities.KeyDEMCorrection)
+	if reason == "" {
+		return true
+	}
+	if reason == capabilities.ReasonMissingArtifacts && h.DEMSvc != nil {
+		return true
+	}
+	writeFeatureUnavailable(w, r, capabilities.KeyDEMCorrection, reason)
+	return false
 }
 
 // buildPerVertexProfile constructs a []database.ElevationPoint from the raw
@@ -310,6 +333,9 @@ func extractLineStringCoords(geometryJSON json.RawMessage) ([][]float64, error) 
 func (h *Handler) ImportDEM(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyDEMCorrection) {
 		return
 	}
 
@@ -404,6 +430,9 @@ func (h *Handler) runDEMImportJob(jobID, source string) {
 func (h *Handler) CorrectActivityElevation(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyDEMCorrection) {
 		return
 	}
 

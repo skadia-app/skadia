@@ -3,9 +3,7 @@ package handler
 import (
 	"log/slog"
 	"net/http"
-	"path/filepath"
 
-	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -18,23 +16,12 @@ func (h *Handler) GetCapabilities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	brouterURL := ""
-	tileDir := ""
-	pmTilesDir := ""
-	var importAllowedDirs []string
-	if h.Config != nil {
-		brouterURL = h.Config.BRouterURL
-		if h.Config.RoutingGraphPath != "" {
-			tileDir = filepath.Join(filepath.Dir(h.Config.RoutingGraphPath), "tiles")
-		}
-		pmTilesDir = h.Config.TilesDir
-		importAllowedDirs = h.Config.ImportAllowedDirs
-	}
-
-	caps := capabilities.Detect(r.Context(), h.DB.Pool, brouterURL, tileDir, pmTilesDir, importAllowedDirs)
+	caps := h.detectCapabilitiesForGate(r.Context())
 
 	slog.Info("capabilities detected",
 		"user_id", userID,
+		"deployment_profile", caps.DeploymentProfile,
+		"storage_mode", caps.StorageMode,
 		"routing", caps.Routing,
 		"offline_map", caps.OfflineMap,
 		"dem_correction", caps.DEMCorrection,

@@ -23,6 +23,14 @@ import (
 
 var testEmailCooldown = 60 * time.Second
 
+const activityStreamsCompressionSQL = `ALTER TABLE activity_streams SET (
+	timescaledb.compress,
+	timescaledb.compress_segmentby = 'activity_id',
+	timescaledb.compress_orderby = 'time DESC'
+)`
+
+const activityStreamsDecompressionSQL = `SELECT decompress_chunk($1::regclass, if_compressed => true)`
+
 func consumeTestEmailCooldown(ctx context.Context, h *Handler, adminID string) (int, bool) {
 	if h == nil || h.DB == nil {
 		return 0, true
@@ -307,11 +315,7 @@ func (h *Handler) enableCompression(jobID string) {
 	ctx := context.Background()
 	_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, "enabling compression")
 
-	_, err := h.DB.Pool.Exec(ctx, `ALTER TABLE activity_streams SET (
-		timescaledb.compress,
-		timescaledb.compress_segmentby = 'activity_id',
-		timescaledb.compress_orderby = 'timestamp'
-	)`)
+	_, err := h.DB.Pool.Exec(ctx, activityStreamsCompressionSQL)
 	if err != nil {
 		slog.Error("enableCompression: ALTER TABLE failed", "error", err)
 		_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
@@ -326,7 +330,11 @@ func (h *Handler) enableCompression(jobID string) {
 	}
 
 	// F28: actor="system" — adminID is intentionally empty so updated_by is NULL (system-initiated).
-	_, _ = h.Settings.Put(ctx, map[string]*string{"timescale.compression": strPtr("true")}, "")
+	if _, err := h.Settings.Put(ctx, map[string]*string{"timescale.compression": strPtr("true")}, ""); err != nil {
+		slog.Error("enableCompression: settings update failed", "error", err)
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+		return
+	}
 
 	slog.Info("compression enabled successfully", "actor", "system", "job_id", jobID)
 	_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")
@@ -338,23 +346,47 @@ func (h *Handler) disableCompression(jobID string) {
 	ctx := context.Background()
 	_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, "removing compression policy")
 
-	h.DB.Pool.Exec(ctx, `SELECT remove_compression_policy('activity_streams', if_exists => true)`)
+	if _, err := h.DB.Pool.Exec(ctx, `SELECT remove_compression_policy('activity_streams', if_exists => true)`); err != nil {
+		slog.Error("disableCompression: remove_compression_policy failed", "error", err)
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+		return
+	}
 
 	_ = h.DB.UpdateBackgroundJobPhase(ctx, jobID, "decompressing chunks")
 
 	rows, err := h.DB.Pool.Query(ctx, `SELECT show_chunks('activity_streams', older_than => INTERVAL '0 seconds')`)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var chunkName string
-			if rows.Scan(&chunkName) == nil {
-				h.DB.Pool.Exec(ctx, `SELECT decompress_chunk($1, if_compressed => true)`, chunkName)
-			}
+	if err != nil {
+		slog.Error("disableCompression: show_chunks failed", "error", err)
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var chunkName string
+		if err := rows.Scan(&chunkName); err != nil {
+			slog.Error("disableCompression: scan chunk failed", "error", err)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+			return
 		}
+		if _, err := h.DB.Pool.Exec(ctx, activityStreamsDecompressionSQL, chunkName); err != nil {
+			slog.Error("disableCompression: decompress_chunk failed", "chunk", chunkName, "error", err)
+			_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+			return
+		}
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("disableCompression: chunk rows failed", "error", err)
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+		return
 	}
 
 	// F28: actor="system" — adminID is intentionally empty so updated_by is NULL (system-initiated).
-	_, _ = h.Settings.Put(ctx, map[string]*string{"timescale.compression": strPtr("false")}, "")
+	if _, err := h.Settings.Put(ctx, map[string]*string{"timescale.compression": strPtr("false")}, ""); err != nil {
+		slog.Error("disableCompression: settings update failed", "error", err)
+		_ = h.DB.CompleteBackgroundJob(ctx, jobID, true, err.Error())
+		return
+	}
 
 	slog.Info("compression disabled successfully", "actor", "system", "job_id", jobID)
 	_ = h.DB.CompleteBackgroundJob(ctx, jobID, false, "")

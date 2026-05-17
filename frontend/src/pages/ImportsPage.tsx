@@ -24,6 +24,7 @@ import type { ImportLogEntry } from '@/api/imports'
 import { fetchImportQueueCount } from '@/api/importQueue'
 import { ImportUploadPanel } from '@/components/ImportHub'
 import ImportQueueTab from '@/components/ImportQueueTab'
+import { activeImportStepFromSteps } from '@/lib/importSteps'
 import { ImportSourcePanel, type ImportSource } from '@/pages/ImportPage'
 
 // ---------------------------------------------------------------------------
@@ -209,26 +210,8 @@ function StatusBadge({ status, linkQueued = false }: { status: string; linkQueue
   }
 }
 
-type ImportStep = {
-  key?: string
-  label?: string
-  status?: string
-}
-
 function activeImportStep(entry: ImportLogEntry): { current: number; total: number; label: string } | null {
-  const rawSteps = entry.metadata?.steps
-  if (!Array.isArray(rawSteps)) return null
-  const steps = rawSteps.filter((step): step is ImportStep => (
-    !!step && typeof step === 'object' && typeof (step as ImportStep).label === 'string'
-  ))
-  if (steps.length === 0) return null
-  const activeIndex = steps.findIndex(step => step.status !== 'completed')
-  const index = activeIndex >= 0 ? activeIndex : steps.length - 1
-  return {
-    current: index + 1,
-    total: steps.length,
-    label: steps[index].label ?? 'Import',
-  }
+  return activeImportStepFromSteps(entry.metadata?.steps)
 }
 
 // ---------------------------------------------------------------------------

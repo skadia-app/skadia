@@ -46,15 +46,15 @@ func TestEnvVarSync_ComposeVarsInEnvExample(t *testing.T) {
 		"LIBRARY_HOST_PATH":     true,
 		"HOTFOLDER_ENABLED":     true,
 		// Docker secrets _FILE variants — documented generically, not individually
-		"S3_ACCESS_KEY_FILE":           true,
-		"S3_SECRET_KEY_FILE":           true,
-		"JWT_SECRET_FILE":              true,
-		"OAUTH_ENCRYPTION_KEY_FILE":    true,
-		"STRAVA_CLIENT_SECRET_FILE":    true,
-		"GOOGLE_CLIENT_SECRET_FILE":    true,
-		"LLM_ENCRYPTION_KEY_FILE":      true,
-		"KOMOOT_ENCRYPTION_KEY_FILE":   true,
-		"SETTINGS_ENCRYPTION_KEY_FILE": true,
+		"S3_ACCESS_KEY_FILE":            true,
+		"S3_SECRET_KEY_FILE":            true,
+		"JWT_SECRET_FILE":               true,
+		"OAUTH_ENCRYPTION_KEY_FILE":     true,
+		"STRAVA_CLIENT_SECRET_FILE":     true,
+		"GOOGLE_CLIENT_SECRET_FILE":     true,
+		"LLM_ENCRYPTION_KEY_FILE":       true,
+		"KOMOOT_ENCRYPTION_KEY_FILE":    true,
+		"SETTINGS_ENCRYPTION_KEY_FILE":  true,
 		"BOOTSTRAP_ADMIN_PASSWORD_FILE": true,
 		// Internal/experimental routing feature flags (not end-user config)
 		"ROUTING_BIDIRECTIONAL": true,
@@ -103,6 +103,41 @@ func TestEnvVarSync_ComposeVarsInEnvExample(t *testing.T) {
 		t.Errorf("docker-compose.yml references variables not found in .env.example.\n"+
 			"Add them to .env.example (or to composeOnlyVars if intentionally compose-only):\n  %s",
 			strings.Join(missing, "\n  "))
+	}
+}
+
+func TestEnvVarSync_S3DefaultsStayAligned(t *testing.T) {
+	root := projectRoot(t)
+
+	files := map[string][]string{
+		"docker-compose.yml": {
+			"S3_BUCKET: ${S3_BUCKET:-skadia-originals}",
+			"S3_REGION: ${S3_REGION:-}",
+			"S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-}",
+		},
+		".env.example": {
+			"# S3_BUCKET=skadia-originals",
+			"# S3_REGION=us-east-1",
+			"# S3_FORCE_PATH_STYLE=",
+		},
+		"scripts/setup.sh": {
+			`env_set "S3_BUCKET" "skadia-originals"`,
+			`env_set "S3_REGION" "us-east-1"`,
+			`env_set "S3_FORCE_PATH_STYLE" "true"`,
+		},
+	}
+
+	for rel, needles := range files {
+		data, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatalf("reading %s: %v", rel, err)
+		}
+		content := string(data)
+		for _, needle := range needles {
+			if !strings.Contains(content, needle) {
+				t.Fatalf("%s missing %q", rel, needle)
+			}
+		}
 	}
 }
 

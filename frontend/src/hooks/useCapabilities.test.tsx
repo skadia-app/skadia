@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useCapabilities } from './useCapabilities'
+import { CAPABILITIES_QUERY_KEY, CAPABILITIES_STALE_TIME_MS, useCapabilities } from './useCapabilities'
 
 vi.mock('@/api/routes', () => ({
   getCapabilities: vi.fn().mockResolvedValue({
@@ -28,5 +28,10 @@ describe('useCapabilities', () => {
     const { result } = renderHook(() => useCapabilities(), { wrapper })
     await waitFor(() => expect(result.current.data).toBeTruthy())
     expect(result.current.data?.offline_map).toBe(true)
+  })
+
+  it('uses the shared capability query contract', () => {
+    expect(CAPABILITIES_QUERY_KEY).toEqual(['capabilities'])
+    expect(CAPABILITIES_STALE_TIME_MS).toBe(30_000)
   })
 })

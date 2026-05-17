@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/routing"
 	"github.com/skadia-app/skadia/services/api/internal/sport"
@@ -122,6 +123,9 @@ func RouteTools() []*Tool {
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executeListRoutingProfiles,
+			RequiredCapabilities: []string{
+				capabilities.KeyRouting,
+			},
 		},
 		{
 			Name:        "plan_route",
@@ -130,6 +134,9 @@ func RouteTools() []*Tool {
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executePlanRoute,
+			RequiredCapabilities: []string{
+				capabilities.KeyRouting,
+			},
 		},
 		{
 			Name:        "search_pois_on_route",
@@ -138,6 +145,9 @@ func RouteTools() []*Tool {
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executeSearchPOIsOnRoute,
+			RequiredCapabilities: []string{
+				capabilities.KeyLocalPOISearch,
+			},
 		},
 		{
 			Name:        "get_isochrone",
@@ -146,6 +156,9 @@ func RouteTools() []*Tool {
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executeGetIsochrone,
+			RequiredCapabilities: []string{
+				capabilities.KeyIsochrone,
+			},
 		},
 		{
 			Name:        "query_coverage",
@@ -154,6 +167,9 @@ func RouteTools() []*Tool {
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executeQueryCoverage,
+			RequiredCapabilities: []string{
+				capabilities.KeyCoverage,
+			},
 		},
 		ResolveUserLocationTool(),
 		GeocodePlaceTool(),

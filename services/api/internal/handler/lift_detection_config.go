@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/enrichment/lifts"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
@@ -67,6 +68,9 @@ func (h *Handler) GetLiftDetectionConfig(w http.ResponseWriter, r *http.Request)
 		overrideOSM,
 		overrideHeuristic,
 	)
+	if h.featureNotAvailableReasonWithContext(r.Context(), capabilities.KeyOSMLiftSnap) != "" {
+		effective.OSMSnap = false
+	}
 
 	resp := liftDetectionConfigResponse{
 		MasterEnabled: settings.EnableLiftDetection,
@@ -114,6 +118,12 @@ func (h *Handler) PutLiftDetectionConfig(w http.ResponseWriter, r *http.Request)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "Bad Request", "invalid JSON", r.URL.Path)
 		return
+	}
+	if body.OSM != nil && *body.OSM {
+		if reason := h.featureNotAvailableReasonWithContext(r.Context(), capabilities.KeyOSMLiftSnap); reason != "" {
+			writeFeatureUnavailable(w, r, capabilities.KeyOSMLiftSnap, reason)
+			return
+		}
 	}
 
 	// F2: SetLiftDetectionOverride is now user-scoped; the pre-check above

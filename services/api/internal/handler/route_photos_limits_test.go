@@ -65,20 +65,21 @@ func TestUploadRoutePhotoWritesImportLog(t *testing.T) {
 		t.Fatalf("route photo status = %d, want %d; body=%s", rr.Code, http.StatusCreated, rr.Body.String())
 	}
 
-	var logStatus, importType, targetType, targetID, metaRouteID string
+	var logStatus, importType, targetType, targetID, metaRouteID, uploadStep string
 	if err := pool.QueryRow(context.Background(), `
-		SELECT status, import_type, metadata->>'target_type', metadata->>'target_id', metadata->>'route_id'
+		SELECT status, import_type, metadata->>'target_type', metadata->>'target_id',
+		       metadata->>'route_id', metadata #>> '{steps,0,status}'
 		FROM import_log
 		WHERE user_id = $1 AND filename = 'route-photo.jpg'
 		ORDER BY created_at DESC
 		LIMIT 1`,
 		userID,
-	).Scan(&logStatus, &importType, &targetType, &targetID, &metaRouteID); err != nil {
+	).Scan(&logStatus, &importType, &targetType, &targetID, &metaRouteID, &uploadStep); err != nil {
 		t.Fatalf("select route photo import_log: %v", err)
 	}
-	if logStatus != "completed" || importType != "photo" || targetType != "route_photo" || targetID == "" || metaRouteID != routeID {
-		t.Fatalf("route photo import_log = status %q type %q target_type %q target_id %q route_id %q, want completed/photo/route_photo/<id>/%s",
-			logStatus, importType, targetType, targetID, metaRouteID, routeID)
+	if logStatus != "completed" || importType != "photo" || targetType != "route_photo" || targetID == "" || metaRouteID != routeID || uploadStep != "completed" {
+		t.Fatalf("route photo import_log = status %q type %q target_type %q target_id %q route_id %q upload_step %q, want completed/photo/route_photo/<id>/%s/completed",
+			logStatus, importType, targetType, targetID, metaRouteID, uploadStep, routeID)
 	}
 }
 

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Pencil } from 'lucide-react'
 import { useClickOutside } from '@/hooks/useClickOutside'
 import { useActiveJobs } from '@/lib/useActiveJobs'
@@ -8,8 +8,10 @@ import { useToast } from '@/lib/toast'
 import { updateActivity, reprocessActivity, ungroupActivity, type ExportFormat } from '@/api/activities'
 import { revertFusion } from '@/api/fusion'
 import { invalidateAfterFusion } from '@/lib/fusionCacheInvalidation'
-import { getCapabilities, getWaypointsFromActivity } from '@/api/routes'
+import { getWaypointsFromActivity } from '@/api/routes'
 import { apiDownload } from '@/api/client'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 import type { Activity } from '@/api/types'
 import { SportIcon } from '@/components/SportIcon'
 import SportConflictBadge from '@/components/SportConflictBadge'
@@ -18,6 +20,7 @@ import ActivityQuickEditModal from '@/components/activity/ActivityQuickEditModal
 import ReprocessScopeModal from '@/components/activity/ReprocessScopeModal'
 import { displayActivityTitle, editableActivityTitleSeed } from '@/lib/activityTitle'
 import { sportDetailLabel } from '@/lib/sportTaxonomy'
+import { availableReprocessScopeKeys } from '@/lib/reprocessScopes'
 import { triggerBlobDownload, cn } from '@/lib/utils'
 import { fmtActivityDate, fmtTimeFromDate } from '@/lib/format'
 
@@ -48,11 +51,8 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
   const [ungroupConfirm, setUngroupConfirm] = useState(false)
   const [ungroupLoading, setUngroupLoading] = useState(false)
   const [openInPlannerLoading, setOpenInPlannerLoading] = useState(false)
-  const { data: routingCapabilities } = useQuery({
-    queryKey: ['routing-capabilities'],
-    queryFn: getCapabilities,
-    staleTime: 5 * 60 * 1000,
-  })
+  const { data: capabilities } = useCapabilities()
+  const availableScopeKeys = availableReprocessScopeKeys(capabilities)
   const reprocessMenuRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -111,7 +111,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
   }, [hasActiveRecomputeJob])
 
   const reprocessMutation = useMutation({
-    mutationFn: () => reprocessActivity(activity.id),
+    mutationFn: (scope?: string[]) => reprocessActivity(activity.id, scope),
     onMutate: () => setReprocessState('loading'),
     onSuccess: (result) => {
       if (result && 'job_id' in result) {
@@ -507,8 +507,8 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
           &#9998; Bearbeiten
         </Link>
       )}
-      {/* Open in Route Planner — only when routing + offline map are available */}
-      {activity.has_gps && activity.sport_type !== 'multisport' && routingCapabilities?.routing && routingCapabilities?.offline_map && (
+      {/* Open in Route Planner — only when routing is available */}
+      {activity.has_gps && activity.sport_type !== 'multisport' && featureAvailable(capabilities, 'routing') && (
         <button
           onClick={async () => {
             setOpenInPlannerLoading(true)
@@ -711,7 +711,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                       onClick={() => {
                         setReprocessMenuOpen(false)
                         setMultisportConfirm(false)
-                        reprocessMutation.mutate()
+                        reprocessMutation.mutate(undefined)
                       }}
                       className="flex-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-accent-DEFAULT text-white
                                  hover:bg-accent-600 transition-colors cursor-pointer"
@@ -747,7 +747,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
                 <button
                   onClick={() => {
                     setReprocessMenuOpen(false)
-                    reprocessMutation.mutate()
+                    reprocessMutation.mutate(availableScopeKeys)
                   }}
                   className="w-full text-left px-4 py-2.5 text-sm text-neutral-700 dark:text-neutral-300
                              hover:bg-neutral-100 dark:hover:bg-neutral-800 cursor-pointer rounded-t-lg transition-colors"
@@ -783,6 +783,7 @@ function ActivityHeader({ activity, childCount }: ActivityHeaderProps) {
           onConfirm={(scope) => reprocessScopedMutation.mutate(scope)}
           onClose={() => setReprocessScopeOpen(false)}
           isPending={reprocessScopedMutation.isPending}
+          capabilities={capabilities}
         />
       )}
 

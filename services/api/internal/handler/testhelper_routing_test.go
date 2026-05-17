@@ -382,7 +382,12 @@ func newTestRoutingHandlerOpts(t *testing.T, withCoverage, withOutdoorTags bool)
 		GraphManager:   mgr,
 		CoverageReader: covReader,
 		Settings:       store,
-		Config:         &HandlerConfig{}, // non-nil so h.Config.X accesses are safe without nil-guards
+		Config: &HandlerConfig{
+			RoutingGraphPath:            filepath.Join(filepath.Dir(tileDir), "graph.bin"),
+			BadRouterProfilesKnown:      true,
+			BadRouterProfilesConfigured: true,
+			BadRouterProfilesAvailable:  true,
+		},
 	}
 
 	cleanup := func() {}

@@ -887,8 +887,8 @@ func TestResolveQueuedPhotoPreservesQueuedExifMetadata(t *testing.T) {
 	if item.StorageBackend == nil || *item.StorageBackend != "local" {
 		t.Fatalf("storage_backend = %v, want local", item.StorageBackend)
 	}
-	if item.StoragePath != nil {
-		t.Fatalf("storage_path = %q, want nil for ShadowFS-backed queue item", *item.StoragePath)
+	if item.StoragePath == nil || *item.StoragePath == "" {
+		t.Fatalf("storage_path = %v, want real ShadowFS storage path", item.StoragePath)
 	}
 	if item.Metadata["taken_at"] == "" || item.Metadata["lat"] == nil || item.Metadata["lng"] == nil || item.Metadata["location_source"] != "exif" {
 		t.Fatalf("queue metadata missing EXIF fields: %#v", item.Metadata)
@@ -932,6 +932,86 @@ func TestResolveQueuedPhotoPreservesQueuedExifMetadata(t *testing.T) {
 	}
 	if activeQueuedMediaCount(t, pool, userID) != 0 {
 		t.Fatalf("queued media files still active after resolve")
+	}
+}
+
+func TestProcessPhotoQueuedOrphanUsesShadowFSStorageMetadata(t *testing.T) {
+	ctx := context.Background()
+	svc, _, userID, _ := newPhotoServiceStorageFixture(t)
+
+	data := jpegPhotoTestBytes(t, 32, 32, color.RGBA{R: 40, G: 80, B: 160, A: 255}, 90)
+	result, err := svc.ProcessOrphanPhoto(ctx, userID, data, PhotoMetadata{
+		OriginalFilename: "synthetic-orphan-photo.jpg",
+		ContentType:      "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("ProcessOrphanPhoto: %v", err)
+	}
+	if result.Status != "queued" {
+		t.Fatalf("status = %q, want queued", result.Status)
+	}
+
+	item, err := svc.DB.GetImportQueueItem(ctx, result.QueueEntryID, userID)
+	if err != nil {
+		t.Fatalf("GetImportQueueItem: %v", err)
+	}
+	if item.StorageBackend == nil || *item.StorageBackend != "local" {
+		t.Fatalf("storage_backend = %v, want real ShadowFS backend local", item.StorageBackend)
+	}
+	if item.StoragePath == nil || *item.StoragePath == "" {
+		t.Fatalf("storage_path = %v, want real ShadowFS storage path", item.StoragePath)
+	}
+	if _, ok := item.Metadata["file_store_id"].(string); !ok {
+		t.Fatalf("metadata.file_store_id missing: %#v", item.Metadata)
+	}
+}
+
+func TestProcessPhotoQueuedOrphanUsesS3ShadowFSStorageMetadata(t *testing.T) {
+	ctx := context.Background()
+	svc, pool, userID, _ := newPhotoServiceStorageFixtureForTarget(t, "s3")
+
+	data := jpegPhotoTestBytes(t, 32, 32, color.RGBA{R: 160, G: 80, B: 40, A: 255}, 90)
+	result, err := svc.ProcessOrphanPhoto(ctx, userID, data, PhotoMetadata{
+		OriginalFilename: "synthetic-orphan-s3-photo.jpg",
+		ContentType:      "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("ProcessOrphanPhoto: %v", err)
+	}
+	if result.Status != "queued" {
+		t.Fatalf("status = %q, want queued", result.Status)
+	}
+
+	item, err := svc.DB.GetImportQueueItem(ctx, result.QueueEntryID, userID)
+	if err != nil {
+		t.Fatalf("GetImportQueueItem: %v", err)
+	}
+	if item.StorageBackend == nil || *item.StorageBackend != "s3" {
+		t.Fatalf("storage_backend = %v, want real ShadowFS backend s3", item.StorageBackend)
+	}
+	if item.StoragePath == nil || !strings.HasPrefix(*item.StoragePath, userID+"/media/") {
+		t.Fatalf("storage_path = %v, want s3 ShadowFS media key", item.StoragePath)
+	}
+	if _, ok := item.Metadata["file_store_id"].(string); !ok {
+		t.Fatalf("metadata.file_store_id missing: %#v", item.Metadata)
+	}
+	if item.Metadata["storage_backend"] != "s3" {
+		t.Fatalf("metadata.storage_backend = %#v, want s3", item.Metadata["storage_backend"])
+	}
+	if item.Metadata["storage_path"] != *item.StoragePath {
+		t.Fatalf("metadata.storage_path = %#v, want %q", item.Metadata["storage_path"], *item.StoragePath)
+	}
+
+	var rowBackend, rowPath string
+	if err := pool.QueryRow(ctx,
+		`SELECT storage_backend, storage_path FROM user_files WHERE id = $1 AND user_id = $2`,
+		item.Metadata["file_store_id"], userID,
+	).Scan(&rowBackend, &rowPath); err != nil {
+		t.Fatalf("select user_files storage metadata: %v", err)
+	}
+	if rowBackend != *item.StorageBackend || rowPath != *item.StoragePath {
+		t.Fatalf("queue metadata (%s, %s) != user_files metadata (%s, %s)",
+			*item.StorageBackend, *item.StoragePath, rowBackend, rowPath)
 	}
 }
 
@@ -1176,13 +1256,27 @@ func TestProcessOrphanPhotoMatchesActivityByExifTime(t *testing.T) {
 }
 
 func newPhotoServiceStorageFixture(t *testing.T) (*Service, *pgxpool.Pool, string, string) {
+	return newPhotoServiceStorageFixtureForTarget(t, "local")
+}
+
+func newPhotoServiceStorageFixtureForTarget(t *testing.T, target string) (*Service, *pgxpool.Pool, string, string) {
 	t.Helper()
 	pool := testdb.Open(t)
 	db := &database.DB{Pool: pool}
 	userID := insertImporterPhotoTestUser(t, pool)
 	activityID := insertImporterPhotoTestActivity(t, db, userID)
 	dir := t.TempDir()
-	fs := shadowfs.NewUnifiedShadowFS(pool, shadowfs.NewLocalBackend(dir), nil, "local", dir, shadowfs.NewSchemaRenderer(), nil, 1, 0, "", "", "")
+	backend := shadowfs.NewLocalBackend(dir)
+	var local, s3 shadowfs.StorageBackend
+	switch target {
+	case "local":
+		local = backend
+	case "s3":
+		s3 = backend
+	default:
+		t.Fatalf("unknown target backend %q", target)
+	}
+	fs := shadowfs.NewUnifiedShadowFS(pool, local, s3, target, dir, shadowfs.NewSchemaRenderer(), nil, 1, 0, "skadia-originals", "", "skadia-originals")
 	return NewService(db, fs, nil), pool, userID, activityID
 }
 

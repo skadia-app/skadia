@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"time"
+
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 )
 
 var searchPhotosInputSchema = json.RawMessage(`{
@@ -27,6 +29,9 @@ func SearchPhotosByContentTool() *Tool {
 		AuditMode:   AuditNone,
 		IsUserOwned: true,
 		ExecuteRead: executeSearchPhotosByContent,
+		RequiredCapabilities: []string{
+			capabilities.KeyPhotoEmbeddings,
+		},
 	}
 }
 

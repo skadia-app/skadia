@@ -338,18 +338,20 @@ func (h *Handler) queueMediaFile(
 		maps.Copy(meta, extraMeta)
 	}
 	meta["file_store_id"] = queueFileID
+	meta["storage_backend"] = rec.StorageBackend
+	meta["storage_path"] = rec.StoragePath
 
 	fileSize := int64(len(data))
-	// ShadowFS path — storage is tracked via metadata file_store_id.
-	localBE := "local"
-	storageBackend := &localBE
+	storageBackend := rec.StorageBackend
+	storagePath := rec.StoragePath
 	qItem := database.ImportQueueItem{
 		UserID:           userID,
 		QueueType:        queueType,
 		OriginalFilename: filename,
 		ContentType:      ct,
 		FileSizeBytes:    &fileSize,
-		StorageBackend:   storageBackend,
+		StorageBackend:   &storageBackend,
+		StoragePath:      &storagePath,
 		Metadata:         meta,
 	}
 

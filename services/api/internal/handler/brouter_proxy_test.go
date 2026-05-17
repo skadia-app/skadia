@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/dem"
 )
 
@@ -79,6 +80,63 @@ func TestRouteViabrouterRejectsUnknownProfileParamBeforeProxy(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
 	}
+}
+
+func TestRouteViabrouterRequiresAvailableBRouterBeforeOutboundCall(t *testing.T) {
+	capabilities.InvalidateCache()
+	t.Cleanup(capabilities.InvalidateCache)
+	var outboundCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/brouter" {
+			outboundCalls++
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full", BRouterURL: server.URL}}
+	req := newBRouterProxyTestRequest(`{
+		"waypoints": [[47.259,11.394],[47.280,11.450]],
+		"profile": "hiking-mountain"
+	}`)
+	w := httptest.NewRecorder()
+
+	h.RouteViabrouter(w, req)
+
+	if outboundCalls != 0 {
+		t.Fatalf("proxy made %d outbound /brouter calls before capability gate", outboundCalls)
+	}
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"code":"feature_unavailable"`) || !strings.Contains(body, "missing_service") {
+		t.Fatalf("body %q missing feature_unavailable/missing_service", body)
+	}
+}
+
+func TestRouteViabrouterEmptyBRouterURLUsesCapabilityUnavailableBehavior(t *testing.T) {
+	capabilities.InvalidateCache()
+	t.Cleanup(capabilities.InvalidateCache)
+	h := &Handler{Config: &HandlerConfig{DeploymentProfile: "full"}}
+	req := newBRouterProxyTestRequest(`{
+		"waypoints": [[47.259,11.394],[47.280,11.450]],
+		"profile": "hiking-mountain"
+	}`)
+	w := httptest.NewRecorder()
+
+	h.RouteViabrouter(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `"code":"feature_unavailable"`) || !strings.Contains(body, "missing_service") {
+		t.Fatalf("body %q missing feature_unavailable/missing_service", body)
+	}
+}
+
+func newBRouterProxyTestRequest(body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/routing/route", strings.NewReader(body))
+	return req.WithContext(contextWithTestUserID(req.Context(), "00000000-0000-0000-0000-000000000001"))
 }
 
 func TestBuildProfileFromInlineZ_NoZ_ReturnsNil(t *testing.T) {

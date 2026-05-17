@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/middleware"
 	"github.com/skadia-app/skadia/services/api/internal/settings"
 )
@@ -23,13 +25,13 @@ func newSettingsHandler(vals map[string]string) *Handler {
 
 func TestGetAdminLibrarySettingsShape(t *testing.T) {
 	h := newSettingsHandler(map[string]string{
-		"library.user_can_edit_dir_name":   "true",
-		"library.user_can_edit_schemas":    "false",
-		"library.default_schema.activity":  "{year}/{month}",
-		"library.default_schema.media":     "{year}",
-		"library.default_schema.document":  "",
-		"library.default_schema.health":    "",
-		"library.default_schema.route":     "{sport_type}",
+		"library.user_can_edit_dir_name":  "true",
+		"library.user_can_edit_schemas":   "false",
+		"library.default_schema.activity": "{year}/{month}",
+		"library.default_schema.media":    "{year}",
+		"library.default_schema.document": "",
+		"library.default_schema.health":   "",
+		"library.default_schema.route":    "{sport_type}",
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/library-settings", nil)
@@ -70,6 +72,71 @@ func TestGetAdminLibrarySettingsShape(t *testing.T) {
 	}
 	if resp["user_can_edit_schemas"] != false {
 		t.Errorf("user_can_edit_schemas: want false, got %v", resp["user_can_edit_schemas"])
+	}
+}
+
+func TestGetAdminLibrarySettingsS3MarksLocalActionsUnavailable(t *testing.T) {
+	h := &Handler{
+		Settings: settings.NewStoreForTest(map[string]string{
+			"library.user_can_edit_dir_name": "true",
+			"library.user_can_edit_schemas":  "true",
+		}),
+		Config: &HandlerConfig{StorageBackend: "s3"},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/library-settings", nil)
+	rr := httptest.NewRecorder()
+	h.GetAdminLibrarySettings(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+
+	var body struct {
+		Backend               string  `json:"backend"`
+		LocalActionsAvailable bool    `json:"local_actions_available"`
+		AdminManagedReason    *string `json:"admin_managed_reason"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Backend != "s3" || body.LocalActionsAvailable {
+		t.Fatalf("backend/local_actions_available = %q/%v, want s3/false", body.Backend, body.LocalActionsAvailable)
+	}
+	if body.AdminManagedReason == nil || *body.AdminManagedReason != "s3_backend" {
+		t.Fatalf("admin_managed_reason = %v, want s3_backend", body.AdminManagedReason)
+	}
+}
+
+func TestUpdateAdminLibrarySettingsRejectsS3Backend(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := &database.DB{Pool: pool}
+	adminID := insertTestUser(t, pool)
+	h := &Handler{
+		DB:       db,
+		Settings: settings.NewStoreForTest(map[string]string{}),
+		Config:   &HandlerConfig{StorageBackend: "s3"},
+	}
+	body := `{
+		"user_can_edit_dir_name": true,
+		"user_can_edit_schemas": true,
+		"default_schemas": {
+			"activity": "{year}/{filename}",
+			"media": "{year}/{filename}",
+			"document": "{year}/{filename}",
+			"health": "{year}/{filename}",
+			"route": "{year}/{filename}"
+		}
+	}`
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/library-settings", strings.NewReader(body))
+	req = req.WithContext(withUserAndAdmin(req.Context(), adminID, true))
+	rr := httptest.NewRecorder()
+	h.UpdateAdminLibrarySettings(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "s3_backend") {
+		t.Fatalf("response does not mention s3_backend: %s", rr.Body.String())
 	}
 }
 

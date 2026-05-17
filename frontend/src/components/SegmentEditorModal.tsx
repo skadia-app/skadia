@@ -27,6 +27,7 @@ import {
 import { buildLayerStyle } from '@/lib/mapStyles'
 import { useMapLayers } from '@/hooks/useMapLayers'
 import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 import { apiClient } from '@/api/client'
 import { getToken } from '@/lib/auth'
 import { createSegment, suggestSegmentEnrichment } from '@/api/segments'
@@ -132,6 +133,7 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
 
   const { base } = useMapLayers()
   const { data: caps } = useCapabilities()
+  const segmentEnrichmentSuggestUnavailable = !!caps && !featureAvailable(caps, 'segment_enrichment_suggest')
   const [mapStyle, setMapStyle] = useState<string>('osm')
 
   // Sync styleKey to DB reality: if the persisted key is no longer in base
@@ -245,12 +247,13 @@ export default function SegmentEditorModal(props: SegmentEditorModalProps) {
   }, [mode, editedTrackPoints, range, drawnCoords, meta.segType, enrichmentMutation])
 
   const enrichmentDisabledReason = useMemo(() => {
+    if (segmentEnrichmentSuggestUnavailable) return 'Nicht verfügbar in dieser Installation'
     if (meta.segType === 'wintersport') return 'Nicht verfügbar — Oberfläche implizit Schnee/Eis'
     if (mode === 'track' && range[0] === range[1]) return 'Keine Auswahl'
     if (mode === 'draw' && drawnCoords.length < 2) return 'Weniger als 2 Punkte'
     if (mode === 'lap') return 'Im Rundkurs-Modus nicht verfügbar'
     return undefined
-  }, [meta.segType, mode, range, drawnCoords.length])
+  }, [segmentEnrichmentSuggestUnavailable, meta.segType, mode, range, drawnCoords.length])
 
   // ── Enrichment status text (screen-reader aria-live) ─────────────────────
   // Derived from enrichmentMutation state so SegmentSidebar's sr-only live

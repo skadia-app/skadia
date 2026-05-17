@@ -68,6 +68,9 @@ func (h *Handler) DetectStravaModules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.SourcePath = cleaned
+	if !h.requireImportPathAvailable(w, r, req.SourcePath) {
+		return
+	}
 
 	src := strava.NewDirSource(req.SourcePath)
 	registry := h.buildStravaRegistry()
@@ -101,6 +104,9 @@ func (h *Handler) StartStravaImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.SourcePath = cleaned
+	if !h.requireImportPathAvailable(w, r, req.SourcePath) {
+		return
+	}
 
 	cb := h.stravaJobCallbacks()
 	h.startImportAsync(w, r, userID, req.SourcePath, isTempSourcePath(req.SourcePath), cb,
@@ -236,6 +242,9 @@ func (h *Handler) ScanStravaExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.SourcePath = cleaned
+	if !h.requireImportPathAvailable(w, r, req.SourcePath) {
+		return
+	}
 
 	src := strava.NewDirSource(req.SourcePath)
 	registry := h.buildStravaRegistry()

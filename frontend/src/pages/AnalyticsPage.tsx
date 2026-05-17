@@ -12,14 +12,16 @@ import type { TagFilter } from '@/components/TagFilterInput'
 import GearFilterInput from '@/components/GearFilterInput'
 import type { GearFilter } from '@/components/GearFilterInput'
 import { toLocalISO } from '@/lib/dateUtils'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureAvailable, type CapabilityKey } from '@/lib/deploymentCapabilities'
 
-const tabs = [
+const tabs: Array<{ to: string; label: string; requiresCapability?: CapabilityKey }> = [
   { to: '/analytics/training', label: 'Training' },
   { to: '/analytics/health', label: 'Gesundheit' },
   { to: '/analytics/stats', label: 'Statistiken' },
   { to: '/analytics/insights', label: 'Insights' },
   { to: '/analytics/records', label: 'Bestleistungen' },
-  { to: '/analytics/summits', label: 'Gipfelsammlung' },
+  { to: '/analytics/summits', label: 'Gipfelsammlung', requiresCapability: 'geo_poi_enrichment' },
 ]
 
 // Quick-select date presets
@@ -664,6 +666,7 @@ export default function AnalyticsPage() {
   const { filters, setFilters, toQueryString } = useAnalyticsFilters()
   const [filterOpen, setFilterOpen] = useState(false)
   const location = useLocation()
+  const { data: capabilities } = useCapabilities()
 
   useEffect(() => {
     function handleOpenFilterPanel() {
@@ -715,13 +718,14 @@ export default function AnalyticsPage() {
   if (filters.isRace === 'true') filterSummary.push('Wettkampf')
 
   void toQueryString // used by child components via the hook
+  const visibleTabs = tabs.filter(tab => !tab.requiresCapability || featureAvailable(capabilities, tab.requiresCapability))
 
   return (
     <div className="space-y-4">
       {/* Tab Navigation + Filter Toggle */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex gap-1 border-b border-neutral-200 dark:border-neutral-800 flex-1 min-w-0">
-          {tabs.map(tab => (
+          {visibleTabs.map(tab => (
             <NavLink
               key={tab.to}
               to={tab.to}

@@ -1,4 +1,5 @@
 import type { EnrichmentSettings } from '@/api/types'
+import type { CapabilityKey } from './deploymentCapabilities'
 
 export type EnrichmentModuleName =
   | 'auto_naming'
@@ -31,6 +32,7 @@ export interface AnalysisModule {
   description: string
   field: keyof EnrichmentSettings
   requiresML: boolean
+  requiresCapability?: CapabilityKey
   reprocess: ReprocessPolicy
   icon: string
 }
@@ -51,6 +53,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
     description: 'Erkennt besuchte Gipfel und Bergsättel.',
     field: 'enable_summit_detection',
     requiresML: false,
+    requiresCapability: 'geo_poi_enrichment',
     reprocess: { type: 'standalone', scope: 'summits', group: 'geo' },
     icon: 'M3 17l4-8 4 4 4-4 4 8H3z',
   },
@@ -60,6 +63,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
     description: 'Erkennt durchquerte Waldgebiete.',
     field: 'enable_forest_detection',
     requiresML: false,
+    requiresCapability: 'geo_poi_enrichment',
     reprocess: { type: 'standalone', scope: 'forests', group: 'geo' },
     icon: 'M12 2L7 10h3l-4 6h4l-3 4h10l-3-4h4l-4-6h3L12 2z',
   },
@@ -69,6 +73,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
     description: 'Erkennt Seen und Fließgewässer entlang der Route.',
     field: 'enable_water_detection',
     requiresML: false,
+    requiresCapability: 'geo_poi_enrichment',
     reprocess: { type: 'standalone', scope: 'water', group: 'geo' },
     icon: 'M2 12c2-3 4-3 6 0s4 3 6 0 4-3 6 0M2 17c2-3 4-3 6 0s4 3 6 0 4-3 6 0',
   },
@@ -78,6 +83,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
     description: 'Erkennt durchquerte Siedlungen.',
     field: 'enable_settlement_detection',
     requiresML: false,
+    requiresCapability: 'geo_poi_enrichment',
     reprocess: { type: 'standalone', scope: 'settlements', group: 'geo' },
     icon: 'M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6',
   },
@@ -87,6 +93,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
     description: 'Erkennt überquerte Länder- und Regionsgrenzen.',
     field: 'enable_border_detection',
     requiresML: false,
+    requiresCapability: 'geo_poi_enrichment',
     reprocess: { type: 'standalone', scope: 'borders', group: 'geo' },
     icon: 'M4 4v16M4 4h4v4H4M4 12h4v4H4M12 4h4v4h-4M12 12h4v4h-4M20 4v16',
   },
@@ -96,6 +103,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
     description: 'Erkennt Aufenthalte und Restaurantbesuche (>=10 min).',
     field: 'enable_stop_detection',
     requiresML: false,
+    requiresCapability: 'geo_poi_enrichment',
     reprocess: { type: 'standalone', scope: 'stops', group: 'stream' },
     icon: 'M12 2a7 7 0 00-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 00-7-7zm0 10a3 3 0 110-6 3 3 0 010 6z',
   },
@@ -115,6 +123,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
     description: 'Snappt Heuristik-Rides auf bekannte Lift-Geometrien aus OSM (höchste Genauigkeit, braucht OSM-Daten in der Region).',
     field: 'enable_lift_detection_osm',
     requiresML: false,
+    requiresCapability: 'osm_lift_snap',
     reprocess: { type: 'inherited' },
     icon: 'M4 4v16h2V4H4zm14 0v16h2V4h-2zM8 8l4-4 4 4M12 4v12',
   },
@@ -134,6 +143,7 @@ export const ANALYSIS_MODULES: readonly AnalysisModule[] = [
     description: 'Erkennt Wegtypen, Oberflächen und Wald-/Schutzgebietsanteile sowie Wege-Schwierigkeiten (SAC/MTB/Klettersteig).',
     field: 'enable_surface_detection',
     requiresML: false,
+    requiresCapability: 'surface_enrichment',
     reprocess: { type: 'standalone', scope: 'surfaces', group: 'geo' },
     icon: 'M2 20h20M4 20V10l4-4 4 6 4-8 4 6v10',
   },

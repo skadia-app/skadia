@@ -9,7 +9,12 @@ from pythonjsonlogger.json import JsonFormatter
 
 from db import get_pool, close_pool
 from nats_consumer import start_consumers, get_metrics
-from config import get_llm_broker_readiness, get_local_shadowfs_readiness
+from config import (
+    get_llm_broker_readiness,
+    get_local_shadowfs_readiness,
+    get_storage_readiness_async,
+    storage_readiness_degraded,
+)
 
 log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 
@@ -132,10 +137,13 @@ async def readyz():
     shadowfs = get_local_shadowfs_readiness()
     if shadowfs.get("status") == "degraded":
         issues["shadowfs"] = shadowfs
+    storage_read = await get_storage_readiness_async()
+    if storage_readiness_degraded(storage_read):
+        issues["storage_read"] = storage_read
 
     if issues:
-        return JSONResponse(status_code=503, content={"status": "not ready", **issues})
-    return {"status": "ready", "llm_broker": llm_broker, "shadowfs": shadowfs}
+        return JSONResponse(status_code=503, content={"status": "not ready", **issues, "storage_read": storage_read})
+    return {"status": "ready", "llm_broker": llm_broker, "shadowfs": shadowfs, "storage_read": storage_read}
 
 
 @app.get("/metrics")

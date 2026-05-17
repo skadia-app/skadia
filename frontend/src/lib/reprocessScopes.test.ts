@@ -4,6 +4,7 @@ import {
   GEO_SCOPE_KEYS,
   GEO_SCOPE_LABELS,
   REPROCESS_SCOPES,
+  availableReprocessScopeKeys,
   scopeLabel,
   toBackendScope,
 } from './reprocessScopes'
@@ -49,5 +50,24 @@ describe('reprocess scope catalog', () => {
     expect(DEFAULT_SCOPES).toContain('auto_title')
     expect(scopeLabel('auto_title')).toBe('Automatische Benennung')
     expect(toBackendScope(new Set(['auto_title']))).toEqual(['auto_title'])
+  })
+
+  it('maps all scopes to the core-safe subset when full-only capabilities are unavailable', () => {
+    const keys = availableReprocessScopeKeys({
+      features: {
+        geo_poi_enrichment: { configured: false, available: false, reason: 'core_profile' },
+        surface_enrichment: { configured: false, available: false, reason: 'core_profile' },
+        osm_lift_snap: { configured: false, available: false, reason: 'core_profile' },
+      },
+    })
+
+    expect(keys).toContain('streams')
+    expect(keys).toContain('auto_title')
+    expect(keys).toContain('ascents')
+    expect(keys).toContain('intervals')
+    expect(keys).toContain('lifts')
+    expect(keys).not.toContain('summits')
+    expect(keys).not.toContain('stops')
+    expect(keys).not.toContain('surfaces')
   })
 })

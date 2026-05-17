@@ -1,4 +1,7 @@
 import { Link } from 'react-router-dom'
+import type { ReactNode } from 'react'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureAvailable, featureConfigured, type CapabilityKey } from '@/lib/deploymentCapabilities'
 
 const sections = [
   {
@@ -36,6 +39,9 @@ const sections = [
     title: 'Dokument-Überprüfung',
     description: 'Aus Rechnungen erkannte Ausrüstung überprüfen und bestätigen',
     icon: DocumentIcon,
+    requiredCapability: 'document_ml',
+    disabledWhenUnavailable: true,
+    showWhenUnconfigured: true,
   },
   {
     to: '/workshop/fusion',
@@ -49,9 +55,35 @@ const sections = [
     description: 'Importierte Dateien mit manueller Nacharbeit prüfen, zuordnen oder verwerfen',
     icon: PhotoIcon,
   },
-]
+] satisfies Array<{
+  to: string
+  title: string
+  description: string
+  icon: () => ReactNode
+  requiredCapability?: CapabilityKey
+  disabledWhenUnavailable?: boolean
+  showWhenUnconfigured?: boolean
+}>
 
 export default function WorkshopPage() {
+  const { data: capabilities } = useCapabilities()
+  const visibleSections = sections
+    .map(section => {
+      if (!section.requiredCapability) {
+        return { ...section, disabled: false }
+      }
+      const configured = featureConfigured(capabilities, section.requiredCapability)
+      const available = featureAvailable(capabilities, section.requiredCapability)
+      if (!configured) {
+        return section.showWhenUnconfigured ? { ...section, disabled: true } : null
+      }
+      if (!available && !section.disabledWhenUnavailable) {
+        return null
+      }
+      return { ...section, disabled: !available }
+    })
+    .filter((section): section is NonNullable<typeof section> => section !== null)
+
   return (
     <div className="space-y-6">
       <div>
@@ -62,24 +94,42 @@ export default function WorkshopPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {sections.map(({ to, title, description, icon: Icon }) => (
-          <Link
-            key={title}
-            to={to}
-            className="group rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3
-                       hover:border-accent-400 dark:hover:border-accent-600 hover:shadow-sm transition-all"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-accent-100 dark:bg-accent-100/20 text-accent-DEFAULT">
-                <Icon />
+        {visibleSections.map(({ to, title, description, icon: Icon, disabled }) => {
+          const content = (
+            <>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-accent-100 dark:bg-accent-100/20 text-accent-DEFAULT">
+                  <Icon />
+                </div>
+                <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
+                  {title}
+                </h2>
               </div>
-              <h2 className="text-base font-medium text-neutral-900 dark:text-neutral-100 group-hover:text-accent-DEFAULT transition-colors">
-                {title}
-              </h2>
-            </div>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">{description}</p>
-          </Link>
-        ))}
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">{description}</p>
+            </>
+          )
+          if (disabled) {
+            return (
+              <div
+                key={title}
+                className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3 opacity-60"
+                aria-disabled="true"
+              >
+                {content}
+              </div>
+            )
+          }
+          return (
+            <Link
+              key={title}
+              to={to}
+              className="group rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3
+                         hover:border-accent-400 dark:hover:border-accent-600 hover:shadow-sm transition-all"
+            >
+              {content}
+            </Link>
+          )
+        })}
       </div>
     </div>
   )

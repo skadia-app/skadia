@@ -17,6 +17,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
 
 import { useMapLayers } from './useMapLayers'
 import { useCoverageOverlays } from './useCoverageOverlays'
+import { useQuery } from '@tanstack/react-query'
 import type { UseMapLayersResult } from './useMapLayers'
 import type { SystemLayerVisibility } from '@/api/mapLayers'
 
@@ -62,6 +63,17 @@ function makeMapMock(presentLayers: string[]) {
 }
 
 describe('useCoverageOverlays — visibility filtering', () => {
+  it('does not query or add coverage sources when disabled by capability', () => {
+    mockVisibility({})
+    const { map } = makeMapMock([])
+
+    renderHook(() => useCoverageOverlays(map as unknown as import('maplibre-gl').Map, 1, false))
+
+    expect(useQuery).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }))
+    expect(map.addSource).not.toHaveBeenCalled()
+    expect(map.addLayer).not.toHaveBeenCalled()
+  })
+
   it('hides noise sublayer from MapLibre when admin disables coverage_noise', () => {
     // Admin disabled coverage_noise globally
     mockVisibility({ coverage_noise: { enabled: false } })

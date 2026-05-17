@@ -1,5 +1,6 @@
 import { useState, useRef, type ReactNode } from 'react'
-import { REPROCESS_SCOPES, GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, GEO_SCOPE_DESCRIPTIONS, type AnyReprocessKey } from '@/lib/reprocessScopes'
+import type { Capabilities } from '@/api/routes'
+import { REPROCESS_SCOPES, GEO_SCOPE_KEYS, GEO_SCOPE_LABELS, GEO_SCOPE_DESCRIPTIONS, scopeAvailable, type AnyReprocessKey } from '@/lib/reprocessScopes'
 import { scopeRequiresML } from '@/lib/enrichmentModuleCatalog'
 
 interface CheckboxItemProps {
@@ -61,14 +62,17 @@ interface Props {
   selected: Set<AnyReprocessKey>
   onToggle: (key: AnyReprocessKey) => void
   layout?: 'vertical' | 'inline'
+  capabilities?: Capabilities | null
 }
 
-export function ScopeCheckboxList({ selected, onToggle, layout = 'vertical' }: Props) {
+export function ScopeCheckboxList({ selected, onToggle, layout = 'vertical', capabilities }: Props) {
   const isInline = layout === 'inline'
+  const visibleReprocessScopes = REPROCESS_SCOPES.filter(([key]) => scopeAvailable(capabilities, key))
+  const visibleGeoScopes = GEO_SCOPE_KEYS.filter(key => scopeAvailable(capabilities, key))
 
   return (
     <div className={isInline ? 'flex flex-wrap gap-x-5 gap-y-1.5' : 'space-y-2'}>
-      {REPROCESS_SCOPES.map(([key, label, description]) => (
+      {visibleReprocessScopes.map(([key, label, description]) => (
         <CheckboxItem
           key={key}
           label={label}
@@ -84,7 +88,7 @@ export function ScopeCheckboxList({ selected, onToggle, layout = 'vertical' }: P
       }>
         Geo-Anreicherung (asynchron)
       </p>
-      {GEO_SCOPE_KEYS.map(key => (
+      {visibleGeoScopes.map(key => (
         <CheckboxItem
           key={key}
           label={GEO_SCOPE_LABELS[key]}

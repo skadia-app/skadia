@@ -32,11 +32,15 @@ func (r *AgentToolRuntime) AddEnabledWriteTools(filter []string, prefs *agent.Ch
 	if r == nil || r.Registry == nil {
 		return filter
 	}
-	return r.Registry.AddEnabledWriteTools(filter, prefs)
+	return r.capabilityFilteredNames(context.Background(), r.Registry.AddEnabledWriteTools(filter, prefs), false)
 }
 
 func (r *AgentToolRuntime) Definitions(filter []string, prefs *agent.ChatPreferences) []llmwire.ToolDefinition {
 	if r == nil || r.Registry == nil {
+		return nil
+	}
+	filter = r.capabilityFilteredNames(context.Background(), filter, true)
+	if r.Deps != nil && r.Deps.CapabilityProvider != nil && len(filter) == 0 {
 		return nil
 	}
 	return r.Registry.Definitions(filter, prefs)
@@ -55,6 +59,9 @@ func (r *AgentToolRuntime) Execute(ctx context.Context, req agent.ToolRuntimeReq
 	}
 	if tool.Permission != PermissionRead && req.EnforceTools && !req.WriteIntent {
 		return agent.ToolRuntimeResult{}, fmt.Errorf("write tool is not available for this turn: %s", req.ToolName)
+	}
+	if err := requireToolCapabilities(ctx, r.Deps, tool); err != nil {
+		return agent.ToolRuntimeResult{}, err
 	}
 
 	switch {
@@ -89,6 +96,32 @@ func stringInList(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func (r *AgentToolRuntime) capabilityFilteredNames(ctx context.Context, filter []string, expandEmpty bool) []string {
+	if r == nil || r.Registry == nil || r.Deps == nil || r.Deps.CapabilityProvider == nil {
+		return filter
+	}
+	names := filter
+	if len(names) == 0 && expandEmpty {
+		names = r.Registry.sortedNames()
+	}
+	out := make([]string, 0, len(names))
+	seen := map[string]bool{}
+	for _, name := range names {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		tool, ok := r.Registry.Get(name)
+		if !ok {
+			continue
+		}
+		if reason, _ := toolCapabilityUnavailableReason(ctx, r.Deps, tool); reason == "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 func (r *AgentToolRuntime) executeGuardedRead(ctx context.Context, req agent.ToolRuntimeRequest, tool *Tool, args json.RawMessage, exec func(context.Context, json.RawMessage) (any, error)) (any, error) {

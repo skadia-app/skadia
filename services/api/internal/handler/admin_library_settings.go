@@ -24,10 +24,20 @@ func (h *Handler) GetAdminLibrarySettings(w http.ResponseWriter, r *http.Request
 		defaultSchemas[ft] = h.Settings.Get("library.default_schema." + ft).Value
 	}
 
+	backend := h.storageBackend()
+	var reason *string
+	if backend == "s3" {
+		v := "s3_backend"
+		reason = &v
+	}
+
 	httputil.WriteJSON(w, http.StatusOK, map[string]any{
-		"user_can_edit_dir_name": userCanEditDir,
-		"user_can_edit_schemas":  userCanEditSchemas,
-		"default_schemas":        defaultSchemas,
+		"user_can_edit_dir_name":  userCanEditDir,
+		"user_can_edit_schemas":   userCanEditSchemas,
+		"default_schemas":         defaultSchemas,
+		"backend":                 backend,
+		"local_actions_available": backend == "local",
+		"admin_managed_reason":    reason,
 	})
 }
 
@@ -36,6 +46,9 @@ func (h *Handler) GetAdminLibrarySettings(w http.ResponseWriter, r *http.Request
 func (h *Handler) UpdateAdminLibrarySettings(w http.ResponseWriter, r *http.Request) {
 	adminID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if h.rejectS3LibraryMutation(w, r) {
 		return
 	}
 

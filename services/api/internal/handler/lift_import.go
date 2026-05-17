@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 )
 
@@ -12,6 +13,9 @@ import (
 func (h *Handler) ImportLiftsFromOSM(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if !h.requireFeatureAvailable(w, r, capabilities.KeySegmentOSMLiftImport) {
 		return
 	}
 	count, err := h.DB.ImportLiftSegments(r.Context(), userID)

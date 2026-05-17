@@ -84,3 +84,16 @@ func markDirectDocumentStep(metadata map[string]any, key, status string) {
 	}
 	metadata["steps"] = steps
 }
+
+func failPendingDirectDocumentSteps(metadata map[string]any) {
+	steps, ok := metadata["steps"].([]directImportStep)
+	if !ok {
+		return
+	}
+	for i := range steps {
+		if steps[i].Status == "pending" || steps[i].Status == "processing" {
+			steps[i].Status = "failed"
+		}
+	}
+	metadata["steps"] = steps
+}

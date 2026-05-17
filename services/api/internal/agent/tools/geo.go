@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -81,6 +82,9 @@ func GeoTools() []*Tool {
 			Permission:  PermissionRead,
 			IsUserOwned: true,
 			ExecuteRead: executeQueryGeoFeatures,
+			RequiredCapabilities: []string{
+				capabilities.KeyGeoPOIEnrichment,
+			},
 		},
 		{
 			Name:        "query_activity_geo_context",
@@ -89,6 +93,9 @@ func GeoTools() []*Tool {
 			Permission:  PermissionRead,
 			IsUserOwned: true,
 			ExecuteRead: executeQueryGeoFeatures,
+			RequiredCapabilities: []string{
+				capabilities.KeyGeoPOIEnrichment,
+			},
 		},
 		{
 			Name:        "search_pois_nearby",
@@ -97,6 +104,9 @@ func GeoTools() []*Tool {
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executeSearchPOIsNearby,
+			RequiredCapabilities: []string{
+				capabilities.KeyLocalPOISearch,
+			},
 		},
 		{
 			Name:        "search_trails_by_difficulty",
@@ -105,6 +115,9 @@ func GeoTools() []*Tool {
 			Permission:  PermissionRead,
 			IsUserOwned: false,
 			ExecuteRead: executeSearchTrailsByDifficulty,
+			RequiredCapabilities: []string{
+				capabilities.KeySurfaceEnrichment,
+			},
 		},
 	}
 }
