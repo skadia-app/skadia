@@ -65,10 +65,18 @@ var aiBrokerTaskTokenLimits = map[string]map[string]int{
 		"markdown_extract": 2048,
 	},
 	model.LLMRoleVision: {
-		"vision":        2048,
-		"invoice_page":  4096,
-		"invoice_parts": 2048,
+		"vision":          2048,
+		"document_page":   4096,
+		"document_vision": 4096,
+		"invoice_page":    4096,
+		"invoice_parts":   2048,
 	},
+}
+
+var aiBrokerTaskTimeouts = map[string]time.Duration{
+	"document_page":   5 * time.Minute,
+	"document_vision": 5 * time.Minute,
+	"invoice_page":    5 * time.Minute,
 }
 
 // HandleAIBrokerChat is an internal ML-service endpoint. It accepts only the
@@ -235,7 +243,7 @@ func (h *Handler) forwardAIBrokerChat(ctx context.Context, cfg agent.LLMConfig, 
 	}
 	client := h.AIBrokerHTTPClient
 	if client == nil {
-		client = llmwire.NewSSRFProtectedHTTPClient(120*time.Second, nil)
+		client = llmwire.NewSSRFProtectedHTTPClient(aiBrokerTimeoutForTask(req.TaskType), nil)
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -292,6 +300,13 @@ func aiBrokerMaxTokens(role, taskType string) (int, bool) {
 	}
 	maxTokens, ok := tasks[taskType]
 	return maxTokens, ok
+}
+
+func aiBrokerTimeoutForTask(taskType string) time.Duration {
+	if timeout, ok := aiBrokerTaskTimeouts[taskType]; ok {
+		return timeout
+	}
+	return 120 * time.Second
 }
 
 func floatPtr(v float64) *float64 {
