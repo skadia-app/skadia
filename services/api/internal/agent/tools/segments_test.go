@@ -143,6 +143,56 @@ func TestQuerySegmentsDefaultWindowExcludesOldPR(t *testing.T) {
 	}
 }
 
+func TestQuerySegmentsFindsAccessibleSegmentWithoutEfforts(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Open(t)
+	ownerID := "00000000-0000-0000-0000-0000000bb120"
+	insertToolTestUser(t, pool, ownerID, "agent-segment-name-owner")
+	segmentID := "00000000-0000-0000-0000-0000000bb620"
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM segments WHERE id = $1::uuid`, segmentID)
+	})
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO segments (id, created_by, name, sport_group, segment_type, visibility, distance_m)
+		VALUES ($1::uuid, $2::uuid, 'fixture segment', 'cycling', 'trail', 'private', 1200)
+	`, segmentID, ownerID); err != nil {
+		t.Fatalf("insert segment: %v", err)
+	}
+
+	got, err := querySegments(ctx, pool, ownerID, querySegmentsArgs{
+		Query: "fixture segment", IncludeEfforts: false, Days: 365, Limit: 5,
+	})
+	if err != nil {
+		t.Fatalf("querySegments: %v", err)
+	}
+	if got["status"] != "ok" || got["mode"] != "existence" {
+		t.Fatalf("status/mode = %#v/%#v, want ok/existence: %#v", got["status"], got["mode"], got)
+	}
+	segments := got["segments"].([]map[string]any)
+	if len(segments) != 1 {
+		t.Fatalf("segments len = %d, want 1: %#v", len(segments), segments)
+	}
+	if segments[0]["name"] != "fixture segment" {
+		t.Fatalf("segment = %#v", segments[0])
+	}
+	if segments[0]["effort_count"] != int64(0) {
+		t.Fatalf("effort_count = %#v, want 0", segments[0]["effort_count"])
+	}
+	if segments[0]["effort_status"] != "no_matching_efforts" {
+		t.Fatalf("effort_status = %#v, want no_matching_efforts", segments[0]["effort_status"])
+	}
+
+	got, err = querySegments(ctx, pool, ownerID, querySegmentsArgs{
+		Query: "fixture segment", IncludeEfforts: true, Days: 365, Limit: 5,
+	})
+	if err != nil {
+		t.Fatalf("querySegments with efforts: %v", err)
+	}
+	if got["status"] != "not_found" || got["mode"] != "efforts" {
+		t.Fatalf("status/mode = %#v/%#v, want not_found/efforts for no-effort segment: %#v", got["status"], got["mode"], got)
+	}
+}
+
 func TestQuerySegmentsCanUseWiderWindowForHistoricalPR(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Open(t)
@@ -223,8 +273,13 @@ func TestQuerySegmentsAppliesEffortFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("querySegments: %v", err)
 	}
-	if len(got["segments"].([]map[string]any)) != 0 {
-		t.Fatalf("running/non-leaderboard filter returned segments: %#v", got)
+	segments := got["segments"].([]map[string]any)
+	if len(segments) != 1 {
+		t.Fatalf("segments len = %d, want accessible segment with no matching efforts: %#v", len(segments), got)
+	}
+	seg := segments[0]
+	if seg["effort_count"] != int64(0) || seg["effort_status"] != "no_matching_efforts" {
+		t.Fatalf("effort coverage = %#v/%#v, want zero no_matching_efforts", seg["effort_count"], seg["effort_status"])
 	}
 }
 

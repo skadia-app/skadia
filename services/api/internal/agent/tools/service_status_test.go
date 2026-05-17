@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -58,6 +60,15 @@ func TestGetAgentServiceStatusShapeAndLongDistancePolicy(t *testing.T) {
 	if weather["live_status"] != "disabled" {
 		t.Fatalf("weather = %#v, want disabled live status", weather)
 	}
+	if weather["status"] != "degraded" {
+		t.Fatalf("weather status = %#v, want degraded: %#v", weather["status"], weather)
+	}
+	if !containsAnyString(weather["query_kinds"], "dated_place") || !containsAnyString(weather["query_kinds"], "current_place") {
+		t.Fatalf("weather query_kinds = %#v, want place/date capability", weather["query_kinds"])
+	}
+	if weather["user_message"] == "" {
+		t.Fatalf("weather user_message missing: %#v", weather)
+	}
 }
 
 func TestGetAgentServiceStatusReflectsExternalGeocodeAndWeatherConfiguration(t *testing.T) {
@@ -89,6 +100,12 @@ func TestGetAgentServiceStatusReflectsExternalGeocodeAndWeatherConfiguration(t *
 	if weather["live_status"] != "configured" {
 		t.Fatalf("weather = %#v, want configured live status", weather)
 	}
+	if weather["status"] != "ok" {
+		t.Fatalf("weather status = %#v, want ok: %#v", weather["status"], weather)
+	}
+	if !containsAnyString(weather["capabilities"], "dated_place") {
+		t.Fatalf("weather capabilities = %#v, want dated_place", weather["capabilities"])
+	}
 	weatherRate := weather["rate_limit"].(map[string]any)
 	if weatherRate["limit_per_hour"] != 12 {
 		t.Fatalf("weather rate_limit = %#v, want env limit 12", weatherRate)
@@ -96,5 +113,58 @@ func TestGetAgentServiceStatusReflectsExternalGeocodeAndWeatherConfiguration(t *
 	routing := got["routing"].(map[string]any)
 	if routing["route_suggestion_status"] != "configured_round_trip_only" {
 		t.Fatalf("routing = %#v, want configured round-trip route suggestion", routing)
+	}
+}
+
+func TestGetAgentServiceStatusProbesRoutingService(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	result, err := executeGetAgentServiceStatus(context.Background(), &Deps{BRouterURL: server.URL}, "user-1", json.RawMessage(`{"services":["routing"]}`))
+	if err != nil {
+		t.Fatalf("executeGetAgentServiceStatus: %v", err)
+	}
+	got := result.(map[string]any)
+	routing := got["routing"].(map[string]any)
+	if routing["brouter_status"] != "reachable" || routing["brouter_probe_error"] != "" {
+		t.Fatalf("routing = %#v, want reachable without probe error", routing)
+	}
+	if routing["status"] != "degraded" || !containsAnyString(routing["needs"], "route_suggestion_service") {
+		t.Fatalf("routing = %#v, want degraded route suggestion need", routing)
+	}
+}
+
+func TestGetAgentServiceStatusReportsUnreachableRoutingService(t *testing.T) {
+	result, err := executeGetAgentServiceStatus(context.Background(), &Deps{BRouterURL: "http://127.0.0.1:1"}, "user-1", json.RawMessage(`{"services":["routing"]}`))
+	if err != nil {
+		t.Fatalf("executeGetAgentServiceStatus: %v", err)
+	}
+	got := result.(map[string]any)
+	routing := got["routing"].(map[string]any)
+	if routing["brouter_status"] != "unreachable" || routing["brouter_probe_error"] == "" {
+		t.Fatalf("routing = %#v, want unreachable with probe error", routing)
+	}
+	if routing["status"] != "unavailable" || !containsAnyString(routing["needs"], "routing_service") {
+		t.Fatalf("routing = %#v, want unavailable routing service need", routing)
+	}
+}
+
+func TestGetAgentServiceStatusGeocodingReportsLookupOrderAndLimits(t *testing.T) {
+	result, err := executeGetAgentServiceStatus(context.Background(), &Deps{}, "user-1", json.RawMessage(`{"services":["geocoding"]}`))
+	if err != nil {
+		t.Fatalf("executeGetAgentServiceStatus: %v", err)
+	}
+	got := result.(map[string]any)
+	geocoding := got["geocoding"].(map[string]any)
+	if geocoding["status"] != "unavailable" {
+		t.Fatalf("geocoding status = %#v, want unavailable: %#v", geocoding["status"], geocoding)
+	}
+	if !containsAnyString(geocoding["lookup_order"], "local_map") || !containsAnyString(geocoding["lookup_order"], "external") {
+		t.Fatalf("lookup_order = %#v, want local and external lookup steps", geocoding["lookup_order"])
+	}
+	if geocoding["next_action"] == "" {
+		t.Fatalf("missing geocoding next_action: %#v", geocoding)
 	}
 }
