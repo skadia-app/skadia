@@ -50,6 +50,12 @@ func (r *AgentToolRuntime) Execute(ctx context.Context, req agent.ToolRuntimeReq
 	if !ok {
 		return agent.ToolRuntimeResult{}, fmt.Errorf("unknown tool: %s", req.ToolName)
 	}
+	if req.EnforceTools && !stringInList(req.AllowedTools, req.ToolName) {
+		return agent.ToolRuntimeResult{}, fmt.Errorf("tool is not available for this turn: %s", req.ToolName)
+	}
+	if tool.Permission != PermissionRead && req.EnforceTools && !req.WriteIntent {
+		return agent.ToolRuntimeResult{}, fmt.Errorf("write tool is not available for this turn: %s", req.ToolName)
+	}
 
 	switch {
 	case tool.AuditMode == AuditPreview && tool.ExecutePreview != nil:
@@ -74,6 +80,15 @@ func (r *AgentToolRuntime) Execute(ctx context.Context, req agent.ToolRuntimeReq
 	default:
 		return r.executeConfirmedWrite(ctx, req, sink, tool)
 	}
+}
+
+func stringInList(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *AgentToolRuntime) executeGuardedRead(ctx context.Context, req agent.ToolRuntimeRequest, tool *Tool, args json.RawMessage, exec func(context.Context, json.RawMessage) (any, error)) (any, error) {

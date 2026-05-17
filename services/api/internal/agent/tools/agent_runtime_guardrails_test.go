@@ -159,6 +159,39 @@ func TestAgentToolRuntimeCancelReturnsStructuredResult(t *testing.T) {
 	}
 }
 
+func TestAgentToolRuntimeEnforcesEmptyAllowedToolList(t *testing.T) {
+	reg := NewRegistry()
+	executed := false
+	reg.Register(&Tool{
+		Name:        "local_read",
+		Description: "Local read",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+		Permission:  PermissionRead,
+		ExecuteRead: func(context.Context, *Deps, string, json.RawMessage) (any, error) {
+			executed = true
+			return map[string]any{"status": "ok"}, nil
+		},
+	})
+	runtime := NewAgentToolRuntime(reg, nil, nil)
+
+	_, err := runtime.Execute(context.Background(), agent.ToolRuntimeRequest{
+		UserID:       "user-a",
+		SessionID:    "session-a",
+		MessageID:    "msg-a",
+		ToolCallID:   "call-a",
+		ToolName:     "local_read",
+		Args:         json.RawMessage(`{}`),
+		AllowedTools: nil,
+		EnforceTools: true,
+	}, nil)
+	if err == nil {
+		t.Fatal("runtime Execute returned nil error for enforced empty allowed tool list")
+	}
+	if executed {
+		t.Fatal("tool executed despite enforced empty allowed tool list")
+	}
+}
+
 func executeGuardrailTool(t *testing.T, runtime *AgentToolRuntime, userID, toolName string, args json.RawMessage) agent.ToolRuntimeResult {
 	t.Helper()
 	result, err := runtime.Execute(context.Background(), agent.ToolRuntimeRequest{

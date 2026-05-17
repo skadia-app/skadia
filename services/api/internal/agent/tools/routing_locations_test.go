@@ -115,6 +115,12 @@ func TestGeocodePlaceUsesSharedSearchAndReturnsRouteRefs(t *testing.T) {
 	if got["external_status"] != geosearch.ExternalStatusAvailable {
 		t.Fatalf("external_status = %#v, want available", got["external_status"])
 	}
+	if got["status"] != "ok" {
+		t.Fatalf("status = %#v, want ok: %#v", got["status"], got)
+	}
+	if got["next_action"] != "use_candidate_ref_then_check_routing_coverage" {
+		t.Fatalf("next_action = %#v, want route ref usage", got["next_action"])
+	}
 	candidates := got["candidates"].([]map[string]any)
 	if len(candidates) != 1 {
 		t.Fatalf("candidates = %#v, want one external candidate", candidates)
@@ -136,6 +142,9 @@ func TestGeocodePlaceLocalMapUsesPlaceSearch(t *testing.T) {
 	allSources := normalizeGeocodePlaceSources("")
 	if got := geosearchPlaceType(allSources); got != "place" {
 		t.Fatalf("geosearchPlaceType(default) = %q, want place", got)
+	}
+	if !allSources["external"] {
+		t.Fatalf("default geocode sources = %#v, want external included for all-source lookup", allSources)
 	}
 
 	externalSources := normalizeGeocodePlaceSources("external")
@@ -159,6 +168,9 @@ func TestGeocodePlaceExternalDisabledAndRateLimited(t *testing.T) {
 	if disabledMap["external_status"] != geosearch.ExternalStatusDisabled {
 		t.Fatalf("external_status = %#v, want disabled", disabledMap["external_status"])
 	}
+	if disabledMap["status"] != "unavailable" {
+		t.Fatalf("status = %#v, want unavailable: %#v", disabledMap["status"], disabledMap)
+	}
 	if provider.calls != 0 {
 		t.Fatalf("provider calls = %d, want 0 while disabled", provider.calls)
 	}
@@ -179,6 +191,12 @@ func TestGeocodePlaceExternalDisabledAndRateLimited(t *testing.T) {
 	blockedMap := blocked.(map[string]any)
 	if blockedMap["external_status"] != geosearch.ExternalStatusRateLimited {
 		t.Fatalf("external_status = %#v, want rate_limited", blockedMap["external_status"])
+	}
+	if blockedMap["status"] != "rate_limited" {
+		t.Fatalf("status = %#v, want rate_limited: %#v", blockedMap["status"], blockedMap)
+	}
+	if blockedMap["next_action"] != "report_external_place_search_rate_limit" {
+		t.Fatalf("next_action = %#v, want rate-limit report", blockedMap["next_action"])
 	}
 	rateLimit := blockedMap["rate_limit"].(*geosearch.QuotaState)
 	if rateLimit.BlockingReason != "rate_limited" {

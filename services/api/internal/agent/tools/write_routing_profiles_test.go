@@ -41,8 +41,8 @@ func TestCreateRoutingProfileVariantToolMetadataAndWritePrefs(t *testing.T) {
 		ChatWriteToolsEnabled: true,
 		ChatAllowedWriteTools: []string{"create_routing_profile_variant"},
 	})
-	if !containsRoutingProfileWriteTestString(filter, "create_routing_profile_variant") {
-		t.Fatalf("AddEnabledWriteTools = %#v, want create_routing_profile_variant", filter)
+	if containsRoutingProfileWriteTestString(filter, "create_routing_profile_variant") {
+		t.Fatalf("AddEnabledWriteTools = %#v, did not want implicit write tool", filter)
 	}
 }
 
