@@ -27,10 +27,10 @@ Selfhosted Fitness-Tracking-Plattform mit BRouter-basiertem Routing, Multi-Sport
 git clone https://github.com/skadia-app/skadia.git
 cd skadia
 ./scripts/setup.sh           # Verzeichnisse, .env, Secrets generieren
-podman compose up -d         # Stack starten
+podman compose up -d --build --remove-orphans
 ```
 
-Browser öffnen: `http://localhost` (oder die konfigurierte Domain).
+Browser öffnen: `http://localhost:8080` (oder die konfigurierte Domain).
 
 Erste Registrierung wird automatisch zum Admin-Account.
 
@@ -60,6 +60,7 @@ Auf btrfs-Filesystemen muss `chattr +C` (nocow) auf `data/postgres/` gesetzt wer
 Alle Optionen in `.env.example` dokumentiert. Wichtig:
 
 - `DOMAIN` — Hostname (default: `localhost`)
+- `SKADIA_APP_PORT` — lokaler Host-Port für App/API in Compose (default: `8080`)
 - `STORAGE_BACKEND` — `local` oder `s3`
 - `COMPOSE_PROFILES` — Optionale Features (`ml`, `llm`, `s3`, kommagetrennt)
 - `REGISTRATION_MODE` — `invite`, `open` oder `approval`
@@ -73,7 +74,7 @@ cd frontend && npm run dev    # → http://localhost:5173
 
 # Backend (im Container, mit Source-Mount via override)
 cp docker-compose.override.example.yml docker-compose.override.yml
-podman compose up api
+podman compose up -d --build api
 ```
 
 Weitere Doku: `docs/` (Architektur, Migrations, Routing-Engine, Sport-Taxonomie).
