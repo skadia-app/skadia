@@ -23,6 +23,7 @@ type ChatHistoryMessage struct {
 
 const (
 	EventThinking           = "chat.thinking"
+	EventProgress           = "chat.progress"
 	EventChunk              = "chat.chunk"
 	EventToolsLoaded        = "chat.tools_loaded"
 	EventToolCall           = "chat.tool_call"
@@ -36,30 +37,38 @@ const (
 )
 
 type SSEEvent struct {
-	Type          string          `json:"type"`
-	ID            string          `json:"id"`
-	Step          string          `json:"step,omitempty"`
-	Delta         string          `json:"delta,omitempty"`
-	ToolCallID    string          `json:"tool_call_id,omitempty"`
-	Tool          string          `json:"tool,omitempty"`
-	Tools         []string        `json:"tools,omitempty"`
-	Args          json.RawMessage `json:"args,omitempty"`
-	Summary       string          `json:"summary,omitempty"`
-	Preview       any             `json:"preview,omitempty"`
-	Question      string          `json:"question,omitempty"`
-	ExpiresAt     *time.Time      `json:"expires_at_iso,omitempty"`
-	Reason        string          `json:"reason,omitempty"`
-	Sources       []string        `json:"sources,omitempty"`
-	Hops          int             `json:"hops,omitempty"`
-	ContextWindow int             `json:"context_window,omitempty"`
-	Usage         *TokenUsage     `json:"usage,omitempty"`
-	Error         string          `json:"error,omitempty"`
+	Type           string          `json:"type"`
+	ID             string          `json:"id"`
+	Step           string          `json:"step,omitempty"`
+	Delta          string          `json:"delta,omitempty"`
+	ToolCallID     string          `json:"tool_call_id,omitempty"`
+	Tool           string          `json:"tool,omitempty"`
+	Tools          []string        `json:"tools,omitempty"`
+	Args           json.RawMessage `json:"args,omitempty"`
+	Summary        string          `json:"summary,omitempty"`
+	Preview        any             `json:"preview,omitempty"`
+	Question       string          `json:"question,omitempty"`
+	ExpiresAt      *time.Time      `json:"expires_at_iso,omitempty"`
+	Reason         string          `json:"reason,omitempty"`
+	Intent         string          `json:"intent,omitempty"`
+	ExpansionLevel *int            `json:"expansion_level,omitempty"`
+	OmittedTools   []ToolOmission  `json:"omitted_tools,omitempty"`
+	Sources        []string        `json:"sources,omitempty"`
+	Hops           int             `json:"hops,omitempty"`
+	ContextWindow  int             `json:"context_window,omitempty"`
+	Usage          *TokenUsage     `json:"usage,omitempty"`
+	Error          string          `json:"error,omitempty"`
 }
 
 type TokenUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+}
+
+type ToolOmission struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason,omitempty"`
 }
 
 type ToolRuntime interface {
@@ -69,12 +78,15 @@ type ToolRuntime interface {
 }
 
 type ToolRuntimeRequest struct {
-	UserID     string
-	SessionID  string
-	MessageID  string
-	ToolCallID string
-	ToolName   string
-	Args       json.RawMessage
+	UserID       string
+	SessionID    string
+	MessageID    string
+	ToolCallID   string
+	ToolName     string
+	Args         json.RawMessage
+	AllowedTools []string
+	EnforceTools bool
+	WriteIntent  bool
 }
 
 type ToolRuntimeResult struct {

@@ -68,10 +68,10 @@ func TestRegistryDefinitionsRespectGlobalWriteDisableAndAllowList(t *testing.T) 
 
 	enabled := &agent.ChatPreferences{ChatWriteToolsEnabled: true, ChatAllowedWriteTools: []string{"update_activity"}}
 	gotFilter = reg.AddEnabledWriteTools([]string{"read_activity"}, enabled)
-	if len(gotFilter) != 2 || gotFilter[0] != "read_activity" || gotFilter[1] != "update_activity" {
-		t.Fatalf("enabled AddEnabledWriteTools = %#v, want allowed write appended", gotFilter)
+	if len(gotFilter) != 1 || gotFilter[0] != "read_activity" {
+		t.Fatalf("enabled AddEnabledWriteTools = %#v, want original filter only", gotFilter)
 	}
-	defs := reg.Definitions(gotFilter, enabled)
+	defs := reg.Definitions([]string{"read_activity", "update_activity"}, enabled)
 	if len(defs) < 2 || defs[0].Name != "read_activity" || defs[1].Name != "update_activity" {
 		t.Fatalf("definitions order = %#v, want filter order", defs)
 	}

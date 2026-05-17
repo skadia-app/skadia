@@ -71,6 +71,28 @@ function pendingSseResponse(): Response {
   )
 }
 
+function createDeferredSSE() {
+  const encoder = new TextEncoder()
+  let controller!: ReadableStreamDefaultController<Uint8Array>
+  const response = new Response(
+    new ReadableStream({
+      start(streamController) {
+        controller = streamController
+      },
+    }),
+    { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+  )
+  return {
+    response,
+    emit(event: Record<string, unknown>) {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+    },
+    close() {
+      controller.close()
+    },
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>(res => {
@@ -145,12 +167,12 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Soll ich den Tag anlegen?')).toBeInTheDocument()
   })
 
-  it('shows tools loaded for the current request', async () => {
+  it('shows loaded tools as a compact expandable summary', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
         sseResponse([
-          { type: 'chat.tools_loaded', tools: ['geocode_place', 'analyze_route_points'] },
+          { type: 'chat.tools_loaded', tools: ['query_segments', 'resolve_entity'], reason: 'segments/read', expansion_level: 0 },
           { type: 'chat.chunk', delta: 'Fertig.' },
           { type: 'chat.done' },
         ]),
@@ -158,10 +180,78 @@ describe('ChatPage', () => {
     )
 
     renderPage()
-    await sendMessage('wie weit ist Beispielort A von Beispielort B entfernt?')
+    await sendMessage('Existiert ein Segment mit einem frei gewaehlten Testnamen?')
 
-    expect(await screen.findByText('Geladene Tools:')).toBeInTheDocument()
-    expect(screen.getByText('geocode_place, analyze_route_points')).toBeInTheDocument()
+    const summary = await screen.findByRole('button', { name: /Tools: 2 geladen/i })
+    expect(summary).toBeInTheDocument()
+    expect(screen.queryByText(/query_segments, resolve_entity/)).not.toBeInTheDocument()
+    fireEvent.click(summary)
+    expect(screen.getByText(/query_segments/)).toBeInTheDocument()
+  })
+
+  it('shows tool-plan debug details only after expanding the summary', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          {
+            type: 'chat.tools_loaded',
+            tools: ['query_activities', 'resolve_sport_query'],
+            reason: 'activities/read',
+            intent: 'read.activities.lookup',
+            expansion_level: 0,
+            omitted_tools: [{ name: 'create_gear', reason: 'write intent not requested' }],
+          },
+          { type: 'chat.chunk', delta: 'Fertig.' },
+          { type: 'chat.done' },
+        ]),
+      ),
+    )
+
+    renderPage()
+    await sendMessage('When was my last swim?')
+
+    const summary = await screen.findByRole('button', { name: /Tools: 2 geladen/i })
+    expect(screen.queryByText(/read.activities.lookup/)).not.toBeInTheDocument()
+    fireEvent.click(summary)
+    expect(screen.getByText(/read.activities.lookup/)).toBeInTheDocument()
+    expect(screen.getByText(/write intent not requested/)).toBeInTheDocument()
+  })
+
+  it('updates visible status when the stream sends progress events', async () => {
+    const deferredStream = createDeferredSSE()
+    vi.stubGlobal('fetch', vi.fn(async () => deferredStream.response))
+
+    renderPage()
+    await sendMessage('Analysiere meine letzte Aktivitaet')
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalled()
+    })
+
+    deferredStream.emit({ type: 'chat.progress', step: 'model_wait', delta: 'Lokales Modell arbeitet noch' })
+    expect(await screen.findByText(/Lokales Modell arbeitet noch/)).toBeInTheDocument()
+    deferredStream.emit({ type: 'chat.chunk', delta: 'Fertig.' })
+    deferredStream.emit({ type: 'chat.done' })
+    deferredStream.close()
+    expect(await screen.findByText('Fertig.')).toBeInTheDocument()
+  })
+
+  it('keeps an inline error message and toast when an accepted stream fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sseResponse([
+          { type: 'chat.error', error: 'Zeitlimit erreicht. Bitte versuche es mit einer kleineren Anfrage.' },
+        ]),
+      ),
+    )
+
+    renderPage()
+    await sendMessage('Analysiere sehr viel')
+
+    expect(await screen.findByText('(Fehler)')).toBeInTheDocument()
+    expect(screen.getAllByText(/Zeitlimit erreicht/).length).toBeGreaterThan(0)
+    expect(screen.getByText('Assistenten-Fehler')).toBeInTheDocument()
   })
 
   it('preserves an active newly-created session when the initial list resolves later', async () => {
@@ -199,6 +289,7 @@ describe('ChatPage', () => {
     await waitFor(() => {
       expect(screen.getByTitle('Antwort abbrechen')).toBeInTheDocument()
     })
+    expect(screen.getByRole('button', { name: 'Neu' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: /Chat 1/i }))
     fireEvent.click(await screen.findByText('Chat 2'))
 

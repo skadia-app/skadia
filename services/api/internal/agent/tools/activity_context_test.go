@@ -171,7 +171,7 @@ func TestBuildWeatherAtPointTimeSQLUsesExplicitPointForDistance(t *testing.T) {
 	}
 }
 
-func TestWeatherAtPointTimeExplicitCoordinatesStoredOnlyDoesNotFetch(t *testing.T) {
+func TestWeatherAtPointTimeExplicitCoordinatesDefaultToStoredThenFetch(t *testing.T) {
 	t.Setenv("SKADIA_AGENT_LIVE_WEATHER_POLICY", "")
 	tool := QueryWeatherAtPointTimeTool()
 	args := json.RawMessage(`{"lat":47.1,"lng":11.2,"time":"2026-05-12T08:30:00Z"}`)
@@ -183,8 +183,11 @@ func TestWeatherAtPointTimeExplicitCoordinatesStoredOnlyDoesNotFetch(t *testing.
 	if !ok {
 		t.Fatalf("result type = %T, want map", got)
 	}
-	if m["status"] != "no_stored_weather" {
-		t.Fatalf("status = %#v, want no_stored_weather", m["status"])
+	if m["status"] != "unavailable" || m["detail_status"] != "live_weather_disabled" {
+		t.Fatalf("status/detail = %#v/%#v, want unavailable/live_weather_disabled", m["status"], m["detail_status"])
+	}
+	if m["query_kind"] != "dated_place" {
+		t.Fatalf("query_kind = %#v, want dated_place", m["query_kind"])
 	}
 }
 
@@ -224,8 +227,8 @@ func TestQueryWeatherAtPointTimeFetchOnlyDisabledForExplicitPoint(t *testing.T) 
 		t.Fatalf("ExecuteRead returned error: %v", err)
 	}
 	m := requireWeatherToolMap(t, got)
-	if m["status"] != "live_weather_disabled" {
-		t.Fatalf("status = %#v, want live_weather_disabled", m["status"])
+	if m["status"] != "unavailable" || m["detail_status"] != "live_weather_disabled" {
+		t.Fatalf("status/detail = %#v/%#v, want unavailable/live_weather_disabled", m["status"], m["detail_status"])
 	}
 	rl := requireWeatherToolNestedMap(t, m, "rate_limit")
 	if rl["status"] != "not_consumed" {
@@ -242,8 +245,8 @@ func TestQueryWeatherAtPointTimeFetchOnlyUnconfiguredForExplicitPoint(t *testing
 		t.Fatalf("ExecuteRead returned error: %v", err)
 	}
 	m := requireWeatherToolMap(t, got)
-	if m["status"] != "live_weather_unconfigured" {
-		t.Fatalf("status = %#v, want live_weather_unconfigured", m["status"])
+	if m["status"] != "unavailable" || m["detail_status"] != "live_weather_unconfigured" {
+		t.Fatalf("status/detail = %#v/%#v, want unavailable/live_weather_unconfigured", m["status"], m["detail_status"])
 	}
 }
 
@@ -260,8 +263,8 @@ func TestQueryWeatherAtPointTimeStoredOnlyDoesNotExposeOtherUsersActivity(t *tes
 		t.Fatalf("ExecuteRead returned error: %v", err)
 	}
 	m := requireWeatherToolMap(t, got)
-	if m["status"] != "no_stored_weather" {
-		t.Fatalf("status = %#v, want no_stored_weather", m["status"])
+	if m["status"] != "unavailable" || m["detail_status"] != "no_stored_weather" {
+		t.Fatalf("status/detail = %#v/%#v, want unavailable/no_stored_weather", m["status"], m["detail_status"])
 	}
 	if m["count"] != 0 {
 		t.Fatalf("count = %#v, want 0", m["count"])
@@ -281,8 +284,8 @@ func TestQueryWeatherAtPointTimeFetchOnlyActivityReturnsNoPointForTime(t *testin
 		t.Fatalf("ExecuteRead returned error: %v", err)
 	}
 	m := requireWeatherToolMap(t, got)
-	if m["status"] != "no_point_for_time" {
-		t.Fatalf("status = %#v, want no_point_for_time", m["status"])
+	if m["status"] != "unavailable" || m["detail_status"] != "no_point_for_time" {
+		t.Fatalf("status/detail = %#v/%#v, want unavailable/no_point_for_time", m["status"], m["detail_status"])
 	}
 }
 
@@ -291,28 +294,31 @@ func TestQueryWeatherAtPointTimePolicyAndQuotaStatuses(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		cfg    liveWeatherConfig
-		status string
+		detail string
 	}{
 		{
 			name:   "manual confirmation",
 			cfg:    liveWeatherConfig{Policy: "manual_confirm"},
-			status: "live_weather_manual_confirmation_not_supported",
+			detail: "live_weather_manual_confirmation_not_supported",
 		},
 		{
 			name:   "privacy blocked",
 			cfg:    liveWeatherConfig{Policy: "blocked"},
-			status: "skipped_by_privacy_policy",
+			detail: "skipped_by_privacy_policy",
 		},
 		{
 			name:   "unconfigured provider",
 			cfg:    liveWeatherConfig{Policy: "allowed"},
-			status: "live_weather_unconfigured",
+			detail: "live_weather_unconfigured",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := liveWeatherPolicyBlockedResponse(tc.cfg, "fetch_only", rateLimit)
-			if got["status"] != tc.status {
-				t.Fatalf("status = %#v, want %s", got["status"], tc.status)
+			got := liveWeatherPolicyBlockedResponse(tc.cfg, "fetch_only", "dated_place", rateLimit)
+			if got["status"] != "unavailable" || got["detail_status"] != tc.detail {
+				t.Fatalf("status/detail = %#v/%#v, want unavailable/%s", got["status"], got["detail_status"], tc.detail)
+			}
+			if got["query_kind"] != "dated_place" {
+				t.Fatalf("query_kind = %#v, want dated_place", got["query_kind"])
 			}
 		})
 	}

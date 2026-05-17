@@ -320,6 +320,9 @@ export default function ChatPage() {
             error?: string
             question?: string
             reason?: string
+            intent?: string
+            omitted_tools?: Array<string | { name: string; reason?: string }>
+            expansion_level?: number
             usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
             hops?: number
             context_window?: number
@@ -339,11 +342,24 @@ export default function ChatPage() {
               setThinking(evt.step ?? 'Denke nach')
               break
 
+            case 'chat.progress':
+              setThinking(evt.delta ?? evt.step ?? 'Der Assistent arbeitet noch')
+              break
+
             case 'chat.tools_loaded':
               updateStreamMessages(prev =>
                 prev.map(m =>
                   m.id === assistantId
-                    ? { ...m, loadedTools: evt.tools ?? [] }
+                    ? {
+                        ...m,
+                        loadedTools: {
+                          names: evt.tools ?? [],
+                          reason: evt.reason,
+                          intent: evt.intent,
+                          expansionLevel: evt.expansion_level,
+                          omittedTools: normalizeOmittedTools(evt.omitted_tools),
+                        },
+                      }
                     : m,
                 ),
               )
@@ -487,21 +503,27 @@ export default function ChatPage() {
               break
 
             case 'chat.error':
-              setThinking(null)
-              addToast({
-                type: 'error',
-                title: 'Assistenten-Fehler',
-                message: evt.error ?? 'Unbekannter Fehler',
-                duration: 0,
-              })
-              updateStreamMessages(prev =>
-                prev.map(m =>
-                  m.id === assistantId
-                    ? { ...m, isStreaming: false, content: m.content || '(Fehler)' }
-                    : m,
-                ),
-              )
-              setIsStreaming(false)
+              {
+                const errorMessage = evt.error ?? 'Unbekannter Fehler'
+                const inlineError = `(Fehler)\n\n${errorMessage}`
+                setThinking(null)
+                addToast({
+                  type: 'error',
+                  title: 'Assistenten-Fehler',
+                  message: errorMessage,
+                  duration: 0,
+                })
+                updateStreamMessages(prev =>
+                  prev.map(m => {
+                    if (m.id !== assistantId) return m
+                    const content = m.content.trim()
+                      ? `${m.content}\n\n${inlineError}`
+                      : inlineError
+                    return { ...m, isStreaming: false, content }
+                  }),
+                )
+                setIsStreaming(false)
+              }
               break
           }
         }
@@ -621,4 +643,13 @@ export default function ChatPage() {
       />
     </div>
   )
+}
+
+function normalizeOmittedTools(
+  omittedTools: Array<string | { name: string; reason?: string }> | undefined,
+): Array<{ name: string; reason?: string }> | undefined {
+  if (!omittedTools || omittedTools.length === 0) return undefined
+  return omittedTools
+    .map(tool => (typeof tool === 'string' ? { name: tool } : tool))
+    .filter(tool => tool.name.trim() !== '')
 }
