@@ -1,15 +1,23 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
 import ToolCallCard from './ToolCallCard'
 import ChatToolConfirm, { type ToolConfirmRequest } from './ChatToolConfirm'
 
+export interface LoadedToolsDiagnostics {
+  names: string[]
+  reason?: string
+  intent?: string
+  expansionLevel?: number
+  omittedTools?: Array<{ name: string; reason?: string }>
+}
+
 export interface StreamMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
-  loadedTools?: string[]
+  loadedTools?: LoadedToolsDiagnostics
   toolCalls?: Array<{ id?: string; tool: string; args?: string; result?: string }>
   confirmRequest?: ToolConfirmRequest
   isStreaming?: boolean
@@ -25,6 +33,7 @@ interface ChatMessageListProps {
 
 export default function ChatMessageList({ messages, thinking }: ChatMessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const [expandedToolDetails, setExpandedToolDetails] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     if (typeof bottomRef.current?.scrollIntoView === 'function') {
@@ -52,15 +61,76 @@ export default function ChatMessageList({ messages, thinking }: ChatMessageListP
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100',
             )}
           >
+            {msg.loadedTools && msg.loadedTools.names.length > 0 && (() => {
+              const detailsId = `tool-details-${msg.id}`
+              const expanded = expandedToolDetails.has(msg.id)
+              return (
+                <div className="mb-1 rounded border border-neutral-200 dark:border-neutral-700 text-xs text-neutral-500 dark:text-neutral-400">
+                  <button
+                    type="button"
+                    aria-expanded={expanded}
+                    aria-controls={detailsId}
+                    onClick={() => {
+                      setExpandedToolDetails(prev => {
+                        const next = new Set(prev)
+                        if (next.has(msg.id)) {
+                          next.delete(msg.id)
+                        } else {
+                          next.add(msg.id)
+                        }
+                        return next
+                      })
+                    }}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left font-medium hover:bg-neutral-50 dark:hover:bg-neutral-700/40"
+                  >
+                    <span>Tools: {msg.loadedTools.names.length} geladen</span>
+                    <span aria-hidden="true" className="text-neutral-400">{expanded ? '-' : '+'}</span>
+                  </button>
+                  {expanded && (
+                    <div id={detailsId} className="space-y-1 border-t border-neutral-200 dark:border-neutral-700 px-3 py-2">
+                      <div className="font-mono text-[11px] leading-relaxed break-words">
+                        {msg.loadedTools.names.join(', ')}
+                      </div>
+                      {(msg.loadedTools.intent || msg.loadedTools.reason || msg.loadedTools.expansionLevel != null) && (
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+                          {msg.loadedTools.intent && (
+                            <>
+                              <dt className="text-neutral-400">Intent</dt>
+                              <dd className="font-mono break-words">{msg.loadedTools.intent}</dd>
+                            </>
+                          )}
+                          {msg.loadedTools.reason && (
+                            <>
+                              <dt className="text-neutral-400">Grund</dt>
+                              <dd className="font-mono break-words">{msg.loadedTools.reason}</dd>
+                            </>
+                          )}
+                          {msg.loadedTools.expansionLevel != null && (
+                            <>
+                              <dt className="text-neutral-400">Stufe</dt>
+                              <dd className="font-mono">{msg.loadedTools.expansionLevel}</dd>
+                            </>
+                          )}
+                        </dl>
+                      )}
+                      {msg.loadedTools.omittedTools && msg.loadedTools.omittedTools.length > 0 && (
+                        <div className="space-y-0.5 text-[11px]">
+                          <div className="text-neutral-400">Ausgelassen</div>
+                          {msg.loadedTools.omittedTools.map(tool => (
+                            <div key={`${tool.name}:${tool.reason ?? ''}`} className="font-mono break-words">
+                              {tool.name}{tool.reason ? ` - ${tool.reason}` : ''}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
             {msg.toolCalls?.map((tc, i) => (
               <ToolCallCard key={tc.id ?? i} toolName={tc.tool} args={tc.args} result={tc.result} />
             ))}
-            {msg.loadedTools && msg.loadedTools.length > 0 && (
-              <div className="mb-1 rounded border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                <span className="font-medium">Geladene Tools:</span>{' '}
-                <span className="font-mono">{msg.loadedTools.join(', ')}</span>
-              </div>
-            )}
             {msg.confirmRequest && (
               <ChatToolConfirm
                 request={msg.confirmRequest}
