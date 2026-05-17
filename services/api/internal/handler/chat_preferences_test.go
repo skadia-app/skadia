@@ -312,7 +312,11 @@ func TestSendChatMessagePersistsUserQuestionAsAssistantContext(t *testing.T) {
 	question := "Der Tag existiert noch nicht. Soll ich ihn anlegen?"
 	h.Agent = agent.New(agent.Config{
 		LLMResolver: agent.NewLLMResolver(h.DB, agent.LLMResolverConfig{BaseURL: "http://llm.test/v1", APIKey: "key", Model: "model"}),
-		Tools:       handlerAskUserRuntime{question: question},
+		Preferences: &agent.PreferenceLoader{Defaults: agent.ChatPreferences{
+			ChatWriteToolsEnabled: true,
+			ChatAllowedWriteTools: []string{"tag_activity"},
+		}},
+		Tools: handlerAskUserRuntime{question: question},
 		StreamChat: func(ctx context.Context, cfg agent.LLMConfig, params llmwire.ChatRequest) agent.ChatStream {
 			return &handlerFakeStream{events: []llmwire.ChatStreamEvent{{
 				ToolCalls:    []llmwire.ToolCallDelta{{Index: 0, ID: "call-tag", Name: "tag_activity", Args: `{"tag_name":"Intervalle"}`}},
@@ -371,7 +375,17 @@ func (r handlerAskUserRuntime) AddEnabledWriteTools(filter []string, prefs *agen
 }
 
 func (r handlerAskUserRuntime) Definitions(filter []string, prefs *agent.ChatPreferences) []llmwire.ToolDefinition {
-	return nil
+	defs := make([]llmwire.ToolDefinition, 0, len(filter))
+	for _, name := range filter {
+		if name == "tag_activity" {
+			defs = append(defs, llmwire.ToolDefinition{
+				Name:        "tag_activity",
+				Description: "Tag an activity.",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+			})
+		}
+	}
+	return defs
 }
 
 func (r handlerAskUserRuntime) Execute(ctx context.Context, req agent.ToolRuntimeRequest, sink agent.SSESink) (agent.ToolRuntimeResult, error) {

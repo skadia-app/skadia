@@ -47,7 +47,7 @@ describe('WorkshopPage deployment capabilities', () => {
     expect(screen.queryByText('Gipfelsammlung')).not.toBeInTheDocument()
   })
 
-  it('shows summit collection disabled when geodata is configured but unavailable', () => {
+  it('does not show the analytics summit collection in workshop when geodata is configured but unavailable', () => {
     mocks.capabilities = {
       features: {
         document_ml: { configured: false, available: false, reason: 'core_profile' },
@@ -57,10 +57,10 @@ describe('WorkshopPage deployment capabilities', () => {
 
     renderWorkshop()
 
-    expect(screen.getByText('Gipfelsammlung').closest('[aria-disabled="true"]')).not.toBeNull()
+    expect(screen.queryByText('Gipfelsammlung')).not.toBeInTheDocument()
   })
 
-  it('shows full navigation when geodata and document capabilities are available', () => {
+  it('shows document review when document capabilities are available', () => {
     mocks.capabilities = {
       features: {
         document_ml: { configured: true, available: true },
@@ -71,6 +71,6 @@ describe('WorkshopPage deployment capabilities', () => {
     renderWorkshop()
 
     expect(screen.getByRole('link', { name: /Dokument-Überprüfung/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Gipfelsammlung/i })).toBeInTheDocument()
+    expect(screen.queryByText('Gipfelsammlung')).not.toBeInTheDocument()
   })
 })
