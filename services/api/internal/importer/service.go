@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -98,6 +99,9 @@ type Service struct {
 	// PostImportHook is called once after a successful activity import.
 	// Used to trigger fusion queue recompute. Optional — nil is safe.
 	PostImportHook func(ctx context.Context, userID string)
+	// PostImportDebounce coalesces bursts of successful activity imports before
+	// PostImportHook runs. Zero uses the production default.
+	PostImportDebounce time.Duration
 
 	// ActivityFileRefresher updates local ShadowFS paths after enrichment/rules
 	// have finalized schema-relevant activity fields. Optional — nil is safe.
@@ -115,6 +119,9 @@ type Service struct {
 	// production defaults are used (real HTTP weather + PostGIS geocoder).
 	// Set only in integration tests to avoid network calls.
 	Stage1Deps *enrichment.Stage1Deps
+
+	postImportMu     sync.Mutex
+	postImportTimers map[string]*time.Timer
 }
 
 // NewService constructs a Service with the provided dependencies.
@@ -131,6 +138,41 @@ func NewService(
 		ShadowFS:       store,
 		SegmentMatcher: segmentMatcher,
 	}
+}
+
+const defaultPostImportDebounce = 30 * time.Second
+
+func (s *Service) schedulePostImportHook(ctx context.Context, userID string) {
+	if s.PostImportHook == nil || userID == "" {
+		return
+	}
+	delay := s.PostImportDebounce
+	if delay <= 0 {
+		delay = defaultPostImportDebounce
+	}
+
+	s.postImportMu.Lock()
+	if s.postImportTimers == nil {
+		s.postImportTimers = make(map[string]*time.Timer)
+	}
+	if existing := s.postImportTimers[userID]; existing != nil {
+		existing.Stop()
+	}
+	var timer *time.Timer
+	timer = time.AfterFunc(delay, func() {
+		s.postImportMu.Lock()
+		if s.postImportTimers[userID] != timer {
+			s.postImportMu.Unlock()
+			return
+		}
+		delete(s.postImportTimers, userID)
+		s.postImportMu.Unlock()
+
+		hookCtx := context.WithoutCancel(ctx)
+		s.PostImportHook(hookCtx, userID)
+	})
+	s.postImportTimers[userID] = timer
+	s.postImportMu.Unlock()
 }
 
 // PostProcess runs all post-insert steps for a newly stored activity:
@@ -697,7 +739,7 @@ func (s *Service) runWeatherStreamRefinement(activityID, userID string, data *mo
 func (s *Service) ProcessActivity(ctx context.Context, userID string, data *model.ActivityData, fileBytes []byte, meta ImportMetadata) (result *ActivityResult, retErr error) {
 	defer func() {
 		if s.PostImportHook != nil && retErr == nil && result != nil && result.Status != "skipped" {
-			s.PostImportHook(ctx, userID)
+			s.schedulePostImportHook(ctx, userID)
 		}
 	}()
 	if err := normalizeImportedActivitySport(data); err != nil {
