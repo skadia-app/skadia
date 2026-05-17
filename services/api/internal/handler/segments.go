@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/paulmach/orb"
@@ -189,6 +190,21 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var sourceActivity *model.Activity
+	if create.SourceActivityID != nil {
+		var err error
+		sourceActivity, err = h.DB.GetActivity(r.Context(), *create.SourceActivityID)
+		if err != nil {
+			slog.Error("create segment: load source activity failed", "error", err)
+			httputil.WriteError(w, http.StatusInternalServerError, "Internal Error", "failed to load source activity", r.URL.Path)
+			return
+		}
+		if sourceActivity == nil || sourceActivity.UserID != userID {
+			httputil.WriteError(w, http.StatusNotFound, "Not Found", "source activity not found", r.URL.Path)
+			return
+		}
+	}
+
 	// Normalize historic German labels in segment_type_meta before DB write.
 	if len(create.SegmentTypeMeta) > 0 {
 		var m map[string]any
@@ -226,6 +242,10 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if sourceActivity != nil {
+		matchSourceActivityForSegment(r.Context(), h.DB, userID, segment.ID, sourceActivity)
+	}
+
 	httputil.WriteJSON(w, http.StatusCreated, segment)
 
 	// Backfill: match new segment against all existing activities asynchronously.
@@ -255,6 +275,22 @@ func (h *Handler) CreateSegment(w http.ResponseWriter, r *http.Request) {
 		}
 		slog.Info("segment backfill: done", "segment_id", segID)
 	})
+}
+
+func matchSourceActivityForSegment(ctx context.Context, db *database.DB, userID, segmentID string, act *model.Activity) {
+	matchCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	subType := ""
+	if act.SubType != nil {
+		subType = *act.SubType
+	}
+	before := time.Now()
+	MatchActivitySegments(matchCtx, db, act.ID, userID, act.SportType, subType, act.GearID, act.StartedAt)
+	slog.Info("create segment: source activity match attempted",
+		"segment_id", segmentID,
+		"activity_id", act.ID,
+		"duration_ms", time.Since(before).Milliseconds())
 }
 
 func (h *Handler) GetSegment(w http.ResponseWriter, r *http.Request) {
