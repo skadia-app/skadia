@@ -14,7 +14,14 @@ from nats.js.api import ConsumerConfig, DeliverPolicy, AckPolicy
 from db import get_pool
 from progress import publish_progress
 from s3_client import s3_client_kwargs
-from enrichment.document_vlm import RetryableDocumentError, convert_to_markdown, process_document
+from enrichment.document_vlm import (
+    DOCUMENT_PAGE_MARKDOWN_TIMEOUT_SECONDS,
+    DOCUMENT_VISION_TIMEOUT_SECONDS,
+    MAX_SCANNED_PDF_PAGES,
+    RetryableDocumentError,
+    convert_document_to_markdown,
+    process_document,
+)
 from analytics import (
     cluster_activities,
     compute_readiness,
@@ -29,7 +36,18 @@ MAX_CONCURRENT_ANALYTICS_PER_USER = 1
 MAX_GLOBAL_CONCURRENT = 5
 MAX_CONCURRENT_PHOTO_EMBED = 2
 DOCUMENT_ACK_WAIT_SECONDS = int(os.getenv("ML_DOCUMENT_ACK_WAIT_SECONDS", "900"))
-DOCUMENT_PROCESS_TIMEOUT_SECONDS = float(os.getenv("ML_DOCUMENT_PROCESS_TIMEOUT_SECONDS", "840"))
+DOCUMENT_MARKDOWN_TIMEOUT_SECONDS = float(
+    os.getenv(
+        "ML_DOCUMENT_MARKDOWN_TIMEOUT_SECONDS",
+        str((MAX_SCANNED_PDF_PAGES * DOCUMENT_PAGE_MARKDOWN_TIMEOUT_SECONDS) + 120),
+    )
+)
+DOCUMENT_PROCESS_TIMEOUT_SECONDS = float(
+    os.getenv(
+        "ML_DOCUMENT_PROCESS_TIMEOUT_SECONDS",
+        str((MAX_SCANNED_PDF_PAGES * DOCUMENT_VISION_TIMEOUT_SECONDS) + 120),
+    )
+)
 DOCUMENT_IN_PROGRESS_INTERVAL_SECONDS = float(os.getenv("ML_DOCUMENT_IN_PROGRESS_INTERVAL_SECONDS", "60"))
 
 # Global semaphore to prevent resource exhaustion under burst load
@@ -468,6 +486,7 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
     sem = _user_semaphores[user_id]
     async with sem:
         with _track_active():
+            markdown_status = ""
             try:
                 pool = await get_pool()
                 storage_metadata = await _load_document_file_metadata(pool, file_id, user_id, doc_id)
@@ -477,6 +496,58 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                     await _complete_document_import_log(pool, doc_id, user_id, file_id, False)
                     await msg.ack()
                     return
+                markdown_status = "skipped"
+                extracted_text = data.get("extracted_text", "") or ""
+                existing_markdown = ""
+                try:
+                    pool = await get_pool()
+                    async with pool.acquire() as conn:
+                        doc_row = await conn.fetchrow(
+                            "SELECT extracted_text, extracted_markdown FROM gear_documents WHERE id = $1 AND user_id = $2 AND file_id = $3",
+                            doc_id,
+                            user_id,
+                            file_id,
+                        )
+                    if doc_row:
+                        doc_row = dict(doc_row)
+                        existing_markdown = doc_row.get("extracted_markdown") or ""
+                        if not extracted_text:
+                            extracted_text = doc_row.get("extracted_text") or ""
+                except Exception as e:
+                    logger.warning("failed to load extracted document content from DB for %s: %s", doc_id, e)
+
+                if existing_markdown:
+                    markdown = existing_markdown
+                    markdown_status = "completed"
+                    logger.info("reusing extracted_markdown for document %s", doc_id)
+                else:
+                    markdown = await _run_with_in_progress_heartbeat(
+                        msg,
+                        convert_document_to_markdown(
+                            extracted_text=extracted_text,
+                            storage_backend=storage_metadata["storage_backend"],
+                            storage_path=storage_metadata["storage_path"],
+                            file_type=storage_metadata["file_type"],
+                            content_type=storage_metadata["content_type"],
+                            size_bytes=storage_metadata.get("size_bytes"),
+                        ),
+                        DOCUMENT_MARKDOWN_TIMEOUT_SECONDS,
+                    )
+                if markdown and not existing_markdown:
+                    async with pool.acquire() as conn:
+                        await conn.execute(
+                            "UPDATE gear_documents SET extracted_markdown = $1 WHERE id = $2 AND user_id = $3 AND file_id = $4",
+                            markdown,
+                            doc_id,
+                            user_id,
+                            file_id,
+                        )
+                    logger.info("stored extracted_markdown for document %s", doc_id)
+                    markdown_status = "completed"
+                elif not markdown:
+                    markdown_status = "failed"
+
+                extraction_text = markdown or extracted_text
                 success = await _run_with_in_progress_heartbeat(
                     msg,
                     process_document(
@@ -485,8 +556,8 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                         gear_id=data.get("gear_id"),
                         component_id=data.get("component_id"),
                         user_id=user_id,
-                        is_text_pdf=data.get("is_text_pdf", False),
-                        extracted_text=data.get("extracted_text"),
+                        is_text_pdf=bool(markdown) or data.get("is_text_pdf", False),
+                        extracted_text=extraction_text,
                         file_id=file_id,
                         storage_backend=storage_metadata["storage_backend"],
                         storage_path=storage_metadata["storage_path"],
@@ -505,49 +576,6 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                     user_id,
                     file_id,
                 )
-
-                markdown_status = "skipped"
-                # Markdown conversion is optional; the DB column is the only tracked output.
-                if success:
-                    extracted_text = data.get("extracted_text", "") or ""
-                    if not extracted_text:
-                        try:
-                            pool = await get_pool()
-                            async with pool.acquire() as conn:
-                                extracted_text = (
-                                    await conn.fetchval(
-                                        "SELECT extracted_text FROM gear_documents WHERE id = $1 AND user_id = $2 AND file_id = $3",
-                                        doc_id,
-                                        user_id,
-                                        file_id,
-                                    )
-                                    or ""
-                                )
-                        except Exception as e:
-                            logger.warning("failed to load extracted_text from DB for %s: %s", doc_id, e)
-
-                    if extracted_text:
-                        try:
-                            markdown = await convert_to_markdown(extracted_text)
-                            if markdown:
-                                pool = await get_pool()
-                                async with pool.acquire() as conn:
-                                    await conn.execute(
-                                        "UPDATE gear_documents SET extracted_markdown = $1 WHERE id = $2 AND user_id = $3 AND file_id = $4",
-                                        markdown,
-                                        doc_id,
-                                        user_id,
-                                        file_id,
-                                    )
-                                logger.info("stored extracted_markdown for document %s", doc_id)
-                                markdown_status = "completed"
-                            else:
-                                markdown_status = "failed"
-                        except Exception as e:
-                            markdown_status = "failed"
-                            logger.warning("markdown conversion failed for document %s: %s", doc_id, e)
-                else:
-                    markdown_status = "failed"
 
                 await _complete_document_import_log(pool, doc_id, user_id, file_id, success, markdown_status)
 
@@ -582,7 +610,7 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
                 try:
                     pool = await get_pool()
                     await _update_document_processing_status(pool, "failed", doc_id, user_id, file_id)
-                    await _complete_document_import_log(pool, doc_id, user_id, file_id, False)
+                    await _complete_document_import_log(pool, doc_id, user_id, file_id, False, markdown_status)
                 except Exception as status_err:
                     logger.warning("failed to mark document %s as failed: %s", doc_id, status_err)
 

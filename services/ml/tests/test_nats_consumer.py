@@ -89,7 +89,7 @@ try:  # pragma: no cover
 except Exception:  # noqa: BLE001
     enr = types.ModuleType("enrichment")
     doc_vlm = types.ModuleType("enrichment.document_vlm")
-    doc_vlm.convert_to_markdown = lambda *a, **kw: None
+    doc_vlm.convert_document_to_markdown = lambda *a, **kw: None
     doc_vlm.process_document = lambda *a, **kw: None
     sys.modules.setdefault("enrichment", enr)
     sys.modules["enrichment.document_vlm"] = doc_vlm
@@ -173,6 +173,20 @@ def test_s3_bucket_for_file_type_defaults_to_shadowfs_rules(monkeypatch):
     assert nats_consumer._s3_bucket_for_file_type("other") == "default-bucket"
 
 
+def test_document_timeout_envelopes_cover_bounded_page_work():
+    page_markdown_budget = (
+        nats_consumer.MAX_SCANNED_PDF_PAGES
+        * nats_consumer.DOCUMENT_PAGE_MARKDOWN_TIMEOUT_SECONDS
+    )
+    structured_budget = (
+        nats_consumer.MAX_SCANNED_PDF_PAGES
+        * nats_consumer.DOCUMENT_VISION_TIMEOUT_SECONDS
+    )
+
+    assert nats_consumer.DOCUMENT_MARKDOWN_TIMEOUT_SECONDS > page_markdown_budget
+    assert nats_consumer.DOCUMENT_PROCESS_TIMEOUT_SECONDS > structured_budget
+
+
 @pytest.mark.asyncio
 async def test_load_document_file_metadata_uses_file_id_user_and_doc_scope():
     class _Conn:
@@ -183,7 +197,7 @@ async def test_load_document_file_metadata_uses_file_id_user_and_doc_scope():
             self.calls.append((query, *args))
             return {
                 "storage_backend": "s3",
-                "storage_path": "documents/invoice.pdf",
+                "storage_path": "documents/synthetic-invoice",
                 "file_type": "document",
                 "content_type": "application/pdf",
                 "size_bytes": 1234,
@@ -194,7 +208,7 @@ async def test_load_document_file_metadata_uses_file_id_user_and_doc_scope():
 
     assert metadata == {
         "storage_backend": "s3",
-        "storage_path": "documents/invoice.pdf",
+        "storage_path": "documents/synthetic-invoice",
         "file_type": "document",
         "content_type": "application/pdf",
         "size_bytes": 1234,
@@ -210,7 +224,7 @@ async def test_process_document_message_passes_user_file_metadata_not_legacy_s3(
         async def fetchrow(self, query, *args):
             return {
                 "storage_backend": "s3",
-                "storage_path": "documents/current.pdf",
+                "storage_path": "documents/synthetic-current-document",
                 "file_type": "document",
                 "content_type": "application/pdf",
                 "size_bytes": 2048,
@@ -230,12 +244,16 @@ async def test_process_document_message_passes_user_file_metadata_not_legacy_s3(
         calls.append(kwargs)
         return False
 
+    async def fake_markdown(**kwargs):
+        return None
+
     class _NC:
         async def publish(self, *args):
             return None
 
     monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
     monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
+    monkeypatch.setattr(nats_consumer, "convert_document_to_markdown", fake_markdown)
 
     msg = _FakeMsg(
         {
@@ -252,7 +270,7 @@ async def test_process_document_message_passes_user_file_metadata_not_legacy_s3(
     assert msg.acked == 1
     assert calls[0]["file_id"] == FILE_ID
     assert calls[0]["storage_backend"] == "s3"
-    assert calls[0]["storage_path"] == "documents/current.pdf"
+    assert calls[0]["storage_path"] == "documents/synthetic-current-document"
     assert calls[0]["file_type"] == "document"
     assert calls[0]["content_type"] == "application/pdf"
     assert "s3_bucket" not in calls[0]
@@ -267,7 +285,7 @@ async def test_process_document_message_binds_status_updates_to_document_owner(m
         async def fetchrow(self, query, *args):
             return {
                 "storage_backend": "s3",
-                "storage_path": "documents/current.pdf",
+                "storage_path": "documents/synthetic-current-document",
                 "file_type": "document",
                 "content_type": "application/pdf",
                 "size_bytes": 2048,
@@ -285,12 +303,16 @@ async def test_process_document_message_binds_status_updates_to_document_owner(m
     async def fake_process_document(**kwargs):
         return True
 
+    async def fake_markdown(**kwargs):
+        return None
+
     class _NC:
         async def publish(self, *args):
             return None
 
     monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
     monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
+    monkeypatch.setattr(nats_consumer, "convert_document_to_markdown", fake_markdown)
 
     await nats_consumer._process_document_message(
         _FakeMsg({"doc_id": DOC_ID, "user_id": USER_ID, "file_id": FILE_ID}),
@@ -343,7 +365,7 @@ async def test_process_document_message_acks_when_processed_event_publish_fails(
         async def fetchrow(self, query, *args):
             return {
                 "storage_backend": "s3",
-                "storage_path": "documents/current.pdf",
+                "storage_path": "documents/synthetic-current-document",
                 "file_type": "document",
                 "content_type": "application/pdf",
                 "size_bytes": 2048,
@@ -358,7 +380,7 @@ async def test_process_document_message_acks_when_processed_event_publish_fails(
     async def fake_process_document(**kwargs):
         return True
 
-    async def fake_markdown(_text):
+    async def fake_markdown(**kwargs):
         return None
 
     class _NC:
@@ -367,7 +389,7 @@ async def test_process_document_message_acks_when_processed_event_publish_fails(
 
     monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
     monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
-    monkeypatch.setattr(nats_consumer, "convert_to_markdown", fake_markdown)
+    monkeypatch.setattr(nats_consumer, "convert_document_to_markdown", fake_markdown)
 
     msg = _FakeMsg(
         {
@@ -385,6 +407,109 @@ async def test_process_document_message_acks_when_processed_event_publish_fails(
 
 
 @pytest.mark.asyncio
+async def test_process_document_message_converts_markdown_before_structured_extraction(monkeypatch):
+    executed: list[tuple] = []
+
+    class _Conn:
+        async def fetchrow(self, query, *args):
+            return {
+                "storage_backend": "s3",
+                "storage_path": "documents/synthetic-current-document",
+                "file_type": "document",
+                "content_type": "application/pdf",
+                "size_bytes": 2048,
+            }
+
+        async def execute(self, *args):
+            executed.append(args)
+            return "UPDATE 1"
+
+    async def fake_get_pool():
+        return _FakePool(_Conn())
+
+    calls: list[tuple[str, object]] = []
+
+    async def fake_markdown(**kwargs):
+        calls.append(("markdown", kwargs))
+        return "# Invoice\n\nBrake Pads"
+
+    async def fake_process_document(**kwargs):
+        calls.append(("process", kwargs))
+        return True
+
+    monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    monkeypatch.setattr(nats_consumer, "convert_document_to_markdown", fake_markdown)
+    monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
+
+    msg = _FakeMsg(
+        {
+            "doc_id": DOC_ID,
+            "user_id": USER_ID,
+            "file_id": FILE_ID,
+            "is_text_pdf": False,
+            "extracted_text": "q\n/R7 gs\n0 0 1 rg\n1 i\n1 2 3 4 re\nf\nQ\nq\nf\nQ",
+        }
+    )
+
+    await nats_consumer._process_document_message(msg, _NCNoop())
+
+    assert [name for name, _ in calls] == ["markdown", "process"]
+    assert calls[0][1]["storage_path"] == "documents/synthetic-current-document"
+    assert calls[1][1]["is_text_pdf"] is True
+    assert calls[1][1]["extracted_text"] == "# Invoice\n\nBrake Pads"
+    markdown_updates = [call for call in executed if "extracted_markdown" in call[0]]
+    assert markdown_updates
+    assert markdown_updates[0][1] == "# Invoice\n\nBrake Pads"
+
+
+@pytest.mark.asyncio
+async def test_process_document_message_reuses_existing_markdown_on_retry(monkeypatch):
+    executed: list[tuple] = []
+
+    class _Conn:
+        async def fetchrow(self, query, *args):
+            if "extracted_markdown" in query:
+                return {
+                    "extracted_text": "raw text",
+                    "extracted_markdown": "# Existing\n\nMarkdown",
+                }
+            return {
+                "storage_backend": "s3",
+                "storage_path": "documents/synthetic-current-document",
+                "file_type": "document",
+                "content_type": "application/pdf",
+                "size_bytes": 2048,
+            }
+
+        async def execute(self, *args):
+            executed.append(args)
+            return "UPDATE 1"
+
+    async def fake_get_pool():
+        return _FakePool(_Conn())
+
+    async def fail_markdown(**kwargs):  # pragma: no cover - must not run
+        raise AssertionError("existing extracted_markdown must be reused")
+
+    calls: list[dict] = []
+
+    async def fake_process_document(**kwargs):
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    monkeypatch.setattr(nats_consumer, "convert_document_to_markdown", fail_markdown)
+    monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
+
+    msg = _FakeMsg({"doc_id": DOC_ID, "user_id": USER_ID, "file_id": FILE_ID})
+    await nats_consumer._process_document_message(msg, _NCNoop())
+
+    assert msg.acked == 1
+    assert calls[0]["extracted_text"] == "# Existing\n\nMarkdown"
+    assert not [call for call in executed if "extracted_markdown" in call[0]]
+
+
+@pytest.mark.asyncio
 async def test_process_document_message_naks_retryable_document_errors_without_marking_failed(monkeypatch):
     executed: list[tuple] = []
 
@@ -392,7 +517,7 @@ async def test_process_document_message_naks_retryable_document_errors_without_m
         async def fetchrow(self, query, *args):
             return {
                 "storage_backend": "s3",
-                "storage_path": "documents/current.pdf",
+                "storage_path": "documents/synthetic-current-document",
                 "file_type": "document",
                 "content_type": "application/pdf",
                 "size_bytes": 2048,
@@ -408,7 +533,11 @@ async def test_process_document_message_naks_retryable_document_errors_without_m
     async def fake_process_document(**kwargs):
         raise nats_consumer.RetryableDocumentError("broker unavailable")
 
+    async def fake_markdown(**kwargs):
+        return "# Invoice\n\nBrake Pads"
+
     monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    monkeypatch.setattr(nats_consumer, "convert_document_to_markdown", fake_markdown)
     monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
 
     msg = _FakeMsg({"doc_id": DOC_ID, "user_id": USER_ID, "file_id": FILE_ID})
@@ -427,7 +556,7 @@ async def test_process_document_message_marks_failed_before_final_ack(monkeypatc
         async def fetchrow(self, query, *args):
             return {
                 "storage_backend": "s3",
-                "storage_path": "documents/current.pdf",
+                "storage_path": "documents/synthetic-current-document",
                 "file_type": "document",
                 "content_type": "application/pdf",
                 "size_bytes": 2048,
@@ -443,7 +572,11 @@ async def test_process_document_message_marks_failed_before_final_ack(monkeypatc
     async def fake_process_document(**kwargs):
         raise nats_consumer.RetryableDocumentError("broker unavailable")
 
+    async def fake_markdown(**kwargs):
+        return "# Invoice\n\nBrake Pads"
+
     monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    monkeypatch.setattr(nats_consumer, "convert_document_to_markdown", fake_markdown)
     monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
 
     msg = _FakeMsg({"doc_id": DOC_ID, "user_id": USER_ID, "file_id": FILE_ID})
@@ -455,6 +588,9 @@ async def test_process_document_message_marks_failed_before_final_ack(monkeypatc
     status_updates = [call for call in executed if "processing_status" in call[0]]
     assert status_updates
     assert status_updates[-1][1] == "failed"
+    import_log_updates = [call for call in executed if "document_processed" in call[0]]
+    assert import_log_updates
+    assert import_log_updates[-1][-1] == "completed"
 
 
 @pytest.mark.asyncio
