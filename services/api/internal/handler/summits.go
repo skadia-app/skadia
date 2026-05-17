@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/skadia-app/skadia/services/api/internal/capabilities"
 	"github.com/skadia-app/skadia/services/api/internal/database"
 	"github.com/skadia-app/skadia/services/api/internal/httputil"
 	"github.com/go-chi/chi/v5"
@@ -30,6 +31,9 @@ type summitVisitResponse struct {
 func (h *Handler) GetSummitCollection(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyGeoPOIEnrichment) {
 		return
 	}
 
@@ -106,6 +110,9 @@ func (h *Handler) GetSummitActivities(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyGeoPOIEnrichment) {
+		return
+	}
 
 	// WICHTIG: Chi-Router, NICHT r.PathValue()!
 	osmIDStr := chi.URLParam(r, "osm_id")
@@ -145,6 +152,9 @@ func (h *Handler) GetSummitActivities(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetSummitActivitiesByName(w http.ResponseWriter, r *http.Request) {
 	userID, ok := httputil.RequireUserID(w, r)
 	if !ok {
+		return
+	}
+	if !h.requireFeatureAvailable(w, r, capabilities.KeyGeoPOIEnrichment) {
 		return
 	}
 	name := r.URL.Query().Get("name")

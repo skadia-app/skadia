@@ -6,10 +6,14 @@ import SummitMap from '@/components/summit/SummitMap'
 import SummitMapFullscreen from '@/components/summit/SummitMapFullscreen'
 import { ELEV_CLASSES, type ElevClass } from '@/components/summit/summitConstants'
 import { useSummitCollection } from '@/hooks/useSummitCollection'
+import { useCapabilities } from '@/hooks/useCapabilities'
+import { featureAvailable } from '@/lib/deploymentCapabilities'
 
 type SortField = 'name' | 'elevation_m' | 'first_visit' | 'last_visit' | 'visit_count'
 type SortDir = 'asc' | 'desc'
 type ViewMode = 'list' | 'map'
+
+type SummitCollectionPageProps = { defaultView?: 'list' | 'map' }
 
 const SUMMIT_COUNTRY_PARAM = 'summit_country'
 const SUMMIT_YEAR_PARAM = 'summit_year'
@@ -20,7 +24,29 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-export default function SummitCollectionPage({ defaultView = 'list' }: { defaultView?: 'list' | 'map' }) {
+export default function SummitCollectionPage({ defaultView = 'list' }: SummitCollectionPageProps) {
+  const { data: capabilities, isLoading: capabilitiesLoading } = useCapabilities()
+
+  if (capabilitiesLoading && !capabilities) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-neutral-300 border-t-accent-DEFAULT" />
+      </div>
+    )
+  }
+
+  if (!featureAvailable(capabilities, 'geo_poi_enrichment')) {
+    return (
+      <div className="rounded-lg border border-neutral-200 bg-white p-6 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+        Gipfeldaten sind in dieser Installation nicht verfügbar.
+      </div>
+    )
+  }
+
+  return <SummitCollectionContent defaultView={defaultView} />
+}
+
+function SummitCollectionContent({ defaultView = 'list' }: SummitCollectionPageProps) {
   const location = useLocation()
   const [sortField, setSortField] = useState<SortField>('elevation_m')
   const [sortDir, setSortDir] = useState<SortDir>('desc')

@@ -308,14 +308,20 @@ async def _complete_document_import_log(
     file_id: str,
     success: bool,
     markdown_status: str = "",
+    skipped: bool = False,
 ) -> None:
     if not doc_id or not user_id:
         return
     if markdown_status not in ("completed", "failed", "skipped"):
         markdown_status = ""
-    status = "completed" if success else "error"
-    step_status = "completed" if success else "failed"
-    error_msg = None if success else "document processing failed"
+    if skipped:
+        status = "skipped"
+        step_status = "skipped"
+        error_msg = None
+    else:
+        status = "completed" if success else "error"
+        step_status = "completed" if success else "failed"
+        error_msg = None if success else "document processing failed"
     async with pool.acquire() as conn:
         await conn.execute(
             """
@@ -351,6 +357,11 @@ async def _complete_document_import_log(
             user_id,
             markdown_status,
         )
+
+
+async def _skip_document_processing_in_core(pool, doc_id: str, user_id: str, file_id: str) -> None:
+    await _update_document_processing_status(pool, "idle", doc_id, user_id, file_id)
+    await _complete_document_import_log(pool, doc_id, user_id, file_id, False, "skipped", skipped=True)
 
 
 async def _run_with_in_progress_heartbeat(msg, awaitable, timeout_seconds: float):
@@ -542,6 +553,18 @@ async def _process_document_message(msg, nc: nats.NATS) -> None:
             await _complete_document_import_log(pool, valid_doc_id, valid_user_id, "", False)
         except Exception as e:
             logger.warning("failed to mark legacy document message as failed for %s: %s", valid_doc_id, e)
+        await msg.ack()
+        return
+
+    if _full_only_processing_disabled():
+        logger.info("document processing: skipped because SKADIA_DEPLOYMENT_PROFILE=core")
+        try:
+            pool = await get_pool()
+            await _skip_document_processing_in_core(pool, valid_doc_id, valid_user_id, valid_file_id)
+        except Exception as e:
+            logger.warning("failed to mark core-disabled document processing as skipped for %s: %s", valid_doc_id, e)
+            await msg.nak(delay=30)
+            return
         await msg.ack()
         return
 

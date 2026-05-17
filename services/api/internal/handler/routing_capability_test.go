@@ -94,6 +94,9 @@ func TestCoreBlocksAdminGeodataAndCoverageEndpoints(t *testing.T) {
 		{name: "coverage-tile", req: httptest.NewRequest(http.MethodGet, "/api/v1/coverage/tiles/forest/10/535/362.png", nil), call: h.CoverageTile},
 		{name: "coverage-query", req: httptest.NewRequest(http.MethodGet, "/internal/coverage/query?lat=47.2&lon=11.4&layers=forest", nil), call: h.QueryCoverage},
 		{name: "activity-stops", req: httptest.NewRequest(http.MethodGet, "/api/v1/activities/activity-1/stops", nil), call: h.GetActivityStops},
+		{name: "summit-collection", req: httptest.NewRequest(http.MethodGet, "/api/v1/summits", nil), call: h.GetSummitCollection},
+		{name: "summit-activities", req: withRouteParam(httptest.NewRequest(http.MethodGet, "/api/v1/summits/123/activities", nil), "osm_id", "123"), call: h.GetSummitActivities},
+		{name: "summit-activities-by-name", req: httptest.NewRequest(http.MethodGet, "/api/v1/summits/activities?name=Test", nil), call: h.GetSummitActivitiesByName},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
