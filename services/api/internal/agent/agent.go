@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -100,22 +101,14 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 		prefs = &ChatPreferences{}
 	}
 
-	toolNames := GetToolsForQuery(req.Message, domains, profile)
-	if a.tools != nil {
-		toolNames = a.tools.AddEnabledWriteTools(toolNames, prefs)
-	}
+	toolPlan := BuildToolPlan(req.Message, profile, prefs)
+	domains = toolPlan.Intent.Domains
+	activeSkills = a.skillsForDomains(domains)
+	systemPrompt = AssembleSystemPrompt(*profile, activeSkills, time.Now())
+	toolNames := toolPlan.Tools
 	toolDefs := []llmwire.ToolDefinition(nil)
 	if a.tools != nil {
 		toolDefs = a.tools.Definitions(toolNames, prefs)
-	}
-	if len(toolDefs) > 0 {
-		loadedTools := make([]string, 0, len(toolDefs))
-		for _, def := range toolDefs {
-			loadedTools = append(loadedTools, def.Name)
-		}
-		if err := sink.Send(SSEEvent{Type: EventToolsLoaded, ID: req.MessageID, Tools: loadedTools}); err != nil {
-			return err
-		}
 	}
 	requireTool := shouldRequireTool(req.Message, domains, toolDefs)
 
@@ -135,7 +128,7 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 
 	cfg, err := a.resolveLLM(ctx, req.UserID)
 	if err != nil {
-		_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: "Chat nicht verfügbar: " + err.Error()})
+		_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: chatUnavailableMessage(err)})
 		return err
 	}
 	if err := sink.Send(SSEEvent{Type: EventThinking, ID: req.MessageID, Step: ThinkingAnalyze}); err != nil {
@@ -158,7 +151,7 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 		if allowTools {
 			activeTools = toolDefs
 		}
-		fit, ok := fitChatRequest(messages, activeTools, profile, contextWindow)
+		fit, ok := fitChatRequest(messages, activeTools, profile, contextWindow, toolPlan.RequiredTools)
 		if !ok {
 			msg := "Chat nicht verfügbar: Anfrage passt nicht in das konfigurierte Kontextfenster."
 			_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: msg})
@@ -166,13 +159,18 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 		}
 		messages = fit.Messages
 		activeTools = fit.Tools
+		if hops == 0 && len(activeTools) > 0 {
+			if err := sink.Send(toolLoadedEvent(req.MessageID, activeTools, toolPlan)); err != nil {
+				return err
+			}
+		}
 		requireToolNow := requireTool && hops == 0 && len(activeTools) > 0
 		params := a.chatParams(cfg, profile, messages, activeTools, len(activeTools) > 0, requireToolNow, fit.MaxTokens)
 		stream := a.streamChat(ctx, cfg, params)
 
 		toolCalls, finishReason, streamed, err := collectLLMStream(req.MessageID, stream, sink, &usage)
 		if err != nil {
-			_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: "Chat nicht verfügbar: " + err.Error()})
+			_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: chatUnavailableMessage(err)})
 			return err
 		}
 		hasStreamedContent = hasStreamedContent || streamed
@@ -195,7 +193,7 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 
 		messages = append(messages, conversationMessage{Role: "assistant", ToolCalls: toolCalls})
 		for _, call := range toolCalls {
-			resultText, stop, err := a.executeToolCall(ctx, req, call, sink)
+			resultText, stop, err := a.executeToolCall(ctx, req, call, sink, activeTools, toolPlan.Intent)
 			if err != nil {
 				resultText = "Error: " + err.Error()
 			}
@@ -207,6 +205,14 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 				Content:    truncate(resultText, resultLimit),
 				ToolCallID: call.ID,
 			})
+		}
+
+		if expandedPlan, expandedDefs := a.expandToolPlanAfterResults(toolPlan, prefs, toolDefs, messages); len(expandedDefs) > len(toolDefs) {
+			toolPlan = expandedPlan
+			toolDefs = expandedDefs
+			if err := sink.Send(toolLoadedEvent(req.MessageID, toolDefs, toolPlan)); err != nil {
+				return err
+			}
 		}
 
 		hops++
@@ -226,7 +232,7 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 			Content: "Du hast Tool-Ergebnisse erhalten aber noch keine Antwort gegeben. " +
 				"Fasse die Ergebnisse jetzt knapp und sachlich zusammen. Wenn keine Daten gefunden wurden, sag das kurz.",
 		})
-		fit, ok := fitChatRequest(messages, nil, profile, contextWindow)
+		fit, ok := fitChatRequest(messages, nil, profile, contextWindow, nil)
 		if !ok {
 			msg := "Chat nicht verfügbar: Anfrage passt nicht in das konfigurierte Kontextfenster."
 			_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: msg})
@@ -236,7 +242,7 @@ func (a *Agent) Stream(ctx context.Context, req ChatRequest, sink SSESink) error
 		params := a.chatParams(cfg, profile, messages, nil, false, false, fit.MaxTokens)
 		stream := a.streamChat(ctx, cfg, params)
 		if _, _, _, err := collectLLMStream(req.MessageID, stream, sink, &usage); err != nil {
-			_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: "Chat nicht verfügbar: " + err.Error()})
+			_ = sink.Send(SSEEvent{Type: EventError, ID: req.MessageID, Error: chatUnavailableMessage(err)})
 			return err
 		}
 	}
@@ -306,13 +312,13 @@ type fittedChatRequest struct {
 	MaxTokens int
 }
 
-func fitChatRequest(messages []conversationMessage, tools []llmwire.ToolDefinition, profile *ModelProfile, contextWindow int) (fittedChatRequest, bool) {
+func fitChatRequest(messages []conversationMessage, tools []llmwire.ToolDefinition, profile *ModelProfile, contextWindow int, requiredTools []string) (fittedChatRequest, bool) {
 	maxTokens := responseTokenBudget(profile, contextWindow)
 	if contextWindow <= 0 {
 		return fittedChatRequest{Messages: messages, Tools: tools, MaxTokens: maxTokens}, true
 	}
 	messages = trimConversationToContext(messages, tools, maxTokens, contextWindow)
-	tools = trimToolsToContext(messages, tools, maxTokens, contextWindow)
+	tools = trimToolsToContext(messages, tools, maxTokens, contextWindow, requiredTools)
 	messages = trimConversationToContext(messages, tools, maxTokens, contextWindow)
 	messages = shrinkToolResultsToContext(messages, tools, maxTokens, contextWindow)
 	if estimatedRequestTokens(messages, tools, maxTokens) <= contextWindow {
@@ -372,13 +378,27 @@ func trimConversationToContext(messages []conversationMessage, tools []llmwire.T
 	return out
 }
 
-func trimToolsToContext(messages []conversationMessage, tools []llmwire.ToolDefinition, maxTokens int, contextWindow int) []llmwire.ToolDefinition {
+func trimToolsToContext(messages []conversationMessage, tools []llmwire.ToolDefinition, maxTokens int, contextWindow int, requiredTools []string) []llmwire.ToolDefinition {
 	if contextWindow <= 0 || len(tools) == 0 {
 		return tools
 	}
+	required := map[string]bool{}
+	for _, name := range requiredTools {
+		required[name] = true
+	}
 	out := append([]llmwire.ToolDefinition(nil), tools...)
 	for len(out) > 0 && estimatedRequestTokens(messages, out, maxTokens) > contextWindow {
-		out = out[:len(out)-1]
+		drop := -1
+		for idx := len(out) - 1; idx >= 0; idx-- {
+			if !required[out[idx].Name] {
+				drop = idx
+				break
+			}
+		}
+		if drop == -1 {
+			return out
+		}
+		out = append(out[:drop], out[drop+1:]...)
 	}
 	return out
 }
@@ -411,10 +431,60 @@ func shouldRequireTool(message string, domains []string, toolDefs []llmwire.Tool
 	return false
 }
 
-func (a *Agent) executeToolCall(ctx context.Context, req ChatRequest, call pendingToolCall, sink SSESink) (string, bool, error) {
+func toolLoadedEvent(messageID string, tools []llmwire.ToolDefinition, plan ToolPlan) SSEEvent {
+	loadedTools := make([]string, 0, len(tools))
+	for _, def := range tools {
+		loadedTools = append(loadedTools, def.Name)
+	}
+	expansionLevel := plan.Intent.ExpansionLevel
+	return SSEEvent{
+		Type:           EventToolsLoaded,
+		ID:             messageID,
+		Tools:          loadedTools,
+		Reason:         plan.Reason,
+		Intent:         plan.Intent.DebugLabel(),
+		ExpansionLevel: &expansionLevel,
+		OmittedTools:   omittedToolsAfterFit(plan.OmittedTools, plan.Tools, loadedTools),
+	}
+}
+
+func omittedToolsAfterFit(existing []ToolOmission, planned []string, loaded []string) []ToolOmission {
+	out := make([]ToolOmission, 0, len(existing)+len(planned))
+	for _, name := range planned {
+		if containsToolName(loaded, name) || containsOmittedTool(out, name) {
+			continue
+		}
+		out = append(out, ToolOmission{Name: name, Reason: "context_budget"})
+	}
+	for _, omission := range existing {
+		if !containsToolName(loaded, omission.Name) && !containsOmittedTool(out, omission.Name) {
+			out = append(out, omission)
+		}
+	}
+	return out
+}
+
+func containsOmittedTool(values []ToolOmission, want string) bool {
+	for _, value := range values {
+		if value.Name == want {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Agent) executeToolCall(ctx context.Context, req ChatRequest, call pendingToolCall, sink SSESink, activeTools []llmwire.ToolDefinition, intent AgentIntent) (string, bool, error) {
 	args := json.RawMessage(call.Args)
 	if len(strings.TrimSpace(string(args))) == 0 {
 		args = json.RawMessage(`{}`)
+	}
+	allowedTools := toolDefinitionNames(activeTools)
+	if !containsToolName(allowedTools, call.Name) {
+		resultText := fmt.Sprintf("Error: tool %q was not available for this turn", call.Name)
+		if err := sink.Send(SSEEvent{Type: EventToolResult, ID: req.MessageID, ToolCallID: call.ID, Tool: call.Name, Summary: resultText}); err != nil {
+			return "", false, err
+		}
+		return resultText, false, fmt.Errorf("tool %q was not planned for this turn", call.Name)
 	}
 	var publicArgs json.RawMessage
 	if gate, ok := a.tools.(interface {
@@ -431,12 +501,15 @@ func (a *Agent) executeToolCall(ctx context.Context, req ChatRequest, call pendi
 		return "", false, fmt.Errorf("tool runtime is not configured")
 	}
 	result, err := a.tools.Execute(ctx, ToolRuntimeRequest{
-		UserID:     req.UserID,
-		SessionID:  req.SessionID,
-		MessageID:  req.MessageID,
-		ToolCallID: call.ID,
-		ToolName:   call.Name,
-		Args:       args,
+		UserID:       req.UserID,
+		SessionID:    req.SessionID,
+		MessageID:    req.MessageID,
+		ToolCallID:   call.ID,
+		ToolName:     call.Name,
+		Args:         args,
+		AllowedTools: allowedTools,
+		EnforceTools: true,
+		WriteIntent:  intent.WriteRequested,
 	}, sink)
 	if result.AskUser {
 		question := result.Question
@@ -457,6 +530,185 @@ func (a *Agent) executeToolCall(ctx context.Context, req ChatRequest, call pendi
 		return "", false, sendErr
 	}
 	return resultText, false, err
+}
+
+func toolDefinitionNames(tools []llmwire.ToolDefinition) []string {
+	out := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, tool.Name)
+	}
+	return out
+}
+
+func (a *Agent) expandToolPlanAfterResults(plan ToolPlan, prefs *ChatPreferences, currentDefs []llmwire.ToolDefinition, messages []conversationMessage) (ToolPlan, []llmwire.ToolDefinition) {
+	if a.tools == nil {
+		return plan, currentDefs
+	}
+	candidates := toolExpansionCandidates(messages)
+	if len(candidates) == 0 {
+		return plan, currentDefs
+	}
+	candidates = filterNewToolNames(candidates, plan.Tools)
+	if len(candidates) == 0 {
+		return plan, currentDefs
+	}
+	next := plan
+	next.Intent.ExpansionLevel++
+	additional := len(candidates)
+	if additional > 4 {
+		additional = 4
+	}
+	candidates = candidates[:additional]
+	next.RequiredTools = appendUniqueToolNames(next.RequiredTools, candidates...)
+	next.Tools = appendUniqueToolNames(next.Tools, candidates...)
+	next.OmittedTools = removeToolOmissions(next.OmittedTools, candidates)
+	defs := a.tools.Definitions(next.Tools, prefs)
+	if len(defs) <= len(currentDefs) {
+		return plan, currentDefs
+	}
+	return next, defs
+}
+
+func toolExpansionCandidates(messages []conversationMessage) []string {
+	candidateSet := map[string]bool{}
+	for idx := len(messages) - 1; idx >= 0; idx-- {
+		msg := messages[idx]
+		if msg.Role != "tool" {
+			continue
+		}
+		content := strings.ToLower(msg.Content)
+		needs := toolResultNeedTokens(msg.Content)
+		if len(needs) == 0 && (strings.Contains(content, `"status":"not_found"`) ||
+			strings.Contains(content, `"status":"insufficient_capability"`) ||
+			strings.Contains(content, `"ambiguous":true`)) {
+			needs = append(needs, "resolve", "context")
+		}
+		for _, need := range needs {
+			for _, name := range expansionToolsForNeed(need) {
+				candidateSet[name] = true
+			}
+		}
+	}
+	out := []string{}
+	for _, name := range knownExpansionToolOrder() {
+		if candidateSet[name] && !containsToolName(out, name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func filterNewToolNames(candidates, existing []string) []string {
+	out := []string{}
+	for _, name := range candidates {
+		if !containsToolName(existing, name) && !containsToolName(out, name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func removeToolOmissions(values []ToolOmission, names []string) []ToolOmission {
+	out := values[:0]
+	for _, value := range values {
+		if !containsToolName(names, value.Name) {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func toolResultNeedTokens(content string) []string {
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(content), &doc); err != nil {
+		return nil
+	}
+	out := []string{}
+	add := func(value string) {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value != "" && !containsToolName(out, value) {
+			out = append(out, value)
+		}
+	}
+	for _, key := range []string{"status", "blocking_reason", "next_action"} {
+		if raw, ok := doc[key].(string); ok {
+			add(raw)
+		}
+	}
+	switch raw := doc["needs"].(type) {
+	case string:
+		add(raw)
+	case []any:
+		for _, item := range raw {
+			if value, ok := item.(string); ok {
+				add(value)
+			}
+		}
+	}
+	if ambiguous, ok := doc["ambiguous"].(bool); ok && ambiguous {
+		add("ambiguous")
+	}
+	return out
+}
+
+func expansionToolsForNeed(need string) []string {
+	switch {
+	case strings.Contains(need, "weather"):
+		return []string{"query_weather_at_point_time", "get_agent_service_status"}
+	case strings.Contains(need, "coverage"):
+		return []string{"get_routing_coverage", "query_coverage", "get_agent_service_status"}
+	case strings.Contains(need, "profile"):
+		return []string{"list_routing_profiles"}
+	case strings.Contains(need, "planning") || strings.Contains(need, "plan_route") || strings.Contains(need, "routing_planning"):
+		return []string{"plan_route_between", "plan_route", "suggest_route_goal", "list_routing_profiles", "get_routing_coverage"}
+	case strings.Contains(need, "route"):
+		return []string{"plan_route_between", "plan_route", "suggest_route_goal"}
+	case strings.Contains(need, "place") || strings.Contains(need, "geocode") || strings.Contains(need, "resolve") || strings.Contains(need, "ambiguous") || strings.Contains(need, "not_found"):
+		return []string{"geocode_place", "resolve_route_place", "resolve_route_feature", "resolve_entity"}
+	case strings.Contains(need, "terrain") || strings.Contains(need, "surface") || strings.Contains(need, "forest") || strings.Contains(need, "water"):
+		return []string{"query_activity_terrain_summary", "query_geo_features", "search_pois_nearby", "search_trails_by_difficulty"}
+	case strings.Contains(need, "sql") || strings.Contains(need, "schema") || strings.Contains(need, "database"):
+		return []string{"run_sql"}
+	default:
+		return []string{"resolve_entity"}
+	}
+}
+
+func knownExpansionToolOrder() []string {
+	return []string{
+		"get_agent_service_status",
+		"geocode_place",
+		"resolve_user_location",
+		"resolve_route_place",
+		"resolve_route_feature",
+		"analyze_route_points",
+		"get_routing_coverage",
+		"query_coverage",
+		"list_routing_profiles",
+		"plan_route_between",
+		"suggest_route_goal",
+		"plan_route",
+		"query_weather_at_point_time",
+		"query_activity_terrain_summary",
+		"query_geo_features",
+		"search_pois_nearby",
+		"search_trails_by_difficulty",
+		"resolve_entity",
+		"run_sql",
+	}
+}
+
+func chatUnavailableMessage(err error) string {
+	if err == nil {
+		return "Chat nicht verfügbar: unbekannter Fehler."
+	}
+	if errors.Is(err, context.Canceled) {
+		return "Chat abgebrochen."
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "Chat nicht verfügbar: Zeitlimit überschritten."
+	}
+	return "Chat nicht verfügbar: Das Modell oder ein Tool ist derzeit nicht erreichbar."
 }
 
 func (a *Agent) resolveLLM(ctx context.Context, userID string) (LLMConfig, error) {
