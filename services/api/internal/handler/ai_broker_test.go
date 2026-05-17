@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
 )
@@ -148,6 +149,8 @@ func TestAIBrokerRejectsTaskRoleMismatch(t *testing.T) {
 	}{
 		{name: "document role cannot run markdown extraction", role: "document_extract", taskType: "markdown_extract"},
 		{name: "markdown role cannot run document extraction", role: "markdown_extract", taskType: "document_extract"},
+		{name: "document role cannot run document page vision", role: "document_extract", taskType: "document_page"},
+		{name: "document role cannot run structured document vision", role: "document_extract", taskType: "document_vision"},
 		{name: "document role cannot run invoice page vision", role: "document_extract", taskType: "invoice_page"},
 		{name: "vision role cannot run text document extraction", role: "vision", taskType: "document_extract"},
 	}
@@ -178,6 +181,8 @@ func TestAIBrokerAppliesTaskSpecificTokenLimits(t *testing.T) {
 		{name: "document extraction", role: "document_extract", taskType: "document_extract", maxTokens: 2048},
 		{name: "markdown extraction", role: "markdown_extract", taskType: "markdown_extract", maxTokens: 2048},
 		{name: "vision document image", role: "vision", taskType: "vision", maxTokens: 2048},
+		{name: "document page vision", role: "vision", taskType: "document_page", maxTokens: 4096},
+		{name: "structured document vision", role: "vision", taskType: "document_vision", maxTokens: 4096},
 		{name: "invoice page vision", role: "vision", taskType: "invoice_page", maxTokens: 4096},
 		{name: "invoice parts vision", role: "vision", taskType: "invoice_parts", maxTokens: 2048},
 	}
@@ -219,5 +224,20 @@ func TestAIBrokerAppliesTaskSpecificTokenLimits(t *testing.T) {
 				t.Fatalf("max_tokens = %v, want %v", providerBody["max_tokens"], tt.maxTokens)
 			}
 		})
+	}
+}
+
+func TestAIBrokerUsesLongerTimeoutForVisionPageTasks(t *testing.T) {
+	if got := aiBrokerTimeoutForTask("document_page"); got != 5*time.Minute {
+		t.Fatalf("document_page timeout = %s, want 5m", got)
+	}
+	if got := aiBrokerTimeoutForTask("document_vision"); got != 5*time.Minute {
+		t.Fatalf("document_vision timeout = %s, want 5m", got)
+	}
+	if got := aiBrokerTimeoutForTask("invoice_page"); got != 5*time.Minute {
+		t.Fatalf("invoice_page timeout = %s, want 5m", got)
+	}
+	if got := aiBrokerTimeoutForTask("markdown_extract"); got != 120*time.Second {
+		t.Fatalf("markdown_extract timeout = %s, want 120s", got)
 	}
 }
