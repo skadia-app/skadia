@@ -4,6 +4,12 @@ import { fetchMaintenanceAlerts } from '@/api/gear'
 import type { MaintenanceAlert } from '@/api/types'
 import { formatUsageMetricValue } from '@/lib/gearUsageMetrics'
 
+type AlertGroup = {
+  gearId: string
+  gearName: string
+  alerts: MaintenanceAlert[]
+}
+
 export default function MaintenanceAlerts() {
   const { data: alerts } = useQuery({
     queryKey: ['maintenance-alerts'],
@@ -12,15 +18,36 @@ export default function MaintenanceAlerts() {
 
   if (!alerts || alerts.length === 0) return null
 
+  const groups = groupAlertsByGear(alerts)
+
   return (
-    <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-4 space-y-3">
-      <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-300">Wartungshinweise</h2>
-      <div className="space-y-2">
-        {alerts.map((alert) => (
-          <AlertItem key={alert.interval_id} alert={alert} />
+    <section className="rounded-xl border border-amber-300 bg-amber-50/80 p-4 shadow-sm shadow-amber-950/5 dark:border-amber-800/70 dark:bg-amber-950/20 dark:shadow-none">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-200">Wartungshinweise</h2>
+        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+          {alerts.length === 1 ? '1 Eintrag' : `${alerts.length} Einträge`}
+        </span>
+      </div>
+      <div className="space-y-3">
+        {groups.map((group) => (
+          <div key={group.gearId} className="rounded-lg border border-amber-200/80 bg-white/60 p-2 dark:border-amber-800/60 dark:bg-neutral-950/25">
+            <div className="mb-1 flex items-center justify-between gap-3 px-2 py-1">
+              <h3 className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                {group.gearName}
+              </h3>
+              <span className="shrink-0 text-xs font-medium text-amber-700 dark:text-amber-300">
+                {group.alerts.some(alert => alert.is_overdue) ? 'Wartung fällig' : 'Bald fällig'}
+              </span>
+            </div>
+            <div className="space-y-1">
+              {group.alerts.map((alert) => (
+                <AlertItem key={alert.interval_id} alert={alert} />
+              ))}
+            </div>
+          </div>
         ))}
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -32,11 +59,11 @@ function AlertItem({ alert }: { alert: MaintenanceAlert }) {
   return (
     <Link
       to={`/gear/${alert.gear_id}?tab=components&component=${alert.component_id}`}
-      className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors"
+      className="group flex items-center justify-between gap-3 rounded-md px-2 py-2 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:hover:bg-amber-900/30"
     >
       <div className="min-w-0">
-        <div className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">
-          {alert.gear_name} &mdash; {alert.component_name}
+        <div className="truncate text-sm font-medium text-neutral-900 group-hover:text-amber-950 dark:text-neutral-100 dark:group-hover:text-amber-100">
+          {alert.component_name}
         </div>
         <div className="text-xs text-neutral-500 dark:text-neutral-400">
           {alert.interval_name}: {formatUsageMetricValue(alert.interval_type, alert.current_value)} / {formatUsageMetricValue(alert.interval_type, alert.threshold_value)}
@@ -53,4 +80,24 @@ function AlertItem({ alert }: { alert: MaintenanceAlert }) {
       </span>
     </Link>
   )
+}
+
+function groupAlertsByGear(alerts: MaintenanceAlert[]): AlertGroup[] {
+  const groups = new Map<string, AlertGroup>()
+
+  for (const alert of alerts) {
+    const existing = groups.get(alert.gear_id)
+    if (existing) {
+      existing.alerts.push(alert)
+      continue
+    }
+
+    groups.set(alert.gear_id, {
+      gearId: alert.gear_id,
+      gearName: alert.gear_name,
+      alerts: [alert],
+    })
+  }
+
+  return Array.from(groups.values())
 }
