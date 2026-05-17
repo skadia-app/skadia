@@ -1,15 +1,15 @@
 """LLM-Pipeline fuer Gear-Dokumente (Rechnungen, Handbuecher).
 
 Ablauf:
-1. Text-PDF (is_text_pdf=True): extracted_text -> document_extract role -> JSON
-2. Bild-PDF (is_text_pdf=False): S3-Download -> vision role -> JSON
-Fallback: Bild-Extraktion fehlgeschlagen + extracted_text vorhanden -> Text-Extraktion
+1. Kanonischen Dokumentinhalt erzeugen: guter Text -> Markdown, PDF/Bild -> seitenweise Vision-Markdown.
+2. Gear-Extraktion nutzt diesen begrenzten Inhalt oder faellt auf alte Bild/Text-Wege zurueck.
 """
 import asyncio
 import base64
 import json
 import logging
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -33,6 +33,8 @@ MAX_DOCUMENT_DOWNLOAD_BYTES = int(os.getenv("ML_DOCUMENT_MAX_DOWNLOAD_BYTES", st
 MAX_SCANNED_PDF_PAGES = int(os.getenv("ML_DOCUMENT_SCANNED_PDF_MAX_PAGES", "3"))
 SCANNED_PDF_RENDER_DPI = int(os.getenv("ML_DOCUMENT_SCANNED_PDF_RENDER_DPI", "120"))
 SCANNED_PDF_RENDER_TIMEOUT_SECONDS = float(os.getenv("ML_DOCUMENT_SCANNED_PDF_RENDER_TIMEOUT_SECONDS", "30"))
+DOCUMENT_PAGE_MARKDOWN_TIMEOUT_SECONDS = float(os.getenv("ML_DOCUMENT_PAGE_MARKDOWN_TIMEOUT_SECONDS", "360"))
+DOCUMENT_VISION_TIMEOUT_SECONDS = float(os.getenv("ML_DOCUMENT_VISION_TIMEOUT_SECONDS", "360"))
 
 
 class RetryableDocumentError(RuntimeError):
@@ -257,6 +259,25 @@ def _is_image_payload_allowed(image_bytes: bytes, content_type: str) -> bool:
     return True
 
 
+_PDF_OPERATOR_LINE_RE = re.compile(
+    r"""^\s*(?:
+        q|Q|f|F|B|b|S|s|n|W\*?|BT|ET|
+        /[A-Za-z0-9_.-]+\s+gs|
+        [-+]?\d*\.?\d+(?:\s+[-+]?\d*\.?\d+){0,7}\s+(?:cm|rg|RG|g|G|re|m|l|c|w|i|j|J)
+    )\s*$""",
+    re.VERBOSE,
+)
+
+
+def _looks_like_pdf_operator_stream(text: str) -> bool:
+    lines = [line.strip() for line in text.splitlines() if line.strip()][:80]
+    if len(lines) < 10:
+        return False
+    operator_lines = sum(1 for line in lines if _PDF_OPERATOR_LINE_RE.match(line))
+    words = re.findall(r"[A-Za-zÄÖÜäöüß]{4,}", "\n".join(lines))
+    return operator_lines >= 8 and operator_lines / len(lines) >= 0.55 and len(words) <= 12
+
+
 def _render_pdf_pages_sync(pdf_bytes: bytes) -> list[bytes]:
     if not pdf_bytes or len(pdf_bytes) > MAX_DOCUMENT_DOWNLOAD_BYTES:
         return []
@@ -312,7 +333,7 @@ async def extract_from_image(
     try:
         raw = await _chat_via_broker(
             ML_VISION_ROLE,
-            "vision",
+            "document_vision",
             [
                 {
                     "role": "user",
@@ -331,6 +352,7 @@ async def extract_from_image(
                     ],
                 }
             ],
+            timeout=DOCUMENT_VISION_TIMEOUT_SECONDS,
         )
         start = raw.find("{")
         end = raw.rfind("}") + 1
@@ -362,6 +384,37 @@ def merge_extraction_results(results: list[dict]) -> Optional[dict]:
     return None
 
 
+def _has_extraction_content(result: Optional[dict]) -> bool:
+    if not isinstance(result, dict) or _is_not_configured_payload(result):
+        return False
+    products = result.get("products")
+    if isinstance(products, list) and len(products) > 0:
+        return True
+    return any(result.get(key) not in (None, "") for key in ("invoice_date", "vendor", "total"))
+
+
+async def extract_from_file_bytes(
+    file_bytes: bytes,
+    prompt: str,
+    content_type: str,
+) -> Optional[dict]:
+    """Extract structured document data from original image/PDF bytes."""
+    if content_type == "application/pdf" or _is_pdf_bytes(file_bytes):
+        page_results: list[dict] = []
+        pages = await render_pdf_pages(file_bytes)
+        for index, page_bytes in enumerate(pages, start=1):
+            logger.info("extracting structured data from rendered document page %d/%d", index, len(pages))
+            page_result = await extract_from_image(page_bytes, prompt=prompt, content_type="image/jpeg")
+            if _is_not_configured_payload(page_result):
+                return page_result
+            if page_result:
+                page_results.append(page_result)
+        if page_results:
+            return merge_extraction_results(page_results)
+        return None
+    return await extract_from_image(file_bytes, prompt=prompt, content_type=content_type or "image/jpeg")
+
+
 async def process_document(
     pool,
     doc_id: str,
@@ -386,27 +439,26 @@ async def process_document(
     prompt = await _get_user_prompt(pool, user_id, "invoice")
     result = None
 
-    if is_text_pdf and extracted_text:
+    text_is_pdf_operator_stream = bool(extracted_text) and _looks_like_pdf_operator_stream(extracted_text or "")
+
+    if is_text_pdf and extracted_text and not text_is_pdf_operator_stream:
         result = await extract_from_text(extracted_text, prompt)
+        if not _is_not_configured_payload(result) and not _has_extraction_content(result):
+            logger.info("text extraction yielded no structured content for %s; trying rendered document", doc_id)
+            file_bytes = await download_user_file(storage_backend, storage_path, file_type, size_bytes=size_bytes)
+            if file_bytes:
+                image_result = await extract_from_file_bytes(file_bytes, prompt, content_type)
+                if image_result and (_has_extraction_content(image_result) or result is None):
+                    result = image_result
     else:
+        if text_is_pdf_operator_stream:
+            logger.info("extracted text for %s looks like PDF drawing operators; rendering pages", doc_id)
         file_bytes = await download_user_file(storage_backend, storage_path, file_type, size_bytes=size_bytes)
         if file_bytes:
-            if content_type == "application/pdf" or _is_pdf_bytes(file_bytes):
-                page_results: list[dict] = []
-                for page_bytes in await render_pdf_pages(file_bytes):
-                    page_result = await extract_from_image(page_bytes, prompt=prompt, content_type="image/jpeg")
-                    if _is_not_configured_payload(page_result):
-                        result = page_result
-                        break
-                    if page_result:
-                        page_results.append(page_result)
-                if page_results:
-                    result = merge_extraction_results(page_results)
-            else:
-                result = await extract_from_image(file_bytes, prompt=prompt, content_type=content_type or "image/jpeg")
+            result = await extract_from_file_bytes(file_bytes, prompt, content_type)
 
         # Fallback: Falls Bild-Extraktion fehlschlaegt aber extracted_text vorhanden
-        if (not result or _is_not_configured_payload(result)) and extracted_text:
+        if (not result or _is_not_configured_payload(result)) and extracted_text and not text_is_pdf_operator_stream:
             logger.info("image extraction failed, falling back to text extraction for %s", doc_id)
             result = await extract_from_text(extracted_text, prompt)
 
@@ -488,6 +540,21 @@ If it is an invoice, format line items as a Markdown table.
 Return ONLY Markdown, no explanations."""
 
 
+PAGE_MARKDOWN_PROMPT = """/no_think
+Convert this document page to Markdown. Return only Markdown, no explanation, no delimiters.
+
+RULES:
+- Include all visible content on the page.
+- Preserve headings, labels, line breaks, small print, headers, and footers.
+- Use HTML tables for tabular content.
+- Do not infer values that are not visible.
+"""
+
+
+def _strip_model_thinking(text: str) -> str:
+    return re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL).strip()
+
+
 async def convert_to_markdown(text: str) -> Optional[str]:
     """Konvertiert Rohtext in strukturiertes Markdown via LLM."""
     if not text or len(text.strip()) < 50:
@@ -504,11 +571,88 @@ async def convert_to_markdown(text: str) -> Optional[str]:
                 }
             ],
         )
-        if len(result.strip()) > 20:
-            return result.strip()
+        result = _strip_model_thinking(result)
+        if len(result) > 20:
+            return result
     except LLMRoleNotConfigured as e:
         logger.info("markdown conversion skipped: %s", e)
     except Exception as e:
         logger.warning("markdown conversion failed: %s", e)
+        raise RetryableDocumentError("text markdown broker call failed") from e
 
     return None
+
+
+async def convert_image_to_markdown(
+    image_bytes: bytes,
+    content_type: str = "image/jpeg",
+) -> Optional[str]:
+    """Convert one rendered document page or image document to Markdown."""
+    if not _is_image_payload_allowed(image_bytes, content_type):
+        return None
+
+    b64 = base64.b64encode(image_bytes).decode()
+    try:
+        result = await _chat_via_broker(
+            ML_VISION_ROLE,
+            "document_page",
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": PAGE_MARKDOWN_PROMPT},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{content_type};base64,{b64}"},
+                        },
+                    ],
+                }
+            ],
+            timeout=DOCUMENT_PAGE_MARKDOWN_TIMEOUT_SECONDS,
+        )
+        result = _strip_model_thinking(result)
+        if len(result) > 20:
+            return result
+    except LLMRoleNotConfigured as e:
+        logger.info("image markdown conversion skipped: %s", e)
+        return None
+    except Exception as e:
+        logger.warning("image markdown conversion failed: %s", e)
+        raise RetryableDocumentError("image markdown broker call failed") from e
+    return None
+
+
+async def convert_rendered_pages_to_markdown(page_images: list[bytes]) -> Optional[str]:
+    """Convert bounded rendered pages to one Markdown document."""
+    parts: list[str] = []
+    for page_bytes in page_images[:MAX_SCANNED_PDF_PAGES]:
+        page_markdown = await convert_image_to_markdown(page_bytes, content_type="image/jpeg")
+        if page_markdown:
+            parts.append(page_markdown)
+    if not parts:
+        return None
+    return "\n\n---\n\n".join(parts)
+
+
+async def convert_document_to_markdown(
+    extracted_text: Optional[str],
+    storage_backend: str,
+    storage_path: str,
+    file_type: str,
+    content_type: str,
+    size_bytes: int | None = None,
+) -> Optional[str]:
+    """Produce bounded canonical Markdown from text, rendered PDF pages, or images."""
+    text = extracted_text or ""
+    if text.strip() and not _looks_like_pdf_operator_stream(text):
+        return await convert_to_markdown(text)
+
+    if text.strip():
+        logger.info("extracted text looks like PDF drawing operators; rendering document for Markdown")
+
+    file_bytes = await download_user_file(storage_backend, storage_path, file_type, size_bytes=size_bytes)
+    if not file_bytes:
+        return None
+    if content_type == "application/pdf" or _is_pdf_bytes(file_bytes):
+        return await convert_rendered_pages_to_markdown(await render_pdf_pages(file_bytes))
+    return await convert_image_to_markdown(file_bytes, content_type=content_type or "image/jpeg")

@@ -8,6 +8,7 @@ LABEL org.opencontainers.image.source="https://github.com/skadia-app/skadia"
 RUN apt-get update -qq && apt-get install -y -qq \
     git \
     ffmpeg \
+    poppler-utils \
     libheif-dev \
     libjxl-dev \
     build-essential \

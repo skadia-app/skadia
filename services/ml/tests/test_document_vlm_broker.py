@@ -85,6 +85,136 @@ async def test_convert_to_markdown_returns_none_when_role_not_configured(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_convert_to_markdown_raises_retryable_on_transient_broker_error(monkeypatch):
+    async def fake_broker(*args, **kwargs):
+        raise RuntimeError("temporary broker outage")
+
+    monkeypatch.setattr(document_vlm, "_chat_via_broker", fake_broker)
+
+    with pytest.raises(document_vlm.RetryableDocumentError):
+        await document_vlm.convert_to_markdown("Text " * 80)
+
+
+@pytest.mark.asyncio
+async def test_convert_document_to_markdown_uses_clean_extracted_text(monkeypatch):
+    calls: list[tuple[str, object]] = []
+
+    async def fake_text_markdown(text):
+        calls.append(("text", text))
+        return "# Receipt"
+
+    async def fake_download(*args, **kwargs):  # pragma: no cover - must not run
+        raise AssertionError("clean text must not download original file")
+
+    monkeypatch.setattr(document_vlm, "convert_to_markdown", fake_text_markdown)
+    monkeypatch.setattr(document_vlm, "download_user_file", fake_download)
+
+    result = await document_vlm.convert_document_to_markdown(
+        extracted_text="Receipt text " * 20,
+        storage_backend="s3",
+        storage_path="documents/synthetic-document",
+        file_type="document",
+        content_type="application/pdf",
+    )
+
+    assert result == "# Receipt"
+    assert calls == [("text", "Receipt text " * 20)]
+
+
+@pytest.mark.asyncio
+async def test_convert_document_to_markdown_renders_pdf_operator_stream(monkeypatch):
+    calls: list[str] = []
+
+    async def fake_text_markdown(*args, **kwargs):  # pragma: no cover - must not run
+        raise AssertionError("PDF operator streams must not use text markdown conversion")
+
+    async def fake_download(*args, **kwargs):
+        calls.append("download")
+        return b"%PDF-1.7 rendered"
+
+    async def fake_render(_pdf):
+        calls.append("render")
+        return [b"page-1", b"page-2"]
+
+    async def fake_page_markdown(page_bytes, **kwargs):
+        calls.append(f"page:{page_bytes.decode()}")
+        return f"Markdown {page_bytes.decode()}"
+
+    operator_text = "\n".join(
+        [
+            "q 0.12 0 0 0.12 0 0 cm",
+            "/R7 gs",
+            "1 1 1 rg",
+            "1 i",
+            "210 6754 4532 1 re",
+            "f",
+            "210 6572 4532 1 re",
+            "f",
+            "2 2 2 rg",
+            "210 6753 4532 1 re",
+            "f",
+            "210 6573 4532 1 re",
+            "f",
+        ]
+    )
+
+    monkeypatch.setattr(document_vlm, "convert_to_markdown", fake_text_markdown)
+    monkeypatch.setattr(document_vlm, "download_user_file", fake_download)
+    monkeypatch.setattr(document_vlm, "render_pdf_pages", fake_render)
+    monkeypatch.setattr(document_vlm, "convert_image_to_markdown", fake_page_markdown)
+
+    result = await document_vlm.convert_document_to_markdown(
+        extracted_text=operator_text,
+        storage_backend="s3",
+        storage_path="documents/synthetic-operator-stream",
+        file_type="document",
+        content_type="application/pdf",
+    )
+
+    assert result == "Markdown page-1\n\n---\n\nMarkdown page-2"
+    assert calls == ["download", "render", "page:page-1", "page:page-2"]
+
+
+@pytest.mark.asyncio
+async def test_convert_image_to_markdown_uses_document_page_task(monkeypatch):
+    calls: list[tuple[str, str, list]] = []
+
+    async def fake_broker(role, task_type, messages, timeout=120.0):
+        calls.append((role, task_type, messages))
+        return "<think>hidden</think>\n# Receipt\n\nVisible line item"
+
+    monkeypatch.setattr(document_vlm, "_chat_via_broker", fake_broker)
+
+    result = await document_vlm.convert_image_to_markdown(b"jpeg-bytes", content_type="image/jpeg")
+
+    assert result == "# Receipt\n\nVisible line item"
+    assert calls[0][0] == document_vlm.ML_VISION_ROLE
+    assert calls[0][1] == "document_page"
+
+
+@pytest.mark.asyncio
+async def test_extract_from_image_uses_structured_document_vision_task(monkeypatch):
+    calls: list[tuple[str, str, float]] = []
+
+    async def fake_broker(role, task_type, messages, timeout=120.0):
+        calls.append((role, task_type, timeout))
+        return '{"products":[],"vendor":"Shop"}'
+
+    monkeypatch.setattr(document_vlm, "_chat_via_broker", fake_broker)
+
+    result = await document_vlm.extract_from_image(b"jpeg-bytes", prompt="prompt", content_type="image/jpeg")
+
+    assert result == {"products": [], "vendor": "Shop"}
+    assert calls == [
+        (
+            document_vlm.ML_VISION_ROLE,
+            "document_vision",
+            document_vlm.DOCUMENT_VISION_TIMEOUT_SECONDS,
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_process_document_uses_file_metadata_not_legacy_s3_payload(monkeypatch):
     calls: dict[str, object] = {}
 
@@ -127,13 +257,13 @@ async def test_process_document_uses_file_metadata_not_legacy_s3_payload(monkeyp
         extracted_text=None,
         file_id="file-2",
         storage_backend="s3",
-        storage_path="documents/invoice.jpg",
+        storage_path="documents/synthetic-image-document",
         file_type="document",
         content_type="image/jpeg",
     )
 
     assert ok is True
-    assert calls["download"] == ("s3", "documents/invoice.jpg", "document")
+    assert calls["download"] == ("s3", "documents/synthetic-image-document", "document")
 
 
 @pytest.mark.asyncio
@@ -180,7 +310,7 @@ async def test_process_document_persists_extracted_data_and_product_count(monkey
         extracted_text="Rechnungstext " * 20,
         file_id="file-3",
         storage_backend="s3",
-        storage_path="documents/invoice.pdf",
+        storage_path="documents/synthetic-pdf-document",
         file_type="document",
         content_type="application/pdf",
     )
@@ -194,6 +324,142 @@ async def test_process_document_persists_extracted_data_and_product_count(monkey
     assert "user_id" in update_calls[0][0]
     assert "file_id" in update_calls[0][0]
     assert update_calls[0][4:] == ("user-1", "file-3")
+
+
+@pytest.mark.asyncio
+async def test_process_document_falls_back_to_rendered_file_when_text_result_is_empty(monkeypatch):
+    executed: list[tuple] = []
+    calls: list[str] = []
+
+    class _Conn:
+        async def execute(self, *args):
+            executed.append(args)
+
+    class _Acquire:
+        async def __aenter__(self):
+            return _Conn()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _Pool:
+        def acquire(self):
+            return _Acquire()
+
+    async def fake_prompt(*args, **kwargs):
+        return document_vlm.EXTRACTION_PROMPT
+
+    async def fake_extract_text(*args, **kwargs):
+        calls.append("text")
+        return {"products": [], "vendor": None, "invoice_date": None, "total": None}
+
+    async def fake_download(*args, **kwargs):
+        calls.append("download")
+        return b"%PDF-1.7 rendered"
+
+    async def fake_render(_pdf):
+        calls.append("render")
+        return [b"page-1"]
+
+    async def fake_extract_image(page_bytes, **kwargs):
+        calls.append(f"image:{page_bytes.decode()}")
+        return {"products": [], "vendor": "Shop", "invoice_date": "2026-05-01"}
+
+    monkeypatch.setattr(document_vlm, "_get_user_prompt", fake_prompt)
+    monkeypatch.setattr(document_vlm, "extract_from_text", fake_extract_text)
+    monkeypatch.setattr(document_vlm, "download_user_file", fake_download)
+    monkeypatch.setattr(document_vlm, "render_pdf_pages", fake_render)
+    monkeypatch.setattr(document_vlm, "extract_from_image", fake_extract_image)
+
+    ok = await document_vlm.process_document(
+        pool=_Pool(),
+        doc_id="doc-empty-text",
+        gear_id=None,
+        component_id=None,
+        user_id="user-1",
+        is_text_pdf=True,
+        extracted_text="# Receipt\n\nNo structured JSON result from text path",
+        file_id="file-empty-text",
+        storage_backend="s3",
+        storage_path="documents/synthetic-document",
+        file_type="document",
+        content_type="application/pdf",
+    )
+
+    assert ok is True
+    assert calls == ["text", "download", "render", "image:page-1"]
+    update_calls = [args for args in executed if "extracted_data" in args[0] and "products_found" in args[0]]
+    assert len(update_calls) == 1
+    assert '"Shop"' in update_calls[0][1]
+    assert '"2026-05-01"' in update_calls[0][1]
+    assert update_calls[0][2] == 0
+
+
+@pytest.mark.asyncio
+async def test_process_document_falls_back_to_rendered_file_when_text_result_is_missing(monkeypatch):
+    executed: list[tuple] = []
+    calls: list[str] = []
+
+    class _Conn:
+        async def execute(self, *args):
+            executed.append(args)
+
+    class _Acquire:
+        async def __aenter__(self):
+            return _Conn()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _Pool:
+        def acquire(self):
+            return _Acquire()
+
+    async def fake_prompt(*args, **kwargs):
+        return document_vlm.EXTRACTION_PROMPT
+
+    async def fake_extract_text(*args, **kwargs):
+        calls.append("text")
+        return None
+
+    async def fake_download(*args, **kwargs):
+        calls.append("download")
+        return b"%PDF-1.7 rendered"
+
+    async def fake_render(_pdf):
+        calls.append("render")
+        return [b"page-1"]
+
+    async def fake_extract_image(page_bytes, **kwargs):
+        calls.append(f"image:{page_bytes.decode()}")
+        return {"products": [], "vendor": "Shop"}
+
+    monkeypatch.setattr(document_vlm, "_get_user_prompt", fake_prompt)
+    monkeypatch.setattr(document_vlm, "extract_from_text", fake_extract_text)
+    monkeypatch.setattr(document_vlm, "download_user_file", fake_download)
+    monkeypatch.setattr(document_vlm, "render_pdf_pages", fake_render)
+    monkeypatch.setattr(document_vlm, "extract_from_image", fake_extract_image)
+
+    ok = await document_vlm.process_document(
+        pool=_Pool(),
+        doc_id="doc-missing-text",
+        gear_id=None,
+        component_id=None,
+        user_id="user-1",
+        is_text_pdf=True,
+        extracted_text="# Receipt\n\nNo JSON returned from text path",
+        file_id="file-missing-text",
+        storage_backend="s3",
+        storage_path="documents/synthetic-document",
+        file_type="document",
+        content_type="application/pdf",
+    )
+
+    assert ok is True
+    assert calls == ["text", "download", "render", "image:page-1"]
+    update_calls = [args for args in executed if "extracted_data" in args[0] and "products_found" in args[0]]
+    assert len(update_calls) == 1
+    assert '"Shop"' in update_calls[0][1]
 
 
 @pytest.mark.asyncio
@@ -244,7 +510,7 @@ async def test_process_document_merges_scanned_pdf_page_results(monkeypatch):
         extracted_text=None,
         file_id="file-merge",
         storage_backend="s3",
-        storage_path="documents/invoice.pdf",
+        storage_path="documents/synthetic-pdf-document",
         file_type="document",
         content_type="application/pdf",
     )
@@ -258,6 +524,90 @@ async def test_process_document_merges_scanned_pdf_page_results(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_process_document_renders_pdf_when_extracted_text_is_pdf_operator_stream(monkeypatch):
+    executed: list[tuple] = []
+    calls: list[str] = []
+
+    class _Conn:
+        async def execute(self, *args):
+            executed.append(args)
+
+    class _Acquire:
+        async def __aenter__(self):
+            return _Conn()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _Pool:
+        def acquire(self):
+            return _Acquire()
+
+    async def fake_prompt(*args, **kwargs):
+        return document_vlm.EXTRACTION_PROMPT
+
+    async def fake_text(*args, **kwargs):  # pragma: no cover - must not run
+        raise AssertionError("PDF operator streams must not use text extraction")
+
+    async def fake_download(*args, **kwargs):
+        calls.append("download")
+        return b"%PDF-1.7 rendered"
+
+    async def fake_render(_pdf):
+        calls.append("render")
+        return [b"page-1"]
+
+    async def fake_extract(page_bytes, **kwargs):
+        calls.append(f"vision:{page_bytes.decode()}")
+        return {"products": [{"name": "Brake Pads"}], "vendor": "Shop"}
+
+    operator_text = "\n".join(
+        [
+            "q 0.12 0 0 0.12 0 0 cm",
+            "/R7 gs",
+            "1 1 1 rg",
+            "1 i",
+            "210 6754 4532 1 re",
+            "f",
+            "210 6572 4532 1 re",
+            "f",
+            "2 2 2 rg",
+            "210 6753 4532 1 re",
+            "f",
+            "210 6573 4532 1 re",
+            "f",
+        ]
+    )
+
+    monkeypatch.setattr(document_vlm, "_get_user_prompt", fake_prompt)
+    monkeypatch.setattr(document_vlm, "extract_from_text", fake_text)
+    monkeypatch.setattr(document_vlm, "download_user_file", fake_download)
+    monkeypatch.setattr(document_vlm, "render_pdf_pages", fake_render)
+    monkeypatch.setattr(document_vlm, "extract_from_image", fake_extract)
+
+    ok = await document_vlm.process_document(
+        pool=_Pool(),
+        doc_id="doc-operator-text",
+        gear_id=None,
+        component_id=None,
+        user_id="user-1",
+        is_text_pdf=True,
+        extracted_text=operator_text,
+        file_id="file-operator-text",
+        storage_backend="s3",
+        storage_path="documents/synthetic-operator-stream",
+        file_type="document",
+        content_type="application/pdf",
+    )
+
+    assert ok is True
+    assert calls == ["download", "render", "vision:page-1"]
+    update_calls = [args for args in executed if "extracted_data" in args[0] and "products_found" in args[0]]
+    assert len(update_calls) == 1
+    assert '"Brake Pads"' in update_calls[0][1]
+
+
+@pytest.mark.asyncio
 async def test_download_user_file_rejects_s3_size_before_download(monkeypatch):
     async def fake_s3(*args, **kwargs):  # pragma: no cover - must not run
         raise AssertionError("oversized S3 document must be rejected before download")
@@ -266,7 +616,7 @@ async def test_download_user_file_rejects_s3_size_before_download(monkeypatch):
 
     assert await document_vlm.download_user_file(
         "s3",
-        "documents/huge.pdf",
+        "documents/synthetic-large-document",
         "document",
         size_bytes=document_vlm.MAX_DOCUMENT_DOWNLOAD_BYTES + 1,
     ) is None
