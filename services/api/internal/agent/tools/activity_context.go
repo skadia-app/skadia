@@ -40,6 +40,7 @@ type queryWeatherAtPointTimeArgs struct {
 	Lat        *float64 `json:"lat,omitempty"`
 	Lng        *float64 `json:"lng,omitempty"`
 	Time       string   `json:"time,omitempty"`
+	QueryKind  string   `json:"query_kind,omitempty"`
 	Mode       string   `json:"mode,omitempty"`
 	StoredOnly *bool    `json:"stored_only,omitempty"`
 	Limit      *int     `json:"limit,omitempty"`
@@ -96,7 +97,7 @@ func QueryWeatherAtPointTimeTool() *Tool {
 	return &Tool{
 		Name:             "query_weather_at_point_time",
 		Description:      "Return stored or explicitly enabled live weather for an owned activity or explicit point/time.",
-		InputSchema:      json.RawMessage(`{"type":"object","properties":{"activity_id":{"type":"string","format":"uuid"},"at_time":{"type":"string","format":"date-time"},"offset_s":{"type":"number","minimum":0},"lat":{"type":"number","minimum":-90,"maximum":90},"lng":{"type":"number","minimum":-180,"maximum":180},"time":{"type":"string","format":"date-time"},"mode":{"type":"string","enum":["stored_only","stored_then_fetch","fetch_only"],"default":"stored_only"},"stored_only":{"type":"boolean","default":true},"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":false}`),
+		InputSchema:      json.RawMessage(`{"type":"object","properties":{"activity_id":{"type":"string","format":"uuid"},"at_time":{"type":"string","format":"date-time"},"offset_s":{"type":"number","minimum":0},"lat":{"type":"number","minimum":-90,"maximum":90},"lng":{"type":"number","minimum":-180,"maximum":180},"time":{"type":"string","format":"date-time"},"query_kind":{"type":"string","enum":["stored_activity_weather","activity_point_time","current_place","dated_place"]},"mode":{"type":"string","enum":["stored_only","stored_then_fetch","fetch_only"]},"stored_only":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":false}`),
 		Permission:       PermissionRead,
 		RateLimitPerHour: 120,
 		Timeout:          15 * time.Second,
@@ -141,6 +142,7 @@ func executeQueryWeatherAtPointTime(ctx context.Context, deps *Deps, userID stri
 	if err != nil {
 		return nil, err
 	}
+	queryKind := weatherQueryKind(args)
 	rateLimit := liveWeatherQuotaNotConsumed()
 
 	if args.ActivityID != "" && mode != "fetch_only" {
@@ -154,32 +156,28 @@ func executeQueryWeatherAtPointTime(ctx context.Context, deps *Deps, userID stri
 		}
 		if len(rows) > 0 || mode == "stored_only" {
 			status := "ok"
+			detailStatus := "ok"
 			if len(rows) == 0 {
-				status = "no_stored_weather"
+				status = "unavailable"
+				detailStatus = "no_stored_weather"
 			}
-			return map[string]any{
-				"weather":    rows,
-				"count":      len(rows),
-				"mode":       mode,
-				"source":     weatherSourceForStoredRows(rows),
-				"status":     status,
-				"rate_limit": rateLimit,
-			}, nil
+			return weatherToolResponse(status, detailStatus, queryKind, mode, rateLimit, map[string]any{
+				"weather": rows,
+				"count":   len(rows),
+				"source":  weatherSourceForStoredRows(rows),
+			}), nil
 		}
 	}
 
 	if mode == "stored_only" {
-		return map[string]any{
-			"weather":    []map[string]any{},
-			"count":      0,
-			"mode":       mode,
-			"status":     "no_stored_weather",
-			"rate_limit": rateLimit,
-		}, nil
+		return weatherToolResponse("unavailable", "no_stored_weather", queryKind, mode, rateLimit, map[string]any{
+			"weather": []map[string]any{},
+			"count":   0,
+		}), nil
 	}
 
 	cfg := liveWeatherConfigFromEnv()
-	if blocked := liveWeatherPolicyBlockedResponse(cfg, mode, rateLimit); blocked != nil {
+	if blocked := liveWeatherPolicyBlockedResponse(cfg, mode, queryKind, rateLimit); blocked != nil {
 		return blocked, nil
 	}
 	point, err := resolveLiveWeatherPoint(ctx, deps, userID, args)
@@ -187,25 +185,19 @@ func executeQueryWeatherAtPointTime(ctx context.Context, deps *Deps, userID stri
 		return nil, err
 	}
 	if point == nil {
-		return map[string]any{
-			"weather":    []map[string]any{},
-			"count":      0,
-			"mode":       mode,
-			"status":     "no_point_for_time",
-			"rate_limit": rateLimit,
-		}, nil
+		return weatherToolResponse("unavailable", "no_point_for_time", queryKind, mode, rateLimit, map[string]any{
+			"weather": []map[string]any{},
+			"count":   0,
+		}), nil
 	}
 
 	quota := consumeLiveWeatherQuota(userID, cfg, time.Now().UTC())
 	if quota["status"] == "rate_limited" {
-		return map[string]any{
+		return weatherToolResponse("rate_limited", "rate_limited", queryKind, mode, quota, map[string]any{
 			"weather":         []map[string]any{},
 			"count":           0,
-			"mode":            mode,
-			"status":          "rate_limited",
 			"blocking_reason": "rate_limited",
-			"rate_limit":      quota,
-		}, nil
+		}), nil
 	}
 	readings, err := enrichment.FetchWeatherReadings(ctx, []enrichment.WeatherRequest{{
 		ReadingType: "single",
@@ -215,23 +207,132 @@ func executeQueryWeatherAtPointTime(ctx context.Context, deps *Deps, userID stri
 		At:          point.At,
 	}})
 	if err != nil {
-		return map[string]any{
-			"weather":    []map[string]any{},
-			"count":      0,
-			"mode":       mode,
-			"status":     "live_weather_unreachable",
-			"rate_limit": quota,
-		}, nil
+		return weatherToolResponse("unavailable", "live_weather_unreachable", queryKind, mode, quota, map[string]any{
+			"weather": []map[string]any{},
+			"count":   0,
+		}), nil
 	}
 	weather := weatherReadingsForTool(readings)
-	return map[string]any{
-		"weather":    weather,
-		"count":      len(weather),
-		"mode":       mode,
-		"source":     "live_provider",
-		"status":     "ok",
-		"rate_limit": quota,
-	}, nil
+	return weatherToolResponse("ok", "ok", queryKind, mode, quota, map[string]any{
+		"weather": weather,
+		"count":   len(weather),
+		"source":  "live_provider",
+	}), nil
+}
+
+func weatherQueryKind(args queryWeatherAtPointTimeArgs) string {
+	if strings.TrimSpace(args.QueryKind) != "" {
+		return strings.TrimSpace(args.QueryKind)
+	}
+	if args.ActivityID != "" && (args.OffsetS != nil || strings.TrimSpace(args.AtTime) != "") {
+		return "activity_point_time"
+	}
+	if args.Lat != nil && args.Lng != nil && strings.TrimSpace(args.Time) != "" {
+		return "dated_place"
+	}
+	if args.Lat != nil && args.Lng != nil {
+		return "current_place"
+	}
+	return "stored_activity_weather"
+}
+
+func weatherToolResponse(status, detailStatus, queryKind, mode string, rateLimit map[string]any, extra map[string]any) map[string]any {
+	out := map[string]any{
+		"status":        status,
+		"detail_status": detailStatus,
+		"query_kind":    queryKind,
+		"mode":          mode,
+		"rate_limit":    rateLimit,
+		"missing":       weatherMissingForDetail(detailStatus),
+		"needs":         weatherNeedsForDetail(detailStatus),
+		"next_action":   weatherNextActionForDetail(detailStatus),
+		"user_message":  weatherToolUserMessage(detailStatus),
+	}
+	if status == "rate_limited" {
+		out["blocking_reason"] = "rate_limited"
+	}
+	for key, value := range extra {
+		out[key] = value
+	}
+	return out
+}
+
+func weatherMissingForDetail(detailStatus string) []string {
+	switch detailStatus {
+	case "no_stored_weather":
+		return []string{"stored_activity_weather"}
+	case "live_weather_disabled":
+		return []string{"live_weather_policy"}
+	case "skipped_by_privacy_policy":
+		return []string{"external_weather_policy"}
+	case "live_weather_manual_confirmation_not_supported":
+		return []string{"external_weather_confirmation_flow"}
+	case "live_weather_unconfigured":
+		return []string{"weather_provider_config"}
+	case "no_point_for_time":
+		return []string{"weather_point_time"}
+	case "live_weather_unreachable":
+		return []string{"weather_provider_reachable"}
+	default:
+		return []string{}
+	}
+}
+
+func weatherNeedsForDetail(detailStatus string) []string {
+	switch detailStatus {
+	case "ok":
+		return []string{}
+	case "rate_limited":
+		return []string{"wait_for_weather_rate_limit"}
+	case "no_stored_weather":
+		return []string{"stored_weather_or_live_weather"}
+	case "no_point_for_time":
+		return []string{"lat_lng_time_or_activity_stream_point"}
+	default:
+		return []string{"weather_configuration"}
+	}
+}
+
+func weatherNextActionForDetail(detailStatus string) string {
+	switch detailStatus {
+	case "ok":
+		return "answer_with_weather_result"
+	case "rate_limited":
+		return "report_weather_rate_limit"
+	case "no_stored_weather":
+		return "report_no_stored_weather_or_try_live_if_allowed"
+	case "no_point_for_time":
+		return "ask_for_place_and_time_or_activity_point"
+	case "live_weather_unreachable":
+		return "report_weather_provider_unreachable"
+	default:
+		return "report_weather_capability_limit"
+	}
+}
+
+func weatherToolUserMessage(detailStatus string) string {
+	switch detailStatus {
+	case "ok":
+		return "Wetterdaten wurden gefunden."
+	case "no_stored_weather":
+		return "Zu dieser Anfrage sind keine gespeicherten Wetterdaten vorhanden."
+	case "live_weather_disabled":
+		return "Live-Wetterabfragen sind deaktiviert."
+	case "skipped_by_privacy_policy":
+		return "Externe Wetterabfragen sind durch die Datenschutzrichtlinie blockiert."
+	case "live_weather_manual_confirmation_not_supported":
+		return "Externe Wetterabfragen mit manueller Bestaetigung werden hier noch nicht unterstuetzt."
+	case "live_weather_unconfigured":
+		return "Live-Wetterabfragen sind nicht konfiguriert."
+	case "no_point_for_time":
+		return "Fuer diese Wetterabfrage fehlt ein eindeutiger Ort und Zeitpunkt."
+	case "live_weather_unreachable":
+		return "Der Wetteranbieter ist derzeit nicht erreichbar."
+	case "rate_limited":
+		return "Das Wetter-Abfragelimit ist erreicht."
+	default:
+		return "Wetterdaten sind fuer diese Anfrage nicht verfuegbar."
+	}
 }
 
 func buildActivityTerrainSummarySQL(userID string, args queryActivityTerrainSummaryArgs, now time.Time) (string, []any, map[string]any, error) {
@@ -378,6 +479,9 @@ func normalizeWeatherMode(args queryWeatherAtPointTimeArgs) (string, error) {
 	mode := strings.TrimSpace(args.Mode)
 	if mode == "" {
 		mode = "stored_only"
+		if args.Lat != nil && args.Lng != nil && strings.TrimSpace(args.Time) != "" {
+			mode = "stored_then_fetch"
+		}
 		if args.StoredOnly != nil && !*args.StoredOnly {
 			mode = "stored_then_fetch"
 		}
@@ -428,42 +532,30 @@ func parseLiveWeatherBool(raw string) bool {
 	}
 }
 
-func liveWeatherPolicyBlockedResponse(cfg liveWeatherConfig, mode string, rateLimit map[string]any) map[string]any {
+func liveWeatherPolicyBlockedResponse(cfg liveWeatherConfig, mode, queryKind string, rateLimit map[string]any) map[string]any {
 	switch cfg.Policy {
 	case "disabled":
-		return map[string]any{
-			"weather":    []map[string]any{},
-			"count":      0,
-			"mode":       mode,
-			"status":     "live_weather_disabled",
-			"rate_limit": rateLimit,
-		}
+		return weatherToolResponse("unavailable", "live_weather_disabled", queryKind, mode, rateLimit, map[string]any{
+			"weather": []map[string]any{},
+			"count":   0,
+		})
 	case "blocked":
-		return map[string]any{
-			"weather":    []map[string]any{},
-			"count":      0,
-			"mode":       mode,
-			"status":     "skipped_by_privacy_policy",
-			"rate_limit": rateLimit,
-		}
+		return weatherToolResponse("unavailable", "skipped_by_privacy_policy", queryKind, mode, rateLimit, map[string]any{
+			"weather": []map[string]any{},
+			"count":   0,
+		})
 	case "manual_confirm":
-		return map[string]any{
+		return weatherToolResponse("unavailable", "live_weather_manual_confirmation_not_supported", queryKind, mode, rateLimit, map[string]any{
 			"weather":         []map[string]any{},
 			"count":           0,
-			"mode":            mode,
-			"status":          "live_weather_manual_confirmation_not_supported",
 			"blocking_reason": "manual_confirmation_not_supported",
-			"rate_limit":      rateLimit,
-		}
+		})
 	case "allowed":
 		if !cfg.ProviderEnabled {
-			return map[string]any{
-				"weather":    []map[string]any{},
-				"count":      0,
-				"mode":       mode,
-				"status":     "live_weather_unconfigured",
-				"rate_limit": rateLimit,
-			}
+			return weatherToolResponse("unavailable", "live_weather_unconfigured", queryKind, mode, rateLimit, map[string]any{
+				"weather": []map[string]any{},
+				"count":   0,
+			})
 		}
 	}
 	return nil

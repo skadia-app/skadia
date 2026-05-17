@@ -73,6 +73,11 @@ func querySegments(ctx context.Context, pool *pgxpool.Pool, userID string, args 
 		row["allowed_predicates"] = decodeJSONValue(row["allowed_predicates"])
 		row["last_attempt"] = dateString(row["last_attempt"])
 		row["pr_date"] = dateString(row["pr_date"])
+		if !truthyNumber(row["effort_count"]) {
+			row["effort_status"] = "no_matching_efforts"
+		} else {
+			row["effort_status"] = "matched_efforts"
+		}
 		if truthyNumber(row["pr_seconds"]) {
 			row["pr_formatted"] = formatDuration(row["pr_seconds"])
 		}
@@ -85,10 +90,22 @@ func querySegments(ctx context.Context, pool *pgxpool.Pool, userID string, args 
 			return nil, err
 		}
 		for _, segment := range segments {
-			segment["recent_efforts"] = effortsBySegment[stringValue(segment["id"])]
+			efforts := effortsBySegment[stringValue(segment["id"])]
+			if efforts == nil {
+				efforts = []map[string]any{}
+			}
+			segment["recent_efforts"] = efforts
 		}
 	}
-	return map[string]any{"segments": segments}, nil
+	status := "ok"
+	if len(segments) == 0 {
+		status = "not_found"
+	}
+	return map[string]any{
+		"segments": segments,
+		"status":   status,
+		"mode":     segmentQueryMode(args),
+	}, nil
 }
 
 func buildQuerySegmentsSQL(userID string, args querySegmentsArgs) (string, []any, error) {
@@ -106,21 +123,22 @@ func buildQuerySegmentsSQL(userID string, args querySegmentsArgs) (string, []any
 	if err != nil {
 		return "", nil, err
 	}
-	conditions := []string{"se.user_id = $1::uuid"}
+	segmentConditions := []string{"(s.created_by = $1::uuid OR s.visibility = 'public')"}
+	effortConditions := []string{"se.user_id = $1::uuid"}
 	params := []any{userID}
 	if strings.TrimSpace(args.Query) != "" {
 		params = append(params, "%"+args.Query+"%")
-		conditions = append(conditions, fmt.Sprintf("s.name ILIKE $%d", len(params)))
+		segmentConditions = append(segmentConditions, fmt.Sprintf("s.name ILIKE $%d", len(params)))
 	}
 	if criteria.DateFrom == "" {
 		params = append(params, sinceDate(time.Now().UTC(), args.days()))
-		conditions = append(conditions, fmt.Sprintf("se.started_at >= $%d", len(params)))
+		effortConditions = append(effortConditions, fmt.Sprintf("se.started_at >= $%d", len(params)))
 	}
-	conditions, params, err = applySegmentDateFilters(conditions, params, criteria.DateFrom, criteria.DateTo)
+	effortConditions, params, err = applySegmentDateFilters(effortConditions, params, criteria.DateFrom, criteria.DateTo)
 	if err != nil {
 		return "", nil, err
 	}
-	conditions, params = applySegmentEffortFilters(conditions, params, SegmentEffortFilters{
+	effortConditions, params = applySegmentEffortFilters(effortConditions, params, SegmentEffortFilters{
 		SportType:     criteria.SportType,
 		SubType:       criteria.SubType,
 		IsElectric:    criteria.IsElectric,
@@ -129,22 +147,32 @@ func buildQuerySegmentsSQL(userID string, args querySegmentsArgs) (string, []any
 		IsCommute:     criteria.IsCommute,
 		InLeaderboard: args.inLeaderboard(),
 	})
-	sql := `SELECT s.id::text AS id, s.name, s.sport_group, s.allowed_predicates,
+	having := ""
+	if args.includeEfforts() {
+		having = "HAVING COUNT(se.id) > 0\n"
+	}
+	sql := `WITH effort_matches AS (
+			SELECT se.id, se.segment_id, se.started_at, se.elapsed_time_s, a.title AS activity_title, a.id::text AS activity_id
+			FROM segment_efforts se
+			JOIN activities a ON a.id = se.activity_id AND a.user_id = se.user_id
+		WHERE ` + strings.Join(effortConditions, " AND ") + `
+	)
+	SELECT s.id::text AS id, s.name, s.sport_group, s.allowed_predicates,
 	       ROUND((s.distance_m / 1000.0)::numeric, 2)::float8 AS distance_km,
 	       s.elevation_gain_m,
-	       COUNT(se.id) AS effort_count,
+	       COALESCE(COUNT(se.id), 0) AS effort_count,
 	       MIN(se.elapsed_time_s) AS pr_seconds,
 	       (array_agg(se.started_at::date ORDER BY se.elapsed_time_s ASC NULLS LAST, se.started_at ASC))[1] AS pr_date,
-	       (array_agg(a.title ORDER BY se.elapsed_time_s ASC NULLS LAST, se.started_at ASC))[1] AS pr_activity_title,
-	       (array_agg(a.id::text ORDER BY se.elapsed_time_s ASC NULLS LAST, se.started_at ASC))[1] AS pr_activity_id,
+	       (array_agg(se.activity_title ORDER BY se.elapsed_time_s ASC NULLS LAST, se.started_at ASC))[1] AS pr_activity_title,
+	       (array_agg(se.activity_id ORDER BY se.elapsed_time_s ASC NULLS LAST, se.started_at ASC))[1] AS pr_activity_id,
 	       MAX(se.started_at)::date AS last_attempt
 		FROM segments s
-		JOIN segment_efforts se ON se.segment_id = s.id
-		JOIN activities a ON a.id = se.activity_id AND a.user_id = se.user_id
-		WHERE ` + strings.Join(conditions, " AND ") + `
-		GROUP BY s.id, s.name, s.sport_group, s.allowed_predicates, s.distance_m, s.elevation_gain_m
-		ORDER BY last_attempt DESC
-		LIMIT ` + fmt.Sprint(args.limit())
+			LEFT JOIN effort_matches se ON se.segment_id = s.id
+			WHERE ` + strings.Join(segmentConditions, " AND ") + `
+			GROUP BY s.id, s.name, s.sport_group, s.allowed_predicates, s.distance_m, s.elevation_gain_m
+			` + having + `
+			ORDER BY MAX(se.started_at) DESC NULLS LAST, s.name ASC
+			LIMIT ` + fmt.Sprint(args.limit())
 	return sql, params, nil
 }
 
@@ -249,4 +277,14 @@ func (a querySegmentsArgs) limit() int {
 
 func (a querySegmentsArgs) includeEfforts() bool {
 	return a.IncludeEfforts
+}
+
+func segmentQueryMode(args querySegmentsArgs) string {
+	if strings.TrimSpace(args.Query) != "" && !args.IncludeEfforts {
+		return "existence"
+	}
+	if args.IncludeEfforts {
+		return "efforts"
+	}
+	return "segments"
 }

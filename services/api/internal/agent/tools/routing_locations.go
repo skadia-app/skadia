@@ -150,19 +150,39 @@ func executeGeocodePlace(ctx context.Context, deps *Deps, userID string, raw jso
 		ExternalStatus: geosearch.ExternalStatusSkipped,
 	}
 	if sources["local_map"] || sources["external"] {
-		var err error
-		searchResult, err = geocodePlaceService(deps).Search(ctx, geosearch.SearchOptions{
-			Query:           query,
-			Type:            geosearchPlaceType(sources),
-			Limit:           limit,
-			Near:            geosearchPoint(near),
-			UserID:          userID,
-			IncludeExternal: sources["external"],
-			PrivateInput:    sources["user_locations"] && len(candidates) > 0,
-		})
-		if err != nil {
-			return nil, err
+		service := geocodePlaceService(deps)
+		if sources["local_map"] {
+			localResult, err := service.Search(ctx, geosearch.SearchOptions{
+				Query:  query,
+				Type:   "place",
+				Limit:  limit,
+				Near:   geosearchPoint(near),
+				UserID: userID,
+			})
+			if err != nil {
+				return nil, err
+			}
+			searchResult.LocalStatus = localResult.LocalStatus
+			searchResult.Results = append(searchResult.Results, localResult.Results...)
 		}
+		if sources["external"] && len(candidates) == 0 && len(searchResult.Results) == 0 {
+			externalResult, err := service.Search(ctx, geosearch.SearchOptions{
+				Query:           query,
+				Type:            "external",
+				Limit:           limit,
+				Near:            geosearchPoint(near),
+				UserID:          userID,
+				IncludeExternal: true,
+			})
+			if err != nil {
+				return nil, err
+			}
+			searchResult.ExternalStatus = externalResult.ExternalStatus
+			searchResult.Quota = externalResult.Quota
+			searchResult.ConsentRequest = externalResult.ConsentRequest
+			searchResult.Results = append(searchResult.Results, externalResult.Results...)
+		}
+		searchResult.Count = len(searchResult.Results)
 		for _, result := range searchResult.Results {
 			candidates = append(candidates, geocodePlaceCandidate(result))
 		}
@@ -178,12 +198,17 @@ func executeGeocodePlace(ctx context.Context, deps *Deps, userID string, raw jso
 		"candidates":        candidates,
 		"count":             len(candidates),
 		"ambiguous":         len(candidates) > 1,
+		"status":            geocodePlaceStatus(len(candidates), sources, searchResult),
 		"not_found_reason":  notFoundReason(len(candidates), "no matching place"),
 		"local_status":      searchResult.LocalStatus,
 		"external_status":   searchResult.ExternalStatus,
 		"rate_limit":        searchResult.Quota,
 		"consent_request":   searchResult.ConsentRequest,
 		"coverage_required": true,
+		"lookup_order":      []string{"user_locations", "local_map", "external"},
+		"lookup_exhausted":  geocodeLookupExhausted(sources, searchResult),
+		"needs":             geocodePlaceNeeds(len(candidates), sources, searchResult),
+		"next_action":       geocodePlaceNextAction(len(candidates), sources, searchResult),
 	}, nil
 }
 
@@ -263,8 +288,10 @@ func normalizeGeocodePlaceSources(raw string) map[string]bool {
 		return map[string]bool{"local_map": true}
 	case "external":
 		return map[string]bool{"external": true}
+	case "all", "":
+		return map[string]bool{"user_locations": true, "local_map": true, "external": true}
 	default:
-		return map[string]bool{"user_locations": true, "local_map": true}
+		return map[string]bool{"user_locations": true, "local_map": true, "external": true}
 	}
 }
 
@@ -388,4 +415,66 @@ func sourcesForGeocodeResult(sources map[string]bool) []string {
 		}
 	}
 	return out
+}
+
+func geocodePlaceStatus(count int, sources map[string]bool, result geosearch.SearchResult) string {
+	if count > 0 {
+		return "ok"
+	}
+	if result.ExternalStatus == geosearch.ExternalStatusRateLimited {
+		return "rate_limited"
+	}
+	localCanSearch := sources["local_map"] && result.LocalStatus == geosearch.LocalStatusAvailable
+	externalCanSearch := sources["external"] &&
+		(result.ExternalStatus == geosearch.ExternalStatusAvailable ||
+			result.ExternalStatus == geosearch.ExternalStatusCached)
+	if (sources["local_map"] || sources["external"]) && !localCanSearch && !externalCanSearch {
+		return "unavailable"
+	}
+	return "not_found"
+}
+
+func geocodeLookupExhausted(sources map[string]bool, result geosearch.SearchResult) bool {
+	if sources["external"] {
+		return result.ExternalStatus != geosearch.ExternalStatusSkipped
+	}
+	return true
+}
+
+func geocodePlaceNeeds(count int, sources map[string]bool, result geosearch.SearchResult) []string {
+	if count > 0 {
+		return []string{}
+	}
+	needs := []string{}
+	if sources["local_map"] && result.LocalStatus == geosearch.LocalStatusUnavailable {
+		needs = append(needs, "local_place_search")
+	}
+	switch result.ExternalStatus {
+	case geosearch.ExternalStatusDisabled:
+		needs = append(needs, "external_geocoding_enabled")
+	case geosearch.ExternalStatusUnconfigured:
+		needs = append(needs, "external_geocoding_provider")
+	case geosearch.ExternalStatusRateLimited:
+		needs = append(needs, "external_geocoding_rate_limit")
+	case geosearch.ExternalStatusRequiresUserConfirmation:
+		needs = append(needs, "external_geocoding_consent")
+	}
+	return needs
+}
+
+func geocodePlaceNextAction(count int, sources map[string]bool, result geosearch.SearchResult) string {
+	if count > 0 {
+		return "use_candidate_ref_then_check_routing_coverage"
+	}
+	if !geocodeLookupExhausted(sources, result) {
+		return "try_remaining_place_lookup_sources_before_asking_for_coordinates"
+	}
+	switch result.ExternalStatus {
+	case geosearch.ExternalStatusRateLimited:
+		return "report_external_place_search_rate_limit"
+	case geosearch.ExternalStatusDisabled, geosearch.ExternalStatusUnconfigured, geosearch.ExternalStatusRequiresUserConfirmation:
+		return "report_place_search_capability_limit"
+	default:
+		return "ask_for_more_specific_place_name_or_coordinates"
+	}
 }

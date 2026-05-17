@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/geosearch"
 )
@@ -40,7 +42,7 @@ func executeGetAgentServiceStatus(ctx context.Context, deps *Deps, userID string
 		result["weather"] = weatherStatus()
 	}
 	if serviceSet["routing"] {
-		result["routing"] = routingStatus(deps)
+		result["routing"] = routingStatus(ctx, deps)
 	}
 	if serviceSet["coverage"] {
 		coverage, reasons := statusCoverage(ctx, deps, userID, args)
@@ -68,6 +70,10 @@ func selectedStatusServices(values []string) map[string]bool {
 }
 
 func geocodingStatus(deps *Deps, userID string) map[string]any {
+	localStatus := "unavailable"
+	if geocodePlaceQueryer(deps) != nil {
+		localStatus = "available"
+	}
 	externalStatus := "disabled"
 	if geocodePlacePolicy(deps) == "allowed" {
 		externalStatus = "unconfigured"
@@ -76,12 +82,24 @@ func geocodingStatus(deps *Deps, userID string) map[string]any {
 		}
 	}
 	quota := geocodePlaceQuota(deps).Check(userID)
+	status := "unavailable"
+	if localStatus == "available" || externalStatus == "configured" {
+		status = "ok"
+	}
+	if quota.Status == geosearch.QuotaStatusRateLimited {
+		status = "rate_limited"
+	}
 	return map[string]any{
+		"status":                       status,
+		"capabilities":                 geocodingCapabilities(localStatus, externalStatus),
+		"lookup_order":                 []string{"user_locations", "local_map", "external"},
+		"local_status":                 localStatus,
 		"local_search_status":          "available_when_osm_imported",
 		"external_status":              externalStatus,
 		"privacy_policy":               string(geocodePlacePolicy(deps)),
 		"external_read_consent_status": "policy_owned_by_tool",
 		"rate_limit":                   geosearchQuotaStatusMap(quota),
+		"next_action":                  geocodingNextAction(localStatus, externalStatus, quota),
 	}
 }
 
@@ -99,12 +117,23 @@ func weatherStatus() map[string]any {
 	case "blocked":
 		liveStatus = "skipped_by_privacy_policy"
 	}
+	status := "degraded"
+	if liveStatus == "configured" {
+		status = "ok"
+	}
+	missing := weatherStatusMissing(cfg, liveStatus)
 	return map[string]any{
+		"status":                       status,
+		"capabilities":                 []string{"stored_activity_weather", "activity_point_time", "current_place", "dated_place"},
+		"query_kinds":                  []string{"stored_activity_weather", "activity_point_time", "current_place", "dated_place"},
+		"place_date_status":            liveStatus,
 		"stored_read_status":           "available_for_owned_activity_weather",
 		"live_status":                  liveStatus,
 		"privacy_policy":               cfg.Policy,
 		"external_read_consent_status": "policy_owned_by_tool",
+		"missing":                      missing,
 		"rate_limit":                   liveWeatherStatusRateLimit(cfg),
+		"user_message":                 weatherStatusUserMessage(status, liveStatus),
 	}
 }
 
@@ -125,7 +154,65 @@ func liveWeatherStatusRateLimit(cfg liveWeatherConfig) map[string]any {
 	return map[string]any{"status": "available", "limit_per_hour": cfg.LimitPerHour, "remaining": cfg.LimitPerHour, "reset_at": nil}
 }
 
-func routingStatus(deps *Deps) map[string]any {
+func geocodingCapabilities(localStatus, externalStatus string) []string {
+	out := []string{"user_locations"}
+	if localStatus == "available" {
+		out = append(out, "local_place_search")
+	}
+	if externalStatus == "configured" {
+		out = append(out, "external_place_search")
+	}
+	return out
+}
+
+func geocodingNextAction(localStatus, externalStatus string, quota geosearch.QuotaState) string {
+	if quota.Status == geosearch.QuotaStatusRateLimited {
+		return "report_external_place_search_rate_limit"
+	}
+	if localStatus == "available" || externalStatus == "configured" {
+		return "run_user_local_then_external_place_lookup_before_asking_for_coordinates"
+	}
+	if externalStatus == "unconfigured" {
+		return "report_external_place_search_not_configured"
+	}
+	return "report_place_search_unavailable_or_limited_to_saved_user_locations"
+}
+
+func weatherStatusMissing(cfg liveWeatherConfig, liveStatus string) []string {
+	missing := []string{}
+	switch liveStatus {
+	case "disabled":
+		missing = append(missing, "live_weather_policy")
+	case "unconfigured":
+		missing = append(missing, "weather_provider_config")
+	case "manual_confirmation_not_supported":
+		missing = append(missing, "external_weather_confirmation_flow")
+	case "skipped_by_privacy_policy":
+		missing = append(missing, "external_weather_policy")
+	}
+	if cfg.LimitPerHour < 0 {
+		missing = append(missing, "weather_rate_limit_config")
+	}
+	return missing
+}
+
+func weatherStatusUserMessage(status, liveStatus string) string {
+	if status == "ok" {
+		return "Wetterabfragen fuer Orte und Zeitpunkte sind konfiguriert; gespeicherte Aktivitaets-Wetterdaten bleiben lokal verfuegbar."
+	}
+	switch liveStatus {
+	case "unconfigured":
+		return "Wetterabfragen fuer Orte und Zeitpunkte sind nicht konfiguriert. In dieser Installation kann ich gespeicherte Aktivitaets-Wetterdaten auswerten."
+	case "manual_confirmation_not_supported":
+		return "Externe Wetterabfragen brauchen eine Bestaetigung, die dieses Tool noch nicht ausfuehren kann. Gespeicherte Aktivitaets-Wetterdaten bleiben verfuegbar."
+	case "skipped_by_privacy_policy":
+		return "Externe Wetterabfragen sind durch die Datenschutzrichtlinie blockiert. Gespeicherte Aktivitaets-Wetterdaten bleiben verfuegbar."
+	default:
+		return "Live-Wetterabfragen sind deaktiviert. Gespeicherte Aktivitaets-Wetterdaten bleiben verfuegbar."
+	}
+}
+
+func routingStatus(ctx context.Context, deps *Deps) map[string]any {
 	brouterURL := ""
 	if deps != nil {
 		brouterURL = strings.TrimSpace(deps.BRouterURL)
@@ -134,8 +221,9 @@ func routingStatus(deps *Deps) map[string]any {
 		brouterURL = strings.TrimSpace(os.Getenv("BROUTER_URL"))
 	}
 	brouterStatus := "unconfigured"
+	brouterError := ""
 	if brouterURL != "" {
-		brouterStatus = "configured"
+		brouterStatus, brouterError = probeBRouterStatus(ctx, brouterURL)
 	}
 	badrouterStatus := "unconfigured_in_agent_runtime"
 	routeSuggestionStatus := "not_injected"
@@ -143,12 +231,63 @@ func routingStatus(deps *Deps) map[string]any {
 		badrouterStatus = "configured_via_route_suggester"
 		routeSuggestionStatus = "configured_round_trip_only"
 	}
+	status, missing, needs, nextAction := routingOverallStatus(brouterStatus, routeSuggestionStatus)
 	return map[string]any{
+		"status":                  status,
+		"missing":                 missing,
+		"needs":                   needs,
+		"next_action":             nextAction,
 		"brouter_status":          brouterStatus,
+		"brouter_url_configured":  brouterURL != "",
+		"brouter_probe_error":     brouterError,
 		"badrouter_status":        badrouterStatus,
 		"route_suggestion_status": routeSuggestionStatus,
 		"profile_support_summary": "built-in and DB profile listing is available through list_routing_profiles; route-suggestion supports round-trip variants when injected",
 	}
+}
+
+func routingOverallStatus(brouterStatus, routeSuggestionStatus string) (string, []string, []string, string) {
+	missing := []string{}
+	needs := []string{}
+	if brouterStatus != "reachable" {
+		missing = append(missing, "brouter_reachable")
+		needs = append(needs, "routing_service")
+	}
+	if routeSuggestionStatus == "not_injected" {
+		missing = append(missing, "route_goal_suggester")
+		needs = append(needs, "route_suggestion_service")
+	}
+	switch {
+	case len(missing) == 0:
+		return "ok", missing, needs, "route planning tools can be used after place and coverage checks"
+	case brouterStatus == "reachable":
+		return "degraded", missing, needs, "point-to-point routing may work, but goal route suggestions are unavailable"
+	case routeSuggestionStatus != "not_injected":
+		return "degraded", missing, needs, "goal route suggestions may work, but point-to-point routing service is unavailable"
+	default:
+		return "unavailable", missing, needs, "report routing service unavailability before promising route generation"
+	}
+}
+
+func probeBRouterStatus(ctx context.Context, brouterURL string) (string, string) {
+	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, strings.TrimRight(brouterURL, "/"), nil)
+	if err != nil {
+		return "configured_unverified", "invalid_probe_request"
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		if probeCtx.Err() != nil {
+			return "unreachable", "probe_timeout"
+		}
+		return "unreachable", "probe_failed"
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+		return "reachable", ""
+	}
+	return "unreachable", fmt.Sprintf("http_%d", resp.StatusCode)
 }
 
 func longDistancePolicyStatus() map[string]any {
