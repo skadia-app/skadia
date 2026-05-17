@@ -3,8 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Link } from 'react-router-dom'
 import { fetchActivities } from '@/api/activities'
-import type { Activity, Gear, MaintenanceAlert } from '@/api/types'
-import { fetchGear, fetchMaintenanceAlerts } from '@/api/gear'
+import type { Activity } from '@/api/types'
 import { SportIcon } from '@/components/SportIcon'
 import { sportLabel, sportColor } from '@/lib/sportTaxonomy'
 import { displayActivityTitle } from '@/lib/activityTitle'
@@ -14,7 +13,7 @@ import { fetchHRVAnalysis } from '@/api/analytics'
 import type { HRVAnalysis } from '@/api/analytics'
 import { ReadinessCardCompact } from '@/components/analytics/ReadinessCard'
 import { toLocalISO } from '@/lib/dateUtils'
-import { formatUsageMetricValue } from '@/lib/gearUsageMetrics'
+import MaintenanceAlerts from '@/components/MaintenanceAlerts'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
 
@@ -56,20 +55,6 @@ export default function DashboardPage() {
     retry: false,
   })
 
-  const { data: gearList } = useQuery({
-    queryKey: ['gear-active'],
-    queryFn: () => fetchGear('active'),
-    staleTime: 5 * 60 * 1000,
-    retry: false,
-  })
-
-  const { data: maintenanceAlerts } = useQuery({
-    queryKey: ['maintenance-alerts'],
-    queryFn: () => fetchMaintenanceAlerts(),
-    staleTime: 5 * 60 * 1000,
-    retry: false,
-  })
-
   const { data: hrv } = useQuery<HRVAnalysis | null>({
     queryKey: ['analytics', 'hrv', '7d'],
     queryFn: async () => {
@@ -96,21 +81,6 @@ export default function DashboardPage() {
     }
   }, [weekActivities])
 
-  // ── Gear with Alerts ───────────────────────────────────────────────────────
-
-  const alerts: MaintenanceAlert[] = maintenanceAlerts ?? []
-  const gear: Gear[] = gearList ?? []
-
-  const gearWithAlerts = useMemo(() => {
-    const alertGearIds = new Set(alerts.map(a => a.gear_id))
-    return gear
-      .filter(g => alertGearIds.has(g.id))
-      .map(g => ({
-        ...g,
-        alerts: alerts.filter(a => a.gear_id === g.id),
-      }))
-  }, [gear, alerts])
-
   // ── HRV trend ─────────────────────────────────────────────────────────────
 
   const hrvAvg = hrv?.seven_day_avg ?? null
@@ -122,6 +92,8 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Dashboard</h1>
+
+      <MaintenanceAlerts />
 
       {/* ── Row 1: Readiness / Diese Woche / HRV ───────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -251,41 +223,6 @@ export default function DashboardPage() {
         )}
       </section>
 
-      {/* ── Row 3: Gear-Alerts (nur wenn Alerts vorhanden) ─────────────── */}
-      {gearWithAlerts.length > 0 && (
-        <section>
-          <h2 className="text-sm font-medium text-neutral-500 dark:text-neutral-400 mb-3 uppercase tracking-wide">
-            Ausrüstung — Wartungshinweise
-          </h2>
-          <div className="space-y-2">
-            {gearWithAlerts.map(g => (
-              <div
-                key={g.id}
-                className="rounded-lg border border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/20 p-3"
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                    {g.name}
-                  </span>
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 font-medium">
-                    {g.alerts.some(alert => alert.is_overdue) ? 'Wartung fällig' : 'Bald fällig'}
-                  </span>
-                </div>
-                <div className="text-xs text-neutral-500 dark:text-neutral-400 space-y-0.5">
-                  {g.alerts.map((alert, i) => (
-                    <div key={i}>
-                      {alert.component_name}: {alert.interval_name}
-                      <span className={alert.is_overdue ? 'text-rose-500 ml-1' : 'ml-1'}>
-                        ({formatUsageMetricValue(alert.interval_type, alert.current_value)} / {formatUsageMetricValue(alert.interval_type, alert.threshold_value)})
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   )
 }

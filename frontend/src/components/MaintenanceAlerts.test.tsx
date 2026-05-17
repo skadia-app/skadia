@@ -21,6 +21,18 @@ vi.mock('@/api/gear', () => ({
       current_value: 450000,
       threshold_value: 500000,
     },
+    {
+      interval_id: 'i2',
+      gear_id: 'g1',
+      gear_name: 'Propain Tyee',
+      component_id: 'c2',
+      component_name: 'Hinterreifen',
+      interval_name: 'Prüfen',
+      interval_type: 'moving_time_s',
+      is_overdue: true,
+      current_value: 43200,
+      threshold_value: 36000,
+    },
   ])),
 }))
 
@@ -36,13 +48,18 @@ function renderAlerts() {
 }
 
 describe('MaintenanceAlerts', () => {
-  it('links alerts to the affected component and formats metric units', async () => {
+  it('groups alerts by gear, links each row to the affected component, and formats metric units', async () => {
     renderAlerts()
 
-    const link = await screen.findByRole('link', { name: /Propain Tyee/ })
+    const group = await screen.findByRole('heading', { name: 'Propain Tyee' })
+    const swapLink = screen.getByRole('link', { name: /Vorderreifen.*Tauschen/s })
+    const checkLink = screen.getByRole('link', { name: /Hinterreifen.*Prüfen/s })
 
     expect(fetchMaintenanceAlerts).toHaveBeenCalled()
-    expect(link).toHaveAttribute('href', '/gear/g1?tab=components&component=c1')
+    expect(group).toBeInTheDocument()
+    expect(swapLink).toHaveAttribute('href', '/gear/g1?tab=components&component=c1')
+    expect(checkLink).toHaveAttribute('href', '/gear/g1?tab=components&component=c2')
     expect(screen.getByText('Tauschen: 450 km / 500 km')).toBeInTheDocument()
+    expect(screen.getByText('Prüfen: 12 h / 10 h')).toBeInTheDocument()
   })
 })
