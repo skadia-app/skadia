@@ -1,17 +1,27 @@
+FROM node:22-alpine AS frontend-builder
+
+WORKDIR /frontend
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
 FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
 # Layer 1: Dependencies (cached unless go.mod/go.sum change)
-COPY go.mod go.sum ./
+COPY services/api/go.mod services/api/go.sum ./
 RUN go mod download
 
 # Layer 2: Embedded resources (cached unless migrations/lua change)
-COPY internal/migrate/migrations/ internal/migrate/migrations/
-COPY internal/osm/skadia-osm.lua internal/osm/skadia-osm.lua
+COPY services/api/internal/migrate/migrations/ internal/migrate/migrations/
+COPY services/api/internal/osm/skadia-osm.lua internal/osm/skadia-osm.lua
 
 # Layer 3: All source code (rebuilt on any .go file change)
-COPY . .
+COPY services/api/ .
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -o /api ./cmd/api
 
@@ -37,6 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/abrensch/brouter:v1.7.8 /brouter.jar /brouter/brouter.jar
 
 COPY --from=builder /api /api
+COPY --from=frontend-builder /frontend/dist /app/frontend
 
 EXPOSE 8080
 

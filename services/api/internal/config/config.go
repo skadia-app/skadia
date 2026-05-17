@@ -22,6 +22,7 @@ type Config struct {
 	ListenAddr          string
 	DevAuth             bool
 	FrontendURL         string // e.g. "http://localhost:5173"
+	FrontendStaticDir   string // optional directory with built SPA assets
 
 	// Deployment profile
 	DeploymentProfile       string // "core" or "full"
@@ -151,6 +152,7 @@ func Load() (*Config, error) {
 		ListenAddr:          getEnvDefault("LISTEN_ADDR", ":8080"),
 		DevAuth:             os.Getenv("DEV_AUTH") == "true",
 		FrontendURL:         getEnvDefault("FRONTEND_URL", "http://localhost:5173"),
+		FrontendStaticDir:   strings.TrimSpace(os.Getenv("FRONTEND_STATIC_DIR")),
 		JWTSecret:           getSecret("JWT_SECRET", ""),
 
 		ShadowFSBasePath: os.Getenv("SHADOW_FS_BASE_PATH"),
