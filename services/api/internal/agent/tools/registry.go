@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/skadia-app/skadia/services/api/internal/agent"
@@ -96,6 +97,13 @@ type Tool struct {
 	Timeout      time.Duration
 	ExternalRead *ExternalReadRequirement
 	IsUserOwned  bool
+	Capability   *ToolCapability
+}
+
+type ToolCapability struct {
+	Area              string
+	PlannerSelectable bool
+	Limits            []string
 }
 
 type PreparedWrite struct {
@@ -198,6 +206,7 @@ func RegisterAll(reg *Registry) {
 	RegisterTagTools(reg)
 	RegisterRuleWriteTools(reg)
 	RegisterRulePreviewTools(reg)
+	reg.Register(AgentCapabilityManifestTool(reg))
 }
 
 func (r *Registry) Register(t *Tool) {
@@ -209,6 +218,10 @@ func (r *Registry) Register(t *Tool) {
 	}
 	if t.Name == "" {
 		panic("agent tool registry: cannot register unnamed tool")
+	}
+	if t.Capability == nil {
+		capability := inferToolCapability(t)
+		t.Capability = &capability
 	}
 	r.tools[t.Name] = t
 }
@@ -236,26 +249,7 @@ func (r *Registry) Get(name string) (*Tool, bool) {
 }
 
 func (r *Registry) AddEnabledWriteTools(filter []string, prefs *agent.ChatPreferences) []string {
-	out := append([]string(nil), filter...)
-	if prefs == nil || !prefs.ChatWriteToolsEnabled {
-		return out
-	}
-
-	present := make(map[string]bool, len(out))
-	for _, name := range out {
-		present[name] = true
-	}
-	allowed := allowedWriteToolSet(prefs)
-	names := r.sortedNames()
-	for _, name := range names {
-		t := r.tools[name]
-		if t == nil || t.Permission == PermissionRead || !allowed[name] || present[name] {
-			continue
-		}
-		out = append(out, name)
-		present[name] = true
-	}
-	return out
+	return append([]string(nil), filter...)
 }
 
 func (r *Registry) Definitions(filter []string, prefs *agent.ChatPreferences) []llmwire.ToolDefinition {
@@ -302,6 +296,138 @@ func (r *Registry) sortedNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+func (r *Registry) CapabilityManifest() []map[string]any {
+	if r == nil {
+		return nil
+	}
+	type areaEntry struct {
+		Description string
+		ReadTools   []string
+		WriteTools  []string
+		Limits      []string
+	}
+	areas := map[string]*areaEntry{}
+	for _, name := range r.sortedNames() {
+		tool := r.tools[name]
+		if tool == nil || tool.Capability == nil || !tool.Capability.PlannerSelectable {
+			continue
+		}
+		area := tool.Capability.Area
+		if area == "" {
+			area = "other"
+		}
+		entry := areas[area]
+		if entry == nil {
+			entry = &areaEntry{Description: capabilityAreaDescription(area)}
+			areas[area] = entry
+		}
+		if tool.Permission == PermissionRead {
+			entry.ReadTools = append(entry.ReadTools, name)
+		} else {
+			entry.WriteTools = append(entry.WriteTools, name)
+		}
+		for _, limit := range tool.Capability.Limits {
+			if !stringInSlice(entry.Limits, limit) {
+				entry.Limits = append(entry.Limits, limit)
+			}
+		}
+	}
+	order := []string{"activities", "routing", "segments", "gear", "documents_photos", "health_training", "automation_tags", "geo", "capabilities", "other"}
+	out := make([]map[string]any, 0, len(areas))
+	for _, area := range order {
+		entry := areas[area]
+		if entry == nil {
+			continue
+		}
+		out = append(out, map[string]any{
+			"area":        area,
+			"description": entry.Description,
+			"read_tools":  entry.ReadTools,
+			"write_tools": entry.WriteTools,
+			"limits":      entry.Limits,
+		})
+	}
+	return out
+}
+
+func inferToolCapability(tool *Tool) ToolCapability {
+	area := capabilityAreaForToolName(tool.Name)
+	limits := []string(nil)
+	if tool.Permission != PermissionRead {
+		limits = append(limits, "Write tools require user-enabled permissions and per-action confirmation.")
+	}
+	if tool.ExternalRead != nil {
+		limits = append(limits, "External reads require the configured policy and quota to allow the request.")
+	}
+	if tool.RateLimitPerHour > 0 {
+		limits = append(limits, fmt.Sprintf("Rate-limited to %d calls per user and hour.", tool.RateLimitPerHour))
+	}
+	return ToolCapability{
+		Area:              area,
+		PlannerSelectable: area != "other",
+		Limits:            limits,
+	}
+}
+
+func capabilityAreaForToolName(name string) string {
+	switch {
+	case name == "get_agent_capability_manifest":
+		return "capabilities"
+	case strings.Contains(name, "route") || strings.Contains(name, "routing") || strings.Contains(name, "weather") || strings.Contains(name, "coverage") || name == "geocode_place" || name == "resolve_user_location":
+		return "routing"
+	case strings.Contains(name, "segment"):
+		return "segments"
+	case strings.Contains(name, "gear") || strings.Contains(name, "maintenance"):
+		return "gear"
+	case strings.Contains(name, "document") || strings.Contains(name, "photo"):
+		return "documents_photos"
+	case strings.Contains(name, "health") || strings.Contains(name, "training") || strings.Contains(name, "analytics"):
+		return "health_training"
+	case strings.Contains(name, "tag") || strings.Contains(name, "automation_rule") || strings.Contains(name, "rule"):
+		return "automation_tags"
+	case strings.Contains(name, "geo") || strings.Contains(name, "poi") || strings.Contains(name, "trail") || strings.Contains(name, "terrain"):
+		return "geo"
+	case strings.Contains(name, "activity") || strings.Contains(name, "activities") || strings.Contains(name, "record") || strings.Contains(name, "period") || strings.Contains(name, "stats") || strings.Contains(name, "time_series"):
+		return "activities"
+	default:
+		return "other"
+	}
+}
+
+func capabilityAreaDescription(area string) string {
+	switch area {
+	case "activities":
+		return "Owned activity search, details, records, statistics, time series, comparisons, and activity selections."
+	case "routing":
+		return "Place resolution, air-line distance, route coverage diagnostics, route previews, goal route suggestions, terrain, and weather context."
+	case "segments":
+		return "Segment existence, efforts, records, and segment filters."
+	case "gear":
+		return "Gear lookup, stats, activity assignment, documents, components, service history, and maintenance status."
+	case "documents_photos":
+		return "Search extracted document text and photo content when the user has enabled those data surfaces."
+	case "health_training":
+		return "Health status, training load, analytics summaries, and trend-oriented aggregate reads."
+	case "automation_tags":
+		return "Tag and automation-rule management with previewed writes."
+	case "geo":
+		return "Stored geographic features and activity geographic context."
+	case "capabilities":
+		return "Assistant tool and service capability discovery."
+	default:
+		return "Other registered tools."
+	}
+}
+
+func stringInSlice(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *Tool) definition() llmwire.ToolDefinition {
