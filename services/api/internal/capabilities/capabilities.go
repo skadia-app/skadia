@@ -380,7 +380,7 @@ func probeRuntime(ctx context.Context, pool *pgxpool.Pool, input DetectInput) Ru
 }
 
 func brouterProbeStatusUsable(status int) bool {
-	return status >= http.StatusOK && status < http.StatusMultipleChoices
+	return (status >= http.StatusOK && status < http.StatusMultipleChoices) || status == http.StatusNotFound
 }
 
 func hasFileWithSuffix(dir, suffix string) bool {

@@ -213,7 +213,7 @@ func TestDetectRuntimeBRouterProbeRequiresUsableStatus(t *testing.T) {
 		available bool
 	}{
 		{name: "ok", status: http.StatusOK, available: true},
-		{name: "not found", status: http.StatusNotFound, available: false},
+		{name: "root not found", status: http.StatusNotFound, available: true},
 		{name: "server error", status: http.StatusInternalServerError, available: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

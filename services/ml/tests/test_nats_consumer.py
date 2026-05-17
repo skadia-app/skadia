@@ -526,12 +526,17 @@ async def test_process_document_message_passes_user_file_metadata_not_legacy_s3(
 
 @pytest.mark.asyncio
 async def test_process_document_message_acks_without_processing_in_core_profile(monkeypatch):
-    pool_reads = 0
+    executed: list[tuple] = []
+
+    class _Conn:
+        async def execute(self, *args):
+            executed.append(args)
+            return "UPDATE 1"
+
+    pool = _FakePool(_Conn())
 
     async def fake_get_pool():
-        nonlocal pool_reads
-        pool_reads += 1
-        raise AssertionError("core profile must not start document processing")
+        return pool
 
     calls: list[dict] = []
 
@@ -548,8 +553,37 @@ async def test_process_document_message_acks_without_processing_in_core_profile(
 
     assert msg.acked == 1
     assert msg.naked == 0
-    assert pool_reads == 0
     assert calls == []
+    status_updates = [call for call in executed if "processing_status" in call[0]]
+    import_log_updates = [call for call in executed if "UPDATE import_log" in call[0]]
+    assert status_updates
+    assert status_updates[-1][1:] == ("idle", DOC_ID, USER_ID, FILE_ID)
+    assert import_log_updates
+    assert import_log_updates[-1][3] is False
+    assert import_log_updates[-1][4] == "skipped"
+
+
+@pytest.mark.asyncio
+async def test_process_document_message_naks_core_profile_when_skip_status_update_fails(monkeypatch):
+    class _Conn:
+        async def execute(self, *args):
+            raise RuntimeError("db unavailable")
+
+    async def fake_get_pool():
+        return _FakePool(_Conn())
+
+    async def fake_process_document(**kwargs):  # pragma: no cover - must not process in Core
+        raise AssertionError("core profile must not start document processing")
+
+    monkeypatch.setenv("SKADIA_DEPLOYMENT_PROFILE", "core")
+    monkeypatch.setattr(nats_consumer, "get_pool", fake_get_pool)
+    monkeypatch.setattr(nats_consumer, "process_document", fake_process_document)
+
+    msg = _FakeMsg({"doc_id": DOC_ID, "user_id": USER_ID, "file_id": FILE_ID})
+    await nats_consumer._process_document_message(msg, _NCNoop())
+
+    assert msg.acked == 0
+    assert msg.naked == 1
 
 
 @pytest.mark.asyncio

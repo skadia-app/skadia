@@ -109,32 +109,18 @@ case "$data_root_canonical" in
 esac
 DATA_ROOT="$data_root_canonical"
 
-data_host_env_names=(
-    SHADOW_FS_HOST_PATH
-    HOTFOLDER_HOST_PATH
-    IMPORT_DATA_HOST_PATH
-    OSM_HOST_PATH
-    ROUTING_HOST_PATH
-    BROUTER_SEGMENTS_HOST_PATH
-    BROUTER_PROFILES_HOST_PATH
-    DEM_HOST_PATH
-    LIBRARY_HOST_PATH
-    EXPORTS_HOST_PATH
-    IMPORTS_HOST_PATH
-    BADROUTER_CONFIG_HOST_PATH
-    TILES_HOST_PATH
-    OLLAMA_HOST_PATH
-    MODELS_HOST_PATH
-    ML_HOST_PATH
+base_env=(
+    "PATH=${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
 )
 
-without_data_host_env() {
-    local unset_args=()
-    local name
-    for name in "${data_host_env_names[@]}"; do
-        unset_args+=("-u" "$name")
-    done
-    env "${unset_args[@]}" "$@"
+for optional_name in HOME XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS DOCKER_HOST CONTAINER_HOST TMPDIR SSL_CERT_FILE SSL_CERT_DIR SKADIA_TEST_COMMAND_LOG SKADIA_TEST_CURL_LOG; do
+    if [ -n "${!optional_name:-}" ]; then
+        base_env+=("$optional_name=${!optional_name}")
+    fi
+done
+
+with_smoke_env() {
+    env -i "${base_env[@]}" "$@"
 }
 
 git_dir="$(cd "$(git rev-parse --git-dir)" && pwd -P)"
@@ -145,7 +131,7 @@ if [ "$git_dir" != "$git_common" ] && [ "${SKADIA_ALLOW_WORKTREE_SMOKE:-false}" 
     exit 1
 fi
 
-if ! command -v "$RUNTIME" >/dev/null 2>&1 || ! without_data_host_env "$RUNTIME" compose version >/dev/null 2>&1; then
+if ! command -v "$RUNTIME" >/dev/null 2>&1 || ! with_smoke_env "$RUNTIME" compose version >/dev/null 2>&1; then
     echo "ERROR: '$RUNTIME compose' is not available." >&2
     exit 1
 fi
@@ -206,6 +192,10 @@ smoke_env=(
     "COMPOSE_PROJECT_NAME=$project_name"
     "SKADIA_DATA_ROOT=$DATA_ROOT"
     "COMPOSE_FILE=docker-compose.yml"
+    "SKADIA_DEPLOYMENT_PROFILE=core"
+    "STORAGE_MODE=local"
+    "STORAGE_BACKEND=local"
+    "COMPOSE_PROFILES="
     "SHADOW_FS_HOST_PATH=$DATA_ROOT/shadow-fs"
     "HOTFOLDER_HOST_PATH=$DATA_ROOT/hotfolder"
     "IMPORT_DATA_HOST_PATH=$DATA_ROOT/import-data"
@@ -232,13 +222,13 @@ else
 fi
 
 smoke_compose() {
-    env "${smoke_env[@]}" "$RUNTIME" compose "$@"
+    with_smoke_env "${smoke_env[@]}" "$RUNTIME" compose "$@"
 }
 
 guard_smoke_project_containers() {
     local names
     local name
-    names="$(without_data_host_env "$RUNTIME" ps -a --filter "label=com.docker.compose.project=$project_name" --format '{{.Names}}' 2>/dev/null || true)"
+    names="$(with_smoke_env "${smoke_env[@]}" "$RUNTIME" ps -a --filter "label=com.docker.compose.project=$project_name" --format '{{.Names}}' 2>/dev/null || true)"
     while IFS= read -r name; do
         [ -n "$name" ] || continue
         case "$name" in
@@ -308,7 +298,7 @@ cleanup_smoke() {
 }
 trap cleanup_smoke EXIT
 
-env "${smoke_env[@]}" "$RUNTIME" "${compose_args[@]}"
+with_smoke_env "${smoke_env[@]}" "$RUNTIME" "${compose_args[@]}"
 SMOKE_STARTED=true
 check_ready_endpoints
 cleanup_smoke

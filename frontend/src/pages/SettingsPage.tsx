@@ -37,7 +37,7 @@ import { ANALYSIS_MODULES } from '@/lib/enrichmentModuleCatalog'
 import { featureAvailable, featureConfigured } from '@/lib/deploymentCapabilities'
 import { useCapabilities } from '@/hooks/useCapabilities'
 
-function AutomatischeAnalysenSection() {
+export function AutomatischeAnalysenSection() {
   const { addToast } = useToast()
   const { isAdmin } = useUser()
 
@@ -69,6 +69,7 @@ function AutomatischeAnalysenSection() {
   const [localThresholds, setLocalThresholds] = useState<Partial<Record<string, number>>>({})
   const [backfillResult, setBackfillResult] = useState<{ processed: number; errors: number; error_details?: string } | null>(null)
   const [backfillRunning, setBackfillRunning] = useState(false)
+  const geoPOIAvailable = featureAvailable(capabilities, 'geo_poi_enrichment')
 
   async function handleBackfillEnrichment() {
     setBackfillRunning(true)
@@ -183,7 +184,7 @@ function AutomatischeAnalysenSection() {
       )}
 
       {/* Summit detection radius slider */}
-      {settings && (
+      {settings && geoPOIAvailable && (
         <div className="flex flex-col gap-2 py-2">
           <div className="flex items-center justify-between">
             <label htmlFor="summit-radius" className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Gipfel-Erkennungs-Radius</label>
