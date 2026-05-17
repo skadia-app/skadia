@@ -1948,6 +1948,10 @@ func main() {
 		})
 	})
 
+	if mounted := mountFrontendStatic(r, cfg.FrontendStaticDir); mounted {
+		slog.Info("frontend static assets mounted", "dir", cfg.FrontendStaticDir)
+	}
+
 	// Server with graceful shutdown
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr,
