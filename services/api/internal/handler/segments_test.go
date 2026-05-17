@@ -30,6 +30,55 @@ func TestCreateSegmentRejectsInvalidSegmentTypeBeforeDB(t *testing.T) {
 	}
 }
 
+func TestCreateSegmentFromActivityMatchesSourceBeforeResponse_DB(t *testing.T) {
+	pool := fusionTestPool(t)
+	db := newTestHandler(t, pool).DB
+	h := &Handler{DB: db}
+	r := chi.NewRouter()
+	r.Post("/api/v1/segments", h.CreateSegment)
+
+	userID := insertTestUser(t, pool)
+	pts := [][2]float64{
+		{0, 0.00},
+		{0, 0.25},
+		{0, 0.50},
+		{0, 0.75},
+		{0, 1.00},
+	}
+	actID := insertActivityWithTrack(t, db, userID, "cycling", "LINESTRING(0 0, 0.25 0, 0.5 0, 0.75 0, 1 0)", pts)
+
+	body := `{
+		"name":"source-match",
+		"sport_group":"bike",
+		"segment_type":"standard",
+		"geojson_track":"{\"type\":\"LineString\",\"coordinates\":[[0,0],[0.25,0],[0.5,0],[0.75,0],[1,0]]}",
+		"source_activity_id":"` + actID + `"
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/segments", bytes.NewReader([]byte(body)))
+	req = req.WithContext(withUserAndAdmin(req.Context(), userID, false))
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var seg model.Segment
+	if err := json.Unmarshal(rec.Body.Bytes(), &seg); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	var effortCount int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT COUNT(*) FROM segment_efforts WHERE activity_id = $1 AND segment_id = $2`,
+		actID, seg.ID,
+	).Scan(&effortCount); err != nil {
+		t.Fatalf("count source effort: %v", err)
+	}
+	if effortCount != 1 {
+		t.Fatalf("source effort count = %d, want 1", effortCount)
+	}
+}
+
 func TestUpdateSegmentReturnsValidationErrorForIneligiblePredicate_DB(t *testing.T) {
 	pool := fusionTestPool(t)
 	h := newTestHandler(t, pool)
